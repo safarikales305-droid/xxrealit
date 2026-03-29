@@ -24,33 +24,24 @@ export default function RegisterPage() {
     setError(null);
     setLoading(true);
     try {
+      const payload = {
+        name: name.trim(),
+        email: email.trim(),
+        password,
+        role,
+      };
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: email.trim(),
-          password,
-          name: name.trim() || undefined,
-          role,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = (await res.json().catch(() => ({}))) as {
         success?: boolean;
         error?: string;
-        fieldErrors?: Record<string, string[] | undefined>;
-        formErrors?: string[];
+        details?: string;
       };
       if (!res.ok || !data.success) {
-        const fromFields = data.fieldErrors
-          ? Object.values(data.fieldErrors)
-              .flat()
-              .filter(Boolean)
-              .join('. ')
-          : '';
-        const fromForms = data.formErrors?.length
-          ? data.formErrors.join('. ')
-          : '';
-        const msg = [data.error, fromFields, fromForms].filter(Boolean).join(' ');
+        const msg = [data.error, data.details].filter(Boolean).join(': ');
         setError(
           msg.trim() || 'Registrace se nezdařila — zkontrolujte údaje',
         );
@@ -112,7 +103,7 @@ export default function RegisterPage() {
           </div>
           <div>
             <label htmlFor="password" className="mb-1.5 block text-sm font-medium">
-              Heslo (min. 8 znaků)
+              Heslo (min. 6 znaků)
             </label>
             <input
               id="password"
@@ -120,7 +111,7 @@ export default function RegisterPage() {
               type="password"
               autoComplete="new-password"
               required
-              minLength={8}
+              minLength={6}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className={inputClass}

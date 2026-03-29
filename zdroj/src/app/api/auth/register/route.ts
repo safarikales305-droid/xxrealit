@@ -3,41 +3,46 @@ import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
-import { isUserRole } from '@/lib/roles';
 
 const BCRYPT_ROUNDS = 10;
 
 const bodySchema = z.object({
-  name: z.string().trim().max(120).optional(),
-  email: z.string().trim().min(1, 'Email is required').email('Invalid email'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
-  role: z.string().refine(isUserRole, { message: 'Invalid role' }),
+  name: z
+    .string()
+    .optional()
+    .transform((s) => (s == null || s.trim() === '' ? undefined : s.trim().slice(0, 120))),
+  email: z.string().min(1, 'Email is required'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+  role: z.string().min(1, 'Role is required'),
 });
+
+function validationError(error: z.ZodError) {
+  return NextResponse.json(
+    { error: 'Validation failed', details: error.message },
+    { status: 400 },
+  );
+}
 
 export async function POST(request: Request) {
   try {
-    let json: unknown;
+    let body: unknown;
     try {
-      json = await request.json();
+      body = await request.json();
     } catch {
       return NextResponse.json(
-        { success: false, error: 'Invalid JSON body' },
+        {
+          error: 'Validation failed',
+          details: 'Invalid JSON body',
+        },
         { status: 400 },
       );
     }
 
-    const parsed = bodySchema.safeParse(json);
+    console.log('[register] body', body);
+
+    const parsed = bodySchema.safeParse(body);
     if (!parsed.success) {
-      const flat = parsed.error.flatten();
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Validation failed',
-          fieldErrors: flat.fieldErrors,
-          formErrors: flat.formErrors,
-        },
-        { status: 400 },
-      );
+      return validationError(parsed.error);
     }
 
     const passwordHash = await bcrypt.hash(parsed.data.password, BCRYPT_ROUNDS);
@@ -45,10 +50,10 @@ export async function POST(request: Request) {
     try {
       await prisma.user.create({
         data: {
-          email: parsed.data.email,
+          email: parsed.data.email.trim(),
           password: passwordHash,
-          name: parsed.data.name?.length ? parsed.data.name : null,
-          role: parsed.data.role,
+          name: parsed.data.name ?? null,
+          role: parsed.data.role.trim(),
         },
       });
     } catch (e) {
@@ -57,20 +62,22 @@ export async function POST(request: Request) {
         e.code === 'P2002'
       ) {
         return NextResponse.json(
-          { success: false, error: 'Email already registered' },
+          { error: 'Email already registered', details: 'Email already registered' },
           { status: 409 },
         );
       }
+      const message = e instanceof Error ? e.message : 'Could not create account';
       return NextResponse.json(
-        { success: false, error: 'Could not create account' },
+        { error: 'Validation failed', details: message },
         { status: 400 },
       );
     }
 
     return NextResponse.json({ success: true }, { status: 200 });
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Request could not be processed';
     return NextResponse.json(
-      { success: false, error: 'Request could not be processed' },
+      { error: 'Validation failed', details: message },
       { status: 400 },
     );
   }
