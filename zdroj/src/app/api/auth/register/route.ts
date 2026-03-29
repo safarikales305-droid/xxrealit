@@ -2,7 +2,10 @@ import { Prisma } from '@prisma/client';
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
+/** Singleton — see `src/lib/db.ts`; uses `process.env.DATABASE_URL` from Prisma schema. */
 import { prisma } from '@/lib/db';
+
+export const runtime = 'nodejs';
 
 const BCRYPT_ROUNDS = 10;
 
@@ -27,20 +30,38 @@ function validationError(error: z.ZodError) {
   );
 }
 
+function logRequestBody(body: unknown) {
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
+    const copy = { ...(body as Record<string, unknown>) };
+    if ('password' in copy) {
+      copy.password = '[redacted]';
+    }
+    console.log('[register] request body', copy);
+  } else {
+    console.log('[register] request body', body);
+  }
+}
+
+function jsonError(error: string, details: string): NextResponse {
+  return NextResponse.json({ error, details }, { status: 400 });
+}
+
 export async function POST(request: Request) {
+  console.log('[register] route start', {
+    hasDatabaseUrl: Boolean(process.env.DATABASE_URL?.trim()),
+    nodeEnv: process.env.NODE_ENV,
+  });
+
   try {
     let body: unknown;
     try {
       body = await request.json();
-    } catch {
-      return NextResponse.json(
-        {
-          error: 'Validation failed',
-          details: 'Invalid JSON body',
-        },
-        { status: 400 },
-      );
+    } catch (parseErr) {
+      console.error('[register] JSON parse failed', parseErr);
+      return jsonError('Validation failed', 'Invalid JSON body');
     }
+
+    logRequestBody(body);
 
     const parsed = bodySchema.safeParse(body);
     if (!parsed.success) {
@@ -49,7 +70,17 @@ export async function POST(request: Request) {
 
     const email = parsed.data.email.trim();
     const role = parsed.data.role.trim();
-    const passwordHash = await bcrypt.hash(parsed.data.password, BCRYPT_ROUNDS);
+
+    let passwordHash: string;
+    try {
+      passwordHash = await bcrypt.hash(parsed.data.password, BCRYPT_ROUNDS);
+    } catch (hashErr) {
+      console.error('[register] bcrypt.hash failed', hashErr);
+      return jsonError(
+        'Registration failed',
+        'Could not process password',
+      );
+    }
 
     try {
       await prisma.user.create({
@@ -61,31 +92,52 @@ export async function POST(request: Request) {
         },
       });
     } catch (e) {
+      console.error('[register] prisma.user.create failed', e);
+      if (e instanceof Error) {
+        console.error('[register] error message:', e.message);
+        console.error('[register] error stack:', e.stack);
+      }
+
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&
         e.code === 'P2002'
       ) {
-        return NextResponse.json(
-          {
-            error: 'Duplicate email',
-            details: 'An account with this email already exists',
-          },
-          { status: 400 },
+        return jsonError(
+          'Duplicate email',
+          'An account with this email already exists',
         );
       }
-      console.error('[register]', e);
-      return NextResponse.json(
-        { error: 'Server error', details: 'Could not create account' },
-        { status: 500 },
+
+      if (e instanceof Prisma.PrismaClientKnownRequestError) {
+        return jsonError(
+          'Registration failed',
+          'Database rejected the request',
+        );
+      }
+
+      if (e instanceof Prisma.PrismaClientInitializationError) {
+        return jsonError(
+          'Registration failed',
+          'Database is not available. Check DATABASE_URL on Vercel.',
+        );
+      }
+
+      return jsonError(
+        'Registration failed',
+        'Could not create account. Please try again.',
       );
     }
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (err) {
-    console.error('[register]', err);
-    return NextResponse.json(
-      { error: 'Server error', details: 'Something went wrong' },
-      { status: 500 },
+    console.error('[register] unhandled route error', err);
+    if (err instanceof Error) {
+      console.error('[register] unhandled message:', err.message);
+      console.error('[register] unhandled stack:', err.stack);
+    }
+    return jsonError(
+      'Registration failed',
+      'Something went wrong. Please try again.',
     );
   }
 }
