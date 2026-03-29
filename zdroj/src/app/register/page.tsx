@@ -1,15 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import {
-  ROLE_LABELS,
-  USER_ROLES,
-  dashboardPathForRole,
-  isUserRole,
-} from '@/lib/roles';
+import { ROLE_LABELS, USER_ROLES } from '@/lib/roles';
 
 const inputClass =
   'w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-[#ff6a00]/70 focus:ring-2 focus:ring-[#ff6a00]/15';
@@ -40,43 +34,30 @@ export default function RegisterPage() {
           role,
         }),
       });
-      const data = (await res.json()) as {
-        message?: string | string[] | object;
-        issues?: unknown;
-        user?: { role?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+        fieldErrors?: Record<string, string[] | undefined>;
+        formErrors?: string[];
       };
-      if (!res.ok) {
-        const msg = Array.isArray(data.message)
-          ? data.message.join(', ')
-          : typeof data.message === 'object' && data.message !== null
-            ? JSON.stringify(data.message)
-            : data.message;
+      if (!res.ok || !data.success) {
+        const fromFields = data.fieldErrors
+          ? Object.values(data.fieldErrors)
+              .flat()
+              .filter(Boolean)
+              .join('. ')
+          : '';
+        const fromForms = data.formErrors?.length
+          ? data.formErrors.join('. ')
+          : '';
+        const msg = [data.error, fromFields, fromForms].filter(Boolean).join(' ');
         setError(
-          typeof msg === 'string' && msg
-            ? msg
-            : 'Registrace se nezdařila — zkontrolujte údaje',
+          msg.trim() || 'Registrace se nezdařila — zkontrolujte údaje',
         );
         return;
       }
 
-      const signResult = await signIn('credentials', {
-        redirect: false,
-        email: email.trim(),
-        password,
-      });
-
-      if (signResult?.error) {
-        router.push('/login?registered=1');
-        router.refresh();
-        return;
-      }
-
-      const newRole = data.user?.role;
-      if (newRole && isUserRole(newRole)) {
-        router.push(dashboardPathForRole(newRole));
-      } else {
-        router.push('/dashboard');
-      }
+      router.push('/login?registered=1');
       router.refresh();
     } catch {
       setError('Nelze se spojit se serverem');
