@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { signOut, useSession } from 'next-auth/react';
-import { dashboardPathForRole } from '@/lib/roles';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/hooks/use-auth';
 
 export type ViewMode = 'shorts' | 'classic';
 
@@ -21,17 +21,19 @@ export function Navbar({
   onViewModeChange,
   onMobileFiltersOpen,
 }: NavbarProps) {
-  const { data: session, status } = useSession();
-  const authed = status === 'authenticated' && session?.user?.id;
-  const profileHref =
-    authed && session.user.role
-      ? `/profile/${session.user.id}`
-      : '/login';
+  const router = useRouter();
+  const { user, isAuthenticated, logout } = useAuth();
+  const profileHref = user ? `/profile/${user.id}` : '/login';
+
+  async function handleLogout() {
+    await logout();
+    router.push('/');
+    router.refresh();
+  }
 
   return (
     <header className="sticky top-0 z-50 shrink-0 border-b border-zinc-200 bg-white shadow-[0_1px_0_rgba(0,0,0,0.04)]">
       <div className="mx-auto flex min-h-14 w-full max-w-[100rem] flex-wrap items-center gap-x-2 gap-y-2 px-3 py-2 md:min-h-16 md:gap-3 md:px-4 md:py-2.5">
-        {/* Logo */}
         <Link
           href="/"
           className="shrink-0 outline-none ring-offset-2 ring-offset-white transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[#ff6a00]/45"
@@ -44,7 +46,6 @@ export function Navbar({
           />
         </Link>
 
-        {/* Search — grows, wraps cleanly */}
         <div className="relative min-w-0 flex-1 basis-[min(100%,12rem)] sm:min-w-[180px] md:max-w-xl">
           <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-zinc-400 md:left-3 md:text-sm">
             ⌕
@@ -59,7 +60,6 @@ export function Navbar({
           />
         </div>
 
-        {/* Actions — shrink-0, wrap as a group */}
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           {onMobileFiltersOpen ? (
             <button
@@ -99,7 +99,7 @@ export function Navbar({
           ) : null}
 
           <div className="hidden shrink-0 items-center gap-2 md:flex">
-            {authed ? (
+            {isAuthenticated && user ? (
               <>
                 <Link
                   href="/following"
@@ -121,17 +121,13 @@ export function Navbar({
                 </Link>
                 <button
                   type="button"
-                  onClick={() => void signOut({ callbackUrl: '/' })}
+                  onClick={() => void handleLogout()}
                   className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
                 >
                   Odhlásit
                 </button>
                 <Link
-                  href={
-                    session.user.role
-                      ? dashboardPathForRole(session.user.role)
-                      : '/dashboard'
-                  }
+                  href="/panel"
                   className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100"
                 >
                   Panel
@@ -155,7 +151,7 @@ export function Navbar({
             )}
           </div>
 
-          {authed ? (
+          {isAuthenticated ? (
             <>
               <Link
                 href="/create"
@@ -175,11 +171,11 @@ export function Navbar({
           ) : null}
 
           <Link
-            href={authed && session.user.role ? dashboardPathForRole(session.user.role) : '/login'}
+            href={isAuthenticated ? '/panel' : '/login'}
             className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-100 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-200 md:size-10 md:text-sm"
-            aria-label={authed ? 'Panel účtu' : 'Přihlásit'}
+            aria-label={isAuthenticated ? 'Panel účtu' : 'Přihlásit'}
           >
-            {session?.user?.name?.trim().charAt(0).toUpperCase() || 'A'}
+            {user?.name?.trim().charAt(0).toUpperCase() || 'A'}
           </Link>
         </div>
       </div>

@@ -1,23 +1,23 @@
 'use client';
 
-import { useSession } from 'next-auth/react';
+import { useAuthContext } from '@/components/providers/auth-provider';
 import type { UserRole } from '@/lib/roles';
+import { isUserRole } from '@/lib/roles';
 
 export function useAuth() {
-  const { data: session, status, update } = useSession();
+  const { user, loading, refresh, logout } = useAuthContext();
 
-  const user = session?.user;
-  const role = user?.role;
+  const role =
+    user?.role && isUserRole(user.role) ? (user.role as UserRole) : undefined;
 
   return {
-    session,
-    status,
-    update,
-    isLoading: status === 'loading',
-    isAuthenticated: status === 'authenticated',
     user,
-    /** Nest API JWT for Bearer authorization (credentials login only until OAuth is linked). */
-    apiAccessToken: session?.apiAccessToken,
-    role: role as UserRole | undefined,
+    status: loading ? 'loading' : user ? 'authenticated' : 'unauthenticated',
+    isLoading: loading,
+    isAuthenticated: Boolean(user),
+    refresh,
+    logout,
+    role,
+    apiAccessToken: null as string | null,
   };
 }

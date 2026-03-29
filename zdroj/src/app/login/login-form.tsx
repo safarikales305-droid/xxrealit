@@ -1,10 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
-import { isUserRole } from '@/lib/roles';
+import { useAuth } from '@/hooks/use-auth';
 
 const inputClass =
   'w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-[#ff6a00]/70 focus:ring-2 focus:ring-[#ff6a00]/15';
@@ -12,6 +11,7 @@ const inputClass =
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { refresh } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -22,36 +22,35 @@ export function LoginForm() {
     setError(null);
     setLoading(true);
     try {
-      const result = await signIn('credentials', {
-        redirect: false,
-        email: email.trim(),
-        password,
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email: email.trim(), password }),
       });
 
-      if (result?.error) {
-        setError('Neplatný e-mail nebo heslo');
+      const data = (await res.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+      };
+
+      if (!res.ok || !data.success) {
+        setError(
+          typeof data.error === 'string' && data.error
+            ? data.error
+            : 'Neplatný e-mail nebo heslo',
+        );
         return;
       }
+
+      await refresh();
 
       const callbackUrl =
         searchParams.get('callbackUrl') ??
         searchParams.get('from') ??
-        '/dashboard';
+        '/panel';
 
-      if (
-        callbackUrl.startsWith('/dashboard') &&
-        callbackUrl !== '/dashboard' &&
-        callbackUrl !== '/dashboard/'
-      ) {
-        const segment = callbackUrl.match(/^\/dashboard\/([^/]+)/)?.[1];
-        if (segment && isUserRole(segment)) {
-          router.push(callbackUrl);
-          router.refresh();
-          return;
-        }
-      }
-
-      router.push(callbackUrl);
+      router.push(callbackUrl.startsWith('/') ? callbackUrl : '/panel');
       router.refresh();
     } catch {
       setError('Nelze se spojit se serverem');
@@ -71,7 +70,7 @@ export function LoginForm() {
         </Link>
         <h1 className="mt-6 text-2xl font-semibold tracking-tight">Přihlášení</h1>
         <p className="mt-2 text-[15px] text-zinc-600">
-          Přihlaste se pro přístup k panelu podle vaší role.
+          Přihlaste se pro přístup k uživatelskému panelu.
         </p>
 
         <form onSubmit={(e) => void onSubmit(e)} className="mt-8 space-y-4">

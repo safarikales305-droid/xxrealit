@@ -17,8 +17,11 @@ export function getInternalApiBaseUrl(): string {
 
 export const ACCESS_TOKEN_COOKIE = 'access_token';
 
+/** Shared with `jsonwebtoken` (API routes) — keep in sync with `getJwtSecretBytes`. */
+export function getJwtSecretString(): string {
+  return process.env.JWT_SECRET?.trim() || 'dev-jwt-secret-change-me';
+}
+
 export function getJwtSecretBytes(): Uint8Array {
-  const secret =
-    process.env.JWT_SECRET?.trim() || 'dev-jwt-secret-change-me';
-  return new TextEncoder().encode(secret);
+  return new TextEncoder().encode(getJwtSecretString());
 }

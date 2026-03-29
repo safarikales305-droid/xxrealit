@@ -1,39 +1,55 @@
-import { auth } from '@/auth';
+import { jwtVerify } from 'jose';
+import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { isUserRole, type UserRole } from '@/lib/roles';
+import { ACCESS_TOKEN_COOKIE, getJwtSecretBytes } from '@/lib/server-api';
+import { isUserRole } from '@/lib/roles';
 
-export default auth((req) => {
-  const { pathname } = req.nextUrl;
-  const session = req.auth;
-  const role = session?.user?.role;
+type JwtAuthClaims = {
+  role?: string;
+};
 
-  if (!session?.user?.id || !role || !isUserRole(role)) {
-    const login = new URL('/login', req.url);
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  const token = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+  if (!token) {
+    const login = new URL('/login', request.url);
     login.searchParams.set('callbackUrl', pathname);
     return NextResponse.redirect(login);
   }
 
-  if (pathname === '/dashboard' || pathname === '/dashboard/') {
-    const url = req.nextUrl.clone();
-    url.pathname = `/dashboard/${role}`;
-    return NextResponse.redirect(url);
-  }
-
-  const match = pathname.match(/^\/dashboard\/([^/]+)/);
-  const segment = match?.[1];
-  if (segment && isUserRole(segment) && segment !== role) {
-    const url = req.nextUrl.clone();
-    url.pathname = `/dashboard/${role as UserRole}`;
-    return NextResponse.redirect(url);
+  try {
+    const { payload: jwtPayload } = await jwtVerify(
+      token,
+      getJwtSecretBytes(),
+      { algorithms: ['HS256'] },
+    );
+    const p = jwtPayload as JwtAuthClaims;
+    const role = p.role;
+    if (!role || typeof role !== 'string' || !isUserRole(role)) {
+      throw new Error('invalid role');
+    }
+  } catch {
+    const login = new URL('/login', request.url);
+    login.searchParams.set('callbackUrl', pathname);
+    const res = NextResponse.redirect(login);
+    res.cookies.set(ACCESS_TOKEN_COOKIE, '', {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 0,
+      secure: process.env.NODE_ENV === 'production',
+    });
+    return res;
   }
 
   return NextResponse.next();
-});
+}
 
 export const config = {
   matcher: [
-    '/dashboard',
-    '/dashboard/:path*',
+    '/panel',
+    '/panel/:path*',
     '/following',
     '/create',
     '/profile/edit',

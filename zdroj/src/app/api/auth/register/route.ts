@@ -1,6 +1,11 @@
+import { Prisma } from '@prisma/client';
 import { NextResponse } from 'next/server';
+import bcrypt from 'bcryptjs';
 import { z } from 'zod';
+import { prisma } from '@/lib/db';
 import { isUserRole } from '@/lib/roles';
+
+const BCRYPT_ROUNDS = 10;
 
 const bodySchema = z.object({
   name: z.string().trim().max(120).optional(),
@@ -9,10 +14,6 @@ const bodySchema = z.object({
   role: z.string().refine(isUserRole, { message: 'Invalid role' }),
 });
 
-/**
- * Simulated registration — no database or external API (Vercel-safe).
- * POST JSON: { name?, email, password, role }
- */
 export async function POST(request: Request) {
   try {
     let json: unknown;
@@ -39,13 +40,32 @@ export async function POST(request: Request) {
       );
     }
 
-    const _simulated = {
-      name: parsed.data.name?.length ? parsed.data.name : undefined,
-      email: parsed.data.email,
-      role: parsed.data.role,
-      // Intentionally do not persist password or echo it back
-    };
-    void _simulated;
+    const passwordHash = await bcrypt.hash(parsed.data.password, BCRYPT_ROUNDS);
+
+    try {
+      await prisma.user.create({
+        data: {
+          email: parsed.data.email,
+          password: passwordHash,
+          name: parsed.data.name?.length ? parsed.data.name : null,
+          role: parsed.data.role,
+        },
+      });
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        return NextResponse.json(
+          { success: false, error: 'Email already registered' },
+          { status: 409 },
+        );
+      }
+      return NextResponse.json(
+        { success: false, error: 'Could not create account' },
+        { status: 400 },
+      );
+    }
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch {
@@ -54,11 +74,4 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-}
-
-export function GET() {
-  return NextResponse.json(
-    { success: false, error: 'Method not allowed' },
-    { status: 405 },
-  );
 }

@@ -1,9 +1,14 @@
 import { NextResponse } from 'next/server';
-import { ACCESS_TOKEN_COOKIE } from '@/lib/server-api';
+import { ACCESS_TOKEN_COOKIE } from '@/lib/auth-cookie';
 
-/** Clears legacy cookie if present. Use `signOut` from `next-auth/react` to end the session. */
 export async function POST() {
-  const res = NextResponse.json({ ok: true });
-  res.cookies.delete(ACCESS_TOKEN_COOKIE);
+  const res = NextResponse.json({ success: true });
+  res.cookies.set(ACCESS_TOKEN_COOKIE, '', {
+    httpOnly: true,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 0,
+    secure: process.env.NODE_ENV === 'production',
+  });
   return res;
 }
