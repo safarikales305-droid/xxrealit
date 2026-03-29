@@ -32,13 +32,13 @@ export function LoginForm() {
       const data = (await res.json().catch(() => ({}))) as {
         success?: boolean;
         error?: string;
+        details?: string;
       };
 
       if (!res.ok || !data.success) {
+        const msg = [data.details, data.error].filter(Boolean).join(' — ');
         setError(
-          typeof data.error === 'string' && data.error
-            ? data.error
-            : 'Neplatný e-mail nebo heslo',
+          msg.trim() || 'Neplatný e-mail nebo heslo',
         );
         return;
       }

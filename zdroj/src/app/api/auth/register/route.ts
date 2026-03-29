@@ -11,7 +11,11 @@ const bodySchema = z.object({
     .string()
     .optional()
     .transform((s) => (s == null || s.trim() === '' ? undefined : s.trim().slice(0, 120))),
-  email: z.string().min(1, 'Email is required'),
+  email: z
+    .string()
+    .min(1, 'Email is required')
+    .transform((s) => s.trim())
+    .pipe(z.string().email('Invalid email')),
   password: z.string().min(6, 'Password must be at least 6 characters'),
   role: z.string().min(1, 'Role is required'),
 });
@@ -38,22 +42,22 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log('[register] body', body);
-
     const parsed = bodySchema.safeParse(body);
     if (!parsed.success) {
       return validationError(parsed.error);
     }
 
+    const email = parsed.data.email.trim();
+    const role = parsed.data.role.trim();
     const passwordHash = await bcrypt.hash(parsed.data.password, BCRYPT_ROUNDS);
 
     try {
       await prisma.user.create({
         data: {
-          email: parsed.data.email.trim(),
+          email,
           password: passwordHash,
           name: parsed.data.name ?? null,
-          role: parsed.data.role.trim(),
+          role,
         },
       });
     } catch (e) {
@@ -62,23 +66,26 @@ export async function POST(request: Request) {
         e.code === 'P2002'
       ) {
         return NextResponse.json(
-          { error: 'Email already registered', details: 'Email already registered' },
-          { status: 409 },
+          {
+            error: 'Duplicate email',
+            details: 'An account with this email already exists',
+          },
+          { status: 400 },
         );
       }
-      const message = e instanceof Error ? e.message : 'Could not create account';
+      console.error('[register]', e);
       return NextResponse.json(
-        { error: 'Validation failed', details: message },
-        { status: 400 },
+        { error: 'Server error', details: 'Could not create account' },
+        { status: 500 },
       );
     }
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Request could not be processed';
+    console.error('[register]', err);
     return NextResponse.json(
-      { error: 'Validation failed', details: message },
-      { status: 400 },
+      { error: 'Server error', details: 'Something went wrong' },
+      { status: 500 },
     );
   }
 }
