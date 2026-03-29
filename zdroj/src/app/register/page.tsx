@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { ROLE_LABELS, USER_ROLES } from '@/lib/roles';
+import { REGISTER_ROLE_OPTIONS } from '@/lib/register-roles';
 
 const inputClass =
   'w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-[#ff6a00]/70 focus:ring-2 focus:ring-[#ff6a00]/15';
@@ -15,7 +15,9 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [role, setRole] = useState<string>(USER_ROLES[2]);
+  const [role, setRole] = useState<string>(
+    REGISTER_ROLE_OPTIONS[4].value,
+  );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -129,9 +131,9 @@ export default function RegisterPage() {
               onChange={(e) => setRole(e.target.value)}
               className={selectClass}
             >
-              {USER_ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {ROLE_LABELS[r]}
+              {REGISTER_ROLE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
                 </option>
               ))}
             </select>

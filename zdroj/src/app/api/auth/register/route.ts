@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 /** Singleton — see `src/lib/db.ts`; uses `process.env.DATABASE_URL` from Prisma schema. */
 import { prisma } from '@/lib/db';
+import { normalizeRole } from '@/lib/normalize-role';
 
 export const runtime = 'nodejs';
 
@@ -20,7 +21,11 @@ const bodySchema = z.object({
     .transform((s) => s.trim())
     .pipe(z.string().email('Invalid email')),
   password: z.string().min(6, 'Password must be at least 6 characters'),
-  role: z.string().min(1, 'Role is required'),
+  role: z
+    .string()
+    .min(1, 'Role is required')
+    .transform((s) => normalizeRole(s))
+    .pipe(z.string().min(1, 'Role is required')),
 });
 
 function validationError(error: z.ZodError) {
@@ -69,7 +74,7 @@ export async function POST(request: Request) {
     }
 
     const email = parsed.data.email.trim();
-    const role = parsed.data.role.trim();
+    const role = parsed.data.role;
 
     let passwordHash: string;
     try {

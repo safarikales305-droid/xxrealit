@@ -1,10 +1,12 @@
-/** Mirrors `UserRole` in Prisma — keep paths `/dashboard/{value}` in sync. */
+/** Mirrors stored `User.role` — used by middleware JWT and UI. */
 export const USER_ROLES = [
   'makler',
   'kancelar',
+  'remeslnik',
+  'firma',
+  'uzivatel',
   'sledujici',
   'soukromy',
-  'remeslnik',
   'stavebni_firma',
 ] as const;
 
@@ -17,18 +19,22 @@ export function isUserRole(v: string): v is UserRole {
 export const ROLE_LABELS: Record<UserRole, string> = {
   makler: 'Makléř',
   kancelar: 'Kancelář / realitní kancelář',
+  remeslnik: 'Řemeslník',
+  firma: 'Firma',
+  uzivatel: 'Uživatel',
   sledujici: 'Sledující / zájemce',
   soukromy: 'Soukromý prodejce',
-  remeslnik: 'Řemeslník',
   stavebni_firma: 'Stavební firma',
 };
 
 export const DASHBOARD_SEGMENTS: Record<UserRole, string> = {
   makler: 'makler',
   kancelar: 'kancelar',
+  remeslnik: 'remeslnik',
+  firma: 'firma',
+  uzivatel: 'uzivatel',
   sledujici: 'sledujici',
   soukromy: 'soukromy',
-  remeslnik: 'remeslnik',
   stavebni_firma: 'stavebni_firma',
 };
 
