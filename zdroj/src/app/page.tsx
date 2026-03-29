@@ -1,46 +1,66 @@
 import { HomeLayout } from '@/components/home/home-layout';
-import { API_BASE_URL } from '@/lib/api';
+import { getServerSideApiBaseUrl } from '@/lib/api';
 import {
-  normalizeProperty,
-  type PropertyFromApi,
+  safeNormalizePropertyFromApi,
+  type PropertyFeedItem,
 } from '@/types/property';
 
-/** Server-render on every request (API + listing UI). */
+/** Server-render on every request when an API URL is configured. */
 export const dynamic = 'force-dynamic';
 
-async function fetchProperties(): Promise<PropertyFromApi[]> {
-  const url = `${API_BASE_URL}/properties`;
+const FETCH_TIMEOUT_MS = 12_000;
 
-  const res = await fetch(url, {
-    cache: 'no-store',
-  });
-
-  if (!res.ok) {
+async function loadFeedItems(): Promise<PropertyFeedItem[]> {
+  const base = getServerSideApiBaseUrl();
+  if (!base) {
     if (process.env.NODE_ENV === 'development') {
-      console.warn('[Home] GET properties failed', url, res.status);
+      console.warn(
+        '[Home] Skipping GET /properties: set NEXT_PUBLIC_API_URL on Vercel (server will not use localhost).',
+      );
     }
     return [];
   }
 
-  const data: unknown = await res.json();
-  if (!Array.isArray(data)) {
+  const url = `${base}/properties`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(url, {
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('[Home] GET properties failed', url, res.status);
+      }
+      return [];
+    }
+
+    let data: unknown;
+    try {
+      data = await res.json();
+    } catch {
+      return [];
+    }
+
+    if (!Array.isArray(data)) return [];
+
+    return data
+      .map(safeNormalizePropertyFromApi)
+      .filter((x): x is PropertyFeedItem => x != null);
+  } catch (err) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[Home] GET properties error', url, err);
+    }
     return [];
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const rows = data as PropertyFromApi[];
-  if (process.env.NODE_ENV === 'development') {
-    console.log(
-      '[Home] Fresh properties from API',
-      url,
-      rows.map((p) => ({ id: p.id, videoUrl: p.videoUrl })),
-    );
-  }
-
-  return rows;
 }
 
 export default async function Home() {
-  const raw = await fetchProperties();
-  const items = raw.map(normalizeProperty);
+  const items = await loadFeedItems();
   return <HomeLayout items={items} />;
 }
