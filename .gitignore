@@ -30,8 +30,19 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files (keep *.example templates tracked)
+.env
+.env.local
+.env.*.local
+!.env.example
+!**/.env.example
+
+# NestJS backend (monorepo subfolder)
+nestjs-backend/node_modules/
+nestjs-backend/dist/
+nestjs-backend/.env
+nestjs-backend/prisma/*.db
+nestjs-backend/prisma/*.db-journal
 
 # vercel
 .vercel
