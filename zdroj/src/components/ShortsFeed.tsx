@@ -1,6 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CommentsPlaceholder } from '@/components/feed/comments-placeholder';
 import type { PropertyFeedItem } from '@/types/property';
 import { resolveShortsPublicSrc } from '@/lib/video-url';
 
@@ -52,6 +54,7 @@ type Props = {
 
 /**
  * TikTok-style vertical feed: videos load only from `public/videos` via `/videos/...`.
+ * Likes persist via API for real listing IDs; demo clips stay local-only.
  */
 export function ShortsFeed({ items }: Props) {
   const clips = useMemo<Clip[]>(() => {
@@ -71,11 +74,7 @@ export function ShortsFeed({ items }: Props) {
     return init;
   });
   const [liked, setLiked] = useState<Record<string, boolean>>({});
-  const [likes, setLikes] = useState<Record<string, number>>(() => {
-    const init: Record<string, number> = {};
-    for (const c of clips) init[c.id] = mockLikesForId(c.id);
-    return init;
-  });
+  const [likes, setLikes] = useState<Record<string, number>>({});
 
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -84,12 +83,17 @@ export function ShortsFeed({ items }: Props) {
     const m: Record<string, boolean> = {};
     for (const c of clips) m[c.id] = true;
     setMutedById(m);
-    setLikes(() => {
-      const init: Record<string, number> = {};
-      for (const c of clips) init[c.id] = mockLikesForId(c.id);
-      return init;
-    });
-    setLiked({});
+
+    const likeInit: Record<string, number> = {};
+    const likedInit: Record<string, boolean> = {};
+    for (const c of clips) {
+      likeInit[c.id] = c.likeCount ?? mockLikesForId(c.id);
+      if (typeof c.liked === 'boolean') {
+        likedInit[c.id] = c.liked;
+      }
+    }
+    setLikes(likeInit);
+    setLiked(likedInit);
   }, [clips]);
 
   useEffect(() => {
@@ -121,13 +125,63 @@ export function ShortsFeed({ items }: Props) {
     return () => observer.disconnect();
   }, [clips]);
 
-  const toggleLike = useCallback((id: string) => {
+  const toggleLike = useCallback(async (propertyId: string) => {
+    const isDemo = propertyId.startsWith('demo-');
+    if (isDemo) {
+      setLiked((prev) => {
+        const next = { ...prev, [propertyId]: !prev[propertyId] };
+        const delta = next[propertyId] ? 1 : -1;
+        setLikes((l) => ({
+          ...l,
+          [propertyId]: Math.max(0, (l[propertyId] ?? 0) + delta),
+        }));
+        return next;
+      });
+      return;
+    }
+
+    let previousLiked = false;
+    let previousCount = 0;
     setLiked((prev) => {
-      const next = { ...prev, [id]: !prev[id] };
-      const delta = next[id] ? 1 : -1;
-      setLikes((l) => ({ ...l, [id]: Math.max(0, (l[id] ?? 0) + delta) }));
-      return next;
+      previousLiked = !!prev[propertyId];
+      return { ...prev, [propertyId]: !previousLiked };
     });
+    setLikes((prev) => {
+      previousCount = prev[propertyId] ?? 0;
+      return {
+        ...prev,
+        [propertyId]: Math.max(
+          0,
+          previousCount + (previousLiked ? -1 : 1),
+        ),
+      };
+    });
+
+    try {
+      const res = await fetch(`/api/properties/${propertyId}/like`, {
+        method: 'POST',
+      });
+      const data = (await res.json()) as {
+        liked?: boolean;
+        likeCount?: number;
+      };
+      if (!res.ok) {
+        setLiked((prev) => ({ ...prev, [propertyId]: previousLiked }));
+        setLikes((prev) => ({ ...prev, [propertyId]: previousCount }));
+        return;
+      }
+      if (typeof data.liked === 'boolean') {
+        const v = data.liked;
+        setLiked((prev) => ({ ...prev, [propertyId]: v }));
+      }
+      if (typeof data.likeCount === 'number') {
+        const n = data.likeCount;
+        setLikes((prev) => ({ ...prev, [propertyId]: n }));
+      }
+    } catch {
+      setLiked((prev) => ({ ...prev, [propertyId]: previousLiked }));
+      setLikes((prev) => ({ ...prev, [propertyId]: previousCount }));
+    }
   }, []);
 
   const toggleMuted = useCallback((id: string) => {
@@ -142,12 +196,24 @@ export function ShortsFeed({ items }: Props) {
       {clips.map((c) => {
         const isActive = activeId === c.id;
         const muted = mutedById[c.id] !== false;
+        const showProfileLink = !!c.userId && !c.id.startsWith('demo-');
 
         return (
           <section
             key={c.id + c.src}
             className="relative isolate box-border h-screen w-full max-w-full shrink-0 snap-start snap-always overflow-hidden overflow-x-hidden bg-black"
           >
+            {showProfileLink ? (
+              <div className="pointer-events-auto absolute left-3 top-20 z-20 md:left-4 md:top-24">
+                <Link
+                  href={`/profile/${c.userId}`}
+                  className="inline-flex rounded-full border border-white/25 bg-black/45 px-3 py-1.5 text-xs font-semibold text-white shadow-lg backdrop-blur-md transition hover:bg-black/55"
+                >
+                  Profil
+                </Link>
+              </div>
+            ) : null}
+
             <div className="absolute inset-0 flex items-center justify-center">
               <video
                 data-clip-id={c.id}
@@ -197,12 +263,12 @@ export function ShortsFeed({ items }: Props) {
               </p>
             </div>
 
-            <div className="absolute bottom-24 right-5 z-10 flex flex-col items-center gap-6 sm:bottom-28 sm:right-7">
+            <div className="absolute bottom-24 right-5 z-10 flex flex-col items-center gap-5 sm:bottom-28 sm:right-7">
               <div className="flex flex-col items-center gap-1.5">
                 <button
                   type="button"
                   aria-label="Líbí se mi"
-                  onClick={() => toggleLike(c.id)}
+                  onClick={() => void toggleLike(c.id)}
                   className={`${glowBtnBase} ${
                     liked[c.id]
                       ? 'border-rose-400/60 from-rose-500/50 to-[#ff3c00]/45'
@@ -223,9 +289,15 @@ export function ShortsFeed({ items }: Props) {
               >
                 {muted ? '🔇' : '🔊'}
               </button>
-              <button type="button" aria-label="Komentáře" className={glowBtnBase}>
-                💬
-              </button>
+              <div className="flex flex-col items-center gap-1">
+                <span
+                  className={`${glowBtnBase} pointer-events-none opacity-90`}
+                  aria-hidden
+                >
+                  💬
+                </span>
+                <CommentsPlaceholder />
+              </div>
               <button type="button" aria-label="Kontakt" className={glowBtnBase}>
                 📩
               </button>

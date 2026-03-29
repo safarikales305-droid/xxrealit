@@ -1,4 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { User, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 
@@ -21,5 +27,91 @@ export class UsersService {
     role: UserRole;
   }): Promise<User> {
     return this.prisma.user.create({ data });
+  }
+
+  async getPublicProfile(userId: string, viewerId?: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        role: true,
+        avatar: true,
+        bio: true,
+        city: true,
+        rating: true,
+        createdAt: true,
+        _count: { select: { followers: true, following: true } },
+      },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    let isFollowedByViewer: boolean | null = null;
+    if (viewerId && viewerId !== userId) {
+      const row = await this.prisma.follow.findUnique({
+        where: {
+          followerId_followingId: {
+            followerId: viewerId,
+            followingId: userId,
+          },
+        },
+      });
+      isFollowedByViewer = !!row;
+    }
+
+    return {
+      id: user.id,
+      name: user.name,
+      role: user.role,
+      avatar: user.avatar,
+      bio: user.bio,
+      city: user.city,
+      rating: user.rating,
+      createdAt: user.createdAt,
+      followersCount: user._count.followers,
+      followingCount: user._count.following,
+      isFollowedByViewer,
+    };
+  }
+
+  async followUser(followerId: string, followingId: string) {
+    if (followerId === followingId) {
+      throw new BadRequestException('Cannot follow yourself');
+    }
+    const target = await this.prisma.user.findUnique({
+      where: { id: followingId },
+    });
+    if (!target) {
+      throw new NotFoundException('User not found');
+    }
+    try {
+      await this.prisma.follow.create({
+        data: { followerId, followingId },
+      });
+      const followersCount = await this.prisma.follow.count({
+        where: { followingId },
+      });
+      return { ok: true, followersCount };
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        throw new ConflictException('Already following');
+      }
+      throw e;
+    }
+  }
+
+  async unfollowUser(followerId: string, followingId: string) {
+    await this.prisma.follow.deleteMany({
+      where: { followerId, followingId },
+    });
+    const followersCount = await this.prisma.follow.count({
+      where: { followingId },
+    });
+    return { ok: true, followersCount };
   }
 }

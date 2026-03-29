@@ -40,11 +40,19 @@ export class SeedController {
         name: 'Seed User',
         passwordHash,
         role: UserRole.makler,
+        avatar: null,
+        bio: 'Ukázkový makléř — demo profil.',
+        city: 'Praha',
+        rating: 4.7,
       },
       update: {
         name: 'Seed User',
         passwordHash,
         role: UserRole.makler,
+        avatar: null,
+        bio: 'Ukázkový makléř — demo profil.',
+        city: 'Praha',
+        rating: 4.7,
       },
     });
 

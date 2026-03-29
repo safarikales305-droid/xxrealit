@@ -8,6 +8,10 @@ export type PropertyFromApi = {
   city?: string;
   location?: string;
   videoUrl?: string | null;
+  userId?: string;
+  ownerCity?: string | null;
+  likeCount?: number;
+  liked?: boolean;
 };
 
 export type PropertyFeedItem = {
@@ -16,15 +20,30 @@ export type PropertyFeedItem = {
   price: number;
   location: string;
   videoUrl: string | null;
+  userId?: string;
+  ownerCity?: string | null;
+  likeCount?: number;
+  liked?: boolean;
 };
 
 export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
+  const likeCount =
+    typeof p.likeCount === 'number' && Number.isFinite(p.likeCount)
+      ? Math.max(0, Math.floor(p.likeCount))
+      : undefined;
   return {
     id: p.id,
     title: p.title,
     price: p.price,
     location: (p.location ?? p.city ?? '').trim() || 'Neuvedeno',
     videoUrl: normalizePublicVideoUrl(p.videoUrl),
+    userId: typeof p.userId === 'string' ? p.userId : undefined,
+    ownerCity:
+      p.ownerCity === null || typeof p.ownerCity === 'string'
+        ? p.ownerCity
+        : undefined,
+    likeCount,
+    liked: typeof p.liked === 'boolean' ? p.liked : undefined,
   };
 }
 
@@ -40,6 +59,9 @@ export function safeNormalizePropertyFromApi(
   if (!id || !title || !Number.isFinite(price)) return null;
 
   try {
+    const likeCountRaw = o.likeCount;
+    const likeCount =
+      typeof likeCountRaw === 'number' ? likeCountRaw : undefined;
     return normalizeProperty({
       id,
       title,
@@ -50,6 +72,13 @@ export function safeNormalizePropertyFromApi(
         o.videoUrl === null || typeof o.videoUrl === 'string'
           ? o.videoUrl
           : undefined,
+      userId: typeof o.userId === 'string' ? o.userId : undefined,
+      ownerCity:
+        o.ownerCity === null || typeof o.ownerCity === 'string'
+          ? o.ownerCity
+          : undefined,
+      likeCount,
+      liked: typeof o.liked === 'boolean' ? o.liked : undefined,
     });
   } catch {
     return null;

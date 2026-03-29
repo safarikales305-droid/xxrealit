@@ -91,6 +91,12 @@ export function Navbar({
 
           <div className="hidden shrink-0 items-center gap-2 md:flex">
             <Link
+              href="/following"
+              className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+            >
+              Sledovaní
+            </Link>
+            <Link
               href="/login"
               className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
             >

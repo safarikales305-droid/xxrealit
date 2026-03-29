@@ -22,8 +22,35 @@ model User {
   name         String?
   passwordHash String
   role         UserRole   @default(sledujici)
+  /// Public profile image URL (absolute or same-origin path).
+  avatar       String?
+  bio          String?
+  /// User's own city (for personalization); separate from listing city.
+  city         String?
+  /// Average rating 0–5 (manual / future reviews).
+  rating       Float      @default(0)
   createdAt    DateTime   @default(now())
+
   properties   Property[]
+  likes        PropertyLike[]
+  comments     PropertyComment[]
+
+  following    Follow[]   @relation("UserFollowing")
+  followers    Follow[]   @relation("UserFollowers")
+}
+
+model Follow {
+  id           String   @id @default(uuid())
+  followerId   String
+  followingId  String
+  createdAt    DateTime @default(now())
+
+  follower     User     @relation("UserFollowing", fields: [followerId], references: [id], onDelete: Cascade)
+  following    User     @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
 }
 
 model Property {
@@ -36,5 +63,36 @@ model Property {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  likes     PropertyLike[]
+  comments  PropertyComment[]
+
   @@index([userId])
+}
+
+model PropertyLike {
+  id         String   @id @default(uuid())
+  propertyId String
+  userId     String
+  createdAt  DateTime @default(now())
+
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, userId])
+  @@index([propertyId])
+  @@index([userId])
+}
+
+/// Reserved for future comments UI — API structure only.
+model PropertyComment {
+  id         String   @id @default(uuid())
+  propertyId String
+  userId     String
+  body       String
+  createdAt  DateTime @default(now())
+
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
 }
