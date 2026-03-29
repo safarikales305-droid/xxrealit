@@ -1,4 +1,5 @@
 import { HomeLayout } from '@/components/home/home-layout';
+import { ShortsFeed } from '@/components/ShortsFeed';
 import { getServerSideApiBaseUrl } from '@/lib/api';
 import {
   safeNormalizePropertyFromApi,
@@ -62,5 +63,5 @@ async function loadFeedItems(): Promise<PropertyFeedItem[]> {
 
 export default async function Home() {
   const items = await loadFeedItems();
-  return <HomeLayout items={items} />;
+  return <HomeLayout items={items} ShortsFeed={ShortsFeed} />;
 }

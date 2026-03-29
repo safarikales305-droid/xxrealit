@@ -1,16 +1,18 @@
 'use client';
 
 import Link from 'next/link';
+import type { ComponentType } from 'react';
 import { useMemo, useState } from 'react';
 import { PropertyGrid } from '@/components/property-grid';
 import type { PropertyFeedItem } from '@/types/property';
 import { Navbar, type ViewMode } from './navbar';
-import { PropertyFeed } from './property-feed';
 import { RightSidebar } from './right-sidebar';
 import { SidebarFilters } from './sidebar-filters';
 
 type Props = {
   items: PropertyFeedItem[];
+  /** Wired from `app/page.tsx` — vertical `/videos/*` shorts feed. */
+  ShortsFeed: ComponentType<{ items: PropertyFeedItem[] }>;
 };
 
 const brandBtn =
@@ -19,7 +21,7 @@ const brandBtn =
 /**
  * Light shell + Shorts (TikTok) / Classic (Sreality-style grid).
  */
-export function HomeLayout({ items }: Props) {
+export function HomeLayout({ items, ShortsFeed }: Props) {
   const [viewMode, setViewMode] = useState<ViewMode>('shorts');
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
@@ -133,7 +135,7 @@ export function HomeLayout({ items }: Props) {
               className="flex min-h-0 flex-1 flex-col overflow-hidden [animation:view-fade-in_0.35s_ease-out]"
             >
               {viewMode === 'shorts' ? (
-                <PropertyFeed items={filteredItems} />
+                <ShortsFeed items={filteredItems} />
               ) : (
                 <PropertyGrid properties={filteredItems} />
               )}
