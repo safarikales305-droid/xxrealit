@@ -1,6 +1,9 @@
 /** Served by the Next.js app from `public/videos/`. */
 export const SEED_USER_EMAIL = 'seed@realestate.local';
 
+/** Dev-only password for seed user (change in production). */
+export const SEED_USER_PASSWORD = 'DevSeed!123';
+
 export const SEED_PROPERTIES = [
   {
     title: 'Luxusní vila',

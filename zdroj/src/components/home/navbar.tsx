@@ -89,6 +89,27 @@ export function Navbar({
             </div>
           ) : null}
 
+          <div className="hidden shrink-0 items-center gap-2 md:flex">
+            <Link
+              href="/login"
+              className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+            >
+              Přihlásit
+            </Link>
+            <Link
+              href="/register"
+              className="rounded-lg px-2 py-1.5 text-xs font-semibold text-[#e85d00] transition hover:bg-orange-50"
+            >
+              Registrace
+            </Link>
+            <Link
+              href="/dashboard"
+              className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100"
+            >
+              Panel
+            </Link>
+          </div>
+
           <Link
             href="/create"
             className="hidden rounded-lg bg-orange-500 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-orange-600 md:inline-flex md:text-sm"
@@ -104,13 +125,13 @@ export function Navbar({
             +
           </Link>
 
-          <button
-            type="button"
+          <Link
+            href="/dashboard"
             className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-100 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-200 md:size-10 md:text-sm"
-            aria-label="Profil"
+            aria-label="Panel účtu"
           >
             A
-          </button>
+          </Link>
         </div>
       </div>
     </header>

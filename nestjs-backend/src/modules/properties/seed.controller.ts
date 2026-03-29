@@ -1,7 +1,12 @@
 import { Controller, Get } from '@nestjs/common';
-import { Property } from '@prisma/client';
+import { Property, UserRole } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../database/prisma.service';
-import { SEED_PROPERTIES, SEED_USER_EMAIL } from '../../database/seed.constants';
+import {
+  SEED_PROPERTIES,
+  SEED_USER_EMAIL,
+  SEED_USER_PASSWORD,
+} from '../../database/seed.constants';
 
 /** API shape: `location` matches product language; DB column is `city`. */
 function toResponseShape(p: Property) {
@@ -27,13 +32,20 @@ export class SeedController {
   async seed() {
     console.log('[Seed] Starting property seed…');
 
+    const passwordHash = await bcrypt.hash(SEED_USER_PASSWORD, 10);
     const user = await this.prisma.user.upsert({
       where: { email: SEED_USER_EMAIL },
       create: {
         email: SEED_USER_EMAIL,
         name: 'Seed User',
+        passwordHash,
+        role: UserRole.makler,
       },
-      update: {},
+      update: {
+        name: 'Seed User',
+        passwordHash,
+        role: UserRole.makler,
+      },
     });
 
     const deleted = await this.prisma.property.deleteMany({

@@ -1,5 +1,11 @@
 import type { PrismaClient } from '@prisma/client';
-import { SEED_PROPERTIES, SEED_USER_EMAIL } from './seed.constants';
+import { UserRole } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
+import {
+  SEED_PROPERTIES,
+  SEED_USER_EMAIL,
+  SEED_USER_PASSWORD,
+} from './seed.constants';
 
 /** Inserts the sample listings when the DB has no properties (fresh SQLite). */
 export async function ensureDevSeedIfEmpty(prisma: PrismaClient): Promise<void> {
@@ -8,13 +14,20 @@ export async function ensureDevSeedIfEmpty(prisma: PrismaClient): Promise<void> 
     return;
   }
 
+  const passwordHash = await bcrypt.hash(SEED_USER_PASSWORD, 10);
   const user = await prisma.user.upsert({
     where: { email: SEED_USER_EMAIL },
     create: {
       email: SEED_USER_EMAIL,
       name: 'Seed User',
+      passwordHash,
+      role: UserRole.makler,
     },
-    update: {},
+    update: {
+      name: 'Seed User',
+      passwordHash,
+      role: UserRole.makler,
+    },
   });
 
   for (const row of SEED_PROPERTIES) {
