@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { signOut, useSession } from 'next-auth/react';
+import { dashboardPathForRole } from '@/lib/roles';
 
 export type ViewMode = 'shorts' | 'classic';
 
@@ -19,6 +21,13 @@ export function Navbar({
   onViewModeChange,
   onMobileFiltersOpen,
 }: NavbarProps) {
+  const { data: session, status } = useSession();
+  const authed = status === 'authenticated' && session?.user?.id;
+  const profileHref =
+    authed && session.user.role
+      ? `/profile/${session.user.id}`
+      : '/login';
+
   return (
     <header className="sticky top-0 z-50 shrink-0 border-b border-zinc-200 bg-white shadow-[0_1px_0_rgba(0,0,0,0.04)]">
       <div className="mx-auto flex min-h-14 w-full max-w-[100rem] flex-wrap items-center gap-x-2 gap-y-2 px-3 py-2 md:min-h-16 md:gap-3 md:px-4 md:py-2.5">
@@ -90,53 +99,87 @@ export function Navbar({
           ) : null}
 
           <div className="hidden shrink-0 items-center gap-2 md:flex">
-            <Link
-              href="/following"
-              className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
-            >
-              Sledovaní
-            </Link>
-            <Link
-              href="/login"
-              className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
-            >
-              Přihlásit
-            </Link>
-            <Link
-              href="/register"
-              className="rounded-lg px-2 py-1.5 text-xs font-semibold text-[#e85d00] transition hover:bg-orange-50"
-            >
-              Registrace
-            </Link>
-            <Link
-              href="/dashboard"
-              className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100"
-            >
-              Panel
-            </Link>
+            {authed ? (
+              <>
+                <Link
+                  href="/following"
+                  className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+                >
+                  Sledovaní
+                </Link>
+                <Link
+                  href={profileHref}
+                  className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+                >
+                  Profil
+                </Link>
+                <Link
+                  href="/profile/edit"
+                  className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900"
+                >
+                  Upravit profil
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => void signOut({ callbackUrl: '/' })}
+                  className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+                >
+                  Odhlásit
+                </button>
+                <Link
+                  href={
+                    session.user.role
+                      ? dashboardPathForRole(session.user.role)
+                      : '/dashboard'
+                  }
+                  className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100"
+                >
+                  Panel
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+                >
+                  Přihlásit
+                </Link>
+                <Link
+                  href="/register"
+                  className="rounded-lg px-2 py-1.5 text-xs font-semibold text-[#e85d00] transition hover:bg-orange-50"
+                >
+                  Registrace
+                </Link>
+              </>
+            )}
           </div>
 
-          <Link
-            href="/create"
-            className="hidden rounded-lg bg-orange-500 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-orange-600 md:inline-flex md:text-sm"
-          >
-            Přidat
-          </Link>
+          {authed ? (
+            <>
+              <Link
+                href="/create"
+                className="hidden rounded-lg bg-orange-500 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-orange-600 md:inline-flex md:text-sm"
+              >
+                Přidat
+              </Link>
+
+              <Link
+                href="/create"
+                className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] text-base font-semibold text-white shadow-md transition hover:scale-105 active:scale-95 md:hidden"
+                aria-label="Přidat inzerát"
+              >
+                +
+              </Link>
+            </>
+          ) : null}
 
           <Link
-            href="/create"
-            className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] text-base font-semibold text-white shadow-md transition hover:scale-105 active:scale-95 md:hidden"
-            aria-label="Přidat inzerát"
-          >
-            +
-          </Link>
-
-          <Link
-            href="/dashboard"
+            href={authed && session.user.role ? dashboardPathForRole(session.user.role) : '/login'}
             className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-100 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-200 md:size-10 md:text-sm"
-            aria-label="Panel účtu"
+            aria-label={authed ? 'Panel účtu' : 'Přihlásit'}
           >
-            A
+            {session?.user?.name?.trim().charAt(0).toUpperCase() || 'A'}
           </Link>
         </div>
       </div>

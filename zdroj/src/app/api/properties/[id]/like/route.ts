@@ -1,15 +1,13 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import {
-  ACCESS_TOKEN_COOKIE,
-  getInternalApiBaseUrl,
-} from '@/lib/server-api';
+import { getInternalApiBaseUrl } from '@/lib/server-api';
+import { getServerAccessToken } from '@/lib/server-bearer';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function POST(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
-  const token = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+  const token = await getServerAccessToken();
   if (!token) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   }

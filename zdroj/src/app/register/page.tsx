@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import {
@@ -40,7 +41,8 @@ export default function RegisterPage() {
         }),
       });
       const data = (await res.json()) as {
-        message?: string | string[];
+        message?: string | string[] | object;
+        issues?: unknown;
         user?: { role?: string };
       };
       if (!res.ok) {
@@ -49,9 +51,26 @@ export default function RegisterPage() {
           : typeof data.message === 'object' && data.message !== null
             ? JSON.stringify(data.message)
             : data.message;
-        setError(msg ?? 'Registrace se nezdařila');
+        setError(
+          typeof msg === 'string' && msg
+            ? msg
+            : 'Registrace se nezdařila — zkontrolujte údaje',
+        );
         return;
       }
+
+      const signResult = await signIn('credentials', {
+        redirect: false,
+        email: email.trim(),
+        password,
+      });
+
+      if (signResult?.error) {
+        router.push('/login?registered=1');
+        router.refresh();
+        return;
+      }
+
       const newRole = data.user?.role;
       if (newRole && isUserRole(newRole)) {
         router.push(dashboardPathForRole(newRole));

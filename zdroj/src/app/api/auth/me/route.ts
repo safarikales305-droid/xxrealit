@@ -1,13 +1,10 @@
-import { cookies } from 'next/headers';
+import { auth } from '@/auth';
 import { NextResponse } from 'next/server';
-import {
-  ACCESS_TOKEN_COOKIE,
-  getInternalApiBaseUrl,
-} from '@/lib/server-api';
+import { getInternalApiBaseUrl } from '@/lib/server-api';
 
 export async function GET() {
-  const jar = await cookies();
-  const token = jar.get(ACCESS_TOKEN_COOKIE)?.value;
+  const session = await auth();
+  const token = session?.apiAccessToken;
   if (!token) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   }

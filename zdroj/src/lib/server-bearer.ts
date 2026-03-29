@@ -1,9 +1,8 @@
-import { cookies } from 'next/headers';
-import { ACCESS_TOKEN_COOKIE } from '@/lib/server-api';
+import { auth } from '@/auth';
 
 export async function getServerAccessToken(): Promise<string | null> {
-  const jar = await cookies();
-  return jar.get(ACCESS_TOKEN_COOKIE)?.value ?? null;
+  const session = await auth();
+  return session?.apiAccessToken ?? null;
 }
 
 export async function getServerAuthorizationHeader(): Promise<string | undefined> {

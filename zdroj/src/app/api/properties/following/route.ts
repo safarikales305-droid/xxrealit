@@ -1,12 +1,10 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import {
-  ACCESS_TOKEN_COOKIE,
-  getInternalApiBaseUrl,
-} from '@/lib/server-api';
+import { getInternalApiBaseUrl } from '@/lib/server-api';
+import { getServerAccessToken } from '@/lib/server-bearer';
 
 export async function GET(request: NextRequest) {
-  const token = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+  const token = await getServerAccessToken();
   if (!token) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   }

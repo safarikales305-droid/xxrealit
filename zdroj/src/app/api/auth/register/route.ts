@@ -1,31 +1,41 @@
 import { NextResponse } from 'next/server';
-import {
-  ACCESS_TOKEN_COOKIE,
-  getInternalApiBaseUrl,
-} from '@/lib/server-api';
+import { z } from 'zod';
+import { getInternalApiBaseUrl } from '@/lib/server-api';
+import { isUserRole } from '@/lib/roles';
+
+const bodySchema = z.object({
+  email: z.string().trim().email(),
+  password: z.string().min(8),
+  name: z.string().trim().max(120).optional(),
+  role: z.string().refine(isUserRole, { message: 'Invalid role' }),
+});
 
 export async function POST(request: Request) {
-  let body: {
-    email?: string;
-    password?: string;
-    name?: string;
-    role?: string;
-  };
+  let json: unknown;
   try {
-    body = await request.json();
+    json = await request.json();
   } catch {
     return NextResponse.json({ message: 'Invalid JSON' }, { status: 400 });
   }
 
+  const parsed = bodySchema.safeParse(json);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { message: 'Validation failed', issues: parsed.error.flatten() },
+      { status: 400 },
+    );
+  }
+
+  const { name, email, password, role } = parsed.data;
   const api = getInternalApiBaseUrl();
   const res = await fetch(`${api}/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      email: body.email,
-      password: body.password,
-      name: body.name,
-      role: body.role,
+      email,
+      password,
+      role,
+      name: name && name.length > 0 ? name : undefined,
     }),
   });
 
@@ -34,28 +44,10 @@ export async function POST(request: Request) {
     return NextResponse.json(data, { status: res.status });
   }
 
-  const token =
-    typeof data === 'object' &&
-    data !== null &&
-    'accessToken' in data &&
-    typeof (data as { accessToken: unknown }).accessToken === 'string'
-      ? (data as { accessToken: string }).accessToken
-      : null;
-
-  if (!token) {
-    return NextResponse.json(
-      { message: 'Missing accessToken from API' },
-      { status: 502 },
-    );
+  if (typeof data === 'object' && data !== null && 'accessToken' in data) {
+    const { accessToken: _omit, ...safe } = data as Record<string, unknown>;
+    return NextResponse.json(safe, { status: res.status });
   }
 
-  const out = NextResponse.json(data);
-  out.cookies.set(ACCESS_TOKEN_COOKIE, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 60 * 60 * 24 * 7,
-    secure: process.env.NODE_ENV === 'production',
-  });
-  return out;
+  return NextResponse.json(data, { status: res.status });
 }

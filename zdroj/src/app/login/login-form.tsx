@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
-import { dashboardPathForRole, isUserRole } from '@/lib/roles';
+import { isUserRole } from '@/lib/roles';
 
 const inputClass =
   'w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-[#ff6a00]/70 focus:ring-2 focus:ring-[#ff6a00]/15';
@@ -21,36 +22,36 @@ export function LoginForm() {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), password }),
+      const result = await signIn('credentials', {
+        redirect: false,
+        email: email.trim(),
+        password,
       });
-      const data = (await res.json()) as {
-        message?: string | string[];
-        user?: { role?: string };
-      };
-      if (!res.ok) {
-        const msg = Array.isArray(data.message)
-          ? data.message.join(', ')
-          : data.message;
-        setError(msg ?? 'Přihlášení se nezdařilo');
+
+      if (result?.error) {
+        setError('Neplatný e-mail nebo heslo');
         return;
       }
-      const role = data.user?.role;
-      const from = searchParams.get('from');
-      const segment = from?.match(/^\/dashboard\/([^/]+)/)?.[1];
-      if (from?.startsWith('/dashboard') && segment && isUserRole(segment)) {
-        router.push(from);
-        router.refresh();
-        return;
+
+      const callbackUrl =
+        searchParams.get('callbackUrl') ??
+        searchParams.get('from') ??
+        '/dashboard';
+
+      if (
+        callbackUrl.startsWith('/dashboard') &&
+        callbackUrl !== '/dashboard' &&
+        callbackUrl !== '/dashboard/'
+      ) {
+        const segment = callbackUrl.match(/^\/dashboard\/([^/]+)/)?.[1];
+        if (segment && isUserRole(segment)) {
+          router.push(callbackUrl);
+          router.refresh();
+          return;
+        }
       }
-      if (role && isUserRole(role)) {
-        router.push(dashboardPathForRole(role));
-        router.refresh();
-        return;
-      }
-      router.push('/dashboard');
+
+      router.push(callbackUrl);
       router.refresh();
     } catch {
       setError('Nelze se spojit se serverem');
