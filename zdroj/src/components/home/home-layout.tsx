@@ -92,14 +92,14 @@ export function HomeLayout({ items, ShortsFeed }: Props) {
 
         <main
           className={
-            !hasData
+            !hasData && viewMode === 'classic'
               ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-[0_2px_24px_-8px_rgba(0,0,0,0.08)] md:min-w-0'
               : viewMode === 'shorts'
                 ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl bg-black shadow-[0_24px_48px_-24px_rgba(0,0,0,0.35)] md:min-w-0 lg:ring-1 lg:ring-black/10'
                 : 'relative flex min-h-0 min-w-0 flex-col overflow-y-auto overflow-x-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-[0_2px_24px_-8px_rgba(0,0,0,0.06)] md:min-w-0'
           }
         >
-          {!hasData ? (
+          {!hasData && viewMode === 'classic' ? (
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 px-8 py-16 text-center">
               <p className="text-2xl font-semibold tracking-tight text-zinc-900">
                 Žádné nemovitosti

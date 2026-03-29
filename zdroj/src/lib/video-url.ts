@@ -22,10 +22,10 @@ export function normalizePublicVideoUrl(
   return u;
 }
 
-/** Served from `public/videos` — use these when an API row has no local file. */
+/** Served from `public/videos` — demo + per-row fallback when API has no local `/videos/*` URL. */
 export const PUBLIC_SHORTS_FALLBACKS = [
   '/videos/byt.mp4',
-  '/videos/vila.mp4',
+  '/videos/dum.mp4',
   '/videos/pozemek.mp4',
 ] as const;
 

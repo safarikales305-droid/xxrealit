@@ -4,6 +4,31 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PropertyFeedItem } from '@/types/property';
 import { resolveShortsPublicSrc } from '@/lib/video-url';
 
+/** Local demo listings — used when `items` is empty so the feed never depends on the API. */
+const DEMO_SHORTS_ITEMS: PropertyFeedItem[] = [
+  {
+    id: 'demo-byt',
+    title: 'Ukázkový byt',
+    location: 'Praha — demo',
+    price: 5_990_000,
+    videoUrl: '/videos/byt.mp4',
+  },
+  {
+    id: 'demo-dum',
+    title: 'Ukázkový dům',
+    location: 'Brno — demo',
+    price: 12_400_000,
+    videoUrl: '/videos/dum.mp4',
+  },
+  {
+    id: 'demo-pozemek',
+    title: 'Ukázkový pozemek',
+    location: 'Ostrava — demo',
+    price: 2_200_000,
+    videoUrl: '/videos/pozemek.mp4',
+  },
+];
+
 const PRICE_FMT = new Intl.NumberFormat('cs-CZ', {
   style: 'currency',
   currency: 'CZK',
@@ -30,7 +55,8 @@ type Props = {
  */
 export function ShortsFeed({ items }: Props) {
   const clips = useMemo<Clip[]>(() => {
-    return items.map((item, index) => ({
+    const source = items.length > 0 ? items : DEMO_SHORTS_ITEMS;
+    return source.map((item, index) => ({
       ...item,
       src: resolveShortsPublicSrc(item, index),
     }));
@@ -107,8 +133,6 @@ export function ShortsFeed({ items }: Props) {
   const toggleMuted = useCallback((id: string) => {
     setMutedById((prev) => ({ ...prev, [id]: !prev[id] }));
   }, []);
-
-  if (clips.length === 0) return null;
 
   return (
     <div
