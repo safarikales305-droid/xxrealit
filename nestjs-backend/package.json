@@ -5,8 +5,8 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "postinstall": "prisma generate",
-    "build": "prisma generate && prisma db push && nest build",
+    "postinstall": "npx prisma generate",
+    "build": "npx prisma generate && npx prisma db push && npx nest build",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
