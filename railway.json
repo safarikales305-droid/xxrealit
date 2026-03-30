@@ -4,6 +4,6 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "npm run start:prod"
+    "startCommand": "cd nestjs-backend && npm run build && npm run start:prod"
   }
 }
