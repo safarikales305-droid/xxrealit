@@ -24,10 +24,10 @@ export class AuthService {
     if (existing) {
       throw new ConflictException('Email already registered');
     }
-    const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
+    const password = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
     const user = await this.users.create({
       email: dto.email,
-      passwordHash,
+      password,
       name: dto.name?.trim() || null,
       role: dto.role,
     });
@@ -39,7 +39,7 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
-    const ok = await bcrypt.compare(password, user.passwordHash);
+    const ok = await bcrypt.compare(password, user.password);
     if (!ok) {
       throw new UnauthorizedException('Invalid credentials');
     }

@@ -32,13 +32,13 @@ export class SeedController {
   async seed() {
     console.log('[Seed] Starting property seed…');
 
-    const passwordHash = await bcrypt.hash(SEED_USER_PASSWORD, 10);
+    const password = await bcrypt.hash(SEED_USER_PASSWORD, 10);
     const user = await this.prisma.user.upsert({
       where: { email: SEED_USER_EMAIL },
       create: {
         email: SEED_USER_EMAIL,
         name: 'Seed User',
-        passwordHash,
+        password,
         role: UserRole.makler,
         avatar: null,
         bio: 'Ukázkový makléř — demo profil.',
@@ -47,7 +47,7 @@ export class SeedController {
       },
       update: {
         name: 'Seed User',
-        passwordHash,
+        password,
         role: UserRole.makler,
         avatar: null,
         bio: 'Ukázkový makléř — demo profil.',

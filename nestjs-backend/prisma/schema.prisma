@@ -20,7 +20,7 @@ model User {
   id           String     @id @default(uuid())
   email        String     @unique
   name         String?
-  passwordHash String
+  password     String
   role         UserRole   @default(sledujici)
   /// Public profile image URL (absolute or same-origin path).
   avatar       String?
