@@ -13,7 +13,7 @@ async function loadHomeFeed(): Promise<PropertyFeedItem[]> {
   if (!base) {
     if (process.env.NODE_ENV === 'development') {
       console.warn(
-        '[Home] Skipping feed: set NEXT_PUBLIC_API_URL on Vercel (server will not use localhost).',
+        '[Home] Skipping feed: set NEXT_PUBLIC_API_URL (and API_URL for BFF routes).',
       );
     }
     return [];
@@ -38,6 +38,16 @@ async function loadHomeFeed(): Promise<PropertyFeedItem[]> {
 }
 
 export default async function Home() {
+  const base = getServerSideApiBaseUrl();
   const items = await loadHomeFeed();
-  return <HomeLayout items={items} ShortsFeed={ShortsFeed} />;
+  const apiConfigMissing =
+    process.env.NODE_ENV === 'production' && base == null;
+
+  return (
+    <HomeLayout
+      items={items}
+      ShortsFeed={ShortsFeed}
+      apiConfigMissing={apiConfigMissing}
+    />
+  );
 }

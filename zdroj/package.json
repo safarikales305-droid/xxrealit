@@ -7,11 +7,10 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "cd ../nestjs-backend && prisma generate && node -e \"console.log('Running Prisma DB sync...')\" && prisma db push --schema=./prisma/schema.prisma && cd ../zdroj && next build",
-    "start": "next start",
+    "build": "next build",
+    "start": "next start -p $PORT",
     "lint": "eslint",
     "postinstall": "prisma generate",
-    "db:push": "cd ../nestjs-backend && node -e \"console.log('Running Prisma DB sync...')\" && prisma db push --schema=./prisma/schema.prisma",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push"
   },

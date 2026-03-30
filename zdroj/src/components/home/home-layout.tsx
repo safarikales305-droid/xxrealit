@@ -13,6 +13,8 @@ type Props = {
   items: PropertyFeedItem[];
   /** Wired from `app/page.tsx` — vertical `/videos/*` shorts feed. */
   ShortsFeed: ComponentType<{ items: PropertyFeedItem[] }>;
+  /** Production build without NEXT_PUBLIC_API_URL / API_URL. */
+  apiConfigMissing?: boolean;
 };
 
 const brandBtn =
@@ -21,7 +23,11 @@ const brandBtn =
 /**
  * Light shell + Shorts (TikTok) / Classic (Sreality-style grid).
  */
-export function HomeLayout({ items, ShortsFeed }: Props) {
+export function HomeLayout({
+  items,
+  ShortsFeed,
+  apiConfigMissing = false,
+}: Props) {
   const [viewMode, setViewMode] = useState<ViewMode>('shorts');
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
@@ -41,6 +47,16 @@ export function HomeLayout({ items, ShortsFeed }: Props) {
 
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden overflow-x-hidden bg-[#fafafa] text-zinc-900">
+      {apiConfigMissing ? (
+        <div
+          role="alert"
+          className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-900"
+        >
+          Chybí <code className="rounded bg-amber-100/80 px-1">NEXT_PUBLIC_API_URL</code> (a
+          volitelně <code className="rounded bg-amber-100/80 px-1">API_URL</code>) — nastav je v
+          Railway u frontend služby.
+        </div>
+      ) : null}
       <Navbar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -101,16 +117,32 @@ export function HomeLayout({ items, ShortsFeed }: Props) {
         >
           {!hasData && viewMode === 'classic' ? (
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 px-8 py-16 text-center">
-              <p className="text-2xl font-semibold tracking-tight text-zinc-900">
-                Žádné nemovitosti
+              <p className="text-3xl font-bold tracking-tight text-zinc-900">
+                XXREALIT
+              </p>
+              <p className="text-lg font-medium text-zinc-700">
+                Realitní platforma nové generace
               </p>
               <p className="max-w-md text-[15px] leading-relaxed text-zinc-600">
-                Zatím tu nic není. Přidej první video inzerát nebo spusť seed na
-                API.
+                {apiConfigMissing
+                  ? 'Backend API není nakonfigurované — zkontroluj proměnné prostředí.'
+                  : 'Zatím tu nic není. Přidej první video inzerát nebo spusť seed na API.'}
               </p>
-              <Link href="/create" className={brandBtn}>
-                Vytvořit inzerát
-              </Link>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('shorts')}
+                  className={brandBtn}
+                >
+                  Zobrazit nemovitosti
+                </button>
+                <Link
+                  href="/create"
+                  className="rounded-full border border-zinc-300 bg-white px-8 py-3 text-[15px] font-semibold text-zinc-800 transition hover:bg-zinc-50"
+                >
+                  Vytvořit inzerát
+                </Link>
+              </div>
             </div>
           ) : showNoSearchHits ? (
             <div className="flex min-h-[min(24rem,50vh)] flex-1 flex-col items-center justify-center gap-3 px-6 py-12 text-center">

@@ -2,6 +2,10 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  /** Monorepo: pin Turbopack root when multiple lockfiles exist (e.g. repo root + zdroj). */
+  turbopack: {
+    root: process.cwd(),
+  },
   /** Ensure `public/videos/*` is served as static assets (default); add caching. */
   async headers() {
     return [

@@ -41,6 +41,13 @@ export function CreatePropertyForm() {
       return;
     }
 
+    if (!propertiesEndpoint) {
+      setError(
+        'Chybí NEXT_PUBLIC_API_URL — nelze odeslat data na backend.',
+      );
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const res = await fetch(propertiesEndpoint, {
