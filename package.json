@@ -1,0 +1,8 @@
+{
+  "name": "xxrealit-root",
+  "private": true,
+  "scripts": {
+    "build": "cd nestjs-backend && npm install && npm run build",
+    "start": "cd nestjs-backend && npm run start:prod"
+  }
+}
