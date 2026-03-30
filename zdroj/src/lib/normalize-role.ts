@@ -1,6 +1,8 @@
 /**
- * Normalizes role strings: trim, strip combining diacritics (NFD), lowercase.
- * So e.g. "Makléř" typed elsewhere or Czech variants still store as "makler" when matched to slugs.
+ * Normalizes role strings to canonical lowercase ASCII slugs:
+ * - trim
+ * - remove diacritics (NFD + strip combining marks)
+ * - lowercase
  */
 export function normalizeRole(raw: string): string {
   return raw
@@ -9,3 +11,4 @@ export function normalizeRole(raw: string): string {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
 }
+

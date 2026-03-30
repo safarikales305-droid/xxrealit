@@ -3,21 +3,25 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { REGISTER_ROLE_OPTIONS } from '@/lib/register-roles';
 
 const inputClass =
   'w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-[#ff6a00]/70 focus:ring-2 focus:ring-[#ff6a00]/15';
-
 const selectClass = `${inputClass} appearance-none bg-[length:1rem] bg-[right_0.75rem_center] bg-no-repeat pr-10`;
+
+const ROLE_OPTIONS = [
+  { value: 'makler', label: 'Makléř' },
+  { value: 'kancelar', label: 'Realitní kancelář' },
+  { value: 'remeslnik', label: 'Řemeslník' },
+  { value: 'firma', label: 'Stavební firma' },
+  { value: 'uzivatel', label: 'Soukromý inzerent' },
+] as const;
 
 export default function RegisterPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [role, setRole] = useState<string>(
-    REGISTER_ROLE_OPTIONS[4].value,
-  );
+  const [role, setRole] = useState<string>(ROLE_OPTIONS[4].value);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -27,21 +31,24 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const payload = {
-        name: name.trim(),
-        email: email.trim(),
+        name: name.trim() || undefined,
+        email: email.trim().toLowerCase(),
         password,
-        role,
+        role: role.toLowerCase(),
       };
+
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+
       const data = (await res.json().catch(() => ({}))) as {
         success?: boolean;
         error?: string;
         details?: string;
       };
+
       if (!res.ok || !data.success) {
         const msg = [data.error, data.details].filter(Boolean).join(': ');
         setError(
@@ -68,14 +75,22 @@ export default function RegisterPage() {
         >
           ← Zpět
         </Link>
-        <h1 className="mt-6 text-2xl font-semibold tracking-tight">Registrace</h1>
+        <h1 className="mt-6 text-2xl font-semibold tracking-tight">
+          Registrace
+        </h1>
         <p className="mt-2 text-[15px] text-zinc-600">
           Zvolte roli — podle ní uvidíte příslušný panel po přihlášení.
         </p>
 
-        <form onSubmit={(e) => void onSubmit(e)} className="mt-8 space-y-4">
+        <form
+          onSubmit={(e) => void onSubmit(e)}
+          className="mt-8 space-y-4"
+        >
           <div>
-            <label htmlFor="name" className="mb-1.5 block text-sm font-medium">
+            <label
+              htmlFor="name"
+              className="mb-1.5 block text-sm font-medium"
+            >
               Jméno (nepovinné)
             </label>
             <input
@@ -88,8 +103,12 @@ export default function RegisterPage() {
               className={inputClass}
             />
           </div>
+
           <div>
-            <label htmlFor="email" className="mb-1.5 block text-sm font-medium">
+            <label
+              htmlFor="email"
+              className="mb-1.5 block text-sm font-medium"
+            >
               E-mail
             </label>
             <input
@@ -103,8 +122,12 @@ export default function RegisterPage() {
               className={inputClass}
             />
           </div>
+
           <div>
-            <label htmlFor="password" className="mb-1.5 block text-sm font-medium">
+            <label
+              htmlFor="password"
+              className="mb-1.5 block text-sm font-medium"
+            >
               Heslo (min. 6 znaků)
             </label>
             <input
@@ -119,8 +142,12 @@ export default function RegisterPage() {
               className={inputClass}
             />
           </div>
+
           <div>
-            <label htmlFor="role" className="mb-1.5 block text-sm font-medium">
+            <label
+              htmlFor="role"
+              className="mb-1.5 block text-sm font-medium"
+            >
               Role na platformě
             </label>
             <select
@@ -131,18 +158,20 @@ export default function RegisterPage() {
               onChange={(e) => setRole(e.target.value)}
               className={selectClass}
             >
-              {REGISTER_ROLE_OPTIONS.map((opt) => (
+              {ROLE_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>
               ))}
             </select>
           </div>
+
           {error ? (
             <p className="text-sm font-medium text-red-600" role="alert">
               {error}
             </p>
           ) : null}
+
           <button
             type="submit"
             disabled={loading}
@@ -154,7 +183,10 @@ export default function RegisterPage() {
 
         <p className="mt-6 text-center text-sm text-zinc-600">
           Už máte účet?{' '}
-          <Link href="/login" className="font-semibold text-[#e85d00] hover:underline">
+          <Link
+            href="/login"
+            className="font-semibold text-[#e85d00] hover:underline"
+          >
             Přihlásit se
           </Link>
         </p>
