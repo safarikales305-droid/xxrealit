@@ -6,11 +6,11 @@
   "license": "UNLICENSED",
   "scripts": {
     "postinstall": "npx prisma generate",
-    "build": "npx prisma generate && npx prisma db push && npx nest build",
+    "build": "npx prisma generate && npx nest build",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "npx prisma db push && node dist/main",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "db:push": "prisma db push --schema=./prisma/schema.prisma",
