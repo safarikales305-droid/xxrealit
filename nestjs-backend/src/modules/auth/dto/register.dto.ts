@@ -1,7 +1,5 @@
-import { UserRole } from '@prisma/client';
 import {
   IsEmail,
-  IsEnum,
   IsOptional,
   IsString,
   MaxLength,
@@ -21,8 +19,9 @@ export class RegisterDto {
   @MaxLength(120)
   name?: string;
 
-  @IsEnum(UserRole, {
-    message: 'role must be a valid UserRole',
-  })
-  role!: UserRole;
+  /** Free-form label or slug; mapped to Prisma UserRole in AuthService. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  role?: string;
 }

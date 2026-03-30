@@ -8,12 +8,8 @@ datasource db {
 }
 
 enum UserRole {
-  makler
-  kancelar
-  sledujici
-  soukromy
-  remeslnik
-  stavebni_firma
+  USER
+  ADMIN
 }
 
 model User {
@@ -21,7 +17,7 @@ model User {
   email        String     @unique
   name         String?
   password     String
-  role         UserRole   @default(sledujici)
+  role         UserRole   @default(USER)
   /// Public profile image URL (absolute or same-origin path).
   avatar       String?
   bio          String?
