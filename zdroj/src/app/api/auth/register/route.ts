@@ -17,6 +17,21 @@ const bodySchema = z.object({
   role: z.string().trim().min(1).optional(),
 });
 
+const roleMap: Record<string, 'USER' | 'ADMIN'> = {
+  'Soukromý inzerent': 'USER',
+  'Makléř': 'ADMIN',
+  soukromy_inzerent: 'USER',
+  uzivatel: 'USER',
+  makler: 'ADMIN',
+  USER: 'USER',
+  ADMIN: 'ADMIN',
+};
+
+function mapRole(inputRole?: string): 'USER' | 'ADMIN' {
+  if (!inputRole) return 'USER';
+  return roleMap[inputRole] ?? roleMap[inputRole.toLowerCase()] ?? 'USER';
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -31,6 +46,7 @@ export async function POST(req: Request) {
     }
 
     const { email, password, name, role } = parsed.data;
+    const mappedRole = mapRole(role);
     const hashed = await bcrypt.hash(password, 10);
 
     const user = await prisma.user.create({
@@ -38,7 +54,7 @@ export async function POST(req: Request) {
         email,
         password: hashed,
         name: name && name.length > 0 ? name : null,
-        role: (role || 'uzivatel').toLowerCase(),
+        role: mappedRole,
       },
     });
 
