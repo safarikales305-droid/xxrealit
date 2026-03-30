@@ -1,9 +1,10 @@
 {
-  "$schema": "https://railway.app/railway.schema.json",
-  "build": {
-    "builder": "NIXPACKS"
-  },
-  "deploy": {
-    "startCommand": "cd nestjs-backend && npm run build && npm run start:prod"
+    "$schema": "https://railway.app/railway.schema.json",
+    "build": {
+      "builder": "NIXPACKS",
+      "buildCommand": "cd nestjs-backend && npm install && npm run build"
+    },
+    "deploy": {
+      "startCommand": "cd nestjs-backend && npm run start:prod"
+    }
   }
-}
