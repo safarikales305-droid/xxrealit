@@ -1,51 +1,88 @@
-import { NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
-import { prisma } from "@/lib/db";
+import { Prisma } from '@prisma/client';
+import { NextResponse } from 'next/server';
+import bcrypt from 'bcryptjs';
+import { z } from 'zod';
+import { prisma } from '@/lib/db';
 
-export const runtime = "nodejs";
+export const runtime = 'nodejs';
+
+const bodySchema = z.object({
+  email: z
+    .string()
+    .min(1, 'Email je povinný')
+    .transform((s) => s.trim().toLowerCase())
+    .pipe(z.string().email('Neplatný e-mail')),
+  password: z.string().min(6, 'Heslo musí mít alespoň 6 znaků'),
+  name: z.string().trim().max(120).optional(),
+  role: z.string().trim().min(1).optional(),
+});
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    console.log("REGISTER BODY:", body);
-
-    const { email, password, name, role } = body as {
-      email?: string;
-      password?: string;
-      name?: string;
-      role?: string;
-    };
-
-    if (!email || !password) {
+    console.log('REGISTER BODY:', body);
+    const parsed = bodySchema.safeParse(body);
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "Missing email or password" },
-        { status: 400 },
+        { error: 'Validation failed', details: parsed.error.flatten() },
+        { status: 400 }
       );
     }
 
+    const { email, password, name, role } = parsed.data;
     const hashed = await bcrypt.hash(password, 10);
 
     const user = await prisma.user.create({
       data: {
-        email: email.toLowerCase().trim(),
+        email,
         password: hashed,
-        name: name || null,
-        role: (role || "uzivatel").toLowerCase(),
+        name: name && name.length > 0 ? name : null,
+        role: (role || 'uzivatel').toLowerCase(),
       },
     });
 
     return NextResponse.json({ success: true, user });
-  } catch (e: any) {
-    console.error("REGISTER ERROR:", e);
+  } catch (e: unknown) {
+    console.error('REGISTER ERROR:', e);
+
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === 'P2002'
+    ) {
+      return NextResponse.json(
+        { error: 'Email už je registrován' },
+        { status: 400 }
+      );
+    }
+
+    // Common in this case: P2021 (table does not exist)
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === 'P2021'
+    ) {
+      return NextResponse.json(
+        {
+          error: 'Databázová tabulka User neexistuje. Spusť prisma db push nebo migrate deploy.',
+          code: e.code,
+          meta: e.meta,
+        },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json(
       {
-        error: e?.message,
-        code: e?.code,
-        meta: e?.meta,
+        error:
+          e instanceof Error
+            ? e.message
+            : 'Neočekávaná chyba při registraci',
+        code:
+          e instanceof Prisma.PrismaClientKnownRequestError ? e.code : undefined,
+        meta:
+          e instanceof Prisma.PrismaClientKnownRequestError ? e.meta : undefined,
       },
-      { status: 400 },
+      { status: 500 }
     );
   }
 }
