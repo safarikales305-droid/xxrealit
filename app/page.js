@@ -5,10 +5,7 @@ async function loadProperties() {
   }
 
   try {
-    const apiBase = base.replace(/\/+$/, "").endsWith("/api")
-      ? base.replace(/\/+$/, "")
-      : `${base.replace(/\/+$/, "")}/api`;
-    const res = await fetch(`${apiBase}/properties`, {
+    const res = await fetch(`${base.replace(/\/+$/, "")}/properties`, {
       cache: "no-store",
     });
 
