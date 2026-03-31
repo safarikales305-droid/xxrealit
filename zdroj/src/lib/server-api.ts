@@ -9,7 +9,8 @@ export function getInternalApiBaseUrl(): string {
       'Set API_URL or NEXT_PUBLIC_API_URL for auth API proxy routes.',
     );
   }
-  return raw.replace(/\/+$/, '');
+  const normalized = raw.replace(/\/+$/, '');
+  return normalized.endsWith('/api') ? normalized : `${normalized}/api`;
 }
 
 export const ACCESS_TOKEN_COOKIE = 'access_token';
