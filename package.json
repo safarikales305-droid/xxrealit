@@ -1,8 +1,15 @@
 {
-  "name": "xxrealit-root",
+  "name": "xxrealit-frontend",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "cd nestjs-backend && npm install && npm run build",
-    "start": "cd nestjs-backend && npm run start:prod"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start -p $PORT"
+  },
+  "dependencies": {
+    "next": "16.2.1",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
   }
 }

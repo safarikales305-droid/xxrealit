@@ -1,0 +1,44 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, Arial, sans-serif;
+  background: #fafafa;
+  color: #111827;
+}
+
+.container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 48px 20px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 40px;
+}
+
+p {
+  margin-top: 12px;
+}
+
+.cta {
+  display: inline-block;
+  margin-top: 20px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: #ff5a1f;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.muted {
+  color: #6b7280;
+}
+
+.error {
+  color: #b91c1c;
+}
