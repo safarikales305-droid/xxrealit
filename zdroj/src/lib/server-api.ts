@@ -5,9 +5,6 @@ export function getInternalApiBaseUrl(): string {
     process.env.NEXT_PUBLIC_API_URL?.trim() ||
     '';
   if (!raw) {
-    if (process.env.NODE_ENV === 'development') {
-      return 'http://localhost:3000';
-    }
     throw new Error(
       'Set API_URL or NEXT_PUBLIC_API_URL for auth API proxy routes.',
     );
@@ -25,3 +22,4 @@ export function getJwtSecretString(): string {
 export function getJwtSecretBytes(): Uint8Array {
   return new TextEncoder().encode(getJwtSecretString());
 }
+

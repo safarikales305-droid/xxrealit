@@ -1,12 +1,10 @@
-import type { NextConfig } from 'next';
-
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   reactStrictMode: true,
-  /** Monorepo: pin Turbopack root when multiple lockfiles exist (e.g. repo root + zdroj). */
+  // Monorepo-safe: pin Turbopack root when multiple lockfiles exist.
   turbopack: {
     root: process.cwd(),
   },
-  /** Ensure `public/videos/*` is served as static assets (default); add caching. */
   async headers() {
     return [
       {
@@ -22,4 +20,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+module.exports = nextConfig;
