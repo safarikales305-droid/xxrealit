@@ -8,7 +8,10 @@ async function bootstrap(): Promise<void> {
   app.setGlobalPrefix('api');
 
   app.enableCors({
-    origin: true,
+    origin: [
+      'http://localhost:3000',
+      'https://friendly-celebration-production-0db4.up.railway.app',
+    ],
     credentials: true,
   });
 
