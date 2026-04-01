@@ -1,9 +1,6 @@
 {
   "$schema": "https://railway.app/railway.schema.json",
-  "build": {
-    "builder": "NIXPACKS"
-  },
-  "deploy": {
-    "startCommand": "npm start"
-  }
+  "buildCommand": "npm install && npm run build",
+  "startCommand": "npm run start:prod",
+  "rootDirectory": "nestjs-backend"
 }

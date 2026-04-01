@@ -5,6 +5,7 @@ import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
+  app.setGlobalPrefix('api');
 
   const corsOrigins = process.env.CORS_ORIGIN?.split(',')
     .map((o) => o.trim())
