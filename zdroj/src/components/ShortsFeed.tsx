@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CommentsPlaceholder } from '@/components/feed/comments-placeholder';
+import { toPublicApiUrl } from '@/lib/public-api';
 import type { PropertyFeedItem } from '@/types/property';
 import { resolveShortsPublicSrc } from '@/lib/video-url';
 
@@ -158,7 +159,7 @@ export function ShortsFeed({ items }: Props) {
     });
 
     try {
-      const res = await fetch(`/api/properties/${propertyId}/like`, {
+      const res = await fetch(toPublicApiUrl(`/properties/${propertyId}/like`), {
         method: 'POST',
       });
       const data = (await res.json()) as {

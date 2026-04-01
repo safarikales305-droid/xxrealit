@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { toPublicApiUrl } from '@/lib/public-api';
 
 type Props = {
   userId: string;
@@ -41,7 +42,7 @@ export function FollowButton({
     setLoading(true);
     try {
       if (following) {
-        const res = await fetch(`/api/users/${userId}/follow`, {
+        const res = await fetch(toPublicApiUrl(`/users/${userId}/follow`), {
           method: 'DELETE',
         });
         const data = (await res.json()) as { followersCount?: number };
@@ -55,7 +56,7 @@ export function FollowButton({
           router.refresh();
         }
       } else {
-        const res = await fetch(`/api/users/${userId}/follow`, {
+        const res = await fetch(toPublicApiUrl(`/users/${userId}/follow`), {
           method: 'POST',
         });
         const data = (await res.json()) as { followersCount?: number };

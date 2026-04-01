@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { toPublicApiUrl } from '@/lib/public-api';
 
 export type AuthUser = {
   id: string;
@@ -33,7 +34,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch('/api/auth/me', { credentials: 'include' });
+      const res = await fetch(toPublicApiUrl('/auth/me'), {
+        credentials: 'include',
+      });
       if (!res.ok) {
         setUser(null);
         return;
@@ -50,7 +53,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (async () => {
       setLoading(true);
       try {
-        const res = await fetch('/api/auth/me', { credentials: 'include' });
+        const res = await fetch(toPublicApiUrl('/auth/me'), {
+          credentials: 'include',
+        });
         if (cancelled) return;
         if (!res.ok) {
           setUser(null);
@@ -71,7 +76,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      await fetch(toPublicApiUrl('/auth/logout'), {
+        method: 'POST',
+        credentials: 'include',
+      });
     } finally {
       setUser(null);
     }
