@@ -26,9 +26,10 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  const port = process.env.PORT ? Number(process.env.PORT) : 3000;
+  const port = Number(process.env.PORT);
+  console.log('ENV PORT:', process.env.PORT);
   await app.listen(port, '0.0.0.0');
-  console.log('🚀 RUNNING ON PORT:', port);
+  console.log('🚀 RUNNING ON:', port);
 }
 
 bootstrap();
