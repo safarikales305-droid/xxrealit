@@ -7,12 +7,9 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix('api');
 
-  const corsOrigins = process.env.CORS_ORIGIN?.split(',')
-    .map((o) => o.trim())
-    .filter(Boolean);
   app.enableCors({
-    origin:
-      corsOrigins?.length ? corsOrigins : ['http://localhost:3001', 'http://127.0.0.1:3001'],
+    origin: true,
+    credentials: true,
   });
 
   app.useGlobalPipes(
@@ -26,7 +23,8 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  await app.listen(process.env.PORT || 3000, '0.0.0.0');
+  const port = process.env.PORT || 3000;
+  await app.listen(port, '0.0.0.0');
 }
 
 bootstrap();
