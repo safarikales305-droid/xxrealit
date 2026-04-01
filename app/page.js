@@ -1,5 +1,6 @@
 async function loadProperties() {
   const base = process.env.NEXT_PUBLIC_API_URL;
+  console.log("API URL:", base);
   if (!base) {
     return { items: [], error: "Missing NEXT_PUBLIC_API_URL." };
   }
