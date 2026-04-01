@@ -1,16 +1,11 @@
 async function loadProperties() {
   const base = process.env.NEXT_PUBLIC_API_URL;
-  console.log("API URL:", base);
   if (!base) {
     return { items: [], error: "Missing NEXT_PUBLIC_API_URL." };
   }
 
   try {
-    const normalizedBase = base.replace(/\/+$/, "");
-    const apiBase = normalizedBase.endsWith("/api")
-      ? normalizedBase
-      : `${normalizedBase}/api`;
-    const res = await fetch(`${apiBase}/properties`, {
+    const res = await fetch(`${base.replace(/\/+$/, "")}/properties`, {
       cache: "no-store",
     });
 
