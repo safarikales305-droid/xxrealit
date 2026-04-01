@@ -5,10 +5,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.enableCors({
-    origin: [
-      'http://localhost:3000',
-      'https://friendly-celebration-production-0db4.up.railway.app',
-    ],
+    origin: '*',
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
   });
