@@ -15,16 +15,16 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(private readonly authService: AuthService) {}
 
   @Post('register')
-  register(@Body() dto: RegisterDto) {
-    return this.auth.register(dto);
+  register(@Body() body: RegisterDto) {
+    return this.authService.register(body);
   }
 
   @Post('login')
   login(@Body() dto: LoginDto) {
-    return this.auth.login(dto.email, dto.password);
+    return this.authService.login(dto.email, dto.password);
   }
 
   @UseGuards(JwtAuthGuard)
