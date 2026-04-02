@@ -7,8 +7,7 @@ export function getPublicApiBaseUrl(): string {
   if (!raw) {
     throw new Error('Missing NEXT_PUBLIC_API_URL');
   }
-  const normalized = trimTrailingSlash(raw);
-  return normalized.endsWith('/api') ? normalized : `${normalized}/api`;
+  return trimTrailingSlash(raw);
 }
 
 export function toPublicApiUrl(path: string): string {
