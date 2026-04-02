@@ -7,7 +7,10 @@ async function bootstrap() {
   console.log('🚀 BACKEND STARTED WITH CORS');
 
   app.enableCors({
-    origin: ['https://friendly-celebration-production-0db4.up.railway.app'],
+    origin: [
+      'https://xxrealit-production.up.railway.app',
+      'http://localhost:3000',
+    ],
     credentials: true,
   });
 
