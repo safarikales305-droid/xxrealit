@@ -7,9 +7,7 @@ async function bootstrap() {
   console.log("🚀 BACKEND STARTED WITH CORS");
 
   app.enableCors({
-    origin: '*',
-    methods: '*',
-    allowedHeaders: '*',
+    origin: true,
     credentials: true,
   });
 
