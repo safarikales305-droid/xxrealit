@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { resolve } from 'node:path';
-import { AppController } from './app.controller';
+import { HealthController } from './health.controller';
 import { PrismaModule } from './database/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { FeedModule } from './modules/feed/feed.module';
@@ -21,6 +21,6 @@ import { PropertiesModule } from './modules/properties/properties.module';
     FeedModule,
     PropertiesModule,
   ],
-  controllers: [AppController],
+  controllers: [HealthController],
 })
 export class AppModule {}
