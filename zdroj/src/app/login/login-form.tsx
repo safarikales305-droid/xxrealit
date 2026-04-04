@@ -49,14 +49,10 @@ export function LoginForm() {
         return;
       }
 
-      console.log('LOGIN SUCCESS:', data);
+      // ULOŽ DATA (odpověď z API; při accessToken v těle bude i token)
+      localStorage.setItem('user', JSON.stringify(data));
 
-      // redirect podle role
-      if (data.role === 'ADMIN') {
-        window.location.href = '/admin';
-      } else {
-        window.location.href = '/panel';
-      }
+      window.location.href = '/panel';
     } catch {
       setError('Nelze se spojit se serverem');
     } finally {
