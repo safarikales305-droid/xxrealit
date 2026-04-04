@@ -4,17 +4,20 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // API prefix
   app.setGlobalPrefix('api');
 
+  // CORS
   app.enableCors({
     origin: true,
     credentials: true,
   });
 
-  // 🔥 DŮLEŽITÉ – Railway PORT
-  const port = process.env.PORT || 3000;
+  // 🔥 Railway dynamic PORT (MUSÍ být number)
+  const port = process.env.PORT ? Number(process.env.PORT) : 3000;
 
-  await app.listen(port);
+  // 🔥 důležité pro Railway (0.0.0.0)
+  await app.listen(port, '0.0.0.0');
 
   console.log(`🚀 Backend running on ${port}`);
 }
