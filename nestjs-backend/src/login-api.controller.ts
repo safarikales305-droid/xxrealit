@@ -1,6 +1,6 @@
 import { Controller, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import bcrypt from 'bcrypt';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from './database/prisma.service';
 
 /**
@@ -17,6 +17,8 @@ export class LoginApiController {
   ): Promise<void> {
     try {
       console.log('LOGIN START');
+      console.log('BCRYPT:', bcrypt);
+      console.log('COMPARE:', bcrypt.compare);
 
       const { email, password } = req.body ?? {};
 
