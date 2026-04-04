@@ -190,8 +190,6 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    console.log('LOGIN START');
-
     try {
       const email = dto.email.trim().toLowerCase();
       const { password } = dto;

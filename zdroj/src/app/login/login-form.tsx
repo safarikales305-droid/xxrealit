@@ -23,6 +23,7 @@ export function LoginForm() {
     setError(null);
     setLoading(true);
     try {
+      // Nest backend: POST /api/auth/login (API_BASE_URL už končí na /api)
       const res = await fetch(toPublicApiUrl('/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
