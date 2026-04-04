@@ -17,17 +17,18 @@ const bodySchema = z.object({
   role: z.string().trim().min(1).optional(),
 });
 
-const roleMap: Record<string, 'USER' | 'ADMIN'> = {
+const roleMap: Record<string, 'USER' | 'AGENT' | 'DEVELOPER'> = {
   'Soukromý inzerent': 'USER',
-  'Makléř': 'ADMIN',
+  'Makléř': 'AGENT',
   soukromy_inzerent: 'USER',
   uzivatel: 'USER',
-  makler: 'ADMIN',
+  makler: 'AGENT',
   USER: 'USER',
-  ADMIN: 'ADMIN',
+  AGENT: 'AGENT',
+  DEVELOPER: 'DEVELOPER',
 };
 
-function mapRole(inputRole?: string): 'USER' | 'ADMIN' {
+function mapRole(inputRole?: string): 'USER' | 'AGENT' | 'DEVELOPER' {
   if (!inputRole) return 'USER';
   return roleMap[inputRole] ?? roleMap[inputRole.toLowerCase()] ?? 'USER';
 }

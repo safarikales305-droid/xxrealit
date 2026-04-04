@@ -10,7 +10,6 @@ export const USER_ROLES = [
   'stavebni_firma',
   /** Prisma / Nest enum strings from API */
   'USER',
-  'ADMIN',
   'AGENT',
   'DEVELOPER',
 ] as const;
@@ -31,7 +30,6 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   soukromy: 'Soukromý prodejce',
   stavebni_firma: 'Stavební firma',
   USER: 'Soukromý inzerent',
-  ADMIN: 'Administrátor',
   AGENT: 'Realitní makléř',
   DEVELOPER: 'Developer',
 };
@@ -46,7 +44,6 @@ export const DASHBOARD_SEGMENTS: Record<UserRole, string> = {
   soukromy: 'soukromy',
   stavebni_firma: 'stavebni_firma',
   USER: 'uzivatel',
-  ADMIN: 'makler',
   AGENT: 'makler',
   DEVELOPER: 'stavebni_firma',
 };

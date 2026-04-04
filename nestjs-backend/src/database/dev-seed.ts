@@ -21,7 +21,7 @@ export async function ensureDevSeedIfEmpty(prisma: PrismaClient): Promise<void> 
       email: SEED_USER_EMAIL,
       name: 'Seed User',
       password,
-      role: UserRole.ADMIN,
+      role: UserRole.AGENT,
       avatar: null,
       bio: 'Ukázkový makléř — demo profil.',
       city: 'Praha',
@@ -30,7 +30,7 @@ export async function ensureDevSeedIfEmpty(prisma: PrismaClient): Promise<void> 
     update: {
       name: 'Seed User',
       password,
-      role: UserRole.ADMIN,
+      role: UserRole.AGENT,
       avatar: null,
       bio: 'Ukázkový makléř — demo profil.',
       city: 'Praha',

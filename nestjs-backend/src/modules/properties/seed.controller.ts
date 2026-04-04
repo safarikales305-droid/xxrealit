@@ -39,7 +39,7 @@ export class SeedController {
         email: SEED_USER_EMAIL,
         name: 'Seed User',
         password,
-        role: UserRole.ADMIN,
+        role: UserRole.AGENT,
         avatar: null,
         bio: 'Ukázkový makléř — demo profil.',
         city: 'Praha',
@@ -48,7 +48,7 @@ export class SeedController {
       update: {
         name: 'Seed User',
         password,
-        role: UserRole.ADMIN,
+        role: UserRole.AGENT,
         avatar: null,
         bio: 'Ukázkový makléř — demo profil.',
         city: 'Praha',

@@ -61,7 +61,7 @@ const roleMap: Record<string, UserRole> = {
 
   developer: UserRole.DEVELOPER,
 
-  admin: UserRole.ADMIN,
+  admin: UserRole.AGENT,
   remeslnik: UserRole.USER,
   firma: UserRole.USER,
   'stavebni firma': UserRole.DEVELOPER,
