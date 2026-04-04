@@ -1,9 +1,11 @@
 import {
-  ConflictException,
+  HttpException,
+  HttpStatus,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { Prisma } from '@prisma/client';
 import { UserRole } from '@prisma/client';
 import type { User } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
@@ -14,28 +16,62 @@ import type { JwtPayload } from './types/jwt-payload';
 
 const BCRYPT_ROUNDS = 10;
 
+/** Normalized key: lowercase + Czech letters → ASCII (kvůli „Realitní makléř“ atd.). */
+const CZ_ASCII: Record<string, string> = {
+  á: 'a',
+  č: 'c',
+  ď: 'd',
+  é: 'e',
+  ě: 'e',
+  í: 'i',
+  ň: 'n',
+  ó: 'o',
+  ô: 'o',
+  ř: 'r',
+  š: 's',
+  ť: 't',
+  ú: 'u',
+  ů: 'u',
+  ý: 'y',
+  ž: 'z',
+};
+
+function roleKey(input: string): string {
+  return input
+    .trim()
+    .toLowerCase()
+    .split('')
+    .map((c) => CZ_ASCII[c] ?? c)
+    .join('')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 const roleMap: Record<string, UserRole> = {
-  'Soukromy inzerent': UserRole.USER,
-  'Makléř': UserRole.ADMIN,
-  USER: UserRole.USER,
-  ADMIN: UserRole.ADMIN,
+  'soukromy inzerent': UserRole.USER,
   uzivatel: UserRole.USER,
-  makler: UserRole.ADMIN,
-  kancelar: UserRole.ADMIN,
+  user: UserRole.USER,
+
+  'realitni makler': UserRole.AGENT,
+  makler: UserRole.AGENT,
+  kancelar: UserRole.AGENT,
+  agent: UserRole.AGENT,
+
+  developer: UserRole.DEVELOPER,
+
+  admin: UserRole.ADMIN,
   remeslnik: UserRole.USER,
   firma: UserRole.USER,
+  'stavebni firma': UserRole.DEVELOPER,
 };
 
 function mapRegisterRole(input?: string): UserRole {
   if (!input) return UserRole.USER;
 
-  const key = input.trim();
-
-  return (
-    roleMap[key] ||
-    roleMap[key.toLowerCase()] ||
-    UserRole.USER
-  );
+  const key = roleKey(input);
+  return roleMap[key] ?? UserRole.USER;
 }
 
 @Injectable()
@@ -47,23 +83,36 @@ export class AuthService {
 
   async register(dto: RegisterDto) {
     const email = dto.email.trim().toLowerCase();
-
-    const existing = await this.users.findByEmail(email);
-    if (existing) {
-      throw new ConflictException('Email already registered');
-    }
-
     const password = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
     const mappedRole = mapRegisterRole(dto.role);
+    const name = dto.name?.trim() || null;
 
-    const user = await this.users.create({
-      email,
-      password,
-      name: dto.name?.trim() || null,
-      role: mappedRole,
-    });
+    try {
+      const user = await this.users.create({
+        email,
+        password,
+        name,
+        role: mappedRole,
+      });
 
-    return this.issueTokens(user);
+      return this.issueTokens(user);
+    } catch (err: unknown) {
+      console.error('REGISTER ERROR:', err);
+
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new HttpException(
+          { error: 'Uživatel s tímto e-mailem už existuje' },
+          HttpStatus.CONFLICT,
+        );
+      }
+
+      const message =
+        err instanceof Error ? err.message : 'Neznámá chyba při registraci';
+      throw new HttpException({ error: message }, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
   }
 
   async validateUser(email: string, password: string): Promise<User> {

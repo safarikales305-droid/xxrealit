@@ -8,6 +8,11 @@ export const USER_ROLES = [
   'sledujici',
   'soukromy',
   'stavebni_firma',
+  /** Prisma / Nest enum strings from API */
+  'USER',
+  'ADMIN',
+  'AGENT',
+  'DEVELOPER',
 ] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];
@@ -25,6 +30,10 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   sledujici: 'Sledující / zájemce',
   soukromy: 'Soukromý prodejce',
   stavebni_firma: 'Stavební firma',
+  USER: 'Soukromý inzerent',
+  ADMIN: 'Administrátor',
+  AGENT: 'Realitní makléř',
+  DEVELOPER: 'Developer',
 };
 
 export const DASHBOARD_SEGMENTS: Record<UserRole, string> = {
@@ -36,6 +45,10 @@ export const DASHBOARD_SEGMENTS: Record<UserRole, string> = {
   sledujici: 'sledujici',
   soukromy: 'soukromy',
   stavebni_firma: 'stavebni_firma',
+  USER: 'uzivatel',
+  ADMIN: 'makler',
+  AGENT: 'makler',
+  DEVELOPER: 'stavebni_firma',
 };
 
 export function dashboardPathForRole(role: UserRole): string {

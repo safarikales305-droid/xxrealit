@@ -48,13 +48,28 @@ export default function RegisterPage() {
         success?: boolean;
         error?: string;
         details?: string;
+        message?: string | string[];
+        accessToken?: string;
       };
 
-      if (!res.ok || !data.success) {
-        const msg = [data.error, data.details].filter(Boolean).join(': ');
-        setError(
-          msg.trim() || 'Registrace se nezdařila — zkontrolujte údaje',
-        );
+      if (!res.ok) {
+        let msg = '';
+        if (typeof data.error === 'string' && data.error.length > 0) {
+          msg = data.error;
+        } else if (Array.isArray(data.message)) {
+          msg = data.message.join(' ');
+        } else if (typeof data.message === 'string') {
+          msg = data.message;
+        }
+        if (data.details) {
+          msg = msg ? `${msg}: ${data.details}` : String(data.details);
+        }
+        setError(msg.trim() || `HTTP ${res.status}`);
+        return;
+      }
+
+      if (!data.success && !data.accessToken) {
+        setError('HTTP 200 bez tokenu — zkontrolujte API');
         return;
       }
 
