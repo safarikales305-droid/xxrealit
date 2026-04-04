@@ -1,6 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { Property, UserRole } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import { PrismaService } from '../../database/prisma.service';
 import {
   SEED_PROPERTIES,

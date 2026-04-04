@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { UserRole } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import {
   SEED_PROPERTIES,
   SEED_USER_EMAIL,

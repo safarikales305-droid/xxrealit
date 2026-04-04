@@ -2,13 +2,12 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
 import { UserRole } from '@prisma/client';
 import type { User } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -115,27 +114,30 @@ export class AuthService {
     }
   }
 
-  async validateUser(email: string, password: string): Promise<User> {
+  async login(dto: LoginDto) {
+    const email = dto.email.trim().toLowerCase();
+    const { password } = dto;
+
+    console.log('LOGIN:', { email, password });
+
     const user = await this.users.findByEmail(email);
+    console.log('DB USER:', user);
 
     if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new HttpException(
+        { error: 'Neplatný e-mail nebo heslo' },
+        HttpStatus.UNAUTHORIZED,
+      );
     }
 
-    const ok = await bcrypt.compare(password, user.password);
+    const isValid = await bcrypt.compare(password, user.password);
 
-    if (!ok) {
-      throw new UnauthorizedException('Invalid credentials');
+    if (!isValid) {
+      throw new HttpException(
+        { error: 'Neplatný e-mail nebo heslo' },
+        HttpStatus.UNAUTHORIZED,
+      );
     }
-
-    return user;
-  }
-
-  async login(dto: LoginDto) {
-    const user = await this.validateUser(
-      dto.email.trim().toLowerCase(),
-      dto.password,
-    );
 
     return this.issueTokens(user);
   }
@@ -148,6 +150,7 @@ export class AuthService {
     };
 
     return {
+      success: true,
       accessToken: this.jwt.sign(payload),
       user: {
         id: user.id,
