@@ -1,28 +1,41 @@
+'use client';
+
 import Link from 'next/link';
-import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
-import { verifyAuthJwt } from '@/lib/auth-token';
-import { ACCESS_TOKEN_COOKIE } from '@/lib/auth-cookie';
-import { prisma } from '@/lib/db';
+import { useLayoutEffect, useState } from 'react';
 import { LogoutButton } from '@/components/dashboard/logout-button';
 
-export default async function PanelPage() {
-  const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
-  if (!token) {
-    redirect('/login?callbackUrl=/panel');
-  }
-  const payload = verifyAuthJwt(token);
-  if (!payload) {
-    redirect('/login?callbackUrl=/panel');
-  }
+type StoredUser = {
+  id?: string;
+  email?: string;
+  name?: string | null;
+  role?: string;
+};
 
-  const user = await prisma.user.findUnique({
-    where: { id: payload.sub },
-    select: { email: true, name: true, role: true },
-  });
+export default function PanelPage() {
+  const [ready, setReady] = useState(false);
+  const [storedUser, setStoredUser] = useState<StoredUser | null>(null);
 
-  if (!user) {
-    redirect('/login?callbackUrl=/panel');
+  useLayoutEffect(() => {
+    const user = localStorage.getItem('user');
+    if (!user) {
+      window.location.href = '/login';
+      return;
+    }
+    try {
+      setStoredUser(JSON.parse(user) as StoredUser);
+    } catch {
+      window.location.href = '/login';
+      return;
+    }
+    setReady(true);
+  }, []);
+
+  if (!ready || !storedUser) {
+    return (
+      <div className="mx-auto flex min-h-screen max-w-2xl items-center justify-center px-4 text-zinc-600">
+        Načítání…
+      </div>
+    );
   }
 
   return (
@@ -36,15 +49,19 @@ export default async function PanelPage() {
       <h1 className="mt-6 text-2xl font-semibold tracking-tight">Panel</h1>
       <p className="mt-2 text-[15px] text-zinc-600">
         Přihlášen jako{' '}
-        <span className="font-medium text-zinc-800">{user.email}</span>
-        {user.name ? (
+        <span className="font-medium text-zinc-800">
+          {storedUser.email ?? '—'}
+        </span>
+        {storedUser.name ? (
           <>
             {' '}
-            ({user.name})
+            ({storedUser.name})
           </>
         ) : null}
       </p>
-      <p className="mt-1 text-sm text-zinc-500">Role: {user.role}</p>
+      <p className="mt-1 text-sm text-zinc-500">
+        Role: {storedUser.role ?? '—'}
+      </p>
       <div className="mt-8">
         <LogoutButton />
       </div>

@@ -13,6 +13,11 @@ export function LogoutButton() {
       onClick={() => {
         void (async () => {
           await logout();
+          try {
+            localStorage.removeItem('user');
+          } catch {
+            /* ignore */
+          }
           router.push('/');
           router.refresh();
         })();

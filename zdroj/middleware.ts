@@ -48,8 +48,7 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/panel',
-    '/panel/:path*',
+    // /panel chrání klient přes localStorage (viz app/panel/page.tsx)
     '/following',
     '/create',
     '/profile/edit',
