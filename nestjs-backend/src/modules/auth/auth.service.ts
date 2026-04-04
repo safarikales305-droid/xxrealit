@@ -183,10 +183,7 @@ export class AuthService {
     const email = dto.email.trim().toLowerCase();
     const { password } = dto;
 
-    console.log('LOGIN:', { email, password });
-
     const user = await this.users.findByEmail(email);
-    console.log('DB USER:', user);
 
     if (!user) {
       throw new HttpException(
@@ -196,6 +193,12 @@ export class AuthService {
     }
 
     const isValid = await bcrypt.compare(password, user.password);
+
+    console.log('LOGIN CHECK:', {
+      inputPassword: password,
+      hashed: user.password,
+      isValid,
+    });
 
     if (!isValid) {
       throw new HttpException(
