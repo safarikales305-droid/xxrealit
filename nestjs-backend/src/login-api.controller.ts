@@ -31,12 +31,27 @@ export class LoginApiController {
       }
 
       const user = await this.prisma.user.findUnique({
-        where: { email: normalizedEmail },
+        where: { email: email.trim().toLowerCase() },
+        select: {
+          id: true,
+          email: true,
+          password: true,
+          role: true,
+        },
       });
+
+      console.log('USER FROM DB:', user);
 
       if (!user) {
         res.status(401).json({
           error: 'Neplatný e-mail nebo heslo',
+        });
+        return;
+      }
+
+      if (!user.password) {
+        res.status(500).json({
+          error: 'Password not found in DB',
         });
         return;
       }
