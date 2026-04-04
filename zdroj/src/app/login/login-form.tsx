@@ -1,65 +1,60 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
-import { useAuth } from '@/hooks/use-auth';
 import { toPublicApiUrl } from '@/lib/public-api';
 
 const inputClass =
   'w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-[#ff6a00]/70 focus:ring-2 focus:ring-[#ff6a00]/15';
 
 export function LoginForm() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const { refresh } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function onSubmit(e: React.FormEvent) {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+
     setError(null);
     setLoading(true);
+
     try {
-      // Nest backend: POST /api/auth/login (API_BASE_URL už končí na /api)
-      const res = await fetch(toPublicApiUrl('/auth/login'), {
+      // Nest: POST /api/login (API_BASE_URL končí na /api → /login → …/api/login)
+      const res = await fetch(toPublicApiUrl('/login'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ email: email.trim(), password }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          password,
+        }),
       });
 
       const data = (await res.json().catch(() => ({}))) as {
-        success?: boolean;
         error?: string;
-        details?: string;
+        [key: string]: unknown;
       };
 
-      if (!res.ok || !data.success) {
-        const msg = [data.details, data.error].filter(Boolean).join(' — ');
+      console.log('LOGIN RESPONSE:', data);
+
+      if (!res.ok) {
         setError(
-          msg.trim() || 'Neplatný e-mail nebo heslo',
+          typeof data.error === 'string' && data.error
+            ? data.error
+            : JSON.stringify(data),
         );
         return;
       }
 
-      await refresh();
-
-      const callbackUrl =
-        searchParams.get('callbackUrl') ??
-        searchParams.get('from') ??
-        '/panel';
-
-      router.push(callbackUrl.startsWith('/') ? callbackUrl : '/panel');
-      router.refresh();
+      window.location.href = '/panel';
     } catch {
       setError('Nelze se spojit se serverem');
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-[#fafafa] px-4 py-16 text-zinc-900">
@@ -75,7 +70,7 @@ export function LoginForm() {
           Přihlaste se pro přístup k uživatelskému panelu.
         </p>
 
-        <form onSubmit={(e) => void onSubmit(e)} className="mt-8 space-y-4">
+        <form onSubmit={handleLogin} className="mt-8 space-y-4">
           <div>
             <label htmlFor="email" className="mb-1.5 block text-sm font-medium">
               E-mail
