@@ -1,11 +1,13 @@
 import type { PrismaClient } from '@prisma/client';
 import { UserRole } from '@prisma/client';
-import bcrypt from 'bcrypt';
 import {
   SEED_PROPERTIES,
   SEED_USER_EMAIL,
   SEED_USER_PASSWORD,
 } from './seed.constants';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const bcrypt = require('bcrypt');
 
 /** Inserts the sample listings when the DB has no properties (fresh SQLite). */
 export async function ensureDevSeedIfEmpty(prisma: PrismaClient): Promise<void> {

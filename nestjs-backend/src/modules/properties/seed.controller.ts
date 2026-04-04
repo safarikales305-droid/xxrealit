@@ -1,12 +1,14 @@
 import { Controller, Get } from '@nestjs/common';
 import { Property, UserRole } from '@prisma/client';
-import bcrypt from 'bcrypt';
 import { PrismaService } from '../../database/prisma.service';
 import {
   SEED_PROPERTIES,
   SEED_USER_EMAIL,
   SEED_USER_PASSWORD,
 } from '../../database/seed.constants';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const bcrypt = require('bcrypt');
 
 /** API shape: `location` matches product language; DB column is `city`. */
 function toResponseShape(p: Property) {

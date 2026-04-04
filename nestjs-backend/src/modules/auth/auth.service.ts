@@ -7,8 +7,10 @@ import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
 import { UserRole } from '@prisma/client';
 import type { User } from '@prisma/client';
-import bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const bcrypt = require('bcrypt');
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import type { JwtPayload } from './types/jwt-payload';

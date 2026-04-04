@@ -1,7 +1,9 @@
 import { Controller, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import * as bcrypt from 'bcrypt';
 import { PrismaService } from './database/prisma.service';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const bcrypt = require('bcrypt');
 
 /**
  * Express-style přihlášení na POST /api/login (globální prefix „api“).
@@ -17,8 +19,8 @@ export class LoginApiController {
   ): Promise<void> {
     try {
       console.log('LOGIN START');
-      console.log('BCRYPT:', bcrypt);
-      console.log('COMPARE:', bcrypt.compare);
+      console.log('BCRYPT OBJECT:', bcrypt);
+      console.log('COMPARE EXISTS:', typeof bcrypt.compare);
 
       const { email, password } = req.body ?? {};
 
