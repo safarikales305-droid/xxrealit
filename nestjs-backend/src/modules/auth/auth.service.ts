@@ -8,6 +8,7 @@ import { UserRole } from '@prisma/client';
 import type { User } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { UsersService } from '../users/users.service';
+import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import type { JwtPayload } from './types/jwt-payload';
 
@@ -81,10 +82,10 @@ export class AuthService {
     return user;
   }
 
-  async login(email: string, password: string) {
+  async login(dto: LoginDto) {
     const user = await this.validateUser(
-      email.trim().toLowerCase(),
-      password,
+      dto.email.trim().toLowerCase(),
+      dto.password,
     );
 
     return this.issueTokens(user);

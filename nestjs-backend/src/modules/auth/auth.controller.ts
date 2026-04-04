@@ -3,14 +3,13 @@ import {
   Controller,
   Get,
   Post,
-  UnauthorizedException,
+  Request,
   UseGuards,
 } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
 import { AuthService } from './auth.service';
-import { CurrentUser, type AuthUser } from './decorators/current-user.decorator';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import type { AuthUser } from './decorators/current-user.decorator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Controller('auth')
@@ -18,26 +17,18 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register')
-  register(@Body() body: RegisterDto) {
-    return this.authService.register(body);
+  async register(@Body() dto: RegisterDto) {
+    return this.authService.register(dto);
   }
 
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.authService.login(dto.email, dto.password);
+  async login(@Body() dto: LoginDto) {
+    return this.authService.login(dto);
   }
 
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  me(@CurrentUser() user: AuthUser | undefined) {
-    if (!user?.id) {
-      throw new UnauthorizedException();
-    }
-    return {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role as UserRole,
-    };
+  getMe(@Request() req: { user: AuthUser }) {
+    return req.user;
   }
 }
