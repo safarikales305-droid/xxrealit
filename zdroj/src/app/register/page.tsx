@@ -31,45 +31,36 @@ export default function RegisterPage() {
     setError(null);
     setLoading(true);
     try {
-      const payload = {
-        name: name.trim() || undefined,
-        email: email.trim().toLowerCase(),
-        password,
-        role: role.toLowerCase(),
-      };
+      const roleOption = ROLE_OPTIONS.find((o) => o.value === role);
+      const roleLabel = roleOption?.label ?? role;
 
-      const res = await fetch(toPublicApiUrl('/auth/register'), {
+      const registerUrl = toPublicApiUrl('/register');
+
+      const res = await fetch(registerUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+          name: name.trim() || undefined,
+          role: roleLabel,
+        }),
       });
 
       const data = (await res.json().catch(() => ({}))) as {
-        success?: boolean;
         error?: string;
-        details?: string;
-        message?: string | string[];
-        accessToken?: string;
+        [key: string]: unknown;
       };
 
-      if (!res.ok) {
-        let msg = '';
-        if (typeof data.error === 'string' && data.error.length > 0) {
-          msg = data.error;
-        } else if (Array.isArray(data.message)) {
-          msg = data.message.join(' ');
-        } else if (typeof data.message === 'string') {
-          msg = data.message;
-        }
-        if (data.details) {
-          msg = msg ? `${msg}: ${data.details}` : String(data.details);
-        }
-        setError(msg.trim() || `HTTP ${res.status}`);
-        return;
-      }
+      console.log('REGISTER RESPONSE:', data);
 
-      if (!data.success && !data.accessToken) {
-        setError('HTTP 200 bez tokenu — zkontrolujte API');
+      if (!res.ok) {
+        setError(
+          (typeof data.error === 'string' && data.error) ||
+            JSON.stringify(data),
+        );
         return;
       }
 
