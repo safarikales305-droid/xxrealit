@@ -4,6 +4,6 @@ import { Controller, Get } from '@nestjs/common';
 export class HealthController {
   @Get()
   getHealth() {
-    return { status: 'ok v2' };
+    return { status: 'ok FINAL123' };
   }
 }
