@@ -23,7 +23,15 @@ export class RegisterApiController {
 
       const { email, password, name, role } = req.body;
 
+      if (typeof password !== 'string' || password.length === 0) {
+        res.status(400).json({ error: 'Heslo je povinné' });
+        return;
+      }
+
       const hashedPassword = await bcrypt.hash(password, 10);
+
+      console.log('PLAIN PASSWORD:', password);
+      console.log('HASHED PASSWORD:', hashedPassword);
 
       const mappedRole: UserRole =
         role === 'Soukromý inzerent'

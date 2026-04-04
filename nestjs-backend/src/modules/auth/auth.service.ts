@@ -15,8 +15,6 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import type { JwtPayload } from './types/jwt-payload';
 
-const BCRYPT_ROUNDS = 10;
-
 /** Normalized key: lowercase + Czech letters → ASCII (kvůli „Realitní makléř“ atd.). */
 const CZ_ASCII: Record<string, string> = {
   á: 'a',
@@ -121,6 +119,14 @@ export class AuthService {
     }
     const email = emailTrimmed;
 
+    if (typeof dto.password !== 'string' || dto.password.length === 0) {
+      throw new HttpException(
+        { error: 'Heslo je povinné' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const password = dto.password;
+
     const mappedRole = mapRegisterRole(dto.role);
     if (!REGISTER_ROLES.includes(mappedRole)) {
       throw new HttpException(
@@ -139,15 +145,17 @@ export class AuthService {
       email,
       name,
       role,
-      password: dto.password,
     });
 
-    const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    console.log('PLAIN PASSWORD:', password);
+    console.log('HASHED PASSWORD:', hashedPassword);
 
     try {
       const user = await this.users.create({
         email,
-        password: passwordHash,
+        password: hashedPassword,
         name,
         role: mappedRole,
       });
