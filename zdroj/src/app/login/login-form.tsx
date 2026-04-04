@@ -34,6 +34,7 @@ export function LoginForm() {
 
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
+        role?: string;
         [key: string]: unknown;
       };
 
@@ -48,7 +49,14 @@ export function LoginForm() {
         return;
       }
 
-      window.location.href = '/panel';
+      console.log('LOGIN SUCCESS:', data);
+
+      // redirect podle role
+      if (data.role === 'ADMIN') {
+        window.location.href = '/admin';
+      } else {
+        window.location.href = '/panel';
+      }
     } catch {
       setError('Nelze se spojit se serverem');
     } finally {
