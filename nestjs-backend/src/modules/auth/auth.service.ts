@@ -73,6 +73,32 @@ function mapRegisterRole(input?: string): UserRole {
   return roleMap[key] ?? UserRole.USER;
 }
 
+const REGISTER_ROLES: readonly UserRole[] = [
+  UserRole.USER,
+  UserRole.AGENT,
+  UserRole.DEVELOPER,
+];
+
+function errorDetailForResponse(err: unknown): Record<string, unknown> {
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    return {
+      name: err.name,
+      code: err.code,
+      message: err.message,
+      meta: err.meta as Record<string, unknown>,
+      clientVersion: err.clientVersion,
+    };
+  }
+  if (err instanceof Error) {
+    return {
+      name: err.name,
+      message: err.message,
+      stack: err.stack,
+    };
+  }
+  return { value: String(err) };
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -81,36 +107,75 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
-    const email = dto.email.trim().toLowerCase();
-    const password = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
+    const emailTrimmed = dto.email?.trim().toLowerCase() ?? '';
+    if (!emailTrimmed) {
+      throw new HttpException(
+        {
+          error: 'Email je povinný',
+          detail: { email: dto.email },
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const email = emailTrimmed;
+
     const mappedRole = mapRegisterRole(dto.role);
+    if (!REGISTER_ROLES.includes(mappedRole)) {
+      throw new HttpException(
+        {
+          error: 'Neplatná role',
+          detail: { role: dto.role, mappedRole },
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
     const name = dto.name?.trim() || null;
+    const role = dto.role;
+
+    console.log('REGISTER INPUT:', {
+      email,
+      name,
+      role,
+      password: dto.password,
+    });
+
+    const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
 
     try {
       const user = await this.users.create({
         email,
-        password,
+        password: passwordHash,
         name,
         role: mappedRole,
       });
 
       return this.issueTokens(user);
-    } catch (err: unknown) {
-      console.error('REGISTER ERROR:', err);
+    } catch (err: any) {
+      console.error('REGISTER ERROR FULL:', err);
+      console.error('MESSAGE:', err?.message);
+      console.error('STACK:', err?.stack);
 
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === 'P2002'
       ) {
         throw new HttpException(
-          { error: 'Uživatel s tímto e-mailem už existuje' },
+          {
+            error: 'Uživatel s tímto e-mailem už existuje',
+            detail: errorDetailForResponse(err),
+          },
           HttpStatus.CONFLICT,
         );
       }
 
-      const message =
-        err instanceof Error ? err.message : 'Neznámá chyba při registraci';
-      throw new HttpException({ error: message }, HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        {
+          error: err?.message || 'Unknown error',
+          detail: errorDetailForResponse(err),
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
