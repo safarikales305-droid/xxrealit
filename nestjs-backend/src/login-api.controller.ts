@@ -18,11 +18,9 @@ export class LoginApiController {
     @Res({ passthrough: false }) res: Response,
   ): Promise<void> {
     try {
-      console.log('LOGIN START');
-      console.log('BCRYPT OBJECT:', bcrypt);
-      console.log('COMPARE EXISTS:', typeof bcrypt.compare);
-
       const { email, password } = req.body ?? {};
+
+      console.log('LOGIN INPUT:', { email, password });
 
       const normalizedEmail =
         typeof email === 'string' ? email.trim().toLowerCase() : '';
@@ -33,7 +31,7 @@ export class LoginApiController {
       }
 
       const user = await this.prisma.user.findUnique({
-        where: { email: email.trim().toLowerCase() },
+        where: { email: normalizedEmail },
         select: {
           id: true,
           email: true,
