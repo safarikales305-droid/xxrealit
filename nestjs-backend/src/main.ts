@@ -7,15 +7,16 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   app.enableCors({
-    origin: '*',
-    methods: '*',
-    allowedHeaders: '*',
+    origin: [
+      'https://xxrealit-production.up.railway.app',
+      'http://localhost:3000',
+    ],
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    allowedHeaders: 'Content-Type, Accept, Authorization',
+    credentials: true,
   });
 
-  const port = process.env.PORT || 3000;
-  await app.listen(port, '0.0.0.0');
-
-  console.log(`🚀 Server running on port ${port}`);
+  await app.listen(process.env.PORT || 3000, '0.0.0.0');
 }
 
 bootstrap();
