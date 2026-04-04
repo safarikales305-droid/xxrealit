@@ -16,6 +16,8 @@ export class LoginApiController {
     @Res({ passthrough: false }) res: Response,
   ): Promise<void> {
     try {
+      console.log('LOGIN START');
+
       const { email, password } = req.body ?? {};
 
       const normalizedEmail =
@@ -39,11 +41,7 @@ export class LoginApiController {
 
       const isValid = await bcrypt.compare(password, user.password);
 
-      console.log('LOGIN CHECK:', {
-        inputPassword: password,
-        hashed: user.password,
-        isValid,
-      });
+      console.log('COMPARE RESULT:', isValid);
 
       if (!isValid) {
         res.status(401).json({
@@ -58,7 +56,7 @@ export class LoginApiController {
         role: user.role,
       });
     } catch (err: any) {
-      console.error('LOGIN ERROR:', err);
+      console.error('LOGIN ERROR FULL:', err);
 
       res.status(500).json({
         error: err?.message,

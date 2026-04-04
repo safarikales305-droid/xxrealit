@@ -180,34 +180,44 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const email = dto.email.trim().toLowerCase();
-    const { password } = dto;
+    console.log('LOGIN START');
 
-    const user = await this.users.findByEmail(email);
+    try {
+      const email = dto.email.trim().toLowerCase();
+      const { password } = dto;
 
-    if (!user) {
-      throw new HttpException(
-        { error: 'Neplatný e-mail nebo heslo' },
-        HttpStatus.UNAUTHORIZED,
-      );
+      const user = await this.users.findByEmail(email);
+
+      if (!user) {
+        throw new HttpException(
+          { error: 'Neplatný e-mail nebo heslo' },
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
+
+      const isValid = await bcrypt.compare(password, user.password);
+
+      console.log('COMPARE RESULT:', isValid);
+
+      if (!isValid) {
+        throw new HttpException(
+          { error: 'Neplatný e-mail nebo heslo' },
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
+
+      return this.issueTokens(user);
+    } catch (err: unknown) {
+      console.error('LOGIN ERROR FULL:', err);
+
+      if (err instanceof HttpException) {
+        throw err;
+      }
+
+      const message =
+        err instanceof Error ? err.message : 'Unknown error';
+      throw new HttpException({ error: message }, HttpStatus.INTERNAL_SERVER_ERROR);
     }
-
-    const isValid = await bcrypt.compare(password, user.password);
-
-    console.log('LOGIN CHECK:', {
-      inputPassword: password,
-      hashed: user.password,
-      isValid,
-    });
-
-    if (!isValid) {
-      throw new HttpException(
-        { error: 'Neplatný e-mail nebo heslo' },
-        HttpStatus.UNAUTHORIZED,
-      );
-    }
-
-    return this.issueTokens(user);
   }
 
   issueTokens(user: User) {
