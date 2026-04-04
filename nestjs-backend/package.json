@@ -5,9 +5,9 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "nest build",
-    "start": "node dist/main",
-    "start:prod": "node dist/main",
+    "build": "rm -rf dist && nest build",
+    "start": "node dist/main.js",
+    "start:prod": "node dist/main.js",
     "start:dev": "nest start --watch",
     "postinstall": "prisma generate"
   },
