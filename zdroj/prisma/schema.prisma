@@ -8,11 +8,81 @@ datasource db {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  password     String
-  role         String    @default("PRIVATE_SELLER")
-  createdAt    DateTime  @default(now())
-  resetToken   String?   @unique
-  resetExpires DateTime?
+  id                              String            @id @default(cuid())
+  email                           String            @unique
+  password                        String
+  role                            UserRole          @default(PRIVATE_SELLER)
+  resetToken                      String?
+  resetExpires                    DateTime?
+  name                            String?
+  avatar                          String?
+  bio                             String?
+  city                            String?
+  rating                          Float             @default(0)
+  createdAt                       DateTime          @default(now())
+  Follow_Follow_followerIdToUser  Follow[]          @relation("Follow_followerIdToUser")
+  Follow_Follow_followingIdToUser Follow[]          @relation("Follow_followingIdToUser")
+  Property                        Property[]
+  PropertyComment                 PropertyComment[]
+  PropertyLike                    PropertyLike[]
+}
+
+model Follow {
+  id                            String   @id
+  followerId                    String
+  followingId                   String
+  createdAt                     DateTime @default(now())
+  User_Follow_followerIdToUser  User     @relation("Follow_followerIdToUser", fields: [followerId], references: [id], onDelete: Cascade)
+  User_Follow_followingIdToUser User     @relation("Follow_followingIdToUser", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
+}
+
+model Property {
+  id              String            @id
+  title           String
+  price           Int
+  videoUrl        String?
+  city            String
+  createdAt       DateTime          @default(now())
+  userId          String
+  User            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  PropertyComment PropertyComment[]
+  PropertyLike    PropertyLike[]
+
+  @@index([userId])
+}
+
+model PropertyComment {
+  id         String   @id
+  propertyId String
+  userId     String
+  body       String
+  createdAt  DateTime @default(now())
+  Property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  User       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+}
+
+model PropertyLike {
+  id         String   @id
+  propertyId String
+  userId     String
+  createdAt  DateTime @default(now())
+  Property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  User       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, userId])
+  @@index([propertyId])
+  @@index([userId])
+}
+
+enum UserRole {
+  USER
+  AGENT
+  DEVELOPER
+  PRIVATE_SELLER
 }

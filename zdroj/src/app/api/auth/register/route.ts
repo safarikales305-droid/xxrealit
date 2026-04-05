@@ -6,6 +6,8 @@ import { prisma } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
+const ALLOWED_ROLES = ['PRIVATE_SELLER', 'AGENT', 'DEVELOPER'] as const;
+
 const bodySchema = z
   .object({
     email: z
@@ -15,6 +17,7 @@ const bodySchema = z
       .pipe(z.string().email('Neplatný e-mail')),
     password: z.string().min(6, 'Heslo musí mít alespoň 6 znaků'),
     confirmPassword: z.string().min(1, 'Potvrzení hesla je povinné'),
+    role: z.enum(ALLOWED_ROLES, { message: 'Vyberte platnou roli' }),
   })
   .refine((d) => d.password === d.confirmPassword, {
     message: 'Hesla se neshodují',
@@ -32,21 +35,24 @@ export async function POST(req: Request) {
 
     const parsed = bodySchema.safeParse(json);
     if (!parsed.success) {
-      const msg = parsed.error.flatten().fieldErrors;
+      const flat = parsed.error.flatten();
       return NextResponse.json(
-        { error: 'Validace selhala', details: msg },
+        {
+          error: 'Zkontrolujte údaje ve formuláři',
+          fieldErrors: flat.fieldErrors,
+        },
         { status: 400 },
       );
     }
 
-    const { email, password } = parsed.data;
+    const { email, password, role } = parsed.data;
     const hashed = await hashPassword(password);
 
     await prisma.user.create({
       data: {
         email,
         password: hashed,
-        role: 'PRIVATE_SELLER',
+        role,
       },
     });
 
@@ -54,7 +60,14 @@ export async function POST(req: Request) {
   } catch (e: unknown) {
     console.error('[register]', e);
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-      return NextResponse.json({ error: 'Tento e-mail je již registrován' }, { status: 409 });
+      return NextResponse.json(
+        {
+          error: 'Tento e-mail je již registrován',
+          code: 'EMAIL_EXISTS',
+          fieldErrors: { email: ['Účet s tímto e-mailem už existuje'] },
+        },
+        { status: 409 },
+      );
     }
     return NextResponse.json(
       { error: e instanceof Error ? e.message : 'Chyba serveru' },
