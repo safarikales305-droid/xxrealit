@@ -174,10 +174,24 @@ export class AuthService {
       console.log('RESEND RESPONSE:', response);
 
       if (response.error) {
-        console.error('RESET ERROR FULL:', response.error);
+        const re = response.error;
+        console.error('RESEND ERROR FULL (API):', re);
+        console.error('RESEND ERROR MESSAGE:', re.message ?? '(no message)');
+        console.error('RESEND ERROR NAME:', 'name' in re ? re.name : '(no name)');
+        console.error(
+          'RESEND ERROR STATUS:',
+          'statusCode' in re ? re.statusCode : '(no statusCode)',
+        );
+        console.error(
+          'RESEND ERROR STACK:',
+          'stack' in re && typeof (re as { stack?: string }).stack === 'string'
+            ? (re as { stack: string }).stack
+            : '(no stack)',
+        );
+        console.error('RESEND ERROR JSON:', JSON.stringify(re));
         return {
           success: false,
-          error: response.error.message ?? JSON.stringify(response.error),
+          error: re.message ?? JSON.stringify(re),
         };
       }
 
@@ -185,12 +199,14 @@ export class AuthService {
         success: true,
         message: 'Email odeslán',
       };
-    } catch (error: unknown) {
-      const err = error as { message?: string };
-      console.error('RESET ERROR FULL:', error);
+    } catch (error: any) {
+      console.error('RESEND ERROR FULL:', error);
+      console.error('RESEND ERROR MESSAGE:', error?.message);
+      console.error('RESEND ERROR STACK:', error?.stack);
+
       return {
         success: false,
-        error: err?.message || 'Unknown error',
+        error: error?.message || 'Email failed',
       };
     }
   }
