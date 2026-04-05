@@ -4,6 +4,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import * as fs from 'node:fs';
 import { join } from 'node:path';
 import { AppModule } from './app.module';
+import { ensureUploadsPathExists } from './lib/uploads-path';
 
 function parseExtraCorsOrigins(): string[] {
   const raw = process.env.CORS_ORIGINS?.trim();
@@ -36,10 +37,7 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
 
-  const uploadsRoot = join(__dirname, '..', 'uploads');
-  if (!fs.existsSync(uploadsRoot)) {
-    fs.mkdirSync(uploadsRoot, { recursive: true });
-  }
+  const uploadsRoot = ensureUploadsPathExists();
   const propertiesUploadRoot = join(uploadsRoot, 'properties');
   if (!fs.existsSync(propertiesUploadRoot)) {
     fs.mkdirSync(propertiesUploadRoot, { recursive: true });

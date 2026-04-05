@@ -1,15 +1,10 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { diskStorage } from 'multer';
 import { extname, join } from 'node:path';
+import { getUploadsPath } from '../../lib/uploads-path';
 
-const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
-
-/**
- * Musí odpovídat `join(__dirname, '..', 'uploads')` v `main.ts` při startu z kořene
- * aplikace (`process.cwd()` je typicky `/app` na Railway).
- */
 export function getUploadsRoot(): string {
-  return join(process.cwd(), 'uploads');
+  return getUploadsPath();
 }
 
 function ensureDir(dir: string) {
@@ -17,36 +12,6 @@ function ensureDir(dir: string) {
     mkdirSync(dir, { recursive: true });
   }
 }
-
-function imageFileFilter(
-  _req: unknown,
-  file: Express.Multer.File,
-  cb: (error: Error | null, acceptFile: boolean) => void,
-) {
-  const ext = extname(file.originalname || '').toLowerCase() || '.jpg';
-  if (!IMAGE_EXT.has(ext)) {
-    cb(new Error('Nepovolený formát souboru (použijte JPG, PNG, WebP, GIF)'), false);
-    return;
-  }
-  cb(null, true);
-}
-
-export const avatarMulterOptions = {
-  storage: diskStorage({
-    destination: (_req, _file, cb) => {
-      const dir = getUploadsRoot();
-      ensureDir(dir);
-      cb(null, dir);
-    },
-    filename: (_req, file, cb) => {
-      const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-      const ext = extname(file.originalname || '').toLowerCase() || '.jpg';
-      cb(null, `${unique}${ext}`);
-    },
-  }),
-  limits: { fileSize: 2 * 1024 * 1024 },
-  fileFilter: imageFileFilter,
-};
 
 export const propertyImagesMulterOptions = {
   storage: diskStorage({
@@ -62,5 +27,4 @@ export const propertyImagesMulterOptions = {
     },
   }),
   limits: { fileSize: 6 * 1024 * 1024 },
-  fileFilter: imageFileFilter,
 };
