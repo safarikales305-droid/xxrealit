@@ -29,6 +29,11 @@ type ImportPropertiesBody = {
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
+  @Get()
+  getAdmin() {
+    return { message: 'Admin panel OK' };
+  }
+
   @Get('stats')
   stats() {
     return this.adminService.stats();

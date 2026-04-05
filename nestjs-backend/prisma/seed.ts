@@ -3,23 +3,24 @@ import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
+const ADMIN_EMAIL = 'admin@admin.cz';
+const ADMIN_PASSWORD = 'admin123';
+
 async function main() {
-  const email = 'admin@admin.cz';
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) {
-    console.log('Admin už existuje:', email);
-    return;
-  }
-  const password = await bcrypt.hash('admin123', 10);
-  await prisma.user.create({
-    data: {
-      email,
-      password,
+  const hashed = await bcrypt.hash(ADMIN_PASSWORD, 10);
+
+  await prisma.user.upsert({
+    where: { email: ADMIN_EMAIL },
+    update: {},
+    create: {
+      email: ADMIN_EMAIL,
+      password: hashed,
       role: UserRole.ADMIN,
       name: 'Administrátor',
     },
   });
-  console.log('Vytvořen admin:', email);
+
+  console.log('Admin připraven:', ADMIN_EMAIL, '/', ADMIN_PASSWORD);
 }
 
 main()
