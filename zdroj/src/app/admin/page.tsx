@@ -8,6 +8,7 @@ import { nestApiConfigured } from '@/lib/nest-client';
 import {
   nestAdminApproveProperty,
   nestAdminChangePassword,
+  nestAdminImportProperties,
   nestAdminProperties,
   nestAdminStats,
   nestAdminUsers,
@@ -50,6 +51,11 @@ export default function AdminPage() {
   const [newPw2, setNewPw2] = useState('');
   const [pwMsg, setPwMsg] = useState<string | null>(null);
 
+  const [rapidApiKey, setRapidApiKey] = useState('');
+  const [importLoading, setImportLoading] = useState(false);
+  const [importSuccess, setImportSuccess] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+
   const refresh = useCallback(async () => {
     if (!token) return;
     setLoadError(null);
@@ -89,6 +95,28 @@ export default function AdminPage() {
     setBusyId(null);
     if (r.ok) await refresh();
     else setLoadError(r.error ?? 'Schválení selhalo');
+  }
+
+  async function onImportRapid(e: React.FormEvent) {
+    e.preventDefault();
+    setImportSuccess(null);
+    setImportError(null);
+    if (!token) return;
+    const key = rapidApiKey.trim();
+    if (!key) {
+      setImportError('Zadejte RapidAPI klíč');
+      return;
+    }
+    setImportLoading(true);
+    const r = await nestAdminImportProperties(token, key);
+    setImportLoading(false);
+    if (r.ok) {
+      setImportSuccess(`Naimportováno ${r.imported} inzerátů`);
+      setRapidApiKey('');
+      await refresh();
+    } else {
+      setImportError(r.error ?? 'Import selhal');
+    }
   }
 
   async function onPasswordSubmit(e: React.FormEvent) {
@@ -178,6 +206,59 @@ export default function AdminPage() {
             {loadError}
           </p>
         ) : null}
+
+        <section>
+          <h2 className="mb-4 text-lg font-semibold tracking-tight">Import inzerátů</h2>
+          <p className="mb-4 max-w-2xl text-sm text-zinc-600">
+            RapidAPI —{' '}
+            <code className="rounded bg-zinc-100 px-1 text-xs">realty-in-us</code> (
+            <span className="break-all">list-for-sale</span>, výchozí Houston TX). Klíč se
+            neukládá; použije se jen pro jeden požadavek. Inzeráty se uloží pod vaším admin
+            účtem jako schválené.
+          </p>
+          <form
+            onSubmit={(e) => void onImportRapid(e)}
+            className="max-w-xl space-y-4 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm"
+          >
+            <div>
+              <label htmlFor="rapidKey" className="mb-1 block text-sm font-medium text-zinc-700">
+                RapidAPI klíč
+              </label>
+              <input
+                id="rapidKey"
+                type="password"
+                autoComplete="off"
+                value={rapidApiKey}
+                onChange={(e) => setRapidApiKey(e.target.value)}
+                placeholder="X-RapidAPI-Key"
+                className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:border-[#ff6a00]/55 focus:ring-2 focus:ring-[#ff6a00]/15"
+              />
+            </div>
+            {importError ? (
+              <p className="text-sm font-medium text-red-600" role="alert">
+                {importError}
+              </p>
+            ) : null}
+            {importSuccess ? (
+              <p className="text-sm font-medium text-emerald-700" role="status">
+                {importSuccess}
+              </p>
+            ) : null}
+            <button
+              type="submit"
+              disabled={importLoading || !apiOk}
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:opacity-50"
+            >
+              {importLoading ? (
+                <span
+                  className="inline-block size-4 animate-spin rounded-full border-2 border-white border-t-transparent"
+                  aria-hidden
+                />
+              ) : null}
+              {importLoading ? 'Importuji…' : 'Importovat'}
+            </button>
+          </form>
+        </section>
 
         <section>
           <h2 className="mb-4 text-lg font-semibold tracking-tight">Statistiky</h2>

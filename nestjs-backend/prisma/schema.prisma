@@ -58,6 +58,10 @@ model Property {
   title     String
   price     Int
   videoUrl  String?
+  /// Hlavní fotka (např. import z RapidAPI).
+  imageUrl  String?
+  /// Popis inzerátu (import / budoucí editor).
+  description String? @db.Text
   city      String
   /// Ve veřejném výpisu jen schválené; admin vidí vše.
   approved  Boolean  @default(true)

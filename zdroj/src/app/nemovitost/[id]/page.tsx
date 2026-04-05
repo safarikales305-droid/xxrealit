@@ -56,6 +56,12 @@ export default async function NemovitostDetailPage({ params }: Props) {
               playsInline
               preload="metadata"
             />
+          ) : p.imageUrl ? (
+            <img
+              src={nestAbsoluteAssetUrl(p.imageUrl)}
+              alt=""
+              className="h-full w-full object-cover"
+            />
           ) : (
             <div className="flex h-full items-center justify-center bg-gradient-to-br from-zinc-100 to-zinc-200 text-sm text-zinc-500">
               Bez náhledu videa
@@ -72,6 +78,13 @@ export default async function NemovitostDetailPage({ params }: Props) {
           <p className="mt-2 text-[15px] font-medium text-zinc-700">
             <span className="text-zinc-500">Lokalita:</span> {p.location}
           </p>
+          {p.description ? (
+            <div className="prose prose-zinc mt-6 max-w-none">
+              <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-700">
+                {p.description}
+              </p>
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -122,6 +135,12 @@ export default async function NemovitostDetailPage({ params }: Props) {
                       playsInline
                       preload="metadata"
                       aria-hidden
+                    />
+                  ) : item.imageUrl ? (
+                    <img
+                      src={nestAbsoluteAssetUrl(item.imageUrl)}
+                      alt=""
+                      className="h-full w-full object-cover"
                     />
                   ) : (
                     <div className="flex h-full items-center justify-center bg-gradient-to-br from-zinc-100 to-zinc-200 text-sm text-zinc-400">

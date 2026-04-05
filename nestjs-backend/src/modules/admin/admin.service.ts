@@ -7,6 +7,11 @@ import {
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { serializeProperty } from '../properties/properties.serializer';
+import {
+  mapRapidResponseToRows,
+  RAPID_REALTY_HOST,
+  RAPID_REALTY_LIST_URL,
+} from './rapid-realty-import';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bcrypt = require('bcrypt');
@@ -79,6 +84,81 @@ export class AdminService {
       where: { id: propertyId },
       data: { approved: true },
     });
+  }
+
+  /**
+   * RapidAPI Realty in US — import pod účtem volajícího admina (approved = true).
+   */
+  async importPropertiesFromRapidApi(adminUserId: string, apiKeyRaw: string) {
+    const apiKey = typeof apiKeyRaw === 'string' ? apiKeyRaw.trim() : '';
+    if (!apiKey) {
+      throw new BadRequestException('apiKey je povinný');
+    }
+
+    const url = new URL(RAPID_REALTY_LIST_URL);
+    url.searchParams.set('limit', '20');
+    url.searchParams.set('city', 'Houston');
+    url.searchParams.set('state_code', 'TX');
+
+    let res: Response;
+    try {
+      res = await fetch(url.toString(), {
+        headers: {
+          'X-RapidAPI-Key': apiKey,
+          'X-RapidAPI-Host': RAPID_REALTY_HOST,
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(45_000),
+      });
+    } catch {
+      throw new BadRequestException('Nepodařilo se spojit s RapidAPI');
+    }
+
+    if (res.status === 401 || res.status === 403) {
+      throw new UnauthorizedException('Neplatný nebo nepovolený RapidAPI klíč');
+    }
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new BadRequestException(
+        `RapidAPI vrátilo HTTP ${res.status}${text ? `: ${text.slice(0, 240)}` : ''}`,
+      );
+    }
+
+    let json: unknown;
+    try {
+      json = await res.json();
+    } catch {
+      throw new BadRequestException('RapidAPI nevrátilo platné JSON');
+    }
+
+    const rows = mapRapidResponseToRows(json);
+    if (rows.length === 0) {
+      throw new BadRequestException(
+        'API nevrátilo žádné zpracovatelné inzeráty. Zkontrolujte klíč nebo strukturu odpovědi.',
+      );
+    }
+
+    const maxPerRun = 50;
+    const slice = rows.slice(0, maxPerRun);
+    let imported = 0;
+    for (const row of slice) {
+      await this.prisma.property.create({
+        data: {
+          title: row.title,
+          price: row.price,
+          city: row.city,
+          imageUrl: row.imageUrl,
+          description: row.description,
+          userId: adminUserId,
+          approved: true,
+          videoUrl: null,
+        },
+      });
+      imported += 1;
+    }
+
+    return { imported };
   }
 
   async changePassword(userId: string, oldPassword: string, newPassword: string) {

@@ -183,6 +183,42 @@ export async function nestAdminChangePassword(
   return { ok: true };
 }
 
+export async function nestAdminImportProperties(
+  token: string | null,
+  apiKey: string,
+): Promise<{ ok: true; imported: number } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/admin/import-properties`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ apiKey }),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    imported?: number;
+    message?: string | string[];
+    error?: string;
+  };
+  if (!res.ok) {
+    const msg =
+      typeof data.message === 'string'
+        ? data.message
+        : Array.isArray(data.message)
+          ? data.message.join(', ')
+          : typeof data.error === 'string'
+            ? data.error
+            : `HTTP ${res.status}`;
+    return { ok: false, error: msg };
+  }
+  const imported = typeof data.imported === 'number' ? data.imported : 0;
+  return { ok: true, imported };
+}
+
 export async function nestUploadAvatar(
   token: string | null,
   file: File,

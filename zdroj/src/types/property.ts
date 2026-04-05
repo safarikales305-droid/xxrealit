@@ -8,6 +8,8 @@ export type PropertyFromApi = {
   city?: string;
   location?: string;
   videoUrl?: string | null;
+  imageUrl?: string | null;
+  description?: string | null;
   userId?: string;
   ownerCity?: string | null;
   likeCount?: number;
@@ -20,6 +22,8 @@ export type PropertyFeedItem = {
   price: number;
   location: string;
   videoUrl: string | null;
+  imageUrl?: string | null;
+  description?: string | null;
   userId?: string;
   ownerCity?: string | null;
   likeCount?: number;
@@ -37,6 +41,14 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
     price: p.price,
     location: (p.location ?? p.city ?? '').trim() || 'Neuvedeno',
     videoUrl: normalizePublicVideoUrl(p.videoUrl),
+    imageUrl:
+      p.imageUrl === null || typeof p.imageUrl === 'string'
+        ? p.imageUrl
+        : undefined,
+    description:
+      p.description === null || typeof p.description === 'string'
+        ? p.description
+        : undefined,
     userId: typeof p.userId === 'string' ? p.userId : undefined,
     ownerCity:
       p.ownerCity === null || typeof p.ownerCity === 'string'
@@ -71,6 +83,14 @@ export function safeNormalizePropertyFromApi(
       videoUrl:
         o.videoUrl === null || typeof o.videoUrl === 'string'
           ? o.videoUrl
+          : undefined,
+      imageUrl:
+        o.imageUrl === null || typeof o.imageUrl === 'string'
+          ? o.imageUrl
+          : undefined,
+      description:
+        o.description === null || typeof o.description === 'string'
+          ? o.description
           : undefined,
       userId: typeof o.userId === 'string' ? o.userId : undefined,
       ownerCity:

@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Patch,
+  Post,
   Param,
   UseGuards,
 } from '@nestjs/common';
@@ -15,6 +16,10 @@ import { AdminGuard } from './guards/admin.guard';
 type ChangePasswordBody = {
   oldPassword?: string;
   newPassword?: string;
+};
+
+type ImportPropertiesBody = {
+  apiKey?: string;
 };
 
 @Controller('admin')
@@ -40,6 +45,17 @@ export class AdminController {
   @Get('users')
   listUsers() {
     return this.adminService.listUsers();
+  }
+
+  @Post('import-properties')
+  importProperties(
+    @CurrentUser() user: AuthUser,
+    @Body() body: ImportPropertiesBody,
+  ) {
+    return this.adminService.importPropertiesFromRapidApi(
+      user.id,
+      typeof body.apiKey === 'string' ? body.apiKey : '',
+    );
   }
 
   @Patch('password')

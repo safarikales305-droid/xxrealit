@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
+import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { nestApiConfigured, nestToggleFavorite } from '@/lib/nest-client';
 import type { PropertyFeedItem } from '@/types/property';
 
@@ -86,7 +87,7 @@ export function PropertyGrid({ properties }: Props) {
           const liked = likedMap[p.id] ?? Boolean(p.liked);
           return (
             <article
-              key={p.id + (p.videoUrl ?? '')}
+              key={p.id + (p.videoUrl ?? '') + (p.imageUrl ?? '')}
               className="group relative flex flex-col overflow-hidden rounded-xl border border-zinc-200/90 bg-white shadow-sm transition duration-300 hover:border-zinc-300 hover:shadow-md"
             >
               <Link href={`/nemovitost/${p.id}`} className="block flex flex-1 flex-col">
@@ -101,6 +102,12 @@ export function PropertyGrid({ properties }: Props) {
                       preload="metadata"
                       onError={() => console.error('VIDEO ERROR', p.videoUrl)}
                       aria-hidden
+                    />
+                  ) : p.imageUrl ? (
+                    <img
+                      src={nestAbsoluteAssetUrl(p.imageUrl)}
+                      alt=""
+                      className="h-full w-full object-cover"
                     />
                   ) : (
                     <div className="flex h-full items-center justify-center bg-gradient-to-br from-zinc-100 to-zinc-200 text-sm text-zinc-400">

@@ -4,6 +4,8 @@ export type PropertyRowForApi = {
   price: number;
   city: string;
   videoUrl: string | null;
+  imageUrl?: string | null;
+  description?: string | null;
   approved?: boolean;
   createdAt: Date;
   userId: string;
@@ -28,6 +30,9 @@ export function serializeProperty(
     location: p.city,
     city: p.city,
     videoUrl: p.videoUrl,
+    imageUrl: p.imageUrl ?? null,
+    description:
+      typeof p.description === 'string' ? p.description : null,
     approved: typeof p.approved === 'boolean' ? p.approved : true,
     createdAt: p.createdAt,
     userId: p.userId,
