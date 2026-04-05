@@ -176,7 +176,7 @@ export function Navbar({
                     href="/admin"
                     className="rounded-lg px-2 py-1.5 text-xs font-semibold text-[#e85d00] transition hover:bg-orange-50"
                   >
-                    Admin
+                    👉 Admin
                   </Link>
                 ) : null}
                 <button
@@ -266,7 +266,7 @@ export function Navbar({
                 </Link>
                 {isAdmin ? (
                   <Link href="/admin" className={navBtn} onClick={() => setMenuOpen(false)}>
-                    Admin
+                    👉 Admin
                   </Link>
                 ) : null}
                 <Link href="/inzerat/pridat" className={navBtn} onClick={() => setMenuOpen(false)}>

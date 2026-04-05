@@ -21,14 +21,16 @@ export class AdminService {
   constructor(private readonly prisma: PrismaService) {}
 
   async stats() {
-    const [totalUsers, adminUsers] = await Promise.all([
+    const [totalUsers, adminUsers, properties] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.user.count({ where: { role: UserRole.ADMIN } }),
+      this.prisma.property.count(),
     ]);
     return {
       users: totalUsers - adminUsers,
       admins: adminUsers,
       total: totalUsers,
+      properties,
     };
   }
 
@@ -167,6 +169,61 @@ export class AdminService {
     }
 
     return { imported };
+  }
+
+  async updateUserRole(_actorId: string, targetId: string, newRole: UserRole) {
+    const target = await this.prisma.user.findUnique({ where: { id: targetId } });
+    if (!target) {
+      throw new NotFoundException('Uživatel nenalezen');
+    }
+    if (target.role === UserRole.ADMIN && newRole !== UserRole.ADMIN) {
+      const adminCount = await this.prisma.user.count({
+        where: { role: UserRole.ADMIN },
+      });
+      if (adminCount <= 1) {
+        throw new BadRequestException('Nelze odebrat posledního administrátora');
+      }
+    }
+    const updated = await this.prisma.user.update({
+      where: { id: targetId },
+      data: { role: newRole },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        avatar: true,
+        createdAt: true,
+        name: true,
+      },
+    });
+    return {
+      id: updated.id,
+      email: updated.email,
+      name: updated.name,
+      role: updated.role,
+      avatarUrl: updated.avatar,
+      createdAt: updated.createdAt,
+    };
+  }
+
+  async deleteUser(actorId: string, targetId: string) {
+    if (actorId === targetId) {
+      throw new BadRequestException('Nelze smazat vlastní účet');
+    }
+    const target = await this.prisma.user.findUnique({ where: { id: targetId } });
+    if (!target) {
+      throw new NotFoundException('Uživatel nenalezen');
+    }
+    if (target.role === UserRole.ADMIN) {
+      const adminCount = await this.prisma.user.count({
+        where: { role: UserRole.ADMIN },
+      });
+      if (adminCount <= 1) {
+        throw new BadRequestException('Nelze smazat posledního administrátora');
+      }
+    }
+    await this.prisma.user.delete({ where: { id: targetId } });
+    return { success: true };
   }
 
   async changePassword(userId: string, oldPassword: string, newPassword: string) {

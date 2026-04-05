@@ -13,8 +13,7 @@ export class AdminSeedService implements OnModuleInit {
 
   async onModuleInit() {
     const email =
-      process.env.ADMIN_EMAIL?.trim().toLowerCase() ||
-      'admin@xxrealit.local';
+      process.env.ADMIN_EMAIL?.trim().toLowerCase() || 'admin@admin.cz';
     const password = process.env.ADMIN_PASSWORD || 'admin123';
 
     try {

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Patch,
   Post,
@@ -11,6 +12,7 @@ import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminService } from './admin.service';
+import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { AdminGuard } from './guards/admin.guard';
 
 type ChangePasswordBody = {
@@ -45,6 +47,20 @@ export class AdminController {
   @Get('users')
   listUsers() {
     return this.adminService.listUsers();
+  }
+
+  @Patch('users/:id/role')
+  updateUserRole(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateUserRoleDto,
+  ) {
+    return this.adminService.updateUserRole(user.id, id, dto.role);
+  }
+
+  @Delete('users/:id')
+  deleteUser(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.adminService.deleteUser(user.id, id);
   }
 
   @Post('import-properties')

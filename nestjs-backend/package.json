@@ -5,7 +5,7 @@
   "private": true,
   "license": "UNLICENSED",
   "prisma": {
-    "seed": "node prisma/seed.cjs"
+    "seed": "ts-node prisma/seed.ts && node prisma/seed.cjs"
   },
   "scripts": {
     "build": "rm -rf dist && nest build",

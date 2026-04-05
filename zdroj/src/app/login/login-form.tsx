@@ -67,7 +67,12 @@ export function LoginForm() {
 
       await refresh();
 
-      router.push('/dashboard');
+      const role = data.session?.user?.role;
+      if (role === 'ADMIN') {
+        router.push('/admin');
+      } else {
+        router.push('/dashboard');
+      }
       router.refresh();
     } catch {
       setError('Nelze se spojit se serverem');

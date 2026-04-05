@@ -8,13 +8,17 @@ import { nestApiConfigured } from '@/lib/nest-client';
 import {
   nestAdminApproveProperty,
   nestAdminChangePassword,
+  nestAdminDeleteUser,
   nestAdminImportProperties,
   nestAdminProperties,
   nestAdminStats,
+  nestAdminUpdateUserRole,
   nestAdminUsers,
   type AdminStats,
   type AdminUserRow,
 } from '@/lib/nest-client';
+
+const ROLE_OPTIONS = ['USER', 'AGENT', 'DEVELOPER', 'ADMIN'] as const;
 
 type PropertyRow = {
   id: string;
@@ -45,6 +49,7 @@ export default function AdminPage() {
   const [usersList, setUsersList] = useState<AdminUserRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyUserId, setBusyUserId] = useState<string | null>(null);
 
   const [oldPw, setOldPw] = useState('');
   const [newPw, setNewPw] = useState('');
@@ -117,6 +122,27 @@ export default function AdminPage() {
     } else {
       setImportError(r.error ?? 'Import selhal');
     }
+  }
+
+  async function onUserRoleChange(userId: string, newRole: string) {
+    if (!token) return;
+    setBusyUserId(userId);
+    const r = await nestAdminUpdateUserRole(token, userId, newRole);
+    setBusyUserId(null);
+    if (r.ok) await refresh();
+    else setLoadError(r.error ?? 'Změna role selhala');
+  }
+
+  async function onDeleteUserRow(u: AdminUserRow) {
+    if (!token) return;
+    if (!window.confirm(`Opravdu smazat účet ${u.email}? Tato akce je nevratná.`)) {
+      return;
+    }
+    setBusyUserId(u.id);
+    const r = await nestAdminDeleteUser(token, u.id);
+    setBusyUserId(null);
+    if (r.ok) await refresh();
+    else setLoadError(r.error ?? 'Mazání uživatele selhalo');
   }
 
   async function onPasswordSubmit(e: React.FormEvent) {
@@ -262,10 +288,10 @@ export default function AdminPage() {
 
         <section>
           <h2 className="mb-4 text-lg font-semibold tracking-tight">Statistiky</h2>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
               <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                Uživatelé (USER)
+                Uživatelé (bez adminů)
               </p>
               <p className="mt-2 text-3xl font-bold tabular-nums text-zinc-900">
                 {stats?.users ?? '—'}
@@ -285,6 +311,14 @@ export default function AdminPage() {
               </p>
               <p className="mt-2 text-3xl font-bold tabular-nums text-zinc-900">
                 {stats?.total ?? '—'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Inzeráty
+              </p>
+              <p className="mt-2 text-3xl font-bold tabular-nums text-zinc-900">
+                {stats?.properties ?? '—'}
               </p>
             </div>
           </div>
@@ -341,23 +375,52 @@ export default function AdminPage() {
         <section>
           <h2 className="mb-4 text-lg font-semibold tracking-tight">Uživatelé</h2>
           <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
-            <table className="w-full min-w-[480px] text-left text-sm">
+            <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 <tr>
                   <th className="px-4 py-3">E-mail</th>
                   <th className="px-4 py-3">Role</th>
                   <th className="hidden px-4 py-3 sm:table-cell">Registrace</th>
+                  <th className="px-4 py-3 text-right">Akce</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
                 {usersList.map((u) => (
                   <tr key={u.id} className="hover:bg-zinc-50/80">
                     <td className="px-4 py-3 font-medium text-zinc-900">{u.email}</td>
-                    <td className="px-4 py-3 text-zinc-600">{u.role}</td>
+                    <td className="px-4 py-3">
+                      <select
+                        value={u.role}
+                        disabled={busyUserId === u.id}
+                        onChange={(e) => void onUserRoleChange(u.id, e.target.value)}
+                        className="max-w-[11rem] rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-800 outline-none focus:border-[#ff6a00]/55 focus:ring-2 focus:ring-[#ff6a00]/15 disabled:opacity-50"
+                      >
+                        {ROLE_OPTIONS.map((r) => (
+                          <option key={r} value={r}>
+                            {r}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
                     <td className="hidden px-4 py-3 text-zinc-500 sm:table-cell">
                       {u.createdAt
                         ? new Date(u.createdAt).toLocaleDateString('cs-CZ')
                         : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        disabled={busyUserId === u.id || u.id === user?.id}
+                        title={
+                          u.id === user?.id
+                            ? 'Nelze smazat vlastní účet'
+                            : 'Smazat uživatele'
+                        }
+                        onClick={() => void onDeleteUserRow(u)}
+                        className="rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Smazat
+                      </button>
                     </td>
                   </tr>
                 ))}

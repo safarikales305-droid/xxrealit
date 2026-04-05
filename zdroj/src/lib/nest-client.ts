@@ -89,7 +89,12 @@ export async function nestFetchMe(
   return (await res.json()) as NestMeProfile;
 }
 
-export type AdminStats = { users: number; admins: number; total: number };
+export type AdminStats = {
+  users: number;
+  admins: number;
+  total: number;
+  properties: number;
+};
 
 export type AdminUserRow = {
   id: string;
@@ -157,6 +162,73 @@ export async function nestAdminUsers(
   if (!res.ok) return null;
   const data = (await res.json()) as unknown;
   return Array.isArray(data) ? (data as AdminUserRow[]) : null;
+}
+
+export async function nestAdminUpdateUserRole(
+  token: string | null,
+  userId: string,
+  role: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/admin/users/${encodeURIComponent(userId)}/role`,
+    {
+      method: 'PATCH',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ role }),
+    },
+  );
+  const data = (await res.json().catch(() => ({}))) as {
+    message?: string | string[];
+    error?: string;
+  };
+  if (!res.ok) {
+    const msg =
+      typeof data.message === 'string'
+        ? data.message
+        : Array.isArray(data.message)
+          ? data.message.join(', ')
+          : typeof data.error === 'string'
+            ? data.error
+            : `HTTP ${res.status}`;
+    return { ok: false, error: msg };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminDeleteUser(
+  token: string | null,
+  userId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/admin/users/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    message?: string | string[];
+    error?: string;
+  };
+  if (!res.ok) {
+    const msg =
+      typeof data.message === 'string'
+        ? data.message
+        : Array.isArray(data.message)
+          ? data.message.join(', ')
+          : typeof data.error === 'string'
+            ? data.error
+            : `HTTP ${res.status}`;
+    return { ok: false, error: msg };
+  }
+  return { ok: true };
 }
 
 export async function nestAdminChangePassword(
