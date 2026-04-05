@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAppOrigin } from '@/lib/app-url';
-import { sendPasswordResetEmail, sendResendTestEmail } from '@/lib/mail';
+import { sendPasswordResetFlowWithDebug } from '@/lib/mail';
 import { prisma } from '@/lib/db';
 import { generateResetPlainToken, hashResetToken } from '@/lib/reset-token';
 
@@ -25,6 +25,17 @@ function logEnvCheck() {
   console.log('JWT_SECRET:', process.env.JWT_SECRET ? 'OK' : 'MISSING');
 }
 
+function emailFailedResponse(error: unknown) {
+  console.error('EMAIL ERROR FULL:', error);
+  const detail =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'object' && error !== null && 'message' in error
+        ? String((error as { message: unknown }).message)
+        : String(error);
+  return NextResponse.json({ error: 'Email failed', detail }, { status: 500 });
+}
+
 export async function POST(req: Request) {
   try {
     let json: unknown;
@@ -39,17 +50,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Neplatný e-mail' }, { status: 400 });
     }
 
-    logEnvCheck();
-
-    if (!process.env.RESEND_API_KEY) {
-      console.error('Missing RESEND_API_KEY');
-      throw new Error('Missing RESEND_API_KEY');
+    const email = parsed.data.email;
+    if (!email) {
+      console.error('Missing email (post-parse)');
+      throw new Error('Missing email');
     }
 
-    const email = parsed.data.email;
+    logEnvCheck();
+
+    console.log('EMAIL (request):', email);
+
     const user = await prisma.user.findUnique({ where: { email } });
 
-    // Vždy stejná odpověď (bez odhalení existence účtu)
     const generic = NextResponse.json({
       success: true,
       message: 'Pokud účet existuje, odeslali jsme instrukce na e-mail.',
@@ -57,6 +69,11 @@ export async function POST(req: Request) {
 
     if (!user) {
       return generic;
+    }
+
+    if (!user.email || !user.email.trim()) {
+      console.error('Missing email (user record)');
+      throw new Error('Missing email');
     }
 
     const plainToken = generateResetPlainToken();
@@ -76,19 +93,18 @@ export async function POST(req: Request) {
     try {
       const skipTest =
         process.env.RESEND_SKIP_TEST === '1' || process.env.RESEND_SKIP_TEST === 'true';
-      if (!skipTest) {
-        await sendResendTestEmail(user.email);
-      }
-      await sendPasswordResetEmail(user.email, resetUrl);
-      console.log('EMAIL OK');
+      await sendPasswordResetFlowWithDebug(user.email, resetUrl, { skipTest });
     } catch (error) {
-      console.error('EMAIL ERROR:', error);
-      throw error;
+      return emailFailedResponse(error);
     }
 
     return generic;
   } catch (e) {
     console.error('[reset-request]', e);
-    return NextResponse.json({ error: 'Nepodařilo se odeslat požadavek' }, { status: 500 });
+    const detail = e instanceof Error ? e.message : String(e);
+    return NextResponse.json(
+      { error: 'Nepodařilo se odeslat požadavek', detail },
+      { status: 500 },
+    );
   }
 }
