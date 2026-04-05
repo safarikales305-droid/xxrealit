@@ -96,9 +96,7 @@ export async function POST(req: Request) {
     console.log('RESET LINK:', resetUrl);
     console.log('SENDING TO:', user.email);
 
-    const skipTest =
-      process.env.RESEND_SKIP_TEST === '1' || process.env.RESEND_SKIP_TEST === 'true';
-    const emailResult = await sendPasswordResetFlowWithDebug(user.email, resetUrl, { skipTest });
+    const emailResult = await sendPasswordResetFlowWithDebug(user.email, resetUrl);
 
     if (!emailResult.success) {
       console.error('FULL EMAIL ERROR (flow):', emailResult.error);
