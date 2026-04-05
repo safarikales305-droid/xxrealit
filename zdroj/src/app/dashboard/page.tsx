@@ -27,9 +27,9 @@ export default function DashboardHubPage() {
             icon={Building2}
           />
           <DashboardNavCard
-            href="/nemovitosti"
+            href="/"
             title="Prohlížet nemovitosti"
-            description="Prohlédněte si trh a inspiraci u ostatních nabídek."
+            description="Zpět na hlavní stránku se všemi nemovitostmi (Shorts / klasický výpis)."
             icon={Search}
           />
         </div>
