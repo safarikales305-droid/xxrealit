@@ -137,7 +137,7 @@ function ResetHeslaInner() {
           Obnova hesla
         </h1>
         <p className="mt-2 text-sm text-zinc-600">
-          Zadejte e-mail účtu. Pošleme odkaz (nebo odkaz uvidíte v konzoli serveru, pokud není SMTP).
+          Zadejte e-mail účtu. Pošleme odkaz na obnovení hesla (Resend).
         </p>
         <form onSubmit={requestReset} className="mt-8 space-y-4">
           <div>

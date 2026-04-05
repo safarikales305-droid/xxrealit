@@ -1,39 +1,57 @@
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
-function createTransport() {
-  const host = process.env.SMTP_HOST?.trim();
-  const port = Number.parseInt(process.env.SMTP_PORT ?? '587', 10);
-  const user = process.env.SMTP_USER?.trim();
-  const pass = process.env.SMTP_PASS?.trim();
+/** Resend testovací odesílatel (bez vlastní domény). Po ověření domény nastav RESEND_FROM. */
+const DEFAULT_RESEND_FROM = 'onboarding@resend.dev';
 
-  if (!host || !user || !pass) {
-    return null;
-  }
-
-  return nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465,
-    auth: { user, pass },
-  });
+function getResendFrom(): string {
+  return process.env.RESEND_FROM?.trim() || DEFAULT_RESEND_FROM;
 }
 
-export async function sendPasswordResetEmail(
-  to: string,
-  resetUrl: string,
-): Promise<{ sent: boolean; logged?: string }> {
-  const from = process.env.SMTP_FROM?.trim() || process.env.SMTP_USER?.trim() || 'noreply@localhost';
-  const subject = 'Obnovení hesla — XXrealit';
-  const text = `Dobrý den,\n\nPro nastavení nového hesla otevřete odkaz:\n${resetUrl}\n\nPlatnost odkazu je omezená.\n\nXXrealit`;
-  const html = `<p>Dobrý den,</p><p>Pro nastavení nového hesla použijte odkaz:</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>Platnost odkazu je omezená.</p><p>XXrealit</p>`;
-
-  const transport = createTransport();
-  if (!transport) {
-    const msg = `[mail] SMTP není nastaveno — reset odkaz pro ${to}: ${resetUrl}`;
-    console.warn(msg);
-    return { sent: false, logged: resetUrl };
+/**
+ * Odešle e-mail přes Resend (Railway / produkce).
+ * Vyžaduje RESEND_API_KEY — kontrola je v route před voláním.
+ */
+export async function sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error('Missing RESEND_API_KEY');
   }
 
-  await transport.sendMail({ from, to, subject, text, html });
-  return { sent: true };
+  const resend = new Resend(apiKey);
+  const from = getResendFrom();
+  const subject = 'Obnovení hesla — XXrealit';
+  const html = `<p>Dobrý den,</p><p>Pro nastavení nového hesla použijte odkaz:</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>Platnost odkazu je omezená.</p><p>XXrealit</p>`;
+
+  const { error } = await resend.emails.send({
+    from,
+    to,
+    subject,
+    html,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+/**
+ * Minimální testovací e-mail (Resend / Railway) — předmět „Test email“.
+ */
+export async function sendResendTestEmail(to: string): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error('Missing RESEND_API_KEY');
+  }
+
+  const resend = new Resend(apiKey);
+  const { error } = await resend.emails.send({
+    from: getResendFrom(),
+    to,
+    subject: 'Test email',
+    html: '<p>Test funguje</p>',
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
 }

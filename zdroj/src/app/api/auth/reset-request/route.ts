@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAppOrigin } from '@/lib/app-url';
-import { sendPasswordResetEmail } from '@/lib/mail';
+import { sendPasswordResetEmail, sendResendTestEmail } from '@/lib/mail';
 import { prisma } from '@/lib/db';
 import { generateResetPlainToken, hashResetToken } from '@/lib/reset-token';
 
@@ -17,6 +17,14 @@ const bodySchema = z.object({
 
 const RESET_TTL_MS = 60 * 60 * 1000; // 1 h
 
+function logEnvCheck() {
+  console.log('ENV CHECK:');
+  console.log('RESEND_API_KEY:', process.env.RESEND_API_KEY ? 'OK' : 'MISSING');
+  console.log('APP_URL:', process.env.NEXT_PUBLIC_APP_URL);
+  console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'OK' : 'MISSING');
+  console.log('JWT_SECRET:', process.env.JWT_SECRET ? 'OK' : 'MISSING');
+}
+
 export async function POST(req: Request) {
   try {
     let json: unknown;
@@ -29,6 +37,13 @@ export async function POST(req: Request) {
     const parsed = bodySchema.safeParse(json);
     if (!parsed.success) {
       return NextResponse.json({ error: 'Neplatný e-mail' }, { status: 400 });
+    }
+
+    logEnvCheck();
+
+    if (!process.env.RESEND_API_KEY) {
+      console.error('Missing RESEND_API_KEY');
+      throw new Error('Missing RESEND_API_KEY');
     }
 
     const email = parsed.data.email;
@@ -57,7 +72,19 @@ export async function POST(req: Request) {
     });
 
     const resetUrl = `${getAppOrigin()}/reset-hesla?token=${encodeURIComponent(plainToken)}`;
-    await sendPasswordResetEmail(user.email, resetUrl);
+
+    try {
+      const skipTest =
+        process.env.RESEND_SKIP_TEST === '1' || process.env.RESEND_SKIP_TEST === 'true';
+      if (!skipTest) {
+        await sendResendTestEmail(user.email);
+      }
+      await sendPasswordResetEmail(user.email, resetUrl);
+      console.log('EMAIL OK');
+    } catch (error) {
+      console.error('EMAIL ERROR:', error);
+      throw error;
+    }
 
     return generic;
   } catch (e) {
