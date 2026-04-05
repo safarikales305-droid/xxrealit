@@ -6,9 +6,14 @@ import { useRouter } from 'next/navigation';
 export function PortalNavbar() {
   const router = useRouter();
 
-  function handleLogout() {
+  async function handleLogout() {
     try {
       localStorage.removeItem('user');
+    } catch {
+      /* ignore */
+    }
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     } catch {
       /* ignore */
     }

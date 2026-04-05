@@ -4,6 +4,8 @@ import { verifyAuthJwt } from '@/lib/auth-token';
 import { ACCESS_TOKEN_COOKIE } from '@/lib/auth-cookie';
 import { prisma } from '@/lib/db';
 
+export const runtime = 'nodejs';
+
 export async function GET() {
   try {
     const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
@@ -21,7 +23,6 @@ export async function GET() {
       select: {
         id: true,
         email: true,
-        name: true,
         role: true,
         createdAt: true,
       },

@@ -9,14 +9,12 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { toPublicApiUrl } from '@/lib/public-api';
-
 export type AuthUser = {
   id: string;
   email: string;
-  name: string | null;
   role: string;
   createdAt: string;
+  name?: string | null;
 };
 
 type AuthContextValue = {
@@ -34,7 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch(toPublicApiUrl('/auth/me'), {
+      const res = await fetch('/api/auth/me', {
         credentials: 'include',
       });
       if (!res.ok) {
@@ -53,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (async () => {
       setLoading(true);
       try {
-        const res = await fetch(toPublicApiUrl('/auth/me'), {
+        const res = await fetch('/api/auth/me', {
           credentials: 'include',
         });
         if (cancelled) return;
@@ -76,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      await fetch(toPublicApiUrl('/auth/logout'), {
+      await fetch('/api/auth/logout', {
         method: 'POST',
         credentials: 'include',
       });

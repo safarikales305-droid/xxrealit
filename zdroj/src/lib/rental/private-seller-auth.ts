@@ -12,7 +12,11 @@ export function getEffectiveRole(): string {
   if (raw) {
     try {
       const u = JSON.parse(raw) as { role?: string };
-      if (u.role === 'USER' || u.role === 'PRIVATE_SELLER') {
+      if (
+        u.role === 'USER' ||
+        u.role === 'PRIVATE_SELLER' ||
+        u.role === 'uzivatel'
+      ) {
         return 'PRIVATE_SELLER';
       }
       return u.role ?? 'GUEST';
