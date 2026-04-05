@@ -11,6 +11,7 @@ enum UserRole {
   USER
   AGENT
   DEVELOPER
+  PRIVATE_SELLER
   ADMIN
 }
 

@@ -33,12 +33,16 @@ export class RegisterApiController {
       console.log('PLAIN PASSWORD:', password);
       console.log('HASHED PASSWORD:', hashedPassword);
 
-      const mappedRole: UserRole =
-        role === 'Soukromý inzerent'
-          ? UserRole.USER
-          : role === 'Realitní kancelář'
-            ? UserRole.AGENT
-            : UserRole.USER;
+      let mappedRole: UserRole = UserRole.USER;
+      if (role === 'Soukromý inzerent') {
+        mappedRole = UserRole.USER;
+      } else if (role === 'Realitní kancelář') {
+        mappedRole = UserRole.AGENT;
+      } else if (role === 'DEVELOPER') {
+        mappedRole = UserRole.DEVELOPER;
+      } else if (role === 'PRIVATE_SELLER' || role === 'Soukromý prodejce') {
+        mappedRole = UserRole.PRIVATE_SELLER;
+      }
 
       const user = await this.prisma.user.create({
         data: {

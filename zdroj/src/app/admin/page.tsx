@@ -18,7 +18,13 @@ import {
   type AdminUserRow,
 } from '@/lib/nest-client';
 
-const ROLE_OPTIONS = ['USER', 'AGENT', 'DEVELOPER', 'ADMIN'] as const;
+const ROLE_OPTIONS = [
+  'USER',
+  'AGENT',
+  'DEVELOPER',
+  'PRIVATE_SELLER',
+  'ADMIN',
+] as const;
 
 type PropertyRow = {
   id: string;

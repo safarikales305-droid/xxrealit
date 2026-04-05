@@ -17,6 +17,7 @@ const bcrypt = require('bcrypt');
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import type { JwtPayload } from './types/jwt-payload';
+import { ensureUserRole } from './user-role.util';
 
 /** Normalized key: lowercase + Czech letters → ASCII (kvůli „Realitní makléř“ atd.). */
 const CZ_ASCII: Record<string, string> = {
@@ -56,6 +57,11 @@ const roleMap: Record<string, UserRole> = {
   uzivatel: UserRole.USER,
   user: UserRole.USER,
 
+  private_seller: UserRole.PRIVATE_SELLER,
+  privateseller: UserRole.PRIVATE_SELLER,
+  'soukromy prodejce': UserRole.PRIVATE_SELLER,
+  soukromyprodejce: UserRole.PRIVATE_SELLER,
+
   'realitni makler': UserRole.AGENT,
   makler: UserRole.AGENT,
   kancelar: UserRole.AGENT,
@@ -81,6 +87,7 @@ const REGISTER_ROLES: readonly UserRole[] = [
   UserRole.USER,
   UserRole.AGENT,
   UserRole.DEVELOPER,
+  UserRole.PRIVATE_SELLER,
 ];
 
 function errorDetailForResponse(err: unknown): Record<string, unknown> {
@@ -335,10 +342,12 @@ export class AuthService {
   }
 
   issueTokens(user: User) {
+    const role = ensureUserRole(user.role);
+
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
-      role: user.role,
+      role,
     };
 
     return {
@@ -348,7 +357,7 @@ export class AuthService {
         id: user.id,
         email: user.email,
         name: user.name,
-        role: user.role,
+        role,
         avatar: (user as any).avatar ?? null,
         bio: (user as any).bio ?? null,
         city: (user as any).city ?? null,

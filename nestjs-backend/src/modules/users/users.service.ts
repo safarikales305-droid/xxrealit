@@ -7,6 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import type { User, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { ensureUserRole } from '../auth/user-role.util';
 
 @Injectable()
 export class UsersService {
@@ -41,7 +42,7 @@ export class UsersService {
   }
 
   async updateAvatar(userId: string, avatarUrl: string) {
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id: userId },
       data: { avatar: avatarUrl },
       select: {
@@ -53,6 +54,7 @@ export class UsersService {
         createdAt: true,
       },
     });
+    return { ...updated, role: ensureUserRole(updated.role) };
   }
 
   async getMeProfile(userId: string) {
@@ -72,7 +74,7 @@ export class UsersService {
       id: u.id,
       email: u.email,
       name: u.name,
-      role: u.role,
+      role: ensureUserRole(u.role),
       createdAt: u.createdAt,
       avatarUrl: u.avatar ?? null,
     };
@@ -113,7 +115,7 @@ export class UsersService {
     return {
       id: user.id,
       name: user.name,
-      role: user.role,
+      role: ensureUserRole(user.role),
       avatar: user.avatar,
       bio: user.bio,
       city: user.city,
