@@ -1,0 +1,9 @@
+# Kořen služby v Railway UI nastav na tento adresář (nestjs-backend).
+# Nixpacks: npm install (postinstall → prisma generate), poté npm run build ze scriptů.
+# Start: node dist/main.js
+
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "npm run start"

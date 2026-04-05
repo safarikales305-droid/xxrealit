@@ -4,7 +4,10 @@ import { extname, join } from 'node:path';
 
 const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
 
-/** Stejná kořenová složka jako v `main.ts` (`process.cwd()/uploads`). */
+/**
+ * Musí odpovídat `join(__dirname, '..', 'uploads')` v `main.ts` při startu z kořene
+ * aplikace (`process.cwd()` je typicky `/app` na Railway).
+ */
 export function getUploadsRoot(): string {
   return join(process.cwd(), 'uploads');
 }
