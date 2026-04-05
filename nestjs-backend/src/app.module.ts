@@ -10,6 +10,7 @@ import { FavoritesModule } from './modules/favorites/favorites.module';
 import { FeedModule } from './modules/feed/feed.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { PropertiesModule } from './modules/properties/properties.module';
+import { UploadModule } from './modules/upload/upload.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { PropertiesModule } from './modules/properties/properties.module';
     PropertiesModule,
     FavoritesModule,
     AdminModule,
+    UploadModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

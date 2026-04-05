@@ -54,6 +54,7 @@ export const config = {
   matcher: [
     '/following',
     '/create',
+    '/inzerat/pridat',
     '/profile/edit',
     '/admin',
     '/admin/:path*',

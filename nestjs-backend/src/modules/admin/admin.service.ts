@@ -146,13 +146,21 @@ export class AdminService {
       await this.prisma.property.create({
         data: {
           title: row.title,
+          description: row.description ?? row.title,
           price: row.price,
           city: row.city,
-          imageUrl: row.imageUrl,
-          description: row.description,
+          address: row.city,
+          currency: 'USD',
+          offerType: 'prodej',
+          propertyType: 'import',
+          subType: '',
+          images: row.imageUrl ? [row.imageUrl] : [],
+          videoUrl: null,
+          contactName: 'RapidAPI import',
+          contactPhone: '+000',
+          contactEmail: 'import@example.com',
           userId: adminUserId,
           approved: true,
-          videoUrl: null,
         },
       });
       imported += 1;

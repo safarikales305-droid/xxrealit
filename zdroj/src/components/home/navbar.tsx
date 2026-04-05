@@ -208,14 +208,14 @@ export function Navbar({
           {!isLoading && isAuthenticated ? (
             <>
               <Link
-                href="/create"
+                href="/inzerat/pridat"
                 className="hidden rounded-lg bg-orange-500 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-orange-600 md:inline-flex md:text-sm"
               >
                 Přidat
               </Link>
 
               <Link
-                href="/create"
+                href="/inzerat/pridat"
                 className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] text-base font-semibold text-white shadow-md transition hover:scale-105 active:scale-95 md:hidden"
                 aria-label="Přidat inzerát"
               >
@@ -269,7 +269,7 @@ export function Navbar({
                     Admin
                   </Link>
                 ) : null}
-                <Link href="/create" className={navBtn} onClick={() => setMenuOpen(false)}>
+                <Link href="/inzerat/pridat" className={navBtn} onClick={() => setMenuOpen(false)}>
                   Přidat inzerát
                 </Link>
                 <button type="button" onClick={handleLogout} className={navBtn}>

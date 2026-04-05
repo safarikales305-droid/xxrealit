@@ -54,20 +54,47 @@ model Follow {
 }
 
 model Property {
-  id        String   @id @default(uuid())
-  title     String
-  price     Int
-  videoUrl  String?
-  /// Hlavní fotka (např. import z RapidAPI).
-  imageUrl  String?
-  /// Popis inzerátu (import / budoucí editor).
-  description String? @db.Text
-  city      String
+  id              String   @id @default(uuid())
+  title           String
+  description     String   @db.Text
+  price           Int
+  currency        String   @default("CZK")
+
+  /// prodej | pronájem
+  offerType       String   @default("prodej")
+  /// byt | dům | pozemek | …
+  propertyType    String   @default("byt")
+  subType         String   @default("")
+
+  address         String   @default("")
+  city            String
+
+  area            Float?
+  landArea        Float?
+  floor           Int?
+  totalFloors     Int?
+
+  condition       String?
+  construction    String?
+  ownership       String?
+  energyLabel     String?
+
+  equipment       String?  @db.Text
+  parking         Boolean  @default(false)
+  cellar          Boolean  @default(false)
+
+  images          String[] @default([])
+  videoUrl        String?
+
+  contactName     String   @default("")
+  contactPhone    String   @default("")
+  contactEmail    String   @default("")
+
   /// Ve veřejném výpisu jen schválené; admin vidí vše.
-  approved  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  approved        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   likes     PropertyLike[]
   comments  PropertyComment[]

@@ -49,8 +49,12 @@ export class PropertiesController {
     return this.propertiesService.toggleLike(id, user.id);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post()
-  create(@Body() createPropertyDto: CreatePropertyDto) {
-    return this.propertiesService.create(createPropertyDto);
+  create(
+    @CurrentUser() user: AuthUser,
+    @Body() createPropertyDto: CreatePropertyDto,
+  ) {
+    return this.propertiesService.create(user.id, createPropertyDto);
   }
 }

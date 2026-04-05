@@ -219,6 +219,87 @@ export async function nestAdminImportProperties(
   return { ok: true, imported };
 }
 
+export async function nestUploadPropertyImages(
+  token: string | null,
+  files: File[],
+): Promise<{ ok: true; urls: string[] } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  if (files.length === 0) {
+    return { ok: false, error: 'Vyberte alespoň jeden obrázek' };
+  }
+  const fd = new FormData();
+  for (const f of files) {
+    fd.append('files', f);
+  }
+  try {
+    const res = await fetch(`${API_BASE_URL}/upload`, {
+      method: 'POST',
+      headers: nestAuthHeaders(token),
+      body: fd,
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      urls?: unknown;
+      message?: string | string[];
+    };
+    if (!res.ok) {
+      const msg =
+        typeof data.message === 'string'
+          ? data.message
+          : Array.isArray(data.message)
+            ? data.message.join(', ')
+            : `HTTP ${res.status}`;
+      return { ok: false, error: msg };
+    }
+    const urls = data.urls;
+    if (!Array.isArray(urls)) {
+      return { ok: false, error: 'Neočekávaná odpověď serveru' };
+    }
+    const list = urls.filter((u): u is string => typeof u === 'string');
+    return { ok: true, urls: list };
+  } catch {
+    return { ok: false, error: 'Síťová chyba při nahrávání' };
+  }
+}
+
+export type NestCreateListingBody = Record<string, unknown>;
+
+export async function nestCreatePropertyListing(
+  token: string | null,
+  body: NestCreateListingBody,
+): Promise<{ ok: true } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  try {
+    const res = await fetch(`${API_BASE_URL}/properties`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      message?: string | string[];
+    };
+    if (!res.ok) {
+      const msg =
+        typeof data.message === 'string'
+          ? data.message
+          : Array.isArray(data.message)
+            ? data.message.join(', ')
+            : `HTTP ${res.status}`;
+      return { ok: false, error: msg };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
 export async function nestUploadAvatar(
   token: string | null,
   file: File,

@@ -145,7 +145,7 @@ export function HomeLayout({
                   Zobrazit nemovitosti
                 </button>
                 <Link
-                  href="/create"
+                  href="/inzerat/pridat"
                   className="rounded-full border border-zinc-300 bg-white px-8 py-3 text-[15px] font-semibold text-zinc-800 transition hover:bg-zinc-50"
                 >
                   Vytvořit inzerát

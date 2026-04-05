@@ -28,11 +28,21 @@ async function ensureProperty(userId, { title, price, city, approved = true }) {
   return prisma.property.create({
     data: {
       title,
+      description: `Demo inzerát: ${title}`,
       price,
       city,
+      address: city,
       userId,
       approved,
       videoUrl: null,
+      currency: 'CZK',
+      offerType: 'prodej',
+      propertyType: 'byt',
+      subType: '',
+      contactName: 'Demo',
+      contactPhone: '+420000000000',
+      contactEmail: 'demo@seed.local',
+      images: [],
     },
   });
 }

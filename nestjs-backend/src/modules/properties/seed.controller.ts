@@ -71,10 +71,21 @@ export class SeedController {
       const property = await this.prisma.property.create({
         data: {
           title: row.title,
+          description: `Ukázkový inzerát: ${row.title}`,
           price: row.price,
           city: row.location,
+          address: row.location,
           videoUrl: row.videoUrl,
           userId: user.id,
+          currency: 'CZK',
+          offerType: 'prodej',
+          propertyType: 'byt',
+          subType: '',
+          contactName: user.name ?? 'Seed uživatel',
+          contactPhone: '+420777000000',
+          contactEmail: user.email,
+          images: [],
+          approved: true,
         },
       });
 

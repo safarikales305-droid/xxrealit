@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -249,37 +248,48 @@ export class PropertiesService {
     };
   }
 
-  async create(dto: CreatePropertyDto) {
-    const userId =
-      dto.userId ??
-      (
-        await this.prisma.user.findFirst({
-          orderBy: { createdAt: 'asc' },
-        })
-      )?.id;
-
-    if (!userId) {
-      throw new BadRequestException(
-        'No userId provided and no users exist in the database',
-      );
-    }
-
+  async create(ownerId: string, dto: CreatePropertyDto) {
     const user = await this.prisma.user.findUnique({
-      where: { id: userId },
+      where: { id: ownerId },
     });
 
     if (!user) {
-      throw new NotFoundException(`User with id "${userId}" not found`);
+      throw new NotFoundException(`User with id "${ownerId}" not found`);
     }
+
+    const images = Array.isArray(dto.images)
+      ? dto.images.filter((u) => typeof u === 'string' && u.trim().length > 0)
+      : [];
 
     try {
       return await this.prisma.property.create({
         data: {
-          title: dto.title,
+          title: dto.title.trim(),
+          description: dto.description.trim(),
           price: dto.price,
+          currency: (dto.currency ?? 'CZK').trim().slice(0, 8) || 'CZK',
+          offerType: dto.type.trim(),
+          propertyType: dto.propertyType.trim(),
+          subType: (dto.subType ?? '').trim().slice(0, 120),
+          address: (dto.address ?? '').trim().slice(0, 500),
+          city: dto.city.trim(),
+          area: dto.area ?? null,
+          landArea: dto.landArea ?? null,
+          floor: dto.floor ?? null,
+          totalFloors: dto.totalFloors ?? null,
+          condition: dto.condition?.trim() || null,
+          construction: dto.construction?.trim() || null,
+          ownership: dto.ownership?.trim() || null,
+          energyLabel: dto.energyLabel?.trim() || null,
+          equipment: dto.equipment?.trim() || null,
+          parking: dto.parking ?? false,
+          cellar: dto.cellar ?? false,
+          images,
           videoUrl: dto.videoUrl?.trim() || null,
-          city: dto.city ?? 'Unknown',
-          userId,
+          contactName: dto.contactName.trim(),
+          contactPhone: dto.contactPhone.trim(),
+          contactEmail: dto.contactEmail.trim().toLowerCase(),
+          userId: ownerId,
           approved: false,
         },
       });
@@ -288,7 +298,7 @@ export class PropertiesService {
         e instanceof Prisma.PrismaClientKnownRequestError &&
         e.code === 'P2003'
       ) {
-        throw new NotFoundException(`User with id "${userId}" not found`);
+        throw new NotFoundException(`User with id "${ownerId}" not found`);
       }
       throw e;
     }
