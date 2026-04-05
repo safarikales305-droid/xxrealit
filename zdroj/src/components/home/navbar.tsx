@@ -22,7 +22,7 @@ export function Navbar({
   onMobileFiltersOpen,
 }: NavbarProps) {
   const router = useRouter();
-  const { user, isAuthenticated, isLoading, logout } = useAuth();
+  const { user, isAuthenticated, isLoading, logout, refresh } = useAuth();
   const profileHref = user ? `/profile/${user.id}` : '/login';
 
   function handleLogout() {
@@ -111,7 +111,13 @@ export function Navbar({
                 </span>
                 <button
                   type="button"
-                  onClick={() => router.push('/')}
+                  onClick={() => {
+                    void (async () => {
+                      await refresh();
+                      router.push('/');
+                      router.refresh();
+                    })();
+                  }}
                   className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
                 >
                   Prohlížet nemovitosti

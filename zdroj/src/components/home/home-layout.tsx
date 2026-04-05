@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import type { ComponentType } from 'react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
 import { PropertyGrid } from '@/components/property-grid';
 import type { PropertyFeedItem } from '@/types/property';
 import { Navbar, type ViewMode } from './navbar';
@@ -28,6 +29,13 @@ export function HomeLayout({
   ShortsFeed,
   apiConfigMissing = false,
 }: Props) {
+  const { refresh } = useAuth();
+
+  /** Po příchodu na homepage (včetně router.push('/')) znovu načte uživatele z tokenu přes GET /api/auth/me. */
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
   const [viewMode, setViewMode] = useState<ViewMode>('shorts');
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
