@@ -1,3 +1,14 @@
+/** Nest `/api` base when `API_URL` or `NEXT_PUBLIC_API_URL` is set; otherwise `null`. */
+export function getOptionalInternalApiBaseUrl(): string | null {
+  const raw =
+    process.env.API_URL?.trim() ||
+    process.env.NEXT_PUBLIC_API_URL?.trim() ||
+    '';
+  if (!raw) return null;
+  const normalized = raw.replace(/\/+$/, '');
+  return normalized.endsWith('/api') ? normalized : `${normalized}/api`;
+}
+
 /** Backend origin for Route Handlers (server-side). */
 export function getInternalApiBaseUrl(): string {
   const raw =

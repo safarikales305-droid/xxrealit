@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { serializeProperty } from '../properties/properties.serializer';
 
@@ -41,6 +42,7 @@ export class FeedService {
       select: {
         id: true,
         city: true,
+        role: true,
         following: { select: { followingId: true } },
       },
     });
@@ -48,11 +50,14 @@ export class FeedService {
       throw new NotFoundException('User not found');
     }
 
+    const admin = viewer.role === UserRole.ADMIN;
+
     const followingIds = new Set(viewer.following.map((f) => f.followingId));
     const refPrice =
       (await this.computeReferencePrice(viewerId, followingIds)) ?? 5_000_000;
 
     const rows = await this.prisma.property.findMany({
+      where: admin ? undefined : { approved: true },
       include: {
         _count: { select: { likes: true } },
         user: { select: { id: true, city: true } },

@@ -87,7 +87,10 @@ export function LoginForm() {
         </Link>
         <h1 className="mt-6 text-2xl font-semibold tracking-tight">Přihlášení</h1>
         <p className="mt-2 text-[15px] text-zinc-600">
-          Účet je v databázi Next.js (Neon + Prisma). JWT v cookie i v úložišti pro API.
+          Při nastaveném <code className="rounded bg-zinc-100 px-1 text-[13px]">API_URL</code> /{' '}
+          <code className="rounded bg-zinc-100 px-1 text-[13px]">NEXT_PUBLIC_API_URL</code> proběhne
+          přihlášení přes Nest (stejný <code className="rounded bg-zinc-100 px-1 text-[13px]">JWT_SECRET</code>{' '}
+          jako v Next). Jinak lokální Prisma v Next.
         </p>
 
         <form onSubmit={handleLogin} className="mt-8 space-y-4">

@@ -4,6 +4,7 @@ import { verifyPassword } from '@/lib/auth-password';
 import { signAuthJwt } from '@/lib/auth-token';
 import { getAuthCookieSetOptions, ACCESS_TOKEN_COOKIE } from '@/lib/auth-cookie';
 import { prisma } from '@/lib/db';
+import { getOptionalInternalApiBaseUrl } from '@/lib/server-api';
 
 export const runtime = 'nodejs';
 
@@ -15,6 +16,17 @@ const bodySchema = z.object({
     .pipe(z.string().email('Neplatný e-mail')),
   password: z.string().min(1, 'Heslo je povinné'),
 });
+
+type NestLoginOk = {
+  accessToken?: string;
+  user?: {
+    id?: string;
+    email?: string;
+    role?: string;
+    avatar?: string | null;
+    createdAt?: string;
+  };
+};
 
 export async function POST(request: Request) {
   try {
@@ -34,6 +46,62 @@ export async function POST(request: Request) {
     }
 
     const email = parsed.data.email;
+    const password = parsed.data.password;
+
+    const nestBase = getOptionalInternalApiBaseUrl();
+    if (nestBase) {
+      try {
+        const nestRes = await fetch(`${nestBase}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+
+        const nestData = (await nestRes.json().catch(() => ({}))) as NestLoginOk & {
+          error?: string | { message?: string };
+        };
+
+        if (nestRes.ok && typeof nestData.accessToken === 'string' && nestData.user) {
+          const u = nestData.user;
+          if (typeof u.id === 'string' && typeof u.email === 'string' && typeof u.role === 'string') {
+            const sessionUser = {
+              id: u.id,
+              email: u.email,
+              role: u.role,
+              avatar: u.avatar ?? null,
+              createdAt:
+                typeof u.createdAt === 'string'
+                  ? u.createdAt
+                  : new Date().toISOString(),
+            };
+
+            const res = NextResponse.json({
+              success: true,
+              access_token: nestData.accessToken,
+              session: { user: sessionUser },
+            });
+            res.cookies.set(
+              ACCESS_TOKEN_COOKIE,
+              nestData.accessToken,
+              getAuthCookieSetOptions(),
+            );
+            return res;
+          }
+        }
+
+        if (nestRes.status === 401) {
+          return NextResponse.json(
+            { error: 'Neplatný e-mail nebo heslo' },
+            { status: 401 },
+          );
+        }
+
+        console.warn('[login] Nest auth unexpected status', nestRes.status, nestData);
+      } catch (e) {
+        console.error('[login] Nest nedostupný, zkouším lokální Prisma', e);
+      }
+    }
+
     const user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
@@ -43,7 +111,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const ok = await verifyPassword(parsed.data.password, user.password);
+    const ok = await verifyPassword(password, user.password);
     if (!ok) {
       return NextResponse.json(
         { error: 'Neplatný e-mail nebo heslo' },

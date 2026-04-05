@@ -3,8 +3,17 @@ import { NextResponse } from 'next/server';
 import { verifyAuthJwt } from '@/lib/auth-token';
 import { ACCESS_TOKEN_COOKIE } from '@/lib/auth-cookie';
 import { prisma } from '@/lib/db';
+import { getOptionalInternalApiBaseUrl } from '@/lib/server-api';
 
 export const runtime = 'nodejs';
+
+type NestMeUser = {
+  id?: string;
+  email?: string;
+  role?: string;
+  avatar?: string | null;
+  createdAt?: string;
+};
 
 export async function GET(request: Request) {
   try {
@@ -18,6 +27,39 @@ export async function GET(request: Request) {
     }
     if (!token) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+    }
+
+    const nestBase = getOptionalInternalApiBaseUrl();
+    if (nestBase) {
+      try {
+        const r = await fetch(`${nestBase}/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        });
+        if (r.ok) {
+          const u = (await r.json()) as NestMeUser;
+          if (
+            typeof u.id === 'string' &&
+            typeof u.email === 'string' &&
+            typeof u.role === 'string'
+          ) {
+            return NextResponse.json({
+              user: {
+                id: u.id,
+                email: u.email,
+                role: u.role,
+                avatar: u.avatar ?? null,
+                createdAt:
+                  typeof u.createdAt === 'string'
+                    ? u.createdAt
+                    : new Date().toISOString(),
+              },
+            });
+          }
+        }
+      } catch {
+        /* fall through to local JWT / Prisma */
+      }
     }
 
     const payload = verifyAuthJwt(token);

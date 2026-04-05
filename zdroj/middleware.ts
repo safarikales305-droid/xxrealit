@@ -29,6 +29,10 @@ export async function middleware(request: NextRequest) {
     if (!role || typeof role !== 'string' || !isUserRole(role)) {
       throw new Error('invalid role');
     }
+
+    if (pathname.startsWith('/admin') && role !== 'ADMIN') {
+      return NextResponse.redirect(new URL('/', request.url));
+    }
   } catch {
     const login = new URL('/login', request.url);
     login.searchParams.set('callbackUrl', pathname);
@@ -48,9 +52,10 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // /panel chrání klient přes localStorage (viz app/panel/page.tsx)
     '/following',
     '/create',
     '/profile/edit',
+    '/admin',
+    '/admin/:path*',
   ],
 };

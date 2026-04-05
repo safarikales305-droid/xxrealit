@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
+import { nestAbsoluteAssetUrl } from '@/lib/api';
 
 export type ViewMode = 'shorts' | 'classic';
 
@@ -30,6 +31,11 @@ export function Navbar({
   const [menuOpen, setMenuOpen] = useState(false);
 
   const profilePath = '/profil';
+  const isAdmin = user?.role === 'ADMIN';
+  const avatarSrc =
+    user?.avatar && user.avatar.trim().length > 0
+      ? nestAbsoluteAssetUrl(user.avatar)
+      : null;
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -165,6 +171,14 @@ export function Navbar({
                 >
                   Můj profil
                 </Link>
+                {isAdmin ? (
+                  <Link
+                    href="/admin"
+                    className="rounded-lg px-2 py-1.5 text-xs font-semibold text-[#e85d00] transition hover:bg-orange-50"
+                  >
+                    Admin
+                  </Link>
+                ) : null}
                 <button
                   type="button"
                   onClick={handleLogout}
@@ -212,10 +226,20 @@ export function Navbar({
 
           <Link
             href={!isLoading && isAuthenticated ? profilePath : '/login'}
-            className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-100 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-200 md:size-10 md:text-sm"
+            className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-200 md:size-10 md:text-sm"
             aria-label={!isLoading && isAuthenticated ? 'Můj profil' : 'Přihlásit'}
           >
-            {user?.email?.trim().charAt(0).toUpperCase() || 'A'}
+            {avatarSrc ? (
+              <img
+                src={avatarSrc}
+                alt=""
+                className="size-full object-cover"
+                width={40}
+                height={40}
+              />
+            ) : (
+              user?.email?.trim().charAt(0).toUpperCase() || 'A'
+            )}
           </Link>
         </div>
       </div>
@@ -240,6 +264,11 @@ export function Navbar({
                 <Link href={profilePath} className={navBtn} onClick={() => setMenuOpen(false)}>
                   Můj profil
                 </Link>
+                {isAdmin ? (
+                  <Link href="/admin" className={navBtn} onClick={() => setMenuOpen(false)}>
+                    Admin
+                  </Link>
+                ) : null}
                 <Link href="/create" className={navBtn} onClick={() => setMenuOpen(false)}>
                   Přidat inzerát
                 </Link>

@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { serializeProperty } from '../properties/properties.serializer';
 
@@ -44,6 +44,14 @@ export class FavoritesService {
       where: { id: propertyId },
     });
     if (!property) {
+      throw new NotFoundException(`Property "${propertyId}" not found`);
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    const admin = user?.role === UserRole.ADMIN;
+    if (!property.approved && !admin) {
       throw new NotFoundException(`Property "${propertyId}" not found`);
     }
     try {

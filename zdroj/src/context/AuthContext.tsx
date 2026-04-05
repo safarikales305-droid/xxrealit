@@ -29,9 +29,7 @@ type AuthContextValue = {
 export const AuthContext = createContext<AuthContextValue | null>(null);
 
 function meUrl(): string {
-  const base = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/+$/, '');
-  const path = '/api/auth/me';
-  return base ? `${base}${path}` : path;
+  return '/api/auth/me';
 }
 
 async function fetchMe(token: string | null): Promise<AuthUser | null> {
@@ -46,8 +44,20 @@ async function fetchMe(token: string | null): Promise<AuthUser | null> {
   if (!res.ok) {
     return null;
   }
-  const data = (await res.json()) as { user?: AuthUser };
-  return data.user ?? null;
+  const data = (await res.json()) as { user?: AuthUser } | AuthUser | null;
+  if (data && typeof data === 'object' && 'user' in data && data.user) {
+    return data.user;
+  }
+  if (
+    data &&
+    typeof data === 'object' &&
+    'id' in data &&
+    'email' in data &&
+    'role' in data
+  ) {
+    return data as AuthUser;
+  }
+  return null;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {

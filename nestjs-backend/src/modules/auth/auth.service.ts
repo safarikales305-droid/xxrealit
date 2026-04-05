@@ -63,7 +63,8 @@ const roleMap: Record<string, UserRole> = {
 
   developer: UserRole.DEVELOPER,
 
-  admin: UserRole.AGENT,
+  admin: UserRole.USER,
+  administrator: UserRole.USER,
   remeslnik: UserRole.USER,
   firma: UserRole.USER,
   'stavebni firma': UserRole.DEVELOPER,
@@ -351,6 +352,7 @@ export class AuthService {
         avatar: (user as any).avatar ?? null,
         bio: (user as any).bio ?? null,
         city: (user as any).city ?? null,
+        createdAt: user.createdAt.toISOString(),
       },
     };
   }

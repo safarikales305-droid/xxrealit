@@ -8,6 +8,7 @@ import { RegisterApiController } from './register-api.controller';
 import { AuthModule } from './modules/auth/auth.module';
 import { FavoritesModule } from './modules/favorites/favorites.module';
 import { FeedModule } from './modules/feed/feed.module';
+import { AdminModule } from './modules/admin/admin.module';
 import { PropertiesModule } from './modules/properties/properties.module';
 
 @Module({
@@ -24,6 +25,7 @@ import { PropertiesModule } from './modules/properties/properties.module';
     FeedModule,
     PropertiesModule,
     FavoritesModule,
+    AdminModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

@@ -11,6 +11,7 @@ enum UserRole {
   USER
   AGENT
   DEVELOPER
+  ADMIN
 }
 
 model User {
@@ -58,6 +59,8 @@ model Property {
   price     Int
   videoUrl  String?
   city      String
+  /// Ve veřejném výpisu jen schválené; admin vidí vše.
+  approved  Boolean  @default(true)
   createdAt DateTime @default(now())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)

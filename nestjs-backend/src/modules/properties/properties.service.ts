@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { serializeProperty } from './properties.serializer';
@@ -29,8 +29,19 @@ const socialInclude = (viewerId?: string) =>
 export class PropertiesService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private async viewerIsAdmin(viewerId?: string): Promise<boolean> {
+    if (!viewerId) return false;
+    const u = await this.prisma.user.findUnique({
+      where: { id: viewerId },
+      select: { role: true },
+    });
+    return u?.role === UserRole.ADMIN;
+  }
+
   async findAllPublic(viewerId?: string) {
+    const admin = await this.viewerIsAdmin(viewerId);
     const rows = await this.prisma.property.findMany({
+      where: admin ? undefined : { approved: true },
       orderBy: { createdAt: 'desc' },
       include: socialInclude(viewerId),
     });
@@ -43,8 +54,13 @@ export class PropertiesService {
   }
 
   async findByOwner(ownerId: string, viewerId?: string) {
+    const admin = await this.viewerIsAdmin(viewerId);
+    const viewerIsOwner = viewerId === ownerId;
     const rows = await this.prisma.property.findMany({
-      where: { userId: ownerId },
+      where: {
+        userId: ownerId,
+        ...(!admin && !viewerIsOwner ? { approved: true } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       include: socialInclude(viewerId),
     });
@@ -57,6 +73,7 @@ export class PropertiesService {
   }
 
   async findFromFollowedUsers(viewerId: string) {
+    const admin = await this.viewerIsAdmin(viewerId);
     const follows = await this.prisma.follow.findMany({
       where: { followerId: viewerId },
       select: { followingId: true },
@@ -66,7 +83,10 @@ export class PropertiesService {
       return [];
     }
     const rows = await this.prisma.property.findMany({
-      where: { userId: { in: ids } },
+      where: {
+        userId: { in: ids },
+        ...(admin ? {} : { approved: true }),
+      },
       orderBy: { createdAt: 'desc' },
       include: socialInclude(viewerId),
     });
@@ -83,6 +103,10 @@ export class PropertiesService {
       where: { id: propertyId },
     });
     if (!property) {
+      throw new NotFoundException(`Property "${propertyId}" not found`);
+    }
+    const admin = await this.viewerIsAdmin(userId);
+    if (!property.approved && !admin) {
       throw new NotFoundException(`Property "${propertyId}" not found`);
     }
 
@@ -150,6 +174,7 @@ export class PropertiesService {
           videoUrl: dto.videoUrl?.trim() || null,
           city: dto.city ?? 'Unknown',
           userId,
+          approved: false,
         },
       });
     } catch (e) {

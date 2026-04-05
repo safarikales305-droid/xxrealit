@@ -13,6 +13,7 @@ export const USER_ROLES = [
   'AGENT',
   'DEVELOPER',
   'PRIVATE_SELLER',
+  'ADMIN',
 ] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];
@@ -34,6 +35,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   AGENT: 'Realitní makléř',
   DEVELOPER: 'Developer',
   PRIVATE_SELLER: 'Soukromý prodejce',
+  ADMIN: 'Administrátor',
 };
 
 export const DASHBOARD_SEGMENTS: Record<UserRole, string> = {
@@ -49,6 +51,7 @@ export const DASHBOARD_SEGMENTS: Record<UserRole, string> = {
   AGENT: 'makler',
   DEVELOPER: 'stavebni_firma',
   PRIVATE_SELLER: 'uzivatel',
+  ADMIN: 'uzivatel',
 };
 
 export function dashboardPathForRole(role: UserRole): string {

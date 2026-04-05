@@ -46,6 +46,7 @@ model Property {
   price           Int
   videoUrl        String?
   city            String
+  approved        Boolean           @default(true)
   createdAt       DateTime          @default(now())
   userId          String
   User            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -85,4 +86,5 @@ enum UserRole {
   AGENT
   DEVELOPER
   PRIVATE_SELLER
+  ADMIN
 }

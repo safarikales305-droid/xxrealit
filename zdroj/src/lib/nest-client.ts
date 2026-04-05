@@ -78,6 +78,111 @@ export async function nestFetchMe(
   return (await res.json()) as { avatarUrl?: string | null; email?: string };
 }
 
+export type AdminStats = { users: number; admins: number; total: number };
+
+export type AdminUserRow = {
+  id: string;
+  email: string;
+  name?: string | null;
+  role: string;
+  avatarUrl?: string | null;
+  createdAt: string;
+};
+
+export async function nestAdminStats(
+  token: string | null,
+): Promise<AdminStats | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/stats`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as AdminStats;
+}
+
+export async function nestAdminProperties(
+  token: string | null,
+): Promise<unknown[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/properties`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as unknown;
+  return Array.isArray(data) ? data : null;
+}
+
+export async function nestAdminApproveProperty(
+  token: string | null,
+  propertyId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/admin/properties/${encodeURIComponent(propertyId)}/approve`,
+    {
+      method: 'PATCH',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    },
+  );
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string };
+    return {
+      ok: false,
+      error: typeof err.message === 'string' ? err.message : `HTTP ${res.status}`,
+    };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminUsers(
+  token: string | null,
+): Promise<AdminUserRow[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/users`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as unknown;
+  return Array.isArray(data) ? (data as AdminUserRow[]) : null;
+}
+
+export async function nestAdminChangePassword(
+  token: string | null,
+  oldPassword: string,
+  newPassword: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/admin/password`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ oldPassword, newPassword }),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    message?: string | string[];
+    error?: string;
+  };
+  if (!res.ok) {
+    const msg =
+      typeof data.message === 'string'
+        ? data.message
+        : Array.isArray(data.message)
+          ? data.message.join(', ')
+          : typeof data.error === 'string'
+            ? data.error
+            : `HTTP ${res.status}`;
+    return { ok: false, error: msg };
+  }
+  return { ok: true };
+}
+
 export async function nestUploadAvatar(
   token: string | null,
   file: File,

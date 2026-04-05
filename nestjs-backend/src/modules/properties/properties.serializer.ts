@@ -4,6 +4,7 @@ export type PropertyRowForApi = {
   price: number;
   city: string;
   videoUrl: string | null;
+  approved?: boolean;
   createdAt: Date;
   userId: string;
   user: { id: string; city: string | null };
@@ -27,6 +28,7 @@ export function serializeProperty(
     location: p.city,
     city: p.city,
     videoUrl: p.videoUrl,
+    approved: typeof p.approved === 'boolean' ? p.approved : true,
     createdAt: p.createdAt,
     userId: p.userId,
     ownerCity: p.user?.city ?? null,
