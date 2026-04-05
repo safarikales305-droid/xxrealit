@@ -9,50 +9,61 @@ export function getResendFrom(): string {
 
 type SendLabel = 'test' | 'reset';
 
+export type EmailSendResult = { success: true } | { success: false; error: string };
+
+function stringifyForResponse(error: unknown): string {
+  if (error instanceof Error) {
+    return JSON.stringify({ name: error.name, message: error.message, stack: error.stack });
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
 async function resendSendWithDebug(
   resend: Resend,
   label: SendLabel,
   payload: { from: string; to: string; subject: string; html: string },
-): Promise<void> {
-  let response: Awaited<ReturnType<Resend['emails']['send']>>;
+): Promise<EmailSendResult> {
   try {
-    response = await resend.emails.send(payload);
-  } catch (error) {
-    console.error('EMAIL ERROR FULL (network/exception):', error);
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error(String(error));
-  }
+    const response = await resend.emails.send(payload);
+    console.log('RESEND RESPONSE:', response);
 
-  console.log(`EMAIL SUCCESS (${label}):`, JSON.stringify(response));
-  if (response.error) {
-    console.error('EMAIL ERROR FULL (API):', JSON.stringify(response.error, null, 2));
-    const e = response.error;
-    throw new Error(`${e.message} [${e.name}] status:${String(e.statusCode ?? 'n/a')}`);
+    if (response.error) {
+      const err = response.error;
+      console.error('FULL EMAIL ERROR:', err);
+      return { success: false, error: JSON.stringify(err) };
+    }
+
+    console.log(`EMAIL OK (${label})`);
+    return { success: true };
+  } catch (error: unknown) {
+    console.error('FULL EMAIL ERROR:', error);
+    return { success: false, error: stringifyForResponse(error) };
   }
 }
 
 /**
- * Odešle test + obnovu hesla přes Resend s podrobným logováním (Railway).
- * Vyhodí výjimku při chybě — route má vrátit 500 s `detail`.
+ * Odešle test + obnovu hesla přes Resend. Nevyhazuje výjimky — vrací { success, error? }.
  */
 export async function sendPasswordResetFlowWithDebug(
   to: string,
   resetUrl: string,
   options: { skipTest?: boolean },
-): Promise<void> {
-  console.log('EMAIL:', to);
+): Promise<EmailSendResult> {
+  console.log('SENDING TO:', to);
   console.log('API KEY:', process.env.RESEND_API_KEY ? 'OK' : 'MISSING');
 
   if (!to || !String(to).trim()) {
-    throw new Error('Missing email');
+    return { success: false, error: JSON.stringify({ message: 'Missing email' }) };
   }
 
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) {
     console.error('Missing RESEND_API_KEY (send)');
-    throw new Error('Missing RESEND_API_KEY');
+    return { success: false, error: JSON.stringify({ message: 'Missing RESEND_API_KEY' }) };
   }
 
   const resend = new Resend(apiKey);
@@ -62,22 +73,30 @@ export async function sendPasswordResetFlowWithDebug(
   const skipTest = options.skipTest === true;
 
   if (!skipTest) {
-    await resendSendWithDebug(resend, 'test', {
+    const testResult = await resendSendWithDebug(resend, 'test', {
       from,
       to: to.trim(),
       subject: 'Test email',
       html: '<p>Test funguje</p>',
     });
+    if (!testResult.success) {
+      return testResult;
+    }
   }
 
   const resetHtml = `<p>Dobrý den,</p><p>Pro nastavení nového hesla použijte odkaz:</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>Platnost odkazu je omezená.</p><p>XXrealit</p>`;
 
-  await resendSendWithDebug(resend, 'reset', {
+  const resetResult = await resendSendWithDebug(resend, 'reset', {
     from,
     to: to.trim(),
     subject: 'Obnova hesla',
     html: resetHtml,
   });
 
+  if (!resetResult.success) {
+    return resetResult;
+  }
+
   console.log('EMAIL OK (all sends finished)');
+  return { success: true };
 }

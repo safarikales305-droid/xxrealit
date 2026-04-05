@@ -25,15 +25,12 @@ function logEnvCheck() {
   console.log('JWT_SECRET:', process.env.JWT_SECRET ? 'OK' : 'MISSING');
 }
 
-function emailFailedResponse(error: unknown) {
-  console.error('EMAIL ERROR FULL:', error);
-  const detail =
-    error instanceof Error
-      ? error.message
-      : typeof error === 'object' && error !== null && 'message' in error
-        ? String((error as { message: unknown }).message)
-        : String(error);
-  return NextResponse.json({ error: 'Email failed', detail }, { status: 500 });
+function jsonErrorString(e: unknown): string {
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return e instanceof Error ? e.message : String(e);
+  }
 }
 
 export async function POST(req: Request) {
@@ -53,7 +50,10 @@ export async function POST(req: Request) {
     const email = parsed.data.email;
     if (!email) {
       console.error('Missing email (post-parse)');
-      throw new Error('Missing email');
+      return NextResponse.json(
+        { success: false, error: JSON.stringify({ message: 'Missing email' }) },
+        { status: 200 },
+      );
     }
 
     logEnvCheck();
@@ -62,18 +62,21 @@ export async function POST(req: Request) {
 
     const user = await prisma.user.findUnique({ where: { email } });
 
-    const generic = NextResponse.json({
+    const genericOk = NextResponse.json({
       success: true,
       message: 'Pokud účet existuje, odeslali jsme instrukce na e-mail.',
     });
 
     if (!user) {
-      return generic;
+      return genericOk;
     }
 
     if (!user.email || !user.email.trim()) {
       console.error('Missing email (user record)');
-      throw new Error('Missing email');
+      return NextResponse.json(
+        { success: false, error: JSON.stringify({ message: 'Missing email on user' }) },
+        { status: 200 },
+      );
     }
 
     const plainToken = generateResetPlainToken();
@@ -90,21 +93,41 @@ export async function POST(req: Request) {
 
     const resetUrl = `${getAppOrigin()}/reset-hesla?token=${encodeURIComponent(plainToken)}`;
 
-    try {
-      const skipTest =
-        process.env.RESEND_SKIP_TEST === '1' || process.env.RESEND_SKIP_TEST === 'true';
-      await sendPasswordResetFlowWithDebug(user.email, resetUrl, { skipTest });
-    } catch (error) {
-      return emailFailedResponse(error);
+    console.log('RESET LINK:', resetUrl);
+    console.log('SENDING TO:', user.email);
+
+    const skipTest =
+      process.env.RESEND_SKIP_TEST === '1' || process.env.RESEND_SKIP_TEST === 'true';
+    const emailResult = await sendPasswordResetFlowWithDebug(user.email, resetUrl, { skipTest });
+
+    if (!emailResult.success) {
+      console.error('FULL EMAIL ERROR (flow):', emailResult.error);
+      return NextResponse.json(
+        {
+          success: false,
+          error: emailResult.error,
+          message:
+            'Účet je připraven, ale e-mail se nepodařilo odeslat. Odkaz na obnovu je v logu serveru (RESET LINK).',
+        },
+        { status: 200 },
+      );
     }
 
-    return generic;
-  } catch (e) {
+    return NextResponse.json({
+      success: true,
+      message: 'Pokud účet existuje, odeslali jsme instrukce na e-mail.',
+    });
+  } catch (e: unknown) {
     console.error('[reset-request]', e);
-    const detail = e instanceof Error ? e.message : String(e);
+    const errStr = jsonErrorString(e);
+    console.error('FULL EMAIL ERROR (route):', e);
     return NextResponse.json(
-      { error: 'Nepodařilo se odeslat požadavek', detail },
-      { status: 500 },
+      {
+        success: false,
+        error: errStr,
+        message: 'Požadavek se nepodařilo dokončit.',
+      },
+      { status: 200 },
     );
   }
 }

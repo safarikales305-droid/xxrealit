@@ -30,9 +30,20 @@ function ResetHeslaInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim() }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+        message?: string;
+      };
       if (!res.ok) {
         setError(data.error || 'Požadavek se nezdařil');
+        return;
+      }
+      if (data.success === false) {
+        setError(
+          data.message ??
+            'Odeslání e-mailu se nezdařilo. Zkuste to znovu později nebo kontaktujte podporu.',
+        );
         return;
       }
       setMessage(data.message ?? 'Zkontrolujte e-mail.');
