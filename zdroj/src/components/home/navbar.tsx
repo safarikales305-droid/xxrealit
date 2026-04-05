@@ -22,13 +22,11 @@ export function Navbar({
   onMobileFiltersOpen,
 }: NavbarProps) {
   const router = useRouter();
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, isLoading, logout } = useAuth();
   const profileHref = user ? `/profile/${user.id}` : '/login';
 
-  async function handleLogout() {
-    await logout();
-    router.push('/');
-    router.refresh();
+  function handleLogout() {
+    logout();
   }
 
   return (
@@ -99,39 +97,38 @@ export function Navbar({
           ) : null}
 
           <div className="hidden shrink-0 items-center gap-2 md:flex">
-            {isAuthenticated && user ? (
+            {isLoading ? (
+              <span className="px-2 text-xs text-zinc-400" aria-hidden>
+                …
+              </span>
+            ) : isAuthenticated && user ? (
               <>
-                <Link
-                  href="/following"
+                <span
+                  className="max-w-[160px] truncate text-xs font-medium text-zinc-600"
+                  title={user.email}
+                >
+                  {user.email}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => router.push('/')}
                   className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
                 >
-                  Sledovaní
-                </Link>
+                  Prohlížet nemovitosti
+                </button>
                 <Link
                   href={profileHref}
                   className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
                 >
-                  Profil
-                </Link>
-                <Link
-                  href="/profile/edit"
-                  className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900"
-                >
-                  Upravit profil
+                  Můj profil
                 </Link>
                 <button
                   type="button"
-                  onClick={() => void handleLogout()}
+                  onClick={handleLogout}
                   className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
                 >
                   Odhlásit
                 </button>
-                <Link
-                  href="/panel"
-                  className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100"
-                >
-                  Panel
-                </Link>
               </>
             ) : (
               <>
@@ -151,7 +148,7 @@ export function Navbar({
             )}
           </div>
 
-          {isAuthenticated ? (
+          {!isLoading && isAuthenticated ? (
             <>
               <Link
                 href="/create"
@@ -171,11 +168,11 @@ export function Navbar({
           ) : null}
 
           <Link
-            href={isAuthenticated ? '/panel' : '/login'}
+            href={!isLoading && isAuthenticated ? profileHref : '/login'}
             className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-100 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-200 md:size-10 md:text-sm"
-            aria-label={isAuthenticated ? 'Panel účtu' : 'Přihlásit'}
+            aria-label={!isLoading && isAuthenticated ? 'Můj profil' : 'Přihlásit'}
           >
-            {user?.name?.trim().charAt(0).toUpperCase() || 'A'}
+            {user?.email?.trim().charAt(0).toUpperCase() || 'A'}
           </Link>
         </div>
       </div>

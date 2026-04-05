@@ -3,12 +3,14 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
 
 const inputClass =
   'w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-[#ff6a00]/70 focus:ring-2 focus:ring-[#ff6a00]/15';
 
 export function LoginForm() {
   const router = useRouter();
+  const { refresh } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +33,7 @@ export function LoginForm() {
         error?: string;
         details?: unknown;
         success?: boolean;
+        access_token?: string;
         session?: { user?: { id: string; email: string; role: string; createdAt: string } };
       };
 
@@ -43,9 +46,18 @@ export function LoginForm() {
         return;
       }
 
-      if (data.session?.user) {
-        localStorage.setItem('user', JSON.stringify(data.session.user));
+      if (typeof data.access_token === 'string' && data.access_token.length > 0) {
+        localStorage.setItem('token', data.access_token);
       }
+      if (data.session?.user) {
+        try {
+          localStorage.setItem('user', JSON.stringify(data.session.user));
+        } catch {
+          /* ignore */
+        }
+      }
+
+      await refresh();
 
       router.push('/dashboard');
       router.refresh();
@@ -67,7 +79,7 @@ export function LoginForm() {
         </Link>
         <h1 className="mt-6 text-2xl font-semibold tracking-tight">Přihlášení</h1>
         <p className="mt-2 text-[15px] text-zinc-600">
-          Účet je v databázi Next.js (Neon + Prisma). JWT v httpOnly cookie.
+          Účet je v databázi Next.js (Neon + Prisma). JWT v cookie i v úložišti pro API.
         </p>
 
         <form onSubmit={handleLogin} className="mt-8 space-y-4">

@@ -1,24 +1,17 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 
 export function PortalNavbar() {
-  const router = useRouter();
-
-  async function handleLogout() {
+  function handleLogout() {
     try {
+      localStorage.removeItem('token');
       localStorage.removeItem('user');
     } catch {
       /* ignore */
     }
-    try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-    } catch {
-      /* ignore */
-    }
-    router.push('/login');
-    router.refresh();
+    void fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    window.location.reload();
   }
 
   const linkClass =

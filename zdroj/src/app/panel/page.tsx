@@ -16,18 +16,50 @@ export default function PanelPage() {
   const [storedUser, setStoredUser] = useState<StoredUser | null>(null);
 
   useLayoutEffect(() => {
+    const token = localStorage.getItem('token');
     const user = localStorage.getItem('user');
-    if (!user) {
+    if (!token && !user) {
       window.location.href = '/login';
       return;
     }
-    try {
-      setStoredUser(JSON.parse(user) as StoredUser);
-    } catch {
-      window.location.href = '/login';
-      return;
+    if (user) {
+      try {
+        setStoredUser(JSON.parse(user) as StoredUser);
+        setReady(true);
+        return;
+      } catch {
+        window.location.href = '/login';
+        return;
+      }
     }
-    setReady(true);
+    void (async () => {
+      try {
+        const res = await fetch('/api/auth/me', {
+          credentials: 'include',
+          headers: token
+            ? { Authorization: `Bearer ${token}` }
+            : undefined,
+        });
+        if (!res.ok) {
+          window.location.href = '/login';
+          return;
+        }
+        const data = (await res.json()) as { user?: StoredUser };
+        if (!data.user) {
+          window.location.href = '/login';
+          return;
+        }
+        setStoredUser(data.user);
+        try {
+          localStorage.setItem('user', JSON.stringify(data.user));
+        } catch {
+          /* ignore */
+        }
+        setReady(true);
+      } catch {
+        window.location.href = '/login';
+      }
+    })();
   }, []);
 
   if (!ready || !storedUser) {

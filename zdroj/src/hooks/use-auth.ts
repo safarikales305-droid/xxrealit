@@ -1,6 +1,6 @@
 'use client';
 
-import { useAuthContext } from '@/components/providers/auth-provider';
+import { useAuthContext } from '@/context/AuthContext';
 import type { UserRole } from '@/lib/roles';
 import { isUserRole } from '@/lib/roles';
 
@@ -10,6 +10,9 @@ export function useAuth() {
   const role =
     user?.role && isUserRole(user.role) ? (user.role as UserRole) : undefined;
 
+  const apiAccessToken =
+    typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+
   return {
     user,
     status: loading ? 'loading' : user ? 'authenticated' : 'unauthenticated',
@@ -18,6 +21,6 @@ export function useAuth() {
     refresh,
     logout,
     role,
-    apiAccessToken: null as string | null,
+    apiAccessToken,
   };
 }

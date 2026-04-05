@@ -6,9 +6,16 @@ import { prisma } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
+    const authHeader = request.headers.get('authorization');
+    let token: string | null = null;
+    if (authHeader?.toLowerCase().startsWith('bearer ')) {
+      token = authHeader.slice(7).trim();
+    }
+    if (!token) {
+      token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value ?? null;
+    }
     if (!token) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
