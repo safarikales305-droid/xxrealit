@@ -23,7 +23,7 @@ export default function ProfilPage() {
   const loadNestProfile = useCallback(async () => {
     if (!apiAccessToken) return;
     const me = await nestFetchMe(apiAccessToken);
-    if (me?.avatarUrl) setNestAvatar(me.avatarUrl);
+    setNestAvatar(me?.avatarUrl ?? null);
   }, [apiAccessToken]);
 
   const loadFavorites = useCallback(async () => {
@@ -74,14 +74,15 @@ export default function ProfilPage() {
     await refresh();
   }
 
-  const displayAvatar = nestAvatar ?? user?.avatar ?? null;
+  /** avatarUrl z Nest GET /users/me nebo z Next session po refresh */
+  const avatarUrl = nestAvatar ?? user?.avatar ?? null;
   const imgSrc = (() => {
-    if (!displayAvatar) return null;
-    if (/^https?:\/\//i.test(displayAvatar)) return displayAvatar;
-    if (displayAvatar.startsWith('/uploads/')) {
-      return nestAbsoluteAssetUrl(displayAvatar) || displayAvatar;
+    if (!avatarUrl) return null;
+    if (/^https?:\/\//i.test(avatarUrl)) return avatarUrl;
+    if (avatarUrl.startsWith('/uploads/')) {
+      return nestAbsoluteAssetUrl(avatarUrl) || avatarUrl;
     }
-    return displayAvatar;
+    return avatarUrl;
   })();
 
   if (isLoading) {
@@ -122,10 +123,10 @@ export default function ProfilPage() {
               <img
                 src={imgSrc}
                 alt=""
-                className="h-12 w-12 shrink-0 rounded-full object-cover ring-2 ring-zinc-100"
+                className="h-24 w-24 shrink-0 rounded-full object-cover ring-2 ring-zinc-100"
               />
             ) : (
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-lg font-semibold text-zinc-600">
+              <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-2xl font-semibold text-zinc-600">
                 {user.email.charAt(0).toUpperCase()}
               </div>
             )}
@@ -133,7 +134,9 @@ export default function ProfilPage() {
               <p className="text-sm text-zinc-500">E-mail</p>
               <p className="truncate font-medium text-zinc-900">{user.email}</p>
               <label className="mt-4 block">
-                <span className="text-sm font-medium text-zinc-700">Změnit fotku (Nest API)</span>
+                <span className="text-sm font-medium text-zinc-700">
+                  Nahrát avatar (POST /upload/avatar → PATCH /users/avatar)
+                </span>
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp,image/gif"

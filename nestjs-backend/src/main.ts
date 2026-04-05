@@ -17,7 +17,7 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
 
-  app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads/' });
+  app.useStaticAssets(join(__dirname, '..', 'uploads'), { prefix: '/uploads/' });
 
   app.enableCors({
     origin: true,

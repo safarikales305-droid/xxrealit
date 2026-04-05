@@ -67,15 +67,26 @@ export async function nestFetchFavorites(token: string | null): Promise<unknown[
   return Array.isArray(data) ? data : null;
 }
 
+/** Odpověď GET /users/me (Nest JWT). */
+export type NestMeProfile = {
+  id: string;
+  email: string;
+  name?: string | null;
+  role: string;
+  avatarUrl?: string | null;
+  createdAt: string;
+};
+
 export async function nestFetchMe(
   token: string | null,
-): Promise<{ avatarUrl?: string | null; email?: string } | null> {
+): Promise<NestMeProfile | null> {
   if (!API_BASE_URL || !token) return null;
   const res = await fetch(`${API_BASE_URL}/users/me`, {
     headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    cache: 'no-store',
   });
   if (!res.ok) return null;
-  return (await res.json()) as { avatarUrl?: string | null; email?: string };
+  return (await res.json()) as NestMeProfile;
 }
 
 export type AdminStats = { users: number; admins: number; total: number };
@@ -300,6 +311,9 @@ export async function nestCreatePropertyListing(
   }
 }
 
+/**
+ * POST /upload/avatar (soubor) → PATCH /users/avatar { avatarUrl }.
+ */
 export async function nestUploadAvatar(
   token: string | null,
   file: File,
@@ -309,17 +323,54 @@ export async function nestUploadAvatar(
   }
   const fd = new FormData();
   fd.append('file', file);
-  const res = await fetch(`${API_BASE_URL}/users/avatar`, {
+  const up = await fetch(`${API_BASE_URL}/upload/avatar`, {
     method: 'POST',
     headers: nestAuthHeaders(token),
     body: fd,
   });
-  const data = (await res.json().catch(() => ({}))) as {
-    avatarUrl?: string;
-    message?: string;
+  const upData = (await up.json().catch(() => ({}))) as {
+    url?: string;
+    message?: string | string[];
   };
-  if (!res.ok) {
-    return { error: data.message ?? `HTTP ${res.status}` };
+  if (!up.ok) {
+    const msg =
+      typeof upData.message === 'string'
+        ? upData.message
+        : Array.isArray(upData.message)
+          ? upData.message.join(', ')
+          : `HTTP ${up.status}`;
+    return { error: msg };
   }
-  return { avatarUrl: data.avatarUrl };
+  const url = typeof upData.url === 'string' ? upData.url : '';
+  if (!url) {
+    return { error: 'Server nevrátil URL obrázku' };
+  }
+
+  const patch = await fetch(`${API_BASE_URL}/users/avatar`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ avatarUrl: url }),
+  });
+  const patchData = (await patch.json().catch(() => ({}))) as {
+    avatarUrl?: string | null;
+    message?: string | string[];
+  };
+  if (!patch.ok) {
+    const msg =
+      typeof patchData.message === 'string'
+        ? patchData.message
+        : Array.isArray(patchData.message)
+          ? patchData.message.join(', ')
+          : `HTTP ${patch.status}`;
+    return { error: msg };
+  }
+  const avatarUrl =
+    typeof patchData.avatarUrl === 'string'
+      ? patchData.avatarUrl
+      : url;
+  return { avatarUrl };
 }
