@@ -8,11 +8,11 @@
     "seed": "ts-node prisma/seed.ts && node prisma/seed.cjs"
   },
   "scripts": {
-    "build": "nest build",
+    "build": "prisma generate && nest build",
     "start": "node dist/main.js",
     "start:prod": "node dist/main.js",
     "start:dev": "nest start --watch",
-    "postinstall": "prisma generate"
+    "postinstall": "npm run build"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",
