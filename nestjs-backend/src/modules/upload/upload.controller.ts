@@ -22,34 +22,39 @@ import { propertyImagesMulterOptions } from './multer-upload.config';
 const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
 const MAX_FILES = 24;
 
-const avatarStorage = diskStorage({
-  destination: (_req, _file, cb) => {
+const noBodyValidation = new ValidationPipe({
+  whitelist: false,
+  forbidNonWhitelisted: false,
+  transform: false,
+});
+
+@Controller()
+export class UploadController {
+  constructor() {
     const dir = getUploadsPath();
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    cb(null, dir);
-  },
-  filename: (_req, file, cb) => {
-    const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, unique + extname(file.originalname || '.jpg'));
-  },
-});
+  }
 
-@Controller('upload')
-export class UploadController {
+  @Post('upload/avatar')
   @UseGuards(JwtAuthGuard)
-  @Post('avatar')
-  @UsePipes(
-    new ValidationPipe({
-      whitelist: false,
-      forbidNonWhitelisted: false,
-      transform: false,
-    }),
-  )
+  @UsePipes(noBodyValidation)
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: avatarStorage,
+      storage: diskStorage({
+        destination: (_req, _file, cb) => {
+          const d = getUploadsPath();
+          if (!fs.existsSync(d)) {
+            fs.mkdirSync(d, { recursive: true });
+          }
+          cb(null, d);
+        },
+        filename: (_req, file, cb) => {
+          const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
+          cb(null, unique + extname(file.originalname || '.jpg'));
+        },
+      }),
       limits: { fileSize: 2 * 1024 * 1024 },
     }),
   )
@@ -57,12 +62,10 @@ export class UploadController {
     @CurrentUser() _user: AuthUser,
     @UploadedFile() file?: Express.Multer.File,
   ): { url: string } {
-    console.log('[upload/avatar] file:', file);
+    console.log('UPLOAD FILE:', file);
 
     if (!file?.filename) {
-      throw new BadRequestException(
-        'Soubor je povinný (pole file v multipart/form-data)',
-      );
+      throw new BadRequestException('File not received (field name must be "file")');
     }
 
     const ext =
@@ -74,15 +77,9 @@ export class UploadController {
     return { url: `/uploads/${file.filename}` };
   }
 
+  @Post('upload')
   @UseGuards(JwtAuthGuard)
-  @Post()
-  @UsePipes(
-    new ValidationPipe({
-      whitelist: false,
-      forbidNonWhitelisted: false,
-      transform: false,
-    }),
-  )
+  @UsePipes(noBodyValidation)
   @UseInterceptors(
     FilesInterceptor('files', MAX_FILES, propertyImagesMulterOptions),
   )
