@@ -34,6 +34,15 @@ export class PropertiesController {
     return this.propertiesService.findAllPublic(viewerId);
   }
 
+  @Get(':id')
+  findOne(
+    @Param('id') id: string,
+    @Headers('authorization') auth?: string,
+  ) {
+    const viewerId = parseBearerUserId(this.jwt, auth);
+    return this.propertiesService.findOneForDetail(id, viewerId);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Post(':id/like')
   toggleLike(@Param('id') id: string, @CurrentUser() user: AuthUser) {

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import type { PropertyFeedItem } from '@/types/property';
 
@@ -90,6 +91,12 @@ export function PropertyCard({
         <p className="mt-3 bg-gradient-to-r from-[#ffb366] via-[#ff8c42] to-[#ff6a00] bg-clip-text text-[1.45rem] font-bold tabular-nums tracking-[-0.02em] text-transparent sm:text-[1.6rem] sm:tracking-[-0.025em] [filter:drop-shadow(0_2px_10px_rgba(0,0,0,0.5))]">
           {PRICE_FMT.format(p.price)}
         </p>
+        <Link
+          href={`/nemovitost/${p.id}`}
+          className="pointer-events-auto mt-4 inline-flex w-fit rounded-full border border-white/35 bg-white/10 px-4 py-2 text-[13px] font-semibold text-white backdrop-blur-sm transition hover:bg-white/20"
+        >
+          Detail inzerátu
+        </Link>
       </div>
 
       <div className="absolute bottom-28 right-5 z-10 flex flex-col items-center gap-6 sm:bottom-32 sm:right-7">

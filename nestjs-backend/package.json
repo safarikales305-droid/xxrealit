@@ -4,6 +4,9 @@
   "description": "NestJS backend with modular architecture",
   "private": true,
   "license": "UNLICENSED",
+  "prisma": {
+    "seed": "node prisma/seed.cjs"
+  },
   "scripts": {
     "build": "rm -rf dist && nest build",
     "start": "node dist/main.js",

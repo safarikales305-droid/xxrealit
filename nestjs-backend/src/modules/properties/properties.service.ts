@@ -98,6 +98,112 @@ export class PropertiesService {
     );
   }
 
+  /**
+   * Detail inzerátu + autor + další inzeráty stejného uživatele.
+   * Neschválený inzerát vidí jen admin nebo vlastník.
+   */
+  async findOneForDetail(id: string, viewerId?: string) {
+    const property = await this.prisma.property.findUnique({
+      where: { id },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            avatar: true,
+            name: true,
+            city: true,
+          },
+        },
+        _count: { select: { likes: true } },
+        ...(viewerId
+          ? {
+              likes: {
+                where: { userId: viewerId },
+                select: { id: true },
+                take: 1,
+              },
+            }
+          : {}),
+      },
+    });
+
+    if (!property) {
+      throw new NotFoundException(`Property "${id}" not found`);
+    }
+
+    const admin = await this.viewerIsAdmin(viewerId);
+    const isOwner = viewerId === property.userId;
+    if (!property.approved && !admin && !isOwner) {
+      throw new NotFoundException(`Property "${id}" not found`);
+    }
+
+    const author = property.user;
+    const userPayload = {
+      id: author.id,
+      email: author.email,
+      name: author.name ?? null,
+      avatar: author.avatar ?? null,
+    };
+
+    const othersWhere: Prisma.PropertyWhereInput = {
+      userId: property.userId,
+      id: { not: property.id },
+    };
+    if (!admin && !isOwner) {
+      othersWhere.approved = true;
+    }
+
+    const otherRows = await this.prisma.property.findMany({
+      where: othersWhere,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        _count: { select: { likes: true } },
+        user: { select: { id: true, city: true } },
+        ...(viewerId
+          ? {
+              likes: {
+                where: { userId: viewerId },
+                select: { id: true },
+                take: 1,
+              },
+            }
+          : {}),
+      },
+    });
+
+    const likesArr =
+      'likes' in property && Array.isArray(property.likes) ? property.likes : [];
+
+    const propertySerialized = serializeProperty(
+      {
+        ...property,
+        likes: likesArr,
+        _count: property._count,
+        user: { id: author.id, city: author.city },
+      },
+      viewerId,
+    );
+
+    const otherProperties = otherRows.map((r) =>
+      serializeProperty(
+        {
+          ...r,
+          likes: 'likes' in r ? r.likes : [],
+          _count: r._count,
+          user: r.user,
+        },
+        viewerId,
+      ),
+    );
+
+    return {
+      property: propertySerialized,
+      user: userPayload,
+      otherProperties,
+    };
+  }
+
   async toggleLike(propertyId: string, userId: string) {
     const property = await this.prisma.property.findUnique({
       where: { id: propertyId },
