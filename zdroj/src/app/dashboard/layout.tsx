@@ -1,30 +1,16 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
-import { LogoutButton } from '@/components/dashboard/logout-button';
+import type { ReactNode } from 'react';
+import { PortalNavbar } from '@/components/rental/PortalNavbar';
 
 export const metadata: Metadata = {
-  title: 'Panel | XXrealit',
+  title: 'Dashboard | XXrealit',
 };
 
-export default function DashboardLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function DashboardLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <div className="min-h-screen bg-[#fafafa] text-zinc-900">
-      <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/95 px-4 py-3 backdrop-blur md:px-6">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">
-          <Link
-            href="/"
-            className="text-sm font-semibold text-[#e85d00] transition hover:text-[#ff6a00]"
-          >
-            ← XXrealit
-          </Link>
-          <LogoutButton />
-        </div>
-      </header>
-      <main className="mx-auto max-w-5xl px-4 py-8 md:px-6">{children}</main>
+    <div className="min-h-screen bg-zinc-50 text-zinc-900">
+      <PortalNavbar />
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">{children}</main>
     </div>
   );
 }
