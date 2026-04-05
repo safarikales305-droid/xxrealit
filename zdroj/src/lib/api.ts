@@ -29,4 +29,19 @@ export function getServerSideApiBaseUrl(): string | null {
   return rawPublicApi ? withApiPrefix(rawPublicApi) : null;
 }
 
+/** Origin bez `/api` — pro statické soubory Nest (`/uploads/...`). */
+export function getNestPublicOrigin(): string {
+  if (!rawPublicApi) return '';
+  const noTrail = trimTrailingSlash(rawPublicApi);
+  return noTrail.replace(/\/api$/i, '');
+}
+
+export function nestAbsoluteAssetUrl(path: string): string {
+  if (!path) return '';
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  const origin = getNestPublicOrigin();
+  if (!origin) return path;
+  return `${origin}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
 

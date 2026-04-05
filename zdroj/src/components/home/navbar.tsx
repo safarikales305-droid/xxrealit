@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 
 export type ViewMode = 'shorts' | 'classic';
@@ -14,6 +15,9 @@ type NavbarProps = {
   onMobileFiltersOpen?: () => void;
 };
 
+const navBtn =
+  'w-full rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-zinc-800 transition hover:bg-zinc-100 md:w-auto md:px-2 md:py-1.5 md:text-center';
+
 export function Navbar({
   searchQuery,
   onSearchChange,
@@ -23,10 +27,31 @@ export function Navbar({
 }: NavbarProps) {
   const router = useRouter();
   const { user, isAuthenticated, isLoading, logout, refresh } = useAuth();
-  const profileHref = user ? `/profile/${user.id}` : '/login';
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const profilePath = '/profil';
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [menuOpen]);
 
   function handleLogout() {
+    setMenuOpen(false);
     logout();
+  }
+
+  function goHome() {
+    void (async () => {
+      await refresh();
+      router.push('/');
+      router.refresh();
+      setMenuOpen(false);
+    })();
   }
 
   return (
@@ -59,6 +84,24 @@ export function Navbar({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            type="button"
+            className="flex size-10 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-800 md:hidden"
+            aria-expanded={menuOpen}
+            aria-label={menuOpen ? 'Zavřít menu' : 'Otevřít menu'}
+            onClick={() => setMenuOpen((o) => !o)}
+          >
+            {menuOpen ? (
+              <span className="text-xl leading-none">×</span>
+            ) : (
+              <span className="flex flex-col gap-1.5" aria-hidden>
+                <span className="block h-0.5 w-5 rounded-full bg-zinc-700" />
+                <span className="block h-0.5 w-5 rounded-full bg-zinc-700" />
+                <span className="block h-0.5 w-5 rounded-full bg-zinc-700" />
+              </span>
+            )}
+          </button>
+
           {onMobileFiltersOpen ? (
             <button
               type="button"
@@ -70,7 +113,7 @@ export function Navbar({
           ) : null}
 
           {viewMode != null && onViewModeChange != null ? (
-            <div className="flex flex-wrap items-center gap-1 rounded-lg bg-zinc-100 p-0.5 md:gap-1 md:rounded-xl md:p-1">
+            <div className="hidden flex-wrap items-center gap-1 rounded-lg bg-zinc-100 p-0.5 sm:flex md:gap-1 md:rounded-xl md:p-1">
               <button
                 type="button"
                 onClick={() => onViewModeChange('shorts')}
@@ -111,19 +154,13 @@ export function Navbar({
                 </span>
                 <button
                   type="button"
-                  onClick={() => {
-                    void (async () => {
-                      await refresh();
-                      router.push('/');
-                      router.refresh();
-                    })();
-                  }}
+                  onClick={() => void goHome()}
                   className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
                 >
                   Prohlížet nemovitosti
                 </button>
                 <Link
-                  href={profileHref}
+                  href={profilePath}
                   className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
                 >
                   Můj profil
@@ -174,7 +211,7 @@ export function Navbar({
           ) : null}
 
           <Link
-            href={!isLoading && isAuthenticated ? profileHref : '/login'}
+            href={!isLoading && isAuthenticated ? profilePath : '/login'}
             className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-100 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-200 md:size-10 md:text-sm"
             aria-label={!isLoading && isAuthenticated ? 'Můj profil' : 'Přihlásit'}
           >
@@ -182,6 +219,47 @@ export function Navbar({
           </Link>
         </div>
       </div>
+
+      {menuOpen ? (
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-[90] bg-black/40 md:hidden"
+            aria-label="Zavřít menu"
+            onClick={() => setMenuOpen(false)}
+          />
+          <div className="fixed inset-x-0 top-[3.5rem] z-[95] max-h-[min(70vh,calc(100dvh-5rem))] overflow-y-auto border-b border-zinc-200 bg-white px-4 py-4 shadow-lg md:hidden">
+            {isLoading ? (
+              <p className="text-sm text-zinc-500">Načítání…</p>
+            ) : isAuthenticated && user ? (
+              <div className="flex flex-col gap-2">
+                <p className="truncate text-xs font-medium text-zinc-500">{user.email}</p>
+                <button type="button" onClick={() => void goHome()} className={navBtn}>
+                  Prohlížet nemovitosti
+                </button>
+                <Link href={profilePath} className={navBtn} onClick={() => setMenuOpen(false)}>
+                  Můj profil
+                </Link>
+                <Link href="/create" className={navBtn} onClick={() => setMenuOpen(false)}>
+                  Přidat inzerát
+                </Link>
+                <button type="button" onClick={handleLogout} className={navBtn}>
+                  Odhlásit
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <Link href="/login" className={navBtn} onClick={() => setMenuOpen(false)}>
+                  Přihlásit
+                </Link>
+                <Link href="/registrace" className={navBtn} onClick={() => setMenuOpen(false)}>
+                  Registrace
+                </Link>
+              </div>
+            )}
+          </div>
+        </>
+      ) : null}
     </header>
   );
 }

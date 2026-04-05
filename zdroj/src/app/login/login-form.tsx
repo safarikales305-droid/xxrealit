@@ -34,7 +34,15 @@ export function LoginForm() {
         details?: unknown;
         success?: boolean;
         access_token?: string;
-        session?: { user?: { id: string; email: string; role: string; createdAt: string } };
+        session?: {
+          user?: {
+            id: string;
+            email: string;
+            role: string;
+            createdAt: string;
+            avatar?: string | null;
+          };
+        };
       };
 
       if (!res.ok) {

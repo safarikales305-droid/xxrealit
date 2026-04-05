@@ -6,6 +6,7 @@ import { PrismaModule } from './database/prisma.module';
 import { LoginApiController } from './login-api.controller';
 import { RegisterApiController } from './register-api.controller';
 import { AuthModule } from './modules/auth/auth.module';
+import { FavoritesModule } from './modules/favorites/favorites.module';
 import { FeedModule } from './modules/feed/feed.module';
 import { PropertiesModule } from './modules/properties/properties.module';
 
@@ -22,6 +23,7 @@ import { PropertiesModule } from './modules/properties/properties.module';
     AuthModule,
     FeedModule,
     PropertiesModule,
+    FavoritesModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })
