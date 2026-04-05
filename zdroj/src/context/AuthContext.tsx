@@ -39,6 +39,7 @@ async function fetchMe(token: string | null): Promise<AuthUser | null> {
   }
   const res = await fetch(meUrl(), {
     credentials: 'include',
+    cache: 'no-store',
     headers: Object.keys(headers).length ? headers : undefined,
   });
   if (!res.ok) {

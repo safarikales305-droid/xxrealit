@@ -25,6 +25,7 @@ export async function nestToggleFavorite(
   try {
     const res = await fetch(url, {
       method,
+      cache: 'no-store',
       headers: {
         ...nestAuthHeaders(token),
         Accept: 'application/json',
@@ -60,6 +61,7 @@ export async function nestToggleFavorite(
 export async function nestFetchFavorites(token: string | null): Promise<unknown[] | null> {
   if (!API_BASE_URL || !token) return null;
   const res = await fetch(`${API_BASE_URL}/favorites`, {
+    cache: 'no-store',
     headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
   });
   if (!res.ok) return null;
@@ -82,8 +84,8 @@ export async function nestFetchMe(
 ): Promise<NestMeProfile | null> {
   if (!API_BASE_URL || !token) return null;
   const res = await fetch(`${API_BASE_URL}/users/me`, {
-    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
     cache: 'no-store',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
   });
   if (!res.ok) return null;
   return (await res.json()) as NestMeProfile;
@@ -319,6 +321,7 @@ export async function nestUploadPropertyImages(
   try {
     const res = await fetch(`${API_BASE_URL}/upload`, {
       method: 'POST',
+      cache: 'no-store',
       headers: nestAuthHeaders(token),
       body: fd,
     });
@@ -397,6 +400,7 @@ export async function nestUploadAvatar(
   fd.append('file', file);
   const up = await fetch(`${API_BASE_URL}/upload/avatar`, {
     method: 'POST',
+    cache: 'no-store',
     headers: nestAuthHeaders(token),
     body: fd,
   });
@@ -420,6 +424,7 @@ export async function nestUploadAvatar(
 
   const patch = await fetch(`${API_BASE_URL}/users/avatar`, {
     method: 'PATCH',
+    cache: 'no-store',
     headers: {
       ...nestAuthHeaders(token),
       Accept: 'application/json',

@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function PridatInzeratPage() {
   return (
-    <div className="min-h-screen bg-[#fafafa] px-4 py-10 sm:px-6">
+    <div className="bg-[#fafafa] px-4 py-10 sm:px-6">
       <div className="mx-auto max-w-3xl">
         <Link
           href="/"

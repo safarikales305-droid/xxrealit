@@ -87,7 +87,7 @@ export default function ProfilPage() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#fafafa] text-zinc-600">
+      <div className="flex h-[100dvh] items-center justify-center overflow-y-auto bg-[#fafafa] text-zinc-600">
         Načítání…
       </div>
     );
@@ -95,7 +95,7 @@ export default function ProfilPage() {
 
   if (!isAuthenticated || !user) {
     return (
-      <div className="mx-auto max-w-lg px-4 py-16 text-center">
+      <div className="mx-auto h-[100dvh] max-w-lg overflow-y-auto px-4 py-16 text-center">
         <p className="text-lg font-medium text-zinc-800">Nejste přihlášeni</p>
         <Link
           href="/login"
@@ -108,7 +108,7 @@ export default function ProfilPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#fafafa] px-4 py-10 text-zinc-900">
+    <div className="h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#fafafa] px-4 py-10 text-zinc-900">
       <div className="mx-auto max-w-4xl">
         <Link href="/" className="text-sm font-semibold text-[#e85d00] hover:underline">
           ← Domů

@@ -22,6 +22,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       ignoreExpiration: false,
       secretOrKey:
         config.get<string>('JWT_SECRET') ?? 'dev-jwt-secret-change-me',
+      algorithms: ['HS256'],
     });
   }
 
