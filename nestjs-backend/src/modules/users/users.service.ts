@@ -29,6 +29,17 @@ export class UsersService {
     return this.prisma.user.create({ data });
   }
 
+  setPasswordResetToken(
+    userId: string,
+    token: string,
+    resetExpires: Date,
+  ): Promise<User> {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { resetToken: token, resetExpires },
+    });
+  }
+
   async getPublicProfile(userId: string, viewerId?: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },

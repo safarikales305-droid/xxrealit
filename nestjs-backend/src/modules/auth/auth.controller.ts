@@ -27,6 +27,12 @@ export class AuthController {
     return this.authService.login(dto);
   }
 
+  @Post('reset-request')
+  async resetRequest(@Body() body: { email?: string }) {
+    const email = typeof body?.email === 'string' ? body.email : '';
+    return this.authService.resetPassword(email);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get('me')
   getMe(@Request() req: { user: AuthUser }) {

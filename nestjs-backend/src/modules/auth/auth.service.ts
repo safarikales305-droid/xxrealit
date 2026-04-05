@@ -3,10 +3,13 @@ import {
   HttpStatus,
   Injectable,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
 import { UserRole } from '@prisma/client';
 import type { User } from '@prisma/client';
+import { randomBytes } from 'node:crypto';
+import { Resend } from 'resend';
 import { UsersService } from '../users/users.service';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -99,12 +102,98 @@ function errorDetailForResponse(err: unknown): Record<string, unknown> {
   return { value: String(err) };
 }
 
+export type ResetPasswordRequestResult = {
+  success: boolean;
+  message?: string;
+  error?: string;
+};
+
 @Injectable()
 export class AuthService {
   constructor(
     private readonly users: UsersService,
     private readonly jwt: JwtService,
+    private readonly config: ConfigService,
   ) {}
+
+  private appOrigin(): string {
+    const raw =
+      this.config.get<string>('NEXT_PUBLIC_APP_URL')?.trim() ||
+      this.config.get<string>('APP_URL')?.trim() ||
+      'http://localhost:3000';
+    return raw.replace(/\/+$/, '');
+  }
+
+  /**
+   * Požadavek na obnovu hesla — Resend, bez throw (vždy vrací objekt).
+   */
+  async resetPassword(emailRaw: string): Promise<ResetPasswordRequestResult> {
+    const email = emailRaw?.trim().toLowerCase() ?? '';
+
+    try {
+      console.log('RESET REQUEST FOR:', email);
+
+      if (!email) {
+        return { success: false, error: 'Missing email' };
+      }
+
+      const user = await this.users.findByEmail(email);
+
+      const generic: ResetPasswordRequestResult = {
+        success: true,
+        message: 'Pokud účet existuje, odeslali jsme instrukce na e-mail.',
+      };
+
+      if (!user) {
+        return generic;
+      }
+
+      const apiKey = process.env.RESEND_API_KEY?.trim();
+      if (!apiKey) {
+        console.error('RESET ERROR FULL: Missing RESEND_API_KEY');
+        return { success: false, error: 'Missing RESEND_API_KEY' };
+      }
+
+      const token = randomBytes(32).toString('hex');
+      const resetExpires = new Date(Date.now() + 60 * 60 * 1000);
+
+      await this.users.setPasswordResetToken(user.id, token, resetExpires);
+
+      const url = `${this.appOrigin()}/reset-hesla?token=${encodeURIComponent(token)}`;
+      console.log('RESET URL:', url);
+
+      const resend = new Resend(apiKey);
+
+      const response = await resend.emails.send({
+        from: 'onboarding@resend.dev',
+        to: email,
+        subject: 'Obnova hesla',
+        html: `<p>Klikni: <a href="${url}">${url}</a></p>`,
+      });
+
+      console.log('RESEND RESPONSE:', response);
+
+      if (response.error) {
+        console.error('RESET ERROR FULL:', response.error);
+        return {
+          success: false,
+          error: response.error.message ?? JSON.stringify(response.error),
+        };
+      }
+
+      return {
+        success: true,
+        message: 'Email odeslán',
+      };
+    } catch (error: unknown) {
+      const err = error as { message?: string };
+      console.error('RESET ERROR FULL:', error);
+      return {
+        success: false,
+        error: err?.message || 'Unknown error',
+      };
+    }
+  }
 
   async register(dto: RegisterDto) {
     const emailTrimmed = dto.email?.trim().toLowerCase() ?? '';
