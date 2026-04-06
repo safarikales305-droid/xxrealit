@@ -2,9 +2,10 @@
 
 import Link from 'next/link';
 import type { ComponentType } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
+import { nestCreateVideoPost } from '@/lib/nest-client';
 import { PropertyGrid } from '@/components/property-grid';
 import type { PropertyFeedItem } from '@/types/property';
 import { Navbar, type ViewMode } from './navbar';
@@ -55,6 +56,40 @@ export function HomeLayout({
   const [loadingFeed, setLoadingFeed] = useState(false);
   const [postContent, setPostContent] = useState('');
   const [creatingPost, setCreatingPost] = useState(false);
+  const [postVideo, setPostVideo] = useState<File | null>(null);
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
+  const [postVideoError, setPostVideoError] = useState<string | null>(null);
+  const postVideoInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!postVideo) {
+      setVideoPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(postVideo);
+    setVideoPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [postVideo]);
+
+  function handleVideoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setPostVideoError(null);
+    const file = e.target.files?.[0] ?? null;
+    if (!file) {
+      setPostVideo(null);
+      return;
+    }
+    if (!file.type.startsWith('video/')) {
+      setPostVideoError('Povolené jsou pouze video soubory.');
+      e.target.value = '';
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      setPostVideoError('Maximální velikost videa je 50 MB.');
+      e.target.value = '';
+      return;
+    }
+    setPostVideo(file);
+  }
 
   const filteredItems = useMemo(() => {
     const s = searchQuery.trim().toLowerCase();
@@ -95,19 +130,37 @@ export function HomeLayout({
   }, [viewMode]);
 
   async function createPost() {
-    if (!API_BASE_URL || !postContent.trim()) return;
-    if (!user) return;
+    if (!API_BASE_URL || !user || !apiAccessToken) return;
+
+    const text = postContent.trim();
+    if (!postVideo && !text) return;
+
+    setPostVideoError(null);
     setCreatingPost(true);
     try {
-      await fetch(`${API_BASE_URL}/posts`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(apiAccessToken ? { Authorization: `Bearer ${apiAccessToken}` } : {}),
-        },
-        body: JSON.stringify({ content: postContent.trim() }),
-      });
-      setPostContent('');
+      if (postVideo) {
+        const r = await nestCreateVideoPost(apiAccessToken, postVideo, text);
+        if (!r.ok) {
+          setPostVideoError(r.error ?? 'Upload videa selhal.');
+          return;
+        }
+        setPostVideo(null);
+        setPostContent('');
+        if (postVideoInputRef.current) {
+          postVideoInputRef.current.value = '';
+        }
+      } else {
+        await fetch(`${API_BASE_URL}/posts`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiAccessToken}`,
+          },
+          body: JSON.stringify({ content: text }),
+        });
+        setPostContent('');
+      }
+
       setViewMode('posts');
       const res = await fetch(`${API_BASE_URL}/feed/posts`, { cache: 'no-store' });
       const data = (await res.json().catch(() => [])) as unknown;
@@ -282,16 +335,70 @@ export function HomeLayout({
                       <textarea
                         value={postContent}
                         onChange={(e) => setPostContent(e.target.value)}
-                        placeholder="Napište příspěvek..."
+                        placeholder="Napište příspěvek nebo popište video..."
                         className="min-h-24 w-full rounded border border-zinc-300 p-2 text-sm"
                       />
+                      <input
+                        ref={postVideoInputRef}
+                        type="file"
+                        accept="video/*"
+                        className="sr-only"
+                        aria-label="Vybrat video"
+                        onChange={handleVideoChange}
+                      />
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => postVideoInputRef.current?.click()}
+                          className="rounded bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
+                        >
+                          Nahrát video
+                        </button>
+                        {postVideo ? (
+                          <>
+                            <span className="max-w-[min(100%,12rem)] truncate text-xs text-zinc-600">
+                              {postVideo.name}
+                            </span>
+                            <button
+                              type="button"
+                              className="text-xs font-semibold text-red-600 hover:underline"
+                              onClick={() => {
+                                setPostVideo(null);
+                                setPostVideoError(null);
+                                if (postVideoInputRef.current) {
+                                  postVideoInputRef.current.value = '';
+                                }
+                              }}
+                            >
+                              Odebrat
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
+                      {postVideoError ? (
+                        <p className="mt-2 text-sm font-medium text-red-600" role="alert">
+                          {postVideoError}
+                        </p>
+                      ) : null}
+                      {videoPreviewUrl ? (
+                        <video
+                          src={videoPreviewUrl}
+                          className="mt-3 w-40 max-w-full rounded"
+                          controls
+                          playsInline
+                        />
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => void createPost()}
-                        disabled={creatingPost || !postContent.trim()}
-                        className="mt-2 rounded bg-orange-500 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                        disabled={creatingPost || (!postVideo && !postContent.trim())}
+                        className="mt-3 rounded bg-orange-500 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
                       >
-                        {creatingPost ? 'Odesílám...' : 'Přidat příspěvek'}
+                        {creatingPost
+                          ? postVideo
+                            ? 'Nahrávám...'
+                            : 'Odesílám...'
+                          : 'Přidat příspěvek'}
                       </button>
                     </div>
                   ) : null}

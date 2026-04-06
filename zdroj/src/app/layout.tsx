@@ -15,7 +15,9 @@ export default function RootLayout({
   return (
     <html lang="cs">
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <div className="min-h-screen overflow-y-auto overflow-x-hidden">{children}</div>
+        </AuthProvider>
       </body>
     </html>
   );

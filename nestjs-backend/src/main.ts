@@ -1,9 +1,11 @@
 import { ValidationPipe } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import * as fs from 'node:fs';
 import { join } from 'node:path';
 import { AppModule } from './app.module';
+import { PrismaService } from './database/prisma.service';
 
 function parseExtraCorsOrigins(): string[] {
   const raw = process.env.CORS_ORIGINS?.trim();
@@ -25,6 +27,41 @@ function buildCorsOriginAllowlist(): string[] {
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const prisma = app.get(PrismaService);
+
+  try {
+    const [postTable, videoTable] = await Promise.all([
+      prisma.$queryRawUnsafe<Array<{ table: string | null }>>(
+        `SELECT to_regclass('public."Post"') AS table`,
+      ),
+      prisma.$queryRawUnsafe<Array<{ table: string | null }>>(
+        `SELECT to_regclass('public."Video"') AS table`,
+      ),
+    ]);
+    if (!postTable?.[0]?.table || !videoTable?.[0]?.table) {
+      const missing = [
+        !postTable?.[0]?.table ? 'Post' : null,
+        !videoTable?.[0]?.table ? 'Video' : null,
+      ]
+        .filter(Boolean)
+        .join(', ');
+      throw new Error(
+        `Missing DB tables: ${missing}. Run "prisma migrate deploy" on startup/deploy.`,
+      );
+    }
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2021'
+    ) {
+      console.error(
+        '[DB] Prisma table missing (P2021). Ensure migrations are applied: prisma migrate deploy',
+      );
+    } else {
+      console.error('[DB] Database schema check failed:', error);
+    }
+    throw error;
+  }
 
   app.useGlobalPipes(
     new ValidationPipe({

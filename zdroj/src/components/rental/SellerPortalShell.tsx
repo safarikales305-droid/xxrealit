@@ -8,7 +8,7 @@ export function SellerPortalShell({ children }: { children: ReactNode }) {
   return (
     <PrivateSellerGate>
       {/*
-        `globals.css` má html/body overflow:hidden — scroll musí být uvnitř tohoto kontejneru.
+        Vnitřní scroll portálu; stránka může scrollovat i vně přes body (globals).
       */}
       <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-zinc-50 text-zinc-900">
         <div className="shrink-0">
