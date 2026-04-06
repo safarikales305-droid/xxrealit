@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL } from '@/lib/api';
@@ -9,6 +10,8 @@ const inputClass =
   'w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-[#ff6a00]/70 focus:ring-2 focus:ring-[#ff6a00]/15';
 
 export function LoginForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { refresh } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -95,16 +98,15 @@ export function LoginForm() {
 
       await refresh();
 
-      if (data.success && typeof data.redirect === 'string' && data.redirect.length > 0) {
-        window.location.href = data.redirect;
+      if (data.success) {
+        const callbackUrl = searchParams.get('callbackUrl');
+        const redirectTarget =
+          typeof data.redirect === 'string' && data.redirect.length > 0
+            ? data.redirect
+            : '/';
+        const target = callbackUrl || redirectTarget;
+        router.push(target);
         return;
-      } else {
-        const role = userPayload?.role;
-        if (role === 'ADMIN') {
-          window.location.href = '/admin';
-        } else {
-          window.location.href = '/';
-        }
       }
     } catch {
       setError('Nelze se spojit se serverem');
