@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuthContext } from '@/context/AuthContext';
+import { getClientTokenFromCookie } from '@/lib/api';
 import type { UserRole } from '@/lib/roles';
 import { isUserRole } from '@/lib/roles';
 
@@ -10,8 +11,7 @@ export function useAuth() {
   const role =
     user?.role && isUserRole(user.role) ? (user.role as UserRole) : undefined;
 
-  const apiAccessToken =
-    typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const apiAccessToken = getClientTokenFromCookie();
 
   return {
     user,

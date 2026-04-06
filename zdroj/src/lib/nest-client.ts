@@ -1,15 +1,9 @@
 'use client';
 
-import { API_BASE_URL } from '@/lib/api';
+import { API_BASE_URL, getClientTokenFromCookie } from '@/lib/api';
 
 function getStoredToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const t = localStorage.getItem('token');
-    return t && t.length > 0 ? t : null;
-  } catch {
-    return null;
-  }
+  return getClientTokenFromCookie();
 }
 
 export function getAuthHeaders(): HeadersInit {

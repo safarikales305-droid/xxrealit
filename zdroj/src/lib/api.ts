@@ -44,6 +44,18 @@ export function nestAbsoluteAssetUrl(path: string): string {
   return `${origin}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
+export function getClientTokenFromCookie(): string | null {
+  if (typeof document === 'undefined') return null;
+  const raw = document.cookie || '';
+  const parts = raw.split(';').map((x) => x.trim());
+  const tokenEntry =
+    parts.find((x) => x.startsWith('token=')) ??
+    parts.find((x) => x.startsWith('access_token='));
+  if (!tokenEntry) return null;
+  const value = tokenEntry.split('=').slice(1).join('=').trim();
+  return value.length > 0 ? decodeURIComponent(value) : null;
+}
+
 export async function apiFetch(url: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers ?? {});
   const bodyIsFormData =
@@ -51,11 +63,9 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
   if (!headers.has('Content-Type') && !bodyIsFormData) {
     headers.set('Content-Type', 'application/json');
   }
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('token');
-    if (token && !headers.has('Authorization')) {
-      headers.set('Authorization', `Bearer ${token}`);
-    }
+  const token = getClientTokenFromCookie();
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
   }
   return fetch(url, {
     ...options,

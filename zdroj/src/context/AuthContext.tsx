@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { API_BASE_URL } from '@/lib/api';
+import { API_BASE_URL, getClientTokenFromCookie } from '@/lib/api';
 
 export type AuthUser = {
   id: string;
@@ -68,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     if (typeof window === 'undefined') return;
-    const token = localStorage.getItem('token');
+    const token = getClientTokenFromCookie();
     try {
       const u = await fetchMe(token);
       setUser(u);
@@ -81,8 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const token =
-        typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      const token = getClientTokenFromCookie();
       try {
         const u = await fetchMe(token);
         if (!cancelled) setUser(u);
@@ -99,7 +98,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     if (typeof window === 'undefined') return;
-    localStorage.removeItem('token');
+    document.cookie = 'token=; path=/; max-age=0; SameSite=Lax';
+    document.cookie = 'access_token=; path=/; max-age=0; SameSite=Lax';
     try {
       localStorage.removeItem('user');
     } catch {

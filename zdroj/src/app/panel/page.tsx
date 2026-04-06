@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useLayoutEffect, useState } from 'react';
 import { LogoutButton } from '@/components/dashboard/logout-button';
+import { getClientTokenFromCookie } from '@/lib/api';
 
 type StoredUser = {
   id?: string;
@@ -16,7 +17,7 @@ export default function PanelPage() {
   const [storedUser, setStoredUser] = useState<StoredUser | null>(null);
 
   useLayoutEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = getClientTokenFromCookie();
     const user = localStorage.getItem('user');
     if (!token && !user) {
       window.location.href = '/login';

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
+import { getClientTokenFromCookie } from '@/lib/api';
 import { nestApiConfigured } from '@/lib/nest-client';
 import {
   nestAdminApproveProperty,
@@ -110,8 +111,7 @@ export default function AdminPage() {
   }, [token, user?.role, refresh]);
 
   useEffect(() => {
-    const stored =
-      typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const stored = getClientTokenFromCookie();
     console.log('TOKEN:', stored);
   }, []);
 

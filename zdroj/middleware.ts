@@ -11,7 +11,9 @@ type JwtAuthClaims = {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  const token = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+  const token =
+    request.cookies.get('token')?.value ??
+    request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
   if (!token) {
     const login = new URL('/login', request.url);
     login.searchParams.set('callbackUrl', pathname);
@@ -37,6 +39,13 @@ export async function middleware(request: NextRequest) {
     const login = new URL('/login', request.url);
     login.searchParams.set('callbackUrl', pathname);
     const res = NextResponse.redirect(login);
+    res.cookies.set('token', '', {
+      httpOnly: false,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 0,
+      secure: process.env.NODE_ENV === 'production',
+    });
     res.cookies.set(ACCESS_TOKEN_COOKIE, '', {
       httpOnly: true,
       sameSite: 'lax',

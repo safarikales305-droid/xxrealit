@@ -75,7 +75,10 @@ export function LoginForm() {
         (typeof data.access_token === 'string' && data.access_token) ||
         '';
       if (token.length > 0) {
-        localStorage.setItem('token', token);
+        const encoded = encodeURIComponent(token);
+        document.cookie = `token=${encoded}; path=/; SameSite=Lax`;
+        // Keep compatibility with existing middleware / route handlers.
+        document.cookie = `access_token=${encoded}; path=/; SameSite=Lax`;
       }
 
       const userPayload = data.user ?? data.session?.user;
@@ -99,9 +102,6 @@ export function LoginForm() {
       await refresh();
 
       if (data.success) {
-        if (typeof data.accessToken === 'string' && data.accessToken.length > 0) {
-          localStorage.setItem('token', data.accessToken);
-        }
         const callbackUrl = searchParams?.get('callbackUrl');
         const target = callbackUrl || data.redirect || '/';
         console.log('REDIRECTING TO:', target);
