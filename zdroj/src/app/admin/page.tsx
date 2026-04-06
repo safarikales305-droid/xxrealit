@@ -37,6 +37,15 @@ type PropertyRow = {
   createdAt?: string;
 };
 
+function StatCard({ title, value }: { title: string; value: number | string }) {
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{title}</p>
+      <p className="mt-2 text-2xl font-bold tabular-nums text-zinc-900">{value}</p>
+    </div>
+  );
+}
+
 function formatPrice(n: number | undefined): string {
   if (typeof n !== 'number' || !Number.isFinite(n)) return '—';
   return new Intl.NumberFormat('cs-CZ', {
@@ -89,10 +98,10 @@ export default function AdminPage() {
   }, [token]);
 
   useEffect(() => {
-    if (!isLoading && user && user.role !== 'ADMIN') {
+    if (!isLoading && (!token || !user || user.role !== 'ADMIN')) {
       router.replace('/');
     }
-  }, [isLoading, user, router]);
+  }, [isLoading, token, user, router]);
 
   useEffect(() => {
     if (token && user?.role === 'ADMIN') {
@@ -201,7 +210,7 @@ export default function AdminPage() {
     );
   }
 
-  if (!user || user.role !== 'ADMIN') {
+  if (!token || !user || user.role !== 'ADMIN') {
     return null;
   }
 
@@ -313,55 +322,11 @@ export default function AdminPage() {
 
         <section>
           <h2 className="mb-4 text-lg font-semibold tracking-tight">Statistiky</h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                Uživatelé (bez adminů)
-              </p>
-              <p className="mt-2 text-3xl font-bold tabular-nums text-zinc-900">
-                {stats?.users ?? '—'}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                Administrátoři
-              </p>
-              <p className="mt-2 text-3xl font-bold tabular-nums text-zinc-900">
-                {stats?.admins ?? '—'}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                Celkem účtů
-              </p>
-              <p className="mt-2 text-3xl font-bold tabular-nums text-zinc-900">
-                {stats?.total ?? '—'}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                Inzeráty
-              </p>
-              <p className="mt-2 text-3xl font-bold tabular-nums text-zinc-900">
-                {stats?.properties ?? '—'}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                Čekající
-              </p>
-              <p className="mt-2 text-3xl font-bold tabular-nums text-zinc-900">
-                {stats?.pendingProperties ?? '—'}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                Návštěvy
-              </p>
-              <p className="mt-2 text-3xl font-bold tabular-nums text-zinc-900">
-                {stats?.visits ?? '—'}
-              </p>
-            </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard title="Uživatelé" value={stats?.users ?? '—'} />
+            <StatCard title="Nemovitosti" value={stats?.properties ?? '—'} />
+            <StatCard title="Čeká na schválení" value={stats?.pendingProperties ?? '—'} />
+            <StatCard title="Návštěvy" value={stats?.visits ?? '—'} />
           </div>
         </section>
 

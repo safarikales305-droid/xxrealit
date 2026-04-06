@@ -30,7 +30,8 @@ export function HomeLayout({
   ShortsFeed,
   apiConfigMissing = false,
 }: Props) {
-  const { refresh } = useAuth();
+  const { refresh, user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
 
   /** Po příchodu na homepage (včetně router.push('/')) znovu načte uživatele z tokenu přes GET /api/auth/me. */
   useEffect(() => {
@@ -154,12 +155,14 @@ export function HomeLayout({
                 >
                   Zobrazit nemovitosti
                 </button>
-                <Link
-                  href="/inzerat/pridat"
-                  className="rounded-full border border-zinc-300 bg-white px-8 py-3 text-[15px] font-semibold text-zinc-800 transition hover:bg-zinc-50"
-                >
-                  Vytvořit inzerát
-                </Link>
+                {!isAdmin ? (
+                  <Link
+                    href="/inzerat/pridat"
+                    className="rounded-full border border-zinc-300 bg-white px-8 py-3 text-[15px] font-semibold text-zinc-800 transition hover:bg-zinc-50"
+                  >
+                    Vytvořit inzerát
+                  </Link>
+                ) : null}
               </div>
             </div>
           ) : showNoSearchHits ? (
