@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 
-export type ViewMode = 'shorts' | 'classic';
+export type ViewMode = 'shorts' | 'classic' | 'posts';
 
 type NavbarProps = {
   searchQuery: string;
@@ -140,7 +140,18 @@ export function Navbar({
                     : 'text-zinc-600 hover:text-zinc-900'
                 }`}
               >
-                🏠 Klasicky
+                🏠 Klasik
+              </button>
+              <button
+                type="button"
+                onClick={() => onViewModeChange('posts')}
+                className={`rounded-md px-2 py-1 text-xs font-medium transition md:rounded-lg md:px-3 md:text-sm ${
+                  viewMode === 'posts'
+                    ? 'bg-orange-500 text-white'
+                    : 'text-zinc-600 hover:text-zinc-900'
+                }`}
+              >
+                📝 Příspěvky
               </button>
             </div>
           ) : null}

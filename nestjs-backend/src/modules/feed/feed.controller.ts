@@ -8,6 +8,21 @@ import { FeedService } from './feed.service';
 export class FeedController {
   constructor(private readonly feedService: FeedService) {}
 
+  @Get('shorts')
+  shorts() {
+    return this.feedService.listShorts();
+  }
+
+  @Get('posts')
+  posts() {
+    return this.feedService.listPosts();
+  }
+
+  @Get('properties')
+  properties() {
+    return this.feedService.listProperties();
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get('personalized')
   personalized(@CurrentUser() user: AuthUser) {

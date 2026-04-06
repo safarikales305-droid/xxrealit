@@ -34,11 +34,23 @@ model User {
 
   properties   Property[]
   videos       Video[]
+  posts        Post[]
   likes        PropertyLike[]
   comments     PropertyComment[]
 
   following    Follow[]   @relation("UserFollowing")
   followers    Follow[]   @relation("UserFollowers")
+}
+
+model Post {
+  id          String   @id @default(cuid())
+  content     String
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
 }
 
 model Video {

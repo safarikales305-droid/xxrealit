@@ -13,6 +13,21 @@ import {
 export const dynamic = 'force-dynamic';
 
 type PublicProfile = {
+  user?: {
+    id: string;
+    name: string | null;
+    role: string;
+    avatar: string | null;
+    bio: string | null;
+    city: string | null;
+    rating: number;
+    followersCount?: number;
+    followingCount?: number;
+    isFollowedByViewer?: boolean | null;
+  };
+  videos?: Array<{ id: string; url: string; description?: string | null }>;
+  posts?: Array<{ id: string; content: string }>;
+  properties?: unknown[];
   id: string;
   name: string | null;
   role: string;
@@ -65,18 +80,22 @@ export default async function ProfilePage({
     notFound();
   }
 
+  const profileUser = profile.user ?? profile;
+
   const items: PropertyFeedItem[] = Array.isArray(propertiesRaw)
     ? propertiesRaw
         .map(safeNormalizePropertyFromApi)
         .filter((x): x is PropertyFeedItem => x != null)
     : [];
 
-  const roleLabel = isUserRole(profile.role)
-    ? ROLE_LABELS[profile.role]
-    : profile.role;
+  const roleLabel = isUserRole(profileUser.role)
+    ? ROLE_LABELS[profileUser.role]
+    : profileUser.role;
 
-  const isOwn = me?.id === profile.id;
-  const stars = '⭐'.repeat(Math.min(5, Math.max(0, Math.round(profile.rating))));
+  const isOwn = me?.id === profileUser.id;
+  const stars = '⭐'.repeat(
+    Math.min(5, Math.max(0, Math.round(profileUser.rating))),
+  );
 
   return (
     <div className="min-h-screen bg-[#fafafa] text-zinc-900">
@@ -100,25 +119,25 @@ export default async function ProfilePage({
       <main className="mx-auto max-w-3xl px-4 py-10 md:px-8">
         <div className="flex flex-col gap-8 rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm md:flex-row md:items-start">
           <div className="flex shrink-0 flex-col items-center gap-3">
-            {profile.avatar ? (
+            {profileUser.avatar ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={profile.avatar}
+                src={profileUser.avatar}
                 alt=""
                 className="size-28 rounded-2xl border border-zinc-200 object-cover"
               />
             ) : (
               <div className="flex size-28 items-center justify-center rounded-2xl border border-dashed border-zinc-300 bg-zinc-100 text-3xl font-semibold text-zinc-400">
-                {(profile.name ?? profile.id).slice(0, 1).toUpperCase()}
+                {(profileUser.name ?? profileUser.id).slice(0, 1).toUpperCase()}
               </div>
             )}
             {!isOwn ? (
               <FollowButton
-                userId={profile.id}
+                userId={profileUser.id}
                 initialFollowing={
-                  auth ? (profile.isFollowedByViewer ?? false) : null
+                  auth ? (profileUser.isFollowedByViewer ?? false) : null
                 }
-                initialFollowersCount={profile.followersCount ?? 0}
+                initialFollowersCount={profileUser.followersCount ?? 0}
               />
             ) : (
               <p className="text-center text-sm text-zinc-500">Váš profil</p>
@@ -127,33 +146,42 @@ export default async function ProfilePage({
 
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-semibold tracking-tight">
-              {profile.name ?? 'Uživatel'}
+              {profileUser.name ?? 'Uživatel'}
             </h1>
             <p className="mt-1 text-sm font-medium text-[#e85d00]">{roleLabel}</p>
-            {profile.city ? (
-              <p className="mt-2 text-[15px] text-zinc-600">📍 {profile.city}</p>
+            {profileUser.city ? (
+              <p className="mt-2 text-[15px] text-zinc-600">📍 {profileUser.city}</p>
             ) : null}
             <p className="mt-2 text-[15px] text-zinc-600">
               Hodnocení:{' '}
               <span className="font-semibold text-zinc-900">
-                {profile.rating.toFixed(1)} {stars}
+                {profileUser.rating.toFixed(1)} {stars}
               </span>
             </p>
-            {profile.bio ? (
+            {profileUser.bio ? (
               <p className="mt-4 text-[15px] leading-relaxed text-zinc-700">
-                {profile.bio}
+                {profileUser.bio}
               </p>
             ) : null}
             <p className="mt-4 text-xs text-zinc-400">
-              Sleduje: {profile.followingCount ?? 0}
+              Sleduje: {profileUser.followingCount ?? 0}
             </p>
           </div>
         </div>
 
         <section className="mt-10">
           <h2 className="text-lg font-semibold text-zinc-900">
-            Nemovitosti a videa
+            Nemovitosti, videa a příspěvky
           </h2>
+          {Array.isArray(profile.posts) && profile.posts.length > 0 ? (
+            <div className="mt-4 space-y-2">
+              {profile.posts.slice(0, 3).map((post) => (
+                <article key={post.id} className="rounded-xl border border-zinc-200 bg-white p-3">
+                  <p className="text-sm text-zinc-800">{post.content}</p>
+                </article>
+              ))}
+            </div>
+          ) : null}
           <div className="mt-4">
             <UserPropertiesList items={items} />
           </div>

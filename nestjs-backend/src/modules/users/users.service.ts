@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import type { User, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { ensureUserRole } from '../auth/user-role.util';
+import { serializeProperty } from '../properties/properties.serializer';
 
 @Injectable()
 export class UsersService {
@@ -112,7 +113,27 @@ export class UsersService {
       isFollowedByViewer = !!row;
     }
 
+    const [videos, posts, properties] = await Promise.all([
+      this.prisma.video.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.post.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.property.findMany({
+        where: { userId, approved: true },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          _count: { select: { likes: true } },
+          user: { select: { id: true, city: true } },
+        },
+      }),
+    ]);
+
     return {
+      user: {
       id: user.id,
       name: user.name,
       role: ensureUserRole(user.role),
@@ -124,6 +145,12 @@ export class UsersService {
       followersCount: user._count.followers,
       followingCount: user._count.following,
       isFollowedByViewer,
+      },
+      videos,
+      posts,
+      properties: properties.map((p) =>
+        serializeProperty({ ...p, likes: [] }, viewerId),
+      ),
     };
   }
 

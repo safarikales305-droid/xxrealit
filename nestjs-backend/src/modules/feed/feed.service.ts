@@ -87,6 +87,52 @@ export class FeedService {
     );
   }
 
+  async listShorts() {
+    return this.prisma.video.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatar: true,
+            role: true,
+          },
+        },
+      },
+    });
+  }
+
+  async listPosts() {
+    return this.prisma.post.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatar: true,
+            role: true,
+          },
+        },
+      },
+    });
+  }
+
+  async listProperties() {
+    const rows = await this.prisma.property.findMany({
+      where: { approved: true },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        _count: { select: { likes: true } },
+        user: { select: { id: true, city: true } },
+      },
+    });
+    return rows.map((r) => serializeProperty({ ...r, likes: [] }, undefined));
+  }
+
   private async computeReferencePrice(
     viewerId: string,
     followingIds: Set<string>,

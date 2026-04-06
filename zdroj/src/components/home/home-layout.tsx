@@ -4,7 +4,7 @@ import Link from 'next/link';
 import type { ComponentType } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { API_BASE_URL } from '@/lib/api';
+import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
 import { PropertyGrid } from '@/components/property-grid';
 import type { PropertyFeedItem } from '@/types/property';
 import { Navbar, type ViewMode } from './navbar';
@@ -30,7 +30,7 @@ export function HomeLayout({
   ShortsFeed,
   apiConfigMissing = false,
 }: Props) {
-  const { refresh, user } = useAuth();
+  const { refresh, user, isAuthenticated, apiAccessToken } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
 
   /** Po příchodu na homepage (včetně router.push('/')) znovu načte uživatele z tokenu přes GET /api/auth/me. */
@@ -50,6 +50,11 @@ export function HomeLayout({
   const [viewMode, setViewMode] = useState<ViewMode>('shorts');
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [videoFeed, setVideoFeed] = useState<Array<Record<string, unknown>>>([]);
+  const [postFeed, setPostFeed] = useState<Array<Record<string, unknown>>>([]);
+  const [loadingFeed, setLoadingFeed] = useState(false);
+  const [postContent, setPostContent] = useState('');
+  const [creatingPost, setCreatingPost] = useState(false);
 
   const filteredItems = useMemo(() => {
     const s = searchQuery.trim().toLowerCase();
@@ -63,6 +68,54 @@ export function HomeLayout({
 
   const hasData = items.length > 0;
   const showNoSearchHits = hasData && filteredItems.length === 0;
+
+  useEffect(() => {
+    if (!API_BASE_URL) return;
+    const endpoint =
+      viewMode === 'shorts'
+        ? '/feed/shorts'
+        : viewMode === 'posts'
+          ? '/feed/posts'
+          : null;
+    if (!endpoint) return;
+
+    setLoadingFeed(true);
+    void fetch(`${API_BASE_URL}${endpoint}`, { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        const list = Array.isArray(data) ? (data as Array<Record<string, unknown>>) : [];
+        if (viewMode === 'shorts') setVideoFeed(list);
+        if (viewMode === 'posts') setPostFeed(list);
+      })
+      .catch(() => {
+        if (viewMode === 'shorts') setVideoFeed([]);
+        if (viewMode === 'posts') setPostFeed([]);
+      })
+      .finally(() => setLoadingFeed(false));
+  }, [viewMode]);
+
+  async function createPost() {
+    if (!API_BASE_URL || !postContent.trim()) return;
+    if (!user) return;
+    setCreatingPost(true);
+    try {
+      await fetch(`${API_BASE_URL}/posts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiAccessToken ? { Authorization: `Bearer ${apiAccessToken}` } : {}),
+        },
+        body: JSON.stringify({ content: postContent.trim() }),
+      });
+      setPostContent('');
+      setViewMode('posts');
+      const res = await fetch(`${API_BASE_URL}/feed/posts`, { cache: 'no-store' });
+      const data = (await res.json().catch(() => [])) as unknown;
+      setPostFeed(Array.isArray(data) ? (data as Array<Record<string, unknown>>) : []);
+    } finally {
+      setCreatingPost(false);
+    }
+  }
 
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden overflow-x-hidden bg-[#fafafa] text-zinc-900">
@@ -188,7 +241,84 @@ export function HomeLayout({
               className="flex min-h-0 flex-1 flex-col overflow-hidden [animation:view-fade-in_0.35s_ease-out]"
             >
               {viewMode === 'shorts' ? (
-                <ShortsFeed items={filteredItems} />
+                loadingFeed ? (
+                  <div className="flex h-full items-center justify-center text-sm text-white/80">
+                    Načítám video feed...
+                  </div>
+                ) : (
+                  <div className="h-full min-h-0 w-full snap-y snap-mandatory overflow-y-auto">
+                    {videoFeed.map((v) => (
+                      <section
+                        key={String(v.id ?? Math.random())}
+                        className="relative h-screen w-full snap-start bg-black"
+                      >
+                        <video
+                          className="h-screen w-full object-cover"
+                          controls
+                          src={nestAbsoluteAssetUrl(String(v.url ?? ''))}
+                        />
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-4 text-white">
+                          <p className="text-sm font-semibold">
+                            {String(
+                              ((v.user as { name?: string } | undefined)?.name ??
+                                (v.user as { email?: string } | undefined)?.email ??
+                                'Autor'),
+                            )}
+                          </p>
+                          <p className="mt-1 text-sm opacity-90">
+                            {String(v.description ?? '')}
+                          </p>
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                )
+              ) : viewMode === 'posts' ? (
+                <div className="h-full overflow-y-auto p-3 md:p-4">
+                  {isAuthenticated ? (
+                    <div className="mb-4 rounded-xl border border-zinc-200 bg-white p-3">
+                      <textarea
+                        value={postContent}
+                        onChange={(e) => setPostContent(e.target.value)}
+                        placeholder="Napište příspěvek..."
+                        className="min-h-24 w-full rounded border border-zinc-300 p-2 text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void createPost()}
+                        disabled={creatingPost || !postContent.trim()}
+                        className="mt-2 rounded bg-orange-500 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                      >
+                        {creatingPost ? 'Odesílám...' : 'Přidat příspěvek'}
+                      </button>
+                    </div>
+                  ) : null}
+                  <div className="space-y-3">
+                    {loadingFeed ? (
+                      <p className="text-sm text-zinc-600">Načítám příspěvky...</p>
+                    ) : postFeed.length === 0 ? (
+                      <p className="text-sm text-zinc-600">Zatím žádné příspěvky.</p>
+                    ) : (
+                      postFeed.map((p) => (
+                        <article
+                          key={String(p.id ?? Math.random())}
+                          className="rounded-xl border border-zinc-200 bg-white p-3"
+                        >
+                          <p className="text-xs text-zinc-500">
+                            {String(
+                              ((p.user as { name?: string } | undefined)?.name ??
+                                (p.user as { email?: string } | undefined)?.email ??
+                                'Autor'),
+                            )}
+                          </p>
+                          <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-800">
+                            {String(p.content ?? '')}
+                          </p>
+                        </article>
+                      ))
+                    )}
+                  </div>
+                </div>
               ) : (
                 <PropertyGrid properties={filteredItems} />
               )}
