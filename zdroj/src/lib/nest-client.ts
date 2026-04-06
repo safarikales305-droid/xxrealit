@@ -500,3 +500,112 @@ export async function nestUploadAvatar(
       : url;
   return { avatarUrl };
 }
+
+export type ShortVideo = {
+  id: string;
+  url: string;
+  description?: string | null;
+  createdAt: string;
+  user?: {
+    id: string;
+    name?: string | null;
+    email?: string;
+    avatar?: string | null;
+  } | null;
+};
+
+export async function nestUploadVideoFile(
+  token: string | null,
+  file: File,
+): Promise<{ ok: true; url: string } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const fd = new FormData();
+  fd.append('file', file);
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/videos/upload`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: nestAuthHeaders(token),
+      body: fd,
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      url?: string;
+      message?: string | string[];
+      error?: string;
+    };
+    if (!res.ok) {
+      const msg =
+        typeof data.message === 'string'
+          ? data.message
+          : Array.isArray(data.message)
+            ? data.message.join(', ')
+            : typeof data.error === 'string'
+              ? data.error
+              : `HTTP ${res.status}`;
+      return { ok: false, error: msg };
+    }
+    if (!data.url) {
+      return { ok: false, error: 'Server nevrátil URL videa' };
+    }
+    return { ok: true, url: data.url };
+  } catch {
+    return { ok: false, error: 'Síťová chyba při uploadu videa' };
+  }
+}
+
+export async function nestCreateVideo(
+  token: string | null,
+  payload: { url: string; description?: string },
+): Promise<{ ok: true } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  try {
+    const res = await fetch(`${API_BASE_URL}/videos`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      message?: string | string[];
+      error?: string;
+    };
+    if (!res.ok) {
+      const msg =
+        typeof data.message === 'string'
+          ? data.message
+          : Array.isArray(data.message)
+            ? data.message.join(', ')
+            : typeof data.error === 'string'
+              ? data.error
+              : `HTTP ${res.status}`;
+      return { ok: false, error: msg };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Síťová chyba při ukládání videa' };
+  }
+}
+
+export async function nestFetchVideos(): Promise<ShortVideo[]> {
+  if (!API_BASE_URL) return [];
+  try {
+    const res = await fetch(`${API_BASE_URL}/videos`, {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as unknown;
+    return Array.isArray(data) ? (data as ShortVideo[]) : [];
+  } catch {
+    return [];
+  }
+}

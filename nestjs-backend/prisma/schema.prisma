@@ -33,11 +33,24 @@ model User {
   resetExpires DateTime?
 
   properties   Property[]
+  videos       Video[]
   likes        PropertyLike[]
   comments     PropertyComment[]
 
   following    Follow[]   @relation("UserFollowing")
   followers    Follow[]   @relation("UserFollowers")
+}
+
+model Video {
+  id          String   @id @default(cuid())
+  url         String
+  description String?
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
 }
 
 model Follow {

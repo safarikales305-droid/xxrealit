@@ -12,6 +12,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { PropertiesModule } from './modules/properties/properties.module';
 import { UploadModule } from './modules/upload/upload.module';
+import { VideosModule } from './modules/videos/videos.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { UploadModule } from './modules/upload/upload.module';
     AdminModule,
     AnalyticsModule,
     UploadModule,
+    VideosModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

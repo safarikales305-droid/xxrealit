@@ -44,6 +44,10 @@ async function bootstrap() {
   if (!fs.existsSync(propertiesUploadRoot)) {
     fs.mkdirSync(propertiesUploadRoot, { recursive: true });
   }
+  const videosUploadRoot = join(uploadsRoot, 'videos');
+  if (!fs.existsSync(videosUploadRoot)) {
+    fs.mkdirSync(videosUploadRoot, { recursive: true });
+  }
 
   app.useStaticAssets(uploadsRoot, { prefix: '/uploads/' });
 
