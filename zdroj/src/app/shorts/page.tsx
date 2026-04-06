@@ -5,9 +5,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import {
   ShortVideo,
-  nestCreateVideo,
+  nestCreateVideoPost,
   nestFetchVideos,
-  nestUploadVideoFile,
 } from '@/lib/nest-client';
 
 export default function ShortsPage() {
@@ -44,19 +43,21 @@ export default function ShortsPage() {
       setError('Vyberte video soubor.');
       return;
     }
-
-    setUploading(true);
-    const up = await nestUploadVideoFile(apiAccessToken, selectedFile);
-    if (!up.ok) {
-      setUploading(false);
-      setError(up.error || 'Upload videa selhal.');
+    if (!selectedFile.type.startsWith('video/')) {
+      setError('Povolené jsou pouze video soubory.');
+      return;
+    }
+    if (selectedFile.size > 50 * 1024 * 1024) {
+      setError('Maximální velikost videa je 50MB.');
       return;
     }
 
-    const create = await nestCreateVideo(apiAccessToken, {
-      url: up.url,
-      description: description.trim(),
-    });
+    setUploading(true);
+    const create = await nestCreateVideoPost(
+      apiAccessToken,
+      selectedFile,
+      description.trim(),
+    );
     if (!create.ok) {
       setUploading(false);
       setError(create.error || 'Uložení videa selhalo.');
@@ -121,11 +122,13 @@ export default function ShortsPage() {
             >
               <video
                 controls
-                className="w-full rounded"
-                src={nestAbsoluteAssetUrl(video.url)}
+                className="aspect-[9/16] w-full rounded object-cover"
+                src={nestAbsoluteAssetUrl(video.videoUrl ?? video.url ?? '')}
               />
-              {video.description ? (
-                <p className="mt-2 text-sm text-gray-800">{video.description}</p>
+              {video.description || video.content ? (
+                <p className="mt-2 text-sm text-gray-800">
+                  {video.description ?? video.content}
+                </p>
               ) : null}
             </article>
           ))

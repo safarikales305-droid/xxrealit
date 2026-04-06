@@ -1,0 +1,7 @@
+ALTER TABLE "public"."Post"
+  ADD COLUMN IF NOT EXISTS "type" TEXT NOT NULL DEFAULT 'text',
+  ADD COLUMN IF NOT EXISTS "videoUrl" TEXT,
+  ADD COLUMN IF NOT EXISTS "description" TEXT;
+
+ALTER TABLE "public"."Post"
+  ALTER COLUMN "content" DROP NOT NULL;

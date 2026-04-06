@@ -88,20 +88,58 @@ export class FeedService {
   }
 
   async listShorts() {
-    return this.prisma.video.findMany({
-      orderBy: { createdAt: 'desc' },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            avatar: true,
-            role: true,
+    const [videoPosts, videos] = await Promise.all([
+      this.prisma.post.findMany({
+        where: { type: 'video', videoUrl: { not: null } },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              avatar: true,
+              role: true,
+            },
           },
         },
-      },
-    });
+      }),
+      this.prisma.video.findMany({
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              avatar: true,
+              role: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const fromPosts = videoPosts.map((p) => ({
+      id: p.id,
+      url: p.videoUrl,
+      description: p.description ?? p.content ?? null,
+      createdAt: p.createdAt,
+      user: p.user,
+      source: 'post',
+    }));
+    const fromVideos = videos.map((v) => ({
+      id: v.id,
+      url: v.url,
+      description: v.description ?? null,
+      createdAt: v.createdAt,
+      user: v.user,
+      source: 'video',
+    }));
+
+    return [...fromPosts, ...fromVideos].sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    );
   }
 
   async listPosts() {

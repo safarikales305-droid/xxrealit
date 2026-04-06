@@ -7,10 +7,37 @@ export class PostsService {
   constructor(private readonly prisma: PrismaService) {}
 
   create(userId: string, dto: CreatePostDto) {
+    const text = (dto.description ?? dto.content ?? '').trim();
     return this.prisma.post.create({
       data: {
+        type: 'text',
         userId,
-        content: dto.content.trim(),
+        content: text || null,
+        description: text || null,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatar: true,
+            role: true,
+          },
+        },
+      },
+    });
+  }
+
+  createVideoPost(userId: string, videoUrl: string, description: string) {
+    const text = description.trim();
+    return this.prisma.post.create({
+      data: {
+        type: 'video',
+        videoUrl,
+        description: text || null,
+        content: text || null,
+        userId,
       },
       include: {
         user: {

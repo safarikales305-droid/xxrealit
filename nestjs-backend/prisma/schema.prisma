@@ -44,7 +44,10 @@ model User {
 
 model Post {
   id          String   @id @default(cuid())
-  content     String
+  type        String   @default("text")
+  videoUrl    String?
+  description String?
+  content     String?
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt   DateTime @default(now())

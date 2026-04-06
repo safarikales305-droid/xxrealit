@@ -255,7 +255,9 @@ export function HomeLayout({
                         <video
                           className="h-screen w-full object-cover"
                           controls
-                          src={nestAbsoluteAssetUrl(String(v.url ?? ''))}
+                          src={nestAbsoluteAssetUrl(
+                            String((v.videoUrl as string | undefined) ?? v.url ?? ''),
+                          )}
                         />
                         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-4 text-white">
                           <p className="text-sm font-semibold">
@@ -266,7 +268,7 @@ export function HomeLayout({
                             )}
                           </p>
                           <p className="mt-1 text-sm opacity-90">
-                            {String(v.description ?? '')}
+                            {String(v.description ?? v.content ?? '')}
                           </p>
                         </div>
                       </section>
@@ -312,8 +314,15 @@ export function HomeLayout({
                             )}
                           </p>
                           <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-800">
-                            {String(p.content ?? '')}
+                            {String(p.description ?? p.content ?? '')}
                           </p>
+                          {p.type === 'video' ? (
+                            <video
+                              controls
+                              className="mt-3 aspect-[9/16] w-full rounded object-cover"
+                              src={nestAbsoluteAssetUrl(String(p.videoUrl ?? ''))}
+                            />
+                          ) : null}
                         </article>
                       ))
                     )}
