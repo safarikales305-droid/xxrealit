@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { API_BASE_URL } from '@/lib/api';
 
 export type AuthUser = {
   id: string;
@@ -29,7 +30,7 @@ type AuthContextValue = {
 export const AuthContext = createContext<AuthContextValue | null>(null);
 
 function meUrl(): string {
-  return '/api/auth/me';
+  return API_BASE_URL ? `${API_BASE_URL}/auth/me` : '/api/auth/me';
 }
 
 async function fetchMe(token: string | null): Promise<AuthUser | null> {
