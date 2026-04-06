@@ -95,8 +95,9 @@ export function LoginForm() {
 
       await refresh();
 
-      if (typeof data.redirect === 'string' && data.redirect.length > 0) {
+      if (data.success && typeof data.redirect === 'string' && data.redirect.length > 0) {
         window.location.href = data.redirect;
+        return;
       } else {
         const role = userPayload?.role;
         if (role === 'ADMIN') {
