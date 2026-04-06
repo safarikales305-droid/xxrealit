@@ -7,22 +7,28 @@ import { join } from 'node:path';
 import { AppModule } from './app.module';
 import { PrismaService } from './database/prisma.service';
 
+function normalizeOrigin(url: string): string {
+  return url.trim().replace(/\/+$/, '');
+}
+
 function parseExtraCorsOrigins(): string[] {
   const raw = process.env.CORS_ORIGINS?.trim();
   if (!raw) return [];
   return raw
     .split(',')
-    .map((o) => o.trim().replace(/\/+$/, ''))
+    .map((o) => normalizeOrigin(o))
     .filter(Boolean);
 }
 
+/** Production frontend + local dev; extend with CORS_ORIGINS=comma-separated URLs on Railway. */
 function buildCorsOriginAllowlist(): string[] {
-  return [
+  const list = [
     'https://xxrealit-production.up.railway.app',
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     ...parseExtraCorsOrigins(),
   ];
+  return [...new Set(list.map(normalizeOrigin))];
 }
 
 async function bootstrap() {
@@ -77,14 +83,19 @@ async function bootstrap() {
   const corsAllowlist = buildCorsOriginAllowlist();
   app.enableCors({
     origin: (origin, callback) => {
+      // Same-origin / non-browser clients (no Origin header)
       if (!origin) {
         callback(null, true);
         return;
       }
-      if (corsAllowlist.includes(origin)) {
+      const normalized = normalizeOrigin(origin);
+      if (corsAllowlist.includes(normalized)) {
         callback(null, true);
         return;
       }
+      console.warn(
+        `[CORS] Rejected Origin="${origin}". Allowed: ${corsAllowlist.join(', ')} — set CORS_ORIGINS if needed.`,
+      );
       callback(null, false);
     },
     credentials: true,
