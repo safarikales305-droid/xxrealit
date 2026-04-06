@@ -1,16 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { API_BASE_URL } from '@/lib/api';
+import { apiFetch, API_BASE_URL } from '@/lib/api';
 
 const inputClass =
   'w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-[#ff6a00]/70 focus:ring-2 focus:ring-[#ff6a00]/15';
 
 export function LoginForm() {
-  const router = useRouter();
   const { refresh } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -24,7 +22,7 @@ export function LoginForm() {
 
     try {
       const loginUrl = API_BASE_URL ? `${API_BASE_URL}/auth/login` : '/api/auth/login';
-      const res = await fetch(loginUrl, {
+      const res = await apiFetch(loginUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -56,6 +54,7 @@ export function LoginForm() {
           };
         };
       };
+      console.log('LOGIN RESPONSE:', data);
 
       if (!res.ok) {
         const msg =
@@ -96,16 +95,15 @@ export function LoginForm() {
       await refresh();
 
       if (typeof data.redirect === 'string' && data.redirect.length > 0) {
-        router.push(data.redirect);
+        window.location.href = data.redirect;
       } else {
         const role = userPayload?.role;
         if (role === 'ADMIN') {
-          router.push('/admin');
+          window.location.href = '/admin';
         } else {
-          router.push('/dashboard');
+          window.location.href = '/';
         }
       }
-      router.refresh();
     } catch {
       setError('Nelze se spojit se serverem');
     } finally {

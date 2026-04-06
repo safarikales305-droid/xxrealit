@@ -100,6 +100,12 @@ export default function AdminPage() {
     }
   }, [token, user?.role, refresh]);
 
+  useEffect(() => {
+    const stored =
+      typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    console.log('TOKEN:', stored);
+  }, []);
+
   async function onApprove(id: string) {
     if (!token) return;
     setBusyId(id);

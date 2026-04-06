@@ -44,4 +44,23 @@ export function nestAbsoluteAssetUrl(path: string): string {
   return `${origin}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
+export async function apiFetch(url: string, options: RequestInit = {}) {
+  const headers = new Headers(options.headers ?? {});
+  const bodyIsFormData =
+    typeof FormData !== 'undefined' && options.body instanceof FormData;
+  if (!headers.has('Content-Type') && !bodyIsFormData) {
+    headers.set('Content-Type', 'application/json');
+  }
+  if (typeof window !== 'undefined') {
+    const token = localStorage.getItem('token');
+    if (token && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+  }
+  return fetch(url, {
+    ...options,
+    headers,
+  });
+}
+
 

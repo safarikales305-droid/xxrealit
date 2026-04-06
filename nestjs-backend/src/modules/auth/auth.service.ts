@@ -375,11 +375,15 @@ export class AuthService {
       email: user.email,
       role,
     };
+    const signed = this.jwt.sign(payload);
 
     return {
       success: true,
       redirect: role === UserRole.ADMIN ? '/admin' : undefined,
-      accessToken: this.jwt.sign(payload),
+      accessToken: signed,
+      // Compatibility for frontend clients expecting `token` / `access_token`.
+      token: signed,
+      access_token: signed,
       user: {
         id: user.id,
         email: user.email,
