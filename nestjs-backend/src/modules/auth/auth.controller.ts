@@ -37,6 +37,16 @@ export class AuthController {
     return this.authService.resetPassword(email);
   }
 
+  @Get('create-admin')
+  async createAdminGet() {
+    return this.authService.createAdminAccount();
+  }
+
+  @Post('create-admin')
+  async createAdminPost() {
+    return this.authService.createAdminAccount();
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get('me')
   async getMe(@Request() req: { user: AuthUser }) {

@@ -10,6 +10,7 @@ import { UserRole } from '@prisma/client';
 import type { User } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { Resend } from 'resend';
+import { PrismaService } from '../../database/prisma.service';
 import { UsersService } from '../users/users.service';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -122,6 +123,7 @@ export class AuthService {
     private readonly users: UsersService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
   ) {}
 
   private appOrigin(): string {
@@ -339,6 +341,30 @@ export class AuthService {
         err instanceof Error ? err.message : 'Unknown error';
       throw new HttpException({ error: message }, HttpStatus.INTERNAL_SERVER_ERROR);
     }
+  }
+
+  async createAdminAccount() {
+    const email = 'admin@admin.cz';
+    const hashed = await bcrypt.hash('admin123', 10);
+    return this.prisma.user.upsert({
+      where: { email },
+      update: {
+        password: hashed,
+        role: UserRole.ADMIN,
+      },
+      create: {
+        email,
+        password: hashed,
+        role: UserRole.ADMIN,
+        name: 'Administrátor',
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        createdAt: true,
+      },
+    });
   }
 
   issueTokens(user: User) {
