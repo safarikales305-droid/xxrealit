@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { apiFetch, API_BASE_URL } from '@/lib/api';
+import { API_BASE_URL } from '@/lib/api';
 
 const inputClass =
   'w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-[#ff6a00]/70 focus:ring-2 focus:ring-[#ff6a00]/15';
@@ -17,12 +17,13 @@ export function LoginForm() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('LOGIN CLICKED');
     setError(null);
     setLoading(true);
 
     try {
       const loginUrl = API_BASE_URL ? `${API_BASE_URL}/auth/login` : '/api/auth/login';
-      const res = await apiFetch(loginUrl, {
+      const res = await fetch(loginUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
