@@ -99,13 +99,13 @@ export function LoginForm() {
       await refresh();
 
       if (data.success) {
-        const callbackUrl = searchParams.get('callbackUrl');
-        const redirectTarget =
-          typeof data.redirect === 'string' && data.redirect.length > 0
-            ? data.redirect
-            : '/';
-        const target = callbackUrl || redirectTarget;
-        router.push(target);
+        if (typeof data.accessToken === 'string' && data.accessToken.length > 0) {
+          localStorage.setItem('token', data.accessToken);
+        }
+        const callbackUrl = searchParams?.get('callbackUrl');
+        const target = callbackUrl || data.redirect || '/';
+        console.log('REDIRECTING TO:', target);
+        window.location.href = target; // HARD REDIRECT
         return;
       }
     } catch {
