@@ -35,8 +35,17 @@ export function LoginForm() {
         error?: string;
         details?: unknown;
         success?: boolean;
+        token?: string;
+        accessToken?: string;
         redirect?: string;
         access_token?: string;
+        user?: {
+          id: string;
+          email: string;
+          role: string;
+          createdAt?: string;
+          avatar?: string | null;
+        };
         session?: {
           user?: {
             id: string;
@@ -57,12 +66,28 @@ export function LoginForm() {
         return;
       }
 
-      if (typeof data.access_token === 'string' && data.access_token.length > 0) {
-        localStorage.setItem('token', data.access_token);
+      const token =
+        (typeof data.token === 'string' && data.token) ||
+        (typeof data.accessToken === 'string' && data.accessToken) ||
+        (typeof data.access_token === 'string' && data.access_token) ||
+        '';
+      if (token.length > 0) {
+        localStorage.setItem('token', token);
       }
-      if (data.session?.user) {
+
+      const userPayload = data.user ?? data.session?.user;
+      if (userPayload) {
         try {
-          localStorage.setItem('user', JSON.stringify(data.session.user));
+          localStorage.setItem(
+            'user',
+            JSON.stringify({
+              id: userPayload.id,
+              email: userPayload.email,
+              role: userPayload.role,
+              createdAt: userPayload.createdAt ?? new Date().toISOString(),
+              avatar: userPayload.avatar ?? null,
+            }),
+          );
         } catch {
           /* ignore */
         }
@@ -73,7 +98,7 @@ export function LoginForm() {
       if (typeof data.redirect === 'string' && data.redirect.length > 0) {
         router.push(data.redirect);
       } else {
-        const role = data.session?.user?.role;
+        const role = userPayload?.role;
         if (role === 'ADMIN') {
           router.push('/admin');
         } else {

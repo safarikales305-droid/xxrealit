@@ -2,9 +2,26 @@
 
 import { API_BASE_URL } from '@/lib/api';
 
+function getStoredToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const t = localStorage.getItem('token');
+    return t && t.length > 0 ? t : null;
+  } catch {
+    return null;
+  }
+}
+
+export function getAuthHeaders(): HeadersInit {
+  const token = getStoredToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export function nestAuthHeaders(token: string | null): HeadersInit {
-  if (!token) return {};
-  return { Authorization: `Bearer ${token}` };
+  if (token && token.length > 0) {
+    return { Authorization: `Bearer ${token}` };
+  }
+  return getAuthHeaders();
 }
 
 export function nestApiConfigured(): boolean {
