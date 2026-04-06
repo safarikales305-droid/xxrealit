@@ -58,6 +58,7 @@ model Property {
   id              String   @id @default(uuid())
   title           String
   description     String   @db.Text
+  status          String   @default("PENDING")
   price           Int
   currency        String   @default("CZK")
 
@@ -101,6 +102,11 @@ model Property {
   comments  PropertyComment[]
 
   @@index([userId])
+}
+
+model Visit {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
 }
 
 model PropertyLike {

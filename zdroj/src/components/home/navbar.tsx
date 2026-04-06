@@ -205,7 +205,7 @@ export function Navbar({
             )}
           </div>
 
-          {!isLoading && isAuthenticated ? (
+          {!isLoading && isAuthenticated && !isAdmin ? (
             <>
               <Link
                 href="/inzerat/pridat"
@@ -269,9 +269,11 @@ export function Navbar({
                     👉 Admin
                   </Link>
                 ) : null}
-                <Link href="/inzerat/pridat" className={navBtn} onClick={() => setMenuOpen(false)}>
-                  Přidat inzerát
-                </Link>
+                {!isAdmin ? (
+                  <Link href="/inzerat/pridat" className={navBtn} onClick={() => setMenuOpen(false)}>
+                    Přidat inzerát
+                  </Link>
+                ) : null}
                 <button type="button" onClick={handleLogout} className={navBtn}>
                   Odhlásit
                 </button>

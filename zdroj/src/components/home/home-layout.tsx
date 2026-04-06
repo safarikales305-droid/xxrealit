@@ -4,6 +4,7 @@ import Link from 'next/link';
 import type { ComponentType } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
+import { API_BASE_URL } from '@/lib/api';
 import { PropertyGrid } from '@/components/property-grid';
 import type { PropertyFeedItem } from '@/types/property';
 import { Navbar, type ViewMode } from './navbar';
@@ -35,6 +36,15 @@ export function HomeLayout({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!API_BASE_URL) return;
+    void fetch(`${API_BASE_URL}/analytics/visit`, {
+      method: 'POST',
+    }).catch(() => {
+      /* ignore tracking errors */
+    });
+  }, []);
 
   const [viewMode, setViewMode] = useState<ViewMode>('shorts');
   const [searchQuery, setSearchQuery] = useState('');

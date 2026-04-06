@@ -21,21 +21,51 @@ export class AdminService {
   constructor(private readonly prisma: PrismaService) {}
 
   async stats() {
-    const [totalUsers, adminUsers, properties] = await Promise.all([
+    const [totalUsers, adminUsers, properties, pendingProperties, visits] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.user.count({ where: { role: UserRole.ADMIN } }),
       this.prisma.property.count(),
+      this.prisma.property.count({
+        where: { OR: [{ approved: false }, { status: 'PENDING' }] },
+      }),
+      this.prisma.visit.count(),
     ]);
     return {
       users: totalUsers - adminUsers,
       admins: adminUsers,
       total: totalUsers,
       properties,
+      pendingProperties,
+      visits,
     };
   }
 
   async listAllProperties() {
     const rows = await this.prisma.property.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        user: { select: { id: true, email: true, city: true } },
+        _count: { select: { likes: true } },
+      },
+    });
+    return rows.map((r) =>
+      serializeProperty(
+        {
+          ...r,
+          likes: [],
+          _count: r._count,
+          user: { id: r.user.id, city: r.user.city },
+        },
+        undefined,
+      ),
+    );
+  }
+
+  async listPendingProperties() {
+    const rows = await this.prisma.property.findMany({
+      where: {
+        OR: [{ approved: false }, { status: 'PENDING' }],
+      },
       orderBy: { createdAt: 'desc' },
       include: {
         user: { select: { id: true, email: true, city: true } },
@@ -84,8 +114,17 @@ export class AdminService {
     }
     return this.prisma.property.update({
       where: { id: propertyId },
-      data: { approved: true },
+      data: { approved: true, status: 'APPROVED' },
     });
+  }
+
+  async deleteProperty(propertyId: string) {
+    const p = await this.prisma.property.findUnique({ where: { id: propertyId } });
+    if (!p) {
+      throw new NotFoundException('Inzerát nenalezen');
+    }
+    await this.prisma.property.delete({ where: { id: propertyId } });
+    return { success: true };
   }
 
   /**
@@ -163,6 +202,7 @@ export class AdminService {
           contactEmail: 'import@example.com',
           userId: adminUserId,
           approved: true,
+          status: 'APPROVED',
         },
       });
       imported += 1;

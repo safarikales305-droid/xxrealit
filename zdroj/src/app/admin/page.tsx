@@ -9,8 +9,9 @@ import {
   nestAdminApproveProperty,
   nestAdminChangePassword,
   nestAdminDeleteUser,
+  nestAdminDeleteProperty,
   nestAdminImportProperties,
-  nestAdminProperties,
+  nestAdminPendingProperties,
   nestAdminStats,
   nestAdminUpdateUserRole,
   nestAdminUsers,
@@ -72,7 +73,7 @@ export default function AdminPage() {
     setLoadError(null);
     const [s, p, u] = await Promise.all([
       nestAdminStats(token),
-      nestAdminProperties(token),
+      nestAdminPendingProperties(token),
       nestAdminUsers(token),
     ]);
     if (!s || !p || !u) {
@@ -106,6 +107,18 @@ export default function AdminPage() {
     setBusyId(null);
     if (r.ok) await refresh();
     else setLoadError(r.error ?? 'Schválení selhalo');
+  }
+
+  async function onDeleteProperty(id: string) {
+    if (!token) return;
+    if (!window.confirm('Opravdu smazat inzerát? Tato akce je nevratná.')) {
+      return;
+    }
+    setBusyId(id);
+    const r = await nestAdminDeleteProperty(token, id);
+    setBusyId(null);
+    if (r.ok) await refresh();
+    else setLoadError(r.error ?? 'Smazání inzerátu selhalo');
   }
 
   async function onImportRapid(e: React.FormEvent) {
@@ -294,7 +307,7 @@ export default function AdminPage() {
 
         <section>
           <h2 className="mb-4 text-lg font-semibold tracking-tight">Statistiky</h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
               <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
                 Uživatelé (bez adminů)
@@ -327,14 +340,30 @@ export default function AdminPage() {
                 {stats?.properties ?? '—'}
               </p>
             </div>
+            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Čekající
+              </p>
+              <p className="mt-2 text-3xl font-bold tabular-nums text-zinc-900">
+                {stats?.pendingProperties ?? '—'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Návštěvy
+              </p>
+              <p className="mt-2 text-3xl font-bold tabular-nums text-zinc-900">
+                {stats?.visits ?? '—'}
+              </p>
+            </div>
           </div>
         </section>
 
         <section>
-          <h2 className="mb-4 text-lg font-semibold tracking-tight">Inzeráty</h2>
+          <h2 className="mb-4 text-lg font-semibold tracking-tight">Čekající inzeráty</h2>
           <div className="grid gap-4 md:grid-cols-2">
             {properties.length === 0 ? (
-              <p className="text-sm text-zinc-500">Žádné inzeráty nebo se nepodařilo načíst.</p>
+              <p className="text-sm text-zinc-500">Žádné čekající inzeráty.</p>
             ) : (
               properties.map((prop) => {
                 const loc = prop.city ?? prop.location ?? '—';
@@ -362,14 +391,24 @@ export default function AdminPage() {
                       </p>
                     </div>
                     {!approved ? (
-                      <button
-                        type="button"
-                        disabled={busyId === prop.id}
-                        onClick={() => void onApprove(prop.id)}
-                        className="mt-4 w-full rounded-xl bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:opacity-50"
-                      >
-                        {busyId === prop.id ? 'Schvaluji…' : 'Schválit'}
-                      </button>
+                      <div className="mt-4 grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          disabled={busyId === prop.id}
+                          onClick={() => void onApprove(prop.id)}
+                          className="w-full rounded-xl bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:opacity-50"
+                        >
+                          {busyId === prop.id ? 'Schvaluji…' : 'Schválit'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busyId === prop.id}
+                          onClick={() => void onDeleteProperty(prop.id)}
+                          className="w-full rounded-xl border border-red-200 bg-white py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
+                        >
+                          {busyId === prop.id ? 'Mažu…' : 'Smazat'}
+                        </button>
+                      </div>
                     ) : null}
                   </article>
                 );

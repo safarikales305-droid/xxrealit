@@ -9,6 +9,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { FavoritesModule } from './modules/favorites/favorites.module';
 import { FeedModule } from './modules/feed/feed.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { PropertiesModule } from './modules/properties/properties.module';
 import { UploadModule } from './modules/upload/upload.module';
 
@@ -27,6 +28,7 @@ import { UploadModule } from './modules/upload/upload.module';
     PropertiesModule,
     FavoritesModule,
     AdminModule,
+    AnalyticsModule,
     UploadModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],

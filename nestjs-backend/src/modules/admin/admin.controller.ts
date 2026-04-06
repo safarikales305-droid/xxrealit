@@ -44,9 +44,19 @@ export class AdminController {
     return this.adminService.listAllProperties();
   }
 
+  @Get('properties/pending')
+  listPendingProperties() {
+    return this.adminService.listPendingProperties();
+  }
+
   @Patch('properties/:id/approve')
   approve(@Param('id') id: string) {
     return this.adminService.approveProperty(id);
+  }
+
+  @Delete('properties/:id')
+  deleteProperty(@Param('id') id: string) {
+    return this.adminService.deleteProperty(id);
   }
 
   @Get('users')

@@ -291,6 +291,7 @@ export class PropertiesService {
           contactEmail: dto.contactEmail.trim().toLowerCase(),
           userId: ownerId,
           approved: false,
+          status: 'PENDING',
         },
       });
     } catch (e) {

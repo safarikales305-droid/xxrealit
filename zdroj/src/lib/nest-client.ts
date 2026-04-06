@@ -96,6 +96,8 @@ export type AdminStats = {
   admins: number;
   total: number;
   properties: number;
+  pendingProperties: number;
+  visits: number;
 };
 
 export type AdminUserRow = {
@@ -130,6 +132,18 @@ export async function nestAdminProperties(
   return Array.isArray(data) ? data : null;
 }
 
+export async function nestAdminPendingProperties(
+  token: string | null,
+): Promise<unknown[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/properties/pending`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as unknown;
+  return Array.isArray(data) ? data : null;
+}
+
 export async function nestAdminApproveProperty(
   token: string | null,
   propertyId: string,
@@ -141,6 +155,30 @@ export async function nestAdminApproveProperty(
     `${API_BASE_URL}/admin/properties/${encodeURIComponent(propertyId)}/approve`,
     {
       method: 'PATCH',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    },
+  );
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string };
+    return {
+      ok: false,
+      error: typeof err.message === 'string' ? err.message : `HTTP ${res.status}`,
+    };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminDeleteProperty(
+  token: string | null,
+  propertyId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/admin/properties/${encodeURIComponent(propertyId)}`,
+    {
+      method: 'DELETE',
       headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
     },
   );

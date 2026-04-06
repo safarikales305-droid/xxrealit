@@ -35,6 +35,7 @@ export function LoginForm() {
         error?: string;
         details?: unknown;
         success?: boolean;
+        redirect?: string;
         access_token?: string;
         session?: {
           user?: {
@@ -69,11 +70,15 @@ export function LoginForm() {
 
       await refresh();
 
-      const role = data.session?.user?.role;
-      if (role === 'ADMIN') {
-        router.push('/admin');
+      if (typeof data.redirect === 'string' && data.redirect.length > 0) {
+        router.push(data.redirect);
       } else {
-        router.push('/dashboard');
+        const role = data.session?.user?.role;
+        if (role === 'ADMIN') {
+          router.push('/admin');
+        } else {
+          router.push('/dashboard');
+        }
       }
       router.refresh();
     } catch {

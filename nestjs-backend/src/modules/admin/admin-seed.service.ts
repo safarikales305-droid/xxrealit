@@ -17,21 +17,21 @@ export class AdminSeedService implements OnModuleInit {
     const password = process.env.ADMIN_PASSWORD || 'admin123';
 
     try {
-      const existing = await this.prisma.user.findUnique({ where: { email } });
-      if (existing) {
-        this.log.log(`Admin seed: účet ${email} už existuje`);
-        return;
-      }
       const hash = await bcrypt.hash(password, 10);
-      await this.prisma.user.create({
-        data: {
+      await this.prisma.user.upsert({
+        where: { email },
+        update: {
+          role: UserRole.ADMIN,
+          password: hash,
+        },
+        create: {
           email,
           password: hash,
           role: UserRole.ADMIN,
           name: 'Administrátor',
         },
       });
-      this.log.log(`Admin seed: vytvořen ${email} (změňte heslo v produkci)`);
+      this.log.log(`Admin seed: účet ${email} připraven`);
     } catch (e) {
       this.log.error('Admin seed selhal', e);
     }

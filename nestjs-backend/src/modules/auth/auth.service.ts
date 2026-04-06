@@ -378,6 +378,7 @@ export class AuthService {
 
     return {
       success: true,
+      redirect: role === UserRole.ADMIN ? '/admin' : undefined,
       accessToken: this.jwt.sign(payload),
       user: {
         id: user.id,
