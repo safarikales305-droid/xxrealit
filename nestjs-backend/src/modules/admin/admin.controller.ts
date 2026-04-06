@@ -24,6 +24,10 @@ type ImportPropertiesBody = {
   apiKey?: string;
 };
 
+type ImportXmlBody = {
+  url?: string;
+};
+
 @Controller('admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class AdminController {
@@ -86,6 +90,17 @@ export class AdminController {
     return this.adminService.importPropertiesFromRapidApi(
       user.id,
       typeof body.apiKey === 'string' ? body.apiKey : '',
+    );
+  }
+
+  @Post('import-xml')
+  importXml(
+    @CurrentUser() user: AuthUser,
+    @Body() body: ImportXmlBody,
+  ) {
+    return this.adminService.importPropertiesFromXml(
+      user.id,
+      typeof body.url === 'string' ? body.url : '',
     );
   }
 

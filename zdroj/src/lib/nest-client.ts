@@ -353,6 +353,42 @@ export async function nestAdminImportProperties(
   return { ok: true, imported };
 }
 
+export async function nestAdminImportXml(
+  token: string | null,
+  url: string,
+): Promise<{ ok: true; imported: number } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/admin/import-xml`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ url }),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    imported?: number;
+    message?: string | string[];
+    error?: string;
+  };
+  if (!res.ok) {
+    const msg =
+      typeof data.message === 'string'
+        ? data.message
+        : Array.isArray(data.message)
+          ? data.message.join(', ')
+          : typeof data.error === 'string'
+            ? data.error
+            : `HTTP ${res.status}`;
+    return { ok: false, error: msg };
+  }
+  const imported = typeof data.imported === 'number' ? data.imported : 0;
+  return { ok: true, imported };
+}
+
 export async function nestUploadPropertyImages(
   token: string | null,
   files: File[],

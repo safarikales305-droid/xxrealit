@@ -11,6 +11,7 @@ import {
   nestAdminChangePassword,
   nestAdminDeleteUser,
   nestAdminDeleteProperty,
+  nestAdminImportXml,
   nestAdminImportProperties,
   nestAdminPendingProperties,
   nestAdminStats,
@@ -74,9 +75,13 @@ export default function AdminPage() {
   const [pwMsg, setPwMsg] = useState<string | null>(null);
 
   const [rapidApiKey, setRapidApiKey] = useState('');
+  const [xmlUrl, setXmlUrl] = useState('');
   const [importLoading, setImportLoading] = useState(false);
+  const [xmlImportLoading, setXmlImportLoading] = useState(false);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [xmlImportSuccess, setXmlImportSuccess] = useState<string | null>(null);
+  const [xmlImportError, setXmlImportError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -155,6 +160,27 @@ export default function AdminPage() {
       await refresh();
     } else {
       setImportError(r.error ?? 'Import selhal');
+    }
+  }
+
+  async function onImportXml(e: React.FormEvent) {
+    e.preventDefault();
+    setXmlImportSuccess(null);
+    setXmlImportError(null);
+    if (!token) return;
+    const url = xmlUrl.trim();
+    if (!url) {
+      setXmlImportError('Zadejte URL XML feedu');
+      return;
+    }
+    setXmlImportLoading(true);
+    const r = await nestAdminImportXml(token, url);
+    setXmlImportLoading(false);
+    if (r.ok) {
+      setXmlImportSuccess(`Naimportováno ${r.imported} inzerátů`);
+      await refresh();
+    } else {
+      setXmlImportError(r.error ?? 'XML import selhal');
     }
   }
 
@@ -316,6 +342,47 @@ export default function AdminPage() {
                 />
               ) : null}
               {importLoading ? 'Importuji…' : 'Importovat'}
+            </button>
+          </form>
+          <form
+            onSubmit={(e) => void onImportXml(e)}
+            className="mt-4 max-w-xl space-y-4 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm"
+          >
+            <div>
+              <label htmlFor="xmlUrl" className="mb-1 block text-sm font-medium text-zinc-700">
+                URL XML feedu
+              </label>
+              <input
+                id="xmlUrl"
+                type="url"
+                value={xmlUrl}
+                onChange={(e) => setXmlUrl(e.target.value)}
+                placeholder="https://example.com/feed.xml"
+                className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:border-[#ff6a00]/55 focus:ring-2 focus:ring-[#ff6a00]/15"
+              />
+            </div>
+            {xmlImportError ? (
+              <p className="text-sm font-medium text-red-600" role="alert">
+                {xmlImportError}
+              </p>
+            ) : null}
+            {xmlImportSuccess ? (
+              <p className="text-sm font-medium text-emerald-700" role="status">
+                {xmlImportSuccess}
+              </p>
+            ) : null}
+            <button
+              type="submit"
+              disabled={xmlImportLoading || !apiOk}
+              className="inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800 disabled:opacity-50"
+            >
+              {xmlImportLoading ? (
+                <span
+                  className="inline-block size-4 animate-spin rounded-full border-2 border-white border-t-transparent"
+                  aria-hidden
+                />
+              ) : null}
+              {xmlImportLoading ? 'Importuji XML…' : 'Import XML'}
             </button>
           </form>
         </section>

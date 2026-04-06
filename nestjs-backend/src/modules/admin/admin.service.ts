@@ -12,9 +12,104 @@ import {
   RAPID_REALTY_HOST,
   RAPID_REALTY_LIST_URL,
 } from './rapid-realty-import';
+import { parseStringPromise } from 'xml2js';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bcrypt = require('bcrypt');
+
+type XmlPropertyRow = {
+  title: string;
+  price: number;
+  city: string;
+  description: string;
+  image: string | null;
+};
+
+function toFlatString(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const s = toFlatString(item);
+      if (s) return s;
+    }
+  }
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj._ === 'string') return obj._.trim();
+  }
+  return '';
+}
+
+function pickByKeys(obj: unknown, keys: string[]): string {
+  if (!obj || typeof obj !== 'object') return '';
+  const source = obj as Record<string, unknown>;
+  for (const key of keys) {
+    if (key in source) {
+      const s = toFlatString(source[key]);
+      if (s) return s;
+    }
+  }
+  return '';
+}
+
+function collectXmlPropertyNodes(node: unknown): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  const walk = (value: unknown) => {
+    if (!value) return;
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item);
+      return;
+    }
+    if (typeof value !== 'object') return;
+    const obj = value as Record<string, unknown>;
+    for (const [k, v] of Object.entries(obj)) {
+      const key = k.toLowerCase();
+      if (
+        key === 'property' ||
+        key === 'properties' ||
+        key === 'offer' ||
+        key === 'offers' ||
+        key === 'listing' ||
+        key === 'listings' ||
+        key === 'item' ||
+        key === 'items'
+      ) {
+        if (Array.isArray(v)) {
+          for (const item of v) {
+            if (item && typeof item === 'object') {
+              out.push(item as Record<string, unknown>);
+            }
+          }
+        } else if (v && typeof v === 'object') {
+          out.push(v as Record<string, unknown>);
+        }
+      }
+      walk(v);
+    }
+  };
+  walk(node);
+  return out;
+}
+
+function mapXmlNodeToRow(node: Record<string, unknown>): XmlPropertyRow {
+  const title =
+    pickByKeys(node, ['title', 'name', 'headline']) || 'Importovaný inzerát';
+  const rawPrice = pickByKeys(node, ['price', 'amount', 'cost']);
+  const priceDigits = rawPrice.replace(/[^\d]/g, '');
+  const parsedPrice = Number.parseInt(priceDigits || '0', 10);
+  const city = pickByKeys(node, ['city', 'town', 'locality']) || 'Neznámé město';
+  const description =
+    pickByKeys(node, ['description', 'desc', 'text']) || title;
+  const image = pickByKeys(node, ['image', 'img', 'photo', 'picture']) || '';
+  return {
+    title: title.slice(0, 250),
+    price: Number.isFinite(parsedPrice) && parsedPrice > 0 ? parsedPrice : 1,
+    city: city.slice(0, 120),
+    description: description.slice(0, 10_000),
+    image: image || null,
+  };
+}
 
 @Injectable()
 export class AdminService {
@@ -198,6 +293,81 @@ export class AdminService {
           images: row.imageUrl ? [row.imageUrl] : [],
           videoUrl: null,
           contactName: 'RapidAPI import',
+          contactPhone: '+000',
+          contactEmail: 'import@example.com',
+          userId: adminUserId,
+          approved: true,
+          status: 'APPROVED',
+        },
+      });
+      imported += 1;
+    }
+
+    return { imported };
+  }
+
+  async importPropertiesFromXml(adminUserId: string, xmlUrlRaw: string) {
+    const xmlUrl = typeof xmlUrlRaw === 'string' ? xmlUrlRaw.trim() : '';
+    if (!xmlUrl) {
+      throw new BadRequestException('url je povinná');
+    }
+    if (!/^https?:\/\//i.test(xmlUrl)) {
+      throw new BadRequestException('url musí začínat http:// nebo https://');
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(xmlUrl, {
+        headers: { Accept: 'application/xml,text/xml;q=0.9,*/*;q=0.8' },
+        signal: AbortSignal.timeout(45_000),
+      });
+    } catch {
+      throw new BadRequestException('Nepodařilo se stáhnout XML feed');
+    }
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new BadRequestException(
+        `XML feed vrátil HTTP ${res.status}${text ? `: ${text.slice(0, 240)}` : ''}`,
+      );
+    }
+
+    const xmlText = await res.text();
+    let parsed: unknown;
+    try {
+      parsed = await parseStringPromise(xmlText, {
+        explicitArray: false,
+        trim: true,
+        mergeAttrs: true,
+      });
+    } catch {
+      throw new BadRequestException('Nepodařilo se parsovat XML (xml2js)');
+    }
+
+    const nodes = collectXmlPropertyNodes(parsed);
+    if (nodes.length === 0) {
+      throw new BadRequestException('V XML nebyly nalezeny žádné nemovitosti');
+    }
+
+    const maxPerRun = 200;
+    const rows = nodes.slice(0, maxPerRun).map(mapXmlNodeToRow);
+
+    let imported = 0;
+    for (const row of rows) {
+      await this.prisma.property.create({
+        data: {
+          title: row.title,
+          description: row.description,
+          price: row.price,
+          city: row.city,
+          address: row.city,
+          currency: 'CZK',
+          offerType: 'prodej',
+          propertyType: 'import',
+          subType: '',
+          images: row.image ? [row.image] : [],
+          videoUrl: null,
+          contactName: 'XML import',
           contactPhone: '+000',
           contactEmail: 'import@example.com',
           userId: adminUserId,
