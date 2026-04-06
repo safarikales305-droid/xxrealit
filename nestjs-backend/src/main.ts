@@ -30,35 +30,21 @@ async function bootstrap() {
   const prisma = app.get(PrismaService);
 
   try {
-    const [postTable, videoTable] = await Promise.all([
-      prisma.$queryRaw<Array<{ table: string | null }>>`
-        SELECT to_regclass('public."Post"')::text AS table
-      `,
-      prisma.$queryRaw<Array<{ table: string | null }>>`
-        SELECT to_regclass('public."Video"')::text AS table
-      `,
+    // Verify `Post` / `Video` exist via ORM (no raw SQL / regclass).
+    await Promise.all([
+      prisma.post.findFirst({ select: { id: true } }),
+      prisma.video.findFirst({ select: { id: true } }),
     ]);
-    if (!postTable?.[0]?.table || !videoTable?.[0]?.table) {
-      const missing = [
-        !postTable?.[0]?.table ? 'Post' : null,
-        !videoTable?.[0]?.table ? 'Video' : null,
-      ]
-        .filter(Boolean)
-        .join(', ');
-      throw new Error(
-        `Missing DB tables: ${missing}. Run "prisma migrate deploy" on startup/deploy.`,
-      );
-    }
   } catch (error) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === 'P2021'
     ) {
       console.error(
-        '[DB] Prisma table missing (P2021). Ensure migrations are applied: prisma migrate deploy',
+        '[DB] Table missing (Post / Video?). Run: prisma migrate deploy',
       );
     } else {
-      console.error('[DB] Database schema check failed:', error);
+      console.error('[DB] Schema readiness check failed:', error);
     }
     throw error;
   }
