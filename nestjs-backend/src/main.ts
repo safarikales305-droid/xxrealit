@@ -31,12 +31,12 @@ async function bootstrap() {
 
   try {
     const [postTable, videoTable] = await Promise.all([
-      prisma.$queryRawUnsafe<Array<{ table: string | null }>>(
-        `SELECT to_regclass('public."Post"') AS table`,
-      ),
-      prisma.$queryRawUnsafe<Array<{ table: string | null }>>(
-        `SELECT to_regclass('public."Video"') AS table`,
-      ),
+      prisma.$queryRaw<Array<{ table: string | null }>>`
+        SELECT to_regclass('public."Post"')::text AS table
+      `,
+      prisma.$queryRaw<Array<{ table: string | null }>>`
+        SELECT to_regclass('public."Video"')::text AS table
+      `,
     ]);
     if (!postTable?.[0]?.table || !videoTable?.[0]?.table) {
       const missing = [
