@@ -119,39 +119,39 @@ export function Navbar({
           ) : null}
 
           {viewMode != null && onViewModeChange != null ? (
-            <div className="hidden flex-wrap items-center gap-1 rounded-lg bg-zinc-100 p-0.5 sm:flex md:gap-1 md:rounded-xl md:p-1">
+            <div className="flex max-w-[min(100%,14rem)] flex-nowrap items-center gap-0.5 overflow-x-auto rounded-xl bg-zinc-100 p-1 sm:max-w-none sm:flex-wrap md:gap-1">
               <button
                 type="button"
                 onClick={() => onViewModeChange('shorts')}
-                className={`rounded-md px-2 py-1 text-xs font-medium transition md:rounded-lg md:px-3 md:text-sm ${
+                className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition sm:text-xs md:px-3 md:text-sm ${
                   viewMode === 'shorts'
-                    ? 'bg-orange-500 text-white'
+                    ? 'bg-orange-500 text-white shadow-sm'
                     : 'text-zinc-600 hover:text-zinc-900'
                 }`}
               >
-                🎬 Shorts
+                Shorts
               </button>
               <button
                 type="button"
                 onClick={() => onViewModeChange('classic')}
-                className={`rounded-md px-2 py-1 text-xs font-medium transition md:rounded-lg md:px-3 md:text-sm ${
+                className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition sm:text-xs md:px-3 md:text-sm ${
                   viewMode === 'classic'
-                    ? 'bg-orange-500 text-white'
+                    ? 'bg-orange-500 text-white shadow-sm'
                     : 'text-zinc-600 hover:text-zinc-900'
                 }`}
               >
-                🏠 Klasik
+                Klasik
               </button>
               <button
                 type="button"
                 onClick={() => onViewModeChange('posts')}
-                className={`rounded-md px-2 py-1 text-xs font-medium transition md:rounded-lg md:px-3 md:text-sm ${
+                className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition sm:text-xs md:px-3 md:text-sm ${
                   viewMode === 'posts'
-                    ? 'bg-orange-500 text-white'
+                    ? 'bg-orange-500 text-white shadow-sm'
                     : 'text-zinc-600 hover:text-zinc-900'
                 }`}
               >
-                📝 Příspěvky
+                Příspěvky
               </button>
             </div>
           ) : null}
@@ -254,33 +254,6 @@ export function Navbar({
           </Link>
         </div>
       </div>
-
-      {viewMode != null && onViewModeChange != null ? (
-        <div className="flex items-center gap-1 border-t border-zinc-100 bg-white px-3 pb-2 md:hidden">
-          <button
-            type="button"
-            onClick={() => onViewModeChange('shorts')}
-            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-              viewMode === 'shorts'
-                ? 'bg-orange-500 text-white'
-                : 'bg-zinc-100 text-zinc-700'
-            }`}
-          >
-            Shorts
-          </button>
-          <button
-            type="button"
-            onClick={() => onViewModeChange('posts')}
-            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-              viewMode === 'posts'
-                ? 'bg-orange-500 text-white'
-                : 'bg-zinc-100 text-zinc-700'
-            }`}
-          >
-            Příspěvky
-          </button>
-        </div>
-      ) : null}
 
       {menuOpen ? (
         <>

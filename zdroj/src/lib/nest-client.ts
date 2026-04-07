@@ -542,6 +542,8 @@ export type ShortVideo = {
   url?: string;
   videoUrl?: string | null;
   type?: string;
+  source?: string;
+  propertyId?: string;
   description?: string | null;
   content?: string | null;
   createdAt: string;

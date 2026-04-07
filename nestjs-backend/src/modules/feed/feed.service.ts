@@ -87,10 +87,14 @@ export class FeedService {
     );
   }
 
+  /** Shorts / reels: only real-estate listing videos + legacy Video rows — no user social post videos. */
   async listShorts() {
-    const [videoPosts, videos] = await Promise.all([
-      this.prisma.post.findMany({
-        where: { type: 'video', videoUrl: { not: null } },
+    const [properties, videos] = await Promise.all([
+      this.prisma.property.findMany({
+        where: {
+          approved: true,
+          videoUrl: { not: null },
+        },
         orderBy: { createdAt: 'desc' },
         include: {
           user: {
@@ -120,30 +124,44 @@ export class FeedService {
       }),
     ]);
 
-    const fromPosts = videoPosts.map((p) => ({
-      id: p.id,
-      url: p.videoUrl,
-      description: p.description ?? p.content ?? null,
-      createdAt: p.createdAt,
-      user: p.user,
-      source: 'post',
-    }));
+    const fromProperties = properties
+      .filter((p) => (p.videoUrl ?? '').trim().length > 0)
+      .map((p) => ({
+        id: `property-${p.id}`,
+        url: p.videoUrl,
+        videoUrl: p.videoUrl,
+        description: p.title ?? null,
+        content: p.title ?? null,
+        createdAt: p.createdAt,
+        user: p.user,
+        source: 'property',
+        type: 'short',
+        propertyId: p.id,
+      }));
+
     const fromVideos = videos.map((v) => ({
       id: v.id,
       url: v.url,
+      videoUrl: v.url,
       description: v.description ?? null,
+      content: v.description ?? null,
       createdAt: v.createdAt,
       user: v.user,
       source: 'video',
+      type: 'short',
     }));
 
-    return [...fromPosts, ...fromVideos].sort(
+    return [...fromProperties, ...fromVideos].sort(
       (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
     );
   }
 
+  /** Social feed posts (Facebook-style), not listing shorts. */
   async listPosts() {
     return this.prisma.post.findMany({
+      where: {
+        type: { in: ['post', 'text', 'video'] },
+      },
       orderBy: { createdAt: 'desc' },
       include: {
         user: {

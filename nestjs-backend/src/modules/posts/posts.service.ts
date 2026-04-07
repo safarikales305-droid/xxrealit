@@ -28,7 +28,7 @@ export class PostsService {
     const text = (dto.description ?? dto.content ?? '').trim();
     return this.prisma.post.create({
       data: {
-        type: 'text',
+        type: 'post',
         userId,
         content: text || null,
         description: text || null,
@@ -51,7 +51,7 @@ export class PostsService {
     const text = description.trim();
     return this.prisma.post.create({
       data: {
-        type: 'video',
+        type: 'post',
         videoUrl,
         description: text || null,
         content: text || null,

@@ -45,7 +45,7 @@ export class PostsController {
     FileInterceptor('file', {
       storage: memoryStorage(),
       limits: {
-        fileSize: 500 * 1024 * 1024,
+        fileSize: 60 * 1024 * 1024,
       },
       fileFilter: (_req, file, cb) => {
         if (file.mimetype.startsWith('video/')) {
@@ -68,12 +68,16 @@ export class PostsController {
     @Body('description') description?: string,
   ) {
     if (!file) {
-      return { success: true, url: '' };
+      throw new BadRequestException('Vyberte video soubor.');
     }
-    const videoUrl = await uploadVideo(file);
-
-    if (!videoUrl) {
-      return { success: true, url: '' };
+    let videoUrl: string;
+    try {
+      videoUrl = await uploadVideo(file);
+    } catch (err) {
+      console.error('Video upload failed:', err);
+      throw new BadRequestException(
+        'Upload videa se nezdařil. Ověřte CLOUDINARY_URL, velikost max 60 MB a délku max 120 s.',
+      );
     }
 
     await this.postsService.createVideoPost(user.id, videoUrl, description ?? '');

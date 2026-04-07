@@ -47,8 +47,9 @@ export default function ShortsPage() {
       setError('Povolené jsou pouze video soubory.');
       return;
     }
-    if (selectedFile.size > 200 * 1024 * 1024) {
-      setError('Maximální velikost videa je 200MB.');
+    if (selectedFile.size > 60 * 1024 * 1024) {
+      alert('Video bude komprimováno');
+      setError('Maximální velikost nahrání je 60 MB.');
       return;
     }
 
@@ -58,9 +59,14 @@ export default function ShortsPage() {
       selectedFile,
       description.trim(),
     );
-    if (!create.ok) {
+    if (!create.success) {
       setUploading(false);
       setError(create.error || 'Uložení videa selhalo.');
+      return;
+    }
+    if (!create.url) {
+      setUploading(false);
+      setError('Uložení videa selhalo.');
       return;
     }
 

@@ -26,7 +26,7 @@ export function VideoFeed({ videos }: VideoFeedProps) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <StoriesBar videos={sorted} onSelect={scrollToVideo} />
-      <div className="min-h-0 flex-1 snap-y snap-mandatory overflow-y-auto space-y-2 px-2 pb-24 md:px-0 md:pb-0">
+      <div className="min-h-0 flex-1 snap-y snap-mandatory overflow-y-auto space-y-2 px-2 pb-4 md:px-0 md:pb-0">
         {sorted.map((video) => (
           <div
             key={video.id}
