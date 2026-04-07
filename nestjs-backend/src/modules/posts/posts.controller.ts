@@ -96,10 +96,16 @@ export class PostsController {
         fileSize: 50 * 1024 * 1024,
       },
       fileFilter: (_req, file, cb) => {
-        if (file.mimetype.startsWith('video/')) {
+        // Hard validation: only MP4 uploads are accepted at API boundary.
+        if (file.mimetype === 'video/mp4') {
           cb(null, true);
         } else {
-          cb(new Error('Only video files allowed'), false);
+          cb(
+            new Error(
+              `Unsupported MIME type "${file.mimetype}". Allowed: video/mp4`,
+            ),
+            false,
+          );
         }
       },
     }),
@@ -112,6 +118,9 @@ export class PostsController {
     if (!file?.filename) {
       throw new BadRequestException('Video soubor je povinný (field "file").');
     }
+    if (file.mimetype !== 'video/mp4') {
+      throw new BadRequestException('Nepodporovaný formát. Povolen pouze MP4.');
+    }
 
     const uploadsDir = join(tmpdir(), 'xxrealit-video-upload');
     const inputPath = join(uploadsDir, file.filename);
@@ -120,12 +129,16 @@ export class PostsController {
     let videoUrl = '';
 
     try {
+      // Mandatory normalization to browser-safe stream: H.264 + AAC + faststart.
       await convertToMp4H264Aac(inputPath, outputPath);
       videoUrl = await uploadToCloudinary(outputPath);
+      if (!videoUrl.toLowerCase().includes('.mp4')) {
+        throw new Error(`Uploaded URL is not MP4: ${videoUrl}`);
+      }
     } catch (error) {
       console.error('[VideoUpload] Conversion/upload failed:', error);
       throw new BadRequestException(
-        'Video se nepodařilo nahrát do trvalého úložiště. Zkuste to prosím znovu.',
+        'Video neprošlo validací/konverzí. Nahrajte prosím MP4 soubor.',
       );
     } finally {
       await unlink(inputPath).catch(() => undefined);
