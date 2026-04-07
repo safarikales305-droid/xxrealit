@@ -36,10 +36,16 @@ async function convertToMp4H264Aac(
       '-y',
       '-i',
       inputPath,
+      '-pix_fmt',
+      'yuv420p',
       '-vcodec',
       'libx264',
       '-acodec',
       'aac',
+      '-preset',
+      'veryfast',
+      '-crf',
+      '23',
       '-movflags',
       '+faststart',
       outputPath,
@@ -96,13 +102,13 @@ export class PostsController {
         fileSize: 50 * 1024 * 1024,
       },
       fileFilter: (_req, file, cb) => {
-        // Hard validation: only MP4 uploads are accepted at API boundary.
-        if (file.mimetype === 'video/mp4') {
+        // Accept any video/* input and normalize via mandatory FFmpeg conversion.
+        if (file.mimetype.startsWith('video/')) {
           cb(null, true);
         } else {
           cb(
             new Error(
-              `Unsupported MIME type "${file.mimetype}". Allowed: video/mp4`,
+              `Unsupported MIME type "${file.mimetype}". Allowed: video/*`,
             ),
             false,
           );
@@ -117,9 +123,6 @@ export class PostsController {
   ) {
     if (!file?.filename) {
       throw new BadRequestException('Video soubor je povinný (field "file").');
-    }
-    if (file.mimetype !== 'video/mp4') {
-      throw new BadRequestException('Nepodporovaný formát. Povolen pouze MP4.');
     }
 
     const uploadsDir = join(tmpdir(), 'xxrealit-video-upload');
