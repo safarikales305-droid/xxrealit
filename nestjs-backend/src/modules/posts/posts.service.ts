@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { CreatePostDto } from './dto/create-post.dto';
 
@@ -10,6 +10,18 @@ export class PostsService {
     return this.prisma.post.delete({
       where: { id },
     });
+  }
+
+  async deletePostByOwner(id: string, userId: string) {
+    const post = await this.prisma.post.findUnique({ where: { id } });
+    if (!post) {
+      throw new NotFoundException();
+    }
+    if (post.userId !== userId) {
+      throw new ForbiddenException();
+    }
+    await this.prisma.post.delete({ where: { id } });
+    return { success: true };
   }
 
   create(userId: string, dto: CreatePostDto) {

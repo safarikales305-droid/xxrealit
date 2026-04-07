@@ -99,10 +99,6 @@ export function HomeLayout({
   function handlePostContentChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const value = e.target.value;
     setPostContent(value);
-    const el = postTextareaRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(260, Math.max(40, el.scrollHeight))}px`;
   }
 
   async function refreshPostsFeed() {
@@ -199,7 +195,7 @@ export function HomeLayout({
         console.log('[POST_SUBMIT] before fetch /api/posts/video');
         const r = await nestCreateVideoPost(apiAccessToken, postVideo, text);
         console.log('[POST_SUBMIT] after fetch /api/posts/video', r);
-        if (!r.success) {
+        if (!r.success || !r.url) {
           alert('Upload selhal');
           setPostVideoError(r.error ?? 'Upload videa selhal.');
           return;
@@ -378,6 +374,10 @@ export function HomeLayout({
                         rows={1}
                         value={postContent}
                         onChange={handlePostContentChange}
+                        onInput={(e) => {
+                          e.currentTarget.style.height = 'auto';
+                          e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
+                        }}
                         placeholder="Napište příspěvek nebo popište video..."
                         className="w-full resize-none overflow-hidden rounded border border-zinc-300 p-2 text-sm"
                       />
@@ -532,23 +532,16 @@ export function HomeLayout({
                               {String(p.description ?? p.content ?? '')}
                             </p>
                           )}
-                          {p.type === 'video' ? (
+                          {p.type === 'video' && String(p.videoUrl ?? '').trim() ? (
                             <video
-                              muted
+                              src={nestAbsoluteAssetUrl(String(p.videoUrl ?? ''))}
                               playsInline
-                              autoPlay
-                              loop
                               controls
                               preload="metadata"
                               className="mt-3 w-full h-full object-cover aspect-[9/16] rounded"
                               onError={(e) => console.log('VIDEO ERROR', e)}
                               onLoadedData={() => console.log('VIDEO LOADED')}
-                            >
-                              <source
-                                src={nestAbsoluteAssetUrl(String(p.videoUrl ?? ''))}
-                                type="video/mp4"
-                              />
-                            </video>
+                            />
                           ) : null}
                         </article>
                       ))

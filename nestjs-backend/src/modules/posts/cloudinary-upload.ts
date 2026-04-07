@@ -1,86 +1,43 @@
 import { v2 as cloudinary } from 'cloudinary';
 
-function resolveCloudinaryConfig() {
-  const cloudName =
-    process.env.CLOUDINARY_NAME ?? process.env.CLOUDINARY_CLOUD_NAME ?? '';
-  const apiKey =
-    process.env.CLOUDINARY_KEY ?? process.env.CLOUDINARY_API_KEY ?? '';
-  const apiSecret =
-    process.env.CLOUDINARY_SECRET ?? process.env.CLOUDINARY_API_SECRET ?? '';
-
+export function initCloudinary() {
+  const url = process.env.CLOUDINARY_URL;
+  if (!url) {
+    throw new Error('CLOUDINARY_URL missing');
+  }
+  const cloudName = url.split('@')[1] ?? '';
+  const apiKey = url.split('//')[1]?.split(':')[0] ?? '';
+  const apiSecret = url.split(':')[2]?.split('@')[0] ?? '';
   if (!cloudName || !apiKey || !apiSecret) {
-    throw new Error(
-      'Missing Cloudinary env vars. Set CLOUDINARY_NAME/CLOUDINARY_KEY/CLOUDINARY_SECRET.',
-    );
+    throw new Error('CLOUDINARY_URL invalid');
   }
-  return { cloudName, apiKey, apiSecret };
+  cloudinary.config({
+    cloud_name: cloudName,
+    api_key: apiKey,
+    api_secret: apiSecret,
+  });
 }
 
-export function getFallbackVideoUrl(): string {
-  return '';
-}
-
-export async function uploadToCloudinary(filePath: string): Promise<string | null> {
+export async function uploadVideo(file: Express.Multer.File): Promise<string | null> {
   try {
-    const { cloudName, apiKey, apiSecret } = resolveCloudinaryConfig();
-
-    cloudinary.config({
-      cloud_name: cloudName,
-      api_key: apiKey,
-      api_secret: apiSecret,
+    initCloudinary();
+    return await new Promise<string>((resolve, reject) => {
+      cloudinary.uploader
+        .upload_stream(
+          {
+            resource_type: 'video',
+            folder: 'posts',
+          },
+          (error, result) => {
+            if (error) return reject(error);
+            if (!result?.secure_url) return reject(new Error('Missing secure_url'));
+            resolve(result.secure_url);
+          },
+        )
+        .end(file.buffer);
     });
-
-    console.log('UPLOAD:', filePath);
-    const result = await cloudinary.uploader.upload(filePath, {
-      resource_type: 'video',
-    });
-    console.log('RESULT:', result.secure_url);
-    return result.secure_url;
   } catch (e) {
-    console.error('Upload failed:', e);
+    console.error('UPLOAD ERROR:', e);
     return null;
-  }
-}
-
-async function assertPlayableMp4Url(url: string): Promise<void> {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error(`Invalid video URL: ${url}`);
-  }
-  if (parsed.protocol !== 'https:') {
-    throw new Error(`Video URL must be https: ${url}`);
-  }
-  if (!parsed.hostname.includes('cloudinary.com')) {
-    throw new Error(`Video URL is not public Cloudinary URL: ${url}`);
-  }
-
-  let res: Response;
-  try {
-    // Range request verifies stream endpoint instead of HTML landing page.
-    res = await fetch(url, {
-      method: 'GET',
-      headers: { Range: 'bytes=0-1' },
-      signal: AbortSignal.timeout(30_000),
-    });
-  } catch (error) {
-    throw new Error(`Video URL is not reachable: ${String(error)}`);
-  }
-
-  if (!(res.ok || res.status === 206)) {
-    throw new Error(`Video URL returned HTTP ${res.status}`);
-  }
-
-  const contentType = (res.headers.get('content-type') || '').toLowerCase();
-  if (!contentType.startsWith('video/mp4')) {
-    throw new Error(
-      `Invalid Content-Type for video stream: "${contentType || 'missing'}"`,
-    );
-  }
-
-  const acceptRanges = (res.headers.get('accept-ranges') || '').toLowerCase();
-  if (acceptRanges && acceptRanges !== 'bytes') {
-    throw new Error(`Video URL does not support byte ranges: ${acceptRanges}`);
   }
 }
