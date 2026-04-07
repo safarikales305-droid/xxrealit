@@ -41,7 +41,9 @@ export class PrismaService
 
   async onModuleInit(): Promise<void> {
     await this.$connect();
-    await ensureDevSeedIfEmpty(this);
+    if (process.env.NODE_ENV !== 'production') {
+      await ensureDevSeedIfEmpty(this);
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
