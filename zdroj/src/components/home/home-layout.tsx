@@ -62,8 +62,7 @@ export function HomeLayout({
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   const [postVideoError, setPostVideoError] = useState<string | null>(null);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
-  const [editingPostText, setEditingPostText] = useState('');
-  const [postActionError, setPostActionError] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
   const postVideoInputRef = useRef<HTMLInputElement | null>(null);
   const postTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -106,20 +105,29 @@ export function HomeLayout({
     el.style.height = `${Math.min(260, Math.max(40, el.scrollHeight))}px`;
   }
 
-  function startEditPost(post: Record<string, unknown>) {
-    setPostActionError(null);
-    setEditingPostId(String(post.id ?? ''));
-    setEditingPostText(String(post.description ?? post.content ?? ''));
+  async function refreshPostsFeed() {
+    if (!API_BASE_URL) return;
+    const res = await fetch(`${API_BASE_URL}/feed/posts`, { cache: 'no-store' });
+    const data = (await res.json().catch(() => [])) as unknown;
+    setPostFeed(Array.isArray(data) ? (data as Array<Record<string, unknown>>) : []);
   }
 
-  async function saveEditPost(postId: string) {
+  async function deletePost(postId: string) {
     if (!API_BASE_URL || !apiAccessToken) return;
-    setPostActionError(null);
-    const text = editingPostText.trim();
-    if (!text) {
-      setPostActionError('Text příspěvku nesmí být prázdný.');
-      return;
-    }
+    const res = await fetch(`${API_BASE_URL}/posts/${postId}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${apiAccessToken}`,
+      },
+    });
+    if (!res.ok) return;
+    setPostFeed((prev) => prev.filter((p) => String(p.id ?? '') !== postId));
+  }
+
+  async function savePostEdit(postId: string) {
+    if (!API_BASE_URL || !apiAccessToken) return;
+    const text = editingText.trim();
+    if (!text) return;
     const res = await fetch(`${API_BASE_URL}/posts/${postId}`, {
       method: 'PATCH',
       headers: {
@@ -128,37 +136,10 @@ export function HomeLayout({
       },
       body: JSON.stringify({ description: text, content: text }),
     });
-    if (!res.ok) {
-      setPostActionError('Úprava příspěvku se nezdařila.');
-      return;
-    }
-    setPostFeed((prev) =>
-      prev.map((p) =>
-        String(p.id ?? '') === postId ? { ...p, description: text, content: text } : p,
-      ),
-    );
+    if (!res.ok) return;
     setEditingPostId(null);
-    setEditingPostText('');
-  }
-
-  async function deletePost(postId: string) {
-    if (!API_BASE_URL || !apiAccessToken) return;
-    setPostActionError(null);
-    const res = await fetch(`${API_BASE_URL}/posts/${postId}`, {
-      method: 'DELETE',
-      headers: {
-        Authorization: `Bearer ${apiAccessToken}`,
-      },
-    });
-    if (!res.ok) {
-      setPostActionError('Smazání příspěvku se nezdařilo.');
-      return;
-    }
-    setPostFeed((prev) => prev.filter((p) => String(p.id ?? '') !== postId));
-    if (editingPostId === postId) {
-      setEditingPostId(null);
-      setEditingPostText('');
-    }
+    setEditingText('');
+    await refreshPostsFeed();
   }
 
   const filteredItems = useMemo(() => {
@@ -232,9 +213,7 @@ export function HomeLayout({
       }
 
       setViewMode('posts');
-      const res = await fetch(`${API_BASE_URL}/feed/posts`, { cache: 'no-store' });
-      const data = (await res.json().catch(() => [])) as unknown;
-      setPostFeed(Array.isArray(data) ? (data as Array<Record<string, unknown>>) : []);
+      await refreshPostsFeed();
     } finally {
       setCreatingPost(false);
     }
@@ -377,11 +356,11 @@ export function HomeLayout({
                     <div className="mb-4 rounded-xl border border-zinc-200 bg-white p-3">
                       <textarea
                         ref={postTextareaRef}
+                        rows={1}
                         value={postContent}
                         onChange={handlePostContentChange}
-                        rows={1}
                         placeholder="Napište příspěvek nebo popište video..."
-                        className="min-h-10 w-full resize-none rounded border border-zinc-300 p-2 text-sm"
+                        className="w-full resize-none overflow-hidden rounded border border-zinc-300 p-2 text-sm"
                       />
                       <input
                         ref={postVideoInputRef}
@@ -437,17 +416,17 @@ export function HomeLayout({
                         <button
                           type="button"
                           onClick={() => postVideoInputRef.current?.click()}
-                          className="inline-flex h-9 w-9 items-center justify-center rounded border border-orange-300 bg-orange-50 text-base font-semibold text-orange-700"
-                          aria-label="Nahrát video"
-                          title="Nahrát video"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded border border-orange-300 bg-orange-50 text-base text-orange-700"
+                          title="Nahrát foto/video"
+                          aria-label="Nahrát foto/video"
                         >
-                          ⬆️
+                          📎
                         </button>
                         <button
                           type="button"
                           onClick={() => void createPost()}
                           disabled={creatingPost || (!postVideo && !postContent.trim())}
-                          className="rounded bg-orange-500 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                          className="h-9 rounded bg-orange-500 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
                         >
                           {creatingPost
                             ? postVideo
@@ -456,11 +435,6 @@ export function HomeLayout({
                             : 'Přidat příspěvek'}
                         </button>
                       </div>
-                      {postActionError ? (
-                        <p className="mt-2 text-sm font-medium text-red-600" role="alert">
-                          {postActionError}
-                        </p>
-                      ) : null}
                     </div>
                   ) : null}
                   <div className="space-y-3">
@@ -479,8 +453,11 @@ export function HomeLayout({
                             <div className="absolute top-2 right-2 flex gap-2">
                               <button
                                 type="button"
-                                onClick={() => startEditPost(p)}
-                                className="rounded bg-zinc-100 px-2 py-1 text-xs hover:bg-zinc-200"
+                                onClick={() => {
+                                  setEditingPostId(String(p.id ?? ''));
+                                  setEditingText(String(p.description ?? p.content ?? ''));
+                                }}
+                                className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs"
                                 aria-label="Upravit příspěvek"
                                 title="Upravit"
                               >
@@ -489,7 +466,7 @@ export function HomeLayout({
                               <button
                                 type="button"
                                 onClick={() => void deletePost(String(p.id ?? ''))}
-                                className="rounded bg-zinc-100 px-2 py-1 text-xs hover:bg-zinc-200"
+                                className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs"
                                 aria-label="Smazat příspěvek"
                                 title="Smazat"
                               >
@@ -507,16 +484,16 @@ export function HomeLayout({
                           {editingPostId === String(p.id ?? '') ? (
                             <div className="mt-2">
                               <textarea
-                                value={editingPostText}
-                                onChange={(e) => setEditingPostText(e.target.value)}
+                                value={editingText}
+                                onChange={(e) => setEditingText(e.target.value)}
                                 rows={1}
-                                className="min-h-10 w-full resize-none rounded border border-zinc-300 p-2 text-sm"
+                                className="w-full resize-none overflow-hidden rounded border border-zinc-300 p-2 text-sm"
                               />
                               <div className="mt-2 flex items-center gap-2">
                                 <button
                                   type="button"
-                                  onClick={() => void saveEditPost(String(p.id ?? ''))}
-                                  className="rounded bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white"
+                                  onClick={() => void savePostEdit(String(p.id ?? ''))}
+                                  className="rounded bg-orange-500 px-2 py-1 text-xs font-semibold text-white"
                                 >
                                   Uložit
                                 </button>
@@ -524,16 +501,16 @@ export function HomeLayout({
                                   type="button"
                                   onClick={() => {
                                     setEditingPostId(null);
-                                    setEditingPostText('');
+                                    setEditingText('');
                                   }}
-                                  className="rounded border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700"
+                                  className="rounded border border-zinc-300 px-2 py-1 text-xs"
                                 >
                                   Zrušit
                                 </button>
                               </div>
                             </div>
                           ) : (
-                            <p className="mt-2 whitespace-pre-wrap pr-16 text-sm text-zinc-800">
+                            <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-800">
                               {String(p.description ?? p.content ?? '')}
                             </p>
                           )}
