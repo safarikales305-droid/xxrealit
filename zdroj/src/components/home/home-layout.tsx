@@ -181,7 +181,12 @@ export function HomeLayout({
       .finally(() => setLoadingFeed(false));
   }, [viewMode]);
 
-  async function createPost() {
+  async function handleSubmit(e?: React.FormEvent) {
+    e?.preventDefault();
+    console.log('[POST_SUBMIT] triggered');
+    console.log('[POST_SUBMIT] selectedFile:', postVideo);
+    console.log('[POST_SUBMIT] text:', postContent);
+
     if (!API_BASE_URL || !user || !apiAccessToken) return;
 
     const text = postContent.trim();
@@ -191,7 +196,9 @@ export function HomeLayout({
     setCreatingPost(true);
     try {
       if (postVideo) {
+        console.log('[POST_SUBMIT] before fetch /api/posts/video');
         const r = await nestCreateVideoPost(apiAccessToken, postVideo, text);
+        console.log('[POST_SUBMIT] after fetch /api/posts/video', r);
         if (!r.success) {
           alert('Upload selhal');
           setPostVideoError(r.error ?? 'Upload videa selhal.');
@@ -203,13 +210,20 @@ export function HomeLayout({
           postVideoInputRef.current.value = '';
         }
       } else {
-        await fetch(`${API_BASE_URL}/posts`, {
+        console.log('[POST_SUBMIT] before fetch /api/posts');
+        const postRes = await fetch(`${API_BASE_URL}/posts`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${apiAccessToken}`,
           },
           body: JSON.stringify({ content: text }),
+        });
+        const postData = (await postRes.json().catch(() => ({}))) as unknown;
+        console.log('[POST_SUBMIT] after fetch /api/posts', {
+          ok: postRes.ok,
+          status: postRes.status,
+          data: postData,
         });
         setPostContent('');
       }
@@ -355,7 +369,10 @@ export function HomeLayout({
               ) : viewMode === 'posts' ? (
                 <div className="h-full overflow-y-auto p-3 pb-24 md:p-4">
                   {isAuthenticated ? (
-                    <div className="mb-4 rounded-xl border border-zinc-200 bg-white p-3">
+                    <form
+                      onSubmit={(e) => void handleSubmit(e)}
+                      className="mb-4 rounded-xl border border-zinc-200 bg-white p-3"
+                    >
                       <textarea
                         ref={postTextareaRef}
                         rows={1}
@@ -425,8 +442,7 @@ export function HomeLayout({
                           📎
                         </button>
                         <button
-                          type="button"
-                          onClick={() => void createPost()}
+                          type="submit"
                           disabled={creatingPost || (!postVideo && !postContent.trim())}
                           className="h-9 rounded bg-orange-500 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
                         >
@@ -437,7 +453,7 @@ export function HomeLayout({
                             : 'Přidat příspěvek'}
                         </button>
                       </div>
-                    </div>
+                    </form>
                   ) : null}
                   <div className="space-y-3">
                     {loadingFeed ? (
