@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 :root {
   --background: #fafafa;
   --foreground: #18181b;
@@ -14,6 +20,10 @@
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 html,
 body {
   padding: 0;
@@ -22,6 +32,14 @@ body {
   overflow-y: auto;
   min-height: 100%;
   height: auto;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
 }
 
 body {

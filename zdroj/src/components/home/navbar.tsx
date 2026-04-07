@@ -61,8 +61,8 @@ export function Navbar({
   }
 
   return (
-    <header className="sticky top-0 z-50 shrink-0 border-b border-zinc-200 bg-white shadow-[0_1px_0_rgba(0,0,0,0.04)]">
-      <div className="mx-auto flex min-h-14 w-full max-w-[100rem] flex-wrap items-center gap-x-2 gap-y-2 px-3 py-2 md:min-h-16 md:gap-3 md:px-4 md:py-2.5">
+    <header className="sticky top-0 z-50 w-full max-w-[100vw] shrink-0 overflow-x-hidden border-b border-zinc-200 bg-white shadow-[0_1px_0_rgba(0,0,0,0.04)]">
+      <div className="mx-auto flex min-h-14 w-full max-w-[100rem] min-w-0 flex-wrap items-center gap-x-2 gap-y-2 px-3 py-2 md:min-h-16 md:gap-3 md:px-4 md:py-2.5">
         <Link
           href="/"
           className="shrink-0 outline-none ring-offset-2 ring-offset-white transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[#ff6a00]/45"
@@ -119,7 +119,7 @@ export function Navbar({
           ) : null}
 
           {viewMode != null && onViewModeChange != null ? (
-            <div className="flex max-w-[min(100%,14rem)] flex-nowrap items-center gap-0.5 overflow-x-auto rounded-xl bg-zinc-100 p-1 sm:max-w-none sm:flex-wrap md:gap-1">
+            <div className="no-scrollbar flex max-w-[min(100%,14rem)] flex-nowrap items-center gap-0.5 overflow-x-auto rounded-xl bg-zinc-100 p-1 sm:max-w-none sm:flex-wrap md:gap-1">
               <button
                 type="button"
                 onClick={() => onViewModeChange('shorts')}

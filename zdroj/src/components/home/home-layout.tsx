@@ -332,7 +332,7 @@ export function HomeLayout({
   }
 
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden overflow-x-hidden bg-[#fafafa] text-zinc-900">
+    <div className="flex h-[100dvh] max-h-[100dvh] w-full max-w-[100vw] flex-col overflow-x-hidden overflow-y-hidden bg-[#fafafa] text-zinc-900 md:h-screen md:max-h-screen">
       {apiConfigMissing ? (
         <div
           role="alert"
@@ -385,9 +385,7 @@ export function HomeLayout({
         </div>
       ) : null}
 
-      <div
-        className="mx-auto grid min-h-0 w-full min-w-0 max-w-[100rem] flex-1 grid-cols-1 gap-4 overflow-hidden overflow-x-hidden p-2 md:grid-cols-[260px_1fr] md:p-4 xl:grid-cols-[260px_1fr_300px]"
-      >
+      <div className="mx-auto grid min-h-0 w-full min-w-0 max-w-[100rem] flex-1 grid-cols-1 gap-4 overflow-x-hidden p-2 md:grid-cols-[260px_1fr] md:p-4 xl:grid-cols-[260px_1fr_300px]">
         <div className="hidden min-h-0 min-w-0 shrink-0 overflow-x-hidden md:block">
           <SidebarFilters className="mt-0 w-full max-w-full flex-col md:mt-2 md:mb-2 lg:mt-4 lg:mb-4" />
         </div>
@@ -398,7 +396,7 @@ export function HomeLayout({
               ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-[0_2px_24px_-8px_rgba(0,0,0,0.08)] md:min-w-0'
               : viewMode === 'shorts'
                 ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl bg-black shadow-[0_24px_48px_-24px_rgba(0,0,0,0.35)] md:min-w-0 lg:ring-1 lg:ring-black/10'
-                : 'relative flex min-h-0 min-w-0 flex-col overflow-y-auto overflow-x-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-[0_2px_24px_-8px_rgba(0,0,0,0.06)] md:min-w-0'
+                : 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-[0_2px_24px_-8px_rgba(0,0,0,0.06)] md:min-w-0'
           }
         >
           {!hasData && viewMode === 'classic' ? (
@@ -452,7 +450,11 @@ export function HomeLayout({
           ) : (
             <div
               key={viewMode}
-              className="flex min-h-0 flex-1 flex-col overflow-hidden [animation:view-fade-in_0.35s_ease-out]"
+              className={
+                viewMode === 'shorts'
+                  ? 'flex min-h-0 flex-1 flex-col overflow-hidden [animation:view-fade-in_0.35s_ease-out]'
+                  : 'flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain [animation:view-fade-in_0.35s_ease-out]'
+              }
             >
               {viewMode === 'shorts' ? (
                 loadingFeed ? (
@@ -463,7 +465,7 @@ export function HomeLayout({
                   <VideoFeed videos={videoFeed} />
                 )
               ) : viewMode === 'posts' ? (
-                <div className="mx-auto h-full max-w-2xl overflow-y-auto p-3 pb-8 md:p-6 lg:max-w-3xl">
+                <div className="mx-auto w-full max-w-xl px-3 pb-8 pt-3">
                   {isAuthenticated ? (
                     <form
                       onSubmit={(e) => void handleSubmit(e)}
@@ -565,7 +567,7 @@ export function HomeLayout({
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                         Příběhy
                       </p>
-                      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2 [scrollbar-width:thin]">
+                      <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2 no-scrollbar">
                         {storyPosts.map((p) => {
                           const v = nestAbsoluteAssetUrl(
                             String(p.videoUrl ?? ''),
@@ -583,7 +585,7 @@ export function HomeLayout({
                               key={String(p.id)}
                               type="button"
                               onClick={() => setDetailPost(p)}
-                              className="h-36 w-20 shrink-0 overflow-hidden rounded-xl ring-2 ring-orange-500/25 ring-offset-2 transition hover:ring-orange-500/60"
+                              className="flex h-[120px] min-w-[70px] shrink-0 overflow-hidden rounded-xl ring-2 ring-orange-500/25 ring-offset-2 transition hover:ring-orange-500/60"
                             >
                               {hasVideo ? (
                                 <video
@@ -710,32 +712,36 @@ export function HomeLayout({
                           {showFeedImage ? (
                             <button
                               type="button"
-                              className="mt-3 block w-full text-left"
+                              className="mt-3 mb-4 block w-full text-left"
                               onClick={() => setDetailPost(p)}
                             >
-                              <img
-                                src={nestAbsoluteAssetUrl(imageRaw)}
-                                alt=""
-                                className="w-full aspect-square max-h-[min(100vw,42rem)] rounded-xl object-cover"
-                              />
+                              <div className="relative aspect-square w-full overflow-hidden rounded-xl">
+                                <img
+                                  src={nestAbsoluteAssetUrl(imageRaw)}
+                                  alt=""
+                                  className="absolute inset-0 h-full w-full object-cover"
+                                />
+                              </div>
                             </button>
                           ) : null}
                           {showFeedVideo ? (
                             <button
                               type="button"
-                              className="mt-3 block w-full text-left"
+                              className="mt-3 mb-4 block w-full text-left"
                               onClick={() => setDetailPost(p)}
                             >
-                              <video
-                                src={nestAbsoluteAssetUrl(videoRaw)}
-                                playsInline
-                                muted={
-                                  mutedByPostId[String(p.id ?? '')] ?? true
-                                }
-                                controls
-                                preload="metadata"
-                                className="w-full aspect-square max-h-[min(100vw,42rem)] rounded-xl bg-black object-cover"
-                              />
+                              <div className="relative aspect-square w-full overflow-hidden rounded-xl bg-black">
+                                <video
+                                  src={nestAbsoluteAssetUrl(videoRaw)}
+                                  playsInline
+                                  muted={
+                                    mutedByPostId[String(p.id ?? '')] ?? true
+                                  }
+                                  controls
+                                  preload="metadata"
+                                  className="absolute inset-0 h-full w-full object-cover"
+                                />
+                              </div>
                             </button>
                           ) : null}
                           {showFeedVideo ? (
@@ -870,7 +876,9 @@ export function HomeLayout({
                   ) : null}
                 </div>
               ) : (
-                <PropertyGrid properties={filteredItems} />
+                <div className="mx-auto w-full max-w-xl px-3 pb-8 pt-1">
+                  <PropertyGrid properties={filteredItems} />
+                </div>
               )}
             </div>
           )}

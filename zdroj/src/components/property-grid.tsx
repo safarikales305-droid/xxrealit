@@ -76,7 +76,7 @@ export function PropertyGrid({ properties }: Props) {
   }
 
   return (
-    <div className="w-full px-3 pb-4 md:px-4">
+    <div className="w-full pb-4">
       {error ? (
         <p className="mb-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
@@ -100,13 +100,11 @@ export function PropertyGrid({ properties }: Props) {
                       loop
                       controls
                       preload="metadata"
-                      className="w-full h-full object-cover"
+                      className="h-full w-full object-cover"
+                      src={nestAbsoluteAssetUrl(p.videoUrl)}
                       onError={() => console.error('VIDEO ERROR', p.videoUrl)}
-                      onLoadedData={() => console.log('VIDEO LOADED')}
                       aria-hidden
-                    >
-                      <source src={p.videoUrl} type="video/mp4" />
-                    </video>
+                    />
                   ) : p.imageUrl ? (
                     <img
                       src={nestAbsoluteAssetUrl(p.imageUrl)}
