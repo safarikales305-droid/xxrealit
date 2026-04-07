@@ -5,9 +5,11 @@ import type { ComponentType } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
-import { nestCreateVideoPost } from '@/lib/nest-client';
+import { nestCreateVideoPost, type ShortVideo } from '@/lib/nest-client';
 import { PropertyGrid } from '@/components/property-grid';
 import type { PropertyFeedItem } from '@/types/property';
+import { BottomNav } from '@/components/video-feed/BottomNav';
+import { VideoFeed } from '@/components/video-feed/VideoFeed';
 import { Navbar, type ViewMode } from './navbar';
 import { RightSidebar } from './right-sidebar';
 import { SidebarFilters } from './sidebar-filters';
@@ -51,7 +53,7 @@ export function HomeLayout({
   const [viewMode, setViewMode] = useState<ViewMode>('shorts');
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
-  const [videoFeed, setVideoFeed] = useState<Array<Record<string, unknown>>>([]);
+  const [videoFeed, setVideoFeed] = useState<ShortVideo[]>([]);
   const [postFeed, setPostFeed] = useState<Array<Record<string, unknown>>>([]);
   const [loadingFeed, setLoadingFeed] = useState(false);
   const [postContent, setPostContent] = useState('');
@@ -118,7 +120,7 @@ export function HomeLayout({
     void fetch(`${API_BASE_URL}${endpoint}`, { cache: 'no-store' })
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => {
-        const list = Array.isArray(data) ? (data as Array<Record<string, unknown>>) : [];
+        const list = Array.isArray(data) ? (data as ShortVideo[]) : [];
         if (viewMode === 'shorts') setVideoFeed(list);
         if (viewMode === 'posts') setPostFeed(list);
       })
@@ -299,37 +301,10 @@ export function HomeLayout({
                     Načítám video feed...
                   </div>
                 ) : (
-                  <div className="h-full min-h-0 w-full snap-y snap-mandatory overflow-y-auto">
-                    {videoFeed.map((v) => (
-                      <section
-                        key={String(v.id ?? Math.random())}
-                        className="relative h-screen w-full snap-start bg-black"
-                      >
-                        <video
-                          className="h-screen w-full object-cover"
-                          controls
-                          src={nestAbsoluteAssetUrl(
-                            String((v.videoUrl as string | undefined) ?? v.url ?? ''),
-                          )}
-                        />
-                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-4 text-white">
-                          <p className="text-sm font-semibold">
-                            {String(
-                              ((v.user as { name?: string } | undefined)?.name ??
-                                (v.user as { email?: string } | undefined)?.email ??
-                                'Autor'),
-                            )}
-                          </p>
-                          <p className="mt-1 text-sm opacity-90">
-                            {String(v.description ?? v.content ?? '')}
-                          </p>
-                        </div>
-                      </section>
-                    ))}
-                  </div>
+                  <VideoFeed videos={videoFeed} />
                 )
               ) : viewMode === 'posts' ? (
-                <div className="h-full overflow-y-auto p-3 md:p-4">
+                <div className="h-full overflow-y-auto p-3 pb-24 md:p-4">
                   {isAuthenticated ? (
                     <div className="mb-4 rounded-xl border border-zinc-200 bg-white p-3">
                       <textarea
@@ -446,6 +421,7 @@ export function HomeLayout({
           <RightSidebar className="mt-4 mb-4 w-full max-w-full flex-col" />
         </div>
       </div>
+      <BottomNav viewMode={viewMode} onChange={setViewMode} />
     </div>
   );
 }
