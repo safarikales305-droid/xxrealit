@@ -8,13 +8,14 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { v2 as cloudinary } from 'cloudinary';
 import ffmpegPath from 'ffmpeg-static';
 import { diskStorage } from 'multer';
 import { unlink } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, extname, join } from 'node:path';
-import { getUploadsPath } from '../../lib/uploads-path';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -59,6 +60,32 @@ async function convertToMp4H264Aac(
   });
 }
 
+async function uploadConvertedVideoToCloudinary(
+  filePath: string,
+): Promise<string> {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+
+  if (!cloudName || !apiKey || !apiSecret) {
+    throw new Error(
+      'Missing Cloudinary env vars: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET',
+    );
+  }
+
+  cloudinary.config({ cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret });
+  const result = await cloudinary.uploader.upload(filePath, {
+    resource_type: 'video',
+    folder: 'xxrealit/videos',
+    format: 'mp4',
+  });
+
+  if (!result.secure_url) {
+    throw new Error('Cloudinary upload did not return secure_url');
+  }
+  return result.secure_url;
+}
+
 @Controller('posts')
 export class PostsController {
   constructor(private readonly postsService: PostsService) {}
@@ -79,7 +106,7 @@ export class PostsController {
     FileInterceptor('file', {
       storage: diskStorage({
         destination: (_req, _file, cb) => {
-          const dir = join(getUploadsPath(), 'videos');
+          const dir = join(tmpdir(), 'xxrealit-video-upload');
           if (!existsSync(dir)) {
             mkdirSync(dir, { recursive: true });
           }
@@ -112,25 +139,25 @@ export class PostsController {
       throw new BadRequestException('Video soubor je povinný (field "file").');
     }
 
-    const uploadsDir = join(getUploadsPath(), 'videos');
+    const uploadsDir = join(tmpdir(), 'xxrealit-video-upload');
     const inputPath = join(uploadsDir, file.filename);
     const outputFilename = `${basename(file.filename, extname(file.filename))}-h264.mp4`;
     const outputPath = join(uploadsDir, outputFilename);
+    let videoUrl = '';
 
     try {
       await convertToMp4H264Aac(inputPath, outputPath);
+      videoUrl = await uploadConvertedVideoToCloudinary(outputPath);
     } catch (error) {
-      console.error('[VideoConvert] FFmpeg conversion failed:', error);
+      console.error('[VideoUpload] Conversion/upload failed:', error);
       throw new BadRequestException(
-        'Video nelze převést. Nahrajte prosím jiné video (doporučeno MP4/H.264).',
+        'Video se nepodařilo nahrát do trvalého úložiště. Zkuste to prosím znovu.',
       );
     } finally {
-      if (inputPath !== outputPath) {
-        await unlink(inputPath).catch(() => undefined);
-      }
+      await unlink(inputPath).catch(() => undefined);
+      await unlink(outputPath).catch(() => undefined);
     }
 
-    const videoUrl = `/uploads/videos/${outputFilename}`;
     return this.postsService.createVideoPost(user.id, videoUrl, description ?? '');
   }
 }
