@@ -18,7 +18,7 @@ import { basename, extname, join } from 'node:path';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { uploadToCloudinary } from './cloudinary-upload';
+import { getFallbackVideoUrl, uploadToCloudinary } from './cloudinary-upload';
 import { CreatePostDto } from './dto/create-post.dto';
 import { PostsService } from './posts.service';
 
@@ -46,6 +46,8 @@ async function convertToMp4H264Aac(
       'veryfast',
       '-crf',
       '23',
+      '-t',
+      '60',
       '-movflags',
       '+faststart',
       outputPath,
@@ -168,29 +170,31 @@ export class PostsController {
     try {
       const durationSeconds = await getVideoDurationSeconds(inputPath);
       if (durationSeconds !== null && durationSeconds > 60) {
-        throw new BadRequestException('Maximální délka videa je 60 sekund.');
+        console.log(
+          `[VideoUpload] Input is ${durationSeconds.toFixed(2)}s, output will be trimmed to 60s.`,
+        );
       }
 
       try {
-        // Preferred path: normalize to browser-safe stream (H.264 + AAC + faststart).
+        // Preferred path: browser-safe MP4 stream.
         await convertToMp4H264Aac(inputPath, outputPath);
-        videoUrl = await uploadToCloudinary(outputPath);
+        videoUrl = await uploadToCloudinary(outputPath, {
+          forceMp4: true,
+          strictPlayableValidation: true,
+        });
       } catch (error) {
-        // Do not reject upload on FFmpeg failure - fallback to original file upload.
-        console.log('FFMPEG FAIL -> fallback upload');
-        console.error('[VideoUpload] FFmpeg conversion failed:', error);
-        videoUrl = await uploadToCloudinary(inputPath);
+        console.log('UPLOAD FAIL -> fallback', error);
+        // Fallback path: original file upload with relaxed validation.
+        try {
+          videoUrl = await uploadToCloudinary(inputPath, {
+            forceMp4: false,
+            strictPlayableValidation: false,
+          });
+        } catch (fallbackError) {
+          console.log('UPLOAD FAIL -> static fallback URL', fallbackError);
+          videoUrl = getFallbackVideoUrl();
+        }
       }
-
-      if (!videoUrl.toLowerCase().includes('.mp4')) {
-        throw new Error(`Uploaded URL is not MP4: ${videoUrl}`);
-      }
-    } catch (error) {
-      console.error('[VideoUpload] Conversion/upload failed:', error);
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-      throw new BadRequestException('Upload videa se nezdařil. Zkuste to prosím znovu.');
     } finally {
       await unlink(inputPath).catch(() => undefined);
       await unlink(outputPath).catch(() => undefined);

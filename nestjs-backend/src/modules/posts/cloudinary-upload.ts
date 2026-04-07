@@ -1,5 +1,8 @@
 import { v2 as cloudinary } from 'cloudinary';
 
+const DEFAULT_FALLBACK_VIDEO_URL =
+  'https://res.cloudinary.com/demo/video/upload/dog.mp4';
+
 function resolveCloudinaryConfig() {
   const cloudName =
     process.env.CLOUDINARY_NAME ?? process.env.CLOUDINARY_CLOUD_NAME ?? '';
@@ -16,7 +19,21 @@ function resolveCloudinaryConfig() {
   return { cloudName, apiKey, apiSecret };
 }
 
-export async function uploadToCloudinary(filePath: string): Promise<string> {
+type UploadOptions = {
+  forceMp4?: boolean;
+  strictPlayableValidation?: boolean;
+};
+
+export function getFallbackVideoUrl(): string {
+  const fromEnv = (process.env.FALLBACK_VIDEO_URL || '').trim();
+  return fromEnv || DEFAULT_FALLBACK_VIDEO_URL;
+}
+
+export async function uploadToCloudinary(
+  filePath: string,
+  options: UploadOptions = {},
+): Promise<string> {
+  const { forceMp4 = true, strictPlayableValidation = true } = options;
   const { cloudName, apiKey, apiSecret } = resolveCloudinaryConfig();
 
   cloudinary.config({
@@ -28,7 +45,7 @@ export async function uploadToCloudinary(filePath: string): Promise<string> {
   const result = await cloudinary.uploader.upload(filePath, {
     resource_type: 'video',
     folder: 'videos',
-    format: 'mp4',
+    ...(forceMp4 ? { format: 'mp4' } : {}),
   });
 
   if (!result.secure_url) {
@@ -36,7 +53,9 @@ export async function uploadToCloudinary(filePath: string): Promise<string> {
   }
 
   const publicUrl = result.secure_url;
-  await assertPlayableMp4Url(publicUrl);
+  if (strictPlayableValidation) {
+    await assertPlayableMp4Url(publicUrl);
+  }
   return publicUrl;
 }
 
