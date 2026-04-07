@@ -557,10 +557,11 @@ export async function nestCreateVideoPost(
   token: string | null,
   file: File,
   description: string,
-): Promise<{ ok: true } | { ok: false; error?: string }> {
+): Promise<{ success: true; url: string } | { success: false; error?: string }> {
   if (!API_BASE_URL || !token) {
-    return { ok: false, error: 'API nebo token chybí' };
+    return { success: false, error: 'API nebo token chybí' };
   }
+  const postsBase = API_BASE_URL.endsWith('/api') ? API_BASE_URL : `${API_BASE_URL}/api`;
   const fd = new FormData();
   fd.append('file', file);
   fd.append('description', description);
@@ -569,7 +570,7 @@ export async function nestCreateVideoPost(
   const timeout = setTimeout(() => ac.abort(), timeoutMs);
 
   try {
-    const res = await fetch(`${API_BASE_URL}/posts/video`, {
+    const res = await fetch(`${postsBase}/posts/video`, {
       method: 'POST',
       cache: 'no-store',
       headers: nestAuthHeaders(token),
@@ -577,6 +578,8 @@ export async function nestCreateVideoPost(
       signal: ac.signal,
     });
     const data = (await res.json().catch(() => ({}))) as {
+      success?: boolean;
+      url?: string;
       message?: string | string[];
       error?: string;
     };
@@ -589,11 +592,14 @@ export async function nestCreateVideoPost(
             : typeof data.error === 'string'
               ? data.error
               : `HTTP ${res.status}`;
-      return { ok: false, error: msg };
+      return { success: false, error: msg };
     }
-    return { ok: true };
+    return {
+      success: data.success === true,
+      url: typeof data.url === 'string' ? data.url : '',
+    };
   } catch {
-    return { ok: false, error: 'Síťová chyba při uploadu videa' };
+    return { success: false, error: 'Síťová chyba při uploadu videa' };
   } finally {
     clearTimeout(timeout);
   }

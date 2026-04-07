@@ -114,7 +114,8 @@ export function HomeLayout({
 
   async function deletePost(postId: string) {
     if (!API_BASE_URL || !apiAccessToken) return;
-    const res = await fetch(`${API_BASE_URL}/posts/${postId}`, {
+    const postsBase = API_BASE_URL.endsWith('/api') ? API_BASE_URL : `${API_BASE_URL}/api`;
+    const res = await fetch(`${postsBase}/posts/${postId}`, {
       method: 'DELETE',
       headers: {
         Authorization: `Bearer ${apiAccessToken}`,
@@ -191,7 +192,8 @@ export function HomeLayout({
     try {
       if (postVideo) {
         const r = await nestCreateVideoPost(apiAccessToken, postVideo, text);
-        if (!r.ok) {
+        if (!r.success) {
+          alert('Upload selhal');
           setPostVideoError(r.error ?? 'Upload videa selhal.');
           return;
         }

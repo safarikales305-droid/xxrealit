@@ -166,7 +166,7 @@ export class PostsController {
     @Body('description') description?: string,
   ) {
     if (!file?.filename) {
-      return { url: null };
+      return { success: true, url: '' };
     }
 
     const uploadsDir = join(tmpdir(), 'xxrealit-video-upload');
@@ -203,10 +203,10 @@ export class PostsController {
     }
 
     if (!videoUrl) {
-      return { url: null };
+      return { success: true, url: '' };
     }
 
     await this.postsService.createVideoPost(user.id, videoUrl, description ?? '');
-    return { url: videoUrl };
+    return { success: true, url: videoUrl };
   }
 }
