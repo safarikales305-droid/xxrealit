@@ -8,7 +8,6 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { v2 as cloudinary } from 'cloudinary';
 import ffmpegPath from 'ffmpeg-static';
 import { diskStorage } from 'multer';
 import { unlink } from 'node:fs/promises';
@@ -19,6 +18,7 @@ import { basename, extname, join } from 'node:path';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { uploadToCloudinary } from './cloudinary-upload';
 import { CreatePostDto } from './dto/create-post.dto';
 import { PostsService } from './posts.service';
 
@@ -58,32 +58,6 @@ async function convertToMp4H264Aac(
       }
     });
   });
-}
-
-async function uploadConvertedVideoToCloudinary(
-  filePath: string,
-): Promise<string> {
-  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-  const apiKey = process.env.CLOUDINARY_API_KEY;
-  const apiSecret = process.env.CLOUDINARY_API_SECRET;
-
-  if (!cloudName || !apiKey || !apiSecret) {
-    throw new Error(
-      'Missing Cloudinary env vars: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET',
-    );
-  }
-
-  cloudinary.config({ cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret });
-  const result = await cloudinary.uploader.upload(filePath, {
-    resource_type: 'video',
-    folder: 'xxrealit/videos',
-    format: 'mp4',
-  });
-
-  if (!result.secure_url) {
-    throw new Error('Cloudinary upload did not return secure_url');
-  }
-  return result.secure_url;
 }
 
 @Controller('posts')
@@ -147,7 +121,7 @@ export class PostsController {
 
     try {
       await convertToMp4H264Aac(inputPath, outputPath);
-      videoUrl = await uploadConvertedVideoToCloudinary(outputPath);
+      videoUrl = await uploadToCloudinary(outputPath);
     } catch (error) {
       console.error('[VideoUpload] Conversion/upload failed:', error);
       throw new BadRequestException(
