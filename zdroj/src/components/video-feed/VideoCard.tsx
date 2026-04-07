@@ -1,104 +1,79 @@
 'use client';
 
-import { memo, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import type { ShortVideo } from '@/lib/nest-client';
-import { LikeButton } from './LikeButton';
 
 type VideoCardProps = {
   video: ShortVideo;
-  liked: boolean;
-  onToggleLike: () => void;
-  bindContainerRef?: (el: HTMLElement | null) => void;
 };
 
-function VideoCardBase({
-  video,
-  liked,
-  onToggleLike,
-  bindContainerRef,
-}: VideoCardProps) {
+export default function VideoCard({ video }: VideoCardProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const rootRef = useRef<HTMLElement | null>(null);
-  const [expanded, setExpanded] = useState(false);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
-    const root = rootRef.current;
-    const media = videoRef.current;
-    if (!root || !media) return;
+    if (!videoRef.current) return;
+
+    const vid = videoRef.current;
+
+    const tryPlay = () => {
+      vid.play().catch(() => {
+        console.log('Autoplay blocked');
+      });
+    };
+
+    tryPlay();
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.7) {
-          void media.play().catch(() => undefined);
+        if (!vid) return;
+
+        if (entry.isIntersecting) {
+          tryPlay();
         } else {
-          media.pause();
+          vid.pause();
         }
       },
-      { threshold: [0, 0.3, 0.7, 1] },
+      { threshold: 0.6 },
     );
-    observer.observe(root);
+
+    observer.observe(vid);
+
     return () => observer.disconnect();
   }, []);
 
-  const caption = String(video.description ?? video.content ?? '').trim();
-  const shouldTruncate = caption.length > 130;
-  const shownCaption =
-    shouldTruncate && !expanded ? `${caption.slice(0, 130)}...` : caption;
+  const src = nestAbsoluteAssetUrl(video.videoUrl ?? video.url ?? '');
+  if (!src) {
+    return <div className="text-white">Missing video</div>;
+  }
 
   return (
-    <article
-      ref={(el) => {
-        rootRef.current = el;
-        bindContainerRef?.(el);
-      }}
-      className="relative h-[calc(100dvh-9rem)] snap-start overflow-hidden rounded-xl bg-black md:h-[calc(100dvh-6rem)]"
-    >
+    <div className="relative w-full h-full bg-black">
       <video
         ref={videoRef}
         muted
         playsInline
-        autoPlay
         loop
         controls
         preload="metadata"
         className="w-full h-full object-cover"
-        onError={(e) => console.log('VIDEO ERROR', e)}
-        onLoadedData={() => console.log('VIDEO LOADED')}
+        onError={() => {
+          console.log('VIDEO ERROR', src);
+          setError(true);
+        }}
+        onLoadedData={() => {
+          console.log('VIDEO LOADED', src);
+        }}
       >
-        <source
-          src={nestAbsoluteAssetUrl(video.videoUrl ?? video.url ?? '')}
-          type="video/mp4"
-        />
+        <source src={src} type="video/mp4" />
       </video>
 
-      <div className="absolute bottom-4 right-4 z-20">
-        <LikeButton liked={liked} onToggle={onToggleLike} />
-      </div>
-
-      <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-4 text-white">
-        <p className="text-sm font-semibold">
-          {String(
-            (video.user?.name ?? video.user?.email ?? 'Autor') || 'Autor',
-          )}
-        </p>
-        {caption ? (
-          <div className="mt-1 text-sm leading-relaxed">
-            <p className="whitespace-pre-wrap">{shownCaption}</p>
-            {shouldTruncate ? (
-              <button
-                type="button"
-                onClick={() => setExpanded((v) => !v)}
-                className="mt-1 text-xs font-semibold text-orange-300"
-              >
-                {expanded ? 'Show less' : 'Show more'}
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    </article>
+      {error && (
+        <div className="absolute inset-0 flex items-center justify-center text-white bg-black">
+          Video failed to load
+        </div>
+      )}
+    </div>
   );
 }
-
-export const VideoCard = memo(VideoCardBase);
