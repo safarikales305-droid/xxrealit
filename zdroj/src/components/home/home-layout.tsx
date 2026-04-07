@@ -64,9 +64,9 @@ export function HomeLayout({
   const [loadingFeed, setLoadingFeed] = useState(false);
   const [postContent, setPostContent] = useState('');
   const [creatingPost, setCreatingPost] = useState(false);
-  const [postVideo, setPostVideo] = useState<File | null>(null);
-  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
-  const [postVideoError, setPostVideoError] = useState<string | null>(null);
+  const [postMedia, setPostMedia] = useState<File | null>(null);
+  const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
+  const [postMediaError, setPostMediaError] = useState<string | null>(null);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
   const [detailPost, setDetailPost] = useState<Record<string, unknown> | null>(null);
@@ -76,49 +76,60 @@ export function HomeLayout({
   const [commentInputByPostId, setCommentInputByPostId] = useState<Record<string, string>>({});
   const [commentsOpenByPostId, setCommentsOpenByPostId] = useState<Record<string, boolean>>({});
   const [mutedByPostId, setMutedByPostId] = useState<Record<string, boolean>>({});
-  const postVideoInputRef = useRef<HTMLInputElement | null>(null);
+  const postMediaInputRef = useRef<HTMLInputElement | null>(null);
   const postTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const storyPosts = useMemo(
     () =>
       postFeed.filter((p) => {
-        const url = String(p.videoUrl ?? '').trim();
-        if (!url) return false;
+        const v = String(p.videoUrl ?? '').trim();
+        const i = String((p as { imageUrl?: string }).imageUrl ?? '').trim();
+        if (!v && !i) return false;
         const t = String(p.type ?? '');
-        return t === 'post' || t === 'video' || t === 'text';
+        return (
+          t === 'post' ||
+          t === 'video' ||
+          t === 'image' ||
+          t === 'text'
+        );
       }),
     [postFeed],
   );
 
   useEffect(() => {
-    if (!postVideo) {
-      setVideoPreviewUrl(null);
+    if (!postMedia) {
+      setMediaPreviewUrl(null);
       return;
     }
-    const url = URL.createObjectURL(postVideo);
-    setVideoPreviewUrl(url);
+    const url = URL.createObjectURL(postMedia);
+    setMediaPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
-  }, [postVideo]);
+  }, [postMedia]);
 
-  function handleVideoChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setPostVideoError(null);
+  function handleMediaChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setPostMediaError(null);
     const file = e.target.files?.[0] ?? null;
     if (!file) {
-      setPostVideo(null);
+      setPostMedia(null);
       return;
     }
-    if (!file.type.startsWith('video/')) {
-      setPostVideoError('Povolené jsou pouze video soubory.');
+    if (
+      !file.type.startsWith('video/') &&
+      !file.type.startsWith('image/')
+    ) {
+      setPostMediaError('Povolené jsou pouze video nebo obrázek.');
+      e.target.value = '';
+      return;
+    }
+    if (file.size > 300 * 1024 * 1024) {
+      setPostMediaError('Maximální velikost souboru je 300 MB.');
       e.target.value = '';
       return;
     }
     if (file.size > 60 * 1024 * 1024) {
-      alert('Video bude komprimováno');
-      setPostVideoError('Maximální velikost nahrání je 60 MB.');
-      e.target.value = '';
-      return;
+      alert('Médium bude komprimováno v cloudu');
     }
-    setPostVideo(file);
+    setPostMedia(file);
   }
 
   function handlePostContentChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -274,28 +285,28 @@ export function HomeLayout({
     if (!API_BASE_URL || !user || !apiAccessToken) return;
 
     const text = postContent.trim();
-    if (!postVideo && !text) return;
+    if (!postMedia && !text) return;
 
-    setPostVideoError(null);
+    setPostMediaError(null);
     setCreatingPost(true);
     try {
       const postsBase = API_BASE_URL.endsWith('/api') ? API_BASE_URL : `${API_BASE_URL}/api`;
-      if (postVideo) {
-        const r = await nestCreateVideoPost(apiAccessToken, postVideo, text);
+      if (postMedia) {
+        const r = await nestCreateVideoPost(apiAccessToken, postMedia, text);
         if (!r.success) {
           alert('Upload selhal');
-          setPostVideoError(r.error ?? 'Upload videa selhal.');
+          setPostMediaError(r.error ?? 'Upload média selhal.');
           return;
         }
         if (!r.url) {
           alert('Upload selhal');
-          setPostVideoError('Upload videa selhal.');
+          setPostMediaError('Upload média selhal.');
           return;
         }
-        setPostVideo(null);
+        setPostMedia(null);
         setPostContent('');
-        if (postVideoInputRef.current) {
-          postVideoInputRef.current.value = '';
+        if (postMediaInputRef.current) {
+          postMediaInputRef.current.value = '';
         }
       } else {
         const postRes = await fetch(`${postsBase}/posts`, {
@@ -471,27 +482,27 @@ export function HomeLayout({
                         className="w-full resize-none overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2.5 text-sm outline-none transition focus:border-orange-300 focus:bg-white focus:ring-2 focus:ring-orange-500/15"
                       />
                       <input
-                        ref={postVideoInputRef}
+                        ref={postMediaInputRef}
                         type="file"
-                        accept="video/*"
+                        accept="video/*,image/*"
                         className="sr-only"
-                        aria-label="Vybrat video"
-                        onChange={handleVideoChange}
+                        aria-label="Vybrat video nebo obrázek"
+                        onChange={handleMediaChange}
                       />
                       <div className="mt-2 flex flex-wrap items-center gap-2">
-                        {postVideo ? (
+                        {postMedia ? (
                           <>
                             <span className="max-w-[min(100%,14rem)] truncate text-xs text-zinc-500">
-                              {postVideo.name}
+                              {postMedia.name}
                             </span>
                             <button
                               type="button"
                               className="text-xs font-semibold text-red-600 hover:underline"
                               onClick={() => {
-                                setPostVideo(null);
-                                setPostVideoError(null);
-                                if (postVideoInputRef.current) {
-                                  postVideoInputRef.current.value = '';
+                                setPostMedia(null);
+                                setPostMediaError(null);
+                                if (postMediaInputRef.current) {
+                                  postMediaInputRef.current.value = '';
                                 }
                               }}
                             >
@@ -500,12 +511,12 @@ export function HomeLayout({
                           </>
                         ) : null}
                       </div>
-                      {postVideoError ? (
+                      {postMediaError ? (
                         <p className="mt-2 text-sm font-medium text-red-600" role="alert">
-                          {postVideoError}
+                          {postMediaError}
                         </p>
                       ) : null}
-                      {videoPreviewUrl ? (
+                      {mediaPreviewUrl && postMedia?.type.startsWith('video') ? (
                         <video
                           muted
                           playsInline
@@ -513,27 +524,34 @@ export function HomeLayout({
                           loop
                           controls
                           preload="metadata"
-                          className="mt-3 h-36 w-full max-w-xs rounded-2xl object-cover"
-                          src={videoPreviewUrl}
+                          className="mt-3 aspect-square w-full max-w-xs rounded-2xl object-cover"
+                          src={mediaPreviewUrl}
+                        />
+                      ) : null}
+                      {mediaPreviewUrl && postMedia?.type.startsWith('image') ? (
+                        <img
+                          alt="Náhled"
+                          src={mediaPreviewUrl}
+                          className="mt-3 aspect-square w-full max-w-xs rounded-2xl object-cover"
                         />
                       ) : null}
                       <div className="mt-4 flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => postVideoInputRef.current?.click()}
+                          onClick={() => postMediaInputRef.current?.click()}
                           className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 text-lg text-orange-600 transition hover:bg-orange-50"
-                          title="Přidat video"
-                          aria-label="Přidat video"
+                          title="Přidat video nebo obrázek"
+                          aria-label="Přidat média"
                         >
                           🎬
                         </button>
                         <button
                           type="submit"
-                          disabled={creatingPost || (!postVideo && !postContent.trim())}
+                          disabled={creatingPost || (!postMedia && !postContent.trim())}
                           className="h-9 shrink-0 rounded-xl bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 text-sm font-semibold text-white shadow-sm transition disabled:opacity-50"
                         >
                           {creatingPost
-                            ? postVideo
+                            ? postMedia
                               ? 'Nahrávám…'
                               : 'Odesílám…'
                             : 'Přidat'}
@@ -547,24 +565,41 @@ export function HomeLayout({
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                         Příběhy
                       </p>
-                      <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2 [scrollbar-width:thin]">
+                      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2 [scrollbar-width:thin]">
                         {storyPosts.map((p) => {
-                          const src = nestAbsoluteAssetUrl(String(p.videoUrl ?? ''));
+                          const v = nestAbsoluteAssetUrl(
+                            String(p.videoUrl ?? ''),
+                          );
+                          const i = nestAbsoluteAssetUrl(
+                            String(
+                              (p as { imageUrl?: string }).imageUrl ?? '',
+                            ),
+                          );
+                          const hasVideo = Boolean(String(p.videoUrl ?? '').trim());
+                          const src = hasVideo ? v : i;
                           if (!src) return null;
                           return (
                             <button
                               key={String(p.id)}
                               type="button"
                               onClick={() => setDetailPost(p)}
-                              className="shrink-0 overflow-hidden rounded-2xl ring-2 ring-orange-500/25 ring-offset-2 transition hover:ring-orange-500/60"
+                              className="h-36 w-20 shrink-0 overflow-hidden rounded-xl ring-2 ring-orange-500/25 ring-offset-2 transition hover:ring-orange-500/60"
                             >
-                              <video
-                                muted
-                                playsInline
-                                preload="metadata"
-                                className="pointer-events-none size-20 object-cover sm:size-24"
-                                src={src}
-                              />
+                              {hasVideo ? (
+                                <video
+                                  muted
+                                  playsInline
+                                  preload="metadata"
+                                  className="pointer-events-none h-full w-full object-cover"
+                                  src={src}
+                                />
+                              ) : (
+                                <img
+                                  alt=""
+                                  src={src}
+                                  className="pointer-events-none h-full w-full object-cover"
+                                />
+                              )}
                             </button>
                           );
                         })}
@@ -578,7 +613,26 @@ export function HomeLayout({
                     ) : postFeed.length === 0 ? (
                       <p className="text-sm text-zinc-600">Zatím žádné příspěvky.</p>
                     ) : (
-                      postFeed.map((p) => (
+                      postFeed.map((p) => {
+                        const postType = String(p.type ?? '');
+                        const videoRaw = String(p.videoUrl ?? '').trim();
+                        const imageRaw = String(
+                          (p as { imageUrl?: string }).imageUrl ?? '',
+                        ).trim();
+                        const showFeedVideo =
+                          Boolean(videoRaw) &&
+                          (postType === 'video' ||
+                            postType === 'short' ||
+                            postType === 'post' ||
+                            postType === 'text');
+                        const showFeedImage =
+                          Boolean(imageRaw) &&
+                          !showFeedVideo &&
+                          (postType === 'image' ||
+                            postType === 'post' ||
+                            postType === 'text');
+
+                        return (
                         <article
                           key={String(p.id ?? Math.random())}
                           className="relative rounded-2xl border border-zinc-200/90 bg-white p-4 shadow-sm"
@@ -653,6 +707,55 @@ export function HomeLayout({
                               {String(p.description ?? p.content ?? '')}
                             </p>
                           )}
+                          {showFeedImage ? (
+                            <button
+                              type="button"
+                              className="mt-3 block w-full text-left"
+                              onClick={() => setDetailPost(p)}
+                            >
+                              <img
+                                src={nestAbsoluteAssetUrl(imageRaw)}
+                                alt=""
+                                className="w-full aspect-square max-h-[min(100vw,42rem)] rounded-xl object-cover"
+                              />
+                            </button>
+                          ) : null}
+                          {showFeedVideo ? (
+                            <button
+                              type="button"
+                              className="mt-3 block w-full text-left"
+                              onClick={() => setDetailPost(p)}
+                            >
+                              <video
+                                src={nestAbsoluteAssetUrl(videoRaw)}
+                                playsInline
+                                muted={
+                                  mutedByPostId[String(p.id ?? '')] ?? true
+                                }
+                                controls
+                                preload="metadata"
+                                className="w-full aspect-square max-h-[min(100vw,42rem)] rounded-xl bg-black object-cover"
+                              />
+                            </button>
+                          ) : null}
+                          {showFeedVideo ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setMutedByPostId((prev) => ({
+                                  ...prev,
+                                  [String(p.id ?? '')]: !(
+                                    prev[String(p.id ?? '')] ?? true
+                                  ),
+                                }))
+                              }
+                              className="mt-2 rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs"
+                            >
+                              {(mutedByPostId[String(p.id ?? '')] ?? true)
+                                ? '🔇'
+                                : '🔊'}
+                            </button>
+                          ) : null}
                           <div className="mt-3 flex items-center gap-2 text-xs text-zinc-600">
                             <button
                               type="button"
@@ -679,36 +782,6 @@ export function HomeLayout({
                                 Number((p._count as { comments?: number } | undefined)?.comments ?? 0)}
                             </button>
                           </div>
-                          {String(p.videoUrl ?? '').trim() ? (
-                            <button
-                              type="button"
-                              className="mt-3 block w-full text-left"
-                              onClick={() => setDetailPost(p)}
-                            >
-                              <video
-                                src={nestAbsoluteAssetUrl(String(p.videoUrl ?? ''))}
-                                playsInline
-                                muted={mutedByPostId[String(p.id ?? '')] ?? true}
-                                controls
-                                preload="metadata"
-                                className="aspect-video w-full rounded-2xl bg-black object-cover"
-                              />
-                            </button>
-                          ) : null}
-                          {String(p.videoUrl ?? '').trim() ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setMutedByPostId((prev) => ({
-                                  ...prev,
-                                  [String(p.id ?? '')]: !(prev[String(p.id ?? '')] ?? true),
-                                }))
-                              }
-                              className="mt-2 rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs"
-                            >
-                              {(mutedByPostId[String(p.id ?? '')] ?? true) ? '🔇' : '🔊'}
-                            </button>
-                          ) : null}
                           {commentsOpenByPostId[String(p.id ?? '')] ? (
                             <div className="mt-3 space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3">
                               <div className="flex items-center gap-2">
@@ -744,7 +817,8 @@ export function HomeLayout({
                             </div>
                           ) : null}
                         </article>
-                      ))
+                        );
+                      })
                     )}
                   </div>
 
@@ -763,14 +837,31 @@ export function HomeLayout({
                         Zavřít
                       </button>
                       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-3 shadow-2xl">
-                        <video
-                          src={nestAbsoluteAssetUrl(String(detailPost.videoUrl ?? ''))}
-                          controls
-                          autoPlay
-                          playsInline
-                          preload="metadata"
-                          className="w-full rounded-2xl"
-                        />
+                        {String(
+                          (detailPost as { imageUrl?: string }).imageUrl ?? '',
+                        ).trim() ? (
+                          <img
+                            src={nestAbsoluteAssetUrl(
+                              String(
+                                (detailPost as { imageUrl?: string }).imageUrl ??
+                                  '',
+                              ),
+                            )}
+                            alt=""
+                            className="max-h-[75vh] w-full rounded-2xl object-contain"
+                          />
+                        ) : (
+                          <video
+                            src={nestAbsoluteAssetUrl(
+                              String(detailPost.videoUrl ?? ''),
+                            )}
+                            controls
+                            autoPlay
+                            playsInline
+                            preload="metadata"
+                            className="w-full rounded-2xl"
+                          />
+                        )}
                         <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-700">
                           {String(detailPost.description ?? detailPost.content ?? '')}
                         </p>

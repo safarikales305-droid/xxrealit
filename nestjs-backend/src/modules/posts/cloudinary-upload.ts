@@ -45,12 +45,7 @@ export function initCloudinary() {
   });
 }
 
-/**
- * Direct upload to Cloudinary with server-side compression/limits (no FFmpeg).
- */
-export async function uploadVideo(file: Express.Multer.File): Promise<string> {
-  initCloudinary();
-
+function uploadVideoBuffer(file: Express.Multer.File): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const upload = cloudinary.uploader.upload_stream(
       {
@@ -85,4 +80,51 @@ export async function uploadVideo(file: Express.Multer.File): Promise<string> {
 
     upload.end(file.buffer);
   });
+}
+
+function uploadImageBuffer(file: Express.Multer.File): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const upload = cloudinary.uploader.upload_stream(
+      {
+        resource_type: 'auto',
+        folder: 'posts',
+        quality: 'auto:low',
+        fetch_format: 'auto',
+      },
+      (error, result) => {
+        if (error) {
+          return reject(error);
+        }
+        if (!result?.secure_url) {
+          return reject(new Error('Empty Cloudinary image result'));
+        }
+        return resolve(result.secure_url);
+      },
+    );
+
+    upload.end(file.buffer);
+  });
+}
+
+export type UploadedMedia = { url: string; kind: 'video' | 'image' };
+
+/**
+ * Upload video (transcoded eager, max 120s, compressed) or image (auto resource_type) — no FFmpeg.
+ */
+export async function uploadPostMedia(
+  file: Express.Multer.File,
+): Promise<UploadedMedia> {
+  initCloudinary();
+
+  if (file.mimetype.startsWith('video/')) {
+    const url = await uploadVideoBuffer(file);
+    return { url, kind: 'video' };
+  }
+
+  if (file.mimetype.startsWith('image/')) {
+    const url = await uploadImageBuffer(file);
+    return { url, kind: 'image' };
+  }
+
+  throw new Error(`Unsupported media type: ${file.mimetype}`);
 }

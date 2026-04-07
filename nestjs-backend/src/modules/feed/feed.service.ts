@@ -160,7 +160,7 @@ export class FeedService {
   async listPosts() {
     return this.prisma.post.findMany({
       where: {
-        type: { in: ['post', 'text', 'video'] },
+        type: { in: ['post', 'text', 'video', 'image'] },
       },
       orderBy: { createdAt: 'desc' },
       include: {

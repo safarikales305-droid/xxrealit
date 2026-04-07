@@ -559,7 +559,10 @@ export async function nestCreateVideoPost(
   token: string | null,
   file: File,
   description: string,
-): Promise<{ success: true; url: string } | { success: false; error?: string }> {
+): Promise<
+  | { success: true; url: string; mediaType: 'video' | 'image' }
+  | { success: false; error?: string }
+> {
   if (!API_BASE_URL || !token) {
     return { success: false, error: 'API nebo token chybí' };
   }
@@ -582,6 +585,7 @@ export async function nestCreateVideoPost(
     const data = (await res.json().catch(() => ({}))) as {
       success?: boolean;
       url?: string;
+      mediaType?: string;
       message?: string | string[];
       error?: string;
     };
@@ -596,10 +600,13 @@ export async function nestCreateVideoPost(
               : `HTTP ${res.status}`;
       return { success: false, error: msg };
     }
-    return {
-      success: data.success === true,
-      url: typeof data.url === 'string' ? data.url : '',
-    };
+    const url = typeof data.url === 'string' ? data.url : '';
+    if (data.success !== true || !url) {
+      return { success: false, error: 'Upload selhal' };
+    }
+    const mediaType: 'video' | 'image' =
+      data.mediaType === 'image' ? 'image' : 'video';
+    return { success: true, url, mediaType };
   } catch {
     return { success: false, error: 'Síťová chyba při uploadu videa' };
   } finally {

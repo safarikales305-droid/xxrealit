@@ -110,12 +110,21 @@ export class PostsService {
     });
   }
 
-  createVideoPost(userId: string, videoUrl: string, description: string) {
-    const text = description.trim();
+  createMediaPost(
+    userId: string,
+    opts: {
+      kind: 'video' | 'image';
+      url: string;
+      description: string;
+    },
+  ) {
+    const text = opts.description.trim();
+    const isVideo = opts.kind === 'video';
     return this.prisma.post.create({
       data: {
-        type: 'post',
-        videoUrl,
+        type: isVideo ? 'video' : 'image',
+        videoUrl: isVideo ? opts.url : null,
+        imageUrl: isVideo ? null : opts.url,
         description: text || null,
         content: text || null,
         userId,

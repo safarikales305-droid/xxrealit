@@ -43,14 +43,19 @@ export default function ShortsPage() {
       setError('Vyberte video soubor.');
       return;
     }
-    if (!selectedFile.type.startsWith('video/')) {
-      setError('Povolené jsou pouze video soubory.');
+    if (
+      !selectedFile.type.startsWith('video/') &&
+      !selectedFile.type.startsWith('image/')
+    ) {
+      setError('Povolené jsou video nebo obrázek.');
+      return;
+    }
+    if (selectedFile.size > 300 * 1024 * 1024) {
+      setError('Maximální velikost souboru je 300 MB.');
       return;
     }
     if (selectedFile.size > 60 * 1024 * 1024) {
-      alert('Video bude komprimováno');
-      setError('Maximální velikost nahrání je 60 MB.');
-      return;
+      alert('Médium bude komprimováno v cloudu');
     }
 
     setUploading(true);
@@ -88,7 +93,7 @@ export default function ShortsPage() {
         <div className="mb-3">
           <input
             type="file"
-            accept="video/*"
+            accept="video/*,image/*"
             onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
           />
         </div>

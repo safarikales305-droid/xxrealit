@@ -7,31 +7,6 @@ import { toPublicApiUrl } from '@/lib/public-api';
 import type { PropertyFeedItem } from '@/types/property';
 import { resolveShortsPublicSrc } from '@/lib/video-url';
 
-/** Local demo listings — used when `items` is empty so the feed never depends on the API. */
-const DEMO_SHORTS_ITEMS: PropertyFeedItem[] = [
-  {
-    id: 'demo-byt',
-    title: 'Ukázkový byt',
-    location: 'Praha — demo',
-    price: 5_990_000,
-    videoUrl: '/videos/byt.mp4',
-  },
-  {
-    id: 'demo-dum',
-    title: 'Ukázkový dům',
-    location: 'Brno — demo',
-    price: 12_400_000,
-    videoUrl: '/videos/dum.mp4',
-  },
-  {
-    id: 'demo-pozemek',
-    title: 'Ukázkový pozemek',
-    location: 'Ostrava — demo',
-    price: 2_200_000,
-    videoUrl: '/videos/pozemek.mp4',
-  },
-];
-
 const PRICE_FMT = new Intl.NumberFormat('cs-CZ', {
   style: 'currency',
   currency: 'CZK',
@@ -54,13 +29,11 @@ type Props = {
 };
 
 /**
- * TikTok-style vertical feed: videos load only from `public/videos` via `/videos/...`.
- * Likes persist via API for real listing IDs; demo clips stay local-only.
+ * TikTok-style vertical feed pro shorts z API (nemovitosti).
  */
 export function ShortsFeed({ items }: Props) {
   const clips = useMemo<Clip[]>(() => {
-    const source = items.length > 0 ? items : DEMO_SHORTS_ITEMS;
-    return source.map((item, index) => ({
+    return items.map((item, index) => ({
       ...item,
       src: resolveShortsPublicSrc(item, index),
     }));

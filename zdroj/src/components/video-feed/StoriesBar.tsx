@@ -14,24 +14,20 @@ function StoriesBarBase({ videos, onSelect }: StoriesBarProps) {
 
   return (
     <div className="md:hidden">
-      <div className="flex gap-2 overflow-x-auto px-2 py-2">
+      <div className="flex gap-2 overflow-x-auto px-2 py-2 [scrollbar-width:thin]">
         {videos.map((v) => (
           <button
             key={v.id}
             type="button"
             onClick={() => onSelect(v.id)}
-            className="relative shrink-0 overflow-hidden rounded-xl border border-white/25"
+            className="relative h-36 w-20 shrink-0 overflow-hidden rounded-xl border border-white/25"
           >
             <video
               muted
               playsInline
-              autoPlay
-              loop
-              controls
               preload="metadata"
-              className="w-full h-full object-cover size-16"
-              onError={(e) => console.log('VIDEO ERROR', e)}
-              onLoadedData={() => console.log('VIDEO LOADED')}
+              className="h-full w-full object-cover"
+              onError={() => undefined}
             >
               <source
                 src={nestAbsoluteAssetUrl(v.videoUrl ?? v.url ?? '')}

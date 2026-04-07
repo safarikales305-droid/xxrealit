@@ -16,7 +16,7 @@ import { memoryStorage } from 'multer';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { uploadVideo } from './cloudinary-upload';
+import { uploadPostMedia } from './cloudinary-upload';
 import { CreatePostDto } from './dto/create-post.dto';
 import { PostsService } from './posts.service';
 
@@ -71,15 +71,18 @@ export class PostsController {
     FileInterceptor('file', {
       storage: memoryStorage(),
       limits: {
-        fileSize: 60 * 1024 * 1024,
+        fileSize: 300 * 1024 * 1024,
       },
       fileFilter: (_req, file, cb) => {
-        if (file.mimetype.startsWith('video/')) {
+        if (
+          file.mimetype.startsWith('video/') ||
+          file.mimetype.startsWith('image/')
+        ) {
           cb(null, true);
         } else {
           cb(
             new Error(
-              `Unsupported MIME type "${file.mimetype}". Allowed: video/*`,
+              `Unsupported MIME type "${file.mimetype}". Allowed: video/*, image/*`,
             ),
             false,
           );
@@ -94,19 +97,30 @@ export class PostsController {
     @Body('description') description?: string,
   ) {
     if (!file) {
-      throw new BadRequestException('Vyberte video soubor.');
+      throw new BadRequestException('Vyberte soubor videa nebo obrázku.');
     }
-    let videoUrl: string;
+    if (file.size > 300 * 1024 * 1024) {
+      throw new BadRequestException('Max 300MB');
+    }
+    let uploaded: { url: string; kind: 'video' | 'image' };
     try {
-      videoUrl = await uploadVideo(file);
+      uploaded = await uploadPostMedia(file);
     } catch (err) {
-      console.error('Video upload failed:', err);
+      console.error('Media upload failed:', err);
       throw new BadRequestException(
-        'Upload videa se nezdařil. Ověřte CLOUDINARY_URL, velikost max 60 MB a délku max 120 s.',
+        'Upload média se nezdařil. Ověřte CLOUDINARY_URL (max 300 MB před kompresí, video max 120 s).',
       );
     }
 
-    await this.postsService.createVideoPost(user.id, videoUrl, description ?? '');
-    return { success: true, url: videoUrl };
+    await this.postsService.createMediaPost(user.id, {
+      kind: uploaded.kind,
+      url: uploaded.url,
+      description: description ?? '',
+    });
+    return {
+      success: true,
+      url: uploaded.url,
+      mediaType: uploaded.kind,
+    };
   }
 }

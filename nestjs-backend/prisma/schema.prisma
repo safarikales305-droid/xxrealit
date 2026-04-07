@@ -48,6 +48,7 @@ model Post {
   id          String   @id @default(cuid())
   type        String   @default("text")
   videoUrl    String?
+  imageUrl    String?
   description String?
   content     String?
   userId      String

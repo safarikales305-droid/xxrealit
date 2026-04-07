@@ -49,25 +49,20 @@ export default function VideoCard({ video }: VideoCardProps) {
   }
 
   return (
-    <div className="relative w-full h-full bg-black">
+    <div className="relative flex h-full w-full items-center justify-center bg-black">
       <video
         ref={videoRef}
+        src={src}
         muted
         playsInline
         loop
-        controls
+        autoPlay
         preload="metadata"
-        className="w-full h-full object-cover"
+        className="aspect-[9/16] h-full w-full max-h-[100dvh] object-cover"
         onError={() => {
-          console.log('VIDEO ERROR', src);
           setError(true);
         }}
-        onLoadedData={() => {
-          console.log('VIDEO LOADED', src);
-        }}
-      >
-        <source src={src} type="video/mp4" />
-      </video>
+      />
 
       {error && (
         <div className="absolute inset-0 flex items-center justify-center text-white bg-black">
