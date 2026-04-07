@@ -110,15 +110,18 @@ export function PropertyReelsFeed({ items }: Props) {
                 {p.videoUrl ? (
                   <video
                     data-property-id={p.id}
-                    className="h-full w-full object-cover"
-                    src={p.videoUrl}
-                    autoPlay
                     muted
-                    loop
                     playsInline
+                    autoPlay
+                    loop
+                    controls
                     preload="metadata"
-                    onError={(e) => console.error('VIDEO LOAD ERROR', e)}
-                  />
+                    className="w-full h-full object-cover"
+                    onError={(e) => console.log('VIDEO ERROR', e)}
+                    onLoadedData={() => console.log('VIDEO LOADED')}
+                  >
+                    <source src={p.videoUrl} type="video/mp4" />
+                  </video>
                 ) : (
                   <div className="flex h-full w-full items-center justify-center bg-gradient-to-b from-zinc-900 to-zinc-950 text-zinc-500">
                     <span className="text-sm">Bez videa</span>

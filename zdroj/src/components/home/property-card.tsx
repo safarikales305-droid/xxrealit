@@ -41,14 +41,18 @@ export function PropertyCard({
         <div className="absolute inset-0 flex items-center justify-center">
           <video
             data-property-id={p.id}
-            src={p.videoUrl}
-            autoPlay
-            muted={muted}
-            loop
+            muted
             playsInline
-            className="max-h-full max-w-full object-contain"
-            onError={() => console.error('VIDEO ERROR', p.videoUrl)}
-          />
+            autoPlay
+            loop
+            controls
+            preload="metadata"
+            className="w-full h-full object-cover"
+            onError={(e) => console.log('VIDEO ERROR', e)}
+            onLoadedData={() => console.log('VIDEO LOADED')}
+          >
+            <source src={p.videoUrl} type="video/mp4" />
+          </video>
         </div>
       ) : (
         <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-zinc-800 via-zinc-900 to-black text-zinc-500">

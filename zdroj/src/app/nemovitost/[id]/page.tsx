@@ -50,12 +50,18 @@ export default async function NemovitostDetailPage({ params }: Props) {
         <div className="relative aspect-[21/9] w-full max-h-[380px] bg-zinc-100">
           {p.videoUrl ? (
             <video
-              src={p.videoUrl}
-              className="h-full w-full object-cover"
-              controls
+              muted
               playsInline
+              autoPlay
+              loop
+              controls
               preload="metadata"
-            />
+              className="w-full h-full object-cover"
+              onError={(e) => console.log('VIDEO ERROR', e)}
+              onLoadedData={() => console.log('VIDEO LOADED')}
+            >
+              <source src={p.videoUrl} type="video/mp4" />
+            </video>
           ) : p.imageUrl ? (
             <img
               src={nestAbsoluteAssetUrl(p.imageUrl)}
@@ -128,14 +134,19 @@ export default async function NemovitostDetailPage({ params }: Props) {
                 <div className="relative aspect-[4/3] bg-zinc-100">
                   {item.videoUrl ? (
                     <video
-                      src={item.videoUrl}
-                      className="h-full w-full object-cover"
                       muted
-                      loop
                       playsInline
+                      autoPlay
+                      loop
+                      controls
                       preload="metadata"
+                      className="w-full h-full object-cover"
+                      onError={(e) => console.log('VIDEO ERROR', e)}
+                      onLoadedData={() => console.log('VIDEO LOADED')}
                       aria-hidden
-                    />
+                    >
+                      <source src={item.videoUrl} type="video/mp4" />
+                    </video>
                   ) : item.imageUrl ? (
                     <img
                       src={nestAbsoluteAssetUrl(item.imageUrl)}

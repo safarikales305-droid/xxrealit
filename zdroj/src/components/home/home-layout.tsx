@@ -357,11 +357,18 @@ export function HomeLayout({
                       ) : null}
                       {videoPreviewUrl ? (
                         <video
-                          src={videoPreviewUrl}
-                          className="mt-3 w-40 max-w-full rounded"
-                          controls
+                          muted
                           playsInline
-                        />
+                          autoPlay
+                          loop
+                          controls
+                          preload="metadata"
+                          className="mt-3 w-40 max-w-full h-full object-cover rounded"
+                          onError={(e) => console.log('VIDEO ERROR', e)}
+                          onLoadedData={() => console.log('VIDEO LOADED')}
+                        >
+                          <source src={videoPreviewUrl} type="video/mp4" />
+                        </video>
                       ) : null}
                       <button
                         type="button"
@@ -400,10 +407,21 @@ export function HomeLayout({
                           </p>
                           {p.type === 'video' ? (
                             <video
+                              muted
+                              playsInline
+                              autoPlay
+                              loop
                               controls
-                              className="mt-3 aspect-[9/16] w-full rounded object-cover"
-                              src={nestAbsoluteAssetUrl(String(p.videoUrl ?? ''))}
-                            />
+                              preload="metadata"
+                              className="mt-3 w-full h-full object-cover aspect-[9/16] rounded"
+                              onError={(e) => console.log('VIDEO ERROR', e)}
+                              onLoadedData={() => console.log('VIDEO LOADED')}
+                            >
+                              <source
+                                src={nestAbsoluteAssetUrl(String(p.videoUrl ?? ''))}
+                                type="video/mp4"
+                              />
+                            </video>
                           ) : null}
                         </article>
                       ))

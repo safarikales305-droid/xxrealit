@@ -23,12 +23,21 @@ function StoriesBarBase({ videos, onSelect }: StoriesBarProps) {
             className="relative shrink-0 overflow-hidden rounded-xl border border-white/25"
           >
             <video
-              src={nestAbsoluteAssetUrl(v.videoUrl ?? v.url ?? '')}
-              className="size-16 object-cover"
               muted
               playsInline
+              autoPlay
+              loop
+              controls
               preload="metadata"
-            />
+              className="w-full h-full object-cover size-16"
+              onError={(e) => console.log('VIDEO ERROR', e)}
+              onLoadedData={() => console.log('VIDEO LOADED')}
+            >
+              <source
+                src={nestAbsoluteAssetUrl(v.videoUrl ?? v.url ?? '')}
+                type="video/mp4"
+              />
+            </video>
           </button>
         ))}
       </div>

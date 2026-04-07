@@ -56,14 +56,21 @@ function VideoCardBase({
     >
       <video
         ref={videoRef}
-        src={nestAbsoluteAssetUrl(video.videoUrl ?? video.url ?? '')}
-        className="h-full w-full object-cover"
         muted
-        loop
         playsInline
-        controls={false}
-        preload="none"
-      />
+        autoPlay
+        loop
+        controls
+        preload="metadata"
+        className="w-full h-full object-cover"
+        onError={(e) => console.log('VIDEO ERROR', e)}
+        onLoadedData={() => console.log('VIDEO LOADED')}
+      >
+        <source
+          src={nestAbsoluteAssetUrl(video.videoUrl ?? video.url ?? '')}
+          type="video/mp4"
+        />
+      </video>
 
       <div className="absolute bottom-4 right-4 z-20">
         <LikeButton liked={liked} onToggle={onToggleLike} />

@@ -121,10 +121,21 @@ export default function ShortsPage() {
               className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm"
             >
               <video
+                muted
+                playsInline
+                autoPlay
+                loop
                 controls
-                className="aspect-[9/16] w-full rounded object-cover"
-                src={nestAbsoluteAssetUrl(video.videoUrl ?? video.url ?? '')}
-              />
+                preload="metadata"
+                className="w-full h-full object-cover aspect-[9/16] rounded"
+                onError={(e) => console.log('VIDEO ERROR', e)}
+                onLoadedData={() => console.log('VIDEO LOADED')}
+              >
+                <source
+                  src={nestAbsoluteAssetUrl(video.videoUrl ?? video.url ?? '')}
+                  type="video/mp4"
+                />
+              </video>
               {video.description || video.content ? (
                 <p className="mt-2 text-sm text-gray-800">
                   {video.description ?? video.content}

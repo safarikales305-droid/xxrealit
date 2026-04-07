@@ -106,7 +106,19 @@ export default function UserProfileContentPage() {
               <div className="space-y-3">
                 {data.videos.map((video) => (
                   <article key={video.id} className="rounded-xl border border-zinc-200 bg-white p-3">
-                    <video controls className="w-full rounded" src={nestAbsoluteAssetUrl(video.url)} />
+                    <video
+                      muted
+                      playsInline
+                      autoPlay
+                      loop
+                      controls
+                      preload="metadata"
+                      className="w-full h-full object-cover rounded"
+                      onError={(e) => console.log('VIDEO ERROR', e)}
+                      onLoadedData={() => console.log('VIDEO LOADED')}
+                    >
+                      <source src={nestAbsoluteAssetUrl(video.url)} type="video/mp4" />
+                    </video>
                     {video.description ? <p className="mt-2 text-sm">{video.description}</p> : null}
                   </article>
                 ))}

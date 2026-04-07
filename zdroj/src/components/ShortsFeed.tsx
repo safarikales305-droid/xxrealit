@@ -218,17 +218,18 @@ export function ShortsFeed({ items }: Props) {
             <div className="absolute inset-0 flex items-center justify-center">
               <video
                 data-clip-id={c.id}
-                src={c.src}
-                autoPlay
-                muted={muted}
-                loop
+                muted
                 playsInline
+                autoPlay
+                loop
+                controls
                 preload="metadata"
-                className="h-full w-full object-cover"
-                onError={() =>
-                  console.error('[ShortsFeed] video error', c.src)
-                }
-              />
+                className="w-full h-full object-cover"
+                onError={(e) => console.log('VIDEO ERROR', e)}
+                onLoadedData={() => console.log('VIDEO LOADED')}
+              >
+                <source src={c.src} type="video/mp4" />
+              </video>
             </div>
 
             <div
