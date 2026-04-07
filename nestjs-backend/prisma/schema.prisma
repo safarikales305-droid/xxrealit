@@ -35,6 +35,8 @@ model User {
   properties   Property[]
   videos       Video[]
   posts        Post[]
+  postFavorites Favorite[]
+  postComments  Comment[]
   likes        PropertyLike[]
   comments     PropertyComment[]
 
@@ -50,9 +52,40 @@ model Post {
   content     String?
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  favorites   Favorite[]
+  comments    Comment[]
   createdAt   DateTime @default(now())
 
   @@index([userId])
+  @@index([createdAt])
+}
+
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  postId    String
+  createdAt DateTime @default(now())
+
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@index([userId])
+  @@index([postId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String
+  userId    String
+  postId    String
+  createdAt DateTime @default(now())
+
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([postId])
   @@index([createdAt])
 }
 

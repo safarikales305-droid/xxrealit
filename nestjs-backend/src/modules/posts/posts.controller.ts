@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   HttpCode,
   Param,
   Post,
@@ -37,6 +38,31 @@ export class PostsController {
   @UseGuards(JwtAuthGuard)
   deletePost(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.postsService.deletePostByOwner(id, user.id);
+  }
+
+  @Post(':id/favorite')
+  @UseGuards(JwtAuthGuard)
+  toggleFavorite(@Param('id') postId: string, @CurrentUser() user: AuthUser) {
+    return this.postsService.toggleFavorite(postId, user.id);
+  }
+
+  @Post(':id/comment')
+  @UseGuards(JwtAuthGuard)
+  addComment(
+    @Param('id') postId: string,
+    @Body('content') content: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const text = (content ?? '').trim();
+    if (!text) {
+      throw new BadRequestException('Komentář nesmí být prázdný.');
+    }
+    return this.postsService.addComment(postId, user.id, text);
+  }
+
+  @Get(':id/comments')
+  getComments(@Param('id') postId: string) {
+    return this.postsService.getComments(postId);
   }
 
   @Post('video')

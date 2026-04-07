@@ -164,6 +164,12 @@ export class FeedService {
       },
       orderBy: { createdAt: 'desc' },
       include: {
+        _count: {
+          select: {
+            favorites: true,
+            comments: true,
+          },
+        },
         user: {
           select: {
             id: true,

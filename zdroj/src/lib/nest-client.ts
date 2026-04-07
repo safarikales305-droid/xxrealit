@@ -621,3 +621,115 @@ export async function nestFetchVideos(): Promise<ShortVideo[]> {
     return [];
   }
 }
+
+export type PostComment = {
+  id: string;
+  content: string;
+  createdAt: string;
+  user?: {
+    id: string;
+    name?: string | null;
+    email?: string;
+    avatar?: string | null;
+  } | null;
+};
+
+function postsApiBase(): string {
+  return API_BASE_URL.endsWith('/api') ? API_BASE_URL : `${API_BASE_URL}/api`;
+}
+
+export async function nestTogglePostFavorite(
+  token: string | null,
+  postId: string,
+): Promise<{ ok: true; liked: boolean; likeCount: number } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  try {
+    const res = await fetch(`${postsApiBase()}/posts/${encodeURIComponent(postId)}/favorite`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+      },
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      liked?: boolean;
+      likeCount?: number;
+      message?: string | string[];
+      error?: string;
+    };
+    if (!res.ok) {
+      const msg =
+        typeof data.message === 'string'
+          ? data.message
+          : Array.isArray(data.message)
+            ? data.message.join(', ')
+            : typeof data.error === 'string'
+              ? data.error
+              : `HTTP ${res.status}`;
+      return { ok: false, error: msg };
+    }
+    return {
+      ok: true,
+      liked: Boolean(data.liked),
+      likeCount: typeof data.likeCount === 'number' ? data.likeCount : 0,
+    };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestFetchPostComments(postId: string): Promise<PostComment[]> {
+  if (!API_BASE_URL) return [];
+  try {
+    const res = await fetch(`${postsApiBase()}/posts/${encodeURIComponent(postId)}/comments`, {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as unknown;
+    return Array.isArray(data) ? (data as PostComment[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function nestAddPostComment(
+  token: string | null,
+  postId: string,
+  content: string,
+): Promise<{ ok: true } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  try {
+    const res = await fetch(`${postsApiBase()}/posts/${encodeURIComponent(postId)}/comment`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ content }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      message?: string | string[];
+      error?: string;
+    };
+    if (!res.ok) {
+      const msg =
+        typeof data.message === 'string'
+          ? data.message
+          : Array.isArray(data.message)
+            ? data.message.join(', ')
+            : typeof data.error === 'string'
+              ? data.error
+              : `HTTP ${res.status}`;
+      return { ok: false, error: msg };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}

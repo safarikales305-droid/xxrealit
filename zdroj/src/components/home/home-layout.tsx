@@ -5,7 +5,14 @@ import type { ComponentType } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
-import { nestCreateVideoPost, type ShortVideo } from '@/lib/nest-client';
+import {
+  nestAddPostComment,
+  nestCreateVideoPost,
+  nestFetchPostComments,
+  nestTogglePostFavorite,
+  type PostComment,
+  type ShortVideo,
+} from '@/lib/nest-client';
 import { PropertyGrid } from '@/components/property-grid';
 import type { PropertyFeedItem } from '@/types/property';
 import { VideoFeed } from '@/components/video-feed/VideoFeed';
@@ -63,6 +70,12 @@ export function HomeLayout({
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
   const [detailPost, setDetailPost] = useState<Record<string, unknown> | null>(null);
+  const [likedByPostId, setLikedByPostId] = useState<Record<string, boolean>>({});
+  const [likeCountByPostId, setLikeCountByPostId] = useState<Record<string, number>>({});
+  const [commentsByPostId, setCommentsByPostId] = useState<Record<string, PostComment[]>>({});
+  const [commentInputByPostId, setCommentInputByPostId] = useState<Record<string, string>>({});
+  const [commentsOpenByPostId, setCommentsOpenByPostId] = useState<Record<string, boolean>>({});
+  const [mutedByPostId, setMutedByPostId] = useState<Record<string, boolean>>({});
   const postVideoInputRef = useRef<HTMLInputElement | null>(null);
   const postTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -117,7 +130,20 @@ export function HomeLayout({
     if (!API_BASE_URL) return;
     const res = await fetch(`${API_BASE_URL}/feed/posts`, { cache: 'no-store' });
     const data = (await res.json().catch(() => [])) as unknown;
-    setPostFeed(Array.isArray(data) ? (data as Array<Record<string, unknown>>) : []);
+    const list = Array.isArray(data) ? (data as Array<Record<string, unknown>>) : [];
+    setPostFeed(list);
+    setLikeCountByPostId((prev) => {
+      const next = { ...prev };
+      for (const p of list) {
+        const id = String(p.id ?? '');
+        if (!id) continue;
+        const count = Number(
+          (p._count as { favorites?: number } | undefined)?.favorites ?? 0,
+        );
+        next[id] = Number.isFinite(count) ? count : 0;
+      }
+      return next;
+    });
   }
 
   async function deletePost(postId: string) {
@@ -152,6 +178,44 @@ export function HomeLayout({
     await refreshPostsFeed();
   }
 
+  async function toggleFavorite(postId: string) {
+    if (!apiAccessToken) return;
+    const optimisticLiked = !Boolean(likedByPostId[postId]);
+    const previousLiked = Boolean(likedByPostId[postId]);
+    const previousCount = likeCountByPostId[postId] ?? 0;
+
+    setLikedByPostId((prev) => ({ ...prev, [postId]: optimisticLiked }));
+    setLikeCountByPostId((prev) => ({
+      ...prev,
+      [postId]: Math.max(0, previousCount + (optimisticLiked ? 1 : -1)),
+    }));
+
+    const res = await nestTogglePostFavorite(apiAccessToken, postId);
+    if (!res.ok) {
+      setLikedByPostId((prev) => ({ ...prev, [postId]: previousLiked }));
+      setLikeCountByPostId((prev) => ({ ...prev, [postId]: previousCount }));
+      return;
+    }
+
+    setLikedByPostId((prev) => ({ ...prev, [postId]: res.liked }));
+    setLikeCountByPostId((prev) => ({ ...prev, [postId]: res.likeCount }));
+  }
+
+  async function loadComments(postId: string) {
+    const comments = await nestFetchPostComments(postId);
+    setCommentsByPostId((prev) => ({ ...prev, [postId]: comments }));
+  }
+
+  async function sendComment(postId: string) {
+    if (!apiAccessToken) return;
+    const text = (commentInputByPostId[postId] ?? '').trim();
+    if (!text) return;
+    const res = await nestAddPostComment(apiAccessToken, postId, text);
+    if (!res.ok) return;
+    setCommentInputByPostId((prev) => ({ ...prev, [postId]: '' }));
+    await loadComments(postId);
+  }
+
   const filteredItems = useMemo(() => {
     const s = searchQuery.trim().toLowerCase();
     if (!s) return items;
@@ -181,7 +245,21 @@ export function HomeLayout({
       .then((data) => {
         const list = Array.isArray(data) ? (data as ShortVideo[]) : [];
         if (viewMode === 'shorts') setVideoFeed(list);
-        if (viewMode === 'posts') setPostFeed(list);
+        if (viewMode === 'posts') {
+          setPostFeed(list as Array<Record<string, unknown>>);
+          setLikeCountByPostId((prev) => {
+            const next = { ...prev };
+            for (const p of list as Array<Record<string, unknown>>) {
+              const id = String(p.id ?? '');
+              if (!id) continue;
+              const count = Number(
+                (p._count as { favorites?: number } | undefined)?.favorites ?? 0,
+              );
+              next[id] = Number.isFinite(count) ? count : 0;
+            }
+            return next;
+          });
+        }
       })
       .catch(() => {
         if (viewMode === 'shorts') setVideoFeed([]);
@@ -575,6 +653,32 @@ export function HomeLayout({
                               {String(p.description ?? p.content ?? '')}
                             </p>
                           )}
+                          <div className="mt-3 flex items-center gap-2 text-xs text-zinc-600">
+                            <button
+                              type="button"
+                              onClick={() => void toggleFavorite(String(p.id ?? ''))}
+                              className="rounded-lg border border-zinc-200 bg-white px-2 py-1"
+                              aria-label="Přepnout oblíbené"
+                            >
+                              {likedByPostId[String(p.id ?? '')] ? '❤️' : '🤍'}
+                            </button>
+                            <span>{likeCountByPostId[String(p.id ?? '')] ?? Number((p._count as { favorites?: number } | undefined)?.favorites ?? 0)} líbí se</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const postId = String(p.id ?? '');
+                                const nextOpen = !Boolean(commentsOpenByPostId[postId]);
+                                setCommentsOpenByPostId((prev) => ({ ...prev, [postId]: nextOpen }));
+                                if (nextOpen) {
+                                  void loadComments(postId);
+                                }
+                              }}
+                              className="rounded-lg border border-zinc-200 bg-white px-2 py-1"
+                            >
+                              💬 {commentsByPostId[String(p.id ?? '')]?.length ??
+                                Number((p._count as { comments?: number } | undefined)?.comments ?? 0)}
+                            </button>
+                          </div>
                           {String(p.videoUrl ?? '').trim() ? (
                             <button
                               type="button"
@@ -584,11 +688,60 @@ export function HomeLayout({
                               <video
                                 src={nestAbsoluteAssetUrl(String(p.videoUrl ?? ''))}
                                 playsInline
+                                muted={mutedByPostId[String(p.id ?? '')] ?? true}
                                 controls
                                 preload="metadata"
                                 className="aspect-video w-full rounded-2xl bg-black object-cover"
                               />
                             </button>
+                          ) : null}
+                          {String(p.videoUrl ?? '').trim() ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setMutedByPostId((prev) => ({
+                                  ...prev,
+                                  [String(p.id ?? '')]: !(prev[String(p.id ?? '')] ?? true),
+                                }))
+                              }
+                              className="mt-2 rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs"
+                            >
+                              {(mutedByPostId[String(p.id ?? '')] ?? true) ? '🔇' : '🔊'}
+                            </button>
+                          ) : null}
+                          {commentsOpenByPostId[String(p.id ?? '')] ? (
+                            <div className="mt-3 space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  value={commentInputByPostId[String(p.id ?? '')] ?? ''}
+                                  onChange={(e) =>
+                                    setCommentInputByPostId((prev) => ({
+                                      ...prev,
+                                      [String(p.id ?? '')]: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Napsat komentář..."
+                                  className="h-9 flex-1 rounded-lg border border-zinc-200 bg-white px-2 text-sm outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => void sendComment(String(p.id ?? ''))}
+                                  className="h-9 rounded-lg bg-orange-500 px-3 text-xs font-semibold text-white"
+                                >
+                                  Odeslat
+                                </button>
+                              </div>
+                              <div className="space-y-2">
+                                {(commentsByPostId[String(p.id ?? '')] ?? []).map((c) => (
+                                  <div key={c.id} className="rounded-lg bg-white px-2 py-1.5">
+                                    <p className="text-xs font-semibold text-zinc-700">
+                                      {c.user?.name || c.user?.email || 'Uživatel'}
+                                    </p>
+                                    <p className="text-sm text-zinc-800">{c.content}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
                           ) : null}
                         </article>
                       ))
