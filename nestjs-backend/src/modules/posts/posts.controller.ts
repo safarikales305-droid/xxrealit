@@ -20,7 +20,7 @@ import { basename, extname, join } from 'node:path';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { getFallbackVideoUrl, uploadToCloudinary } from './cloudinary-upload';
+import { uploadToCloudinary } from './cloudinary-upload';
 import { CreatePostDto } from './dto/create-post.dto';
 import { PostsService } from './posts.service';
 
@@ -173,7 +173,7 @@ export class PostsController {
     const inputPath = join(uploadsDir, file.filename);
     const outputFilename = `${basename(file.filename, extname(file.filename))}-h264.mp4`;
     const outputPath = join(uploadsDir, outputFilename);
-    let videoUrl = '';
+    let videoUrl: string | null = null;
 
     try {
       const durationSeconds = await getVideoDurationSeconds(inputPath);
@@ -186,26 +186,24 @@ export class PostsController {
       try {
         // Preferred path: browser-safe MP4 stream.
         await convertToMp4H264Aac(inputPath, outputPath);
-        videoUrl = await uploadToCloudinary(outputPath, {
-          forceMp4: true,
-          strictPlayableValidation: true,
-        });
+        videoUrl = await uploadToCloudinary(outputPath);
       } catch (error) {
         console.log('UPLOAD FAIL -> fallback', error);
-        // Fallback path: original file upload with relaxed validation.
+        // Fallback path: original file upload.
         try {
-          videoUrl = await uploadToCloudinary(inputPath, {
-            forceMp4: false,
-            strictPlayableValidation: false,
-          });
+          videoUrl = await uploadToCloudinary(inputPath);
         } catch (fallbackError) {
-          console.log('UPLOAD FAIL -> static fallback URL', fallbackError);
-          videoUrl = getFallbackVideoUrl();
+          console.log('UPLOAD FAIL -> no video URL', fallbackError);
+          videoUrl = null;
         }
       }
     } finally {
       await unlink(inputPath).catch(() => undefined);
       await unlink(outputPath).catch(() => undefined);
+    }
+
+    if (!videoUrl) {
+      throw new BadRequestException('Upload videa se nezdařil.');
     }
 
     return this.postsService.createVideoPost(user.id, videoUrl, description ?? '');
