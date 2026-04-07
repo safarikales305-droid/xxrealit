@@ -166,7 +166,7 @@ export class PostsController {
     @Body('description') description?: string,
   ) {
     if (!file?.filename) {
-      throw new BadRequestException('Video soubor je povinný (field "file").');
+      return { url: null };
     }
 
     const uploadsDir = join(tmpdir(), 'xxrealit-video-upload');
@@ -203,9 +203,10 @@ export class PostsController {
     }
 
     if (!videoUrl) {
-      throw new BadRequestException('Upload videa se nezdařil.');
+      return { url: null };
     }
 
-    return this.postsService.createVideoPost(user.id, videoUrl, description ?? '');
+    await this.postsService.createVideoPost(user.id, videoUrl, description ?? '');
+    return { url: videoUrl };
   }
 }
