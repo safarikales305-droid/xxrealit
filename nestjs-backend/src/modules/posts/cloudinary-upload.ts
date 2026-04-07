@@ -16,20 +16,11 @@ function resolveCloudinaryConfig() {
   return { cloudName, apiKey, apiSecret };
 }
 
-type UploadOptions = {
-  forceMp4?: boolean;
-  strictPlayableValidation?: boolean;
-};
-
 export function getFallbackVideoUrl(): string {
   return '';
 }
 
-export async function uploadToCloudinary(
-  filePath: string,
-  options: UploadOptions = {},
-): Promise<string | null> {
-  const { forceMp4 = true, strictPlayableValidation = true } = options;
+export async function uploadToCloudinary(filePath: string): Promise<string | null> {
   try {
     const { cloudName, apiKey, apiSecret } = resolveCloudinaryConfig();
 
@@ -39,20 +30,11 @@ export async function uploadToCloudinary(
       api_secret: apiSecret,
     });
 
+    console.log('UPLOAD:', filePath);
     const result = await cloudinary.uploader.upload(filePath, {
       resource_type: 'video',
-      folder: 'videos',
-      ...(forceMp4 ? { format: 'mp4' } : {}),
     });
-
-    if (!result.secure_url) {
-      throw new Error('Cloudinary upload did not return secure_url');
-    }
-
-    if (strictPlayableValidation) {
-      await assertPlayableMp4Url(result.secure_url);
-    }
-
+    console.log('RESULT:', result.secure_url);
     return result.secure_url;
   } catch (e) {
     console.error('Upload failed:', e);
