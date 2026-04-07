@@ -2,6 +2,8 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
+  Param,
   Post,
   UploadedFile,
   UseGuards,
@@ -113,6 +115,12 @@ export class PostsController {
       throw new BadRequestException('Obsah příspěvku je povinný.');
     }
     return this.postsService.create(user.id, body);
+  }
+
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard)
+  deletePost(@Param('id') id: string) {
+    return this.postsService.deletePost(id);
   }
 
   @Post('video')

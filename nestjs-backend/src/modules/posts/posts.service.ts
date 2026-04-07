@@ -6,6 +6,12 @@ import { CreatePostDto } from './dto/create-post.dto';
 export class PostsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async deletePost(id: string) {
+    return this.prisma.post.delete({
+      where: { id },
+    });
+  }
+
   create(userId: string, dto: CreatePostDto) {
     const text = (dto.description ?? dto.content ?? '').trim();
     return this.prisma.post.create({
