@@ -61,6 +61,9 @@ export function HomeLayout({
   const [postVideo, setPostVideo] = useState<File | null>(null);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   const [postVideoError, setPostVideoError] = useState<string | null>(null);
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editingPostText, setEditingPostText] = useState('');
+  const [postActionError, setPostActionError] = useState<string | null>(null);
   const postVideoInputRef = useRef<HTMLInputElement | null>(null);
   const postTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -100,7 +103,62 @@ export function HomeLayout({
     const el = postTextareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(260, Math.max(96, el.scrollHeight))}px`;
+    el.style.height = `${Math.min(260, Math.max(40, el.scrollHeight))}px`;
+  }
+
+  function startEditPost(post: Record<string, unknown>) {
+    setPostActionError(null);
+    setEditingPostId(String(post.id ?? ''));
+    setEditingPostText(String(post.description ?? post.content ?? ''));
+  }
+
+  async function saveEditPost(postId: string) {
+    if (!API_BASE_URL || !apiAccessToken) return;
+    setPostActionError(null);
+    const text = editingPostText.trim();
+    if (!text) {
+      setPostActionError('Text příspěvku nesmí být prázdný.');
+      return;
+    }
+    const res = await fetch(`${API_BASE_URL}/posts/${postId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiAccessToken}`,
+      },
+      body: JSON.stringify({ description: text, content: text }),
+    });
+    if (!res.ok) {
+      setPostActionError('Úprava příspěvku se nezdařila.');
+      return;
+    }
+    setPostFeed((prev) =>
+      prev.map((p) =>
+        String(p.id ?? '') === postId ? { ...p, description: text, content: text } : p,
+      ),
+    );
+    setEditingPostId(null);
+    setEditingPostText('');
+  }
+
+  async function deletePost(postId: string) {
+    if (!API_BASE_URL || !apiAccessToken) return;
+    setPostActionError(null);
+    const res = await fetch(`${API_BASE_URL}/posts/${postId}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${apiAccessToken}`,
+      },
+    });
+    if (!res.ok) {
+      setPostActionError('Smazání příspěvku se nezdařilo.');
+      return;
+    }
+    setPostFeed((prev) => prev.filter((p) => String(p.id ?? '') !== postId));
+    if (editingPostId === postId) {
+      setEditingPostId(null);
+      setEditingPostText('');
+    }
   }
 
   const filteredItems = useMemo(() => {
@@ -321,8 +379,9 @@ export function HomeLayout({
                         ref={postTextareaRef}
                         value={postContent}
                         onChange={handlePostContentChange}
+                        rows={1}
                         placeholder="Napište příspěvek nebo popište video..."
-                        className="min-h-24 w-full resize-none rounded border border-zinc-300 p-2 text-sm"
+                        className="min-h-10 w-full resize-none rounded border border-zinc-300 p-2 text-sm"
                       />
                       <input
                         ref={postVideoInputRef}
@@ -374,13 +433,15 @@ export function HomeLayout({
                           <source src={videoPreviewUrl} type="video/mp4" />
                         </video>
                       ) : null}
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <div className="mt-3 flex items-center gap-2">
                         <button
                           type="button"
                           onClick={() => postVideoInputRef.current?.click()}
-                          className="rounded border border-orange-300 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-700"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded border border-orange-300 bg-orange-50 text-base font-semibold text-orange-700"
+                          aria-label="Nahrát video"
+                          title="Nahrát video"
                         >
-                          Vybrat video
+                          ⬆️
                         </button>
                         <button
                           type="button"
@@ -395,6 +456,11 @@ export function HomeLayout({
                             : 'Přidat příspěvek'}
                         </button>
                       </div>
+                      {postActionError ? (
+                        <p className="mt-2 text-sm font-medium text-red-600" role="alert">
+                          {postActionError}
+                        </p>
+                      ) : null}
                     </div>
                   ) : null}
                   <div className="space-y-3">
@@ -406,8 +472,31 @@ export function HomeLayout({
                       postFeed.map((p) => (
                         <article
                           key={String(p.id ?? Math.random())}
-                          className="rounded-xl border border-zinc-200 bg-white p-3"
+                          className="relative rounded-xl border border-zinc-200 bg-white p-3"
                         >
+                          {String((p.user as { id?: string } | undefined)?.id ?? '') ===
+                          String(user?.id ?? '') ? (
+                            <div className="absolute top-2 right-2 flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => startEditPost(p)}
+                                className="rounded bg-zinc-100 px-2 py-1 text-xs hover:bg-zinc-200"
+                                aria-label="Upravit příspěvek"
+                                title="Upravit"
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void deletePost(String(p.id ?? ''))}
+                                className="rounded bg-zinc-100 px-2 py-1 text-xs hover:bg-zinc-200"
+                                aria-label="Smazat příspěvek"
+                                title="Smazat"
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          ) : null}
                           <p className="text-xs text-zinc-500">
                             {String(
                               ((p.user as { name?: string } | undefined)?.name ??
@@ -415,9 +504,39 @@ export function HomeLayout({
                                 'Autor'),
                             )}
                           </p>
-                          <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-800">
-                            {String(p.description ?? p.content ?? '')}
-                          </p>
+                          {editingPostId === String(p.id ?? '') ? (
+                            <div className="mt-2">
+                              <textarea
+                                value={editingPostText}
+                                onChange={(e) => setEditingPostText(e.target.value)}
+                                rows={1}
+                                className="min-h-10 w-full resize-none rounded border border-zinc-300 p-2 text-sm"
+                              />
+                              <div className="mt-2 flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void saveEditPost(String(p.id ?? ''))}
+                                  className="rounded bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white"
+                                >
+                                  Uložit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingPostId(null);
+                                    setEditingPostText('');
+                                  }}
+                                  className="rounded border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700"
+                                >
+                                  Zrušit
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="mt-2 whitespace-pre-wrap pr-16 text-sm text-zinc-800">
+                              {String(p.description ?? p.content ?? '')}
+                            </p>
+                          )}
                           {p.type === 'video' ? (
                             <video
                               muted
