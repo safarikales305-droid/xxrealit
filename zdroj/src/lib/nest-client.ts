@@ -564,6 +564,9 @@ export async function nestCreateVideoPost(
   const fd = new FormData();
   fd.append('file', file);
   fd.append('description', description);
+  const timeoutMs = 10 * 60 * 1000;
+  const ac = new AbortController();
+  const timeout = setTimeout(() => ac.abort(), timeoutMs);
 
   try {
     const res = await fetch(`${API_BASE_URL}/posts/video`, {
@@ -571,6 +574,7 @@ export async function nestCreateVideoPost(
       cache: 'no-store',
       headers: nestAuthHeaders(token),
       body: fd,
+      signal: ac.signal,
     });
     const data = (await res.json().catch(() => ({}))) as {
       message?: string | string[];
@@ -590,6 +594,8 @@ export async function nestCreateVideoPost(
     return { ok: true };
   } catch {
     return { ok: false, error: 'Síťová chyba při uploadu videa' };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

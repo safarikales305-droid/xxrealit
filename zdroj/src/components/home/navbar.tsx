@@ -255,6 +255,33 @@ export function Navbar({
         </div>
       </div>
 
+      {viewMode != null && onViewModeChange != null ? (
+        <div className="flex items-center gap-1 border-t border-zinc-100 bg-white px-3 pb-2 md:hidden">
+          <button
+            type="button"
+            onClick={() => onViewModeChange('shorts')}
+            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+              viewMode === 'shorts'
+                ? 'bg-orange-500 text-white'
+                : 'bg-zinc-100 text-zinc-700'
+            }`}
+          >
+            Shorts
+          </button>
+          <button
+            type="button"
+            onClick={() => onViewModeChange('posts')}
+            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+              viewMode === 'posts'
+                ? 'bg-orange-500 text-white'
+                : 'bg-zinc-100 text-zinc-700'
+            }`}
+          >
+            Příspěvky
+          </button>
+        </div>
+      ) : null}
+
       {menuOpen ? (
         <>
           <button

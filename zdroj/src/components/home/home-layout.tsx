@@ -62,6 +62,7 @@ export function HomeLayout({
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   const [postVideoError, setPostVideoError] = useState<string | null>(null);
   const postVideoInputRef = useRef<HTMLInputElement | null>(null);
+  const postTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (!postVideo) {
@@ -85,12 +86,21 @@ export function HomeLayout({
       e.target.value = '';
       return;
     }
-    if (file.size > 50 * 1024 * 1024) {
-      setPostVideoError('Maximální velikost videa je 50 MB.');
+    if (file.size > 200 * 1024 * 1024) {
+      setPostVideoError('Maximální velikost videa je 200 MB.');
       e.target.value = '';
       return;
     }
     setPostVideo(file);
+  }
+
+  function handlePostContentChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const value = e.target.value;
+    setPostContent(value);
+    const el = postTextareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(260, Math.max(96, el.scrollHeight))}px`;
   }
 
   const filteredItems = useMemo(() => {
@@ -308,10 +318,11 @@ export function HomeLayout({
                   {isAuthenticated ? (
                     <div className="mb-4 rounded-xl border border-zinc-200 bg-white p-3">
                       <textarea
+                        ref={postTextareaRef}
                         value={postContent}
-                        onChange={(e) => setPostContent(e.target.value)}
+                        onChange={handlePostContentChange}
                         placeholder="Napište příspěvek nebo popište video..."
-                        className="min-h-24 w-full rounded border border-zinc-300 p-2 text-sm"
+                        className="min-h-24 w-full resize-none rounded border border-zinc-300 p-2 text-sm"
                       />
                       <input
                         ref={postVideoInputRef}
@@ -322,13 +333,6 @@ export function HomeLayout({
                         onChange={handleVideoChange}
                       />
                       <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => postVideoInputRef.current?.click()}
-                          className="rounded bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
-                        >
-                          Nahrát video
-                        </button>
                         {postVideo ? (
                           <>
                             <span className="max-w-[min(100%,12rem)] truncate text-xs text-zinc-600">
@@ -370,18 +374,27 @@ export function HomeLayout({
                           <source src={videoPreviewUrl} type="video/mp4" />
                         </video>
                       ) : null}
-                      <button
-                        type="button"
-                        onClick={() => void createPost()}
-                        disabled={creatingPost || (!postVideo && !postContent.trim())}
-                        className="mt-3 rounded bg-orange-500 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                      >
-                        {creatingPost
-                          ? postVideo
-                            ? 'Nahrávám...'
-                            : 'Odesílám...'
-                          : 'Přidat příspěvek'}
-                      </button>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => postVideoInputRef.current?.click()}
+                          className="rounded border border-orange-300 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-700"
+                        >
+                          Vybrat video
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void createPost()}
+                          disabled={creatingPost || (!postVideo && !postContent.trim())}
+                          className="rounded bg-orange-500 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                        >
+                          {creatingPost
+                            ? postVideo
+                              ? 'Nahrávám...'
+                              : 'Odesílám...'
+                            : 'Přidat příspěvek'}
+                        </button>
+                      </div>
                     </div>
                   ) : null}
                   <div className="space-y-3">

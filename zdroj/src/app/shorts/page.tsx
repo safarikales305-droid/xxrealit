@@ -47,8 +47,8 @@ export default function ShortsPage() {
       setError('Povolené jsou pouze video soubory.');
       return;
     }
-    if (selectedFile.size > 50 * 1024 * 1024) {
-      setError('Maximální velikost videa je 50MB.');
+    if (selectedFile.size > 200 * 1024 * 1024) {
+      setError('Maximální velikost videa je 200MB.');
       return;
     }
 

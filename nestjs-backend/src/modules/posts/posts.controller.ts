@@ -99,7 +99,8 @@ export class PostsController {
         },
       }),
       limits: {
-        fileSize: 50 * 1024 * 1024,
+        // Allow larger uploads; final file is still optimized by FFmpeg.
+        fileSize: 200 * 1024 * 1024,
       },
       fileFilter: (_req, file, cb) => {
         // Accept any video/* input and normalize via mandatory FFmpeg conversion.
