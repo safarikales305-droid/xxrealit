@@ -1,8 +1,5 @@
 import { v2 as cloudinary } from 'cloudinary';
 
-const DEFAULT_FALLBACK_VIDEO_URL =
-  'https://res.cloudinary.com/demo/video/upload/dog.mp4';
-
 function resolveCloudinaryConfig() {
   const cloudName =
     process.env.CLOUDINARY_NAME ?? process.env.CLOUDINARY_CLOUD_NAME ?? '';
@@ -25,38 +22,42 @@ type UploadOptions = {
 };
 
 export function getFallbackVideoUrl(): string {
-  const fromEnv = (process.env.FALLBACK_VIDEO_URL || '').trim();
-  return fromEnv || DEFAULT_FALLBACK_VIDEO_URL;
+  return '';
 }
 
 export async function uploadToCloudinary(
   filePath: string,
   options: UploadOptions = {},
-): Promise<string> {
+): Promise<string | null> {
   const { forceMp4 = true, strictPlayableValidation = true } = options;
-  const { cloudName, apiKey, apiSecret } = resolveCloudinaryConfig();
+  try {
+    const { cloudName, apiKey, apiSecret } = resolveCloudinaryConfig();
 
-  cloudinary.config({
-    cloud_name: cloudName,
-    api_key: apiKey,
-    api_secret: apiSecret,
-  });
+    cloudinary.config({
+      cloud_name: cloudName,
+      api_key: apiKey,
+      api_secret: apiSecret,
+    });
 
-  const result = await cloudinary.uploader.upload(filePath, {
-    resource_type: 'video',
-    folder: 'videos',
-    ...(forceMp4 ? { format: 'mp4' } : {}),
-  });
+    const result = await cloudinary.uploader.upload(filePath, {
+      resource_type: 'video',
+      folder: 'videos',
+      ...(forceMp4 ? { format: 'mp4' } : {}),
+    });
 
-  if (!result.secure_url) {
-    throw new Error('Cloudinary upload did not return secure_url');
+    if (!result.secure_url) {
+      throw new Error('Cloudinary upload did not return secure_url');
+    }
+
+    if (strictPlayableValidation) {
+      await assertPlayableMp4Url(result.secure_url);
+    }
+
+    return result.secure_url;
+  } catch (e) {
+    console.error('Upload failed:', e);
+    return null;
   }
-
-  const publicUrl = result.secure_url;
-  if (strictPlayableValidation) {
-    await assertPlayableMp4Url(publicUrl);
-  }
-  return publicUrl;
 }
 
 async function assertPlayableMp4Url(url: string): Promise<void> {
