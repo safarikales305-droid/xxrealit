@@ -142,9 +142,10 @@ export class FeedService {
   async listPosts() {
     const rows = await this.prisma.post.findMany({
       where: {
-        media: {
-          none: { type: 'video' },
-        },
+        OR: [
+          { media: { some: { type: 'image' } } },
+          { media: { none: { type: 'video' } } },
+        ],
       },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -173,7 +174,11 @@ export class FeedService {
         ...p,
         media: p.media.filter((m) => isPublicMediaUrl(m.url)),
       }))
-      .filter((p) => p.media.length > 0);
+      .filter((p) => p.media.length > 0)
+      .map((p) => {
+        console.log('[feed/posts]', p.id, p.media);
+        return p;
+      });
   }
 
   async listProperties() {

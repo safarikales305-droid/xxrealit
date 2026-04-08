@@ -9,6 +9,12 @@ export type PropertyFromApi = {
   location?: string;
   videoUrl?: string | null;
   imageUrl?: string | null;
+  images?: string[];
+  media?: Array<{
+    url?: string | null;
+    type?: string | null;
+    order?: number | null;
+  }>;
   description?: string | null;
   userId?: string;
   ownerCity?: string | null;
@@ -23,6 +29,12 @@ export type PropertyFeedItem = {
   location: string;
   videoUrl: string | null;
   imageUrl?: string | null;
+  images?: string[];
+  media?: Array<{
+    url: string;
+    type: 'image' | 'video';
+    order: number;
+  }>;
   description?: string | null;
   userId?: string;
   ownerCity?: string | null;
@@ -35,6 +47,23 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
     typeof p.likeCount === 'number' && Number.isFinite(p.likeCount)
       ? Math.max(0, Math.floor(p.likeCount))
       : undefined;
+  const images =
+    Array.isArray(p.images) && p.images.length > 0
+      ? p.images.filter((x): x is string => typeof x === 'string' && x.length > 0)
+      : [];
+  const media =
+    Array.isArray(p.media) && p.media.length > 0
+      ? p.media
+          .filter((m): m is { url: string; type: 'image' | 'video'; order: number } => {
+            const type = m?.type === 'image' || m?.type === 'video' ? m.type : null;
+            const url = typeof m?.url === 'string' ? m.url : '';
+            const order =
+              typeof m?.order === 'number' && Number.isFinite(m.order) ? m.order : 0;
+            return Boolean(type && url);
+          })
+          .sort((a, b) => a.order - b.order)
+      : undefined;
+  const primaryImageFromMedia = media?.find((m) => m.type === 'image')?.url ?? null;
   return {
     id: p.id,
     title: p.title,
@@ -43,8 +72,10 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
     videoUrl: normalizePublicVideoUrl(p.videoUrl),
     imageUrl:
       p.imageUrl === null || typeof p.imageUrl === 'string'
-        ? p.imageUrl
-        : undefined,
+        ? p.imageUrl ?? primaryImageFromMedia ?? images[0] ?? null
+        : primaryImageFromMedia ?? images[0] ?? undefined,
+    images,
+    media,
     description:
       p.description === null || typeof p.description === 'string'
         ? p.description
@@ -88,6 +119,16 @@ export function safeNormalizePropertyFromApi(
         o.imageUrl === null || typeof o.imageUrl === 'string'
           ? o.imageUrl
           : undefined,
+      images: Array.isArray(o.images)
+        ? o.images.filter((x): x is string => typeof x === 'string')
+        : undefined,
+      media: Array.isArray(o.media)
+        ? (o.media as Array<Record<string, unknown>>).map((m) => ({
+            url: typeof m.url === 'string' ? m.url : '',
+            type: m.type === 'video' ? 'video' : 'image',
+            order: typeof m.order === 'number' ? m.order : 0,
+          }))
+        : undefined,
       description:
         o.description === null || typeof o.description === 'string'
           ? o.description

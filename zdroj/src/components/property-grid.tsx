@@ -85,6 +85,11 @@ export function PropertyGrid({ properties }: Props) {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {properties.map((p) => {
           const liked = likedMap[p.id] ?? Boolean(p.liked);
+          const media = Array.isArray(p.media) ? [...p.media].sort((a, b) => a.order - b.order) : [];
+          const primaryImage = media.find((m) => m.type === 'image')?.url ?? p.imageUrl ?? p.images?.[0] ?? null;
+          const primaryVideo = media.find((m) => m.type === 'video')?.url ?? p.videoUrl ?? null;
+          console.log('POST MEDIA:', p.media);
+          console.log('POST IMAGE:', p.imageUrl);
           return (
             <article
               key={p.id + (p.videoUrl ?? '') + (p.imageUrl ?? '')}
@@ -92,7 +97,13 @@ export function PropertyGrid({ properties }: Props) {
             >
               <Link href={`/nemovitost/${p.id}`} className="block flex flex-1 flex-col">
                 <div className="relative aspect-[4/3] bg-zinc-100">
-                  {p.videoUrl ? (
+                  {primaryImage ? (
+                    <img
+                      src={nestAbsoluteAssetUrl(primaryImage)}
+                      alt={p.title}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : primaryVideo ? (
                     <video
                       muted
                       playsInline
@@ -101,15 +112,9 @@ export function PropertyGrid({ properties }: Props) {
                       controls
                       preload="metadata"
                       className="h-full w-full object-cover"
-                      src={nestAbsoluteAssetUrl(p.videoUrl)}
-                      onError={() => console.error('VIDEO ERROR', p.videoUrl)}
+                      src={nestAbsoluteAssetUrl(primaryVideo)}
+                      onError={() => console.error('VIDEO ERROR', primaryVideo)}
                       aria-hidden
-                    />
-                  ) : p.imageUrl ? (
-                    <img
-                      src={nestAbsoluteAssetUrl(p.imageUrl)}
-                      alt=""
-                      className="h-full w-full object-cover"
                     />
                   ) : (
                     <div className="flex h-full items-center justify-center bg-gradient-to-br from-zinc-100 to-zinc-200 text-sm text-zinc-400">
