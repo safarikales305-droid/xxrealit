@@ -24,6 +24,11 @@ export class CreateListingPostDto {
   @IsIn(['post', 'short'])
   type?: 'post' | 'short';
 
+  @IsOptional()
+  @IsString()
+  @IsIn(['MAKLERI', 'STAVEBNI_FIRMY', 'REMESLNICI', 'REALITNI_KANCELARE'])
+  category?: 'MAKLERI' | 'STAVEBNI_FIRMY' | 'REMESLNICI' | 'REALITNI_KANCELARE';
+
   /** JSON array of original image filenames in the chosen order. */
   @IsOptional()
   @IsString()

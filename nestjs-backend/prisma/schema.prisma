@@ -15,6 +15,18 @@ enum UserRole {
   ADMIN
 }
 
+enum PostCategory {
+  MAKLERI
+  STAVEBNI_FIRMY
+  REMESLNICI
+  REALITNI_KANCELARE
+}
+
+enum ReactionType {
+  LIKE
+  DISLIKE
+}
+
 model User {
   id           String     @id @default(uuid())
   email        String     @unique
@@ -35,6 +47,7 @@ model User {
   properties   Property[]
   videos       Video[]
   posts        Post[]
+  postReactions PostReaction[]
   postFavorites Favorite[]
   postComments  Comment[]
   likes        PropertyLike[]
@@ -51,16 +64,33 @@ model Post {
   price       Int      @default(0)
   city        String   @default("")
   type        String   @default("post")
+  category    PostCategory @default(MAKLERI)
   content     String?
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   media       Media[]
+  reactions   PostReaction[]
   favorites   Favorite[]
   comments    Comment[]
   createdAt   DateTime @default(now())
 
   @@index([userId])
   @@index([createdAt])
+}
+
+model PostReaction {
+  id        String       @id @default(cuid())
+  userId    String
+  postId    String
+  type      ReactionType
+  createdAt DateTime     @default(now())
+
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@index([postId])
+  @@index([userId])
 }
 
 model Media {

@@ -4,12 +4,26 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ComponentType } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Briefcase,
+  Building2,
+  Hammer,
+  Heart,
+  Home,
+  Image as ImageIcon,
+  MessageCircle,
+  Send,
+  ThumbsDown,
+  Video,
+} from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
 import {
   nestAddPostComment,
   nestCreateListingPost,
+  nestFetchCommunityPosts,
   nestFetchPostComments,
+  nestSetPostReaction,
   nestTogglePostFavorite,
   type ListingPost,
   type PostComment,
@@ -32,6 +46,13 @@ type Props = {
 
 const brandBtn =
   'rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-10 py-3.5 text-[15px] font-semibold tracking-[-0.01em] text-white shadow-[0_8px_28px_-6px_rgba(255,106,0,0.45)] transition duration-300 hover:scale-[1.02] hover:shadow-[0_12px_36px_-6px_rgba(255,80,0,0.5)] active:scale-[0.98]';
+
+const COMMUNITY_CATEGORIES = [
+  { key: 'MAKLERI', label: 'Makléři', icon: Briefcase },
+  { key: 'STAVEBNI_FIRMY', label: 'Stavební firmy', icon: Building2 },
+  { key: 'REMESLNICI', label: 'Řemeslníci', icon: Hammer },
+  { key: 'REALITNI_KANCELARE', label: 'Realitní kanceláře', icon: Home },
+] as const;
 
 /**
  * Light shell + Shorts (TikTok) / Classic (Sreality-style grid).
@@ -70,6 +91,12 @@ export function HomeLayout({
   const [postPrice, setPostPrice] = useState('');
   const [postCity, setPostCity] = useState('');
   const [postListingType, setPostListingType] = useState<'post' | 'short'>('post');
+  const [postCategory, setPostCategory] = useState<
+    'MAKLERI' | 'STAVEBNI_FIRMY' | 'REMESLNICI' | 'REALITNI_KANCELARE'
+  >('MAKLERI');
+  const [activeCategory, setActiveCategory] = useState<
+    'MAKLERI' | 'STAVEBNI_FIRMY' | 'REMESLNICI' | 'REALITNI_KANCELARE'
+  >('MAKLERI');
   const [creatingPost, setCreatingPost] = useState(false);
   const [postMedia, setPostMedia] = useState<File | null>(null);
   const [postImages, setPostImages] = useState<File[]>([]);
@@ -80,6 +107,8 @@ export function HomeLayout({
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
   const [likedByPostId, setLikedByPostId] = useState<Record<string, boolean>>({});
+  const [dislikedByPostId, setDislikedByPostId] = useState<Record<string, boolean>>({});
+  const [dislikeCountByPostId, setDislikeCountByPostId] = useState<Record<string, number>>({});
   const [likeCountByPostId, setLikeCountByPostId] = useState<Record<string, number>>({});
   const [commentsByPostId, setCommentsByPostId] = useState<Record<string, PostComment[]>>({});
   const [commentInputByPostId, setCommentInputByPostId] = useState<Record<string, string>>({});
@@ -124,6 +153,11 @@ export function HomeLayout({
     }
     const videoFiles = files.filter((f) => f.type.startsWith('video/'));
     const imageFiles = files.filter((f) => f.type.startsWith('image/'));
+    if (files.length > 1) {
+      setPostMediaError('Vyberte pouze jedno hlavní médium.');
+      e.target.value = '';
+      return;
+    }
     if (videoFiles.length > 1) {
       setPostMediaError('Only 1 video allowed');
       e.target.value = '';
@@ -241,6 +275,16 @@ export function HomeLayout({
     setLikeCountByPostId((prev) => ({ ...prev, [postId]: res.likeCount }));
   }
 
+  async function toggleReaction(postId: string, type: 'LIKE' | 'DISLIKE') {
+    if (!apiAccessToken) return;
+    const res = await nestSetPostReaction(apiAccessToken, postId, type);
+    if (!res.ok) return;
+    setLikedByPostId((prev) => ({ ...prev, [postId]: res.reaction === 'LIKE' }));
+    setDislikedByPostId((prev) => ({ ...prev, [postId]: res.reaction === 'DISLIKE' }));
+    setLikeCountByPostId((prev) => ({ ...prev, [postId]: res.likeCount }));
+    setDislikeCountByPostId((prev) => ({ ...prev, [postId]: res.dislikeCount }));
+  }
+
   async function loadComments(postId: string) {
     const comments = await nestFetchPostComments(postId);
     setCommentsByPostId((prev) => ({ ...prev, [postId]: comments }));
@@ -271,17 +315,16 @@ export function HomeLayout({
 
   useEffect(() => {
     if (!API_BASE_URL) return;
-    const endpoint =
-      viewMode === 'shorts'
-        ? '/feed/shorts'
-        : viewMode === 'posts'
-          ? '/feed/posts'
-          : null;
-    if (!endpoint) return;
-
     setLoadingFeed(true);
-    void fetch(`${API_BASE_URL}${endpoint}`, { cache: 'no-store' })
-      .then((res) => (res.ok ? res.json() : []))
+    const loader =
+      viewMode === 'shorts'
+        ? fetch(`${API_BASE_URL}/feed/shorts`, { cache: 'no-store' }).then((res) =>
+            res.ok ? res.json() : [],
+          )
+        : viewMode === 'posts'
+          ? nestFetchCommunityPosts(activeCategory)
+          : Promise.resolve([]);
+    void loader
       .then((data) => {
         const list = Array.isArray(data) ? (data as ShortVideo[]) : [];
         if (viewMode === 'shorts') setVideoFeed(list);
@@ -299,6 +342,20 @@ export function HomeLayout({
             }
             return next;
           });
+          setDislikeCountByPostId((prev) => {
+            const next = { ...prev };
+            for (const p of list as Array<Record<string, unknown>>) {
+              const id = String(p.id ?? '');
+              if (!id) continue;
+              const dislikes = Number(
+                ((p as { reactions?: Array<{ type?: string }> }).reactions ?? []).filter(
+                  (r) => r.type === 'DISLIKE',
+                ).length,
+              );
+              next[id] = Number.isFinite(dislikes) ? dislikes : 0;
+            }
+            return next;
+          });
         }
       })
       .catch(() => {
@@ -306,7 +363,7 @@ export function HomeLayout({
         if (viewMode === 'posts') setPostFeed([]);
       })
       .finally(() => setLoadingFeed(false));
-  }, [viewMode]);
+  }, [viewMode, activeCategory]);
 
   async function handleSubmit(e?: React.FormEvent) {
     e?.preventDefault();
@@ -326,6 +383,7 @@ export function HomeLayout({
           price: Number(postPrice || 0),
           city: postCity.trim() || 'Neuvedeno',
           type: postListingType,
+          category: postCategory,
           video: postVideo,
           images: postImages,
           imageOrder: postImages.map((f) => f.name),
@@ -386,7 +444,7 @@ export function HomeLayout({
         onSearchChange={setSearchQuery}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
-        onMobileFiltersOpen={() => setMobileFiltersOpen(true)}
+        onMobileFiltersOpen={viewMode === 'posts' ? undefined : () => setMobileFiltersOpen(true)}
       />
 
       {mobileFiltersOpen ? (
@@ -424,7 +482,7 @@ export function HomeLayout({
       ) : null}
 
       <div className="grid min-h-0 w-full min-w-0 flex-1 grid-cols-1 overflow-x-hidden p-0 md:mx-auto md:max-w-[100rem] md:gap-4 md:p-4 md:grid-cols-[260px_1fr] xl:grid-cols-[260px_1fr_300px]">
-        <div className="hidden min-h-0 min-w-0 shrink-0 overflow-x-hidden md:block">
+        <div className={`hidden min-h-0 min-w-0 shrink-0 overflow-x-hidden md:block ${viewMode === 'posts' ? 'md:hidden' : ''}`}>
           <SidebarFilters className="mt-0 w-full max-w-full flex-col md:mt-2 md:mb-2 lg:mt-4 lg:mb-4" />
         </div>
 
@@ -504,6 +562,27 @@ export function HomeLayout({
                 )
               ) : viewMode === 'posts' ? (
                 <div className="w-full pb-8 pt-3 md:max-w-2xl md:mx-auto">
+                  <div className="no-scrollbar mb-4 flex gap-2 overflow-x-auto px-3 md:px-0">
+                    {COMMUNITY_CATEGORIES.map((cat) => {
+                      const Icon = cat.icon;
+                      const active = activeCategory === cat.key;
+                      return (
+                        <button
+                          key={cat.key}
+                          type="button"
+                          onClick={() => setActiveCategory(cat.key)}
+                          className={`inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
+                            active
+                              ? 'bg-orange-500 text-white shadow-sm'
+                              : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+                          }`}
+                        >
+                          <Icon size={16} />
+                          {cat.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                   {isAuthenticated ? (
                     <form
                       onSubmit={(e) => void handleSubmit(e)}
@@ -528,14 +607,27 @@ export function HomeLayout({
                           placeholder="Cena (Kč)"
                           className="h-9 rounded-xl border border-zinc-200 px-2 text-sm"
                         />
-                        <select
-                          value={postListingType}
-                          onChange={(e) => setPostListingType(e.target.value === 'short' ? 'short' : 'post')}
-                          className="h-9 rounded-xl border border-zinc-200 px-2 text-sm"
-                        >
-                          <option value="post">Post</option>
-                          <option value="short">Short</option>
-                        </select>
+                        <div className="col-span-2 no-scrollbar flex gap-2 overflow-x-auto">
+                          {COMMUNITY_CATEGORIES.map((cat) => {
+                            const Icon = cat.icon;
+                            const active = postCategory === cat.key;
+                            return (
+                              <button
+                                key={`create-${cat.key}`}
+                                type="button"
+                                onClick={() => setPostCategory(cat.key)}
+                                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ${
+                                  active
+                                    ? 'bg-orange-500 text-white'
+                                    : 'bg-zinc-100 text-zinc-700'
+                                }`}
+                              >
+                                <Icon size={14} />
+                                {cat.label}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                       <textarea
                         ref={postTextareaRef}
@@ -647,17 +739,18 @@ export function HomeLayout({
                         <button
                           type="button"
                           onClick={() => postMediaInputRef.current?.click()}
-                          className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 text-lg text-orange-600 transition hover:bg-orange-50"
+                          className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 text-orange-600 transition hover:bg-orange-50"
                           title="Přidat video nebo obrázek"
                           aria-label="Přidat média"
                         >
-                          🎬
+                          {postMedia?.type.startsWith('video') ? <Video size={18} /> : <ImageIcon size={18} />}
                         </button>
                         <button
                           type="submit"
                           disabled={creatingPost || (!postMedia && !postContent.trim())}
-                          className="h-9 shrink-0 rounded-xl bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 text-sm font-semibold text-white shadow-sm transition disabled:opacity-50"
+                          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 text-sm font-semibold text-white shadow-sm transition disabled:opacity-50"
                         >
+                          <Send size={14} />
                           {creatingPost
                             ? postMedia
                               ? 'Nahrávám…'
@@ -863,13 +956,29 @@ export function HomeLayout({
                           <div className="mt-3 flex items-center gap-2 px-3 pb-3 text-xs text-zinc-600 md:px-4 md:pb-4">
                             <button
                               type="button"
-                              onClick={() => void toggleFavorite(String(p.id ?? ''))}
-                              className="rounded-lg border border-zinc-200 bg-white px-2 py-1"
+                              onClick={() => void toggleReaction(String(p.id ?? ''), 'LIKE')}
+                              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1.5 ${
+                                likedByPostId[String(p.id ?? '')]
+                                  ? 'border-rose-200 bg-rose-50 text-rose-600'
+                                  : 'border-zinc-200 bg-white text-zinc-600'
+                              }`}
                               aria-label="Přepnout oblíbené"
                             >
-                              {likedByPostId[String(p.id ?? '')] ? '❤️' : '🤍'}
+                              <Heart size={14} />
+                              <span>{likeCountByPostId[String(p.id ?? '')] ?? Number((p._count as { favorites?: number } | undefined)?.favorites ?? 0)}</span>
                             </button>
-                            <span>{likeCountByPostId[String(p.id ?? '')] ?? Number((p._count as { favorites?: number } | undefined)?.favorites ?? 0)} líbí se</span>
+                            <button
+                              type="button"
+                              onClick={() => void toggleReaction(String(p.id ?? ''), 'DISLIKE')}
+                              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1.5 ${
+                                dislikedByPostId[String(p.id ?? '')]
+                                  ? 'border-slate-300 bg-slate-100 text-slate-700'
+                                  : 'border-zinc-200 bg-white text-zinc-600'
+                              }`}
+                            >
+                              <ThumbsDown size={14} />
+                              <span>{dislikeCountByPostId[String(p.id ?? '')] ?? 0}</span>
+                            </button>
                             <button
                               type="button"
                               onClick={() => {
@@ -880,9 +989,10 @@ export function HomeLayout({
                                   void loadComments(postId);
                                 }
                               }}
-                              className="rounded-lg border border-zinc-200 bg-white px-2 py-1"
+                              className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-3 py-1.5"
                             >
-                              💬 {commentsByPostId[String(p.id ?? '')]?.length ??
+                              <MessageCircle size={14} />
+                              {commentsByPostId[String(p.id ?? '')]?.length ??
                                 Number((p._count as { comments?: number } | undefined)?.comments ?? 0)}
                             </button>
                           </div>
@@ -936,7 +1046,7 @@ export function HomeLayout({
           )}
         </main>
 
-        <div className="hidden min-h-0 min-w-0 shrink-0 overflow-x-hidden xl:block">
+        <div className={`hidden min-h-0 min-w-0 shrink-0 overflow-x-hidden xl:block ${viewMode === 'posts' ? 'xl:hidden' : ''}`}>
           <RightSidebar className="mt-4 mb-4 w-full max-w-full flex-col" />
         </div>
       </div>

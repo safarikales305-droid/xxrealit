@@ -8,11 +8,13 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   UploadedFile,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { PostCategory, ReactionType } from '@prisma/client';
 import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -25,6 +27,15 @@ import { PostsService } from './posts.service';
 
 @Controller('posts')
 export class PostsController {
+  @Get()
+  list(@Query('category') category?: string) {
+    const value = (category ?? '').trim();
+    const cat = (['MAKLERI', 'STAVEBNI_FIRMY', 'REMESLNICI', 'REALITNI_KANCELARE'].includes(value)
+      ? (value as PostCategory)
+      : undefined);
+    return this.postsService.listCommunityPosts(cat);
+  }
+
   constructor(private readonly postsService: PostsService) {}
 
   @Post()
@@ -63,9 +74,34 @@ export class PostsController {
     return this.postsService.addComment(postId, user.id, text);
   }
 
+  @Post(':id/comments')
+  @UseGuards(JwtAuthGuard)
+  addCommentAlias(
+    @Param('id') postId: string,
+    @Body('content') content: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const text = (content ?? '').trim();
+    if (!text) {
+      throw new BadRequestException('Komentář nesmí být prázdný.');
+    }
+    return this.postsService.addComment(postId, user.id, text);
+  }
+
   @Get(':id/comments')
   getComments(@Param('id') postId: string) {
     return this.postsService.getComments(postId);
+  }
+
+  @Post(':id/reaction')
+  @UseGuards(JwtAuthGuard)
+  setReaction(
+    @Param('id') postId: string,
+    @Body('type') type: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const reaction = type === 'DISLIKE' ? ReactionType.DISLIKE : ReactionType.LIKE;
+    return this.postsService.toggleReaction(postId, user.id, reaction);
   }
 
   @Get(':id')
@@ -244,6 +280,7 @@ export class PostsController {
       price: Math.trunc(priceNum),
       city: body.city.trim(),
       type,
+      category: body.category,
       media,
     });
 

@@ -671,6 +671,12 @@ export type ListingPost = {
     favorites?: number;
     comments?: number;
   };
+  category?: 'MAKLERI' | 'STAVEBNI_FIRMY' | 'REMESLNICI' | 'REALITNI_KANCELARE';
+  reactions?: Array<{
+    userId: string;
+    postId: string;
+    type: 'LIKE' | 'DISLIKE';
+  }>;
 };
 
 function postsApiBase(): string {
@@ -784,6 +790,7 @@ export async function nestCreateListingPost(
     video?: File | null;
     images: File[];
     imageOrder: string[];
+    category?: 'MAKLERI' | 'STAVEBNI_FIRMY' | 'REMESLNICI' | 'REALITNI_KANCELARE';
   },
 ): Promise<{ ok: true; post: ListingPost } | { ok: false; error?: string }> {
   if (!API_BASE_URL || !token) {
@@ -795,6 +802,7 @@ export async function nestCreateListingPost(
   fd.append('price', String(Math.max(0, Math.trunc(input.price))));
   fd.append('city', input.city);
   fd.append('type', input.type);
+  if (input.category) fd.append('category', input.category);
   fd.append('imageOrder', JSON.stringify(input.imageOrder));
   if (input.video) {
     fd.append('video', input.video);
@@ -838,4 +846,64 @@ export async function nestFetchPostDetail(postId: string): Promise<ListingPost |
   });
   if (!res.ok) return null;
   return (await res.json()) as ListingPost;
+}
+
+export async function nestFetchCommunityPosts(
+  category?: 'MAKLERI' | 'STAVEBNI_FIRMY' | 'REMESLNICI' | 'REALITNI_KANCELARE',
+): Promise<ListingPost[]> {
+  if (!API_BASE_URL) return [];
+  const qs = category ? `?category=${encodeURIComponent(category)}` : '';
+  const res = await fetch(`${postsApiBase()}/posts${qs}`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) return [];
+  const data = (await res.json()) as unknown;
+  return Array.isArray(data) ? (data as ListingPost[]) : [];
+}
+
+export async function nestSetPostReaction(
+  token: string | null,
+  postId: string,
+  type: 'LIKE' | 'DISLIKE',
+): Promise<
+  | { ok: true; likeCount: number; dislikeCount: number; reaction: 'LIKE' | 'DISLIKE' | null }
+  | { ok: false; error?: string }
+> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${postsApiBase()}/posts/${encodeURIComponent(postId)}/reaction`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ type }),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    likeCount?: number;
+    dislikeCount?: number;
+    reaction?: 'LIKE' | 'DISLIKE' | null;
+    message?: string | string[];
+    error?: string;
+  };
+  if (!res.ok) {
+    const msg =
+      typeof data.message === 'string'
+        ? data.message
+        : Array.isArray(data.message)
+          ? data.message.join(', ')
+          : typeof data.error === 'string'
+            ? data.error
+            : `HTTP ${res.status}`;
+    return { ok: false, error: msg };
+  }
+  return {
+    ok: true,
+    likeCount: Number(data.likeCount ?? 0),
+    dislikeCount: Number(data.dislikeCount ?? 0),
+    reaction: data.reaction ?? null,
+  };
 }

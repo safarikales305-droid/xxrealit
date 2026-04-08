@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { PostCategory, ReactionType } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { CreatePostDto } from './dto/create-post.dto';
 
@@ -97,6 +98,7 @@ export class PostsService {
     return this.prisma.post.create({
       data: {
         type: 'post',
+        category: (dto.category as PostCategory | undefined) ?? PostCategory.MAKLERI,
         title: '',
         price: 0,
         city: '',
@@ -105,6 +107,8 @@ export class PostsService {
         description: text || '',
       },
       include: {
+        media: { orderBy: { order: 'asc' } },
+        reactions: true,
         user: {
           select: {
             id: true,
@@ -173,6 +177,7 @@ export class PostsService {
       city: string;
       type: 'post' | 'short';
       media: Array<{ url: string; type: 'video' | 'image'; order: number }>;
+      category?: PostCategory;
     },
   ) {
     return this.prisma.post.create({
@@ -182,6 +187,7 @@ export class PostsService {
         price: input.price,
         city: input.city,
         type: input.type,
+        category: input.category ?? PostCategory.MAKLERI,
         content: input.description,
         userId,
         media: {
@@ -192,6 +198,7 @@ export class PostsService {
         media: {
           orderBy: { order: 'asc' },
         },
+        reactions: true,
         user: {
           select: {
             id: true,
@@ -212,6 +219,7 @@ export class PostsService {
         media: {
           orderBy: { order: 'asc' },
         },
+        reactions: true,
         _count: {
           select: {
             favorites: true,
@@ -235,5 +243,53 @@ export class PostsService {
       ...post,
       media,
     };
+  }
+
+  listCommunityPosts(category?: PostCategory) {
+    return this.prisma.post.findMany({
+      where: category ? { category } : undefined,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        media: { orderBy: { order: 'asc' } },
+        reactions: true,
+        _count: { select: { comments: true } },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatar: true,
+            role: true,
+          },
+        },
+      },
+    });
+  }
+
+  async toggleReaction(postId: string, userId: string, type: ReactionType) {
+    const existing = await this.prisma.postReaction.findUnique({
+      where: { userId_postId: { userId, postId } },
+    });
+    if (existing && existing.type === type) {
+      await this.prisma.postReaction.delete({ where: { id: existing.id } });
+    } else if (existing) {
+      await this.prisma.postReaction.update({
+        where: { id: existing.id },
+        data: { type },
+      });
+    } else {
+      await this.prisma.postReaction.create({
+        data: { postId, userId, type },
+      });
+    }
+    const [likeCount, dislikeCount] = await Promise.all([
+      this.prisma.postReaction.count({ where: { postId, type: ReactionType.LIKE } }),
+      this.prisma.postReaction.count({ where: { postId, type: ReactionType.DISLIKE } }),
+    ]);
+    const mine = await this.prisma.postReaction.findUnique({
+      where: { userId_postId: { userId, postId } },
+      select: { type: true },
+    });
+    return { likeCount, dislikeCount, reaction: mine?.type ?? null };
   }
 }
