@@ -90,7 +90,6 @@ export function HomeLayout({
   const [postTitle, setPostTitle] = useState('');
   const [postPrice, setPostPrice] = useState('');
   const [postCity, setPostCity] = useState('');
-  const [postListingType, setPostListingType] = useState<'post' | 'short'>('post');
   const [postCategory, setPostCategory] = useState<
     'MAKLERI' | 'STAVEBNI_FIRMY' | 'REMESLNICI' | 'REALITNI_KANCELARE'
   >('MAKLERI');
@@ -102,7 +101,8 @@ export function HomeLayout({
   const [postImages, setPostImages] = useState<File[]>([]);
   const [dragImageIndex, setDragImageIndex] = useState<number | null>(null);
   const [postVideo, setPostVideo] = useState<File | null>(null);
-  const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
+  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
   const [postMediaError, setPostMediaError] = useState<string | null>(null);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
@@ -132,14 +132,26 @@ export function HomeLayout({
   );
 
   useEffect(() => {
-    if (!postMedia) {
-      setMediaPreviewUrl(null);
+    if (!postVideo) {
+      setVideoPreviewUrl(null);
       return;
     }
-    const url = URL.createObjectURL(postMedia);
-    setMediaPreviewUrl(url);
+    const url = URL.createObjectURL(postVideo);
+    setVideoPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
-  }, [postMedia]);
+  }, [postVideo]);
+
+  useEffect(() => {
+    if (postImages.length === 0) {
+      setImagePreviewUrls([]);
+      return;
+    }
+    const urls = postImages.map((img) => URL.createObjectURL(img));
+    setImagePreviewUrls(urls);
+    return () => {
+      for (const u of urls) URL.revokeObjectURL(u);
+    };
+  }, [postImages]);
 
   function handleMediaChange(e: React.ChangeEvent<HTMLInputElement>) {
     setPostMediaError(null);
@@ -153,11 +165,6 @@ export function HomeLayout({
     }
     const videoFiles = files.filter((f) => f.type.startsWith('video/'));
     const imageFiles = files.filter((f) => f.type.startsWith('image/'));
-    if (files.length > 1) {
-      setPostMediaError('Vyberte pouze jedno hlavní médium.');
-      e.target.value = '';
-      return;
-    }
     if (videoFiles.length > 1) {
       setPostMediaError('Only 1 video allowed');
       e.target.value = '';
@@ -182,7 +189,7 @@ export function HomeLayout({
     }
     setPostVideo(videoFiles[0] ?? null);
     setPostImages(imageFiles);
-    setPostMedia(file ?? null);
+    setPostMedia(videoFiles[0] ?? imageFiles[0] ?? file ?? null);
   }
 
   function moveImage(from: number, to: number) {
@@ -377,17 +384,23 @@ export function HomeLayout({
     setCreatingPost(true);
     try {
       if (postMedia || postTitle.trim()) {
+        console.log('LISTING SUBMIT START', {
+          hasVideo: Boolean(postVideo),
+          imageCount: postImages.length,
+          imageOrder: postImages.map((f) => `${f.name}::${f.size}`),
+        });
         const r = await nestCreateListingPost(apiAccessToken, {
           title: postTitle.trim() || 'Inzerát',
           description: text || postTitle.trim() || 'Inzerát',
           price: Number(postPrice || 0),
           city: postCity.trim() || 'Neuvedeno',
-          type: postListingType,
+          type: postVideo ? 'short' : 'post',
           category: postCategory,
           video: postVideo,
           images: postImages,
-          imageOrder: postImages.map((f) => f.name),
+          imageOrder: postImages.map((f) => `${f.name}::${f.size}`),
         });
+        console.log('LISTING SUBMIT RESPONSE', r);
         if (!r.ok) {
           alert('Upload selhal');
           setPostMediaError(r.error ?? 'Upload média selhal.');
@@ -661,6 +674,8 @@ export function HomeLayout({
                               className="text-xs font-semibold text-red-600 hover:underline"
                               onClick={() => {
                                 setPostMedia(null);
+                                setPostVideo(null);
+                                setPostImages([]);
                                 setPostMediaError(null);
                                 if (postMediaInputRef.current) {
                                   postMediaInputRef.current.value = '';
@@ -677,27 +692,28 @@ export function HomeLayout({
                           {postMediaError}
                         </p>
                       ) : null}
-                      {mediaPreviewUrl && postMedia?.type.startsWith('video') ? (
-                        <video
-                          muted
-                          playsInline
-                          autoPlay
-                          loop
-                          controls
-                          preload="metadata"
-                          className="mt-3 aspect-square w-full max-w-xs rounded-2xl object-cover"
-                          src={mediaPreviewUrl}
-                        />
-                      ) : null}
-                      {mediaPreviewUrl && postMedia?.type.startsWith('image') ? (
-                        <img
-                          alt="Náhled"
-                          src={mediaPreviewUrl}
-                          className="mt-3 aspect-square w-full max-w-xs rounded-2xl object-cover"
-                        />
-                      ) : null}
-                      {postImages.length > 0 ? (
+                      {(videoPreviewUrl || imagePreviewUrls.length > 0) ? (
                         <div className="mt-3 space-y-2">
+                          {videoPreviewUrl ? (
+                            <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+                              <div className="relative">
+                                <video
+                                  muted
+                                  playsInline
+                                  autoPlay
+                                  loop
+                                  controls
+                                  preload="metadata"
+                                  className="h-auto w-full object-contain"
+                                  src={videoPreviewUrl}
+                                />
+                                <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[11px] font-semibold text-white">
+                                  Video / bude první
+                                </span>
+                              </div>
+                            </div>
+                          ) : null}
+
                           {postImages.map((img, idx) => (
                             <div
                               key={`${img.name}-${idx}`}
@@ -710,26 +726,38 @@ export function HomeLayout({
                                 moveImage(dragImageIndex, idx);
                                 setDragImageIndex(null);
                               }}
-                              className="flex items-center justify-between rounded-lg border border-zinc-200 px-2 py-1 text-xs"
+                              className="overflow-hidden rounded-2xl border border-zinc-200 bg-white"
                             >
-                              <span className="truncate pr-2">{img.name}</span>
-                              <div className="flex gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => moveImage(idx, idx - 1)}
-                                  disabled={idx === 0}
-                                  className="rounded border border-zinc-200 px-2 py-0.5 disabled:opacity-40"
-                                >
-                                  ↑
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => moveImage(idx, idx + 1)}
-                                  disabled={idx === postImages.length - 1}
-                                  className="rounded border border-zinc-200 px-2 py-0.5 disabled:opacity-40"
-                                >
-                                  ↓
-                                </button>
+                              <div className="relative">
+                                <img
+                                  src={imagePreviewUrls[idx]}
+                                  alt={img.name}
+                                  className="h-40 w-full object-cover"
+                                />
+                                <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[11px] font-semibold text-white">
+                                  {videoPreviewUrl ? idx + 1 : idx + 1}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between px-2 py-1 text-xs">
+                                <span className="truncate pr-2">{img.name}</span>
+                                <div className="flex gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => moveImage(idx, idx - 1)}
+                                    disabled={idx === 0}
+                                    className="rounded border border-zinc-200 px-2 py-0.5 disabled:opacity-40"
+                                  >
+                                    ←
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => moveImage(idx, idx + 1)}
+                                    disabled={idx === postImages.length - 1}
+                                    className="rounded border border-zinc-200 px-2 py-0.5 disabled:opacity-40"
+                                  >
+                                    →
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           ))}

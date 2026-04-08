@@ -217,7 +217,7 @@ export class PostsController {
       throw new BadRequestException('Only 1 video allowed');
     }
 
-    const imageOrderNames = (() => {
+    const imageOrderKeys = (() => {
       if (!body.imageOrder) return [];
       try {
         const parsed = JSON.parse(body.imageOrder) as unknown;
@@ -229,10 +229,12 @@ export class PostsController {
     })();
 
     const orderedImages =
-      imageOrderNames.length > 0
+      imageOrderKeys.length > 0
         ? [...images].sort((a, b) => {
-            const ai = imageOrderNames.indexOf(a.originalname);
-            const bi = imageOrderNames.indexOf(b.originalname);
+            const aKey = `${a.originalname}::${a.size}`;
+            const bKey = `${b.originalname}::${b.size}`;
+            const ai = imageOrderKeys.indexOf(aKey);
+            const bi = imageOrderKeys.indexOf(bKey);
             const am = ai === -1 ? Number.MAX_SAFE_INTEGER : ai;
             const bm = bi === -1 ? Number.MAX_SAFE_INTEGER : bi;
             return am - bm;

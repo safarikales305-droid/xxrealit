@@ -206,8 +206,23 @@ model Property {
 
   likes     PropertyLike[]
   comments  PropertyComment[]
+  media     PropertyMedia[]
 
   @@index([userId])
+}
+
+model PropertyMedia {
+  id         String   @id @default(cuid())
+  propertyId String
+  url        String
+  type       String
+  sortOrder  Int
+  createdAt  DateTime @default(now())
+
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@index([sortOrder])
 }
 
 model Visit {

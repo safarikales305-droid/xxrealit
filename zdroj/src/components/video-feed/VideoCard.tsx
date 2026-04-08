@@ -70,11 +70,13 @@ export default function VideoCard({ video }: VideoCardProps) {
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-4 text-white">
         <div className="space-y-1">
-          <div className={`text-lg font-bold ${isAuthenticated ? '' : 'blur-sm select-none'}`}>
-            {Number(video.price ?? 0).toLocaleString('cs-CZ')} Kč
+          <div className="text-xl font-bold text-white">
+            <span className={isAuthenticated ? '' : 'blur-[6px] select-none opacity-90'}>
+              {Number(video.price ?? 0).toLocaleString('cs-CZ')} Kč
+            </span>
           </div>
           <div className="text-sm font-medium">
-            {video.title ?? `${video.city ?? ''}`}
+            {video.title ?? ''} {video.city ?? ''}
           </div>
           <button
             type="button"
