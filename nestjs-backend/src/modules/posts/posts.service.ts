@@ -92,9 +92,12 @@ export class PostsService {
     return this.prisma.post.create({
       data: {
         type: 'post',
+        title: '',
+        price: 0,
+        city: '',
         userId,
         content: text || null,
-        description: text || null,
+        description: text || '',
       },
       include: {
         user: {
@@ -122,14 +125,94 @@ export class PostsService {
     const isVideo = opts.kind === 'video';
     return this.prisma.post.create({
       data: {
-        type: isVideo ? 'video' : 'image',
-        videoUrl: isVideo ? opts.url : null,
-        imageUrl: isVideo ? null : opts.url,
-        description: text || null,
+        type: 'post',
+        title: '',
+        price: 0,
+        city: '',
+        description: text || '',
         content: text || null,
         userId,
+        media: {
+          create: [
+            {
+              url: opts.url,
+              type: isVideo ? 'video' : 'image',
+              order: isVideo ? 0 : 1,
+            },
+          ],
+        },
       },
       include: {
+        media: {
+          orderBy: { order: 'asc' },
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatar: true,
+            role: true,
+          },
+        },
+      },
+    });
+  }
+
+  createListingPost(
+    userId: string,
+    input: {
+      title: string;
+      description: string;
+      price: number;
+      city: string;
+      type: 'post' | 'short';
+      media: Array<{ url: string; type: 'video' | 'image'; order: number }>;
+    },
+  ) {
+    return this.prisma.post.create({
+      data: {
+        title: input.title,
+        description: input.description,
+        price: input.price,
+        city: input.city,
+        type: input.type,
+        content: input.description,
+        userId,
+        media: {
+          create: input.media,
+        },
+      },
+      include: {
+        media: {
+          orderBy: { order: 'asc' },
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatar: true,
+            role: true,
+          },
+        },
+      },
+    });
+  }
+
+  getPostDetail(id: string) {
+    return this.prisma.post.findUnique({
+      where: { id },
+      include: {
+        media: {
+          orderBy: { order: 'asc' },
+        },
+        _count: {
+          select: {
+            favorites: true,
+            comments: true,
+          },
+        },
         user: {
           select: {
             id: true,

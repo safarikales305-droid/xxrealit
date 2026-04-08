@@ -1,15 +1,17 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { ComponentType } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
 import {
   nestAddPostComment,
-  nestCreateVideoPost,
+  nestCreateListingPost,
   nestFetchPostComments,
   nestTogglePostFavorite,
+  type ListingPost,
   type PostComment,
   type ShortVideo,
 } from '@/lib/nest-client';
@@ -39,6 +41,7 @@ export function HomeLayout({
   ShortsFeed,
   apiConfigMissing = false,
 }: Props) {
+  const router = useRouter();
   const { refresh, user, isAuthenticated, apiAccessToken } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
 
@@ -63,8 +66,15 @@ export function HomeLayout({
   const [postFeed, setPostFeed] = useState<Array<Record<string, unknown>>>([]);
   const [loadingFeed, setLoadingFeed] = useState(false);
   const [postContent, setPostContent] = useState('');
+  const [postTitle, setPostTitle] = useState('');
+  const [postPrice, setPostPrice] = useState('');
+  const [postCity, setPostCity] = useState('');
+  const [postListingType, setPostListingType] = useState<'post' | 'short'>('post');
   const [creatingPost, setCreatingPost] = useState(false);
   const [postMedia, setPostMedia] = useState<File | null>(null);
+  const [postImages, setPostImages] = useState<File[]>([]);
+  const [dragImageIndex, setDragImageIndex] = useState<number | null>(null);
+  const [postVideo, setPostVideo] = useState<File | null>(null);
   const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
   const [postMediaError, setPostMediaError] = useState<string | null>(null);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
@@ -82,16 +92,13 @@ export function HomeLayout({
   const storyPosts = useMemo(
     () =>
       postFeed.filter((p) => {
-        const v = String(p.videoUrl ?? '').trim();
-        const i = String((p as { imageUrl?: string }).imageUrl ?? '').trim();
-        if (!v && !i) return false;
+        const media = Array.isArray((p as { media?: unknown[] }).media)
+          ? ((p as { media?: Array<{ type?: string; url?: string }> }).media ?? [])
+          : [];
+        const hasVideo = media.some((m) => m?.type === 'video' && (m.url ?? '').trim().length > 0);
+        if (!hasVideo) return false;
         const t = String(p.type ?? '');
-        return (
-          t === 'post' ||
-          t === 'video' ||
-          t === 'image' ||
-          t === 'text'
-        );
+        return t === 'short' || t === 'post';
       }),
     [postFeed],
   );
@@ -108,28 +115,51 @@ export function HomeLayout({
 
   function handleMediaChange(e: React.ChangeEvent<HTMLInputElement>) {
     setPostMediaError(null);
-    const file = e.target.files?.[0] ?? null;
-    if (!file) {
+    const files = Array.from(e.target.files ?? []);
+    const file = files[0] ?? null;
+    if (!file && files.length === 0) {
       setPostMedia(null);
+      setPostVideo(null);
+      setPostImages([]);
       return;
     }
-    if (
-      !file.type.startsWith('video/') &&
-      !file.type.startsWith('image/')
-    ) {
-      setPostMediaError('Povolené jsou pouze video nebo obrázek.');
+    const videoFiles = files.filter((f) => f.type.startsWith('video/'));
+    const imageFiles = files.filter((f) => f.type.startsWith('image/'));
+    if (videoFiles.length > 1) {
+      setPostMediaError('Only 1 video allowed');
       e.target.value = '';
       return;
     }
-    if (file.size > 300 * 1024 * 1024) {
-      setPostMediaError('Maximální velikost souboru je 300 MB.');
+    if (imageFiles.length > 30) {
+      setPostMediaError('Max 30 images');
       e.target.value = '';
       return;
     }
-    if (file.size > 60 * 1024 * 1024) {
-      alert('Médium bude komprimováno v cloudu');
+    for (const f of files) {
+      if (!f.type.startsWith('video/') && !f.type.startsWith('image/')) {
+        setPostMediaError('Povolené jsou pouze video nebo obrázek.');
+        e.target.value = '';
+        return;
+      }
+      if (f.size > 300 * 1024 * 1024) {
+        setPostMediaError('Maximální velikost souboru je 300 MB.');
+        e.target.value = '';
+        return;
+      }
     }
-    setPostMedia(file);
+    setPostVideo(videoFiles[0] ?? null);
+    setPostImages(imageFiles);
+    setPostMedia(file ?? null);
+  }
+
+  function moveImage(from: number, to: number) {
+    setPostImages((prev) => {
+      if (from < 0 || to < 0 || from >= prev.length || to >= prev.length) return prev;
+      const next = [...prev];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
   }
 
   function handlePostContentChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -285,30 +315,39 @@ export function HomeLayout({
     if (!API_BASE_URL || !user || !apiAccessToken) return;
 
     const text = postContent.trim();
-    if (!postMedia && !text) return;
+    if (!postMedia && !text && !postTitle.trim()) return;
 
     setPostMediaError(null);
     setCreatingPost(true);
     try {
-      const postsBase = API_BASE_URL.endsWith('/api') ? API_BASE_URL : `${API_BASE_URL}/api`;
-      if (postMedia) {
-        const r = await nestCreateVideoPost(apiAccessToken, postMedia, text);
-        if (!r.success) {
+      if (postMedia || postTitle.trim()) {
+        const r = await nestCreateListingPost(apiAccessToken, {
+          title: postTitle.trim() || 'Inzerát',
+          description: text || postTitle.trim() || 'Inzerát',
+          price: Number(postPrice || 0),
+          city: postCity.trim() || 'Neuvedeno',
+          type: postListingType,
+          video: postVideo,
+          images: postImages,
+          imageOrder: postImages.map((f) => f.name),
+        });
+        if (!r.ok) {
           alert('Upload selhal');
           setPostMediaError(r.error ?? 'Upload média selhal.');
           return;
         }
-        if (!r.url) {
-          alert('Upload selhal');
-          setPostMediaError('Upload média selhal.');
-          return;
-        }
         setPostMedia(null);
+        setPostVideo(null);
+        setPostImages([]);
+        setPostTitle('');
+        setPostPrice('');
+        setPostCity('');
         setPostContent('');
         if (postMediaInputRef.current) {
           postMediaInputRef.current.value = '';
         }
       } else {
+        const postsBase = API_BASE_URL.endsWith('/api') ? API_BASE_URL : `${API_BASE_URL}/api`;
         const postRes = await fetch(`${postsBase}/posts`, {
           method: 'POST',
           headers: {
@@ -471,6 +510,34 @@ export function HomeLayout({
                       onSubmit={(e) => void handleSubmit(e)}
                       className="mb-6 rounded-2xl border border-zinc-200/90 bg-white p-4 shadow-sm"
                     >
+                      <div className="mb-2 grid grid-cols-2 gap-2">
+                        <input
+                          value={postTitle}
+                          onChange={(e) => setPostTitle(e.target.value)}
+                          placeholder="Název inzerátu"
+                          className="h-9 rounded-xl border border-zinc-200 px-2 text-sm"
+                        />
+                        <input
+                          value={postCity}
+                          onChange={(e) => setPostCity(e.target.value)}
+                          placeholder="Město"
+                          className="h-9 rounded-xl border border-zinc-200 px-2 text-sm"
+                        />
+                        <input
+                          value={postPrice}
+                          onChange={(e) => setPostPrice(e.target.value.replace(/[^\d]/g, ''))}
+                          placeholder="Cena (Kč)"
+                          className="h-9 rounded-xl border border-zinc-200 px-2 text-sm"
+                        />
+                        <select
+                          value={postListingType}
+                          onChange={(e) => setPostListingType(e.target.value === 'short' ? 'short' : 'post')}
+                          className="h-9 rounded-xl border border-zinc-200 px-2 text-sm"
+                        >
+                          <option value="post">Post</option>
+                          <option value="short">Short</option>
+                        </select>
+                      </div>
                       <textarea
                         ref={postTextareaRef}
                         rows={1}
@@ -487,6 +554,7 @@ export function HomeLayout({
                         ref={postMediaInputRef}
                         type="file"
                         accept="video/*,image/*"
+                        multiple
                         className="sr-only"
                         aria-label="Vybrat video nebo obrázek"
                         onChange={handleMediaChange}
@@ -537,6 +605,45 @@ export function HomeLayout({
                           className="mt-3 aspect-square w-full max-w-xs rounded-2xl object-cover"
                         />
                       ) : null}
+                      {postImages.length > 0 ? (
+                        <div className="mt-3 space-y-2">
+                          {postImages.map((img, idx) => (
+                            <div
+                              key={`${img.name}-${idx}`}
+                              draggable
+                              onDragStart={() => setDragImageIndex(idx)}
+                              onDragEnd={() => setDragImageIndex(null)}
+                              onDragOver={(e) => e.preventDefault()}
+                              onDrop={() => {
+                                if (dragImageIndex == null) return;
+                                moveImage(dragImageIndex, idx);
+                                setDragImageIndex(null);
+                              }}
+                              className="flex items-center justify-between rounded-lg border border-zinc-200 px-2 py-1 text-xs"
+                            >
+                              <span className="truncate pr-2">{img.name}</span>
+                              <div className="flex gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => moveImage(idx, idx - 1)}
+                                  disabled={idx === 0}
+                                  className="rounded border border-zinc-200 px-2 py-0.5 disabled:opacity-40"
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => moveImage(idx, idx + 1)}
+                                  disabled={idx === postImages.length - 1}
+                                  className="rounded border border-zinc-200 px-2 py-0.5 disabled:opacity-40"
+                                >
+                                  ↓
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                       <div className="mt-4 flex items-center gap-2">
                         <button
                           type="button"
@@ -569,39 +676,26 @@ export function HomeLayout({
                       </p>
                       <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2 no-scrollbar">
                         {storyPosts.map((p) => {
-                          const v = nestAbsoluteAssetUrl(
-                            String(p.videoUrl ?? ''),
+                          const media = ((p as ListingPost).media ?? []).sort(
+                            (a, b) => a.order - b.order,
                           );
-                          const i = nestAbsoluteAssetUrl(
-                            String(
-                              (p as { imageUrl?: string }).imageUrl ?? '',
-                            ),
-                          );
-                          const hasVideo = Boolean(String(p.videoUrl ?? '').trim());
-                          const src = hasVideo ? v : i;
+                          const firstVideo = media.find((m) => m.type === 'video');
+                          const src = nestAbsoluteAssetUrl(firstVideo?.url ?? '');
                           if (!src) return null;
                           return (
                             <button
                               key={String(p.id)}
                               type="button"
-                              onClick={() => setDetailPost(p)}
+                              onClick={() => router.push(`/post/${String(p.id)}`)}
                               className="flex h-[120px] min-w-[70px] shrink-0 overflow-hidden rounded-xl ring-2 ring-orange-500/25 ring-offset-2 transition hover:ring-orange-500/60"
                             >
-                              {hasVideo ? (
-                                <video
-                                  muted
-                                  playsInline
-                                  preload="metadata"
-                                  className="pointer-events-none h-full w-full object-cover"
-                                  src={src}
-                                />
-                              ) : (
-                                <img
-                                  alt=""
-                                  src={src}
-                                  className="pointer-events-none h-full w-full object-cover"
-                                />
-                              )}
+                              <video
+                                muted
+                                playsInline
+                                preload="metadata"
+                                className="pointer-events-none h-full w-full object-cover"
+                                src={src}
+                              />
                             </button>
                           );
                         })}
@@ -617,22 +711,15 @@ export function HomeLayout({
                     ) : (
                       postFeed.map((p) => {
                         const postType = String(p.type ?? '');
-                        const videoRaw = String(p.videoUrl ?? '').trim();
-                        const imageRaw = String(
-                          (p as { imageUrl?: string }).imageUrl ?? '',
-                        ).trim();
-                        const showFeedVideo =
-                          Boolean(videoRaw) &&
-                          (postType === 'video' ||
-                            postType === 'short' ||
-                            postType === 'post' ||
-                            postType === 'text');
-                        const showFeedImage =
-                          Boolean(imageRaw) &&
-                          !showFeedVideo &&
-                          (postType === 'image' ||
-                            postType === 'post' ||
-                            postType === 'text');
+                        const media = ((p as ListingPost).media ?? []).sort(
+                          (a, b) => a.order - b.order,
+                        );
+                        const firstVideo = media.find((m) => m.type === 'video');
+                        const firstImage = media.find((m) => m.type === 'image');
+                        const videoRaw = String(firstVideo?.url ?? p.videoUrl ?? '').trim();
+                        const imageRaw = String(firstImage?.url ?? (p as { imageUrl?: string }).imageUrl ?? '').trim();
+                        const showFeedVideo = Boolean(videoRaw);
+                        const showFeedImage = !showFeedVideo && Boolean(imageRaw);
 
                         return (
                         <article
@@ -709,7 +796,7 @@ export function HomeLayout({
                             <button
                               type="button"
                               className="mt-3 block w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] text-left md:relative md:left-auto md:right-auto md:-ml-0 md:-mr-0 md:w-full"
-                              onClick={() => setDetailPost(p)}
+                              onClick={() => router.push(`/post/${String(p.id)}`)}
                             >
                               <div className="relative w-full overflow-hidden bg-black">
                                 <img
@@ -724,7 +811,7 @@ export function HomeLayout({
                             <button
                               type="button"
                               className="mt-3 block w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] text-left md:relative md:left-auto md:right-auto md:-ml-0 md:-mr-0 md:w-full"
-                              onClick={() => setDetailPost(p)}
+                              onClick={() => router.push(`/post/${String(p.id)}`)}
                             >
                               <div className="w-full bg-black">
                                 <video
@@ -737,13 +824,22 @@ export function HomeLayout({
                                   preload="metadata"
                                   className="h-auto w-full object-contain"
                                 />
+                                <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 text-white">
+                                  <p className="text-sm">{String((p as ListingPost).title ?? '')}</p>
+                                  <p className="text-lg font-bold">
+                                    <span className={!isAuthenticated ? 'blur-sm' : ''}>
+                                      {Number((p as ListingPost).price ?? 0).toLocaleString('cs-CZ')} Kč
+                                    </span>
+                                  </p>
+                                  <p className="text-xs">{String((p as ListingPost).city ?? '')}</p>
+                                </div>
                               </div>
                             </button>
                           ) : null}
                           {editingPostId !== String(p.id ?? '') ? (
                           <div className="px-3 py-2">
                               <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">
-                                {String(p.description ?? p.content ?? '')}
+                                {String((p as ListingPost).description ?? p.description ?? p.content ?? '')}
                               </p>
                             </div>
                           ) : null}

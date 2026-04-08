@@ -46,19 +46,33 @@ model User {
 
 model Post {
   id          String   @id @default(cuid())
-  type        String   @default("text")
-  videoUrl    String?
-  imageUrl    String?
-  description String?
+  title       String   @default("")
+  description String   @default("")
+  price       Int      @default(0)
+  city        String   @default("")
+  type        String   @default("post")
   content     String?
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  media       Media[]
   favorites   Favorite[]
   comments    Comment[]
   createdAt   DateTime @default(now())
 
   @@index([userId])
   @@index([createdAt])
+}
+
+model Media {
+  id        String @id @default(cuid())
+  url       String
+  type      String
+  order     Int
+  postId    String
+  post      Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@index([order])
 }
 
 model Favorite {

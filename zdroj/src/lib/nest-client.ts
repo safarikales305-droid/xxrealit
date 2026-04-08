@@ -641,6 +641,34 @@ export type PostComment = {
   } | null;
 };
 
+export type ListingMedia = {
+  id: string;
+  url: string;
+  type: 'image' | 'video';
+  order: number;
+};
+
+export type ListingPost = {
+  id: string;
+  title: string;
+  description: string;
+  price: number;
+  city: string;
+  type: 'post' | 'short' | string;
+  createdAt: string;
+  media: ListingMedia[];
+  user?: {
+    id: string;
+    name?: string | null;
+    email?: string;
+    avatar?: string | null;
+  } | null;
+  _count?: {
+    favorites?: number;
+    comments?: number;
+  };
+};
+
 function postsApiBase(): string {
   return API_BASE_URL.endsWith('/api') ? API_BASE_URL : `${API_BASE_URL}/api`;
 }
@@ -739,4 +767,71 @@ export async function nestAddPostComment(
   } catch {
     return { ok: false, error: 'Síťová chyba' };
   }
+}
+
+export async function nestCreateListingPost(
+  token: string | null,
+  input: {
+    title: string;
+    description: string;
+    price: number;
+    city: string;
+    type: 'post' | 'short';
+    video?: File | null;
+    images: File[];
+    imageOrder: string[];
+  },
+): Promise<{ ok: true; post: ListingPost } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const fd = new FormData();
+  fd.append('title', input.title);
+  fd.append('description', input.description);
+  fd.append('price', String(Math.max(0, Math.trunc(input.price))));
+  fd.append('city', input.city);
+  fd.append('type', input.type);
+  fd.append('imageOrder', JSON.stringify(input.imageOrder));
+  if (input.video) {
+    fd.append('video', input.video);
+  }
+  for (const image of input.images) {
+    fd.append('images', image);
+  }
+
+  const res = await fetch(`${postsApiBase()}/posts/listing`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+    },
+    body: fd,
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    post?: ListingPost;
+    message?: string | string[];
+    error?: string;
+  };
+  if (!res.ok || !data.post) {
+    const msg =
+      typeof data.message === 'string'
+        ? data.message
+        : Array.isArray(data.message)
+          ? data.message.join(', ')
+          : typeof data.error === 'string'
+            ? data.error
+            : `HTTP ${res.status}`;
+    return { ok: false, error: msg };
+  }
+  return { ok: true, post: data.post };
+}
+
+export async function nestFetchPostDetail(postId: string): Promise<ListingPost | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${postsApiBase()}/posts/${encodeURIComponent(postId)}`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as ListingPost;
 }

@@ -87,73 +87,45 @@ export class FeedService {
     );
   }
 
-  /** Shorts / reels: only real-estate listing videos + legacy Video rows — no user social post videos. */
+  /** Shorts = only posts with type=short and primary video media. */
   async listShorts() {
-    const [properties, videos] = await Promise.all([
-      this.prisma.property.findMany({
-        where: {
-          approved: true,
-          videoUrl: { not: null },
-        },
-        orderBy: { createdAt: 'desc' },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              avatar: true,
-              role: true,
-            },
+    const posts = await this.prisma.post.findMany({
+      where: { type: 'short' },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        media: { orderBy: { order: 'asc' } },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatar: true,
+            role: true,
           },
         },
-      }),
-      this.prisma.video.findMany({
-        orderBy: { createdAt: 'desc' },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              avatar: true,
-              role: true,
-            },
-          },
-        },
-      }),
-    ]);
+      },
+    });
 
-    const fromProperties = properties
-      .filter((p) => (p.videoUrl ?? '').trim().length > 0)
-      .map((p) => ({
-        id: `property-${p.id}`,
-        url: p.videoUrl,
-        videoUrl: p.videoUrl,
-        description: p.title ?? null,
-        content: p.title ?? null,
-        createdAt: p.createdAt,
-        user: p.user,
-        source: 'property',
-        type: 'short',
-        propertyId: p.id,
-      }));
-
-    const fromVideos = videos.map((v) => ({
-      id: v.id,
-      url: v.url,
-      videoUrl: v.url,
-      description: v.description ?? null,
-      content: v.description ?? null,
-      createdAt: v.createdAt,
-      user: v.user,
-      source: 'video',
-      type: 'short',
-    }));
-
-    return [...fromProperties, ...fromVideos].sort(
-      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-    );
+    return posts
+      .map((p) => {
+        const firstVideo = p.media.find((m) => m.type === 'video');
+        if (!firstVideo) return null;
+        return {
+          id: p.id,
+          url: firstVideo.url,
+          videoUrl: firstVideo.url,
+          title: p.title,
+          description: p.description,
+          content: p.description,
+          city: p.city,
+          price: p.price,
+          createdAt: p.createdAt,
+          user: p.user,
+          type: 'short',
+          media: p.media,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
   }
 
   /** Social feed posts (Facebook-style), not listing shorts. */
@@ -164,6 +136,9 @@ export class FeedService {
       },
       orderBy: { createdAt: 'desc' },
       include: {
+        media: {
+          orderBy: { order: 'asc' },
+        },
         _count: {
           select: {
             favorites: true,
