@@ -7,6 +7,11 @@ function normCity(c: string | null | undefined): string {
   return (c ?? '').trim().toLowerCase();
 }
 
+function isPublicMediaUrl(url: string | null | undefined): boolean {
+  const v = (url ?? '').trim();
+  return /^https?:\/\//i.test(v);
+}
+
 function scoreProperty(
   p: {
     userId: string;
@@ -90,7 +95,11 @@ export class FeedService {
   /** Shorts = only posts with type=short and primary video media. */
   async listShorts() {
     const posts = await this.prisma.post.findMany({
-      where: { type: 'short' },
+      where: {
+        media: {
+          some: { type: 'video' },
+        },
+      },
       orderBy: { createdAt: 'desc' },
       include: {
         media: { orderBy: { order: 'asc' } },
@@ -108,7 +117,8 @@ export class FeedService {
 
     return posts
       .map((p) => {
-        const firstVideo = p.media.find((m) => m.type === 'video');
+        const media = p.media.filter((m) => isPublicMediaUrl(m.url));
+        const firstVideo = media.find((m) => m.type === 'video');
         if (!firstVideo) return null;
         return {
           id: p.id,
@@ -122,7 +132,7 @@ export class FeedService {
           createdAt: p.createdAt,
           user: p.user,
           type: 'short',
-          media: p.media,
+          media,
         };
       })
       .filter((x): x is NonNullable<typeof x> => x !== null);
@@ -130,9 +140,11 @@ export class FeedService {
 
   /** Social feed posts (Facebook-style), not listing shorts. */
   async listPosts() {
-    return this.prisma.post.findMany({
+    const rows = await this.prisma.post.findMany({
       where: {
-        type: { in: ['post', 'text', 'video', 'image'] },
+        media: {
+          none: { type: 'video' },
+        },
       },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -156,6 +168,12 @@ export class FeedService {
         },
       },
     });
+    return rows
+      .map((p) => ({
+        ...p,
+        media: p.media.filter((m) => isPublicMediaUrl(m.url)),
+      }))
+      .filter((p) => p.media.length > 0);
   }
 
   async listProperties() {

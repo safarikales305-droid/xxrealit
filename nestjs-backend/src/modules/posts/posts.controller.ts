@@ -232,10 +232,7 @@ export class PostsController {
       throw new BadRequestException('Nahrajte alespoň 1 obrázek nebo video.');
     }
 
-    const type = body.type === 'short' ? 'short' : 'post';
-    if (type === 'short' && !video) {
-      throw new BadRequestException('Shorts musí obsahovat video.');
-    }
+    const type: 'post' | 'short' = video ? 'short' : 'post';
     const priceNum = Number(body.price);
     if (!Number.isFinite(priceNum) || priceNum < 0) {
       throw new BadRequestException('Cena musí být číslo >= 0.');

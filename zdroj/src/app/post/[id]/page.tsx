@@ -28,6 +28,11 @@ export default function PostDetailPage() {
     () => (post?.media ?? []).slice().sort((a, b) => a.order - b.order),
     [post],
   );
+
+  useEffect(() => {
+    if (!post) return;
+    console.log(post.media);
+  }, [post]);
   function scrollToIndex(index: number) {
     const el = carouselRef.current;
     if (!el) return;

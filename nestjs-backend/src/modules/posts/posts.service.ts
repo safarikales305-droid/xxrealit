@@ -2,6 +2,11 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { PrismaService } from '../../database/prisma.service';
 import { CreatePostDto } from './dto/create-post.dto';
 
+function isPublicMediaUrl(url: string | null | undefined): boolean {
+  const v = (url ?? '').trim();
+  return /^https?:\/\//i.test(v);
+}
+
 @Injectable()
 export class PostsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -200,8 +205,8 @@ export class PostsService {
     });
   }
 
-  getPostDetail(id: string) {
-    return this.prisma.post.findUnique({
+  async getPostDetail(id: string) {
+    const post = await this.prisma.post.findUnique({
       where: { id },
       include: {
         media: {
@@ -224,5 +229,11 @@ export class PostsService {
         },
       },
     });
+    if (!post) return null;
+    const media = post.media.filter((m) => isPublicMediaUrl(m.url));
+    return {
+      ...post,
+      media,
+    };
   }
 }

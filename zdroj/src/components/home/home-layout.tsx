@@ -79,7 +79,6 @@ export function HomeLayout({
   const [postMediaError, setPostMediaError] = useState<string | null>(null);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
-  const [detailPost, setDetailPost] = useState<Record<string, unknown> | null>(null);
   const [likedByPostId, setLikedByPostId] = useState<Record<string, boolean>>({});
   const [likeCountByPostId, setLikeCountByPostId] = useState<Record<string, number>>({});
   const [commentsByPostId, setCommentsByPostId] = useState<Record<string, PostComment[]>>({});
@@ -98,7 +97,7 @@ export function HomeLayout({
         const hasVideo = media.some((m) => m?.type === 'video' && (m.url ?? '').trim().length > 0);
         if (!hasVideo) return false;
         const t = String(p.type ?? '');
-        return t === 'short' || t === 'post';
+        return t === 'short';
       }),
     [postFeed],
   );
@@ -710,14 +709,14 @@ export function HomeLayout({
                       <p className="text-sm text-zinc-600">Zatím žádné příspěvky.</p>
                     ) : (
                       postFeed.map((p) => {
-                        const postType = String(p.type ?? '');
                         const media = ((p as ListingPost).media ?? []).sort(
                           (a, b) => a.order - b.order,
                         );
+                        if (media.length === 0) return null;
                         const firstVideo = media.find((m) => m.type === 'video');
                         const firstImage = media.find((m) => m.type === 'image');
-                        const videoRaw = String(firstVideo?.url ?? p.videoUrl ?? '').trim();
-                        const imageRaw = String(firstImage?.url ?? (p as { imageUrl?: string }).imageUrl ?? '').trim();
+                        const videoRaw = String(firstVideo?.url ?? '').trim();
+                        const imageRaw = String(firstImage?.url ?? '').trim();
                         const showFeedVideo = Boolean(videoRaw);
                         const showFeedImage = !showFeedVideo && Boolean(imageRaw);
 
@@ -927,52 +926,6 @@ export function HomeLayout({
                     )}
                   </div>
 
-                  {detailPost ? (
-                    <div
-                      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-                      role="dialog"
-                      aria-modal="true"
-                      aria-label="Detail videa"
-                    >
-                      <button
-                        type="button"
-                        className="absolute right-4 top-4 z-[101] rounded-full bg-white/90 px-3 py-1.5 text-sm font-semibold text-zinc-800 shadow"
-                        onClick={() => setDetailPost(null)}
-                      >
-                        Zavřít
-                      </button>
-                      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-3 shadow-2xl">
-                        {String(
-                          (detailPost as { imageUrl?: string }).imageUrl ?? '',
-                        ).trim() ? (
-                          <img
-                            src={nestAbsoluteAssetUrl(
-                              String(
-                                (detailPost as { imageUrl?: string }).imageUrl ??
-                                  '',
-                              ),
-                            )}
-                            alt=""
-                            className="max-h-[75vh] w-full rounded-2xl object-contain"
-                          />
-                        ) : (
-                          <video
-                            src={nestAbsoluteAssetUrl(
-                              String(detailPost.videoUrl ?? ''),
-                            )}
-                            controls
-                            autoPlay
-                            playsInline
-                            preload="metadata"
-                            className="w-full rounded-2xl"
-                          />
-                        )}
-                        <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-700">
-                          {String(detailPost.description ?? detailPost.content ?? '')}
-                        </p>
-                      </div>
-                    </div>
-                  ) : null}
                 </div>
               ) : (
                 <div className="mx-auto w-full max-w-xl px-3 pb-8 pt-1">

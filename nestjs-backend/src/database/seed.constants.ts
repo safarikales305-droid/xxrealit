@@ -9,18 +9,18 @@ export const SEED_PROPERTIES = [
     title: 'Luxusní vila',
     price: 12_000_000,
     location: 'Brno',
-    videoUrl: '/videos/vila.mp4',
+    videoUrl: null,
   },
   {
     title: 'Moderní byt 2+kk',
     price: 5_500_000,
     location: 'Praha',
-    videoUrl: '/videos/byt.mp4',
+    videoUrl: null,
   },
   {
     title: 'Stavební pozemek',
     price: 3_000_000,
     location: 'Ostrava',
-    videoUrl: '/videos/pozemek.mp4',
+    videoUrl: null,
   },
 ] as const;

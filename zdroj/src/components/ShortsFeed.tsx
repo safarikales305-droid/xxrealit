@@ -33,10 +33,12 @@ type Props = {
  */
 export function ShortsFeed({ items }: Props) {
   const clips = useMemo<Clip[]>(() => {
-    return items.map((item, index) => ({
-      ...item,
-      src: resolveShortsPublicSrc(item, index),
-    }));
+    return items
+      .map((item) => ({
+        ...item,
+        src: resolveShortsPublicSrc(item),
+      }))
+      .filter((item): item is Clip => typeof item.src === 'string' && item.src.length > 0);
   }, [items]);
 
   const [activeId, setActiveId] = useState<string | null>(
@@ -100,20 +102,6 @@ export function ShortsFeed({ items }: Props) {
   }, [clips]);
 
   const toggleLike = useCallback(async (propertyId: string) => {
-    const isDemo = propertyId.startsWith('demo-');
-    if (isDemo) {
-      setLiked((prev) => {
-        const next = { ...prev, [propertyId]: !prev[propertyId] };
-        const delta = next[propertyId] ? 1 : -1;
-        setLikes((l) => ({
-          ...l,
-          [propertyId]: Math.max(0, (l[propertyId] ?? 0) + delta),
-        }));
-        return next;
-      });
-      return;
-    }
-
     let previousLiked = false;
     let previousCount = 0;
     setLiked((prev) => {
@@ -170,7 +158,7 @@ export function ShortsFeed({ items }: Props) {
       {clips.map((c) => {
         const isActive = activeId === c.id;
         const muted = mutedById[c.id] !== false;
-        const showProfileLink = !!c.userId && !c.id.startsWith('demo-');
+        const showProfileLink = !!c.userId;
 
         return (
           <section
