@@ -1,13 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { nestFetchPostDetail, type ListingPost } from '@/lib/nest-client';
 
 export default function PostDetailPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const params = useParams<{ id: string }>();
   const postId = params?.id ?? '';
   const { isAuthenticated } = useAuth();
@@ -60,6 +62,19 @@ export default function PostDetailPage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl px-3 py-4">
+      <button
+        type="button"
+        onClick={() => {
+          if (searchParams?.get('from') === 'shorts') {
+            router.push('/?tab=shorts');
+            return;
+          }
+          router.push('/');
+        }}
+        className="mb-4 inline-flex items-center rounded-full border px-4 py-2 text-sm"
+      >
+        ← Zpět na Shorts inzeráty
+      </button>
       <Link href="/" className="text-sm font-semibold text-orange-600">
         ← Zpět
       </Link>

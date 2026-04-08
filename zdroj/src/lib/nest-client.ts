@@ -541,6 +541,10 @@ export type ShortVideo = {
   id: string;
   url?: string;
   videoUrl?: string | null;
+  title?: string | null;
+  price?: number | null;
+  city?: string | null;
+  images?: string[];
   type?: string;
   source?: string;
   propertyId?: string;

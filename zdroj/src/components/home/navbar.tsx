@@ -129,7 +129,7 @@ export function Navbar({
                     : 'text-zinc-600 hover:text-zinc-900'
                 }`}
               >
-                Shorts
+                Shorts inzeraty
               </button>
               <button
                 type="button"

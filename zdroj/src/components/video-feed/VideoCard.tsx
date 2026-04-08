@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import type { ShortVideo } from '@/lib/nest-client';
 
@@ -9,6 +11,8 @@ type VideoCardProps = {
 };
 
 export default function VideoCard({ video }: VideoCardProps) {
+  const router = useRouter();
+  const { isAuthenticated } = useAuth();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [error, setError] = useState(false);
 
@@ -63,6 +67,24 @@ export default function VideoCard({ video }: VideoCardProps) {
           setError(true);
         }}
       />
+
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-4 text-white">
+        <div className="space-y-1">
+          <div className={`text-lg font-bold ${isAuthenticated ? '' : 'blur-sm select-none'}`}>
+            {Number(video.price ?? 0).toLocaleString('cs-CZ')} Kč
+          </div>
+          <div className="text-sm font-medium">
+            {video.title ?? `${video.city ?? ''}`}
+          </div>
+          <button
+            type="button"
+            onClick={() => router.push(`/post/${video.id}?from=shorts`)}
+            className="pointer-events-auto mt-2 inline-flex items-center rounded-full bg-white/90 px-4 py-2 text-sm font-semibold text-black"
+          >
+            Zobrazit inzerát
+          </button>
+        </div>
+      </div>
 
       {error && (
         <div className="absolute inset-0 flex items-center justify-center text-white bg-black">

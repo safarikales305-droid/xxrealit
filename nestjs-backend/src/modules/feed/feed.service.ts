@@ -129,6 +129,7 @@ export class FeedService {
           content: p.description,
           city: p.city,
           price: p.price,
+          images: media.filter((m) => m.type === 'image').map((m) => m.url),
           createdAt: p.createdAt,
           user: p.user,
           type: 'short',
