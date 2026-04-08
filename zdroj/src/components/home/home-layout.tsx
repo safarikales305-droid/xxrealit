@@ -385,7 +385,7 @@ export function HomeLayout({
         </div>
       ) : null}
 
-      <div className="mx-auto grid min-h-0 w-full min-w-0 max-w-[100rem] flex-1 grid-cols-1 gap-4 overflow-x-hidden p-2 md:grid-cols-[260px_1fr] md:p-4 xl:grid-cols-[260px_1fr_300px]">
+      <div className="grid min-h-0 w-full min-w-0 flex-1 grid-cols-1 overflow-x-hidden p-0 md:mx-auto md:max-w-[100rem] md:gap-4 md:p-4 md:grid-cols-[260px_1fr] xl:grid-cols-[260px_1fr_300px]">
         <div className="hidden min-h-0 min-w-0 shrink-0 overflow-x-hidden md:block">
           <SidebarFilters className="mt-0 w-full max-w-full flex-col md:mt-2 md:mb-2 lg:mt-4 lg:mb-4" />
         </div>
@@ -396,7 +396,7 @@ export function HomeLayout({
               ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-[0_2px_24px_-8px_rgba(0,0,0,0.08)] md:min-w-0'
               : viewMode === 'shorts'
                 ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl bg-black shadow-[0_24px_48px_-24px_rgba(0,0,0,0.35)] md:min-w-0 lg:ring-1 lg:ring-black/10'
-                : 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-[0_2px_24px_-8px_rgba(0,0,0,0.06)] md:min-w-0'
+                : 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden bg-white md:min-w-0 md:rounded-2xl md:border md:border-zinc-200/90 md:shadow-[0_2px_24px_-8px_rgba(0,0,0,0.06)]'
           }
         >
           {!hasData && viewMode === 'classic' ? (
@@ -609,7 +609,7 @@ export function HomeLayout({
                     </div>
                   ) : null}
 
-                  <div className="space-y-4">
+                  <div className="w-full">
                     {loadingFeed ? (
                       <p className="text-sm text-zinc-600">Načítám příspěvky…</p>
                     ) : postFeed.length === 0 ? (
@@ -637,7 +637,7 @@ export function HomeLayout({
                         return (
                         <article
                           key={String(p.id ?? Math.random())}
-                          className="relative mb-6 w-full overflow-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-sm"
+                          className="relative mb-4 w-full overflow-hidden bg-white md:mb-5 md:rounded-2xl md:border md:border-zinc-200/90 md:shadow-sm"
                         >
                           {String((p.user as { id?: string } | undefined)?.id ?? '') ===
                           String(user?.id ?? '') ? (
@@ -665,7 +665,7 @@ export function HomeLayout({
                               </button>
                             </div>
                           ) : null}
-                          <p className="px-4 pt-4 text-xs font-medium text-zinc-500">
+                          <p className="px-3 pt-3 text-xs font-medium text-zinc-500 md:px-4 md:pt-4">
                             {String(
                               ((p.user as { name?: string } | undefined)?.name ??
                                 (p.user as { email?: string } | undefined)?.email ??
@@ -673,7 +673,7 @@ export function HomeLayout({
                             )}
                           </p>
                           {editingPostId === String(p.id ?? '') ? (
-                            <div className="mt-2 px-4 pb-2">
+                            <div className="mt-2 px-3 pb-2 md:px-4">
                               <textarea
                                 value={editingText}
                                 onChange={(e) => setEditingText(e.target.value)}
@@ -708,7 +708,7 @@ export function HomeLayout({
                           {showFeedImage ? (
                             <button
                               type="button"
-                              className="mt-3 block w-full text-left"
+                              className="mt-3 block w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] text-left md:relative md:left-auto md:right-auto md:-ml-0 md:-mr-0 md:w-full"
                               onClick={() => setDetailPost(p)}
                             >
                               <div className="relative w-full overflow-hidden bg-black">
@@ -723,7 +723,7 @@ export function HomeLayout({
                           {showFeedVideo ? (
                             <button
                               type="button"
-                              className="mt-3 block w-full text-left"
+                              className="mt-3 block w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] text-left md:relative md:left-auto md:right-auto md:-ml-0 md:-mr-0 md:w-full"
                               onClick={() => setDetailPost(p)}
                             >
                               <div className="w-full bg-black">
@@ -735,14 +735,14 @@ export function HomeLayout({
                                   }
                                   controls
                                   preload="metadata"
-                                  className="w-full h-auto max-h-[90vh] object-contain"
+                                  className="h-auto w-full object-contain"
                                 />
                               </div>
                             </button>
                           ) : null}
                           {editingPostId !== String(p.id ?? '') ? (
-                            <div className="px-3 py-2">
-                              <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-800">
+                          <div className="px-3 py-2">
+                              <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">
                                 {String(p.description ?? p.content ?? '')}
                               </p>
                             </div>
@@ -765,7 +765,7 @@ export function HomeLayout({
                                 : '🔊'}
                             </button>
                           ) : null}
-                          <div className="mt-3 px-4 pb-4 flex items-center gap-2 text-xs text-zinc-600">
+                          <div className="mt-3 flex items-center gap-2 px-3 pb-3 text-xs text-zinc-600 md:px-4 md:pb-4">
                             <button
                               type="button"
                               onClick={() => void toggleFavorite(String(p.id ?? ''))}
