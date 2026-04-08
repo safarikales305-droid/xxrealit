@@ -465,7 +465,7 @@ export function HomeLayout({
                   <VideoFeed videos={videoFeed} />
                 )
               ) : viewMode === 'posts' ? (
-                <div className="mx-auto w-full max-w-xl px-3 pb-8 pt-3">
+                <div className="w-full pb-8 pt-3 md:max-w-2xl md:mx-auto">
                   {isAuthenticated ? (
                     <form
                       onSubmit={(e) => void handleSubmit(e)}
@@ -637,7 +637,7 @@ export function HomeLayout({
                         return (
                         <article
                           key={String(p.id ?? Math.random())}
-                          className="relative rounded-2xl border border-zinc-200/90 bg-white p-4 shadow-sm"
+                          className="relative mb-6 w-full overflow-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-sm"
                         >
                           {String((p.user as { id?: string } | undefined)?.id ?? '') ===
                           String(user?.id ?? '') ? (
@@ -665,7 +665,7 @@ export function HomeLayout({
                               </button>
                             </div>
                           ) : null}
-                          <p className="text-xs font-medium text-zinc-500">
+                          <p className="px-4 pt-4 text-xs font-medium text-zinc-500">
                             {String(
                               ((p.user as { name?: string } | undefined)?.name ??
                                 (p.user as { email?: string } | undefined)?.email ??
@@ -673,7 +673,7 @@ export function HomeLayout({
                             )}
                           </p>
                           {editingPostId === String(p.id ?? '') ? (
-                            <div className="mt-2">
+                            <div className="mt-2 px-4 pb-2">
                               <textarea
                                 value={editingText}
                                 onChange={(e) => setEditingText(e.target.value)}
@@ -704,22 +704,18 @@ export function HomeLayout({
                                 </button>
                               </div>
                             </div>
-                          ) : (
-                            <p className="mt-2 whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-800">
-                              {String(p.description ?? p.content ?? '')}
-                            </p>
-                          )}
+                          ) : null}
                           {showFeedImage ? (
                             <button
                               type="button"
-                              className="mt-3 mb-4 block w-full text-left"
+                              className="mt-3 block w-full text-left"
                               onClick={() => setDetailPost(p)}
                             >
-                              <div className="relative aspect-square w-full overflow-hidden rounded-xl">
+                              <div className="relative w-full overflow-hidden bg-black">
                                 <img
                                   src={nestAbsoluteAssetUrl(imageRaw)}
                                   alt=""
-                                  className="absolute inset-0 h-full w-full object-cover"
+                                  className="h-auto w-full object-contain"
                                 />
                               </div>
                             </button>
@@ -727,10 +723,10 @@ export function HomeLayout({
                           {showFeedVideo ? (
                             <button
                               type="button"
-                              className="mt-3 mb-4 block w-full text-left"
+                              className="mt-3 block w-full text-left"
                               onClick={() => setDetailPost(p)}
                             >
-                              <div className="relative aspect-square w-full overflow-hidden rounded-xl bg-black">
+                              <div className="w-full bg-black">
                                 <video
                                   src={nestAbsoluteAssetUrl(videoRaw)}
                                   playsInline
@@ -739,10 +735,17 @@ export function HomeLayout({
                                   }
                                   controls
                                   preload="metadata"
-                                  className="absolute inset-0 h-full w-full object-cover"
+                                  className="w-full h-auto max-h-[90vh] object-contain"
                                 />
                               </div>
                             </button>
+                          ) : null}
+                          {editingPostId !== String(p.id ?? '') ? (
+                            <div className="px-3 py-2">
+                              <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-800">
+                                {String(p.description ?? p.content ?? '')}
+                              </p>
+                            </div>
                           ) : null}
                           {showFeedVideo ? (
                             <button
@@ -762,7 +765,7 @@ export function HomeLayout({
                                 : '🔊'}
                             </button>
                           ) : null}
-                          <div className="mt-3 flex items-center gap-2 text-xs text-zinc-600">
+                          <div className="mt-3 px-4 pb-4 flex items-center gap-2 text-xs text-zinc-600">
                             <button
                               type="button"
                               onClick={() => void toggleFavorite(String(p.id ?? ''))}
