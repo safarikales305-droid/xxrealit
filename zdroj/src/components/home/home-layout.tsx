@@ -649,12 +649,21 @@ export function HomeLayout({
                       </div>
                     </div>
                   </div>
-                  <div className="mx-auto grid w-full max-w-7xl grid-cols-12 gap-4 px-3 md:gap-6 md:px-4">
-                  <aside className="col-span-12 lg:col-span-3">
+                  <div className="mx-auto w-full max-w-7xl px-4 py-4">
+                    <div className="grid grid-cols-12 gap-6">
+                      <aside className="hidden xl:block xl:col-span-3">
+                        <div className="sticky top-[96px] rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                          <p className="text-sm font-semibold text-zinc-800">Přehled</p>
+                          <p className="mt-2 text-sm text-zinc-600">
+                            Vyberte kategorii a sdílejte krátké aktuality z vašeho oboru.
+                          </p>
+                        </div>
+                      </aside>
+                      <main className="col-span-12 min-w-0 lg:col-span-8 xl:col-span-6">
                   {isAuthenticated ? (
                     <form
                       onSubmit={(e) => void handleSubmit(e)}
-                      className="mb-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm lg:sticky lg:top-[96px]"
+                      className="mb-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
                     >
                       <div className="mb-2 grid grid-cols-2 gap-2">
                         <input
@@ -769,7 +778,7 @@ export function HomeLayout({
                                   className="h-40 w-full object-cover"
                                 />
                                 <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[11px] font-semibold text-white">
-                                  {videoPreviewUrl ? idx + 1 : idx + 1}
+                                  {idx + 1}
                                 </span>
                               </div>
                               <div className="flex items-center justify-between px-2 py-1 text-xs">
@@ -822,8 +831,6 @@ export function HomeLayout({
                       </div>
                     </form>
                   ) : null}
-                  </aside>
-                  <main className="col-span-12 lg:col-span-6">
 
                   {storyPosts.length > 0 ? (
                     <div className="mb-6">
@@ -1105,7 +1112,7 @@ export function HomeLayout({
                     )}
                   </div>
                   </main>
-                  <aside className="col-span-3 hidden xl:block">
+                  <aside className="hidden lg:block lg:col-span-4 xl:col-span-3">
                     <div className="sticky top-[96px] rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
                       <p className="text-sm font-semibold text-zinc-800">Community tip</p>
                       <p className="mt-2 text-sm text-zinc-600">
@@ -1113,6 +1120,7 @@ export function HomeLayout({
                       </p>
                     </div>
                   </aside>
+                    </div>
                   </div>
                 </div>
               ) : (
