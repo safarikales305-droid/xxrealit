@@ -599,10 +599,10 @@ export function HomeLayout({
                   <VideoFeed videos={videoFeed} />
                 )
               ) : viewMode === 'posts' ? (
-                <div className="w-full pb-8 pt-3 md:max-w-[1100px] md:mx-auto">
-                  <div className="sticky top-0 z-20 mb-4 border-b border-zinc-200 bg-white/90 backdrop-blur">
-                    <div className="w-full px-3 py-3">
-                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="w-full pb-8 pt-3">
+                  <div className="sticky top-0 z-30 mb-4 border-b border-zinc-200 bg-white/90 backdrop-blur">
+                    <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-3 py-3 md:flex-row md:items-center md:justify-between md:px-4">
+                      <div className="flex-1">
                         <div className="no-scrollbar flex gap-2 overflow-x-auto">
                           {COMMUNITY_CATEGORIES.map((cat) => {
                             const Icon = cat.icon;
@@ -624,11 +624,13 @@ export function HomeLayout({
                             );
                           })}
                         </div>
-                        <div className="flex items-center gap-2">
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="rounded-2xl border border-slate-200 bg-white px-2 py-1 shadow-sm">
                           <select
                             value={radiusKm}
                             onChange={(e) => setRadiusKm(Number(e.target.value) as (typeof RADIUS_OPTIONS_KM)[number])}
-                            className="h-10 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-700 shadow-sm outline-none"
+                            className="h-8 rounded-xl bg-transparent px-2 text-sm font-medium text-zinc-700 outline-none"
                           >
                             {RADIUS_OPTIONS_KM.map((radius) => (
                               <option key={radius} value={radius}>
@@ -636,21 +638,23 @@ export function HomeLayout({
                               </option>
                             ))}
                           </select>
-                          <p className="text-xs text-zinc-500">
-                            {userCoords
-                              ? `V okruhu ${radiusKm} km od vás`
-                              : geoDenied
-                                ? 'Poloha není povolena'
-                                : 'Získávám polohu...'}
-                          </p>
                         </div>
+                        <p className="text-xs text-zinc-500">
+                          {userCoords
+                            ? `V okruhu ${radiusKm} km od vás`
+                            : geoDenied
+                              ? 'Poloha není povolena'
+                              : 'Získávám polohu...'}
+                        </p>
                       </div>
                     </div>
                   </div>
+                  <div className="mx-auto grid w-full max-w-7xl grid-cols-12 gap-4 px-3 md:gap-6 md:px-4">
+                  <aside className="col-span-12 lg:col-span-3">
                   {isAuthenticated ? (
                     <form
                       onSubmit={(e) => void handleSubmit(e)}
-                      className="mb-6 rounded-2xl border border-zinc-200/90 bg-white p-4 shadow-sm"
+                      className="mb-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm lg:sticky lg:top-[96px]"
                     >
                       <div className="mb-2 grid grid-cols-2 gap-2">
                         <input
@@ -682,7 +686,7 @@ export function HomeLayout({
                           e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
                         }}
                         placeholder="Co máte nového?"
-                        className="w-full resize-none overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2.5 text-sm outline-none transition focus:border-orange-300 focus:bg-white focus:ring-2 focus:ring-orange-500/15"
+                        className="min-h-[44px] w-full resize-none overflow-hidden rounded-2xl border border-slate-200 bg-zinc-50/80 px-4 py-3 text-sm outline-none transition focus:border-orange-300 focus:bg-white focus:ring-2 focus:ring-orange-500/15"
                       />
                       <input
                         ref={postMediaInputRef}
@@ -793,7 +797,7 @@ export function HomeLayout({
                           ))}
                         </div>
                       ) : null}
-                      <div className="mt-4 flex items-center gap-2">
+                      <div className="mt-3 flex items-center justify-between gap-3">
                         <button
                           type="button"
                           onClick={() => postMediaInputRef.current?.click()}
@@ -818,6 +822,8 @@ export function HomeLayout({
                       </div>
                     </form>
                   ) : null}
+                  </aside>
+                  <main className="col-span-12 lg:col-span-6">
 
                   {storyPosts.length > 0 ? (
                     <div className="mb-6">
@@ -853,7 +859,7 @@ export function HomeLayout({
                     </div>
                   ) : null}
 
-                  <div className="w-full">
+                  <div className="flex w-full flex-col gap-4">
                     {loadingFeed ? (
                       <p className="text-sm text-zinc-600">Načítám příspěvky…</p>
                     ) : postFeed.length === 0 ? (
@@ -874,7 +880,7 @@ export function HomeLayout({
                         return (
                         <article
                           key={String(p.id ?? Math.random())}
-                          className="relative mb-4 w-full overflow-hidden bg-white md:mb-5 md:rounded-2xl md:border md:border-zinc-200/90 md:shadow-sm"
+                          className="relative w-full overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
                         >
                           {String((p.user as { id?: string } | undefined)?.id ?? '') ===
                           String(user?.id ?? '') ? (
@@ -1098,7 +1104,16 @@ export function HomeLayout({
                       })
                     )}
                   </div>
-
+                  </main>
+                  <aside className="col-span-3 hidden xl:block">
+                    <div className="sticky top-[96px] rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <p className="text-sm font-semibold text-zinc-800">Community tip</p>
+                      <p className="mt-2 text-sm text-zinc-600">
+                        Přidávejte krátké, užitečné příspěvky. Největší dosah mají posty s fotkou nebo videem.
+                      </p>
+                    </div>
+                  </aside>
+                  </div>
                 </div>
               ) : (
                 <div className="mx-auto w-full max-w-xl px-3 pb-8 pt-1">
