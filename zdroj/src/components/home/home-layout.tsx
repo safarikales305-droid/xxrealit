@@ -601,70 +601,80 @@ export function HomeLayout({
               ) : viewMode === 'posts' ? (
                 <div className="w-full min-w-0 overflow-x-hidden pb-8 pt-3">
                   <div className="mx-auto w-full max-w-7xl px-4 py-4">
-                    <div className="grid grid-cols-12 gap-6">
-                      <aside className="hidden xl:block xl:col-span-3">
-                        <div className="sticky top-[96px] rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                          <p className="text-sm font-semibold text-zinc-800">Přehled</p>
-                          <p className="mt-2 text-sm text-zinc-600">
-                            Vyberte kategorii a sdílejte krátké aktuality z vašeho oboru.
-                          </p>
+                    <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+                      <aside className="hidden min-w-0 overflow-hidden lg:col-span-3 lg:block">
+                        <div className="space-y-4 lg:sticky lg:top-20">
+                          <div className="w-full rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                            <p className="text-sm font-semibold text-zinc-800">Přehled</p>
+                            <p className="mt-2 text-sm text-zinc-600">
+                              Komunitní příspěvky podle oboru. Na mobilu použijte horní lištu v hlavním
+                              sloupci.
+                            </p>
+                          </div>
                         </div>
                       </aside>
-                      <main className="col-span-12 min-w-0 lg:col-span-8 xl:col-span-6">
-                  <div className="sticky top-0 z-30 mb-4 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur">
-                    <div className="flex w-full min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <div className="min-w-0 flex-1">
-                        <div className="no-scrollbar flex gap-2 overflow-x-auto">
-                          {COMMUNITY_CATEGORIES.map((cat) => {
-                            const Icon = cat.icon;
-                            const active = activeCategory === cat.key;
-                            return (
-                              <button
-                                key={cat.key}
-                                type="button"
-                                onClick={() => setActiveCategory(cat.key)}
-                                className={`inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
-                                  active
-                                    ? 'bg-orange-500 text-white shadow-sm'
-                                    : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
-                                }`}
-                              >
-                                <Icon size={16} />
-                                {cat.label}
-                              </button>
-                            );
-                          })}
+
+                      <main className="min-w-0 lg:col-span-6">
+                        <div className="sticky top-0 z-20 w-full rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur">
+                          <div className="flex w-full min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div className="min-w-0 flex-1">
+                              <div className="no-scrollbar flex gap-2 overflow-x-auto">
+                                {COMMUNITY_CATEGORIES.map((cat) => {
+                                  const Icon = cat.icon;
+                                  const active = activeCategory === cat.key;
+                                  return (
+                                    <button
+                                      key={cat.key}
+                                      type="button"
+                                      onClick={() => setActiveCategory(cat.key)}
+                                      className={`inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition ${
+                                        active
+                                          ? 'bg-orange-500 text-white shadow-sm'
+                                          : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+                                      }`}
+                                    >
+                                      <Icon size={16} />
+                                      {cat.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 flex-wrap items-center gap-2">
+                              <div className="rounded-2xl border border-slate-200 bg-white px-2 py-1 shadow-sm">
+                                <select
+                                  value={radiusKm}
+                                  onChange={(e) =>
+                                    setRadiusKm(
+                                      Number(e.target.value) as (typeof RADIUS_OPTIONS_KM)[number],
+                                    )
+                                  }
+                                  className="h-8 rounded-xl bg-transparent px-2 text-sm font-medium text-zinc-700 outline-none"
+                                >
+                                  {RADIUS_OPTIONS_KM.map((radius) => (
+                                    <option key={radius} value={radius}>
+                                      {radius} km
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <p className="text-xs text-zinc-500">
+                                {userCoords
+                                  ? `V okruhu ${radiusKm} km od vás`
+                                  : geoDenied
+                                    ? 'Poloha není povolena'
+                                    : 'Získávám polohu...'}
+                              </p>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex shrink-0 flex-wrap items-center gap-2">
-                        <div className="rounded-2xl border border-slate-200 bg-white px-2 py-1 shadow-sm">
-                          <select
-                            value={radiusKm}
-                            onChange={(e) => setRadiusKm(Number(e.target.value) as (typeof RADIUS_OPTIONS_KM)[number])}
-                            className="h-8 rounded-xl bg-transparent px-2 text-sm font-medium text-zinc-700 outline-none"
-                          >
-                            {RADIUS_OPTIONS_KM.map((radius) => (
-                              <option key={radius} value={radius}>
-                                {radius} km
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <p className="text-xs text-zinc-500">
-                          {userCoords
-                            ? `V okruhu ${radiusKm} km od vás`
-                            : geoDenied
-                              ? 'Poloha není povolena'
-                              : 'Získávám polohu...'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  {isAuthenticated ? (
-                    <form
-                      onSubmit={(e) => void handleSubmit(e)}
-                      className="mb-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
-                    >
+
+                        {isAuthenticated ? (
+                          <div className="mt-4 w-full">
+                            <form
+                              onSubmit={(e) => void handleSubmit(e)}
+                              className="w-full rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
+                            >
                       <div className="mb-2 grid grid-cols-2 gap-2">
                         <input
                           value={postTitle}
@@ -829,15 +839,16 @@ export function HomeLayout({
                             : 'Přidat'}
                         </button>
                       </div>
-                    </form>
-                  ) : null}
+                            </form>
+                          </div>
+                        ) : null}
 
-                  {storyPosts.length > 0 ? (
-                    <div className="mb-6">
+                        {storyPosts.length > 0 ? (
+                          <div className="mt-4 w-full">
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                         Příběhy
                       </p>
-                      <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2 no-scrollbar">
+                      <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
                         {storyPosts.map((p) => {
                           const media = ((p as ListingPost).media ?? []).sort(
                             (a, b) => a.order - b.order,
@@ -863,10 +874,10 @@ export function HomeLayout({
                           );
                         })}
                       </div>
-                    </div>
-                  ) : null}
+                          </div>
+                        ) : null}
 
-                  <div className="mt-4 flex w-full min-w-0 flex-col gap-4">
+                        <div className="mt-4 flex w-full min-w-0 flex-col gap-4">
                     {loadingFeed ? (
                       <p className="text-sm text-zinc-600">Načítám příspěvky…</p>
                     ) : postFeed.length === 0 ? (
@@ -1110,16 +1121,20 @@ export function HomeLayout({
                         );
                       })
                     )}
-                  </div>
-                  </main>
-                  <aside className="hidden lg:block lg:col-span-4 xl:col-span-3">
-                    <div className="sticky top-[96px] rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                      <p className="text-sm font-semibold text-zinc-800">Community tip</p>
-                      <p className="mt-2 text-sm text-zinc-600">
-                        Přidávejte krátké, užitečné příspěvky. Největší dosah mají posty s fotkou nebo videem.
-                      </p>
-                    </div>
-                  </aside>
+                        </div>
+                      </main>
+
+                      <aside className="hidden min-w-0 overflow-hidden lg:col-span-3 lg:block">
+                        <div className="space-y-4 lg:sticky lg:top-20">
+                          <div className="w-full rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                            <p className="text-sm font-semibold text-zinc-800">Tip</p>
+                            <p className="mt-2 text-sm text-zinc-600">
+                              Přidávejte krátké, užitečné příspěvky. Největší dosah mají posty s fotkou nebo
+                              videem.
+                            </p>
+                          </div>
+                        </div>
+                      </aside>
                     </div>
                   </div>
                 </div>
