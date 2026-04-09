@@ -15,6 +15,6 @@ export class CreatePostDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(['MAKLERI', 'STAVEBNI_FIRMY', 'REMESLNICI', 'REALITNI_KANCELARE'])
-  category?: 'MAKLERI' | 'STAVEBNI_FIRMY' | 'REMESLNICI' | 'REALITNI_KANCELARE';
+  @IsIn(['MAKLERI', 'STAVEBNI_FIRMY', 'REALITNI_KANCELARE'])
+  category?: 'MAKLERI' | 'STAVEBNI_FIRMY' | 'REALITNI_KANCELARE';
 }

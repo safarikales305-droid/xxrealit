@@ -721,7 +721,10 @@ export type ListingPost = {
     favorites?: number;
     comments?: number;
   };
-  category?: 'MAKLERI' | 'STAVEBNI_FIRMY' | 'REMESLNICI' | 'REALITNI_KANCELARE';
+  category?: 'MAKLERI' | 'STAVEBNI_FIRMY' | 'REALITNI_KANCELARE';
+  latitude?: number | null;
+  longitude?: number | null;
+  distanceKm?: number;
   reactions?: Array<{
     userId: string;
     postId: string;
@@ -840,7 +843,9 @@ export async function nestCreateListingPost(
     video?: File | null;
     images: File[];
     imageOrder: string[];
-    category?: 'MAKLERI' | 'STAVEBNI_FIRMY' | 'REMESLNICI' | 'REALITNI_KANCELARE';
+    category?: 'MAKLERI' | 'STAVEBNI_FIRMY' | 'REALITNI_KANCELARE';
+    latitude?: number;
+    longitude?: number;
   },
 ): Promise<{ ok: true; post: ListingPost } | { ok: false; error?: string }> {
   if (!API_BASE_URL || !token) {
@@ -853,6 +858,8 @@ export async function nestCreateListingPost(
   fd.append('city', input.city);
   fd.append('type', input.type);
   if (input.category) fd.append('category', input.category);
+  if (Number.isFinite(input.latitude)) fd.append('latitude', String(input.latitude));
+  if (Number.isFinite(input.longitude)) fd.append('longitude', String(input.longitude));
   fd.append('imageOrder', JSON.stringify(input.imageOrder));
   if (input.video) {
     fd.append('video', input.video);
@@ -899,10 +906,16 @@ export async function nestFetchPostDetail(postId: string): Promise<ListingPost |
 }
 
 export async function nestFetchCommunityPosts(
-  category?: 'MAKLERI' | 'STAVEBNI_FIRMY' | 'REMESLNICI' | 'REALITNI_KANCELARE',
+  category?: 'MAKLERI' | 'STAVEBNI_FIRMY' | 'REALITNI_KANCELARE',
+  options?: { radiusKm?: number; lat?: number; lng?: number },
 ): Promise<ListingPost[]> {
   if (!API_BASE_URL) return [];
-  const qs = category ? `?category=${encodeURIComponent(category)}` : '';
+  const params = new URLSearchParams();
+  if (category) params.set('category', category);
+  if (Number.isFinite(options?.radiusKm)) params.set('radiusKm', String(options?.radiusKm));
+  if (Number.isFinite(options?.lat)) params.set('lat', String(options?.lat));
+  if (Number.isFinite(options?.lng)) params.set('lng', String(options?.lng));
+  const qs = params.toString() ? `?${params.toString()}` : '';
   const res = await fetch(`${postsApiBase()}/posts${qs}`, {
     cache: 'no-store',
     headers: { Accept: 'application/json' },

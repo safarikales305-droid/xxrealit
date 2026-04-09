@@ -28,12 +28,25 @@ import { PostsService } from './posts.service';
 @Controller('posts')
 export class PostsController {
   @Get()
-  list(@Query('category') category?: string) {
+  list(
+    @Query('category') category?: string,
+    @Query('radiusKm') radiusKm?: string,
+    @Query('lat') lat?: string,
+    @Query('lng') lng?: string,
+  ) {
     const value = (category ?? '').trim();
-    const cat = (['MAKLERI', 'STAVEBNI_FIRMY', 'REMESLNICI', 'REALITNI_KANCELARE'].includes(value)
+    const cat = (['MAKLERI', 'STAVEBNI_FIRMY', 'REALITNI_KANCELARE'].includes(value)
       ? (value as PostCategory)
       : undefined);
-    return this.postsService.listCommunityPosts(cat);
+    const radius = Number(radiusKm);
+    const userLat = Number(lat);
+    const userLng = Number(lng);
+    return this.postsService.listCommunityPosts(
+      cat,
+      Number.isFinite(radius) ? radius : undefined,
+      Number.isFinite(userLat) ? userLat : undefined,
+      Number.isFinite(userLng) ? userLng : undefined,
+    );
   }
 
   constructor(private readonly postsService: PostsService) {}
@@ -283,6 +296,8 @@ export class PostsController {
       city: body.city.trim(),
       type,
       category: body.category,
+      latitude: body.latitude ? Number(body.latitude) : undefined,
+      longitude: body.longitude ? Number(body.longitude) : undefined,
       media,
     });
 

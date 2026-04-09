@@ -63,6 +63,8 @@ model Post {
   description String   @default("")
   price       Int      @default(0)
   city        String   @default("")
+  latitude    Float?
+  longitude   Float?
   type        String   @default("post")
   category    PostCategory @default(MAKLERI)
   content     String?
@@ -76,6 +78,7 @@ model Post {
 
   @@index([userId])
   @@index([createdAt])
+  @@index([latitude, longitude])
 }
 
 model PostReaction {

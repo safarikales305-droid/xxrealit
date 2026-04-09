@@ -8,6 +8,20 @@ function isPublicMediaUrl(url: string | null | undefined): boolean {
   return /^https?:\/\//i.test(v);
 }
 
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = (v: number) => (v * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 @Injectable()
 export class PostsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -178,6 +192,8 @@ export class PostsService {
       type: 'post' | 'short';
       media: Array<{ url: string; type: 'video' | 'image'; order: number }>;
       category?: PostCategory;
+      latitude?: number;
+      longitude?: number;
     },
   ) {
     return this.prisma.post.create({
@@ -188,6 +204,8 @@ export class PostsService {
         city: input.city,
         type: input.type,
         category: input.category ?? PostCategory.MAKLERI,
+        latitude: Number.isFinite(input.latitude) ? input.latitude : null,
+        longitude: Number.isFinite(input.longitude) ? input.longitude : null,
         content: input.description,
         userId,
         media: {
@@ -245,8 +263,13 @@ export class PostsService {
     };
   }
 
-  listCommunityPosts(category?: PostCategory) {
-    return this.prisma.post.findMany({
+  async listCommunityPosts(
+    category?: PostCategory,
+    radiusKm?: number,
+    lat?: number,
+    lng?: number,
+  ) {
+    const rows = await this.prisma.post.findMany({
       where: category ? { category } : undefined,
       orderBy: { createdAt: 'desc' },
       include: {
@@ -264,6 +287,20 @@ export class PostsService {
         },
       },
     });
+    if (!Number.isFinite(radiusKm) || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return rows;
+    }
+    const maxKm = Math.max(1, Number(radiusKm));
+    return rows
+      .map((row) => {
+        if (!Number.isFinite(row.latitude) || !Number.isFinite(row.longitude)) {
+          return null;
+        }
+        const distanceKm = haversineKm(lat as number, lng as number, row.latitude, row.longitude);
+        if (distanceKm > maxKm) return null;
+        return { ...row, distanceKm: Number(distanceKm.toFixed(1)) };
+      })
+      .filter((row): row is NonNullable<typeof row> => row !== null);
   }
 
   async toggleReaction(postId: string, userId: string, type: ReactionType) {

@@ -7,7 +7,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Briefcase,
   Building2,
-  Hammer,
   Heart,
   Home,
   Image as ImageIcon,
@@ -50,9 +49,9 @@ const brandBtn =
 const COMMUNITY_CATEGORIES = [
   { key: 'MAKLERI', label: 'Makléři', icon: Briefcase },
   { key: 'STAVEBNI_FIRMY', label: 'Stavební firmy', icon: Building2 },
-  { key: 'REMESLNICI', label: 'Řemeslníci', icon: Hammer },
   { key: 'REALITNI_KANCELARE', label: 'Realitní kanceláře', icon: Home },
 ] as const;
+const RADIUS_OPTIONS_KM = [10, 20, 30, 50, 100] as const;
 
 /**
  * Light shell + Shorts (TikTok) / Classic (Sreality-style grid).
@@ -90,12 +89,12 @@ export function HomeLayout({
   const [postTitle, setPostTitle] = useState('');
   const [postPrice, setPostPrice] = useState('');
   const [postCity, setPostCity] = useState('');
-  const [postCategory, setPostCategory] = useState<
-    'MAKLERI' | 'STAVEBNI_FIRMY' | 'REMESLNICI' | 'REALITNI_KANCELARE'
-  >('MAKLERI');
   const [activeCategory, setActiveCategory] = useState<
-    'MAKLERI' | 'STAVEBNI_FIRMY' | 'REMESLNICI' | 'REALITNI_KANCELARE'
+    'MAKLERI' | 'STAVEBNI_FIRMY' | 'REALITNI_KANCELARE'
   >('MAKLERI');
+  const [radiusKm, setRadiusKm] = useState<(typeof RADIUS_OPTIONS_KM)[number]>(30);
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [geoDenied, setGeoDenied] = useState(false);
   const [creatingPost, setCreatingPost] = useState(false);
   const [postMedia, setPostMedia] = useState<File | null>(null);
   const [postImages, setPostImages] = useState<File[]>([]);
@@ -321,6 +320,26 @@ export function HomeLayout({
   const showNoSearchHits = hasData && filteredItems.length === 0;
 
   useEffect(() => {
+    if (!navigator.geolocation) {
+      setGeoDenied(true);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserCoords({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        });
+        setGeoDenied(false);
+      },
+      () => {
+        setGeoDenied(true);
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 120000 },
+    );
+  }, []);
+
+  useEffect(() => {
     if (!API_BASE_URL) return;
     setLoadingFeed(true);
     const loader =
@@ -329,7 +348,11 @@ export function HomeLayout({
             res.ok ? res.json() : [],
           )
         : viewMode === 'posts'
-          ? nestFetchCommunityPosts(activeCategory)
+          ? nestFetchCommunityPosts(activeCategory, {
+              radiusKm,
+              lat: userCoords?.lat,
+              lng: userCoords?.lng,
+            })
           : Promise.resolve([]);
     void loader
       .then((data) => {
@@ -370,7 +393,7 @@ export function HomeLayout({
         if (viewMode === 'posts') setPostFeed([]);
       })
       .finally(() => setLoadingFeed(false));
-  }, [viewMode, activeCategory]);
+  }, [viewMode, activeCategory, radiusKm, userCoords?.lat, userCoords?.lng]);
 
   async function handleSubmit(e?: React.FormEvent) {
     e?.preventDefault();
@@ -395,7 +418,9 @@ export function HomeLayout({
           price: Number(postPrice || 0),
           city: postCity.trim() || 'Neuvedeno',
           type: postVideo ? 'short' : 'post',
-          category: postCategory,
+          category: activeCategory,
+          latitude: userCoords?.lat,
+          longitude: userCoords?.lng,
           video: postVideo,
           images: postImages,
           imageOrder: postImages.map((f) => `${f.name}::${f.size}`),
@@ -574,27 +599,53 @@ export function HomeLayout({
                   <VideoFeed videos={videoFeed} />
                 )
               ) : viewMode === 'posts' ? (
-                <div className="w-full pb-8 pt-3 md:max-w-2xl md:mx-auto">
-                  <div className="no-scrollbar mb-4 flex gap-2 overflow-x-auto px-3 md:px-0">
-                    {COMMUNITY_CATEGORIES.map((cat) => {
-                      const Icon = cat.icon;
-                      const active = activeCategory === cat.key;
-                      return (
-                        <button
-                          key={cat.key}
-                          type="button"
-                          onClick={() => setActiveCategory(cat.key)}
-                          className={`inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
-                            active
-                              ? 'bg-orange-500 text-white shadow-sm'
-                              : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
-                          }`}
-                        >
-                          <Icon size={16} />
-                          {cat.label}
-                        </button>
-                      );
-                    })}
+                <div className="w-full pb-8 pt-3 md:max-w-[1100px] md:mx-auto">
+                  <div className="sticky top-0 z-20 mb-4 border-b border-zinc-200 bg-white/90 backdrop-blur">
+                    <div className="w-full px-3 py-3">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="no-scrollbar flex gap-2 overflow-x-auto">
+                          {COMMUNITY_CATEGORIES.map((cat) => {
+                            const Icon = cat.icon;
+                            const active = activeCategory === cat.key;
+                            return (
+                              <button
+                                key={cat.key}
+                                type="button"
+                                onClick={() => setActiveCategory(cat.key)}
+                                className={`inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
+                                  active
+                                    ? 'bg-orange-500 text-white shadow-sm'
+                                    : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+                                }`}
+                              >
+                                <Icon size={16} />
+                                {cat.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={radiusKm}
+                            onChange={(e) => setRadiusKm(Number(e.target.value) as (typeof RADIUS_OPTIONS_KM)[number])}
+                            className="h-10 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-700 shadow-sm outline-none"
+                          >
+                            {RADIUS_OPTIONS_KM.map((radius) => (
+                              <option key={radius} value={radius}>
+                                {radius} km
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-zinc-500">
+                            {userCoords
+                              ? `V okruhu ${radiusKm} km od vás`
+                              : geoDenied
+                                ? 'Poloha není povolena'
+                                : 'Získávám polohu...'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                   {isAuthenticated ? (
                     <form
@@ -620,27 +671,6 @@ export function HomeLayout({
                           placeholder="Cena (Kč)"
                           className="h-9 rounded-xl border border-zinc-200 px-2 text-sm"
                         />
-                        <div className="col-span-2 no-scrollbar flex gap-2 overflow-x-auto">
-                          {COMMUNITY_CATEGORIES.map((cat) => {
-                            const Icon = cat.icon;
-                            const active = postCategory === cat.key;
-                            return (
-                              <button
-                                key={`create-${cat.key}`}
-                                type="button"
-                                onClick={() => setPostCategory(cat.key)}
-                                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ${
-                                  active
-                                    ? 'bg-orange-500 text-white'
-                                    : 'bg-zinc-100 text-zinc-700'
-                                }`}
-                              >
-                                <Icon size={14} />
-                                {cat.label}
-                              </button>
-                            );
-                          })}
-                        </div>
                       </div>
                       <textarea
                         ref={postTextareaRef}
@@ -879,6 +909,11 @@ export function HomeLayout({
                                 'Autor'),
                             )}
                           </p>
+                          {Number.isFinite((p as ListingPost).distanceKm) ? (
+                            <p className="px-3 pt-1 text-[11px] font-medium text-zinc-500 md:px-4">
+                              {Number((p as ListingPost).distanceKm).toFixed(1)} km od vás
+                            </p>
+                          ) : null}
                           {editingPostId === String(p.id ?? '') ? (
                             <div className="mt-2 px-3 pb-2 md:px-4">
                               <textarea
