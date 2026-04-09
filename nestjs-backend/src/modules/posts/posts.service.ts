@@ -22,6 +22,31 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function toNumberOrNull(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'string') {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'toNumber' in value &&
+    typeof (value as { toNumber: () => number }).toNumber === 'function'
+  ) {
+    try {
+      const n = (value as { toNumber: () => number }).toNumber();
+      return Number.isFinite(n) ? n : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 @Injectable()
 export class PostsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -287,16 +312,21 @@ export class PostsService {
         },
       },
     });
-    if (!Number.isFinite(radiusKm) || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+    const userLat = toNumberOrNull(lat);
+    const userLng = toNumberOrNull(lng);
+    const radiusNum = toNumberOrNull(radiusKm);
+    if (userLat === null || userLng === null || radiusNum === null) {
       return rows;
     }
-    const maxKm = Math.max(1, Number(radiusKm));
+    const maxKm = Math.max(1, radiusNum);
     return rows
       .map((row) => {
-        if (!Number.isFinite(row.latitude) || !Number.isFinite(row.longitude)) {
+        const rowLat = toNumberOrNull(row.latitude);
+        const rowLng = toNumberOrNull(row.longitude);
+        if (rowLat === null || rowLng === null) {
           return null;
         }
-        const distanceKm = haversineKm(lat as number, lng as number, row.latitude, row.longitude);
+        const distanceKm = haversineKm(userLat, userLng, rowLat, rowLng);
         if (distanceKm > maxKm) return null;
         return { ...row, distanceKm: Number(distanceKm.toFixed(1)) };
       })

@@ -599,10 +599,21 @@ export function HomeLayout({
                   <VideoFeed videos={videoFeed} />
                 )
               ) : viewMode === 'posts' ? (
-                <div className="w-full pb-8 pt-3">
-                  <div className="sticky top-0 z-30 mb-4 border-b border-zinc-200 bg-white/90 backdrop-blur">
-                    <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-3 py-3 md:flex-row md:items-center md:justify-between md:px-4">
-                      <div className="flex-1">
+                <div className="w-full min-w-0 overflow-x-hidden pb-8 pt-3">
+                  <div className="mx-auto w-full max-w-7xl px-4 py-4">
+                    <div className="grid grid-cols-12 gap-6">
+                      <aside className="hidden xl:block xl:col-span-3">
+                        <div className="sticky top-[96px] rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                          <p className="text-sm font-semibold text-zinc-800">Přehled</p>
+                          <p className="mt-2 text-sm text-zinc-600">
+                            Vyberte kategorii a sdílejte krátké aktuality z vašeho oboru.
+                          </p>
+                        </div>
+                      </aside>
+                      <main className="col-span-12 min-w-0 lg:col-span-8 xl:col-span-6">
+                  <div className="sticky top-0 z-30 mb-4 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur">
+                    <div className="flex w-full min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div className="min-w-0 flex-1">
                         <div className="no-scrollbar flex gap-2 overflow-x-auto">
                           {COMMUNITY_CATEGORIES.map((cat) => {
                             const Icon = cat.icon;
@@ -625,7 +636,7 @@ export function HomeLayout({
                           })}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex shrink-0 flex-wrap items-center gap-2">
                         <div className="rounded-2xl border border-slate-200 bg-white px-2 py-1 shadow-sm">
                           <select
                             value={radiusKm}
@@ -649,17 +660,6 @@ export function HomeLayout({
                       </div>
                     </div>
                   </div>
-                  <div className="mx-auto w-full max-w-7xl px-4 py-4">
-                    <div className="grid grid-cols-12 gap-6">
-                      <aside className="hidden xl:block xl:col-span-3">
-                        <div className="sticky top-[96px] rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                          <p className="text-sm font-semibold text-zinc-800">Přehled</p>
-                          <p className="mt-2 text-sm text-zinc-600">
-                            Vyberte kategorii a sdílejte krátké aktuality z vašeho oboru.
-                          </p>
-                        </div>
-                      </aside>
-                      <main className="col-span-12 min-w-0 lg:col-span-8 xl:col-span-6">
                   {isAuthenticated ? (
                     <form
                       onSubmit={(e) => void handleSubmit(e)}
@@ -709,7 +709,7 @@ export function HomeLayout({
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         {postMedia ? (
                           <>
-                            <span className="max-w-[min(100%,14rem)] truncate text-xs text-zinc-500">
+                            <span className="block min-w-0 max-w-full truncate text-xs text-zinc-500">
                               {postMedia.name}
                             </span>
                             <button
@@ -866,7 +866,7 @@ export function HomeLayout({
                     </div>
                   ) : null}
 
-                  <div className="flex w-full flex-col gap-4">
+                  <div className="mt-4 flex w-full min-w-0 flex-col gap-4">
                     {loadingFeed ? (
                       <p className="text-sm text-zinc-600">Načítám příspěvky…</p>
                     ) : postFeed.length === 0 ? (
@@ -963,10 +963,10 @@ export function HomeLayout({
                           {showFeedImage ? (
                             <button
                               type="button"
-                              className="mt-3 block w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] text-left md:relative md:left-auto md:right-auto md:-ml-0 md:-mr-0 md:w-full"
+                              className="mt-3 block w-full text-left"
                               onClick={() => router.push(`/post/${String(p.id)}`)}
                             >
-                              <div className="relative w-full overflow-hidden bg-black">
+                              <div className="relative w-full overflow-hidden rounded-2xl bg-black">
                                 <img
                                   src={nestAbsoluteAssetUrl(imageRaw)}
                                   alt=""
@@ -978,10 +978,10 @@ export function HomeLayout({
                           {showFeedVideo ? (
                             <button
                               type="button"
-                              className="mt-3 block w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] text-left md:relative md:left-auto md:right-auto md:-ml-0 md:-mr-0 md:w-full"
+                              className="mt-3 block w-full text-left"
                               onClick={() => router.push(`/post/${String(p.id)}`)}
                             >
-                              <div className="w-full bg-black">
+                              <div className="relative w-full overflow-hidden rounded-2xl bg-black">
                                 <video
                                   src={nestAbsoluteAssetUrl(videoRaw)}
                                   playsInline
