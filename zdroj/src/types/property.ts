@@ -14,6 +14,7 @@ export type PropertyFromApi = {
     url?: string | null;
     type?: string | null;
     order?: number | null;
+    sortOrder?: number | null;
   }>;
   description?: string | null;
   userId?: string;
@@ -58,7 +59,11 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
             const type = m?.type === 'image' || m?.type === 'video' ? m.type : null;
             const url = typeof m?.url === 'string' ? m.url : '';
             const order =
-              typeof m?.order === 'number' && Number.isFinite(m.order) ? m.order : 0;
+              typeof m?.order === 'number' && Number.isFinite(m.order)
+                ? m.order
+                : typeof m?.sortOrder === 'number' && Number.isFinite(m.sortOrder)
+                  ? m.sortOrder
+                  : 0;
             return Boolean(type && url);
           })
           .sort((a, b) => a.order - b.order)
@@ -126,7 +131,12 @@ export function safeNormalizePropertyFromApi(
         ? (o.media as Array<Record<string, unknown>>).map((m) => ({
             url: typeof m.url === 'string' ? m.url : '',
             type: m.type === 'video' ? 'video' : 'image',
-            order: typeof m.order === 'number' ? m.order : 0,
+            order:
+              typeof m.order === 'number'
+                ? m.order
+                : typeof m.sortOrder === 'number'
+                  ? m.sortOrder
+                  : 0,
           }))
         : undefined,
       description:

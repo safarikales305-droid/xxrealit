@@ -32,6 +32,12 @@ export type PropertyRowForApi = {
   user: { id: string; city: string | null };
   _count: { likes: number };
   likes?: { id: string }[];
+  media?: Array<{
+    id: string;
+    url: string;
+    type: string;
+    sortOrder: number;
+  }>;
 };
 
 export function serializeProperty(
@@ -44,6 +50,33 @@ export function serializeProperty(
     p.likes.length > 0;
 
   const images = Array.isArray(p.images) ? p.images : [];
+  const mediaFromRelation = Array.isArray(p.media)
+    ? p.media
+        .filter((m) => typeof m?.url === 'string' && m.url.length > 0)
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((m) => ({
+          id: m.id,
+          url: m.url,
+          type: m.type === 'video' ? 'video' : 'image',
+          order: m.sortOrder,
+          sortOrder: m.sortOrder,
+        }))
+    : [];
+  const fallbackMedia = [
+    ...(p.videoUrl
+      ? [{ id: `${p.id}-video`, url: p.videoUrl, type: 'video', order: 0, sortOrder: 0 }]
+      : []),
+    ...images.map((url, index) => ({
+      id: `${p.id}-image-${index}`,
+      url,
+      type: 'image' as const,
+      order: index + 1,
+      sortOrder: index + 1,
+    })),
+  ];
+  const media = mediaFromRelation.length > 0 ? mediaFromRelation : fallbackMedia;
+  const primaryImage = media.find((m) => m.type === 'image')?.url ?? images[0] ?? null;
+  const primaryVideo = media.find((m) => m.type === 'video')?.url ?? p.videoUrl;
 
   return {
     id: p.id,
@@ -70,8 +103,9 @@ export function serializeProperty(
     parking: p.parking,
     cellar: p.cellar,
     images,
-    imageUrl: images[0] ?? null,
-    videoUrl: p.videoUrl,
+    imageUrl: primaryImage,
+    videoUrl: primaryVideo,
+    media,
     contactName: p.contactName,
     contactPhone: p.contactPhone,
     contactEmail: p.contactEmail,

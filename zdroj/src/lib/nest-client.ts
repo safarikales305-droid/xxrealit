@@ -434,6 +434,56 @@ export async function nestUploadPropertyImages(
   }
 }
 
+export async function nestUploadPropertyMedia(
+  token: string | null,
+  input: { video: File | null; images: File[]; imageOrder: string[] },
+): Promise<{ ok: true; videoUrl: string | null; imageUrls: string[] } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const fd = new FormData();
+  if (input.video) fd.append('video', input.video);
+  for (const image of input.images) {
+    fd.append('images', image);
+  }
+  fd.append('imageOrder', JSON.stringify(input.imageOrder));
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/upload/media`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: nestAuthHeaders(token),
+      body: fd,
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      videoUrl?: string | null;
+      imageUrls?: unknown;
+      message?: string | string[];
+      error?: string;
+    };
+    if (!res.ok) {
+      const msg =
+        typeof data.message === 'string'
+          ? data.message
+          : Array.isArray(data.message)
+            ? data.message.join(', ')
+            : typeof data.error === 'string'
+              ? data.error
+              : `HTTP ${res.status}`;
+      return { ok: false, error: msg };
+    }
+    return {
+      ok: true,
+      videoUrl: typeof data.videoUrl === 'string' ? data.videoUrl : null,
+      imageUrls: Array.isArray(data.imageUrls)
+        ? data.imageUrls.filter((u): u is string => typeof u === 'string')
+        : [],
+    };
+  } catch {
+    return { ok: false, error: 'Síťová chyba při nahrávání' };
+  }
+}
+
 export type NestCreateListingBody = Record<string, unknown>;
 
 export async function nestCreatePropertyListing(

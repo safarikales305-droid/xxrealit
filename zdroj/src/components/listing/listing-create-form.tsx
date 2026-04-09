@@ -2,7 +2,11 @@
 
 import { useCallback, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { nestApiConfigured, nestCreatePropertyListing, nestUploadPropertyImages } from '@/lib/nest-client';
+import {
+  nestApiConfigured,
+  nestCreatePropertyListing,
+  nestUploadPropertyMedia,
+} from '@/lib/nest-client';
 
 const inputClass =
   'w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-[#ff6a00]/55 focus:ring-2 focus:ring-[#ff6a00]/15';
@@ -38,7 +42,10 @@ export function ListingCreateForm() {
   const [currency, setCurrency] = useState('CZK');
 
   const [imageUrls, setImageUrls] = useState<string[]>([]);
-  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<Array<{ id: string; file: File; previewUrl: string }>>([]);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState('');
 
   const [contactName, setContactName] = useState('');
@@ -50,30 +57,81 @@ export function ListingCreateForm() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const onPickFiles = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const onPickImageFiles = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const list = e.target.files;
     if (!list?.length) return;
-    setPendingFiles(Array.from(list));
+    const picked = Array.from(list).filter((f) => f.type.startsWith('image/'));
+    if (picked.length === 0) return;
+    const merged = [...imageFiles, ...picked].slice(0, 30);
+    setImageFiles(merged);
+    setImagePreviews((prev) => {
+      const next = [...prev];
+      for (const file of picked) {
+        if (next.length >= 30) break;
+        next.push({
+          id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          file,
+          previewUrl: URL.createObjectURL(file),
+        });
+      }
+      return next;
+    });
     setError(null);
     e.target.value = '';
+  }, [imageFiles]);
+
+  const onPickVideoFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const list = e.target.files;
+    const file = list?.[0] ?? null;
+    if (!file) return;
+    if (!file.type.startsWith('video/')) {
+      setError('Vyberte prosím video soubor.');
+      return;
+    }
+    if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+    setVideoFile(file);
+    setVideoPreviewUrl(URL.createObjectURL(file));
+    setError(null);
+    e.target.value = '';
+  }, [videoPreviewUrl]);
+
+  const moveImageLeft = useCallback((index: number) => {
+    if (index <= 0) return;
+    setImageFiles((prev) => {
+      const next = [...prev];
+      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      return next;
+    });
+    setImagePreviews((prev) => {
+      const next = [...prev];
+      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      return next;
+    });
   }, []);
 
-  const uploadPending = useCallback(async () => {
-    if (!apiAccessToken || pendingFiles.length === 0) {
-      setError('Vyberte soubory a buďte přihlášeni.');
-      return;
-    }
-    setUploading(true);
-    setError(null);
-    const r = await nestUploadPropertyImages(apiAccessToken, pendingFiles);
-    setUploading(false);
-    if (!r.ok) {
-      setError(r.error ?? 'Nahrání selhalo');
-      return;
-    }
-    setImageUrls((prev) => [...prev, ...r.urls]);
-    setPendingFiles([]);
-  }, [apiAccessToken, pendingFiles]);
+  const moveImageRight = useCallback((index: number) => {
+    setImageFiles((prev) => {
+      if (index >= prev.length - 1) return prev;
+      const next = [...prev];
+      [next[index], next[index + 1]] = [next[index + 1], next[index]];
+      return next;
+    });
+    setImagePreviews((prev) => {
+      if (index >= prev.length - 1) return prev;
+      const next = [...prev];
+      [next[index], next[index + 1]] = [next[index + 1], next[index]];
+      return next;
+    });
+  }, []);
+
+  const removeImage = useCallback((index: number) => {
+    setImageFiles((prev) => prev.filter((_, i) => i !== index));
+    setImagePreviews((prev) => {
+      const target = prev[index];
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((_, i) => i !== index);
+    });
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -108,6 +166,26 @@ export function ListingCreateForm() {
       return;
     }
 
+    let uploadedVideoUrl = videoUrl.trim() || '';
+    let uploadedImageUrls = imageUrls;
+    if (videoFile || imageFiles.length > 0) {
+      setUploading(true);
+      const uploaded = await nestUploadPropertyMedia(apiAccessToken, {
+        video: videoFile,
+        images: imageFiles,
+        imageOrder: imageFiles.map((f) => `${f.name}::${f.size}`),
+      });
+      setUploading(false);
+      if (!uploaded.ok) {
+        setError(uploaded.error ?? 'Nahrání médií selhalo');
+        return;
+      }
+      if (uploaded.videoUrl) uploadedVideoUrl = uploaded.videoUrl;
+      uploadedImageUrls = uploaded.imageUrls;
+      setImageUrls(uploadedImageUrls);
+      if (uploadedVideoUrl) setVideoUrl(uploadedVideoUrl);
+    }
+
     const body: Record<string, unknown> = {
       title: t,
       description: description.trim(),
@@ -121,8 +199,8 @@ export function ListingCreateForm() {
       equipment: equipment.trim() || undefined,
       parking,
       cellar,
-      images: imageUrls,
-      videoUrl: videoUrl.trim() || undefined,
+      images: uploadedImageUrls,
+      videoUrl: uploadedVideoUrl || undefined,
       contactName: cn,
       contactPhone: cp,
       contactEmail: ce,
@@ -153,6 +231,14 @@ export function ListingCreateForm() {
     setDescription('');
     setPrice('');
     setImageUrls([]);
+    for (const p of imagePreviews) {
+      URL.revokeObjectURL(p.previewUrl);
+    }
+    setImagePreviews([]);
+    setImageFiles([]);
+    if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+    setVideoPreviewUrl(null);
+    setVideoFile(null);
     setVideoUrl('');
     setAddress('');
     setCity('');
@@ -485,48 +571,59 @@ export function ListingCreateForm() {
         <legend className={sectionTitle}>
           <span className="text-lg">🟢</span> Multimédia
         </legend>
-        <p className="mb-3 text-sm text-zinc-600">📸 Fotky (JPG, PNG, WebP, GIF)</p>
+        <p className="mb-2 text-sm text-zinc-600">🎥 Video (max 1, bude první)</p>
         <input
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/gif"
+          accept="video/*"
+          onChange={onPickVideoFile}
+          className="mb-4 block w-full text-sm text-zinc-600 file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-800 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-black"
+        />
+        {videoPreviewUrl ? (
+          <div className="mb-4 overflow-hidden rounded-2xl border border-zinc-200">
+            <div className="relative">
+              <video src={videoPreviewUrl} controls playsInline className="h-auto w-full object-contain" />
+              <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-semibold text-white">
+                Video / bude první
+              </span>
+            </div>
+          </div>
+        ) : null}
+
+        <p className="mb-3 text-sm text-zinc-600">📸 Fotky (max 30)</p>
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif,image/*"
           multiple
-          onChange={onPickFiles}
+          onChange={onPickImageFiles}
           className="block w-full text-sm text-zinc-600 file:mr-3 file:rounded-lg file:border-0 file:bg-orange-500 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-orange-600"
         />
-        {pendingFiles.length > 0 ? (
-          <p className="mt-2 text-xs text-zinc-500">
-            Vybráno: {pendingFiles.length} soubor(ů)
-          </p>
-        ) : null}
-        <button
-          type="button"
-          disabled={uploading || pendingFiles.length === 0}
-          onClick={() => void uploadPending()}
-          className="mt-3 inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-100 disabled:opacity-50"
-        >
-          {uploading ? (
-            <span className="inline-block size-4 animate-spin rounded-full border-2 border-zinc-400 border-t-transparent" />
-          ) : null}
-          {uploading ? 'Nahrávám…' : 'Nahrát vybrané fotky'}
-        </button>
-        {imageUrls.length > 0 ? (
-          <ul className="mt-4 flex flex-wrap gap-2 text-xs text-zinc-600">
-            {imageUrls.map((u) => (
-              <li
-                key={u}
-                className="max-w-[200px] truncate rounded-lg bg-zinc-100 px-2 py-1 font-mono"
-                title={u}
-              >
-                {u}
-              </li>
+        {imagePreviews.length > 0 ? (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {imagePreviews.map((img, index) => (
+              <div key={img.id} className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+                <div className="relative">
+                  <img src={img.previewUrl} alt="" className="h-40 w-full object-cover" />
+                  <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-semibold text-white">
+                    {index + 1}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between p-2">
+                  <div className="truncate text-xs text-zinc-500">{img.file.name}</div>
+                  <div className="flex items-center gap-1">
+                    <button type="button" onClick={() => moveImageLeft(index)} className="rounded-lg border px-2 py-1 text-xs">←</button>
+                    <button type="button" onClick={() => moveImageRight(index)} className="rounded-lg border px-2 py-1 text-xs">→</button>
+                    <button type="button" onClick={() => removeImage(index)} className="rounded-lg border border-red-200 px-2 py-1 text-xs text-red-600">✕</button>
+                  </div>
+                </div>
+              </div>
             ))}
-          </ul>
+          </div>
         ) : (
-          <p className="mt-2 text-xs text-zinc-500">Zatím žádné nahrané URL.</p>
+          <p className="mt-2 text-xs text-zinc-500">Zatím žádné vybrané fotky.</p>
         )}
         <div className="mt-6">
           <label className={labelClass} htmlFor="videoUrl">
-            🎥 Odkaz na video (YouTube / URL)
+            🎥 Odkaz na video (volitelné)
           </label>
           <input
             id="videoUrl"

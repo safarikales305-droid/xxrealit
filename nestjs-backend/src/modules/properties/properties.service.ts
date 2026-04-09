@@ -11,6 +11,7 @@ import { serializeProperty } from './properties.serializer';
 const socialInclude = (viewerId?: string) =>
   viewerId
     ? {
+        media: { orderBy: { sortOrder: 'asc' as const } },
         _count: { select: { likes: true } },
         user: { select: { id: true, city: true } },
         likes: {
@@ -20,6 +21,7 @@ const socialInclude = (viewerId?: string) =>
         },
       }
     : {
+        media: { orderBy: { sortOrder: 'asc' as const } },
         _count: { select: { likes: true } },
         user: { select: { id: true, city: true } },
       };
@@ -105,6 +107,9 @@ export class PropertiesService {
     const property = await this.prisma.property.findUnique({
       where: { id },
       include: {
+        media: {
+          orderBy: { sortOrder: 'asc' },
+        },
         user: {
           select: {
             id: true,
@@ -157,6 +162,9 @@ export class PropertiesService {
       where: othersWhere,
       orderBy: { createdAt: 'desc' },
       include: {
+        media: {
+          orderBy: { sortOrder: 'asc' },
+        },
         _count: { select: { likes: true } },
         user: { select: { id: true, city: true } },
         ...(viewerId

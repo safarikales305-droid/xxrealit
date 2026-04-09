@@ -39,6 +39,11 @@ export default async function NemovitostDetailPage({ params }: Props) {
   }
 
   const { property: p, user: author, other } = parsed;
+  const media = Array.isArray(p.media) ? [...p.media].sort((a, b) => a.order - b.order) : [];
+  const primaryVideo = media.find((m) => m.type === 'video');
+  const images = media.filter((m) => m.type === 'image');
+  const fallbackImage = p.imageUrl ? nestAbsoluteAssetUrl(p.imageUrl) : null;
+  const fallbackVideo = p.videoUrl ? nestAbsoluteAssetUrl(p.videoUrl) : null;
   const avatarSrc =
     author.avatar && author.avatar.trim().length > 0
       ? nestAbsoluteAssetUrl(author.avatar)
@@ -48,7 +53,7 @@ export default async function NemovitostDetailPage({ params }: Props) {
     <div>
       <section className="overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-md">
         <div className="relative aspect-[21/9] w-full max-h-[380px] bg-zinc-100">
-          {p.videoUrl ? (
+          {primaryVideo?.url || fallbackVideo ? (
             <video
               muted
               playsInline
@@ -57,14 +62,12 @@ export default async function NemovitostDetailPage({ params }: Props) {
               controls
               preload="metadata"
               className="w-full h-full object-cover"
-              onError={(e) => console.log('VIDEO ERROR', e)}
-              onLoadedData={() => console.log('VIDEO LOADED')}
+              src={nestAbsoluteAssetUrl(primaryVideo?.url ?? fallbackVideo ?? '')}
             >
-              <source src={p.videoUrl} type="video/mp4" />
             </video>
-          ) : p.imageUrl ? (
+          ) : images[0]?.url || fallbackImage ? (
             <img
-              src={nestAbsoluteAssetUrl(p.imageUrl)}
+              src={nestAbsoluteAssetUrl(images[0]?.url ?? fallbackImage ?? '')}
               alt=""
               className="h-full w-full object-cover"
             />
@@ -74,6 +77,18 @@ export default async function NemovitostDetailPage({ params }: Props) {
             </div>
           )}
         </div>
+        {images.length > 0 ? (
+          <div className="no-scrollbar flex gap-2 overflow-x-auto px-4 pb-4 pt-3">
+            {images.map((img) => (
+              <img
+                key={img.url}
+                src={nestAbsoluteAssetUrl(img.url)}
+                className="h-20 w-20 shrink-0 rounded-xl object-cover"
+                alt=""
+              />
+            ))}
+          </div>
+        ) : null}
 
         <div className="p-6 sm:p-8">
           <p className="text-sm font-medium text-zinc-500">🏠 Detail inzerátu</p>
@@ -132,7 +147,13 @@ export default async function NemovitostDetailPage({ params }: Props) {
                 className="group flex flex-col overflow-hidden rounded-xl border border-zinc-200/90 bg-white shadow-sm transition hover:border-zinc-300 hover:shadow-md"
               >
                 <div className="relative aspect-[4/3] bg-zinc-100">
-                  {item.videoUrl ? (
+                  {(() => {
+                    const itemMedia = Array.isArray(item.media)
+                      ? [...item.media].sort((a, b) => a.order - b.order)
+                      : [];
+                    const itemVideo = itemMedia.find((m) => m.type === 'video')?.url ?? item.videoUrl;
+                    const itemImage = itemMedia.find((m) => m.type === 'image')?.url ?? item.imageUrl;
+                    return itemVideo ? (
                     <video
                       muted
                       playsInline
@@ -141,15 +162,12 @@ export default async function NemovitostDetailPage({ params }: Props) {
                       controls
                       preload="metadata"
                       className="w-full h-full object-cover"
-                      onError={(e) => console.log('VIDEO ERROR', e)}
-                      onLoadedData={() => console.log('VIDEO LOADED')}
+                      src={nestAbsoluteAssetUrl(itemVideo)}
                       aria-hidden
-                    >
-                      <source src={item.videoUrl} type="video/mp4" />
-                    </video>
-                  ) : item.imageUrl ? (
+                    />
+                    ) : itemImage ? (
                     <img
-                      src={nestAbsoluteAssetUrl(item.imageUrl)}
+                      src={nestAbsoluteAssetUrl(itemImage)}
                       alt=""
                       className="h-full w-full object-cover"
                     />
@@ -157,7 +175,8 @@ export default async function NemovitostDetailPage({ params }: Props) {
                     <div className="flex h-full items-center justify-center bg-gradient-to-br from-zinc-100 to-zinc-200 text-sm text-zinc-400">
                       Bez náhledu
                     </div>
-                  )}
+                  );
+                  })()}
                 </div>
                 <div className="flex flex-1 flex-col p-4">
                   <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug text-zinc-900 group-hover:text-[#e85d00]">

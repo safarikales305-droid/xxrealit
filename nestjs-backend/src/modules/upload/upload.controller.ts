@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Controller,
+  Body,
   Post,
   UploadedFile,
   UploadedFiles,
@@ -9,7 +10,11 @@ import {
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
-import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import {
+  FileFieldsInterceptor,
+  FileInterceptor,
+  FilesInterceptor,
+} from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import * as fs from 'node:fs';
 import { extname } from 'node:path';
@@ -20,6 +25,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { propertyImagesMulterOptions } from './multer-upload.config';
 
 const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
+const VIDEO_EXT = new Set(['.mp4', '.mov', '.webm', '.m4v', '.avi', '.mkv']);
 const MAX_FILES = 24;
 
 const noBodyValidation = new ValidationPipe({
@@ -108,5 +114,85 @@ export class UploadController {
     }
 
     return { urls };
+  }
+
+  @Post('upload/media')
+  @UseGuards(JwtAuthGuard)
+  @UsePipes(noBodyValidation)
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'video', maxCount: 1 },
+        { name: 'images', maxCount: 30 },
+      ],
+      {
+        storage: propertyImagesMulterOptions.storage,
+        limits: {
+          fileSize: 300 * 1024 * 1024,
+          files: 31,
+        },
+      },
+    ),
+  )
+  uploadMedia(
+    @CurrentUser() _user: AuthUser,
+    @UploadedFiles()
+    files?: {
+      video?: Express.Multer.File[];
+      images?: Express.Multer.File[];
+    },
+    @Body('imageOrder') imageOrderRaw?: string | string[],
+  ): { videoUrl: string | null; imageUrls: string[] } {
+    const video = files?.video?.[0];
+    const images = files?.images ?? [];
+    if (images.length > 30) {
+      throw new BadRequestException('Max 30 images');
+    }
+    if ((video ? 1 : 0) > 1) {
+      throw new BadRequestException('Only 1 video allowed');
+    }
+
+    const imageOrder = (() => {
+      if (!imageOrderRaw) return [];
+      const source = Array.isArray(imageOrderRaw) ? imageOrderRaw[0] : imageOrderRaw;
+      try {
+        const parsed = JSON.parse(source) as unknown;
+        if (!Array.isArray(parsed)) return [];
+        return parsed.filter((x): x is string => typeof x === 'string');
+      } catch {
+        return [];
+      }
+    })();
+
+    if (video?.filename) {
+      const ext = extname(video.originalname || video.filename).toLowerCase() || '.mp4';
+      if (!VIDEO_EXT.has(ext)) {
+        throw new BadRequestException('Nepovolený video formát');
+      }
+    }
+
+    const orderedImages =
+      imageOrder.length > 0
+        ? [...images].sort((a, b) => {
+            const aKey = `${a.originalname}::${a.size}`;
+            const bKey = `${b.originalname}::${b.size}`;
+            const ai = imageOrder.indexOf(aKey);
+            const bi = imageOrder.indexOf(bKey);
+            return (ai === -1 ? Number.MAX_SAFE_INTEGER : ai) - (bi === -1 ? Number.MAX_SAFE_INTEGER : bi);
+          })
+        : images;
+
+    const imageUrls: string[] = [];
+    for (const f of orderedImages) {
+      if (!f.filename) continue;
+      const e = extname(f.originalname || f.filename).toLowerCase() || '.jpg';
+      if (!IMAGE_EXT.has(e)) {
+        throw new BadRequestException(`Nepovolený formát obrázku: ${e}`);
+      }
+      imageUrls.push(`/uploads/properties/${f.filename}`);
+    }
+
+    const videoUrl = video?.filename ? `/uploads/properties/${video.filename}` : null;
+    return { videoUrl, imageUrls };
   }
 }
