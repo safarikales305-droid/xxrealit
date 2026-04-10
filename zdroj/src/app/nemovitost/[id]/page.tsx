@@ -1,6 +1,9 @@
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
+import { NemovitostBackBar } from '@/components/nemovitost/NemovitostBackBar';
+import { NemovitostShareBar } from '@/components/nemovitost/NemovitostShareBar';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { normalizePropertyDetailPayload } from '@/lib/property-detail';
 
@@ -51,6 +54,9 @@ export default async function NemovitostDetailPage({ params }: Props) {
 
   return (
     <div>
+      <Suspense fallback={null}>
+        <NemovitostBackBar />
+      </Suspense>
       <section className="overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-md">
         <div className="relative aspect-[21/9] w-full max-h-[380px] bg-zinc-100">
           {primaryVideo?.url || fallbackVideo ? (
@@ -91,10 +97,15 @@ export default async function NemovitostDetailPage({ params }: Props) {
         ) : null}
 
         <div className="p-6 sm:p-8">
-          <p className="text-sm font-medium text-zinc-500">🏠 Detail inzerátu</p>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl">
-            {p.title}
-          </h1>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-zinc-500">🏠 Detail inzerátu</p>
+              <h1 className="mt-2 text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl">
+                {p.title}
+              </h1>
+            </div>
+            <NemovitostShareBar propertyId={id} title={p.title} />
+          </div>
           <p className="mt-4 text-2xl font-bold text-[#e85d00]">{PRICE_FMT.format(p.price)}</p>
           <p className="mt-2 text-[15px] font-medium text-zinc-700">
             <span className="text-zinc-500">Lokalita:</span> {p.location}

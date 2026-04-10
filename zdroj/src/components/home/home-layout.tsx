@@ -1,34 +1,25 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import type { ComponentType } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Briefcase,
-  Building2,
-  Heart,
-  Home,
-  Image as ImageIcon,
-  MessageCircle,
-  Send,
-  ThumbsDown,
-  Video,
-} from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Briefcase, Building2, Home } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
 import {
   nestAddPostComment,
-  nestCreateListingPost,
   nestFetchCommunityPosts,
   nestFetchPostComments,
   nestSetPostReaction,
-  nestTogglePostFavorite,
   type ListingPost,
   type PostComment,
   type ShortVideo,
 } from '@/lib/nest-client';
+import { CreateCommunityPostCard } from '@/components/community/CreateCommunityPostCard';
+import { CommunityPostCard } from '@/components/community/CommunityPostCard';
 import { PropertyGrid } from '@/components/property-grid';
+import { classicListingsOnly } from '@/lib/property-feed-filters';
 import type { PropertyFeedItem } from '@/types/property';
 import { VideoFeed } from '@/components/video-feed/VideoFeed';
 import { Navbar, type ViewMode } from './navbar';
@@ -62,6 +53,7 @@ export function HomeLayout({
   apiConfigMissing = false,
 }: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { refresh, user, isAuthenticated, apiAccessToken } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
 
@@ -81,28 +73,22 @@ export function HomeLayout({
 
   const [viewMode, setViewMode] = useState<ViewMode>('shorts');
   const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    if (searchParams.get('tab') === 'shorts') {
+      setViewMode('shorts');
+    }
+  }, [searchParams]);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [videoFeed, setVideoFeed] = useState<ShortVideo[]>([]);
   const [postFeed, setPostFeed] = useState<Array<Record<string, unknown>>>([]);
   const [loadingFeed, setLoadingFeed] = useState(false);
-  const [postContent, setPostContent] = useState('');
-  const [postTitle, setPostTitle] = useState('');
-  const [postPrice, setPostPrice] = useState('');
-  const [postCity, setPostCity] = useState('');
   const [activeCategory, setActiveCategory] = useState<
     'MAKLERI' | 'STAVEBNI_FIRMY' | 'REALITNI_KANCELARE'
   >('MAKLERI');
   const [radiusKm, setRadiusKm] = useState<(typeof RADIUS_OPTIONS_KM)[number]>(30);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [geoDenied, setGeoDenied] = useState(false);
-  const [creatingPost, setCreatingPost] = useState(false);
-  const [postMedia, setPostMedia] = useState<File | null>(null);
-  const [postImages, setPostImages] = useState<File[]>([]);
-  const [dragImageIndex, setDragImageIndex] = useState<number | null>(null);
-  const [postVideo, setPostVideo] = useState<File | null>(null);
-  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
-  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
-  const [postMediaError, setPostMediaError] = useState<string | null>(null);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
   const [likedByPostId, setLikedByPostId] = useState<Record<string, boolean>>({});
@@ -113,8 +99,6 @@ export function HomeLayout({
   const [commentInputByPostId, setCommentInputByPostId] = useState<Record<string, string>>({});
   const [commentsOpenByPostId, setCommentsOpenByPostId] = useState<Record<string, boolean>>({});
   const [mutedByPostId, setMutedByPostId] = useState<Record<string, boolean>>({});
-  const postMediaInputRef = useRef<HTMLInputElement | null>(null);
-  const postTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const storyPosts = useMemo(
     () =>
@@ -129,82 +113,6 @@ export function HomeLayout({
       }),
     [postFeed],
   );
-
-  useEffect(() => {
-    if (!postVideo) {
-      setVideoPreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(postVideo);
-    setVideoPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [postVideo]);
-
-  useEffect(() => {
-    if (postImages.length === 0) {
-      setImagePreviewUrls([]);
-      return;
-    }
-    const urls = postImages.map((img) => URL.createObjectURL(img));
-    setImagePreviewUrls(urls);
-    return () => {
-      for (const u of urls) URL.revokeObjectURL(u);
-    };
-  }, [postImages]);
-
-  function handleMediaChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setPostMediaError(null);
-    const files = Array.from(e.target.files ?? []);
-    const file = files[0] ?? null;
-    if (!file && files.length === 0) {
-      setPostMedia(null);
-      setPostVideo(null);
-      setPostImages([]);
-      return;
-    }
-    const videoFiles = files.filter((f) => f.type.startsWith('video/'));
-    const imageFiles = files.filter((f) => f.type.startsWith('image/'));
-    if (videoFiles.length > 1) {
-      setPostMediaError('Only 1 video allowed');
-      e.target.value = '';
-      return;
-    }
-    if (imageFiles.length > 30) {
-      setPostMediaError('Max 30 images');
-      e.target.value = '';
-      return;
-    }
-    for (const f of files) {
-      if (!f.type.startsWith('video/') && !f.type.startsWith('image/')) {
-        setPostMediaError('Povolené jsou pouze video nebo obrázek.');
-        e.target.value = '';
-        return;
-      }
-      if (f.size > 300 * 1024 * 1024) {
-        setPostMediaError('Maximální velikost souboru je 300 MB.');
-        e.target.value = '';
-        return;
-      }
-    }
-    setPostVideo(videoFiles[0] ?? null);
-    setPostImages(imageFiles);
-    setPostMedia(videoFiles[0] ?? imageFiles[0] ?? file ?? null);
-  }
-
-  function moveImage(from: number, to: number) {
-    setPostImages((prev) => {
-      if (from < 0 || to < 0 || from >= prev.length || to >= prev.length) return prev;
-      const next = [...prev];
-      const [item] = next.splice(from, 1);
-      next.splice(to, 0, item);
-      return next;
-    });
-  }
-
-  function handlePostContentChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    const value = e.target.value;
-    setPostContent(value);
-  }
 
   async function refreshPostsFeed() {
     if (!API_BASE_URL) return;
@@ -258,29 +166,6 @@ export function HomeLayout({
     await refreshPostsFeed();
   }
 
-  async function toggleFavorite(postId: string) {
-    if (!apiAccessToken) return;
-    const optimisticLiked = !Boolean(likedByPostId[postId]);
-    const previousLiked = Boolean(likedByPostId[postId]);
-    const previousCount = likeCountByPostId[postId] ?? 0;
-
-    setLikedByPostId((prev) => ({ ...prev, [postId]: optimisticLiked }));
-    setLikeCountByPostId((prev) => ({
-      ...prev,
-      [postId]: Math.max(0, previousCount + (optimisticLiked ? 1 : -1)),
-    }));
-
-    const res = await nestTogglePostFavorite(apiAccessToken, postId);
-    if (!res.ok) {
-      setLikedByPostId((prev) => ({ ...prev, [postId]: previousLiked }));
-      setLikeCountByPostId((prev) => ({ ...prev, [postId]: previousCount }));
-      return;
-    }
-
-    setLikedByPostId((prev) => ({ ...prev, [postId]: res.liked }));
-    setLikeCountByPostId((prev) => ({ ...prev, [postId]: res.likeCount }));
-  }
-
   async function toggleReaction(postId: string, type: 'LIKE' | 'DISLIKE') {
     if (!apiAccessToken) return;
     const res = await nestSetPostReaction(apiAccessToken, postId, type);
@@ -306,18 +191,29 @@ export function HomeLayout({
     await loadComments(postId);
   }
 
+  const classicGridItems = useMemo(() => classicListingsOnly(items), [items]);
+
   const filteredItems = useMemo(() => {
     const s = searchQuery.trim().toLowerCase();
-    if (!s) return items;
-    return items.filter(
+    if (!s) return classicGridItems;
+    return classicGridItems.filter(
       (p) =>
         p.title.toLowerCase().includes(s) ||
         p.location.toLowerCase().includes(s),
     );
-  }, [items, searchQuery]);
+  }, [classicGridItems, searchQuery]);
 
-  const hasData = items.length > 0;
+  const hasData = classicGridItems.length > 0;
   const showNoSearchHits = hasData && filteredItems.length === 0;
+
+  const communityFeedPosts = useMemo(
+    () =>
+      postFeed.filter((row) => {
+        const t = String((row as ListingPost).type ?? '');
+        return t !== 'short';
+      }),
+    [postFeed],
+  );
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -394,76 +290,6 @@ export function HomeLayout({
       })
       .finally(() => setLoadingFeed(false));
   }, [viewMode, activeCategory, radiusKm, userCoords?.lat, userCoords?.lng]);
-
-  async function handleSubmit(e?: React.FormEvent) {
-    e?.preventDefault();
-
-    if (!API_BASE_URL || !user || !apiAccessToken) return;
-
-    const text = postContent.trim();
-    if (!postMedia && !text && !postTitle.trim()) return;
-
-    setPostMediaError(null);
-    setCreatingPost(true);
-    try {
-      if (postMedia || postTitle.trim()) {
-        console.log('LISTING SUBMIT START', {
-          hasVideo: Boolean(postVideo),
-          imageCount: postImages.length,
-          imageOrder: postImages.map((f) => `${f.name}::${f.size}`),
-        });
-        const r = await nestCreateListingPost(apiAccessToken, {
-          title: postTitle.trim() || 'Inzerát',
-          description: text || postTitle.trim() || 'Inzerát',
-          price: Number(postPrice || 0),
-          city: postCity.trim() || 'Neuvedeno',
-          type: postVideo ? 'short' : 'post',
-          category: activeCategory,
-          latitude: userCoords?.lat,
-          longitude: userCoords?.lng,
-          video: postVideo,
-          images: postImages,
-          imageOrder: postImages.map((f) => `${f.name}::${f.size}`),
-        });
-        console.log('LISTING SUBMIT RESPONSE', r);
-        if (!r.ok) {
-          alert('Upload selhal');
-          setPostMediaError(r.error ?? 'Upload média selhal.');
-          return;
-        }
-        setPostMedia(null);
-        setPostVideo(null);
-        setPostImages([]);
-        setPostTitle('');
-        setPostPrice('');
-        setPostCity('');
-        setPostContent('');
-        if (postMediaInputRef.current) {
-          postMediaInputRef.current.value = '';
-        }
-      } else {
-        const postsBase = API_BASE_URL.endsWith('/api') ? API_BASE_URL : `${API_BASE_URL}/api`;
-        const postRes = await fetch(`${postsBase}/posts`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiAccessToken}`,
-          },
-          body: JSON.stringify({ content: text }),
-        });
-        if (!postRes.ok) {
-          alert('Odeslání příspěvku selhalo');
-          return;
-        }
-        setPostContent('');
-      }
-
-      setViewMode('posts');
-      await refreshPostsFeed();
-    } finally {
-      setCreatingPost(false);
-    }
-  }
 
   return (
     <div className="flex h-[100dvh] max-h-[100dvh] w-full max-w-[100vw] flex-col overflow-x-hidden overflow-y-hidden bg-[#fafafa] text-zinc-900 md:h-screen md:max-h-screen">
@@ -561,12 +387,12 @@ export function HomeLayout({
                   Zobrazit nemovitosti
                 </button>
                 {!isAdmin ? (
-                  <Link
+                <Link
                     href="/inzerat/pridat"
-                    className="rounded-full border border-zinc-300 bg-white px-8 py-3 text-[15px] font-semibold text-zinc-800 transition hover:bg-zinc-50"
-                  >
-                    Vytvořit inzerát
-                  </Link>
+                  className="rounded-full border border-zinc-300 bg-white px-8 py-3 text-[15px] font-semibold text-zinc-800 transition hover:bg-zinc-50"
+                >
+                  Vytvořit inzerát
+                </Link>
                 ) : null}
               </div>
             </div>
@@ -677,175 +503,16 @@ export function HomeLayout({
 
                         {isAuthenticated ? (
                           <div className="mt-4 w-full">
-                            <form
-                              onSubmit={(e) => void handleSubmit(e)}
-                              className="w-full rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
-                            >
-                      <div className="mb-2 grid grid-cols-2 gap-2">
-                        <input
-                          value={postTitle}
-                          onChange={(e) => setPostTitle(e.target.value)}
-                          placeholder="Název inzerátu"
-                          className="h-9 rounded-xl border border-zinc-200 px-2 text-sm"
-                        />
-                        <input
-                          value={postCity}
-                          onChange={(e) => setPostCity(e.target.value)}
-                          placeholder="Město"
-                          className="h-9 rounded-xl border border-zinc-200 px-2 text-sm"
-                        />
-                        <input
-                          value={postPrice}
-                          onChange={(e) => setPostPrice(e.target.value.replace(/[^\d]/g, ''))}
-                          placeholder="Cena (Kč)"
-                          className="h-9 rounded-xl border border-zinc-200 px-2 text-sm"
-                        />
-                      </div>
-                      <textarea
-                        ref={postTextareaRef}
-                        rows={1}
-                        value={postContent}
-                        onChange={handlePostContentChange}
-                        onInput={(e) => {
-                          e.currentTarget.style.height = 'auto';
-                          e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
-                        }}
-                        placeholder="Co máte nového?"
-                        className="min-h-[44px] w-full resize-none overflow-hidden rounded-2xl border border-slate-200 bg-zinc-50/80 px-4 py-3 text-sm outline-none transition focus:border-orange-300 focus:bg-white focus:ring-2 focus:ring-orange-500/15"
-                      />
-                      <input
-                        ref={postMediaInputRef}
-                        type="file"
-                        accept="video/*,image/*"
-                        multiple
-                        className="sr-only"
-                        aria-label="Vybrat video nebo obrázek"
-                        onChange={handleMediaChange}
-                      />
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        {postMedia ? (
-                          <>
-                            <span className="block min-w-0 max-w-full truncate text-xs text-zinc-500">
-                              {postMedia.name}
-                            </span>
-                            <button
-                              type="button"
-                              className="text-xs font-semibold text-red-600 hover:underline"
-                              onClick={() => {
-                                setPostMedia(null);
-                                setPostVideo(null);
-                                setPostImages([]);
-                                setPostMediaError(null);
-                                if (postMediaInputRef.current) {
-                                  postMediaInputRef.current.value = '';
-                                }
+                            <CreateCommunityPostCard
+                              apiAccessToken={apiAccessToken}
+                              activeCategory={activeCategory}
+                              latitude={userCoords?.lat}
+                              longitude={userCoords?.lng}
+                              onPublished={async () => {
+                                setViewMode('posts');
+                                await refreshPostsFeed();
                               }}
-                            >
-                              Odebrat
-                            </button>
-                          </>
-                        ) : null}
-                      </div>
-                      {postMediaError ? (
-                        <p className="mt-2 text-sm font-medium text-red-600" role="alert">
-                          {postMediaError}
-                        </p>
-                      ) : null}
-                      {(videoPreviewUrl || imagePreviewUrls.length > 0) ? (
-                        <div className="mt-3 space-y-2">
-                          {videoPreviewUrl ? (
-                            <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-                              <div className="relative">
-                                <video
-                                  muted
-                                  playsInline
-                                  autoPlay
-                                  loop
-                                  controls
-                                  preload="metadata"
-                                  className="h-auto w-full object-contain"
-                                  src={videoPreviewUrl}
-                                />
-                                <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[11px] font-semibold text-white">
-                                  Video / bude první
-                                </span>
-                              </div>
-                            </div>
-                          ) : null}
-
-                          {postImages.map((img, idx) => (
-                            <div
-                              key={`${img.name}-${idx}`}
-                              draggable
-                              onDragStart={() => setDragImageIndex(idx)}
-                              onDragEnd={() => setDragImageIndex(null)}
-                              onDragOver={(e) => e.preventDefault()}
-                              onDrop={() => {
-                                if (dragImageIndex == null) return;
-                                moveImage(dragImageIndex, idx);
-                                setDragImageIndex(null);
-                              }}
-                              className="overflow-hidden rounded-2xl border border-zinc-200 bg-white"
-                            >
-                              <div className="relative">
-                                <img
-                                  src={imagePreviewUrls[idx]}
-                                  alt={img.name}
-                                  className="h-40 w-full object-cover"
-                                />
-                                <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[11px] font-semibold text-white">
-                                  {idx + 1}
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between px-2 py-1 text-xs">
-                                <span className="truncate pr-2">{img.name}</span>
-                                <div className="flex gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => moveImage(idx, idx - 1)}
-                                    disabled={idx === 0}
-                                    className="rounded border border-zinc-200 px-2 py-0.5 disabled:opacity-40"
-                                  >
-                                    ←
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => moveImage(idx, idx + 1)}
-                                    disabled={idx === postImages.length - 1}
-                                    className="rounded border border-zinc-200 px-2 py-0.5 disabled:opacity-40"
-                                  >
-                                    →
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-                      <div className="mt-3 flex items-center justify-between gap-3">
-                        <button
-                          type="button"
-                          onClick={() => postMediaInputRef.current?.click()}
-                          className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 text-orange-600 transition hover:bg-orange-50"
-                          title="Přidat video nebo obrázek"
-                          aria-label="Přidat média"
-                        >
-                          {postMedia?.type.startsWith('video') ? <Video size={18} /> : <ImageIcon size={18} />}
-                        </button>
-                        <button
-                          type="submit"
-                          disabled={creatingPost || (!postMedia && !postContent.trim())}
-                          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 text-sm font-semibold text-white shadow-sm transition disabled:opacity-50"
-                        >
-                          <Send size={14} />
-                          {creatingPost
-                            ? postMedia
-                              ? 'Nahrávám…'
-                              : 'Odesílám…'
-                            : 'Přidat'}
-                        </button>
-                      </div>
-                            </form>
+                            />
                           </div>
                         ) : null}
 
@@ -866,7 +533,7 @@ export function HomeLayout({
                             <button
                               key={String(p.id)}
                               type="button"
-                              onClick={() => router.push(`/post/${String(p.id)}`)}
+                              onClick={() => router.push(`/shorts/${String(p.id)}`)}
                               className="flex h-[120px] min-w-[70px] shrink-0 overflow-hidden rounded-xl ring-2 ring-orange-500/25 ring-offset-2 transition hover:ring-orange-500/60"
                             >
                               <video
@@ -886,244 +553,63 @@ export function HomeLayout({
                         <div className="mt-4 flex w-full min-w-0 flex-col gap-4">
                     {loadingFeed ? (
                       <p className="text-sm text-zinc-600">Načítám příspěvky…</p>
-                    ) : postFeed.length === 0 ? (
+                    ) : communityFeedPosts.length === 0 ? (
                       <p className="text-sm text-zinc-600">Zatím žádné příspěvky.</p>
                     ) : (
-                      postFeed.map((p) => {
-                        const media = ((p as ListingPost).media ?? []).sort(
-                          (a, b) => a.order - b.order,
-                        );
-                        if (media.length === 0) return null;
-                        const firstVideo = media.find((m) => m.type === 'video');
-                        const firstImage = media.find((m) => m.type === 'image');
-                        const videoRaw = String(firstVideo?.url ?? '').trim();
-                        const imageRaw = String(firstImage?.url ?? '').trim();
-                        const showFeedVideo = Boolean(videoRaw);
-                        const showFeedImage = !showFeedVideo && Boolean(imageRaw);
-
+                      communityFeedPosts.map((row) => {
+                        const p = row as ListingPost;
+                        const pid = String(p.id ?? '');
                         return (
-                        <article
-                          key={String(p.id ?? Math.random())}
-                          className="relative w-full overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
-                        >
-                          {String((p.user as { id?: string } | undefined)?.id ?? '') ===
-                          String(user?.id ?? '') ? (
-                            <div className="absolute right-3 top-3 flex gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingPostId(String(p.id ?? ''));
-                                  setEditingText(String(p.description ?? p.content ?? ''));
-                                }}
-                                className="flex size-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-sm shadow-sm"
-                                aria-label="Upravit příspěvek"
-                                title="Upravit"
-                              >
-                                ✏️
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void deletePost(String(p.id ?? ''))}
-                                className="flex size-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-sm shadow-sm"
-                                aria-label="Smazat příspěvek"
-                                title="Smazat"
-                              >
-                                🗑️
-                              </button>
-                            </div>
-                          ) : null}
-                          <p className="px-3 pt-3 text-xs font-medium text-zinc-500 md:px-4 md:pt-4">
-                            {String(
-                              ((p.user as { name?: string } | undefined)?.name ??
-                                (p.user as { email?: string } | undefined)?.email ??
-                                'Autor'),
-                            )}
-                          </p>
-                          {Number.isFinite((p as ListingPost).distanceKm) ? (
-                            <p className="px-3 pt-1 text-[11px] font-medium text-zinc-500 md:px-4">
-                              {Number((p as ListingPost).distanceKm).toFixed(1)} km od vás
-                            </p>
-                          ) : null}
-                          {editingPostId === String(p.id ?? '') ? (
-                            <div className="mt-2 px-3 pb-2 md:px-4">
-                              <textarea
-                                value={editingText}
-                                onChange={(e) => setEditingText(e.target.value)}
-                                rows={1}
-                                onInput={(e) => {
-                                  e.currentTarget.style.height = 'auto';
-                                  e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
-                                }}
-                                className="w-full resize-none overflow-hidden rounded-xl border border-zinc-200 p-2 text-sm"
-                              />
-                              <div className="mt-2 flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => void savePostEdit(String(p.id ?? ''))}
-                                  className="rounded-xl bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white"
-                                >
-                                  Uložit
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingPostId(null);
-                                    setEditingText('');
-                                  }}
-                                  className="rounded-xl border border-zinc-200 px-3 py-1.5 text-xs"
-                                >
-                                  Zrušit
-                                </button>
-                              </div>
-                            </div>
-                          ) : null}
-                          {showFeedImage ? (
-                            <button
-                              type="button"
-                              className="mt-3 block w-full text-left"
-                              onClick={() => router.push(`/post/${String(p.id)}`)}
-                            >
-                              <div className="relative w-full overflow-hidden rounded-2xl bg-black">
-                                <img
-                                  src={nestAbsoluteAssetUrl(imageRaw)}
-                                  alt=""
-                                  className="h-auto w-full object-contain"
-                                />
-                              </div>
-                            </button>
-                          ) : null}
-                          {showFeedVideo ? (
-                            <button
-                              type="button"
-                              className="mt-3 block w-full text-left"
-                              onClick={() => router.push(`/post/${String(p.id)}`)}
-                            >
-                              <div className="relative w-full overflow-hidden rounded-2xl bg-black">
-                                <video
-                                  src={nestAbsoluteAssetUrl(videoRaw)}
-                                  playsInline
-                                  muted={
-                                    mutedByPostId[String(p.id ?? '')] ?? true
-                                  }
-                                  controls
-                                  preload="metadata"
-                                  className="h-auto w-full object-contain"
-                                />
-                                <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 text-white">
-                                  <p className="text-sm">{String((p as ListingPost).title ?? '')}</p>
-                                  <p className="text-lg font-bold">
-                                    <span className={!isAuthenticated ? 'blur-sm' : ''}>
-                                      {Number((p as ListingPost).price ?? 0).toLocaleString('cs-CZ')} Kč
-                                    </span>
-                                  </p>
-                                  <p className="text-xs">{String((p as ListingPost).city ?? '')}</p>
-                                </div>
-                              </div>
-                            </button>
-                          ) : null}
-                          {editingPostId !== String(p.id ?? '') ? (
-                          <div className="px-3 py-2">
-                              <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">
-                                {String((p as ListingPost).description ?? p.description ?? p.content ?? '')}
-                              </p>
-                            </div>
-                          ) : null}
-                          {showFeedVideo ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setMutedByPostId((prev) => ({
-                                  ...prev,
-                                  [String(p.id ?? '')]: !(
-                                    prev[String(p.id ?? '')] ?? true
-                                  ),
-                                }))
-                              }
-                              className="mt-2 rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs"
-                            >
-                              {(mutedByPostId[String(p.id ?? '')] ?? true)
-                                ? '🔇'
-                                : '🔊'}
-                            </button>
-                          ) : null}
-                          <div className="mt-3 flex items-center gap-2 px-3 pb-3 text-xs text-zinc-600 md:px-4 md:pb-4">
-                            <button
-                              type="button"
-                              onClick={() => void toggleReaction(String(p.id ?? ''), 'LIKE')}
-                              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1.5 ${
-                                likedByPostId[String(p.id ?? '')]
-                                  ? 'border-rose-200 bg-rose-50 text-rose-600'
-                                  : 'border-zinc-200 bg-white text-zinc-600'
-                              }`}
-                              aria-label="Přepnout oblíbené"
-                            >
-                              <Heart size={14} />
-                              <span>{likeCountByPostId[String(p.id ?? '')] ?? Number((p._count as { favorites?: number } | undefined)?.favorites ?? 0)}</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void toggleReaction(String(p.id ?? ''), 'DISLIKE')}
-                              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1.5 ${
-                                dislikedByPostId[String(p.id ?? '')]
-                                  ? 'border-slate-300 bg-slate-100 text-slate-700'
-                                  : 'border-zinc-200 bg-white text-zinc-600'
-                              }`}
-                            >
-                              <ThumbsDown size={14} />
-                              <span>{dislikeCountByPostId[String(p.id ?? '')] ?? 0}</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const postId = String(p.id ?? '');
-                                const nextOpen = !Boolean(commentsOpenByPostId[postId]);
-                                setCommentsOpenByPostId((prev) => ({ ...prev, [postId]: nextOpen }));
-                                if (nextOpen) {
-                                  void loadComments(postId);
-                                }
-                              }}
-                              className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-3 py-1.5"
-                            >
-                              <MessageCircle size={14} />
-                              {commentsByPostId[String(p.id ?? '')]?.length ??
-                                Number((p._count as { comments?: number } | undefined)?.comments ?? 0)}
-                            </button>
-                          </div>
-                          {commentsOpenByPostId[String(p.id ?? '')] ? (
-                            <div className="mt-3 space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3">
-                              <div className="flex items-center gap-2">
-                                <input
-                                  value={commentInputByPostId[String(p.id ?? '')] ?? ''}
-                                  onChange={(e) =>
-                                    setCommentInputByPostId((prev) => ({
-                                      ...prev,
-                                      [String(p.id ?? '')]: e.target.value,
-                                    }))
-                                  }
-                                  placeholder="Napsat komentář..."
-                                  className="h-9 flex-1 rounded-lg border border-zinc-200 bg-white px-2 text-sm outline-none"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => void sendComment(String(p.id ?? ''))}
-                                  className="h-9 rounded-lg bg-orange-500 px-3 text-xs font-semibold text-white"
-                                >
-                                  Odeslat
-                                </button>
-                              </div>
-                              <div className="space-y-2">
-                                {(commentsByPostId[String(p.id ?? '')] ?? []).map((c) => (
-                                  <div key={c.id} className="rounded-lg bg-white px-2 py-1.5">
-                                    <p className="text-xs font-semibold text-zinc-700">
-                                      {c.user?.name || c.user?.email || 'Uživatel'}
-                                    </p>
-                                    <p className="text-sm text-zinc-800">{c.content}</p>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : null}
-                        </article>
+                          <CommunityPostCard
+                            key={pid || Math.random().toString(36)}
+                            post={p}
+                            currentUserId={user?.id}
+                            isAuthenticated={isAuthenticated}
+                            liked={Boolean(likedByPostId[pid])}
+                            disliked={Boolean(dislikedByPostId[pid])}
+                            likeCount={
+                              likeCountByPostId[pid] ??
+                              Number(p._count?.favorites ?? 0)
+                            }
+                            dislikeCount={dislikeCountByPostId[pid] ?? 0}
+                            muted={mutedByPostId[pid] ?? true}
+                            editingPostId={editingPostId}
+                            editingText={editingText}
+                            commentsOpen={Boolean(commentsOpenByPostId[pid])}
+                            comments={commentsByPostId[pid] ?? []}
+                            commentInput={commentInputByPostId[pid] ?? ''}
+                            onToggleReaction={(type) => void toggleReaction(pid, type)}
+                            onToggleComments={() => {
+                              const nextOpen = !Boolean(commentsOpenByPostId[pid]);
+                              setCommentsOpenByPostId((prev) => ({
+                                ...prev,
+                                [pid]: nextOpen,
+                              }));
+                              if (nextOpen) void loadComments(pid);
+                            }}
+                            onCommentInput={(v) =>
+                              setCommentInputByPostId((prev) => ({ ...prev, [pid]: v }))
+                            }
+                            onSendComment={() => void sendComment(pid)}
+                            onStartEdit={() => {
+                              setEditingPostId(pid);
+                              setEditingText(String(p.description ?? ''));
+                            }}
+                            onCancelEdit={() => {
+                              setEditingPostId(null);
+                              setEditingText('');
+                            }}
+                            onSaveEdit={() => void savePostEdit(pid)}
+                            onDelete={() => void deletePost(pid)}
+                            onChangeEditingText={setEditingText}
+                            onToggleMute={() =>
+                              setMutedByPostId((prev) => ({
+                                ...prev,
+                                [pid]: !(prev[pid] ?? true),
+                              }))
+                            }
+                            onOpenDetail={() => router.push(`/prispevky/${encodeURIComponent(pid)}`)}
+                          />
                         );
                       })
                     )}
@@ -1146,7 +632,7 @@ export function HomeLayout({
                 </div>
               ) : (
                 <div className="mx-auto w-full max-w-xl px-3 pb-8 pt-1">
-                  <PropertyGrid properties={filteredItems} />
+                <PropertyGrid properties={filteredItems} />
                 </div>
               )}
             </div>

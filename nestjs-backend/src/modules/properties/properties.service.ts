@@ -7,6 +7,7 @@ import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
+import { classicListingWhere } from './property-listing-scope';
 import { serializeProperty } from './properties.serializer';
 
 const socialInclude = (viewerId?: string) =>
@@ -46,7 +47,12 @@ export class PropertiesService {
   async findAllPublic(viewerId?: string) {
     const admin = await this.viewerIsAdmin(viewerId);
     const rows = await this.prisma.property.findMany({
-      where: admin ? undefined : { approved: true },
+      where: {
+        AND: [
+          classicListingWhere,
+          ...(!admin ? [{ approved: true }] : []),
+        ],
+      },
       orderBy: { createdAt: 'desc' },
       include: socialInclude(viewerId),
     });
@@ -90,7 +96,10 @@ export class PropertiesService {
     const rows = await this.prisma.property.findMany({
       where: {
         userId: { in: ids },
-        ...(admin ? {} : { approved: true }),
+        AND: [
+          classicListingWhere,
+          ...(!admin ? [{ approved: true }] : []),
+        ],
       },
       orderBy: { createdAt: 'desc' },
       include: socialInclude(viewerId),

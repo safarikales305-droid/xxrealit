@@ -638,6 +638,8 @@ export type ShortVideo = {
   description?: string | null;
   content?: string | null;
   createdAt: string;
+  liked?: boolean;
+  userId?: string;
   user?: {
     id: string;
     name?: string | null;

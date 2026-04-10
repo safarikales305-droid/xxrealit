@@ -1,7 +1,9 @@
+import { Suspense } from 'react';
 import { HomeLayout } from '@/components/home/home-layout';
 import { ShortsFeed } from '@/components/ShortsFeed';
 import { getServerSideApiBaseUrl } from '@/lib/api';
 import { loadPropertyFeedItems } from '@/lib/load-feed';
+import { classicListingsOnly } from '@/lib/property-feed-filters';
 import { getServerAuthorizationHeader } from '@/lib/server-bearer';
 import type { PropertyFeedItem } from '@/types/property';
 
@@ -39,15 +41,24 @@ async function loadHomeFeed(): Promise<PropertyFeedItem[]> {
 
 export default async function Home() {
   const base = getServerSideApiBaseUrl();
-  const items = await loadHomeFeed();
+  const rawItems = await loadHomeFeed();
+  const items = classicListingsOnly(rawItems);
   const apiConfigMissing =
     process.env.NODE_ENV === 'production' && base == null;
 
   return (
-    <HomeLayout
-      items={items}
-      ShortsFeed={ShortsFeed}
-      apiConfigMissing={apiConfigMissing}
-    />
+    <Suspense
+      fallback={
+        <div className="flex min-h-[100dvh] items-center justify-center bg-[#fafafa] text-zinc-600">
+          Načítám…
+        </div>
+      }
+    >
+      <HomeLayout
+        items={items}
+        ShortsFeed={ShortsFeed}
+        apiConfigMissing={apiConfigMissing}
+      />
+    </Suspense>
   );
 }

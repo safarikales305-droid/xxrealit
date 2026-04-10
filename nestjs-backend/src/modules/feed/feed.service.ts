@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import {
+  classicListingWhere,
+  publicShortPropertyWhere,
+} from '../properties/property-listing-scope';
 import { serializeProperty } from '../properties/properties.serializer';
 
 function normCity(c: string | null | undefined): string {
@@ -62,7 +66,12 @@ export class FeedService {
       (await this.computeReferencePrice(viewerId, followingIds)) ?? 5_000_000;
 
     const rows = await this.prisma.property.findMany({
-      where: admin ? undefined : { approved: true },
+      where: {
+        AND: [
+          classicListingWhere,
+          ...(!admin ? [{ approved: true }] : []),
+        ],
+      },
       include: {
         _count: { select: { likes: true } },
         user: { select: { id: true, city: true } },
@@ -92,51 +101,24 @@ export class FeedService {
     );
   }
 
-  /** Shorts = only posts with type=short and primary video media. */
+  /** Shorts = schválené inzeráty s videem (Property + PropertyMedia). */
   async listShorts() {
-    const posts = await this.prisma.post.findMany({
-      where: {
-        media: {
-          some: { type: 'video' },
-        },
-      },
+    const rows = await this.prisma.property.findMany({
+      where: publicShortPropertyWhere,
       orderBy: { createdAt: 'desc' },
       include: {
-        media: { orderBy: { order: 'asc' } },
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            avatar: true,
-            role: true,
-          },
-        },
+        media: { orderBy: { sortOrder: 'asc' } },
+        _count: { select: { likes: true } },
+        user: { select: { id: true, city: true } },
       },
     });
 
-    return posts
-      .map((p) => {
-        const media = p.media.filter((m) => isPublicMediaUrl(m.url));
-        const firstVideo = media.find((m) => m.type === 'video');
-        if (!firstVideo) return null;
-        return {
-          id: p.id,
-          url: firstVideo.url,
-          videoUrl: firstVideo.url,
-          title: p.title,
-          description: p.description,
-          content: p.description,
-          city: p.city,
-          price: p.price,
-          images: media.filter((m) => m.type === 'image').map((m) => m.url),
-          createdAt: p.createdAt,
-          user: p.user,
-          type: 'short',
-          media,
-        };
-      })
-      .filter((x): x is NonNullable<typeof x> => x !== null);
+    return rows.map((r) =>
+      serializeProperty(
+        { ...r, likes: [] as { id: string }[] },
+        undefined,
+      ),
+    );
   }
 
   /** Social feed posts (Facebook-style), not listing shorts. */
@@ -184,7 +166,10 @@ export class FeedService {
 
   async listProperties() {
     const rows = await this.prisma.property.findMany({
-      where: { approved: true },
+      where: {
+        approved: true,
+        ...classicListingWhere,
+      },
       orderBy: { createdAt: 'desc' },
       include: {
         _count: { select: { likes: true } },

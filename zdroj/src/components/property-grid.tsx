@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
+import { absoluteShareUrl } from '@/lib/public-share-url';
+import { ShareButtons } from '@/components/share/ShareButtons';
 import { nestApiConfigured, nestToggleFavorite } from '@/lib/nest-client';
 import type { PropertyFeedItem } from '@/types/property';
 
@@ -88,8 +90,7 @@ export function PropertyGrid({ properties }: Props) {
           const media = Array.isArray(p.media) ? [...p.media].sort((a, b) => a.order - b.order) : [];
           const primaryImage = media.find((m) => m.type === 'image')?.url ?? p.imageUrl ?? p.images?.[0] ?? null;
           const primaryVideo = media.find((m) => m.type === 'video')?.url ?? p.videoUrl ?? null;
-          console.log('POST MEDIA:', p.media);
-          console.log('POST IMAGE:', p.imageUrl);
+          const shareUrl = absoluteShareUrl(`/nemovitost/${encodeURIComponent(p.id)}`);
           return (
             <article
               key={p.id + (p.videoUrl ?? '') + (p.imageUrl ?? '')}
@@ -132,21 +133,32 @@ export function PropertyGrid({ properties }: Props) {
                   </p>
                 </div>
               </Link>
-              {canFavorite ? (
-                <button
-                  type="button"
-                  aria-label={liked ? 'Odebrat z oblíbených' : 'Přidat do oblíbených'}
-                  disabled={pendingId === p.id}
+              <div className="absolute right-2 top-2 flex flex-col gap-2">
+                {canFavorite ? (
+                  <button
+                    type="button"
+                    aria-label={liked ? 'Odebrat z oblíbených' : 'Přidat do oblíbených'}
+                    disabled={pendingId === p.id}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void toggleHeart(p);
+                    }}
+                    className="flex size-10 items-center justify-center rounded-full bg-white/95 text-lg shadow-md backdrop-blur-sm transition hover:scale-105 disabled:opacity-50"
+                  >
+                    {liked ? '❤️' : '🤍'}
+                  </button>
+                ) : null}
+                <div
+                  className="flex justify-center"
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    void toggleHeart(p);
                   }}
-                  className="absolute right-2 top-2 flex size-10 items-center justify-center rounded-full bg-white/95 text-lg shadow-md backdrop-blur-sm transition hover:scale-105 disabled:opacity-50"
                 >
-                  {liked ? '❤️' : '🤍'}
-                </button>
-              ) : null}
+                  <ShareButtons title={p.title} url={shareUrl} />
+                </div>
+              </div>
             </article>
           );
         })}
