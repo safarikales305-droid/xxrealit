@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import Logo from '@/components/Logo';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 
@@ -62,18 +63,16 @@ export function Navbar({
 
   return (
     <header className="sticky top-0 z-50 w-full max-w-[100vw] shrink-0 overflow-x-hidden border-b border-zinc-200 bg-white shadow-[0_1px_0_rgba(0,0,0,0.04)]">
-      <div className="mx-auto flex min-h-14 w-full max-w-[100rem] min-w-0 flex-wrap items-center gap-x-2 gap-y-2 px-3 py-2 md:min-h-16 md:gap-3 md:px-4 md:py-2.5">
-        <Link
-          href="/"
-          className="shrink-0 outline-none ring-offset-2 ring-offset-white transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[#ff6a00]/45"
-          aria-label="XXrealit — domů"
-        >
-          <img
-            src="/logo.png"
-            alt="XXrealit"
-            className="h-8 w-auto max-w-[140px] object-contain md:h-10 md:max-w-[160px]"
-          />
-        </Link>
+      <div className="mx-auto flex min-h-14 w-full max-w-[100rem] min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-2 px-4 py-3 md:min-h-16 md:gap-3 md:px-4 md:py-2.5">
+        <div className="flex shrink-0 items-center">
+          <Link
+            href="/"
+            className="outline-none ring-offset-2 ring-offset-white transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[#ff6a00]/45"
+            aria-label="XXrealit — domů"
+          >
+            <Logo />
+          </Link>
+        </div>
 
         <div className="relative min-w-0 flex-1 basis-[min(100%,12rem)] sm:min-w-[180px] md:max-w-xl">
           <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-zinc-400 md:left-3 md:text-sm">
@@ -89,7 +88,7 @@ export function Navbar({
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex shrink-0 flex-wrap items-center gap-3">
           <button
             type="button"
             className="flex size-10 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-800 md:hidden"
