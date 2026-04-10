@@ -2,10 +2,10 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Suspense, useMemo, useState } from 'react';
-import { NemovitostBackBar } from '@/components/nemovitost/NemovitostBackBar';
-import { NemovitostShareBar } from '@/components/nemovitost/NemovitostShareBar';
+import { useMemo, useState } from 'react';
+import { ShareButtons } from '@/components/share/ShareButtons';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
+import { absoluteShareUrl } from '@/lib/public-share-url';
 import type { PropertyDetailAuthor } from '@/lib/property-detail';
 import type { PropertyFeedItem } from '@/types/property';
 
@@ -92,6 +92,18 @@ export function NemovitostDetailView({
       ? nestAbsoluteAssetUrl(author.avatar)
       : null;
 
+  const shareUrl = absoluteShareUrl(`/nemovitost/${encodeURIComponent(propertyId)}`);
+
+  const summaryLine = useMemo(() => {
+    const parts: string[] = [];
+    const pt = extraFields.propertyType;
+    const ar = extraFields.area;
+    if (typeof pt === 'string' && pt.trim()) parts.push(pt.trim());
+    if (typeof ar === 'number' && Number.isFinite(ar)) parts.push(`${ar} m²`);
+    else if (typeof ar === 'string' && ar.trim()) parts.push(`${ar} m²`);
+    return parts.join(' • ');
+  }, [extraFields.area, extraFields.propertyType]);
+
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6">
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
@@ -117,132 +129,120 @@ export function NemovitostDetailView({
         </aside>
 
         <main className="min-w-0 xl:col-span-6">
-          <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
-            <div className="border-b border-zinc-100 p-4 sm:p-6">
-              <Suspense fallback={null}>
-                <NemovitostBackBar />
-              </Suspense>
-              <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => router.push('/')}
-                  className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-100"
-                >
-                  ← Zpět na výpis
-                </button>
-                <NemovitostShareBar propertyId={propertyId} title={p.title} />
+          <button
+            type="button"
+            onClick={() => router.push('/?tab=shorts')}
+            className="mb-4 inline-flex items-center rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-800 shadow-sm transition hover:bg-zinc-50"
+          >
+            ← Zpět na Shorts
+          </button>
+
+          {media.length > 0 && active ? (
+            <div className="overflow-hidden rounded-2xl bg-black">
+              <div className="flex min-h-[200px] items-center justify-center">
+                {active.type === 'video' ? (
+                  <video
+                    key={active.key}
+                    src={nestAbsoluteAssetUrl(active.url)}
+                    controls
+                    playsInline
+                    className="h-auto max-h-[80vh] w-full rounded-2xl bg-black object-contain"
+                  />
+                ) : (
+                  <img
+                    src={nestAbsoluteAssetUrl(active.url)}
+                    alt={p.title}
+                    className="h-auto max-h-[80vh] w-full rounded-2xl bg-black object-contain"
+                  />
+                )}
               </div>
-              <p className="mt-4 text-sm font-medium text-zinc-500">Detail inzerátu</p>
-              <h1 className="mt-2 text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl">
-                {p.title}
-              </h1>
-              <p className="mt-4 text-2xl font-bold text-[#e85d00]">{PRICE_FMT.format(p.price)}</p>
-              <p className="mt-2 text-[15px] font-medium text-zinc-700">
-                <span className="text-zinc-500">Lokalita:</span> {p.location}
-              </p>
+              {media.length > 1 ? (
+                <div className="flex gap-2 overflow-x-auto p-3">
+                  {media.map((item, index) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setActiveIndex(index)}
+                      className={`h-16 w-16 shrink-0 overflow-hidden rounded-xl border-2 transition ${
+                        index === activeIndex
+                          ? 'border-[#e85d00] ring-2 ring-[#e85d00]/20'
+                          : 'border-zinc-600'
+                      }`}
+                    >
+                      {item.type === 'video' ? (
+                        <video
+                          src={nestAbsoluteAssetUrl(item.url)}
+                          muted
+                          playsInline
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <img
+                          src={nestAbsoluteAssetUrl(item.url)}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
+          ) : (
+            <div className="flex min-h-[200px] items-center justify-center rounded-2xl bg-zinc-100 text-sm text-zinc-500">
+              Bez náhledu
+            </div>
+          )}
 
-            {media.length > 0 && active ? (
-              <div className="border-b border-zinc-100 bg-black">
-                <div className="flex min-h-[200px] items-center justify-center">
-                  {active.type === 'video' ? (
-                    <video
-                      key={active.key}
-                      src={nestAbsoluteAssetUrl(active.url)}
-                      controls
-                      playsInline
-                      className="max-h-[80vh] w-full bg-black object-contain"
-                    />
-                  ) : (
-                    <img
-                      src={nestAbsoluteAssetUrl(active.url)}
-                      alt={p.title}
-                      className="max-h-[80vh] w-full bg-black object-contain"
-                    />
-                  )}
-                </div>
-                {media.length > 1 ? (
-                  <div className="flex gap-2 overflow-x-auto p-3">
-                    {media.map((item, index) => (
-                      <button
-                        key={item.key}
-                        type="button"
-                        onClick={() => setActiveIndex(index)}
-                        className={`h-16 w-16 shrink-0 overflow-hidden rounded-xl border-2 transition ${
-                          index === activeIndex
-                            ? 'border-[#e85d00] ring-2 ring-[#e85d00]/20'
-                            : 'border-zinc-600'
-                        }`}
-                      >
-                        {item.type === 'video' ? (
-                          <video
-                            src={nestAbsoluteAssetUrl(item.url)}
-                            muted
-                            playsInline
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <img
-                            src={nestAbsoluteAssetUrl(item.url)}
-                            alt=""
-                            className="h-full w-full object-cover"
-                          />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
+          <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-6">
+            <div className="space-y-3">
+              <h1 className="text-2xl font-bold tracking-tight text-zinc-900">{p.title}</h1>
+              <div className="text-xl font-semibold text-orange-600">
+                {PRICE_FMT.format(p.price)}
               </div>
-            ) : (
-              <div className="flex min-h-[200px] items-center justify-center border-b border-zinc-100 bg-zinc-100 text-sm text-zinc-500">
-                Bez náhledu
-              </div>
-            )}
-
-            <div className="p-6 sm:p-8">
-              {p.description ? (
-                <div>
-                  <h2 className="text-lg font-semibold text-zinc-900">Popis</h2>
-                  <p className="mt-3 whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-700">
-                    {p.description}
-                  </p>
-                </div>
+              <div className="text-sm text-zinc-500">{p.location}</div>
+              {summaryLine ? (
+                <div className="text-sm text-zinc-700">{summaryLine}</div>
               ) : null}
-
               {paramLines.length > 0 ? (
-                <div className={p.description ? 'mt-8' : ''}>
-                  <h2 className="text-lg font-semibold text-zinc-900">Parametry</h2>
-                  <ul className="mt-3 space-y-2 text-[15px] text-zinc-700">
-                    {paramLines.map((line) => (
-                      <li key={line}>{line}</li>
-                    ))}
-                  </ul>
+                <ul className="space-y-1 text-sm text-zinc-700">
+                  {paramLines.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {p.description ? (
+                <div className="text-base leading-7 text-zinc-800">
+                  <p className="whitespace-pre-wrap">{p.description}</p>
                 </div>
               ) : null}
+              <div className="border-t border-zinc-100 pt-4">
+                <ShareButtons title={p.title} url={shareUrl} variant="pill" label="Sdílet" />
+              </div>
+            </div>
+          </div>
 
-              <div className="mt-10 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-5">
-                <h2 className="text-lg font-semibold tracking-tight text-zinc-900">Inzerent</h2>
-                <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
-                  <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-zinc-200 bg-zinc-100 text-xl font-bold text-zinc-600">
-                    {avatarSrc ? (
-                      <img
-                        src={avatarSrc}
-                        alt=""
-                        width={64}
-                        height={64}
-                        className="size-full object-cover"
-                      />
-                    ) : (
-                      author.email.trim().charAt(0).toUpperCase()
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    {author.name ? (
-                      <p className="font-semibold text-zinc-900">{author.name}</p>
-                    ) : null}
-                    <p className="truncate text-sm text-zinc-600">{author.email}</p>
-                  </div>
-                </div>
+          <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-6">
+            <h2 className="text-lg font-semibold tracking-tight text-zinc-900">Inzerent</h2>
+            <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
+              <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-zinc-200 bg-zinc-100 text-xl font-bold text-zinc-600">
+                {avatarSrc ? (
+                  <img
+                    src={avatarSrc}
+                    alt=""
+                    width={64}
+                    height={64}
+                    className="size-full object-cover"
+                  />
+                ) : (
+                  author.email.trim().charAt(0).toUpperCase()
+                )}
+              </div>
+              <div className="min-w-0">
+                {author.name ? (
+                  <p className="font-semibold text-zinc-900">{author.name}</p>
+                ) : null}
+                <p className="truncate text-sm text-zinc-600">{author.email}</p>
               </div>
             </div>
           </div>
