@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from 'node:fs';
-import { diskStorage } from 'multer';
+import { diskStorage, memoryStorage } from 'multer';
 import { extname, join } from 'node:path';
 import { getUploadsPath } from '../../lib/uploads-path';
 
@@ -12,6 +12,12 @@ function ensureDir(dir: string) {
     mkdirSync(dir, { recursive: true });
   }
 }
+
+/** Multipart inzerátů — buffery pro Cloudinary (upload_stream). */
+export const propertyMediaMemoryMulterOptions = {
+  storage: memoryStorage(),
+  limits: { fileSize: 300 * 1024 * 1024, files: 31 },
+};
 
 export const propertyImagesMulterOptions = {
   storage: diskStorage({

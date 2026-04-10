@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PropertiesController } from './properties.controller';
 import { PropertiesService } from './properties.service';
+import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
 import { SeedController } from './seed.controller';
 
 @Module({
@@ -16,7 +17,7 @@ import { SeedController } from './seed.controller';
     }),
   ],
   controllers: [PropertiesController, SeedController],
-  providers: [PropertiesService],
+  providers: [PropertiesService, PropertyMediaCloudinaryService],
   exports: [PropertiesService],
 })
 export class PropertiesModule {}

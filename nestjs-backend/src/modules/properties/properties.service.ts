@@ -6,6 +6,7 @@ import {
 import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
+import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
 import { serializeProperty } from './properties.serializer';
 
 const socialInclude = (viewerId?: string) =>
@@ -28,7 +29,10 @@ const socialInclude = (viewerId?: string) =>
 
 @Injectable()
 export class PropertiesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly propertyMediaCloudinary: PropertyMediaCloudinaryService,
+  ) {}
 
   private async viewerIsAdmin(viewerId?: string): Promise<boolean> {
     if (!viewerId) return false;
@@ -259,7 +263,10 @@ export class PropertiesService {
   async create(
     ownerId: string,
     dto: CreatePropertyDto,
-    mediaInput?: { imageUrls: string[]; videoUrl: string | null },
+    files?: {
+      videoFile: Express.Multer.File | null;
+      imageFiles: Express.Multer.File[];
+    },
   ) {
     const user = await this.prisma.user.findUnique({
       where: { id: ownerId },
@@ -269,9 +276,37 @@ export class PropertiesService {
       throw new NotFoundException(`User with id "${ownerId}" not found`);
     }
 
-    const images = Array.isArray(dto.images)
+    let images = Array.isArray(dto.images)
       ? dto.images.filter((u) => typeof u === 'string' && u.trim().length > 0)
       : [];
+    let videoUrl: string | null = dto.videoUrl?.trim() || null;
+
+    if (files) {
+      try {
+        if (files.videoFile) {
+          videoUrl = await this.propertyMediaCloudinary.uploadVideo(
+            files.videoFile,
+          );
+        }
+        if (files.imageFiles.length > 0) {
+          images = await Promise.all(
+            files.imageFiles.map((f) =>
+              this.propertyMediaCloudinary.uploadImage(f),
+            ),
+          );
+        }
+      } catch (error) {
+        console.error('PROPERTY MEDIA UPLOAD ERROR:', error);
+        throw error;
+      }
+    }
+
+    const mediaRows: Array<{
+      propertyId: string;
+      url: string;
+      type: 'image' | 'video';
+      sortOrder: number;
+    }> = [];
 
     try {
       const created = await this.prisma.property.create({
@@ -297,7 +332,7 @@ export class PropertiesService {
           parking: dto.parking ?? false,
           cellar: dto.cellar ?? false,
           images,
-          videoUrl: dto.videoUrl?.trim() || null,
+          videoUrl,
           contactName: dto.contactName.trim(),
           contactPhone: dto.contactPhone.trim(),
           contactEmail: dto.contactEmail.trim().toLowerCase(),
@@ -307,35 +342,50 @@ export class PropertiesService {
         },
       });
 
-      const mediaRows: Array<{
-        propertyId: string;
-        url: string;
-        type: 'image' | 'video';
-        sortOrder: number;
-      }> = [];
-      const video = mediaInput?.videoUrl?.trim() || dto.videoUrl?.trim() || null;
-      if (video) {
+      if (videoUrl) {
         mediaRows.push({
           propertyId: created.id,
-          url: video,
+          url: videoUrl,
           type: 'video',
           sortOrder: 0,
         });
       }
-      const orderedImages = (mediaInput?.imageUrls ?? images).filter(Boolean);
-      for (let i = 0; i < orderedImages.length; i += 1) {
+      for (let i = 0; i < images.length; i += 1) {
         mediaRows.push({
           propertyId: created.id,
-          url: orderedImages[i],
+          url: images[i],
           type: 'image',
           sortOrder: i + 1,
         });
       }
+
+      console.log('MEDIA TO CREATE:', mediaRows);
+
       if (mediaRows.length > 0) {
         await this.prisma.propertyMedia.createMany({ data: mediaRows });
       }
 
-      return created;
+      const full = await this.prisma.property.findUnique({
+        where: { id: created.id },
+        include: socialInclude(ownerId),
+      });
+
+      if (!full) {
+        throw new NotFoundException(`Property "${created.id}" not found`);
+      }
+
+      const likesArr =
+        'likes' in full && Array.isArray(full.likes) ? full.likes : [];
+
+      return serializeProperty(
+        {
+          ...full,
+          likes: likesArr,
+          _count: full._count,
+          user: full.user,
+        },
+        ownerId,
+      );
     } catch (e) {
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&

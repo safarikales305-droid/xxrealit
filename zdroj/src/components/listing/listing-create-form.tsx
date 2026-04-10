@@ -208,10 +208,10 @@ export function ListingCreateForm() {
       fd.append('video', videoFile);
     }
     const orderedImages = imagePreviews.map((x) => x.file);
-    for (const file of orderedImages) {
+    orderedImages.forEach((file, index) => {
       fd.append('images', file);
-      fd.append('imageOrder', `${file.name}::${file.size}`);
-    }
+      fd.append('imageOrder', String(index + 1));
+    });
     for (const pair of fd.entries()) {
       console.log('FORMDATA:', pair[0], pair[1]);
     }

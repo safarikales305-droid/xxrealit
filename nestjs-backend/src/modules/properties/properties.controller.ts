@@ -17,7 +17,7 @@ import { parseBearerUserId } from '../auth/auth-token.util';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { propertyImagesMulterOptions } from '../upload/multer-upload.config';
+import { propertyMediaMemoryMulterOptions } from '../upload/multer-upload.config';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { PropertiesService } from './properties.service';
 
@@ -63,10 +63,7 @@ export class PropertiesController {
         { name: 'video', maxCount: 1 },
         { name: 'images', maxCount: 30 },
       ],
-      {
-        storage: propertyImagesMulterOptions.storage,
-        limits: { fileSize: 300 * 1024 * 1024, files: 31 },
-      },
+      propertyMediaMemoryMulterOptions,
     ),
   )
   create(
@@ -80,8 +77,9 @@ export class PropertiesController {
   ) {
     const imageFiles = files?.images ?? [];
     const videoFile = files?.video?.[0] ?? null;
-    console.log('VIDEO FILE:', videoFile?.originalname ?? null);
-    console.log('IMAGE FILES COUNT:', imageFiles.length);
+    console.log('UPLOADED VIDEO:', videoFile?.originalname);
+    console.log('UPLOADED IMAGES COUNT:', imageFiles.length);
+    console.log('BODY:', body);
     if (imageFiles.length > 30) {
       throw new BadRequestException('Max 30 fotek');
     }
@@ -90,37 +88,49 @@ export class PropertiesController {
     }
 
     const imageOrderRaw = body.imageOrder;
-    const orderKeys = Array.isArray(imageOrderRaw)
+    const orderValues = Array.isArray(imageOrderRaw)
       ? imageOrderRaw.filter((x): x is string => typeof x === 'string')
-      : [];
+      : typeof imageOrderRaw === 'string'
+        ? [imageOrderRaw]
+        : [];
 
-    const orderedImages =
-      orderKeys.length > 0
+    const numericOrder =
+      orderValues.length === imageFiles.length &&
+      orderValues.every((v) => /^\d+$/.test(String(v).trim()));
+
+    const orderedImages = numericOrder
+      ? imageFiles
+          .map((f, i) => ({
+            f,
+            order: parseInt(String(orderValues[i]).trim(), 10),
+          }))
+          .sort((a, b) => a.order - b.order)
+          .map((x) => x.f)
+      : orderValues.length > 0
         ? [...imageFiles].sort((a, b) => {
             const aKey = `${a.originalname}::${a.size}`;
             const bKey = `${b.originalname}::${b.size}`;
-            const ai = orderKeys.indexOf(aKey);
-            const bi = orderKeys.indexOf(bKey);
-            return (ai === -1 ? Number.MAX_SAFE_INTEGER : ai) - (bi === -1 ? Number.MAX_SAFE_INTEGER : bi);
+            const ai = orderValues.indexOf(aKey);
+            const bi = orderValues.indexOf(bKey);
+            return (
+              (ai === -1 ? Number.MAX_SAFE_INTEGER : ai) -
+              (bi === -1 ? Number.MAX_SAFE_INTEGER : bi)
+            );
           })
         : imageFiles;
 
-    const imageUrls: string[] = [];
     for (const image of orderedImages) {
-      const ext = extname(image.originalname || image.filename).toLowerCase();
+      const ext = extname(image.originalname || '').toLowerCase();
       if (!['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext)) {
         throw new BadRequestException('Nepovolený formát obrázku');
       }
-      imageUrls.push(`/uploads/properties/${image.filename}`);
     }
 
-    let videoUrl: string | undefined;
-    if (videoFile?.filename) {
-      const ext = extname(videoFile.originalname || videoFile.filename).toLowerCase();
+    if (videoFile) {
+      const ext = extname(videoFile.originalname || '').toLowerCase();
       if (!['.mp4', '.mov', '.webm', '.m4v', '.avi', '.mkv'].includes(ext)) {
         throw new BadRequestException('Nepovolený formát videa');
       }
-      videoUrl = `/uploads/properties/${videoFile.filename}`;
     }
 
     const toNum = (v: unknown): number | undefined => {
@@ -139,6 +149,8 @@ export class PropertiesController {
     };
     const str = (v: unknown, fallback = '') =>
       typeof v === 'string' ? v : fallback;
+
+    const externalVideo = str(body.videoUrl).trim();
 
     const dto: CreatePropertyDto = {
       title: str(body.title),
@@ -161,16 +173,17 @@ export class PropertiesController {
       equipment: str(body.equipment),
       parking: toBool(body.parking),
       cellar: toBool(body.cellar),
-      images: imageUrls,
-      videoUrl,
+      images: [],
+      videoUrl:
+        externalVideo.length > 0 ? externalVideo.slice(0, 2000) : undefined,
       contactName: str(body.contactName),
       contactPhone: str(body.contactPhone),
       contactEmail: str(body.contactEmail),
     };
 
     return this.propertiesService.create(user.id, dto, {
-      imageUrls,
-      videoUrl: videoUrl ?? null,
+      videoFile,
+      imageFiles: orderedImages,
     });
   }
 }
