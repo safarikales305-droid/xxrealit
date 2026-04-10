@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 
 const inputClass =
@@ -31,6 +31,8 @@ function pickFieldErrors(raw: RegisterJson['fieldErrors']): FieldErrors {
 
 export default function RegistracePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirect = searchParams.get('redirect');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -79,7 +81,10 @@ export default function RegistracePage() {
         return;
       }
 
-      router.push('/login?registered=1');
+      const qs = new URLSearchParams();
+      qs.set('registered', '1');
+      if (redirect) qs.set('redirect', redirect);
+      router.push(`/login?${qs.toString()}`);
       router.refresh();
     } catch {
       setError('Nelze se spojit se serverem');
@@ -202,7 +207,14 @@ export default function RegistracePage() {
 
         <p className="mt-6 text-center text-sm text-zinc-600">
           Už máte účet?{' '}
-          <Link href="/login" className="font-semibold text-[#e85d00] hover:underline">
+          <Link
+            href={
+              redirect
+                ? `/login?redirect=${encodeURIComponent(redirect)}`
+                : '/login'
+            }
+            className="font-semibold text-[#e85d00] hover:underline"
+          >
             Přihlásit se
           </Link>
         </p>

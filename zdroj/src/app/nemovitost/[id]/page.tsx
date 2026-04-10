@@ -1,13 +1,13 @@
-import Link from 'next/link';
-import { Suspense } from 'react';
-import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
-import { NemovitostBackBar } from '@/components/nemovitost/NemovitostBackBar';
-import { NemovitostShareBar } from '@/components/nemovitost/NemovitostShareBar';
-import { nestAbsoluteAssetUrl } from '@/lib/api';
+import { headers } from 'next/headers';
+import { NemovitostAuthGate } from '@/components/nemovitost/NemovitostAuthGate';
+import { NemovitostDetailView } from '@/components/nemovitost/NemovitostDetailView';
 import { normalizePropertyDetailPayload } from '@/lib/property-detail';
 
-type Props = { params: Promise<{ id: string }> };
+type Props = {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<{ from?: string }>;
+};
 
 async function fetchPropertyDetail(id: string): Promise<unknown | null> {
   const h = await headers();
@@ -26,14 +26,25 @@ async function fetchPropertyDetail(id: string): Promise<unknown | null> {
   return res.json().catch(() => null);
 }
 
-const PRICE_FMT = new Intl.NumberFormat('cs-CZ', {
-  style: 'currency',
-  currency: 'CZK',
-  maximumFractionDigits: 0,
-});
+function pickExtraFields(rawProp: unknown): Record<string, unknown> {
+  if (!rawProp || typeof rawProp !== 'object') return {};
+  const o = rawProp as Record<string, unknown>;
+  const pick = (k: string) => o[k];
+  return {
+    area: pick('area'),
+    landArea: pick('landArea'),
+    floor: pick('floor'),
+    totalFloors: pick('totalFloors'),
+    propertyType: pick('propertyType'),
+    offerType: pick('offerType') ?? pick('type'),
+    condition: pick('condition'),
+    energyLabel: pick('energyLabel'),
+  };
+}
 
-export default async function NemovitostDetailPage({ params }: Props) {
+export default async function NemovitostDetailPage({ params, searchParams }: Props) {
   const { id } = await params;
+  const sp = (await searchParams) ?? {};
   const raw = await fetchPropertyDetail(id);
   const parsed = normalizePropertyDetailPayload(raw);
 
@@ -41,168 +52,22 @@ export default async function NemovitostDetailPage({ params }: Props) {
     notFound();
   }
 
-  const { property: p, user: author, other } = parsed;
-  const media = Array.isArray(p.media) ? [...p.media].sort((a, b) => a.order - b.order) : [];
-  const primaryVideo = media.find((m) => m.type === 'video');
-  const images = media.filter((m) => m.type === 'image');
-  const fallbackImage = p.imageUrl ? nestAbsoluteAssetUrl(p.imageUrl) : null;
-  const fallbackVideo = p.videoUrl ? nestAbsoluteAssetUrl(p.videoUrl) : null;
-  const avatarSrc =
-    author.avatar && author.avatar.trim().length > 0
-      ? nestAbsoluteAssetUrl(author.avatar)
-      : null;
+  const rawRoot = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const rawProperty = rawRoot.property;
+  const extraFields = pickExtraFields(rawProperty);
+
+  const redirectPath =
+    sp.from === 'shorts' ? `/nemovitost/${id}?from=shorts` : `/nemovitost/${id}`;
 
   return (
-    <div>
-      <Suspense fallback={null}>
-        <NemovitostBackBar />
-      </Suspense>
-      <section className="overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-md">
-        <div className="relative aspect-[21/9] w-full max-h-[380px] bg-zinc-100">
-          {primaryVideo?.url || fallbackVideo ? (
-            <video
-              muted
-              playsInline
-              autoPlay
-              loop
-              controls
-              preload="metadata"
-              className="w-full h-full object-cover"
-              src={nestAbsoluteAssetUrl(primaryVideo?.url ?? fallbackVideo ?? '')}
-            >
-            </video>
-          ) : images[0]?.url || fallbackImage ? (
-            <img
-              src={nestAbsoluteAssetUrl(images[0]?.url ?? fallbackImage ?? '')}
-              alt=""
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center bg-gradient-to-br from-zinc-100 to-zinc-200 text-sm text-zinc-500">
-              Bez náhledu videa
-            </div>
-          )}
-        </div>
-        {images.length > 0 ? (
-          <div className="no-scrollbar flex gap-2 overflow-x-auto px-4 pb-4 pt-3">
-            {images.map((img) => (
-              <img
-                key={img.url}
-                src={nestAbsoluteAssetUrl(img.url)}
-                className="h-20 w-20 shrink-0 rounded-xl object-cover"
-                alt=""
-              />
-            ))}
-          </div>
-        ) : null}
-
-        <div className="p-6 sm:p-8">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-zinc-500">🏠 Detail inzerátu</p>
-              <h1 className="mt-2 text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl">
-                {p.title}
-              </h1>
-            </div>
-            <NemovitostShareBar propertyId={id} title={p.title} />
-          </div>
-          <p className="mt-4 text-2xl font-bold text-[#e85d00]">{PRICE_FMT.format(p.price)}</p>
-          <p className="mt-2 text-[15px] font-medium text-zinc-700">
-            <span className="text-zinc-500">Lokalita:</span> {p.location}
-          </p>
-          {p.description ? (
-            <div className="prose prose-zinc mt-6 max-w-none">
-              <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-700">
-                {p.description}
-              </p>
-            </div>
-          ) : null}
-        </div>
-      </section>
-
-      <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm sm:p-8">
-        <h2 className="text-lg font-semibold tracking-tight text-zinc-900">👤 Inzerent</h2>
-        <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
-          <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-zinc-200 bg-zinc-100 text-xl font-bold text-zinc-600">
-            {avatarSrc ? (
-              <img
-                src={avatarSrc}
-                alt=""
-                width={64}
-                height={64}
-                className="size-full object-cover"
-              />
-            ) : (
-              author.email.trim().charAt(0).toUpperCase()
-            )}
-          </div>
-          <div className="min-w-0">
-            {author.name ? (
-              <p className="font-semibold text-zinc-900">{author.name}</p>
-            ) : null}
-            <p className="truncate text-sm text-zinc-600">{author.email}</p>
-          </div>
-        </div>
-      </section>
-
-      {other.length > 0 ? (
-        <section className="mt-10">
-          <h2 className="mb-4 text-lg font-semibold tracking-tight text-zinc-900">
-            📄 Další inzeráty od stejného uživatele
-          </h2>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {other.map((item) => (
-              <Link
-                key={item.id}
-                href={`/nemovitost/${item.id}`}
-                className="group flex flex-col overflow-hidden rounded-xl border border-zinc-200/90 bg-white shadow-sm transition hover:border-zinc-300 hover:shadow-md"
-              >
-                <div className="relative aspect-[4/3] bg-zinc-100">
-                  {(() => {
-                    const itemMedia = Array.isArray(item.media)
-                      ? [...item.media].sort((a, b) => a.order - b.order)
-                      : [];
-                    const itemVideo = itemMedia.find((m) => m.type === 'video')?.url ?? item.videoUrl;
-                    const itemImage = itemMedia.find((m) => m.type === 'image')?.url ?? item.imageUrl;
-                    return itemVideo ? (
-                    <video
-                      muted
-                      playsInline
-                      autoPlay
-                      loop
-                      controls
-                      preload="metadata"
-                      className="w-full h-full object-cover"
-                      src={nestAbsoluteAssetUrl(itemVideo)}
-                      aria-hidden
-                    />
-                    ) : itemImage ? (
-                    <img
-                      src={nestAbsoluteAssetUrl(itemImage)}
-                      alt=""
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center bg-gradient-to-br from-zinc-100 to-zinc-200 text-sm text-zinc-400">
-                      Bez náhledu
-                    </div>
-                  );
-                  })()}
-                </div>
-                <div className="flex flex-1 flex-col p-4">
-                  <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug text-zinc-900 group-hover:text-[#e85d00]">
-                    {item.title}
-                  </h3>
-                  <p className="mt-1 text-[13px] text-zinc-500">{item.location}</p>
-                  <p className="mt-auto pt-3 text-lg font-bold tabular-nums text-[#e85d00]">
-                    {PRICE_FMT.format(item.price)}
-                  </p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </section>
-      ) : null}
-    </div>
+    <NemovitostAuthGate redirectPath={redirectPath}>
+      <NemovitostDetailView
+        propertyId={id}
+        property={parsed.property}
+        author={parsed.user}
+        other={parsed.other}
+        extraFields={extraFields}
+      />
+    </NemovitostAuthGate>
   );
 }

@@ -15,7 +15,7 @@ type VideoCardProps = {
 
 export default function VideoCard({ video }: VideoCardProps) {
   const router = useRouter();
-  const { isAuthenticated, apiAccessToken } = useAuth();
+  const { user, isAuthenticated, apiAccessToken } = useAuth();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [error, setError] = useState(false);
   const [muted, setMuted] = useState(true);
@@ -70,6 +70,16 @@ export default function VideoCard({ video }: VideoCardProps) {
   const shareTitle = (video.title ?? 'Inzerát').trim().slice(0, 120) || 'Inzerát';
   const shareUrl = absoluteShareUrl(`/nemovitost/${encodeURIComponent(video.id)}`);
   const city = (video.city ?? '').trim();
+
+  const listingPath = `/nemovitost/${encodeURIComponent(video.id)}?from=shorts`;
+
+  function handleOpenListing() {
+    if (!user) {
+      router.push(`/prihlaseni?redirect=${encodeURIComponent(listingPath)}`);
+      return;
+    }
+    router.push(listingPath);
+  }
 
   return (
     <div className="relative flex h-full w-full items-center justify-center bg-black">
@@ -136,9 +146,7 @@ export default function VideoCard({ video }: VideoCardProps) {
           </div>
           <button
             type="button"
-            onClick={() =>
-              router.push(`/nemovitost/${encodeURIComponent(video.id)}?from=shorts`)
-            }
+            onClick={handleOpenListing}
             className="pointer-events-auto mt-2 inline-flex items-center rounded-full bg-white/90 px-4 py-2 text-sm font-semibold text-black"
           >
             Zobrazit inzerát

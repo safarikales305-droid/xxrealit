@@ -6,7 +6,7 @@ export default function NemovitostDetailLayout({ children }: { children: ReactNo
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
       <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
+        <div className="mx-auto flex h-14 max-w-[90rem] items-center justify-between px-4 sm:px-6">
           <Link
             href="/"
             className="text-lg font-bold tracking-tight text-[#e85d00] transition hover:text-[#ff6a00]"
@@ -21,7 +21,7 @@ export default function NemovitostDetailLayout({ children }: { children: ReactNo
           </Link>
         </div>
       </header>
-      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">{children}</div>
+      <div className="mx-auto max-w-[90rem] px-4 py-6 sm:px-6">{children}</div>
     </div>
   );
 }

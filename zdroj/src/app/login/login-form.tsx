@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL } from '@/lib/api';
@@ -10,7 +10,6 @@ const inputClass =
   'w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-[#ff6a00]/70 focus:ring-2 focus:ring-[#ff6a00]/15';
 
 export function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { refresh } = useAuth();
   const [email, setEmail] = useState('');
@@ -101,13 +100,18 @@ export function LoginForm() {
 
       await refresh();
 
-      if (data.success) {
-        const callbackUrl = searchParams?.get('callbackUrl');
-        const target = callbackUrl || data.redirect || '/';
-        console.log('REDIRECTING TO:', target);
-        window.location.href = target; // HARD REDIRECT
-        return;
-      }
+      const redirectParam =
+        searchParams.get('redirect') ??
+        searchParams.get('callbackUrl') ??
+        (typeof data.redirect === 'string' ? data.redirect : null);
+      const rawTarget = redirectParam || '/';
+      const target =
+        rawTarget.startsWith('/') && !rawTarget.startsWith('//')
+          ? rawTarget
+          : '/';
+
+      window.location.href = target;
+      return;
     } catch {
       setError('Nelze se spojit se serverem');
     } finally {
@@ -187,7 +191,18 @@ export function LoginForm() {
 
         <p className="mt-6 text-center text-sm text-zinc-600">
           Nemáte účet?{' '}
-          <Link href="/registrace" className="font-semibold text-[#e85d00] hover:underline">
+          <Link
+            href={
+              (() => {
+                const r =
+                  searchParams.get('redirect') ?? searchParams.get('callbackUrl');
+                return r
+                  ? `/registrace?redirect=${encodeURIComponent(r)}`
+                  : '/registrace';
+              })()
+            }
+            className="font-semibold text-[#e85d00] hover:underline"
+          >
             Registrace
           </Link>
         </p>
