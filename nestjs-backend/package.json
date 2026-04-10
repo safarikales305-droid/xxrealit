@@ -5,7 +5,7 @@
   "private": true,
   "license": "UNLICENSED",
   "prisma": {
-    "seed": "ts-node prisma/seed.ts && node prisma/seed.cjs"
+    "seed": "tsx prisma/seed.ts"
   },
   "scripts": {
     "build": "prisma generate && nest build",
@@ -62,6 +62,7 @@
     "ts-jest": "^29.2.5",
     "ts-loader": "^9.5.1",
     "ts-node": "^10.9.2",
+    "tsx": "^4.19.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.5.4"
   },
