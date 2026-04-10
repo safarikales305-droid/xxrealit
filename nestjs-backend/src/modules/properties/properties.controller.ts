@@ -1,17 +1,23 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   Headers,
   Param,
   Post,
+  UploadedFiles,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { JwtService } from '@nestjs/jwt';
+import { extname } from 'node:path';
 import { parseBearerUserId } from '../auth/auth-token.util';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { propertyImagesMulterOptions } from '../upload/multer-upload.config';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { PropertiesService } from './properties.service';
 
@@ -51,10 +57,120 @@ export class PropertiesController {
 
   @UseGuards(JwtAuthGuard)
   @Post()
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'video', maxCount: 1 },
+        { name: 'images', maxCount: 30 },
+      ],
+      {
+        storage: propertyImagesMulterOptions.storage,
+        limits: { fileSize: 300 * 1024 * 1024, files: 31 },
+      },
+    ),
+  )
   create(
     @CurrentUser() user: AuthUser,
-    @Body() createPropertyDto: CreatePropertyDto,
+    @Body() body: Record<string, unknown>,
+    @UploadedFiles()
+    files?: {
+      video?: Express.Multer.File[];
+      images?: Express.Multer.File[];
+    },
   ) {
-    return this.propertiesService.create(user.id, createPropertyDto);
+    const imageFiles = files?.images ?? [];
+    const videoFile = files?.video?.[0] ?? null;
+    console.log('VIDEO FILE:', videoFile?.originalname ?? null);
+    console.log('IMAGE FILES COUNT:', imageFiles.length);
+    if (imageFiles.length > 30) {
+      throw new BadRequestException('Max 30 fotek');
+    }
+    if ((files?.video?.length ?? 0) > 1) {
+      throw new BadRequestException('Max 1 video');
+    }
+
+    const imageOrderRaw = body.imageOrder;
+    const orderKeys = Array.isArray(imageOrderRaw)
+      ? imageOrderRaw.filter((x): x is string => typeof x === 'string')
+      : [];
+
+    const orderedImages =
+      orderKeys.length > 0
+        ? [...imageFiles].sort((a, b) => {
+            const aKey = `${a.originalname}::${a.size}`;
+            const bKey = `${b.originalname}::${b.size}`;
+            const ai = orderKeys.indexOf(aKey);
+            const bi = orderKeys.indexOf(bKey);
+            return (ai === -1 ? Number.MAX_SAFE_INTEGER : ai) - (bi === -1 ? Number.MAX_SAFE_INTEGER : bi);
+          })
+        : imageFiles;
+
+    const imageUrls: string[] = [];
+    for (const image of orderedImages) {
+      const ext = extname(image.originalname || image.filename).toLowerCase();
+      if (!['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext)) {
+        throw new BadRequestException('Nepovolený formát obrázku');
+      }
+      imageUrls.push(`/uploads/properties/${image.filename}`);
+    }
+
+    let videoUrl: string | undefined;
+    if (videoFile?.filename) {
+      const ext = extname(videoFile.originalname || videoFile.filename).toLowerCase();
+      if (!['.mp4', '.mov', '.webm', '.m4v', '.avi', '.mkv'].includes(ext)) {
+        throw new BadRequestException('Nepovolený formát videa');
+      }
+      videoUrl = `/uploads/properties/${videoFile.filename}`;
+    }
+
+    const toNum = (v: unknown): number | undefined => {
+      if (typeof v !== 'string') return undefined;
+      const n = Number(v.replace(',', '.'));
+      return Number.isFinite(n) ? n : undefined;
+    };
+    const toInt = (v: unknown): number | undefined => {
+      if (typeof v !== 'string') return undefined;
+      const n = Number.parseInt(v, 10);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    const toBool = (v: unknown): boolean | undefined => {
+      if (typeof v !== 'string') return undefined;
+      return v === 'true';
+    };
+    const str = (v: unknown, fallback = '') =>
+      typeof v === 'string' ? v : fallback;
+
+    const dto: CreatePropertyDto = {
+      title: str(body.title),
+      description: str(body.description),
+      price: toInt(body.price) ?? 0,
+      currency: str(body.currency, 'CZK'),
+      type: str(body.type, 'prodej'),
+      propertyType: str(body.propertyType, 'byt'),
+      subType: str(body.subType),
+      address: str(body.address),
+      city: str(body.city),
+      area: toNum(body.area),
+      landArea: toNum(body.landArea),
+      floor: toInt(body.floor),
+      totalFloors: toInt(body.totalFloors),
+      condition: str(body.condition),
+      construction: str(body.construction),
+      ownership: str(body.ownership),
+      energyLabel: str(body.energyLabel),
+      equipment: str(body.equipment),
+      parking: toBool(body.parking),
+      cellar: toBool(body.cellar),
+      images: imageUrls,
+      videoUrl,
+      contactName: str(body.contactName),
+      contactPhone: str(body.contactPhone),
+      contactEmail: str(body.contactEmail),
+    };
+
+    return this.propertiesService.create(user.id, dto, {
+      imageUrls,
+      videoUrl: videoUrl ?? null,
+    });
   }
 }

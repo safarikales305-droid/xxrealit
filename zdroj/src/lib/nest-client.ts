@@ -521,6 +521,43 @@ export async function nestCreatePropertyListing(
   }
 }
 
+export async function nestCreatePropertyListingMultipart(
+  token: string | null,
+  formData: FormData,
+): Promise<{ ok: true } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  try {
+    const res = await fetch(`${API_BASE_URL}/properties`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+      },
+      body: formData,
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      message?: string | string[];
+      error?: string;
+    };
+    if (!res.ok) {
+      const msg =
+        typeof data.message === 'string'
+          ? data.message
+          : Array.isArray(data.message)
+            ? data.message.join(', ')
+            : typeof data.error === 'string'
+              ? data.error
+              : `HTTP ${res.status}`;
+      return { ok: false, error: msg };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
 /**
  * POST /upload/avatar (soubor) → PATCH /users/avatar { avatarUrl }.
  */

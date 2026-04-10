@@ -4,8 +4,7 @@ import { useCallback, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import {
   nestApiConfigured,
-  nestCreatePropertyListing,
-  nestUploadPropertyMedia,
+  nestCreatePropertyListingMultipart,
 } from '@/lib/nest-client';
 
 const inputClass =
@@ -41,7 +40,6 @@ export function ListingCreateForm() {
   const [price, setPrice] = useState('');
   const [currency, setCurrency] = useState('CZK');
 
-  const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<Array<{ id: string; file: File; previewUrl: string }>>([]);
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -52,7 +50,6 @@ export function ListingCreateForm() {
   const [contactPhone, setContactPhone] = useState('');
   const [contactEmail, setContactEmail] = useState('');
 
-  const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -166,61 +163,61 @@ export function ListingCreateForm() {
       return;
     }
 
-    let uploadedVideoUrl = videoUrl.trim() || '';
-    let uploadedImageUrls = imageUrls;
-    if (videoFile || imageFiles.length > 0) {
-      setUploading(true);
-      const uploaded = await nestUploadPropertyMedia(apiAccessToken, {
-        video: videoFile,
-        images: imageFiles,
-        imageOrder: imageFiles.map((f) => `${f.name}::${f.size}`),
-      });
-      setUploading(false);
-      if (!uploaded.ok) {
-        setError(uploaded.error ?? 'Nahrání médií selhalo');
-        return;
-      }
-      if (uploaded.videoUrl) uploadedVideoUrl = uploaded.videoUrl;
-      uploadedImageUrls = uploaded.imageUrls;
-      setImageUrls(uploadedImageUrls);
-      if (uploadedVideoUrl) setVideoUrl(uploadedVideoUrl);
+    if (imagePreviews.length > 30) {
+      setError('Max 30 fotek');
+      return;
     }
 
-    const body: Record<string, unknown> = {
-      title: t,
-      description: description.trim(),
-      price: priceNum,
-      currency: currency.trim() || 'CZK',
-      type: offerType.trim(),
-      propertyType: propertyType.trim(),
-      subType: subType.trim(),
-      address: address.trim(),
-      city: c,
-      equipment: equipment.trim() || undefined,
-      parking,
-      cellar,
-      images: uploadedImageUrls,
-      videoUrl: uploadedVideoUrl || undefined,
-      contactName: cn,
-      contactPhone: cp,
-      contactEmail: ce,
-    };
+    console.log('TITLE:', t);
+    console.log('DESCRIPTION:', description.trim());
+    console.log('PRICE:', priceNum);
+    console.log('CITY:', c);
+    console.log('VIDEO FILE:', videoFile);
+    console.log(
+      'IMAGES:',
+      imagePreviews.map((x) => x.file.name),
+    );
 
-    const a = parseFloat(area.replace(',', '.'));
-    if (Number.isFinite(a)) body.area = a;
-    const la = parseFloat(landArea.replace(',', '.'));
-    if (Number.isFinite(la)) body.landArea = la;
-    const fl = parseInt(floor, 10);
-    if (Number.isFinite(fl)) body.floor = fl;
-    const tf = parseInt(totalFloors, 10);
-    if (Number.isFinite(tf)) body.totalFloors = tf;
-    if (condition.trim()) body.condition = condition.trim();
-    if (construction.trim()) body.construction = construction.trim();
-    if (ownership.trim()) body.ownership = ownership.trim();
-    if (energyLabel.trim()) body.energyLabel = energyLabel.trim();
+    const fd = new FormData();
+    fd.append('title', t);
+    fd.append('description', description.trim());
+    fd.append('price', String(priceNum));
+    fd.append('currency', currency.trim() || 'CZK');
+    fd.append('type', offerType.trim());
+    fd.append('propertyType', propertyType.trim());
+    fd.append('subType', subType.trim());
+    fd.append('address', address.trim());
+    fd.append('city', c);
+    fd.append('equipment', equipment.trim());
+    fd.append('parking', String(parking));
+    fd.append('cellar', String(cellar));
+    fd.append('contactName', cn);
+    fd.append('contactPhone', cp);
+    fd.append('contactEmail', ce);
+    if (videoUrl.trim()) fd.append('videoUrl', videoUrl.trim());
+    if (condition.trim()) fd.append('condition', condition.trim());
+    if (construction.trim()) fd.append('construction', construction.trim());
+    if (ownership.trim()) fd.append('ownership', ownership.trim());
+    if (energyLabel.trim()) fd.append('energyLabel', energyLabel.trim());
+    if (area.trim()) fd.append('area', area.trim());
+    if (landArea.trim()) fd.append('landArea', landArea.trim());
+    if (floor.trim()) fd.append('floor', floor.trim());
+    if (totalFloors.trim()) fd.append('totalFloors', totalFloors.trim());
+
+    if (videoFile) {
+      fd.append('video', videoFile);
+    }
+    const orderedImages = imagePreviews.map((x) => x.file);
+    for (const file of orderedImages) {
+      fd.append('images', file);
+      fd.append('imageOrder', `${file.name}::${file.size}`);
+    }
+    for (const pair of fd.entries()) {
+      console.log('FORMDATA:', pair[0], pair[1]);
+    }
 
     setSubmitting(true);
-    const r = await nestCreatePropertyListing(apiAccessToken, body);
+    const r = await nestCreatePropertyListingMultipart(apiAccessToken, fd);
     setSubmitting(false);
     if (!r.ok) {
       setError(r.error ?? 'Uložení selhalo');
@@ -230,7 +227,6 @@ export function ListingCreateForm() {
     setTitle('');
     setDescription('');
     setPrice('');
-    setImageUrls([]);
     for (const p of imagePreviews) {
       URL.revokeObjectURL(p.previewUrl);
     }
@@ -691,7 +687,7 @@ export function ListingCreateForm() {
         {submitting ? (
           <span className="inline-block size-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
         ) : null}
-        {submitting ? 'Odesílám…' : 'Odeslat inzerát'}
+        {submitting ? 'Ukládám...' : 'Vložit inzerát'}
       </button>
     </form>
   );

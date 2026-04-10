@@ -256,7 +256,11 @@ export class PropertiesService {
     };
   }
 
-  async create(ownerId: string, dto: CreatePropertyDto) {
+  async create(
+    ownerId: string,
+    dto: CreatePropertyDto,
+    mediaInput?: { imageUrls: string[]; videoUrl: string | null },
+  ) {
     const user = await this.prisma.user.findUnique({
       where: { id: ownerId },
     });
@@ -270,7 +274,7 @@ export class PropertiesService {
       : [];
 
     try {
-      return await this.prisma.property.create({
+      const created = await this.prisma.property.create({
         data: {
           title: dto.title.trim(),
           description: dto.description.trim(),
@@ -302,6 +306,36 @@ export class PropertiesService {
           status: 'PENDING',
         },
       });
+
+      const mediaRows: Array<{
+        propertyId: string;
+        url: string;
+        type: 'image' | 'video';
+        sortOrder: number;
+      }> = [];
+      const video = mediaInput?.videoUrl?.trim() || dto.videoUrl?.trim() || null;
+      if (video) {
+        mediaRows.push({
+          propertyId: created.id,
+          url: video,
+          type: 'video',
+          sortOrder: 0,
+        });
+      }
+      const orderedImages = (mediaInput?.imageUrls ?? images).filter(Boolean);
+      for (let i = 0; i < orderedImages.length; i += 1) {
+        mediaRows.push({
+          propertyId: created.id,
+          url: orderedImages[i],
+          type: 'image',
+          sortOrder: i + 1,
+        });
+      }
+      if (mediaRows.length > 0) {
+        await this.prisma.propertyMedia.createMany({ data: mediaRows });
+      }
+
+      return created;
     } catch (e) {
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&
