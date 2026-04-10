@@ -601,8 +601,8 @@ export function HomeLayout({
               ) : viewMode === 'posts' ? (
                 <div className="w-full min-w-0 overflow-x-hidden pb-8 pt-3">
                   <div className="mx-auto w-full max-w-7xl px-4 py-4">
-                    <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-                      <aside className="hidden min-w-0 overflow-hidden lg:col-span-3 lg:block">
+                    <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
+                      <aside className="xl:col-span-3">
                         <div className="space-y-4 lg:sticky lg:top-20">
                           <div className="w-full rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
                             <p className="text-sm font-semibold text-zinc-800">Přehled</p>
@@ -614,7 +614,7 @@ export function HomeLayout({
                         </div>
                       </aside>
 
-                      <main className="min-w-0 lg:col-span-6">
+                      <main className="min-w-0 xl:col-span-6">
                         <div className="sticky top-0 z-20 w-full rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur">
                           <div className="flex w-full min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
                             <div className="min-w-0 flex-1">
@@ -1124,8 +1124,8 @@ export function HomeLayout({
                         </div>
                       </main>
 
-                      <aside className="hidden min-w-0 overflow-hidden lg:col-span-3 lg:block">
-                        <div className="space-y-4 lg:sticky lg:top-20">
+                      <aside className="hidden xl:block xl:col-span-3">
+                        <div className="space-y-4 xl:sticky xl:top-20">
                           <div className="w-full rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
                             <p className="text-sm font-semibold text-zinc-800">Tip</p>
                             <p className="mt-2 text-sm text-zinc-600">
