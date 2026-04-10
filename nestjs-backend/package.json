@@ -13,8 +13,8 @@
     "start:prod": "prisma migrate deploy && node dist/main.js",
     "start:dev": "nest start --watch",
     "postinstall": "prisma generate",
-    "seed": "ts-node prisma/seed.ts",
-    "seed:all": "ts-node prisma/seed.ts && node prisma/seed.cjs"
+    "seed": "tsx prisma/seed.ts",
+    "seed:all": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",
