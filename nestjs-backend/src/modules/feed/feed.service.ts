@@ -116,6 +116,14 @@ export class FeedService {
       },
     });
 
+    const withVideoUrl = rows.filter((r) => (r.videoUrl ?? '').trim().length > 0).length;
+    const withVideoMedia = rows.filter((r) =>
+      r.media.some((m) => m.type === 'video'),
+    ).length;
+    console.log(
+      `[FeedService.listShorts] total=${rows.length} nonEmptyVideoUrl=${withVideoUrl} hasVideoMedia=${withVideoMedia}`,
+    );
+
     return rows.map((r) =>
       serializeProperty(
         { ...r, likes: [] as { id: string }[] },

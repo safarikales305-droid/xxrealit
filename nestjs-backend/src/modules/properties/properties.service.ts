@@ -56,6 +56,10 @@ export class PropertiesService {
       orderBy: { createdAt: 'desc' },
       include: socialInclude(viewerId),
     });
+    const withVideoUrl = rows.filter((r) => (r.videoUrl ?? '').trim().length > 0).length;
+    console.log(
+      `[PropertiesService.findAllPublic] classicApprovedRows=${rows.length} nonEmptyVideoUrl=${withVideoUrl}`,
+    );
     return rows.map((r) =>
       serializeProperty(
         { ...r, likes: 'likes' in r ? r.likes : [] },
