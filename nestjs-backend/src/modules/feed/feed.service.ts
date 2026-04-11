@@ -101,7 +101,10 @@ export class FeedService {
     );
   }
 
-  /** Shorts = schválené inzeráty s videem (Property + PropertyMedia). */
+  /**
+   * Shorts = jen schválené inzeráty s videem (`publicShortPropertyWhere`: PropertyMedia
+   * typu video nebo neprázdné `videoUrl`).
+   */
   async listShorts() {
     const rows = await this.prisma.property.findMany({
       where: publicShortPropertyWhere,

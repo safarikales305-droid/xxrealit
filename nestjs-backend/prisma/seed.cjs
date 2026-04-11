@@ -6,6 +6,10 @@ const prisma = new PrismaClient();
 
 const DEMO_PASSWORD = 'demo123';
 
+/** Public HTTPS sample — část demo inzerátů má video pro `/feed/shorts`. */
+const DEMO_SAMPLE_VIDEO_MP4 =
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+
 async function upsertUser(email, name) {
   const password = await bcrypt.hash(DEMO_PASSWORD, 10);
   return prisma.user.upsert({
@@ -20,7 +24,7 @@ async function upsertUser(email, name) {
   });
 }
 
-async function ensureProperty(userId, { title, price, city, approved = true }) {
+async function ensureProperty(userId, { title, price, city, approved = true, videoUrl = null }) {
   const existing = await prisma.property.findFirst({
     where: { userId, title },
   });
@@ -34,7 +38,7 @@ async function ensureProperty(userId, { title, price, city, approved = true }) {
       address: city,
       userId,
       approved,
-      videoUrl: null,
+      videoUrl,
       currency: 'CZK',
       offerType: 'prodej',
       propertyType: 'byt',
@@ -56,11 +60,13 @@ async function main() {
     title: 'Byt Praha 3',
     price: 6_890_000,
     city: 'Praha 3',
+    videoUrl: DEMO_SAMPLE_VIDEO_MP4,
   });
   await ensureProperty(u1.id, {
     title: 'Dům Brno',
     price: 12_500_000,
     city: 'Brno',
+    videoUrl: DEMO_SAMPLE_VIDEO_MP4,
   });
   await ensureProperty(u1.id, {
     title: 'Pozemek Ostrava',
@@ -72,6 +78,7 @@ async function main() {
     title: 'Byt Plzeň',
     price: 4_150_000,
     city: 'Plzeň',
+    videoUrl: DEMO_SAMPLE_VIDEO_MP4,
   });
   await ensureProperty(u2.id, {
     title: 'Vila Liberec',

@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Briefcase, Building2, Home } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
+import { loadPropertyFeedItems } from '@/lib/load-feed';
 import {
   nestAddPostComment,
   nestFetchCommunityPosts,
@@ -43,6 +44,27 @@ const COMMUNITY_CATEGORIES = [
   { key: 'REALITNI_KANCELARE', label: 'Realitní kanceláře', icon: Home },
 ] as const;
 const RADIUS_OPTIONS_KM = [10, 20, 30, 50, 100] as const;
+
+function feedShortsRowToShortVideo(row: Record<string, unknown>): ShortVideo | null {
+  const id = row.id != null ? String(row.id) : '';
+  if (!id) return null;
+  const rawCreated = row.createdAt;
+  const createdAt =
+    typeof rawCreated === 'string'
+      ? rawCreated
+      : rawCreated instanceof Date
+        ? rawCreated.toISOString()
+        : new Date().toISOString();
+  return {
+    id,
+    videoUrl: typeof row.videoUrl === 'string' ? row.videoUrl : null,
+    url: typeof row.url === 'string' ? row.url : undefined,
+    title: row.title != null ? String(row.title) : null,
+    price: typeof row.price === 'number' ? row.price : Number(row.price) || null,
+    city: typeof row.city === 'string' ? row.city : null,
+    createdAt,
+  };
+}
 
 /**
  * Light shell + Shorts (TikTok) / Classic (Sreality-style grid).
@@ -81,6 +103,8 @@ export function HomeLayout({
   }, [searchParams]);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [videoFeed, setVideoFeed] = useState<ShortVideo[]>([]);
+  /** Když `/feed/shorts` vrátí 0 položek — klasický katalog z GET `/properties`. */
+  const [shortsFallbackItems, setShortsFallbackItems] = useState<PropertyFeedItem[]>([]);
   const [postFeed, setPostFeed] = useState<Array<Record<string, unknown>>>([]);
   const [loadingFeed, setLoadingFeed] = useState(false);
   const [activeCategory, setActiveCategory] = useState<
@@ -203,8 +227,30 @@ export function HomeLayout({
     );
   }, [classicGridItems, searchQuery]);
 
+  const classicShortsFallbackGrid = useMemo(
+    () => classicListingsOnly(shortsFallbackItems),
+    [shortsFallbackItems],
+  );
+
+  const filteredShortsFallback = useMemo(() => {
+    const s = searchQuery.trim().toLowerCase();
+    if (!s) return classicShortsFallbackGrid;
+    return classicShortsFallbackGrid.filter(
+      (p) =>
+        p.title.toLowerCase().includes(s) ||
+        p.location.toLowerCase().includes(s),
+    );
+  }, [classicShortsFallbackGrid, searchQuery]);
+
   const hasData = classicGridItems.length > 0;
-  const showNoSearchHits = hasData && filteredItems.length === 0;
+  const showNoSearchHits =
+    viewMode === 'classic' && hasData && filteredItems.length === 0;
+  const showNoSearchHitsShortsFallback =
+    viewMode === 'shorts' &&
+    !loadingFeed &&
+    videoFeed.length === 0 &&
+    classicShortsFallbackGrid.length > 0 &&
+    filteredShortsFallback.length === 0;
 
   const communityFeedPosts = useMemo(
     () =>
@@ -237,24 +283,41 @@ export function HomeLayout({
 
   useEffect(() => {
     if (!API_BASE_URL) return;
+
+    let cancelled = false;
     setLoadingFeed(true);
-    const loader =
-      viewMode === 'shorts'
-        ? fetch(`${API_BASE_URL}/feed/shorts`, { cache: 'no-store' }).then((res) =>
-            res.ok ? res.json() : [],
-          )
-        : viewMode === 'posts'
-          ? nestFetchCommunityPosts(activeCategory, {
-              radiusKm,
-              lat: userCoords?.lat,
-              lng: userCoords?.lng,
-            })
-          : Promise.resolve([]);
-    void loader
-      .then((data) => {
-        const list = Array.isArray(data) ? (data as ShortVideo[]) : [];
-        if (viewMode === 'shorts') setVideoFeed(list);
+
+    void (async () => {
+      try {
+        if (viewMode === 'shorts') {
+          const res = await fetch(`${API_BASE_URL}/feed/shorts`, {
+            cache: 'no-store',
+          });
+          const data = res.ok ? await res.json() : [];
+          const rawList = Array.isArray(data) ? (data as Record<string, unknown>[]) : [];
+          const list = rawList
+            .map(feedShortsRowToShortVideo)
+            .filter((x): x is ShortVideo => x != null);
+          if (cancelled) return;
+          setVideoFeed(list);
+          if (list.length === 0) {
+            const classic = await loadPropertyFeedItems(API_BASE_URL, {
+              path: '/properties',
+            });
+            if (!cancelled) setShortsFallbackItems(classic);
+          } else if (!cancelled) {
+            setShortsFallbackItems([]);
+          }
+          return;
+        }
+
         if (viewMode === 'posts') {
+          const list = await nestFetchCommunityPosts(activeCategory, {
+            radiusKm,
+            lat: userCoords?.lat,
+            lng: userCoords?.lng,
+          });
+          if (cancelled) return;
           setPostFeed(list as Array<Record<string, unknown>>);
           setLikeCountByPostId((prev) => {
             const next = { ...prev };
@@ -283,12 +346,27 @@ export function HomeLayout({
             return next;
           });
         }
-      })
-      .catch(() => {
-        if (viewMode === 'shorts') setVideoFeed([]);
-        if (viewMode === 'posts') setPostFeed([]);
-      })
-      .finally(() => setLoadingFeed(false));
+      } catch {
+        if (!cancelled && viewMode === 'shorts') {
+          setVideoFeed([]);
+          try {
+            const classic = await loadPropertyFeedItems(API_BASE_URL, {
+              path: '/properties',
+            });
+            if (!cancelled) setShortsFallbackItems(classic);
+          } catch {
+            if (!cancelled) setShortsFallbackItems([]);
+          }
+        }
+        if (!cancelled && viewMode === 'posts') setPostFeed([]);
+      } finally {
+        if (!cancelled) setLoadingFeed(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [viewMode, activeCategory, radiusKm, userCoords?.lat, userCoords?.lng]);
 
   return (
@@ -360,9 +438,11 @@ export function HomeLayout({
           className={
             !hasData && viewMode === 'classic'
               ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-[0_2px_24px_-8px_rgba(0,0,0,0.08)] md:min-w-0'
-              : viewMode === 'shorts'
-                ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl bg-black shadow-[0_24px_48px_-24px_rgba(0,0,0,0.35)] md:min-w-0 lg:ring-1 lg:ring-black/10'
-                : 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden bg-white md:min-w-0 md:rounded-2xl md:border md:border-zinc-200/90 md:shadow-[0_2px_24px_-8px_rgba(0,0,0,0.06)]'
+              : viewMode === 'shorts' && !loadingFeed && videoFeed.length === 0
+                ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl border border-zinc-200/90 bg-[#fafafa] shadow-[0_2px_24px_-8px_rgba(0,0,0,0.08)] md:min-w-0'
+                : viewMode === 'shorts'
+                  ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl bg-black shadow-[0_24px_48px_-24px_rgba(0,0,0,0.35)] md:min-w-0 lg:ring-1 lg:ring-black/10'
+                  : 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden bg-white md:min-w-0 md:rounded-2xl md:border md:border-zinc-200/90 md:shadow-[0_2px_24px_-8px_rgba(0,0,0,0.06)]'
           }
         >
           {!hasData && viewMode === 'classic' ? (
@@ -396,7 +476,7 @@ export function HomeLayout({
                 ) : null}
               </div>
             </div>
-          ) : showNoSearchHits ? (
+          ) : showNoSearchHits || showNoSearchHitsShortsFallback ? (
             <div className="flex min-h-[min(24rem,50vh)] flex-1 flex-col items-center justify-center gap-3 px-6 py-12 text-center">
               <p className="text-lg font-semibold text-zinc-800">
                 Žádné výsledky pro „{searchQuery.trim()}“
@@ -427,8 +507,31 @@ export function HomeLayout({
                   <div className="flex h-full items-center justify-center text-sm text-white/80">
                     Načítám video feed...
                   </div>
-                ) : (
+                ) : videoFeed.length > 0 ? (
                   <VideoFeed videos={videoFeed} />
+                ) : filteredShortsFallback.length > 0 ? (
+                  <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain">
+                    <p className="shrink-0 border-b border-zinc-200 bg-white px-4 py-2.5 text-center text-[13px] text-zinc-600">
+                      Žádné video inzeráty — zobrazujeme klasický katalog (GET /properties).
+                    </p>
+                    <div className="mx-auto w-full max-w-xl px-3 pb-8 pt-4">
+                      <PropertyGrid properties={filteredShortsFallback} />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex h-full min-h-[16rem] flex-col items-center justify-center gap-4 px-6 text-center text-zinc-600">
+                    <p className="max-w-sm text-sm">
+                      Žádné video inzeráty ani položky v klasickém katalogu. Spusť seed na API nebo
+                      přidej inzerát.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('classic')}
+                      className="rounded-full border border-zinc-300 bg-white px-6 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
+                    >
+                      Přepnout na klasické zobrazení
+                    </button>
+                  </div>
                 )
               ) : viewMode === 'posts' ? (
                 <div className="w-full min-w-0 overflow-x-hidden pb-8 pt-3">
