@@ -1430,6 +1430,25 @@ export async function nestPostShortsPreview(
   return { ok: true, data: raw as unknown as NestShortsListingDraft };
 }
 
+/** POST /shorts-listings/:id/regenerate — přegenerování videa (JWT). */
+export async function nestPostShortsRegenerate(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; data?: NestShortsListingDraft; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/shorts-listings/${encodeURIComponent(id)}/regenerate`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  }
+  return { ok: true, data: raw as unknown as NestShortsListingDraft };
+}
+
 export async function nestPublishShortsListing(
   token: string | null,
   id: string,
