@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -57,6 +58,9 @@ export class UsersService {
         createdAt: true,
       },
     });
+    this.log.log(
+      `[profile-media] updateAvatar userId=${userId} avatarLen=${(updated.avatar ?? '').length} coverSet=${Boolean(updated.coverImage)}`,
+    );
     return { ...updated, role: ensureUserRole(updated.role) };
   }
 
@@ -75,6 +79,9 @@ export class UsersService {
         createdAt: true,
       },
     });
+    this.log.log(
+      `[profile-media] updateCover userId=${userId} coverLen=${(updated.coverImage ?? '').length} avatarKept=${Boolean(updated.avatar)}`,
+    );
     return { ...updated, role: ensureUserRole(updated.role) };
   }
 
@@ -152,7 +159,7 @@ export class UsersService {
       },
     });
     if (!u) return null;
-    return {
+    const profile = {
       id: u.id,
       email: u.email,
       name: u.name,
@@ -162,6 +169,10 @@ export class UsersService {
       coverImageUrl: u.coverImage ?? null,
       bio: u.bio ?? null,
     };
+    this.log.log(
+      `[profile-media] getMeProfile userId=${u.id} hasAvatar=${Boolean(profile.avatarUrl)} hasCover=${Boolean(profile.coverImageUrl)}`,
+    );
+    return profile;
   }
 
   async getPublicProfile(userId: string, viewerId?: string) {

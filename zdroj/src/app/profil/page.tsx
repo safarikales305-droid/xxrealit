@@ -70,10 +70,12 @@ export default function ProfilPage() {
   const loadNestProfile = useCallback(async () => {
     if (!apiAccessToken) return;
     const me = await nestFetchMe(apiAccessToken);
-    setNestAvatar(me?.avatarUrl ?? null);
-    setNestCover(me?.coverImageUrl ?? null);
-    setNestBio(me?.bio ?? null);
-    setBioDraft(me?.bio ?? '');
+    /** Při chybě GET /users/me nesmazat už načtené URL — držíme stav z auth / posledního uploadu. */
+    if (!me) return;
+    setNestAvatar(me.avatarUrl ?? null);
+    setNestCover(me.coverImageUrl ?? null);
+    setNestBio(me.bio ?? null);
+    setBioDraft(me.bio ?? '');
   }, [apiAccessToken]);
 
   const loadFavorites = useCallback(async () => {
@@ -101,6 +103,20 @@ export default function ProfilPage() {
   useEffect(() => {
     void loadNestProfile();
   }, [loadNestProfile]);
+
+  /** Po návratu na stránku: pokud Nest /users/me nestihl, použij avatar z auth session. */
+  useEffect(() => {
+    if (user?.avatar) {
+      setNestAvatar((prev) => prev ?? user.avatar ?? null);
+    }
+  }, [user?.avatar]);
+
+  useEffect(() => {
+    const c = user?.coverImage;
+    if (typeof c === 'string' && c.trim()) {
+      setNestCover((prev) => prev ?? c);
+    }
+  }, [user?.coverImage]);
 
   useEffect(() => {
     void loadFavorites();
@@ -156,9 +172,14 @@ export default function ProfilPage() {
       setNestAvatar(res.avatarUrl);
     }
     await refresh();
-    if (user) {
-      setUser({ ...user, avatar: res.avatarUrl ?? user.avatar ?? null });
-    }
+    setUser((prev) =>
+      prev
+        ? {
+            ...prev,
+            avatar: res.avatarUrl ?? prev.avatar ?? null,
+          }
+        : prev,
+    );
     showSuccess('Profilová fotka byla uložena.');
   }
 
@@ -187,12 +208,14 @@ export default function ProfilPage() {
       setNestCover(res.coverImageUrl);
     }
     await refresh();
-    if (user) {
-      setUser({
-        ...user,
-        coverImage: res.coverImageUrl ?? (user as { coverImage?: string }).coverImage,
-      } as typeof user);
-    }
+    setUser((prev) =>
+      prev
+        ? {
+            ...prev,
+            coverImage: res.coverImageUrl ?? prev.coverImage ?? null,
+          }
+        : prev,
+    );
     showSuccess('Cover obrázek byl uložen.');
   }
 
@@ -208,9 +231,7 @@ export default function ProfilPage() {
     }
     setNestCover(null);
     await refresh();
-    if (user) {
-      setUser({ ...user, coverImage: null } as typeof user);
-    }
+    setUser((prev) => (prev ? { ...prev, coverImage: null } : prev));
     showSuccess('Cover byl odstraněn.');
   }
 
@@ -231,9 +252,7 @@ export default function ProfilPage() {
     setNestBio(res.bio ?? null);
     setBioEditing(false);
     await refresh();
-    if (user) {
-      setUser({ ...user, bio: res.bio ?? null } as typeof user);
-    }
+    setUser((prev) => (prev ? { ...prev, bio: res.bio ?? null } : prev));
     showSuccess('Popis „O mně“ byl uložen.');
   }
 

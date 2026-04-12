@@ -123,6 +123,33 @@ export type NestMeProfile = {
   createdAt: string;
 };
 
+/** GET /users/me může vracet avatarUrl nebo legacy avatar / coverImage. */
+export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
+  if (raw == null || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.id !== 'string' || typeof o.email !== 'string') return null;
+  const role = typeof o.role === 'string' ? o.role : 'USER';
+  const avatarRaw = o.avatarUrl ?? o.avatar;
+  const coverRaw = o.coverImageUrl ?? o.coverImage;
+  const avatarUrl =
+    typeof avatarRaw === 'string' && avatarRaw.trim() ? avatarRaw.trim() : null;
+  const coverImageUrl =
+    typeof coverRaw === 'string' && coverRaw.trim() ? coverRaw.trim() : null;
+  const bio = o.bio === null || typeof o.bio === 'string' ? (o.bio as string | null) : null;
+  const createdAt =
+    typeof o.createdAt === 'string' ? o.createdAt : new Date().toISOString();
+  return {
+    id: o.id,
+    email: o.email,
+    name: typeof o.name === 'string' || o.name === null ? (o.name as string | null) : undefined,
+    role,
+    avatarUrl,
+    coverImageUrl,
+    bio,
+    createdAt,
+  };
+}
+
 /** Shodně s backend limitem `PROFILE_UPLOAD_MAX_BYTES` (20 MB). */
 export const NEST_PROFILE_IMAGE_MAX_BYTES = 20 * 1024 * 1024;
 
@@ -134,8 +161,21 @@ export async function nestFetchMe(
     cache: 'no-store',
     headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
   });
-  if (!res.ok) return null;
-  return (await res.json()) as NestMeProfile;
+  if (!res.ok) {
+    if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+      console.warn('[nestFetchMe] GET /users/me failed', res.status);
+    }
+    return null;
+  }
+  const raw = (await res.json().catch(() => null)) as unknown;
+  const parsed = parseNestMeProfileJson(raw);
+  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+    console.debug('[nestFetchMe] profile', {
+      hasAvatar: Boolean(parsed?.avatarUrl),
+      hasCover: Boolean(parsed?.coverImageUrl),
+    });
+  }
+  return parsed;
 }
 
 export type AdminStats = {
@@ -643,6 +683,7 @@ export async function nestUploadAvatar(
   });
   const patchData = (await patch.json().catch(() => ({}))) as {
     avatarUrl?: string | null;
+    user?: { avatarUrl?: string | null };
     message?: string | string[];
   };
   if (!patch.ok) {
@@ -654,10 +695,17 @@ export async function nestUploadAvatar(
       ),
     };
   }
+  const fromNested =
+    patchData.user && typeof patchData.user.avatarUrl === 'string'
+      ? patchData.user.avatarUrl
+      : '';
   const avatarUrl =
-    typeof patchData.avatarUrl === 'string'
-      ? patchData.avatarUrl
-      : url;
+    typeof patchData.avatarUrl === 'string' && patchData.avatarUrl.trim()
+      ? patchData.avatarUrl.trim()
+      : fromNested.trim() || url;
+  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+    console.debug('[nestUploadAvatar] persisted', { avatarUrlLen: avatarUrl.length });
+  }
   return { avatarUrl };
 }
 
@@ -710,6 +758,7 @@ export async function nestUploadCover(
   });
   const patchData = (await patch.json().catch(() => ({}))) as {
     coverImageUrl?: string | null;
+    user?: { coverImageUrl?: string | null };
     message?: string | string[];
   };
   if (!patch.ok) {
@@ -721,10 +770,17 @@ export async function nestUploadCover(
       ),
     };
   }
+  const coverNested =
+    patchData.user && typeof patchData.user.coverImageUrl === 'string'
+      ? patchData.user.coverImageUrl
+      : '';
   const coverImageUrl =
-    typeof patchData.coverImageUrl === 'string'
-      ? patchData.coverImageUrl
-      : url;
+    typeof patchData.coverImageUrl === 'string' && patchData.coverImageUrl.trim()
+      ? patchData.coverImageUrl.trim()
+      : coverNested.trim() || url;
+  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+    console.debug('[nestUploadCover] persisted', { coverImageUrlLen: coverImageUrl.length });
+  }
   return { coverImageUrl };
 }
 

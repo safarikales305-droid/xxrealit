@@ -35,6 +35,32 @@ function meUrl(): string {
   return API_BASE_URL ? `${API_BASE_URL}/auth/me` : '/api/auth/me';
 }
 
+function normalizeMeUser(raw: unknown): AuthUser | null {
+  if (raw == null || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.id !== 'string' || typeof o.email !== 'string' || typeof o.role !== 'string') {
+    return null;
+  }
+  const avatarRaw = o.avatar ?? o.avatarUrl;
+  const coverRaw = o.coverImage ?? o.coverImageUrl;
+  const avatar =
+    typeof avatarRaw === 'string' && avatarRaw.trim() ? avatarRaw.trim() : null;
+  const coverImage =
+    typeof coverRaw === 'string' && coverRaw.trim() ? coverRaw.trim() : null;
+  const bio = o.bio === null || typeof o.bio === 'string' ? (o.bio as string | null) : null;
+  const createdAt =
+    typeof o.createdAt === 'string' ? o.createdAt : new Date().toISOString();
+  return {
+    id: o.id,
+    email: o.email,
+    role: o.role,
+    createdAt,
+    avatar,
+    coverImage,
+    bio,
+  };
+}
+
 async function fetchMe(token: string | null): Promise<AuthUser | null> {
   const headers: HeadersInit = {};
   if (token) {
@@ -48,20 +74,11 @@ async function fetchMe(token: string | null): Promise<AuthUser | null> {
   if (!res.ok) {
     return null;
   }
-  const data = (await res.json()) as { user?: AuthUser } | AuthUser | null;
+  const data = (await res.json()) as { user?: unknown } | Record<string, unknown> | null;
   if (data && typeof data === 'object' && 'user' in data && data.user) {
-    return data.user;
+    return normalizeMeUser(data.user);
   }
-  if (
-    data &&
-    typeof data === 'object' &&
-    'id' in data &&
-    'email' in data &&
-    'role' in data
-  ) {
-    return data as AuthUser;
-  }
-  return null;
+  return normalizeMeUser(data);
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
