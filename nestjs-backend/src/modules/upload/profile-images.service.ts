@@ -1,6 +1,13 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import sharp, { type Metadata } from 'sharp';
+import type { Metadata, Sharp, SharpOptions } from 'sharp';
 import { extname } from 'node:path';
+
+/**
+ * Sharp je CJS `export =`. `import sharp from 'sharp'` se po buildu často přeloží na
+ * `require('sharp').default`, které u sharp není funkce → runtime "(0, sharp_1.default) is not a function".
+ * `import = require` emituje přímé `require('sharp')` a funguje v Nest buildu.
+ */
+import sharp = require('sharp');
 
 /** Vstupní upload — 20 MB. Výstup cílíme pod ~5 MB. */
 export const PROFILE_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
@@ -38,12 +45,12 @@ export class ProfileImagesService {
   /**
    * Sharp pipeline: `failOn: 'none'`, první snímek u GIF, EXIF auto-rotate.
    */
-  private sharpRasterFromBuffer(buffer: Buffer, meta: Metadata): sharp.Sharp {
+  private sharpRasterFromBuffer(buffer: Buffer, meta: Metadata): Sharp {
     const usePages =
       meta.format === 'gif' || (meta.format === 'tiff' && (meta.pages ?? 0) > 1);
-    const opts: sharp.SharpOptions = { failOn: 'none' };
+    const opts: SharpOptions = { failOn: 'none' };
     if (usePages) {
-      (opts as sharp.SharpOptions & { pages?: number }).pages = 1;
+      (opts as SharpOptions & { pages?: number }).pages = 1;
     }
     return sharp(buffer, opts).rotate();
   }
