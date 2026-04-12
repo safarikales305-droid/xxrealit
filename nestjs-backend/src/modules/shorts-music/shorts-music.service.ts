@@ -104,8 +104,10 @@ export class ShortsMusicService {
     return this.prisma.shortsMusicTrack.create({
       data: {
         title: title.trim().slice(0, 200),
+        artist: '',
         description: description?.trim() ? description.trim().slice(0, 4000) : null,
         fileUrl: url,
+        previewUrl: null,
         cloudinaryPublicId: publicId,
         mimeType: file.mimetype || 'audio/mpeg',
         durationSec: durationSec ?? null,
@@ -131,10 +133,15 @@ export class ShortsMusicService {
       select: {
         id: true,
         title: true,
+        artist: true,
         description: true,
         fileUrl: true,
+        previewUrl: true,
         durationSec: true,
         mimeType: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
       },
     });
   }
@@ -146,11 +153,23 @@ export class ShortsMusicService {
     }
     const data: {
       title?: string;
+      artist?: string;
       description?: string | null;
+      previewUrl?: string | null;
       isActive?: boolean;
     } = {};
     if (typeof body.title === 'string' && body.title.trim()) {
       data.title = body.title.trim().slice(0, 200);
+    }
+    if (typeof body.artist === 'string') {
+      data.artist = body.artist.trim().slice(0, 200);
+    }
+    if ('previewUrl' in body) {
+      if (body.previewUrl === null || body.previewUrl === '') {
+        data.previewUrl = null;
+      } else if (typeof body.previewUrl === 'string') {
+        data.previewUrl = body.previewUrl.trim().slice(0, 2000);
+      }
     }
     if ('description' in body) {
       if (body.description === null || body.description === '') {

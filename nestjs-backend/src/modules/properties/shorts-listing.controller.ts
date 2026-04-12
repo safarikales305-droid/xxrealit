@@ -73,6 +73,13 @@ export class ShortsListingController {
     return this.shortsListingService.previewVideo(user.id, id);
   }
 
+  /** Stejné jako preview — explicitní přegenerování videa z aktuálních fotek a hudby. */
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/regenerate')
+  regenerate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.shortsListingService.regenerateShortsVideo(user.id, id);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Post(':id/publish')
   publish(@CurrentUser() user: AuthUser, @Param('id') id: string) {

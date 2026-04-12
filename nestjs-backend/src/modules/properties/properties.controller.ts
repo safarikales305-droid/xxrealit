@@ -32,6 +32,7 @@ import { PropertiesService } from './properties.service';
 import { BrokerLeadOfferService } from '../premium-broker/broker-lead-offer.service';
 import { OwnerLeadOfferDto } from '../premium-broker/dto/owner-lead-offer.dto';
 import { CreateShortsFromClassicDto } from './dto/create-shorts-from-classic.dto';
+import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 
 @Controller('properties')
 export class PropertiesController {
@@ -126,18 +127,44 @@ export class PropertiesController {
   /** Aktivní skladby z admin knihovny — výběr při generování shorts (přihlášený uživatel). */
   @UseGuards(JwtAuthGuard)
   @Get('shorts-music/active')
-  listActiveShortsMusicTracks() {
-    return this.prisma.shortsMusicTrack.findMany({
+  async listActiveShortsMusicTracks() {
+    const rows = await this.prisma.shortsMusicTrack.findMany({
       where: { isActive: true },
       orderBy: { title: 'asc' },
       select: {
         id: true,
         title: true,
+        artist: true,
         description: true,
         fileUrl: true,
+        previewUrl: true,
         durationSec: true,
         mimeType: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
       },
+    });
+    return rows.map((r) => {
+      const fileUrl = upgradeHttpToHttpsForApi(r.fileUrl) ?? r.fileUrl;
+      const previewUrl = r.previewUrl
+        ? (upgradeHttpToHttpsForApi(r.previewUrl) ?? r.previewUrl)
+        : null;
+      return {
+        id: r.id,
+        title: r.title,
+        artist: r.artist || '',
+        description: r.description,
+        fileUrl,
+        audioUrl: fileUrl,
+        previewUrl: previewUrl ?? null,
+        duration: r.durationSec,
+        durationSec: r.durationSec,
+        mimeType: r.mimeType,
+        isActive: r.isActive,
+        createdAt: r.createdAt.toISOString(),
+        updatedAt: r.updatedAt.toISOString(),
+      };
     });
   }
 

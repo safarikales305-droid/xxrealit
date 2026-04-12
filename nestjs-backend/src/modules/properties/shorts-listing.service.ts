@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ShortsListingStatus } from '@prisma/client';
+import { ShortsListingStatus, ShortsVideoRenderStatus } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import type { CreateShortsFromClassicDto } from './dto/create-shorts-from-classic.dto';
@@ -44,13 +44,34 @@ function collectClassicImageUrls(classic: {
   return out;
 }
 
+function publicOriginForShortsImageFetch(): string {
+  const b =
+    process.env.PUBLIC_APP_URL?.trim() ||
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    process.env.APP_URL?.trim() ||
+    process.env.FRONTEND_URL?.split(',')[0]?.trim() ||
+    '';
+  return b.replace(/\/+$/, '');
+}
+
+function resolveImageUrlForServerFetch(rawUrl: string): string {
+  const u = rawUrl.trim();
+  if (!u) return u;
+  if (/^https?:\/\//i.test(u)) return u;
+  const base = publicOriginForShortsImageFetch();
+  if (base && u.startsWith('/')) {
+    return `${base}${u}`;
+  }
+  return u;
+}
+
 async function downloadImageUrlsAsMulterFiles(
   urls: string[],
 ): Promise<Express.Multer.File[]> {
   const out: Express.Multer.File[] = [];
   let i = 0;
   for (const rawUrl of urls) {
-    const url = rawUrl.trim();
+    const url = resolveImageUrlForServerFetch(rawUrl);
     const res = await fetch(url);
     if (!res.ok) {
       throw new BadRequestException(`Nelze stáhnout obrázek (HTTP ${res.status}).`);
@@ -158,6 +179,9 @@ export class ShortsListingService {
     musicTrackId: string | null;
     musicBuiltinKey: string;
     videoUrl: string | null;
+    videoRenderStatus?: ShortsVideoRenderStatus;
+    videoRenderError?: string | null;
+    renderVersion?: number;
     status: ShortsListingStatus;
     publishedAt: Date | null;
     createdAt: Date;
@@ -170,6 +194,7 @@ export class ShortsListingService {
       isCover: boolean;
     }>;
   }) {
+    const musicUrlRaw = (row.musicUrl ?? '').trim();
     return {
       id: row.id,
       userId: row.userId,
@@ -178,10 +203,16 @@ export class ShortsListingService {
       title: row.title,
       description: row.description,
       coverImage: upgradeHttpToHttpsForApi(row.coverImage),
-      musicUrl: upgradeHttpToHttpsForApi(row.musicUrl) ?? row.musicUrl,
+      musicUrl:
+        musicUrlRaw.length === 0
+          ? null
+          : (upgradeHttpToHttpsForApi(musicUrlRaw) ?? musicUrlRaw),
       musicTrackId: row.musicTrackId,
       musicBuiltinKey: row.musicBuiltinKey,
       videoUrl: upgradeHttpToHttpsForApi(row.videoUrl),
+      videoRenderStatus: row.videoRenderStatus ?? ShortsVideoRenderStatus.idle,
+      videoRenderError: row.videoRenderError ?? null,
+      renderVersion: row.renderVersion ?? 0,
       status: row.status,
       publishedAt: row.publishedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
@@ -347,7 +378,19 @@ export class ShortsListingService {
     }
     if (body.musicTrackId !== undefined) {
       const tid = body.musicTrackId?.trim() ?? '';
-      data.musicTrackId = tid.length ? tid : null;
+      if (tid.length) {
+        const track = await this.prisma.shortsMusicTrack.findFirst({
+          where: { id: tid, isActive: true },
+        });
+        if (!track) {
+          throw new BadRequestException('Neplatná nebo neaktivní skladba.');
+        }
+        data.musicTrackId = tid;
+        data.musicUrl = '';
+      } else {
+        data.musicTrackId = null;
+        data.musicUrl = '';
+      }
     }
     if (body.status !== undefined && !wasPublished) {
       if (
@@ -659,7 +702,11 @@ export class ShortsListingService {
     return { ok: true };
   }
 
-  async previewVideo(userId: string, id: string) {
+  /**
+   * Vygeneruje znovu shorts video z aktuálních fotek / hudby / textu.
+   * Při chybě zůstane uložené staré video (u publikovaného i Property.videoUrl).
+   */
+  async regenerateShortsVideo(userId: string, id: string) {
     const listing = await this.prisma.shortsListing.findFirst({
       where: { id, userId },
       include: { media: { orderBy: { order: 'asc' } } },
@@ -675,36 +722,72 @@ export class ShortsListingService {
     if (urls.length === 1) {
       urls = [urls[0], urls[0]];
     }
-    const files = await downloadImageUrlsAsMulterFiles(urls.slice(0, 15));
-    const music = await this.resolveMusicSelection(listing);
-    const classic = await this.prisma.property.findUnique({
-      where: { id: listing.sourceListingId },
-    });
-    if (!classic) {
-      throw new NotFoundException('Zdrojový inzerát neexistuje');
-    }
-    const { videoUrl } = await this.listingShortsFromPhotos.generateAndUpload({
-      images: files,
-      title: listing.title,
-      city: classic.city,
-      price: classic.price,
-      currency: classic.currency,
-      music,
-      includeTextOverlay: true,
-    });
-    const nextStatus =
-      listing.status === ShortsListingStatus.published
-        ? ShortsListingStatus.published
-        : ShortsListingStatus.ready;
+
     await this.prisma.shortsListing.update({
       where: { id },
-      data: { videoUrl, status: nextStatus },
+      data: {
+        videoRenderStatus: ShortsVideoRenderStatus.rendering,
+        videoRenderError: null,
+      },
     });
-    if (listing.status === ShortsListingStatus.published && publishedPid) {
-      await this.applyVideoToPublishedProperty(publishedPid, videoUrl);
-      await this.syncPublishedMetadataToProperty(id);
+
+    try {
+      const files = await downloadImageUrlsAsMulterFiles(urls.slice(0, 15));
+      const music = await this.resolveMusicSelection(listing);
+      const classic = await this.prisma.property.findUnique({
+        where: { id: listing.sourceListingId },
+      });
+      if (!classic) {
+        throw new NotFoundException('Zdrojový inzerát neexistuje');
+      }
+      const { videoUrl } = await this.listingShortsFromPhotos.generateAndUpload({
+        images: files,
+        title: listing.title,
+        city: classic.city,
+        price: classic.price,
+        currency: classic.currency,
+        music,
+        includeTextOverlay: true,
+      });
+      const nextStatus =
+        listing.status === ShortsListingStatus.published
+          ? ShortsListingStatus.published
+          : ShortsListingStatus.ready;
+      await this.prisma.shortsListing.update({
+        where: { id },
+        data: {
+          videoUrl,
+          status: nextStatus,
+          videoRenderStatus: ShortsVideoRenderStatus.idle,
+          videoRenderError: null,
+          renderVersion: { increment: 1 },
+        },
+      });
+      if (listing.status === ShortsListingStatus.published && publishedPid) {
+        await this.applyVideoToPublishedProperty(publishedPid, videoUrl);
+        await this.syncPublishedMetadataToProperty(id);
+      }
+      return this.getByIdForOwner(userId, id);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await this.prisma.shortsListing.update({
+        where: { id },
+        data: {
+          videoRenderStatus: ShortsVideoRenderStatus.failed,
+          videoRenderError: msg.slice(0, 2000),
+        },
+      });
+      if (err instanceof NotFoundException || err instanceof BadRequestException) {
+        throw err;
+      }
+      throw new BadRequestException(
+        `Generování shorts videa selhalo: ${msg.slice(0, 400)}`,
+      );
     }
-    return this.getByIdForOwner(userId, id);
+  }
+
+  async previewVideo(userId: string, id: string) {
+    return this.regenerateShortsVideo(userId, id);
   }
 
   async publish(userId: string, id: string) {
@@ -829,6 +912,9 @@ export class ShortsListingService {
           publishedPropertyId: created.id,
           videoUrl,
           coverImage: coverStill ?? listing.coverImage,
+          videoRenderStatus: ShortsVideoRenderStatus.idle,
+          videoRenderError: null,
+          renderVersion: { increment: 1 },
         },
       });
 

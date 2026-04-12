@@ -13,7 +13,7 @@ import {
   nestListActiveShortsMusicTracks,
   nestPatchShortsListing,
   nestPatchShortsMediaItem,
-  nestPostShortsPreview,
+  nestPostShortsRegenerate,
   nestPublishShortsListing,
   nestReorderShortsMedia,
   nestSetShortsCover,
@@ -61,6 +61,10 @@ export default function ShortsEditorPage() {
   const [addUrl, setAddUrl] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragId, setDragId] = useState<string | null>(null);
+  /** Změny, které vyžadují nové video (fotky, pořadí, cover, hudba, text ve videu). */
+  const [pendingRegen, setPendingRegen] = useState(false);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
+  const [previewTrackUrl, setPreviewTrackUrl] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!apiAccessToken || !id) return;
@@ -76,6 +80,8 @@ export default function ShortsEditorPage() {
     setDescription(row.description);
     setMusicTrackId(row.musicTrackId ?? '');
     setMusicBuiltinKey(row.musicBuiltinKey || 'demo_soft');
+    setPendingRegen(false);
+    setOkMsg(null);
   }, [apiAccessToken, id]);
 
   useEffect(() => {
@@ -99,10 +105,21 @@ export default function ShortsEditorPage() {
         }
       : null;
 
-  async function saveText() {
-    if (!apiAccessToken || !data) return;
+  function trackPreviewUrl(t: ShortsMusicTrackDto): string {
+    const u = (t.previewUrl || t.audioUrl || t.fileUrl || '').trim();
+    if (!u) return '';
+    return imgSrc(u);
+  }
+
+  async function persistForm(): Promise<boolean> {
+    if (!apiAccessToken || !data) return false;
+    if (!data.media.length) {
+      setErr('Shorts musí mít alespoň jednu fotku.');
+      return false;
+    }
     setBusy('save');
     setErr(null);
+    setOkMsg(null);
     const body: Record<string, unknown> = {
       title: title.trim(),
       description: description.trim(),
@@ -117,13 +134,73 @@ export default function ShortsEditorPage() {
     setBusy(null);
     if (!r.ok) {
       setErr(r.error ?? 'Uložení selhalo');
+      return false;
+    }
+    if (r.data) setData(r.data);
+    return true;
+  }
+
+  async function saveDraftOrPublished() {
+    const ok = await persistForm();
+    if (!ok || !apiAccessToken || !data) return;
+    if (data.status === 'published' && pendingRegen) {
+      setBusy('preview');
+      setErr(null);
+      const rg = await nestPostShortsRegenerate(apiAccessToken, data.id);
+      setBusy(null);
+      if (!rg.ok) {
+        setErr(rg.error ?? 'Přegenerování selhalo');
+        return;
+      }
+      if (rg.data) setData(rg.data);
+      setPendingRegen(false);
+      setOkMsg('Změny jsou uložené a video v feedu je aktualizované.');
+      window.setTimeout(() => setOkMsg(null), 5000);
+      return;
+    }
+    setOkMsg(
+      data.status === 'published'
+        ? 'Text a nastavení jsou uložené.'
+        : 'Koncept je uložený.',
+    );
+    window.setTimeout(() => setOkMsg(null), 4000);
+  }
+
+  async function runRegenerate(askConfirm: boolean) {
+    if (!apiAccessToken || !data) return;
+    if (!data.media.length) {
+      setErr('Bez fotek nelze generovat video.');
+      return;
+    }
+    if (
+      askConfirm &&
+      !window.confirm(
+        'Přegenerovat shorts video na serveru z aktuálních fotek a hudby? Může to trvat desítky sekund.',
+      )
+    ) {
+      return;
+    }
+    setErr(null);
+    setOkMsg(null);
+    const saved = await persistForm();
+    if (!saved) return;
+    setBusy('preview');
+    const r = await nestPostShortsRegenerate(apiAccessToken, data.id);
+    setBusy(null);
+    if (!r.ok) {
+      setErr(r.error ?? 'Přegenerování selhalo');
       return;
     }
     if (r.data) setData(r.data);
+    setPendingRegen(false);
+    setOkMsg('Video je znovu vygenerované.');
+    window.setTimeout(() => setOkMsg(null), 5000);
   }
 
   async function markReady() {
     if (!apiAccessToken || !data || data.status === 'published') return;
+    const saved = await persistForm();
+    if (!saved) return;
     setBusy('ready');
     const r = await nestPatchShortsListing(apiAccessToken, data.id, { status: 'ready' });
     setBusy(null);
@@ -132,23 +209,8 @@ export default function ShortsEditorPage() {
       return;
     }
     if (r.data) setData(r.data);
-  }
-
-  async function runPreview() {
-    if (!apiAccessToken || !data) return;
-    if (!window.confirm('Vygenerovat náhled videa na serveru? Může to trvat desítky sekund.')) {
-      return;
-    }
-    setBusy('preview');
-    setErr(null);
-    await saveText();
-    const r = await nestPostShortsPreview(apiAccessToken, data.id);
-    setBusy(null);
-    if (!r.ok) {
-      setErr(r.error ?? 'Náhled selhal');
-      return;
-    }
-    if (r.data) setData(r.data);
+    setOkMsg('Stav „připraveno“ je uložený.');
+    window.setTimeout(() => setOkMsg(null), 4000);
   }
 
   async function publish() {
@@ -156,7 +218,7 @@ export default function ShortsEditorPage() {
     if (!window.confirm('Zveřejnit shorts do feedu?')) return;
     setBusy('publish');
     setErr(null);
-    await saveText();
+    await persistForm();
     const r = await nestPublishShortsListing(apiAccessToken, data.id);
     setBusy(null);
     if (!r.ok) {
@@ -196,7 +258,10 @@ export default function ShortsEditorPage() {
       setErr(r.error ?? 'Změna pořadí selhala');
       return;
     }
-    if (r.data) setData(r.data);
+    if (r.data) {
+      setData(r.data);
+      setPendingRegen(true);
+    }
   }
 
   if (isLoading) {
@@ -266,11 +331,30 @@ export default function ShortsEditorPage() {
             </>
           ) : null}
         </p>
-        {isPublished ? (
+        {pendingRegen ? (
+          <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            Máte neuložené změny ovlivňující video (fotky, pořadí, cover, hudba, název v překryvu).
+            {isPublished
+              ? ' U zveřejněného shorts stiskněte „Uložit změny“ — uloží se nastavení a spustí se přegenerování videa do feedu — nebo použijte „Přegenerovat shorts“.'
+              : ' Po úpravách vygenerujte náhled videa tlačítkem níže.'}
+          </p>
+        ) : isPublished ? (
           <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-sm text-emerald-950">
-            Tento shorts je zveřejněný. Úpravy textu se ihned propsí do detailu a feedu. Po změně
-            fotek nebo hudby spusťte znovu <strong>Vygenerovat náhled</strong>, aby se obnovilo
-            video ve feedu.
+            Tento shorts je zveřejněný. Úpravy textu a fotek v detailu se propsí po uložení; video ve
+            feedu se obnoví po úspěšném přegenerování.
+          </p>
+        ) : null}
+        {data.videoRenderStatus === 'failed' && (data.videoRenderError || '').trim() ? (
+          <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+            Poslední generování videa selhalo. Ve feedu zůstává předchozí funkční verze.{' '}
+            <span className="font-mono text-xs opacity-80">
+              {(data.videoRenderError ?? '').slice(0, 280)}
+            </span>
+          </p>
+        ) : null}
+        {okMsg ? (
+          <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+            {okMsg}
           </p>
         ) : null}
         {err ? (
@@ -286,40 +370,105 @@ export default function ShortsEditorPage() {
           <label className="mt-3 block text-sm font-medium text-zinc-700">Název</label>
           <input
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              setPendingRegen(true);
+            }}
             className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
           />
           <label className="mt-3 block text-sm font-medium text-zinc-700">Popis</label>
           <textarea
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => {
+              setDescription(e.target.value);
+              setPendingRegen(true);
+            }}
             rows={4}
             className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
           />
         </section>
 
         <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-semibold">Hudba</h2>
+          <h2 className="text-lg font-semibold">Hudba z knihovny</h2>
           <p className="mt-1 text-xs text-zinc-500">
-            Vyberte skladbu z knihovny (má přednost) nebo vestavěný motiv.
+            Skladba z knihovny má přednost před vestavěným motivem. Hudba je volitelná.
           </p>
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Skladba z knihovny</label>
-          <select
-            value={musicTrackId}
-            onChange={(e) => setMusicTrackId(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-          >
-            <option value="">— žádná —</option>
-            {tracks.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.title}
-              </option>
-            ))}
-          </select>
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Nebo vestavěná</label>
+          {tracks.length === 0 ? (
+            <p className="mt-3 text-sm text-zinc-600">Žádné aktivní skladby — použijte vestavěný motiv.</p>
+          ) : (
+            <ul className="mt-4 space-y-2">
+              {tracks.map((t) => {
+                const active = musicTrackId === t.id;
+                const prev = trackPreviewUrl(t);
+                const dur = t.duration ?? t.durationSec;
+                return (
+                  <li
+                    key={t.id}
+                    className={`flex flex-wrap items-center gap-2 rounded-xl border p-3 ${
+                      active
+                        ? 'border-emerald-400 bg-emerald-50/60'
+                        : 'border-zinc-100 bg-zinc-50/80'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1 text-sm">
+                      <p className="font-semibold">{t.title}</p>
+                      {(t.artist ?? '').trim() ? (
+                        <p className="text-xs text-zinc-500">{t.artist}</p>
+                      ) : null}
+                      {typeof dur === 'number' ? (
+                        <p className="text-[10px] text-zinc-400">{dur}s</p>
+                      ) : null}
+                    </div>
+                    {prev ? (
+                      <button
+                        type="button"
+                        className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        onClick={() => setPreviewTrackUrl(prev)}
+                      >
+                        Náhled
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+                      onClick={() => {
+                        setMusicTrackId(t.id);
+                        setPendingRegen(true);
+                      }}
+                    >
+                      Vybrat
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {previewTrackUrl ? (
+            <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+              <p className="text-xs font-medium text-zinc-600">Přehrávání náhledu</p>
+              <audio
+                key={previewTrackUrl}
+                src={previewTrackUrl}
+                controls
+                className="mt-2 w-full max-w-md"
+                autoPlay
+              />
+              <button
+                type="button"
+                className="mt-2 text-xs text-zinc-600 underline"
+                onClick={() => setPreviewTrackUrl(null)}
+              >
+                Zavřít přehrávač
+              </button>
+            </div>
+          ) : null}
+          <label className="mt-4 block text-sm font-medium text-zinc-700">Nebo vestavěná hudba</label>
           <select
             value={musicBuiltinKey}
-            onChange={(e) => setMusicBuiltinKey(e.target.value)}
+            onChange={(e) => {
+              setMusicBuiltinKey(e.target.value);
+              setPendingRegen(true);
+            }}
             disabled={Boolean((musicTrackId ?? '').trim())}
             className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm disabled:opacity-50"
           >
@@ -340,8 +489,10 @@ export default function ShortsEditorPage() {
                 musicUrl: '',
                 musicBuiltinKey: musicBuiltinKey || 'demo_soft',
               }).then((r) => {
-                if (r.ok && r.data) setData(r.data);
-                else setErr(r.error ?? 'Úprava hudby selhala');
+                if (r.ok && r.data) {
+                  setData(r.data);
+                  setPendingRegen(true);
+                } else setErr(r.error ?? 'Úprava hudby selhala');
               });
             }}
             className="mt-3 rounded-full border border-zinc-300 bg-white px-4 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
@@ -380,8 +531,10 @@ export default function ShortsEditorPage() {
                       className="text-[#e85d00] hover:underline"
                       onClick={() =>
                         void nestSetShortsCover(apiAccessToken, data.id, m.id).then((r) => {
-                          if (r.ok && r.data) setData(r.data);
-                          else setErr(r.error ?? 'Cover selhalo');
+                          if (r.ok && r.data) {
+                            setData(r.data);
+                            setPendingRegen(true);
+                          } else setErr(r.error ?? 'Cover selhalo');
                         })
                       }
                     >
@@ -404,7 +557,10 @@ export default function ShortsEditorPage() {
                       void nestPatchShortsMediaItem(apiAccessToken, data.id, m.id, {
                         duration: v,
                       }).then((r) => {
-                        if (r.ok && r.data) setData(r.data);
+                        if (r.ok && r.data) {
+                          setData(r.data);
+                          setPendingRegen(true);
+                        }
                       });
                     }}
                   />
@@ -414,8 +570,10 @@ export default function ShortsEditorPage() {
                   className="rounded-full border border-red-200 px-2 py-1 text-xs text-red-700"
                   onClick={() =>
                     void nestDeleteShortsMediaItem(apiAccessToken, data.id, m.id).then((r) => {
-                      if (r.ok && r.data) setData(r.data);
-                      else setErr(r.error ?? 'Smazání selhalo');
+                      if (r.ok && r.data) {
+                        setData(r.data);
+                        setPendingRegen(true);
+                      } else setErr(r.error ?? 'Smazání selhalo');
                     })
                   }
                 >
@@ -435,8 +593,10 @@ export default function ShortsEditorPage() {
                 e.target.value = '';
                 if (!f || !apiAccessToken) return;
                 void nestUploadShortsListingImage(apiAccessToken, data.id, f).then((r) => {
-                  if (r.ok && r.data) setData(r.data);
-                  else setErr(r.error ?? 'Upload selhal');
+                  if (r.ok && r.data) {
+                    setData(r.data);
+                    setPendingRegen(true);
+                  } else setErr(r.error ?? 'Upload selhal');
                 });
               }}
             />
@@ -461,6 +621,7 @@ export default function ShortsEditorPage() {
                     if (r.ok && r.data) {
                       setData(r.data);
                       setAddUrl('');
+                      setPendingRegen(true);
                     } else setErr(r.error ?? 'Přidání URL selhalo');
                   });
                 }}
@@ -476,14 +637,14 @@ export default function ShortsEditorPage() {
           <h2 className="text-lg font-semibold">Náhled videa</h2>
           {feedPreview?.videoUrl ? (
             <video
-              key={feedPreview.videoUrl}
+              key={`${feedPreview.videoUrl}:${data.renderVersion ?? 0}`}
               src={feedPreview.videoUrl}
               controls
               className="mt-4 aspect-[9/16] w-full max-w-xs rounded-xl bg-black"
             />
           ) : (
             <p className="mt-2 text-sm text-zinc-600">
-              Zatím žádné video — použijte „Vygenerovat náhled“.
+              Zatím žádné video — použijte „Vygenerovat náhled“ nebo „Přegenerovat shorts“.
             </p>
           )}
         </section>
@@ -492,7 +653,13 @@ export default function ShortsEditorPage() {
           <h2 className="text-lg font-semibold">Náhled ve feedu (karta)</h2>
           {feedPreview?.videoUrl ? (
             <div className="mt-4 max-w-xs overflow-hidden rounded-xl border border-zinc-200 bg-black shadow-md">
-              <video src={feedPreview.videoUrl} muted playsInline className="aspect-[9/16] w-full" />
+              <video
+                key={`${feedPreview.videoUrl}:${data.renderVersion ?? 0}`}
+                src={feedPreview.videoUrl}
+                muted
+                playsInline
+                className="aspect-[9/16] w-full"
+              />
               <div className="bg-white px-3 py-2 text-xs">
                 <p className="font-semibold">{feedPreview.title}</p>
               </div>
@@ -506,10 +673,10 @@ export default function ShortsEditorPage() {
           <button
             type="button"
             disabled={Boolean(busy)}
-            onClick={() => void saveText()}
+            onClick={() => void saveDraftOrPublished()}
             className="rounded-full border border-zinc-300 bg-white px-5 py-2.5 text-sm font-semibold disabled:opacity-50"
           >
-            {busy === 'save' ? 'Ukládám…' : isPublished ? 'Uložit změny (text)' : 'Uložit koncept'}
+            {busy === 'save' ? 'Ukládám…' : isPublished ? 'Uložit změny' : 'Uložit koncept'}
           </button>
           {!isPublished ? (
             <button
@@ -524,10 +691,10 @@ export default function ShortsEditorPage() {
           <button
             type="button"
             disabled={Boolean(busy)}
-            onClick={() => void runPreview()}
+            onClick={() => void runRegenerate(true)}
             className="rounded-full bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
           >
-            {busy === 'preview' ? 'Generuji…' : isPublished ? 'Obnovit video (feed)' : 'Vygenerovat náhled'}
+            {busy === 'preview' ? 'Generuji…' : 'Přegenerovat shorts'}
           </button>
           {!isPublished ? (
             <button

@@ -39,6 +39,13 @@ enum ShortsListingStatus {
   published
 }
 
+/// Stav posledního pokusu o vygenerování shorts videa (nezasahuje do ShortsListingStatus).
+enum ShortsVideoRenderStatus {
+  idle
+  rendering
+  failed
+}
+
 model User {
   id           String     @id @default(uuid())
   email        String     @unique
@@ -139,8 +146,12 @@ model AgentProfile {
 model ShortsMusicTrack {
   id                 String   @id @default(cuid())
   title              String
+  /// Interpretace jako „interpret“ ve výběru hudby na webu.
+  artist             String   @default("")
   description        String?  @db.Text
   fileUrl            String
+  /// Volitelná kratší ukázka; pokud chybí, klient může použít fileUrl.
+  previewUrl         String?
   cloudinaryPublicId String?
   mimeType           String
   durationSec        Int?
@@ -360,6 +371,9 @@ model ShortsListing {
   musicBuiltinKey     String              @default("demo_soft")
   videoUrl            String?
   renderData          Json?
+  videoRenderStatus   ShortsVideoRenderStatus @default(idle)
+  videoRenderError    String?             @db.Text
+  renderVersion       Int                 @default(0)
   status              ShortsListingStatus @default(draft)
   publishedAt         DateTime?
   createdAt           DateTime            @default(now())

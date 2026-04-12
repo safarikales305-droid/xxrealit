@@ -1216,10 +1216,14 @@ export type NestShortsListingDraft = {
   title: string;
   description: string;
   coverImage: string | null;
-  musicUrl: string;
+  musicUrl: string | null;
   musicTrackId: string | null;
   musicBuiltinKey: string;
   videoUrl: string | null;
+  /** idle | rendering | failed */
+  videoRenderStatus?: string;
+  videoRenderError?: string | null;
+  renderVersion?: number;
   status: string;
   publishedAt: string | null;
   createdAt: string;
@@ -1748,8 +1752,13 @@ export async function nestUpsertBrokerReview(
 export type ShortsMusicTrackDto = {
   id: string;
   title: string;
+  artist?: string;
   description?: string | null;
   fileUrl: string;
+  /** Plné audio (shodné s fileUrl z API). */
+  audioUrl?: string;
+  previewUrl?: string | null;
+  duration?: number | null;
   durationSec?: number | null;
   mimeType: string;
   isActive?: boolean;
