@@ -1360,6 +1360,16 @@ export async function nestFetchShortsListing(
   token: string | null,
   id: string,
 ): Promise<NestShortsListingDraft | null> {
+  if (typeof window !== 'undefined') {
+    const proxied = await fetch(
+      `/api/nest/shorts-listings/${encodeURIComponent(id)}`,
+      { credentials: 'include', cache: 'no-store', headers: { Accept: 'application/json' } },
+    );
+    if (proxied.ok) {
+      return (await proxied.json().catch(() => null)) as NestShortsListingDraft | null;
+    }
+    if (proxied.status !== 401) return null;
+  }
   if (!API_BASE_URL || !token) return null;
   const res = await fetch(`${API_BASE_URL}/shorts-listings/${encodeURIComponent(id)}`, {
     cache: 'no-store',
@@ -1374,6 +1384,26 @@ export async function nestPatchShortsListing(
   id: string,
   body: Record<string, unknown>,
 ): Promise<{ ok: boolean; data?: NestShortsListingDraft; error?: string }> {
+  const payload = JSON.stringify(body);
+  if (typeof window !== 'undefined') {
+    const proxied = await fetch(`/api/nest/shorts-listings/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: payload,
+    });
+    const raw = (await proxied.json().catch(() => ({}))) as Record<string, unknown>;
+    if (proxied.ok) {
+      return { ok: true, data: raw as unknown as NestShortsListingDraft };
+    }
+    if (proxied.status !== 401) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(proxied.status, raw, `HTTP ${proxied.status}`),
+      };
+    }
+  }
   if (!API_BASE_URL || !token) {
     return { ok: false, error: 'API nebo token chybí' };
   }
@@ -1385,7 +1415,7 @@ export async function nestPatchShortsListing(
       Accept: 'application/json',
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(body),
+    body: payload,
   });
   const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
@@ -1435,6 +1465,27 @@ export async function nestPostShortsRegenerate(
   token: string | null,
   id: string,
 ): Promise<{ ok: boolean; data?: NestShortsListingDraft; error?: string }> {
+  if (typeof window !== 'undefined') {
+    const proxied = await fetch(
+      `/api/nest/shorts-listings/${encodeURIComponent(id)}/regenerate`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+      },
+    );
+    const raw = (await proxied.json().catch(() => ({}))) as Record<string, unknown>;
+    if (proxied.ok) {
+      return { ok: true, data: raw as unknown as NestShortsListingDraft };
+    }
+    if (proxied.status !== 401) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(proxied.status, raw, `HTTP ${proxied.status}`),
+      };
+    }
+  }
   if (!API_BASE_URL || !token) {
     return { ok: false, error: 'API nebo token chybí' };
   }
@@ -1850,6 +1901,18 @@ export type ShortsMusicTrackDto = {
 export async function nestListActiveShortsMusicTracks(
   token: string | null,
 ): Promise<ShortsMusicTrackDto[]> {
+  if (typeof window !== 'undefined') {
+    const proxied = await fetch('/api/nest/properties/shorts-music/active', {
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (proxied.ok) {
+      const data = (await proxied.json().catch(() => [])) as unknown;
+      return Array.isArray(data) ? (data as ShortsMusicTrackDto[]) : [];
+    }
+    if (proxied.status !== 401) return [];
+  }
   if (!API_BASE_URL || !token) return [];
   const res = await fetch(`${API_BASE_URL}/properties/shorts-music/active`, {
     headers: { ...nestAuthHeaders(token), Accept: 'application/json' },

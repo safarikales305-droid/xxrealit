@@ -68,9 +68,10 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
   const [pendingRegen, setPendingRegen] = useState(false);
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const [previewTrackUrl, setPreviewTrackUrl] = useState<string | null>(null);
+  const [musicSaving, setMusicSaving] = useState(false);
 
   const load = useCallback(async () => {
-    if (!apiAccessToken || !id) return;
+    if (!id) return;
     setErr(null);
     const row = await nestFetchShortsListing(apiAccessToken, id);
     if (!row) {
@@ -92,9 +93,42 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
   }, [load]);
 
   useEffect(() => {
-    if (!apiAccessToken) return;
     void nestListActiveShortsMusicTracks(apiAccessToken).then(setTracks);
   }, [apiAccessToken]);
+
+  /** Okamžité uložení hudby na server (PATCH vrátí aktuální záznam). */
+  const patchMusicToServer = useCallback(
+    async (payload: {
+      musicTrackId?: string | null;
+      musicBuiltinKey?: string;
+      musicUrl?: string;
+    }) => {
+      if (!id) return false;
+      setMusicSaving(true);
+      setErr(null);
+      const body: Record<string, unknown> = {
+        musicUrl: payload.musicUrl ?? '',
+        musicBuiltinKey: (payload.musicBuiltinKey ?? musicBuiltinKey) || 'demo_soft',
+      };
+      if (payload.musicTrackId !== undefined) {
+        body.musicTrackId = payload.musicTrackId;
+      }
+      const r = await nestPatchShortsListing(apiAccessToken, id, body);
+      setMusicSaving(false);
+      if (r.ok && r.data) {
+        setData(r.data);
+        setMusicTrackId(r.data.musicTrackId ?? '');
+        setMusicBuiltinKey(r.data.musicBuiltinKey || 'demo_soft');
+        setPendingRegen(true);
+        setOkMsg('Hudba je uložená. Pro nové video v feedu spusťte přegenerování.');
+        window.setTimeout(() => setOkMsg(null), 4500);
+        return true;
+      }
+      setErr(r.error ?? 'Uložení hudby selhalo');
+      return false;
+    },
+    [apiAccessToken, id, musicBuiltinKey],
+  );
 
   const feedPreview: ShortVideo | null =
     data?.videoUrl && data.videoUrl.trim()
@@ -115,7 +149,7 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
   }
 
   async function persistForm(): Promise<boolean> {
-    if (!apiAccessToken || !data) return false;
+    if (!data) return false;
     if (!data.media.length) {
       setErr('Shorts musí mít alespoň jednu fotku.');
       return false;
@@ -139,13 +173,17 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
       setErr(r.error ?? 'Uložení selhalo');
       return false;
     }
-    if (r.data) setData(r.data);
+    if (r.data) {
+      setData(r.data);
+      setMusicTrackId(r.data.musicTrackId ?? '');
+      setMusicBuiltinKey(r.data.musicBuiltinKey || 'demo_soft');
+    }
     return true;
   }
 
   async function saveDraftOrPublished() {
     const ok = await persistForm();
-    if (!ok || !apiAccessToken || !data) return;
+    if (!ok || !data) return;
     if (data.status === 'published' && pendingRegen) {
       setBusy('preview');
       setErr(null);
@@ -155,7 +193,11 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
         setErr(rg.error ?? 'Přegenerování selhalo');
         return;
       }
-      if (rg.data) setData(rg.data);
+      if (rg.data) {
+        setData(rg.data);
+        setMusicTrackId(rg.data.musicTrackId ?? '');
+        setMusicBuiltinKey(rg.data.musicBuiltinKey || 'demo_soft');
+      }
       setPendingRegen(false);
       setOkMsg('Změny jsou uložené a video v feedu je aktualizované.');
       window.setTimeout(() => setOkMsg(null), 5000);
@@ -170,7 +212,7 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
   }
 
   async function runRegenerate(askConfirm: boolean) {
-    if (!apiAccessToken || !data) return;
+    if (!data) return;
     if (!data.media.length) {
       setErr('Bez fotek nelze generovat video.');
       return;
@@ -194,14 +236,18 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
       setErr(r.error ?? 'Přegenerování selhalo');
       return;
     }
-    if (r.data) setData(r.data);
+    if (r.data) {
+      setData(r.data);
+      setMusicTrackId(r.data.musicTrackId ?? '');
+      setMusicBuiltinKey(r.data.musicBuiltinKey || 'demo_soft');
+    }
     setPendingRegen(false);
     setOkMsg('Video je znovu vygenerované.');
     window.setTimeout(() => setOkMsg(null), 5000);
   }
 
   async function markReady() {
-    if (!apiAccessToken || !data || data.status === 'published') return;
+    if (!data || data.status === 'published') return;
     const saved = await persistForm();
     if (!saved) return;
     setBusy('ready');
@@ -211,13 +257,17 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
       setErr(r.error ?? 'Změna stavu selhala');
       return;
     }
-    if (r.data) setData(r.data);
+    if (r.data) {
+      setData(r.data);
+      setMusicTrackId(r.data.musicTrackId ?? '');
+      setMusicBuiltinKey(r.data.musicBuiltinKey || 'demo_soft');
+    }
     setOkMsg('Stav „připraveno“ je uložený.');
     window.setTimeout(() => setOkMsg(null), 4000);
   }
 
   async function publish() {
-    if (!apiAccessToken || !data) return;
+    if (!data) return;
     if (!window.confirm('Zveřejnit shorts do feedu?')) return;
     setBusy('publish');
     setErr(null);
@@ -232,7 +282,7 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
   }
 
   async function removeDraft() {
-    if (!apiAccessToken || !data) return;
+    if (!data) return;
     const msg =
       data.status === 'published'
         ? 'Smazat tento shorts inzerát? Zmizí z profilu i z veřejného shorts feedu.'
@@ -247,7 +297,7 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
   }
 
   async function onReorder(fromId: string, toId: string) {
-    if (!apiAccessToken || !data) return;
+    if (!data) return;
     const ordered = [...data.media].sort((a, b) => a.order - b.order);
     const ids = ordered.map((m) => m.id);
     const fi = ids.indexOf(fromId);
@@ -263,6 +313,8 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
     }
     if (r.data) {
       setData(r.data);
+      setMusicTrackId(r.data.musicTrackId ?? '');
+      setMusicBuiltinKey(r.data.musicBuiltinKey || 'demo_soft');
       setPendingRegen(true);
     }
   }
@@ -273,7 +325,7 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
     );
   }
 
-  if (!isAuthenticated || !apiAccessToken) {
+  if (!isAuthenticated) {
     return (
       <div className="mx-auto max-w-lg px-4 py-16 text-center">
         <p className="text-zinc-700">Pro editor shorts se přihlaste.</p>
@@ -305,6 +357,11 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
 
   const isPublished = data.status === 'published';
   const sortedMedia = [...data.media].sort((a, b) => a.order - b.order);
+  const libraryTrackResolved =
+    data.musicTrackId && tracks.find((x) => x.id === data.musicTrackId);
+  const builtinLabel =
+    MUSIC_BUILTIN.find((m) => m.value === (data.musicBuiltinKey || musicBuiltinKey))?.label ??
+    'Vestavěná hudba';
 
   return (
     <div className="min-h-[100dvh] bg-[#fafafa] pb-20 text-zinc-900">
@@ -392,16 +449,40 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
         </section>
 
         <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-semibold">Hudba z knihovny</h2>
+          <h2 className="text-lg font-semibold">Hudba</h2>
           <p className="mt-1 text-xs text-zinc-500">
-            Skladba z knihovny má přednost před vestavěným motivem. Hudba je volitelná.
+            Skladba z knihovny má přednost před vestavěným motivem. Změna se uloží hned po výběru.
+            Pro zvuk ve videu je potřeba přegenerovat shorts.
           </p>
+          <div className="mt-3 rounded-xl border border-zinc-100 bg-zinc-50/90 px-3 py-2 text-sm text-zinc-800">
+            <span className="font-semibold text-zinc-600">Aktuálně uloženo: </span>
+            {libraryTrackResolved ? (
+              <>
+                Knihovna — {libraryTrackResolved.title}
+                {(libraryTrackResolved.artist ?? '').trim()
+                  ? ` (${libraryTrackResolved.artist})`
+                  : ''}
+              </>
+            ) : (data.musicUrl ?? '').trim() ? (
+              <>Vlastní URL (musicUrl)</>
+            ) : data.musicBuiltinKey === 'none' || builtinLabel === 'Bez hudby' ? (
+              <>Bez hudby</>
+            ) : (
+              <>Vestavěná — {builtinLabel}</>
+            )}
+            {musicSaving ? (
+              <span className="ml-2 text-xs font-medium text-amber-700">Ukládám…</span>
+            ) : null}
+          </div>
           {tracks.length === 0 ? (
-            <p className="mt-3 text-sm text-zinc-600">Žádné aktivní skladby — použijte vestavěný motiv.</p>
+            <p className="mt-3 text-sm text-zinc-600">
+              Žádné aktivní skladby v knihovně — použijte vestavěný motiv níže (nebo přidejte skladby v
+              administraci).
+            </p>
           ) : (
             <ul className="mt-4 space-y-2">
               {tracks.map((t) => {
-                const active = musicTrackId === t.id;
+                const active = (data.musicTrackId ?? '') === t.id;
                 const prev = trackPreviewUrl(t);
                 const dur = t.duration ?? t.durationSec;
                 return (
@@ -425,7 +506,8 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
                     {prev ? (
                       <button
                         type="button"
-                        className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        disabled={musicSaving}
+                        className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
                         onClick={() => setPreviewTrackUrl(prev)}
                       >
                         Náhled
@@ -433,13 +515,11 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
                     ) : null}
                     <button
                       type="button"
-                      className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
-                      onClick={() => {
-                        setMusicTrackId(t.id);
-                        setPendingRegen(true);
-                      }}
+                      disabled={musicSaving}
+                      className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                      onClick={() => void patchMusicToServer({ musicTrackId: t.id })}
                     >
-                      Vybrat
+                      Vybrat a uložit
                     </button>
                   </li>
                 );
@@ -469,10 +549,14 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
           <select
             value={musicBuiltinKey}
             onChange={(e) => {
-              setMusicBuiltinKey(e.target.value);
-              setPendingRegen(true);
+              const v = e.target.value;
+              setMusicBuiltinKey(v);
+              void patchMusicToServer({
+                musicTrackId: null,
+                musicBuiltinKey: v,
+              });
             }}
-            disabled={Boolean((musicTrackId ?? '').trim())}
+            disabled={Boolean((data.musicTrackId ?? '').trim()) || musicSaving}
             className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm disabled:opacity-50"
           >
             {MUSIC_BUILTIN.map((m) => (
@@ -481,23 +565,18 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
               </option>
             ))}
           </select>
+          <p className="mt-1 text-xs text-zinc-500">
+            Vestavěná hudba je dostupná jen když není vybraná skladba z knihovny.
+          </p>
           <button
             type="button"
-            disabled={Boolean(busy) || !(musicTrackId ?? '').trim() || !apiAccessToken}
-            onClick={() => {
-              if (!apiAccessToken) return;
-              setMusicTrackId('');
-              void nestPatchShortsListing(apiAccessToken, data.id, {
+            disabled={musicSaving || !(data.musicTrackId ?? '').trim()}
+            onClick={() =>
+              void patchMusicToServer({
                 musicTrackId: null,
-                musicUrl: '',
                 musicBuiltinKey: musicBuiltinKey || 'demo_soft',
-              }).then((r) => {
-                if (r.ok && r.data) {
-                  setData(r.data);
-                  setPendingRegen(true);
-                } else setErr(r.error ?? 'Úprava hudby selhala');
-              });
-            }}
+              })
+            }
             className="mt-3 rounded-full border border-zinc-300 bg-white px-4 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
           >
             Odebrat skladbu z knihovny
