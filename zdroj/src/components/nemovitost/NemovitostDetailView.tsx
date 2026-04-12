@@ -2,11 +2,13 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Heart, MessageCircle } from 'lucide-react';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
+import { nestToggleFavorite } from '@/lib/nest-client';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import type { PropertyDetailAuthor } from '@/lib/property-detail';
 import type { PropertyFeedItem } from '@/types/property';
@@ -72,7 +74,13 @@ export function NemovitostDetailView({
   const media = useMemo(() => buildMediaList(p), [p]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [sellerModalOpen, setSellerModalOpen] = useState(false);
+  const [liked, setLiked] = useState(Boolean(p.liked));
+  const [likeBusy, setLikeBusy] = useState(false);
   const active = media[activeIndex] ?? media[0];
+
+  useEffect(() => {
+    setLiked(Boolean(p.liked));
+  }, [p.id, p.liked]);
 
   const paramLines = useMemo(() => {
     const lines: string[] = [];
@@ -129,6 +137,24 @@ export function NemovitostDetailView({
     }
     setSellerModalOpen(true);
   }
+
+  function handleFavoriteClick() {
+    if (!apiAccessToken) {
+      redirectToLoginForMessages();
+      return;
+    }
+    setLikeBusy(true);
+    void nestToggleFavorite(propertyId, liked, apiAccessToken).then((r) => {
+      setLikeBusy(false);
+      if (r.ok && typeof r.favorited === 'boolean') setLiked(r.favorited);
+    });
+  }
+
+  const favoriteBtnClass =
+    'inline-flex size-14 shrink-0 items-center justify-center rounded-full border-2 border-orange-300/90 bg-white text-orange-700 shadow-[0_6px_24px_rgba(0,0,0,0.08)] transition hover:border-orange-500 hover:bg-gradient-to-br hover:from-orange-50 hover:to-amber-50 hover:text-orange-800 active:scale-95 disabled:pointer-events-none disabled:opacity-45';
+
+  const primaryMessageClass =
+    'inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full border-2 border-orange-400/90 bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-3.5 text-base font-extrabold text-white shadow-[0_12px_36px_rgba(255,90,0,0.35)] transition hover:brightness-110 active:scale-[0.99] sm:text-lg';
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6">
@@ -230,6 +256,41 @@ export function NemovitostDetailView({
               {summaryLine ? (
                 <div className="text-sm text-zinc-700">{summaryLine}</div>
               ) : null}
+
+              <div className="rounded-2xl border-2 border-orange-200/80 bg-gradient-to-br from-orange-50 via-white to-amber-50/40 p-4 shadow-[0_8px_30px_rgba(234,88,0,0.12)] sm:p-5">
+                <p className="text-[11px] font-extrabold uppercase tracking-wider text-orange-800/75">
+                  Rychlé akce
+                </p>
+                <div className="mt-3 flex flex-col gap-3">
+                  {canContactSeller ? (
+                    <button type="button" onClick={handleWriteSeller} className={primaryMessageClass}>
+                      <MessageCircle className="size-6 shrink-0" strokeWidth={2.25} aria-hidden />
+                      Odeslat zprávu prodejci
+                    </button>
+                  ) : null}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      disabled={likeBusy}
+                      onClick={handleFavoriteClick}
+                      className={`${favoriteBtnClass} ${liked ? 'border-orange-500 bg-gradient-to-br from-[#ff6a00] to-[#ff3c00] text-white hover:text-white' : ''}`}
+                      aria-label={liked ? 'Odebrat z oblíbených' : 'Přidat do oblíbených'}
+                    >
+                      <Heart
+                        className={`size-6 ${liked ? 'fill-white text-white' : ''}`}
+                        strokeWidth={liked ? 0 : 2.25}
+                      />
+                    </button>
+                    <ShareButtons
+                      title={p.title}
+                      url={shareUrl}
+                      variant="lightRail"
+                      label="Sdílet"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {paramLines.length > 0 ? (
                 <ul className="space-y-1 text-sm text-zinc-700">
                   {paramLines.map((line) => (
@@ -242,18 +303,6 @@ export function NemovitostDetailView({
                   <p className="whitespace-pre-wrap">{p.description}</p>
                 </div>
               ) : null}
-              <div className="flex flex-col gap-3 border-t border-zinc-100 pt-4 sm:flex-row sm:flex-wrap sm:items-center">
-                <ShareButtons title={p.title} url={shareUrl} variant="pill" label="Sdílet" />
-                {canContactSeller ? (
-                  <button
-                    type="button"
-                    onClick={handleWriteSeller}
-                    className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
-                  >
-                    Napsat prodejci
-                  </button>
-                ) : null}
-              </div>
             </div>
           </div>
 
@@ -290,12 +339,9 @@ export function NemovitostDetailView({
               Domluvte si prohlídku nebo doplňující informace u inzerenta.
             </p>
             {canContactSeller ? (
-              <button
-                type="button"
-                onClick={handleWriteSeller}
-                className="mt-4 w-full rounded-full border border-orange-200 bg-orange-50 py-2.5 text-sm font-semibold text-orange-900 transition hover:bg-orange-100"
-              >
-                Napsat prodejci
+              <button type="button" onClick={handleWriteSeller} className={`${primaryMessageClass} mt-4`}>
+                <MessageCircle className="size-5 shrink-0 sm:size-6" strokeWidth={2.25} aria-hidden />
+                Odeslat zprávu prodejci
               </button>
             ) : null}
           </div>
@@ -307,13 +353,16 @@ export function NemovitostDetailView({
                   <li key={item.id}>
                     <Link
                       href={`/nemovitost/${item.id}`}
-                      className="block rounded-xl border border-zinc-100 p-3 transition hover:border-zinc-200 hover:bg-zinc-50"
+                      className="block rounded-xl border border-zinc-100 p-3 transition hover:border-orange-200 hover:bg-orange-50/40"
                     >
                       <p className="line-clamp-2 text-sm font-medium text-zinc-900">{item.title}</p>
                       <p className="mt-1 text-xs text-zinc-500">{item.location}</p>
                       <p className="mt-1 text-sm font-bold text-[#e85d00]">
                         {PRICE_FMT.format(item.price)}
                       </p>
+                      <span className="mt-3 inline-flex min-h-[40px] w-full items-center justify-center rounded-full border-2 border-orange-400/90 bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-xs font-extrabold uppercase tracking-wide text-white shadow-md transition hover:brightness-110">
+                        Zobrazit inzerát
+                      </span>
                     </Link>
                   </li>
                 ))}

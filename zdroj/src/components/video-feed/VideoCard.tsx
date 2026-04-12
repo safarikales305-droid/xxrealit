@@ -14,6 +14,9 @@ type VideoCardProps = {
   video: ShortVideo;
 };
 
+const railBtn =
+  'inline-flex size-14 shrink-0 items-center justify-center rounded-full border-2 border-white/35 bg-black/65 text-white shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-md transition hover:border-orange-400/80 hover:bg-orange-600/95 active:scale-95 disabled:pointer-events-none disabled:opacity-45';
+
 export default function VideoCard({ video }: VideoCardProps) {
   const router = useRouter();
   const { user, isAuthenticated, apiAccessToken } = useAuth();
@@ -84,6 +87,14 @@ export default function VideoCard({ video }: VideoCardProps) {
     null;
   const priceNum = Number(video.price ?? 0);
 
+  function redirectToLogin() {
+    const path =
+      typeof window !== 'undefined'
+        ? `${window.location.pathname}${window.location.search}`
+        : '/';
+    router.push(`/prihlaseni?redirect=${encodeURIComponent(path)}`);
+  }
+
   function handleOpenListing() {
     if (!user) {
       router.push(`/prihlaseni?redirect=${encodeURIComponent(listingPath)}`);
@@ -92,20 +103,24 @@ export default function VideoCard({ video }: VideoCardProps) {
     router.push(listingPath);
   }
 
-  function redirectToLoginForMessages() {
-    const path =
-      typeof window !== 'undefined'
-        ? `${window.location.pathname}${window.location.search}`
-        : '/';
-    router.push(`/prihlaseni?redirect=${encodeURIComponent(path)}`);
-  }
-
   function handleWriteSeller() {
     if (!isAuthenticated || !apiAccessToken) {
-      redirectToLoginForMessages();
+      redirectToLogin();
       return;
     }
     setSellerModalOpen(true);
+  }
+
+  function handleFavoriteClick() {
+    if (!apiAccessToken) {
+      redirectToLogin();
+      return;
+    }
+    setLikeBusy(true);
+    void nestToggleFavorite(video.id, liked, apiAccessToken).then((r) => {
+      setLikeBusy(false);
+      if (r.ok && typeof r.favorited === 'boolean') setLiked(r.favorited);
+    });
   }
 
   return (
@@ -124,69 +139,85 @@ export default function VideoCard({ video }: VideoCardProps) {
         }}
       />
 
-      <div className="pointer-events-auto absolute right-3 bottom-28 z-20 flex flex-col gap-3">
+      {/* Pravý sloup — zpráva prodejci, oblíbené, sdílet, zvuk (vysoký kontrast, oranžový akcent) */}
+      <div className="pointer-events-auto absolute right-2 top-1/2 z-[35] flex -translate-y-1/2 flex-col items-center gap-3 sm:right-4">
+        {canContactSeller ? (
+          <button
+            type="button"
+            onClick={handleWriteSeller}
+            className="flex max-w-[6.25rem] flex-col items-center gap-1.5 rounded-2xl border-2 border-orange-400/90 bg-gradient-to-b from-[#ff7a1a] to-[#ff3c00] px-2.5 py-3 text-center text-white shadow-[0_12px_40px_rgba(255,90,0,0.45)] transition hover:brightness-110 active:scale-[0.97]"
+            aria-label="Odeslat zprávu prodejci"
+          >
+            <MessageCircle className="size-7 shrink-0 drop-shadow-sm" strokeWidth={2.25} aria-hidden />
+            <span className="text-[10px] font-extrabold leading-[1.2] tracking-tight">
+              Odeslat zprávu prodejci
+            </span>
+          </button>
+        ) : null}
+
         <button
           type="button"
-          disabled={likeBusy || !apiAccessToken}
-          onClick={() => {
-            if (!apiAccessToken) return;
-            setLikeBusy(true);
-            void nestToggleFavorite(video.id, liked, apiAccessToken).then((r) => {
-              setLikeBusy(false);
-              if (r.ok && typeof r.favorited === 'boolean') setLiked(r.favorited);
-            });
-          }}
-          className="flex size-11 items-center justify-center rounded-full border border-white/25 bg-black/45 text-white shadow-lg backdrop-blur-sm disabled:opacity-40"
-          aria-label="Oblíbené"
+          disabled={likeBusy}
+          onClick={handleFavoriteClick}
+          className={`${railBtn} ${liked ? 'border-orange-400/90 bg-orange-600/90 text-white' : ''}`}
+          aria-label={liked ? 'Odebrat z oblíbených' : 'Přidat do oblíbených'}
         >
-          <Heart className={`size-5 ${liked ? 'fill-rose-500 text-rose-500' : ''}`} />
+          <Heart
+            className={`size-6 ${liked ? 'fill-white text-white' : ''}`}
+            strokeWidth={liked ? 0 : 2.25}
+          />
         </button>
+
+        <ShareButtons title={shareTitle} url={shareUrl} variant="videoRail" />
+
         <button
           type="button"
           onClick={() => setMuted((m) => !m)}
-          className="flex size-11 items-center justify-center rounded-full border border-white/25 bg-black/45 text-white shadow-lg backdrop-blur-sm"
+          className={railBtn}
           aria-label={muted ? 'Zapnout zvuk' : 'Ztlumit'}
         >
-          {muted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}
+          {muted ? (
+            <VolumeX className="size-6" strokeWidth={2.25} />
+          ) : (
+            <Volume2 className="size-6" strokeWidth={2.25} />
+          )}
         </button>
-        <div className="flex justify-center">
-          <ShareButtons
-            title={shareTitle}
-            url={shareUrl}
-            className="border-white/25 bg-black/45 text-white backdrop-blur-sm"
-          />
-        </div>
       </div>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-4 pb-6 pr-20 text-white sm:pr-24">
-        <div className="space-y-1">
-          <div className="text-sm font-medium">{video.title ?? ''}</div>
-          {city ? <div className="text-xs opacity-90">{city}</div> : null}
-          <div className="text-lg font-bold">
-            <span
-              className={
-                isAuthenticated ? '' : 'blur-[6px] select-none opacity-90'
-              }
-            >
-              {Number(video.price ?? 0).toLocaleString('cs-CZ')} Kč
-            </span>
-          </div>
-          <div className="pointer-events-auto mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+      {/* Spodní panel — silnější překryv, primární CTA */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[25]">
+        <div className="bg-gradient-to-t from-black via-black/85 to-black/20 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-20 pr-[4.5rem] text-white sm:pr-24 sm:pb-8 sm:pt-24">
+          <div className="pointer-events-auto mx-auto max-w-lg space-y-3">
+            <div className="rounded-xl border border-white/10 bg-black/35 px-3 py-2 shadow-lg backdrop-blur-md sm:px-4">
+              <div className="text-sm font-semibold leading-snug sm:text-base">{video.title ?? ''}</div>
+              {city ? <div className="mt-0.5 text-xs text-white/85 sm:text-sm">{city}</div> : null}
+              <div className="mt-1 text-lg font-bold tabular-nums sm:text-xl">
+                <span
+                  className={
+                    isAuthenticated ? 'text-orange-100' : 'blur-[6px] select-none opacity-90'
+                  }
+                >
+                  {Number(video.price ?? 0).toLocaleString('cs-CZ')} Kč
+                </span>
+              </div>
+            </div>
+
             <button
               type="button"
               onClick={handleOpenListing}
-              className="inline-flex items-center justify-center rounded-full bg-white/90 px-4 py-2 text-sm font-semibold text-black"
+              className="flex w-full min-h-[52px] items-center justify-center rounded-full border-2 border-orange-300/90 bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-3.5 text-base font-extrabold tracking-tight text-white shadow-[0_14px_40px_rgba(255,80,0,0.45)] transition hover:brightness-110 active:scale-[0.99] sm:text-lg"
             >
               Zobrazit inzerát
             </button>
+
             {canContactSeller ? (
               <button
                 type="button"
                 onClick={handleWriteSeller}
-                className="inline-flex items-center justify-center gap-2 rounded-full border border-white/40 bg-black/55 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm"
+                className="flex w-full min-h-[48px] items-center justify-center gap-2 rounded-full border-2 border-white/40 bg-white/12 px-4 py-3 text-sm font-bold text-white shadow-lg backdrop-blur-md transition hover:border-orange-300/80 hover:bg-orange-600/35 sm:text-base"
               >
-                <MessageCircle className="size-4 shrink-0" aria-hidden />
-                Napsat prodejci
+                <MessageCircle className="size-5 shrink-0 sm:size-6" strokeWidth={2.25} aria-hidden />
+                Odeslat zprávu prodejci
               </button>
             ) : null}
           </div>
