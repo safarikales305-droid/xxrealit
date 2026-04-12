@@ -13,6 +13,8 @@ import { serializeProperty } from '../properties/properties.serializer';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   findByEmail(email: string): Promise<User | null> {
@@ -58,7 +60,7 @@ export class UsersService {
         createdAt: true,
       },
     });
-    this.log.log(
+    this.logger.log(
       `[profile-media] updateAvatar userId=${userId} avatarLen=${(updated.avatar ?? '').length} coverSet=${Boolean(updated.coverImage)}`,
     );
     return { ...updated, role: ensureUserRole(updated.role) };
@@ -79,7 +81,7 @@ export class UsersService {
         createdAt: true,
       },
     });
-    this.log.log(
+    this.logger.log(
       `[profile-media] updateCover userId=${userId} coverLen=${(updated.coverImage ?? '').length} avatarKept=${Boolean(updated.avatar)}`,
     );
     return { ...updated, role: ensureUserRole(updated.role) };
@@ -169,7 +171,7 @@ export class UsersService {
       coverImageUrl: u.coverImage ?? null,
       bio: u.bio ?? null,
     };
-    this.log.log(
+    this.logger.log(
       `[profile-media] getMeProfile userId=${u.id} hasAvatar=${Boolean(profile.avatarUrl)} hasCover=${Boolean(profile.coverImageUrl)}`,
     );
     return profile;
