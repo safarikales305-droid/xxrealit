@@ -9,7 +9,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "icons:generate": "node scripts/generate-favicons.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",
@@ -34,7 +35,9 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.1",
+    "png-to-ico": "^3.0.1",
     "prisma": "^6.19.0",
+    "sharp": "^0.34.5",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

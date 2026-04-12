@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { AuthPageShell } from '@/components/auth/auth-page-shell';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL } from '@/lib/api';
+import { clearPwaInstallDismissed } from '@/lib/pwa-install-storage';
 
 const inputClass =
   'w-full rounded-xl border border-zinc-200/90 bg-zinc-50/80 px-4 py-3.5 text-[15px] text-zinc-900 shadow-inner shadow-zinc-100/80 outline-none transition placeholder:text-zinc-400 focus:border-orange-400/80 focus:bg-white focus:ring-2 focus:ring-orange-500/20';
@@ -105,6 +106,9 @@ export function LoginForm() {
       }
 
       await refresh();
+
+      /** Další přihlášení může znovu zobrazit PWA install panel po „Nechci instalovat“. */
+      clearPwaInstallDismissed();
 
       const redirectParam =
         searchParams.get('redirect') ??

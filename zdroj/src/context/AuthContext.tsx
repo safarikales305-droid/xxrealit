@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { API_BASE_URL, getClientTokenFromCookie } from '@/lib/api';
+import { clearPwaInstallDismissed } from '@/lib/pwa-install-storage';
 
 export type AuthUser = {
   id: string;
@@ -124,6 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       /* ignore */
     }
+    clearPwaInstallDismissed();
     void fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     setUser(null);
     window.location.reload();
