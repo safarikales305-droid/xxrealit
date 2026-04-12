@@ -504,7 +504,7 @@ export function HomeLayout({
             >
               {viewMode === 'shorts' ? (
                 loadingFeed ? (
-                  <div className="flex h-full items-center justify-center text-sm text-white/80">
+                  <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-white/80">
                     Načítám video feed...
                   </div>
                 ) : videoFeed.length > 0 ? (

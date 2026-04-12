@@ -24,16 +24,16 @@ export function VideoFeed({ videos }: VideoFeedProps) {
   }, []);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex min-h-0 w-full flex-1 flex-col">
       <StoriesBar videos={sorted} onSelect={scrollToVideo} />
-      <div className="min-h-0 flex-1 snap-y snap-mandatory overflow-y-auto space-y-2 px-2 pb-4 md:px-0 md:pb-0">
+      <div className="min-h-0 flex-1 snap-y snap-mandatory overflow-y-auto overflow-x-hidden px-2 pb-3 pt-0 md:px-0 md:pb-2">
         {sorted.map((video) => (
           <div
             key={video.id}
             ref={(el) => {
               containerRefs.current[video.id] = el;
             }}
-            className="h-[calc(100dvh-9rem)] snap-start overflow-hidden rounded-xl bg-black md:h-[calc(100dvh-6rem)]"
+            className="h-full min-h-0 w-full shrink-0 snap-start snap-always overflow-hidden rounded-xl bg-black"
           >
             <VideoCard video={video} />
           </div>
