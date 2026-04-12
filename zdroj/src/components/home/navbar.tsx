@@ -64,9 +64,17 @@ export function Navbar({
     })();
   }
 
+  const isShortsMobileCompact = viewMode === 'shorts';
+
   return (
     <header className="sticky top-0 z-50 w-full max-w-[100vw] shrink-0 border-b border-zinc-200 bg-white pt-[max(0.25rem,env(safe-area-inset-top))] shadow-[0_1px_0_rgba(0,0,0,0.04)]">
-      <div className="mx-auto flex min-h-14 w-full max-w-[100rem] min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-2 overflow-x-clip px-4 py-3 md:min-h-16 md:gap-3 md:overflow-visible md:px-4 md:py-2.5">
+      <div
+        className={`mx-auto flex w-full max-w-[100rem] min-w-0 flex-wrap items-center justify-between gap-x-2 overflow-x-clip px-4 md:min-h-16 md:gap-3 md:overflow-visible md:px-4 md:py-2.5 ${
+          isShortsMobileCompact
+            ? 'min-h-12 gap-y-1 py-2 max-md:min-h-12 max-md:py-2'
+            : 'min-h-14 gap-y-2 py-3'
+        }`}
+      >
         <div className="flex shrink-0 items-center">
           <Link
             href="/"
@@ -86,7 +94,11 @@ export function Navbar({
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="Hledat lokality, projekty…"
-            className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 pl-8 text-xs font-medium text-zinc-900 placeholder:text-zinc-400 outline-none transition hover:border-zinc-300 hover:bg-white focus:border-[#ff6a00]/55 focus:bg-white focus:ring-2 focus:ring-[#ff6a00]/15 md:px-3 md:py-2 md:pl-9 md:text-sm lg:text-base"
+            className={`w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 pl-8 text-xs font-medium text-zinc-900 placeholder:text-zinc-400 outline-none transition hover:border-zinc-300 hover:bg-white focus:border-[#ff6a00]/55 focus:bg-white focus:ring-2 focus:ring-[#ff6a00]/15 md:px-3 md:py-2 md:pl-9 md:text-sm lg:text-base ${
+              isShortsMobileCompact
+                ? 'max-md:px-2.5 max-md:py-1.5 max-md:pl-7 max-md:text-[11px]'
+                : ''
+            }`}
             aria-label="Hledat"
           />
         </div>
@@ -121,7 +133,13 @@ export function Navbar({
           ) : null}
 
           {viewMode != null && onViewModeChange != null ? (
-            <div className="no-scrollbar flex max-w-[min(100%,14rem)] flex-nowrap items-center gap-0.5 overflow-x-auto rounded-xl bg-zinc-100 p-1 sm:max-w-none sm:flex-wrap md:gap-1">
+            <div
+              className={`no-scrollbar flex flex-nowrap items-center gap-0.5 overflow-x-auto rounded-xl bg-zinc-100 p-1 sm:max-w-none sm:flex-wrap md:gap-1 ${
+                isShortsMobileCompact
+                  ? 'max-w-[min(100%,11.5rem)] max-md:p-0.5'
+                  : 'max-w-[min(100%,14rem)]'
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => onViewModeChange('shorts')}
@@ -238,19 +256,26 @@ export function Navbar({
                 Přidat
               </Link>
 
-              <Link
-                href="/inzerat/pridat"
-                className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] text-base font-semibold text-white shadow-md transition hover:scale-105 active:scale-95 md:hidden"
-                aria-label="Přidat inzerát"
-              >
-                +
-              </Link>
+              {/* Na mobilu ve shorts je CTA plovoucí nad feedem — viz VideoFeed. */}
+              {viewMode !== 'shorts' ? (
+                <Link
+                  href="/inzerat/pridat"
+                  className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] text-base font-semibold text-white shadow-md transition hover:scale-105 active:scale-95 md:hidden"
+                  aria-label="Přidat inzerát"
+                >
+                  +
+                </Link>
+              ) : null}
             </>
           ) : null}
 
           <Link
             href={!isLoading && isAuthenticated ? profilePath : '/login'}
-            className="relative z-[60] flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-zinc-100 text-sm font-bold text-zinc-700 shadow-[0_4px_14px_-2px_rgba(0,0,0,0.2)] ring-2 ring-orange-500/15 transition hover:ring-orange-500/35 active:scale-[0.98] md:size-10 md:text-sm md:shadow-sm md:ring-1 md:ring-zinc-200/80"
+            className={`relative z-[60] flex shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-zinc-100 font-bold text-zinc-700 transition hover:ring-orange-500/35 active:scale-[0.98] md:size-10 md:text-sm md:shadow-sm md:ring-1 md:ring-zinc-200/80 ${
+              isShortsMobileCompact
+                ? 'size-10 shadow-md ring-1 ring-orange-500/25 max-md:size-9 max-md:border max-md:text-xs max-md:shadow-sm'
+                : 'size-12 text-sm shadow-[0_4px_14px_-2px_rgba(0,0,0,0.2)] ring-2 ring-orange-500/15 md:size-10'
+            }`}
             aria-label={!isLoading && isAuthenticated ? 'Můj profil' : 'Přihlásit'}
           >
             {avatarSrc ? (
@@ -259,12 +284,16 @@ export function Navbar({
                 src={avatarSrc}
                 alt=""
                 className="size-full rounded-full object-cover object-center"
-                width={48}
-                height={48}
+                width={40}
+                height={40}
                 decoding="async"
               />
             ) : (
-              <span className="flex size-full items-center justify-center rounded-full bg-gradient-to-br from-orange-100 to-zinc-200 text-base md:text-sm">
+              <span
+                className={`flex size-full items-center justify-center rounded-full bg-gradient-to-br from-orange-100 to-zinc-200 md:text-sm ${
+                  isShortsMobileCompact ? 'text-sm max-md:text-xs' : 'text-base'
+                }`}
+              >
                 {user?.email?.trim().charAt(0).toUpperCase() || 'A'}
               </span>
             )}

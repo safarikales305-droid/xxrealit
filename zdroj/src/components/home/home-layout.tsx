@@ -466,7 +466,9 @@ export function HomeLayout({
         onSearchChange={setSearchQuery}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
-        onMobileFiltersOpen={viewMode === 'posts' ? undefined : () => setMobileFiltersOpen(true)}
+        onMobileFiltersOpen={
+          viewMode === 'classic' ? () => setMobileFiltersOpen(true) : undefined
+        }
       />
 
       {mobileFiltersOpen ? (

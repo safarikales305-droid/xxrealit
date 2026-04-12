@@ -155,7 +155,7 @@ export default function VideoCard({ video }: VideoCardProps) {
         />
 
         {/* Pravý sloup — oblíbené, obálka (zpráva prodejci), sdílet, zvuk */}
-        <div className="pointer-events-auto absolute right-2 z-[35] flex flex-col items-center gap-2.5 max-md:top-[4.75rem] max-md:bottom-[calc(11.25rem+env(safe-area-inset-bottom,0px))] max-md:justify-center sm:right-4 md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:gap-3">
+        <div className="pointer-events-auto absolute right-2 z-[35] flex flex-col items-center gap-2.5 max-md:top-[3.85rem] max-md:bottom-[calc(10.25rem+env(safe-area-inset-bottom,0px))] max-md:justify-center sm:right-4 md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:gap-3">
           <button
             type="button"
             disabled={likeBusy}
@@ -197,14 +197,14 @@ export default function VideoCard({ video }: VideoCardProps) {
 
         {/* Spodní panel — uvnitř stage, vždy ke spodní hraně videa / letterboxu */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[25]">
-          <div className="bg-gradient-to-t from-black via-black/95 to-black/25 px-3 pt-12 pr-[4rem] text-white shadow-[0_-12px_40px_rgba(0,0,0,0.45)] max-md:pb-[max(2.5rem,calc(env(safe-area-inset-bottom,0px)+2rem))] sm:px-4 sm:pr-24 sm:pt-14 md:pb-5 md:pr-20 md:pt-12">
-            <div className="pointer-events-auto mx-auto max-w-lg space-y-2 max-md:space-y-2.5 sm:space-y-3">
-              <div className="rounded-xl border border-white/15 bg-black/50 px-3 py-2 shadow-lg backdrop-blur-md sm:px-4">
+          <div className="bg-gradient-to-t from-black via-black/95 to-black/25 px-3 pt-10 pr-[4rem] text-white shadow-[0_-12px_40px_rgba(0,0,0,0.45)] max-md:pb-[max(2rem,calc(env(safe-area-inset-bottom,0px)+1.5rem))] sm:px-4 sm:pr-24 sm:pt-14 md:pb-5 md:pr-20 md:pt-12">
+            <div className="pointer-events-auto mx-auto max-w-lg space-y-2 max-md:space-y-2 sm:space-y-3">
+              <div className="rounded-xl border border-white/15 bg-black/50 px-3 py-2 shadow-lg backdrop-blur-md max-md:px-2.5 max-md:py-1.5 sm:px-4">
                 <div className="line-clamp-2 text-sm font-semibold leading-snug sm:text-base">
                   {video.title ?? ''}
                 </div>
                 {city ? <div className="mt-0.5 text-xs text-white/85 sm:text-sm">{city}</div> : null}
-                <div className="mt-1 text-lg font-bold tabular-nums sm:text-xl">
+                <div className="mt-1 text-base font-bold tabular-nums max-md:text-[15px] sm:text-lg md:text-xl">
                   <span
                     className={
                       isAuthenticated ? 'text-orange-100' : 'blur-[6px] select-none opacity-90'
@@ -218,9 +218,13 @@ export default function VideoCard({ video }: VideoCardProps) {
               <button
                 type="button"
                 onClick={handleWriteSeller}
-                className="flex w-full min-h-[52px] items-center justify-center gap-2 rounded-full border-2 border-orange-200/90 bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-3.5 text-sm font-extrabold tracking-tight text-white shadow-[0_14px_40px_rgba(255,80,0,0.45)] transition hover:brightness-110 active:scale-[0.99] sm:text-base"
+                className="flex w-full max-w-full items-center justify-center gap-1.5 rounded-full border-2 border-orange-200/90 bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-3 py-2 text-[13px] font-extrabold leading-tight tracking-tight text-white shadow-[0_8px_26px_rgba(255,80,0,0.38)] transition hover:brightness-110 active:scale-[0.99] max-md:min-h-[44px] sm:gap-2 sm:px-4 sm:py-3 sm:text-sm sm:shadow-[0_14px_40px_rgba(255,80,0,0.45)] md:min-h-[52px] md:py-3.5 md:text-base"
               >
-                <MessageCircle className="size-6 shrink-0" strokeWidth={2.25} aria-hidden />
+                <MessageCircle
+                  className="size-5 shrink-0 sm:size-6"
+                  strokeWidth={2.25}
+                  aria-hidden
+                />
                 Napsat prodejci
               </button>
               {sellerActionHint ? (
@@ -232,7 +236,7 @@ export default function VideoCard({ video }: VideoCardProps) {
               <button
                 type="button"
                 onClick={handleOpenListing}
-                className="flex w-full min-h-[52px] items-center justify-center rounded-full border-2 border-white/50 bg-white/15 px-6 py-3.5 text-base font-extrabold tracking-tight text-white shadow-lg backdrop-blur-md transition hover:border-orange-200/80 hover:bg-orange-600/25 active:scale-[0.99] sm:text-lg md:border-orange-300/90 md:bg-gradient-to-r md:from-[#ff6a00] md:to-[#ff3c00] md:shadow-[0_14px_40px_rgba(255,80,0,0.45)] md:hover:brightness-110"
+                className="flex w-full max-w-full items-center justify-center rounded-full border-2 border-white/50 bg-white/15 px-4 py-2 text-[13px] font-extrabold leading-tight tracking-tight text-white shadow-md backdrop-blur-md transition hover:border-orange-200/80 hover:bg-orange-600/25 active:scale-[0.99] max-md:min-h-[44px] sm:px-6 sm:py-3 sm:text-base sm:shadow-lg md:min-h-[52px] md:py-3.5 md:text-lg md:border-orange-300/90 md:bg-gradient-to-r md:from-[#ff6a00] md:to-[#ff3c00] md:shadow-[0_14px_40px_rgba(255,80,0,0.45)] md:hover:brightness-110"
               >
                 Zobrazit inzerát
               </button>
