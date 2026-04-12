@@ -81,36 +81,28 @@ export function Navbar({
               </Link>
             </div>
             <div className="no-scrollbar flex min-w-0 flex-1 items-stretch gap-0.5 overflow-x-hidden rounded-lg bg-zinc-100 p-0.5">
+              {/*
+                Tento řádek se vykreslí jen ve viewMode === 'shorts' — TS jinak zužuje typ a hlásí
+                „no overlap“ u porovnání s 'classic' / 'posts'. Aktivní je vždy Shorts.
+              */}
               <button
                 type="button"
                 onClick={() => onViewModeChange('shorts')}
-                className={`min-w-0 flex-1 truncate rounded-md px-1 py-1.5 text-center text-[10px] font-semibold leading-tight transition sm:text-[11px] ${
-                  viewMode === 'shorts'
-                    ? 'bg-orange-500 text-white shadow-sm'
-                    : 'text-zinc-600 hover:text-zinc-900'
-                }`}
+                className="min-w-0 flex-1 truncate rounded-md bg-orange-500 px-1 py-1.5 text-center text-[10px] font-semibold leading-tight text-white shadow-sm transition sm:text-[11px]"
               >
                 Shorts
               </button>
               <button
                 type="button"
                 onClick={() => onViewModeChange('classic')}
-                className={`min-w-0 flex-1 truncate rounded-md px-1 py-1.5 text-center text-[10px] font-semibold leading-tight transition sm:text-[11px] ${
-                  viewMode === 'classic'
-                    ? 'bg-orange-500 text-white shadow-sm'
-                    : 'text-zinc-600 hover:text-zinc-900'
-                }`}
+                className="min-w-0 flex-1 truncate rounded-md px-1 py-1.5 text-center text-[10px] font-semibold leading-tight text-zinc-600 transition hover:text-zinc-900 sm:text-[11px]"
               >
                 Klasik
               </button>
               <button
                 type="button"
                 onClick={() => onViewModeChange('posts')}
-                className={`min-w-0 flex-1 truncate rounded-md px-1 py-1.5 text-center text-[10px] font-semibold leading-tight transition sm:text-[11px] ${
-                  viewMode === 'posts'
-                    ? 'bg-orange-500 text-white shadow-sm'
-                    : 'text-zinc-600 hover:text-zinc-900'
-                }`}
+                className="min-w-0 flex-1 truncate rounded-md px-1 py-1.5 text-center text-[10px] font-semibold leading-tight text-zinc-600 transition hover:text-zinc-900 sm:text-[11px]"
               >
                 Příspěvky
               </button>
