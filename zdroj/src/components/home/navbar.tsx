@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
 import Logo from '@/components/Logo';
 import { useAuth } from '@/hooks/use-auth';
 import { useMessagesUnreadCount } from '@/hooks/use-messages-unread';
@@ -338,9 +339,10 @@ export function Navbar({
             <>
               <Link
                 href="/inzerat/pridat"
-                className="hidden rounded-lg bg-orange-500 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-orange-600 md:inline-flex md:text-sm"
+                className="hidden items-center gap-2 rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2.5 text-sm font-bold text-white shadow-[0_8px_28px_-6px_rgba(255,106,0,0.42)] ring-1 ring-white/25 transition hover:brightness-105 active:scale-[0.99] md:inline-flex"
               >
-                Přidat
+                <Plus className="size-5 shrink-0" strokeWidth={2.5} aria-hidden />
+                Přidat inzerát
               </Link>
 
               {/* Na mobilu ve shorts je „+“ v pravém sloupci videa (VideoCard). */}
@@ -358,10 +360,10 @@ export function Navbar({
 
           <Link
             href={!isLoading && isAuthenticated ? profilePath : '/login'}
-            className={`relative z-[60] flex shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-zinc-100 font-bold text-zinc-700 transition hover:ring-orange-500/35 active:scale-[0.98] md:size-10 md:text-sm md:shadow-sm md:ring-1 md:ring-zinc-200/80 ${
+            className={`relative z-[60] flex shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-zinc-100 font-bold text-zinc-700 transition hover:ring-orange-500/35 active:scale-[0.98] md:size-12 md:text-base md:shadow-md md:ring-2 md:ring-orange-500/15 ${
               isShortsMobileCompact
-                ? 'hidden size-10 shadow-md ring-1 ring-orange-500/25 md:inline-flex'
-                : 'size-12 text-sm shadow-[0_4px_14px_-2px_rgba(0,0,0,0.2)] ring-2 ring-orange-500/15 md:size-10'
+                ? 'hidden size-10 shadow-md ring-1 ring-orange-500/25 md:inline-flex md:size-12 md:ring-2'
+                : 'size-12 text-sm shadow-[0_4px_14px_-2px_rgba(0,0,0,0.2)] ring-2 ring-orange-500/15 md:size-12'
             }`}
             aria-label={!isLoading && isAuthenticated ? 'Můj profil' : 'Přihlásit'}
           >
@@ -371,13 +373,13 @@ export function Navbar({
                 src={avatarSrc}
                 alt=""
                 className="size-full rounded-full object-cover object-center"
-                width={40}
-                height={40}
+                width={48}
+                height={48}
                 decoding="async"
               />
             ) : (
               <span
-                className={`flex size-full items-center justify-center rounded-full bg-gradient-to-br from-orange-100 to-zinc-200 md:text-sm ${
+                className={`flex size-full items-center justify-center rounded-full bg-gradient-to-br from-orange-100 to-zinc-200 md:text-lg ${
                   isShortsMobileCompact ? 'text-sm max-md:text-xs' : 'text-base'
                 }`}
               >
