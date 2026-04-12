@@ -1,11 +1,15 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import sharp from 'sharp';
+import sharp, { type Metadata } from 'sharp';
+import { extname } from 'node:path';
 
-/** Vstupní upload — 20 MB. Výstup cílíme pod ~5 MB při zachování rozumné kvality. */
+/** Vstupní upload — 20 MB. Výstup cílíme pod ~5 MB. */
 export const PROFILE_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
 const TARGET_MAX_BYTES = 5 * 1024 * 1024;
 
-/** MIME často posílané prohlížeči (vč. aliasů). */
+const AVATAR_PX = 768;
+const AVATAR_FALLBACK_PX = 512;
+
+/** MIME z hlavičky multipart — často `application/octet-stream` nebo prázdné. */
 const ALLOWED_MIME = new Set([
   'image/jpeg',
   'image/jpg',
@@ -13,100 +17,184 @@ const ALLOWED_MIME = new Set([
   'image/png',
   'image/x-png',
   'image/webp',
+  'application/octet-stream',
 ]);
+
+const RASTER_FORMATS = new Set(['jpeg', 'png', 'webp', 'gif', 'tiff']);
 
 function normalizeMime(mimetype: string | undefined): string {
   return (mimetype ?? '').toLowerCase().split(';')[0]!.trim();
+}
+
+function extLooksLikeImage(name: string | undefined): boolean {
+  const e = extname(name ?? '').toLowerCase();
+  return ['.jpg', '.jpeg', '.png', '.webp'].includes(e);
 }
 
 @Injectable()
 export class ProfileImagesService {
   private readonly log = new Logger(ProfileImagesService.name);
 
-  assertImageMime(mimetype: string | undefined, originalname: string): void {
-    const mt = normalizeMime(mimetype);
-    if (!ALLOWED_MIME.has(mt)) {
-      this.log.warn(
-        `MIME odmítnuto: "${mt}" soubor="${originalname ?? ''}"`,
-      );
-      throw new BadRequestException(
-        'Nepodporovaný formát obrázku. Povolené typy: JPEG, PNG, WebP.',
-      );
+  /**
+   * Sharp pipeline: `failOn: 'none'`, první snímek u GIF, EXIF auto-rotate.
+   */
+  private sharpRasterFromBuffer(buffer: Buffer, meta: Metadata): sharp.Sharp {
+    const usePages =
+      meta.format === 'gif' || (meta.format === 'tiff' && (meta.pages ?? 0) > 1);
+    const opts: sharp.SharpOptions = { failOn: 'none' };
+    if (usePages) {
+      (opts as sharp.SharpOptions & { pages?: number }).pages = 1;
     }
-    const lower = (originalname ?? '').toLowerCase();
-    if (!/\.(jpe?g|png|webp)$/.test(lower)) {
-      throw new BadRequestException(
-        'Nepodporovaná přípona souboru. Použijte .jpg, .jpeg, .png nebo .webp.',
-      );
-    }
+    return sharp(buffer, opts).rotate();
   }
 
   /**
-   * Komprese a zmenšení pro avatar (~512 px, WebP, snižování kvality až pod TARGET_MAX_BYTES).
+   * Načte metadata, loguje MIME / velikost / rozměry; nevyžaduje příponu souboru (blob, prázdné jméno).
    */
-  async processAvatarWebp(input: Buffer): Promise<Buffer> {
-    try {
-      const pipeline = (q: number) =>
-        sharp(input)
-          .rotate()
-          .resize(512, 512, { fit: 'inside', withoutEnlargement: true })
-          .webp({ quality: q, effort: 4 });
+  async validateRasterInput(
+    buffer: Buffer,
+    mimetype: string | undefined,
+    originalname: string | undefined,
+  ): Promise<Metadata> {
+    const mt = normalizeMime(mimetype);
+    const bytes = buffer?.length ?? 0;
+    this.log.log(
+      `[profile] validate mimetype="${mt}" originalname=${JSON.stringify(originalname)} bytes=${bytes}`,
+    );
 
-      let quality = 88;
-      let buf = await pipeline(quality).toBuffer();
-      while (buf.length > TARGET_MAX_BYTES && quality >= 55) {
-        quality -= 5;
-        buf = await pipeline(quality).toBuffer();
-      }
-      if (buf.length > TARGET_MAX_BYTES) {
-        buf = await sharp(input)
-          .rotate()
-          .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
-          .webp({ quality: 70, effort: 4 })
-          .toBuffer();
-      }
-      return buf;
+    if (!bytes) {
+      throw new BadRequestException('Soubor je prázdný.');
+    }
+
+    let meta: Metadata;
+    try {
+      meta = await sharp(buffer, { failOn: 'none' }).metadata();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.log.error(`[avatar] sharp selhalo: ${msg}`, err instanceof Error ? err.stack : undefined);
+      this.log.error(`[profile] sharp.metadata() threw: ${msg}`, err instanceof Error ? err.stack : undefined);
+      throw new BadRequestException(`Obrázek nelze načíst: ${msg}`);
+    }
+
+    const fmt = meta.format?.toLowerCase();
+    const w = meta.width ?? 0;
+    const h = meta.height ?? 0;
+    this.log.log(
+      `[profile] metadata format=${fmt ?? '?'} width=${w} height=${h} space=${meta.space ?? '?'} orientation=${meta.orientation ?? 'n/a'} channels=${meta.channels ?? '?'}`,
+    );
+
+    if (!w || !h) {
+      this.log.warn(`[profile] reject: missing dimensions width=${w} height=${h}`);
       throw new BadRequestException(
-        'Obrázek se nepodařilo zpracovat. Zkuste jiný soubor (JPEG, PNG, WebP), menší rozlišení nebo ho uložte znovu jako JPG.',
+        'Soubor neobsahuje platný obrázek (chybí rozměry). Zkuste jiný soubor.',
       );
+    }
+
+    if (fmt === 'svg') {
+      this.log.warn('[profile] reject: SVG not supported for profile raster');
+      throw new BadRequestException('Formát SVG zde nepodporujeme. Nahrajte JPG, PNG nebo WebP.');
+    }
+
+    if (fmt && RASTER_FORMATS.has(fmt)) {
+      return meta;
+    }
+
+    const mimeOk =
+      ALLOWED_MIME.has(mt) || mt.startsWith('image/') || extLooksLikeImage(originalname);
+    if (mimeOk) {
+      this.log.warn(
+        `[profile] accept by MIME/filename despite unusual format=${fmt ?? 'undefined'}`,
+      );
+      return meta;
+    }
+
+    this.log.warn(
+      `[profile] reject: format=${fmt} mimetype=${mt} name=${JSON.stringify(originalname)}`,
+    );
+    throw new BadRequestException(
+      'Nepodporovaný formát. Nahrajte prosím JPG, PNG nebo WebP.',
+    );
+  }
+
+  async processAvatarForUpload(buffer: Buffer): Promise<{ buffer: Buffer; ext: string }> {
+    const meta = await sharp(buffer, { failOn: 'none' }).metadata();
+    const base = this.sharpRasterFromBuffer(buffer, meta);
+
+    const mkWebp = (px: number, q: number) =>
+      base
+        .clone()
+        .resize(px, px, { fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: q, effort: 2 });
+
+    try {
+      let quality = 88;
+      let buf = await mkWebp(AVATAR_PX, quality).toBuffer();
+      while (buf.length > TARGET_MAX_BYTES && quality >= 55) {
+        quality -= 6;
+        buf = await mkWebp(AVATAR_PX, quality).toBuffer();
+      }
+      if (buf.length > TARGET_MAX_BYTES) {
+        buf = await mkWebp(AVATAR_FALLBACK_PX, 78).toBuffer();
+      }
+      this.log.log(`[profile] avatar out webp bytes=${buf.length}`);
+      return { buffer: buf, ext: '.webp' };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.log.warn(`[profile] avatar webp failed (${msg}), JPEG fallback`);
+      try {
+        const buf = await this.sharpRasterFromBuffer(buffer, meta)
+          .resize(AVATAR_PX, AVATAR_PX, { fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 85, mozjpeg: true })
+          .toBuffer();
+        this.log.log(`[profile] avatar out jpeg bytes=${buf.length}`);
+        return { buffer: buf, ext: '.jpg' };
+      } catch (err2) {
+        const msg2 = err2 instanceof Error ? err2.message : String(err2);
+        this.log.error(
+          `[profile] avatar jpeg fallback failed: ${msg2}`,
+          err2 instanceof Error ? err2.stack : undefined,
+        );
+        throw new BadRequestException(`Obrázek se nepodařilo zpracovat: ${msg2}`);
+      }
     }
   }
 
-  /**
-   * Široký banner (~1920×640), WebP s kompresí pod ~5 MB.
-   * `position: 'centre'` — vyhneme se chybám prostředí bez podpory smart-crop (`attention`).
-   */
-  async processCoverWebp(input: Buffer): Promise<Buffer> {
-    try {
-      const pipeline = (q: number, h: number) =>
-        sharp(input)
-          .rotate()
-          .resize(1920, h, { fit: 'cover', position: 'centre' })
-          .webp({ quality: q, effort: 4 });
+  async processCoverForUpload(buffer: Buffer): Promise<{ buffer: Buffer; ext: string }> {
+    const meta = await sharp(buffer, { failOn: 'none' }).metadata();
+    const base = this.sharpRasterFromBuffer(buffer, meta);
 
+    const mkWebp = (w: number, h: number, q: number) =>
+      base.clone().resize(w, h, { fit: 'cover', position: 'centre' }).webp({ quality: q, effort: 2 });
+
+    try {
       let quality = 82;
-      let buf = await pipeline(quality, 640).toBuffer();
+      let buf = await mkWebp(1920, 640, quality).toBuffer();
       while (buf.length > TARGET_MAX_BYTES && quality >= 55) {
         quality -= 4;
-        buf = await pipeline(quality, 600).toBuffer();
+        buf = await mkWebp(1920, 600, quality).toBuffer();
       }
       if (buf.length > TARGET_MAX_BYTES) {
-        buf = await sharp(input)
-          .rotate()
-          .resize(1600, 520, { fit: 'cover', position: 'centre' })
-          .webp({ quality: 68, effort: 4 })
-          .toBuffer();
+        buf = await mkWebp(1600, 520, 70).toBuffer();
       }
-      return buf;
+      this.log.log(`[profile] cover out webp bytes=${buf.length}`);
+      return { buffer: buf, ext: '.webp' };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.log.error(`[cover] sharp selhalo: ${msg}`, err instanceof Error ? err.stack : undefined);
-      throw new BadRequestException(
-        'Cover obrázek se nepodařilo zpracovat. Zkuste jiný soubor (JPEG, PNG, WebP) nebo menší rozlišení.',
-      );
+      this.log.warn(`[profile] cover webp failed (${msg}), JPEG fallback`);
+      try {
+        const buf = await this.sharpRasterFromBuffer(buffer, meta)
+          .resize(1920, 640, { fit: 'cover', position: 'centre' })
+          .jpeg({ quality: 82, mozjpeg: true })
+          .toBuffer();
+        this.log.log(`[profile] cover out jpeg bytes=${buf.length}`);
+        return { buffer: buf, ext: '.jpg' };
+      } catch (err2) {
+        const msg2 = err2 instanceof Error ? err2.message : String(err2);
+        this.log.error(
+          `[profile] cover jpeg fallback failed: ${msg2}`,
+          err2 instanceof Error ? err2.stack : undefined,
+        );
+        throw new BadRequestException(`Cover se nepodařilo zpracovat: ${msg2}`);
+      }
     }
   }
 }

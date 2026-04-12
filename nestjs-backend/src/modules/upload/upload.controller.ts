@@ -80,14 +80,21 @@ export class UploadController {
         `Soubor je příliš velký. Maximální velikost je ${PROFILE_UPLOAD_MAX_BYTES / (1024 * 1024)} MB.`,
       );
     }
-    this.profileImages.assertImageMime(file.mimetype, file.originalname);
+    this.log.log(
+      `[upload/avatar] user=${user.id} mimetype=${file.mimetype ?? '(none)'} originalname=${JSON.stringify(file.originalname)} size=${file.size} bufferLen=${file.buffer.length}`,
+    );
+    await this.profileImages.validateRasterInput(
+      file.buffer,
+      file.mimetype,
+      file.originalname,
+    );
     try {
-      const webp = await this.profileImages.processAvatarWebp(file.buffer);
-      const name = `${user.id}-${Date.now()}.webp`;
+      const { buffer: out, ext } = await this.profileImages.processAvatarForUpload(file.buffer);
+      const name = `${user.id}-${Date.now()}${ext}`;
       const dir = join(getUploadsPath(), 'avatars');
       fs.mkdirSync(dir, { recursive: true });
       const outPath = join(dir, name);
-      fs.writeFileSync(outPath, webp);
+      fs.writeFileSync(outPath, out);
       this.log.log(`[upload/avatar] uloženo user=${user.id} → ${outPath}`);
       return { url: `/uploads/avatars/${name}` };
     } catch (err) {
@@ -126,14 +133,21 @@ export class UploadController {
         `Soubor je příliš velký. Maximální velikost je ${PROFILE_UPLOAD_MAX_BYTES / (1024 * 1024)} MB.`,
       );
     }
-    this.profileImages.assertImageMime(file.mimetype, file.originalname);
+    this.log.log(
+      `[upload/cover] user=${user.id} mimetype=${file.mimetype ?? '(none)'} originalname=${JSON.stringify(file.originalname)} size=${file.size} bufferLen=${file.buffer.length}`,
+    );
+    await this.profileImages.validateRasterInput(
+      file.buffer,
+      file.mimetype,
+      file.originalname,
+    );
     try {
-      const webp = await this.profileImages.processCoverWebp(file.buffer);
-      const name = `${user.id}-${Date.now()}.webp`;
+      const { buffer: out, ext } = await this.profileImages.processCoverForUpload(file.buffer);
+      const name = `${user.id}-${Date.now()}${ext}`;
       const dir = join(getUploadsPath(), 'covers');
       fs.mkdirSync(dir, { recursive: true });
       const outPath = join(dir, name);
-      fs.writeFileSync(outPath, webp);
+      fs.writeFileSync(outPath, out);
       this.log.log(`[upload/cover] uloženo user=${user.id} → ${outPath}`);
       return { url: `/uploads/covers/${name}` };
     } catch (err) {
