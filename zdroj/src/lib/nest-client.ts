@@ -1102,7 +1102,7 @@ export async function nestFetchVideos(): Promise<ShortVideo[]> {
 
 /**
  * Veřejné načtení jednoho shorts záznamu: GET /properties/:id (bez JWT), případně doplnění z /feed/shorts.
- * Pro sdílené deep linky /shorts/[id] bez přihlášení.
+ * Pro sdílené deep linky `/?tab=shorts&video=id` (a legacy `/shorts/[id]`) bez přihlášení.
  */
 export async function nestFetchShortVideoPublic(id: string): Promise<ShortVideo | null> {
   if (!id.trim()) return null;

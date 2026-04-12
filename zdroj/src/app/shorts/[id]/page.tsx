@@ -1,80 +1,28 @@
 'use client';
 
-import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { useAuth } from '@/hooks/use-auth';
-import { nestAbsoluteAssetUrl } from '@/lib/api';
-import { absoluteShareUrl } from '@/lib/public-share-url';
-import { ShareButtons } from '@/components/share/ShareButtons';
-import { nestFetchShortVideoPublic, type ShortVideo } from '@/lib/nest-client';
+import { useEffect } from 'react';
 
-export default function ShortDetailPage() {
+/**
+ * Zpětná kompatibilita: staré odkazy /shorts/[id] přesměrují na veřejný shorts feed
+ * s aktivním videem (úvodní stránka, ne samostatný detail stránky).
+ */
+export default function ShortsLegacyRedirectPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
-  const id = params?.id ?? '';
-  const { isAuthenticated } = useAuth();
-  const [video, setVideo] = useState<ShortVideo | null>(null);
-  const [loading, setLoading] = useState(true);
+  const id = (params?.id ?? '').trim();
 
   useEffect(() => {
-    if (!id) return;
-    setLoading(true);
-    void nestFetchShortVideoPublic(id)
-      .then((v) => setVideo(v))
-      .finally(() => setLoading(false));
-  }, [id]);
-
-  const src = nestAbsoluteAssetUrl(video?.videoUrl ?? video?.url ?? '');
-  const shareTitle = (video?.title ?? 'Shorts').trim().slice(0, 120) || 'Shorts';
-  const shareUrl = absoluteShareUrl(`/shorts/${encodeURIComponent(id)}`);
+    if (!id) {
+      router.replace('/');
+      return;
+    }
+    router.replace(`/?tab=shorts&video=${encodeURIComponent(id)}`);
+  }, [id, router]);
 
   return (
-    <main className="mx-auto min-h-[100dvh] max-w-lg bg-black px-3 py-4 text-white">
-      <div className="mb-4 flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={() => router.push('/')}
-          className="rounded-full border border-white/30 px-4 py-2 text-sm"
-        >
-          ← Zpět
-        </button>
-        {video ? <ShareButtons title={shareTitle} url={shareUrl} variant="pill" label="Sdílet" /> : null}
-      </div>
-
-      {loading ? <p className="text-sm text-white/70">Načítám…</p> : null}
-      {!loading && !video ? (
-        <p className="text-sm text-white/70">Video nebylo nalezeno.</p>
-      ) : null}
-
-      {video && src ? (
-        <div className="relative overflow-hidden rounded-2xl border border-white/10">
-          <video
-            src={src}
-            muted
-            playsInline
-            controls
-            autoPlay
-            loop
-            className="aspect-[9/16] w-full object-cover"
-          />
-          <div className="border-t border-white/10 bg-black/80 p-4">
-            <p className="text-lg font-semibold">{video.title}</p>
-            <p className="mt-1 text-sm text-white/80">
-              <span className={!isAuthenticated ? 'blur-sm' : ''}>
-                {Number(video.price ?? 0).toLocaleString('cs-CZ')} Kč
-              </span>{' '}
-              · {video.city ?? ''}
-            </p>
-            <Link
-              href={`/nemovitost/${encodeURIComponent(id)}?from=shorts`}
-              className="mt-3 inline-block text-sm font-semibold text-orange-400"
-            >
-              Otevřít detail inzerátu
-            </Link>
-          </div>
-        </div>
-      ) : null}
+    <main className="flex min-h-[100dvh] flex-col items-center justify-center bg-black px-4 text-center text-sm text-white/75">
+      <p>Otevírám shorts…</p>
     </main>
   );
 }

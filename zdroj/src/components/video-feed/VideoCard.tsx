@@ -77,8 +77,10 @@ export default function VideoCard({ video }: VideoCardProps) {
   }
 
   const shareTitle = (video.title ?? 'Inzerát').trim().slice(0, 120) || 'Inzerát';
-  /** Veřejná stránka konkrétního shortu — bez nutnosti přihlášení. */
-  const shareUrl = absoluteShareUrl(`/shorts/${encodeURIComponent(video.id)}`);
+  /** Veřejný deep link do hlavního shorts feedu (stejné UI jako TikTok režim na úvodní stránce). */
+  const shareUrl = absoluteShareUrl(
+    `/?tab=shorts&video=${encodeURIComponent(video.id)}`,
+  );
   const city = (video.city ?? '').trim();
 
   const listingPath = `/nemovitost/${encodeURIComponent(video.id)}?from=shorts`;

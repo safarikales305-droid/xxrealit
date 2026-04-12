@@ -12,6 +12,7 @@ import {
   nestAddPostComment,
   nestFetchCommunityPosts,
   nestFetchPostComments,
+  nestFetchShortVideoPublic,
   nestSetPostReaction,
   type ListingPost,
   type PostComment,
@@ -105,13 +106,23 @@ export function HomeLayout({
   const [viewMode, setViewMode] = useState<ViewMode>('shorts');
   const [searchQuery, setSearchQuery] = useState('');
 
+  const sharedVideoId = useMemo(
+    () => searchParams.get('video')?.trim() || null,
+    [searchParams],
+  );
+
   useEffect(() => {
-    if (searchParams.get('tab') === 'shorts') {
+    const tab = searchParams.get('tab');
+    const v = searchParams.get('video')?.trim();
+    if (tab === 'shorts' || Boolean(v)) {
       setViewMode('shorts');
     }
   }, [searchParams]);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [videoFeed, setVideoFeed] = useState<ShortVideo[]>([]);
+  /** Video z deep linku, které ještě není v odpovědi /feed/shorts. */
+  const [shareExtraVideo, setShareExtraVideo] = useState<ShortVideo | null>(null);
+  const [shareExtraLoading, setShareExtraLoading] = useState(false);
   /** Když `/feed/shorts` vrátí 0 položek — klasický katalog z GET `/properties`. */
   const [shortsFallbackItems, setShortsFallbackItems] = useState<PropertyFeedItem[]>([]);
   const [postFeed, setPostFeed] = useState<Array<Record<string, unknown>>>([]);
@@ -251,13 +262,42 @@ export function HomeLayout({
     );
   }, [classicShortsFallbackGrid, searchQuery]);
 
+  const videosForFeed = useMemo(() => {
+    function sortByCreatedDesc(list: ShortVideo[]): ShortVideo[] {
+      return [...list].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    }
+    const seen = new Set<string>();
+    const merged: ShortVideo[] = [];
+    if (shareExtraVideo) {
+      merged.push(shareExtraVideo);
+      seen.add(shareExtraVideo.id);
+    }
+    for (const v of videoFeed) {
+      if (!seen.has(v.id)) {
+        merged.push(v);
+        seen.add(v.id);
+      }
+    }
+    if (!sharedVideoId) return sortByCreatedDesc(merged);
+    const idx = merged.findIndex((v) => v.id === sharedVideoId);
+    if (idx === -1) return sortByCreatedDesc(merged);
+    const picked = merged[idx];
+    const rest = merged.filter((_, i) => i !== idx);
+    return [picked, ...sortByCreatedDesc(rest)];
+  }, [videoFeed, sharedVideoId, shareExtraVideo]);
+
+  const shareMissingInFeed = Boolean(
+    sharedVideoId && !videoFeed.some((v) => v.id === sharedVideoId),
+  );
+  const shortsBootstrapBusy = loadingFeed || (shareMissingInFeed && shareExtraLoading);
+
   const hasData = classicGridItems.length > 0;
   const showNoSearchHits =
     viewMode === 'classic' && hasData && filteredItems.length === 0;
   const showNoSearchHitsShortsFallback =
     viewMode === 'shorts' &&
-    !loadingFeed &&
-    videoFeed.length === 0 &&
+    !shortsBootstrapBusy &&
+    videosForFeed.length === 0 &&
     classicShortsFallbackGrid.length > 0 &&
     filteredShortsFallback.length === 0;
 
@@ -378,6 +418,37 @@ export function HomeLayout({
     };
   }, [viewMode, activeCategory, radiusKm, userCoords?.lat, userCoords?.lng]);
 
+  useEffect(() => {
+    if (!sharedVideoId) {
+      setShareExtraVideo(null);
+      setShareExtraLoading(false);
+      return;
+    }
+    if (videoFeed.some((v) => v.id === sharedVideoId)) {
+      setShareExtraVideo(null);
+      setShareExtraLoading(false);
+      return;
+    }
+    if (!API_BASE_URL) {
+      setShareExtraVideo(null);
+      setShareExtraLoading(false);
+      return;
+    }
+    setShareExtraLoading(true);
+    let cancelled = false;
+    void nestFetchShortVideoPublic(sharedVideoId)
+      .then((v) => {
+        if (cancelled) return;
+        setShareExtraVideo(v?.id === sharedVideoId ? v : null);
+      })
+      .finally(() => {
+        if (!cancelled) setShareExtraLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sharedVideoId, videoFeed]);
+
   return (
     <div className="flex h-[100dvh] max-h-[100dvh] w-full max-w-[100vw] flex-col overflow-x-hidden overflow-y-hidden bg-[#fafafa] text-zinc-900 md:h-screen md:max-h-screen">
       {apiConfigMissing ? (
@@ -447,7 +518,7 @@ export function HomeLayout({
           className={
             !hasData && viewMode === 'classic'
               ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-[0_2px_24px_-8px_rgba(0,0,0,0.08)] md:min-w-0'
-              : viewMode === 'shorts' && !loadingFeed && videoFeed.length === 0
+              : viewMode === 'shorts' && !shortsBootstrapBusy && videosForFeed.length === 0
                 ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl border border-zinc-200/90 bg-[#fafafa] shadow-[0_2px_24px_-8px_rgba(0,0,0,0.08)] md:min-w-0'
                 : viewMode === 'shorts'
                   ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden bg-black shadow-none max-md:rounded-none md:min-w-0 md:rounded-2xl md:shadow-[0_24px_48px_-24px_rgba(0,0,0,0.35)] lg:ring-1 lg:ring-black/10'
@@ -512,12 +583,16 @@ export function HomeLayout({
               }
             >
               {viewMode === 'shorts' ? (
-                loadingFeed ? (
-                  <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-white/80">
-                    Načítám video feed...
+                shortsBootstrapBusy ? (
+                  <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 text-center text-sm text-white/80">
+                    <p>
+                      {shareExtraLoading && !loadingFeed
+                        ? 'Načítám sdílené video…'
+                        : 'Načítám video feed…'}
+                    </p>
                   </div>
-                ) : videoFeed.length > 0 ? (
-                  <VideoFeed videos={videoFeed} />
+                ) : videosForFeed.length > 0 ? (
+                  <VideoFeed key={sharedVideoId ?? 'feed'} videos={videosForFeed} />
                 ) : filteredShortsFallback.length > 0 ? (
                   <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain">
                     <p className="shrink-0 border-b border-zinc-200 bg-white px-4 py-2.5 text-center text-[13px] text-zinc-600">
@@ -645,7 +720,11 @@ export function HomeLayout({
                             <button
                               key={String(p.id)}
                               type="button"
-                              onClick={() => router.push(`/shorts/${String(p.id)}`)}
+                              onClick={() =>
+                                router.push(
+                                  `/?tab=shorts&video=${encodeURIComponent(String(p.id))}`,
+                                )
+                              }
                               className="flex h-[120px] min-w-[70px] shrink-0 overflow-hidden rounded-xl ring-2 ring-orange-500/25 ring-offset-2 transition hover:ring-orange-500/60"
                             >
                               <video
