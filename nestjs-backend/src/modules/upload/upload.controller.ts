@@ -30,6 +30,7 @@ import {
   PROFILE_UPLOAD_MAX_BYTES,
   ProfileImagesService,
 } from './profile-images.service';
+import { ProfileMediaStorageService } from './profile-media-storage.service';
 
 const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
 const VIDEO_EXT = new Set(['.mp4', '.mov', '.webm', '.m4v', '.avi', '.mkv']);
@@ -46,7 +47,10 @@ const noBodyValidation = new ValidationPipe({
 export class UploadController {
   private readonly log = new Logger(UploadController.name);
 
-  constructor(private readonly profileImages: ProfileImagesService) {
+  constructor(
+    private readonly profileImages: ProfileImagesService,
+    private readonly profileMediaStorage: ProfileMediaStorageService,
+  ) {
     const dir = getUploadsPath();
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -90,12 +94,20 @@ export class UploadController {
     );
     try {
       const { buffer: out, ext } = await this.profileImages.processAvatarForUpload(file.buffer);
+      if (this.profileMediaStorage.isRemotePersistent()) {
+        const url = await this.profileMediaStorage.uploadAvatar(user.id, out);
+        this.log.log(`[upload/avatar] cloudinary user=${user.id} len=${url.length}`);
+        return { url };
+      }
+      this.log.warn(
+        `[upload/avatar] Cloudinary není nakonfigurováno — lokální uploads/ (nepersistní na Railway). Soubor *.${ext.slice(1)}`,
+      );
       const name = `${user.id}-${Date.now()}${ext}`;
       const dir = join(getUploadsPath(), 'avatars');
       fs.mkdirSync(dir, { recursive: true });
       const outPath = join(dir, name);
       fs.writeFileSync(outPath, out);
-      this.log.log(`[upload/avatar] uloženo user=${user.id} → ${outPath}`);
+      this.log.log(`[upload/avatar] uloženo lokálně user=${user.id} → ${outPath}`);
       return { url: `/uploads/avatars/${name}` };
     } catch (err) {
       if (err instanceof BadRequestException) throw err;
@@ -143,12 +155,20 @@ export class UploadController {
     );
     try {
       const { buffer: out, ext } = await this.profileImages.processCoverForUpload(file.buffer);
+      if (this.profileMediaStorage.isRemotePersistent()) {
+        const url = await this.profileMediaStorage.uploadCover(user.id, out);
+        this.log.log(`[upload/cover] cloudinary user=${user.id} len=${url.length}`);
+        return { url };
+      }
+      this.log.warn(
+        `[upload/cover] Cloudinary není nakonfigurováno — lokální uploads/ (nepersistní na Railway). Soubor *.${ext.slice(1)}`,
+      );
       const name = `${user.id}-${Date.now()}${ext}`;
       const dir = join(getUploadsPath(), 'covers');
       fs.mkdirSync(dir, { recursive: true });
       const outPath = join(dir, name);
       fs.writeFileSync(outPath, out);
-      this.log.log(`[upload/cover] uloženo user=${user.id} → ${outPath}`);
+      this.log.log(`[upload/cover] uloženo lokálně user=${user.id} → ${outPath}`);
       return { url: `/uploads/covers/${name}` };
     } catch (err) {
       if (err instanceof BadRequestException) throw err;

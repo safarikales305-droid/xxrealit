@@ -58,6 +58,9 @@ export default function ProfilPage() {
 
   const [bioDraft, setBioDraft] = useState('');
   const [bioEditing, setBioEditing] = useState(false);
+  /** Staré lokální `/uploads/…` na Railway po deployi vrací 404 — zobrazí se placeholder. */
+  const [avatarRemoteFailed, setAvatarRemoteFailed] = useState(false);
+  const [coverRemoteFailed, setCoverRemoteFailed] = useState(false);
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
@@ -144,8 +147,16 @@ export default function ProfilPage() {
     return coverUrl;
   }, [coverUrl]);
 
-  const displayAvatarSrc = avatarPreview ?? imgSrc;
-  const displayCoverSrc = coverPreview ?? coverSrc;
+  useEffect(() => {
+    setAvatarRemoteFailed(false);
+  }, [imgSrc]);
+
+  useEffect(() => {
+    setCoverRemoteFailed(false);
+  }, [coverSrc]);
+
+  const displayAvatarSrc = avatarPreview ?? (avatarRemoteFailed ? null : imgSrc);
+  const displayCoverSrc = coverPreview ?? (coverRemoteFailed ? null : coverSrc);
 
   async function onAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -307,6 +318,7 @@ export default function ProfilPage() {
                 src={displayCoverSrc}
                 alt=""
                 className="absolute inset-0 size-full object-cover"
+                onError={() => setCoverRemoteFailed(true)}
               />
             ) : (
               <div className="absolute inset-0 bg-gradient-to-br from-orange-400 via-rose-400 to-violet-600 opacity-95" />
@@ -329,6 +341,7 @@ export default function ProfilPage() {
                         src={displayAvatarSrc}
                         alt=""
                         className="size-28 rounded-full object-cover sm:size-32"
+                        onError={() => setAvatarRemoteFailed(true)}
                       />
                     ) : (
                       <div className="flex size-28 items-center justify-center rounded-full bg-zinc-100 text-3xl font-semibold text-zinc-500 sm:size-32">
