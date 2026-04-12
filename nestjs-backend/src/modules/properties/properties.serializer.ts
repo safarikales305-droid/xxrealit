@@ -1,5 +1,13 @@
 import { UserRole } from '@prisma/client';
+import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 import { computeListingPublicStatus } from './property-public-visibility';
+
+function secureAssetUrl(url: string | null | undefined): string {
+  if (url == null) return '';
+  const t = String(url).trim();
+  if (!t) return '';
+  return upgradeHttpToHttpsForApi(t) ?? t;
+}
 
 /** Kontext prohlížeče pro maskování kontaktu u vlastnických inzerátů. */
 export type PropertyViewerAccess = {
@@ -131,22 +139,33 @@ export function serializeProperty(
 
   const redact = shouldRedactOwnerContact(p, viewerId, access);
 
-  const images = Array.isArray(p.images) ? p.images : [];
+  const images = (Array.isArray(p.images) ? p.images : []).map((u) =>
+    typeof u === 'string' ? secureAssetUrl(u) : u,
+  );
+  const videoUrlSafe = p.videoUrl ? secureAssetUrl(p.videoUrl) : null;
   const mediaFromRelation = Array.isArray(p.media)
     ? p.media
         .filter((m) => typeof m?.url === 'string' && m.url.length > 0)
         .sort((a, b) => a.sortOrder - b.sortOrder)
         .map((m) => ({
           id: m.id,
-          url: m.url,
+          url: secureAssetUrl(m.url),
           type: m.type === 'video' ? 'video' : 'image',
           order: m.sortOrder,
           sortOrder: m.sortOrder,
         }))
     : [];
   const fallbackMedia = [
-    ...(p.videoUrl
-      ? [{ id: `${p.id}-video`, url: p.videoUrl, type: 'video', order: 0, sortOrder: 0 }]
+    ...(videoUrlSafe
+      ? [
+          {
+            id: `${p.id}-video`,
+            url: videoUrlSafe,
+            type: 'video' as const,
+            order: 0,
+            sortOrder: 0,
+          },
+        ]
       : []),
     ...images.map((url, index) => ({
       id: `${p.id}-image-${index}`,
@@ -157,8 +176,10 @@ export function serializeProperty(
     })),
   ];
   const media = mediaFromRelation.length > 0 ? mediaFromRelation : fallbackMedia;
-  const primaryImage = media.find((m) => m.type === 'image')?.url ?? images[0] ?? null;
-  const primaryVideo = media.find((m) => m.type === 'video')?.url ?? p.videoUrl;
+  const primaryImage =
+    media.find((m) => m.type === 'image')?.url ?? images[0] ?? null;
+  const primaryVideo =
+    media.find((m) => m.type === 'video')?.url ?? videoUrlSafe;
 
   return {
     id: p.id,
@@ -186,7 +207,7 @@ export function serializeProperty(
     cellar: p.cellar,
     images,
     imageUrl: primaryImage,
-    videoUrl: primaryVideo,
+    videoUrl: primaryVideo ? secureAssetUrl(String(primaryVideo)) : null,
     media,
     isOwnerListing: Boolean(p.isOwnerListing),
     ownerContactConsent: Boolean(p.ownerContactConsent),

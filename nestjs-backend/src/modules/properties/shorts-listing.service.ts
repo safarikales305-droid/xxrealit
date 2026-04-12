@@ -21,6 +21,7 @@ import {
   type PropertyViewerAccess,
 } from './properties.serializer';
 import { UserRole } from '@prisma/client';
+import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 
 function collectClassicImageUrls(classic: {
   images: string[];
@@ -176,11 +177,11 @@ export class ShortsListingService {
       publishedPropertyId: row.publishedPropertyId,
       title: row.title,
       description: row.description,
-      coverImage: row.coverImage,
-      musicUrl: row.musicUrl,
+      coverImage: upgradeHttpToHttpsForApi(row.coverImage),
+      musicUrl: upgradeHttpToHttpsForApi(row.musicUrl) ?? row.musicUrl,
       musicTrackId: row.musicTrackId,
       musicBuiltinKey: row.musicBuiltinKey,
-      videoUrl: row.videoUrl,
+      videoUrl: upgradeHttpToHttpsForApi(row.videoUrl),
       status: row.status,
       publishedAt: row.publishedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
@@ -190,7 +191,7 @@ export class ShortsListingService {
         .sort((a, b) => a.order - b.order)
         .map((m) => ({
           id: m.id,
-          imageUrl: m.imageUrl,
+          imageUrl: upgradeHttpToHttpsForApi(m.imageUrl) ?? m.imageUrl,
           order: m.order,
           duration: m.duration,
           isCover: m.isCover,

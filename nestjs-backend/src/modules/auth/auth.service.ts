@@ -11,6 +11,7 @@ import type { User } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { Resend } from 'resend';
 import { PrismaService } from '../../database/prisma.service';
+import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 import { UsersService } from '../users/users.service';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -389,8 +390,14 @@ export class AuthService {
         email: user.email,
         name: user.name,
         role,
-        avatar: (user as any).avatar ?? null,
-        coverImage: (user as any).coverImage ?? null,
+        avatar:
+          upgradeHttpToHttpsForApi((user as { avatar?: string | null }).avatar ?? null) ??
+          (user as { avatar?: string | null }).avatar ??
+          null,
+        coverImage:
+          upgradeHttpToHttpsForApi((user as { coverImage?: string | null }).coverImage ?? null) ??
+          (user as { coverImage?: string | null }).coverImage ??
+          null,
         bio: (user as any).bio ?? null,
         city: (user as any).city ?? null,
         createdAt: user.createdAt.toISOString(),

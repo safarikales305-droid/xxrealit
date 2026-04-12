@@ -6,6 +6,10 @@ export function isNodeProduction(): boolean {
   return process.env.NODE_ENV === 'production';
 }
 
+function isBrowserHttpsPage(): boolean {
+  return typeof window !== 'undefined' && window.location.protocol === 'https:';
+}
+
 function isLoopbackHttpUrl(url: string): boolean {
   try {
     const u = new URL(url);
@@ -18,13 +22,15 @@ function isLoopbackHttpUrl(url: string): boolean {
 }
 
 /**
- * V produkčním buildu přepíše `http://` na `https://`.
- * Localhost / 127.0.0.1 ponechá (lokální `next start` + HTTP API).
+ * Přepíše `http://` na `https://` na produkčním buildu nebo v prohlížeči na HTTPS stránce.
+ * Localhost / 127.0.0.1 ponechá (lokální vývoj).
  */
 export function upgradeHttpToHttps(url: string): string {
   const t = url.trim();
   if (!/^http:\/\//i.test(t)) return t;
-  if (!isNodeProduction()) return t;
   if (isLoopbackHttpUrl(t)) return t;
-  return `https://${t.slice(7)}`;
+  if (isNodeProduction() || isBrowserHttpsPage()) {
+    return `https://${t.slice(7)}`;
+  }
+  return t;
 }

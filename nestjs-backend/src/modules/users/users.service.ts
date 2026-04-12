@@ -9,6 +9,7 @@ import {
 import { Prisma, UserRole } from '@prisma/client';
 import type { User } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 import { ensureUserRole } from '../auth/user-role.util';
 import { classicPublicListingWhere } from '../properties/property-listing-scope';
 import {
@@ -213,7 +214,7 @@ export class UsersService {
           ico: ap.ico,
           city: ap.city,
           bio: ap.bio,
-          avatarUrl: ap.avatarUrl,
+          avatarUrl: upgradeHttpToHttpsForApi(ap.avatarUrl) ?? ap.avatarUrl,
           verificationStatus: ap.verificationStatus,
           createdAt: ap.createdAt.toISOString(),
           updatedAt: ap.updatedAt.toISOString(),
@@ -225,8 +226,8 @@ export class UsersService {
       name: u.name,
       role: ensureUserRole(u.role),
       createdAt: u.createdAt,
-      avatarUrl: u.avatar ?? null,
-      coverImageUrl: u.coverImage ?? null,
+      avatarUrl: upgradeHttpToHttpsForApi(u.avatar ?? null) ?? u.avatar ?? null,
+      coverImageUrl: upgradeHttpToHttpsForApi(u.coverImage ?? null) ?? u.coverImage ?? null,
       bio: u.bio ?? null,
       isPremiumBroker: u.isPremiumBroker,
       brokerLeadNotificationEnabled: u.brokerLeadNotificationEnabled,
@@ -330,8 +331,8 @@ export class UsersService {
       id: user.id,
       name: user.name,
       role: ensureUserRole(user.role),
-      avatar: user.avatar,
-      coverImage: user.coverImage,
+      avatar: upgradeHttpToHttpsForApi(user.avatar) ?? user.avatar,
+      coverImage: upgradeHttpToHttpsForApi(user.coverImage) ?? user.coverImage,
       bio: user.bio,
       city: user.city,
       rating: user.rating,
@@ -340,7 +341,10 @@ export class UsersService {
       followingCount: user._count.following,
       isFollowedByViewer,
       },
-      videos,
+      videos: videos.map((v) => ({
+        ...v,
+        url: upgradeHttpToHttpsForApi(v.url) ?? v.url,
+      })),
       posts,
       properties: properties.map((p) =>
         serializeProperty({ ...p, likes: [] }, viewerId, propertyViewerAccess),
