@@ -6,7 +6,10 @@ import {
   publicShortPropertyWhere,
 } from '../properties/property-listing-scope';
 import { publiclyVisiblePropertyWhere } from '../properties/property-public-visibility';
-import { serializeProperty } from '../properties/properties.serializer';
+import {
+  serializeProperty,
+  type PropertyViewerAccess,
+} from '../properties/properties.serializer';
 
 function normCity(c: string | null | undefined): string {
   return (c ?? '').trim().toLowerCase();
