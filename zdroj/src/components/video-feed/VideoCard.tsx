@@ -29,6 +29,7 @@ export default function VideoCard({ video }: VideoCardProps) {
   const [liked, setLiked] = useState(Boolean(video.liked));
   const [likeBusy, setLikeBusy] = useState(false);
   const [sellerModalOpen, setSellerModalOpen] = useState(false);
+  const [sellerActionHint, setSellerActionHint] = useState<string | null>(null);
 
   useEffect(() => {
     setLiked(Boolean(video.liked));
@@ -85,8 +86,6 @@ export default function VideoCard({ video }: VideoCardProps) {
   const isOwner = Boolean(
     user?.id && ownerId && String(user.id).trim() === String(ownerId).trim(),
   );
-  /** Zpráva prodejci i bez userId ve feedu — backend řeší vlastníka přes propertyId. */
-  const showSellerMessage = !isOwner;
   const coverStill =
     ((video.images ?? []).find((u) => typeof u === 'string' && u.trim()) ?? '').trim() ||
     (video.imageUrl ?? '').trim() ||
@@ -112,6 +111,11 @@ export default function VideoCard({ video }: VideoCardProps) {
   function handleWriteSeller() {
     if (!isAuthenticated || !apiAccessToken) {
       redirectToLogin();
+      return;
+    }
+    if (isOwner) {
+      setSellerActionHint('Toto je váš vlastní inzerát.');
+      window.setTimeout(() => setSellerActionHint(null), 5000);
       return;
     }
     setSellerModalOpen(true);
@@ -162,17 +166,15 @@ export default function VideoCard({ video }: VideoCardProps) {
             />
           </button>
 
-          {showSellerMessage ? (
-            <button
-              type="button"
-              onClick={handleWriteSeller}
-              className={railMessageBtn}
-              aria-label="Napsat prodejci"
-              title="Napsat prodejci"
-            >
-              <Mail className="size-6" strokeWidth={2.25} aria-hidden />
-            </button>
-          ) : null}
+          <button
+            type="button"
+            onClick={handleWriteSeller}
+            className={railMessageBtn}
+            aria-label="Napsat prodejci"
+            title="Napsat prodejci"
+          >
+            <Mail className="size-6" strokeWidth={2.25} aria-hidden />
+          </button>
 
           <ShareButtons title={shareTitle} url={shareUrl} variant="videoRail" />
 
@@ -210,15 +212,18 @@ export default function VideoCard({ video }: VideoCardProps) {
                 </div>
               </div>
 
-              {showSellerMessage ? (
-                <button
-                  type="button"
-                  onClick={handleWriteSeller}
-                  className="flex w-full min-h-[52px] items-center justify-center gap-2 rounded-full border-2 border-orange-200/90 bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-3.5 text-sm font-extrabold tracking-tight text-white shadow-[0_14px_40px_rgba(255,80,0,0.45)] transition hover:brightness-110 active:scale-[0.99] sm:text-base"
-                >
-                  <MessageCircle className="size-6 shrink-0" strokeWidth={2.25} aria-hidden />
-                  Napsat prodejci
-                </button>
+              <button
+                type="button"
+                onClick={handleWriteSeller}
+                className="flex w-full min-h-[52px] items-center justify-center gap-2 rounded-full border-2 border-orange-200/90 bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-3.5 text-sm font-extrabold tracking-tight text-white shadow-[0_14px_40px_rgba(255,80,0,0.45)] transition hover:brightness-110 active:scale-[0.99] sm:text-base"
+              >
+                <MessageCircle className="size-6 shrink-0" strokeWidth={2.25} aria-hidden />
+                Napsat prodejci
+              </button>
+              {sellerActionHint ? (
+                <p className="text-center text-xs font-medium text-amber-200" role="status">
+                  {sellerActionHint}
+                </p>
               ) : null}
 
               <button
@@ -233,21 +238,19 @@ export default function VideoCard({ video }: VideoCardProps) {
         </div>
       </div>
 
-      {showSellerMessage ? (
-        <MessageSellerModal
-          open={sellerModalOpen}
-          onClose={() => setSellerModalOpen(false)}
-          propertyId={video.id}
-          listingTitle={(video.title ?? 'Inzerát').trim() || 'Inzerát'}
-          price={priceNum}
-          location={city || 'Neuvedeno'}
-          coverImageUrl={coverStill}
-          token={apiAccessToken}
-          onSent={(conversationId) => {
-            router.push(`/profil/zpravy/${conversationId}`);
-          }}
-        />
-      ) : null}
+      <MessageSellerModal
+        open={sellerModalOpen}
+        onClose={() => setSellerModalOpen(false)}
+        propertyId={video.id}
+        listingTitle={(video.title ?? 'Inzerát').trim() || 'Inzerát'}
+        price={priceNum}
+        location={city || 'Neuvedeno'}
+        coverImageUrl={coverStill}
+        token={apiAccessToken}
+        onSent={(conversationId) => {
+          router.push(`/profil/zpravy/${conversationId}`);
+        }}
+      />
 
       {error ? (
         <div className="absolute inset-0 z-[50] flex items-center justify-center bg-black text-white">

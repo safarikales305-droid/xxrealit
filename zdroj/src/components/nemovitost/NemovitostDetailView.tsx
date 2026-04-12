@@ -74,6 +74,7 @@ export function NemovitostDetailView({
   const media = useMemo(() => buildMediaList(p), [p]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [sellerModalOpen, setSellerModalOpen] = useState(false);
+  const [sellerActionHint, setSellerActionHint] = useState<string | null>(null);
   const [liked, setLiked] = useState(Boolean(p.liked));
   const [likeBusy, setLikeBusy] = useState(false);
   const active = media[activeIndex] ?? media[0];
@@ -110,8 +111,6 @@ export function NemovitostDetailView({
   const isOwner = Boolean(
     user?.id && ownerId && String(user.id).trim() === String(ownerId).trim(),
   );
-  /** Zobrazit i když API nevrátí userId — vlastník se pozná až po načtení; host i přihlášený u cizího inzerátu musí CTA vidět. */
-  const canContactSeller = !isOwner;
   const coverForMessage =
     media.find((m) => m.type === 'image')?.url?.trim() ||
     p.imageUrl?.trim() ||
@@ -136,6 +135,11 @@ export function NemovitostDetailView({
   function handleWriteSeller() {
     if (!isAuthenticated || !apiAccessToken) {
       redirectToLoginForMessages();
+      return;
+    }
+    if (isOwner) {
+      setSellerActionHint('Toto je váš vlastní inzerát.');
+      window.setTimeout(() => setSellerActionHint(null), 5000);
       return;
     }
     setSellerModalOpen(true);
@@ -265,11 +269,14 @@ export function NemovitostDetailView({
                   Rychlé akce
                 </p>
                 <div className="mt-3 flex flex-col gap-3">
-                  {canContactSeller ? (
-                    <button type="button" onClick={handleWriteSeller} className={primaryMessageClass}>
-                      <MessageCircle className="size-6 shrink-0" strokeWidth={2.25} aria-hidden />
-                      Odeslat zprávu prodejci
-                    </button>
+                  <button type="button" onClick={handleWriteSeller} className={primaryMessageClass}>
+                    <MessageCircle className="size-6 shrink-0" strokeWidth={2.25} aria-hidden />
+                    Odeslat zprávu prodejci
+                  </button>
+                  {sellerActionHint ? (
+                    <p className="text-sm font-medium text-amber-800" role="status">
+                      {sellerActionHint}
+                    </p>
                   ) : null}
                   <div className="flex flex-wrap items-center gap-3">
                     <button
@@ -341,12 +348,10 @@ export function NemovitostDetailView({
             <p className="mt-2 text-sm text-zinc-600">
               Domluvte si prohlídku nebo doplňující informace u inzerenta.
             </p>
-            {canContactSeller ? (
-              <button type="button" onClick={handleWriteSeller} className={`${primaryMessageClass} mt-4`}>
-                <MessageCircle className="size-5 shrink-0 sm:size-6" strokeWidth={2.25} aria-hidden />
-                Odeslat zprávu prodejci
-              </button>
-            ) : null}
+            <button type="button" onClick={handleWriteSeller} className={`${primaryMessageClass} mt-4`}>
+              <MessageCircle className="size-5 shrink-0 sm:size-6" strokeWidth={2.25} aria-hidden />
+              Odeslat zprávu prodejci
+            </button>
           </div>
           {other.length > 0 ? (
             <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
@@ -380,21 +385,19 @@ export function NemovitostDetailView({
         </aside>
       </div>
 
-      {canContactSeller ? (
-        <MessageSellerModal
-          open={sellerModalOpen}
-          onClose={() => setSellerModalOpen(false)}
-          propertyId={propertyId}
-          listingTitle={p.title}
-          price={p.price}
-          location={p.location}
-          coverImageUrl={coverForMessage}
-          token={apiAccessToken}
-          onSent={(conversationId) => {
-            router.push(`/profil/zpravy/${conversationId}`);
-          }}
-        />
-      ) : null}
+      <MessageSellerModal
+        open={sellerModalOpen}
+        onClose={() => setSellerModalOpen(false)}
+        propertyId={propertyId}
+        listingTitle={p.title}
+        price={p.price}
+        location={p.location}
+        coverImageUrl={coverForMessage}
+        token={apiAccessToken}
+        onSent={(conversationId) => {
+          router.push(`/profil/zpravy/${conversationId}`);
+        }}
+      />
     </div>
   );
 }

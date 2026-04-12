@@ -39,6 +39,7 @@ export function ShortsFeed({ items }: Props) {
   const router = useRouter();
   const { user, isAuthenticated, apiAccessToken } = useAuth();
   const [sellerClip, setSellerClip] = useState<Clip | null>(null);
+  const [sellerActionHint, setSellerActionHint] = useState<string | null>(null);
 
   const clips = useMemo<Clip[]>(() => {
     return items
@@ -168,27 +169,39 @@ export function ShortsFeed({ items }: Props) {
         router.push(`/prihlaseni?redirect=${encodeURIComponent(path)}`);
         return;
       }
+      const ownerListingUserId = (clip.userId ?? '').trim();
+      const isListingOwner = Boolean(
+        user?.id &&
+          ownerListingUserId &&
+          String(user.id).trim() === String(ownerListingUserId).trim(),
+      );
+      if (isListingOwner) {
+        setSellerActionHint('Toto je váš vlastní inzerát.');
+        window.setTimeout(() => setSellerActionHint(null), 5000);
+        return;
+      }
       setSellerClip(clip);
     },
-    [apiAccessToken, isAuthenticated, router],
+    [apiAccessToken, isAuthenticated, router, user?.id],
   );
 
   return (
     <div
       ref={containerRef}
-      className="h-full min-h-0 w-full snap-y snap-mandatory overflow-x-hidden overflow-y-scroll scroll-smooth overscroll-y-contain"
+      className="relative h-full min-h-0 w-full snap-y snap-mandatory overflow-x-hidden overflow-y-scroll scroll-smooth overscroll-y-contain"
     >
+      {sellerActionHint ? (
+        <div
+          className="pointer-events-none fixed bottom-28 left-1/2 z-[60] max-w-sm -translate-x-1/2 rounded-xl border border-white/20 bg-black/80 px-4 py-2 text-center text-xs font-semibold text-amber-100 shadow-lg backdrop-blur-md sm:bottom-32"
+          role="status"
+        >
+          {sellerActionHint}
+        </div>
+      ) : null}
       {clips.map((c) => {
         const isActive = activeId === c.id;
         const muted = mutedById[c.id] !== false;
         const showProfileLink = !!c.userId;
-        const ownerListingUserId = (c.userId ?? '').trim();
-        const viewerIsKnownOwner = Boolean(
-          user?.id &&
-            ownerListingUserId &&
-            String(user.id).trim() === String(ownerListingUserId).trim(),
-        );
-        const showSellerMessage = !viewerIsKnownOwner;
 
         return (
           <section
@@ -291,17 +304,15 @@ export function ShortsFeed({ items }: Props) {
                 </span>
                 <CommentsPlaceholder />
               </div>
-              {showSellerMessage ? (
-                <button
-                  type="button"
-                  aria-label="Napsat prodejci"
-                  title="Napsat prodejci"
-                  onClick={() => handleWriteSeller(c)}
-                  className={glowBtnBase}
-                >
-                  <Mail className="size-6" strokeWidth={2.25} aria-hidden />
-                </button>
-              ) : null}
+              <button
+                type="button"
+                aria-label="Napsat prodejci"
+                title="Napsat prodejci"
+                onClick={() => handleWriteSeller(c)}
+                className={glowBtnBase}
+              >
+                <Mail className="size-6" strokeWidth={2.25} aria-hidden />
+              </button>
             </div>
           </section>
         );
