@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   nestApiConfigured,
   nestCreatePropertyListingMultipart,
+  nestGeneratePropertyShortsFromPhotos,
 } from '@/lib/nest-client';
 
 const inputClass =
@@ -54,6 +55,14 @@ export function ListingCreateForm() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
+  const [shortsMusicKey, setShortsMusicKey] = useState<
+    'none' | 'demo_soft' | 'demo_warm' | 'demo_pulse'
+  >('demo_soft');
+  const [shortsTextOverlay, setShortsTextOverlay] = useState(true);
+  const [shortsGenerating, setShortsGenerating] = useState(false);
+  const [shortsError, setShortsError] = useState<string | null>(null);
+  const [shortsSuccess, setShortsSuccess] = useState<string | null>(null);
+
   const onPickImageFiles = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const list = e.target.files;
     if (!list?.length) return;
@@ -88,6 +97,8 @@ export function ListingCreateForm() {
     if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
     setVideoFile(file);
     setVideoPreviewUrl(URL.createObjectURL(file));
+    setVideoUrl('');
+    setShortsSuccess(null);
     setError(null);
     e.target.value = '';
   }, [videoPreviewUrl]);
@@ -129,6 +140,66 @@ export function ListingCreateForm() {
       return prev.filter((_, i) => i !== index);
     });
   }, []);
+
+  const generateShortsFromPhotos = useCallback(async () => {
+    setShortsError(null);
+    setShortsSuccess(null);
+    if (!nestApiConfigured() || !apiAccessToken) {
+      setShortsError('Přihlaste se a nastavte NEXT_PUBLIC_API_URL.');
+      return;
+    }
+    if (imagePreviews.length < 2) {
+      setShortsError('Přidejte alespoň dvě fotky.');
+      return;
+    }
+    if (shortsTextOverlay) {
+      const t = title.trim();
+      const c = city.trim();
+      const priceNum = Math.round(Number(price));
+      if (!t || !c || !Number.isFinite(priceNum) || priceNum < 0) {
+        setShortsError(
+          'Pro text ve videu nejdřív vyplňte titulek, město a cenu v sekci výše.',
+        );
+        return;
+      }
+    }
+
+    const fd = new FormData();
+    fd.append('title', title.trim());
+    fd.append('city', city.trim());
+    fd.append('price', String(Math.round(Number(price)) || 0));
+    fd.append('currency', currency.trim() || 'CZK');
+    fd.append('musicKey', shortsMusicKey);
+    fd.append('includeTextOverlay', String(shortsTextOverlay));
+    for (const img of imagePreviews) {
+      fd.append('images', img.file);
+    }
+
+    setShortsGenerating(true);
+    const r = await nestGeneratePropertyShortsFromPhotos(apiAccessToken, fd);
+    setShortsGenerating(false);
+    if (!r.ok) {
+      setShortsError(r.error ?? 'Generování selhalo.');
+      return;
+    }
+    if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+    setVideoFile(null);
+    setVideoPreviewUrl(null);
+    setVideoUrl(r.videoUrl);
+    setShortsSuccess(
+      'Shorts video je hotové a bude použito ve shorts feedu po uložení inzerátu.',
+    );
+  }, [
+    apiAccessToken,
+    city,
+    currency,
+    imagePreviews,
+    price,
+    shortsMusicKey,
+    shortsTextOverlay,
+    title,
+    videoPreviewUrl,
+  ]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -236,6 +307,8 @@ export function ListingCreateForm() {
     setVideoPreviewUrl(null);
     setVideoFile(null);
     setVideoUrl('');
+    setShortsSuccess(null);
+    setShortsError(null);
     setAddress('');
     setCity('');
     setSubType('');
@@ -617,6 +690,115 @@ export function ListingCreateForm() {
         ) : (
           <p className="mt-2 text-xs text-zinc-500">Zatím žádné vybrané fotky.</p>
         )}
+
+        {imagePreviews.length >= 2 ? (
+          <div
+            className={`mt-6 rounded-2xl border p-4 ${
+              videoFile
+                ? 'border-zinc-200 bg-zinc-50/80'
+                : 'border-[#ff6a00]/35 bg-gradient-to-br from-orange-50/90 to-white'
+            }`}
+          >
+            <p className="text-sm font-semibold text-zinc-900">Nemáte vlastní video?</p>
+            <p className="mt-1 text-sm text-zinc-600">
+              Vytvoříme vám krátké vertikální shorts (9:16, MP4) z nahraných fotek — plynulé přechody,
+              volitelná demo hudba a text s titulkem, lokalitou a cenou.
+            </p>
+            {videoFile ? (
+              <p className="mt-2 text-xs text-zinc-500">
+                Máte nahrané vlastní video. Po vygenerování shorts se nahrané video zruší a použije se
+                nové z fotek.
+              </p>
+            ) : null}
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <label className={labelClass} htmlFor="shortsMusic">
+                  Vyberte hudbu
+                </label>
+                <select
+                  id="shortsMusic"
+                  value={shortsMusicKey}
+                  onChange={(e) =>
+                    setShortsMusicKey(
+                      e.target.value as 'none' | 'demo_soft' | 'demo_warm' | 'demo_pulse',
+                    )
+                  }
+                  disabled={shortsGenerating}
+                  className={inputClass}
+                >
+                  <option value="none">Bez hudby</option>
+                  <option value="demo_soft">Demo jemná linka (220 Hz)</option>
+                  <option value="demo_warm">Demo teplejší tón (330 Hz)</option>
+                  <option value="demo_pulse">Demo dvojtónový podklad</option>
+                </select>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Jednoduché generované stopy vhodné jen jako ukázka — později půjde doplnit vlastní
+                  knihovna skladeb.
+                </p>
+              </div>
+              <label className="flex cursor-pointer items-start gap-2 text-sm text-zinc-800 sm:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={shortsTextOverlay}
+                  onChange={(e) => setShortsTextOverlay(e.target.checked)}
+                  disabled={shortsGenerating}
+                  className="mt-0.5 size-4 rounded border-zinc-300 text-[#ff6a00] focus:ring-[#ff6a00]/30"
+                />
+                <span>
+                  Přidat text do videa (název inzerátu, město, cena) — jednoduchý přehledný overlay
+                  dole u záběru.
+                </span>
+              </label>
+            </div>
+
+            {shortsError ? (
+              <div
+                className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                role="alert"
+              >
+                {shortsError}
+              </div>
+            ) : null}
+            {shortsSuccess ? (
+              <div
+                className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900"
+                role="status"
+              >
+                {shortsSuccess}
+              </div>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={() => void generateShortsFromPhotos()}
+              disabled={shortsGenerating}
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#ff6a00]/40 bg-white px-4 py-3 text-sm font-semibold text-[#ff3c00] shadow-sm transition hover:bg-orange-50 disabled:opacity-60 sm:w-auto"
+            >
+              {shortsGenerating ? (
+                <span className="inline-block size-4 animate-spin rounded-full border-2 border-[#ff6a00] border-t-transparent" />
+              ) : null}
+              {shortsGenerating ? 'Generuji video…' : 'Vygenerovat shorts video z fotek'}
+            </button>
+          </div>
+        ) : null}
+
+        {videoUrl.trim().startsWith('https://') && !videoFile ? (
+          <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
+            <div className="relative">
+              <video
+                src={videoUrl.trim()}
+                controls
+                playsInline
+                className="h-auto max-h-[420px] w-full object-contain bg-black"
+              />
+              <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-semibold text-white">
+                Shorts / odkaz na video
+              </span>
+            </div>
+          </div>
+        ) : null}
+
         <div className="mt-6">
           <label className={labelClass} htmlFor="videoUrl">
             🎥 Odkaz na video (volitelné)

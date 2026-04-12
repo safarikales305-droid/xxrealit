@@ -19,12 +19,14 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { propertyMediaMemoryMulterOptions } from '../upload/multer-upload.config';
 import { CreatePropertyDto } from './dto/create-property.dto';
+import { ListingShortsFromPhotosService } from './listing-shorts-from-photos.service';
 import { PropertiesService } from './properties.service';
 
 @Controller('properties')
 export class PropertiesController {
   constructor(
     private readonly propertiesService: PropertiesService,
+    private readonly listingShortsFromPhotosService: ListingShortsFromPhotosService,
     private readonly jwt: JwtService,
   ) {}
 
@@ -32,6 +34,67 @@ export class PropertiesController {
   @Get('following')
   followingFeed(@CurrentUser() user: AuthUser) {
     return this.propertiesService.findFromFollowedUsers(user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('generate-shorts-from-photos')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [{ name: 'images', maxCount: 30 }],
+      propertyMediaMemoryMulterOptions,
+    ),
+  )
+  async generateShortsFromPhotos(
+    @Body() body: Record<string, unknown>,
+    @UploadedFiles()
+    files?: { images?: Express.Multer.File[] },
+  ) {
+    const imageFiles = files?.images ?? [];
+    if (imageFiles.length > 30) {
+      throw new BadRequestException('Max 30 fotek');
+    }
+    for (const image of imageFiles) {
+      const ext = extname(image.originalname || '').toLowerCase();
+      if (!['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext)) {
+        throw new BadRequestException('Nepovolený formát obrázku');
+      }
+    }
+
+    const str = (v: unknown, fallback = '') =>
+      typeof v === 'string' ? v : fallback;
+    const toInt = (v: unknown): number => {
+      if (typeof v !== 'string') return NaN;
+      const n = Number.parseInt(v.replace(/\s/g, ''), 10);
+      return Number.isFinite(n) ? n : NaN;
+    };
+
+    const title = str(body.title).trim();
+    const city = str(body.city).trim();
+    const priceRaw = toInt(body.price);
+    const price = Number.isFinite(priceRaw) && priceRaw >= 0 ? priceRaw : 0;
+    const currency = str(body.currency, 'CZK').trim() || 'CZK';
+    const musicKey = ListingShortsFromPhotosService.parseMusicKey(body.musicKey);
+    const includeTextOverlay = ListingShortsFromPhotosService.parseBool(
+      body.includeTextOverlay,
+    );
+
+    if (includeTextOverlay) {
+      if (!title || !city || !Number.isFinite(priceRaw) || priceRaw < 0) {
+        throw new BadRequestException(
+          'Pro text ve videu vyplňte titulek, město a platnou cenu.',
+        );
+      }
+    }
+
+    return this.listingShortsFromPhotosService.generateAndUpload({
+      images: imageFiles,
+      title,
+      city,
+      price,
+      currency,
+      musicKey,
+      includeTextOverlay,
+    });
   }
 
   @Get()

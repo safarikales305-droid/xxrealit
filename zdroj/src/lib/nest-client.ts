@@ -634,6 +634,44 @@ export async function nestCreatePropertyListingMultipart(
   }
 }
 
+/** POST /properties/generate-shorts-from-photos — JWT, multipart `images[]` + textová pole. */
+export async function nestGeneratePropertyShortsFromPhotos(
+  token: string | null,
+  formData: FormData,
+): Promise<{ ok: true; videoUrl: string } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  try {
+    const res = await fetch(`${API_BASE_URL}/properties/generate-shorts-from-photos`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+      },
+      body: formData,
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      videoUrl?: string;
+      message?: string | string[];
+      error?: string;
+    };
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    const url = typeof data.videoUrl === 'string' ? data.videoUrl.trim() : '';
+    if (!url) {
+      return { ok: false, error: 'Server nevrátil odkaz na video.' };
+    }
+    return { ok: true, videoUrl: url };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
 /**
  * POST /upload/avatar (soubor) → PATCH /users/avatar { avatarUrl }.
  */

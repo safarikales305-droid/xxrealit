@@ -80,4 +80,18 @@ export class PropertyMediaCloudinaryService {
     initCloudinary();
     return uploadPropertyVideoBuffer(file);
   }
+
+  /** Nahraje hotové MP4 (např. vygenerované shorts) stejným pipeline jako uživatelské video. */
+  async uploadVideoBuffer(buffer: Buffer, originalname = 'shorts.mp4'): Promise<string> {
+    initCloudinary();
+    const file = {
+      fieldname: 'video',
+      originalname,
+      encoding: '7bit',
+      mimetype: 'video/mp4',
+      buffer,
+      size: buffer.length,
+    } as Express.Multer.File;
+    return uploadPropertyVideoBuffer(file);
+  }
 }
