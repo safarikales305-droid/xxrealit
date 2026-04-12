@@ -68,11 +68,100 @@ export function Navbar({
 
   return (
     <header className="sticky top-0 z-50 w-full max-w-[100vw] shrink-0 border-b border-zinc-200 bg-white pt-[max(0.25rem,env(safe-area-inset-top))] shadow-[0_1px_0_rgba(0,0,0,0.04)]">
+      {isShortsMobileCompact && viewMode != null && onViewModeChange != null ? (
+        <div className="mx-auto hidden w-full max-w-[100rem] min-w-0 px-3 pb-2 pt-1 max-md:block md:hidden">
+          <div className="flex w-full min-w-0 items-center gap-1.5">
+            <div className="shrink-0 [&_img]:h-[1.35rem]">
+              <Link
+                href="/"
+                className="outline-none ring-offset-2 ring-offset-white transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[#ff6a00]/45"
+                aria-label="XXrealit — domů"
+              >
+                <Logo />
+              </Link>
+            </div>
+            <div className="no-scrollbar flex min-w-0 flex-1 items-stretch gap-0.5 overflow-x-hidden rounded-lg bg-zinc-100 p-0.5">
+              <button
+                type="button"
+                onClick={() => onViewModeChange('shorts')}
+                className={`min-w-0 flex-1 truncate rounded-md px-1 py-1.5 text-center text-[10px] font-semibold leading-tight transition sm:text-[11px] ${
+                  viewMode === 'shorts'
+                    ? 'bg-orange-500 text-white shadow-sm'
+                    : 'text-zinc-600 hover:text-zinc-900'
+                }`}
+              >
+                Shorts
+              </button>
+              <button
+                type="button"
+                onClick={() => onViewModeChange('classic')}
+                className={`min-w-0 flex-1 truncate rounded-md px-1 py-1.5 text-center text-[10px] font-semibold leading-tight transition sm:text-[11px] ${
+                  viewMode === 'classic'
+                    ? 'bg-orange-500 text-white shadow-sm'
+                    : 'text-zinc-600 hover:text-zinc-900'
+                }`}
+              >
+                Klasik
+              </button>
+              <button
+                type="button"
+                onClick={() => onViewModeChange('posts')}
+                className={`min-w-0 flex-1 truncate rounded-md px-1 py-1.5 text-center text-[10px] font-semibold leading-tight transition sm:text-[11px] ${
+                  viewMode === 'posts'
+                    ? 'bg-orange-500 text-white shadow-sm'
+                    : 'text-zinc-600 hover:text-zinc-900'
+                }`}
+              >
+                Příspěvky
+              </button>
+            </div>
+            <button
+              type="button"
+              className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-800"
+              aria-expanded={menuOpen}
+              aria-label={menuOpen ? 'Zavřít menu' : 'Otevřít menu'}
+              onClick={() => setMenuOpen((o) => !o)}
+            >
+              {menuOpen ? (
+                <span className="text-lg leading-none">×</span>
+              ) : (
+                <span className="flex flex-col gap-1" aria-hidden>
+                  <span className="block h-0.5 w-[1.15rem] rounded-full bg-zinc-700" />
+                  <span className="block h-0.5 w-[1.15rem] rounded-full bg-zinc-700" />
+                  <span className="block h-0.5 w-[1.15rem] rounded-full bg-zinc-700" />
+                </span>
+              )}
+            </button>
+            <Link
+              href={!isLoading && isAuthenticated ? profilePath : '/login'}
+              className="relative z-[60] flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-zinc-200 bg-zinc-100 text-xs font-bold text-zinc-700 shadow-sm ring-1 ring-orange-500/20 transition hover:ring-orange-500/35 active:scale-[0.98]"
+              aria-label={!isLoading && isAuthenticated ? 'Můj profil' : 'Přihlásit'}
+            >
+              {avatarSrc ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={avatarSrc}
+                  alt=""
+                  className="size-full rounded-full object-cover object-center"
+                  width={36}
+                  height={36}
+                  decoding="async"
+                />
+              ) : (
+                <span className="flex size-full items-center justify-center rounded-full bg-gradient-to-br from-orange-100 to-zinc-200 text-xs">
+                  {user?.email?.trim().charAt(0).toUpperCase() || 'A'}
+                </span>
+              )}
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
       <div
-        className={`mx-auto flex w-full max-w-[100rem] min-w-0 flex-wrap items-center justify-between gap-x-2 overflow-x-clip px-4 md:min-h-16 md:gap-3 md:overflow-visible md:px-4 md:py-2.5 ${
+        className={`mx-auto w-full max-w-[100rem] min-w-0 flex-wrap items-center justify-between gap-x-2 overflow-x-clip px-4 md:min-h-16 md:flex md:gap-3 md:overflow-visible md:px-4 md:py-2.5 ${
           isShortsMobileCompact
-            ? 'min-h-12 gap-y-1 py-2 max-md:min-h-12 max-md:py-2'
-            : 'min-h-14 gap-y-2 py-3'
+            ? 'hidden min-h-12 gap-y-1 py-2 max-md:min-h-0 max-md:py-0 md:flex md:flex-wrap md:items-center'
+            : 'flex min-h-14 gap-y-2 py-3'
         }`}
       >
         <div className="flex shrink-0 items-center">
@@ -85,7 +174,11 @@ export function Navbar({
           </Link>
         </div>
 
-        <div className="relative min-w-0 flex-1 basis-[min(100%,12rem)] sm:min-w-[180px] md:max-w-xl">
+        <div
+          className={`relative min-w-0 flex-1 basis-[min(100%,12rem)] sm:min-w-[180px] md:max-w-xl ${
+            isShortsMobileCompact ? 'max-md:hidden' : ''
+          }`}
+        >
           <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-zinc-400 md:left-3 md:text-sm">
             ⌕
           </span>
@@ -106,7 +199,9 @@ export function Navbar({
         <div className="flex shrink-0 flex-nowrap items-center gap-2 md:flex-wrap md:gap-3">
           <button
             type="button"
-            className="flex size-10 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-800 md:hidden"
+            className={`flex size-10 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-800 md:hidden ${
+              isShortsMobileCompact ? 'max-md:hidden' : ''
+            }`}
             aria-expanded={menuOpen}
             aria-label={menuOpen ? 'Zavřít menu' : 'Otevřít menu'}
             onClick={() => setMenuOpen((o) => !o)}
@@ -122,7 +217,7 @@ export function Navbar({
             )}
           </button>
 
-          {onMobileFiltersOpen ? (
+          {onMobileFiltersOpen && !isShortsMobileCompact ? (
             <button
               type="button"
               onClick={onMobileFiltersOpen}
@@ -136,7 +231,7 @@ export function Navbar({
             <div
               className={`no-scrollbar flex flex-nowrap items-center gap-0.5 overflow-x-auto rounded-xl bg-zinc-100 p-1 sm:max-w-none sm:flex-wrap md:gap-1 ${
                 isShortsMobileCompact
-                  ? 'max-w-[min(100%,11.5rem)] max-md:p-0.5'
+                  ? 'max-md:hidden max-w-[min(100%,11.5rem)] max-md:max-w-none md:max-w-none md:p-1'
                   : 'max-w-[min(100%,14rem)]'
               }`}
             >
@@ -256,7 +351,7 @@ export function Navbar({
                 Přidat
               </Link>
 
-              {/* Na mobilu ve shorts je CTA plovoucí nad feedem — viz VideoFeed. */}
+              {/* Na mobilu ve shorts je „+“ v pravém sloupci videa (VideoCard). */}
               {viewMode !== 'shorts' ? (
                 <Link
                   href="/inzerat/pridat"
@@ -273,7 +368,7 @@ export function Navbar({
             href={!isLoading && isAuthenticated ? profilePath : '/login'}
             className={`relative z-[60] flex shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-zinc-100 font-bold text-zinc-700 transition hover:ring-orange-500/35 active:scale-[0.98] md:size-10 md:text-sm md:shadow-sm md:ring-1 md:ring-zinc-200/80 ${
               isShortsMobileCompact
-                ? 'size-10 shadow-md ring-1 ring-orange-500/25 max-md:size-9 max-md:border max-md:text-xs max-md:shadow-sm'
+                ? 'hidden size-10 shadow-md ring-1 ring-orange-500/25 md:inline-flex'
                 : 'size-12 text-sm shadow-[0_4px_14px_-2px_rgba(0,0,0,0.2)] ring-2 ring-orange-500/15 md:size-10'
             }`}
             aria-label={!isLoading && isAuthenticated ? 'Můj profil' : 'Přihlásit'}

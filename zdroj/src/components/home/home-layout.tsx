@@ -594,7 +594,15 @@ export function HomeLayout({
                     </p>
                   </div>
                 ) : videosForFeed.length > 0 ? (
-                  <VideoFeed key={sharedVideoId ?? 'feed'} videos={videosForFeed} />
+                  <VideoFeed
+                    key={sharedVideoId ?? 'feed'}
+                    videos={videosForFeed}
+                    onMobileFiltersOpen={
+                      viewMode === 'shorts'
+                        ? () => setMobileFiltersOpen(true)
+                        : undefined
+                    }
+                  />
                 ) : filteredShortsFallback.length > 0 ? (
                   <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain">
                     <p className="shrink-0 border-b border-zinc-200 bg-white px-4 py-2.5 text-center text-[13px] text-zinc-600">

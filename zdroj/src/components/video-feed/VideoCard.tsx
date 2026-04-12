@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Heart, Mail, MessageCircle, Volume2, VolumeX } from 'lucide-react';
+import { Filter, Heart, Mail, MessageCircle, Plus, Volume2, VolumeX } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { absoluteShareUrl } from '@/lib/public-share-url';
@@ -12,6 +13,8 @@ import { nestToggleFavorite, type ShortVideo } from '@/lib/nest-client';
 
 type VideoCardProps = {
   video: ShortVideo;
+  /** Mobil shorts: otevře panel filtrů (tlačítko v levém horním rohu videa). */
+  onMobileFiltersOpen?: () => void;
 };
 
 const railBtn =
@@ -20,9 +23,9 @@ const railBtn =
 /** Obálka / zpráva prodejci — stejná velikost jako rail, výrazný oranžový akcent. */
 const railMessageBtn = `${railBtn} border-orange-400/70 bg-black/70 text-orange-100 hover:border-orange-300 hover:bg-orange-600/90 hover:text-white`;
 
-export default function VideoCard({ video }: VideoCardProps) {
+export default function VideoCard({ video, onMobileFiltersOpen }: VideoCardProps) {
   const router = useRouter();
-  const { user, isAuthenticated, apiAccessToken } = useAuth();
+  const { user, isAuthenticated, isLoading, apiAccessToken } = useAuth();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [error, setError] = useState(false);
   const [muted, setMuted] = useState(true);
@@ -154,8 +157,20 @@ export default function VideoCard({ video }: VideoCardProps) {
           }}
         />
 
-        {/* Pravý sloup — oblíbené, obálka (zpráva prodejci), sdílet, zvuk */}
-        <div className="pointer-events-auto absolute right-2 z-[35] flex flex-col items-center gap-2.5 max-md:top-[3.85rem] max-md:bottom-[calc(10.25rem+env(safe-area-inset-bottom,0px))] max-md:justify-center sm:right-4 md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:gap-3">
+        {onMobileFiltersOpen ? (
+          <button
+            type="button"
+            onClick={onMobileFiltersOpen}
+            className="pointer-events-auto absolute left-[max(0.5rem,env(safe-area-inset-left))] top-[max(0.5rem,env(safe-area-inset-top))] z-[36] inline-flex min-h-[44px] items-center gap-1.5 rounded-full border border-white/45 bg-black/60 px-3 py-2 text-xs font-semibold text-white shadow-[0_6px_24px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-black/75 active:scale-[0.98] md:hidden"
+            aria-label="Filtry"
+          >
+            <Filter className="size-4 shrink-0" strokeWidth={2.25} aria-hidden />
+            Filtry
+          </button>
+        ) : null}
+
+        {/* Pravý sloup — oblíbené, obálka (zpráva prodejci), sdílet, zvuk, (+ přidat inzerát na mobilu) */}
+        <div className="pointer-events-auto absolute right-2 z-[35] flex flex-col items-center gap-2.5 max-md:top-[3.85rem] max-md:bottom-[calc(13.25rem+env(safe-area-inset-bottom,0px))] max-md:justify-center sm:right-4 md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:gap-3">
           <button
             type="button"
             disabled={likeBusy}
@@ -193,6 +208,16 @@ export default function VideoCard({ video }: VideoCardProps) {
               <Volume2 className="size-6" strokeWidth={2.25} />
             )}
           </button>
+
+          {!isLoading && isAuthenticated && user && user.role !== 'ADMIN' ? (
+            <Link
+              href="/inzerat/pridat"
+              className={`${railBtn} max-md:inline-flex border-orange-400/85 bg-gradient-to-br from-[#ff6a00]/95 to-[#ff3c00]/95 text-white hover:brightness-110 md:hidden`}
+              aria-label="Přidat inzerát"
+            >
+              <Plus className="size-6" strokeWidth={2.5} aria-hidden />
+            </Link>
+          ) : null}
         </div>
 
         {/* Spodní panel — uvnitř stage, vždy ke spodní hraně videa / letterboxu */}
