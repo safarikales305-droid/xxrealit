@@ -766,6 +766,7 @@ export type ShortVideo = {
   id: string;
   url?: string;
   videoUrl?: string | null;
+  imageUrl?: string | null;
   title?: string | null;
   price?: number | null;
   city?: string | null;
@@ -857,6 +858,230 @@ export async function nestFetchVideos(): Promise<ShortVideo[]> {
     return Array.isArray(data) ? (data as ShortVideo[]) : [];
   } catch {
     return [];
+  }
+}
+
+/** Shodně s backend `MESSAGE_MAX_LEN`. */
+export const NEST_MESSAGE_BODY_MAX = 1000;
+
+export type NestConversationListItem = {
+  id: string;
+  propertyId: string;
+  propertyTitle: string;
+  propertyPrice: number;
+  propertyCity: string;
+  propertyImageUrl: string | null;
+  counterpart: { id: string; name: string | null; email: string };
+  lastMessage: { body: string; createdAt: string; senderId: string } | null;
+  unreadCount: number;
+};
+
+export type NestConversationDetailMessage = {
+  id: string;
+  body: string;
+  senderId: string;
+  createdAt: string;
+  readAt: string | null;
+};
+
+export type NestConversationDetail = {
+  id: string;
+  property: {
+    id: string;
+    title: string;
+    price: number;
+    city: string;
+    imageUrl: string | null;
+  };
+  counterpart: { id: string; name: string | null; email: string };
+  messages: NestConversationDetailMessage[];
+};
+
+export type NestConversationStub = {
+  id: string;
+  propertyId: string;
+};
+
+function nestErrorMessage(data: unknown, fallback: string): string {
+  if (!data || typeof data !== 'object') return fallback;
+  const o = data as Record<string, unknown>;
+  const m = o.message;
+  if (typeof m === 'string') return m;
+  if (Array.isArray(m) && m.every((x) => typeof x === 'string')) return m.join(', ');
+  if (typeof o.error === 'string') return o.error;
+  return fallback;
+}
+
+export async function nestMessagesUnreadCount(token: string | null): Promise<number> {
+  if (!API_BASE_URL || !token) return 0;
+  try {
+    const res = await fetch(`${API_BASE_URL}/conversations/unread-count`, {
+      cache: 'no-store',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    });
+    if (!res.ok) return 0;
+    const data = (await res.json()) as unknown;
+    if (typeof data === 'number') return Math.max(0, data);
+    if (data && typeof data === 'object' && typeof (data as { count?: unknown }).count === 'number') {
+      return Math.max(0, (data as { count: number }).count);
+    }
+    return 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function nestConversationsList(
+  token: string | null,
+  folder: 'inbox' | 'sent' | 'all',
+): Promise<NestConversationListItem[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/conversations?folder=${encodeURIComponent(folder)}`,
+      {
+        cache: 'no-store',
+        headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+      },
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as unknown;
+    return Array.isArray(data) ? (data as NestConversationListItem[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestGetOrCreateConversation(
+  token: string | null,
+  propertyId: string,
+): Promise<{ ok: true; conversation: NestConversationStub } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  try {
+    const res = await fetch(`${API_BASE_URL}/conversations`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ propertyId }),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return { ok: false, error: nestErrorMessage(data, `HTTP ${res.status}`) };
+    }
+    const id = typeof data.id === 'string' ? data.id : '';
+    const pid = typeof data.propertyId === 'string' ? data.propertyId : propertyId;
+    if (!id) {
+      return { ok: false, error: 'Neočekávaná odpověď serveru' };
+    }
+    return { ok: true, conversation: { id, propertyId: pid } };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestConversationDetail(
+  token: string | null,
+  conversationId: string,
+): Promise<NestConversationDetail | null> {
+  if (!API_BASE_URL || !token) return null;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/conversations/${encodeURIComponent(conversationId)}`,
+      {
+        cache: 'no-store',
+        headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+      },
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as NestConversationDetail;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestSendConversationMessage(
+  token: string | null,
+  conversationId: string,
+  body: string,
+): Promise<
+  | { ok: true; message: { id: string; body: string; senderId: string; createdAt: string } }
+  | { ok: false; error?: string }
+> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const trimmed = body.trim();
+  if (!trimmed.length) {
+    return { ok: false, error: 'Zpráva nesmí být prázdná' };
+  }
+  if (trimmed.length > NEST_MESSAGE_BODY_MAX) {
+    return { ok: false, error: `Maximálně ${NEST_MESSAGE_BODY_MAX} znaků` };
+  }
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/conversations/${encodeURIComponent(conversationId)}/messages`,
+      {
+        method: 'POST',
+        cache: 'no-store',
+        headers: {
+          ...nestAuthHeaders(token),
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ body: trimmed }),
+      },
+    );
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return { ok: false, error: nestErrorMessage(data, `HTTP ${res.status}`) };
+    }
+    const id = typeof data.id === 'string' ? data.id : '';
+    const senderId = typeof data.senderId === 'string' ? data.senderId : '';
+    const b = typeof data.body === 'string' ? data.body : trimmed;
+    const createdAt =
+      data.createdAt instanceof Date
+        ? data.createdAt.toISOString()
+        : typeof data.createdAt === 'string'
+          ? data.createdAt
+          : new Date().toISOString();
+    if (!id) {
+      return { ok: false, error: 'Neočekávaná odpověď serveru' };
+    }
+    return { ok: true, message: { id, body: b, senderId, createdAt } };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestMarkConversationRead(
+  token: string | null,
+  conversationId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/conversations/${encodeURIComponent(conversationId)}/read`,
+      {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+      },
+    );
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      return { ok: false, error: nestErrorMessage(data, `HTTP ${res.status}`) };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
   }
 }
 

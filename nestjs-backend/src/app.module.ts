@@ -14,6 +14,7 @@ import { PropertiesModule } from './modules/properties/properties.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { VideosModule } from './modules/videos/videos.module';
 import { PostsModule } from './modules/posts/posts.module';
+import { MessagesModule } from './modules/messages/messages.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { PostsModule } from './modules/posts/posts.module';
     UploadModule,
     VideosModule,
     PostsModule,
+    MessagesModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

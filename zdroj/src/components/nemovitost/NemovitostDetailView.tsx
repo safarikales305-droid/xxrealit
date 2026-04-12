@@ -3,7 +3,9 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
+import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { ShareButtons } from '@/components/share/ShareButtons';
+import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import type { PropertyDetailAuthor } from '@/lib/property-detail';
@@ -66,8 +68,10 @@ export function NemovitostDetailView({
   extraFields = {},
 }: Props) {
   const router = useRouter();
+  const { user, isAuthenticated, apiAccessToken } = useAuth();
   const media = useMemo(() => buildMediaList(p), [p]);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [sellerModalOpen, setSellerModalOpen] = useState(false);
   const active = media[activeIndex] ?? media[0];
 
   const paramLines = useMemo(() => {
@@ -94,6 +98,15 @@ export function NemovitostDetailView({
 
   const shareUrl = absoluteShareUrl(`/nemovitost/${encodeURIComponent(propertyId)}`);
 
+  const ownerId = String(p.userId ?? author.id).trim();
+  const isOwner = Boolean(user?.id && ownerId && user.id === ownerId);
+  const canContactSeller = Boolean(ownerId) && !isOwner;
+  const coverForMessage =
+    media.find((m) => m.type === 'image')?.url?.trim() ||
+    p.imageUrl?.trim() ||
+    p.images?.find((u) => u.trim()) ||
+    null;
+
   const summaryLine = useMemo(() => {
     const parts: string[] = [];
     const pt = extraFields.propertyType;
@@ -103,6 +116,19 @@ export function NemovitostDetailView({
     else if (typeof ar === 'string' && ar.trim()) parts.push(`${ar} m²`);
     return parts.join(' • ');
   }, [extraFields.area, extraFields.propertyType]);
+
+  function redirectToLoginForMessages() {
+    const path = `/nemovitost/${encodeURIComponent(propertyId)}`;
+    router.push(`/prihlaseni?redirect=${encodeURIComponent(path)}`);
+  }
+
+  function handleWriteSeller() {
+    if (!isAuthenticated || !apiAccessToken) {
+      redirectToLoginForMessages();
+      return;
+    }
+    setSellerModalOpen(true);
+  }
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6">
@@ -216,8 +242,17 @@ export function NemovitostDetailView({
                   <p className="whitespace-pre-wrap">{p.description}</p>
                 </div>
               ) : null}
-              <div className="border-t border-zinc-100 pt-4">
+              <div className="flex flex-col gap-3 border-t border-zinc-100 pt-4 sm:flex-row sm:flex-wrap sm:items-center">
                 <ShareButtons title={p.title} url={shareUrl} variant="pill" label="Sdílet" />
+                {canContactSeller ? (
+                  <button
+                    type="button"
+                    onClick={handleWriteSeller}
+                    className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
+                  >
+                    Napsat prodejci
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>
@@ -254,6 +289,15 @@ export function NemovitostDetailView({
             <p className="mt-2 text-sm text-zinc-600">
               Domluvte si prohlídku nebo doplňující informace u inzerenta.
             </p>
+            {canContactSeller ? (
+              <button
+                type="button"
+                onClick={handleWriteSeller}
+                className="mt-4 w-full rounded-full border border-orange-200 bg-orange-50 py-2.5 text-sm font-semibold text-orange-900 transition hover:bg-orange-100"
+              >
+                Napsat prodejci
+              </button>
+            ) : null}
           </div>
           {other.length > 0 ? (
             <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
@@ -283,6 +327,22 @@ export function NemovitostDetailView({
           )}
         </aside>
       </div>
+
+      {canContactSeller ? (
+        <MessageSellerModal
+          open={sellerModalOpen}
+          onClose={() => setSellerModalOpen(false)}
+          propertyId={propertyId}
+          listingTitle={p.title}
+          price={p.price}
+          location={p.location}
+          coverImageUrl={coverForMessage}
+          token={apiAccessToken}
+          onSent={(conversationId) => {
+            router.push(`/profil/zpravy/${conversationId}`);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

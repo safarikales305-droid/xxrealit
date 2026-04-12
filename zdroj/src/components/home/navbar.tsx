@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Logo from '@/components/Logo';
 import { useAuth } from '@/hooks/use-auth';
+import { useMessagesUnreadCount } from '@/hooks/use-messages-unread';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 
 export type ViewMode = 'shorts' | 'classic' | 'posts';
@@ -28,10 +29,12 @@ export function Navbar({
   onMobileFiltersOpen,
 }: NavbarProps) {
   const router = useRouter();
-  const { user, isAuthenticated, isLoading, logout, refresh } = useAuth();
+  const { user, isAuthenticated, isLoading, logout, refresh, apiAccessToken } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const unreadMessages = useMessagesUnreadCount(apiAccessToken);
 
   const profilePath = '/profil';
+  const messagesPath = '/profil/zpravy';
   const isAdmin = user?.role === 'ADMIN';
   const avatarSrc =
     user?.avatar && user.avatar.trim().length > 0
@@ -181,6 +184,17 @@ export function Navbar({
                 >
                   Můj profil
                 </Link>
+                <Link
+                  href={messagesPath}
+                  className="relative rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+                >
+                  Zprávy
+                  {unreadMessages > 0 ? (
+                    <span className="absolute -right-0.5 -top-0.5 flex min-w-[1.1rem] items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-bold leading-none text-white">
+                      {unreadMessages > 99 ? '99+' : unreadMessages}
+                    </span>
+                  ) : null}
+                </Link>
                 {isAdmin ? (
                   <Link
                     href="/admin"
@@ -273,6 +287,14 @@ export function Navbar({
                 </button>
                 <Link href={profilePath} className={navBtn} onClick={() => setMenuOpen(false)}>
                   Můj profil
+                </Link>
+                <Link href={messagesPath} className={navBtn} onClick={() => setMenuOpen(false)}>
+                  Zprávy
+                  {unreadMessages > 0 ? (
+                    <span className="ml-2 rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-bold text-white">
+                      {unreadMessages > 99 ? '99+' : unreadMessages}
+                    </span>
+                  ) : null}
                 </Link>
                 {isAdmin ? (
                   <Link href="/admin" className={navBtn} onClick={() => setMenuOpen(false)}>

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PropertyGrid } from '@/components/property-grid';
 import { useAuth } from '@/hooks/use-auth';
+import { useMessagesUnreadCount } from '@/hooks/use-messages-unread';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import {
   nestDeleteCover,
@@ -37,6 +38,7 @@ function assertImageFile(file: File): string | null {
 
 export default function ProfilPage() {
   const { user, isAuthenticated, isLoading, apiAccessToken, refresh, setUser } = useAuth();
+  const unreadMessages = useMessagesUnreadCount(apiAccessToken);
   const [nestAvatar, setNestAvatar] = useState<string | null>(null);
   const [nestCover, setNestCover] = useState<string | null>(null);
   const [nestBio, setNestBio] = useState<string | null>(null);
@@ -436,6 +438,27 @@ export default function ProfilPage() {
               </p>
             ) : null}
           </div>
+        </section>
+
+        <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-zinc-900">Zprávy</h2>
+            {unreadMessages > 0 ? (
+              <span className="rounded-full bg-orange-500 px-2.5 py-0.5 text-xs font-bold text-white">
+                {unreadMessages > 99 ? '99+' : unreadMessages} nových
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-2 text-sm text-zinc-600">
+            Doručené a odeslané zprávy k inzerátům. Po otevření konverzace se nepřečtené označí jako
+            přečtené.
+          </p>
+          <Link
+            href="/profil/zpravy"
+            className="mt-4 inline-flex items-center justify-center rounded-full bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800"
+          >
+            Otevřít schránku
+          </Link>
         </section>
 
         <section className="mt-10">

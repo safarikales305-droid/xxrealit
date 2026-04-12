@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Heart, Volume2, VolumeX } from 'lucide-react';
+import { Heart, MessageCircle, Volume2, VolumeX } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
+import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { nestToggleFavorite, type ShortVideo } from '@/lib/nest-client';
 
 type VideoCardProps = {
@@ -21,6 +22,7 @@ export default function VideoCard({ video }: VideoCardProps) {
   const [muted, setMuted] = useState(true);
   const [liked, setLiked] = useState(Boolean(video.liked));
   const [likeBusy, setLikeBusy] = useState(false);
+  const [sellerModalOpen, setSellerModalOpen] = useState(false);
 
   useEffect(() => {
     setLiked(Boolean(video.liked));
@@ -73,12 +75,37 @@ export default function VideoCard({ video }: VideoCardProps) {
 
   const listingPath = `/nemovitost/${encodeURIComponent(video.id)}?from=shorts`;
 
+  const ownerId = (video.userId ?? video.user?.id ?? '').trim();
+  const isOwner = Boolean(user?.id && ownerId && user.id === ownerId);
+  const canContactSeller = Boolean(ownerId) && !isOwner;
+  const coverStill =
+    ((video.images ?? []).find((u) => typeof u === 'string' && u.trim()) ?? '').trim() ||
+    (video.imageUrl ?? '').trim() ||
+    null;
+  const priceNum = Number(video.price ?? 0);
+
   function handleOpenListing() {
     if (!user) {
       router.push(`/prihlaseni?redirect=${encodeURIComponent(listingPath)}`);
       return;
     }
     router.push(listingPath);
+  }
+
+  function redirectToLoginForMessages() {
+    const path =
+      typeof window !== 'undefined'
+        ? `${window.location.pathname}${window.location.search}`
+        : '/';
+    router.push(`/prihlaseni?redirect=${encodeURIComponent(path)}`);
+  }
+
+  function handleWriteSeller() {
+    if (!isAuthenticated || !apiAccessToken) {
+      redirectToLoginForMessages();
+      return;
+    }
+    setSellerModalOpen(true);
   }
 
   return (
@@ -144,15 +171,43 @@ export default function VideoCard({ video }: VideoCardProps) {
               {Number(video.price ?? 0).toLocaleString('cs-CZ')} Kč
             </span>
           </div>
-          <button
-            type="button"
-            onClick={handleOpenListing}
-            className="pointer-events-auto mt-2 inline-flex items-center rounded-full bg-white/90 px-4 py-2 text-sm font-semibold text-black"
-          >
-            Zobrazit inzerát
-          </button>
+          <div className="pointer-events-auto mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <button
+              type="button"
+              onClick={handleOpenListing}
+              className="inline-flex items-center justify-center rounded-full bg-white/90 px-4 py-2 text-sm font-semibold text-black"
+            >
+              Zobrazit inzerát
+            </button>
+            {canContactSeller ? (
+              <button
+                type="button"
+                onClick={handleWriteSeller}
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-white/40 bg-black/55 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm"
+              >
+                <MessageCircle className="size-4 shrink-0" aria-hidden />
+                Napsat prodejci
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
+
+      {canContactSeller ? (
+        <MessageSellerModal
+          open={sellerModalOpen}
+          onClose={() => setSellerModalOpen(false)}
+          propertyId={video.id}
+          listingTitle={(video.title ?? 'Inzerát').trim() || 'Inzerát'}
+          price={priceNum}
+          location={city || 'Neuvedeno'}
+          coverImageUrl={coverStill}
+          token={apiAccessToken}
+          onSent={(conversationId) => {
+            router.push(`/profil/zpravy/${conversationId}`);
+          }}
+        />
+      ) : null}
 
       {error && (
         <div className="absolute inset-0 flex items-center justify-center bg-black text-white">
