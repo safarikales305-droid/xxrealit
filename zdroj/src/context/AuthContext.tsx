@@ -15,6 +15,8 @@ import { clearPwaInstallDismissed } from '@/lib/pwa-install-storage';
 export type AuthUser = {
   id: string;
   email: string;
+  /** Zobrazované jméno (User.name na backendu, GET /auth/me i /users/me). */
+  name?: string | null;
   role: string;
   createdAt: string;
   avatar?: string | null;
@@ -49,11 +51,20 @@ function normalizeMeUser(raw: unknown): AuthUser | null {
   const coverImage =
     typeof coverRaw === 'string' && coverRaw.trim() ? coverRaw.trim() : null;
   const bio = o.bio === null || typeof o.bio === 'string' ? (o.bio as string | null) : null;
+  const name =
+    o.name === undefined
+      ? undefined
+      : o.name === null || typeof o.name === 'string'
+        ? typeof o.name === 'string'
+          ? o.name.trim() || null
+          : null
+        : undefined;
   const createdAt =
     typeof o.createdAt === 'string' ? o.createdAt : new Date().toISOString();
   return {
     id: o.id,
     email: o.email,
+    name,
     role: o.role,
     createdAt,
     avatar,

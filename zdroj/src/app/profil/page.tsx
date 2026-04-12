@@ -393,7 +393,9 @@ export default function ProfilPage() {
       setAgentBio(ap.bio);
       setAgentLogoUrl(ap.avatarUrl);
     } else {
-      setAgentFullName(user?.name?.trim() || '');
+      setAgentFullName(
+        (nestMe?.name ?? user?.name ?? '').trim() || '',
+      );
       setAgentCompany('');
       setAgentPhone('');
       setAgentWeb('');
