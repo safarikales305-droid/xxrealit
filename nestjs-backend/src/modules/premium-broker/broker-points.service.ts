@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { BROKER_REWARD_CONFIG } from './broker-reward.config';
+import { toPrismaInputJson } from './prisma-json.util';
 
 @Injectable()
 export class BrokerPointsService {
@@ -39,7 +40,7 @@ export class BrokerPointsService {
             action,
             points,
             dedupeKey,
-            meta: meta ?? undefined,
+            ...(meta != null ? { meta: toPrismaInputJson(meta) } : {}),
           },
         });
         const prev = user.brokerPoints;

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { toPrismaInputJson } from './prisma-json.util';
 
 @Injectable()
 export class NotificationsService {
@@ -18,7 +19,7 @@ export class NotificationsService {
         type,
         title,
         body,
-        data: data ?? undefined,
+        ...(data != null ? { data: toPrismaInputJson(data) } : {}),
       },
     });
   }
