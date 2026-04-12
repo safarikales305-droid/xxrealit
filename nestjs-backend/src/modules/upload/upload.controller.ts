@@ -1,7 +1,7 @@
 import {
   BadRequestException,
-  Controller,
   Body,
+  Controller,
   Post,
   UploadedFile,
   UploadedFiles,
@@ -15,14 +15,18 @@ import {
   FileInterceptor,
   FilesInterceptor,
 } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
+import { memoryStorage } from 'multer';
 import * as fs from 'node:fs';
-import { extname } from 'node:path';
+import { extname, join } from 'node:path';
 import { getUploadsPath } from '../../lib/uploads-path';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { propertyImagesMulterOptions } from './multer-upload.config';
+import {
+  PROFILE_UPLOAD_MAX_BYTES,
+  ProfileImagesService,
+} from './profile-images.service';
 
 const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
 const VIDEO_EXT = new Set(['.mp4', '.mov', '.webm', '.m4v', '.avi', '.mkv']);
@@ -36,10 +40,14 @@ const noBodyValidation = new ValidationPipe({
 
 @Controller()
 export class UploadController {
-  constructor() {
+  constructor(private readonly profileImages: ProfileImagesService) {
     const dir = getUploadsPath();
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
+    }
+    for (const sub of ['avatars', 'covers']) {
+      const p = join(dir, sub);
+      if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
     }
   }
 
@@ -48,39 +56,63 @@ export class UploadController {
   @UsePipes(noBodyValidation)
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: diskStorage({
-        destination: (_req, _file, cb) => {
-          const d = getUploadsPath();
-          if (!fs.existsSync(d)) {
-            fs.mkdirSync(d, { recursive: true });
-          }
-          cb(null, d);
-        },
-        filename: (_req, file, cb) => {
-          const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
-          cb(null, unique + extname(file.originalname || '.jpg'));
-        },
-      }),
-      limits: { fileSize: 2 * 1024 * 1024 },
+      storage: memoryStorage(),
+      limits: { fileSize: PROFILE_UPLOAD_MAX_BYTES },
     }),
   )
-  uploadAvatar(
-    @CurrentUser() _user: AuthUser,
+  async uploadAvatar(
+    @CurrentUser() user: AuthUser,
     @UploadedFile() file?: Express.Multer.File,
-  ): { url: string } {
-    console.log('UPLOAD FILE:', file);
-
-    if (!file?.filename) {
-      throw new BadRequestException('File not received (field name must be "file")');
+  ): Promise<{ url: string }> {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException(
+        'Soubor nebyl přijat (pole formuláře musí být pojmenované „file“).',
+      );
     }
-
-    const ext =
-      extname(file.originalname || file.filename).toLowerCase() || '.jpg';
-    if (!IMAGE_EXT.has(ext)) {
-      throw new BadRequestException('Povolené formáty: JPG, PNG, WebP, GIF');
+    if (file.size > PROFILE_UPLOAD_MAX_BYTES) {
+      throw new BadRequestException(
+        `Soubor je příliš velký. Maximální velikost je ${PROFILE_UPLOAD_MAX_BYTES / (1024 * 1024)} MB.`,
+      );
     }
+    this.profileImages.assertImageMime(file.mimetype, file.originalname);
+    const webp = await this.profileImages.processAvatarWebp(file.buffer);
+    const name = `${user.id}-${Date.now()}.webp`;
+    const dir = join(getUploadsPath(), 'avatars');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(join(dir, name), webp);
+    return { url: `/uploads/avatars/${name}` };
+  }
 
-    return { url: `/uploads/${file.filename}` };
+  @Post('upload/cover')
+  @UseGuards(JwtAuthGuard)
+  @UsePipes(noBodyValidation)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: PROFILE_UPLOAD_MAX_BYTES },
+    }),
+  )
+  async uploadCover(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() file?: Express.Multer.File,
+  ): Promise<{ url: string }> {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException(
+        'Soubor nebyl přijat (pole formuláře musí být pojmenované „file“).',
+      );
+    }
+    if (file.size > PROFILE_UPLOAD_MAX_BYTES) {
+      throw new BadRequestException(
+        `Soubor je příliš velký. Maximální velikost je ${PROFILE_UPLOAD_MAX_BYTES / (1024 * 1024)} MB.`,
+      );
+    }
+    this.profileImages.assertImageMime(file.mimetype, file.originalname);
+    const webp = await this.profileImages.processCoverWebp(file.buffer);
+    const name = `${user.id}-${Date.now()}.webp`;
+    const dir = join(getUploadsPath(), 'covers');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(join(dir, name), webp);
+    return { url: `/uploads/covers/${name}` };
   }
 
   @Post('upload')

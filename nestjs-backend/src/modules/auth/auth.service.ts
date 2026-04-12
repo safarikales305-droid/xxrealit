@@ -390,6 +390,7 @@ export class AuthService {
         name: user.name,
         role,
         avatar: (user as any).avatar ?? null,
+        coverImage: (user as any).coverImage ?? null,
         bio: (user as any).bio ?? null,
         city: (user as any).city ?? null,
         createdAt: user.createdAt.toISOString(),

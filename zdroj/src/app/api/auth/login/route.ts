@@ -24,6 +24,8 @@ type NestLoginOk = {
     email?: string;
     role?: string;
     avatar?: string | null;
+    coverImage?: string | null;
+    bio?: string | null;
     createdAt?: string;
   };
 };
@@ -69,6 +71,8 @@ export async function POST(request: Request) {
               email: u.email,
               role: u.role,
               avatar: u.avatar ?? null,
+              coverImage: u.coverImage ?? null,
+              bio: u.bio ?? null,
               createdAt:
                 typeof u.createdAt === 'string'
                   ? u.createdAt
@@ -124,6 +128,8 @@ export async function POST(request: Request) {
       email: user.email,
       role: user.role,
       avatar: user.avatar ?? null,
+      coverImage: (user as { coverImage?: string | null }).coverImage ?? null,
+      bio: user.bio ?? null,
       createdAt: user.createdAt.toISOString(),
     };
 

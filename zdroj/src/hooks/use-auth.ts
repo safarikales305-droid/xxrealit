@@ -6,7 +6,7 @@ import type { UserRole } from '@/lib/roles';
 import { isUserRole } from '@/lib/roles';
 
 export function useAuth() {
-  const { user, loading, refresh, logout } = useAuthContext();
+  const { user, loading, refresh, logout, setUser } = useAuthContext();
 
   const role =
     user?.role && isUserRole(user.role) ? (user.role as UserRole) : undefined;
@@ -15,6 +15,7 @@ export function useAuth() {
 
   return {
     user,
+    setUser,
     status: loading ? 'loading' : user ? 'authenticated' : 'unauthenticated',
     isLoading: loading,
     isAuthenticated: Boolean(user),

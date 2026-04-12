@@ -16,6 +16,7 @@ model User {
   resetExpires                    DateTime?
   name                            String?
   avatar                          String?
+  coverImage                      String?
   bio                             String?
   city                            String?
   rating                          Float             @default(0)

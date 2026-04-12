@@ -12,6 +12,8 @@ type NestMeUser = {
   email?: string;
   role?: string;
   avatar?: string | null;
+  coverImage?: string | null;
+  bio?: string | null;
   createdAt?: string;
 };
 
@@ -49,6 +51,8 @@ export async function GET(request: Request) {
                 email: u.email,
                 role: u.role,
                 avatar: u.avatar ?? null,
+                coverImage: u.coverImage ?? null,
+                bio: u.bio ?? null,
                 createdAt:
                   typeof u.createdAt === 'string'
                     ? u.createdAt
@@ -74,6 +78,8 @@ export async function GET(request: Request) {
         email: true,
         role: true,
         avatar: true,
+        coverImage: true,
+        bio: true,
         createdAt: true,
       },
     });

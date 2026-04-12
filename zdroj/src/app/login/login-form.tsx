@@ -46,6 +46,8 @@ export function LoginForm() {
           role: string;
           createdAt?: string;
           avatar?: string | null;
+          coverImage?: string | null;
+          bio?: string | null;
         };
         session?: {
           user?: {
@@ -54,6 +56,8 @@ export function LoginForm() {
             role: string;
             createdAt: string;
             avatar?: string | null;
+            coverImage?: string | null;
+            bio?: string | null;
           };
         };
       };
@@ -91,6 +95,8 @@ export function LoginForm() {
               role: userPayload.role,
               createdAt: userPayload.createdAt ?? new Date().toISOString(),
               avatar: userPayload.avatar ?? null,
+              coverImage: userPayload.coverImage ?? null,
+              bio: userPayload.bio ?? null,
             }),
           );
         } catch {

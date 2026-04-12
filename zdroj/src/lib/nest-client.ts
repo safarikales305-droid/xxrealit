@@ -87,8 +87,13 @@ export type NestMeProfile = {
   name?: string | null;
   role: string;
   avatarUrl?: string | null;
+  coverImageUrl?: string | null;
+  bio?: string | null;
   createdAt: string;
 };
+
+/** Shodně s backend limitem `PROFILE_UPLOAD_MAX_BYTES` (20 MB). */
+export const NEST_PROFILE_IMAGE_MAX_BYTES = 20 * 1024 * 1024;
 
 export async function nestFetchMe(
   token: string | null,
@@ -568,6 +573,11 @@ export async function nestUploadAvatar(
   if (!API_BASE_URL || !token) {
     return { error: 'API nebo token chybí' };
   }
+  if (file.size > NEST_PROFILE_IMAGE_MAX_BYTES) {
+    return {
+      error: `Soubor je příliš velký (max. ${NEST_PROFILE_IMAGE_MAX_BYTES / (1024 * 1024)} MB).`,
+    };
+  }
   const fd = new FormData();
   fd.append('file', file);
   const up = await fetch(`${API_BASE_URL}/upload/avatar`, {
@@ -622,6 +632,134 @@ export async function nestUploadAvatar(
       ? patchData.avatarUrl
       : url;
   return { avatarUrl };
+}
+
+/**
+ * POST /upload/cover → PATCH /users/cover.
+ * Kompresi provádí backend (`ProfileImagesService` + `sharp`).
+ */
+export async function nestUploadCover(
+  token: string | null,
+  file: File,
+): Promise<{ coverImageUrl?: string; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { error: 'API nebo token chybí' };
+  }
+  if (file.size > NEST_PROFILE_IMAGE_MAX_BYTES) {
+    return {
+      error: `Soubor je příliš velký (max. ${NEST_PROFILE_IMAGE_MAX_BYTES / (1024 * 1024)} MB).`,
+    };
+  }
+  const fd = new FormData();
+  fd.append('file', file);
+  const up = await fetch(`${API_BASE_URL}/upload/cover`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: nestAuthHeaders(token),
+    body: fd,
+  });
+  const upData = (await up.json().catch(() => ({}))) as {
+    url?: string;
+    message?: string | string[];
+  };
+  if (!up.ok) {
+    const msg =
+      typeof upData.message === 'string'
+        ? upData.message
+        : Array.isArray(upData.message)
+          ? upData.message.join(', ')
+          : `HTTP ${up.status}`;
+    return { error: msg };
+  }
+  const url = typeof upData.url === 'string' ? upData.url : '';
+  if (!url) {
+    return { error: 'Server nevrátil URL cover obrázku' };
+  }
+  const patch = await fetch(`${API_BASE_URL}/users/cover`, {
+    method: 'PATCH',
+    cache: 'no-store',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ coverImageUrl: url }),
+  });
+  const patchData = (await patch.json().catch(() => ({}))) as {
+    coverImageUrl?: string | null;
+    message?: string | string[];
+  };
+  if (!patch.ok) {
+    const msg =
+      typeof patchData.message === 'string'
+        ? patchData.message
+        : Array.isArray(patchData.message)
+          ? patchData.message.join(', ')
+          : `HTTP ${patch.status}`;
+    return { error: msg };
+  }
+  const coverImageUrl =
+    typeof patchData.coverImageUrl === 'string'
+      ? patchData.coverImageUrl
+      : url;
+  return { coverImageUrl };
+}
+
+export async function nestDeleteCover(
+  token: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/users/cover`, {
+    method: 'DELETE',
+    cache: 'no-store',
+    headers: nestAuthHeaders(token),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { message?: string | string[] };
+    const msg =
+      typeof data.message === 'string'
+        ? data.message
+        : Array.isArray(data.message)
+          ? data.message.join(', ')
+          : `HTTP ${res.status}`;
+    return { ok: false, error: msg };
+  }
+  return { ok: true };
+}
+
+export async function nestPatchProfileBio(
+  token: string | null,
+  bio: string | null,
+): Promise<{ ok: boolean; bio?: string | null; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/users/profile`, {
+    method: 'PATCH',
+    cache: 'no-store',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ bio }),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    bio?: string | null;
+    message?: string | string[];
+  };
+  if (!res.ok) {
+    const msg =
+      typeof data.message === 'string'
+        ? data.message
+        : Array.isArray(data.message)
+          ? data.message.join(', ')
+          : `HTTP ${res.status}`;
+    return { ok: false, error: msg };
+  }
+  return { ok: true, bio: data.bio ?? null };
 }
 
 export type ShortVideo = {

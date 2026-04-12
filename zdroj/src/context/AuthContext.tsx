@@ -17,6 +17,8 @@ export type AuthUser = {
   role: string;
   createdAt: string;
   avatar?: string | null;
+  coverImage?: string | null;
+  bio?: string | null;
 };
 
 type AuthContextValue = {

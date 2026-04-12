@@ -35,6 +35,8 @@ model User {
   role         UserRole   @default(USER)
   /// Public profile image URL (absolute or same-origin path).
   avatar       String?
+  /// Široký cover obrázek profilu (URL).
+  coverImage   String?
   bio          String?
   /// User's own city (for personalization); separate from listing city.
   city         String?

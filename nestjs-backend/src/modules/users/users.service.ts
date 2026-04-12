@@ -51,6 +51,85 @@ export class UsersService {
         email: true,
         name: true,
         avatar: true,
+        coverImage: true,
+        bio: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+    return { ...updated, role: ensureUserRole(updated.role) };
+  }
+
+  async updateCoverImage(userId: string, coverImageUrl: string) {
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { coverImage: coverImageUrl },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        avatar: true,
+        coverImage: true,
+        bio: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+    return { ...updated, role: ensureUserRole(updated.role) };
+  }
+
+  async clearCoverImage(userId: string) {
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { coverImage: null },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        avatar: true,
+        coverImage: true,
+        bio: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+    return { ...updated, role: ensureUserRole(updated.role) };
+  }
+
+  async updateProfileBio(userId: string, bio: string | null | undefined) {
+    if (bio === undefined) {
+      const u = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          avatar: true,
+          coverImage: true,
+          bio: true,
+          role: true,
+          createdAt: true,
+        },
+      });
+      if (!u) {
+        throw new NotFoundException('User not found');
+      }
+      return { ...u, role: ensureUserRole(u.role) };
+    }
+    const normalized =
+      bio === null || (typeof bio === 'string' && bio.trim().length === 0)
+        ? null
+        : String(bio).trim().slice(0, 500);
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { bio: normalized },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        avatar: true,
+        coverImage: true,
+        bio: true,
         role: true,
         createdAt: true,
       },
@@ -66,6 +145,8 @@ export class UsersService {
         email: true,
         name: true,
         avatar: true,
+        coverImage: true,
+        bio: true,
         role: true,
         createdAt: true,
       },
@@ -78,6 +159,8 @@ export class UsersService {
       role: ensureUserRole(u.role),
       createdAt: u.createdAt,
       avatarUrl: u.avatar ?? null,
+      coverImageUrl: u.coverImage ?? null,
+      bio: u.bio ?? null,
     };
   }
 
@@ -89,6 +172,7 @@ export class UsersService {
         name: true,
         role: true,
         avatar: true,
+        coverImage: true,
         bio: true,
         city: true,
         rating: true,
@@ -138,6 +222,7 @@ export class UsersService {
       name: user.name,
       role: ensureUserRole(user.role),
       avatar: user.avatar,
+      coverImage: user.coverImage,
       bio: user.bio,
       city: user.city,
       rating: user.rating,

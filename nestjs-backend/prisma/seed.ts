@@ -4,48 +4,16 @@ import { join } from 'path';
 import { PrismaClient, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
+import type { ListingJson, MediaJson } from './listing-seed-types';
+import { getSyntheticCz50Listings } from './seed-data/synthetic-cz-50';
+
 const prisma = new PrismaClient();
 
 const ADMIN_EMAIL = 'admin@admin.cz';
 const ADMIN_PASSWORD = 'admin123';
 
-type MediaJson = {
-  url: string;
-  type: string;
-  sortOrder?: number;
-  order?: number;
-};
-
-type ListingJson = {
-  title: string;
-  description?: string;
-  price: number;
-  city: string;
-  address?: string;
-  approved?: boolean;
-  propertyType?: string;
-  offerType?: string;
-  subType?: string;
-  area?: number;
-  landArea?: number;
-  floor?: number;
-  totalFloors?: number;
-  condition?: string;
-  construction?: string;
-  ownership?: string;
-  energyLabel?: string;
-  equipment?: string;
-  parking?: boolean;
-  cellar?: boolean;
-  videoUrl?: string | null;
-  images?: string[];
-  media?: MediaJson[];
-  contactName?: string;
-  contactPhone?: string;
-  contactEmail?: string;
-  currency?: string;
-  status?: string;
-};
+const DEMO_LISTINGS_OWNER_EMAIL = 'demo-listings-owner@realestate.local';
+const DEMO_LISTINGS_OWNER_PASSWORD = 'DemoListings!2026';
 
 function mediaSortOrder(m: MediaJson, index: number): number {
   if (typeof m.sortOrder === 'number' && Number.isFinite(m.sortOrder)) return m.sortOrder;
@@ -65,6 +33,22 @@ function buildImagesAndVideo(listing: ListingJson): { images: string[]; videoUrl
   return { images, videoUrl };
 }
 
+function loadListingsFromEnvOrDefault(): ListingJson[] {
+  const rel = process.env.SEED_DATASET_PATH?.trim();
+  if (rel) {
+    const datasetPath = join(process.cwd(), rel);
+    const raw = readFileSync(datasetPath, 'utf-8');
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      throw new Error(`SEED_DATASET_PATH musí ukazovat na JSON pole inzerátů: ${datasetPath}`);
+    }
+    console.log('Dataset ze souboru:', datasetPath);
+    return parsed as ListingJson[];
+  }
+  console.log('Dataset: vestavěných 50 syntetických CZ inzerátů (prisma/seed-data/synthetic-cz-50.ts)');
+  return getSyntheticCz50Listings();
+}
+
 async function main() {
   const hashed = await bcrypt.hash(ADMIN_PASSWORD, 10);
   const admin = await prisma.user.upsert({
@@ -79,23 +63,34 @@ async function main() {
   });
   console.log('Admin připraven:', ADMIN_EMAIL, '/', ADMIN_PASSWORD);
 
-  const datasetPath = join(process.cwd(), 'prisma/seed-data/xx_reality_demo_dataset_60.json');
-  const raw = readFileSync(datasetPath, 'utf-8');
-  const listings = JSON.parse(raw) as ListingJson[];
+  const ownerHash = await bcrypt.hash(DEMO_LISTINGS_OWNER_PASSWORD, 10);
+  const listingOwner = await prisma.user.upsert({
+    where: { email: DEMO_LISTINGS_OWNER_EMAIL },
+    update: { name: 'Demo vlastník inzerátů' },
+    create: {
+      email: DEMO_LISTINGS_OWNER_EMAIL,
+      password: ownerHash,
+      role: UserRole.AGENT,
+      name: 'Demo vlastník inzerátů',
+      city: 'Praha',
+    },
+  });
+  console.log(
+    'Vlastník demo inzerátů:',
+    DEMO_LISTINGS_OWNER_EMAIL,
+    '/',
+    DEMO_LISTINGS_OWNER_PASSWORD,
+  );
 
-  if (!Array.isArray(listings)) {
-    throw new Error('Dataset musí být JSON pole inzerátů');
-  }
+  const listings = loadListingsFromEnvOrDefault();
 
   let userId = process.env.SEED_USER_ID?.trim();
   if (!userId) {
-    const user = await prisma.user.findFirst();
-    if (!user) throw new Error('No user found');
-    userId = user.id;
+    userId = listingOwner.id;
   }
 
   if (listings.length === 0) {
-    console.log('Dataset je prázdný — žádné inzeráty (soubor:', datasetPath, ')');
+    console.log('Dataset je prázdný — žádné inzeráty.');
     return;
   }
 
@@ -138,6 +133,7 @@ async function main() {
         contactName: listing.contactName?.trim() || 'Seed',
         contactPhone: listing.contactPhone?.trim() || '',
         contactEmail: listing.contactEmail?.trim() || admin.email,
+        ...(listing.createdAt ? { createdAt: new Date(listing.createdAt) } : {}),
       },
     });
 
@@ -153,7 +149,12 @@ async function main() {
     }
   }
 
-  console.log('✅ Seed hotov:', listings.length, 'inzerátů');
+  const withVideo = listings.filter(
+    (l) =>
+      (l.videoUrl && String(l.videoUrl).trim()) ||
+      (l.media ?? []).some((m) => m.type === 'video'),
+  ).length;
+  console.log('✅ Seed hotov:', listings.length, 'inzerátů, z toho s videem (shorts):', withVideo);
 }
 
 main()
