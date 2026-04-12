@@ -1,3 +1,5 @@
+import { upgradeHttpToHttps } from './public-urls';
+
 function trimTrailingSlash(url: string): string {
   return url.replace(/\/+$/, '');
 }
@@ -7,10 +9,13 @@ function withApiPrefix(url: string): string {
   return normalized.endsWith('/api') ? normalized : `${normalized}/api`;
 }
 
-const rawPublicApi =
+const rawPublicApiInput =
   typeof process.env.NEXT_PUBLIC_API_URL === 'string'
     ? process.env.NEXT_PUBLIC_API_URL.trim()
     : '';
+const rawPublicApi = rawPublicApiInput
+  ? upgradeHttpToHttps(trimTrailingSlash(rawPublicApiInput))
+  : '';
 
 /**
  * Public Nest API base. In production, only `NEXT_PUBLIC_API_URL` (no localhost).
@@ -47,10 +52,13 @@ export function getNestPublicOrigin(): string {
 
 export function nestAbsoluteAssetUrl(path: string): string {
   if (!path) return '';
-  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return upgradeHttpToHttps(path);
+  }
   const origin = getNestPublicOrigin();
   if (!origin) return path;
-  return `${origin}${path.startsWith('/') ? path : `/${path}`}`;
+  const joined = `${origin}${path.startsWith('/') ? path : `/${path}`}`;
+  return upgradeHttpToHttps(joined);
 }
 
 export function getClientTokenFromCookie(): string | null {

@@ -12,10 +12,10 @@ export function isShortVideoPlayable(video: ShortVideo): boolean {
   return shortVideoPlayableSrc(video).length > 0;
 }
 
-/** Primární URL videa pro položku z GET /properties (videoUrl už bývá absolutní z normalizace; media může být relativní). */
+/** Primární URL videa pro položku z API (relativní i absolutní; v produkci http→https přes `nestAbsoluteAssetUrl`). */
 export function propertyFeedPrimaryVideoSrc(p: PropertyFeedItem): string {
   const direct = (p.videoUrl ?? '').trim();
-  if (direct) return direct;
+  if (direct) return nestAbsoluteAssetUrl(direct).trim();
   const mediaVideo = p.media?.find((m) => m.type === 'video' && typeof m.url === 'string' && m.url.trim());
   if (mediaVideo?.url) return nestAbsoluteAssetUrl(mediaVideo.url).trim();
   return '';

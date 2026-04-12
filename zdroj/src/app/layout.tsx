@@ -1,9 +1,11 @@
 import type { Metadata, Viewport } from "next";
 import { AuthProvider } from "@/context/AuthContext";
 import { PwaInstallPrompt } from "@/components/pwa/PwaInstallPrompt";
+import { getSiteMetadataBase } from "@/lib/app-url";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: getSiteMetadataBase(),
   title: "XXrealit",
   description: "Real estate social app with video listings",
   manifest: "/manifest.json",
