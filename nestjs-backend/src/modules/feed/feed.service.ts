@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
+import { SEED_DEMO_VIDEO_MP4 } from '../../database/seed.constants';
 import { PrismaService } from '../../database/prisma.service';
 import {
   classicPublicListingWhere,
@@ -47,6 +48,8 @@ function scoreProperty(
 
 @Injectable()
 export class FeedService {
+  private readonly log = new Logger(FeedService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async getPersonalizedForUser(viewerId: string) {
@@ -125,16 +128,83 @@ export class FeedService {
     const withVideoMedia = rows.filter((r) =>
       r.media.some((m) => m.type === 'video'),
     ).length;
-    console.log(
-      `[FeedService.listShorts] total=${rows.length} nonEmptyVideoUrl=${withVideoUrl} hasVideoMedia=${withVideoMedia}`,
+    this.log.log(
+      `[feed/shorts] returning ${rows.length} row(s) (videoUrl=${withVideoUrl}, mediaVideo=${withVideoMedia})`,
     );
 
-    return rows.map((r) =>
+    const serialized = rows.map((r) =>
       serializeProperty(
         { ...r, likes: [] as { id: string }[] },
         undefined,
       ),
     );
+
+    if (
+      serialized.length === 0 &&
+      process.env.SHORTS_FEED_FALLBACK_DEMO === '1'
+    ) {
+      this.log.warn(
+        '[feed/shorts] empty result — SHORTS_FEED_FALLBACK_DEMO=1, attaching 1 demo clip',
+      );
+      return [
+        {
+          id: 'demo-shorts-feed-placeholder',
+          title: 'Ukázka shorts — přidejte schválené video inzeráty',
+          description:
+            'Toto je dočasná ukázka, dokud v databázi nejsou veřejné shorts inzeráty. Vypněte env SHORTS_FEED_FALLBACK_DEMO.',
+          price: 0,
+          currency: 'CZK',
+          type: 'prodej',
+          offerType: 'prodej',
+          propertyType: 'byt',
+          subType: '',
+          address: '',
+          city: '—',
+          location: '—',
+          area: null,
+          landArea: null,
+          floor: null,
+          totalFloors: null,
+          condition: null,
+          construction: null,
+          ownership: null,
+          energyLabel: null,
+          equipment: null,
+          parking: false,
+          cellar: false,
+          images: [],
+          imageUrl: null,
+          videoUrl: SEED_DEMO_VIDEO_MP4,
+          media: [
+            {
+              id: 'demo-shorts-feed-placeholder-video',
+              url: SEED_DEMO_VIDEO_MP4,
+              type: 'video',
+              order: 0,
+              sortOrder: 0,
+            },
+          ],
+          isOwnerListing: false,
+          ownerContactConsent: false,
+          region: '',
+          district: '',
+          directContactVisible: true,
+          contactName: '',
+          contactPhone: '',
+          contactEmail: '',
+          approved: true,
+          createdAt: new Date().toISOString(),
+          userId: 'demo',
+          ownerCity: null,
+          likeCount: 0,
+          liked: false,
+          listingType: 'SHORTS',
+          derivedFromPropertyId: null,
+        },
+      ];
+    }
+
+    return serialized;
   }
 
   /** Social feed posts (Facebook-style), not listing shorts. */

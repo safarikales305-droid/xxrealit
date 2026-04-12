@@ -19,6 +19,15 @@ export const API_BASE_URL = rawPublicApi
   ? withApiPrefix(rawPublicApi)
   : '';
 
+if (
+  typeof window !== 'undefined' &&
+  process.env.NEXT_PUBLIC_DEBUG_API === '1' &&
+  API_BASE_URL
+) {
+  // eslint-disable-next-line no-console
+  console.info('[API] NEXT_PUBLIC_API_URL →', API_BASE_URL);
+}
+
 /** POST /properties on Nest; empty string if API is not configured (guard in forms). */
 export const propertiesEndpoint = API_BASE_URL
   ? `${API_BASE_URL}/properties`

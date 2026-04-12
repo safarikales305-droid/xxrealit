@@ -339,9 +339,16 @@ export function HomeLayout({
     void (async () => {
       try {
         if (viewMode === 'shorts') {
-          const res = await fetch(`${API_BASE_URL}/feed/shorts`, {
+          const shortsUrl = `${API_BASE_URL}/feed/shorts`;
+          const res = await fetch(shortsUrl, {
             cache: 'no-store',
           });
+          if (!res.ok) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[HomeLayout] GET shorts feed failed: ${res.status} ${res.statusText} — ${shortsUrl}`,
+            );
+          }
           const data = res.ok ? await res.json() : [];
           const rawList = Array.isArray(data) ? (data as Record<string, unknown>[]) : [];
           const list = rawList

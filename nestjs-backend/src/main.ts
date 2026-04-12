@@ -23,10 +23,18 @@ function parseCommaSeparatedOrigins(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
+function parseCommaSeparatedHeaders(raw: string | undefined): string[] {
+  if (!raw?.trim()) return [];
+  return raw
+    .split(',')
+    .map((h) => h.trim())
+    .filter(Boolean);
+}
+
 /**
- * Povolené Origin hodnoty pro browser (credentials + JWT v hlavičce).
- * Doplňte na Railway např. FRONTEND_URL=https://váš-frontend.up.railway.app
- * nebo CORS_ORIGINS=url1,url2 (bez mezer kolem čárek je v pořádku).
+ * Povolené Origin hodnoty pro browser (JWT v Authorization; cookies dle nastavení).
+ * Na Railway nastavte např. FRONTEND_URL=https://www.xxrealit.cz
+ * nebo CORS_ORIGINS=https://www.xxrealit.cz,https://xxrealit.cz
  */
 function buildCorsOriginAllowlist(): string[] {
   const fromEnv = [
@@ -37,9 +45,15 @@ function buildCorsOriginAllowlist(): string[] {
     ...parseCommaSeparatedOrigins(process.env.PUBLIC_APP_URL),
   ];
   const defaults = [
+    'https://www.xxrealit.cz',
+    'https://xxrealit.cz',
     'https://xxrealit-production.up.railway.app',
     'http://localhost:3000',
     'http://127.0.0.1:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:4200',
+    'http://127.0.0.1:4200',
   ];
   return [...new Set([...defaults, ...fromEnv].map(normalizeOrigin))];
 }
@@ -87,29 +101,45 @@ async function bootstrap() {
   app.useStaticAssets(uploadsRoot, { prefix: '/uploads/' });
 
   const corsAllowlist = buildCorsOriginAllowlist();
-  console.log(`[CORS] Allowlist (${corsAllowlist.length}): ${corsAllowlist.join(' | ')}`);
+  console.log(
+    `[CORS] Startup — ${corsAllowlist.length} allowed origin(s): ${corsAllowlist.join(' | ')}`,
+  );
+  console.log(
+    '[CORS] Tip: na produkci přidejte doménu přes FRONTEND_URL nebo CORS_ORIGINS (viz .env.example).',
+  );
 
   app.enableCors({
     origin: (origin, callback) => {
-      // Postman, server-to-server, same-origin proxy — bez hlavičky Origin
+      // Postman, curl, server-to-server, healthcheck — bez hlavičky Origin
       if (!origin) {
         callback(null, true);
         return;
       }
       const normalized = normalizeOrigin(origin);
       if (corsAllowlist.includes(normalized)) {
-        // U credentials: true musí být ACAO přesně tato doména (ne „*“).
+        // Reflect konkrétní origin (nutné při credentials / cookies cross-site).
         callback(null, normalized);
         return;
       }
       console.warn(
-        `[CORS] Rejected Origin="${origin}" (normalized="${normalized}"). Allowlist: ${corsAllowlist.join(', ')} — nastavte FRONTEND_URL nebo CORS_ORIGINS.`,
+        `[CORS] BLOCKED Origin="${origin}" (normalized="${normalized}"). Allowlist: ${corsAllowlist.join(', ')} — set FRONTEND_URL or CORS_ORIGINS on the API.`,
       );
       callback(null, false);
     },
     credentials: true,
-    // Neomezovat — jinak preflight selže při dalších hlavičkách (Sentry, baggage, …).
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'Accept-Language',
+      'Origin',
+      'X-Requested-With',
+      'baggage',
+      'sentry-trace',
+      ...parseCommaSeparatedHeaders(process.env.CORS_EXTRA_HEADERS),
+    ],
+    exposedHeaders: ['Content-Length'],
     optionsSuccessStatus: 204,
     maxAge: 86_400,
   });
