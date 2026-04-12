@@ -144,4 +144,24 @@ export class CreatePropertyDto {
   @IsEmail()
   @MaxLength(320)
   contactEmail!: string;
+
+  @IsOptional()
+  @Transform(({ value }) => toBool(value))
+  @IsBoolean()
+  isOwnerListing?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => toBool(value))
+  @IsBoolean()
+  ownerContactConsent?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  region?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  district?: string;
 }

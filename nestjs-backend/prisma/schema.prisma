@@ -63,6 +63,21 @@ model User {
   propertyMessagesSent PropertyMessage[]   @relation("PropertyMessageSender")
 
   shortsMusicTracksUploaded ShortsMusicTrack[]
+
+  /// Placený / aktivní „Premium makléř“ — notifikace na vlastnické inzeráty, kontakt při souhlasu.
+  isPremiumBroker                  Boolean  @default(false)
+  /// Zapnout/vypnout notifikace o nových vlastnických inzerátech (jen AGENT + isPremiumBroker).
+  brokerLeadNotificationEnabled    Boolean  @default(true)
+  /// Filtr krajů / oblastí (řetězce, case-insensitive match proti Property.region nebo city).
+  brokerPreferredRegions           String[] @default([])
+  brokerPreferredPropertyTypes     String[] @default([])
+  brokerPoints                     Int      @default(0)
+  /// Odměnové leady z gamifikace (kontaktování vlastnických inzerátů bez premium).
+  brokerFreeLeads                  Int      @default(0)
+
+  notifications        UserNotification[]
+  brokerPointsLedger   BrokerPointsLedger[]
+  brokerLeadOffers     BrokerLeadOffer[] @relation("UserBrokerLeads")
 }
 
 /// Admin spravovaná hudba pro generované shorts z fotek (výběr uživatelem při tvorbě inzerátu).
@@ -241,6 +256,14 @@ model Property {
   /// SHORTS (video) | CLASSIC (bez videa) — pro admin přehled a filtry.
   listingType     String   @default("CLASSIC")
 
+  /// Uživatel označil inzerát jako přímý prodej od vlastníka (bez RK).
+  isOwnerListing       Boolean  @default(false)
+  /// Souhlas se zobrazením kontaktu premium makléřům (telefon/e-mail).
+  ownerContactConsent  Boolean  @default(false)
+  /// Volitelné pro matching notifikací (kraj / oblast).
+  region               String   @default("")
+  district             String   @default("")
+
   createdAt       DateTime @default(now())
   userId          String
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -249,9 +272,11 @@ model Property {
   comments  PropertyComment[]
   media     PropertyMedia[]
   conversations PropertyConversation[]
+  brokerLeadOffers BrokerLeadOffer[]
 
   @@index([userId])
   @@index([deletedAt, isActive, approved])
+  @@index([isOwnerListing, createdAt])
 }
 
 model PropertyMedia {
@@ -334,4 +359,53 @@ model PropertyMessage {
 
   @@index([conversationId, createdAt])
   @@index([senderId])
+}
+
+/// In-app notifikace (vlastník: nový lead; makléř: nový vlastnický inzerát).
+model UserNotification {
+  id        String    @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  body      String    @db.Text
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+}
+
+/// Historie bodů + idempotence (dedupeKey).
+model BrokerPointsLedger {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String
+  points    Int
+  dedupeKey String
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, createdAt])
+}
+
+/// První „lead“ makléře k vlastnickému inzerátu (statistiky, spotřeba free leadu).
+model BrokerLeadOffer {
+  id           String   @id @default(cuid())
+  brokerId     String
+  propertyId   String
+  usedFreeLead Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  broker   User     @relation("UserBrokerLeads", fields: [brokerId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([brokerId, propertyId])
+  @@index([propertyId])
+  @@index([brokerId])
 }

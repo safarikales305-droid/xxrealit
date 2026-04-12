@@ -9,6 +9,7 @@ import {
   UploadedFiles,
   UseGuards,
   UseInterceptors,
+  ValidationPipe,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { JwtService } from '@nestjs/jwt';
@@ -25,6 +26,8 @@ import {
   type ShortsMusicSelection,
 } from './listing-shorts-from-photos.service';
 import { PropertiesService } from './properties.service';
+import { BrokerLeadOfferService } from '../premium-broker/broker-lead-offer.service';
+import { OwnerLeadOfferDto } from '../premium-broker/dto/owner-lead-offer.dto';
 
 @Controller('properties')
 export class PropertiesController {
@@ -33,6 +36,7 @@ export class PropertiesController {
     private readonly listingShortsFromPhotosService: ListingShortsFromPhotosService,
     private readonly jwt: JwtService,
     private readonly prisma: PrismaService,
+    private readonly brokerLeadOffer: BrokerLeadOfferService,
   ) {}
 
   @UseGuards(JwtAuthGuard)
@@ -155,6 +159,16 @@ export class PropertiesController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post(':id/owner-lead-offer')
+  ownerLeadOffer(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: OwnerLeadOfferDto,
+  ) {
+    return this.brokerLeadOffer.submitOwnerLeadOffer(user.id, id, dto.message);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post()
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -243,8 +257,12 @@ export class PropertiesController {
       return Number.isFinite(n) ? n : undefined;
     };
     const toBool = (v: unknown): boolean | undefined => {
+      if (typeof v === 'boolean') return v;
       if (typeof v !== 'string') return undefined;
-      return v === 'true';
+      const s = v.trim().toLowerCase();
+      if (s === 'true' || s === '1' || s === 'on' || s === 'yes') return true;
+      if (s === 'false' || s === '0' || s === 'off' || s === '') return false;
+      return undefined;
     };
     const str = (v: unknown, fallback = '') =>
       typeof v === 'string' ? v : fallback;
@@ -278,6 +296,10 @@ export class PropertiesController {
       contactName: str(body.contactName),
       contactPhone: str(body.contactPhone),
       contactEmail: str(body.contactEmail),
+      isOwnerListing: toBool(body.isOwnerListing) ?? false,
+      ownerContactConsent: toBool(body.ownerContactConsent) ?? false,
+      region: str(body.region).slice(0, 120),
+      district: str(body.district).slice(0, 120),
     };
 
     return this.propertiesService.create(user.id, dto, {

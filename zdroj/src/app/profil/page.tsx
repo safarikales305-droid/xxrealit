@@ -10,10 +10,15 @@ import {
   nestDeleteCover,
   nestFetchFavorites,
   nestFetchMe,
+  nestListNotifications,
+  nestMarkNotificationRead,
+  nestPatchBrokerLeadPrefs,
   nestPatchProfileBio,
   nestUploadAvatar,
   nestUploadCover,
   NEST_PROFILE_IMAGE_MAX_BYTES,
+  type NestMeProfile,
+  type UserNotificationRow,
 } from '@/lib/nest-client';
 import {
   safeNormalizePropertyFromApi,
@@ -42,6 +47,9 @@ export default function ProfilPage() {
   const [nestAvatar, setNestAvatar] = useState<string | null>(null);
   const [nestCover, setNestCover] = useState<string | null>(null);
   const [nestBio, setNestBio] = useState<string | null>(null);
+  const [nestMe, setNestMe] = useState<NestMeProfile | null>(null);
+  const [notifications, setNotifications] = useState<UserNotificationRow[]>([]);
+  const [notifLoading, setNotifLoading] = useState(false);
   const [favorites, setFavorites] = useState<PropertyFeedItem[]>([]);
   const [favLoading, setFavLoading] = useState(false);
   const [favError, setFavError] = useState<string | null>(null);
@@ -75,11 +83,24 @@ export default function ProfilPage() {
     const me = await nestFetchMe(apiAccessToken);
     /** Při chybě GET /users/me nesmazat už načtené URL — držíme stav z auth / posledního uploadu. */
     if (!me) return;
+    setNestMe(me);
     setNestAvatar(me.avatarUrl ?? null);
     setNestCover(me.coverImageUrl ?? null);
     setNestBio(me.bio ?? null);
     setBioDraft(me.bio ?? '');
   }, [apiAccessToken]);
+
+  const loadNotifications = useCallback(async () => {
+    if (!apiAccessToken || user?.role !== 'AGENT') return;
+    setNotifLoading(true);
+    const rows = await nestListNotifications(apiAccessToken);
+    setNotifLoading(false);
+    setNotifications(rows ?? []);
+  }, [apiAccessToken, user?.role]);
+
+  useEffect(() => {
+    void loadNotifications();
+  }, [loadNotifications]);
 
   const loadFavorites = useCallback(async () => {
     if (!apiAccessToken) {
@@ -471,6 +492,109 @@ export default function ProfilPage() {
             ) : null}
           </div>
         </section>
+
+        {user.role === 'AGENT' && nestMe ? (
+          <section id="makler-premium" className="mt-10 space-y-6">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <h2 className="text-lg font-semibold text-zinc-900">Premium makléř a odměny</h2>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+                Za přidání inzerátu nebo video příspěvku získáváte body. Po dosažení nastavené hranice
+                se vám odemknou leady zdarma k prvnímu oslovení vlastníka bez prémiového účtu.
+                Prémiový účet nastaví administrátor.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold">
+                <span
+                  className={`rounded-full px-3 py-1 ${nestMe.isPremiumBroker ? 'bg-emerald-100 text-emerald-900' : 'bg-zinc-100 text-zinc-700'}`}
+                >
+                  Premium: {nestMe.isPremiumBroker ? 'ano' : 'ne'}
+                </span>
+                <span className="rounded-full bg-orange-50 px-3 py-1 text-orange-900">
+                  Body: {nestMe.brokerPoints ?? 0}
+                </span>
+                <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-900">
+                  Volné leady: {nestMe.brokerFreeLeads ?? 0}
+                </span>
+              </div>
+              {nestMe.brokerProgress ? (
+                <p className="mt-3 text-sm text-zinc-700">
+                  Do další odměny zbývá přibližně{' '}
+                  <strong>{nestMe.brokerProgress.pointsToNextReward}</strong> bodů (práh{' '}
+                  {nestMe.brokerProgress.rewardThresholdPoints}, odměna +{' '}
+                  {nestMe.brokerProgress.freeLeadsPerThreshold} leady).
+                </p>
+              ) : null}
+              <label className="mt-4 flex cursor-pointer items-start gap-3 text-sm text-zinc-800">
+                <input
+                  type="checkbox"
+                  className="mt-1 size-4 rounded border-zinc-300"
+                  checked={nestMe.brokerLeadNotificationEnabled !== false}
+                  disabled={!apiAccessToken}
+                  onChange={() => {
+                    if (!apiAccessToken) return;
+                    const current = nestMe.brokerLeadNotificationEnabled !== false;
+                    void nestPatchBrokerLeadPrefs(apiAccessToken, {
+                      brokerLeadNotificationEnabled: !current,
+                    }).then((r) => {
+                      if (r.ok) void loadNestProfile();
+                    });
+                  }}
+                />
+                <span>
+                  <span className="font-semibold">Chci notifikace o nových inzerátech od vlastníků</span>
+                  <span className="mt-0.5 block text-xs font-normal text-zinc-600">
+                    Respektuje vaše níže uvedené preference krajů a typů nemovitostí (prázdné = vše).
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            <div id="notifikace" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold text-zinc-900">Notifikace</h2>
+                <button
+                  type="button"
+                  disabled={notifLoading || !apiAccessToken}
+                  onClick={() => void loadNotifications()}
+                  className="text-xs font-semibold text-[#e85d00] hover:underline disabled:opacity-50"
+                >
+                  Obnovit
+                </button>
+              </div>
+              {notifLoading ? (
+                <p className="mt-3 text-sm text-zinc-500">Načítám…</p>
+              ) : notifications.length === 0 ? (
+                <p className="mt-3 text-sm text-zinc-600">Zatím žádné notifikace.</p>
+              ) : (
+                <ul className="mt-4 divide-y divide-zinc-100">
+                  {notifications.map((n) => (
+                    <li key={n.id} className="py-3">
+                      <p className="text-sm font-semibold text-zinc-900">{n.title}</p>
+                      <p className="mt-1 text-sm text-zinc-600">{n.body}</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {!n.readAt ? (
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-[#e85d00] hover:underline"
+                            onClick={() => {
+                              if (!apiAccessToken) return;
+                              void nestMarkNotificationRead(apiAccessToken, n.id).then((ok) => {
+                                if (ok) void loadNotifications();
+                              });
+                            }}
+                          >
+                            Označit jako přečtené
+                          </button>
+                        ) : (
+                          <span className="text-xs text-zinc-400">Přečteno</span>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+        ) : null}
 
         <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">

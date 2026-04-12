@@ -52,6 +52,10 @@ export function ListingCreateForm() {
   const [contactName, setContactName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
   const [contactEmail, setContactEmail] = useState('');
+  const [isOwnerListing, setIsOwnerListing] = useState(false);
+  const [ownerContactConsent, setOwnerContactConsent] = useState(false);
+  const [region, setRegion] = useState('');
+  const [district, setDistrict] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -292,6 +296,10 @@ export function ListingCreateForm() {
     fd.append('contactName', cn);
     fd.append('contactPhone', cp);
     fd.append('contactEmail', ce);
+    fd.append('isOwnerListing', String(isOwnerListing));
+    fd.append('ownerContactConsent', String(ownerContactConsent));
+    if (region.trim()) fd.append('region', region.trim().slice(0, 120));
+    if (district.trim()) fd.append('district', district.trim().slice(0, 120));
     if (videoUrl.trim()) fd.append('videoUrl', videoUrl.trim());
     if (condition.trim()) fd.append('condition', condition.trim());
     if (construction.trim()) fd.append('construction', construction.trim());
@@ -350,6 +358,10 @@ export function ListingCreateForm() {
     setEquipment('');
     setParking(false);
     setCellar(false);
+    setIsOwnerListing(false);
+    setOwnerContactConsent(false);
+    setRegion('');
+    setDistrict('');
   }
 
   return (
@@ -905,6 +917,74 @@ export function ListingCreateForm() {
               onChange={(e) => setContactEmail(e.target.value)}
               className={inputClass}
               required
+            />
+          </div>
+          <div className="sm:col-span-2 space-y-3 rounded-xl border border-zinc-100 bg-zinc-50/80 p-4">
+            <label className="flex cursor-pointer items-start gap-3 text-sm text-zinc-800">
+              <input
+                type="checkbox"
+                checked={isOwnerListing}
+                onChange={(e) => {
+                  setIsOwnerListing(e.target.checked);
+                  if (!e.target.checked) {
+                    setOwnerContactConsent(false);
+                  }
+                }}
+                className="mt-1 size-4 rounded border-zinc-300"
+              />
+              <span>
+                <span className="font-semibold">Jsem přímý vlastník / majitel nemovitosti</span>
+                <span className="mt-0.5 block text-xs font-normal text-zinc-600">
+                  Inzerát se označí jako prodej bez realitní kanceláře. Po schválení dostanou
+                  upozornění prémioví makléři (dle jejich filtrů).
+                </span>
+              </span>
+            </label>
+            <label
+              className={`flex cursor-pointer items-start gap-3 text-sm text-zinc-800 ${!isOwnerListing ? 'pointer-events-none opacity-45' : ''}`}
+            >
+              <input
+                type="checkbox"
+                checked={ownerContactConsent}
+                onChange={(e) => setOwnerContactConsent(e.target.checked)}
+                disabled={!isOwnerListing}
+                className="mt-1 size-4 rounded border-zinc-300"
+              />
+              <span>
+                <span className="font-semibold">
+                  Souhlasím, aby mě mohli kontaktovat premium makléři s nabídkou služeb
+                </span>
+                <span className="mt-0.5 block text-xs font-normal text-zinc-600">
+                  Telefon a e-mail uvidí jen ověření prémioví makléři; ostatním zájemcům zůstane
+                  kontakt skrytý — komunikace přes zprávy na platformě.
+                </span>
+              </span>
+            </label>
+          </div>
+          <div>
+            <label className={labelClass} htmlFor="region">
+              Kraj / oblast (volitelné, pro filtry makléřů)
+            </label>
+            <input
+              id="region"
+              value={region}
+              onChange={(e) => setRegion(e.target.value)}
+              className={inputClass}
+              placeholder="např. Středočeský kraj"
+              maxLength={120}
+            />
+          </div>
+          <div>
+            <label className={labelClass} htmlFor="district">
+              Okres (volitelné)
+            </label>
+            <input
+              id="district"
+              value={district}
+              onChange={(e) => setDistrict(e.target.value)}
+              className={inputClass}
+              placeholder="např. Praha-západ"
+              maxLength={120}
             />
           </div>
         </div>

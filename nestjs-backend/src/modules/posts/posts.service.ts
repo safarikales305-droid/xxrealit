@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PostCategory, ReactionType } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { CreatePostDto } from './dto/create-post.dto';
 
 function isPublicMediaUrl(url: string | null | undefined): boolean {
@@ -49,7 +50,10 @@ function toNumberOrNull(value: unknown): number | null {
 
 @Injectable()
 export class PostsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly brokerPoints: BrokerPointsService,
+  ) {}
 
   async deletePost(id: string) {
     return this.prisma.post.delete({
@@ -161,7 +165,7 @@ export class PostsService {
     });
   }
 
-  createMediaPost(
+  async createMediaPost(
     userId: string,
     opts: {
       kind: 'video' | 'image';
@@ -171,7 +175,7 @@ export class PostsService {
   ) {
     const text = opts.description.trim();
     const isVideo = opts.kind === 'video';
-    return this.prisma.post.create({
+    const created = await this.prisma.post.create({
       data: {
         type: 'post',
         title: '',
@@ -205,9 +209,13 @@ export class PostsService {
         },
       },
     });
+    if (isVideo) {
+      await this.brokerPoints.onVideoPostCreated(userId, created.id);
+    }
+    return created;
   }
 
-  createListingPost(
+  async createListingPost(
     userId: string,
     input: {
       title: string;
@@ -221,7 +229,7 @@ export class PostsService {
       longitude?: number;
     },
   ) {
-    return this.prisma.post.create({
+    const created = await this.prisma.post.create({
       data: {
         title: input.title,
         description: input.description,
@@ -253,6 +261,10 @@ export class PostsService {
         },
       },
     });
+    if (input.media.some((m) => m.type === 'video')) {
+      await this.brokerPoints.onVideoPostCreated(userId, created.id);
+    }
+    return created;
   }
 
   async getPostDetail(id: string) {

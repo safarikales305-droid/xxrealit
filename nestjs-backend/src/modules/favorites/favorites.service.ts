@@ -13,6 +13,17 @@ export class FavoritesService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(userId: string) {
+    const viewer = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true, isPremiumBroker: true },
+    });
+    const access = viewer
+      ? {
+          role: viewer.role,
+          isPremiumBroker: Boolean(viewer.isPremiumBroker),
+          isAdmin: viewer.role === UserRole.ADMIN,
+        }
+      : undefined;
     const rows = await this.prisma.propertyLike.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
@@ -38,6 +49,7 @@ export class FavoritesService {
             _count: p._count,
           },
           userId,
+          access,
         );
       });
   }

@@ -9,7 +9,12 @@ import { CreatePropertyDto } from './dto/create-property.dto';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
 import { classicPublicListingWhere } from './property-listing-scope';
 import { isPropertyPubliclyListed } from './property-public-visibility';
-import { serializeProperty } from './properties.serializer';
+import {
+  serializeProperty,
+  type PropertyViewerAccess,
+} from './properties.serializer';
+import { BrokerPointsService } from '../premium-broker/broker-points.service';
+import { OwnerListingNotifyService } from '../premium-broker/owner-listing-notify.service';
 
 const socialInclude = (viewerId?: string) =>
   viewerId
@@ -34,7 +39,23 @@ export class PropertiesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly propertyMediaCloudinary: PropertyMediaCloudinaryService,
+    private readonly ownerListingNotify: OwnerListingNotifyService,
+    private readonly brokerPoints: BrokerPointsService,
   ) {}
+
+  private async viewerAccess(viewerId?: string): Promise<PropertyViewerAccess | undefined> {
+    if (!viewerId) return undefined;
+    const u = await this.prisma.user.findUnique({
+      where: { id: viewerId },
+      select: { role: true, isPremiumBroker: true },
+    });
+    if (!u) return undefined;
+    return {
+      role: u.role,
+      isPremiumBroker: Boolean(u.isPremiumBroker),
+      isAdmin: u.role === UserRole.ADMIN,
+    };
+  }
 
   private async viewerIsAdmin(viewerId?: string): Promise<boolean> {
     if (!viewerId) return false;
@@ -46,6 +67,7 @@ export class PropertiesService {
   }
 
   async findAllPublic(viewerId?: string) {
+    const access = await this.viewerAccess(viewerId);
     const rows = await this.prisma.property.findMany({
       where: classicPublicListingWhere,
       orderBy: { createdAt: 'desc' },
@@ -59,12 +81,14 @@ export class PropertiesService {
       serializeProperty(
         { ...r, likes: 'likes' in r ? r.likes : [] },
         viewerId,
+        access,
       ),
     );
   }
 
   async findByOwner(ownerId: string, viewerId?: string) {
     const admin = await this.viewerIsAdmin(viewerId);
+    const access = await this.viewerAccess(viewerId);
     const viewerIsOwner = viewerId === ownerId;
     const where: Prisma.PropertyWhereInput =
       viewerIsOwner || admin
@@ -82,11 +106,13 @@ export class PropertiesService {
       serializeProperty(
         { ...r, likes: 'likes' in r ? r.likes : [] },
         viewerId,
+        access,
       ),
     );
   }
 
   async findFromFollowedUsers(viewerId: string) {
+    const access = await this.viewerAccess(viewerId);
     const follows = await this.prisma.follow.findMany({
       where: { followerId: viewerId },
       select: { followingId: true },
@@ -107,6 +133,7 @@ export class PropertiesService {
       serializeProperty(
         { ...r, likes: 'likes' in r ? r.likes : [] },
         viewerId,
+        access,
       ),
     );
   }
@@ -129,6 +156,7 @@ export class PropertiesService {
             avatar: true,
             name: true,
             city: true,
+            role: true,
           },
         },
         _count: { select: { likes: true } },
@@ -158,11 +186,13 @@ export class PropertiesService {
     }
 
     const author = property.user;
+    const access = await this.viewerAccess(viewerId);
     const userPayload = {
       id: author.id,
       email: author.email,
       name: author.name ?? null,
       avatar: author.avatar ?? null,
+      role: author.role,
     };
 
     const othersWhere: Prisma.PropertyWhereInput =
@@ -210,6 +240,7 @@ export class PropertiesService {
         user: { id: author.id, city: author.city },
       },
       viewerId,
+      access,
     );
 
     const otherProperties = otherRows.map((r) =>
@@ -221,6 +252,7 @@ export class PropertiesService {
           user: r.user,
         },
         viewerId,
+        access,
       ),
     );
 
@@ -359,6 +391,10 @@ export class PropertiesService {
           approved: false,
           status: 'PENDING',
           listingType: videoUrl ? 'SHORTS' : 'CLASSIC',
+          isOwnerListing: dto.isOwnerListing ?? false,
+          ownerContactConsent: dto.ownerContactConsent ?? false,
+          region: (dto.region ?? '').trim().slice(0, 120),
+          district: (dto.district ?? '').trim().slice(0, 120),
         },
       });
 
@@ -397,6 +433,13 @@ export class PropertiesService {
       const likesArr =
         'likes' in full && Array.isArray(full.likes) ? full.likes : [];
 
+      await this.brokerPoints.onListingCreatedByBroker(
+        ownerId,
+        full.id,
+        full.listingType,
+      );
+
+      const ownerAccess = await this.viewerAccess(ownerId);
       return serializeProperty(
         {
           ...full,
@@ -405,6 +448,7 @@ export class PropertiesService {
           user: full.user,
         },
         ownerId,
+        ownerAccess,
       );
     } catch (e) {
       if (

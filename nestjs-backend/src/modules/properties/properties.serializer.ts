@@ -1,4 +1,12 @@
+import { UserRole } from '@prisma/client';
 import { computeListingPublicStatus } from './property-public-visibility';
+
+/** Kontext prohlížeče pro maskování kontaktu u vlastnických inzerátů. */
+export type PropertyViewerAccess = {
+  role: UserRole;
+  isPremiumBroker: boolean;
+  isAdmin: boolean;
+};
 
 /** Shape expected from Prisma row + social includes. */
 export type PropertyRowForApi = {
@@ -34,6 +42,10 @@ export type PropertyRowForApi = {
   activeFrom?: Date | null;
   activeUntil?: Date | null;
   listingType?: string;
+  isOwnerListing?: boolean;
+  ownerContactConsent?: boolean;
+  region?: string;
+  district?: string;
   createdAt: Date;
   userId: string;
   user: { id: string; city: string | null };
@@ -59,12 +71,18 @@ export type PropertyRowForAdmin = PropertyRowForApi & {
 export function serializeAdminPropertyRow(
   r: PropertyRowForAdmin,
 ): Record<string, unknown> {
+  const adminAccess: PropertyViewerAccess = {
+    role: UserRole.ADMIN,
+    isPremiumBroker: false,
+    isAdmin: true,
+  };
   const base = serializeProperty(
     {
       ...r,
       user: { id: r.user.id, city: r.user.city },
     },
     undefined,
+    adminAccess,
   );
   return {
     ...base,
@@ -84,14 +102,32 @@ export function serializeAdminPropertyRow(
   };
 }
 
+function shouldRedactOwnerContact(
+  p: PropertyRowForApi,
+  viewerId?: string,
+  access?: PropertyViewerAccess,
+): boolean {
+  const isOwnerListing = Boolean(p.isOwnerListing);
+  if (!isOwnerListing) return false;
+  if (access?.isAdmin) return false;
+  if (!viewerId) return true;
+  if (viewerId === p.userId) return false;
+  const premiumOk = access?.role === UserRole.AGENT && Boolean(access?.isPremiumBroker);
+  if (p.ownerContactConsent && premiumOk) return false;
+  return true;
+}
+
 export function serializeProperty(
   p: PropertyRowForApi,
   viewerId?: string,
+  access?: PropertyViewerAccess,
 ): Record<string, unknown> {
   const liked =
     viewerId != null &&
     Array.isArray(p.likes) &&
     p.likes.length > 0;
+
+  const redact = shouldRedactOwnerContact(p, viewerId, access);
 
   const images = Array.isArray(p.images) ? p.images : [];
   const mediaFromRelation = Array.isArray(p.media)
@@ -150,9 +186,14 @@ export function serializeProperty(
     imageUrl: primaryImage,
     videoUrl: primaryVideo,
     media,
-    contactName: p.contactName,
-    contactPhone: p.contactPhone,
-    contactEmail: p.contactEmail,
+    isOwnerListing: Boolean(p.isOwnerListing),
+    ownerContactConsent: Boolean(p.ownerContactConsent),
+    region: (p.region ?? '').trim(),
+    district: (p.district ?? '').trim(),
+    directContactVisible: !redact,
+    contactName: redact ? '' : p.contactName,
+    contactPhone: redact ? '' : p.contactPhone,
+    contactEmail: redact ? '' : p.contactEmail,
     approved: p.approved,
     createdAt: p.createdAt,
     userId: p.userId,

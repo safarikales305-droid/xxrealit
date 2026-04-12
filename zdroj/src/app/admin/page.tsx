@@ -13,6 +13,7 @@ import {
   nestAdminDeleteProperty,
   nestAdminImportXml,
   nestAdminImportProperties,
+  nestAdminPatchPremiumBroker,
   nestAdminPendingProperties,
   nestAdminStats,
   nestAdminUpdateUserRole,
@@ -182,6 +183,15 @@ export default function AdminPage() {
     } else {
       setXmlImportError(r.error ?? 'XML import selhal');
     }
+  }
+
+  async function onPremiumBrokerToggle(u: AdminUserRow) {
+    if (!token || u.role !== 'AGENT') return;
+    setBusyUserId(u.id);
+    const r = await nestAdminPatchPremiumBroker(token, u.id, !Boolean(u.isPremiumBroker));
+    setBusyUserId(null);
+    if (r.ok) await refresh();
+    else setLoadError(r.error ?? 'Změna premium makléře selhala');
   }
 
   async function onUserRoleChange(userId: string, newRole: string) {
@@ -406,6 +416,11 @@ export default function AdminPage() {
             <StatCard title="Nemovitosti" value={stats?.properties ?? '—'} />
             <StatCard title="Čeká na schválení" value={stats?.pendingProperties ?? '—'} />
             <StatCard title="Návštěvy" value={stats?.visits ?? '—'} />
+            <StatCard title="Vlastnické inzeráty" value={stats?.ownerListings ?? '—'} />
+            <StatCard title="Premium makléři" value={stats?.premiumBrokers ?? '—'} />
+            <StatCard title="Odeslané leady" value={stats?.brokerLeadsSent ?? '—'} />
+            <StatCard title="Součet bodů makléřů" value={stats?.brokerPointsTotal ?? '—'} />
+            <StatCard title="Nerozdané free leady" value={stats?.brokerFreeLeadsOutstanding ?? '—'} />
           </div>
         </section>
 
@@ -475,6 +490,7 @@ export default function AdminPage() {
                 <tr>
                   <th className="px-4 py-3">E-mail</th>
                   <th className="px-4 py-3">Role</th>
+                  <th className="hidden px-4 py-3 lg:table-cell">Premium / body</th>
                   <th className="hidden px-4 py-3 sm:table-cell">Registrace</th>
                   <th className="px-4 py-3 text-right">Akce</th>
                 </tr>
@@ -496,6 +512,29 @@ export default function AdminPage() {
                           </option>
                         ))}
                       </select>
+                    </td>
+                    <td className="hidden px-4 py-3 lg:table-cell">
+                      {u.role === 'AGENT' ? (
+                        <div className="flex flex-col gap-1 text-xs text-zinc-700">
+                          <button
+                            type="button"
+                            disabled={busyUserId === u.id}
+                            onClick={() => void onPremiumBrokerToggle(u)}
+                            className={`max-w-[10rem] rounded-lg border px-2 py-1 text-left font-semibold transition ${
+                              u.isPremiumBroker
+                                ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
+                                : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50'
+                            }`}
+                          >
+                            Premium: {u.isPremiumBroker ? 'ano' : 'ne'} (přepnout)
+                          </button>
+                          <span className="text-zinc-500">
+                            Body {u.brokerPoints ?? 0} · Free leady {u.brokerFreeLeads ?? 0}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-zinc-400">—</span>
+                      )}
                     </td>
                     <td className="hidden px-4 py-3 text-zinc-500 sm:table-cell">
                       {u.createdAt

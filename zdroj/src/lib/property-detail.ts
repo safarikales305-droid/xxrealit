@@ -5,6 +5,7 @@ export type PropertyDetailAuthor = {
   email: string;
   name?: string | null;
   avatar?: string | null;
+  role?: string;
 };
 
 export type PropertyDetailPayload = {
@@ -34,6 +35,7 @@ export function normalizePropertyDetailPayload(
     email,
     name: typeof u.name === 'string' ? u.name : null,
     avatar: u.avatar === null || typeof u.avatar === 'string' ? u.avatar : null,
+    role: typeof u.role === 'string' ? u.role : undefined,
   };
 
   const property = safeNormalizePropertyFromApi(o.property);

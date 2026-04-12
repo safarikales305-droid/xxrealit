@@ -21,6 +21,12 @@ export type PropertyFromApi = {
   ownerCity?: string | null;
   likeCount?: number;
   liked?: boolean;
+  isOwnerListing?: boolean;
+  ownerContactConsent?: boolean;
+  directContactVisible?: boolean;
+  contactName?: string | null;
+  contactPhone?: string | null;
+  contactEmail?: string | null;
 };
 
 export type PropertyFeedItem = {
@@ -41,6 +47,12 @@ export type PropertyFeedItem = {
   ownerCity?: string | null;
   likeCount?: number;
   liked?: boolean;
+  isOwnerListing?: boolean;
+  ownerContactConsent?: boolean;
+  directContactVisible?: boolean;
+  contactName?: string | null;
+  contactPhone?: string | null;
+  contactEmail?: string | null;
 };
 
 export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
@@ -92,6 +104,23 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
         : undefined,
     likeCount,
     liked: typeof p.liked === 'boolean' ? p.liked : undefined,
+    isOwnerListing: typeof p.isOwnerListing === 'boolean' ? p.isOwnerListing : undefined,
+    ownerContactConsent:
+      typeof p.ownerContactConsent === 'boolean' ? p.ownerContactConsent : undefined,
+    directContactVisible:
+      typeof p.directContactVisible === 'boolean' ? p.directContactVisible : undefined,
+    contactName:
+      p.contactName === null || typeof p.contactName === 'string'
+        ? p.contactName
+        : undefined,
+    contactPhone:
+      p.contactPhone === null || typeof p.contactPhone === 'string'
+        ? p.contactPhone
+        : undefined,
+    contactEmail:
+      p.contactEmail === null || typeof p.contactEmail === 'string'
+        ? p.contactEmail
+        : undefined,
   };
 }
 
@@ -150,6 +179,23 @@ export function safeNormalizePropertyFromApi(
           : undefined,
       likeCount,
       liked: typeof o.liked === 'boolean' ? o.liked : undefined,
+      isOwnerListing: typeof o.isOwnerListing === 'boolean' ? o.isOwnerListing : undefined,
+      ownerContactConsent:
+        typeof o.ownerContactConsent === 'boolean' ? o.ownerContactConsent : undefined,
+      directContactVisible:
+        typeof o.directContactVisible === 'boolean' ? o.directContactVisible : undefined,
+      contactName:
+        o.contactName === null || typeof o.contactName === 'string'
+          ? o.contactName
+          : undefined,
+      contactPhone:
+        o.contactPhone === null || typeof o.contactPhone === 'string'
+          ? o.contactPhone
+          : undefined,
+      contactEmail:
+        o.contactEmail === null || typeof o.contactEmail === 'string'
+          ? o.contactEmail
+          : undefined,
     });
   } catch {
     return null;

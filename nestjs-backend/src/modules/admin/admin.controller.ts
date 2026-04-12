@@ -8,12 +8,14 @@ import {
   Param,
   Query,
   UseGuards,
+  ValidationPipe,
 } from '@nestjs/common';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminService } from './admin.service';
 import { AdminUpdatePropertyDto } from './dto/admin-update-property.dto';
+import { PatchPremiumBrokerDto } from './dto/patch-premium-broker.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { AdminGuard } from './guards/admin.guard';
 
@@ -106,6 +108,15 @@ export class AdminController {
     @Body() dto: UpdateUserRoleDto,
   ) {
     return this.adminService.updateUserRole(user.id, id, dto.role);
+  }
+
+  @Patch('users/:id/premium-broker')
+  updatePremiumBroker(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: PatchPremiumBrokerDto,
+  ) {
+    return this.adminService.updateUserPremiumBroker(user.id, id, dto.isPremiumBroker);
   }
 
   @Delete('users/:id')

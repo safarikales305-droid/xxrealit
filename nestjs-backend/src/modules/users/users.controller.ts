@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
   UseGuards,
+  ValidationPipe,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { parseBearerUserId } from '../auth/auth-token.util';
@@ -19,7 +20,10 @@ import { PropertiesService } from '../properties/properties.service';
 import { UpdateAvatarDto } from './dto/update-avatar.dto';
 import { UpdateCoverDto } from './dto/update-cover.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { UpdateBrokerLeadPrefsDto } from './dto/update-broker-lead-prefs.dto';
 import { UsersService } from './users.service';
+import { BrokerPointsService } from '../premium-broker/broker-points.service';
+import { UserRole } from '@prisma/client';
 
 @Controller('users')
 export class UsersController {
@@ -27,6 +31,7 @@ export class UsersController {
     private readonly usersService: UsersService,
     private readonly propertiesService: PropertiesService,
     private readonly jwt: JwtService,
+    private readonly brokerPoints: BrokerPointsService,
   ) {}
 
   @UseGuards(JwtAuthGuard)
@@ -36,7 +41,20 @@ export class UsersController {
     if (!profile) {
       throw new NotFoundException();
     }
-    return profile;
+    const brokerProgress =
+      profile.role === UserRole.AGENT
+        ? await this.brokerPoints.getProgress(user.id)
+        : null;
+    return { ...profile, brokerProgress };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('me/broker-lead-prefs')
+  async patchBrokerLeadPrefs(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: UpdateBrokerLeadPrefsDto,
+  ) {
+    return this.usersService.updateBrokerLeadPrefs(user.id, dto);
   }
 
   @UseGuards(JwtAuthGuard)

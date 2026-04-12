@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import {
   classicPublicListingWhere,
@@ -51,6 +52,8 @@ export class FeedService {
       select: {
         id: true,
         city: true,
+        role: true,
+        isPremiumBroker: true,
         following: { select: { followingId: true } },
       },
     });
@@ -82,6 +85,12 @@ export class FeedService {
 
     scored.sort((a, b) => b.score - a.score);
 
+    const access: PropertyViewerAccess = {
+      role: viewer.role,
+      isPremiumBroker: Boolean(viewer.isPremiumBroker),
+      isAdmin: viewer.role === UserRole.ADMIN,
+    };
+
     return scored.map((s) =>
       serializeProperty(
         {
@@ -89,6 +98,7 @@ export class FeedService {
           likes: 'likes' in s.row ? s.row.likes : [],
         },
         viewerId,
+        access,
       ),
     );
   }

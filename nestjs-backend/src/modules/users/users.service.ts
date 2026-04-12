@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -10,7 +11,10 @@ import type { User } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { ensureUserRole } from '../auth/user-role.util';
 import { classicPublicListingWhere } from '../properties/property-listing-scope';
-import { serializeProperty } from '../properties/properties.serializer';
+import {
+  serializeProperty,
+  type PropertyViewerAccess,
+} from '../properties/properties.serializer';
 
 @Injectable()
 export class UsersService {
@@ -159,6 +163,12 @@ export class UsersService {
         bio: true,
         role: true,
         createdAt: true,
+        isPremiumBroker: true,
+        brokerLeadNotificationEnabled: true,
+        brokerPreferredRegions: true,
+        brokerPreferredPropertyTypes: true,
+        brokerPoints: true,
+        brokerFreeLeads: true,
       },
     });
     if (!u) return null;
@@ -171,6 +181,12 @@ export class UsersService {
       avatarUrl: u.avatar ?? null,
       coverImageUrl: u.coverImage ?? null,
       bio: u.bio ?? null,
+      isPremiumBroker: u.isPremiumBroker,
+      brokerLeadNotificationEnabled: u.brokerLeadNotificationEnabled,
+      brokerPreferredRegions: u.brokerPreferredRegions,
+      brokerPreferredPropertyTypes: u.brokerPreferredPropertyTypes,
+      brokerPoints: u.brokerPoints,
+      brokerFreeLeads: u.brokerFreeLeads,
     };
     this.logger.log(
       `[profile-media] getMeProfile userId=${u.id} hasAvatar=${Boolean(profile.avatarUrl)} hasCover=${Boolean(profile.coverImageUrl)}`,
@@ -212,12 +228,20 @@ export class UsersService {
     }
 
     let viewerIsAdmin = false;
+    let propertyViewerAccess: PropertyViewerAccess | undefined;
     if (viewerId) {
       const vu = await this.prisma.user.findUnique({
         where: { id: viewerId },
-        select: { role: true },
+        select: { role: true, isPremiumBroker: true },
       });
       viewerIsAdmin = vu?.role === UserRole.ADMIN;
+      if (vu) {
+        propertyViewerAccess = {
+          role: vu.role,
+          isPremiumBroker: Boolean(vu.isPremiumBroker),
+          isAdmin: vu.role === UserRole.ADMIN,
+        };
+      }
     }
 
     const [videos, posts, properties] = await Promise.all([
@@ -260,7 +284,7 @@ export class UsersService {
       videos,
       posts,
       properties: properties.map((p) =>
-        serializeProperty({ ...p, likes: [] }, viewerId),
+        serializeProperty({ ...p, likes: [] }, viewerId, propertyViewerAccess),
       ),
     };
   }
@@ -302,5 +326,50 @@ export class UsersService {
       where: { followingId },
     });
     return { ok: true, followersCount };
+  }
+
+  async updateBrokerLeadPrefs(
+    userId: string,
+    body: {
+      brokerLeadNotificationEnabled?: boolean;
+      brokerPreferredRegions?: string[];
+      brokerPreferredPropertyTypes?: string[];
+    },
+  ) {
+    const u = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (!u || u.role !== UserRole.AGENT) {
+      throw new ForbiddenException('Nastavení leadů je jen pro účty makléře (AGENT).');
+    }
+    const regions = Array.isArray(body.brokerPreferredRegions)
+      ? body.brokerPreferredRegions
+          .map((s) => (typeof s === 'string' ? s.trim().slice(0, 64) : ''))
+          .filter(Boolean)
+          .slice(0, 32)
+      : undefined;
+    const types = Array.isArray(body.brokerPreferredPropertyTypes)
+      ? body.brokerPreferredPropertyTypes
+          .map((s) => (typeof s === 'string' ? s.trim().toLowerCase().slice(0, 32) : ''))
+          .filter(Boolean)
+          .slice(0, 32)
+      : undefined;
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(body.brokerLeadNotificationEnabled !== undefined
+          ? { brokerLeadNotificationEnabled: body.brokerLeadNotificationEnabled }
+          : {}),
+        ...(regions !== undefined ? { brokerPreferredRegions: regions } : {}),
+        ...(types !== undefined ? { brokerPreferredPropertyTypes: types } : {}),
+      },
+      select: {
+        id: true,
+        brokerLeadNotificationEnabled: true,
+        brokerPreferredRegions: true,
+        brokerPreferredPropertyTypes: true,
+      },
+    });
   }
 }

@@ -8,7 +8,7 @@ import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
-import { nestToggleFavorite } from '@/lib/nest-client';
+import { nestSubmitOwnerLeadOffer, nestToggleFavorite } from '@/lib/nest-client';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import type { PropertyDetailAuthor } from '@/lib/property-detail';
 import type { PropertyFeedItem } from '@/types/property';
@@ -77,6 +77,10 @@ export function NemovitostDetailView({
   const [sellerActionHint, setSellerActionHint] = useState<string | null>(null);
   const [liked, setLiked] = useState(Boolean(p.liked));
   const [likeBusy, setLikeBusy] = useState(false);
+  const [ownerLeadOpen, setOwnerLeadOpen] = useState(false);
+  const [ownerLeadText, setOwnerLeadText] = useState('');
+  const [ownerLeadBusy, setOwnerLeadBusy] = useState(false);
+  const [ownerLeadErr, setOwnerLeadErr] = useState<string | null>(null);
   const active = media[activeIndex] ?? media[0];
 
   useEffect(() => {
@@ -111,6 +115,12 @@ export function NemovitostDetailView({
   const isOwner = Boolean(
     user?.id && ownerId && String(user.id).trim() === String(ownerId).trim(),
   );
+  const isAgentViewer = user?.role === 'AGENT';
+  const showOwnerBadges = Boolean(p.isOwnerListing);
+  const directContactOk = p.directContactVisible === true;
+  const phone = (p.contactPhone ?? '').trim();
+  const email = (p.contactEmail ?? '').trim();
+  const nameContact = (p.contactName ?? '').trim();
   const coverForMessage =
     media.find((m) => m.type === 'image')?.url?.trim() ||
     p.imageUrl?.trim() ||
@@ -143,6 +153,29 @@ export function NemovitostDetailView({
       return;
     }
     setSellerModalOpen(true);
+  }
+
+  async function handleOwnerLeadSubmit() {
+    setOwnerLeadErr(null);
+    if (!apiAccessToken) {
+      redirectToLoginForMessages();
+      return;
+    }
+    const t = ownerLeadText.trim();
+    if (t.length < 10) {
+      setOwnerLeadErr('Napište nabídku alespoň na 10 znaků.');
+      return;
+    }
+    setOwnerLeadBusy(true);
+    const r = await nestSubmitOwnerLeadOffer(apiAccessToken, propertyId, t);
+    setOwnerLeadBusy(false);
+    if (!r.ok) {
+      setOwnerLeadErr(r.error ?? 'Odeslání se nezdařilo');
+      return;
+    }
+    setOwnerLeadOpen(false);
+    setOwnerLeadText('');
+    router.push('/profil/zpravy');
   }
 
   function handleFavoriteClick() {
@@ -256,6 +289,21 @@ export function NemovitostDetailView({
           <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-6">
             <div className="space-y-3">
               <h1 className="text-2xl font-bold tracking-tight text-zinc-900">{p.title}</h1>
+              {showOwnerBadges ? (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-900">
+                    Přímý vlastník
+                  </span>
+                  <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-800">
+                    Bez realitky
+                  </span>
+                  {p.ownerContactConsent ? (
+                    <span className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-900">
+                      Souhlas s kontaktem makléřů
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="text-xl font-semibold text-orange-600">
                 {PRICE_FMT.format(p.price)}
               </div>
@@ -348,10 +396,48 @@ export function NemovitostDetailView({
             <p className="mt-2 text-sm text-zinc-600">
               Domluvte si prohlídku nebo doplňující informace u inzerenta.
             </p>
+            {directContactOk && (phone || email) ? (
+              <div className="mt-3 space-y-2 rounded-xl border border-zinc-100 bg-zinc-50/80 p-3 text-sm text-zinc-800">
+                {nameContact ? <p className="font-medium">{nameContact}</p> : null}
+                {phone ? (
+                  <p>
+                    Tel.:{' '}
+                    <a href={`tel:${phone}`} className="font-semibold text-orange-700 hover:underline">
+                      {phone}
+                    </a>
+                  </p>
+                ) : null}
+                {email ? (
+                  <p className="break-all">
+                    E-mail:{' '}
+                    <a href={`mailto:${email}`} className="font-semibold text-orange-700 hover:underline">
+                      {email}
+                    </a>
+                  </p>
+                ) : null}
+              </div>
+            ) : p.isOwnerListing ? (
+              <p className="mt-2 text-sm text-zinc-600">
+                U tohoto inzerátu není veřejně zobrazen přímý kontakt. Použijte zprávu přes platformu
+                nebo (jako makléř) nabídku služeb.
+              </p>
+            ) : null}
             <button type="button" onClick={handleWriteSeller} className={`${primaryMessageClass} mt-4`}>
               <MessageCircle className="size-5 shrink-0 sm:size-6" strokeWidth={2.25} aria-hidden />
               Odeslat zprávu prodejci
             </button>
+            {p.isOwnerListing && isAgentViewer && !isOwner ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setOwnerLeadErr(null);
+                  setOwnerLeadOpen(true);
+                }}
+                className="mt-3 flex w-full min-h-[48px] items-center justify-center rounded-full border-2 border-zinc-300 bg-white px-4 py-3 text-sm font-bold text-zinc-800 shadow-sm transition hover:border-orange-300 hover:bg-orange-50"
+              >
+                Nabídnout služby vlastníkovi
+              </button>
+            ) : null}
           </div>
           {other.length > 0 ? (
             <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
@@ -398,6 +484,54 @@ export function NemovitostDetailView({
           router.push(`/profil/zpravy/${conversationId}`);
         }}
       />
+
+      {ownerLeadOpen ? (
+        <div
+          className="fixed inset-0 z-[200] flex items-end justify-center bg-black/50 p-4 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="owner-lead-title"
+        >
+          <div className="w-full max-w-lg rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl">
+            <h2 id="owner-lead-title" className="text-lg font-semibold text-zinc-900">
+              Nabídka služeb vlastníkovi
+            </h2>
+            <p className="mt-2 text-sm text-zinc-600">
+              Zpráva se odešle přes interní komunikaci. První oslovení může spotřebovat odměnový
+              lead, pokud nemáte prémiový účet makléře.
+            </p>
+            <textarea
+              value={ownerLeadText}
+              onChange={(e) => setOwnerLeadText(e.target.value)}
+              rows={5}
+              className="mt-4 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-[#ff6a00]/55 focus:ring-2 focus:ring-[#ff6a00]/15"
+              placeholder="Stručně představte svou kancelář a nabídku…"
+            />
+            {ownerLeadErr ? (
+              <p className="mt-2 text-sm font-medium text-red-600" role="alert">
+                {ownerLeadErr}
+              </p>
+            ) : null}
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setOwnerLeadOpen(false)}
+                className="rounded-full border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+              >
+                Zrušit
+              </button>
+              <button
+                type="button"
+                disabled={ownerLeadBusy}
+                onClick={() => void handleOwnerLeadSubmit()}
+                className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-110 disabled:opacity-50"
+              >
+                {ownerLeadBusy ? 'Odesílám…' : 'Odeslat nabídku'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

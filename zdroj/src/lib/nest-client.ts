@@ -112,6 +112,18 @@ export async function nestFetchFavorites(token: string | null): Promise<unknown[
 }
 
 /** Odpověď GET /users/me (Nest JWT). */
+export type NestBrokerProgress = {
+  role: string;
+  brokerPoints: number;
+  brokerFreeLeads: number;
+  isPremiumBroker: boolean;
+  rewardThresholdPoints: number;
+  pointsIntoCurrentTier: number;
+  pointsToNextReward: number;
+  freeLeadsPerThreshold: number;
+};
+
+/** Odpověď GET /users/me (Nest JWT). */
 export type NestMeProfile = {
   id: string;
   email: string;
@@ -121,6 +133,13 @@ export type NestMeProfile = {
   coverImageUrl?: string | null;
   bio?: string | null;
   createdAt: string;
+  isPremiumBroker?: boolean;
+  brokerLeadNotificationEnabled?: boolean;
+  brokerPreferredRegions?: string[];
+  brokerPreferredPropertyTypes?: string[];
+  brokerPoints?: number;
+  brokerFreeLeads?: number;
+  brokerProgress?: NestBrokerProgress;
 };
 
 /** GET /users/me může vracet avatarUrl nebo legacy avatar / coverImage. */
@@ -138,6 +157,11 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
   const bio = o.bio === null || typeof o.bio === 'string' ? (o.bio as string | null) : null;
   const createdAt =
     typeof o.createdAt === 'string' ? o.createdAt : new Date().toISOString();
+  const brokerProgressRaw = o.brokerProgress;
+  const brokerProgress =
+    brokerProgressRaw != null && typeof brokerProgressRaw === 'object'
+      ? (brokerProgressRaw as NestBrokerProgress)
+      : null;
   return {
     id: o.id,
     email: o.email,
@@ -147,6 +171,20 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     coverImageUrl,
     bio,
     createdAt,
+    isPremiumBroker: typeof o.isPremiumBroker === 'boolean' ? o.isPremiumBroker : undefined,
+    brokerLeadNotificationEnabled:
+      typeof o.brokerLeadNotificationEnabled === 'boolean'
+        ? o.brokerLeadNotificationEnabled
+        : undefined,
+    brokerPreferredRegions: Array.isArray(o.brokerPreferredRegions)
+      ? o.brokerPreferredRegions.filter((x): x is string => typeof x === 'string')
+      : undefined,
+    brokerPreferredPropertyTypes: Array.isArray(o.brokerPreferredPropertyTypes)
+      ? o.brokerPreferredPropertyTypes.filter((x): x is string => typeof x === 'string')
+      : undefined,
+    brokerPoints: typeof o.brokerPoints === 'number' ? o.brokerPoints : undefined,
+    brokerFreeLeads: typeof o.brokerFreeLeads === 'number' ? o.brokerFreeLeads : undefined,
+    brokerProgress: brokerProgress ?? undefined,
   };
 }
 
@@ -185,6 +223,11 @@ export type AdminStats = {
   properties: number;
   pendingProperties: number;
   visits: number;
+  ownerListings?: number;
+  premiumBrokers?: number;
+  brokerLeadsSent?: number;
+  brokerPointsTotal?: number;
+  brokerFreeLeadsOutstanding?: number;
 };
 
 export type AdminUserRow = {
@@ -194,6 +237,9 @@ export type AdminUserRow = {
   role: string;
   avatarUrl?: string | null;
   createdAt: string;
+  isPremiumBroker?: boolean;
+  brokerPoints?: number;
+  brokerFreeLeads?: number;
 };
 
 export async function nestAdminStats(
@@ -379,6 +425,44 @@ export async function nestAdminUpdateUserRole(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ role }),
+    },
+  );
+  const data = (await res.json().catch(() => ({}))) as {
+    message?: string | string[];
+    error?: string;
+  };
+  if (!res.ok) {
+    const msg =
+      typeof data.message === 'string'
+        ? data.message
+        : Array.isArray(data.message)
+          ? data.message.join(', ')
+          : typeof data.error === 'string'
+            ? data.error
+            : `HTTP ${res.status}`;
+    return { ok: false, error: msg };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminPatchPremiumBroker(
+  token: string | null,
+  userId: string,
+  isPremiumBroker: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/admin/users/${encodeURIComponent(userId)}/premium-broker`,
+    {
+      method: 'PATCH',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ isPremiumBroker }),
     },
   );
   const data = (await res.json().catch(() => ({}))) as {
@@ -702,6 +786,117 @@ export async function nestCreatePropertyListingMultipart(
   } catch {
     return { ok: false, error: 'Síťová chyba' };
   }
+}
+
+export async function nestSubmitOwnerLeadOffer(
+  token: string | null,
+  propertyId: string,
+  message: string,
+): Promise<{ ok: true } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/properties/${encodeURIComponent(propertyId)}/owner-lead-offer`,
+    {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ message }),
+    },
+  );
+  const data = (await res.json().catch(() => ({}))) as {
+    message?: string | string[];
+    error?: string;
+  };
+  if (!res.ok) {
+    const msg =
+      typeof data.message === 'string'
+        ? data.message
+        : Array.isArray(data.message)
+          ? data.message.join(', ')
+          : typeof data.error === 'string'
+            ? data.error
+            : `HTTP ${res.status}`;
+    return { ok: false, error: msg };
+  }
+  return { ok: true };
+}
+
+export type UserNotificationRow = {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  data?: unknown;
+  readAt: string | null;
+  createdAt: string;
+};
+
+export async function nestListNotifications(
+  token: string | null,
+): Promise<UserNotificationRow[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/notifications`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  if (!res.ok) return null;
+  const data = (await res.json().catch(() => [])) as unknown;
+  return Array.isArray(data) ? (data as UserNotificationRow[]) : null;
+}
+
+export async function nestMarkNotificationRead(
+  token: string | null,
+  id: string,
+): Promise<boolean> {
+  if (!API_BASE_URL || !token) return false;
+  const res = await fetch(`${API_BASE_URL}/notifications/${encodeURIComponent(id)}/read`, {
+    method: 'PATCH',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  return res.ok;
+}
+
+export async function nestPatchBrokerLeadPrefs(
+  token: string | null,
+  body: {
+    brokerLeadNotificationEnabled?: boolean;
+    brokerPreferredRegions?: string[];
+    brokerPreferredPropertyTypes?: string[];
+  },
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/users/me/broker-lead-prefs`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    message?: string | string[];
+    error?: string;
+  };
+  if (!res.ok) {
+    const msg =
+      typeof data.message === 'string'
+        ? data.message
+        : Array.isArray(data.message)
+          ? data.message.join(', ')
+          : typeof data.error === 'string'
+            ? data.error
+            : `HTTP ${res.status}`;
+    return { ok: false, error: msg };
+  }
+  return { ok: true };
 }
 
 export type ShortsMusicTrackDto = {

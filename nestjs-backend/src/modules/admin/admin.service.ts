@@ -16,6 +16,7 @@ import {
   RAPID_REALTY_HOST,
   RAPID_REALTY_LIST_URL,
 } from './rapid-realty-import';
+import { OwnerListingNotifyService } from '../premium-broker/owner-listing-notify.service';
 import { parseStringPromise } from 'xml2js';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -117,10 +118,24 @@ function mapXmlNodeToRow(node: Record<string, unknown>): XmlPropertyRow {
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ownerListingNotify: OwnerListingNotifyService,
+  ) {}
 
   async stats() {
-    const [totalUsers, adminUsers, properties, pendingProperties, visits] = await Promise.all([
+    const [
+      totalUsers,
+      adminUsers,
+      properties,
+      pendingProperties,
+      visits,
+      ownerListings,
+      premiumBrokers,
+      brokerLeadsSent,
+      brokerPointsAgg,
+      brokerFreeLeadsAgg,
+    ] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.user.count({ where: { role: UserRole.ADMIN } }),
       this.prisma.property.count(),
@@ -128,6 +143,13 @@ export class AdminService {
         where: { OR: [{ approved: false }, { status: 'PENDING' }] },
       }),
       this.prisma.visit.count(),
+      this.prisma.property.count({ where: { isOwnerListing: true } }),
+      this.prisma.user.count({
+        where: { role: UserRole.AGENT, isPremiumBroker: true },
+      }),
+      this.prisma.brokerLeadOffer.count(),
+      this.prisma.user.aggregate({ _sum: { brokerPoints: true } }),
+      this.prisma.user.aggregate({ _sum: { brokerFreeLeads: true } }),
     ]);
     return {
       users: totalUsers - adminUsers,
@@ -136,6 +158,11 @@ export class AdminService {
       properties,
       pendingProperties,
       visits,
+      ownerListings,
+      premiumBrokers,
+      brokerLeadsSent,
+      brokerPointsTotal: brokerPointsAgg._sum.brokerPoints ?? 0,
+      brokerFreeLeadsOutstanding: brokerFreeLeadsAgg._sum.brokerFreeLeads ?? 0,
     };
   }
 
@@ -367,6 +394,9 @@ export class AdminService {
         avatar: true,
         createdAt: true,
         name: true,
+        isPremiumBroker: true,
+        brokerPoints: true,
+        brokerFreeLeads: true,
       },
     });
     return rows.map((u) => ({
@@ -376,7 +406,31 @@ export class AdminService {
       role: u.role,
       avatarUrl: u.avatar,
       createdAt: u.createdAt,
+      isPremiumBroker: u.isPremiumBroker,
+      brokerPoints: u.brokerPoints,
+      brokerFreeLeads: u.brokerFreeLeads,
     }));
+  }
+
+  async updateUserPremiumBroker(_actorId: string, targetId: string, isPremiumBroker: boolean) {
+    const target = await this.prisma.user.findUnique({ where: { id: targetId } });
+    if (!target) {
+      throw new NotFoundException('Uživatel nenalezen');
+    }
+    if (target.role !== UserRole.AGENT) {
+      throw new BadRequestException('Premium makléř lze nastavit jen účtu s rolí AGENT.');
+    }
+    return this.prisma.user.update({
+      where: { id: targetId },
+      data: { isPremiumBroker },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        isPremiumBroker: true,
+      },
+    });
   }
 
   async approveProperty(propertyId: string) {
@@ -384,10 +438,23 @@ export class AdminService {
     if (!p) {
       throw new NotFoundException('Inzerát nenalezen');
     }
-    return this.prisma.property.update({
+    const wasPending = !p.approved;
+    const updated = await this.prisma.property.update({
       where: { id: propertyId },
       data: { approved: true, status: 'APPROVED', isActive: true },
     });
+    if (wasPending && updated.isOwnerListing) {
+      await this.ownerListingNotify.notifyPremiumBrokersForNewOwnerListing({
+        id: updated.id,
+        title: updated.title,
+        city: updated.city,
+        region: updated.region ?? '',
+        district: updated.district ?? '',
+        propertyType: updated.propertyType,
+        isOwnerListing: updated.isOwnerListing,
+      });
+    }
+    return updated;
   }
 
   async deleteProperty(propertyId: string) {
