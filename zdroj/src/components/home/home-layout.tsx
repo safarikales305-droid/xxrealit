@@ -81,7 +81,7 @@ function feedShortsRowToShortVideo(row: Record<string, unknown>): ShortVideo | n
  */
 export function HomeLayout({
   items,
-  ShortsFeed,
+  ShortsFeed: _ShortsFeed,
   apiConfigMissing = false,
 }: Props) {
   const router = useRouter();

@@ -2,14 +2,21 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Mail } from 'lucide-react';
 import { CommentsPlaceholder } from '@/components/feed/comments-placeholder';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { useAuth } from '@/hooks/use-auth';
 import { toPublicApiUrl } from '@/lib/public-api';
 import type { PropertyFeedItem } from '@/types/property';
-import { resolveShortsPublicSrc } from '@/lib/video-url';
+import { isPropertyFeedVideoPlayable, propertyFeedPrimaryVideoSrc } from '@/lib/feed/loop-feed';
 
 const PRICE_FMT = new Intl.NumberFormat('cs-CZ', {
   style: 'currency',
@@ -40,15 +47,24 @@ export function ShortsFeed({ items }: Props) {
   const { user, isAuthenticated, apiAccessToken } = useAuth();
   const [sellerClip, setSellerClip] = useState<Clip | null>(null);
   const [sellerActionHint, setSellerActionHint] = useState<string | null>(null);
+  const [brokenClipIds, setBrokenClipIds] = useState<Set<string>>(() => new Set());
+
+  const itemsIdsKey = useMemo(() => items.map((i) => i.id).join('\0'), [items]);
+
+  useEffect(() => {
+    setBrokenClipIds(new Set());
+  }, [itemsIdsKey]);
 
   const clips = useMemo<Clip[]>(() => {
     return items
+      .filter((item) => !brokenClipIds.has(item.id))
+      .filter((item) => isPropertyFeedVideoPlayable(item))
       .map((item) => ({
         ...item,
-        src: resolveShortsPublicSrc(item),
+        src: propertyFeedPrimaryVideoSrc(item),
       }))
-      .filter((item): item is Clip => typeof item.src === 'string' && item.src.length > 0);
-  }, [items]);
+      .filter((item): item is Clip => item.src.length > 0);
+  }, [items, brokenClipIds]);
 
   const [activeId, setActiveId] = useState<string | null>(
     clips[0]?.id ?? null,
@@ -62,6 +78,39 @@ export function ShortsFeed({ items }: Props) {
   const [likes, setLikes] = useState<Record<string, number>>({});
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const markClipBroken = useCallback((id: string) => {
+    setBrokenClipIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+    const max = root.scrollHeight - root.clientHeight;
+    if (max > 0 && root.scrollTop > max) {
+      root.scrollTop = max;
+    }
+  }, [clips.length]);
+
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+
+    const onScroll = () => {
+      const max = root.scrollHeight - root.clientHeight;
+      if (max <= 8) return;
+      if (root.scrollTop >= max - 4) {
+        root.scrollTo({ top: 0, behavior: 'auto' });
+      }
+    };
+
+    root.addEventListener('scroll', onScroll, { passive: true });
+    return () => root.removeEventListener('scroll', onScroll);
+  }, [clips.length]);
 
   useEffect(() => {
     setActiveId(clips[0]?.id ?? null);
@@ -185,6 +234,17 @@ export function ShortsFeed({ items }: Props) {
     [apiAccessToken, isAuthenticated, router, user?.id],
   );
 
+  if (clips.length === 0) {
+    return (
+      <div className="flex h-full min-h-[40dvh] w-full flex-col items-center justify-center gap-2 bg-black px-6 text-center">
+        <p className="text-sm font-medium text-white/85">Žádné platné video inzeráty</p>
+        <p className="max-w-xs text-xs leading-relaxed text-white/55">
+          Všechna videa selhala nebo chybí odkaz. Zkuste upravit filtry nebo obnovit stránku později.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={containerRef}
@@ -222,15 +282,14 @@ export function ShortsFeed({ items }: Props) {
             <div className="absolute inset-0 flex items-center justify-center">
               <video
                 data-clip-id={c.id}
-                muted
+                muted={muted}
                 playsInline
                 autoPlay
                 loop
                 controls
                 preload="metadata"
                 className="w-full h-full object-cover"
-                onError={(e) => console.log('VIDEO ERROR', e)}
-                onLoadedData={() => console.log('VIDEO LOADED')}
+                onError={() => markClipBroken(c.id)}
               >
                 <source src={c.src} type="video/mp4" />
               </video>

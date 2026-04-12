@@ -1,8 +1,17 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { PropertyFeedItem } from '@/types/property';
+import { propertyFeedPrimaryVideoSrc, propertyRowPassesVideoFeedGate } from '@/lib/feed/loop-feed';
+import { propertyListingHasVideo } from '@/lib/property-feed-filters';
 
 const PRICE_FMT = new Intl.NumberFormat('cs-CZ', {
   style: 'currency',
@@ -21,17 +30,71 @@ type Props = {
 };
 
 export function PropertyReelsFeed({ items }: Props) {
-  const [activeId, setActiveId] = useState<string | null>(
-    items[0]?.id ?? null,
-  );
+  const [excludedIds, setExcludedIds] = useState<Set<string>>(() => new Set());
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [liked, setLiked] = useState<Record<string, boolean>>({});
   const [likes, setLikes] = useState<Record<string, number>>(() => {
     const init: Record<string, number> = {};
     for (const p of items) init[p.id] = mockLikesForId(p.id);
     return init;
   });
-
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const itemsIdsKey = useMemo(() => items.map((i) => i.id).join('\0'), [items]);
+
+  useEffect(() => {
+    setExcludedIds(new Set());
+  }, [itemsIdsKey]);
+
+  const gatedItems = useMemo(
+    () => items.filter(propertyRowPassesVideoFeedGate),
+    [items],
+  );
+
+  const feedItems = useMemo(
+    () => gatedItems.filter((p) => !excludedIds.has(p.id)),
+    [gatedItems, excludedIds],
+  );
+
+  const markBroken = useCallback((id: string) => {
+    setExcludedIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+    const max = root.scrollHeight - root.clientHeight;
+    if (max > 0 && root.scrollTop > max) {
+      root.scrollTop = max;
+    }
+  }, [feedItems.length]);
+
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+
+    const onScroll = () => {
+      const max = root.scrollHeight - root.clientHeight;
+      if (max <= 8) return;
+      if (root.scrollTop >= max - 4) {
+        root.scrollTo({ top: 0, behavior: 'auto' });
+      }
+    };
+
+    root.addEventListener('scroll', onScroll, { passive: true });
+    return () => root.removeEventListener('scroll', onScroll);
+  }, [feedItems.length]);
+
+  useEffect(() => {
+    if (feedItems.length === 0) return;
+    setActiveId((prev) =>
+      prev && feedItems.some((p) => p.id === prev) ? prev : feedItems[0]!.id,
+    );
+  }, [feedItems]);
 
   useEffect(() => {
     const root = containerRef.current;
@@ -61,7 +124,7 @@ export function PropertyReelsFeed({ items }: Props) {
     videos.forEach((v) => observer.observe(v));
 
     return () => observer.disconnect();
-  }, [items]);
+  }, [feedItems]);
 
   const toggleLike = useCallback((id: string) => {
     setLiked((prev) => {
@@ -74,6 +137,17 @@ export function PropertyReelsFeed({ items }: Props) {
 
   const actionBtn =
     'flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/35 text-xl shadow-lg backdrop-blur-md transition duration-200 hover:scale-110 hover:border-white/35 hover:bg-black/50 active:scale-95';
+
+  if (feedItems.length === 0) {
+    return (
+      <div className="relative flex h-svh w-full flex-col items-center justify-center gap-2 bg-black px-6 text-center">
+        <p className="text-sm font-medium text-white/85">Žádné platné položky ve feedu</p>
+        <p className="max-w-xs text-xs text-white/50">
+          Videa bez funkčního souboru jsou skrytá. Zkuste upravit filtry.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="relative h-svh w-full bg-black">
@@ -93,8 +167,11 @@ export function PropertyReelsFeed({ items }: Props) {
         ref={containerRef}
         className="h-svh w-full snap-y snap-mandatory overflow-y-scroll scroll-smooth"
       >
-        {items.map((p) => {
+        {feedItems.map((p) => {
           const isActive = activeId === p.id;
+          const videoSrc = propertyFeedPrimaryVideoSrc(p);
+          const wantsVideo = propertyListingHasVideo(p);
+
           return (
             <section
               key={p.id}
@@ -107,7 +184,7 @@ export function PropertyReelsFeed({ items }: Props) {
                     : 'scale-100'
                 }`}
               >
-                {p.videoUrl ? (
+                {videoSrc ? (
                   <video
                     data-property-id={p.id}
                     muted
@@ -117,14 +194,15 @@ export function PropertyReelsFeed({ items }: Props) {
                     controls
                     preload="metadata"
                     className="w-full h-full object-cover"
-                    onError={(e) => console.log('VIDEO ERROR', e)}
-                    onLoadedData={() => console.log('VIDEO LOADED')}
+                    onError={() => markBroken(p.id)}
                   >
-                    <source src={p.videoUrl} type="video/mp4" />
+                    <source src={videoSrc} type="video/mp4" />
                   </video>
                 ) : (
                   <div className="flex h-full w-full items-center justify-center bg-gradient-to-b from-zinc-900 to-zinc-950 text-zinc-500">
-                    <span className="text-sm">Bez videa</span>
+                    <span className="text-sm">
+                      {wantsVideo ? 'Video se nepodařilo načíst' : 'Bez videa'}
+                    </span>
                   </div>
                 )}
 

@@ -15,6 +15,8 @@ type VideoCardProps = {
   video: ShortVideo;
   /** Mobil shorts: otevře panel filtrů (tlačítko v levém horním rohu videa). */
   onMobileFiltersOpen?: () => void;
+  /** Selhání načtení / přehrávání — rodič záznam odfiltruje a případně posune scroll. */
+  onVideoBroken?: (videoId: string) => void;
 };
 
 const railBtn =
@@ -23,7 +25,11 @@ const railBtn =
 /** Obálka / zpráva prodejci — stejná velikost jako rail, výrazný oranžový akcent. */
 const railMessageBtn = `${railBtn} border-orange-400/70 bg-black/70 text-orange-100 hover:border-orange-300 hover:bg-orange-600/90 hover:text-white`;
 
-export default function VideoCard({ video, onMobileFiltersOpen }: VideoCardProps) {
+export default function VideoCard({
+  video,
+  onMobileFiltersOpen,
+  onVideoBroken,
+}: VideoCardProps) {
   const router = useRouter();
   const { user, isAuthenticated, isLoading, apiAccessToken } = useAuth();
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -37,6 +43,10 @@ export default function VideoCard({ video, onMobileFiltersOpen }: VideoCardProps
   useEffect(() => {
     setLiked(Boolean(video.liked));
   }, [video.id, video.liked]);
+
+  useEffect(() => {
+    setError(false);
+  }, [video.id]);
 
   useEffect(() => {
     if (!videoRef.current) return;
@@ -68,15 +78,24 @@ export default function VideoCard({ video, onMobileFiltersOpen }: VideoCardProps
     observer.observe(vid);
 
     return () => observer.disconnect();
-  }, [muted]);
+  }, [muted, video.id, error]);
 
   useEffect(() => {
     if (videoRef.current) videoRef.current.muted = muted;
   }, [muted]);
 
-  const src = nestAbsoluteAssetUrl(video.videoUrl ?? video.url ?? '');
+  const src = nestAbsoluteAssetUrl(video.videoUrl ?? video.url ?? '').trim();
+
+  useEffect(() => {
+    if (!src) onVideoBroken?.(video.id);
+  }, [src, video.id, onVideoBroken]);
+
   if (!src) {
-    return <div className="text-white">Missing video</div>;
+    return (
+      <div className="flex h-full min-h-[50dvh] w-full flex-col items-center justify-center bg-black px-4 text-center text-sm text-white/55">
+        Chybí video soubor
+      </div>
+    );
   }
 
   const shareTitle = (video.title ?? 'Inzerát').trim().slice(0, 120) || 'Inzerát';
@@ -143,19 +162,26 @@ export default function VideoCard({ video, onMobileFiltersOpen }: VideoCardProps
     <div className="relative isolate flex h-full min-h-0 w-full flex-col bg-black">
       {/* Stage: výška z flex rodiče (viewport − navbar/okraje). Desktop = celé video (contain), mobil = cover. */}
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        <video
-          ref={videoRef}
-          src={src}
-          muted={muted}
-          playsInline
-          loop
-          autoPlay
-          preload="metadata"
-          className="absolute inset-0 box-border h-full w-full object-cover md:object-contain"
-          onError={() => {
-            setError(true);
-          }}
-        />
+        {!error ? (
+          <video
+            ref={videoRef}
+            src={src}
+            muted={muted}
+            playsInline
+            loop
+            autoPlay
+            preload="metadata"
+            className="absolute inset-0 box-border h-full w-full object-cover md:object-contain"
+            onError={() => {
+              setError(true);
+              onVideoBroken?.(video.id);
+            }}
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center bg-black text-sm text-white/50">
+            Video se nepodařilo načíst
+          </div>
+        )}
 
         {onMobileFiltersOpen ? (
           <button
@@ -283,12 +309,6 @@ export default function VideoCard({ video, onMobileFiltersOpen }: VideoCardProps
           router.push(`/profil/zpravy/${conversationId}`);
         }}
       />
-
-      {error ? (
-        <div className="absolute inset-0 z-[50] flex items-center justify-center bg-black text-white">
-          Video failed to load
-        </div>
-      ) : null}
     </div>
   );
 }

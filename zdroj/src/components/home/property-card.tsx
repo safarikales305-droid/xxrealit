@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import type { PropertyFeedItem } from '@/types/property';
+import { propertyListingHasVideo } from '@/lib/property-feed-filters';
+import { propertyFeedPrimaryVideoSrc } from '@/lib/feed/loop-feed';
 
 const PRICE_FMT = new Intl.NumberFormat('cs-CZ', {
   style: 'currency',
@@ -20,6 +22,7 @@ type Props = {
   liked: boolean;
   likes: number;
   onToggleLike: () => void;
+  onVideoBroken?: (propertyId: string) => void;
 };
 
 export function PropertyCard({
@@ -28,35 +31,48 @@ export function PropertyCard({
   liked,
   likes,
   onToggleLike,
+  onVideoBroken,
 }: Props) {
   const [muted, setMuted] = useState(true);
+  const [videoFailed, setVideoFailed] = useState(false);
+
+  const videoSrc = propertyFeedPrimaryVideoSrc(p);
+  const wantsVideo = propertyListingHasVideo(p);
 
   useEffect(() => {
-    console.log('VIDEO URL:', p.videoUrl);
-  }, [p.id, p.videoUrl]);
+    setVideoFailed(false);
+  }, [p.id, videoSrc]);
+
+  useEffect(() => {
+    if (wantsVideo && !videoSrc) onVideoBroken?.(p.id);
+  }, [wantsVideo, videoSrc, p.id, onVideoBroken]);
 
   return (
     <section className="relative isolate box-border h-[calc(100vh-56px)] max-h-[calc(100vh-56px)] w-full max-w-full shrink-0 snap-start snap-always overflow-hidden overflow-x-hidden bg-black md:h-[calc(100vh-64px)] md:max-h-[calc(100vh-64px)]">
-      {p.videoUrl ? (
+      {videoSrc && !videoFailed ? (
         <div className="absolute inset-0 flex items-center justify-center">
           <video
             data-property-id={p.id}
-            muted
+            muted={muted}
             playsInline
             autoPlay
             loop
             controls
             preload="metadata"
             className="w-full h-full object-cover"
-            onError={(e) => console.log('VIDEO ERROR', e)}
-            onLoadedData={() => console.log('VIDEO LOADED')}
+            onError={() => {
+              setVideoFailed(true);
+              onVideoBroken?.(p.id);
+            }}
           >
-            <source src={p.videoUrl} type="video/mp4" />
+            <source src={videoSrc} type="video/mp4" />
           </video>
         </div>
       ) : (
         <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-zinc-800 via-zinc-900 to-black text-zinc-500">
-          <span className="text-[15px] font-medium tracking-tight">Bez videa</span>
+          <span className="text-[15px] font-medium tracking-tight">
+            {wantsVideo ? 'Video se nepodařilo načíst' : 'Bez videa'}
+          </span>
         </div>
       )}
 
