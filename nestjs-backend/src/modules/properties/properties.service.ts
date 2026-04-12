@@ -1,14 +1,19 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
+import { OwnerUpdatePropertyDto } from './dto/owner-update-property.dto';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
 import { classicPublicListingWhere } from './property-listing-scope';
-import { isPropertyPubliclyListed } from './property-public-visibility';
+import {
+  computeListingPublicStatus,
+  isPropertyPubliclyListed,
+} from './property-public-visibility';
 import {
   serializeProperty,
   type PropertyViewerAccess,
@@ -459,5 +464,113 @@ export class PropertiesService {
       }
       throw e;
     }
+  }
+
+  private pickListingCoverUrl(r: {
+    videoUrl: string | null;
+    images: string[];
+    media: Array<{ url: string; type: string; sortOrder: number }>;
+  }): string | null {
+    const media = [...r.media].sort((a, b) => a.sortOrder - b.sortOrder);
+    const v = media.find((m) => m.type === 'video');
+    if (v?.url) return v.url;
+    const im = media.find((m) => m.type === 'image');
+    if (im?.url) return im.url;
+    if (r.videoUrl?.trim()) return r.videoUrl.trim();
+    if (r.images.length > 0) return r.images[0];
+    return null;
+  }
+
+  async findDashboardListingsByOwner(ownerId: string) {
+    const rows = await this.prisma.property.findMany({
+      where: { userId: ownerId, deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        media: { orderBy: { sortOrder: 'asc' } },
+      },
+    });
+    const now = new Date();
+    return rows.map((r) => {
+      const dashboardStatus = computeListingPublicStatus(
+        {
+          deletedAt: r.deletedAt,
+          isActive: r.isActive,
+          activeFrom: r.activeFrom,
+          activeUntil: r.activeUntil,
+          approved: r.approved,
+        },
+        now,
+      );
+      const listingType =
+        String(r.listingType ?? '').toUpperCase() === 'SHORTS'
+          ? 'SHORTS'
+          : 'CLASSIC';
+      return {
+        id: r.id,
+        title: r.title,
+        listingType,
+        price: r.price,
+        currency: r.currency,
+        city: r.city,
+        region: r.region ?? '',
+        dashboardStatus,
+        createdAt: r.createdAt.toISOString(),
+        coverUrl: this.pickListingCoverUrl(r),
+      };
+    });
+  }
+
+  async updateByOwner(ownerId: string, propertyId: string, dto: OwnerUpdatePropertyDto) {
+    const existing = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+    });
+    if (!existing || existing.deletedAt) {
+      throw new NotFoundException(`Property "${propertyId}" not found`);
+    }
+    if (existing.userId !== ownerId) {
+      throw new ForbiddenException('Tento inzerát nemůžete upravovat.');
+    }
+    const data: Prisma.PropertyUpdateInput = {};
+    if (dto.title !== undefined) data.title = dto.title.trim();
+    if (dto.description !== undefined) data.description = dto.description.trim();
+    if (dto.price !== undefined) data.price = dto.price;
+    if (dto.city !== undefined) data.city = dto.city.trim();
+    if (dto.region !== undefined) data.region = dto.region.trim().slice(0, 120);
+    if (dto.isActive !== undefined) data.isActive = dto.isActive;
+    const updated = await this.prisma.property.update({
+      where: { id: propertyId },
+      data,
+      include: socialInclude(ownerId),
+    });
+    const likesArr =
+      'likes' in updated && Array.isArray(updated.likes) ? updated.likes : [];
+    const ownerAccess = await this.viewerAccess(ownerId);
+    return serializeProperty(
+      {
+        ...updated,
+        likes: likesArr,
+        _count: updated._count,
+        user: updated.user,
+      },
+      ownerId,
+      ownerAccess,
+    );
+  }
+
+  async softDeleteByOwner(ownerId: string, propertyId: string) {
+    const existing = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+    });
+    if (!existing || existing.deletedAt) {
+      throw new NotFoundException(`Property "${propertyId}" not found`);
+    }
+    if (existing.userId !== ownerId) {
+      throw new ForbiddenException('Tento inzerát nemůžete smazat.');
+    }
+    await this.prisma.property.update({
+      where: { id: propertyId },
+      data: { deletedAt: new Date(), isActive: false },
+    });
+    return { ok: true };
   }
 }

@@ -15,6 +15,7 @@ import {
   serializeProperty,
   type PropertyViewerAccess,
 } from '../properties/properties.serializer';
+import { UpdateBrokerPublicProfileDto } from './dto/update-broker-public-profile.dto';
 
 @Injectable()
 export class UsersService {
@@ -169,6 +170,17 @@ export class UsersService {
         brokerPreferredPropertyTypes: true,
         brokerPoints: true,
         brokerFreeLeads: true,
+        isPublicBrokerProfile: true,
+        allowBrokerReviews: true,
+        brokerProfileSlug: true,
+        brokerOfficeName: true,
+        brokerSpecialization: true,
+        brokerRegionLabel: true,
+        brokerWeb: true,
+        brokerPhonePublic: true,
+        brokerEmailPublic: true,
+        brokerReviewAverage: true,
+        brokerReviewCount: true,
       },
     });
     if (!u) return null;
@@ -187,6 +199,17 @@ export class UsersService {
       brokerPreferredPropertyTypes: u.brokerPreferredPropertyTypes,
       brokerPoints: u.brokerPoints,
       brokerFreeLeads: u.brokerFreeLeads,
+      isPublicBrokerProfile: u.isPublicBrokerProfile,
+      allowBrokerReviews: u.allowBrokerReviews,
+      brokerProfileSlug: u.brokerProfileSlug,
+      brokerOfficeName: u.brokerOfficeName,
+      brokerSpecialization: u.brokerSpecialization,
+      brokerRegionLabel: u.brokerRegionLabel,
+      brokerWeb: u.brokerWeb,
+      brokerPhonePublic: u.brokerPhonePublic,
+      brokerEmailPublic: u.brokerEmailPublic,
+      brokerReviewAverage: u.brokerReviewAverage,
+      brokerReviewCount: u.brokerReviewCount,
     };
     this.logger.log(
       `[profile-media] getMeProfile userId=${u.id} hasAvatar=${Boolean(profile.avatarUrl)} hasCover=${Boolean(profile.coverImageUrl)}`,
@@ -369,6 +392,112 @@ export class UsersService {
         brokerLeadNotificationEnabled: true,
         brokerPreferredRegions: true,
         brokerPreferredPropertyTypes: true,
+      },
+    });
+  }
+
+  private slugifyBase(input: string): string {
+    const s = input
+      .normalize('NFD')
+      .replace(/\p{M}/gu, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 50);
+    return s || 'makler';
+  }
+
+  private async nextUniqueBrokerSlug(base: string, userId: string): Promise<string> {
+    let candidate = base;
+    for (let i = 0; i < 30; i += 1) {
+      const other = await this.prisma.user.findFirst({
+        where: {
+          brokerProfileSlug: candidate,
+          NOT: { id: userId },
+        },
+        select: { id: true },
+      });
+      if (!other) return candidate;
+      candidate = `${base}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+    return `${base}-${userId.slice(0, 8)}`;
+  }
+
+  async updateBrokerPublicProfile(userId: string, dto: UpdateBrokerPublicProfileDto) {
+    const u = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        role: true,
+        name: true,
+        email: true,
+        brokerProfileSlug: true,
+        isPublicBrokerProfile: true,
+      },
+    });
+    if (!u || u.role !== UserRole.AGENT) {
+      throw new ForbiddenException(
+        'Veřejný profil makléře lze nastavit jen pro účty makléře (AGENT).',
+      );
+    }
+
+    const willBePublic =
+      dto.isPublicBrokerProfile !== undefined
+        ? dto.isPublicBrokerProfile
+        : u.isPublicBrokerProfile;
+
+    let nextSlug = u.brokerProfileSlug;
+    if (willBePublic && (!nextSlug || !nextSlug.trim())) {
+      const baseSource =
+        (u.name && u.name.trim()) || u.email.split('@')[0] || 'makler';
+      const base = this.slugifyBase(baseSource);
+      nextSlug = await this.nextUniqueBrokerSlug(base, userId);
+    }
+
+    const data: Prisma.UserUpdateInput = {};
+    if (dto.isPublicBrokerProfile !== undefined) {
+      data.isPublicBrokerProfile = dto.isPublicBrokerProfile;
+    }
+    if (dto.allowBrokerReviews !== undefined) {
+      data.allowBrokerReviews = dto.allowBrokerReviews;
+    }
+    if (dto.brokerOfficeName !== undefined) {
+      data.brokerOfficeName = dto.brokerOfficeName.trim().slice(0, 200);
+    }
+    if (dto.brokerSpecialization !== undefined) {
+      data.brokerSpecialization = dto.brokerSpecialization.trim().slice(0, 200);
+    }
+    if (dto.brokerRegionLabel !== undefined) {
+      data.brokerRegionLabel = dto.brokerRegionLabel.trim().slice(0, 120);
+    }
+    if (dto.brokerWeb !== undefined) {
+      data.brokerWeb = dto.brokerWeb.trim().slice(0, 500);
+    }
+    if (dto.brokerPhonePublic !== undefined) {
+      data.brokerPhonePublic = dto.brokerPhonePublic.trim().slice(0, 40);
+    }
+    if (dto.brokerEmailPublic !== undefined) {
+      data.brokerEmailPublic = dto.brokerEmailPublic.trim().toLowerCase().slice(0, 200);
+    }
+    if (nextSlug && nextSlug !== u.brokerProfileSlug) {
+      data.brokerProfileSlug = nextSlug;
+    }
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data,
+      select: {
+        isPublicBrokerProfile: true,
+        allowBrokerReviews: true,
+        brokerProfileSlug: true,
+        brokerOfficeName: true,
+        brokerSpecialization: true,
+        brokerRegionLabel: true,
+        brokerWeb: true,
+        brokerPhonePublic: true,
+        brokerEmailPublic: true,
+        brokerReviewAverage: true,
+        brokerReviewCount: true,
       },
     });
   }

@@ -21,6 +21,7 @@ import { UpdateAvatarDto } from './dto/update-avatar.dto';
 import { UpdateCoverDto } from './dto/update-cover.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdateBrokerLeadPrefsDto } from './dto/update-broker-lead-prefs.dto';
+import { UpdateBrokerPublicProfileDto } from './dto/update-broker-public-profile.dto';
 import { UsersService } from './users.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { UserRole } from '@prisma/client';
@@ -55,6 +56,22 @@ export class UsersController {
     @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: UpdateBrokerLeadPrefsDto,
   ) {
     return this.usersService.updateBrokerLeadPrefs(user.id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('me/listings')
+  myListings(@CurrentUser() user: AuthUser) {
+    return this.propertiesService.findDashboardListingsByOwner(user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('me/broker-public-profile')
+  patchBrokerPublicProfile(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: UpdateBrokerPublicProfileDto,
+  ) {
+    return this.usersService.updateBrokerPublicProfile(user.id, dto);
   }
 
   @UseGuards(JwtAuthGuard)

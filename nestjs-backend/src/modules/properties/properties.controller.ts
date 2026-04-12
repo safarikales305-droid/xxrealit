@@ -2,9 +2,11 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   Param,
+  Patch,
   Post,
   UploadedFiles,
   UseGuards,
@@ -21,6 +23,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { propertyMediaMemoryMulterOptions } from '../upload/multer-upload.config';
 import { CreatePropertyDto } from './dto/create-property.dto';
+import { OwnerUpdatePropertyDto } from './dto/owner-update-property.dto';
 import {
   ListingShortsFromPhotosService,
   type ShortsMusicSelection,
@@ -150,6 +153,23 @@ export class PropertiesController {
   ) {
     const viewerId = parseBearerUserId(this.jwt, auth);
     return this.propertiesService.findOneForDetail(id, viewerId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id')
+  updateMine(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: OwnerUpdatePropertyDto,
+  ) {
+    return this.propertiesService.updateByOwner(user.id, id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete(':id')
+  deleteMine(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.propertiesService.softDeleteByOwner(user.id, id);
   }
 
   @UseGuards(JwtAuthGuard)

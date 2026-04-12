@@ -29,3 +29,6 @@ export const classicListingWhere: Prisma.PropertyWhereInput = {
 export const classicPublicListingWhere: Prisma.PropertyWhereInput = {
   AND: [classicListingWhere, approvedAndVisible],
 };
+
+/** Všechny schválené živé inzeráty (shorts i klasik) — veřejný profil makléře. */
+export const anyPublicListingWhere: Prisma.PropertyWhereInput = approvedAndVisible;

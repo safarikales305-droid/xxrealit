@@ -75,9 +75,27 @@ model User {
   /// Odměnové leady z gamifikace (kontaktování vlastnických inzerátů bez premium).
   brokerFreeLeads                  Int      @default(0)
 
+  /// Veřejná stránka makléře v katalogu /makleri.
+  isPublicBrokerProfile Boolean  @default(false)
+  /// Zobrazit sekci hodnocení a přijímat nové recenze.
+  allowBrokerReviews    Boolean  @default(false)
+  /// Jedinečný slug pro URL /makler/[slug].
+  brokerProfileSlug     String?  @unique
+  brokerOfficeName      String   @default("")
+  brokerSpecialization  String   @default("")
+  brokerRegionLabel     String   @default("")
+  brokerWeb             String   @default("")
+  brokerPhonePublic     String   @default("")
+  brokerEmailPublic     String   @default("")
+  /// Agregát z viditelných recenzí (přepočet při změně recenze).
+  brokerReviewAverage   Float    @default(0)
+  brokerReviewCount     Int      @default(0)
+
   notifications        UserNotification[]
   brokerPointsLedger   BrokerPointsLedger[]
   brokerLeadOffers     BrokerLeadOffer[] @relation("UserBrokerLeads")
+  brokerReviewsReceived BrokerReview[] @relation("BrokerReviewsTarget")
+  brokerReviewsWritten  BrokerReview[] @relation("BrokerReviewsAuthor")
 }
 
 /// Admin spravovaná hudba pro generované shorts z fotek (výběr uživatelem při tvorbě inzerátu).
@@ -408,4 +426,22 @@ model BrokerLeadOffer {
   @@unique([brokerId, propertyId])
   @@index([propertyId])
   @@index([brokerId])
+}
+
+/// Hodnocení makléře (jen AGENT jako brokerId).
+model BrokerReview {
+  id         String   @id @default(cuid())
+  brokerId   String
+  authorId   String
+  rating     Int
+  reviewText String   @db.Text
+  isVisible  Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  broker User @relation("BrokerReviewsTarget", fields: [brokerId], references: [id], onDelete: Cascade)
+  author User @relation("BrokerReviewsAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@unique([brokerId, authorId])
+  @@index([brokerId, isVisible, createdAt])
 }

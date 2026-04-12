@@ -17,6 +17,7 @@ import { PostsModule } from './modules/posts/posts.module';
 import { MessagesModule } from './modules/messages/messages.module';
 import { ShortsMusicModule } from './modules/shorts-music/shorts-music.module';
 import { PremiumBrokerModule } from './modules/premium-broker/premium-broker.module';
+import { BrokersModule } from './modules/brokers/brokers.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { PremiumBrokerModule } from './modules/premium-broker/premium-broker.mod
     PostsModule,
     MessagesModule,
     ShortsMusicModule,
+    BrokersModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

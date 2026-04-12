@@ -8,16 +8,21 @@ import { useMessagesUnreadCount } from '@/hooks/use-messages-unread';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import {
   nestDeleteCover,
+  nestDeleteMyProperty,
   nestFetchFavorites,
   nestFetchMe,
+  nestFetchMyListings,
   nestListNotifications,
   nestMarkNotificationRead,
   nestPatchBrokerLeadPrefs,
+  nestPatchBrokerPublicProfile,
+  nestPatchMyProperty,
   nestPatchProfileBio,
   nestUploadAvatar,
   nestUploadCover,
   NEST_PROFILE_IMAGE_MAX_BYTES,
   type NestMeProfile,
+  type NestMyListingRow,
   type UserNotificationRow,
 } from '@/lib/nest-client';
 import {
@@ -27,6 +32,15 @@ import {
 
 const BIO_MAX = 500;
 const ACCEPT_IMAGES = 'image/jpeg,image/jpg,image/png,image/webp';
+
+const LISTING_STATUS_LABEL: Record<string, string> = {
+  ACTIVE: 'Aktivní',
+  INACTIVE: 'Neaktivní',
+  EXPIRED: 'Expirovaný',
+  SCHEDULED: 'Naplánováno',
+  PENDING_APPROVAL: 'Čeká na schválení',
+  DELETED: 'Smazáno',
+};
 
 function assertImageFile(file: File): string | null {
   const okMime = ['image/jpeg', 'image/png', 'image/webp'].includes(file.type);
@@ -53,6 +67,18 @@ export default function ProfilPage() {
   const [favorites, setFavorites] = useState<PropertyFeedItem[]>([]);
   const [favLoading, setFavLoading] = useState(false);
   const [favError, setFavError] = useState<string | null>(null);
+  const [myListings, setMyListings] = useState<NestMyListingRow[]>([]);
+  const [listingsLoading, setListingsLoading] = useState(false);
+  const [listingsError, setListingsError] = useState<string | null>(null);
+
+  const [brokerOffice, setBrokerOffice] = useState('');
+  const [brokerSpec, setBrokerSpec] = useState('');
+  const [brokerRegion, setBrokerRegion] = useState('');
+  const [brokerWeb, setBrokerWeb] = useState('');
+  const [brokerPhone, setBrokerPhone] = useState('');
+  const [brokerEmailPub, setBrokerEmailPub] = useState('');
+  const [brokerFieldsSaving, setBrokerFieldsSaving] = useState(false);
+  const [brokerFieldsError, setBrokerFieldsError] = useState<string | null>(null);
 
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [coverUploading, setCoverUploading] = useState(false);
@@ -127,6 +153,37 @@ export default function ProfilPage() {
   useEffect(() => {
     void loadNestProfile();
   }, [loadNestProfile]);
+
+  useEffect(() => {
+    if (!nestMe || user?.role !== 'AGENT') return;
+    setBrokerOffice(nestMe.brokerOfficeName ?? '');
+    setBrokerSpec(nestMe.brokerSpecialization ?? '');
+    setBrokerRegion(nestMe.brokerRegionLabel ?? '');
+    setBrokerWeb(nestMe.brokerWeb ?? '');
+    setBrokerPhone(nestMe.brokerPhonePublic ?? '');
+    setBrokerEmailPub(nestMe.brokerEmailPublic ?? '');
+  }, [nestMe, user?.role]);
+
+  const loadMyListings = useCallback(async () => {
+    if (!apiAccessToken) {
+      setMyListings([]);
+      return;
+    }
+    setListingsLoading(true);
+    setListingsError(null);
+    const rows = await nestFetchMyListings(apiAccessToken);
+    setListingsLoading(false);
+    if (!rows) {
+      setListingsError('Inzeráty se nepodařilo načíst.');
+      setMyListings([]);
+      return;
+    }
+    setMyListings(rows);
+  }, [apiAccessToken]);
+
+  useEffect(() => {
+    void loadMyListings();
+  }, [loadMyListings]);
 
   /** Po návratu na stránku: pokud Nest /users/me nestihl, použij avatar z auth session. */
   useEffect(() => {
@@ -493,8 +550,319 @@ export default function ProfilPage() {
           </div>
         </section>
 
+        <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-lg font-semibold text-zinc-900">Moje inzeráty</h2>
+            <Link
+              href="/inzerat/pridat"
+              className="inline-flex w-full shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-3 text-sm font-bold text-white shadow-md transition hover:brightness-105 sm:w-auto sm:px-8"
+            >
+              Vytvořit inzerát
+            </Link>
+          </div>
+          {!apiAccessToken ? (
+            <p className="mt-4 text-sm text-amber-800">
+              Pro seznam inzerátů je potřeba přihlášení s JWT k Nest API.
+            </p>
+          ) : listingsLoading ? (
+            <p className="mt-4 text-sm text-zinc-500">Načítám inzeráty…</p>
+          ) : listingsError ? (
+            <p className="mt-4 text-sm text-red-600">{listingsError}</p>
+          ) : myListings.length === 0 ? (
+            <p className="mt-4 text-sm text-zinc-600">
+              Zatím nemáte žádný inzerát. Vytvořte první pomocí tlačítka výše.
+            </p>
+          ) : (
+            <ul className="mt-5 space-y-4">
+              {myListings.map((row) => {
+                const statusLabel =
+                  LISTING_STATUS_LABEL[row.dashboardStatus] ?? row.dashboardStatus;
+                const typeLabel = row.listingType === 'SHORTS' ? 'Shorts' : 'Klasik';
+                const cover = row.coverUrl?.trim() ?? null;
+                const isVideoish =
+                  row.listingType === 'SHORTS' ||
+                  Boolean(cover && /\.(mp4|webm|mov)(\?|$)/i.test(cover));
+                return (
+                  <li
+                    key={row.id}
+                    className="flex flex-col gap-3 rounded-xl border border-zinc-100 bg-zinc-50/60 p-4 sm:flex-row sm:items-stretch"
+                  >
+                    <div className="relative h-28 w-full shrink-0 overflow-hidden rounded-lg bg-zinc-200 sm:h-auto sm:w-40">
+                      {cover && !isVideoish ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={
+                            /^https?:\/\//i.test(cover)
+                              ? cover
+                              : nestAbsoluteAssetUrl(cover) || cover
+                          }
+                          alt=""
+                          className="size-full object-cover"
+                        />
+                      ) : cover && isVideoish ? (
+                        <div className="flex size-full items-center justify-center bg-zinc-800 text-3xl text-white">
+                          ▶
+                        </div>
+                      ) : (
+                        <div className="flex size-full items-center justify-center text-xs text-zinc-500">
+                          Bez náhledu
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-zinc-900">{row.title}</p>
+                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-600">
+                        <span>
+                          Typ: <strong className="text-zinc-800">{typeLabel}</strong>
+                        </span>
+                        <span>
+                          Cena:{' '}
+                          <strong className="text-zinc-800">
+                            {row.price.toLocaleString('cs-CZ')} {row.currency}
+                          </strong>
+                        </span>
+                        <span>
+                          Lokalita:{' '}
+                          <strong className="text-zinc-800">
+                            {row.city}
+                            {row.region ? ` · ${row.region}` : ''}
+                          </strong>
+                        </span>
+                        <span>
+                          Stav: <strong className="text-zinc-800">{statusLabel}</strong>
+                        </span>
+                        <span>
+                          Vytvořeno:{' '}
+                          <strong className="text-zinc-800">
+                            {new Date(row.createdAt).toLocaleDateString('cs-CZ')}
+                          </strong>
+                        </span>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Link
+                          href={`/inzerat/upravit/${row.id}`}
+                          className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        >
+                          Upravit
+                        </Link>
+                        <Link
+                          href={`/nemovitost/${row.id}`}
+                          className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        >
+                          Zobrazit
+                        </Link>
+                        {row.dashboardStatus === 'ACTIVE' ||
+                        row.dashboardStatus === 'SCHEDULED' ? (
+                          <button
+                            type="button"
+                            className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                            onClick={() => {
+                              if (!apiAccessToken) return;
+                              void nestPatchMyProperty(apiAccessToken, row.id, {
+                                isActive: false,
+                              }).then((r) => {
+                                if (r.ok) void loadMyListings();
+                                else window.alert(r.error ?? 'Nepodařilo se deaktivovat.');
+                              });
+                            }}
+                          >
+                            Deaktivovat
+                          </button>
+                        ) : row.dashboardStatus === 'INACTIVE' ? (
+                          <button
+                            type="button"
+                            className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
+                            onClick={() => {
+                              if (!apiAccessToken) return;
+                              void nestPatchMyProperty(apiAccessToken, row.id, {
+                                isActive: true,
+                              }).then((r) => {
+                                if (r.ok) void loadMyListings();
+                                else window.alert(r.error ?? 'Nepodařilo se aktivovat.');
+                              });
+                            }}
+                          >
+                            Aktivovat
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="rounded-full border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+                          onClick={() => {
+                            if (!apiAccessToken) return;
+                            if (
+                              !window.confirm(
+                                'Opravdu chcete inzerát smazat? Bude skrytý a nepůjde ho obnovit bez administrátora.',
+                              )
+                            ) {
+                              return;
+                            }
+                            void nestDeleteMyProperty(apiAccessToken, row.id).then((r) => {
+                              if (r.ok) void loadMyListings();
+                              else window.alert(r.error ?? 'Smazání se nezdařilo.');
+                            });
+                          }}
+                        >
+                          Smazat
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
         {user.role === 'AGENT' && nestMe ? (
           <section id="makler-premium" className="mt-10 space-y-6">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <h2 className="text-lg font-semibold text-zinc-900">Veřejný profil makléře</h2>
+              <p className="mt-2 text-sm text-zinc-600">
+                Zapněte zobrazení v katalogu makléřů a volitelně přijímejte hodnocení. Údaje níže
+                se zobrazí jen na veřejné stránce.
+              </p>
+              {nestMe.brokerProfileSlug && nestMe.isPublicBrokerProfile ? (
+                <p className="mt-2 text-sm">
+                  <Link
+                    href={`/makler/${encodeURIComponent(nestMe.brokerProfileSlug)}`}
+                    className="font-semibold text-[#e85d00] hover:underline"
+                  >
+                    Otevřít veřejný profil →
+                  </Link>
+                </p>
+              ) : null}
+              <label className="mt-4 flex cursor-pointer items-start gap-3 text-sm text-zinc-800">
+                <input
+                  type="checkbox"
+                  className="mt-1 size-4 rounded border-zinc-300"
+                  checked={nestMe.isPublicBrokerProfile === true}
+                  disabled={!apiAccessToken}
+                  onChange={() => {
+                    if (!apiAccessToken) return;
+                    const next = !nestMe.isPublicBrokerProfile;
+                    void nestPatchBrokerPublicProfile(apiAccessToken, {
+                      isPublicBrokerProfile: next,
+                    }).then((r) => {
+                      if (r.ok) void loadNestProfile();
+                    });
+                  }}
+                />
+                <span>
+                  <span className="font-semibold">Zobrazovat můj profil veřejně</span>
+                  <span className="mt-0.5 block text-xs text-zinc-600">
+                    Objevíte se v přehledu makléřů na webu.
+                  </span>
+                </span>
+              </label>
+              <label className="mt-3 flex cursor-pointer items-start gap-3 text-sm text-zinc-800">
+                <input
+                  type="checkbox"
+                  className="mt-1 size-4 rounded border-zinc-300"
+                  checked={nestMe.allowBrokerReviews === true}
+                  disabled={!apiAccessToken}
+                  onChange={() => {
+                    if (!apiAccessToken) return;
+                    const next = !nestMe.allowBrokerReviews;
+                    void nestPatchBrokerPublicProfile(apiAccessToken, {
+                      allowBrokerReviews: next,
+                    }).then((r) => {
+                      if (r.ok) void loadNestProfile();
+                    });
+                  }}
+                />
+                <span>
+                  <span className="font-semibold">Povolit hodnocení a recenze</span>
+                  <span className="mt-0.5 block text-xs text-zinc-600">
+                    Přihlášení uživatelé vám mohou dát hvězdičky a napsat recenzi (jednou na účet,
+                    lze upravit).
+                  </span>
+                </span>
+              </label>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <label className="block text-xs font-semibold text-zinc-700">
+                  Kancelář / značka
+                  <input
+                    value={brokerOffice}
+                    onChange={(e) => setBrokerOffice(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-zinc-700">
+                  Specializace
+                  <input
+                    value={brokerSpec}
+                    onChange={(e) => setBrokerSpec(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-zinc-700">
+                  Region působnosti
+                  <input
+                    value={brokerRegion}
+                    onChange={(e) => setBrokerRegion(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-zinc-700">
+                  Web
+                  <input
+                    value={brokerWeb}
+                    onChange={(e) => setBrokerWeb(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    placeholder="https://…"
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-zinc-700">
+                  Veřejný telefon
+                  <input
+                    value={brokerPhone}
+                    onChange={(e) => setBrokerPhone(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-zinc-700">
+                  Veřejný e-mail
+                  <input
+                    value={brokerEmailPub}
+                    onChange={(e) => setBrokerEmailPub(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  />
+                </label>
+              </div>
+              {brokerFieldsError ? (
+                <p className="mt-2 text-sm text-red-600">{brokerFieldsError}</p>
+              ) : null}
+              <button
+                type="button"
+                disabled={brokerFieldsSaving || !apiAccessToken}
+                className="mt-4 rounded-full bg-zinc-900 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                onClick={() => {
+                  if (!apiAccessToken) return;
+                  setBrokerFieldsError(null);
+                  setBrokerFieldsSaving(true);
+                  void nestPatchBrokerPublicProfile(apiAccessToken, {
+                    brokerOfficeName: brokerOffice,
+                    brokerSpecialization: brokerSpec,
+                    brokerRegionLabel: brokerRegion,
+                    brokerWeb,
+                    brokerPhonePublic: brokerPhone,
+                    brokerEmailPublic: brokerEmailPub,
+                  }).then((r) => {
+                    setBrokerFieldsSaving(false);
+                    if (!r.ok) {
+                      setBrokerFieldsError(r.error ?? 'Uložení se nezdařilo.');
+                      return;
+                    }
+                    void loadNestProfile();
+                    showSuccess('Údaje veřejného profilu byly uloženy.');
+                  });
+                }}
+              >
+                {brokerFieldsSaving ? 'Ukládám…' : 'Uložit údaje veřejného profilu'}
+              </button>
+            </div>
+
             <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
               <h2 className="text-lg font-semibold text-zinc-900">Premium makléř a odměny</h2>
               <p className="mt-2 text-sm leading-relaxed text-zinc-600">

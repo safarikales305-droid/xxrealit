@@ -140,6 +140,17 @@ export type NestMeProfile = {
   brokerPoints?: number;
   brokerFreeLeads?: number;
   brokerProgress?: NestBrokerProgress;
+  isPublicBrokerProfile?: boolean;
+  allowBrokerReviews?: boolean;
+  brokerProfileSlug?: string | null;
+  brokerOfficeName?: string;
+  brokerSpecialization?: string;
+  brokerRegionLabel?: string;
+  brokerWeb?: string;
+  brokerPhonePublic?: string;
+  brokerEmailPublic?: string;
+  brokerReviewAverage?: number;
+  brokerReviewCount?: number;
 };
 
 /** GET /users/me může vracet avatarUrl nebo legacy avatar / coverImage. */
@@ -185,6 +196,24 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     brokerPoints: typeof o.brokerPoints === 'number' ? o.brokerPoints : undefined,
     brokerFreeLeads: typeof o.brokerFreeLeads === 'number' ? o.brokerFreeLeads : undefined,
     brokerProgress: brokerProgress ?? undefined,
+    isPublicBrokerProfile:
+      typeof o.isPublicBrokerProfile === 'boolean' ? o.isPublicBrokerProfile : undefined,
+    allowBrokerReviews:
+      typeof o.allowBrokerReviews === 'boolean' ? o.allowBrokerReviews : undefined,
+    brokerProfileSlug:
+      o.brokerProfileSlug === null || typeof o.brokerProfileSlug === 'string'
+        ? (o.brokerProfileSlug as string | null)
+        : undefined,
+    brokerOfficeName: typeof o.brokerOfficeName === 'string' ? o.brokerOfficeName : undefined,
+    brokerSpecialization:
+      typeof o.brokerSpecialization === 'string' ? o.brokerSpecialization : undefined,
+    brokerRegionLabel: typeof o.brokerRegionLabel === 'string' ? o.brokerRegionLabel : undefined,
+    brokerWeb: typeof o.brokerWeb === 'string' ? o.brokerWeb : undefined,
+    brokerPhonePublic: typeof o.brokerPhonePublic === 'string' ? o.brokerPhonePublic : undefined,
+    brokerEmailPublic: typeof o.brokerEmailPublic === 'string' ? o.brokerEmailPublic : undefined,
+    brokerReviewAverage:
+      typeof o.brokerReviewAverage === 'number' ? o.brokerReviewAverage : undefined,
+    brokerReviewCount: typeof o.brokerReviewCount === 'number' ? o.brokerReviewCount : undefined,
   };
 }
 
@@ -895,6 +924,231 @@ export async function nestPatchBrokerLeadPrefs(
             ? data.error
             : `HTTP ${res.status}`;
     return { ok: false, error: msg };
+  }
+  return { ok: true };
+}
+
+export type NestMyListingRow = {
+  id: string;
+  title: string;
+  listingType: 'SHORTS' | 'CLASSIC';
+  price: number;
+  currency: string;
+  city: string;
+  region: string;
+  dashboardStatus: string;
+  createdAt: string;
+  coverUrl: string | null;
+};
+
+/** GET /users/me/listings — vlastní inzeráty (JWT). */
+export async function nestFetchMyListings(
+  token: string | null,
+): Promise<NestMyListingRow[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/users/me/listings`, {
+    cache: 'no-store',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as unknown;
+  return Array.isArray(data) ? (data as NestMyListingRow[]) : null;
+}
+
+/** PATCH /properties/:id — vlastník (JWT). */
+export async function nestPatchMyProperty(
+  token: string | null,
+  propertyId: string,
+  body: Record<string, unknown>,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/properties/${encodeURIComponent(propertyId)}`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true };
+}
+
+/** DELETE /properties/:id — soft delete vlastníka (JWT). */
+export async function nestDeleteMyProperty(
+  token: string | null,
+  propertyId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/properties/${encodeURIComponent(propertyId)}`, {
+    method: 'DELETE',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true };
+}
+
+/** GET /properties/:id — detail s JWT (vlastník vidí neschválené). */
+export async function nestFetchPropertyDetailJson(
+  propertyId: string,
+  token: string | null,
+): Promise<unknown | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/properties/${encodeURIComponent(propertyId)}`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json', ...nestAuthHeaders(token) },
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as unknown;
+}
+
+/** PATCH /users/me/broker-public-profile — jen AGENT. */
+export async function nestPatchBrokerPublicProfile(
+  token: string | null,
+  body: Record<string, unknown>,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/users/me/broker-public-profile`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true };
+}
+
+export type NestPublicBrokerCard = {
+  slug: string;
+  name: string | null;
+  avatarUrl: string | null;
+  officeName: string;
+  regionLabel: string;
+  bioExcerpt: string;
+  ratingAverage: number | null;
+  ratingCount: number | null;
+};
+
+/** GET /brokers/public */
+export async function nestListPublicBrokers(): Promise<NestPublicBrokerCard[] | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/brokers/public`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as unknown;
+  return Array.isArray(data) ? (data as NestPublicBrokerCard[]) : null;
+}
+
+export type NestBrokerPublicDetail = {
+  broker: {
+    id: string;
+    slug: string | null;
+    name: string | null;
+    avatarUrl: string | null;
+    coverImageUrl: string | null;
+    bio: string | null;
+    officeName: string;
+    regionLabel: string;
+    specialization: string;
+    web: string;
+    phonePublic: string;
+    emailPublic: string;
+    allowBrokerReviews: boolean;
+    ratingAverage: number | null;
+    ratingCount: number | null;
+  };
+  listings: unknown[];
+  reviews: Array<{
+    id: string;
+    rating: number;
+    reviewText: string;
+    createdAt: string;
+    updatedAt: string;
+    author: { name: string | null; avatar: string | null };
+  }>;
+  myReview: {
+    id: string;
+    rating: number;
+    reviewText: string;
+    createdAt: string;
+    updatedAt: string;
+  } | null;
+};
+
+/** GET /brokers/by-slug/:slug */
+export async function nestFetchBrokerBySlug(
+  slug: string,
+  token: string | null,
+): Promise<NestBrokerPublicDetail | null> {
+  if (!API_BASE_URL || !slug.trim()) return null;
+  const res = await fetch(
+    `${API_BASE_URL}/brokers/by-slug/${encodeURIComponent(slug.trim())}`,
+    {
+      cache: 'no-store',
+      headers: { Accept: 'application/json', ...nestAuthHeaders(token) },
+    },
+  );
+  if (!res.ok) return null;
+  return (await res.json()) as NestBrokerPublicDetail;
+}
+
+/** POST /brokers/:brokerId/reviews */
+export async function nestUpsertBrokerReview(
+  token: string | null,
+  brokerId: string,
+  body: { rating: number; reviewText?: string },
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/brokers/${encodeURIComponent(brokerId)}/reviews`,
+    {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
   }
   return { ok: true };
 }

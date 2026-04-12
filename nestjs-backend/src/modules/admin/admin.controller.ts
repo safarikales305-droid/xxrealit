@@ -15,6 +15,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminService } from './admin.service';
 import { AdminUpdatePropertyDto } from './dto/admin-update-property.dto';
+import { PatchBrokerReviewVisibilityDto } from './dto/patch-broker-review-visibility.dto';
 import { PatchPremiumBrokerDto } from './dto/patch-premium-broker.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { AdminGuard } from './guards/admin.guard';
@@ -117,6 +118,15 @@ export class AdminController {
     @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: PatchPremiumBrokerDto,
   ) {
     return this.adminService.updateUserPremiumBroker(user.id, id, dto.isPremiumBroker);
+  }
+
+  @Patch('broker-reviews/:id/visibility')
+  setBrokerReviewVisibility(
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: PatchBrokerReviewVisibilityDto,
+  ) {
+    return this.adminService.setBrokerReviewVisibility(id, dto.isVisible);
   }
 
   @Delete('users/:id')

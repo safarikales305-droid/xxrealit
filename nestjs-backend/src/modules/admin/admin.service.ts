@@ -709,4 +709,30 @@ export class AdminService {
     });
     return { success: true };
   }
+
+  async setBrokerReviewVisibility(reviewId: string, isVisible: boolean) {
+    const row = await this.prisma.brokerReview.findUnique({
+      where: { id: reviewId },
+    });
+    if (!row) {
+      throw new NotFoundException('Recenze nebyla nalezena');
+    }
+    await this.prisma.brokerReview.update({
+      where: { id: reviewId },
+      data: { isVisible },
+    });
+    const agg = await this.prisma.brokerReview.aggregate({
+      where: { brokerId: row.brokerId, isVisible: true },
+      _avg: { rating: true },
+      _count: { _all: true },
+    });
+    await this.prisma.user.update({
+      where: { id: row.brokerId },
+      data: {
+        brokerReviewAverage: Number(agg._avg.rating ?? 0),
+        brokerReviewCount: agg._count._all,
+      },
+    });
+    return { ok: true };
+  }
 }
