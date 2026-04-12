@@ -15,6 +15,7 @@ import { UploadModule } from './modules/upload/upload.module';
 import { VideosModule } from './modules/videos/videos.module';
 import { PostsModule } from './modules/posts/posts.module';
 import { MessagesModule } from './modules/messages/messages.module';
+import { ShortsMusicModule } from './modules/shorts-music/shorts-music.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { MessagesModule } from './modules/messages/messages.module';
     VideosModule,
     PostsModule,
     MessagesModule,
+    ShortsMusicModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

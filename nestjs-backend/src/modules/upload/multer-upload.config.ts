@@ -19,6 +19,12 @@ export const propertyMediaMemoryMulterOptions = {
   limits: { fileSize: 300 * 1024 * 1024, files: 31 },
 };
 
+/** Admin — hudba pro shorts (jeden soubor, MP3/WAV/M4A). */
+export const shortsMusicMemoryMulterOptions = {
+  storage: memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024, files: 1 },
+};
+
 export const propertyImagesMulterOptions = {
   storage: diskStorage({
     destination: (_req, _file, cb) => {

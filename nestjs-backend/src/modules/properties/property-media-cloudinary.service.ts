@@ -94,4 +94,61 @@ export class PropertyMediaCloudinaryService {
     } as Express.Multer.File;
     return uploadPropertyVideoBuffer(file);
   }
+
+  /**
+   * Hudba pro shorts (mp3/wav/m4a) — Cloudinary ukládá audio často jako `resource_type: video`.
+   * Vracíme veřejnou URL + public_id pro případné smazání.
+   */
+  async uploadShortsMusicBuffer(
+    buffer: Buffer,
+    originalname: string,
+    mimetype: string,
+  ): Promise<{ url: string; publicId: string }> {
+    initCloudinary();
+    return new Promise((resolve, reject) => {
+      if (!buffer?.length) {
+        return reject(new Error('Audio buffer is empty'));
+      }
+      const upload = cloudinary.uploader.upload_stream(
+        {
+          resource_type: 'video',
+          folder: 'shorts-music',
+          use_filename: false,
+          unique_filename: true,
+        },
+        (error, result) => {
+          if (error) {
+            return reject(error);
+          }
+          if (!result?.secure_url || !result.public_id) {
+            return reject(new Error('Empty Cloudinary shorts-music result'));
+          }
+          return resolve({ url: result.secure_url, publicId: result.public_id });
+        },
+      );
+      const file = {
+        fieldname: 'audio',
+        originalname,
+        encoding: '7bit' as const,
+        mimetype,
+        buffer,
+        size: buffer.length,
+      } as Express.Multer.File;
+      upload.end(file.buffer);
+    });
+  }
+
+  async destroyByPublicId(publicId: string): Promise<void> {
+    initCloudinary();
+    await new Promise<void>((resolve, reject) => {
+      cloudinary.uploader.destroy(publicId, { resource_type: 'video' }, (err, res) => {
+        if (err) return reject(err);
+        const r = res?.result;
+        if (r !== 'ok' && r !== 'not found') {
+          return reject(new Error(`Cloudinary destroy: ${String(r ?? 'unknown')}`));
+        }
+        resolve();
+      });
+    });
+  }
 }

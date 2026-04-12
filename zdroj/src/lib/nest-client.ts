@@ -634,6 +634,128 @@ export async function nestCreatePropertyListingMultipart(
   }
 }
 
+export type ShortsMusicTrackDto = {
+  id: string;
+  title: string;
+  description?: string | null;
+  fileUrl: string;
+  durationSec?: number | null;
+  mimeType: string;
+  isActive?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  cloudinaryPublicId?: string | null;
+  uploadedBy?: { id: string; email: string };
+};
+
+/** GET /properties/shorts-music/active — aktivní skladby pro výběr při generování shorts (JWT). */
+export async function nestListActiveShortsMusicTracks(
+  token: string | null,
+): Promise<ShortsMusicTrackDto[]> {
+  if (!API_BASE_URL || !token) return [];
+  const res = await fetch(`${API_BASE_URL}/properties/shorts-music/active`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  if (!res.ok) return [];
+  const data = (await res.json().catch(() => [])) as unknown;
+  return Array.isArray(data) ? (data as ShortsMusicTrackDto[]) : [];
+}
+
+/** GET /admin/shorts-music — všechny skladby (ADMIN). */
+export async function nestAdminShortsMusicList(
+  token: string | null,
+): Promise<ShortsMusicTrackDto[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/shorts-music`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  if (!res.ok) return null;
+  const data = (await res.json().catch(() => [])) as unknown;
+  return Array.isArray(data) ? (data as ShortsMusicTrackDto[]) : null;
+}
+
+/** POST /admin/shorts-music — multipart: file, title, description?, isActive?. */
+export async function nestAdminShortsMusicUpload(
+  token: string | null,
+  formData: FormData,
+): Promise<{ ok: true; track: ShortsMusicTrackDto } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/admin/shorts-music`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    body: formData,
+  });
+  const data = (await res.json().catch(() => ({}))) as ShortsMusicTrackDto & {
+    message?: string | string[];
+    error?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  if (!data?.id) {
+    return { ok: false, error: 'Server nevrátil skladbu.' };
+  }
+  return { ok: true, track: data as ShortsMusicTrackDto };
+}
+
+export async function nestAdminShortsMusicUpdate(
+  token: string | null,
+  id: string,
+  body: { title?: string; description?: string | null; isActive?: boolean },
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/admin/shorts-music/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    message?: string | string[];
+    error?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminShortsMusicDelete(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/admin/shorts-music/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true };
+}
+
 /** POST /properties/generate-shorts-from-photos — JWT, multipart `images[]` + textová pole. */
 export async function nestGeneratePropertyShortsFromPhotos(
   token: string | null,

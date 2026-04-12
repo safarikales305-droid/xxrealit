@@ -23,6 +23,6 @@ import { SeedController } from './seed.controller';
     PropertyMediaCloudinaryService,
     ListingShortsFromPhotosService,
   ],
-  exports: [PropertiesService],
+  exports: [PropertiesService, PropertyMediaCloudinaryService],
 })
 export class PropertiesModule {}

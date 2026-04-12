@@ -1,11 +1,13 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import {
   nestApiConfigured,
   nestCreatePropertyListingMultipart,
   nestGeneratePropertyShortsFromPhotos,
+  nestListActiveShortsMusicTracks,
+  type ShortsMusicTrackDto,
 } from '@/lib/nest-client';
 
 const inputClass =
@@ -55,13 +57,33 @@ export function ListingCreateForm() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const [shortsMusicKey, setShortsMusicKey] = useState<
-    'none' | 'demo_soft' | 'demo_warm' | 'demo_pulse'
-  >('demo_soft');
+  /** Prázdné = bez hudby; jinak ID skladby z admin knihovny. */
+  const [shortsMusicTrackId, setShortsMusicTrackId] = useState('');
+  const [shortsMusicTracks, setShortsMusicTracks] = useState<ShortsMusicTrackDto[]>([]);
+  const [shortsMusicTracksLoading, setShortsMusicTracksLoading] = useState(false);
+  const shortsPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
   const [shortsTextOverlay, setShortsTextOverlay] = useState(true);
   const [shortsGenerating, setShortsGenerating] = useState(false);
   const [shortsError, setShortsError] = useState<string | null>(null);
   const [shortsSuccess, setShortsSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!nestApiConfigured() || !apiAccessToken) {
+      setShortsMusicTracks([]);
+      return;
+    }
+    let cancelled = false;
+    setShortsMusicTracksLoading(true);
+    void nestListActiveShortsMusicTracks(apiAccessToken).then((rows) => {
+      if (!cancelled) {
+        setShortsMusicTracks(rows);
+        setShortsMusicTracksLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiAccessToken]);
 
   const onPickImageFiles = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const list = e.target.files;
@@ -169,7 +191,12 @@ export function ListingCreateForm() {
     fd.append('city', city.trim());
     fd.append('price', String(Math.round(Number(price)) || 0));
     fd.append('currency', currency.trim() || 'CZK');
-    fd.append('musicKey', shortsMusicKey);
+    if (shortsMusicTrackId.trim()) {
+      fd.append('musicTrackId', shortsMusicTrackId.trim());
+      fd.append('musicKey', 'none');
+    } else {
+      fd.append('musicKey', 'none');
+    }
     fd.append('includeTextOverlay', String(shortsTextOverlay));
     for (const img of imagePreviews) {
       fd.append('images', img.file);
@@ -195,7 +222,7 @@ export function ListingCreateForm() {
     currency,
     imagePreviews,
     price,
-    shortsMusicKey,
+    shortsMusicTrackId,
     shortsTextOverlay,
     title,
     videoPreviewUrl,
@@ -701,8 +728,8 @@ export function ListingCreateForm() {
           >
             <p className="text-sm font-semibold text-zinc-900">Nemáte vlastní video?</p>
             <p className="mt-1 text-sm text-zinc-600">
-              Vytvoříme vám krátké vertikální shorts (9:16, MP4) z nahraných fotek — plynulé přechody,
-              volitelná demo hudba a text s titulkem, lokalitou a cenou.
+              Vytvoříme vám krátké vertikální shorts (9:16, MP4) z nahraných fotek — volitelná hudba z
+              knihovny spravované administrátorem a text s titulkem, lokalitou a cenou.
             </p>
             {videoFile ? (
               <p className="mt-2 text-xs text-zinc-500">
@@ -714,28 +741,50 @@ export function ListingCreateForm() {
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div className="sm:col-span-2">
                 <label className={labelClass} htmlFor="shortsMusic">
-                  Vyberte hudbu
+                  Hudba ke shorts videu
                 </label>
                 <select
                   id="shortsMusic"
-                  value={shortsMusicKey}
-                  onChange={(e) =>
-                    setShortsMusicKey(
-                      e.target.value as 'none' | 'demo_soft' | 'demo_warm' | 'demo_pulse',
-                    )
-                  }
-                  disabled={shortsGenerating}
+                  value={shortsMusicTrackId}
+                  onChange={(e) => setShortsMusicTrackId(e.target.value)}
+                  disabled={shortsGenerating || shortsMusicTracksLoading}
                   className={inputClass}
                 >
-                  <option value="none">Bez hudby</option>
-                  <option value="demo_soft">Demo jemná linka (220 Hz)</option>
-                  <option value="demo_warm">Demo teplejší tón (330 Hz)</option>
-                  <option value="demo_pulse">Demo dvojtónový podklad</option>
+                  <option value="">Bez hudby</option>
+                  {shortsMusicTracks.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.title}
+                      {typeof t.durationSec === 'number' && t.durationSec > 0
+                        ? ` (~${t.durationSec} s)`
+                        : ''}
+                    </option>
+                  ))}
                 </select>
-                <p className="mt-1 text-xs text-zinc-500">
-                  Jednoduché generované stopy vhodné jen jako ukázka — později půjde doplnit vlastní
-                  knihovna skladeb.
-                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!shortsMusicTrackId || shortsGenerating}
+                    onClick={() => {
+                      const t = shortsMusicTracks.find((x) => x.id === shortsMusicTrackId);
+                      const el = shortsPreviewAudioRef.current;
+                      if (!t?.fileUrl || !el) return;
+                      el.src = t.fileUrl;
+                      void el.play().catch(() => undefined);
+                    }}
+                    className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:opacity-40"
+                  >
+                    Přehrát ukázku
+                  </button>
+                  <audio ref={shortsPreviewAudioRef} className="hidden" controls={false} />
+                  {shortsMusicTracksLoading ? (
+                    <span className="text-xs text-zinc-500">Načítám skladby…</span>
+                  ) : shortsMusicTracks.length === 0 ? (
+                    <span className="text-xs text-zinc-500">
+                      Knihovna je zatím prázdná — administrátor může nahrát skladby v sekci Admin →
+                      Hudba.
+                    </span>
+                  ) : null}
+                </div>
               </div>
               <label className="flex cursor-pointer items-start gap-2 text-sm text-zinc-800 sm:col-span-2">
                 <input

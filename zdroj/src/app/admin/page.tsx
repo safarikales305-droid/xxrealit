@@ -259,6 +259,12 @@ export default function AdminPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link
+              href="/admin/hudba"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Hudba (shorts)
+            </Link>
+            <Link
               href="/"
               className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >

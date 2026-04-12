@@ -61,6 +61,27 @@ model User {
   conversationsLow  PropertyConversation[] @relation("ConvUserLow")
   conversationsHigh PropertyConversation[] @relation("ConvUserHigh")
   propertyMessagesSent PropertyMessage[]   @relation("PropertyMessageSender")
+
+  shortsMusicTracksUploaded ShortsMusicTrack[]
+}
+
+/// Admin spravovaná hudba pro generované shorts z fotek (výběr uživatelem při tvorbě inzerátu).
+model ShortsMusicTrack {
+  id                 String   @id @default(cuid())
+  title              String
+  description        String?  @db.Text
+  fileUrl            String
+  cloudinaryPublicId String?
+  mimeType           String
+  durationSec        Int?
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  uploadedById       String
+  uploadedBy         User     @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([isActive])
+  @@index([createdAt])
 }
 
 model Post {

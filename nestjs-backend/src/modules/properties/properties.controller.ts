@@ -13,13 +13,17 @@ import {
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { JwtService } from '@nestjs/jwt';
 import { extname } from 'node:path';
+import { PrismaService } from '../../database/prisma.service';
 import { parseBearerUserId } from '../auth/auth-token.util';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { propertyMediaMemoryMulterOptions } from '../upload/multer-upload.config';
 import { CreatePropertyDto } from './dto/create-property.dto';
-import { ListingShortsFromPhotosService } from './listing-shorts-from-photos.service';
+import {
+  ListingShortsFromPhotosService,
+  type ShortsMusicSelection,
+} from './listing-shorts-from-photos.service';
 import { PropertiesService } from './properties.service';
 
 @Controller('properties')
@@ -28,6 +32,7 @@ export class PropertiesController {
     private readonly propertiesService: PropertiesService,
     private readonly listingShortsFromPhotosService: ListingShortsFromPhotosService,
     private readonly jwt: JwtService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @UseGuards(JwtAuthGuard)
@@ -73,7 +78,20 @@ export class PropertiesController {
     const priceRaw = toInt(body.price);
     const price = Number.isFinite(priceRaw) && priceRaw >= 0 ? priceRaw : 0;
     const currency = str(body.currency, 'CZK').trim() || 'CZK';
-    const musicKey = ListingShortsFromPhotosService.parseMusicKey(body.musicKey);
+    const trackId = typeof body.musicTrackId === 'string' ? body.musicTrackId.trim() : '';
+    let music: ShortsMusicSelection;
+    if (trackId) {
+      const track = await this.prisma.shortsMusicTrack.findFirst({
+        where: { id: trackId, isActive: true },
+      });
+      if (!track) {
+        throw new BadRequestException('Neplatná nebo neaktivní skladba.');
+      }
+      music = { kind: 'library', fileUrl: track.fileUrl };
+    } else {
+      const musicKey = ListingShortsFromPhotosService.parseMusicKey(body.musicKey);
+      music = musicKey === 'none' ? { kind: 'none' } : { kind: 'builtin', key: musicKey };
+    }
     const includeTextOverlay = ListingShortsFromPhotosService.parseBool(
       body.includeTextOverlay,
     );
@@ -92,8 +110,26 @@ export class PropertiesController {
       city,
       price,
       currency,
-      musicKey,
+      music,
       includeTextOverlay,
+    });
+  }
+
+  /** Aktivní skladby z admin knihovny — výběr při generování shorts (přihlášený uživatel). */
+  @UseGuards(JwtAuthGuard)
+  @Get('shorts-music/active')
+  listActiveShortsMusicTracks() {
+    return this.prisma.shortsMusicTrack.findMany({
+      where: { isActive: true },
+      orderBy: { title: 'asc' },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        fileUrl: true,
+        durationSec: true,
+        mimeType: true,
+      },
     });
   }
 

@@ -1,5 +1,4 @@
 import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -10,6 +9,7 @@ import {
   type FfmpegBinarySource,
   resolveFfmpegBinary,
 } from '../../lib/ffmpeg-binary';
+import { quoteFfmpegArgv, runFfmpegCapture } from '../../lib/ffmpeg-run';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
 
 import sharp = require('sharp');
@@ -21,13 +21,18 @@ const FPS = 30;
 
 export type ShortsMusicKey = 'none' | 'demo_soft' | 'demo_warm' | 'demo_pulse';
 
+export type ShortsMusicSelection =
+  | { kind: 'none' }
+  | { kind: 'builtin'; key: ShortsMusicKey }
+  | { kind: 'library'; fileUrl: string };
+
 export type GenerateShortsFromPhotosInput = {
   images: Express.Multer.File[];
   title: string;
   city: string;
   price: number;
   currency: string;
-  musicKey: ShortsMusicKey;
+  music: ShortsMusicSelection;
   includeTextOverlay: boolean;
 };
 
@@ -57,41 +62,6 @@ function lavfiAudioInput(musicKey: ShortsMusicKey, durationSec: number): string 
 /** Cesta k textfile= pro drawtext (UTF-8 obsah souboru, ASCII název v tmp). */
 function escapePathForDrawtextFile(p: string): string {
   return p.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
-}
-
-function quoteFfmpegArgv(argv: string[]): string {
-  return argv
-    .map((a) => {
-      if (/[\s'"\\]/.test(a)) {
-        return `'${a.replace(/'/g, `'\\''`)}'`;
-      }
-      return a;
-    })
-    .join(' ');
-}
-
-type FfmpegRunResult = { code: number | null; stderr: string; signal: NodeJS.Signals | null };
-
-function runFfmpegCapture(
-  executable: string,
-  args: string[],
-): Promise<FfmpegRunResult> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, {
-      stdio: ['ignore', 'ignore', 'pipe'],
-      windowsHide: true,
-    });
-    let stderr = '';
-    child.stderr?.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-    child.on('error', (err) => {
-      reject(err);
-    });
-    child.on('close', (code, signal) => {
-      resolve({ code, stderr, signal });
-    });
-  });
 }
 
 async function runFfmpegLogged(
@@ -178,6 +148,18 @@ function validateImages(images: Express.Multer.File[]): void {
 
 function isMusicKey(v: string): v is ShortsMusicKey {
   return v === 'none' || v === 'demo_soft' || v === 'demo_warm' || v === 'demo_pulse';
+}
+
+async function downloadHttpsToFile(url: string, destPath: string): Promise<void> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Stažení hudby selhalo (HTTP ${res.status}).`);
+  }
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (!buf.length) {
+    throw new Error('Stažený audio soubor je prázdný.');
+  }
+  await writeFile(destPath, buf);
 }
 
 /**
@@ -345,6 +327,46 @@ export class ListingShortsFromPhotosService {
     }
   }
 
+  /** AAC z nahrané skladby (Cloudinary URL → lokální soubor v tmp). */
+  private async tryMuxLibraryAudioFromFile(
+    ffmpegBin: string,
+    audioAbsPath: string,
+    videoIn: string,
+    outPath: string,
+  ): Promise<boolean> {
+    const args = [
+      '-hide_banner',
+      '-loglevel',
+      'warning',
+      '-y',
+      '-i',
+      videoIn,
+      '-i',
+      audioAbsPath,
+      '-map',
+      '0:v:0',
+      '-map',
+      '1:a:0',
+      '-c:v',
+      'copy',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '160k',
+      '-shortest',
+      outPath,
+    ];
+    try {
+      await runFfmpegLogged(this.log, 'mux-library-audio', ffmpegBin, args);
+      return true;
+    } catch (e) {
+      this.log.warn(
+        `[shorts-generator] mux knihovní hudby selhal — pokračuji bez zvuku. ${e instanceof Error ? e.message : e}`,
+      );
+      return false;
+    }
+  }
+
   private async tryDrawTextOverlay(
     ffmpegBin: string,
     tmpRoot: string,
@@ -423,7 +445,7 @@ export class ListingShortsFromPhotosService {
       const totalSec = clampTotalSeconds(n);
       const slideDur = slideDurationSecUniform(n, totalSec);
       this.log.log(
-        `[shorts-generator] start: snímků=${n}, total≈${totalSec}s, slide≈${slideDur.toFixed(3)}s, hudba=${input.musicKey}, text=${input.includeTextOverlay}, tmp=${resolve(tmpRoot)}`,
+        `[shorts-generator] start: snímků=${n}, total≈${totalSec}s, slide≈${slideDur.toFixed(3)}s, hudba=${JSON.stringify(input.music)}, text=${input.includeTextOverlay}, tmp=${resolve(tmpRoot)}`,
       );
 
       const slideRelNames = await this.normalizeSlides(tmpRoot, input.images);
@@ -449,9 +471,36 @@ export class ListingShortsFromPhotosService {
       }
 
       let finalPath = currentPath;
-      if (input.musicKey !== 'none') {
+      const music = input.music;
+      if (music.kind === 'library') {
+        const extGuess = /\.mp3(\?|$)/i.test(music.fileUrl)
+          ? '.mp3'
+          : /\.m4a(\?|$)/i.test(music.fileUrl)
+            ? '.m4a'
+            : /\.wav(\?|$)/i.test(music.fileUrl)
+              ? '.wav'
+              : '.audio';
+        const audioTmp = join(tmpRoot, `lib-music${extGuess}`);
         const audioOut = join(tmpRoot, 'with-audio.mp4');
-        const ok = await this.tryMuxMusic(ffmpegBin, input.musicKey, currentPath, totalSec, audioOut);
+        try {
+          await downloadHttpsToFile(music.fileUrl, audioTmp);
+          const ok = await this.tryMuxLibraryAudioFromFile(
+            ffmpegBin,
+            audioTmp,
+            currentPath,
+            audioOut,
+          );
+          if (ok) {
+            finalPath = audioOut;
+          }
+        } catch (e) {
+          this.log.warn(
+            `[shorts-generator] knihovní hudba: ${e instanceof Error ? e.message : e}`,
+          );
+        }
+      } else if (music.kind === 'builtin' && music.key !== 'none') {
+        const audioOut = join(tmpRoot, 'with-audio.mp4');
+        const ok = await this.tryMuxMusic(ffmpegBin, music.key, currentPath, totalSec, audioOut);
         if (ok) {
           finalPath = audioOut;
         }
