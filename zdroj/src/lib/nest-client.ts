@@ -278,6 +278,20 @@ export const NEST_PROFILE_IMAGE_MAX_BYTES = 20 * 1024 * 1024;
 export async function nestFetchMe(
   token: string | null,
 ): Promise<NestMeProfile | null> {
+  if (typeof window !== 'undefined') {
+    const proxied = await fetch('/api/nest/users/me', {
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (proxied.ok) {
+      const raw = (await proxied.json().catch(() => null)) as unknown;
+      return parseNestMeProfileJson(raw);
+    }
+    if (proxied.status !== 401 && process.env.NODE_ENV === 'development') {
+      console.warn('[nestFetchMe] proxy /api/nest/users/me', proxied.status);
+    }
+  }
   if (!API_BASE_URL || !token) return null;
   const res = await fetch(`${API_BASE_URL}/users/me`, {
     cache: 'no-store',
@@ -593,6 +607,25 @@ export async function nestSubmitAgentProfileRequest(
   token: string | null,
   body: Record<string, unknown>,
 ): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
+  if (typeof window !== 'undefined') {
+    const proxied = await fetch('/api/nest/agent-profile/request', {
+      method: 'POST',
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const raw = (await proxied.json().catch(() => ({}))) as Record<string, unknown>;
+    if (proxied.ok) {
+      return { ok: true, data: raw };
+    }
+    if (proxied.status !== 401) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(proxied.status, raw, `HTTP ${proxied.status}`),
+      };
+    }
+  }
   if (!API_BASE_URL || !token) {
     return { ok: false, error: 'API nebo token chybí' };
   }
@@ -653,9 +686,6 @@ export async function nestUploadAgentProfileLogo(
   token: string | null,
   file: File,
 ): Promise<{ url?: string; error?: string }> {
-  if (!API_BASE_URL || !token) {
-    return { error: 'API nebo token chybí' };
-  }
   if (file.size > NEST_PROFILE_IMAGE_MAX_BYTES) {
     return {
       error: `Soubor je příliš velký (max. ${NEST_PROFILE_IMAGE_MAX_BYTES / (1024 * 1024)} MB).`,
@@ -663,11 +693,40 @@ export async function nestUploadAgentProfileLogo(
   }
   const fd = new FormData();
   fd.append('file', file);
+  if (typeof window !== 'undefined') {
+    const proxied = await fetch('/api/nest/upload/agent-profile-logo', {
+      method: 'POST',
+      credentials: 'include',
+      cache: 'no-store',
+      body: fd,
+    });
+    const upData = (await proxied.json().catch(() => ({}))) as {
+      url?: string;
+      message?: string | string[];
+    };
+    if (proxied.ok && typeof upData.url === 'string' && upData.url.trim()) {
+      return { url: upData.url.trim() };
+    }
+    if (proxied.status !== 401) {
+      return {
+        error: nestApiErrorBodyMessage(
+          proxied.status,
+          upData,
+          `Nahrání loga selhalo (HTTP ${proxied.status}).`,
+        ),
+      };
+    }
+  }
+  if (!API_BASE_URL || !token) {
+    return { error: 'API nebo token chybí' };
+  }
+  const fd2 = new FormData();
+  fd2.append('file', file);
   const up = await fetch(`${API_BASE_URL}/upload/agent-profile-logo`, {
     method: 'POST',
     cache: 'no-store',
     headers: nestAuthHeaders(token),
-    body: fd,
+    body: fd2,
   });
   const upData = (await up.json().catch(() => ({}))) as {
     url?: string;

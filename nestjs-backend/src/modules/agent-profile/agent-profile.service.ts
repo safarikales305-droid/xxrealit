@@ -111,9 +111,13 @@ export class AgentProfileService {
     if (!user) {
       throw new NotFoundException('Uživatel nenalezen');
     }
-    if (user.role !== UserRole.USER) {
+    const canRequestUpgrade =
+      user.role === UserRole.USER ||
+      user.role === UserRole.PRIVATE_SELLER ||
+      user.role === UserRole.DEVELOPER;
+    if (!canRequestUpgrade) {
       throw new ForbiddenException(
-        'Žádost o roli makléře mohou podat pouze uživatelé s rolí USER.',
+        'Žádost o roli makléře mohou podat jen účty typu uživatel / soukromý prodejce / developer (ne makléř ani administrátor).',
       );
     }
 
@@ -326,9 +330,13 @@ export class AgentProfileService {
     if (profile.verificationStatus !== AgentVerificationStatus.pending) {
       throw new BadRequestException('Schválit lze jen žádosti ve stavu „čeká na schválení“.');
     }
-    if (profile.user.role !== UserRole.USER) {
+    const canApproveUpgrade =
+      profile.user.role === UserRole.USER ||
+      profile.user.role === UserRole.PRIVATE_SELLER ||
+      profile.user.role === UserRole.DEVELOPER;
+    if (!canApproveUpgrade) {
       throw new BadRequestException(
-        'Uživatel už nemá roli USER — žádost nelze schválit tímto postupem.',
+        'Schválit lze jen žádosti uživatelů, kteří ještě nemají roli makléře ani administrátora.',
       );
     }
 

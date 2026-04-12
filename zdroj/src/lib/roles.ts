@@ -57,3 +57,17 @@ export const DASHBOARD_SEGMENTS: Record<UserRole, string> = {
 export function dashboardPathForRole(role: UserRole): string {
   return `/dashboard/${DASHBOARD_SEGMENTS[role]}`;
 }
+
+/** Role, které mohou podat žádost o převod na makléře (Nest + UI musí být v souladu). */
+export const AGENT_UPGRADE_ELIGIBLE_ROLES = [
+  'USER',
+  'PRIVATE_SELLER',
+  'DEVELOPER',
+] as const;
+
+/** Uživatel ještě není makléř ani admin — může vidět sekci „Stát se makléřem“. */
+export function canRequestAgentProfileUpgrade(role: string | undefined | null): boolean {
+  if (!role) return false;
+  if (role === 'AGENT' || role === 'ADMIN') return false;
+  return (AGENT_UPGRADE_ELIGIBLE_ROLES as readonly string[]).includes(role);
+}

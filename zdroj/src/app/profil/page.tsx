@@ -36,6 +36,7 @@ import {
   safeNormalizePropertyFromApi,
   type PropertyFeedItem,
 } from '@/types/property';
+import { canRequestAgentProfileUpgrade } from '@/lib/roles';
 
 const BIO_MAX = 500;
 const ACCEPT_IMAGES = 'image/jpeg,image/jpg,image/png,image/webp';
@@ -129,7 +130,6 @@ export default function ProfilPage() {
   }, []);
 
   const loadNestProfile = useCallback(async () => {
-    if (!apiAccessToken) return;
     const me = await nestFetchMe(apiAccessToken);
     /** Při chybě GET /users/me nesmazat už načtené URL — držíme stav z auth / posledního uploadu. */
     if (!me) return;
@@ -175,8 +175,9 @@ export default function ProfilPage() {
   }, [apiAccessToken]);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
     void loadNestProfile();
-  }, [loadNestProfile]);
+  }, [loadNestProfile, isAuthenticated]);
 
   useEffect(() => {
     if (!nestMe || user?.role !== 'AGENT') return;
@@ -416,7 +417,7 @@ export default function ProfilPage() {
   async function onAgentLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (!file || !apiAccessToken) return;
+    if (!file) return;
     const err = assertImageFile(file);
     if (err) {
       setAgentFormError(err);
@@ -435,7 +436,6 @@ export default function ProfilPage() {
 
   async function onSubmitAgentRequest(e: React.FormEvent) {
     e.preventDefault();
-    if (!apiAccessToken) return;
     setAgentFormError(null);
     const icoT = agentIco.trim();
     if (icoT && !/^\d{8}$/.test(icoT)) {
@@ -569,13 +569,13 @@ export default function ProfilPage() {
                         Ověřený makléř
                       </span>
                     ) : null}
-                    {user.role === 'USER' &&
+                    {canRequestAgentProfileUpgrade(user.role) &&
                     nestMe?.agentProfile?.verificationStatus === 'pending' ? (
                       <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900">
                         Čeká na ověření
                       </span>
                     ) : null}
-                    {user.role === 'USER' &&
+                    {canRequestAgentProfileUpgrade(user.role) &&
                     nestMe?.agentProfile?.verificationStatus === 'rejected' ? (
                       <span className="rounded-full bg-zinc-200 px-2.5 py-0.5 text-xs font-semibold text-zinc-700">
                         Žádost zamítnuta
@@ -705,12 +705,12 @@ export default function ProfilPage() {
           </div>
         </section>
 
-        {user.role === 'USER' && apiAccessToken ? (
+        {canRequestAgentProfileUpgrade(user.role) ? (
           <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
             <h2 className="text-lg font-semibold text-zinc-900">Stát se makléřem</h2>
             <p className="mt-2 text-sm text-zinc-600">
-              Vyplňte údaje o sobě a o kanceláři. Po odeslání žádosti zůstáváte v roli uživatele;
-              po schválení administrátorem získáte roli makléře.
+              Vyplňte údaje o sobě a o kanceláři. Po odeslání žádosti zůstáváte u svého stávajícího typu
+              účtu; po schválení administrátorem získáte roli makléře (AGENT).
             </p>
             {nestMe?.agentProfile?.verificationStatus === 'pending' ? (
               <p className="mt-3 text-sm font-medium text-amber-800">
@@ -725,9 +725,8 @@ export default function ProfilPage() {
             {!agentFormOpen ? (
               <button
                 type="button"
-                disabled={!apiAccessToken}
                 onClick={() => onOpenAgentForm()}
-                className="mt-4 rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-3 text-sm font-bold text-white shadow-md transition hover:brightness-105 disabled:opacity-50"
+                className="mt-4 rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-3 text-sm font-bold text-white shadow-md transition hover:brightness-105"
               >
                 Stát se makléřem
               </button>
@@ -817,13 +816,13 @@ export default function ProfilPage() {
                     type="file"
                     accept={ACCEPT_IMAGES}
                     className="hidden"
-                    disabled={agentLogoUploading || !apiAccessToken}
+                    disabled={agentLogoUploading}
                     onChange={(ev) => void onAgentLogoChange(ev)}
                   />
                   <div className="mt-2 flex flex-wrap items-center gap-3">
                     <button
                       type="button"
-                      disabled={agentLogoUploading || !apiAccessToken}
+                      disabled={agentLogoUploading}
                       onClick={() => agentLogoInputRef.current?.click()}
                       className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
                     >
@@ -844,7 +843,7 @@ export default function ProfilPage() {
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="submit"
-                    disabled={agentSubmitting || !apiAccessToken}
+                    disabled={agentSubmitting}
                     className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-2.5 text-sm font-bold text-white shadow-md disabled:opacity-50"
                   >
                     {agentSubmitting ? 'Odesílám…' : 'Odeslat žádost'}
