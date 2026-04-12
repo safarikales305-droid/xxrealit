@@ -7,7 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
-import { nestFetchVideos, type ShortVideo } from '@/lib/nest-client';
+import { nestFetchShortVideoPublic, type ShortVideo } from '@/lib/nest-client';
 
 export default function ShortDetailPage() {
   const router = useRouter();
@@ -20,11 +20,8 @@ export default function ShortDetailPage() {
   useEffect(() => {
     if (!id) return;
     setLoading(true);
-    void nestFetchVideos()
-      .then((list) => {
-        const v = list.find((x) => x.id === id) ?? null;
-        setVideo(v);
-      })
+    void nestFetchShortVideoPublic(id)
+      .then((v) => setVideo(v))
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -70,10 +67,10 @@ export default function ShortDetailPage() {
               · {video.city ?? ''}
             </p>
             <Link
-              href={`/prispevky/${encodeURIComponent(id)}`}
+              href={`/nemovitost/${encodeURIComponent(id)}?from=shorts`}
               className="mt-3 inline-block text-sm font-semibold text-orange-400"
             >
-              Otevřít detail příspěvku
+              Otevřít detail inzerátu
             </Link>
           </div>
         </div>

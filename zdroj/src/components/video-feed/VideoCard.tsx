@@ -77,7 +77,8 @@ export default function VideoCard({ video }: VideoCardProps) {
   }
 
   const shareTitle = (video.title ?? 'Inzerát').trim().slice(0, 120) || 'Inzerát';
-  const shareUrl = absoluteShareUrl(`/nemovitost/${encodeURIComponent(video.id)}`);
+  /** Veřejná stránka konkrétního shortu — bez nutnosti přihlášení. */
+  const shareUrl = absoluteShareUrl(`/shorts/${encodeURIComponent(video.id)}`);
   const city = (video.city ?? '').trim();
 
   const listingPath = `/nemovitost/${encodeURIComponent(video.id)}?from=shorts`;

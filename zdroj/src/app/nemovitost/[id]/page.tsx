@@ -1,12 +1,10 @@
 import { notFound } from 'next/navigation';
 import { headers } from 'next/headers';
-import { NemovitostAuthGate } from '@/components/nemovitost/NemovitostAuthGate';
 import { NemovitostDetailView } from '@/components/nemovitost/NemovitostDetailView';
 import { normalizePropertyDetailPayload } from '@/lib/property-detail';
 
 type Props = {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ from?: string }>;
 };
 
 async function fetchPropertyDetail(id: string): Promise<unknown | null> {
@@ -42,9 +40,8 @@ function pickExtraFields(rawProp: unknown): Record<string, unknown> {
   };
 }
 
-export default async function NemovitostDetailPage({ params, searchParams }: Props) {
+export default async function NemovitostDetailPage({ params }: Props) {
   const { id } = await params;
-  const sp = (await searchParams) ?? {};
   const raw = await fetchPropertyDetail(id);
   const parsed = normalizePropertyDetailPayload(raw);
 
@@ -56,18 +53,13 @@ export default async function NemovitostDetailPage({ params, searchParams }: Pro
   const rawProperty = rawRoot.property;
   const extraFields = pickExtraFields(rawProperty);
 
-  const redirectPath =
-    sp.from === 'shorts' ? `/nemovitost/${id}?from=shorts` : `/nemovitost/${id}`;
-
   return (
-    <NemovitostAuthGate redirectPath={redirectPath}>
-      <NemovitostDetailView
-        propertyId={id}
-        property={parsed.property}
-        author={parsed.user}
-        other={parsed.other}
-        extraFields={extraFields}
-      />
-    </NemovitostAuthGate>
+    <NemovitostDetailView
+      propertyId={id}
+      property={parsed.property}
+      author={parsed.user}
+      other={parsed.other}
+      extraFields={extraFields}
+    />
   );
 }

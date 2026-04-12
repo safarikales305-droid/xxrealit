@@ -8,6 +8,10 @@ type JwtAuthClaims = {
   role?: string;
 };
 
+/**
+ * Chráněné routy — vyžadují platný JWT cookie.
+ * Veřejné stránky (/, /nemovitost/*, /shorts/*, /prihlaseni, …) zde nejsou v `matcher` a middleware se na ně nevolá.
+ */
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 

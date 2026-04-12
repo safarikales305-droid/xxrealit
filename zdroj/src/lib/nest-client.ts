@@ -1100,6 +1100,68 @@ export async function nestFetchVideos(): Promise<ShortVideo[]> {
   }
 }
 
+/**
+ * Veřejné načtení jednoho shorts záznamu: GET /properties/:id (bez JWT), případně doplnění z /feed/shorts.
+ * Pro sdílené deep linky /shorts/[id] bez přihlášení.
+ */
+export async function nestFetchShortVideoPublic(id: string): Promise<ShortVideo | null> {
+  if (!id.trim()) return null;
+  if (!API_BASE_URL) return null;
+  const mapDetailProperty = (p: Record<string, unknown>, fallbackId: string): ShortVideo | null => {
+    const videoUrl =
+      typeof p.videoUrl === 'string' && p.videoUrl.trim() ? p.videoUrl.trim() : null;
+    if (!videoUrl) return null;
+    const createdRaw = p.createdAt;
+    const createdAt =
+      typeof createdRaw === 'string'
+        ? createdRaw
+        : createdRaw instanceof Date
+          ? createdRaw.toISOString()
+          : new Date().toISOString();
+    const images = Array.isArray(p.images)
+      ? (p.images as unknown[]).filter((x): x is string => typeof x === 'string' && x.length > 0)
+      : undefined;
+    return {
+      id: String(p.id ?? fallbackId),
+      videoUrl,
+      title: typeof p.title === 'string' ? p.title : null,
+      price: typeof p.price === 'number' ? p.price : null,
+      city:
+        typeof p.city === 'string'
+          ? p.city
+          : typeof p.location === 'string'
+            ? p.location
+            : null,
+      images,
+      imageUrl: typeof p.imageUrl === 'string' ? p.imageUrl : null,
+      createdAt,
+      userId: typeof p.userId === 'string' ? p.userId : undefined,
+    };
+  };
+  try {
+    const res = await fetch(`${API_BASE_URL}/properties/${encodeURIComponent(id)}`, {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (res.ok) {
+      const root = (await res.json()) as { property?: Record<string, unknown> };
+      const p = root.property;
+      if (p && typeof p === 'object') {
+        const mapped = mapDetailProperty(p, id);
+        if (mapped) return mapped;
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+  try {
+    const list = await nestFetchVideos();
+    return list.find((x) => x.id === id) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Shodně s backend `MESSAGE_MAX_LEN`. */
 export const NEST_MESSAGE_BODY_MAX = 1000;
 
