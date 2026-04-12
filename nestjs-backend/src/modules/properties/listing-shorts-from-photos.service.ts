@@ -1,9 +1,15 @@
 import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { chmodSync, existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { extname, join } from 'node:path';
+import {
+  describeFfmpegPathForLog,
+  type FfmpegBinarySource,
+  resolveFfmpegBinary,
+} from '../../lib/ffmpeg-binary';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
 
 const ALLOWED_IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
@@ -54,9 +60,9 @@ function lavfiAudioInput(musicKey: ShortsMusicKey, durationSec: number): string 
   }
 }
 
-function runFfmpeg(args: string[]): Promise<void> {
+function runFfmpeg(executable: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn('ffmpeg', args, {
+    const child = spawn(executable, args, {
       stdio: ['ignore', 'ignore', 'pipe'],
       windowsHide: true,
     });
@@ -77,13 +83,43 @@ function runFfmpeg(args: string[]): Promise<void> {
   });
 }
 
-async function assertFfmpegAvailable(log: Logger): Promise<void> {
+function ensureFfmpegExecutable(executable: string, source: FfmpegBinarySource): void {
+  if (source !== 'ffmpeg-static' && source !== 'env') {
+    return;
+  }
+  if (!existsSync(executable)) {
+    return;
+  }
   try {
-    await runFfmpeg(['-hide_banner', '-version']);
+    chmodSync(executable, 0o755);
+  } catch {
+    /* některé FS read-only */
+  }
+}
+
+async function assertFfmpegAvailable(
+  log: Logger,
+  executable: string,
+  source: FfmpegBinarySource,
+): Promise<void> {
+  ensureFfmpegExecutable(executable, source);
+  log.log(
+    `[shorts-generator] ffmpeg probe: ${describeFfmpegPathForLog(executable, source)}`,
+  );
+  try {
+    await runFfmpeg(executable, ['-hide_banner', '-version']);
+    log.log(`[shorts-generator] ffmpeg -version OK (binary=${executable})`);
   } catch (e) {
-    log.error('ffmpeg není dostupný nebo nefunguje', e);
+    const hint =
+      source === 'system'
+        ? ' Nainstalujte balíček ffmpeg-static (v projektu), systémový ffmpeg, nebo nastavte FFMPEG_PATH.'
+        : ' Zkontrolujte oprávnění k binárce nebo nastavte FFMPEG_PATH na funkční ffmpeg.';
+    log.error(
+      `[shorts-generator] ffmpeg nedostupný nebo nefunguje (binary=${executable}, source=${source})`,
+      e instanceof Error ? e.stack : e,
+    );
     throw new ServiceUnavailableException(
-      'Generování videa vyžaduje nainstalovaný ffmpeg na serveru. Kontaktujte správce.',
+      `Generování videa vyžaduje funkční ffmpeg.${hint}`,
     );
   }
 }
@@ -113,8 +149,20 @@ function isMusicKey(v: string): v is ShortsMusicKey {
 @Injectable()
 export class ListingShortsFromPhotosService {
   private readonly log = new Logger(ListingShortsFromPhotosService.name);
+  private loggedFfmpegResolution = false;
 
   constructor(private readonly cloudinary: PropertyMediaCloudinaryService) {}
+
+  private getFfmpeg(): { path: string; source: FfmpegBinarySource } {
+    const resolved = resolveFfmpegBinary();
+    if (!this.loggedFfmpegResolution) {
+      this.loggedFfmpegResolution = true;
+      this.log.log(
+        `[shorts-generator] používám ffmpeg: ${describeFfmpegPathForLog(resolved.path, resolved.source)}`,
+      );
+    }
+    return resolved;
+  }
 
   /**
    * Složí vertikální MP4 (9:16) z fotek, volitelně s jednoduchým audiem (lavfi demo stopy).
@@ -122,7 +170,8 @@ export class ListingShortsFromPhotosService {
    */
   async generateAndUpload(input: GenerateShortsFromPhotosInput): Promise<{ videoUrl: string }> {
     validateImages(input.images);
-    await assertFfmpegAvailable(this.log);
+    const { path: ffmpegBin, source: ffmpegSource } = this.getFfmpeg();
+    await assertFfmpegAvailable(this.log, ffmpegBin, ffmpegSource);
 
     const tmpRoot = join(tmpdir(), `shorts-${randomBytes(12).toString('hex')}`);
     await mkdir(tmpRoot, { recursive: true });
@@ -226,8 +275,11 @@ export class ListingShortsFromPhotosService {
         outPath,
       );
 
-      this.log.debug(`ffmpeg args (zkráceno): ${args.slice(0, 12).join(' ')} … → ${posixPath(outPath)}`);
-      await runFfmpeg(args);
+      this.log.log(
+        `[shorts-generator] spouštím ffmpeg binary=${ffmpegBin} výstup=${posixPath(outPath)}`,
+      );
+      this.log.debug(`ffmpeg args (začátek): ${[ffmpegBin, ...args].slice(0, 14).join(' ')} …`);
+      await runFfmpeg(ffmpegBin, args);
 
       const mp4 = await readFile(outPath);
       if (!mp4.length) {
