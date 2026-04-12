@@ -65,8 +65,8 @@ export function Navbar({
   }
 
   return (
-    <header className="sticky top-0 z-50 w-full max-w-[100vw] shrink-0 overflow-x-hidden border-b border-zinc-200 bg-white shadow-[0_1px_0_rgba(0,0,0,0.04)]">
-      <div className="mx-auto flex min-h-14 w-full max-w-[100rem] min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-2 px-4 py-3 md:min-h-16 md:gap-3 md:px-4 md:py-2.5">
+    <header className="sticky top-0 z-50 w-full max-w-[100vw] shrink-0 border-b border-zinc-200 bg-white pt-[max(0.25rem,env(safe-area-inset-top))] shadow-[0_1px_0_rgba(0,0,0,0.04)]">
+      <div className="mx-auto flex min-h-14 w-full max-w-[100rem] min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-2 overflow-x-clip px-4 py-3 md:min-h-16 md:gap-3 md:overflow-visible md:px-4 md:py-2.5">
         <div className="flex shrink-0 items-center">
           <Link
             href="/"
@@ -91,7 +91,7 @@ export function Navbar({
           />
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-3">
+        <div className="flex shrink-0 flex-nowrap items-center gap-2 md:flex-wrap md:gap-3">
           <button
             type="button"
             className="flex size-10 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-800 md:hidden"
@@ -250,19 +250,23 @@ export function Navbar({
 
           <Link
             href={!isLoading && isAuthenticated ? profilePath : '/login'}
-            className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-200 md:size-10 md:text-sm"
+            className="relative z-[60] flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-zinc-100 text-sm font-bold text-zinc-700 shadow-[0_4px_14px_-2px_rgba(0,0,0,0.2)] ring-2 ring-orange-500/15 transition hover:ring-orange-500/35 active:scale-[0.98] md:size-10 md:text-sm md:shadow-sm md:ring-1 md:ring-zinc-200/80"
             aria-label={!isLoading && isAuthenticated ? 'Můj profil' : 'Přihlásit'}
           >
             {avatarSrc ? (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={avatarSrc}
                 alt=""
-                className="size-full object-cover"
-                width={40}
-                height={40}
+                className="size-full rounded-full object-cover object-center"
+                width={48}
+                height={48}
+                decoding="async"
               />
             ) : (
-              user?.email?.trim().charAt(0).toUpperCase() || 'A'
+              <span className="flex size-full items-center justify-center rounded-full bg-gradient-to-br from-orange-100 to-zinc-200 text-base md:text-sm">
+                {user?.email?.trim().charAt(0).toUpperCase() || 'A'}
+              </span>
             )}
           </Link>
         </div>
