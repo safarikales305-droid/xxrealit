@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
+import { AuthPageShell } from '@/components/auth/auth-page-shell';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL } from '@/lib/api';
 
 const inputClass =
-  'w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-[#ff6a00]/70 focus:ring-2 focus:ring-[#ff6a00]/15';
+  'w-full rounded-xl border border-zinc-200/90 bg-zinc-50/80 px-4 py-3.5 text-[15px] text-zinc-900 shadow-inner shadow-zinc-100/80 outline-none transition placeholder:text-zinc-400 focus:border-orange-400/80 focus:bg-white focus:ring-2 focus:ring-orange-500/20';
 
 export function LoginForm() {
   const searchParams = useSearchParams();
@@ -19,7 +20,6 @@ export function LoginForm() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('LOGIN CLICKED');
     setError(null);
     setLoading(true);
 
@@ -61,14 +61,15 @@ export function LoginForm() {
           };
         };
       };
-      console.log('LOGIN RESPONSE:', data);
 
       if (!res.ok) {
         const msg =
           typeof data.error === 'string'
             ? data.error
-            : JSON.stringify(data.details ?? data);
-        setError(msg || 'Přihlášení se nezdařilo');
+            : typeof data.details === 'string'
+              ? data.details
+              : 'Přihlášení se nezdařilo. Zkontrolujte e-mail a heslo.';
+        setError(msg);
         return;
       }
 
@@ -80,7 +81,6 @@ export function LoginForm() {
       if (token.length > 0) {
         const encoded = encodeURIComponent(token);
         document.cookie = `token=${encoded}; path=/; SameSite=Lax`;
-        // Keep compatibility with existing middleware / route handlers.
         document.cookie = `access_token=${encoded}; path=/; SameSite=Lax`;
       }
 
@@ -117,102 +117,86 @@ export function LoginForm() {
           : '/';
 
       window.location.href = target;
-      return;
     } catch {
-      setError('Nelze se spojit se serverem');
+      setError('Nelze se spojit se serverem. Zkuste to prosím za chvíli.');
     } finally {
       setLoading(false);
     }
   };
 
+  const registerHref = (() => {
+    const r = searchParams.get('redirect') ?? searchParams.get('callbackUrl');
+    return r ? `/registrace?redirect=${encodeURIComponent(r)}` : '/registrace';
+  })();
+
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-[#fafafa] px-4 py-16 text-zinc-900">
-      <div className="w-full max-w-md">
-        <Link
-          href="/"
-          className="text-sm font-semibold text-[#e85d00] hover:text-[#ff6a00]"
-        >
-          ← Zpět
-        </Link>
-        <h1 className="mt-6 text-2xl font-semibold tracking-tight">Přihlášení</h1>
-        <p className="mt-2 text-[15px] text-zinc-600">
-          Při nastaveném <code className="rounded bg-zinc-100 px-1 text-[13px]">API_URL</code> /{' '}
-          <code className="rounded bg-zinc-100 px-1 text-[13px]">NEXT_PUBLIC_API_URL</code> proběhne
-          přihlášení přes Nest (stejný <code className="rounded bg-zinc-100 px-1 text-[13px]">JWT_SECRET</code>{' '}
-          jako v Next). Jinak lokální Prisma v Next.
-        </p>
+    <AuthPageShell variant="login">
+      <p className="mb-6 text-center text-sm font-medium text-zinc-500">Přihlášení</p>
 
-        <form onSubmit={handleLogin} className="mt-8 space-y-4">
-          <div>
-            <label htmlFor="email" className="mb-1.5 block text-sm font-medium">
-              E-mail
+      <form onSubmit={handleLogin} className="space-y-5">
+        <div>
+          <label htmlFor="email" className="mb-1.5 block text-left text-sm font-semibold text-zinc-800">
+            E-mail
+          </label>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className={inputClass}
+            placeholder="vas@email.cz"
+          />
+        </div>
+        <div>
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <label htmlFor="password" className="block text-left text-sm font-semibold text-zinc-800">
+              Heslo
             </label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className={inputClass}
-            />
+            <Link
+              href="/reset-hesla"
+              className="shrink-0 text-sm font-semibold text-orange-600 transition hover:text-orange-700 hover:underline"
+            >
+              Zapomenuté heslo?
+            </Link>
           </div>
-          <div>
-            <div className="mb-1.5 flex items-center justify-between">
-              <label htmlFor="password" className="block text-sm font-medium">
-                Heslo
-              </label>
-              <Link
-                href="/reset-hesla"
-                className="text-sm font-medium text-[#e85d00] hover:underline"
-              >
-                Zapomenuté heslo?
-              </Link>
-            </div>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className={inputClass}
-            />
-          </div>
-          {error ? (
-            <p className="text-sm font-medium text-red-600" role="alert">
-              {error}
-            </p>
-          ) : null}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-3.5 text-[15px] font-semibold text-white shadow-md transition hover:opacity-95 disabled:opacity-60"
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className={inputClass}
+            placeholder="••••••••"
+          />
+        </div>
+        {error ? (
+          <div
+            className="rounded-xl border border-red-200/80 bg-red-50 px-4 py-3 text-sm font-medium text-red-800"
+            role="alert"
           >
-            {loading ? 'Přihlašuji…' : 'Přihlásit'}
-          </button>
-        </form>
+            {error}
+          </div>
+        ) : null}
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-3.5 text-[15px] font-semibold text-white shadow-lg shadow-orange-900/25 transition hover:opacity-[0.97] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55"
+        >
+          {loading ? 'Přihlašuji…' : 'Přihlásit se'}
+        </button>
+      </form>
 
-        <p className="mt-6 text-center text-sm text-zinc-600">
-          Nemáte účet?{' '}
-          <Link
-            href={
-              (() => {
-                const r =
-                  searchParams.get('redirect') ?? searchParams.get('callbackUrl');
-                return r
-                  ? `/registrace?redirect=${encodeURIComponent(r)}`
-                  : '/registrace';
-              })()
-            }
-            className="font-semibold text-[#e85d00] hover:underline"
-          >
-            Registrace
-          </Link>
-        </p>
-      </div>
-    </div>
+      <p className="mt-8 border-t border-zinc-100 pt-6 text-center text-sm text-zinc-600">
+        Ještě nemáte účet?{' '}
+        <Link href={registerHref} className="font-semibold text-orange-600 hover:text-orange-700 hover:underline">
+          Založit registraci
+        </Link>
+      </p>
+    </AuthPageShell>
   );
 }

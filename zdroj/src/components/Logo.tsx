@@ -1,9 +1,13 @@
-export default function Logo() {
+type LogoProps = {
+  className?: string;
+};
+
+export default function Logo({ className }: LogoProps) {
   return (
     <img
       src="/logo.png"
-      alt="Logo"
-      className="h-6 w-auto md:h-8"
+      alt="xxrealit"
+      className={className ?? 'h-6 w-auto md:h-8'}
     />
   );
 }

@@ -3,12 +3,13 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
+import { AuthPageShell } from '@/components/auth/auth-page-shell';
 
 const inputClass =
-  'w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-[#ff6a00]/70 focus:ring-2 focus:ring-[#ff6a00]/15';
+  'w-full rounded-xl border border-zinc-200/90 bg-zinc-50/80 px-4 py-3.5 text-[15px] text-zinc-900 shadow-inner shadow-zinc-100/80 outline-none transition placeholder:text-zinc-400 focus:border-orange-400/80 focus:bg-white focus:ring-2 focus:ring-orange-500/20';
 
 const selectClass =
-  'w-full rounded-xl border border-zinc-200 bg-white p-3 text-zinc-900 shadow-sm outline-none transition focus:border-[#ff6a00]/70 focus:ring-2 focus:ring-[#ff6a00]/15';
+  'w-full rounded-xl border border-zinc-200/90 bg-zinc-50/80 px-4 py-3.5 text-[15px] text-zinc-900 shadow-inner shadow-zinc-100/80 outline-none transition focus:border-orange-400/80 focus:bg-white focus:ring-2 focus:ring-orange-500/20';
 
 type FieldErrors = Partial<Record<'email' | 'password' | 'confirmPassword' | 'role', string>>;
 
@@ -87,138 +88,133 @@ export default function RegistracePage() {
       router.push(`/login?${qs.toString()}`);
       router.refresh();
     } catch {
-      setError('Nelze se spojit se serverem');
+      setError('Nelze se spojit se serverem. Zkuste to prosím za chvíli.');
     } finally {
       setLoading(false);
     }
   }
 
+  const loginHref = redirect
+    ? `/login?redirect=${encodeURIComponent(redirect)}`
+    : '/login';
+
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-[#fafafa] px-4 py-16 text-zinc-900">
-      <div className="w-full max-w-md">
-        <Link href="/" className="text-sm font-semibold text-[#e85d00] hover:text-[#ff6a00]">
-          ← Domů
-        </Link>
+    <AuthPageShell variant="register">
+      <p className="mb-6 text-center text-sm font-medium text-zinc-500">Nový účet</p>
+      <p className="mb-6 text-center text-sm leading-relaxed text-zinc-600">
+        Heslo alespoň 6 znaků. Vyberte typ účtu, který nejlépe vystihuje vaši roli na trhu.
+      </p>
 
-        <div className="mt-8 rounded-2xl border border-zinc-200/80 bg-white p-8 shadow-xl shadow-zinc-200/50">
-          <h1 className="text-2xl font-semibold tracking-tight">Registrace</h1>
-          <p className="mt-2 text-[15px] leading-relaxed text-zinc-600">
-            Vytvořte si účet. Heslo musí mít alespoň 6 znaků. Vyberte typ účtu.
-          </p>
-
-          <form onSubmit={onSubmit} className="mt-8 space-y-5">
-            <div>
-              <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-zinc-800">
-                E-mail
-              </label>
-              <input
-                id="email"
-                type="email"
-                required
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className={inputClass}
-                aria-invalid={Boolean(fieldErrors.email)}
-              />
-              {fieldErrors.email ? (
-                <p className="mt-1.5 text-sm text-red-600">{fieldErrors.email}</p>
-              ) : null}
-            </div>
-
-            <div>
-              <label htmlFor="role" className="mb-1.5 block text-sm font-medium text-zinc-800">
-                Typ účtu
-              </label>
-              <select
-                id="role"
-                name="role"
-                value={role}
-                onChange={(e) =>
-                  setRole(e.target.value as 'PRIVATE_SELLER' | 'AGENT' | 'DEVELOPER')
-                }
-                className={selectClass}
-                aria-invalid={Boolean(fieldErrors.role)}
-              >
-                <option value="PRIVATE_SELLER">Soukromý prodejce</option>
-                <option value="AGENT">Realitní makléř</option>
-                <option value="DEVELOPER">Developer</option>
-              </select>
-              {fieldErrors.role ? (
-                <p className="mt-1.5 text-sm text-red-600">{fieldErrors.role}</p>
-              ) : null}
-            </div>
-
-            <div>
-              <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-zinc-800">
-                Heslo
-              </label>
-              <input
-                id="password"
-                type="password"
-                required
-                minLength={6}
-                autoComplete="new-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className={inputClass}
-                aria-invalid={Boolean(fieldErrors.password)}
-              />
-              {fieldErrors.password ? (
-                <p className="mt-1.5 text-sm text-red-600">{fieldErrors.password}</p>
-              ) : null}
-            </div>
-
-            <div>
-              <label htmlFor="confirm" className="mb-1.5 block text-sm font-medium text-zinc-800">
-                Potvrzení hesla
-              </label>
-              <input
-                id="confirm"
-                type="password"
-                required
-                minLength={6}
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className={inputClass}
-                aria-invalid={Boolean(fieldErrors.confirmPassword)}
-              />
-              {fieldErrors.confirmPassword ? (
-                <p className="mt-1.5 text-sm text-red-600">{fieldErrors.confirmPassword}</p>
-              ) : null}
-            </div>
-
-            {error ? (
-              <p className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700" role="alert">
-                {error}
-              </p>
-            ) : null}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-3.5 text-[15px] font-semibold text-white shadow-md transition hover:opacity-95 disabled:opacity-60"
-            >
-              {loading ? 'Registruji…' : 'Vytvořit účet'}
-            </button>
-          </form>
+      <form onSubmit={onSubmit} className="space-y-5">
+        <div>
+          <label htmlFor="email" className="mb-1.5 block text-left text-sm font-semibold text-zinc-800">
+            E-mail
+          </label>
+          <input
+            id="email"
+            type="email"
+            required
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className={inputClass}
+            placeholder="vas@email.cz"
+            aria-invalid={Boolean(fieldErrors.email)}
+          />
+          {fieldErrors.email ? (
+            <p className="mt-1.5 text-sm text-red-600">{fieldErrors.email}</p>
+          ) : null}
         </div>
 
-        <p className="mt-6 text-center text-sm text-zinc-600">
-          Už máte účet?{' '}
-          <Link
-            href={
-              redirect
-                ? `/login?redirect=${encodeURIComponent(redirect)}`
-                : '/login'
+        <div>
+          <label htmlFor="role" className="mb-1.5 block text-left text-sm font-semibold text-zinc-800">
+            Typ účtu
+          </label>
+          <select
+            id="role"
+            name="role"
+            value={role}
+            onChange={(e) =>
+              setRole(e.target.value as 'PRIVATE_SELLER' | 'AGENT' | 'DEVELOPER')
             }
-            className="font-semibold text-[#e85d00] hover:underline"
+            className={selectClass}
+            aria-invalid={Boolean(fieldErrors.role)}
           >
-            Přihlásit se
-          </Link>
-        </p>
-      </div>
-    </div>
+            <option value="PRIVATE_SELLER">Soukromý prodejce</option>
+            <option value="AGENT">Realitní makléř</option>
+            <option value="DEVELOPER">Developer</option>
+          </select>
+          {fieldErrors.role ? (
+            <p className="mt-1.5 text-sm text-red-600">{fieldErrors.role}</p>
+          ) : null}
+        </div>
+
+        <div>
+          <label htmlFor="password" className="mb-1.5 block text-left text-sm font-semibold text-zinc-800">
+            Heslo
+          </label>
+          <input
+            id="password"
+            type="password"
+            required
+            minLength={6}
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className={inputClass}
+            placeholder="Nejméně 6 znaků"
+            aria-invalid={Boolean(fieldErrors.password)}
+          />
+          {fieldErrors.password ? (
+            <p className="mt-1.5 text-sm text-red-600">{fieldErrors.password}</p>
+          ) : null}
+        </div>
+
+        <div>
+          <label htmlFor="confirm" className="mb-1.5 block text-left text-sm font-semibold text-zinc-800">
+            Potvrzení hesla
+          </label>
+          <input
+            id="confirm"
+            type="password"
+            required
+            minLength={6}
+            autoComplete="new-password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            className={inputClass}
+            placeholder="Zopakujte heslo"
+            aria-invalid={Boolean(fieldErrors.confirmPassword)}
+          />
+          {fieldErrors.confirmPassword ? (
+            <p className="mt-1.5 text-sm text-red-600">{fieldErrors.confirmPassword}</p>
+          ) : null}
+        </div>
+
+        {error ? (
+          <div
+            className="rounded-xl border border-red-200/80 bg-red-50 px-4 py-3 text-sm font-medium text-red-800"
+            role="alert"
+          >
+            {error}
+          </div>
+        ) : null}
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-3.5 text-[15px] font-semibold text-white shadow-lg shadow-orange-900/25 transition hover:opacity-[0.97] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55"
+        >
+          {loading ? 'Vytvářím účet…' : 'Vytvořit účet'}
+        </button>
+      </form>
+
+      <p className="mt-8 border-t border-zinc-100 pt-6 text-center text-sm text-zinc-600">
+        Už máte účet?{' '}
+        <Link href={loginHref} className="font-semibold text-orange-600 hover:text-orange-700 hover:underline">
+          Přihlásit se
+        </Link>
+      </p>
+    </AuthPageShell>
   );
 }
