@@ -19,6 +19,7 @@ import { PatchBrokerReviewVisibilityDto } from './dto/patch-broker-review-visibi
 import { PatchPremiumBrokerDto } from './dto/patch-premium-broker.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { AdminGuard } from './guards/admin.guard';
+import { AgentProfileService } from '../agent-profile/agent-profile.service';
 
 type ChangePasswordBody = {
   oldPassword?: string;
@@ -36,7 +37,10 @@ type ImportXmlBody = {
 @Controller('admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly agentProfileService: AgentProfileService,
+  ) {}
 
   @Get()
   getAdmin() {
@@ -100,6 +104,26 @@ export class AdminController {
   @Get('users')
   listUsers() {
     return this.adminService.listUsers();
+  }
+
+  @Get('agent-profiles')
+  listAgentProfiles(@Query('status') status?: string) {
+    return this.agentProfileService.adminList(status);
+  }
+
+  @Get('agent-profiles/:id')
+  getAgentProfile(@Param('id') id: string) {
+    return this.agentProfileService.adminGetById(id);
+  }
+
+  @Post('agent-profiles/:id/approve')
+  approveAgentProfile(@Param('id') id: string) {
+    return this.agentProfileService.adminApprove(id);
+  }
+
+  @Post('agent-profiles/:id/reject')
+  rejectAgentProfile(@Param('id') id: string) {
+    return this.agentProfileService.adminReject(id);
   }
 
   @Patch('users/:id/role')

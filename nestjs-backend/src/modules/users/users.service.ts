@@ -181,9 +181,44 @@ export class UsersService {
         brokerEmailPublic: true,
         brokerReviewAverage: true,
         brokerReviewCount: true,
+        agentProfile: {
+          select: {
+            id: true,
+            fullName: true,
+            companyName: true,
+            phone: true,
+            phoneVerified: true,
+            website: true,
+            ico: true,
+            city: true,
+            bio: true,
+            avatarUrl: true,
+            verificationStatus: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
       },
     });
     if (!u) return null;
+    const ap = u.agentProfile;
+    const agentProfile = ap
+      ? {
+          id: ap.id,
+          fullName: ap.fullName,
+          companyName: ap.companyName,
+          phone: ap.phone,
+          phoneVerified: ap.phoneVerified,
+          website: ap.website,
+          ico: ap.ico,
+          city: ap.city,
+          bio: ap.bio,
+          avatarUrl: ap.avatarUrl,
+          verificationStatus: ap.verificationStatus,
+          createdAt: ap.createdAt.toISOString(),
+          updatedAt: ap.updatedAt.toISOString(),
+        }
+      : null;
     const profile = {
       id: u.id,
       email: u.email,
@@ -210,6 +245,7 @@ export class UsersService {
       brokerEmailPublic: u.brokerEmailPublic,
       brokerReviewAverage: u.brokerReviewAverage,
       brokerReviewCount: u.brokerReviewCount,
+      agentProfile,
     };
     this.logger.log(
       `[profile-media] getMeProfile userId=${u.id} hasAvatar=${Boolean(profile.avatarUrl)} hasCover=${Boolean(profile.coverImageUrl)}`,

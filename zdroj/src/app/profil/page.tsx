@@ -19,6 +19,8 @@ import {
   nestPatchBrokerPublicProfile,
   nestPatchMyProperty,
   nestPatchProfileBio,
+  nestSubmitAgentProfileRequest,
+  nestUploadAgentProfileLogo,
   nestUploadAvatar,
   nestUploadCover,
   NEST_PROFILE_IMAGE_MAX_BYTES,
@@ -94,6 +96,20 @@ export default function ProfilPage() {
 
   const [bioDraft, setBioDraft] = useState('');
   const [bioEditing, setBioEditing] = useState(false);
+
+  const [agentFormOpen, setAgentFormOpen] = useState(false);
+  const [agentFullName, setAgentFullName] = useState('');
+  const [agentCompany, setAgentCompany] = useState('');
+  const [agentPhone, setAgentPhone] = useState('');
+  const [agentWeb, setAgentWeb] = useState('');
+  const [agentIco, setAgentIco] = useState('');
+  const [agentCity, setAgentCity] = useState('');
+  const [agentBio, setAgentBio] = useState('');
+  const [agentLogoUrl, setAgentLogoUrl] = useState<string | null>(null);
+  const [agentLogoUploading, setAgentLogoUploading] = useState(false);
+  const [agentSubmitting, setAgentSubmitting] = useState(false);
+  const [agentFormError, setAgentFormError] = useState<string | null>(null);
+  const agentLogoInputRef = useRef<HTMLInputElement>(null);
   /** Staré lokální `/uploads/…` na Railway po deployi vrací 404 — zobrazí se placeholder. */
   const [avatarRemoteFailed, setAvatarRemoteFailed] = useState(false);
   const [coverRemoteFailed, setCoverRemoteFailed] = useState(false);
@@ -347,6 +363,93 @@ export default function ProfilPage() {
     showSuccess('Popis „O mně“ byl uložen.');
   }
 
+  function prefillAgentFormFromProfile() {
+    const ap = nestMe?.agentProfile;
+    if (ap) {
+      setAgentFullName(ap.fullName);
+      setAgentCompany(ap.companyName);
+      setAgentPhone(ap.phone);
+      setAgentWeb(ap.website || '');
+      setAgentIco(ap.ico || '');
+      setAgentCity(ap.city);
+      setAgentBio(ap.bio);
+      setAgentLogoUrl(ap.avatarUrl);
+    } else {
+      setAgentFullName(user?.name?.trim() || '');
+      setAgentCompany('');
+      setAgentPhone('');
+      setAgentWeb('');
+      setAgentIco('');
+      setAgentCity('');
+      setAgentBio('');
+      setAgentLogoUrl(null);
+    }
+  }
+
+  function onOpenAgentForm() {
+    setAgentFormError(null);
+    prefillAgentFormFromProfile();
+    setAgentFormOpen(true);
+  }
+
+  async function onAgentLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !apiAccessToken) return;
+    const err = assertImageFile(file);
+    if (err) {
+      setAgentFormError(err);
+      return;
+    }
+    setAgentFormError(null);
+    setAgentLogoUploading(true);
+    const res = await nestUploadAgentProfileLogo(apiAccessToken, file);
+    setAgentLogoUploading(false);
+    if (res.error) {
+      setAgentFormError(res.error);
+      return;
+    }
+    if (res.url) setAgentLogoUrl(res.url);
+  }
+
+  async function onSubmitAgentRequest(e: React.FormEvent) {
+    e.preventDefault();
+    if (!apiAccessToken) return;
+    setAgentFormError(null);
+    const icoT = agentIco.trim();
+    if (icoT && !/^\d{8}$/.test(icoT)) {
+      setAgentFormError('IČO musí mít přesně 8 číslic nebo zůstat prázdné.');
+      return;
+    }
+    if (agentBio.trim().length < 10) {
+      setAgentFormError('Bio musí mít alespoň 10 znaků.');
+      return;
+    }
+    setAgentSubmitting(true);
+    const res = await nestSubmitAgentProfileRequest(apiAccessToken, {
+      fullName: agentFullName.trim(),
+      companyName: agentCompany.trim(),
+      phone: agentPhone.trim(),
+      website: agentWeb.trim() || undefined,
+      ico: icoT || undefined,
+      city: agentCity.trim(),
+      bio: agentBio.trim(),
+      avatarUrl: agentLogoUrl?.trim() || undefined,
+    });
+    setAgentSubmitting(false);
+    if (!res.ok) {
+      setAgentFormError(res.error ?? 'Odeslání žádosti selhalo.');
+      return;
+    }
+    setAgentFormOpen(false);
+    showSuccess(
+      typeof res.data?.message === 'string'
+        ? res.data.message
+        : 'Žádost byla odeslána. Čeká na schválení administrátorem.',
+    );
+    await loadNestProfile();
+  }
+
   if (isLoading) {
     return (
       <div className="flex h-[100dvh] items-center justify-center overflow-y-auto bg-[#fafafa] text-zinc-600">
@@ -436,9 +539,38 @@ export default function ProfilPage() {
                   </div>
                 </div>
                 <div className="min-w-0 text-center sm:pb-1 sm:text-left">
-                  <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
-                    {user.email}
-                  </h1>
+                  <div className="flex flex-col items-center gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                    <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
+                      {user.email}
+                    </h1>
+                    {user.role === 'AGENT' ? (
+                      <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+                        Ověřený makléř
+                      </span>
+                    ) : null}
+                    {user.role === 'USER' &&
+                    nestMe?.agentProfile?.verificationStatus === 'pending' ? (
+                      <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900">
+                        Čeká na ověření
+                      </span>
+                    ) : null}
+                    {user.role === 'USER' &&
+                    nestMe?.agentProfile?.verificationStatus === 'rejected' ? (
+                      <span className="rounded-full bg-zinc-200 px-2.5 py-0.5 text-xs font-semibold text-zinc-700">
+                        Žádost zamítnuta
+                      </span>
+                    ) : null}
+                  </div>
+                  {user.role === 'AGENT' ? (
+                    <p className="mt-2 text-sm">
+                      <Link
+                        href={`/agent/${encodeURIComponent(user.id)}`}
+                        className="font-semibold text-[#e85d00] hover:underline"
+                      >
+                        Veřejný profil makléře
+                      </Link>
+                    </p>
+                  ) : null}
                   {bioText && !bioEditing ? (
                     <p className="mt-2 max-w-xl whitespace-pre-wrap text-sm leading-relaxed text-zinc-600">
                       {bioText}
@@ -551,6 +683,167 @@ export default function ProfilPage() {
             ) : null}
           </div>
         </section>
+
+        {user.role === 'USER' && apiAccessToken ? (
+          <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <h2 className="text-lg font-semibold text-zinc-900">Stát se makléřem</h2>
+            <p className="mt-2 text-sm text-zinc-600">
+              Vyplňte údaje o sobě a o kanceláři. Po odeslání žádosti zůstáváte v roli uživatele;
+              po schválení administrátorem získáte roli makléře.
+            </p>
+            {nestMe?.agentProfile?.verificationStatus === 'pending' ? (
+              <p className="mt-3 text-sm font-medium text-amber-800">
+                Vaše žádost čeká na schválení. Můžete ji upravit a znovu odeslat.
+              </p>
+            ) : null}
+            {nestMe?.agentProfile?.verificationStatus === 'rejected' ? (
+              <p className="mt-3 text-sm font-medium text-zinc-700">
+                Předchozí žádost byla zamítnuta. Upravte údaje a pošlete novou žádost.
+              </p>
+            ) : null}
+            {!agentFormOpen ? (
+              <button
+                type="button"
+                disabled={!apiAccessToken}
+                onClick={() => onOpenAgentForm()}
+                className="mt-4 rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-3 text-sm font-bold text-white shadow-md transition hover:brightness-105 disabled:opacity-50"
+              >
+                Stát se makléřem
+              </button>
+            ) : (
+              <form
+                className="mt-6 space-y-4"
+                onSubmit={(ev) => void onSubmitAgentRequest(ev)}
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="block text-sm font-semibold text-zinc-800">
+                    Jméno a příjmení
+                    <input
+                      required
+                      value={agentFullName}
+                      onChange={(e) => setAgentFullName(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-orange-500/30 focus:ring-2"
+                    />
+                  </label>
+                  <label className="block text-sm font-semibold text-zinc-800">
+                    Název kanceláře nebo značky
+                    <input
+                      required
+                      value={agentCompany}
+                      onChange={(e) => setAgentCompany(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-orange-500/30 focus:ring-2"
+                    />
+                  </label>
+                  <label className="block text-sm font-semibold text-zinc-800">
+                    Telefonní číslo
+                    <input
+                      required
+                      value={agentPhone}
+                      onChange={(e) => setAgentPhone(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-orange-500/30 focus:ring-2"
+                    />
+                  </label>
+                  <div className="block text-sm font-semibold text-zinc-800">
+                    <span>Stav telefonu</span>
+                    <p className="mt-1 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-normal text-zinc-700">
+                      {nestMe?.agentProfile?.phoneVerified
+                        ? 'Telefon ověřen'
+                        : 'Telefon neověřen (SMS ověření připravujeme)'}
+                    </p>
+                  </div>
+                  <label className="block text-sm font-semibold text-zinc-800 sm:col-span-2">
+                    Webová stránka (volitelné)
+                    <input
+                      value={agentWeb}
+                      onChange={(e) => setAgentWeb(e.target.value)}
+                      placeholder="https://…"
+                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-orange-500/30 focus:ring-2"
+                    />
+                  </label>
+                  <label className="block text-sm font-semibold text-zinc-800">
+                    IČO (volitelné, 8 číslic)
+                    <input
+                      value={agentIco}
+                      onChange={(e) => setAgentIco(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-orange-500/30 focus:ring-2"
+                    />
+                  </label>
+                  <label className="block text-sm font-semibold text-zinc-800">
+                    Město / lokalita působnosti
+                    <input
+                      required
+                      value={agentCity}
+                      onChange={(e) => setAgentCity(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-orange-500/30 focus:ring-2"
+                    />
+                  </label>
+                </div>
+                <label className="block text-sm font-semibold text-zinc-800">
+                  Krátké bio (min. 10 znaků)
+                  <textarea
+                    required
+                    value={agentBio}
+                    onChange={(e) => setAgentBio(e.target.value)}
+                    rows={5}
+                    maxLength={2000}
+                    className="mt-1 w-full resize-y rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-orange-500/30 focus:ring-2"
+                  />
+                </label>
+                <div>
+                  <p className="text-sm font-semibold text-zinc-800">Profilová fotka nebo logo</p>
+                  <input
+                    ref={agentLogoInputRef}
+                    type="file"
+                    accept={ACCEPT_IMAGES}
+                    className="hidden"
+                    disabled={agentLogoUploading || !apiAccessToken}
+                    onChange={(ev) => void onAgentLogoChange(ev)}
+                  />
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      disabled={agentLogoUploading || !apiAccessToken}
+                      onClick={() => agentLogoInputRef.current?.click()}
+                      className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                    >
+                      {agentLogoUploading ? 'Nahrávám…' : 'Nahrát obrázek'}
+                    </button>
+                    {agentLogoUrl ? (
+                      <span className="text-xs text-zinc-600">Nahráno</span>
+                    ) : (
+                      <span className="text-xs text-zinc-500">Volitelné</span>
+                    )}
+                  </div>
+                </div>
+                {agentFormError ? (
+                  <p className="text-sm text-red-600" role="alert">
+                    {agentFormError}
+                  </p>
+                ) : null}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="submit"
+                    disabled={agentSubmitting || !apiAccessToken}
+                    className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-2.5 text-sm font-bold text-white shadow-md disabled:opacity-50"
+                  >
+                    {agentSubmitting ? 'Odesílám…' : 'Odeslat žádost'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={agentSubmitting}
+                    onClick={() => {
+                      setAgentFormOpen(false);
+                      setAgentFormError(null);
+                    }}
+                    className="rounded-full border border-zinc-300 bg-white px-6 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                  >
+                    Zrušit
+                  </button>
+                </div>
+              </form>
+            )}
+          </section>
+        ) : null}
 
         <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

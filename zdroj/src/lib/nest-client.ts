@@ -123,6 +123,23 @@ export type NestBrokerProgress = {
   freeLeadsPerThreshold: number;
 };
 
+/** Podžádost o roli makléře / stav ověření (GET /users/me → agentProfile). */
+export type NestAgentProfileMe = {
+  id: string;
+  fullName: string;
+  companyName: string;
+  phone: string;
+  phoneVerified: boolean;
+  website: string;
+  ico: string;
+  city: string;
+  bio: string;
+  avatarUrl: string | null;
+  verificationStatus: 'pending' | 'verified' | 'rejected';
+  createdAt: string;
+  updatedAt: string;
+};
+
 /** Odpověď GET /users/me (Nest JWT). */
 export type NestMeProfile = {
   id: string;
@@ -151,7 +168,38 @@ export type NestMeProfile = {
   brokerEmailPublic?: string;
   brokerReviewAverage?: number;
   brokerReviewCount?: number;
+  agentProfile?: NestAgentProfileMe | null;
 };
+
+function parseNestAgentProfileMeJson(raw: unknown): NestAgentProfileMe | null {
+  if (raw == null || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.id !== 'string') return null;
+  const verificationStatus = o.verificationStatus;
+  if (
+    verificationStatus !== 'pending' &&
+    verificationStatus !== 'verified' &&
+    verificationStatus !== 'rejected'
+  ) {
+    return null;
+  }
+  return {
+    id: o.id,
+    fullName: typeof o.fullName === 'string' ? o.fullName : '',
+    companyName: typeof o.companyName === 'string' ? o.companyName : '',
+    phone: typeof o.phone === 'string' ? o.phone : '',
+    phoneVerified: typeof o.phoneVerified === 'boolean' ? o.phoneVerified : false,
+    website: typeof o.website === 'string' ? o.website : '',
+    ico: typeof o.ico === 'string' ? o.ico : '',
+    city: typeof o.city === 'string' ? o.city : '',
+    bio: typeof o.bio === 'string' ? o.bio : '',
+    avatarUrl:
+      o.avatarUrl === null || typeof o.avatarUrl === 'string' ? (o.avatarUrl as string | null) : null,
+    verificationStatus,
+    createdAt: typeof o.createdAt === 'string' ? o.createdAt : '',
+    updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : '',
+  };
+}
 
 /** GET /users/me může vracet avatarUrl nebo legacy avatar / coverImage. */
 export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
@@ -173,6 +221,12 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     brokerProgressRaw != null && typeof brokerProgressRaw === 'object'
       ? (brokerProgressRaw as NestBrokerProgress)
       : null;
+  const agentProfile =
+    'agentProfile' in o
+      ? o.agentProfile === null
+        ? null
+        : parseNestAgentProfileMeJson(o.agentProfile)
+      : undefined;
   return {
     id: o.id,
     email: o.email,
@@ -214,6 +268,7 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     brokerReviewAverage:
       typeof o.brokerReviewAverage === 'number' ? o.brokerReviewAverage : undefined,
     brokerReviewCount: typeof o.brokerReviewCount === 'number' ? o.brokerReviewCount : undefined,
+    agentProfile,
   };
 }
 
@@ -434,6 +489,200 @@ export async function nestAdminUsers(
   if (!res.ok) return null;
   const data = (await res.json()) as unknown;
   return Array.isArray(data) ? (data as AdminUserRow[]) : null;
+}
+
+export type NestAdminAgentProfileRow = {
+  id: string;
+  userId: string;
+  verificationStatus: string;
+  fullName: string;
+  companyName: string;
+  phone: string;
+  phoneVerified: boolean;
+  website: string;
+  ico: string;
+  city: string;
+  bio?: string;
+  avatarUrl: string | null;
+  createdAt: string;
+  user?: { id: string; email: string; name?: string | null; role: string };
+};
+
+export async function nestAdminAgentProfiles(
+  token: string | null,
+  status?: string,
+): Promise<NestAdminAgentProfileRow[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  const qs =
+    status != null && String(status).trim() !== ''
+      ? `?status=${encodeURIComponent(String(status).trim())}`
+      : '';
+  const res = await fetch(`${API_BASE_URL}/admin/agent-profiles${qs}`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as unknown;
+  return Array.isArray(data) ? (data as NestAdminAgentProfileRow[]) : null;
+}
+
+export async function nestAdminAgentProfileDetail(
+  token: string | null,
+  id: string,
+): Promise<Record<string, unknown> | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/agent-profiles/${encodeURIComponent(id)}`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as Record<string, unknown> | null;
+}
+
+export async function nestAdminApproveAgentProfile(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/admin/agent-profiles/${encodeURIComponent(id)}/approve`,
+    {
+      method: 'POST',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    },
+  );
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string | string[] };
+    const msg = Array.isArray(err.message)
+      ? err.message.join(', ')
+      : typeof err.message === 'string'
+        ? err.message
+        : `HTTP ${res.status}`;
+    return { ok: false, error: msg };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminRejectAgentProfile(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/admin/agent-profiles/${encodeURIComponent(id)}/reject`,
+    {
+      method: 'POST',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    },
+  );
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string | string[] };
+    const msg = Array.isArray(err.message)
+      ? err.message.join(', ')
+      : typeof err.message === 'string'
+        ? err.message
+        : `HTTP ${res.status}`;
+    return { ok: false, error: msg };
+  }
+  return { ok: true };
+}
+
+export async function nestSubmitAgentProfileRequest(
+  token: string | null,
+  body: Record<string, unknown>,
+): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/agent-profile/request`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true, data: raw };
+}
+
+export type NestPublicVerifiedAgent = {
+  userId: string;
+  displayName: string;
+  personName: string;
+  companyName: string;
+  avatarUrl?: string | null;
+  bio: string;
+  city: string;
+  phone: string;
+  website: string;
+  phoneVerified: boolean;
+  verificationStatus: string;
+  listings: unknown[];
+};
+
+export async function nestFetchPublicVerifiedAgent(
+  userId: string,
+  token: string | null | undefined,
+): Promise<NestPublicVerifiedAgent | null> {
+  if (!API_BASE_URL || !userId.trim()) return null;
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (token?.trim()) {
+    Object.assign(headers, nestAuthHeaders(token));
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/agent-profile/public/${encodeURIComponent(userId)}`,
+    { cache: 'no-store', headers },
+  );
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as NestPublicVerifiedAgent | null;
+}
+
+/** POST /upload/agent-profile-logo — jen URL, neaktualizuje uživatelský avatar. */
+export async function nestUploadAgentProfileLogo(
+  token: string | null,
+  file: File,
+): Promise<{ url?: string; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { error: 'API nebo token chybí' };
+  }
+  if (file.size > NEST_PROFILE_IMAGE_MAX_BYTES) {
+    return {
+      error: `Soubor je příliš velký (max. ${NEST_PROFILE_IMAGE_MAX_BYTES / (1024 * 1024)} MB).`,
+    };
+  }
+  const fd = new FormData();
+  fd.append('file', file);
+  const up = await fetch(`${API_BASE_URL}/upload/agent-profile-logo`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: nestAuthHeaders(token),
+    body: fd,
+  });
+  const upData = (await up.json().catch(() => ({}))) as {
+    url?: string;
+    message?: string | string[];
+  };
+  if (!up.ok) {
+    return {
+      error: nestApiErrorBodyMessage(up.status, upData, `Nahrání loga selhalo (HTTP ${up.status}).`),
+    };
+  }
+  const url = typeof upData.url === 'string' ? upData.url : '';
+  if (!url) {
+    return { error: 'Server nevrátil URL obrázku' };
+  }
+  return { url };
 }
 
 export async function nestAdminUpdateUserRole(

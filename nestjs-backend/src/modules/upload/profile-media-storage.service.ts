@@ -87,4 +87,16 @@ export class ProfileMediaStorageService {
     this.log.log(`[profile-storage] cover uploaded publicSuffix=${suffix}`);
     return url;
   }
+
+  /** Logo / foto pro žádost o makléře — neaktualizuje `User.avatar` (to až po schválení). */
+  async uploadAgentProfileLogo(userId: string, imageBuffer: Buffer): Promise<string> {
+    const suffix = `${userId}-${Date.now()}`;
+    const url = await uploadProfileRaster(
+      imageBuffer,
+      'profiles/agent-profiles',
+      suffix,
+    );
+    this.log.log(`[profile-storage] agent-profile logo uploaded publicSuffix=${suffix}`);
+    return url;
+  }
 }

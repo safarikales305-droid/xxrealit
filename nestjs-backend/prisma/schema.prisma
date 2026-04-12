@@ -22,6 +22,12 @@ enum PostCategory {
   REALITNI_KANCELARE
 }
 
+enum AgentVerificationStatus {
+  pending
+  verified
+  rejected
+}
+
 enum ReactionType {
   LIKE
   DISLIKE
@@ -96,6 +102,29 @@ model User {
   brokerLeadOffers     BrokerLeadOffer[] @relation("UserBrokerLeads")
   brokerReviewsReceived BrokerReview[] @relation("BrokerReviewsTarget")
   brokerReviewsWritten  BrokerReview[] @relation("BrokerReviewsAuthor")
+
+  agentProfile AgentProfile?
+}
+
+model AgentProfile {
+  id                   String                  @id @default(cuid())
+  userId               String                  @unique
+  fullName             String
+  companyName          String
+  phone                String
+  phoneVerified        Boolean                 @default(false)
+  website              String                  @default("")
+  ico                  String                  @default("")
+  city                 String
+  bio                  String                  @db.Text
+  avatarUrl            String?
+  verificationStatus   AgentVerificationStatus @default(pending)
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([verificationStatus, createdAt])
 }
 
 /// Admin spravovaná hudba pro generované shorts z fotek (výběr uživatelem při tvorbě inzerátu).

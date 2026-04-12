@@ -122,6 +122,63 @@ export class UploadController {
     }
   }
 
+  @Post('upload/agent-profile-logo')
+  @UseGuards(JwtAuthGuard)
+  @UsePipes(noBodyValidation)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: PROFILE_UPLOAD_MAX_BYTES },
+    }),
+  )
+  async uploadAgentProfileLogo(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() file?: Express.Multer.File,
+  ): Promise<{ url: string }> {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException(
+        'Soubor nebyl přijat (pole formuláře musí být pojmenované „file“).',
+      );
+    }
+    if (file.size > PROFILE_UPLOAD_MAX_BYTES) {
+      throw new BadRequestException(
+        `Soubor je příliš velký. Maximální velikost je ${PROFILE_UPLOAD_MAX_BYTES / (1024 * 1024)} MB.`,
+      );
+    }
+    this.log.log(
+      `[upload/agent-profile-logo] user=${user.id} mimetype=${file.mimetype ?? '(none)'} originalname=${JSON.stringify(file.originalname)} size=${file.size}`,
+    );
+    await this.profileImages.validateRasterInput(
+      file.buffer,
+      file.mimetype,
+      file.originalname,
+    );
+    try {
+      const { buffer: out, ext } = await this.profileImages.processAvatarForUpload(file.buffer);
+      if (this.profileMediaStorage.isRemotePersistent()) {
+        const url = await this.profileMediaStorage.uploadAgentProfileLogo(user.id, out);
+        this.log.log(`[upload/agent-profile-logo] cloudinary user=${user.id}`);
+        return { url };
+      }
+      this.log.warn(
+        `[upload/agent-profile-logo] lokální uploads/ user=${user.id} *.${ext.slice(1)}`,
+      );
+      const name = `${user.id}-agent-${Date.now()}${ext}`;
+      const dir = join(getUploadsPath(), 'avatars');
+      fs.mkdirSync(dir, { recursive: true });
+      const outPath = join(dir, name);
+      fs.writeFileSync(outPath, out);
+      return { url: `/uploads/avatars/${name}` };
+    } catch (err) {
+      if (err instanceof BadRequestException) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      this.log.error(`[upload/agent-profile-logo] selhalo user=${user.id}: ${msg}`);
+      throw new BadRequestException(
+        'Soubor se nepodařilo uložit na server (disk nebo oprávnění). Zkuste to prosím znovu nebo kontaktujte správce.',
+      );
+    }
+  }
+
   @Post('upload/cover')
   @UseGuards(JwtAuthGuard)
   @UsePipes(noBodyValidation)
