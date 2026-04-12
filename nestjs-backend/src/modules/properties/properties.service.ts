@@ -22,28 +22,8 @@ import {
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { OwnerListingNotifyService } from '../premium-broker/owner-listing-notify.service';
 import type { CreateShortsFromClassicDto } from './dto/create-shorts-from-classic.dto';
-import {
-  ListingShortsFromPhotosService,
-  type ShortsMusicSelection,
-} from './listing-shorts-from-photos.service';
-
-const socialInclude = (viewerId?: string) =>
-  viewerId
-    ? {
-        media: { orderBy: { sortOrder: 'asc' as const } },
-        _count: { select: { likes: true } },
-        user: { select: { id: true, city: true } },
-        likes: {
-          where: { userId: viewerId },
-          select: { id: true },
-          take: 1,
-        },
-      }
-    : {
-        media: { orderBy: { sortOrder: 'asc' as const } },
-        _count: { select: { likes: true } },
-        user: { select: { id: true, city: true } },
-      };
+import { socialInclude } from './shorts-listing.social-include';
+import { ShortsListingService } from './shorts-listing.service';
 
 @Injectable()
 export class PropertiesService {
@@ -52,7 +32,7 @@ export class PropertiesService {
     private readonly propertyMediaCloudinary: PropertyMediaCloudinaryService,
     private readonly ownerListingNotify: OwnerListingNotifyService,
     private readonly brokerPoints: BrokerPointsService,
-    private readonly listingShortsFromPhotos: ListingShortsFromPhotosService,
+    private readonly shortsListingService: ShortsListingService,
   ) {}
 
   private async viewerAccess(viewerId?: string): Promise<PropertyViewerAccess | undefined> {
@@ -533,6 +513,22 @@ export class PropertiesService {
         }
       }
     }
+
+    const draftByClassic = new Map<string, { id: string; status: string }>();
+    if (classicIds.length > 0) {
+      const drafts = await this.prisma.shortsListing.findMany({
+        where: {
+          userId: ownerId,
+          sourceListingId: { in: classicIds },
+          status: { in: ['draft', 'ready'] },
+        },
+        select: { id: true, sourceListingId: true, status: true },
+      });
+      for (const d of drafts) {
+        draftByClassic.set(d.sourceListingId, { id: d.id, status: d.status });
+      }
+    }
+
     const now = new Date();
     return rows.map((r) => {
       const dashboardStatus = computeListingPublicStatus(
@@ -581,6 +577,8 @@ export class PropertiesService {
               dashboardStatus: shortsDashboardStatus,
             }
           : null,
+        shortsDraft:
+          listingType === 'CLASSIC' ? (draftByClassic.get(r.id) ?? null) : null,
       };
     });
   }
@@ -666,153 +664,7 @@ export class PropertiesService {
     classicId: string,
     dto?: CreateShortsFromClassicDto,
   ) {
-    const classic = await this.prisma.property.findUnique({
-      where: { id: classicId },
-      include: { media: { orderBy: { sortOrder: 'asc' } } },
-    });
-    if (!classic || classic.deletedAt) {
-      throw new NotFoundException(`Property "${classicId}" not found`);
-    }
-    if (classic.userId !== ownerId) {
-      throw new ForbiddenException('Tento inzerát není váš.');
-    }
-    if (String(classic.listingType ?? '').toUpperCase() !== 'CLASSIC') {
-      throw new BadRequestException('Shorts lze vytvořit jen z klasického inzerátu.');
-    }
-    const existingShorts = await this.prisma.property.findFirst({
-      where: {
-        derivedFromPropertyId: classicId,
-        userId: ownerId,
-        deletedAt: null,
-      },
-    });
-    if (existingShorts) {
-      throw new ConflictException('Shorts varianta k tomuto inzerátu už existuje.');
-    }
-
-    let videoUrl = this.classicPropertyVideoUrl(classic);
-    if (!videoUrl) {
-      const imgUrls = this.collectClassicImageUrls(classic);
-      if (imgUrls.length < 2) {
-        throw new BadRequestException(
-          'Pro shorts je potřeba video v inzerátu, nebo alespoň 2 fotky (vygenerujeme video z fotek).',
-        );
-      }
-      const files = await this.downloadImageUrlsAsMulterFiles(imgUrls.slice(0, 15));
-      const trackId = dto?.musicTrackId?.trim();
-      let music: ShortsMusicSelection;
-      if (trackId) {
-        const track = await this.prisma.shortsMusicTrack.findFirst({
-          where: { id: trackId, isActive: true },
-        });
-        if (!track) {
-          throw new BadRequestException('Neplatná nebo neaktivní skladba.');
-        }
-        music = { kind: 'library', fileUrl: track.fileUrl };
-      } else {
-        const key = ListingShortsFromPhotosService.parseMusicKey(
-          dto?.musicKey ?? 'demo_soft',
-        );
-        music = key === 'none' ? { kind: 'none' } : { kind: 'builtin', key };
-      }
-      const { videoUrl: generated } = await this.listingShortsFromPhotos.generateAndUpload({
-        images: files,
-        title: classic.title,
-        city: classic.city,
-        price: classic.price,
-        currency: classic.currency,
-        music,
-        includeTextOverlay: true,
-      });
-      videoUrl = generated;
-    }
-
-    const images = [...classic.images];
-
-    const created = await this.prisma.property.create({
-      data: {
-        title: classic.title,
-        description: classic.description,
-        price: classic.price,
-        currency: classic.currency,
-        offerType: classic.offerType,
-        propertyType: classic.propertyType,
-        subType: classic.subType,
-        address: classic.address,
-        city: classic.city,
-        area: classic.area,
-        landArea: classic.landArea,
-        floor: classic.floor,
-        totalFloors: classic.totalFloors,
-        condition: classic.condition,
-        construction: classic.construction,
-        ownership: classic.ownership,
-        energyLabel: classic.energyLabel,
-        equipment: classic.equipment,
-        parking: classic.parking,
-        cellar: classic.cellar,
-        images,
-        videoUrl,
-        contactName: classic.contactName,
-        contactPhone: classic.contactPhone,
-        contactEmail: classic.contactEmail,
-        userId: ownerId,
-        approved: false,
-        status: 'PENDING',
-        listingType: 'SHORTS',
-        isOwnerListing: classic.isOwnerListing,
-        ownerContactConsent: classic.ownerContactConsent,
-        region: classic.region,
-        district: classic.district,
-        derivedFromPropertyId: classicId,
-      },
-    });
-
-    const mediaRows: Array<{
-      propertyId: string;
-      url: string;
-      type: 'image' | 'video';
-      sortOrder: number;
-    }> = [];
-    mediaRows.push({
-      propertyId: created.id,
-      url: videoUrl,
-      type: 'video',
-      sortOrder: 0,
-    });
-    let order = 1;
-    for (const u of this.collectClassicImageUrls(classic)) {
-      mediaRows.push({
-        propertyId: created.id,
-        url: u,
-        type: 'image',
-        sortOrder: order,
-      });
-      order += 1;
-    }
-    await this.prisma.propertyMedia.createMany({ data: mediaRows });
-
-    const full = await this.prisma.property.findUnique({
-      where: { id: created.id },
-      include: socialInclude(ownerId),
-    });
-    if (!full) {
-      throw new NotFoundException(`Property "${created.id}" not found`);
-    }
-    const likesArr =
-      'likes' in full && Array.isArray(full.likes) ? full.likes : [];
-    await this.brokerPoints.onListingCreatedByBroker(ownerId, full.id, full.listingType);
-    const ownerAccess = await this.viewerAccess(ownerId);
-    return serializeProperty(
-      {
-        ...full,
-        likes: likesArr,
-        _count: full._count,
-        user: full.user,
-      },
-      ownerId,
-      ownerAccess,
-    );
+    return this.shortsListingService.createDraftFromClassic(ownerId, classicId, dto);
   }
 
   async updateByOwner(ownerId: string, propertyId: string, dto: OwnerUpdatePropertyDto) {

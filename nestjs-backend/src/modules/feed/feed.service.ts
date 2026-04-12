@@ -116,7 +116,7 @@ export class FeedService {
   async listShorts() {
     const rows = await this.prisma.property.findMany({
       where: publicShortPropertyWhere,
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
       include: {
         media: { orderBy: { sortOrder: 'asc' } },
         _count: { select: { likes: true } },
@@ -124,20 +124,38 @@ export class FeedService {
       },
     });
 
-    const withVideoUrl = rows.filter((r) => (r.videoUrl ?? '').trim().length > 0).length;
-    const withVideoMedia = rows.filter((r) =>
+    const sorted = [...rows].sort((a, b) => {
+      const pa = a.publishedAt?.getTime() ?? 0;
+      const pb = b.publishedAt?.getTime() ?? 0;
+      if (pb !== pa) return pb - pa;
+      return b.createdAt.getTime() - a.createdAt.getTime();
+    });
+
+    const withVideoUrl = sorted.filter((r) => (r.videoUrl ?? '').trim().length > 0).length;
+    const withVideoMedia = sorted.filter((r) =>
       r.media.some((m) => m.type === 'video'),
     ).length;
     this.log.log(
-      `[feed/shorts] returning ${rows.length} row(s) (videoUrl=${withVideoUrl}, mediaVideo=${withVideoMedia})`,
+      `[feed/shorts] DB rows=${sorted.length} (videoUrl=${withVideoUrl}, mediaVideo=${withVideoMedia}) listingType=SHORTS+approved+visible`,
     );
 
-    const serialized = rows.map((r) =>
+    const serialized = sorted.map((r) =>
       serializeProperty(
         { ...r, likes: [] as { id: string }[] },
         undefined,
       ),
     );
+
+    if (serialized.length > 0) {
+      const sample = serialized.slice(0, 3).map((x) => ({
+        id: x.id,
+        publishedAt: x.publishedAt,
+        createdAt: x.createdAt,
+      }));
+      this.log.log(`[feed/shorts] response sample: ${JSON.stringify(sample)}`);
+    } else {
+      this.log.warn('[feed/shorts] serialized list is empty (check Property.approved, listingType, videoUrl/media)');
+    }
 
     if (
       serialized.length === 0 &&

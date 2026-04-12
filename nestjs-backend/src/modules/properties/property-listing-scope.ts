@@ -12,10 +12,11 @@ const approvedAndVisible: Prisma.PropertyWhereInput = {
   AND: [{ approved: true }, publiclyVisiblePropertyWhere()],
 };
 
-/** Veřejné Shorts — schválené, živé, s videem. */
+/** Veřejné Shorts — jen typ SHORTS, schválené, živé, s videem. */
 export const publicShortPropertyWhere: Prisma.PropertyWhereInput = {
   AND: [
     approvedAndVisible,
+    { listingType: 'SHORTS' },
     { OR: videoListingDisjuncts },
   ],
 };

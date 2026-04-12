@@ -59,6 +59,13 @@ function feedShortsRowToShortVideo(row: Record<string, unknown>): ShortVideo | n
   const userIdRaw = row.userId ?? row.ownerId ?? (row.user as { id?: unknown } | undefined)?.id;
   const userId = userIdRaw != null && String(userIdRaw).trim() ? String(userIdRaw).trim() : undefined;
 
+  const pubRaw = row.publishedAt;
+  const publishedAt =
+    typeof pubRaw === 'string'
+      ? pubRaw
+      : pubRaw instanceof Date
+        ? pubRaw.toISOString()
+        : null;
   return {
     id,
     videoUrl: typeof row.videoUrl === 'string' ? row.videoUrl : null,
@@ -67,6 +74,7 @@ function feedShortsRowToShortVideo(row: Record<string, unknown>): ShortVideo | n
     price: typeof row.price === 'number' ? row.price : Number(row.price) || null,
     city: typeof row.city === 'string' ? row.city : null,
     createdAt,
+    publishedAt,
     userId,
     liked: typeof row.liked === 'boolean' ? row.liked : undefined,
     images: Array.isArray(row.images)
@@ -263,8 +271,14 @@ export function HomeLayout({
   }, [classicShortsFallbackGrid, searchQuery]);
 
   const videosForFeed = useMemo(() => {
+    function sortKey(v: ShortVideo): number {
+      const p = v.publishedAt ? Date.parse(v.publishedAt) : NaN;
+      const c = Date.parse(v.createdAt);
+      const primary = Number.isFinite(p) ? p : c;
+      return Number.isFinite(primary) ? primary : 0;
+    }
     function sortByCreatedDesc(list: ShortVideo[]): ShortVideo[] {
-      return [...list].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+      return [...list].sort((a, b) => sortKey(b) - sortKey(a));
     }
     const seen = new Set<string>();
     const merged: ShortVideo[] = [];
@@ -354,6 +368,12 @@ export function HomeLayout({
           const list = rawList
             .map(feedShortsRowToShortVideo)
             .filter((x): x is ShortVideo => x != null);
+          if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+            // eslint-disable-next-line no-console
+            console.debug('[HomeLayout] shorts feed parsed count=', list.length, {
+              sampleIds: list.slice(0, 5).map((v) => v.id),
+            });
+          }
           if (cancelled) return;
           setVideoFeed(list);
           if (list.length === 0) {

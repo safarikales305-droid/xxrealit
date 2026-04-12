@@ -33,6 +33,12 @@ enum ReactionType {
   DISLIKE
 }
 
+enum ShortsListingStatus {
+  draft
+  ready
+  published
+}
+
 model User {
   id           String     @id @default(uuid())
   email        String     @unique
@@ -104,6 +110,8 @@ model User {
   brokerReviewsWritten  BrokerReview[] @relation("BrokerReviewsAuthor")
 
   agentProfile AgentProfile?
+
+  shortsListings ShortsListing[] @relation("UserShortsListings")
 }
 
 model AgentProfile {
@@ -316,6 +324,12 @@ model Property {
   derivedFromProperty   Property?  @relation("PropertyShortsDerivation", fields: [derivedFromPropertyId], references: [id], onDelete: SetNull)
   shortsDerivedFromThis Property[] @relation("PropertyShortsDerivation")
 
+  /// Čas zveřejnění shorts (řazení feedu); klasické inzeráty mohou mít null.
+  publishedAt DateTime?
+
+  shortsListingSources     ShortsListing[] @relation("ShortsListingSourceProperty")
+  publishedFromShortsDraft ShortsListing? @relation("PublishedShortsProperty")
+
   createdAt       DateTime @default(now())
   userId          String
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -330,6 +344,48 @@ model Property {
   @@index([derivedFromPropertyId])
   @@index([deletedAt, isActive, approved])
   @@index([isOwnerListing, createdAt])
+  @@index([listingType, publishedAt])
+}
+
+model ShortsListing {
+  id                  String              @id @default(cuid())
+  userId              String
+  sourceListingId     String
+  publishedPropertyId String?             @unique
+  title               String
+  description         String              @db.Text
+  coverImage          String?
+  musicUrl            String              @default("")
+  musicTrackId        String?
+  musicBuiltinKey     String              @default("demo_soft")
+  videoUrl            String?
+  renderData          Json?
+  status              ShortsListingStatus @default(draft)
+  publishedAt         DateTime?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  user              User              @relation("UserShortsListings", fields: [userId], references: [id], onDelete: Cascade)
+  sourceListing     Property          @relation("ShortsListingSourceProperty", fields: [sourceListingId], references: [id], onDelete: Cascade)
+  publishedProperty Property?         @relation("PublishedShortsProperty", fields: [publishedPropertyId], references: [id], onDelete: SetNull)
+  media               ShortsMediaItem[]
+
+  @@index([userId, status])
+  @@index([sourceListingId])
+}
+
+model ShortsMediaItem {
+  id              String   @id @default(cuid())
+  shortsListingId String
+  imageUrl        String
+  order           Int
+  duration        Float    @default(3)
+  isCover         Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  shortsListing ShortsListing @relation(fields: [shortsListingId], references: [id], onDelete: Cascade)
+
+  @@index([shortsListingId, order])
 }
 
 model PropertyMedia {

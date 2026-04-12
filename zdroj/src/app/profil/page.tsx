@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PropertyGrid } from '@/components/property-grid';
 import { useAuth } from '@/hooks/use-auth';
@@ -12,6 +13,7 @@ import {
   nestFetchFavorites,
   nestFetchMe,
   nestCreateShortsFromClassic,
+  nestFetchMyShortsDrafts,
   nestFetchMyListings,
   nestListNotifications,
   nestMarkNotificationRead,
@@ -26,6 +28,7 @@ import {
   NEST_PROFILE_IMAGE_MAX_BYTES,
   type NestMeProfile,
   type NestMyListingRow,
+  type NestShortsListingDraft,
   type UserNotificationRow,
 } from '@/lib/nest-client';
 import {
@@ -59,6 +62,7 @@ function assertImageFile(file: File): string | null {
 }
 
 export default function ProfilPage() {
+  const router = useRouter();
   const { user, isAuthenticated, isLoading, apiAccessToken, refresh, setUser } = useAuth();
   const unreadMessages = useMessagesUnreadCount(apiAccessToken);
   const [nestAvatar, setNestAvatar] = useState<string | null>(null);
@@ -83,6 +87,7 @@ export default function ProfilPage() {
   const [brokerFieldsSaving, setBrokerFieldsSaving] = useState(false);
   const [brokerFieldsError, setBrokerFieldsError] = useState<string | null>(null);
   const [shortsCreatingId, setShortsCreatingId] = useState<string | null>(null);
+  const [shortsDrafts, setShortsDrafts] = useState<NestShortsListingDraft[]>([]);
 
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [coverUploading, setCoverUploading] = useState(false);
@@ -202,6 +207,19 @@ export default function ProfilPage() {
   useEffect(() => {
     void loadMyListings();
   }, [loadMyListings]);
+
+  const loadShortsDrafts = useCallback(async () => {
+    if (!apiAccessToken) {
+      setShortsDrafts([]);
+      return;
+    }
+    const d = await nestFetchMyShortsDrafts(apiAccessToken);
+    setShortsDrafts(d ?? []);
+  }, [apiAccessToken]);
+
+  useEffect(() => {
+    void loadShortsDrafts();
+  }, [loadShortsDrafts]);
 
   /** Po návratu na stránku: pokud Nest /users/me nestihl, použij avatar z auth session. */
   useEffect(() => {
@@ -846,6 +864,75 @@ export default function ProfilPage() {
         ) : null}
 
         <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-zinc-900">Shorts koncepty</h2>
+          <p className="mt-1 text-sm text-zinc-600">
+            Koncepty zůstávají mimo feed, dokud je v editoru nezveřejníte.
+          </p>
+          {!apiAccessToken ? (
+            <p className="mt-4 text-sm text-amber-800">
+              Pro seznam konceptů je potřeba přihlášení s JWT k Nest API.
+            </p>
+          ) : shortsDrafts.length === 0 ? (
+            <p className="mt-4 text-sm text-zinc-600">
+              Zatím nemáte žádný rozpracovaný shorts koncept. Vytvoříte ho tlačítkem „Převést na
+              Shorts“ u klasického inzerátu níže.
+            </p>
+          ) : (
+            <ul className="mt-4 space-y-3">
+              {shortsDrafts.map((d) => {
+                const st =
+                  d.status === 'ready'
+                    ? 'Připraveno (náhled / publikace)'
+                    : d.status === 'draft'
+                      ? 'Koncept'
+                      : d.status;
+                const thumb =
+                  d.coverImage?.trim() &&
+                  (/^https?:\/\//i.test(d.coverImage)
+                    ? d.coverImage
+                    : nestAbsoluteAssetUrl(d.coverImage) || d.coverImage);
+                return (
+                  <li
+                    key={d.id}
+                    className="flex flex-col gap-3 rounded-xl border border-zinc-100 bg-zinc-50/60 p-4 sm:flex-row sm:items-center"
+                  >
+                    <div className="relative h-24 w-full shrink-0 overflow-hidden rounded-lg bg-zinc-200 sm:h-20 sm:w-32">
+                      {thumb ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={thumb} alt="" className="size-full object-cover" />
+                      ) : (
+                        <div className="flex size-full items-center justify-center text-xs text-zinc-500">
+                          Bez náhledu
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-zinc-900">{d.title || 'Bez názvu'}</p>
+                      <p className="text-xs text-zinc-600">{st}</p>
+                      <p className="mt-1 truncate text-xs text-zinc-500">
+                        Zdroj:{' '}
+                        <Link
+                          href={`/nemovitost/${d.sourceListingId}`}
+                          className="font-medium text-[#e85d00] hover:underline"
+                        >
+                          klasický inzerát
+                        </Link>
+                      </p>
+                    </div>
+                    <Link
+                      href={`/inzerat/shorts-editor/${d.id}`}
+                      className="inline-flex shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2 text-sm font-bold text-white shadow-sm"
+                    >
+                      Editor
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
+        <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold text-zinc-900">Moje inzeráty</h2>
             <Link
@@ -1032,9 +1119,31 @@ export default function ProfilPage() {
                                 </Link>
                               </div>
                             </>
+                          ) : row.shortsDraft ? (
+                            <>
+                              <p className="font-semibold text-orange-950">
+                                Koncept shorts:{' '}
+                                <span className="font-normal text-zinc-800">
+                                  {row.shortsDraft.status === 'ready'
+                                    ? 'Připraveno k náhledu / publikaci'
+                                    : 'Rozpracováno'}
+                                </span>
+                              </p>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <Link
+                                  href={`/inzerat/shorts-editor/${row.shortsDraft.id}`}
+                                  className="rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-orange-900 hover:bg-orange-50"
+                                >
+                                  Otevřít editor
+                                </Link>
+                              </div>
+                            </>
                           ) : (
                             <>
-                              <p className="text-zinc-700">Zatím bez shorts varianty.</p>
+                              <p className="text-zinc-700">
+                                Převeďte klasický inzerát na shorts — nejdřív koncept v editoru, pak
+                                zveřejnění do feedu.
+                              </p>
                               <button
                                 type="button"
                                 disabled={!apiAccessToken || shortsCreatingId === row.id}
@@ -1043,7 +1152,7 @@ export default function ProfilPage() {
                                   if (!apiAccessToken) return;
                                   if (
                                     !window.confirm(
-                                      'Vytvoří se shorts inzerát se stejnými údaji. Pokud klasický inzerát nemá video, vygenerujeme ho z fotek na serveru (může chvíli trvat). Nový záznam čeká na schválení jako běžný inzerát.',
+                                      'Vytvoří se koncept shorts s fotkami z tohoto inzerátu. Upravíte pořadí, text a hudbu v editoru a až potom zveřejníte do feedu.',
                                     )
                                   ) {
                                     return;
@@ -1052,21 +1161,20 @@ export default function ProfilPage() {
                                   void nestCreateShortsFromClassic(apiAccessToken, row.id).then(
                                     (r) => {
                                       setShortsCreatingId(null);
-                                      if (!r.ok) {
-                                        window.alert(r.error ?? 'Nepodařilo se vytvořit shorts.');
+                                      if (!r.ok || !r.shortsListingId) {
+                                        window.alert(r.error ?? 'Nepodařilo se vytvořit koncept.');
                                         return;
                                       }
                                       void loadMyListings();
-                                      showSuccess(
-                                        'Shorts byl vytvořen. Po schválení administrátorem se objeví ve feedu shorts.',
-                                      );
+                                      void loadShortsDrafts();
+                                      router.push(`/inzerat/shorts-editor/${r.shortsListingId}`);
                                     },
                                   );
                                 }}
                               >
                                 {shortsCreatingId === row.id
-                                  ? 'Vytvářím shorts…'
-                                  : 'Vytvořit shorts'}
+                                  ? 'Vytvářím koncept…'
+                                  : 'Převést na Shorts'}
                               </button>
                             </>
                           )}

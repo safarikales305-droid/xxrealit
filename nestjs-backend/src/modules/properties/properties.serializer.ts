@@ -47,6 +47,7 @@ export type PropertyRowForApi = {
   region?: string;
   district?: string;
   derivedFromPropertyId?: string | null;
+  publishedAt?: Date | null;
   createdAt: Date;
   userId: string;
   user: { id: string; city: string | null };
@@ -196,6 +197,7 @@ export function serializeProperty(
     contactPhone: redact ? '' : p.contactPhone,
     contactEmail: redact ? '' : p.contactEmail,
     approved: p.approved,
+    publishedAt: p.publishedAt ? p.publishedAt.toISOString() : null,
     createdAt: p.createdAt,
     userId: p.userId,
     ownerCity: p.user?.city ?? null,

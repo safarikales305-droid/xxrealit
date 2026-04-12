@@ -1195,6 +1195,33 @@ export type NestMyListingRow = {
   coverUrl: string | null;
   derivedFromPropertyId?: string | null;
   shortsVariant?: NestMyListingShortsVariant | null;
+  shortsDraft?: { id: string; status: string } | null;
+};
+
+export type NestShortsMediaItem = {
+  id: string;
+  imageUrl: string;
+  order: number;
+  duration: number;
+  isCover: boolean;
+};
+
+export type NestShortsListingDraft = {
+  id: string;
+  userId: string;
+  sourceListingId: string;
+  title: string;
+  description: string;
+  coverImage: string | null;
+  musicUrl: string;
+  musicTrackId: string | null;
+  musicBuiltinKey: string;
+  videoUrl: string | null;
+  status: string;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  media: NestShortsMediaItem[];
 };
 
 /** GET /users/me/listings — vlastní inzeráty (JWT). */
@@ -1211,17 +1238,20 @@ export async function nestFetchMyListings(
   return Array.isArray(data) ? (data as NestMyListingRow[]) : null;
 }
 
-/** POST /properties/:id/create-shorts-from-classic — vlastník, z klasického inzerátu (JWT). */
+/**
+ * POST /shorts-listings/from-classic/:propertyId — koncept shorts (JWT).
+ * Dříve POST /properties/.../create-shorts-from-classic vytvářel neapproved Property a nešel do feedu.
+ */
 export async function nestCreateShortsFromClassic(
   token: string | null,
   classicPropertyId: string,
   body?: { musicKey?: string; musicTrackId?: string },
-): Promise<{ ok: boolean; propertyId?: string; error?: string }> {
+): Promise<{ ok: boolean; shortsListingId?: string; error?: string }> {
   if (!API_BASE_URL || !token) {
     return { ok: false, error: 'API nebo token chybí' };
   }
   const res = await fetch(
-    `${API_BASE_URL}/properties/${encodeURIComponent(classicPropertyId)}/create-shorts-from-classic`,
+    `${API_BASE_URL}/shorts-listings/from-classic/${encodeURIComponent(classicPropertyId)}`,
     {
       method: 'POST',
       headers: {
@@ -1243,8 +1273,275 @@ export async function nestCreateShortsFromClassic(
       error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
     };
   }
-  const propertyId = typeof data.id === 'string' ? data.id : undefined;
-  return { ok: true, propertyId };
+  const shortsListingId = typeof data.id === 'string' ? data.id : undefined;
+  return { ok: true, shortsListingId };
+}
+
+export async function nestFetchMyShortsDrafts(
+  token: string | null,
+): Promise<NestShortsListingDraft[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/shorts-listings/me`, {
+    cache: 'no-store',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as unknown;
+  return Array.isArray(data) ? (data as NestShortsListingDraft[]) : null;
+}
+
+export async function nestFetchShortsListing(
+  token: string | null,
+  id: string,
+): Promise<NestShortsListingDraft | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/shorts-listings/${encodeURIComponent(id)}`, {
+    cache: 'no-store',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as NestShortsListingDraft | null;
+}
+
+export async function nestPatchShortsListing(
+  token: string | null,
+  id: string,
+  body: Record<string, unknown>,
+): Promise<{ ok: boolean; data?: NestShortsListingDraft; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/shorts-listings/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    cache: 'no-store',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  }
+  return { ok: true, data: raw as unknown as NestShortsListingDraft };
+}
+
+export async function nestDeleteShortsListing(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/shorts-listings/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  }
+  return { ok: true };
+}
+
+export async function nestPostShortsPreview(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; data?: NestShortsListingDraft; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/shorts-listings/${encodeURIComponent(id)}/preview`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  }
+  return { ok: true, data: raw as unknown as NestShortsListingDraft };
+}
+
+export async function nestPublishShortsListing(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; propertyId?: string; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/shorts-listings/${encodeURIComponent(id)}/publish`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  const raw = (await res.json().catch(() => ({}))) as {
+    property?: { id?: string };
+    message?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, raw as Record<string, unknown>, `HTTP ${res.status}`),
+    };
+  }
+  const pid =
+    raw.property && typeof raw.property === 'object' && typeof raw.property.id === 'string'
+      ? raw.property.id
+      : undefined;
+  return { ok: true, propertyId: pid };
+}
+
+export async function nestReorderShortsMedia(
+  token: string | null,
+  listingId: string,
+  orderedIds: string[],
+): Promise<{ ok: boolean; data?: NestShortsListingDraft; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/shorts-listings/${encodeURIComponent(listingId)}/media/reorder`,
+    {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ orderedIds }),
+    },
+  );
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  }
+  return { ok: true, data: raw as unknown as NestShortsListingDraft };
+}
+
+export async function nestSetShortsCover(
+  token: string | null,
+  listingId: string,
+  mediaId: string,
+): Promise<{ ok: boolean; data?: NestShortsListingDraft; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/shorts-listings/${encodeURIComponent(listingId)}/cover/${encodeURIComponent(mediaId)}`,
+    {
+      method: 'POST',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    },
+  );
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  }
+  return { ok: true, data: raw as unknown as NestShortsListingDraft };
+}
+
+export async function nestAddShortsMediaByUrl(
+  token: string | null,
+  listingId: string,
+  imageUrl: string,
+): Promise<{ ok: boolean; data?: NestShortsListingDraft; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/shorts-listings/${encodeURIComponent(listingId)}/media/by-url`,
+    {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ imageUrl }),
+    },
+  );
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  }
+  return { ok: true, data: raw as unknown as NestShortsListingDraft };
+}
+
+export async function nestUploadShortsListingImage(
+  token: string | null,
+  listingId: string,
+  file: File,
+): Promise<{ ok: boolean; data?: NestShortsListingDraft; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(
+    `${API_BASE_URL}/shorts-listings/${encodeURIComponent(listingId)}/media/upload`,
+    {
+      method: 'POST',
+      cache: 'no-store',
+      headers: nestAuthHeaders(token),
+      body: fd,
+    },
+  );
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  }
+  return { ok: true, data: raw as unknown as NestShortsListingDraft };
+}
+
+export async function nestPatchShortsMediaItem(
+  token: string | null,
+  listingId: string,
+  mediaId: string,
+  body: { duration?: number; isCover?: boolean },
+): Promise<{ ok: boolean; data?: NestShortsListingDraft; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/shorts-listings/${encodeURIComponent(listingId)}/media/${encodeURIComponent(mediaId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  }
+  return { ok: true, data: raw as unknown as NestShortsListingDraft };
+}
+
+export async function nestDeleteShortsMediaItem(
+  token: string | null,
+  listingId: string,
+  mediaId: string,
+): Promise<{ ok: boolean; data?: NestShortsListingDraft; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/shorts-listings/${encodeURIComponent(listingId)}/media/${encodeURIComponent(mediaId)}`,
+    {
+      method: 'DELETE',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    },
+  );
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  }
+  return { ok: true, data: raw as unknown as NestShortsListingDraft };
 }
 
 /** PATCH /properties/:id — vlastník (JWT). */
@@ -1829,6 +2126,8 @@ export type ShortVideo = {
   createdAt: string;
   liked?: boolean;
   userId?: string;
+  /** Z GET /feed/shorts (Property.publishedAt) — řazení náhledu. */
+  publishedAt?: string | null;
   user?: {
     id: string;
     name?: string | null;
@@ -1905,7 +2204,12 @@ export async function nestFetchVideos(): Promise<ShortVideo[]> {
     });
     if (!res.ok) return [];
     const data = (await res.json()) as unknown;
-    return Array.isArray(data) ? (data as ShortVideo[]) : [];
+    const list = Array.isArray(data) ? (data as ShortVideo[]) : [];
+    if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console
+      console.debug('[nestFetchVideos] /feed/shorts count=', list.length);
+    }
+    return list;
   } catch {
     return [];
   }
@@ -1932,6 +2236,13 @@ export async function nestFetchShortVideoPublic(id: string): Promise<ShortVideo 
     const images = Array.isArray(p.images)
       ? (p.images as unknown[]).filter((x): x is string => typeof x === 'string' && x.length > 0)
       : undefined;
+    const pubRaw = p.publishedAt;
+    const publishedAt =
+      typeof pubRaw === 'string'
+        ? pubRaw
+        : pubRaw instanceof Date
+          ? pubRaw.toISOString()
+          : null;
     return {
       id: String(p.id ?? fallbackId),
       videoUrl,
@@ -1946,6 +2257,7 @@ export async function nestFetchShortVideoPublic(id: string): Promise<ShortVideo 
       images,
       imageUrl: typeof p.imageUrl === 'string' ? p.imageUrl : null,
       createdAt,
+      publishedAt,
       userId: typeof p.userId === 'string' ? p.userId : undefined,
     };
   };

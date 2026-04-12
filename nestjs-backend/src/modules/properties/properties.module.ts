@@ -6,6 +6,8 @@ import { PropertiesService } from './properties.service';
 import { ListingShortsFromPhotosService } from './listing-shorts-from-photos.service';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
 import { SeedController } from './seed.controller';
+import { ShortsListingController } from './shorts-listing.controller';
+import { ShortsListingService } from './shorts-listing.service';
 
 @Module({
   imports: [
@@ -17,11 +19,12 @@ import { SeedController } from './seed.controller';
       }),
     }),
   ],
-  controllers: [PropertiesController, SeedController],
+  controllers: [PropertiesController, SeedController, ShortsListingController],
   providers: [
     PropertiesService,
     PropertyMediaCloudinaryService,
     ListingShortsFromPhotosService,
+    ShortsListingService,
   ],
   exports: [PropertiesService, PropertyMediaCloudinaryService],
 })
