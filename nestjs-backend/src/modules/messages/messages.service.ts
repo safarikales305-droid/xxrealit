@@ -203,14 +203,15 @@ export class MessagesService {
       }),
     );
 
-    if (folder === 'all') return enriched;
+    if (folder === 'all' || folder === 'inbox') {
+      // „Doručené“ = všechna aktivní vlákna (včetně těch, kde jste psal naposled vy — jinak by po odeslání zmizela z inboxu).
+      return enriched;
+    }
+    // Odeslané: poslední zpráva je od přihlášeného uživatele
     return enriched.filter((e) => {
       const last = e.lastMessage;
       if (!last) return false;
-      if (folder === 'inbox') {
-        return e.unreadCount > 0 || last.senderId !== viewerId;
-      }
-      return e.unreadCount === 0 && last.senderId === viewerId;
+      return last.senderId === viewerId;
     });
   }
 
