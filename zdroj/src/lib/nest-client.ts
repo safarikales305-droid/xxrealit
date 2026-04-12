@@ -928,6 +928,11 @@ export async function nestPatchBrokerLeadPrefs(
   return { ok: true };
 }
 
+export type NestMyListingShortsVariant = {
+  id: string;
+  dashboardStatus: string;
+};
+
 export type NestMyListingRow = {
   id: string;
   title: string;
@@ -939,6 +944,8 @@ export type NestMyListingRow = {
   dashboardStatus: string;
   createdAt: string;
   coverUrl: string | null;
+  derivedFromPropertyId?: string | null;
+  shortsVariant?: NestMyListingShortsVariant | null;
 };
 
 /** GET /users/me/listings — vlastní inzeráty (JWT). */
@@ -953,6 +960,42 @@ export async function nestFetchMyListings(
   if (!res.ok) return null;
   const data = (await res.json()) as unknown;
   return Array.isArray(data) ? (data as NestMyListingRow[]) : null;
+}
+
+/** POST /properties/:id/create-shorts-from-classic — vlastník, z klasického inzerátu (JWT). */
+export async function nestCreateShortsFromClassic(
+  token: string | null,
+  classicPropertyId: string,
+  body?: { musicKey?: string; musicTrackId?: string },
+): Promise<{ ok: boolean; propertyId?: string; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/properties/${encodeURIComponent(classicPropertyId)}/create-shorts-from-classic`,
+    {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body ?? {}),
+    },
+  );
+  const data = (await res.json().catch(() => ({}))) as {
+    id?: string;
+    message?: string;
+    error?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  const propertyId = typeof data.id === 'string' ? data.id : undefined;
+  return { ok: true, propertyId };
 }
 
 /** PATCH /properties/:id — vlastník (JWT). */

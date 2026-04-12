@@ -11,6 +11,7 @@ import {
   nestDeleteMyProperty,
   nestFetchFavorites,
   nestFetchMe,
+  nestCreateShortsFromClassic,
   nestFetchMyListings,
   nestListNotifications,
   nestMarkNotificationRead,
@@ -79,6 +80,7 @@ export default function ProfilPage() {
   const [brokerEmailPub, setBrokerEmailPub] = useState('');
   const [brokerFieldsSaving, setBrokerFieldsSaving] = useState(false);
   const [brokerFieldsError, setBrokerFieldsError] = useState<string | null>(null);
+  const [shortsCreatingId, setShortsCreatingId] = useState<string | null>(null);
 
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [coverUploading, setCoverUploading] = useState(false);
@@ -706,6 +708,87 @@ export default function ProfilPage() {
                           Smazat
                         </button>
                       </div>
+                      {row.listingType === 'CLASSIC' ? (
+                        <div className="mt-3 rounded-xl border border-orange-100 bg-orange-50/60 px-3 py-2.5 text-xs">
+                          {row.shortsVariant ? (
+                            <>
+                              <p className="font-semibold text-orange-950">
+                                Shorts:{' '}
+                                <span className="font-normal text-zinc-800">
+                                  {LISTING_STATUS_LABEL[row.shortsVariant.dashboardStatus] ??
+                                    row.shortsVariant.dashboardStatus}
+                                </span>
+                                {row.shortsVariant.dashboardStatus === 'ACTIVE' ? (
+                                  <span className="ml-1.5 font-medium text-emerald-700">
+                                    · aktivní ve výpisu
+                                  </span>
+                                ) : null}
+                              </p>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <Link
+                                  href={`/nemovitost/${row.shortsVariant.id}`}
+                                  className="rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-orange-900 hover:bg-orange-50"
+                                >
+                                  Zobrazit shorts
+                                </Link>
+                                <Link
+                                  href={`/inzerat/upravit/${row.shortsVariant.id}`}
+                                  className="rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-orange-900 hover:bg-orange-50"
+                                >
+                                  Upravit shorts
+                                </Link>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-zinc-700">Zatím bez shorts varianty.</p>
+                              <button
+                                type="button"
+                                disabled={!apiAccessToken || shortsCreatingId === row.id}
+                                className="mt-2 rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-1.5 text-xs font-bold text-white shadow-sm disabled:opacity-50"
+                                onClick={() => {
+                                  if (!apiAccessToken) return;
+                                  if (
+                                    !window.confirm(
+                                      'Vytvoří se shorts inzerát se stejnými údaji. Pokud klasický inzerát nemá video, vygenerujeme ho z fotek na serveru (může chvíli trvat). Nový záznam čeká na schválení jako běžný inzerát.',
+                                    )
+                                  ) {
+                                    return;
+                                  }
+                                  setShortsCreatingId(row.id);
+                                  void nestCreateShortsFromClassic(apiAccessToken, row.id).then(
+                                    (r) => {
+                                      setShortsCreatingId(null);
+                                      if (!r.ok) {
+                                        window.alert(r.error ?? 'Nepodařilo se vytvořit shorts.');
+                                        return;
+                                      }
+                                      void loadMyListings();
+                                      showSuccess(
+                                        'Shorts byl vytvořen. Po schválení administrátorem se objeví ve feedu shorts.',
+                                      );
+                                    },
+                                  );
+                                }}
+                              >
+                                {shortsCreatingId === row.id
+                                  ? 'Vytvářím shorts…'
+                                  : 'Vytvořit shorts'}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      ) : row.derivedFromPropertyId ? (
+                        <p className="mt-3 text-xs text-zinc-600">
+                          Shorts vychází z klasického inzerátu{' '}
+                          <Link
+                            href={`/nemovitost/${row.derivedFromPropertyId}`}
+                            className="font-semibold text-[#e85d00] hover:underline"
+                          >
+                            otevřít klasik
+                          </Link>
+                        </p>
+                      ) : null}
                     </div>
                   </li>
                 );

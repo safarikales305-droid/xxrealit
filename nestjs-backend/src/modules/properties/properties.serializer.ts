@@ -46,6 +46,7 @@ export type PropertyRowForApi = {
   ownerContactConsent?: boolean;
   region?: string;
   district?: string;
+  derivedFromPropertyId?: string | null;
   createdAt: Date;
   userId: string;
   user: { id: string; city: string | null };
@@ -200,5 +201,7 @@ export function serializeProperty(
     ownerCity: p.user?.city ?? null,
     likeCount: p._count.likes,
     liked,
+    listingType: p.listingType ?? null,
+    derivedFromPropertyId: p.derivedFromPropertyId ?? null,
   };
 }

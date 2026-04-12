@@ -31,6 +31,7 @@ import {
 import { PropertiesService } from './properties.service';
 import { BrokerLeadOfferService } from '../premium-broker/broker-lead-offer.service';
 import { OwnerLeadOfferDto } from '../premium-broker/dto/owner-lead-offer.dto';
+import { CreateShortsFromClassicDto } from './dto/create-shorts-from-classic.dto';
 
 @Controller('properties')
 export class PropertiesController {
@@ -186,6 +187,17 @@ export class PropertiesController {
     @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: OwnerLeadOfferDto,
   ) {
     return this.brokerLeadOffer.submitOwnerLeadOffer(user.id, id, dto.message);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/create-shorts-from-classic')
+  createShortsFromClassic(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: CreateShortsFromClassicDto,
+  ) {
+    return this.propertiesService.createShortsFromClassic(user.id, id, dto);
   }
 
   @UseGuards(JwtAuthGuard)

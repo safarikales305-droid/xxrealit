@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -20,6 +21,11 @@ import {
 } from './properties.serializer';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { OwnerListingNotifyService } from '../premium-broker/owner-listing-notify.service';
+import type { CreateShortsFromClassicDto } from './dto/create-shorts-from-classic.dto';
+import {
+  ListingShortsFromPhotosService,
+  type ShortsMusicSelection,
+} from './listing-shorts-from-photos.service';
 
 const socialInclude = (viewerId?: string) =>
   viewerId
@@ -46,6 +52,7 @@ export class PropertiesService {
     private readonly propertyMediaCloudinary: PropertyMediaCloudinaryService,
     private readonly ownerListingNotify: OwnerListingNotifyService,
     private readonly brokerPoints: BrokerPointsService,
+    private readonly listingShortsFromPhotos: ListingShortsFromPhotosService,
   ) {}
 
   private async viewerAccess(viewerId?: string): Promise<PropertyViewerAccess | undefined> {
@@ -489,6 +496,43 @@ export class PropertiesService {
         media: { orderBy: { sortOrder: 'asc' } },
       },
     });
+    const classicIds = rows
+      .filter((r) => String(r.listingType ?? '').toUpperCase() !== 'SHORTS')
+      .map((r) => r.id);
+    const shortsByClassic = new Map<
+      string,
+      {
+        id: string;
+        deletedAt: Date | null;
+        isActive: boolean;
+        activeFrom: Date | null;
+        activeUntil: Date | null;
+        approved: boolean;
+      }
+    >();
+    if (classicIds.length > 0) {
+      const derived = await this.prisma.property.findMany({
+        where: {
+          userId: ownerId,
+          deletedAt: null,
+          derivedFromPropertyId: { in: classicIds },
+        },
+        select: {
+          id: true,
+          derivedFromPropertyId: true,
+          deletedAt: true,
+          isActive: true,
+          activeFrom: true,
+          activeUntil: true,
+          approved: true,
+        },
+      });
+      for (const s of derived) {
+        if (s.derivedFromPropertyId) {
+          shortsByClassic.set(s.derivedFromPropertyId, s);
+        }
+      }
+    }
     const now = new Date();
     return rows.map((r) => {
       const dashboardStatus = computeListingPublicStatus(
@@ -505,6 +549,20 @@ export class PropertiesService {
         String(r.listingType ?? '').toUpperCase() === 'SHORTS'
           ? 'SHORTS'
           : 'CLASSIC';
+      const linked =
+        listingType === 'CLASSIC' ? shortsByClassic.get(r.id) ?? null : null;
+      const shortsDashboardStatus = linked
+        ? computeListingPublicStatus(
+            {
+              deletedAt: linked.deletedAt,
+              isActive: linked.isActive,
+              activeFrom: linked.activeFrom,
+              activeUntil: linked.activeUntil,
+              approved: linked.approved,
+            },
+            now,
+          )
+        : null;
       return {
         id: r.id,
         title: r.title,
@@ -516,8 +574,245 @@ export class PropertiesService {
         dashboardStatus,
         createdAt: r.createdAt.toISOString(),
         coverUrl: this.pickListingCoverUrl(r),
+        derivedFromPropertyId: r.derivedFromPropertyId ?? null,
+        shortsVariant: linked
+          ? {
+              id: linked.id,
+              dashboardStatus: shortsDashboardStatus,
+            }
+          : null,
       };
     });
+  }
+
+  private classicPropertyVideoUrl(classic: {
+    videoUrl: string | null;
+    media: Array<{ type: string; url: string }>;
+  }): string | null {
+    const vu = (classic.videoUrl ?? '').trim();
+    if (vu) return vu;
+    const vm = classic.media.find(
+      (m) => m.type === 'video' && (m.url ?? '').trim().length > 0,
+    );
+    return vm?.url.trim() ?? null;
+  }
+
+  private collectClassicImageUrls(classic: {
+    images: string[];
+    media: Array<{ type: string; url: string; sortOrder: number }>;
+  }): string[] {
+    const fromMedia = [...classic.media]
+      .filter((m) => m.type === 'image' && (m.url ?? '').trim())
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((m) => m.url.trim());
+    const fromLegacy = (classic.images ?? []).filter(
+      (u) => typeof u === 'string' && u.trim().length > 0,
+    ) as string[];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const u of [...fromMedia, ...fromLegacy]) {
+      if (seen.has(u)) continue;
+      seen.add(u);
+      out.push(u);
+    }
+    return out;
+  }
+
+  private async downloadImageUrlsAsMulterFiles(
+    urls: string[],
+  ): Promise<Express.Multer.File[]> {
+    const out: Express.Multer.File[] = [];
+    let i = 0;
+    for (const rawUrl of urls) {
+      const url = rawUrl.trim();
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new BadRequestException(`Nelze stáhnout obrázek (HTTP ${res.status}).`);
+      }
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (!buf.length) {
+        throw new BadRequestException('Stažený obrázek je prázdný.');
+      }
+      const extGuess = url.split('?')[0]?.match(/\.(jpe?g|png|webp|gif)$/i);
+      const ext = (extGuess?.[1] ?? 'jpg').toLowerCase();
+      const mime =
+        ext === 'png'
+          ? 'image/png'
+          : ext === 'webp'
+            ? 'image/webp'
+            : ext === 'gif'
+              ? 'image/gif'
+              : 'image/jpeg';
+      const safeExt = ext === 'jpeg' ? 'jpg' : ext;
+      out.push({
+        fieldname: 'images',
+        originalname: `from-classic-${i}.${safeExt}`,
+        encoding: '7bit',
+        mimetype: mime,
+        size: buf.length,
+        buffer: buf,
+        destination: '',
+        filename: '',
+        path: '',
+        stream: undefined as never,
+      } as Express.Multer.File);
+      i += 1;
+    }
+    return out;
+  }
+
+  async createShortsFromClassic(
+    ownerId: string,
+    classicId: string,
+    dto?: CreateShortsFromClassicDto,
+  ) {
+    const classic = await this.prisma.property.findUnique({
+      where: { id: classicId },
+      include: { media: { orderBy: { sortOrder: 'asc' } } },
+    });
+    if (!classic || classic.deletedAt) {
+      throw new NotFoundException(`Property "${classicId}" not found`);
+    }
+    if (classic.userId !== ownerId) {
+      throw new ForbiddenException('Tento inzerát není váš.');
+    }
+    if (String(classic.listingType ?? '').toUpperCase() !== 'CLASSIC') {
+      throw new BadRequestException('Shorts lze vytvořit jen z klasického inzerátu.');
+    }
+    const existingShorts = await this.prisma.property.findFirst({
+      where: {
+        derivedFromPropertyId: classicId,
+        userId: ownerId,
+        deletedAt: null,
+      },
+    });
+    if (existingShorts) {
+      throw new ConflictException('Shorts varianta k tomuto inzerátu už existuje.');
+    }
+
+    let videoUrl = this.classicPropertyVideoUrl(classic);
+    if (!videoUrl) {
+      const imgUrls = this.collectClassicImageUrls(classic);
+      if (imgUrls.length < 2) {
+        throw new BadRequestException(
+          'Pro shorts je potřeba video v inzerátu, nebo alespoň 2 fotky (vygenerujeme video z fotek).',
+        );
+      }
+      const files = await this.downloadImageUrlsAsMulterFiles(imgUrls.slice(0, 15));
+      const trackId = dto?.musicTrackId?.trim();
+      let music: ShortsMusicSelection;
+      if (trackId) {
+        const track = await this.prisma.shortsMusicTrack.findFirst({
+          where: { id: trackId, isActive: true },
+        });
+        if (!track) {
+          throw new BadRequestException('Neplatná nebo neaktivní skladba.');
+        }
+        music = { kind: 'library', fileUrl: track.fileUrl };
+      } else {
+        const key = ListingShortsFromPhotosService.parseMusicKey(
+          dto?.musicKey ?? 'demo_soft',
+        );
+        music = key === 'none' ? { kind: 'none' } : { kind: 'builtin', key };
+      }
+      const { videoUrl: generated } = await this.listingShortsFromPhotos.generateAndUpload({
+        images: files,
+        title: classic.title,
+        city: classic.city,
+        price: classic.price,
+        currency: classic.currency,
+        music,
+        includeTextOverlay: true,
+      });
+      videoUrl = generated;
+    }
+
+    const images = [...classic.images];
+
+    const created = await this.prisma.property.create({
+      data: {
+        title: classic.title,
+        description: classic.description,
+        price: classic.price,
+        currency: classic.currency,
+        offerType: classic.offerType,
+        propertyType: classic.propertyType,
+        subType: classic.subType,
+        address: classic.address,
+        city: classic.city,
+        area: classic.area,
+        landArea: classic.landArea,
+        floor: classic.floor,
+        totalFloors: classic.totalFloors,
+        condition: classic.condition,
+        construction: classic.construction,
+        ownership: classic.ownership,
+        energyLabel: classic.energyLabel,
+        equipment: classic.equipment,
+        parking: classic.parking,
+        cellar: classic.cellar,
+        images,
+        videoUrl,
+        contactName: classic.contactName,
+        contactPhone: classic.contactPhone,
+        contactEmail: classic.contactEmail,
+        userId: ownerId,
+        approved: false,
+        status: 'PENDING',
+        listingType: 'SHORTS',
+        isOwnerListing: classic.isOwnerListing,
+        ownerContactConsent: classic.ownerContactConsent,
+        region: classic.region,
+        district: classic.district,
+        derivedFromPropertyId: classicId,
+      },
+    });
+
+    const mediaRows: Array<{
+      propertyId: string;
+      url: string;
+      type: 'image' | 'video';
+      sortOrder: number;
+    }> = [];
+    mediaRows.push({
+      propertyId: created.id,
+      url: videoUrl,
+      type: 'video',
+      sortOrder: 0,
+    });
+    let order = 1;
+    for (const u of this.collectClassicImageUrls(classic)) {
+      mediaRows.push({
+        propertyId: created.id,
+        url: u,
+        type: 'image',
+        sortOrder: order,
+      });
+      order += 1;
+    }
+    await this.prisma.propertyMedia.createMany({ data: mediaRows });
+
+    const full = await this.prisma.property.findUnique({
+      where: { id: created.id },
+      include: socialInclude(ownerId),
+    });
+    if (!full) {
+      throw new NotFoundException(`Property "${created.id}" not found`);
+    }
+    const likesArr =
+      'likes' in full && Array.isArray(full.likes) ? full.likes : [];
+    await this.brokerPoints.onListingCreatedByBroker(ownerId, full.id, full.listingType);
+    const ownerAccess = await this.viewerAccess(ownerId);
+    return serializeProperty(
+      {
+        ...full,
+        likes: likesArr,
+        _count: full._count,
+        user: full.user,
+      },
+      ownerId,
+      ownerAccess,
+    );
   }
 
   async updateByOwner(ownerId: string, propertyId: string, dto: OwnerUpdatePropertyDto) {

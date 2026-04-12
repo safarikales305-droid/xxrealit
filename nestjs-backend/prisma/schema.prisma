@@ -282,6 +282,11 @@ model Property {
   region               String   @default("")
   district             String   @default("")
 
+  /// Pokud tento SHORTS inzerát vznikl z klasického, ID zdrojového inzerátu.
+  derivedFromPropertyId String?
+  derivedFromProperty   Property?  @relation("PropertyShortsDerivation", fields: [derivedFromPropertyId], references: [id], onDelete: SetNull)
+  shortsDerivedFromThis Property[] @relation("PropertyShortsDerivation")
+
   createdAt       DateTime @default(now())
   userId          String
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -293,6 +298,7 @@ model Property {
   brokerLeadOffers BrokerLeadOffer[]
 
   @@index([userId])
+  @@index([derivedFromPropertyId])
   @@index([deletedAt, isActive, approved])
   @@index([isOwnerListing, createdAt])
 }

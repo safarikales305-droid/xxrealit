@@ -443,7 +443,7 @@ export class AdminService {
       where: { id: propertyId },
       data: { approved: true, status: 'APPROVED', isActive: true },
     });
-    if (wasPending && updated.isOwnerListing) {
+    if (wasPending && updated.isOwnerListing && !updated.derivedFromPropertyId) {
       await this.ownerListingNotify.notifyPremiumBrokersForNewOwnerListing({
         id: updated.id,
         title: updated.title,
