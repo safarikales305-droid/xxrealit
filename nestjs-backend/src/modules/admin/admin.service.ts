@@ -4,9 +4,13 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
-import { serializeProperty } from '../properties/properties.serializer';
+import { AdminUpdatePropertyDto } from './dto/admin-update-property.dto';
+import {
+  type PropertyRowForAdmin,
+  serializeAdminPropertyRow,
+} from '../properties/properties.serializer';
 import {
   mapRapidResponseToRows,
   RAPID_REALTY_HOST,
@@ -135,6 +139,19 @@ export class AdminService {
     };
   }
 
+  private toAdminRow(
+    r: {
+      likes?: { id: string }[];
+      user: { id: string; email: string; city: string | null };
+      _count: { likes: number };
+    } & Record<string, unknown>,
+  ): Record<string, unknown> {
+    return serializeAdminPropertyRow({
+      ...(r as unknown as PropertyRowForAdmin),
+      likes: [],
+    });
+  }
+
   async listAllProperties() {
     const rows = await this.prisma.property.findMany({
       orderBy: { createdAt: 'desc' },
@@ -143,22 +160,13 @@ export class AdminService {
         _count: { select: { likes: true } },
       },
     });
-    return rows.map((r) =>
-      serializeProperty(
-        {
-          ...r,
-          likes: [],
-          _count: r._count,
-          user: { id: r.user.id, city: r.user.city },
-        },
-        undefined,
-      ),
-    );
+    return rows.map((r) => this.toAdminRow(r));
   }
 
   async listPendingProperties() {
     const rows = await this.prisma.property.findMany({
       where: {
+        deletedAt: null,
         OR: [{ approved: false }, { status: 'PENDING' }],
       },
       orderBy: { createdAt: 'desc' },
@@ -167,17 +175,186 @@ export class AdminService {
         _count: { select: { likes: true } },
       },
     });
-    return rows.map((r) =>
-      serializeProperty(
-        {
-          ...r,
-          likes: [],
-          _count: r._count,
-          user: { id: r.user.id, city: r.user.city },
+    return rows.map((r) => this.toAdminRow(r));
+  }
+
+  async listListings(filters: {
+    search?: string;
+    listingType?: string;
+    status?: string;
+    userId?: string;
+    city?: string;
+    createdFrom?: string;
+    createdTo?: string;
+  }) {
+    const parts: Prisma.PropertyWhereInput[] = [];
+    const now = new Date();
+
+    const q = filters.search?.trim();
+    if (q) {
+      parts.push({
+        OR: [
+          { title: { contains: q, mode: 'insensitive' } },
+          { city: { contains: q, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    const lt = filters.listingType?.trim().toUpperCase();
+    if (lt === 'SHORTS' || lt === 'CLASSIC') {
+      parts.push({ listingType: lt });
+    }
+
+    const uid = filters.userId?.trim();
+    if (uid) {
+      parts.push({ userId: uid });
+    }
+
+    const cityQ = filters.city?.trim();
+    if (cityQ) {
+      parts.push({ city: { contains: cityQ, mode: 'insensitive' } });
+    }
+
+    const cf = filters.createdFrom?.trim()
+      ? new Date(filters.createdFrom.trim())
+      : null;
+    const ct = filters.createdTo?.trim()
+      ? new Date(filters.createdTo.trim())
+      : null;
+    const created: Prisma.DateTimeFilter = {};
+    if (cf && Number.isFinite(cf.getTime())) created.gte = cf;
+    if (ct && Number.isFinite(ct.getTime())) created.lte = ct;
+    if (Object.keys(created).length > 0) {
+      parts.push({ createdAt: created });
+    }
+
+    const st = filters.status?.trim().toUpperCase();
+    switch (st) {
+      case 'DELETED':
+        parts.push({ NOT: { deletedAt: null } });
+        break;
+      case 'PENDING_APPROVAL':
+        parts.push({ deletedAt: null, approved: false });
+        break;
+      case 'INACTIVE':
+        parts.push({ deletedAt: null, isActive: false });
+        break;
+      case 'EXPIRED':
+        parts.push({
+          deletedAt: null,
+          approved: true,
+          isActive: true,
+          activeUntil: { lt: now },
+        });
+        break;
+      case 'SCHEDULED':
+        parts.push({
+          deletedAt: null,
+          approved: true,
+          isActive: true,
+          activeFrom: { gt: now },
+        });
+        break;
+      case 'ACTIVE':
+        parts.push({ deletedAt: null, approved: true, isActive: true });
+        parts.push({
+          OR: [{ activeFrom: null }, { activeFrom: { lte: now } }],
+        });
+        parts.push({
+          OR: [{ activeUntil: null }, { activeUntil: { gte: now } }],
+        });
+        break;
+      default:
+        break;
+    }
+
+    const where: Prisma.PropertyWhereInput =
+      parts.length > 0 ? { AND: parts } : {};
+
+    const rows = await this.prisma.property.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+      include: {
+        user: { select: { id: true, email: true, city: true } },
+        _count: { select: { likes: true } },
+      },
+    });
+    return rows.map((r) => this.toAdminRow(r));
+  }
+
+  async updateProperty(propertyId: string, dto: AdminUpdatePropertyDto) {
+    const existing = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+    });
+    if (!existing) {
+      throw new NotFoundException('Inzerát nenalezen');
+    }
+
+    const data: Prisma.PropertyUpdateInput = {};
+
+    if (dto.title !== undefined) {
+      data.title = dto.title.trim();
+    }
+    if (dto.price !== undefined) {
+      data.price = dto.price;
+    }
+    if (dto.city !== undefined) {
+      data.city = dto.city.trim();
+    }
+    if (dto.isActive !== undefined) {
+      data.isActive = dto.isActive;
+    }
+    if (dto.approved !== undefined) {
+      data.approved = dto.approved;
+      if (dto.approved) {
+        data.status = 'APPROVED';
+      }
+    }
+    if (dto.listingType !== undefined) {
+      data.listingType = dto.listingType;
+    }
+
+    const toDateOrNull = (v: string | null | undefined): Date | null => {
+      if (v === null || v === undefined) return null;
+      const s = v.trim();
+      if (!s) return null;
+      const d = new Date(s);
+      return Number.isFinite(d.getTime()) ? d : null;
+    };
+
+    if (dto.activeFrom !== undefined) {
+      data.activeFrom = toDateOrNull(dto.activeFrom ?? null);
+    }
+    if (dto.activeUntil !== undefined) {
+      data.activeUntil = toDateOrNull(dto.activeUntil ?? null);
+    }
+    if (dto.restore === true) {
+      data.deletedAt = null;
+    }
+
+    if (Object.keys(data).length === 0) {
+      const row = await this.prisma.property.findUnique({
+        where: { id: propertyId },
+        include: {
+          user: { select: { id: true, email: true, city: true } },
+          _count: { select: { likes: true } },
         },
-        undefined,
-      ),
-    );
+      });
+      if (!row) throw new NotFoundException('Inzerát nenalezen');
+      return this.toAdminRow(row);
+    }
+
+    const updated = await this.prisma.property.update({
+      where: { id: propertyId },
+      data,
+      include: {
+        user: { select: { id: true, email: true, city: true } },
+        _count: { select: { likes: true } },
+      },
+    });
+
+    return this.toAdminRow(updated);
   }
 
   async listUsers() {
@@ -209,7 +386,7 @@ export class AdminService {
     }
     return this.prisma.property.update({
       where: { id: propertyId },
-      data: { approved: true, status: 'APPROVED' },
+      data: { approved: true, status: 'APPROVED', isActive: true },
     });
   }
 
@@ -218,7 +395,10 @@ export class AdminService {
     if (!p) {
       throw new NotFoundException('Inzerát nenalezen');
     }
-    await this.prisma.property.delete({ where: { id: propertyId } });
+    await this.prisma.property.update({
+      where: { id: propertyId },
+      data: { deletedAt: new Date() },
+    });
     return { success: true };
   }
 
@@ -298,6 +478,8 @@ export class AdminService {
           userId: adminUserId,
           approved: true,
           status: 'APPROVED',
+          listingType: 'CLASSIC',
+          isActive: true,
         },
       });
       imported += 1;
@@ -373,6 +555,8 @@ export class AdminService {
           userId: adminUserId,
           approved: true,
           status: 'APPROVED',
+          listingType: 'CLASSIC',
+          isActive: true,
         },
       });
       imported += 1;

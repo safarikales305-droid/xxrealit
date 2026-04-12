@@ -1,3 +1,5 @@
+import { computeListingPublicStatus } from './property-public-visibility';
+
 /** Shape expected from Prisma row + social includes. */
 export type PropertyRowForApi = {
   id: string;
@@ -27,6 +29,11 @@ export type PropertyRowForApi = {
   contactPhone: string;
   contactEmail: string;
   approved: boolean;
+  deletedAt?: Date | null;
+  isActive?: boolean;
+  activeFrom?: Date | null;
+  activeUntil?: Date | null;
+  listingType?: string;
   createdAt: Date;
   userId: string;
   user: { id: string; city: string | null };
@@ -39,6 +46,43 @@ export type PropertyRowForApi = {
     sortOrder: number;
   }>;
 };
+
+export type PropertyRowForAdmin = PropertyRowForApi & {
+  deletedAt: Date | null;
+  isActive: boolean;
+  activeFrom: Date | null;
+  activeUntil: Date | null;
+  listingType: string;
+  user: { id: string; email: string; city: string | null };
+};
+
+export function serializeAdminPropertyRow(
+  r: PropertyRowForAdmin,
+): Record<string, unknown> {
+  const base = serializeProperty(
+    {
+      ...r,
+      user: { id: r.user.id, city: r.user.city },
+    },
+    undefined,
+  );
+  return {
+    ...base,
+    deletedAt: r.deletedAt,
+    isActive: r.isActive,
+    activeFrom: r.activeFrom,
+    activeUntil: r.activeUntil,
+    listingType: r.listingType,
+    authorEmail: r.user.email,
+    listingStatus: computeListingPublicStatus({
+      deletedAt: r.deletedAt,
+      isActive: r.isActive,
+      activeFrom: r.activeFrom,
+      activeUntil: r.activeUntil,
+      approved: r.approved,
+    }),
+  };
+}
 
 export function serializeProperty(
   p: PropertyRowForApi,

@@ -1,10 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import {
-  classicListingWhere,
+  classicPublicListingWhere,
   publicShortPropertyWhere,
 } from '../properties/property-listing-scope';
+import { publiclyVisiblePropertyWhere } from '../properties/property-public-visibility';
 import { serializeProperty } from '../properties/properties.serializer';
 
 function normCity(c: string | null | undefined): string {
@@ -51,7 +51,6 @@ export class FeedService {
       select: {
         id: true,
         city: true,
-        role: true,
         following: { select: { followingId: true } },
       },
     });
@@ -59,19 +58,12 @@ export class FeedService {
       throw new NotFoundException('User not found');
     }
 
-    const admin = viewer.role === UserRole.ADMIN;
-
     const followingIds = new Set(viewer.following.map((f) => f.followingId));
     const refPrice =
       (await this.computeReferencePrice(viewerId, followingIds)) ?? 5_000_000;
 
     const rows = await this.prisma.property.findMany({
-      where: {
-        AND: [
-          classicListingWhere,
-          ...(!admin ? [{ approved: true }] : []),
-        ],
-      },
+      where: classicPublicListingWhere,
       include: {
         _count: { select: { likes: true } },
         user: { select: { id: true, city: true } },
@@ -177,10 +169,7 @@ export class FeedService {
 
   async listProperties() {
     const rows = await this.prisma.property.findMany({
-      where: {
-        approved: true,
-        ...classicListingWhere,
-      },
+      where: classicPublicListingWhere,
       orderBy: { createdAt: 'desc' },
       include: {
         _count: { select: { likes: true } },
@@ -195,7 +184,11 @@ export class FeedService {
     followingIds: Set<string>,
   ): Promise<number | null> {
     const mine = await this.prisma.property.findMany({
-      where: { userId: viewerId },
+      where: {
+        userId: viewerId,
+        approved: true,
+        ...publiclyVisiblePropertyWhere(),
+      },
       select: { price: true },
       take: 20,
     });
@@ -207,7 +200,11 @@ export class FeedService {
     if (ids.length === 0) return null;
 
     const followed = await this.prisma.property.findMany({
-      where: { userId: { in: ids } },
+      where: {
+        userId: { in: ids },
+        approved: true,
+        ...publiclyVisiblePropertyWhere(),
+      },
       select: { price: true },
       take: 40,
     });

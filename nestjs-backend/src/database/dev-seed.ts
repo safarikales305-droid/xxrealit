@@ -59,6 +59,7 @@ export async function ensureDevSeedIfEmpty(prisma: PrismaClient): Promise<void> 
         contactEmail: user.email,
         images: [],
         approved: true,
+        listingType: row.videoUrl?.trim() ? 'SHORTS' : 'CLASSIC',
       },
     });
   }

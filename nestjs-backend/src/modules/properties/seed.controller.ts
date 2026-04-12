@@ -86,6 +86,7 @@ export class SeedController {
           contactEmail: user.email,
           images: [],
           approved: true,
+          listingType: row.videoUrl?.trim() ? 'SHORTS' : 'CLASSIC',
         },
       });
 

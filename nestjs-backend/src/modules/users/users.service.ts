@@ -5,10 +5,11 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import type { User, UserRole } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
+import type { User } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { ensureUserRole } from '../auth/user-role.util';
+import { classicPublicListingWhere } from '../properties/property-listing-scope';
 import { serializeProperty } from '../properties/properties.serializer';
 
 @Injectable()
@@ -210,6 +211,15 @@ export class UsersService {
       isFollowedByViewer = !!row;
     }
 
+    let viewerIsAdmin = false;
+    if (viewerId) {
+      const vu = await this.prisma.user.findUnique({
+        where: { id: viewerId },
+        select: { role: true },
+      });
+      viewerIsAdmin = vu?.role === UserRole.ADMIN;
+    }
+
     const [videos, posts, properties] = await Promise.all([
       this.prisma.video.findMany({
         where: { userId },
@@ -220,7 +230,10 @@ export class UsersService {
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.property.findMany({
-        where: { userId, approved: true },
+        where:
+          viewerId === userId || viewerIsAdmin
+            ? { userId, deletedAt: null }
+            : { userId, ...classicPublicListingWhere },
         orderBy: { createdAt: 'desc' },
         include: {
           _count: { select: { likes: true } },

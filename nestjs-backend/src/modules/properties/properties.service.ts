@@ -7,7 +7,8 @@ import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
-import { classicListingWhere } from './property-listing-scope';
+import { classicPublicListingWhere } from './property-listing-scope';
+import { isPropertyPubliclyListed } from './property-public-visibility';
 import { serializeProperty } from './properties.serializer';
 
 const socialInclude = (viewerId?: string) =>
@@ -45,14 +46,8 @@ export class PropertiesService {
   }
 
   async findAllPublic(viewerId?: string) {
-    const admin = await this.viewerIsAdmin(viewerId);
     const rows = await this.prisma.property.findMany({
-      where: {
-        AND: [
-          classicListingWhere,
-          ...(!admin ? [{ approved: true }] : []),
-        ],
-      },
+      where: classicPublicListingWhere,
       orderBy: { createdAt: 'desc' },
       include: socialInclude(viewerId),
     });
@@ -71,11 +66,15 @@ export class PropertiesService {
   async findByOwner(ownerId: string, viewerId?: string) {
     const admin = await this.viewerIsAdmin(viewerId);
     const viewerIsOwner = viewerId === ownerId;
+    const where: Prisma.PropertyWhereInput =
+      viewerIsOwner || admin
+        ? { userId: ownerId, deletedAt: null }
+        : {
+            userId: ownerId,
+            ...classicPublicListingWhere,
+          };
     const rows = await this.prisma.property.findMany({
-      where: {
-        userId: ownerId,
-        ...(!admin && !viewerIsOwner ? { approved: true } : {}),
-      },
+      where,
       orderBy: { createdAt: 'desc' },
       include: socialInclude(viewerId),
     });
@@ -88,7 +87,6 @@ export class PropertiesService {
   }
 
   async findFromFollowedUsers(viewerId: string) {
-    const admin = await this.viewerIsAdmin(viewerId);
     const follows = await this.prisma.follow.findMany({
       where: { followerId: viewerId },
       select: { followingId: true },
@@ -100,10 +98,7 @@ export class PropertiesService {
     const rows = await this.prisma.property.findMany({
       where: {
         userId: { in: ids },
-        AND: [
-          classicListingWhere,
-          ...(!admin ? [{ approved: true }] : []),
-        ],
+        ...classicPublicListingWhere,
       },
       orderBy: { createdAt: 'desc' },
       include: socialInclude(viewerId),
@@ -158,6 +153,9 @@ export class PropertiesService {
     if (!property.approved && !admin && !isOwner) {
       throw new NotFoundException(`Property "${id}" not found`);
     }
+    if (!admin && !isOwner && !isPropertyPubliclyListed(property)) {
+      throw new NotFoundException(`Property "${id}" not found`);
+    }
 
     const author = property.user;
     const userPayload = {
@@ -167,13 +165,18 @@ export class PropertiesService {
       avatar: author.avatar ?? null,
     };
 
-    const othersWhere: Prisma.PropertyWhereInput = {
-      userId: property.userId,
-      id: { not: property.id },
-    };
-    if (!admin && !isOwner) {
-      othersWhere.approved = true;
-    }
+    const othersWhere: Prisma.PropertyWhereInput =
+      admin || isOwner
+        ? {
+            userId: property.userId,
+            id: { not: property.id },
+            deletedAt: null,
+          }
+        : {
+            userId: property.userId,
+            id: { not: property.id },
+            ...classicPublicListingWhere,
+          };
 
     const otherRows = await this.prisma.property.findMany({
       where: othersWhere,
@@ -237,6 +240,9 @@ export class PropertiesService {
     }
     const admin = await this.viewerIsAdmin(userId);
     if (!property.approved && !admin) {
+      throw new NotFoundException(`Property "${propertyId}" not found`);
+    }
+    if (!admin && !isPropertyPubliclyListed(property)) {
       throw new NotFoundException(`Property "${propertyId}" not found`);
     }
 
@@ -352,6 +358,7 @@ export class PropertiesService {
           userId: ownerId,
           approved: false,
           status: 'PENDING',
+          listingType: videoUrl ? 'SHORTS' : 'CLASSIC',
         },
       });
 

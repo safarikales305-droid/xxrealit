@@ -228,8 +228,19 @@ model Property {
   contactPhone    String   @default("")
   contactEmail    String   @default("")
 
-  /// Ve veřejném výpisu jen schválené; admin vidí vše.
+  /// Ve veřejném výpisu jen schválené; admin vidí vše v admin API.
   approved        Boolean  @default(false)
+  /// Soft delete — veřejně se nezobrazuje.
+  deletedAt       DateTime?
+  /// Admin / uživatel může vypnout veřejné zobrazení (skrytý / neaktivní).
+  isActive        Boolean  @default(true)
+  /// Začátek veřejného zobrazení (null = ihned po splnění ostatních podmínek).
+  activeFrom      DateTime?
+  /// Konec veřejného zobrazení (null = bez konce). Po překročení = expirovaný.
+  activeUntil     DateTime?
+  /// SHORTS (video) | CLASSIC (bez videa) — pro admin přehled a filtry.
+  listingType     String   @default("CLASSIC")
+
   createdAt       DateTime @default(now())
   userId          String
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -240,6 +251,7 @@ model Property {
   conversations PropertyConversation[]
 
   @@index([userId])
+  @@index([deletedAt, isActive, approved])
 }
 
 model PropertyMedia {

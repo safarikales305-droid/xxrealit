@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { isPropertyPubliclyListed } from '../properties/property-public-visibility';
 import { serializeProperty } from '../properties/properties.serializer';
 
 @Injectable()
@@ -26,17 +27,19 @@ export class FavoritesService {
       },
     });
 
-    return rows.map((r) => {
-      const p = r.property;
-      return serializeProperty(
-        {
-          ...p,
-          likes: p.likes?.length ? p.likes : [{ id: r.id }],
-          _count: p._count,
-        },
-        userId,
-      );
-    });
+    return rows
+      .filter((r) => isPropertyPubliclyListed(r.property))
+      .map((r) => {
+        const p = r.property;
+        return serializeProperty(
+          {
+            ...p,
+            likes: p.likes?.length ? p.likes : [{ id: r.id }],
+            _count: p._count,
+          },
+          userId,
+        );
+      });
   }
 
   async add(userId: string, propertyId: string) {
@@ -52,6 +55,9 @@ export class FavoritesService {
     });
     const admin = user?.role === UserRole.ADMIN;
     if (!property.approved && !admin) {
+      throw new NotFoundException(`Property "${propertyId}" not found`);
+    }
+    if (!admin && !isPropertyPubliclyListed(property)) {
       throw new NotFoundException(`Property "${propertyId}" not found`);
     }
     try {

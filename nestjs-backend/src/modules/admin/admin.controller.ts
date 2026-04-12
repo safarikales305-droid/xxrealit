@@ -6,12 +6,14 @@ import {
   Patch,
   Post,
   Param,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminService } from './admin.service';
+import { AdminUpdatePropertyDto } from './dto/admin-update-property.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { AdminGuard } from './guards/admin.guard';
 
@@ -53,9 +55,38 @@ export class AdminController {
     return this.adminService.listPendingProperties();
   }
 
+  @Get('listings')
+  listListings(
+    @Query('search') search?: string,
+    @Query('listingType') listingType?: string,
+    @Query('status') status?: string,
+    @Query('userId') userId?: string,
+    @Query('city') city?: string,
+    @Query('createdFrom') createdFrom?: string,
+    @Query('createdTo') createdTo?: string,
+  ) {
+    return this.adminService.listListings({
+      search,
+      listingType,
+      status,
+      userId,
+      city,
+      createdFrom,
+      createdTo,
+    });
+  }
+
   @Patch('properties/:id/approve')
   approve(@Param('id') id: string) {
     return this.adminService.approveProperty(id);
+  }
+
+  @Patch('properties/:id')
+  updateProperty(
+    @Param('id') id: string,
+    @Body() dto: AdminUpdatePropertyDto,
+  ) {
+    return this.adminService.updateProperty(id, dto);
   }
 
   @Delete('properties/:id')

@@ -231,6 +231,76 @@ export async function nestAdminPendingProperties(
   return Array.isArray(data) ? data : null;
 }
 
+export type AdminListingRow = {
+  id: string;
+  title?: string;
+  price?: number;
+  city?: string;
+  location?: string;
+  listingType?: string;
+  listingStatus?: string;
+  authorEmail?: string;
+  isActive?: boolean;
+  approved?: boolean;
+  deletedAt?: string | null;
+  activeFrom?: string | null;
+  activeUntil?: string | null;
+  createdAt?: string;
+  userId?: string;
+};
+
+export async function nestAdminListings(
+  token: string | null,
+  params: Record<string, string | undefined>,
+): Promise<AdminListingRow[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v != null && String(v).trim() !== '') sp.set(k, String(v).trim());
+  }
+  const qs = sp.toString();
+  const res = await fetch(
+    `${API_BASE_URL}/admin/listings${qs ? `?${qs}` : ''}`,
+    {
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    },
+  );
+  if (!res.ok) return null;
+  const data = (await res.json()) as unknown;
+  return Array.isArray(data) ? (data as AdminListingRow[]) : null;
+}
+
+export async function nestAdminUpdateProperty(
+  token: string | null,
+  propertyId: string,
+  body: Record<string, unknown>,
+): Promise<{ ok: boolean; data?: AdminListingRow; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/admin/properties/${encodeURIComponent(propertyId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string };
+    return {
+      ok: false,
+      error: typeof err.message === 'string' ? err.message : `HTTP ${res.status}`,
+    };
+  }
+  const data = (await res.json()) as AdminListingRow;
+  return { ok: true, data };
+}
+
 export async function nestAdminApproveProperty(
   token: string | null,
   propertyId: string,
