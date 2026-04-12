@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Heart, MessageCircle, Volume2, VolumeX } from 'lucide-react';
+import { Heart, Mail, MessageCircle, Volume2, VolumeX } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { absoluteShareUrl } from '@/lib/public-share-url';
@@ -16,6 +16,9 @@ type VideoCardProps = {
 
 const railBtn =
   'inline-flex size-14 shrink-0 items-center justify-center rounded-full border-2 border-white/35 bg-black/65 text-white shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-md transition hover:border-orange-400/80 hover:bg-orange-600/95 active:scale-95 disabled:pointer-events-none disabled:opacity-45';
+
+/** Obálka / zpráva prodejci — stejná velikost jako rail, výrazný oranžový akcent. */
+const railMessageBtn = `${railBtn} border-orange-400/70 bg-black/70 text-orange-100 hover:border-orange-300 hover:bg-orange-600/90 hover:text-white`;
 
 export default function VideoCard({ video }: VideoCardProps) {
   const router = useRouter();
@@ -142,23 +145,8 @@ export default function VideoCard({ video }: VideoCardProps) {
           }}
         />
 
-        {/* Pravý sloup — zpráva prodejci, oblíbené, sdílet, zvuk (vysoký kontrast, oranžový akcent) */}
-        <div className="pointer-events-auto absolute right-2 z-[35] flex flex-col items-center gap-2.5 max-md:top-[4.75rem] max-md:bottom-[13.5rem] max-md:justify-center sm:right-4 md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:gap-3">
-          {showSellerMessage ? (
-            <button
-              type="button"
-              onClick={handleWriteSeller}
-              className="flex min-h-[4.5rem] max-w-[5.75rem] flex-col items-center justify-center gap-1 rounded-2xl border-2 border-orange-300/95 bg-gradient-to-b from-[#ff7a1a] to-[#ff3c00] px-2 py-2.5 text-center text-white shadow-[0_12px_40px_rgba(255,90,0,0.5)] transition hover:brightness-110 active:scale-[0.97]"
-              aria-label="Napsat prodejci"
-            >
-              <MessageCircle className="size-6 shrink-0 drop-shadow-sm md:size-7" strokeWidth={2.25} aria-hidden />
-              <span className="text-[10px] font-extrabold leading-tight tracking-tight md:text-[10px]">
-                <span className="block">Napsat</span>
-                <span className="block">prodejci</span>
-              </span>
-            </button>
-          ) : null}
-
+        {/* Pravý sloup — oblíbené, obálka (zpráva prodejci), sdílet, zvuk */}
+        <div className="pointer-events-auto absolute right-2 z-[35] flex flex-col items-center gap-2.5 max-md:top-[4.75rem] max-md:bottom-[calc(11.25rem+env(safe-area-inset-bottom,0px))] max-md:justify-center sm:right-4 md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:gap-3">
           <button
             type="button"
             disabled={likeBusy}
@@ -171,6 +159,18 @@ export default function VideoCard({ video }: VideoCardProps) {
               strokeWidth={liked ? 0 : 2.25}
             />
           </button>
+
+          {showSellerMessage ? (
+            <button
+              type="button"
+              onClick={handleWriteSeller}
+              className={railMessageBtn}
+              aria-label="Napsat prodejci"
+              title="Napsat prodejci"
+            >
+              <Mail className="size-6" strokeWidth={2.25} aria-hidden />
+            </button>
+          ) : null}
 
           <ShareButtons title={shareTitle} url={shareUrl} variant="videoRail" />
 
@@ -190,8 +190,8 @@ export default function VideoCard({ video }: VideoCardProps) {
 
         {/* Spodní panel — uvnitř stage, vždy ke spodní hraně videa / letterboxu */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[25]">
-          <div className="bg-gradient-to-t from-black via-black/95 to-black/25 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-12 pr-[4rem] text-white shadow-[0_-12px_40px_rgba(0,0,0,0.45)] sm:px-4 sm:pb-4 sm:pr-24 sm:pt-14 md:pb-5 md:pr-20 md:pt-12">
-            <div className="pointer-events-auto mx-auto max-w-lg space-y-2 sm:space-y-3">
+          <div className="bg-gradient-to-t from-black via-black/95 to-black/25 px-3 pt-12 pr-[4rem] text-white shadow-[0_-12px_40px_rgba(0,0,0,0.45)] max-md:pb-[max(2.5rem,calc(env(safe-area-inset-bottom,0px)+2rem))] sm:px-4 sm:pr-24 sm:pt-14 md:pb-5 md:pr-20 md:pt-12">
+            <div className="pointer-events-auto mx-auto max-w-lg space-y-2 max-md:space-y-2.5 sm:space-y-3">
               <div className="rounded-xl border border-white/15 bg-black/50 px-3 py-2 shadow-lg backdrop-blur-md sm:px-4">
                 <div className="line-clamp-2 text-sm font-semibold leading-snug sm:text-base">
                   {video.title ?? ''}
@@ -222,7 +222,7 @@ export default function VideoCard({ video }: VideoCardProps) {
               <button
                 type="button"
                 onClick={handleOpenListing}
-                className="flex w-full min-h-[48px] items-center justify-center rounded-full border-2 border-white/50 bg-white/15 px-6 py-3 text-base font-extrabold tracking-tight text-white shadow-lg backdrop-blur-md transition hover:border-orange-200/80 hover:bg-orange-600/25 active:scale-[0.99] sm:text-lg md:border-orange-300/90 md:bg-gradient-to-r md:from-[#ff6a00] md:to-[#ff3c00] md:shadow-[0_14px_40px_rgba(255,80,0,0.45)] md:hover:brightness-110"
+                className="flex w-full min-h-[52px] items-center justify-center rounded-full border-2 border-white/50 bg-white/15 px-6 py-3.5 text-base font-extrabold tracking-tight text-white shadow-lg backdrop-blur-md transition hover:border-orange-200/80 hover:bg-orange-600/25 active:scale-[0.99] sm:text-lg md:border-orange-300/90 md:bg-gradient-to-r md:from-[#ff6a00] md:to-[#ff3c00] md:shadow-[0_14px_40px_rgba(255,80,0,0.45)] md:hover:brightness-110"
               >
                 Zobrazit inzerát
               </button>
