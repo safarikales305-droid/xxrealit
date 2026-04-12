@@ -75,9 +75,11 @@ export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
 
   if (validVideos.length === 0) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-black px-4 text-center">
-        <p className="text-sm font-medium text-white/85">Žádné platné video inzeráty</p>
-        <p className="max-w-xs text-xs leading-relaxed text-white/55">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-black px-4 text-center lg:bg-white">
+        <p className="text-sm font-medium text-white/85 lg:text-zinc-800">
+          Žádné platné video inzeráty
+        </p>
+        <p className="max-w-xs text-xs leading-relaxed text-white/55 lg:text-zinc-500">
           Záznamy bez funkčního videa jsou skryté. Zkuste upravit filtry nebo se vraťte později.
         </p>
       </div>
@@ -94,7 +96,7 @@ export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
           <div
             key={video.id}
             data-video-slide={video.id}
-            className="h-full min-h-0 w-full shrink-0 snap-start snap-always overflow-hidden rounded-none bg-black max-md:min-h-[calc(100dvh-3.75rem)] md:rounded-xl"
+            className="h-full min-h-0 w-full shrink-0 snap-start snap-always overflow-hidden rounded-none bg-black max-md:min-h-[calc(100dvh-3.75rem)] md:rounded-xl lg:bg-white lg:shadow-sm"
           >
             <VideoCard
               video={video}

@@ -523,7 +523,7 @@ export function HomeLayout({
               : viewMode === 'shorts' && !shortsBootstrapBusy && videosForFeed.length === 0
                 ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl border border-zinc-200/90 bg-[#fafafa] shadow-[0_2px_24px_-8px_rgba(0,0,0,0.08)] md:min-w-0'
                 : viewMode === 'shorts'
-                  ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden bg-black shadow-none max-md:rounded-none md:min-w-0 md:rounded-2xl md:shadow-[0_24px_48px_-24px_rgba(0,0,0,0.35)] lg:ring-1 lg:ring-black/10'
+                  ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden bg-black shadow-none max-md:rounded-none md:min-w-0 md:rounded-2xl md:shadow-[0_24px_48px_-24px_rgba(0,0,0,0.35)] lg:bg-white lg:shadow-[0_2px_24px_-8px_rgba(0,0,0,0.08)] lg:ring-1 lg:ring-zinc-200/80'
                   : 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden bg-white md:min-w-0 md:rounded-2xl md:border md:border-zinc-200/90 md:shadow-[0_2px_24px_-8px_rgba(0,0,0,0.06)]'
           }
         >
@@ -586,7 +586,7 @@ export function HomeLayout({
             >
               {viewMode === 'shorts' ? (
                 shortsBootstrapBusy ? (
-                  <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 text-center text-sm text-white/80">
+                  <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 text-center text-sm text-white/80 lg:text-zinc-600">
                     <p>
                       {shareExtraLoading && !loadingFeed
                         ? 'Načítám sdílené video…'
