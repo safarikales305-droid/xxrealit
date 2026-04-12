@@ -1196,6 +1196,8 @@ export type NestMyListingRow = {
   derivedFromPropertyId?: string | null;
   shortsVariant?: NestMyListingShortsVariant | null;
   shortsDraft?: { id: string; status: string } | null;
+  /** ShortsListing.id pro editor/mazání publikovaného shorts (Property.id = veřejný inzerát). */
+  shortsListingId?: string | null;
 };
 
 export type NestShortsMediaItem = {
@@ -1210,6 +1212,7 @@ export type NestShortsListingDraft = {
   id: string;
   userId: string;
   sourceListingId: string;
+  publishedPropertyId?: string | null;
   title: string;
   description: string;
   coverImage: string | null;

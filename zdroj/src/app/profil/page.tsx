@@ -10,6 +10,7 @@ import { nestAbsoluteAssetUrl } from '@/lib/api';
 import {
   nestDeleteCover,
   nestDeleteMyProperty,
+  nestDeleteShortsListing,
   nestFetchFavorites,
   nestFetchMe,
   nestCreateShortsFromClassic,
@@ -1024,10 +1025,14 @@ export default function ProfilPage() {
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <Link
-                          href={`/inzerat/upravit/${row.id}`}
+                          href={
+                            row.listingType === 'SHORTS' && row.shortsListingId
+                              ? `/inzerat/shorts-editor/${row.shortsListingId}`
+                              : `/inzerat/upravit/${row.id}`
+                          }
                           className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
                         >
-                          Upravit
+                          {row.listingType === 'SHORTS' ? 'Upravit shorts' : 'Upravit'}
                         </Link>
                         <Link
                           href={`/nemovitost/${row.id}`}
@@ -1074,16 +1079,29 @@ export default function ProfilPage() {
                           className="rounded-full border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
                           onClick={() => {
                             if (!apiAccessToken) return;
-                            if (
-                              !window.confirm(
-                                'Opravdu chcete inzerát smazat? Bude skrytý a nepůjde ho obnovit bez administrátora.',
-                              )
-                            ) {
+                            const isShorts = row.listingType === 'SHORTS';
+                            const msg = isShorts
+                              ? row.shortsListingId
+                                ? 'Smazat tento shorts inzerát? Zmizí z profilu i z veřejného shorts feedu.'
+                                : 'Smazat tento shorts inzerát? (starší záznam bez editoru — smaže se veřejný inzerát.)'
+                              : 'Opravdu chcete inzerát smazat? Bude skrytý a nepůjde ho obnovit bez administrátora.';
+                            if (!window.confirm(msg)) return;
+                            if (isShorts && row.shortsListingId) {
+                              void nestDeleteShortsListing(apiAccessToken, row.shortsListingId).then(
+                                (r) => {
+                                  if (r.ok) {
+                                    void loadMyListings();
+                                    void loadShortsDrafts();
+                                  } else window.alert(r.error ?? 'Smazání shorts se nezdařilo.');
+                                },
+                              );
                               return;
                             }
                             void nestDeleteMyProperty(apiAccessToken, row.id).then((r) => {
-                              if (r.ok) void loadMyListings();
-                              else window.alert(r.error ?? 'Smazání se nezdařilo.');
+                              if (r.ok) {
+                                void loadMyListings();
+                                void loadShortsDrafts();
+                              } else window.alert(r.error ?? 'Smazání se nezdařilo.');
                             });
                           }}
                         >

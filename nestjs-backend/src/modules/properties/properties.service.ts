@@ -529,6 +529,25 @@ export class PropertiesService {
       }
     }
 
+    const shortsPropertyIds = rows
+      .filter((r) => String(r.listingType ?? '').toUpperCase() === 'SHORTS')
+      .map((r) => r.id);
+    const shortsListingByPublishedPropertyId = new Map<string, string>();
+    if (shortsPropertyIds.length > 0) {
+      const slPublished = await this.prisma.shortsListing.findMany({
+        where: {
+          userId: ownerId,
+          publishedPropertyId: { in: shortsPropertyIds },
+        },
+        select: { id: true, publishedPropertyId: true },
+      });
+      for (const s of slPublished) {
+        if (s.publishedPropertyId) {
+          shortsListingByPublishedPropertyId.set(s.publishedPropertyId, s.id);
+        }
+      }
+    }
+
     const now = new Date();
     return rows.map((r) => {
       const dashboardStatus = computeListingPublicStatus(
@@ -545,6 +564,10 @@ export class PropertiesService {
         String(r.listingType ?? '').toUpperCase() === 'SHORTS'
           ? 'SHORTS'
           : 'CLASSIC';
+      const shortsListingId =
+        listingType === 'SHORTS'
+          ? (shortsListingByPublishedPropertyId.get(r.id) ?? null)
+          : null;
       const linked =
         listingType === 'CLASSIC' ? shortsByClassic.get(r.id) ?? null : null;
       const shortsDashboardStatus = linked
@@ -579,6 +602,7 @@ export class PropertiesService {
           : null,
         shortsDraft:
           listingType === 'CLASSIC' ? (draftByClassic.get(r.id) ?? null) : null,
+        shortsListingId,
       };
     });
   }

@@ -149,6 +149,7 @@ export class ShortsListingService {
     id: string;
     userId: string;
     sourceListingId: string;
+    publishedPropertyId: string | null;
     title: string;
     description: string;
     coverImage: string | null;
@@ -172,6 +173,7 @@ export class ShortsListingService {
       id: row.id,
       userId: row.userId,
       sourceListingId: row.sourceListingId,
+      publishedPropertyId: row.publishedPropertyId,
       title: row.title,
       description: row.description,
       coverImage: row.coverImage,
@@ -214,7 +216,7 @@ export class ShortsListingService {
       include: { media: { orderBy: { order: 'asc' } } },
     });
     if (!row) {
-      throw new NotFoundException('Koncept nebyl nalezen');
+      throw new NotFoundException('Shorts záznam nebyl nalezen');
     }
     return this.serializeDraft(row);
   }
@@ -329,11 +331,9 @@ export class ShortsListingService {
       where: { id, userId },
     });
     if (!row) {
-      throw new NotFoundException('Koncept nebyl nalezen');
+      throw new NotFoundException('Shorts záznam nebyl nalezen');
     }
-    if (row.status === ShortsListingStatus.published) {
-      throw new BadRequestException('Publikovaný koncept nelze tímto endpointem měnit.');
-    }
+    const wasPublished = row.status === ShortsListingStatus.published;
 
     const data: Record<string, unknown> = {};
     if (body.title !== undefined) data.title = body.title.trim().slice(0, 250);
@@ -348,7 +348,7 @@ export class ShortsListingService {
       const tid = body.musicTrackId?.trim() ?? '';
       data.musicTrackId = tid.length ? tid : null;
     }
-    if (body.status !== undefined) {
+    if (body.status !== undefined && !wasPublished) {
       if (
         body.status !== ShortsListingStatus.draft &&
         body.status !== ShortsListingStatus.ready &&
@@ -367,6 +367,9 @@ export class ShortsListingService {
       data: data as never,
     });
     await this.syncCoverFromMedia(id);
+    if (wasPublished) {
+      await this.syncPublishedMetadataToPropertyIfPublished(id);
+    }
     return this.getByIdForOwner(userId, id);
   }
 
@@ -383,8 +386,86 @@ export class ShortsListingService {
     });
   }
 
+  /** Zveřejněný Property inzerát — titulek, popis, pořadí fotek v `images` a PropertyMedia (video řádek beze změny). */
+  private async syncPublishedMetadataToProperty(shortsListingId: string) {
+    const listing = await this.prisma.shortsListing.findUnique({
+      where: { id: shortsListingId },
+      include: { media: { orderBy: { order: 'asc' } } },
+    });
+    if (
+      !listing ||
+      listing.status !== ShortsListingStatus.published ||
+      !listing.publishedPropertyId
+    ) {
+      return;
+    }
+    const urls = listing.media.map((m) => m.imageUrl.trim()).filter(Boolean);
+    if (urls.length === 0) {
+      throw new BadRequestException(
+        'Publikovaný shorts musí mít alespoň jednu fotku. Přidejte snímek nebo smažte inzerát.',
+      );
+    }
+    const pid = listing.publishedPropertyId;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.property.update({
+        where: { id: pid },
+        data: {
+          title: listing.title.trim().slice(0, 250),
+          description: listing.description.trim(),
+          images: urls,
+        },
+      });
+      await tx.propertyMedia.deleteMany({
+        where: { propertyId: pid, type: 'image' },
+      });
+      let sortOrder = 1;
+      for (const u of urls) {
+        await tx.propertyMedia.create({
+          data: {
+            propertyId: pid,
+            url: u,
+            type: 'image',
+            sortOrder,
+          },
+        });
+        sortOrder += 1;
+      }
+    });
+  }
+
+  private async syncPublishedMetadataToPropertyIfPublished(shortsListingId: string) {
+    const row = await this.prisma.shortsListing.findUnique({
+      where: { id: shortsListingId },
+      select: { status: true, publishedPropertyId: true },
+    });
+    if (
+      row?.status === ShortsListingStatus.published &&
+      row.publishedPropertyId
+    ) {
+      await this.syncPublishedMetadataToProperty(shortsListingId);
+    }
+  }
+
+  private async applyVideoToPublishedProperty(
+    propertyId: string,
+    videoUrl: string,
+  ) {
+    const v = videoUrl.trim();
+    if (!v) return;
+    await this.prisma.$transaction([
+      this.prisma.property.update({
+        where: { id: propertyId },
+        data: { videoUrl: v },
+      }),
+      this.prisma.propertyMedia.updateMany({
+        where: { propertyId, type: 'video' },
+        data: { url: v },
+      }),
+    ]);
+  }
+
   async reorderMedia(userId: string, shortsListingId: string, orderedIds: string[]) {
-    const listing = await this.ensureEditableListing(userId, shortsListingId);
+    const listing = await this.ensureListingOwner(userId, shortsListingId);
     const media = await this.prisma.shortsMediaItem.findMany({
       where: { shortsListingId },
     });
@@ -406,11 +487,12 @@ export class ShortsListingService {
       ),
     );
     await this.syncCoverFromMedia(listing.id);
+    await this.syncPublishedMetadataToPropertyIfPublished(shortsListingId);
     return this.getByIdForOwner(userId, shortsListingId);
   }
 
   async setCover(userId: string, shortsListingId: string, mediaId: string) {
-    await this.ensureEditableListing(userId, shortsListingId);
+    await this.ensureListingOwner(userId, shortsListingId);
     const m = await this.prisma.shortsMediaItem.findFirst({
       where: { id: mediaId, shortsListingId },
     });
@@ -426,16 +508,28 @@ export class ShortsListingService {
       data: { isCover: true },
     });
     await this.syncCoverFromMedia(shortsListingId);
+    await this.syncPublishedMetadataToPropertyIfPublished(shortsListingId);
     return this.getByIdForOwner(userId, shortsListingId);
   }
 
   async deleteMedia(userId: string, shortsListingId: string, mediaId: string) {
-    await this.ensureEditableListing(userId, shortsListingId);
+    const listing = await this.ensureListingOwner(userId, shortsListingId);
     const m = await this.prisma.shortsMediaItem.findFirst({
       where: { id: mediaId, shortsListingId },
     });
     if (!m) {
       throw new NotFoundException('Médium nenalezeno');
+    }
+    const remainingBefore = await this.prisma.shortsMediaItem.count({
+      where: { shortsListingId },
+    });
+    if (
+      listing.status === ShortsListingStatus.published &&
+      remainingBefore <= 1
+    ) {
+      throw new BadRequestException(
+        'Publikovaný shorts musí mít alespoň jednu fotku. Nejprve přidejte další snímek.',
+      );
     }
     await this.prisma.shortsMediaItem.delete({ where: { id: mediaId } });
     const rest = await this.prisma.shortsMediaItem.findMany({
@@ -451,11 +545,12 @@ export class ShortsListingService {
       ),
     );
     await this.syncCoverFromMedia(shortsListingId);
+    await this.syncPublishedMetadataToPropertyIfPublished(shortsListingId);
     return this.getByIdForOwner(userId, shortsListingId);
   }
 
   async addMediaByUrl(userId: string, shortsListingId: string, imageUrl: string) {
-    await this.ensureEditableListing(userId, shortsListingId);
+    await this.ensureListingOwner(userId, shortsListingId);
     const url = imageUrl.trim();
     if (!url) {
       throw new BadRequestException('Chybí URL obrázku');
@@ -473,6 +568,7 @@ export class ShortsListingService {
       },
     });
     await this.syncCoverFromMedia(shortsListingId);
+    await this.syncPublishedMetadataToPropertyIfPublished(shortsListingId);
     return this.getByIdForOwner(userId, shortsListingId);
   }
 
@@ -481,7 +577,7 @@ export class ShortsListingService {
     shortsListingId: string,
     file: Express.Multer.File,
   ) {
-    await this.ensureEditableListing(userId, shortsListingId);
+    await this.ensureListingOwner(userId, shortsListingId);
     const url = await this.propertyMediaCloudinary.uploadImage(file);
     return this.addMediaByUrl(userId, shortsListingId, url);
   }
@@ -492,7 +588,7 @@ export class ShortsListingService {
     mediaId: string,
     body: { duration?: number; isCover?: boolean },
   ) {
-    await this.ensureEditableListing(userId, shortsListingId);
+    await this.ensureListingOwner(userId, shortsListingId);
     const m = await this.prisma.shortsMediaItem.findFirst({
       where: { id: mediaId, shortsListingId },
     });
@@ -519,31 +615,44 @@ export class ShortsListingService {
       data,
     });
     await this.syncCoverFromMedia(shortsListingId);
+    await this.syncPublishedMetadataToPropertyIfPublished(shortsListingId);
     return this.getByIdForOwner(userId, shortsListingId);
   }
 
-  private async ensureEditableListing(userId: string, id: string) {
+  private async ensureListingOwner(userId: string, id: string) {
     const row = await this.prisma.shortsListing.findFirst({
       where: { id, userId },
     });
     if (!row) {
-      throw new NotFoundException('Koncept nebyl nalezen');
-    }
-    if (row.status === ShortsListingStatus.published) {
-      throw new BadRequestException('Koncept je již publikovaný.');
+      throw new NotFoundException('Shorts záznam nebyl nalezen');
     }
     return row;
   }
 
-  async deleteDraft(userId: string, id: string) {
+  /**
+   * Smaže koncept (včetně médií) nebo publikovaný shorts: soft-delete Property + smazání ShortsListing.
+   */
+  async deleteListing(userId: string, id: string) {
     const row = await this.prisma.shortsListing.findFirst({
       where: { id, userId },
     });
     if (!row) {
-      throw new NotFoundException('Koncept nebyl nalezen');
+      throw new NotFoundException('Shorts záznam nebyl nalezen');
     }
-    if (row.status === ShortsListingStatus.published) {
-      throw new BadRequestException('Publikovaný záznam smažte jako inzerát.');
+    if (row.status === ShortsListingStatus.published && row.publishedPropertyId) {
+      const pid = row.publishedPropertyId;
+      await this.prisma.$transaction(async (tx) => {
+        await tx.shortsListing.update({
+          where: { id },
+          data: { publishedPropertyId: null },
+        });
+        await tx.property.update({
+          where: { id: pid },
+          data: { deletedAt: new Date(), isActive: false },
+        });
+        await tx.shortsListing.delete({ where: { id } });
+      });
+      return { ok: true };
     }
     await this.prisma.shortsListing.delete({ where: { id } });
     return { ok: true };
@@ -555,11 +664,9 @@ export class ShortsListingService {
       include: { media: { orderBy: { order: 'asc' } } },
     });
     if (!listing) {
-      throw new NotFoundException('Koncept nebyl nalezen');
+      throw new NotFoundException('Shorts záznam nebyl nalezen');
     }
-    if (listing.status === ShortsListingStatus.published) {
-      throw new BadRequestException('Koncept je již publikovaný.');
-    }
+    const publishedPid = listing.publishedPropertyId;
     let urls = listing.media.map((m) => m.imageUrl.trim()).filter(Boolean);
     if (urls.length === 0) {
       throw new BadRequestException('Přidejte alespoň jednu fotku.');
@@ -584,10 +691,18 @@ export class ShortsListingService {
       music,
       includeTextOverlay: true,
     });
+    const nextStatus =
+      listing.status === ShortsListingStatus.published
+        ? ShortsListingStatus.published
+        : ShortsListingStatus.ready;
     await this.prisma.shortsListing.update({
       where: { id },
-      data: { videoUrl, status: ShortsListingStatus.ready },
+      data: { videoUrl, status: nextStatus },
     });
+    if (listing.status === ShortsListingStatus.published && publishedPid) {
+      await this.applyVideoToPublishedProperty(publishedPid, videoUrl);
+      await this.syncPublishedMetadataToProperty(id);
+    }
     return this.getByIdForOwner(userId, id);
   }
 

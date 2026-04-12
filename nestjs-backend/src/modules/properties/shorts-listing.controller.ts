@@ -64,7 +64,7 @@ export class ShortsListingController {
   @UseGuards(JwtAuthGuard)
   @Delete(':id')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.shortsListingService.deleteDraft(user.id, id);
+    return this.shortsListingService.deleteListing(user.id, id);
   }
 
   @UseGuards(JwtAuthGuard)

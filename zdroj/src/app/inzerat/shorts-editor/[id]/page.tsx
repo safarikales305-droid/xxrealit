@@ -103,14 +103,17 @@ export default function ShortsEditorPage() {
     if (!apiAccessToken || !data) return;
     setBusy('save');
     setErr(null);
-    const r = await nestPatchShortsListing(apiAccessToken, data.id, {
+    const body: Record<string, unknown> = {
       title: title.trim(),
       description: description.trim(),
       musicTrackId: (musicTrackId ?? '').trim() || null,
       musicUrl: '',
       musicBuiltinKey,
-      status: 'draft',
-    });
+    };
+    if (data.status !== 'published') {
+      body.status = 'draft';
+    }
+    const r = await nestPatchShortsListing(apiAccessToken, data.id, body);
     setBusy(null);
     if (!r.ok) {
       setErr(r.error ?? 'Uložení selhalo');
@@ -120,7 +123,7 @@ export default function ShortsEditorPage() {
   }
 
   async function markReady() {
-    if (!apiAccessToken || !data) return;
+    if (!apiAccessToken || !data || data.status === 'published') return;
     setBusy('ready');
     const r = await nestPatchShortsListing(apiAccessToken, data.id, { status: 'ready' });
     setBusy(null);
@@ -165,7 +168,11 @@ export default function ShortsEditorPage() {
 
   async function removeDraft() {
     if (!apiAccessToken || !data) return;
-    if (!window.confirm('Smazat koncept?')) return;
+    const msg =
+      data.status === 'published'
+        ? 'Smazat tento shorts inzerát? Zmizí z profilu i z veřejného shorts feedu.'
+        : 'Smazat koncept?';
+    if (!window.confirm(msg)) return;
     const r = await nestDeleteShortsListing(apiAccessToken, data.id);
     if (!r.ok) {
       setErr(r.error ?? 'Smazání selhalo');
@@ -228,17 +235,7 @@ export default function ShortsEditorPage() {
     );
   }
 
-  if (data.status === 'published') {
-    return (
-      <div className="mx-auto max-w-lg px-4 py-16">
-        <p className="text-zinc-800">Tento koncept je již publikovaný.</p>
-        <Link href="/profil" className="mt-4 inline-block text-[#e85d00] hover:underline">
-          Profil
-        </Link>
-      </div>
-    );
-  }
-
+  const isPublished = data.status === 'published';
   const sortedMedia = [...data.media].sort((a, b) => a.order - b.order);
 
   return (
@@ -256,7 +253,26 @@ export default function ShortsEditorPage() {
           >
             otevřít klasik
           </Link>
+          {isPublished && data.publishedPropertyId ? (
+            <>
+              {' '}
+              ·{' '}
+              <Link
+                href={`/nemovitost/${data.publishedPropertyId}`}
+                className="font-semibold text-[#e85d00] hover:underline"
+              >
+                veřejný shorts
+              </Link>
+            </>
+          ) : null}
         </p>
+        {isPublished ? (
+          <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-sm text-emerald-950">
+            Tento shorts je zveřejněný. Úpravy textu se ihned propsí do detailu a feedu. Po změně
+            fotek nebo hudby spusťte znovu <strong>Vygenerovat náhled</strong>, aby se obnovilo
+            video ve feedu.
+          </p>
+        ) : null}
         {err ? (
           <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
             {err}
@@ -313,6 +329,25 @@ export default function ShortsEditorPage() {
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            disabled={Boolean(busy) || !(musicTrackId ?? '').trim() || !apiAccessToken}
+            onClick={() => {
+              if (!apiAccessToken) return;
+              setMusicTrackId('');
+              void nestPatchShortsListing(apiAccessToken, data.id, {
+                musicTrackId: null,
+                musicUrl: '',
+                musicBuiltinKey: musicBuiltinKey || 'demo_soft',
+              }).then((r) => {
+                if (r.ok && r.data) setData(r.data);
+                else setErr(r.error ?? 'Úprava hudby selhala');
+              });
+            }}
+            className="mt-3 rounded-full border border-zinc-300 bg-white px-4 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+          >
+            Odebrat skladbu z knihovny
+          </button>
         </section>
 
         <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
@@ -474,39 +509,43 @@ export default function ShortsEditorPage() {
             onClick={() => void saveText()}
             className="rounded-full border border-zinc-300 bg-white px-5 py-2.5 text-sm font-semibold disabled:opacity-50"
           >
-            {busy === 'save' ? 'Ukládám…' : 'Uložit koncept'}
+            {busy === 'save' ? 'Ukládám…' : isPublished ? 'Uložit změny (text)' : 'Uložit koncept'}
           </button>
-          <button
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => void markReady()}
-            className="rounded-full border border-amber-300 bg-amber-50 px-5 py-2.5 text-sm font-semibold text-amber-950 disabled:opacity-50"
-          >
-            Označit jako připraveno
-          </button>
+          {!isPublished ? (
+            <button
+              type="button"
+              disabled={Boolean(busy)}
+              onClick={() => void markReady()}
+              className="rounded-full border border-amber-300 bg-amber-50 px-5 py-2.5 text-sm font-semibold text-amber-950 disabled:opacity-50"
+            >
+              Označit jako připraveno
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={Boolean(busy)}
             onClick={() => void runPreview()}
             className="rounded-full bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
           >
-            {busy === 'preview' ? 'Generuji…' : 'Vygenerovat náhled'}
+            {busy === 'preview' ? 'Generuji…' : isPublished ? 'Obnovit video (feed)' : 'Vygenerovat náhled'}
           </button>
-          <button
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => void publish()}
-            className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50"
-          >
-            {busy === 'publish' ? 'Publikuji…' : 'Zveřejnit'}
-          </button>
+          {!isPublished ? (
+            <button
+              type="button"
+              disabled={Boolean(busy)}
+              onClick={() => void publish()}
+              className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+            >
+              {busy === 'publish' ? 'Publikuji…' : 'Zveřejnit'}
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={Boolean(busy)}
             onClick={() => void removeDraft()}
             className="rounded-full border border-red-200 px-5 py-2.5 text-sm font-semibold text-red-700 disabled:opacity-50"
           >
-            Smazat koncept
+            {isPublished ? 'Smazat shorts' : 'Smazat koncept'}
           </button>
         </div>
       </div>
