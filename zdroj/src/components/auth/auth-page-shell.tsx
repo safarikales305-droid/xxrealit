@@ -221,7 +221,16 @@ export function AuthPageShell({ variant, children }: AuthPageShellProps) {
               <h1 className="mt-6 max-w-md text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl md:text-4xl md:leading-tight">
                 Vítejte ve světě realit
               </h1>
-              <p className="mt-3 max-w-md text-pretty text-sm leading-relaxed text-zinc-600 sm:text-[15px]">
+              {variant === 'register' ? (
+                <p className="mt-4 max-w-md text-pretty text-base font-extrabold leading-snug tracking-tight text-zinc-900 sm:mt-5 sm:text-lg md:text-xl">
+                  Prohlížení inzerátů je plně zdarma
+                </p>
+              ) : null}
+              <p
+                className={`max-w-md text-pretty text-sm leading-relaxed text-zinc-600 sm:text-[15px] ${
+                  variant === 'register' ? 'mt-3 sm:mt-4' : 'mt-3'
+                }`}
+              >
                 {SUBTITLES[variant]}
               </p>
             </div>
