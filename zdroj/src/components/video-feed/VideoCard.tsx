@@ -82,7 +82,9 @@ export default function VideoCard({ video }: VideoCardProps) {
   const listingPath = `/nemovitost/${encodeURIComponent(video.id)}?from=shorts`;
 
   const ownerId = (video.userId ?? video.user?.id ?? '').trim();
-  const isOwner = Boolean(user?.id && ownerId && user.id === ownerId);
+  const isOwner = Boolean(
+    user?.id && ownerId && String(user.id).trim() === String(ownerId).trim(),
+  );
   /** Zpráva prodejci i bez userId ve feedu — backend řeší vlastníka přes propertyId. */
   const showSellerMessage = !isOwner;
   const coverStill =

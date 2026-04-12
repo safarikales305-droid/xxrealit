@@ -106,9 +106,12 @@ export function NemovitostDetailView({
 
   const shareUrl = absoluteShareUrl(`/nemovitost/${encodeURIComponent(propertyId)}`);
 
-  const ownerId = String(p.userId ?? author.id).trim();
-  const isOwner = Boolean(user?.id && ownerId && user.id === ownerId);
-  const canContactSeller = Boolean(ownerId) && !isOwner;
+  const ownerId = String(p.userId ?? author.id ?? '').trim();
+  const isOwner = Boolean(
+    user?.id && ownerId && String(user.id).trim() === String(ownerId).trim(),
+  );
+  /** Zobrazit i když API nevrátí userId — vlastník se pozná až po načtení; host i přihlášený u cizího inzerátu musí CTA vidět. */
+  const canContactSeller = !isOwner;
   const coverForMessage =
     media.find((m) => m.type === 'image')?.url?.trim() ||
     p.imageUrl?.trim() ||

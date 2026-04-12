@@ -1,8 +1,12 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Mail } from 'lucide-react';
 import { CommentsPlaceholder } from '@/components/feed/comments-placeholder';
+import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
+import { useAuth } from '@/hooks/use-auth';
 import { toPublicApiUrl } from '@/lib/public-api';
 import type { PropertyFeedItem } from '@/types/property';
 import { resolveShortsPublicSrc } from '@/lib/video-url';
@@ -32,6 +36,10 @@ type Props = {
  * TikTok-style vertical feed pro shorts z API (nemovitosti).
  */
 export function ShortsFeed({ items }: Props) {
+  const router = useRouter();
+  const { user, isAuthenticated, apiAccessToken } = useAuth();
+  const [sellerClip, setSellerClip] = useState<Clip | null>(null);
+
   const clips = useMemo<Clip[]>(() => {
     return items
       .map((item) => ({
@@ -150,6 +158,21 @@ export function ShortsFeed({ items }: Props) {
     setMutedById((prev) => ({ ...prev, [id]: !prev[id] }));
   }, []);
 
+  const handleWriteSeller = useCallback(
+    (clip: Clip) => {
+      if (!isAuthenticated || !apiAccessToken) {
+        const path =
+          typeof window !== 'undefined'
+            ? `${window.location.pathname}${window.location.search}`
+            : '/';
+        router.push(`/prihlaseni?redirect=${encodeURIComponent(path)}`);
+        return;
+      }
+      setSellerClip(clip);
+    },
+    [apiAccessToken, isAuthenticated, router],
+  );
+
   return (
     <div
       ref={containerRef}
@@ -159,6 +182,13 @@ export function ShortsFeed({ items }: Props) {
         const isActive = activeId === c.id;
         const muted = mutedById[c.id] !== false;
         const showProfileLink = !!c.userId;
+        const ownerListingUserId = (c.userId ?? '').trim();
+        const viewerIsKnownOwner = Boolean(
+          user?.id &&
+            ownerListingUserId &&
+            String(user.id).trim() === String(ownerListingUserId).trim(),
+        );
+        const showSellerMessage = !viewerIsKnownOwner;
 
         return (
           <section
@@ -261,13 +291,41 @@ export function ShortsFeed({ items }: Props) {
                 </span>
                 <CommentsPlaceholder />
               </div>
-              <button type="button" aria-label="Kontakt" className={glowBtnBase}>
-                📩
-              </button>
+              {showSellerMessage ? (
+                <button
+                  type="button"
+                  aria-label="Napsat prodejci"
+                  title="Napsat prodejci"
+                  onClick={() => handleWriteSeller(c)}
+                  className={glowBtnBase}
+                >
+                  <Mail className="size-6" strokeWidth={2.25} aria-hidden />
+                </button>
+              ) : null}
             </div>
           </section>
         );
       })}
+      {sellerClip ? (
+        <MessageSellerModal
+          open={Boolean(sellerClip)}
+          onClose={() => setSellerClip(null)}
+          propertyId={sellerClip.id}
+          listingTitle={(sellerClip.title ?? 'Inzerát').trim() || 'Inzerát'}
+          price={sellerClip.price}
+          location={sellerClip.location}
+          coverImageUrl={
+            sellerClip.imageUrl?.trim() ||
+            sellerClip.images?.find((u) => u.trim()) ||
+            null
+          }
+          token={apiAccessToken}
+          onSent={(conversationId) => {
+            setSellerClip(null);
+            router.push(`/profil/zpravy/${conversationId}`);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
