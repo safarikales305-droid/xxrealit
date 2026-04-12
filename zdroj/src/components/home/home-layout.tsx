@@ -55,6 +55,9 @@ function feedShortsRowToShortVideo(row: Record<string, unknown>): ShortVideo | n
       : rawCreated instanceof Date
         ? rawCreated.toISOString()
         : new Date().toISOString();
+  const userIdRaw = row.userId ?? row.ownerId ?? (row.user as { id?: unknown } | undefined)?.id;
+  const userId = userIdRaw != null && String(userIdRaw).trim() ? String(userIdRaw).trim() : undefined;
+
   return {
     id,
     videoUrl: typeof row.videoUrl === 'string' ? row.videoUrl : null,
@@ -63,6 +66,12 @@ function feedShortsRowToShortVideo(row: Record<string, unknown>): ShortVideo | n
     price: typeof row.price === 'number' ? row.price : Number(row.price) || null,
     city: typeof row.city === 'string' ? row.city : null,
     createdAt,
+    userId,
+    liked: typeof row.liked === 'boolean' ? row.liked : undefined,
+    images: Array.isArray(row.images)
+      ? (row.images as unknown[]).filter((x): x is string => typeof x === 'string' && x.length > 0)
+      : undefined,
+    imageUrl: typeof row.imageUrl === 'string' ? row.imageUrl : null,
   };
 }
 
@@ -441,7 +450,7 @@ export function HomeLayout({
               : viewMode === 'shorts' && !loadingFeed && videoFeed.length === 0
                 ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl border border-zinc-200/90 bg-[#fafafa] shadow-[0_2px_24px_-8px_rgba(0,0,0,0.08)] md:min-w-0'
                 : viewMode === 'shorts'
-                  ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden rounded-2xl bg-black shadow-[0_24px_48px_-24px_rgba(0,0,0,0.35)] md:min-w-0 lg:ring-1 lg:ring-black/10'
+                  ? 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden bg-black shadow-none max-md:rounded-none md:min-w-0 md:rounded-2xl md:shadow-[0_24px_48px_-24px_rgba(0,0,0,0.35)] lg:ring-1 lg:ring-black/10'
                   : 'relative flex min-h-0 min-w-0 flex-col overflow-hidden overflow-x-hidden bg-white md:min-w-0 md:rounded-2xl md:border md:border-zinc-200/90 md:shadow-[0_2px_24px_-8px_rgba(0,0,0,0.06)]'
           }
         >

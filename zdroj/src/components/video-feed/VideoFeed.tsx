@@ -1,39 +1,30 @@
 'use client';
 
-import { useCallback, useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import type { ShortVideo } from '@/lib/nest-client';
-import { StoriesBar } from './StoriesBar';
 import VideoCard from './VideoCard';
 
 type VideoFeedProps = {
   videos: ShortVideo[];
 };
 
+/**
+ * Mobilní shorts: jeden slide = celá výška feedu (žádný StoriesBar s náhledy jiných inzerátů).
+ * Desktop: zaoblený rám; mobil: edge-to-edge pro „klasické“ shorts.
+ */
 export function VideoFeed({ videos }: VideoFeedProps) {
-  const containerRefs = useRef<Record<string, HTMLElement | null>>({});
-
   const sorted = useMemo(
     () => [...videos].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
     [videos],
   );
 
-  const scrollToVideo = useCallback((id: string) => {
-    const node = containerRefs.current[id];
-    if (!node) return;
-    node.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
-
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col">
-      <StoriesBar videos={sorted} onSelect={scrollToVideo} />
-      <div className="min-h-0 flex-1 snap-y snap-mandatory overflow-y-auto overflow-x-hidden px-2 pb-3 pt-0 md:px-0 md:pb-2">
+      <div className="min-h-0 flex-1 snap-y snap-mandatory overflow-y-auto overflow-x-hidden overscroll-y-contain pb-[env(safe-area-inset-bottom)] pt-0">
         {sorted.map((video) => (
           <div
             key={video.id}
-            ref={(el) => {
-              containerRefs.current[video.id] = el;
-            }}
-            className="h-full min-h-0 w-full shrink-0 snap-start snap-always overflow-hidden rounded-xl bg-black"
+            className="h-full min-h-0 w-full shrink-0 snap-start snap-always overflow-hidden rounded-none bg-black max-md:min-h-[calc(100dvh-4.5rem)] md:rounded-xl"
           >
             <VideoCard video={video} />
           </div>

@@ -80,7 +80,8 @@ export default function VideoCard({ video }: VideoCardProps) {
 
   const ownerId = (video.userId ?? video.user?.id ?? '').trim();
   const isOwner = Boolean(user?.id && ownerId && user.id === ownerId);
-  const canContactSeller = Boolean(ownerId) && !isOwner;
+  /** Zpráva prodejci i bez userId ve feedu — backend řeší vlastníka přes propertyId. */
+  const showSellerMessage = !isOwner;
   const coverStill =
     ((video.images ?? []).find((u) => typeof u === 'string' && u.trim()) ?? '').trim() ||
     (video.imageUrl ?? '').trim() ||
@@ -142,17 +143,18 @@ export default function VideoCard({ video }: VideoCardProps) {
         />
 
         {/* Pravý sloup — zpráva prodejci, oblíbené, sdílet, zvuk (vysoký kontrast, oranžový akcent) */}
-        <div className="pointer-events-auto absolute right-2 top-1/2 z-[35] flex -translate-y-1/2 flex-col items-center gap-3 sm:right-4 md:right-3">
-          {canContactSeller ? (
+        <div className="pointer-events-auto absolute right-2 z-[35] flex flex-col items-center gap-2.5 max-md:top-[4.75rem] max-md:bottom-[13.5rem] max-md:justify-center sm:right-4 md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:gap-3">
+          {showSellerMessage ? (
             <button
               type="button"
               onClick={handleWriteSeller}
-              className="flex max-w-[6.25rem] flex-col items-center gap-1.5 rounded-2xl border-2 border-orange-400/90 bg-gradient-to-b from-[#ff7a1a] to-[#ff3c00] px-2.5 py-3 text-center text-white shadow-[0_12px_40px_rgba(255,90,0,0.45)] transition hover:brightness-110 active:scale-[0.97]"
-              aria-label="Odeslat zprávu prodejci"
+              className="flex min-h-[4.5rem] max-w-[5.75rem] flex-col items-center justify-center gap-1 rounded-2xl border-2 border-orange-300/95 bg-gradient-to-b from-[#ff7a1a] to-[#ff3c00] px-2 py-2.5 text-center text-white shadow-[0_12px_40px_rgba(255,90,0,0.5)] transition hover:brightness-110 active:scale-[0.97]"
+              aria-label="Napsat prodejci"
             >
-              <MessageCircle className="size-7 shrink-0 drop-shadow-sm" strokeWidth={2.25} aria-hidden />
-              <span className="text-[10px] font-extrabold leading-[1.2] tracking-tight">
-                Odeslat zprávu prodejci
+              <MessageCircle className="size-6 shrink-0 drop-shadow-sm md:size-7" strokeWidth={2.25} aria-hidden />
+              <span className="text-[10px] font-extrabold leading-tight tracking-tight md:text-[10px]">
+                <span className="block">Napsat</span>
+                <span className="block">prodejci</span>
               </span>
             </button>
           ) : null}
@@ -188,9 +190,9 @@ export default function VideoCard({ video }: VideoCardProps) {
 
         {/* Spodní panel — uvnitř stage, vždy ke spodní hraně videa / letterboxu */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[25]">
-          <div className="bg-gradient-to-t from-black via-black/90 to-transparent px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-14 pr-[4.25rem] text-white sm:px-4 sm:pb-4 sm:pr-24 sm:pt-16 md:pb-5 md:pr-20 md:pt-12">
+          <div className="bg-gradient-to-t from-black via-black/95 to-black/25 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-12 pr-[4rem] text-white shadow-[0_-12px_40px_rgba(0,0,0,0.45)] sm:px-4 sm:pb-4 sm:pr-24 sm:pt-14 md:pb-5 md:pr-20 md:pt-12">
             <div className="pointer-events-auto mx-auto max-w-lg space-y-2 sm:space-y-3">
-              <div className="rounded-xl border border-white/10 bg-black/35 px-3 py-2 shadow-lg backdrop-blur-md sm:px-4">
+              <div className="rounded-xl border border-white/15 bg-black/50 px-3 py-2 shadow-lg backdrop-blur-md sm:px-4">
                 <div className="line-clamp-2 text-sm font-semibold leading-snug sm:text-base">
                   {video.title ?? ''}
                 </div>
@@ -206,30 +208,30 @@ export default function VideoCard({ video }: VideoCardProps) {
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={handleOpenListing}
-                className="flex w-full min-h-[52px] items-center justify-center rounded-full border-2 border-orange-300/90 bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-3.5 text-base font-extrabold tracking-tight text-white shadow-[0_14px_40px_rgba(255,80,0,0.45)] transition hover:brightness-110 active:scale-[0.99] sm:text-lg"
-              >
-                Zobrazit inzerát
-              </button>
-
-              {canContactSeller ? (
+              {showSellerMessage ? (
                 <button
                   type="button"
                   onClick={handleWriteSeller}
-                  className="flex w-full min-h-[48px] items-center justify-center gap-2 rounded-full border-2 border-white/40 bg-white/12 px-4 py-3 text-sm font-bold text-white shadow-lg backdrop-blur-md transition hover:border-orange-300/80 hover:bg-orange-600/35 sm:text-base"
+                  className="flex w-full min-h-[52px] items-center justify-center gap-2 rounded-full border-2 border-orange-200/90 bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-3.5 text-sm font-extrabold tracking-tight text-white shadow-[0_14px_40px_rgba(255,80,0,0.45)] transition hover:brightness-110 active:scale-[0.99] sm:text-base"
                 >
-                  <MessageCircle className="size-5 shrink-0 sm:size-6" strokeWidth={2.25} aria-hidden />
-                  Odeslat zprávu prodejci
+                  <MessageCircle className="size-6 shrink-0" strokeWidth={2.25} aria-hidden />
+                  Napsat prodejci
                 </button>
               ) : null}
+
+              <button
+                type="button"
+                onClick={handleOpenListing}
+                className="flex w-full min-h-[48px] items-center justify-center rounded-full border-2 border-white/50 bg-white/15 px-6 py-3 text-base font-extrabold tracking-tight text-white shadow-lg backdrop-blur-md transition hover:border-orange-200/80 hover:bg-orange-600/25 active:scale-[0.99] sm:text-lg md:border-orange-300/90 md:bg-gradient-to-r md:from-[#ff6a00] md:to-[#ff3c00] md:shadow-[0_14px_40px_rgba(255,80,0,0.45)] md:hover:brightness-110"
+              >
+                Zobrazit inzerát
+              </button>
             </div>
           </div>
         </div>
       </div>
 
-      {canContactSeller ? (
+      {showSellerMessage ? (
         <MessageSellerModal
           open={sellerModalOpen}
           onClose={() => setSellerModalOpen(false)}
