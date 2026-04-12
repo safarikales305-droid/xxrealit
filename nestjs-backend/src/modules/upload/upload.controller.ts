@@ -2,9 +2,11 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Logger,
   Post,
   UploadedFile,
   UploadedFiles,
+  UseFilters,
   UseGuards,
   UseInterceptors,
   UsePipes,
@@ -22,6 +24,7 @@ import { getUploadsPath } from '../../lib/uploads-path';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { MulterProfileExceptionFilter } from './multer-profile.exception-filter';
 import { propertyImagesMulterOptions } from './multer-upload.config';
 import {
   PROFILE_UPLOAD_MAX_BYTES,
@@ -39,7 +42,10 @@ const noBodyValidation = new ValidationPipe({
 });
 
 @Controller()
+@UseFilters(MulterProfileExceptionFilter)
 export class UploadController {
+  private readonly log = new Logger(UploadController.name);
+
   constructor(private readonly profileImages: ProfileImagesService) {
     const dir = getUploadsPath();
     if (!fs.existsSync(dir)) {
@@ -75,12 +81,26 @@ export class UploadController {
       );
     }
     this.profileImages.assertImageMime(file.mimetype, file.originalname);
-    const webp = await this.profileImages.processAvatarWebp(file.buffer);
-    const name = `${user.id}-${Date.now()}.webp`;
-    const dir = join(getUploadsPath(), 'avatars');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(join(dir, name), webp);
-    return { url: `/uploads/avatars/${name}` };
+    try {
+      const webp = await this.profileImages.processAvatarWebp(file.buffer);
+      const name = `${user.id}-${Date.now()}.webp`;
+      const dir = join(getUploadsPath(), 'avatars');
+      fs.mkdirSync(dir, { recursive: true });
+      const outPath = join(dir, name);
+      fs.writeFileSync(outPath, webp);
+      this.log.log(`[upload/avatar] uloženo user=${user.id} → ${outPath}`);
+      return { url: `/uploads/avatars/${name}` };
+    } catch (err) {
+      if (err instanceof BadRequestException) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      this.log.error(
+        `[upload/avatar] zápis souboru selhal user=${user.id}: ${msg}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      throw new BadRequestException(
+        'Soubor se nepodařilo uložit na server (disk nebo oprávnění). Zkuste to prosím znovu nebo kontaktujte správce.',
+      );
+    }
   }
 
   @Post('upload/cover')
@@ -107,12 +127,26 @@ export class UploadController {
       );
     }
     this.profileImages.assertImageMime(file.mimetype, file.originalname);
-    const webp = await this.profileImages.processCoverWebp(file.buffer);
-    const name = `${user.id}-${Date.now()}.webp`;
-    const dir = join(getUploadsPath(), 'covers');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(join(dir, name), webp);
-    return { url: `/uploads/covers/${name}` };
+    try {
+      const webp = await this.profileImages.processCoverWebp(file.buffer);
+      const name = `${user.id}-${Date.now()}.webp`;
+      const dir = join(getUploadsPath(), 'covers');
+      fs.mkdirSync(dir, { recursive: true });
+      const outPath = join(dir, name);
+      fs.writeFileSync(outPath, webp);
+      this.log.log(`[upload/cover] uloženo user=${user.id} → ${outPath}`);
+      return { url: `/uploads/covers/${name}` };
+    } catch (err) {
+      if (err instanceof BadRequestException) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      this.log.error(
+        `[upload/cover] zápis souboru selhal user=${user.id}: ${msg}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      throw new BadRequestException(
+        'Cover se nepodařilo uložit na server (disk nebo oprávnění). Zkuste to prosím znovu nebo kontaktujte správce.',
+      );
+    }
   }
 
   @Post('upload')

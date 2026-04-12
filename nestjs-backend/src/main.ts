@@ -3,9 +3,12 @@ import { Prisma } from '@prisma/client';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import * as fs from 'node:fs';
-import { join } from 'node:path';
 import { AppModule } from './app.module';
 import { PrismaService } from './database/prisma.service';
+import {
+  ensureStandardUploadSubdirs,
+  getUploadsPath,
+} from './lib/uploads-path';
 
 function normalizeOrigin(url: string): string {
   return url.trim().replace(/\/+$/, '');
@@ -65,17 +68,10 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
 
-  const uploadsRoot = join(__dirname, '..', 'uploads');
+  ensureStandardUploadSubdirs();
+  const uploadsRoot = getUploadsPath();
   if (!fs.existsSync(uploadsRoot)) {
     fs.mkdirSync(uploadsRoot, { recursive: true });
-  }
-  const propertiesUploadRoot = join(uploadsRoot, 'properties');
-  if (!fs.existsSync(propertiesUploadRoot)) {
-    fs.mkdirSync(propertiesUploadRoot, { recursive: true });
-  }
-  const videosUploadRoot = join(uploadsRoot, 'videos');
-  if (!fs.existsSync(videosUploadRoot)) {
-    fs.mkdirSync(videosUploadRoot, { recursive: true });
   }
 
   app.useStaticAssets(uploadsRoot, { prefix: '/uploads/' });

@@ -22,6 +22,37 @@ export function nestApiConfigured(): boolean {
   return Boolean(API_BASE_URL);
 }
 
+/** Čitelná zpráva z Nest JSON těla (`message` / `error`), ne jen „Internal server error“. */
+export function nestApiErrorBodyMessage(
+  status: number,
+  data: unknown,
+  fallback: string,
+): string {
+  if (data == null || typeof data !== 'object') {
+    if (status === 413) return 'Soubor je příliš velký.';
+    if (status >= 500) {
+      return 'Server dočasně neodpovídá. Zkuste to prosím znovu nebo zkontrolujte log backendu.';
+    }
+    return fallback;
+  }
+  const o = data as Record<string, unknown>;
+  const m = o.message;
+  if (typeof m === 'string' && m.trim()) return m.trim();
+  if (Array.isArray(m)) {
+    const parts = m.filter((x): x is string => typeof x === 'string');
+    if (parts.length) return parts.join(', ');
+  }
+  const err = o.error;
+  if (typeof err === 'string' && err.trim() && err !== 'Internal Server Error') {
+    return err.trim();
+  }
+  if (status === 413) return 'Soubor je příliš velký.';
+  if (status >= 500) {
+    return 'Server dočasně neodpovídá. Zkuste to prosím znovu nebo zkontrolujte log backendu.';
+  }
+  return fallback;
+}
+
 /** POST /favorites/:id nebo DELETE — vyžaduje JWT z Nest (stejný secret + uživatel v Nest DB). */
 export async function nestToggleFavorite(
   propertyId: string,
@@ -591,13 +622,9 @@ export async function nestUploadAvatar(
     message?: string | string[];
   };
   if (!up.ok) {
-    const msg =
-      typeof upData.message === 'string'
-        ? upData.message
-        : Array.isArray(upData.message)
-          ? upData.message.join(', ')
-          : `HTTP ${up.status}`;
-    return { error: msg };
+    return {
+      error: nestApiErrorBodyMessage(up.status, upData, `Nahrání fotky selhalo (HTTP ${up.status}).`),
+    };
   }
   const url = typeof upData.url === 'string' ? upData.url : '';
   if (!url) {
@@ -619,13 +646,13 @@ export async function nestUploadAvatar(
     message?: string | string[];
   };
   if (!patch.ok) {
-    const msg =
-      typeof patchData.message === 'string'
-        ? patchData.message
-        : Array.isArray(patchData.message)
-          ? patchData.message.join(', ')
-          : `HTTP ${patch.status}`;
-    return { error: msg };
+    return {
+      error: nestApiErrorBodyMessage(
+        patch.status,
+        patchData,
+        `Uložení URL profilové fotky selhalo (HTTP ${patch.status}).`,
+      ),
+    };
   }
   const avatarUrl =
     typeof patchData.avatarUrl === 'string'
@@ -663,13 +690,9 @@ export async function nestUploadCover(
     message?: string | string[];
   };
   if (!up.ok) {
-    const msg =
-      typeof upData.message === 'string'
-        ? upData.message
-        : Array.isArray(upData.message)
-          ? upData.message.join(', ')
-          : `HTTP ${up.status}`;
-    return { error: msg };
+    return {
+      error: nestApiErrorBodyMessage(up.status, upData, `Nahrání cover obrázku selhalo (HTTP ${up.status}).`),
+    };
   }
   const url = typeof upData.url === 'string' ? upData.url : '';
   if (!url) {
@@ -690,13 +713,13 @@ export async function nestUploadCover(
     message?: string | string[];
   };
   if (!patch.ok) {
-    const msg =
-      typeof patchData.message === 'string'
-        ? patchData.message
-        : Array.isArray(patchData.message)
-          ? patchData.message.join(', ')
-          : `HTTP ${patch.status}`;
-    return { error: msg };
+    return {
+      error: nestApiErrorBodyMessage(
+        patch.status,
+        patchData,
+        `Uložení URL cover obrázku selhalo (HTTP ${patch.status}).`,
+      ),
+    };
   }
   const coverImageUrl =
     typeof patchData.coverImageUrl === 'string'
