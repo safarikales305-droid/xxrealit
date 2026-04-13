@@ -203,6 +203,7 @@ export class PropertiesService {
     const otherRows = await this.prisma.property.findMany({
       where: othersWhere,
       orderBy: { createdAt: 'desc' },
+      take: 8,
       include: {
         media: {
           orderBy: { sortOrder: 'asc' },

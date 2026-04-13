@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { ComponentType } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Briefcase, Building2, Home } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
@@ -135,6 +135,7 @@ export function HomeLayout({
   const [shortsFallbackItems, setShortsFallbackItems] = useState<PropertyFeedItem[]>([]);
   const [postFeed, setPostFeed] = useState<Array<Record<string, unknown>>>([]);
   const [loadingFeed, setLoadingFeed] = useState(false);
+  const shortsLoadedRef = useRef(false);
   const [activeCategory, setActiveCategory] = useState<
     'MAKLERI' | 'STAVEBNI_FIRMY' | 'REALITNI_KANCELARE'
   >('MAKLERI');
@@ -345,101 +346,100 @@ export function HomeLayout({
   }, []);
 
   useEffect(() => {
-    if (!API_BASE_URL) return;
-
+    if (!API_BASE_URL || viewMode !== 'shorts') return;
+    if (shortsLoadedRef.current) return;
     let cancelled = false;
     setLoadingFeed(true);
 
     void (async () => {
       try {
-        if (viewMode === 'shorts') {
-          const shortsUrl = `${API_BASE_URL}/feed/shorts`;
-          const res = await fetch(shortsUrl, {
-            cache: 'no-store',
-          });
-          if (!res.ok) {
-            // eslint-disable-next-line no-console
-            console.warn(
-              `[HomeLayout] GET shorts feed failed: ${res.status} ${res.statusText} — ${shortsUrl}`,
-            );
-          }
-          const data = res.ok ? await res.json() : [];
-          const rawList = Array.isArray(data) ? (data as Record<string, unknown>[]) : [];
-          const list = rawList
-            .map(feedShortsRowToShortVideo)
-            .filter((x): x is ShortVideo => x != null);
-          if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-            // eslint-disable-next-line no-console
-            console.debug('[HomeLayout] shorts feed parsed count=', list.length, {
-              sampleIds: list.slice(0, 5).map((v) => v.id),
-            });
-          }
-          if (cancelled) return;
-          setVideoFeed(list);
-          if (list.length === 0) {
-            const classic = await loadPropertyFeedItems(API_BASE_URL, {
-              path: '/properties',
-            });
-            if (!cancelled) setShortsFallbackItems(classic);
-          } else if (!cancelled) {
-            setShortsFallbackItems([]);
-          }
-          return;
+        const shortsUrl = `${API_BASE_URL}/feed/shorts`;
+        const res = await fetch(shortsUrl, {
+          next: { revalidate: 20 },
+        });
+        if (!res.ok) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[HomeLayout] GET shorts feed failed: ${res.status} ${res.statusText} — ${shortsUrl}`,
+          );
         }
-
-        if (viewMode === 'posts') {
-          const list = await nestFetchCommunityPosts(activeCategory, {
-            radiusKm,
-            lat: userCoords?.lat,
-            lng: userCoords?.lng,
+        const data = res.ok ? await res.json() : [];
+        const rawList = Array.isArray(data) ? (data as Record<string, unknown>[]) : [];
+        const list = rawList
+          .map(feedShortsRowToShortVideo)
+          .filter((x): x is ShortVideo => x != null);
+        if (cancelled) return;
+        setVideoFeed(list);
+        if (list.length === 0) {
+          const classic = await loadPropertyFeedItems(API_BASE_URL, {
+            path: '/properties',
           });
-          if (cancelled) return;
-          setPostFeed(list as Array<Record<string, unknown>>);
-          setLikeCountByPostId((prev) => {
-            const next = { ...prev };
-            for (const p of list as Array<Record<string, unknown>>) {
-              const id = String(p.id ?? '');
-              if (!id) continue;
-              const count = Number(
-                (p._count as { favorites?: number } | undefined)?.favorites ?? 0,
-              );
-              next[id] = Number.isFinite(count) ? count : 0;
-            }
-            return next;
-          });
-          setDislikeCountByPostId((prev) => {
-            const next = { ...prev };
-            for (const p of list as Array<Record<string, unknown>>) {
-              const id = String(p.id ?? '');
-              if (!id) continue;
-              const dislikes = Number(
-                ((p as { reactions?: Array<{ type?: string }> }).reactions ?? []).filter(
-                  (r) => r.type === 'DISLIKE',
-                ).length,
-              );
-              next[id] = Number.isFinite(dislikes) ? dislikes : 0;
-            }
-            return next;
-          });
+          if (!cancelled) setShortsFallbackItems(classic);
+        } else if (!cancelled) {
+          setShortsFallbackItems([]);
         }
+        shortsLoadedRef.current = true;
       } catch {
-        if (!cancelled && viewMode === 'shorts') {
+        if (!cancelled) {
           setVideoFeed([]);
-          try {
-            const classic = await loadPropertyFeedItems(API_BASE_URL, {
-              path: '/properties',
-            });
-            if (!cancelled) setShortsFallbackItems(classic);
-          } catch {
-            if (!cancelled) setShortsFallbackItems([]);
-          }
+          setShortsFallbackItems([]);
+          shortsLoadedRef.current = true;
         }
-        if (!cancelled && viewMode === 'posts') setPostFeed([]);
       } finally {
         if (!cancelled) setLoadingFeed(false);
       }
     })();
 
+    return () => {
+      cancelled = true;
+    };
+  }, [viewMode]);
+
+  useEffect(() => {
+    if (viewMode !== 'posts') return;
+    let cancelled = false;
+    setLoadingFeed(true);
+    void (async () => {
+      try {
+        const list = await nestFetchCommunityPosts(activeCategory, {
+          radiusKm,
+          lat: userCoords?.lat,
+          lng: userCoords?.lng,
+        });
+        if (cancelled) return;
+        setPostFeed(list as Array<Record<string, unknown>>);
+        setLikeCountByPostId((prev) => {
+          const next = { ...prev };
+          for (const p of list as Array<Record<string, unknown>>) {
+            const id = String(p.id ?? '');
+            if (!id) continue;
+            const count = Number(
+              (p._count as { favorites?: number } | undefined)?.favorites ?? 0,
+            );
+            next[id] = Number.isFinite(count) ? count : 0;
+          }
+          return next;
+        });
+        setDislikeCountByPostId((prev) => {
+          const next = { ...prev };
+          for (const p of list as Array<Record<string, unknown>>) {
+            const id = String(p.id ?? '');
+            if (!id) continue;
+            const dislikes = Number(
+              ((p as { reactions?: Array<{ type?: string }> }).reactions ?? []).filter(
+                (r) => r.type === 'DISLIKE',
+              ).length,
+            );
+            next[id] = Number.isFinite(dislikes) ? dislikes : 0;
+          }
+          return next;
+        });
+      } catch {
+        if (!cancelled) setPostFeed([]);
+      } finally {
+        if (!cancelled) setLoadingFeed(false);
+      }
+    })();
     return () => {
       cancelled = true;
     };

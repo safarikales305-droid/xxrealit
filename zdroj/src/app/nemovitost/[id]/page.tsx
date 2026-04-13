@@ -1,26 +1,31 @@
 import { notFound } from 'next/navigation';
-import { headers } from 'next/headers';
 import { NemovitostDetailView } from '@/components/nemovitost/NemovitostDetailView';
+import { getServerSideApiBaseUrl } from '@/lib/api';
 import { normalizePropertyDetailPayload } from '@/lib/property-detail';
+import { getServerAuthorizationHeader } from '@/lib/server-bearer';
 
 type Props = {
   params: Promise<{ id: string }>;
 };
 
 async function fetchPropertyDetail(id: string): Promise<unknown | null> {
-  const h = await headers();
-  const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost:3000';
-  const proto = h.get('x-forwarded-proto') ?? 'http';
-  const cookie = h.get('cookie') ?? '';
-  const url = `${proto}://${host}/api/properties/${encodeURIComponent(id)}`;
-
-  const res = await fetch(url, {
-    cache: 'no-store',
-    headers: cookie ? { cookie } : {},
-  });
+  const apiBase = getServerSideApiBaseUrl();
+  if (!apiBase) return null;
+  const authorization = await getServerAuthorizationHeader();
+  const url = `${apiBase}/properties/${encodeURIComponent(id)}`;
+  const res = await fetch(url, authorization
+    ? {
+        cache: 'no-store',
+        headers: { Authorization: authorization },
+      }
+    : {
+        next: { revalidate: 30 },
+      });
 
   if (res.status === 404) return null;
-  if (!res.ok) return null;
+  if (!res.ok) {
+    throw new Error('PROPERTY_DETAIL_FETCH_FAILED');
+  }
   return res.json().catch(() => null);
 }
 
@@ -43,6 +48,9 @@ function pickExtraFields(rawProp: unknown): Record<string, unknown> {
 export default async function NemovitostDetailPage({ params }: Props) {
   const { id } = await params;
   const raw = await fetchPropertyDetail(id);
+  if (!raw) {
+    notFound();
+  }
   const parsed = normalizePropertyDetailPayload(raw);
 
   if (!parsed?.property || !parsed.user) {

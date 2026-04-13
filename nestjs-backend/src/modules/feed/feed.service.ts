@@ -117,6 +117,7 @@ export class FeedService {
     const rows = await this.prisma.property.findMany({
       where: publicShortPropertyWhere,
       orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 40,
       include: {
         media: { orderBy: { sortOrder: 'asc' } },
         _count: { select: { likes: true } },

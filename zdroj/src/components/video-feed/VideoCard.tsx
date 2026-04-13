@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -161,6 +161,19 @@ export default function VideoCard({
         ? `${window.location.pathname}${window.location.search}`
         : '/';
     router.push(`/prihlaseni?redirect=${encodeURIComponent(path)}`);
+  }
+
+  const addListingPath = '/inzerat/pridat';
+  const addListingTarget =
+    !isLoading && isAuthenticated && user && user.role !== 'ADMIN'
+      ? addListingPath
+      : `/prihlaseni?redirect=${encodeURIComponent(addListingPath)}`;
+
+  function handleAddListingTap(e: MouseEvent<HTMLButtonElement>) {
+    // On mobile inside swipeable feed prevent tap-through to underlying video/gestures.
+    e.preventDefault();
+    e.stopPropagation();
+    router.push(addListingTarget);
   }
 
   function handleOpenListing() {
@@ -462,13 +475,14 @@ export default function VideoCard({
             <div className="pointer-events-auto absolute right-2 z-[35] flex flex-col items-center gap-2.5 max-lg:top-[3.85rem] max-lg:bottom-[calc(13.25rem+env(safe-area-inset-bottom,0px))] max-lg:justify-center sm:right-4 lg:hidden">
               {renderActionRail({ showAddListingOnDesktop: false })}
               {!isLoading && isAuthenticated && user && user.role !== 'ADMIN' ? (
-                <Link
-                  href="/inzerat/pridat"
-                  className={`${railBtn} inline-flex border-orange-400/85 bg-gradient-to-br from-[#ff6a00]/95 to-[#ff3c00]/95 text-white hover:brightness-110`}
+                <button
+                  type="button"
+                  onClick={handleAddListingTap}
+                  className={`${railBtn} inline-flex touch-manipulation border-orange-400/85 bg-gradient-to-br from-[#ff6a00]/95 to-[#ff3c00]/95 text-white hover:brightness-110`}
                   aria-label="Přidat inzerát"
                 >
                   <Plus className="size-6" strokeWidth={2.5} aria-hidden />
-                </Link>
+                </button>
               ) : null}
             </div>
 
