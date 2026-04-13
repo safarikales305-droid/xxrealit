@@ -51,11 +51,13 @@ export const DASHBOARD_SEGMENTS: Record<UserRole, string> = {
   sledujici: 'sledujici',
   soukromy: 'soukromy',
   stavebni_firma: 'stavebni_firma',
-  USER: 'uzivatel',
-  AGENT: 'makler',
+  USER: 'USER',
+  AGENT: 'AGENT',
+  COMPANY: 'COMPANY',
+  AGENCY: 'AGENCY',
   DEVELOPER: 'stavebni_firma',
   PRIVATE_SELLER: 'uzivatel',
-  ADMIN: 'uzivatel',
+  ADMIN: 'ADMIN',
 };
 
 export function dashboardPathForRole(role: UserRole): string {
