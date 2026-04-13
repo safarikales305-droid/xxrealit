@@ -77,3 +77,16 @@ export function canRequestProfessionalProfileUpgrade(role: string | undefined | 
   if (role === 'AGENT' || role === 'COMPANY' || role === 'AGENCY' || role === 'ADMIN') return false;
   return (PROFESSIONAL_UPGRADE_ELIGIBLE_ROLES as readonly string[]).includes(role);
 }
+
+/** Tvorba inzerce / komunitních příspěvků typu listing-post — stejné role jako na API. */
+export const PROFESSIONAL_CONTENT_CREATOR_ROLES = [
+  'AGENT',
+  'COMPANY',
+  'AGENCY',
+  'ADMIN',
+] as const;
+
+export function canCreateProfessionalListingsAndPosts(role: string | undefined | null): boolean {
+  if (!role) return false;
+  return (PROFESSIONAL_CONTENT_CREATOR_ROLES as readonly string[]).includes(role);
+}

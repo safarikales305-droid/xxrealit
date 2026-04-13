@@ -14,6 +14,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { assertUserCanCreateProfessionalContent } from '../auth/assert-professional-content';
 import { PostCategory, ReactionType } from '@prisma/client';
 import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
@@ -54,6 +55,7 @@ export class PostsController {
   @Post()
   @UseGuards(JwtAuthGuard)
   create(@CurrentUser() user: AuthUser, @Body() body: CreatePostDto) {
+    assertUserCanCreateProfessionalContent(user);
     const text = (body.description ?? body.content ?? '').trim();
     if (!text) {
       throw new BadRequestException('Obsah příspěvku je povinný.');
@@ -221,6 +223,7 @@ export class PostsController {
       images?: Express.Multer.File[];
     },
   ) {
+    assertUserCanCreateProfessionalContent(user);
     const video = files?.video?.[0];
     const images = files?.images ?? [];
     if (images.length > 30) {

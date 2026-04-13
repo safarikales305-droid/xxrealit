@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Filter,
@@ -19,6 +18,8 @@ import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { nestToggleFavorite, type ShortVideo } from '@/lib/nest-client';
+import { canCreateProfessionalListingsAndPosts } from '@/lib/roles';
+import { ProfessionalOnlyDialog } from '@/components/auth/ProfessionalListingRestriction';
 
 type VideoCardProps = {
   video: ShortVideo;
@@ -49,6 +50,7 @@ export default function VideoCard({
   const [sellerModalOpen, setSellerModalOpen] = useState(false);
   const [sellerActionHint, setSellerActionHint] = useState<string | null>(null);
   const [desktopPreviewUrl, setDesktopPreviewUrl] = useState<string | null>(null);
+  const [professionalOnlyOpen, setProfessionalOnlyOpen] = useState(false);
 
   const src = nestAbsoluteAssetUrl(video.videoUrl ?? video.url ?? '').trim();
 
@@ -164,16 +166,22 @@ export default function VideoCard({
   }
 
   const addListingPath = '/inzerat/pridat';
-  const addListingTarget =
-    !isLoading && isAuthenticated && user && user.role !== 'ADMIN'
-      ? addListingPath
-      : `/prihlaseni?redirect=${encodeURIComponent(addListingPath)}`;
+  const canPostProfessionalListing = canCreateProfessionalListingsAndPosts(user?.role);
 
-  function handleAddListingTap(e: MouseEvent<HTMLButtonElement>) {
+  function goAddListing(e: MouseEvent<HTMLButtonElement>) {
     // On mobile inside swipeable feed prevent tap-through to underlying video/gestures.
     e.preventDefault();
     e.stopPropagation();
-    router.push(addListingTarget);
+    if (isLoading) return;
+    if (!isAuthenticated || !user) {
+      router.push(`/prihlaseni?redirect=${encodeURIComponent(addListingPath)}`);
+      return;
+    }
+    if (!canPostProfessionalListing) {
+      setProfessionalOnlyOpen(true);
+      return;
+    }
+    router.push(addListingPath);
   }
 
   function handleOpenListing() {
@@ -265,11 +273,8 @@ export default function VideoCard({
     );
   }
 
-  function renderActionRail(options: {
-    showAddListingOnDesktop: boolean;
-    desktopLightShare?: boolean;
-  }) {
-    const { showAddListingOnDesktop, desktopLightShare } = options;
+  function renderActionRail(options: { desktopLightShare?: boolean }) {
+    const { desktopLightShare } = options;
     return (
       <>
         <button
@@ -318,18 +323,15 @@ export default function VideoCard({
           )}
         </button>
 
-        {showAddListingOnDesktop &&
-        !isLoading &&
-        isAuthenticated &&
-        user &&
-        user.role !== 'ADMIN' ? (
-          <Link
-            href="/inzerat/pridat"
-            className={`${railBtn} border-orange-400/85 bg-gradient-to-br from-[#ff6a00]/95 to-[#ff3c00]/95 text-white hover:brightness-110 lg:border-orange-400 lg:bg-gradient-to-br lg:from-[#ff6a00] lg:to-[#ff3c00] lg:text-white lg:hover:brightness-110`}
+        {!isLoading && isAuthenticated && user ? (
+          <button
+            type="button"
+            onClick={goAddListing}
+            className={`${railBtn} touch-manipulation border-orange-400/85 bg-gradient-to-br from-[#ff6a00]/95 to-[#ff3c00]/95 text-white hover:brightness-110 lg:border-orange-400 lg:bg-gradient-to-br lg:from-[#ff6a00] lg:to-[#ff3c00] lg:text-white lg:hover:brightness-110`}
             aria-label="Přidat inzerát"
           >
             <Plus className="size-6" strokeWidth={2.5} aria-hidden />
-          </Link>
+          </button>
         ) : null}
       </>
     );
@@ -473,17 +475,7 @@ export default function VideoCard({
 
             {/* Mobil: akce přes video */}
             <div className="pointer-events-auto absolute right-2 z-[35] flex flex-col items-center gap-2.5 max-lg:top-[3.85rem] max-lg:bottom-[calc(13.25rem+env(safe-area-inset-bottom,0px))] max-lg:justify-center sm:right-4 lg:hidden">
-              {renderActionRail({ showAddListingOnDesktop: false })}
-              {!isLoading && isAuthenticated && user && user.role !== 'ADMIN' ? (
-                <button
-                  type="button"
-                  onClick={handleAddListingTap}
-                  className={`${railBtn} inline-flex touch-manipulation border-orange-400/85 bg-gradient-to-br from-[#ff6a00]/95 to-[#ff3c00]/95 text-white hover:brightness-110`}
-                  aria-label="Přidat inzerát"
-                >
-                  <Plus className="size-6" strokeWidth={2.5} aria-hidden />
-                </button>
-              ) : null}
+              {renderActionRail({ desktopLightShare: false })}
             </div>
 
             {/* Mobil: spodní info vůči videu */}
@@ -499,7 +491,7 @@ export default function VideoCard({
 
         {/* Desktop: akce vpravo vedle videa */}
         <div className="pointer-events-auto z-[35] hidden w-auto shrink-0 flex-col items-center justify-center gap-3 self-center lg:flex">
-          {renderActionRail({ showAddListingOnDesktop: true, desktopLightShare: true })}
+          {renderActionRail({ desktopLightShare: true })}
         </div>
       </div>
 
@@ -515,6 +507,11 @@ export default function VideoCard({
         onSent={(conversationId) => {
           router.push(`/profil/zpravy/${conversationId}`);
         }}
+      />
+
+      <ProfessionalOnlyDialog
+        open={professionalOnlyOpen}
+        onClose={() => setProfessionalOnlyOpen(false)}
       />
     </div>
   );

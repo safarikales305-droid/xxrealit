@@ -8,6 +8,8 @@ import Logo from '@/components/Logo';
 import { useAuth } from '@/hooks/use-auth';
 import { useMessagesUnreadCount } from '@/hooks/use-messages-unread';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
+import { canCreateProfessionalListingsAndPosts } from '@/lib/roles';
+import { ProfessionalOnlyDialog } from '@/components/auth/ProfessionalListingRestriction';
 
 export type ViewMode = 'shorts' | 'classic' | 'posts';
 
@@ -32,7 +34,9 @@ export function Navbar({
   const router = useRouter();
   const { user, isAuthenticated, isLoading, logout, refresh, apiAccessToken } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [professionalListingDialogOpen, setProfessionalListingDialogOpen] = useState(false);
   const unreadMessages = useMessagesUnreadCount(apiAccessToken);
+  const canCreateListing = canCreateProfessionalListingsAndPosts(user?.role);
 
   const profilePath = '/profil';
   const messagesPath = '/profil/zpravy';
@@ -63,6 +67,15 @@ export function Navbar({
       router.refresh();
       setMenuOpen(false);
     })();
+  }
+
+  function handleAddListingClick() {
+    if (isLoading || !isAuthenticated || !user) return;
+    if (!canCreateListing) {
+      setProfessionalListingDialogOpen(true);
+      return;
+    }
+    router.push('/inzerat/pridat');
   }
 
   const isShortsMobileCompact = viewMode === 'shorts';
@@ -343,25 +356,27 @@ export function Navbar({
             )}
           </div>
 
-          {!isLoading && isAuthenticated && !isAdmin ? (
+          {!isLoading && isAuthenticated && user && !isAdmin ? (
             <>
-              <Link
-                href="/inzerat/pridat"
+              <button
+                type="button"
+                onClick={handleAddListingClick}
                 className="hidden items-center gap-2 rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2.5 text-sm font-bold text-white shadow-[0_8px_28px_-6px_rgba(255,106,0,0.42)] ring-1 ring-white/25 transition hover:brightness-105 active:scale-[0.99] md:inline-flex"
               >
                 <Plus className="size-5 shrink-0" strokeWidth={2.5} aria-hidden />
                 Přidat inzerát
-              </Link>
+              </button>
 
-              {/* Na mobilu ve shorts je „+“ v pravém sloupci videa (VideoCard). */}
+              {/* Na mobilu ve shorts je „+“ v pravém sloupci videa (VideoCard); mimo shorts zůstává rychlá volba v hlavičce. */}
               {viewMode !== 'shorts' ? (
-                <Link
-                  href="/inzerat/pridat"
+                <button
+                  type="button"
+                  onClick={handleAddListingClick}
                   className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] text-base font-semibold text-white shadow-md transition hover:scale-105 active:scale-95 md:hidden"
                   aria-label="Přidat inzerát"
                 >
                   +
-                </Link>
+                </button>
               ) : null}
             </>
           ) : null}
@@ -432,9 +447,16 @@ export function Navbar({
                   </Link>
                 ) : null}
                 {!isAdmin ? (
-                  <Link href="/inzerat/pridat" className={navBtn} onClick={() => setMenuOpen(false)}>
+                  <button
+                    type="button"
+                    className={navBtn}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      handleAddListingClick();
+                    }}
+                  >
                     Přidat inzerát
-                  </Link>
+                  </button>
                 ) : null}
                 <button type="button" onClick={handleLogout} className={navBtn}>
                   Odhlásit
@@ -453,6 +475,11 @@ export function Navbar({
           </div>
         </>
       ) : null}
+
+      <ProfessionalOnlyDialog
+        open={professionalListingDialogOpen}
+        onClose={() => setProfessionalListingDialogOpen(false)}
+      />
     </header>
   );
 }

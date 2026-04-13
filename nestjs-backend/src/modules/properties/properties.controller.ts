@@ -33,6 +33,7 @@ import { BrokerLeadOfferService } from '../premium-broker/broker-lead-offer.serv
 import { OwnerLeadOfferDto } from '../premium-broker/dto/owner-lead-offer.dto';
 import { CreateShortsFromClassicDto } from './dto/create-shorts-from-classic.dto';
 import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
+import { assertUserCanCreateProfessionalContent } from '../auth/assert-professional-content';
 
 @Controller('properties')
 export class PropertiesController {
@@ -59,10 +60,12 @@ export class PropertiesController {
     ),
   )
   async generateShortsFromPhotos(
+    @CurrentUser() user: AuthUser,
     @Body() body: Record<string, unknown>,
     @UploadedFiles()
     files?: { images?: Express.Multer.File[] },
   ) {
+    assertUserCanCreateProfessionalContent(user);
     const imageFiles = files?.images ?? [];
     if (imageFiles.length > 30) {
       throw new BadRequestException('Max 30 fotek');
@@ -224,6 +227,7 @@ export class PropertiesController {
     @Body(new ValidationPipe({ whitelist: true, transform: true }))
     dto: CreateShortsFromClassicDto,
   ) {
+    assertUserCanCreateProfessionalContent(user);
     return this.propertiesService.createShortsFromClassic(user.id, id, dto);
   }
 
@@ -247,6 +251,7 @@ export class PropertiesController {
       images?: Express.Multer.File[];
     },
   ) {
+    assertUserCanCreateProfessionalContent(user);
     const imageFiles = files?.images ?? [];
     const videoFile = files?.video?.[0] ?? null;
     console.log('UPLOADED VIDEO:', videoFile?.originalname);

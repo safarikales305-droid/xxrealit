@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import {
   useCallback,
   useEffect,
@@ -9,7 +8,11 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useRouter } from 'next/navigation';
 import type { PropertyFeedItem } from '@/types/property';
+import { useAuth } from '@/hooks/use-auth';
+import { canCreateProfessionalListingsAndPosts } from '@/lib/roles';
+import { ProfessionalOnlyDialog } from '@/components/auth/ProfessionalListingRestriction';
 import { propertyFeedPrimaryVideoSrc, propertyRowPassesVideoFeedGate } from '@/lib/feed/loop-feed';
 import { propertyListingHasVideo } from '@/lib/property-feed-filters';
 
@@ -30,6 +33,9 @@ type Props = {
 };
 
 export function PropertyReelsFeed({ items }: Props) {
+  const router = useRouter();
+  const { user, isAuthenticated, isLoading } = useAuth();
+  const [professionalOnlyOpen, setProfessionalOnlyOpen] = useState(false);
   const [excludedIds, setExcludedIds] = useState<Set<string>>(() => new Set());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [liked, setLiked] = useState<Record<string, boolean>>({});
@@ -138,6 +144,20 @@ export function PropertyReelsFeed({ items }: Props) {
   const actionBtn =
     'flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/35 text-xl shadow-lg backdrop-blur-md transition duration-200 hover:scale-110 hover:border-white/35 hover:bg-black/50 active:scale-95';
 
+  function handleHeaderAddListing() {
+    if (isLoading) return;
+    const path = '/inzerat/pridat';
+    if (!isAuthenticated || !user) {
+      router.push(`/prihlaseni?redirect=${encodeURIComponent(path)}`);
+      return;
+    }
+    if (!canCreateProfessionalListingsAndPosts(user.role)) {
+      setProfessionalOnlyOpen(true);
+      return;
+    }
+    router.push(path);
+  }
+
   if (feedItems.length === 0) {
     return (
       <div className="relative flex h-svh w-full flex-col items-center justify-center gap-2 bg-black px-6 text-center">
@@ -155,12 +175,13 @@ export function PropertyReelsFeed({ items }: Props) {
         <span className="pointer-events-auto text-sm font-semibold tracking-wide text-white/90">
           Realitka
         </span>
-        <Link
-          href="/inzerat/pridat"
+        <button
+          type="button"
+          onClick={handleHeaderAddListing}
           className="pointer-events-auto rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white backdrop-blur-md transition hover:scale-105 hover:bg-white/20"
         >
           + Přidat
-        </Link>
+        </button>
       </header>
 
       <div
@@ -257,6 +278,11 @@ export function PropertyReelsFeed({ items }: Props) {
           );
         })}
       </div>
+
+      <ProfessionalOnlyDialog
+        open={professionalOnlyOpen}
+        onClose={() => setProfessionalOnlyOpen(false)}
+      />
     </div>
   );
 }

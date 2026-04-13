@@ -38,7 +38,11 @@ import {
   safeNormalizePropertyFromApi,
   type PropertyFeedItem,
 } from '@/types/property';
-import { canRequestProfessionalProfileUpgrade } from '@/lib/roles';
+import {
+  canCreateProfessionalListingsAndPosts,
+  canRequestProfessionalProfileUpgrade,
+} from '@/lib/roles';
+import { ProfessionalOnlyDialog } from '@/components/auth/ProfessionalListingRestriction';
 
 const BIO_MAX = 500;
 const ACCEPT_IMAGES = 'image/jpeg,image/jpg,image/png,image/webp';
@@ -152,6 +156,8 @@ export default function ProfilPage() {
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
+  const uctNavHandledRef = useRef(false);
+  const [professionalListingDialogOpen, setProfessionalListingDialogOpen] = useState(false);
 
   const showSuccess = useCallback((msg: string) => {
     setSuccessMsg(msg);
@@ -442,6 +448,37 @@ export default function ProfilPage() {
     prefillAgentFormFromProfile();
     setAgentFormOpen(true);
   }
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || uctNavHandledRef.current || !isAuthenticated) return;
+    const params = new URLSearchParams(window.location.search);
+    const uct = params.get('uct');
+    if (!uct) return;
+
+    if (!canRequestProfessionalProfileUpgrade(user?.role)) {
+      uctNavHandledRef.current = true;
+      router.replace('/profil', { scroll: false });
+      return;
+    }
+
+    uctNavHandledRef.current = true;
+    if (uct === 'agent') {
+      onOpenAgentForm();
+    } else if (uct === 'company') {
+      setCompanyFormOpen(true);
+    } else if (uct === 'agency') {
+      setAgencyFormOpen(true);
+    }
+
+    router.replace('/profil', { scroll: false });
+    window.requestAnimationFrame(() => {
+      document.getElementById('rozsirovani-uctu')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- jednorázová navigace z ?uct= po načtení profilu
+  }, [isAuthenticated, user?.role, router]);
 
   async function onAgentLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -799,7 +836,10 @@ export default function ProfilPage() {
         </section>
 
         {canRequestProfessionalProfileUpgrade(user.role) ? (
-          <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <section
+            id="rozsirovani-uctu"
+            className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"
+          >
             <h2 className="text-lg font-semibold text-zinc-900">Rozšířit účet</h2>
             <p className="mt-2 text-sm text-zinc-600">
               Vyberte typ profesionálního účtu. Role se přepne až po schválení administrátorem.
@@ -1085,12 +1125,22 @@ export default function ProfilPage() {
         <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold text-zinc-900">Moje inzeráty</h2>
-            <Link
-              href="/inzerat/pridat"
-              className="inline-flex w-full shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-3 text-sm font-bold text-white shadow-md transition hover:brightness-105 sm:w-auto sm:px-8"
-            >
-              Vytvořit inzerát
-            </Link>
+            {canCreateProfessionalListingsAndPosts(user.role) ? (
+              <Link
+                href="/inzerat/pridat"
+                className="inline-flex w-full shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-3 text-sm font-bold text-white shadow-md transition hover:brightness-105 sm:w-auto sm:px-8"
+              >
+                Vytvořit inzerát
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setProfessionalListingDialogOpen(true)}
+                className="inline-flex w-full shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-3 text-sm font-bold text-white shadow-md transition hover:brightness-105 sm:w-auto sm:px-8"
+              >
+                Vytvořit inzerát
+              </button>
+            )}
           </div>
           {!apiAccessToken ? (
             <p className="mt-4 text-sm text-amber-800">
@@ -1653,6 +1703,11 @@ export default function ProfilPage() {
           )}
         </section>
       </div>
+
+      <ProfessionalOnlyDialog
+        open={professionalListingDialogOpen}
+        onClose={() => setProfessionalListingDialogOpen(false)}
+      />
     </div>
   );
 }

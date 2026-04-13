@@ -27,6 +27,8 @@ import { VideoFeed } from '@/components/video-feed/VideoFeed';
 import { Navbar, type ViewMode } from './navbar';
 import { RightSidebar } from './right-sidebar';
 import { SidebarFilters } from './sidebar-filters';
+import { ProfessionalOnlyDialog } from '@/components/auth/ProfessionalListingRestriction';
+import { canCreateProfessionalListingsAndPosts } from '@/lib/roles';
 
 type Props = {
   items: PropertyFeedItem[];
@@ -94,8 +96,9 @@ export function HomeLayout({
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { refresh, user, isAuthenticated, apiAccessToken } = useAuth();
+  const { refresh, user, isAuthenticated, isLoading, apiAccessToken } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const canCreateListing = canCreateProfessionalListingsAndPosts(user?.role);
 
   /** Po příchodu na homepage (včetně router.push('/')) znovu načte uživatele z tokenu přes GET /api/auth/me. */
   useEffect(() => {
@@ -127,6 +130,7 @@ export function HomeLayout({
     }
   }, [searchParams]);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [professionalListingDialogOpen, setProfessionalListingDialogOpen] = useState(false);
   const [videoFeed, setVideoFeed] = useState<ShortVideo[]>([]);
   /** Video z deep linku, které ještě není v odpovědi /feed/shorts. */
   const [shareExtraVideo, setShareExtraVideo] = useState<ShortVideo | null>(null);
@@ -576,12 +580,26 @@ export function HomeLayout({
                   Zobrazit nemovitosti
                 </button>
                 {!isAdmin ? (
-                <Link
-                    href="/inzerat/pridat"
-                  className="rounded-full border border-zinc-300 bg-white px-8 py-3 text-[15px] font-semibold text-zinc-800 transition hover:bg-zinc-50"
-                >
-                  Vytvořit inzerát
-                </Link>
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => {
+                      if (!isAuthenticated) {
+                        router.push(
+                          `/prihlaseni?redirect=${encodeURIComponent('/inzerat/pridat')}`,
+                        );
+                        return;
+                      }
+                      if (!canCreateListing) {
+                        setProfessionalListingDialogOpen(true);
+                        return;
+                      }
+                      router.push('/inzerat/pridat');
+                    }}
+                    className="rounded-full border border-zinc-300 bg-white px-8 py-3 text-[15px] font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:opacity-50"
+                  >
+                    Vytvořit inzerát
+                  </button>
                 ) : null}
               </div>
             </div>
@@ -732,6 +750,7 @@ export function HomeLayout({
                               activeCategory={activeCategory}
                               latitude={userCoords?.lat}
                               longitude={userCoords?.lng}
+                              canCreatePosts={canCreateListing}
                               onPublished={async () => {
                                 setViewMode('posts');
                                 await refreshPostsFeed();
@@ -881,6 +900,11 @@ export function HomeLayout({
           <RightSidebar className="mt-4 mb-4 w-full max-w-full flex-col" />
         </div>
       </div>
+
+      <ProfessionalOnlyDialog
+        open={professionalListingDialogOpen}
+        onClose={() => setProfessionalListingDialogOpen(false)}
+      />
     </div>
   );
 }

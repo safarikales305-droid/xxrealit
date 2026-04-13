@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ListingCreateForm } from '@/components/listing/listing-create-form';
+import { PridatInzeratClient } from './PridatInzeratClient';
 
 export const metadata: Metadata = {
   title: 'Přidat inzerát | XXrealit',
@@ -26,7 +26,7 @@ export default function PridatInzeratPage() {
         </p>
       </div>
       <div className="mx-auto mt-8 max-w-3xl">
-        <ListingCreateForm />
+        <PridatInzeratClient />
       </div>
     </div>
   );

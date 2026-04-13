@@ -70,7 +70,7 @@ export class BrokersService {
   async listPublicDirectory() {
     const rows = await this.prisma.user.findMany({
       where: {
-        role: UserRole.AGENT,
+        role: { in: [UserRole.AGENT, UserRole.COMPANY, UserRole.AGENCY] },
         isPublicBrokerProfile: true,
         brokerProfileSlug: { not: null },
       },
@@ -104,7 +104,7 @@ export class BrokersService {
     const broker = await this.prisma.user.findFirst({
       where: {
         brokerProfileSlug: slug,
-        role: UserRole.AGENT,
+        role: { in: [UserRole.AGENT, UserRole.COMPANY, UserRole.AGENCY] },
         isPublicBrokerProfile: true,
       },
       select: {
@@ -126,7 +126,7 @@ export class BrokersService {
       },
     });
     if (!broker) {
-      throw new NotFoundException('Veřejný profil makléře nebyl nalezen.');
+      throw new NotFoundException('Veřejný profesionální profil nebyl nalezen.');
     }
 
     const access = await this.viewerAccess(viewerId);
@@ -239,8 +239,9 @@ export class BrokersService {
       where: { id: brokerId },
       select: { role: true, allowBrokerReviews: true },
     });
-    if (!broker || broker.role !== UserRole.AGENT) {
-      throw new NotFoundException('Makléř nebyl nalezen.');
+    const reviewableRoles: UserRole[] = [UserRole.AGENT, UserRole.COMPANY, UserRole.AGENCY];
+    if (!broker || !reviewableRoles.includes(broker.role)) {
+      throw new NotFoundException('Profesionální profil nebyl nalezen.');
     }
     if (!broker.allowBrokerReviews) {
       throw new ForbiddenException('Tento makléř nepřijímá hodnocení.');

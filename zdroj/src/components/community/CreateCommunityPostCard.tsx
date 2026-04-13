@@ -7,6 +7,7 @@ import {
   nestCreateListingPost,
   nestApiConfigured,
 } from '@/lib/nest-client';
+import { ProfessionalListingBlockedCard } from '@/components/auth/ProfessionalListingRestriction';
 
 type Category = 'MAKLERI' | 'STAVEBNI_FIRMY' | 'REALITNI_KANCELARE';
 
@@ -15,6 +16,8 @@ type Props = {
   activeCategory: Category;
   latitude?: number;
   longitude?: number;
+  /** Pokud false, zobrazí výzvu k rozšíření účtu místo formuláře (role USER atd.). */
+  canCreatePosts?: boolean;
   onPublished: () => void | Promise<void>;
 };
 
@@ -23,6 +26,7 @@ export function CreateCommunityPostCard({
   activeCategory,
   latitude,
   longitude,
+  canCreatePosts = true,
   onPublished,
 }: Props) {
   const [description, setDescription] = useState('');
@@ -163,6 +167,14 @@ export function CreateCommunityPostCard({
   }
 
   const canSubmit = Boolean(description.trim() || imageFile || videoFile);
+
+  if (!canCreatePosts) {
+    return (
+      <div className="w-full">
+        <ProfessionalListingBlockedCard />
+      </div>
+    );
+  }
 
   return (
     <form

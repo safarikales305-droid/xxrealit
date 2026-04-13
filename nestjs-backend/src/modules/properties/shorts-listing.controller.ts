@@ -23,6 +23,7 @@ import { ReorderShortsMediaDto } from './dto/reorder-shorts-media.dto';
 import { AddShortsMediaUrlDto } from './dto/add-shorts-media-url.dto';
 import { PatchShortsMediaDto } from './dto/patch-shorts-media.dto';
 import { ShortsListingService } from './shorts-listing.service';
+import { assertUserCanCreateProfessionalContent } from '../auth/assert-professional-content';
 
 @Controller('shorts-listings')
 export class ShortsListingController {
@@ -48,6 +49,7 @@ export class ShortsListingController {
     @Body(new ValidationPipe({ whitelist: true, transform: true }))
     dto: CreateShortsFromClassicDto,
   ) {
+    assertUserCanCreateProfessionalContent(user);
     return this.shortsListingService.createDraftFromClassic(user.id, propertyId, dto);
   }
 
@@ -58,18 +60,21 @@ export class ShortsListingController {
     @Param('id') id: string,
     @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: UpdateShortsListingDto,
   ) {
+    assertUserCanCreateProfessionalContent(user);
     return this.shortsListingService.updateDraft(user.id, id, dto);
   }
 
   @UseGuards(JwtAuthGuard)
   @Delete(':id')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    assertUserCanCreateProfessionalContent(user);
     return this.shortsListingService.deleteListing(user.id, id);
   }
 
   @UseGuards(JwtAuthGuard)
   @Post(':id/preview')
   preview(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    assertUserCanCreateProfessionalContent(user);
     return this.shortsListingService.previewVideo(user.id, id);
   }
 
@@ -77,12 +82,14 @@ export class ShortsListingController {
   @UseGuards(JwtAuthGuard)
   @Post(':id/regenerate')
   regenerate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    assertUserCanCreateProfessionalContent(user);
     return this.shortsListingService.regenerateShortsVideo(user.id, id);
   }
 
   @UseGuards(JwtAuthGuard)
   @Post(':id/publish')
   publish(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    assertUserCanCreateProfessionalContent(user);
     return this.shortsListingService.publish(user.id, id);
   }
 
@@ -93,6 +100,7 @@ export class ShortsListingController {
     @Param('id') id: string,
     @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: ReorderShortsMediaDto,
   ) {
+    assertUserCanCreateProfessionalContent(user);
     return this.shortsListingService.reorderMedia(user.id, id, dto.orderedIds);
   }
 
@@ -103,6 +111,7 @@ export class ShortsListingController {
     @Param('id') id: string,
     @Param('mediaId') mediaId: string,
   ) {
+    assertUserCanCreateProfessionalContent(user);
     return this.shortsListingService.setCover(user.id, id, mediaId);
   }
 
@@ -113,6 +122,7 @@ export class ShortsListingController {
     @Param('id') id: string,
     @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: AddShortsMediaUrlDto,
   ) {
+    assertUserCanCreateProfessionalContent(user);
     return this.shortsListingService.addMediaByUrl(user.id, id, dto.imageUrl);
   }
 
@@ -129,6 +139,7 @@ export class ShortsListingController {
     @Param('id') id: string,
     @UploadedFile() file?: Express.Multer.File,
   ) {
+    assertUserCanCreateProfessionalContent(user);
     if (!file?.buffer?.length) {
       throw new BadRequestException('Soubor chybí (pole „file“).');
     }
@@ -143,6 +154,7 @@ export class ShortsListingController {
     @Param('mediaId') mediaId: string,
     @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: PatchShortsMediaDto,
   ) {
+    assertUserCanCreateProfessionalContent(user);
     return this.shortsListingService.patchMedia(user.id, id, mediaId, dto);
   }
 
@@ -153,6 +165,7 @@ export class ShortsListingController {
     @Param('id') id: string,
     @Param('mediaId') mediaId: string,
   ) {
+    assertUserCanCreateProfessionalContent(user);
     return this.shortsListingService.deleteMedia(user.id, id, mediaId);
   }
 }

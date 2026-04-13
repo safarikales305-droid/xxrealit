@@ -16,6 +16,7 @@ import { getUploadsPath } from '../../lib/uploads-path';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { assertUserCanCreateProfessionalContent } from '../auth/assert-professional-content';
 import { CreateVideoDto } from './dto/create-video.dto';
 import { VideosService } from './videos.service';
 
@@ -52,7 +53,11 @@ export class VideosController {
       limits: { fileSize: 60 * 1024 * 1024 },
     }),
   )
-  uploadVideo(@UploadedFile() file?: Express.Multer.File) {
+  uploadVideo(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    assertUserCanCreateProfessionalContent(user);
     if (!file?.filename) {
       throw new BadRequestException('Soubor nebyl přijat. Použijte pole "file".');
     }
@@ -73,6 +78,7 @@ export class VideosController {
     if (!user?.id) {
       throw new BadRequestException('Neplatný uživatel.');
     }
+    assertUserCanCreateProfessionalContent(user);
     return this.videosService.create(user.id, body);
   }
 
