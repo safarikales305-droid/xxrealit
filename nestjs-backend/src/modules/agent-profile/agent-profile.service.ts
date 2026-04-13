@@ -13,6 +13,8 @@ import {
   type PropertyViewerAccess,
 } from '../properties/properties.serializer';
 import type { SubmitAgentRequestDto } from './dto/submit-agent-request.dto';
+import type { SubmitCompanyRequestDto } from './dto/submit-company-request.dto';
+import type { SubmitAgencyRequestDto } from './dto/submit-agency-request.dto';
 
 function listingInclude(viewerId?: string) {
   return viewerId
@@ -39,6 +41,8 @@ function normalizeWebsite(raw: string | undefined): string {
   if (/^https?:\/\//i.test(t)) return t;
   return `https://${t}`;
 }
+
+type ProfessionalProfileType = 'agent' | 'company' | 'agency';
 
 function parseVerificationStatus(
   raw: string | undefined,
@@ -381,5 +385,162 @@ export class AgentProfileService {
       data: { verificationStatus: AgentVerificationStatus.rejected },
     });
     return { ok: true, userId: profile.userId };
+  }
+
+  async submitCompanyRequest(userId: string, dto: SubmitCompanyRequestDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+    if (!user) throw new NotFoundException('Uživatel nenalezen');
+    if (user.role === UserRole.ADMIN) {
+      throw new ForbiddenException('Administrátor nemůže podat žádost o profesionální profil.');
+    }
+    const icoRaw = (dto.ico ?? '').trim();
+    if (icoRaw && !/^\d{8}$/.test(icoRaw)) {
+      throw new BadRequestException('IČO musí mít přesně 8 číslic nebo zůstat prázdné.');
+    }
+    const existing = await this.prisma.companyProfile.findUnique({ where: { userId } });
+    if (existing?.verificationStatus === AgentVerificationStatus.verified) {
+      throw new ConflictException('Žádost již byla schválena.');
+    }
+    const common = {
+      companyName: dto.companyName.trim().slice(0, 200),
+      contactFullName: dto.contactFullName.trim().slice(0, 200),
+      phone: dto.phone.trim().slice(0, 40),
+      email: dto.email.trim().toLowerCase().slice(0, 200),
+      website: normalizeWebsite(dto.website),
+      ico: icoRaw,
+      city: dto.city.trim().slice(0, 120),
+      description: dto.description.trim().slice(0, 2000),
+      services: dto.services.trim().slice(0, 2000),
+      logoUrl: dto.logoUrl?.trim() || null,
+      verificationStatus: AgentVerificationStatus.pending,
+    };
+    const saved = existing
+      ? await this.prisma.companyProfile.update({ where: { userId }, data: common })
+      : await this.prisma.companyProfile.create({ data: { userId, ...common } });
+    return {
+      id: saved.id,
+      verificationStatus: saved.verificationStatus,
+      message: 'Žádost firmy byla uložena a čeká na schválení administrátorem.',
+    };
+  }
+
+  async submitAgencyRequest(userId: string, dto: SubmitAgencyRequestDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+    if (!user) throw new NotFoundException('Uživatel nenalezen');
+    if (user.role === UserRole.ADMIN) {
+      throw new ForbiddenException('Administrátor nemůže podat žádost o profesionální profil.');
+    }
+    const icoRaw = (dto.ico ?? '').trim();
+    if (icoRaw && !/^\d{8}$/.test(icoRaw)) {
+      throw new BadRequestException('IČO musí mít přesně 8 číslic nebo zůstat prázdné.');
+    }
+    const existing = await this.prisma.agencyProfile.findUnique({ where: { userId } });
+    if (existing?.verificationStatus === AgentVerificationStatus.verified) {
+      throw new ConflictException('Žádost již byla schválena.');
+    }
+    const common = {
+      agencyName: dto.agencyName.trim().slice(0, 200),
+      contactFullName: dto.contactFullName.trim().slice(0, 200),
+      phone: dto.phone.trim().slice(0, 40),
+      email: dto.email.trim().toLowerCase().slice(0, 200),
+      website: normalizeWebsite(dto.website),
+      ico: icoRaw,
+      city: dto.city.trim().slice(0, 120),
+      description: dto.description.trim().slice(0, 2000),
+      agentCount: dto.agentCount ?? null,
+      branchCities: (dto.branchCities ?? [])
+        .map((x) => String(x).trim())
+        .filter(Boolean)
+        .slice(0, 30),
+      logoUrl: dto.logoUrl?.trim() || null,
+      verificationStatus: AgentVerificationStatus.pending,
+    };
+    const saved = existing
+      ? await this.prisma.agencyProfile.update({ where: { userId }, data: common })
+      : await this.prisma.agencyProfile.create({ data: { userId, ...common } });
+    return {
+      id: saved.id,
+      verificationStatus: saved.verificationStatus,
+      message: 'Žádost realitní kanceláře byla uložena a čeká na schválení administrátorem.',
+    };
+  }
+
+  async adminListProfessional(type: ProfessionalProfileType, statusRaw?: string) {
+    const status = statusRaw?.trim()
+      ? parseVerificationStatus(statusRaw)
+      : AgentVerificationStatus.pending;
+    if (type === 'agent') return this.adminList(status);
+    if (type === 'company') {
+      return this.prisma.companyProfile.findMany({
+        where: { verificationStatus: status },
+        orderBy: { createdAt: 'desc' },
+        include: { user: { select: { id: true, email: true, name: true, role: true } } },
+      });
+    }
+    return this.prisma.agencyProfile.findMany({
+      where: { verificationStatus: status },
+      orderBy: { createdAt: 'desc' },
+      include: { user: { select: { id: true, email: true, name: true, role: true } } },
+    });
+  }
+
+  async adminApproveProfessional(type: ProfessionalProfileType, profileId: string) {
+    if (type === 'agent') return this.adminApprove(profileId);
+    if (type === 'company') {
+      const profile = await this.prisma.companyProfile.findUnique({
+        where: { id: profileId },
+        include: { user: { select: { id: true } } },
+      });
+      if (!profile) throw new NotFoundException('Žádost nenalezena');
+      await this.prisma.$transaction([
+        this.prisma.companyProfile.update({
+          where: { id: profileId },
+          data: { verificationStatus: AgentVerificationStatus.verified },
+        }),
+        this.prisma.user.update({
+          where: { id: profile.userId },
+          data: { role: UserRole.COMPANY, name: profile.contactFullName, city: profile.city, bio: profile.description, avatar: profile.logoUrl ?? undefined },
+        }),
+      ]);
+      return { ok: true, userId: profile.userId };
+    }
+    const profile = await this.prisma.agencyProfile.findUnique({
+      where: { id: profileId },
+      include: { user: { select: { id: true } } },
+    });
+    if (!profile) throw new NotFoundException('Žádost nenalezena');
+    await this.prisma.$transaction([
+      this.prisma.agencyProfile.update({
+        where: { id: profileId },
+        data: { verificationStatus: AgentVerificationStatus.verified },
+      }),
+      this.prisma.user.update({
+        where: { id: profile.userId },
+        data: { role: UserRole.AGENCY, name: profile.contactFullName, city: profile.city, bio: profile.description, avatar: profile.logoUrl ?? undefined },
+      }),
+    ]);
+    return { ok: true, userId: profile.userId };
+  }
+
+  async adminRejectProfessional(type: ProfessionalProfileType, profileId: string) {
+    if (type === 'agent') return this.adminReject(profileId);
+    if (type === 'company') {
+      await this.prisma.companyProfile.update({
+        where: { id: profileId },
+        data: { verificationStatus: AgentVerificationStatus.rejected },
+      });
+      return { ok: true };
+    }
+    await this.prisma.agencyProfile.update({
+      where: { id: profileId },
+      data: { verificationStatus: AgentVerificationStatus.rejected },
+    });
+    return { ok: true };
   }
 }

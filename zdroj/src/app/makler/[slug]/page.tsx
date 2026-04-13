@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { PropertyGrid } from '@/components/property-grid';
 import { useAuth } from '@/hooks/use-auth';
@@ -28,6 +28,7 @@ function StarsRow({ value }: { value: number }) {
 }
 
 export default function MaklerPublicPage() {
+  const router = useRouter();
   const params = useParams();
   const slug = typeof params?.slug === 'string' ? params.slug : '';
   const { apiAccessToken, isAuthenticated } = useAuth();
@@ -58,8 +59,16 @@ export default function MaklerPublicPage() {
   }, [slug, apiAccessToken]);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      router.replace(`/login?redirect=${encodeURIComponent(`/makler/${slug}`)}`);
+      return;
+    }
     void load();
-  }, [load]);
+  }, [isAuthenticated, load, router, slug]);
+
+  if (!isAuthenticated) {
+    return <div className="flex min-h-[60vh] items-center justify-center text-sm text-zinc-600">Načítání…</div>;
+  }
 
   const b = data?.broker;
   const avatar =

@@ -3,6 +3,8 @@ import { UserRole } from '@prisma/client';
 const KNOWN: readonly string[] = [
   UserRole.USER,
   UserRole.AGENT,
+  UserRole.COMPANY,
+  UserRole.AGENCY,
   UserRole.DEVELOPER,
   UserRole.PRIVATE_SELLER,
   UserRole.ADMIN,

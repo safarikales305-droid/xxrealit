@@ -23,6 +23,8 @@ import {
   nestPatchMyProperty,
   nestPatchProfileBio,
   nestSubmitAgentProfileRequest,
+  nestSubmitAgencyProfileRequest,
+  nestSubmitCompanyProfileRequest,
   nestUploadAgentProfileLogo,
   nestUploadAvatar,
   nestUploadCover,
@@ -36,7 +38,7 @@ import {
   safeNormalizePropertyFromApi,
   type PropertyFeedItem,
 } from '@/types/property';
-import { canRequestAgentProfileUpgrade } from '@/lib/roles';
+import { canRequestProfessionalProfileUpgrade } from '@/lib/roles';
 
 const BIO_MAX = 500;
 const ACCEPT_IMAGES = 'image/jpeg,image/jpg,image/png,image/webp';
@@ -117,6 +119,33 @@ export default function ProfilPage() {
   const [agentSubmitting, setAgentSubmitting] = useState(false);
   const [agentFormError, setAgentFormError] = useState<string | null>(null);
   const agentLogoInputRef = useRef<HTMLInputElement>(null);
+  const [companyFormOpen, setCompanyFormOpen] = useState(false);
+  const [companySubmitting, setCompanySubmitting] = useState(false);
+  const [companyFormError, setCompanyFormError] = useState<string | null>(null);
+  const [companyName, setCompanyName] = useState('');
+  const [companyContact, setCompanyContact] = useState('');
+  const [companyPhone, setCompanyPhone] = useState('');
+  const [companyEmail, setCompanyEmail] = useState('');
+  const [companyWeb, setCompanyWeb] = useState('');
+  const [companyIco, setCompanyIco] = useState('');
+  const [companyCity, setCompanyCity] = useState('');
+  const [companyDesc, setCompanyDesc] = useState('');
+  const [companyServices, setCompanyServices] = useState('');
+  const [companyLogoUrl, setCompanyLogoUrl] = useState<string | null>(null);
+  const [agencyFormOpen, setAgencyFormOpen] = useState(false);
+  const [agencySubmitting, setAgencySubmitting] = useState(false);
+  const [agencyFormError, setAgencyFormError] = useState<string | null>(null);
+  const [agencyName, setAgencyName] = useState('');
+  const [agencyContact, setAgencyContact] = useState('');
+  const [agencyPhone, setAgencyPhone] = useState('');
+  const [agencyEmail, setAgencyEmail] = useState('');
+  const [agencyWeb, setAgencyWeb] = useState('');
+  const [agencyIco, setAgencyIco] = useState('');
+  const [agencyCity, setAgencyCity] = useState('');
+  const [agencyDesc, setAgencyDesc] = useState('');
+  const [agencyAgentCount, setAgencyAgentCount] = useState('');
+  const [agencyBranches, setAgencyBranches] = useState('');
+  const [agencyLogoUrl, setAgencyLogoUrl] = useState<string | null>(null);
   /** Staré lokální `/uploads/…` na Railway po deployi vrací 404 — zobrazí se placeholder. */
   const [avatarRemoteFailed, setAvatarRemoteFailed] = useState(false);
   const [coverRemoteFailed, setCoverRemoteFailed] = useState(false);
@@ -471,6 +500,70 @@ export default function ProfilPage() {
     await loadNestProfile();
   }
 
+  async function onSubmitCompanyRequest(e: React.FormEvent) {
+    e.preventDefault();
+    setCompanyFormError(null);
+    if (companyDesc.trim().length < 10 || companyServices.trim().length < 2) {
+      setCompanyFormError('Vyplňte popis firmy a činnosti.');
+      return;
+    }
+    setCompanySubmitting(true);
+    const res = await nestSubmitCompanyProfileRequest(apiAccessToken, {
+      companyName: companyName.trim(),
+      contactFullName: companyContact.trim(),
+      phone: companyPhone.trim(),
+      email: companyEmail.trim(),
+      website: companyWeb.trim() || undefined,
+      ico: companyIco.trim() || undefined,
+      city: companyCity.trim(),
+      description: companyDesc.trim(),
+      services: companyServices.trim(),
+      logoUrl: companyLogoUrl?.trim() || undefined,
+    });
+    setCompanySubmitting(false);
+    if (!res.ok) {
+      setCompanyFormError(res.error ?? 'Odeslání žádosti selhalo.');
+      return;
+    }
+    setCompanyFormOpen(false);
+    showSuccess('Žádost stavební firmy byla odeslána a čeká na schválení.');
+    await loadNestProfile();
+  }
+
+  async function onSubmitAgencyRequest(e: React.FormEvent) {
+    e.preventDefault();
+    setAgencyFormError(null);
+    if (agencyDesc.trim().length < 10) {
+      setAgencyFormError('Vyplňte popis kanceláře.');
+      return;
+    }
+    setAgencySubmitting(true);
+    const res = await nestSubmitAgencyProfileRequest(apiAccessToken, {
+      agencyName: agencyName.trim(),
+      contactFullName: agencyContact.trim(),
+      phone: agencyPhone.trim(),
+      email: agencyEmail.trim(),
+      website: agencyWeb.trim() || undefined,
+      ico: agencyIco.trim() || undefined,
+      city: agencyCity.trim(),
+      description: agencyDesc.trim(),
+      agentCount: agencyAgentCount.trim() ? Number(agencyAgentCount) : undefined,
+      branchCities: agencyBranches
+        .split(',')
+        .map((x) => x.trim())
+        .filter(Boolean),
+      logoUrl: agencyLogoUrl?.trim() || undefined,
+    });
+    setAgencySubmitting(false);
+    if (!res.ok) {
+      setAgencyFormError(res.error ?? 'Odeslání žádosti selhalo.');
+      return;
+    }
+    setAgencyFormOpen(false);
+    showSuccess('Žádost realitní kanceláře byla odeslána a čeká na schválení.');
+    await loadNestProfile();
+  }
+
   if (isLoading) {
     return (
       <div className="flex h-[100dvh] items-center justify-center overflow-y-auto bg-[#fafafa] text-zinc-600">
@@ -569,13 +662,13 @@ export default function ProfilPage() {
                         Ověřený makléř
                       </span>
                     ) : null}
-                    {canRequestAgentProfileUpgrade(user.role) &&
+                    {canRequestProfessionalProfileUpgrade(user.role) &&
                     nestMe?.agentProfile?.verificationStatus === 'pending' ? (
                       <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900">
                         Čeká na ověření
                       </span>
                     ) : null}
-                    {canRequestAgentProfileUpgrade(user.role) &&
+                    {canRequestProfessionalProfileUpgrade(user.role) &&
                     nestMe?.agentProfile?.verificationStatus === 'rejected' ? (
                       <span className="rounded-full bg-zinc-200 px-2.5 py-0.5 text-xs font-semibold text-zinc-700">
                         Žádost zamítnuta
@@ -705,12 +798,11 @@ export default function ProfilPage() {
           </div>
         </section>
 
-        {canRequestAgentProfileUpgrade(user.role) ? (
+        {canRequestProfessionalProfileUpgrade(user.role) ? (
           <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-semibold text-zinc-900">Stát se makléřem</h2>
+            <h2 className="text-lg font-semibold text-zinc-900">Rozšířit účet</h2>
             <p className="mt-2 text-sm text-zinc-600">
-              Vyplňte údaje o sobě a o kanceláři. Po odeslání žádosti zůstáváte u svého stávajícího typu
-              účtu; po schválení administrátorem získáte roli makléře (AGENT).
+              Vyberte typ profesionálního účtu. Role se přepne až po schválení administrátorem.
             </p>
             {nestMe?.agentProfile?.verificationStatus === 'pending' ? (
               <p className="mt-3 text-sm font-medium text-amber-800">
@@ -722,15 +814,32 @@ export default function ProfilPage() {
                 Předchozí žádost byla zamítnuta. Upravte údaje a pošlete novou žádost.
               </p>
             ) : null}
-            {!agentFormOpen ? (
-              <button
-                type="button"
-                onClick={() => onOpenAgentForm()}
-                className="mt-4 rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-3 text-sm font-bold text-white shadow-md transition hover:brightness-105"
-              >
-                Stát se makléřem
-              </button>
-            ) : (
+            {!agentFormOpen && !companyFormOpen && !agencyFormOpen ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => onOpenAgentForm()}
+                  className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-3 text-sm font-bold text-white shadow-md transition hover:brightness-105"
+                >
+                  Jsem makléř
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCompanyFormOpen(true)}
+                  className="rounded-full border border-zinc-300 bg-white px-6 py-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                >
+                  Mám stavební firmu
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAgencyFormOpen(true)}
+                  className="rounded-full border border-zinc-300 bg-white px-6 py-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                >
+                  Jsem realitní kancelář
+                </button>
+              </div>
+            ) : null}
+            {agentFormOpen ? (
               <form
                 className="mt-6 space-y-4"
                 onSubmit={(ev) => void onSubmitAgentRequest(ev)}
@@ -861,7 +970,46 @@ export default function ProfilPage() {
                   </button>
                 </div>
               </form>
-            )}
+            ) : null}
+            {companyFormOpen ? (
+              <form className="mt-6 grid gap-3 sm:grid-cols-2" onSubmit={(e) => void onSubmitCompanyRequest(e)}>
+                <input required value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Název firmy" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm sm:col-span-2" />
+                <input required value={companyContact} onChange={(e) => setCompanyContact(e.target.value)} placeholder="Kontaktní osoba" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input required value={companyPhone} onChange={(e) => setCompanyPhone(e.target.value)} placeholder="Telefon" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input required type="email" value={companyEmail} onChange={(e) => setCompanyEmail(e.target.value)} placeholder="E-mail" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input value={companyWeb} onChange={(e) => setCompanyWeb(e.target.value)} placeholder="Web" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input value={companyIco} onChange={(e) => setCompanyIco(e.target.value)} placeholder="IČO" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input required value={companyCity} onChange={(e) => setCompanyCity(e.target.value)} placeholder="Město / lokalita" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input value={companyLogoUrl ?? ''} onChange={(e) => setCompanyLogoUrl(e.target.value)} placeholder="Logo URL" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <textarea required value={companyDesc} onChange={(e) => setCompanyDesc(e.target.value)} placeholder="Krátký popis firmy" rows={3} className="rounded-xl border border-zinc-200 px-3 py-2 text-sm sm:col-span-2" />
+                <textarea required value={companyServices} onChange={(e) => setCompanyServices(e.target.value)} placeholder="Co firma provádí" rows={3} className="rounded-xl border border-zinc-200 px-3 py-2 text-sm sm:col-span-2" />
+                {companyFormError ? <p className="text-sm text-red-600 sm:col-span-2">{companyFormError}</p> : null}
+                <div className="flex gap-2 sm:col-span-2">
+                  <button type="submit" disabled={companySubmitting} className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50">{companySubmitting ? 'Odesílám…' : 'Odeslat žádost'}</button>
+                  <button type="button" onClick={() => setCompanyFormOpen(false)} className="rounded-full border border-zinc-300 bg-white px-6 py-2.5 text-sm font-semibold text-zinc-800">Zrušit</button>
+                </div>
+              </form>
+            ) : null}
+            {agencyFormOpen ? (
+              <form className="mt-6 grid gap-3 sm:grid-cols-2" onSubmit={(e) => void onSubmitAgencyRequest(e)}>
+                <input required value={agencyName} onChange={(e) => setAgencyName(e.target.value)} placeholder="Název kanceláře" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm sm:col-span-2" />
+                <input required value={agencyContact} onChange={(e) => setAgencyContact(e.target.value)} placeholder="Odpovědná osoba" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input required value={agencyPhone} onChange={(e) => setAgencyPhone(e.target.value)} placeholder="Telefon" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input required type="email" value={agencyEmail} onChange={(e) => setAgencyEmail(e.target.value)} placeholder="E-mail" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input value={agencyWeb} onChange={(e) => setAgencyWeb(e.target.value)} placeholder="Web" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input value={agencyIco} onChange={(e) => setAgencyIco(e.target.value)} placeholder="IČO" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input required value={agencyCity} onChange={(e) => setAgencyCity(e.target.value)} placeholder="Město / působnost" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input value={agencyLogoUrl ?? ''} onChange={(e) => setAgencyLogoUrl(e.target.value)} placeholder="Logo URL" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input value={agencyAgentCount} onChange={(e) => setAgencyAgentCount(e.target.value)} placeholder="Počet makléřů (volitelně)" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input value={agencyBranches} onChange={(e) => setAgencyBranches(e.target.value)} placeholder="Pobočky / města (oddělit čárkou)" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <textarea required value={agencyDesc} onChange={(e) => setAgencyDesc(e.target.value)} placeholder="Popis kanceláře" rows={3} className="rounded-xl border border-zinc-200 px-3 py-2 text-sm sm:col-span-2" />
+                {agencyFormError ? <p className="text-sm text-red-600 sm:col-span-2">{agencyFormError}</p> : null}
+                <div className="flex gap-2 sm:col-span-2">
+                  <button type="submit" disabled={agencySubmitting} className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50">{agencySubmitting ? 'Odesílám…' : 'Odeslat žádost'}</button>
+                  <button type="button" onClick={() => setAgencyFormOpen(false)} className="rounded-full border border-zinc-300 bg-white px-6 py-2.5 text-sm font-semibold text-zinc-800">Zrušit</button>
+                </div>
+              </form>
+            ) : null}
           </section>
         ) : null}
 

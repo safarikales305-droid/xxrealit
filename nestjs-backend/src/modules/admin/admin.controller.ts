@@ -126,6 +126,30 @@ export class AdminController {
     return this.agentProfileService.adminReject(id);
   }
 
+  @Get('professional-profiles/:type')
+  listProfessionalProfiles(
+    @Param('type') type: 'agent' | 'company' | 'agency',
+    @Query('status') status?: string,
+  ) {
+    return this.agentProfileService.adminListProfessional(type, status);
+  }
+
+  @Post('professional-profiles/:type/:id/approve')
+  approveProfessionalProfile(
+    @Param('type') type: 'agent' | 'company' | 'agency',
+    @Param('id') id: string,
+  ) {
+    return this.agentProfileService.adminApproveProfessional(type, id);
+  }
+
+  @Post('professional-profiles/:type/:id/reject')
+  rejectProfessionalProfile(
+    @Param('type') type: 'agent' | 'company' | 'agency',
+    @Param('id') id: string,
+  ) {
+    return this.agentProfileService.adminRejectProfessional(type, id);
+  }
+
   @Patch('users/:id/role')
   updateUserRole(
     @CurrentUser() user: AuthUser,

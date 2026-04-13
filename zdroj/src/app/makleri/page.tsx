@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { nestListPublicBrokers, type NestPublicBrokerCard } from '@/lib/nest-client';
 
@@ -15,11 +17,18 @@ function Stars({ value, max = 5 }: { value: number; max?: number }) {
 }
 
 export default function MakleriPage() {
+  const router = useRouter();
+  const { isAuthenticated, isLoading, apiAccessToken } = useAuth();
   const [rows, setRows] = useState<NestPublicBrokerCard[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    void nestListPublicBrokers().then((r) => {
+    if (isLoading) return;
+    if (!isAuthenticated) {
+      router.replace('/login?redirect=%2Fmakleri');
+      return;
+    }
+    void nestListPublicBrokers(apiAccessToken).then((r) => {
       if (!r) {
         setErr('Katalog makléřů se nepodařilo načíst. Zkontrolujte připojení k API.');
         setRows([]);
@@ -28,7 +37,11 @@ export default function MakleriPage() {
       setErr(null);
       setRows(r);
     });
-  }, []);
+  }, [apiAccessToken, isAuthenticated, isLoading, router]);
+
+  if (isLoading || !isAuthenticated) {
+    return <div className="flex min-h-[60vh] items-center justify-center text-sm text-zinc-600">Načítání…</div>;
+  }
 
   return (
     <div className="min-h-[100dvh] bg-[#fafafa] pb-16 text-zinc-900">

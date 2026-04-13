@@ -15,6 +15,8 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AgentProfileService } from './agent-profile.service';
 import { SubmitAgentRequestDto } from './dto/submit-agent-request.dto';
+import { SubmitCompanyRequestDto } from './dto/submit-company-request.dto';
+import { SubmitAgencyRequestDto } from './dto/submit-agency-request.dto';
 
 @Controller('agent-profile')
 export class AgentProfileController {
@@ -37,6 +39,26 @@ export class AgentProfileController {
     dto: SubmitAgentRequestDto,
   ) {
     return this.agentProfileService.submitRequest(user.id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('request/company')
+  submitCompanyRequest(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: SubmitCompanyRequestDto,
+  ) {
+    return this.agentProfileService.submitCompanyRequest(user.id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('request/agency')
+  submitAgencyRequest(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: SubmitAgencyRequestDto,
+  ) {
+    return this.agentProfileService.submitAgencyRequest(user.id, dto);
   }
 
   /** Veřejný profil ověřeného makléře + inzeráty (volitelné JWT pro „liked“ u inzerátů). */

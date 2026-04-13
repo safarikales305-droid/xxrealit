@@ -1,15 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Headers,
-  Param,
-  Post,
-  UseGuards,
-  ValidationPipe,
-} from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
-import { parseBearerUserId } from '../auth/auth-token.util';
+import { Body, Controller, Get, Param, Post, UseGuards, ValidationPipe } from '@nestjs/common';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -18,23 +7,18 @@ import { UpsertBrokerReviewDto } from './dto/upsert-broker-review.dto';
 
 @Controller('brokers')
 export class BrokersController {
-  constructor(
-    private readonly brokersService: BrokersService,
-    private readonly jwt: JwtService,
-  ) {}
+  constructor(private readonly brokersService: BrokersService) {}
 
+  @UseGuards(JwtAuthGuard)
   @Get('public')
   listPublic() {
     return this.brokersService.listPublicDirectory();
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get('by-slug/:slug')
-  getBySlug(
-    @Param('slug') slug: string,
-    @Headers('authorization') auth?: string,
-  ) {
-    const viewerId = parseBearerUserId(this.jwt, auth);
-    return this.brokersService.getPublicBySlug(slug, viewerId);
+  getBySlug(@CurrentUser() user: AuthUser, @Param('slug') slug: string) {
+    return this.brokersService.getPublicBySlug(slug, user.id);
   }
 
   @UseGuards(JwtAuthGuard)

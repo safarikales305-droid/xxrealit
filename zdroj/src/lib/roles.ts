@@ -11,6 +11,8 @@ export const USER_ROLES = [
   /** Prisma / Nest enum strings from API */
   'USER',
   'AGENT',
+  'COMPANY',
+  'AGENCY',
   'DEVELOPER',
   'PRIVATE_SELLER',
   'ADMIN',
@@ -33,6 +35,8 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   stavebni_firma: 'Stavební firma',
   USER: 'Soukromý inzerent',
   AGENT: 'Realitní makléř',
+  COMPANY: 'Stavební firma',
+  AGENCY: 'Realitní kancelář',
   DEVELOPER: 'Developer',
   PRIVATE_SELLER: 'Soukromý prodejce',
   ADMIN: 'Administrátor',
@@ -59,15 +63,15 @@ export function dashboardPathForRole(role: UserRole): string {
 }
 
 /** Role, které mohou podat žádost o převod na makléře (Nest + UI musí být v souladu). */
-export const AGENT_UPGRADE_ELIGIBLE_ROLES = [
+export const PROFESSIONAL_UPGRADE_ELIGIBLE_ROLES = [
   'USER',
   'PRIVATE_SELLER',
   'DEVELOPER',
 ] as const;
 
-/** Uživatel ještě není makléř ani admin — může vidět sekci „Stát se makléřem“. */
-export function canRequestAgentProfileUpgrade(role: string | undefined | null): boolean {
+/** Uživatel ještě není profesionální profil ani admin — může vidět sekci „Rozšířit účet“. */
+export function canRequestProfessionalProfileUpgrade(role: string | undefined | null): boolean {
   if (!role) return false;
-  if (role === 'AGENT' || role === 'ADMIN') return false;
-  return (AGENT_UPGRADE_ELIGIBLE_ROLES as readonly string[]).includes(role);
+  if (role === 'AGENT' || role === 'COMPANY' || role === 'AGENCY' || role === 'ADMIN') return false;
+  return (PROFESSIONAL_UPGRADE_ELIGIBLE_ROLES as readonly string[]).includes(role);
 }

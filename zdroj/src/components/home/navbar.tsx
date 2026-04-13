@@ -265,12 +265,14 @@ export function Navbar({
           ) : null}
 
           <div className="hidden shrink-0 items-center gap-2 md:flex">
-            <Link
-              href="/makleri"
-              className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
-            >
-              Makléři
-            </Link>
+            {!isLoading && isAuthenticated ? (
+              <Link
+                href="/makleri"
+                className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+              >
+                Makléři
+              </Link>
+            ) : null}
             {isLoading ? (
               <span className="px-2 text-xs text-zinc-400" aria-hidden>
                 …
@@ -410,9 +412,6 @@ export function Navbar({
             ) : isAuthenticated && user ? (
               <div className="flex flex-col gap-2">
                 <p className="truncate text-xs font-medium text-zinc-500">{user.email}</p>
-                <Link href="/makleri" className={navBtn} onClick={() => setMenuOpen(false)}>
-                  Makléři
-                </Link>
                 <button type="button" onClick={() => void goHome()} className={navBtn}>
                   Prohlížet nemovitosti
                 </button>
@@ -443,9 +442,6 @@ export function Navbar({
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                <Link href="/makleri" className={navBtn} onClick={() => setMenuOpen(false)}>
-                  Makléři
-                </Link>
                 <Link href="/login" className={navBtn} onClick={() => setMenuOpen(false)}>
                   Přihlásit
                 </Link>

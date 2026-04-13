@@ -68,13 +68,17 @@ const roleMap: Record<string, UserRole> = {
   makler: UserRole.AGENT,
   kancelar: UserRole.AGENT,
   agent: UserRole.AGENT,
+  company: UserRole.COMPANY,
+  firma: UserRole.COMPANY,
+  agency: UserRole.AGENCY,
+  'realitni kancelar': UserRole.AGENCY,
 
   developer: UserRole.DEVELOPER,
 
   admin: UserRole.USER,
   administrator: UserRole.USER,
   remeslnik: UserRole.USER,
-  firma: UserRole.USER,
+  firmicka: UserRole.USER,
   'stavebni firma': UserRole.DEVELOPER,
 };
 
@@ -88,6 +92,8 @@ function mapRegisterRole(input?: string): UserRole {
 const REGISTER_ROLES: readonly UserRole[] = [
   UserRole.USER,
   UserRole.AGENT,
+  UserRole.COMPANY,
+  UserRole.AGENCY,
   UserRole.DEVELOPER,
   UserRole.PRIVATE_SELLER,
 ];

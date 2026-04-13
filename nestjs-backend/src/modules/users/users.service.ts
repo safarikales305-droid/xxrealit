@@ -199,6 +199,43 @@ export class UsersService {
             updatedAt: true,
           },
         },
+        companyProfile: {
+          select: {
+            id: true,
+            companyName: true,
+            contactFullName: true,
+            phone: true,
+            email: true,
+            website: true,
+            ico: true,
+            city: true,
+            description: true,
+            services: true,
+            logoUrl: true,
+            verificationStatus: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
+        agencyProfile: {
+          select: {
+            id: true,
+            agencyName: true,
+            contactFullName: true,
+            phone: true,
+            email: true,
+            website: true,
+            ico: true,
+            city: true,
+            description: true,
+            logoUrl: true,
+            agentCount: true,
+            branchCities: true,
+            verificationStatus: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
       },
     });
     if (!u) return null;
@@ -247,6 +284,22 @@ export class UsersService {
       brokerReviewAverage: u.brokerReviewAverage,
       brokerReviewCount: u.brokerReviewCount,
       agentProfile,
+      companyProfile: u.companyProfile
+        ? {
+            ...u.companyProfile,
+            logoUrl: upgradeHttpToHttpsForApi(u.companyProfile.logoUrl) ?? u.companyProfile.logoUrl,
+            createdAt: u.companyProfile.createdAt.toISOString(),
+            updatedAt: u.companyProfile.updatedAt.toISOString(),
+          }
+        : null,
+      agencyProfile: u.agencyProfile
+        ? {
+            ...u.agencyProfile,
+            logoUrl: upgradeHttpToHttpsForApi(u.agencyProfile.logoUrl) ?? u.agencyProfile.logoUrl,
+            createdAt: u.agencyProfile.createdAt.toISOString(),
+            updatedAt: u.agencyProfile.updatedAt.toISOString(),
+          }
+        : null,
     };
     this.logger.log(
       `[profile-media] getMeProfile userId=${u.id} hasAvatar=${Boolean(profile.avatarUrl)} hasCover=${Boolean(profile.coverImageUrl)}`,

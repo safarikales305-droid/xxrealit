@@ -7,8 +7,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { getClientTokenFromCookie } from '@/lib/api';
 import { nestApiConfigured } from '@/lib/nest-client';
 import {
-  nestAdminAgentProfiles,
-  nestAdminApproveAgentProfile,
+  nestAdminProfessionalProfiles,
+  nestAdminApproveProfessionalProfile,
   nestAdminApproveProperty,
   nestAdminChangePassword,
   nestAdminDeleteUser,
@@ -17,18 +17,20 @@ import {
   nestAdminImportProperties,
   nestAdminPatchPremiumBroker,
   nestAdminPendingProperties,
-  nestAdminRejectAgentProfile,
+  nestAdminRejectProfessionalProfile,
   nestAdminStats,
   nestAdminUpdateUserRole,
   nestAdminUsers,
   type AdminStats,
   type AdminUserRow,
-  type NestAdminAgentProfileRow,
+  type NestAdminProfessionalProfileRow,
 } from '@/lib/nest-client';
 
 const ROLE_OPTIONS = [
   'USER',
   'AGENT',
+  'COMPANY',
+  'AGENCY',
   'DEVELOPER',
   'PRIVATE_SELLER',
   'ADMIN',
@@ -73,7 +75,8 @@ export default function AdminPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
-  const [agentRequests, setAgentRequests] = useState<NestAdminAgentProfileRow[]>([]);
+  const [professionalType, setProfessionalType] = useState<'agent' | 'company' | 'agency'>('agent');
+  const [agentRequests, setAgentRequests] = useState<NestAdminProfessionalProfileRow[]>([]);
   const [busyAgentId, setBusyAgentId] = useState<string | null>(null);
 
   const [oldPw, setOldPw] = useState('');
@@ -98,7 +101,7 @@ export default function AdminPage() {
       nestAdminPendingProperties(token),
       nestAdminUsers(token),
     ]);
-    const a = await nestAdminAgentProfiles(token, 'pending');
+    const a = await nestAdminProfessionalProfiles(token, professionalType, 'pending');
     if (!s || !p || !u) {
       setLoadError(
         'Nepodařilo se načíst data z API. Zkontrolujte přihlášení (Nest JWT), NEXT_PUBLIC_API_URL a roli ADMIN.',
@@ -112,7 +115,7 @@ export default function AdminPage() {
     );
     setUsersList(u ?? []);
     setAgentRequests(a ?? []);
-  }, [token]);
+  }, [token, professionalType]);
 
   useEffect(() => {
     if (!isLoading && (!token || !user || user.role !== 'ADMIN')) {
@@ -217,7 +220,7 @@ export default function AdminPage() {
     if (!token) return;
     if (!window.confirm('Schválit žádost a přiřadit uživateli roli AGENT?')) return;
     setBusyAgentId(id);
-    const r = await nestAdminApproveAgentProfile(token, id);
+    const r = await nestAdminApproveProfessionalProfile(token, professionalType, id);
     setBusyAgentId(null);
     if (r.ok) await refresh();
     else setLoadError(r.error ?? 'Schválení žádosti selhalo');
@@ -227,7 +230,7 @@ export default function AdminPage() {
     if (!token) return;
     if (!window.confirm('Zamítnout žádost o roli makléře?')) return;
     setBusyAgentId(id);
-    const r = await nestAdminRejectAgentProfile(token, id);
+    const r = await nestAdminRejectProfessionalProfile(token, professionalType, id);
     setBusyAgentId(null);
     if (r.ok) await refresh();
     else setLoadError(r.error ?? 'Zamítnutí žádosti selhalo');
@@ -455,85 +458,94 @@ export default function AdminPage() {
         </section>
 
         <section>
-          <h2 className="mb-4 text-lg font-semibold tracking-tight">Žádosti o roli makléře</h2>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold tracking-tight">Žádosti o profesionální role</h2>
+            <select
+              value={professionalType}
+              onChange={(e) => setProfessionalType(e.target.value as 'agent' | 'company' | 'agency')}
+              className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm"
+            >
+              <option value="agent">Makléři</option>
+              <option value="company">Stavební firmy</option>
+              <option value="agency">Realitní kanceláře</option>
+            </select>
+          </div>
           <p className="mb-4 max-w-3xl text-sm text-zinc-600">
-            Schválením se uživateli nastaví role AGENT a veřejné údaje makléře se převezme z
-            žádosti. Zamítnutím zůstane USER a stav žádosti bude zamítnutý.
+            Schválením se uživateli nastaví odpovídající role podle typu žádosti (AGENT, COMPANY, AGENCY).
           </p>
           {agentRequests.length === 0 ? (
             <p className="text-sm text-zinc-500">Žádné čekající žádosti.</p>
           ) : (
             <div className="space-y-4">
-              {agentRequests.map((row) => (
+              {agentRequests.map((row) => {
+                const r = row as Record<string, unknown>;
+                const id = String(r.id ?? '');
+                const fullName = String(r.fullName ?? r.contactFullName ?? '—');
+                const orgName = String(r.companyName ?? r.agencyName ?? '—');
+                const city = String(r.city ?? '—');
+                const phone = String(r.phone ?? '—');
+                const bio = String(r.bio ?? r.description ?? '');
+                const createdAt = String(r.createdAt ?? '');
+                const userInfo = (r.user ?? {}) as Record<string, unknown>;
+                return (
                 <article
-                  key={row.id}
+                  key={id}
                   className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"
                 >
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 space-y-1 text-sm">
                       <p className="font-semibold text-zinc-900">
-                        {row.fullName}{' '}
-                        <span className="font-normal text-zinc-500">· {row.companyName}</span>
+                        {fullName}{' '}
+                        <span className="font-normal text-zinc-500">· {orgName}</span>
                       </p>
                       <p className="text-zinc-600">
                         Uživatel:{' '}
                         <span className="font-medium text-zinc-800">
-                          {row.user?.email ?? row.userId}
+                          {String(userInfo.email ?? r.userId ?? '—')}
                         </span>{' '}
-                        <span className="text-zinc-400">({row.user?.role ?? '—'})</span>
+                        <span className="text-zinc-400">({String(userInfo.role ?? '—')})</span>
                       </p>
-                      <p className="text-zinc-600">
-                        {row.city} · {row.phone}
-                        {row.phoneVerified ? (
-                          <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
-                            Telefon ověřen
-                          </span>
-                        ) : (
-                          <span className="ml-2 rounded-full bg-zinc-200 px-2 py-0.5 text-xs font-semibold text-zinc-700">
-                            Telefon neověřen
-                          </span>
-                        )}
-                      </p>
-                      {row.website ? (
+                      <p className="text-zinc-600">{city} · {phone}</p>
+                      {typeof r.website === 'string' && r.website ? (
                         <p className="truncate text-zinc-600">
                           Web:{' '}
                           <a
-                            href={row.website.startsWith('http') ? row.website : `https://${row.website}`}
+                            href={r.website.startsWith('http') ? r.website : `https://${r.website}`}
                             target="_blank"
                             rel="noreferrer"
                             className="font-medium text-[#e85d00] hover:underline"
                           >
-                            {row.website}
+                            {r.website}
                           </a>
                         </p>
                       ) : null}
-                      {row.ico ? (
+                      {typeof r.ico === 'string' && r.ico ? (
                         <p className="text-zinc-600">
-                          IČO: <span className="font-mono">{row.ico}</span>
+                          IČO: <span className="font-mono">{r.ico}</span>
                         </p>
                       ) : null}
-                      {row.bio ? (
+                      {bio ? (
                         <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">
-                          {row.bio}
+                          {bio}
                         </p>
                       ) : null}
                       <p className="text-xs text-zinc-400">
-                        Žádost: {new Date(row.createdAt).toLocaleString('cs-CZ')} · ID {row.id}
+                        Žádost: {createdAt ? new Date(createdAt).toLocaleString('cs-CZ') : '—'} · ID {id}
                       </p>
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-2">
                       <button
                         type="button"
-                        disabled={busyAgentId === row.id}
-                        onClick={() => void onApproveAgent(row.id)}
+                        disabled={busyAgentId === id}
+                        onClick={() => void onApproveAgent(id)}
                         className="rounded-xl bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:opacity-50"
                       >
-                        {busyAgentId === row.id ? '…' : 'Schválit'}
+                        {busyAgentId === id ? '…' : 'Schválit'}
                       </button>
                       <button
                         type="button"
-                        disabled={busyAgentId === row.id}
-                        onClick={() => void onRejectAgent(row.id)}
+                        disabled={busyAgentId === id}
+                        onClick={() => void onRejectAgent(id)}
                         className="rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:opacity-50"
                       >
                         Zamítnout
@@ -541,7 +553,8 @@ export default function AdminPage() {
                     </div>
                   </div>
                 </article>
-              ))}
+              );
+              })}
             </div>
           )}
         </section>
