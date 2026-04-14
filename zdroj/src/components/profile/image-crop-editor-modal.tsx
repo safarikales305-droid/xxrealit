@@ -25,6 +25,9 @@ export function imageCropToStyle(crop?: ImageCrop | null): CSSProperties {
   };
 }
 
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 3;
+
 export function ImageCropEditorModal({
   open,
   title,
@@ -93,7 +96,10 @@ export function ImageCropEditorModal({
             const delta = e.deltaY > 0 ? -0.06 : 0.06;
             setCrop((prev) => ({
               ...prev,
-              zoom: Math.max(1, Math.min(3, Number((prev.zoom + delta).toFixed(3)))),
+              zoom: Math.max(
+                MIN_ZOOM,
+                Math.min(MAX_ZOOM, Number((prev.zoom + delta).toFixed(3))),
+              ),
             }));
           }}
           onTouchStart={(e) => {
@@ -121,7 +127,10 @@ export function ImageCropEditorModal({
               const ratio = nextDistance / Math.max(1, pinch.distance);
               setCrop((prev) => ({
                 ...prev,
-                zoom: Math.max(1, Math.min(3, Number((pinch.zoom * ratio).toFixed(3)))),
+                zoom: Math.max(
+                  MIN_ZOOM,
+                  Math.min(MAX_ZOOM, Number((pinch.zoom * ratio).toFixed(3))),
+                ),
               }));
               return;
             }
@@ -151,8 +160,8 @@ export function ImageCropEditorModal({
             Zoom
             <input
               type="range"
-              min={1}
-              max={3}
+              max={MAX_ZOOM}
+              min={MIN_ZOOM}
               step={0.01}
               value={crop.zoom}
               onChange={(e) => setCrop((p) => ({ ...p, zoom: Number(e.target.value) }))}
