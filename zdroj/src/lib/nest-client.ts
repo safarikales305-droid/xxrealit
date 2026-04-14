@@ -1489,6 +1489,46 @@ export type NestMyListingRow = {
   shortsListingId?: string | null;
 };
 
+export type NestProfileWallPost = {
+  id: string;
+  title?: string | null;
+  content?: string | null;
+  description?: string | null;
+  createdAt?: string;
+  media?: Array<{ url?: string; type?: string }>;
+};
+
+export type NestProfileWallVideo = {
+  id: string;
+  url?: string | null;
+  description?: string | null;
+  createdAt?: string;
+};
+
+export async function nestFetchProfileWall(
+  profileUserId: string,
+  token?: string | null,
+): Promise<{ posts: NestProfileWallPost[]; videos: NestProfileWallVideo[] } | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/users/${encodeURIComponent(profileUserId)}`, {
+    cache: 'no-store',
+    headers: {
+      Accept: 'application/json',
+      ...(token ? nestAuthHeaders(token) : {}),
+    },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json().catch(() => null)) as
+    | {
+        posts?: unknown[];
+        videos?: unknown[];
+      }
+    | null;
+  const posts = Array.isArray(data?.posts) ? (data?.posts as NestProfileWallPost[]) : [];
+  const videos = Array.isArray(data?.videos) ? (data?.videos as NestProfileWallVideo[]) : [];
+  return { posts, videos };
+}
+
 export type NestShortsMediaItem = {
   id: string;
   imageUrl: string;

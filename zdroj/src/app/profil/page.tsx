@@ -16,6 +16,7 @@ import {
   nestCreateShortsFromClassic,
   nestFetchMyShortsDrafts,
   nestFetchMyListings,
+  nestFetchProfileWall,
   nestListNotifications,
   nestMarkNotificationRead,
   nestPatchBrokerLeadPrefs,
@@ -35,6 +36,8 @@ import {
   NEST_PROFILE_IMAGE_MAX_BYTES,
   type NestMeProfile,
   type NestMyListingRow,
+  type NestProfileWallPost,
+  type NestProfileWallVideo,
   type NestCompanyAdRow,
   type NestShortsListingDraft,
   type UserNotificationRow,
@@ -96,6 +99,9 @@ export default function ProfilPage() {
   const [myListings, setMyListings] = useState<NestMyListingRow[]>([]);
   const [listingsLoading, setListingsLoading] = useState(false);
   const [listingsError, setListingsError] = useState<string | null>(null);
+  const [wallLoading, setWallLoading] = useState(false);
+  const [wallPosts, setWallPosts] = useState<NestProfileWallPost[]>([]);
+  const [wallVideos, setWallVideos] = useState<NestProfileWallVideo[]>([]);
   const [visibilitySaving, setVisibilitySaving] = useState(false);
   const [professionalVisibility, setProfessionalVisibility] = useState<boolean>(false);
   const [companyAds, setCompanyAds] = useState<NestCompanyAdRow[]>([]);
@@ -277,6 +283,20 @@ export default function ProfilPage() {
   useEffect(() => {
     void loadMyListings();
   }, [loadMyListings]);
+
+  useEffect(() => {
+    if (!user?.id || !['AGENT', 'COMPANY', 'AGENCY'].includes(user.role)) {
+      setWallPosts([]);
+      setWallVideos([]);
+      return;
+    }
+    setWallLoading(true);
+    void nestFetchProfileWall(user.id, apiAccessToken).then((rows) => {
+      setWallLoading(false);
+      setWallPosts(rows?.posts ?? []);
+      setWallVideos(rows?.videos ?? []);
+    });
+  }, [user?.id, user?.role, apiAccessToken]);
 
   const loadShortsDrafts = useCallback(async () => {
     if (!apiAccessToken) {
@@ -1309,8 +1329,91 @@ export default function ProfilPage() {
         </section>
 
         <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-zinc-900">Příspěvky</h2>
+          <p className="mt-1 text-sm text-zinc-600">
+            Veřejná zeď publikovaných příspěvků, videí a promo obsahu profilu.
+          </p>
+          {wallLoading ? (
+            <p className="mt-4 text-sm text-zinc-500">Načítám příspěvky…</p>
+          ) : wallPosts.length === 0 && wallVideos.length === 0 ? (
+            <p className="mt-4 text-sm text-zinc-600">
+              Zatím nejsou k dispozici žádné publikované příspěvky.
+            </p>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {wallPosts.map((post) => {
+                const media =
+                  Array.isArray(post.media) && post.media.length > 0
+                    ? post.media.find((m) => typeof m?.url === 'string' && m.url.trim()) ?? null
+                    : null;
+                const mediaUrl =
+                  media?.url && /^https?:\/\//i.test(media.url)
+                    ? media.url
+                    : media?.url
+                      ? nestAbsoluteAssetUrl(media.url) || media.url
+                      : null;
+                return (
+                  <article
+                    key={`post-${post.id}`}
+                    className="rounded-xl border border-zinc-100 bg-zinc-50/70 p-4"
+                  >
+                    <p className="text-sm font-semibold text-zinc-900">
+                      {post.title?.trim() || 'Příspěvek'}
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {post.createdAt ? new Date(post.createdAt).toLocaleString('cs-CZ') : ''}
+                    </p>
+                    {(post.content || post.description) && (
+                      <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">
+                        {post.content || post.description}
+                      </p>
+                    )}
+                    {mediaUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={mediaUrl} alt="" className="mt-3 h-44 w-full rounded-lg object-cover" />
+                    ) : null}
+                  </article>
+                );
+              })}
+              {wallVideos.map((video) => {
+                const vurl =
+                  video.url && /^https?:\/\//i.test(video.url)
+                    ? video.url
+                    : video.url
+                      ? nestAbsoluteAssetUrl(video.url) || video.url
+                      : null;
+                return (
+                  <article
+                    key={`video-${video.id}`}
+                    className="rounded-xl border border-zinc-100 bg-zinc-50/70 p-4"
+                  >
+                    <p className="text-sm font-semibold text-zinc-900">Video příspěvek</p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {video.createdAt ? new Date(video.createdAt).toLocaleString('cs-CZ') : ''}
+                    </p>
+                    {video.description ? (
+                      <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">
+                        {video.description}
+                      </p>
+                    ) : null}
+                    {vurl ? (
+                      <video
+                        src={vurl}
+                        className="mt-3 max-h-72 w-full rounded-lg bg-black"
+                        controls
+                        preload="metadata"
+                      />
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-lg font-semibold text-zinc-900">Vlastní příspěvky a inzeráty</h2>
+            <h2 className="text-lg font-semibold text-zinc-900">Vlastní inzeráty</h2>
             {canCreateProfessionalListingsAndPosts(user.role) ? (
               <Link
                 href="/inzerat/pridat"
@@ -1329,7 +1432,7 @@ export default function ProfilPage() {
             )}
           </div>
           <p className="mt-1 text-sm text-zinc-600">
-            Vaše vlastní publikované a spravované položky se zobrazují jako první hlavní sekce profilu.
+            Samostatný katalog vašich realitních nabídek (prodej, pronájem, klasické i shorts inzeráty).
           </p>
           {!apiAccessToken ? (
             <p className="mt-4 text-sm text-amber-800">
@@ -1601,6 +1704,23 @@ export default function ProfilPage() {
                 );
               })}
             </ul>
+          )}
+        </section>
+
+        <section className="mt-10">
+          <h2 className="text-lg font-semibold text-zinc-900">Oblíbené nemovitosti</h2>
+          {favLoading ? (
+            <p className="mt-4 text-sm text-zinc-500">Načítám oblíbené…</p>
+          ) : favError ? (
+            <p className="mt-4 text-sm text-red-600">{favError}</p>
+          ) : favorites.length === 0 ? (
+            <p className="mt-4 text-sm text-zinc-600">
+              Zatím žádné — přidejte ❤️ u nemovitosti na hlavní stránce.
+            </p>
+          ) : (
+            <div className="mt-4">
+              <PropertyGrid properties={favorites} />
+            </div>
           )}
         </section>
 
@@ -1912,22 +2032,6 @@ export default function ProfilPage() {
           </section>
         ) : null}
 
-        <section className="mt-10">
-          <h2 className="text-lg font-semibold text-zinc-900">Oblíbené nemovitosti</h2>
-          {favLoading ? (
-            <p className="mt-4 text-sm text-zinc-500">Načítám oblíbené…</p>
-          ) : favError ? (
-            <p className="mt-4 text-sm text-red-600">{favError}</p>
-          ) : favorites.length === 0 ? (
-            <p className="mt-4 text-sm text-zinc-600">
-              Zatím žádné — přidejte ❤️ u nemovitosti na hlavní stránce.
-            </p>
-          ) : (
-            <div className="mt-4">
-              <PropertyGrid properties={favorites} />
-            </div>
-          )}
-        </section>
       </div>
 
       <ProfessionalOnlyDialog
