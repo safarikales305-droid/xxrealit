@@ -4,6 +4,9 @@
   "description": "NestJS backend with modular architecture",
   "private": true,
   "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
