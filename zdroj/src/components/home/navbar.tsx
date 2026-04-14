@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { type MouseEvent, useEffect, useState } from 'react';
 import { Plus } from 'lucide-react';
 import Logo from '@/components/Logo';
 import { useAuth } from '@/hooks/use-auth';
@@ -69,7 +69,9 @@ export function Navbar({
     })();
   }
 
-  function handleAddListingClick() {
+  function handleAddListingClick(e?: MouseEvent<HTMLElement>) {
+    e?.preventDefault();
+    e?.stopPropagation();
     if (isLoading || !isAuthenticated || !user) return;
     if (!canCreateListing) {
       setProfessionalListingDialogOpen(true);

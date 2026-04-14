@@ -15,9 +15,11 @@ type AdView = CompanyAd & {
 const CACHE_TTL_MS = 45_000;
 
 const PROPERTY_TAG_TO_AD_HINTS: Record<string, string[]> = {
-  pozemek: ['pozemek', 'vystavba-domu', 'novostavba', 'dum'],
-  dum: ['vystavba-domu', 'novostavba', 'dum', 'hruba-stavba'],
+  pozemek: ['pozemek', 'vystavba-domu', 'novostavba', 'dum', 'modularni-domy', 'drevostavby'],
+  dum: ['vystavba-domu', 'novostavba', 'dum', 'hruba-stavba', 'modularni-domy', 'drevostavby'],
   byt: ['rekonstrukce', 'interier', 'byt'],
+  rekonstrukce: ['rekonstrukce', 'interier'],
+  vystavba: ['vystavba-domu', 'novostavba', 'modularni-domy', 'drevostavby'],
   komercni: ['rekonstrukce', 'fitout', 'komercni'],
 };
 

@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  type MouseEvent,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -144,7 +145,9 @@ export function PropertyReelsFeed({ items }: Props) {
   const actionBtn =
     'flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/35 text-xl shadow-lg backdrop-blur-md transition duration-200 hover:scale-110 hover:border-white/35 hover:bg-black/50 active:scale-95';
 
-  function handleHeaderAddListing() {
+  function handleHeaderAddListing(e: MouseEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    e.stopPropagation();
     if (isLoading) return;
     const path = '/inzerat/pridat';
     if (!isAuthenticated || !user) {

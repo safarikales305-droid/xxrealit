@@ -583,7 +583,9 @@ export function HomeLayout({
                   <button
                     type="button"
                     disabled={isLoading}
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
                       if (!isAuthenticated) {
                         router.push(
                           `/prihlaseni?redirect=${encodeURIComponent('/inzerat/pridat')}`,

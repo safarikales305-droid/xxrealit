@@ -13,7 +13,7 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
-import { nestAbsoluteAssetUrl } from '@/lib/api';
+import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
@@ -27,6 +27,16 @@ type VideoCardProps = {
   onMobileFiltersOpen?: () => void;
   /** Selhání načtení / přehrávání — rodič záznam odfiltruje a případně posune scroll. */
   onVideoBroken?: (videoId: string) => void;
+};
+
+type CompanyAd = {
+  id: string;
+  imageUrl: string;
+  title: string;
+  description: string;
+  ctaText: string;
+  targetUrl: string;
+  company?: { name?: string | null };
 };
 
 const railBtn =
@@ -51,6 +61,8 @@ export default function VideoCard({
   const [sellerActionHint, setSellerActionHint] = useState<string | null>(null);
   const [desktopPreviewUrl, setDesktopPreviewUrl] = useState<string | null>(null);
   const [professionalOnlyOpen, setProfessionalOnlyOpen] = useState(false);
+  const [companyAd, setCompanyAd] = useState<CompanyAd | null>(null);
+  const [companyAdOpen, setCompanyAdOpen] = useState(false);
 
   const src = nestAbsoluteAssetUrl(video.videoUrl ?? video.url ?? '').trim();
 
@@ -84,6 +96,33 @@ export default function VideoCard({
   useEffect(() => {
     if (!src) onVideoBroken?.(video.id);
   }, [src, video.id, onVideoBroken]);
+
+  useEffect(() => {
+    setCompanyAdOpen(false);
+    setCompanyAd(null);
+    if (!API_BASE_URL) return;
+    let cancelled = false;
+    void fetch(`${API_BASE_URL}/company-ads/for-property/${encodeURIComponent(video.id)}`, {
+      cache: 'no-store',
+    })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return (await res.json().catch(() => null)) as CompanyAd | null;
+      })
+      .then((ad) => {
+        if (!cancelled) setCompanyAd(ad);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [video.id]);
+
+  useEffect(() => {
+    if (!companyAd) return;
+    const timer = window.setTimeout(() => setCompanyAdOpen(true), 2800);
+    return () => window.clearTimeout(timer);
+  }, [companyAd]);
 
   useEffect(() => {
     if (!desktopPreviewUrl || !videoRef.current) return;
@@ -327,6 +366,10 @@ export default function VideoCard({
           <button
             type="button"
             onClick={goAddListing}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
             className={`${railBtn} touch-manipulation border-orange-400/85 bg-gradient-to-br from-[#ff6a00]/95 to-[#ff3c00]/95 text-white hover:brightness-110 lg:border-orange-400 lg:bg-gradient-to-br lg:from-[#ff6a00] lg:to-[#ff3c00] lg:text-white lg:hover:brightness-110`}
             aria-label="Přidat inzerát"
           >
@@ -493,6 +536,47 @@ export default function VideoCard({
         <div className="pointer-events-auto z-[35] hidden w-auto shrink-0 flex-col items-center justify-center gap-3 self-center lg:flex">
           {renderActionRail({ desktopLightShare: true })}
         </div>
+
+        {companyAd ? (
+          <aside
+            className={`pointer-events-auto absolute right-0 top-1/2 z-[38] w-[min(84vw,20rem)] -translate-y-1/2 rounded-l-2xl border border-white/20 bg-black/80 p-3 text-white shadow-2xl backdrop-blur-md transition-transform duration-500 ${
+              companyAdOpen ? 'translate-x-0' : 'translate-x-[106%]'
+            }`}
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setCompanyAdOpen(false);
+              }}
+              className="absolute right-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-xs"
+              aria-label="Zavřít reklamu"
+            >
+              ×
+            </button>
+            <img
+              src={companyAd.imageUrl}
+              alt={companyAd.title}
+              className="h-24 w-full rounded-xl object-cover"
+              loading="lazy"
+            />
+            <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-white/65">
+              {companyAd.company?.name ?? 'Stavební firma'}
+            </p>
+            <h3 className="mt-1 text-sm font-semibold">{companyAd.title}</h3>
+            <p className="mt-1 text-xs leading-relaxed text-white/85">{companyAd.description}</p>
+            <a
+              href={companyAd.targetUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="mt-3 inline-flex rounded-full bg-amber-500 px-3 py-1.5 text-xs font-semibold text-black hover:bg-amber-400"
+            >
+              {companyAd.ctaText}
+            </a>
+          </aside>
+        ) : null}
       </div>
 
       <MessageSellerModal

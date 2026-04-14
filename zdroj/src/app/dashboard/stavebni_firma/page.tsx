@@ -1,10 +1,5 @@
-import { RoleDashboard } from '@/components/dashboard/role-dashboard';
+import { CompanyAdsManager } from '@/components/dashboard/company-ads-manager';
 
 export default function StavebniFirmaDashboardPage() {
-  return (
-    <RoleDashboard
-      title="Panel stavební firmy"
-      description="Projekty, rozpočty, reference a spolupráce s developery a soukromými prodejci."
-    />
-  );
+  return <CompanyAdsManager />;
 }
