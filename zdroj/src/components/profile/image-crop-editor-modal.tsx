@@ -131,10 +131,13 @@ export function ImageCropEditorModal({
     };
   }, [open, fitWholeOnOpen, initialCrop?.x, initialCrop?.y, initialCrop?.zoom, scheduleFitWhole]);
 
-  const frameClass =
-    aspect === 'square'
-      ? 'mx-auto h-64 w-64 rounded-full'
-      : 'mx-auto h-44 w-full max-w-2xl rounded-2xl';
+  const isCoverEditor = aspect === 'cover';
+  const frameClass = isCoverEditor
+    ? 'mx-auto h-[34vh] min-h-[230px] w-full max-w-6xl rounded-2xl sm:h-[42vh] sm:min-h-[300px] lg:h-[52vh] lg:min-h-[420px] lg:max-h-[620px]'
+    : 'mx-auto h-64 w-64 rounded-full';
+  const modalClass = isCoverEditor
+    ? 'w-full max-w-[min(96vw,1320px)] rounded-2xl border border-zinc-700 bg-zinc-900 p-3 text-white shadow-2xl sm:p-5'
+    : 'w-full max-w-3xl rounded-2xl border border-zinc-700 bg-zinc-900 p-4 text-white shadow-2xl';
 
   const style = useMemo(() => imageCropToStyle(crop), [crop]);
 
@@ -142,7 +145,7 @@ export function ImageCropEditorModal({
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 px-4">
-      <div className="w-full max-w-3xl rounded-2xl border border-zinc-700 bg-zinc-900 p-4 text-white shadow-2xl">
+      <div className={modalClass}>
         <h3 className="text-lg font-semibold">{title}</h3>
         <p className="mt-1 text-xs text-zinc-300">Posuňte obrázek myší/prstem a nastavte přiblížení.</p>
         <div
@@ -246,7 +249,7 @@ export function ImageCropEditorModal({
             }}
           />
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <div className="mt-4 grid gap-2 sm:grid-cols-3 sm:gap-3">
           <label className="text-xs text-zinc-300">
             Zoom
             <input
@@ -284,27 +287,27 @@ export function ImageCropEditorModal({
             />
           </label>
         </div>
-        <div className="mt-5 flex gap-2">
+        <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => {
               scheduleFitWhole(imageRef.current);
             }}
-            className="rounded-full border border-zinc-500 px-4 py-2 text-sm font-semibold"
+            className="rounded-full border border-zinc-500 px-3 py-2 text-sm font-semibold sm:px-4"
           >
             Zobrazit celý obrázek
           </button>
           <button
             type="button"
             onClick={() => onSave(crop)}
-            className="rounded-full bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
+            className="rounded-full bg-orange-500 px-3 py-2 text-sm font-semibold text-white sm:px-4"
           >
             Uložit výřez
           </button>
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-full border border-zinc-500 px-4 py-2 text-sm font-semibold"
+            className="rounded-full border border-zinc-500 px-3 py-2 text-sm font-semibold sm:px-4"
           >
             Zrušit
           </button>
