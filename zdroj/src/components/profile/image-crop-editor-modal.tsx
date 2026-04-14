@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 export type ImageCrop = { x: number; y: number; zoom: number };
 
@@ -26,7 +26,7 @@ export function imageCropToStyle(crop?: ImageCrop | null): CSSProperties {
   };
 }
 
-const MIN_ZOOM = 0.5;
+const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 3;
 
 export function ImageCropEditorModal({
@@ -48,37 +48,40 @@ export function ImageCropEditorModal({
   const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
-  const autoFitDoneRef = useRef(false);
+  const applyFitWholeCrop = useCallback((img: HTMLImageElement | null) => {
+    if (!fitWholeOnOpen) return;
+    const frame = frameRef.current;
+    if (!frame || !img) return;
+    if (!img.naturalWidth || !img.naturalHeight) return;
+    const frameW = frame.clientWidth;
+    const frameH = frame.clientHeight;
+    if (!frameW || !frameH) return;
+
+    // Base renderer uses object-cover, so for full visibility we must counter-scale by contain/cover.
+    const coverScale = Math.max(frameW / img.naturalWidth, frameH / img.naturalHeight);
+    const containScale = Math.min(frameW / img.naturalWidth, frameH / img.naturalHeight);
+    const fitZoom = containScale / Math.max(coverScale, 0.0001);
+    const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number(fitZoom.toFixed(4))));
+    setCrop({ x: 0, y: 0, zoom: nextZoom });
+  }, [fitWholeOnOpen]);
 
   useEffect(() => {
     if (!open) return;
-    autoFitDoneRef.current = false;
+    if (fitWholeOnOpen) {
+      const img = imageRef.current;
+      if (img?.complete) {
+        applyFitWholeCrop(img);
+      } else {
+        setCrop({ x: 0, y: 0, zoom: 1 });
+      }
+      return;
+    }
     setCrop({
       x: initialCrop?.x ?? 0,
       y: initialCrop?.y ?? 0,
       zoom: initialCrop?.zoom ?? 1,
     });
-  }, [open, initialCrop?.x, initialCrop?.y, initialCrop?.zoom]);
-
-  useEffect(() => {
-    if (!open || !fitWholeOnOpen || autoFitDoneRef.current) return;
-    const frame = frameRef.current;
-    const img = imageRef.current;
-    if (!frame || !img) return;
-    if (!img.naturalWidth || !img.naturalHeight) return;
-
-    const frameW = frame.clientWidth;
-    const frameH = frame.clientHeight;
-    if (!frameW || !frameH) return;
-
-    const coverScale = Math.max(frameW / img.naturalWidth, frameH / img.naturalHeight);
-    const containScale = Math.min(frameW / img.naturalWidth, frameH / img.naturalHeight);
-    const fitZoom = containScale / Math.max(coverScale, 0.0001);
-    const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number(fitZoom.toFixed(3))));
-
-    setCrop({ x: 0, y: 0, zoom: nextZoom });
-    autoFitDoneRef.current = true;
-  }, [open, fitWholeOnOpen, imageUrl]);
+  }, [open, fitWholeOnOpen, initialCrop?.x, initialCrop?.y, initialCrop?.zoom, applyFitWholeCrop]);
 
   const frameClass =
     aspect === 'square'
@@ -187,7 +190,7 @@ export function ImageCropEditorModal({
             className="h-full w-full object-cover transition-transform"
             style={style}
             onLoad={() => {
-              if (fitWholeOnOpen) autoFitDoneRef.current = false;
+              applyFitWholeCrop(imageRef.current);
             }}
           />
         </div>

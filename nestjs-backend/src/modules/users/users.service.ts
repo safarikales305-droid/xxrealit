@@ -39,7 +39,7 @@ export class UsersService {
     return {
       x: Math.max(-100, Math.min(100, x)),
       y: Math.max(-100, Math.min(100, y)),
-      zoom: Math.max(0.5, Math.min(3, zoom)),
+      zoom: Math.max(0.05, Math.min(3, zoom)),
     };
   }
 

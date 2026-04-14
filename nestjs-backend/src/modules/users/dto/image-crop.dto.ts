@@ -12,7 +12,7 @@ export class ImageCropDto {
   y!: number;
 
   @IsNumber()
-  @Min(0.5)
+  @Min(0.05)
   @Max(3)
   zoom!: number;
 }
