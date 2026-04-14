@@ -184,6 +184,7 @@ export default function ProfilPage() {
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
+  const previousCoverCropRef = useRef<ImageCrop | null>(null);
   const uctNavHandledRef = useRef(false);
   const [professionalListingDialogOpen, setProfessionalListingDialogOpen] = useState(false);
 
@@ -402,6 +403,8 @@ export default function ProfilPage() {
     }
     setCoverError(null);
     const local = URL.createObjectURL(file);
+    previousCoverCropRef.current = coverCrop;
+    setCoverCrop(null);
     setCoverPreview(local);
     setPendingCoverFile(file);
     setCoverCropImageUrl(local);
@@ -517,6 +520,7 @@ export default function ProfilPage() {
       }
       await refresh();
       setPendingCoverFile(null);
+      previousCoverCropRef.current = null;
       if (coverPreview) URL.revokeObjectURL(coverPreview);
       setCoverPreview(null);
       setCoverCrop(crop);
@@ -826,8 +830,8 @@ export default function ProfilPage() {
               <img
                 src={displayCoverSrc}
                 alt=""
-                className="absolute inset-0 size-full object-cover"
-                style={imageCropToStyle(coverCrop)}
+                className={`absolute inset-0 size-full ${coverCrop ? 'object-cover' : 'object-contain'}`}
+                style={coverCrop ? imageCropToStyle(coverCrop) : undefined}
                 onError={() => setCoverRemoteFailed(true)}
               />
             ) : (
@@ -2066,6 +2070,10 @@ export default function ProfilPage() {
           if (pendingCoverFile && coverPreview) {
             URL.revokeObjectURL(coverPreview);
             setCoverPreview(null);
+          }
+          if (pendingCoverFile) {
+            setCoverCrop(previousCoverCropRef.current ?? null);
+            previousCoverCropRef.current = null;
           }
           setPendingCoverFile(null);
           setCoverCropOpen(false);

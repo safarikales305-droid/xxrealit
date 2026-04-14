@@ -11,7 +11,20 @@ import {
 } from './lib/uploads-path';
 
 function normalizeOrigin(url: string): string {
-  return url.trim().replace(/\/+$/, '');
+  const trimmed = url.trim().replace(/\/+$/, '');
+  try {
+    const parsed = new URL(trimmed);
+    const isDefaultPort =
+      (parsed.protocol === 'https:' && parsed.port === '443') ||
+      (parsed.protocol === 'http:' && parsed.port === '80');
+    if (isDefaultPort) {
+      parsed.port = '';
+      return parsed.toString().replace(/\/+$/, '');
+    }
+    return trimmed;
+  } catch {
+    return trimmed;
+  }
 }
 
 /** Čárkou oddělené URL (Railway / více frontendů). */
