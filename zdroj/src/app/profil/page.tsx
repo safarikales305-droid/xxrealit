@@ -116,6 +116,8 @@ export default function ProfilPage() {
   const [coverCropOpen, setCoverCropOpen] = useState(false);
   const [avatarCropImageUrl, setAvatarCropImageUrl] = useState<string | null>(null);
   const [coverCropImageUrl, setCoverCropImageUrl] = useState<string | null>(null);
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
+  const [pendingCoverFile, setPendingCoverFile] = useState<File | null>(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [coverError, setCoverError] = useState<string | null>(null);
   const [bioError, setBioError] = useState<string | null>(null);
@@ -337,30 +339,9 @@ export default function ProfilPage() {
     setAvatarError(null);
     const local = URL.createObjectURL(file);
     setAvatarPreview(local);
-    setAvatarUploading(true);
-    const res = await nestUploadAvatar(apiAccessToken, file, avatarCrop ?? undefined);
-    setAvatarUploading(false);
-    URL.revokeObjectURL(local);
-    setAvatarPreview(null);
-    if (res.error) {
-      setAvatarError(res.error);
-      return;
-    }
-    if (res.avatarUrl) {
-      setNestAvatar(res.avatarUrl);
-      setAvatarCropImageUrl(res.avatarUrl);
-      setAvatarCropOpen(true);
-    }
-    await refresh();
-    setUser((prev) =>
-      prev
-        ? {
-            ...prev,
-            avatar: res.avatarUrl ?? prev.avatar ?? null,
-          }
-        : prev,
-    );
-    showSuccess('Profilová fotka byla uložena.');
+    setPendingAvatarFile(file);
+    setAvatarCropImageUrl(local);
+    setAvatarCropOpen(true);
   }
 
   async function onCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -375,30 +356,9 @@ export default function ProfilPage() {
     setCoverError(null);
     const local = URL.createObjectURL(file);
     setCoverPreview(local);
-    setCoverUploading(true);
-    const res = await nestUploadCover(apiAccessToken, file, coverCrop ?? undefined);
-    setCoverUploading(false);
-    URL.revokeObjectURL(local);
-    setCoverPreview(null);
-    if (res.error) {
-      setCoverError(res.error);
-      return;
-    }
-    if (res.coverImageUrl) {
-      setNestCover(res.coverImageUrl);
-      setCoverCropImageUrl(res.coverImageUrl);
-      setCoverCropOpen(true);
-    }
-    await refresh();
-    setUser((prev) =>
-      prev
-        ? {
-            ...prev,
-            coverImage: res.coverImageUrl ?? prev.coverImage ?? null,
-          }
-        : prev,
-    );
-    showSuccess('Cover obrázek byl uložen.');
+    setPendingCoverFile(file);
+    setCoverCropImageUrl(local);
+    setCoverCropOpen(true);
   }
 
   async function onDeleteCover() {
@@ -423,19 +383,57 @@ export default function ProfilPage() {
   }
 
   function openAvatarEditorFromImage() {
-    if (!displayAvatarSrc) return;
+    if (!displayAvatarSrc) {
+      avatarInputRef.current?.click();
+      return;
+    }
+    setPendingAvatarFile(null);
     setAvatarCropImageUrl(displayAvatarSrc);
     setAvatarCropOpen(true);
   }
 
   function openCoverEditorFromImage() {
-    if (!displayCoverSrc) return;
+    if (!displayCoverSrc) {
+      coverInputRef.current?.click();
+      return;
+    }
+    setPendingCoverFile(null);
     setCoverCropImageUrl(displayCoverSrc);
     setCoverCropOpen(true);
   }
 
   async function onSaveAvatarCrop(crop: ImageCrop) {
-    if (!apiAccessToken || !nestAvatar) return;
+    if (!apiAccessToken) return;
+    if (pendingAvatarFile) {
+      setAvatarUploading(true);
+      const upload = await nestUploadAvatar(apiAccessToken, pendingAvatarFile, crop);
+      setAvatarUploading(false);
+      if (upload.error) {
+        setAvatarError(upload.error);
+        return;
+      }
+      if (upload.avatarUrl) {
+        setNestAvatar(upload.avatarUrl);
+        setUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                avatar: upload.avatarUrl ?? prev.avatar ?? null,
+              }
+            : prev,
+        );
+      }
+      await refresh();
+      setPendingAvatarFile(null);
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+      setAvatarPreview(null);
+      setAvatarCrop(crop);
+      setAvatarCropOpen(false);
+      setAvatarCropImageUrl(null);
+      showSuccess('Profilová fotka byla uložena.');
+      return;
+    }
+    if (!nestAvatar) return;
     const res = await nestPatchAvatarCrop(apiAccessToken, nestAvatar, crop);
     if (!res.ok) {
       setAvatarError(res.error ?? 'Uložení výřezu profilové fotky selhalo.');
@@ -450,7 +448,37 @@ export default function ProfilPage() {
   }
 
   async function onSaveCoverCrop(crop: ImageCrop) {
-    if (!apiAccessToken || !nestCover) return;
+    if (!apiAccessToken) return;
+    if (pendingCoverFile) {
+      setCoverUploading(true);
+      const upload = await nestUploadCover(apiAccessToken, pendingCoverFile, crop);
+      setCoverUploading(false);
+      if (upload.error) {
+        setCoverError(upload.error);
+        return;
+      }
+      if (upload.coverImageUrl) {
+        setNestCover(upload.coverImageUrl);
+        setUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                coverImage: upload.coverImageUrl ?? prev.coverImage ?? null,
+              }
+            : prev,
+        );
+      }
+      await refresh();
+      setPendingCoverFile(null);
+      if (coverPreview) URL.revokeObjectURL(coverPreview);
+      setCoverPreview(null);
+      setCoverCrop(crop);
+      setCoverCropOpen(false);
+      setCoverCropImageUrl(null);
+      showSuccess('Cover obrázek byl uložen.');
+      return;
+    }
+    if (!nestCover) return;
     const res = await nestPatchCoverCrop(apiAccessToken, nestCover, crop);
     if (!res.ok) {
       setCoverError(res.error ?? 'Uložení výřezu cover fotky selhalo.');
@@ -714,7 +742,7 @@ export default function ProfilPage() {
           {/* Cover */}
           <div
             className={`group relative aspect-[21/9] min-h-[140px] w-full sm:min-h-[168px] md:aspect-[3/1] md:min-h-[200px] ${
-              displayCoverSrc ? 'cursor-pointer' : ''
+              'cursor-pointer'
             }`}
             onDoubleClick={(e) => {
               if (!displayCoverSrc) return;
@@ -723,7 +751,9 @@ export default function ProfilPage() {
               openCoverEditorFromImage();
             }}
             onClick={(e) => {
-              if (!displayCoverSrc || !isTouchLikeDevice()) return;
+              if (!isTouchLikeDevice()) {
+                if (displayCoverSrc) return;
+              }
               e.preventDefault();
               e.stopPropagation();
               openCoverEditorFromImage();
@@ -746,18 +776,16 @@ export default function ProfilPage() {
                 Nahrávám cover…
               </div>
             ) : null}
-            {displayCoverSrc ? (
-              <div className="pointer-events-none absolute inset-0 hidden items-center justify-center bg-black/35 text-xs font-semibold text-white opacity-0 transition group-hover:flex group-hover:opacity-100 md:text-sm">
-                Chcete upravit obrázek?
-              </div>
-            ) : null}
+            <div className="pointer-events-none absolute inset-0 hidden items-center justify-center bg-black/35 text-xs font-semibold text-white opacity-0 transition group-hover:flex group-hover:opacity-100 group-focus-within:flex group-focus-within:opacity-100 md:text-sm">
+              {displayCoverSrc ? 'Chcete upravit obrázek?' : 'Nahrát titulní fotku'}
+            </div>
           </div>
 
           <div className="relative px-4 pb-8 pt-0 sm:px-8">
             <div className="-mt-14 flex flex-col gap-6 sm:-mt-16 sm:flex-row sm:items-end sm:justify-between">
               <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-end">
                 <div
-                  className={`group relative shrink-0 ${displayAvatarSrc ? 'cursor-pointer' : ''}`}
+                  className="group relative shrink-0 cursor-pointer"
                   onDoubleClick={(e) => {
                     if (!displayAvatarSrc) return;
                     e.preventDefault();
@@ -765,7 +793,9 @@ export default function ProfilPage() {
                     openAvatarEditorFromImage();
                   }}
                   onClick={(e) => {
-                    if (!displayAvatarSrc || !isTouchLikeDevice()) return;
+                    if (!isTouchLikeDevice()) {
+                      if (displayAvatarSrc) return;
+                    }
                     e.preventDefault();
                     e.stopPropagation();
                     openAvatarEditorFromImage();
@@ -791,11 +821,11 @@ export default function ProfilPage() {
                         Nahrávám…
                       </div>
                     ) : null}
-                    {displayAvatarSrc ? (
-                      <div className="pointer-events-none absolute inset-0 hidden items-center justify-center rounded-full bg-black/40 px-3 text-center text-[10px] font-semibold text-white opacity-0 transition group-hover:flex group-hover:opacity-100 sm:text-xs">
-                        Chcete upravit obrázek?
-                      </div>
-                    ) : null}
+                    <div className="pointer-events-none absolute inset-0 hidden items-center justify-center rounded-full bg-black/40 px-3 text-center text-[10px] font-semibold text-white opacity-0 transition group-hover:flex group-hover:opacity-100 group-focus-within:flex group-focus-within:opacity-100 sm:text-xs">
+                      {displayAvatarSrc
+                        ? 'Chcete upravit obrázek?'
+                        : 'Nahrát profilovou fotku'}
+                    </div>
                   </div>
                 </div>
                 <div className="min-w-0 text-center sm:pb-1 sm:text-left">
@@ -856,22 +886,6 @@ export default function ProfilPage() {
                   disabled={coverUploading || !apiAccessToken}
                   onChange={(ev) => void onCoverChange(ev)}
                 />
-                <button
-                  type="button"
-                  disabled={avatarUploading || !apiAccessToken}
-                  onClick={() => avatarInputRef.current?.click()}
-                  className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 shadow-sm transition hover:bg-zinc-50 disabled:opacity-50"
-                >
-                  Nahrát profilovou fotku
-                </button>
-                <button
-                  type="button"
-                  disabled={coverUploading || !apiAccessToken}
-                  onClick={() => coverInputRef.current?.click()}
-                  className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 shadow-sm transition hover:bg-zinc-50 disabled:opacity-50"
-                >
-                  Nahrát cover fotku
-                </button>
                 {coverSrc ? (
                   <button
                     type="button"
@@ -1838,6 +1852,11 @@ export default function ProfilPage() {
         aspect="square"
         initialCrop={avatarCrop}
         onCancel={() => {
+          if (pendingAvatarFile && avatarPreview) {
+            URL.revokeObjectURL(avatarPreview);
+            setAvatarPreview(null);
+          }
+          setPendingAvatarFile(null);
           setAvatarCropOpen(false);
           setAvatarCropImageUrl(null);
         }}
@@ -1850,6 +1869,11 @@ export default function ProfilPage() {
         aspect="cover"
         initialCrop={coverCrop}
         onCancel={() => {
+          if (pendingCoverFile && coverPreview) {
+            URL.revokeObjectURL(coverPreview);
+            setCoverPreview(null);
+          }
+          setPendingCoverFile(null);
           setCoverCropOpen(false);
           setCoverCropImageUrl(null);
         }}
