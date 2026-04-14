@@ -10,6 +10,7 @@ import { useMessagesUnreadCount } from '@/hooks/use-messages-unread';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { canCreateProfessionalListingsAndPosts } from '@/lib/roles';
 import { ProfessionalOnlyDialog } from '@/components/auth/ProfessionalListingRestriction';
+import { imageCropToStyle } from '@/components/profile/image-crop-editor-modal';
 
 export type ViewMode = 'shorts' | 'classic' | 'posts';
 
@@ -155,6 +156,7 @@ export function Navbar({
                   src={avatarSrc}
                   alt=""
                   className="size-full rounded-full object-cover object-center"
+                  style={imageCropToStyle(user?.avatarCrop ?? null)}
                   width={36}
                   height={36}
                   decoding="async"
@@ -402,6 +404,7 @@ export function Navbar({
                 src={avatarSrc}
                 alt=""
                 className="size-full rounded-full object-cover object-center"
+                style={imageCropToStyle(user?.avatarCrop ?? null)}
                 width={48}
                 height={48}
                 decoding="async"

@@ -56,8 +56,12 @@ model User {
   role         UserRole   @default(USER)
   /// Public profile image URL (absolute or same-origin path).
   avatar       String?
+  /// Volitelné UI nastavení výřezu profilové fotky (x/y posun, zoom).
+  avatarCrop   Json?
   /// Široký cover obrázek profilu (URL).
   coverImage   String?
+  /// Volitelné UI nastavení výřezu cover fotky (x/y posun, zoom).
+  coverCrop    Json?
   bio          String?
   /// User's own city (for personalization); separate from listing city.
   city         String?

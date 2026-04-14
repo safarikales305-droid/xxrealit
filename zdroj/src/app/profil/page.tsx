@@ -20,6 +20,8 @@ import {
   nestMarkNotificationRead,
   nestPatchBrokerLeadPrefs,
   nestPatchBrokerPublicProfile,
+  nestPatchAvatarCrop,
+  nestPatchCoverCrop,
   nestPatchMyProperty,
   nestPatchProfileBio,
   nestSubmitAgentProfileRequest,
@@ -34,6 +36,11 @@ import {
   type NestShortsListingDraft,
   type UserNotificationRow,
 } from '@/lib/nest-client';
+import {
+  ImageCropEditorModal,
+  imageCropToStyle,
+  type ImageCrop,
+} from '@/components/profile/image-crop-editor-modal';
 import {
   safeNormalizePropertyFromApi,
   type PropertyFeedItem,
@@ -103,6 +110,12 @@ export default function ProfilPage() {
   const [bioSaving, setBioSaving] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  const [avatarCrop, setAvatarCrop] = useState<ImageCrop | null>(null);
+  const [coverCrop, setCoverCrop] = useState<ImageCrop | null>(null);
+  const [avatarCropOpen, setAvatarCropOpen] = useState(false);
+  const [coverCropOpen, setCoverCropOpen] = useState(false);
+  const [avatarCropImageUrl, setAvatarCropImageUrl] = useState<string | null>(null);
+  const [coverCropImageUrl, setCoverCropImageUrl] = useState<string | null>(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [coverError, setCoverError] = useState<string | null>(null);
   const [bioError, setBioError] = useState<string | null>(null);
@@ -172,6 +185,8 @@ export default function ProfilPage() {
     setNestMe(me);
     setNestAvatar(me.avatarUrl ?? null);
     setNestCover(me.coverImageUrl ?? null);
+    setAvatarCrop(me.avatarCrop ?? null);
+    setCoverCrop(me.coverCrop ?? null);
     setNestBio(me.bio ?? null);
     setBioDraft(me.bio ?? '');
   }, [apiAccessToken]);
@@ -323,7 +338,7 @@ export default function ProfilPage() {
     const local = URL.createObjectURL(file);
     setAvatarPreview(local);
     setAvatarUploading(true);
-    const res = await nestUploadAvatar(apiAccessToken, file);
+    const res = await nestUploadAvatar(apiAccessToken, file, avatarCrop ?? undefined);
     setAvatarUploading(false);
     URL.revokeObjectURL(local);
     setAvatarPreview(null);
@@ -333,6 +348,8 @@ export default function ProfilPage() {
     }
     if (res.avatarUrl) {
       setNestAvatar(res.avatarUrl);
+      setAvatarCropImageUrl(res.avatarUrl);
+      setAvatarCropOpen(true);
     }
     await refresh();
     setUser((prev) =>
@@ -359,7 +376,7 @@ export default function ProfilPage() {
     const local = URL.createObjectURL(file);
     setCoverPreview(local);
     setCoverUploading(true);
-    const res = await nestUploadCover(apiAccessToken, file);
+    const res = await nestUploadCover(apiAccessToken, file, coverCrop ?? undefined);
     setCoverUploading(false);
     URL.revokeObjectURL(local);
     setCoverPreview(null);
@@ -369,6 +386,8 @@ export default function ProfilPage() {
     }
     if (res.coverImageUrl) {
       setNestCover(res.coverImageUrl);
+      setCoverCropImageUrl(res.coverImageUrl);
+      setCoverCropOpen(true);
     }
     await refresh();
     setUser((prev) =>
@@ -396,6 +415,36 @@ export default function ProfilPage() {
     await refresh();
     setUser((prev) => (prev ? { ...prev, coverImage: null } : prev));
     showSuccess('Cover byl odstraněn.');
+  }
+
+  async function onSaveAvatarCrop(crop: ImageCrop) {
+    if (!apiAccessToken || !nestAvatar) return;
+    const res = await nestPatchAvatarCrop(apiAccessToken, nestAvatar, crop);
+    if (!res.ok) {
+      setAvatarError(res.error ?? 'Uložení výřezu profilové fotky selhalo.');
+      return;
+    }
+    setAvatarCrop(crop);
+    setAvatarCropOpen(false);
+    setAvatarCropImageUrl(null);
+    await loadNestProfile();
+    await refresh();
+    showSuccess('Výřez profilové fotky byl uložen.');
+  }
+
+  async function onSaveCoverCrop(crop: ImageCrop) {
+    if (!apiAccessToken || !nestCover) return;
+    const res = await nestPatchCoverCrop(apiAccessToken, nestCover, crop);
+    if (!res.ok) {
+      setCoverError(res.error ?? 'Uložení výřezu cover fotky selhalo.');
+      return;
+    }
+    setCoverCrop(crop);
+    setCoverCropOpen(false);
+    setCoverCropImageUrl(null);
+    await loadNestProfile();
+    await refresh();
+    showSuccess('Výřez cover fotky byl uložen.');
   }
 
   async function onSaveBio() {
@@ -653,6 +702,7 @@ export default function ProfilPage() {
                 src={displayCoverSrc}
                 alt=""
                 className="absolute inset-0 size-full object-cover"
+                style={imageCropToStyle(coverCrop)}
                 onError={() => setCoverRemoteFailed(true)}
               />
             ) : (
@@ -676,6 +726,7 @@ export default function ProfilPage() {
                         src={displayAvatarSrc}
                         alt=""
                         className="size-28 rounded-full object-cover sm:size-32"
+                        style={imageCropToStyle(avatarCrop)}
                         onError={() => setAvatarRemoteFailed(true)}
                       />
                     ) : (
@@ -748,6 +799,19 @@ export default function ProfilPage() {
                 >
                   Změnit profilovou fotku
                 </button>
+                {displayAvatarSrc ? (
+                  <button
+                    type="button"
+                    disabled={!apiAccessToken}
+                    onClick={() => {
+                      setAvatarCropImageUrl(displayAvatarSrc);
+                      setAvatarCropOpen(true);
+                    }}
+                    className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50 disabled:opacity-50"
+                  >
+                    Upravit výřez profilové fotky
+                  </button>
+                ) : null}
                 <input
                   ref={coverInputRef}
                   type="file"
@@ -764,6 +828,19 @@ export default function ProfilPage() {
                 >
                   Změnit cover
                 </button>
+                {displayCoverSrc ? (
+                  <button
+                    type="button"
+                    disabled={!apiAccessToken}
+                    onClick={() => {
+                      setCoverCropImageUrl(displayCoverSrc);
+                      setCoverCropOpen(true);
+                    }}
+                    className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50 disabled:opacity-50"
+                  >
+                    Upravit výřez cover fotky
+                  </button>
+                ) : null}
                 {coverSrc ? (
                   <button
                     type="button"
@@ -1722,6 +1799,30 @@ export default function ProfilPage() {
       <ProfessionalOnlyDialog
         open={professionalListingDialogOpen}
         onClose={() => setProfessionalListingDialogOpen(false)}
+      />
+      <ImageCropEditorModal
+        open={avatarCropOpen}
+        title="Upravit profilovou fotku"
+        imageUrl={avatarCropImageUrl}
+        aspect="square"
+        initialCrop={avatarCrop}
+        onCancel={() => {
+          setAvatarCropOpen(false);
+          setAvatarCropImageUrl(null);
+        }}
+        onSave={(crop) => void onSaveAvatarCrop(crop)}
+      />
+      <ImageCropEditorModal
+        open={coverCropOpen}
+        title="Upravit cover fotku"
+        imageUrl={coverCropImageUrl}
+        aspect="cover"
+        initialCrop={coverCrop}
+        onCancel={() => {
+          setCoverCropOpen(false);
+          setCoverCropImageUrl(null);
+        }}
+        onSave={(crop) => void onSaveCoverCrop(crop)}
       />
     </div>
   );

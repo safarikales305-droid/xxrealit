@@ -60,7 +60,9 @@ export class AuthController {
       name: profile.name,
       role: profile.role,
       avatar: profile.avatarUrl,
+      avatarCrop: profile.avatarCrop ?? null,
       coverImage: profile.coverImageUrl ?? null,
+      coverCrop: profile.coverCrop ?? null,
       bio: profile.bio ?? null,
       createdAt: profile.createdAt.toISOString(),
     };

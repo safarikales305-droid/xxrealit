@@ -182,7 +182,9 @@ export type NestMeProfile = {
   name?: string | null;
   role: string;
   avatarUrl?: string | null;
+  avatarCrop?: { x: number; y: number; zoom: number } | null;
   coverImageUrl?: string | null;
+  coverCrop?: { x: number; y: number; zoom: number } | null;
   bio?: string | null;
   createdAt: string;
   isPremiumBroker?: boolean;
@@ -313,6 +315,24 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     typeof avatarRaw === 'string' && avatarRaw.trim() ? avatarRaw.trim() : null;
   const coverImageUrl =
     typeof coverRaw === 'string' && coverRaw.trim() ? coverRaw.trim() : null;
+  const avatarCropRaw = o.avatarCrop;
+  const coverCropRaw = o.coverCrop;
+  const avatarCrop =
+    avatarCropRaw != null && typeof avatarCropRaw === 'object'
+      ? {
+          x: Number((avatarCropRaw as { x?: unknown }).x ?? 0),
+          y: Number((avatarCropRaw as { y?: unknown }).y ?? 0),
+          zoom: Number((avatarCropRaw as { zoom?: unknown }).zoom ?? 1),
+        }
+      : null;
+  const coverCrop =
+    coverCropRaw != null && typeof coverCropRaw === 'object'
+      ? {
+          x: Number((coverCropRaw as { x?: unknown }).x ?? 0),
+          y: Number((coverCropRaw as { y?: unknown }).y ?? 0),
+          zoom: Number((coverCropRaw as { zoom?: unknown }).zoom ?? 1),
+        }
+      : null;
   const bio = o.bio === null || typeof o.bio === 'string' ? (o.bio as string | null) : null;
   const createdAt =
     typeof o.createdAt === 'string' ? o.createdAt : new Date().toISOString();
@@ -345,7 +365,9 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     name: typeof o.name === 'string' || o.name === null ? (o.name as string | null) : undefined,
     role,
     avatarUrl,
+    avatarCrop,
     coverImageUrl,
+    coverCrop,
     bio,
     createdAt,
     isPremiumBroker: typeof o.isPremiumBroker === 'boolean' ? o.isPremiumBroker : undefined,
@@ -2263,6 +2285,7 @@ export async function nestGeneratePropertyShortsFromPhotos(
 export async function nestUploadAvatar(
   token: string | null,
   file: File,
+  crop?: { x: number; y: number; zoom: number },
 ): Promise<{ avatarUrl?: string; error?: string }> {
   if (!API_BASE_URL || !token) {
     return { error: 'API nebo token chybí' };
@@ -2302,7 +2325,7 @@ export async function nestUploadAvatar(
       Accept: 'application/json',
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ avatarUrl: url }),
+    body: JSON.stringify({ avatarUrl: url, ...(crop ? { crop } : {}) }),
   });
   const patchData = (await patch.json().catch(() => ({}))) as {
     avatarUrl?: string | null;
@@ -2339,6 +2362,7 @@ export async function nestUploadAvatar(
 export async function nestUploadCover(
   token: string | null,
   file: File,
+  crop?: { x: number; y: number; zoom: number },
 ): Promise<{ coverImageUrl?: string; error?: string }> {
   if (!API_BASE_URL || !token) {
     return { error: 'API nebo token chybí' };
@@ -2377,7 +2401,7 @@ export async function nestUploadCover(
       Accept: 'application/json',
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ coverImageUrl: url }),
+    body: JSON.stringify({ coverImageUrl: url, ...(crop ? { crop } : {}) }),
   });
   const patchData = (await patch.json().catch(() => ({}))) as {
     coverImageUrl?: string | null;
@@ -2429,6 +2453,59 @@ export async function nestDeleteCover(
     return { ok: false, error: msg };
   }
   return { ok: true };
+}
+
+export async function nestPatchAvatarCrop(
+  token: string | null,
+  avatarUrl: string,
+  crop: { x: number; y: number; zoom: number },
+): Promise<{ ok: boolean; error?: string; avatarUrl?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/users/avatar`, {
+    method: 'PATCH',
+    cache: 'no-store',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ avatarUrl, crop }),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return {
+    ok: true,
+    avatarUrl: typeof data.avatarUrl === 'string' ? data.avatarUrl : avatarUrl,
+  };
+}
+
+export async function nestPatchCoverCrop(
+  token: string | null,
+  coverImageUrl: string,
+  crop: { x: number; y: number; zoom: number },
+): Promise<{ ok: boolean; error?: string; coverImageUrl?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/users/cover`, {
+    method: 'PATCH',
+    cache: 'no-store',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ coverImageUrl, crop }),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return {
+    ok: true,
+    coverImageUrl:
+      typeof data.coverImageUrl === 'string' ? data.coverImageUrl : coverImageUrl,
+  };
 }
 
 export async function nestPatchProfileBio(

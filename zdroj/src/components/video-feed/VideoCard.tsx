@@ -362,20 +362,18 @@ export default function VideoCard({
           )}
         </button>
 
-        {!isLoading && isAuthenticated && user ? (
-          <button
-            type="button"
-            onClick={goAddListing}
-            onPointerDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-            className={`${railBtn} touch-manipulation border-orange-400/85 bg-gradient-to-br from-[#ff6a00]/95 to-[#ff3c00]/95 text-white hover:brightness-110 lg:border-orange-400 lg:bg-gradient-to-br lg:from-[#ff6a00] lg:to-[#ff3c00] lg:text-white lg:hover:brightness-110`}
-            aria-label="Přidat inzerát"
-          >
-            <Plus className="size-6" strokeWidth={2.5} aria-hidden />
-          </button>
-        ) : null}
+        <button
+          type="button"
+          onClick={goAddListing}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          className={`${railBtn} touch-manipulation border-orange-400/85 bg-gradient-to-br from-[#ff6a00]/95 to-[#ff3c00]/95 text-white hover:brightness-110 lg:border-orange-400 lg:bg-gradient-to-br lg:from-[#ff6a00] lg:to-[#ff3c00] lg:text-white lg:hover:brightness-110`}
+          aria-label="Přidat inzerát"
+        >
+          <Plus className="size-6" strokeWidth={2.5} aria-hidden />
+        </button>
       </>
     );
   }

@@ -17,12 +17,26 @@ import {
   type PropertyViewerAccess,
 } from '../properties/properties.serializer';
 import { UpdateBrokerPublicProfileDto } from './dto/update-broker-public-profile.dto';
+import type { ImageCropDto } from './dto/image-crop.dto';
 
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  private normalizeCrop(crop?: ImageCropDto | null): Prisma.InputJsonValue | undefined {
+    if (!crop) return undefined;
+    const x = Number(crop.x);
+    const y = Number(crop.y);
+    const zoom = Number(crop.zoom);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(zoom)) return undefined;
+    return {
+      x: Math.max(-100, Math.min(100, x)),
+      y: Math.max(-100, Math.min(100, y)),
+      zoom: Math.max(1, Math.min(3, zoom)),
+    };
+  }
 
   findByEmail(email: string): Promise<User | null> {
     return this.prisma.user.findUnique({ where: { email } });
@@ -52,16 +66,21 @@ export class UsersService {
     });
   }
 
-  async updateAvatar(userId: string, avatarUrl: string) {
+  async updateAvatar(userId: string, avatarUrl: string, crop?: ImageCropDto) {
     const updated = await this.prisma.user.update({
       where: { id: userId },
-      data: { avatar: avatarUrl },
+      data: {
+        avatar: avatarUrl,
+        ...(crop ? { avatarCrop: this.normalizeCrop(crop) } : {}),
+      },
       select: {
         id: true,
         email: true,
         name: true,
         avatar: true,
+        avatarCrop: true,
         coverImage: true,
+        coverCrop: true,
         bio: true,
         role: true,
         createdAt: true,
@@ -73,16 +92,21 @@ export class UsersService {
     return { ...updated, role: ensureUserRole(updated.role) };
   }
 
-  async updateCoverImage(userId: string, coverImageUrl: string) {
+  async updateCoverImage(userId: string, coverImageUrl: string, crop?: ImageCropDto) {
     const updated = await this.prisma.user.update({
       where: { id: userId },
-      data: { coverImage: coverImageUrl },
+      data: {
+        coverImage: coverImageUrl,
+        ...(crop ? { coverCrop: this.normalizeCrop(crop) } : {}),
+      },
       select: {
         id: true,
         email: true,
         name: true,
         avatar: true,
+        avatarCrop: true,
         coverImage: true,
+        coverCrop: true,
         bio: true,
         role: true,
         createdAt: true,
@@ -97,13 +121,15 @@ export class UsersService {
   async clearCoverImage(userId: string) {
     const updated = await this.prisma.user.update({
       where: { id: userId },
-      data: { coverImage: null },
+      data: { coverImage: null, coverCrop: Prisma.JsonNull },
       select: {
         id: true,
         email: true,
         name: true,
         avatar: true,
+        avatarCrop: true,
         coverImage: true,
+        coverCrop: true,
         bio: true,
         role: true,
         createdAt: true,
@@ -121,7 +147,9 @@ export class UsersService {
           email: true,
           name: true,
           avatar: true,
+          avatarCrop: true,
           coverImage: true,
+          coverCrop: true,
           bio: true,
           role: true,
           createdAt: true,
@@ -144,7 +172,9 @@ export class UsersService {
         email: true,
         name: true,
         avatar: true,
+        avatarCrop: true,
         coverImage: true,
+        coverCrop: true,
         bio: true,
         role: true,
         createdAt: true,
@@ -161,7 +191,9 @@ export class UsersService {
         email: true,
         name: true,
         avatar: true,
+        avatarCrop: true,
         coverImage: true,
+        coverCrop: true,
         bio: true,
         role: true,
         createdAt: true,
@@ -264,7 +296,9 @@ export class UsersService {
       role: ensureUserRole(u.role),
       createdAt: u.createdAt,
       avatarUrl: upgradeHttpToHttpsForApi(u.avatar ?? null) ?? u.avatar ?? null,
+      avatarCrop: u.avatarCrop ?? null,
       coverImageUrl: upgradeHttpToHttpsForApi(u.coverImage ?? null) ?? u.coverImage ?? null,
+      coverCrop: u.coverCrop ?? null,
       bio: u.bio ?? null,
       isPremiumBroker: u.isPremiumBroker,
       brokerLeadNotificationEnabled: u.brokerLeadNotificationEnabled,
@@ -315,7 +349,9 @@ export class UsersService {
         name: true,
         role: true,
         avatar: true,
+        avatarCrop: true,
         coverImage: true,
+        coverCrop: true,
         bio: true,
         city: true,
         rating: true,
@@ -385,7 +421,9 @@ export class UsersService {
       name: user.name,
       role: ensureUserRole(user.role),
       avatar: upgradeHttpToHttpsForApi(user.avatar) ?? user.avatar,
+      avatarCrop: user.avatarCrop ?? null,
       coverImage: upgradeHttpToHttpsForApi(user.coverImage) ?? user.coverImage,
+      coverCrop: user.coverCrop ?? null,
       bio: user.bio,
       city: user.city,
       rating: user.rating,

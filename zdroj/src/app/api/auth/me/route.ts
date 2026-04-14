@@ -12,7 +12,9 @@ type NestMeUser = {
   email?: string;
   role?: string;
   avatar?: string | null;
+  avatarCrop?: { x?: number; y?: number; zoom?: number } | null;
   coverImage?: string | null;
+  coverCrop?: { x?: number; y?: number; zoom?: number } | null;
   bio?: string | null;
   createdAt?: string;
 };
@@ -51,7 +53,9 @@ export async function GET(request: Request) {
                 email: u.email,
                 role: u.role,
                 avatar: u.avatar ?? null,
+                avatarCrop: u.avatarCrop ?? null,
                 coverImage: u.coverImage ?? null,
+                coverCrop: u.coverCrop ?? null,
                 bio: u.bio ?? null,
                 createdAt:
                   typeof u.createdAt === 'string'
@@ -91,6 +95,8 @@ export async function GET(request: Request) {
     return NextResponse.json({
       user: {
         ...user,
+        avatarCrop: null,
+        coverCrop: null,
         createdAt: user.createdAt.toISOString(),
       },
     });

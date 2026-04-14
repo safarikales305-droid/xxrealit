@@ -78,16 +78,19 @@ export class UsersController {
   @Patch('avatar')
   async patchAvatar(
     @CurrentUser() user: AuthUser,
-    @Body() dto: UpdateAvatarDto,
+    @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: UpdateAvatarDto,
   ) {
     const updated = await this.usersService.updateAvatar(
       user.id,
       dto.avatarUrl.trim(),
+      dto.crop,
     );
     return {
       success: true,
       avatarUrl: updated.avatar,
+      avatarCrop: updated.avatarCrop ?? null,
       coverImageUrl: updated.coverImage ?? null,
+      coverCrop: updated.coverCrop ?? null,
       bio: updated.bio ?? null,
       user: {
         id: updated.id,
@@ -95,7 +98,9 @@ export class UsersController {
         name: updated.name,
         role: updated.role,
         avatarUrl: updated.avatar ?? null,
+        avatarCrop: updated.avatarCrop ?? null,
         coverImageUrl: updated.coverImage ?? null,
+        coverCrop: updated.coverCrop ?? null,
         bio: updated.bio ?? null,
         createdAt: updated.createdAt.toISOString(),
       },
@@ -124,21 +129,28 @@ export class UsersController {
 
   @UseGuards(JwtAuthGuard)
   @Patch('cover')
-  async patchCover(@CurrentUser() user: AuthUser, @Body() dto: UpdateCoverDto) {
+  async patchCover(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: UpdateCoverDto,
+  ) {
     const updated = await this.usersService.updateCoverImage(
       user.id,
       dto.coverImageUrl.trim(),
+      dto.crop,
     );
     return {
       success: true,
       coverImageUrl: updated.coverImage ?? null,
+      coverCrop: updated.coverCrop ?? null,
       user: {
         id: updated.id,
         email: updated.email,
         name: updated.name,
         role: updated.role,
         avatarUrl: updated.avatar ?? null,
+        avatarCrop: updated.avatarCrop ?? null,
         coverImageUrl: updated.coverImage ?? null,
+        coverCrop: updated.coverCrop ?? null,
         bio: updated.bio ?? null,
         createdAt: updated.createdAt.toISOString(),
       },
@@ -158,7 +170,9 @@ export class UsersController {
         name: updated.name,
         role: updated.role,
         avatarUrl: updated.avatar ?? null,
+        avatarCrop: updated.avatarCrop ?? null,
         coverImageUrl: null,
+        coverCrop: null,
         bio: updated.bio ?? null,
         createdAt: updated.createdAt.toISOString(),
       },

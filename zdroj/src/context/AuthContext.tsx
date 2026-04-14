@@ -20,7 +20,9 @@ export type AuthUser = {
   role: string;
   createdAt: string;
   avatar?: string | null;
+  avatarCrop?: { x: number; y: number; zoom: number } | null;
   coverImage?: string | null;
+  coverCrop?: { x: number; y: number; zoom: number } | null;
   bio?: string | null;
 };
 
@@ -45,11 +47,29 @@ function normalizeMeUser(raw: unknown): AuthUser | null {
     return null;
   }
   const avatarRaw = o.avatar ?? o.avatarUrl;
+  const avatarCropRaw = o.avatarCrop;
   const coverRaw = o.coverImage ?? o.coverImageUrl;
+  const coverCropRaw = o.coverCrop;
   const avatar =
     typeof avatarRaw === 'string' && avatarRaw.trim() ? avatarRaw.trim() : null;
   const coverImage =
     typeof coverRaw === 'string' && coverRaw.trim() ? coverRaw.trim() : null;
+  const avatarCrop =
+    avatarCropRaw && typeof avatarCropRaw === 'object'
+      ? {
+          x: Number((avatarCropRaw as { x?: number }).x ?? 0),
+          y: Number((avatarCropRaw as { y?: number }).y ?? 0),
+          zoom: Number((avatarCropRaw as { zoom?: number }).zoom ?? 1),
+        }
+      : null;
+  const coverCrop =
+    coverCropRaw && typeof coverCropRaw === 'object'
+      ? {
+          x: Number((coverCropRaw as { x?: number }).x ?? 0),
+          y: Number((coverCropRaw as { y?: number }).y ?? 0),
+          zoom: Number((coverCropRaw as { zoom?: number }).zoom ?? 1),
+        }
+      : null;
   const bio = o.bio === null || typeof o.bio === 'string' ? (o.bio as string | null) : null;
   const name =
     o.name === undefined
@@ -68,7 +88,9 @@ function normalizeMeUser(raw: unknown): AuthUser | null {
     role: o.role,
     createdAt,
     avatar,
+    avatarCrop,
     coverImage,
+    coverCrop,
     bio,
   };
 }
