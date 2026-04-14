@@ -417,6 +417,23 @@ export default function ProfilPage() {
     showSuccess('Cover byl odstraněn.');
   }
 
+  function isTouchLikeDevice(): boolean {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(hover: none), (pointer: coarse)').matches;
+  }
+
+  function openAvatarEditorFromImage() {
+    if (!displayAvatarSrc) return;
+    setAvatarCropImageUrl(displayAvatarSrc);
+    setAvatarCropOpen(true);
+  }
+
+  function openCoverEditorFromImage() {
+    if (!displayCoverSrc) return;
+    setCoverCropImageUrl(displayCoverSrc);
+    setCoverCropOpen(true);
+  }
+
   async function onSaveAvatarCrop(crop: ImageCrop) {
     if (!apiAccessToken || !nestAvatar) return;
     const res = await nestPatchAvatarCrop(apiAccessToken, nestAvatar, crop);
@@ -695,7 +712,23 @@ export default function ProfilPage() {
       <div className="mx-auto mt-6 max-w-3xl px-4 sm:px-6">
         <section className="overflow-hidden rounded-2xl border border-zinc-200/90 bg-white shadow-sm">
           {/* Cover */}
-          <div className="relative aspect-[21/9] min-h-[140px] w-full sm:min-h-[168px] md:aspect-[3/1] md:min-h-[200px]">
+          <div
+            className={`group relative aspect-[21/9] min-h-[140px] w-full sm:min-h-[168px] md:aspect-[3/1] md:min-h-[200px] ${
+              displayCoverSrc ? 'cursor-pointer' : ''
+            }`}
+            onDoubleClick={(e) => {
+              if (!displayCoverSrc) return;
+              e.preventDefault();
+              e.stopPropagation();
+              openCoverEditorFromImage();
+            }}
+            onClick={(e) => {
+              if (!displayCoverSrc || !isTouchLikeDevice()) return;
+              e.preventDefault();
+              e.stopPropagation();
+              openCoverEditorFromImage();
+            }}
+          >
             {displayCoverSrc ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -713,12 +746,31 @@ export default function ProfilPage() {
                 Nahrávám cover…
               </div>
             ) : null}
+            {displayCoverSrc ? (
+              <div className="pointer-events-none absolute inset-0 hidden items-center justify-center bg-black/35 text-xs font-semibold text-white opacity-0 transition group-hover:flex group-hover:opacity-100 md:text-sm">
+                Chcete upravit obrázek?
+              </div>
+            ) : null}
           </div>
 
           <div className="relative px-4 pb-8 pt-0 sm:px-8">
             <div className="-mt-14 flex flex-col gap-6 sm:-mt-16 sm:flex-row sm:items-end sm:justify-between">
               <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-end">
-                <div className="relative shrink-0">
+                <div
+                  className={`group relative shrink-0 ${displayAvatarSrc ? 'cursor-pointer' : ''}`}
+                  onDoubleClick={(e) => {
+                    if (!displayAvatarSrc) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openAvatarEditorFromImage();
+                  }}
+                  onClick={(e) => {
+                    if (!displayAvatarSrc || !isTouchLikeDevice()) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openAvatarEditorFromImage();
+                  }}
+                >
                   <div className="rounded-full bg-white p-1 shadow-md ring-2 ring-white">
                     {displayAvatarSrc ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -737,6 +789,11 @@ export default function ProfilPage() {
                     {avatarUploading ? (
                       <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 text-xs font-medium text-white">
                         Nahrávám…
+                      </div>
+                    ) : null}
+                    {displayAvatarSrc ? (
+                      <div className="pointer-events-none absolute inset-0 hidden items-center justify-center rounded-full bg-black/40 px-3 text-center text-[10px] font-semibold text-white opacity-0 transition group-hover:flex group-hover:opacity-100 sm:text-xs">
+                        Chcete upravit obrázek?
                       </div>
                     ) : null}
                   </div>
@@ -791,27 +848,6 @@ export default function ProfilPage() {
                   disabled={avatarUploading || !apiAccessToken}
                   onChange={(ev) => void onAvatarChange(ev)}
                 />
-                <button
-                  type="button"
-                  disabled={avatarUploading || !apiAccessToken}
-                  onClick={() => avatarInputRef.current?.click()}
-                  className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800 disabled:opacity-50"
-                >
-                  Změnit profilovou fotku
-                </button>
-                {displayAvatarSrc ? (
-                  <button
-                    type="button"
-                    disabled={!apiAccessToken}
-                    onClick={() => {
-                      setAvatarCropImageUrl(displayAvatarSrc);
-                      setAvatarCropOpen(true);
-                    }}
-                    className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50 disabled:opacity-50"
-                  >
-                    Upravit výřez profilové fotky
-                  </button>
-                ) : null}
                 <input
                   ref={coverInputRef}
                   type="file"
@@ -822,25 +858,20 @@ export default function ProfilPage() {
                 />
                 <button
                   type="button"
+                  disabled={avatarUploading || !apiAccessToken}
+                  onClick={() => avatarInputRef.current?.click()}
+                  className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 shadow-sm transition hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  Nahrát profilovou fotku
+                </button>
+                <button
+                  type="button"
                   disabled={coverUploading || !apiAccessToken}
                   onClick={() => coverInputRef.current?.click()}
-                  className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50 disabled:opacity-50"
+                  className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 shadow-sm transition hover:bg-zinc-50 disabled:opacity-50"
                 >
-                  Změnit cover
+                  Nahrát cover fotku
                 </button>
-                {displayCoverSrc ? (
-                  <button
-                    type="button"
-                    disabled={!apiAccessToken}
-                    onClick={() => {
-                      setCoverCropImageUrl(displayCoverSrc);
-                      setCoverCropOpen(true);
-                    }}
-                    className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50 disabled:opacity-50"
-                  >
-                    Upravit výřez cover fotky
-                  </button>
-                ) : null}
                 {coverSrc ? (
                   <button
                     type="button"

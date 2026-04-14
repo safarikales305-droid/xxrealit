@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 export type ImageCrop = { x: number; y: number; zoom: number };
 
@@ -40,6 +40,16 @@ export function ImageCropEditorModal({
     zoom: initialCrop?.zoom ?? 1,
   }));
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setCrop({
+      x: initialCrop?.x ?? 0,
+      y: initialCrop?.y ?? 0,
+      zoom: initialCrop?.zoom ?? 1,
+    });
+  }, [open, initialCrop?.x, initialCrop?.y, initialCrop?.zoom]);
 
   const frameClass =
     aspect === 'square'
@@ -56,7 +66,7 @@ export function ImageCropEditorModal({
         <h3 className="text-lg font-semibold">{title}</h3>
         <p className="mt-1 text-xs text-zinc-300">Posuňte obrázek myší/prstem a nastavte přiblížení.</p>
         <div
-          className={`relative mt-4 overflow-hidden bg-black/40 ${frameClass}`}
+          className={`relative mt-4 touch-none overflow-hidden bg-black/40 ${frameClass}`}
           onPointerDown={(e) => {
             dragStartRef.current = { x: e.clientX, y: e.clientY };
           }}
@@ -76,6 +86,61 @@ export function ImageCropEditorModal({
             dragStartRef.current = null;
           }}
           onPointerLeave={() => {
+            dragStartRef.current = null;
+          }}
+          onWheel={(e) => {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -0.06 : 0.06;
+            setCrop((prev) => ({
+              ...prev,
+              zoom: Math.max(1, Math.min(3, Number((prev.zoom + delta).toFixed(3)))),
+            }));
+          }}
+          onTouchStart={(e) => {
+            if (e.touches.length === 2) {
+              const [a, b] = [e.touches[0], e.touches[1]];
+              if (!a || !b) return;
+              const distance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+              pinchRef.current = { distance, zoom: crop.zoom };
+              dragStartRef.current = null;
+              return;
+            }
+            if (e.touches.length === 1) {
+              const t = e.touches[0];
+              if (!t) return;
+              dragStartRef.current = { x: t.clientX, y: t.clientY };
+            }
+          }}
+          onTouchMove={(e) => {
+            if (e.touches.length === 2) {
+              e.preventDefault();
+              const [a, b] = [e.touches[0], e.touches[1]];
+              const pinch = pinchRef.current;
+              if (!a || !b || !pinch) return;
+              const nextDistance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+              const ratio = nextDistance / Math.max(1, pinch.distance);
+              setCrop((prev) => ({
+                ...prev,
+                zoom: Math.max(1, Math.min(3, Number((pinch.zoom * ratio).toFixed(3)))),
+              }));
+              return;
+            }
+            if (e.touches.length === 1) {
+              const t = e.touches[0];
+              const start = dragStartRef.current;
+              if (!t || !start) return;
+              const dx = t.clientX - start.x;
+              const dy = t.clientY - start.y;
+              dragStartRef.current = { x: t.clientX, y: t.clientY };
+              setCrop((prev) => ({
+                ...prev,
+                x: Math.max(-100, Math.min(100, prev.x + dx / 5)),
+                y: Math.max(-100, Math.min(100, prev.y + dy / 5)),
+              }));
+            }
+          }}
+          onTouchEnd={() => {
+            pinchRef.current = null;
             dragStartRef.current = null;
           }}
         >
