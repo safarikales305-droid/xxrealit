@@ -48,6 +48,7 @@ export function ImageCropEditorModal({
   const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const fitRetryRafRef = useRef<number | null>(null);
   const applyFitWholeCrop = useCallback((img: HTMLImageElement | null) => {
     if (!fitWholeOnOpen) return;
     const frame = frameRef.current;
@@ -65,12 +66,53 @@ export function ImageCropEditorModal({
     setCrop({ x: 0, y: 0, zoom: nextZoom });
   }, [fitWholeOnOpen]);
 
+  const fitWholeNow = useCallback((img: HTMLImageElement | null): boolean => {
+    const frame = frameRef.current;
+    if (!frame || !img) return false;
+    if (!img.naturalWidth || !img.naturalHeight) return false;
+    const frameRect = frame.getBoundingClientRect();
+    const frameW = Math.max(0, frameRect.width);
+    const frameH = Math.max(0, frameRect.height);
+    if (!frameW || !frameH) return false;
+
+    // Renderer uses object-cover, so we counter-scale by contain/cover.
+    const coverScale = Math.max(frameW / img.naturalWidth, frameH / img.naturalHeight);
+    const containScale = Math.min(frameW / img.naturalWidth, frameH / img.naturalHeight);
+    const fitZoom = containScale / Math.max(coverScale, 0.0001);
+    const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number(fitZoom.toFixed(4))));
+    setCrop({ x: 0, y: 0, zoom: nextZoom });
+    return true;
+  }, []);
+
+  const scheduleFitWhole = useCallback((img: HTMLImageElement | null) => {
+    if (!img) return;
+    if (fitRetryRafRef.current != null) {
+      cancelAnimationFrame(fitRetryRafRef.current);
+      fitRetryRafRef.current = null;
+    }
+    let tries = 0;
+    const tick = () => {
+      tries += 1;
+      const ok = fitWholeNow(img);
+      if (!ok && tries < 12) {
+        fitRetryRafRef.current = requestAnimationFrame(tick);
+      } else {
+        fitRetryRafRef.current = null;
+      }
+    };
+    tick();
+  }, [fitWholeNow]);
+
   useEffect(() => {
+    if (fitRetryRafRef.current != null) {
+      cancelAnimationFrame(fitRetryRafRef.current);
+      fitRetryRafRef.current = null;
+    }
     if (!open) return;
     if (fitWholeOnOpen) {
       const img = imageRef.current;
       if (img?.complete) {
-        applyFitWholeCrop(img);
+        scheduleFitWhole(img);
       } else {
         setCrop({ x: 0, y: 0, zoom: 1 });
       }
@@ -81,7 +123,13 @@ export function ImageCropEditorModal({
       y: initialCrop?.y ?? 0,
       zoom: initialCrop?.zoom ?? 1,
     });
-  }, [open, fitWholeOnOpen, initialCrop?.x, initialCrop?.y, initialCrop?.zoom, applyFitWholeCrop]);
+    return () => {
+      if (fitRetryRafRef.current != null) {
+        cancelAnimationFrame(fitRetryRafRef.current);
+        fitRetryRafRef.current = null;
+      }
+    };
+  }, [open, fitWholeOnOpen, initialCrop?.x, initialCrop?.y, initialCrop?.zoom, scheduleFitWhole]);
 
   const frameClass =
     aspect === 'square'
@@ -190,6 +238,10 @@ export function ImageCropEditorModal({
             className="h-full w-full object-cover transition-transform"
             style={style}
             onLoad={() => {
+              if (fitWholeOnOpen) {
+                scheduleFitWhole(imageRef.current);
+                return;
+              }
               applyFitWholeCrop(imageRef.current);
             }}
           />
@@ -233,6 +285,15 @@ export function ImageCropEditorModal({
           </label>
         </div>
         <div className="mt-5 flex gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              scheduleFitWhole(imageRef.current);
+            }}
+            className="rounded-full border border-zinc-500 px-4 py-2 text-sm font-semibold"
+          >
+            Zobrazit celý obrázek
+          </button>
           <button
             type="button"
             onClick={() => onSave(crop)}
