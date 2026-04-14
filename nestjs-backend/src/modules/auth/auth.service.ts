@@ -7,12 +7,22 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
 import { UserRole } from '@prisma/client';
-import type { User } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { Resend } from 'resend';
 import { PrismaService } from '../../database/prisma.service';
 import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 import { UsersService } from '../users/users.service';
+type TokenUserShape = {
+  id: string;
+  email: string;
+  name: string | null;
+  role: UserRole;
+  avatar?: string | null;
+  coverImage?: string | null;
+  bio?: string | null;
+  city?: string | null;
+  createdAt: Date;
+};
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bcrypt = require('bcrypt');
@@ -374,7 +384,7 @@ export class AuthService {
     });
   }
 
-  issueTokens(user: User) {
+  issueTokens(user: TokenUserShape) {
     const role = ensureUserRole(user.role);
 
     const payload: JwtPayload = {

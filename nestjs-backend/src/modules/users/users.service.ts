@@ -19,6 +19,11 @@ import {
 import { UpdateBrokerPublicProfileDto } from './dto/update-broker-public-profile.dto';
 import type { ImageCropDto } from './dto/image-crop.dto';
 
+type LoginSafeUser = Pick<
+  User,
+  'id' | 'email' | 'name' | 'password' | 'role' | 'avatar' | 'coverImage' | 'bio' | 'city' | 'createdAt'
+>;
+
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
@@ -38,12 +43,47 @@ export class UsersService {
     };
   }
 
-  findByEmail(email: string): Promise<User | null> {
-    return this.prisma.user.findUnique({ where: { email } });
+  private isMissingColumnError(error: unknown, column: string): boolean {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+    if (error.code !== 'P2022') return false;
+    const msg = String(error.message ?? '');
+    return msg.includes(column);
   }
 
-  findById(id: string): Promise<User | null> {
-    return this.prisma.user.findUnique({ where: { id } });
+  findByEmail(email: string): Promise<LoginSafeUser | null> {
+    return this.prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        password: true,
+        role: true,
+        avatar: true,
+        coverImage: true,
+        bio: true,
+        city: true,
+        createdAt: true,
+      },
+    });
+  }
+
+  findById(id: string): Promise<LoginSafeUser | null> {
+    return this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        password: true,
+        role: true,
+        avatar: true,
+        coverImage: true,
+        bio: true,
+        city: true,
+        createdAt: true,
+      },
+    });
   }
 
   create(data: {
@@ -184,92 +224,111 @@ export class UsersService {
   }
 
   async getMeProfile(userId: string) {
-    const u = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        avatar: true,
-        avatarCrop: true,
-        coverImage: true,
-        coverCrop: true,
-        bio: true,
-        role: true,
-        createdAt: true,
-        isPremiumBroker: true,
-        brokerLeadNotificationEnabled: true,
-        brokerPreferredRegions: true,
-        brokerPreferredPropertyTypes: true,
-        brokerPoints: true,
-        brokerFreeLeads: true,
-        isPublicBrokerProfile: true,
-        allowBrokerReviews: true,
-        brokerProfileSlug: true,
-        brokerOfficeName: true,
-        brokerSpecialization: true,
-        brokerRegionLabel: true,
-        brokerWeb: true,
-        brokerPhonePublic: true,
-        brokerEmailPublic: true,
-        brokerReviewAverage: true,
-        brokerReviewCount: true,
-        agentProfile: {
-          select: {
-            id: true,
-            fullName: true,
-            companyName: true,
-            phone: true,
-            phoneVerified: true,
-            website: true,
-            ico: true,
-            city: true,
-            bio: true,
-            avatarUrl: true,
-            verificationStatus: true,
-            createdAt: true,
-            updatedAt: true,
-          },
-        },
-        companyProfile: {
-          select: {
-            id: true,
-            companyName: true,
-            contactFullName: true,
-            phone: true,
-            email: true,
-            website: true,
-            ico: true,
-            city: true,
-            description: true,
-            services: true,
-            logoUrl: true,
-            verificationStatus: true,
-            createdAt: true,
-            updatedAt: true,
-          },
-        },
-        agencyProfile: {
-          select: {
-            id: true,
-            agencyName: true,
-            contactFullName: true,
-            phone: true,
-            email: true,
-            website: true,
-            ico: true,
-            city: true,
-            description: true,
-            logoUrl: true,
-            agentCount: true,
-            branchCities: true,
-            verificationStatus: true,
-            createdAt: true,
-            updatedAt: true,
-          },
+    const baseSelect = {
+      id: true,
+      email: true,
+      name: true,
+      avatar: true,
+      coverImage: true,
+      bio: true,
+      role: true,
+      createdAt: true,
+      isPremiumBroker: true,
+      brokerLeadNotificationEnabled: true,
+      brokerPreferredRegions: true,
+      brokerPreferredPropertyTypes: true,
+      brokerPoints: true,
+      brokerFreeLeads: true,
+      isPublicBrokerProfile: true,
+      allowBrokerReviews: true,
+      brokerProfileSlug: true,
+      brokerOfficeName: true,
+      brokerSpecialization: true,
+      brokerRegionLabel: true,
+      brokerWeb: true,
+      brokerPhonePublic: true,
+      brokerEmailPublic: true,
+      brokerReviewAverage: true,
+      brokerReviewCount: true,
+      agentProfile: {
+        select: {
+          id: true,
+          fullName: true,
+          companyName: true,
+          phone: true,
+          phoneVerified: true,
+          website: true,
+          ico: true,
+          city: true,
+          bio: true,
+          avatarUrl: true,
+          verificationStatus: true,
+          createdAt: true,
+          updatedAt: true,
         },
       },
-    });
+      companyProfile: {
+        select: {
+          id: true,
+          companyName: true,
+          contactFullName: true,
+          phone: true,
+          email: true,
+          website: true,
+          ico: true,
+          city: true,
+          description: true,
+          services: true,
+          logoUrl: true,
+          verificationStatus: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
+      agencyProfile: {
+        select: {
+          id: true,
+          agencyName: true,
+          contactFullName: true,
+          phone: true,
+          email: true,
+          website: true,
+          ico: true,
+          city: true,
+          description: true,
+          logoUrl: true,
+          agentCount: true,
+          branchCities: true,
+          verificationStatus: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
+    } as const;
+    let hasCropColumns = true;
+    let u: any;
+    try {
+      u = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { ...baseSelect, avatarCrop: true, coverCrop: true },
+      });
+    } catch (error) {
+      if (
+        this.isMissingColumnError(error, 'User.avatarCrop') ||
+        this.isMissingColumnError(error, 'User.coverCrop')
+      ) {
+        hasCropColumns = false;
+        this.logger.warn(
+          '[profile-media] avatarCrop/coverCrop columns missing in DB, using compatibility read path',
+        );
+        u = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: baseSelect,
+        });
+      } else {
+        throw error;
+      }
+    }
     if (!u) return null;
     const ap = u.agentProfile;
     const agentProfile = ap
@@ -296,9 +355,9 @@ export class UsersService {
       role: ensureUserRole(u.role),
       createdAt: u.createdAt,
       avatarUrl: upgradeHttpToHttpsForApi(u.avatar ?? null) ?? u.avatar ?? null,
-      avatarCrop: u.avatarCrop ?? null,
+      avatarCrop: hasCropColumns ? (u.avatarCrop ?? null) : null,
       coverImageUrl: upgradeHttpToHttpsForApi(u.coverImage ?? null) ?? u.coverImage ?? null,
-      coverCrop: u.coverCrop ?? null,
+      coverCrop: hasCropColumns ? (u.coverCrop ?? null) : null,
       bio: u.bio ?? null,
       isPremiumBroker: u.isPremiumBroker,
       brokerLeadNotificationEnabled: u.brokerLeadNotificationEnabled,
@@ -342,23 +401,42 @@ export class UsersService {
   }
 
   async getPublicProfile(userId: string, viewerId?: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        name: true,
-        role: true,
-        avatar: true,
-        avatarCrop: true,
-        coverImage: true,
-        coverCrop: true,
-        bio: true,
-        city: true,
-        rating: true,
-        createdAt: true,
-        _count: { select: { followers: true, following: true } },
-      },
-    });
+    const baseSelect = {
+      id: true,
+      name: true,
+      role: true,
+      avatar: true,
+      coverImage: true,
+      bio: true,
+      city: true,
+      rating: true,
+      createdAt: true,
+      _count: { select: { followers: true, following: true } },
+    } as const;
+    let hasCropColumns = true;
+    let user: any;
+    try {
+      user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { ...baseSelect, avatarCrop: true, coverCrop: true },
+      });
+    } catch (error) {
+      if (
+        this.isMissingColumnError(error, 'User.avatarCrop') ||
+        this.isMissingColumnError(error, 'User.coverCrop')
+      ) {
+        hasCropColumns = false;
+        this.logger.warn(
+          '[profile-media] public profile fallback without avatarCrop/coverCrop columns',
+        );
+        user = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: baseSelect,
+        });
+      } else {
+        throw error;
+      }
+    }
     if (!user) {
       throw new NotFoundException('User not found');
     }
@@ -421,9 +499,9 @@ export class UsersService {
       name: user.name,
       role: ensureUserRole(user.role),
       avatar: upgradeHttpToHttpsForApi(user.avatar) ?? user.avatar,
-      avatarCrop: user.avatarCrop ?? null,
+      avatarCrop: hasCropColumns ? (user.avatarCrop ?? null) : null,
       coverImage: upgradeHttpToHttpsForApi(user.coverImage) ?? user.coverImage,
-      coverCrop: user.coverCrop ?? null,
+      coverCrop: hasCropColumns ? (user.coverCrop ?? null) : null,
       bio: user.bio,
       city: user.city,
       rating: user.rating,
