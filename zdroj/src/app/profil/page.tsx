@@ -2060,7 +2060,8 @@ export default function ProfilPage() {
         title="Upravit cover fotku"
         imageUrl={coverCropImageUrl}
         aspect="cover"
-        initialCrop={coverCrop}
+        initialCrop={pendingCoverFile ? null : coverCrop}
+        fitWholeOnOpen={Boolean(pendingCoverFile)}
         onCancel={() => {
           if (pendingCoverFile && coverPreview) {
             URL.revokeObjectURL(coverPreview);
