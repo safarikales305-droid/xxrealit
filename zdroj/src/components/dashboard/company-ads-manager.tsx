@@ -47,19 +47,6 @@ export function CompanyAdsManager() {
   const canUse = Boolean(API_BASE_URL && apiAccessToken && isCompany);
   const endpoint = useMemo(() => (API_BASE_URL ? `${API_BASE_URL}/company-ads` : ''), []);
 
-  if (!isCompany) {
-    return (
-      <main className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6">
-        <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-          <h1 className="text-xl font-semibold">Panel stavební firmy</h1>
-          <p className="mt-2 text-sm text-zinc-600">
-            Správa reklam je dostupná pouze pro účty s rolí COMPANY.
-          </p>
-        </section>
-      </main>
-    );
-  }
-
   async function reload() {
     if (!canUse) return;
     const res = await fetch(`${endpoint}/me`, {
@@ -74,6 +61,8 @@ export function CompanyAdsManager() {
   useEffect(() => {
     void reload();
   }, [canUse]);
+
+  const isEditing = editingId != null;
 
   async function handleUpload(file: File) {
     if (!API_BASE_URL || !apiAccessToken) return;
@@ -134,6 +123,33 @@ export function CompanyAdsManager() {
     await reload();
   }
 
+  async function toggleActive(ad: CompanyAd) {
+    if (!canUse) return;
+    await fetch(`${endpoint}/${encodeURIComponent(ad.id)}`, {
+      method: 'PATCH',
+      headers: {
+        ...nestAuthHeaders(apiAccessToken),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ isActive: !ad.isActive }),
+    });
+    await reload();
+  }
+
+  if (!isCompany) {
+    return (
+      <main className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6">
+        <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h1 className="text-xl font-semibold">Panel stavební firmy</h1>
+          <p className="mt-2 text-sm text-zinc-600">
+            Správa reklam je dostupná pouze pro účty s rolí COMPANY.
+          </p>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6">
       <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
@@ -144,7 +160,20 @@ export function CompanyAdsManager() {
       </section>
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-        <h2 className="mb-3 text-lg font-semibold">Přidat reklamu</h2>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold">Přidat reklamu</h2>
+          <button
+            type="button"
+            onClick={() => {
+              setEditingId(null);
+              setForm(EMPTY_FORM);
+              setPreviewUrl(null);
+            }}
+            className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-semibold text-zinc-700"
+          >
+            + Přidat reklamu
+          </button>
+        </div>
         <form className="grid gap-3" onSubmit={onSubmit}>
           <input className="rounded-lg border border-zinc-300 px-3 py-2 text-sm" placeholder="Nadpis reklamy" value={form.title} onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))} />
           <textarea className="min-h-20 rounded-lg border border-zinc-300 px-3 py-2 text-sm" placeholder="Popis reklamy" value={form.description} onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))} />
@@ -175,7 +204,7 @@ export function CompanyAdsManager() {
             Reklama je aktivní
           </label>
           <button type="submit" disabled={busy || !canUse} className="w-fit rounded-full bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
-            {editingId ? 'Uložit změny' : 'Vytvořit reklamu'}
+            {isEditing ? 'Uložit změny' : 'Vytvořit reklamu'}
           </button>
         </form>
       </section>
@@ -210,6 +239,13 @@ export function CompanyAdsManager() {
                 </button>
                 <button type="button" className="rounded-lg border border-red-300 px-3 py-1 text-sm text-red-600" onClick={() => void remove(ad.id)}>
                   Smazat
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg border border-zinc-300 px-3 py-1 text-sm text-zinc-700"
+                  onClick={() => void toggleActive(ad)}
+                >
+                  {ad.isActive ? 'Vypnout' : 'Zapnout'}
                 </button>
               </div>
             </article>

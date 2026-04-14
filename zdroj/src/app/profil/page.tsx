@@ -41,6 +41,7 @@ import {
 import {
   canCreateProfessionalListingsAndPosts,
   canRequestProfessionalProfileUpgrade,
+  dashboardPathForRole,
 } from '@/lib/roles';
 import { ProfessionalOnlyDialog } from '@/components/auth/ProfessionalListingRestriction';
 
@@ -1123,6 +1124,20 @@ export default function ProfilPage() {
         </section>
 
         <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          {user.role === 'COMPANY' ? (
+            <div className="mb-5 rounded-xl border border-orange-200 bg-orange-50/70 p-4">
+              <h3 className="text-sm font-semibold text-orange-950">Reklamy stavební firmy</h3>
+              <p className="mt-1 text-sm text-orange-900/90">
+                Sekce „Moje reklamy“ je dostupná v dashboardu stavební firmy.
+              </p>
+              <Link
+                href={dashboardPathForRole('COMPANY')}
+                className="mt-3 inline-flex rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-xs font-bold text-white shadow-sm"
+              >
+                Otevřít Moje reklamy
+              </Link>
+            </div>
+          ) : null}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold text-zinc-900">Moje inzeráty</h2>
             {canCreateProfessionalListingsAndPosts(user.role) ? (

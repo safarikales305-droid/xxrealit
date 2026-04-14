@@ -72,7 +72,11 @@ export function Navbar({
   function handleAddListingClick(e?: MouseEvent<HTMLElement>) {
     e?.preventDefault();
     e?.stopPropagation();
-    if (isLoading || !isAuthenticated || !user) return;
+    if (isLoading) return;
+    if (!isAuthenticated || !user) {
+      router.push(`/prihlaseni?redirect=${encodeURIComponent('/inzerat/pridat')}`);
+      return;
+    }
     if (!canCreateListing) {
       setProfessionalListingDialogOpen(true);
       return;
