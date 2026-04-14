@@ -22,6 +22,8 @@ import {
   nestPatchBrokerPublicProfile,
   nestPatchAvatarCrop,
   nestPatchCoverCrop,
+  nestPatchProfessionalVisibility,
+  nestListMyCompanyAds,
   nestPatchMyProperty,
   nestPatchProfileBio,
   nestSubmitAgentProfileRequest,
@@ -33,6 +35,7 @@ import {
   NEST_PROFILE_IMAGE_MAX_BYTES,
   type NestMeProfile,
   type NestMyListingRow,
+  type NestCompanyAdRow,
   type NestShortsListingDraft,
   type UserNotificationRow,
 } from '@/lib/nest-client';
@@ -93,6 +96,9 @@ export default function ProfilPage() {
   const [myListings, setMyListings] = useState<NestMyListingRow[]>([]);
   const [listingsLoading, setListingsLoading] = useState(false);
   const [listingsError, setListingsError] = useState<string | null>(null);
+  const [visibilitySaving, setVisibilitySaving] = useState(false);
+  const [professionalVisibility, setProfessionalVisibility] = useState<boolean>(false);
+  const [companyAds, setCompanyAds] = useState<NestCompanyAdRow[]>([]);
 
   const [brokerOffice, setBrokerOffice] = useState('');
   const [brokerSpec, setBrokerSpec] = useState('');
@@ -191,6 +197,15 @@ export default function ProfilPage() {
     setCoverCrop(me.coverCrop ?? null);
     setNestBio(me.bio ?? null);
     setBioDraft(me.bio ?? '');
+    const visibility =
+      me.role === 'AGENT'
+        ? Boolean(me.isPublicBrokerProfile)
+        : me.role === 'COMPANY'
+          ? Boolean(me.companyProfile?.isPublic)
+          : me.role === 'AGENCY'
+            ? Boolean(me.agencyProfile?.isPublic)
+            : false;
+    setProfessionalVisibility(visibility);
   }, [apiAccessToken]);
 
   const loadNotifications = useCallback(async () => {
@@ -294,9 +309,21 @@ export default function ProfilPage() {
     void loadFavorites();
   }, [loadFavorites]);
 
+  useEffect(() => {
+    if (!apiAccessToken || user?.role !== 'COMPANY') {
+      setCompanyAds([]);
+      return;
+    }
+    void nestListMyCompanyAds(apiAccessToken).then((rows) => {
+      setCompanyAds(rows ?? []);
+    });
+  }, [apiAccessToken, user?.role]);
+
   const avatarUrl = nestAvatar ?? user?.avatar ?? null;
   const coverUrl = nestCover ?? (user as { coverImage?: string | null })?.coverImage ?? null;
   const bioText = nestBio ?? (user as { bio?: string | null })?.bio ?? null;
+  const activeCompanyAds = companyAds.filter((ad) => ad.isActive).length;
+  const inactiveCompanyAds = Math.max(0, companyAds.length - activeCompanyAds);
 
   const imgSrc = useMemo(() => {
     if (!avatarUrl) return null;
@@ -511,6 +538,21 @@ export default function ProfilPage() {
     await refresh();
     setUser((prev) => (prev ? { ...prev, bio: res.bio ?? null } : prev));
     showSuccess('Popis „O mně“ byl uložen.');
+  }
+
+  async function onToggleProfessionalVisibility(next: boolean) {
+    if (!apiAccessToken) return;
+    if (!['AGENT', 'COMPANY', 'AGENCY'].includes(user?.role ?? '')) return;
+    setVisibilitySaving(true);
+    const res = await nestPatchProfessionalVisibility(apiAccessToken, next);
+    setVisibilitySaving(false);
+    if (!res.ok) {
+      showSuccess(res.error ?? 'Uložení veřejnosti profilu se nezdařilo.');
+      return;
+    }
+    setProfessionalVisibility(next);
+    await loadNestProfile();
+    showSuccess(next ? 'Profil je nyní veřejný.' : 'Profil je nyní neveřejný.');
   }
 
   function prefillAgentFormFromProfile() {
@@ -911,6 +953,27 @@ export default function ProfilPage() {
               </div>
             </div>
 
+            {['AGENT', 'COMPANY', 'AGENCY'].includes(user.role) ? (
+              <div className="mt-5 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
+                <h3 className="text-sm font-semibold text-zinc-900">Veřejnost profilu</h3>
+                <p className="mt-1 text-xs text-zinc-600">
+                  Neveřejný profil vidí pouze vlastník a administrátor.
+                </p>
+                <label className="mt-3 inline-flex cursor-pointer items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={professionalVisibility}
+                    disabled={visibilitySaving || !apiAccessToken}
+                    onChange={(e) => void onToggleProfessionalVisibility(e.target.checked)}
+                    className="size-4 rounded border-zinc-300 text-orange-600 focus:ring-orange-500/50"
+                  />
+                  <span className="text-sm font-medium text-zinc-800">
+                    {professionalVisibility ? 'Profil je veřejný' : 'Profil je neveřejný'}
+                  </span>
+                </label>
+              </div>
+            ) : null}
+
             {avatarError ? (
               <p className="mt-4 text-sm text-red-600">{avatarError}</p>
             ) : null}
@@ -1246,22 +1309,8 @@ export default function ProfilPage() {
         </section>
 
         <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-          {user.role === 'COMPANY' ? (
-            <div className="mb-5 rounded-xl border border-orange-200 bg-orange-50/70 p-4">
-              <h3 className="text-sm font-semibold text-orange-950">Reklamy stavební firmy</h3>
-              <p className="mt-1 text-sm text-orange-900/90">
-                Sekce „Moje reklamy“ je dostupná v dashboardu stavební firmy.
-              </p>
-              <Link
-                href={dashboardPathForRole('COMPANY')}
-                className="mt-3 inline-flex rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-xs font-bold text-white shadow-sm"
-              >
-                Otevřít Moje reklamy
-              </Link>
-            </div>
-          ) : null}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-lg font-semibold text-zinc-900">Moje inzeráty</h2>
+            <h2 className="text-lg font-semibold text-zinc-900">Vlastní příspěvky a inzeráty</h2>
             {canCreateProfessionalListingsAndPosts(user.role) ? (
               <Link
                 href="/inzerat/pridat"
@@ -1279,6 +1328,9 @@ export default function ProfilPage() {
               </button>
             )}
           </div>
+          <p className="mt-1 text-sm text-zinc-600">
+            Vaše vlastní publikované a spravované položky se zobrazují jako první hlavní sekce profilu.
+          </p>
           {!apiAccessToken ? (
             <p className="mt-4 text-sm text-amber-800">
               Pro seznam inzerátů je potřeba přihlášení s JWT k Nest API.
@@ -1822,6 +1874,43 @@ export default function ProfilPage() {
             Otevřít schránku
           </Link>
         </section>
+
+        {['AGENT', 'COMPANY', 'AGENCY'].includes(user.role) ? (
+          <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <h2 className="text-lg font-semibold text-zinc-900">Nastavení reklam</h2>
+            {user.role === 'COMPANY' ? (
+              <>
+                <p className="mt-2 text-sm text-zinc-600">
+                  Správa reklam stavební firmy navázaných na profil a feed inzerátů.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
+                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-900">
+                    Aktivní: {activeCompanyAds}
+                  </span>
+                  <span className="rounded-full bg-zinc-100 px-3 py-1 text-zinc-700">
+                    Neaktivní: {inactiveCompanyAds}
+                  </span>
+                </div>
+                <Link
+                  href={dashboardPathForRole('COMPANY')}
+                  className="mt-4 inline-flex rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2.5 text-sm font-bold text-white shadow-sm"
+                >
+                  Otevřít správu reklam
+                </Link>
+              </>
+            ) : user.role === 'AGENCY' ? (
+              <p className="mt-2 text-sm text-zinc-600">
+                Profilové promo kanceláře je připravené pro navazující rozšíření. Zde bude přehled
+                aktivních/neaktivních reklam a jejich správa.
+              </p>
+            ) : (
+              <p className="mt-2 text-sm text-zinc-600">
+                Osobní promo makléře je připravené pro navazující rozšíření. Zde bude přehled a správa
+                reklamních bloků.
+              </p>
+            )}
+          </section>
+        ) : null}
 
         <section className="mt-10">
           <h2 className="text-lg font-semibold text-zinc-900">Oblíbené nemovitosti</h2>

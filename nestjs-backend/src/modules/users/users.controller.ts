@@ -22,6 +22,7 @@ import { UpdateCoverDto } from './dto/update-cover.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdateBrokerLeadPrefsDto } from './dto/update-broker-lead-prefs.dto';
 import { UpdateBrokerPublicProfileDto } from './dto/update-broker-public-profile.dto';
+import { UpdateProfessionalVisibilityDto } from './dto/update-professional-visibility.dto';
 import { UsersService } from './users.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { UserRole } from '@prisma/client';
@@ -72,6 +73,16 @@ export class UsersController {
     dto: UpdateBrokerPublicProfileDto,
   ) {
     return this.usersService.updateBrokerPublicProfile(user.id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('me/professional-visibility')
+  patchProfessionalVisibility(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: UpdateProfessionalVisibilityDto,
+  ) {
+    return this.usersService.updateProfessionalProfileVisibility(user.id, dto.isPublic);
   }
 
   @UseGuards(JwtAuthGuard)

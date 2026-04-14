@@ -135,6 +135,7 @@ export type NestAgentProfileMe = {
   city: string;
   bio: string;
   avatarUrl: string | null;
+  isPublic: boolean;
   verificationStatus: 'pending' | 'verified' | 'rejected';
   createdAt: string;
   updatedAt: string;
@@ -152,6 +153,7 @@ export type NestCompanyProfileMe = {
   description: string;
   services: string;
   logoUrl: string | null;
+  isPublic: boolean;
   verificationStatus: 'pending' | 'verified' | 'rejected';
   createdAt: string;
   updatedAt: string;
@@ -168,6 +170,7 @@ export type NestAgencyProfileMe = {
   city: string;
   description: string;
   logoUrl: string | null;
+  isPublic: boolean;
   agentCount?: number | null;
   branchCities?: string[];
   verificationStatus: 'pending' | 'verified' | 'rejected';
@@ -234,6 +237,7 @@ function parseNestAgentProfileMeJson(raw: unknown): NestAgentProfileMe | null {
     bio: typeof o.bio === 'string' ? o.bio : '',
     avatarUrl:
       o.avatarUrl === null || typeof o.avatarUrl === 'string' ? (o.avatarUrl as string | null) : null,
+    isPublic: typeof o.isPublic === 'boolean' ? o.isPublic : false,
     verificationStatus,
     createdAt: typeof o.createdAt === 'string' ? o.createdAt : '',
     updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : '',
@@ -264,6 +268,7 @@ function parseNestCompanyProfileMeJson(raw: unknown): NestCompanyProfileMe | nul
     description: typeof o.description === 'string' ? o.description : '',
     services: typeof o.services === 'string' ? o.services : '',
     logoUrl: o.logoUrl === null || typeof o.logoUrl === 'string' ? (o.logoUrl as string | null) : null,
+    isPublic: typeof o.isPublic === 'boolean' ? o.isPublic : false,
     verificationStatus,
     createdAt: typeof o.createdAt === 'string' ? o.createdAt : '',
     updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : '',
@@ -293,6 +298,7 @@ function parseNestAgencyProfileMeJson(raw: unknown): NestAgencyProfileMe | null 
     city: typeof o.city === 'string' ? o.city : '',
     description: typeof o.description === 'string' ? o.description : '',
     logoUrl: o.logoUrl === null || typeof o.logoUrl === 'string' ? (o.logoUrl as string | null) : null,
+    isPublic: typeof o.isPublic === 'boolean' ? o.isPublic : false,
     agentCount: typeof o.agentCount === 'number' ? o.agentCount : null,
     branchCities: Array.isArray(o.branchCities)
       ? o.branchCities.filter((x): x is string => typeof x === 'string')
@@ -1993,6 +1999,58 @@ export async function nestPatchBrokerPublicProfile(
     };
   }
   return { ok: true };
+}
+
+export async function nestPatchProfessionalVisibility(
+  token: string | null,
+  isPublic: boolean,
+): Promise<{ ok: boolean; error?: string; role?: string; isPublic?: boolean }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/users/me/professional-visibility`, {
+    method: 'PATCH',
+    cache: 'no-store',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ isPublic }),
+  });
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  }
+  return {
+    ok: true,
+    role: typeof raw.role === 'string' ? raw.role : undefined,
+    isPublic: typeof raw.isPublic === 'boolean' ? raw.isPublic : undefined,
+  };
+}
+
+export type NestCompanyAdRow = {
+  id: string;
+  isActive: boolean;
+};
+
+export async function nestListMyCompanyAds(
+  token: string | null,
+): Promise<NestCompanyAdRow[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/company-ads/me`, {
+    cache: 'no-store',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json().catch(() => null)) as unknown;
+  if (!Array.isArray(data)) return null;
+  return data
+    .map((x) => {
+      if (!x || typeof x !== 'object') return null;
+      const o = x as Record<string, unknown>;
+      if (typeof o.id !== 'string') return null;
+      return { id: o.id, isActive: o.isActive === true };
+    })
+    .filter((x): x is NestCompanyAdRow => Boolean(x));
 }
 
 export type NestPublicBrokerCard = {

@@ -262,6 +262,7 @@ export class UsersService {
           city: true,
           bio: true,
           avatarUrl: true,
+          isPublic: true,
           verificationStatus: true,
           createdAt: true,
           updatedAt: true,
@@ -280,6 +281,7 @@ export class UsersService {
           description: true,
           services: true,
           logoUrl: true,
+          isPublic: true,
           verificationStatus: true,
           createdAt: true,
           updatedAt: true,
@@ -297,6 +299,7 @@ export class UsersService {
           city: true,
           description: true,
           logoUrl: true,
+          isPublic: true,
           agentCount: true,
           branchCities: true,
           verificationStatus: true,
@@ -343,6 +346,7 @@ export class UsersService {
           city: ap.city,
           bio: ap.bio,
           avatarUrl: upgradeHttpToHttpsForApi(ap.avatarUrl) ?? ap.avatarUrl,
+          isPublic: Boolean(ap.isPublic),
           verificationStatus: ap.verificationStatus,
           createdAt: ap.createdAt.toISOString(),
           updatedAt: ap.updatedAt.toISOString(),
@@ -381,6 +385,7 @@ export class UsersService {
         ? {
             ...u.companyProfile,
             logoUrl: upgradeHttpToHttpsForApi(u.companyProfile.logoUrl) ?? u.companyProfile.logoUrl,
+            isPublic: Boolean(u.companyProfile.isPublic),
             createdAt: u.companyProfile.createdAt.toISOString(),
             updatedAt: u.companyProfile.updatedAt.toISOString(),
           }
@@ -389,6 +394,7 @@ export class UsersService {
         ? {
             ...u.agencyProfile,
             logoUrl: upgradeHttpToHttpsForApi(u.agencyProfile.logoUrl) ?? u.agencyProfile.logoUrl,
+            isPublic: Boolean(u.agencyProfile.isPublic),
             createdAt: u.agencyProfile.createdAt.toISOString(),
             updatedAt: u.agencyProfile.updatedAt.toISOString(),
           }
@@ -405,6 +411,7 @@ export class UsersService {
       id: true,
       name: true,
       role: true,
+      isPublicBrokerProfile: true,
       avatar: true,
       coverImage: true,
       bio: true,
@@ -468,6 +475,37 @@ export class UsersService {
           isPremiumBroker: Boolean(vu.isPremiumBroker),
           isAdmin: vu.role === UserRole.ADMIN,
         };
+      }
+    }
+
+    const isOwnerViewer = Boolean(viewerId && viewerId === userId);
+    const canSeePrivate = isOwnerViewer || viewerIsAdmin;
+    if (!canSeePrivate) {
+      if (user.role === UserRole.AGENT) {
+        const ap = await this.prisma.agentProfile.findUnique({
+          where: { userId },
+          select: { isPublic: true },
+        });
+        const isPublic = Boolean(ap?.isPublic) && Boolean(user.isPublicBrokerProfile);
+        if (!isPublic) {
+          throw new NotFoundException('User not found');
+        }
+      } else if (user.role === UserRole.COMPANY) {
+        const cp = await this.prisma.companyProfile.findUnique({
+          where: { userId },
+          select: { isPublic: true },
+        });
+        if (!cp?.isPublic) {
+          throw new NotFoundException('User not found');
+        }
+      } else if (user.role === UserRole.AGENCY) {
+        const agp = await this.prisma.agencyProfile.findUnique({
+          where: { userId },
+          select: { isPublic: true },
+        });
+        if (!agp?.isPublic) {
+          throw new NotFoundException('User not found');
+        }
       }
     }
 
@@ -558,6 +596,50 @@ export class UsersService {
       where: { followingId },
     });
     return { ok: true, followersCount };
+  }
+
+  async updateProfessionalProfileVisibility(userId: string, isPublic: boolean) {
+    const u = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (!u) throw new NotFoundException('User not found');
+
+    if (u.role === UserRole.AGENT) {
+      const [userUpdate, profileUpdate] = await Promise.all([
+        this.prisma.user.update({
+          where: { id: userId },
+          data: { isPublicBrokerProfile: isPublic },
+          select: { isPublicBrokerProfile: true },
+        }),
+        this.prisma.agentProfile.updateMany({
+          where: { userId },
+          data: { isPublic },
+        }),
+      ]);
+      return {
+        role: 'AGENT',
+        isPublic: Boolean(userUpdate.isPublicBrokerProfile),
+        hasProfile: profileUpdate.count > 0,
+      };
+    }
+    if (u.role === UserRole.COMPANY) {
+      const profile = await this.prisma.companyProfile.update({
+        where: { userId },
+        data: { isPublic },
+        select: { isPublic: true },
+      });
+      return { role: 'COMPANY', isPublic: profile.isPublic, hasProfile: true };
+    }
+    if (u.role === UserRole.AGENCY) {
+      const profile = await this.prisma.agencyProfile.update({
+        where: { userId },
+        data: { isPublic },
+        select: { isPublic: true },
+      });
+      return { role: 'AGENCY', isPublic: profile.isPublic, hasProfile: true };
+    }
+    throw new ForbiddenException('Nastavení veřejnosti profilu je jen pro AGENT, COMPANY nebo AGENCY.');
   }
 
   async updateBrokerLeadPrefs(
@@ -692,7 +774,7 @@ export class UsersService {
       data.brokerProfileSlug = nextSlug;
     }
 
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id: userId },
       data,
       select: {
@@ -709,5 +791,12 @@ export class UsersService {
         brokerReviewCount: true,
       },
     });
+    if (dto.isPublicBrokerProfile !== undefined) {
+      await this.prisma.agentProfile.updateMany({
+        where: { userId },
+        data: { isPublic: dto.isPublicBrokerProfile },
+      });
+    }
+    return updated;
   }
 }

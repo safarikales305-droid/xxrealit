@@ -1,0 +1,8 @@
+-- AlterTable
+ALTER TABLE "AgentProfile" ADD COLUMN IF NOT EXISTS "isPublic" BOOLEAN NOT NULL DEFAULT false;
+
+-- AlterTable
+ALTER TABLE "CompanyProfile" ADD COLUMN IF NOT EXISTS "isPublic" BOOLEAN NOT NULL DEFAULT false;
+
+-- AlterTable
+ALTER TABLE "AgencyProfile" ADD COLUMN IF NOT EXISTS "isPublic" BOOLEAN NOT NULL DEFAULT false;
