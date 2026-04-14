@@ -19,6 +19,7 @@ import { ShortsMusicModule } from './modules/shorts-music/shorts-music.module';
 import { PremiumBrokerModule } from './modules/premium-broker/premium-broker.module';
 import { BrokersModule } from './modules/brokers/brokers.module';
 import { AgentProfileModule } from './modules/agent-profile/agent-profile.module';
+import { CompanyAdsModule } from './modules/company-ads/company-ads.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { AgentProfileModule } from './modules/agent-profile/agent-profile.module
     ShortsMusicModule,
     BrokersModule,
     AgentProfileModule,
+    CompanyAdsModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

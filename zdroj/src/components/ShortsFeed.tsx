@@ -34,6 +34,15 @@ function mockLikesForId(id: string): number {
 }
 
 type Clip = PropertyFeedItem & { src: string };
+type CompanyAd = {
+  id: string;
+  imageUrl: string;
+  title: string;
+  description: string;
+  ctaText: string;
+  targetUrl: string;
+  company?: { name?: string | null };
+};
 
 type Props = {
   items: PropertyFeedItem[];
@@ -48,11 +57,22 @@ export function ShortsFeed({ items }: Props) {
   const [sellerClip, setSellerClip] = useState<Clip | null>(null);
   const [sellerActionHint, setSellerActionHint] = useState<string | null>(null);
   const [brokenClipIds, setBrokenClipIds] = useState<Set<string>>(() => new Set());
+  const [adsByClipId, setAdsByClipId] = useState<Record<string, CompanyAd | null>>({});
+  const [adPanelOpenByClipId, setAdPanelOpenByClipId] = useState<Record<string, boolean>>({});
+  const [hasSeenAdClipIds, setHasSeenAdClipIds] = useState<Set<string>>(() => new Set());
+  const [adInteractionTick, setAdInteractionTick] = useState(0);
+  const lastAdShownAtRef = useRef(0);
 
   const itemsIdsKey = useMemo(() => items.map((i) => i.id).join('\0'), [items]);
 
   useEffect(() => {
     setBrokenClipIds(new Set());
+  }, [itemsIdsKey]);
+
+  useEffect(() => {
+    setAdsByClipId({});
+    setAdPanelOpenByClipId({});
+    setHasSeenAdClipIds(new Set());
   }, [itemsIdsKey]);
 
   const clips = useMemo<Clip[]>(() => {
@@ -101,6 +121,7 @@ export function ShortsFeed({ items }: Props) {
     if (!root) return;
 
     const onScroll = () => {
+      setAdInteractionTick((v) => v + 1);
       const max = root.scrollHeight - root.clientHeight;
       if (max <= 8) return;
       if (root.scrollTop >= max - 4) {
@@ -129,6 +150,48 @@ export function ShortsFeed({ items }: Props) {
     setLikes(likeInit);
     setLiked(likedInit);
   }, [clips]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const ids = clips.map((x) => x.id).slice(0, 40);
+    if (ids.length === 0) return;
+
+    const run = async () => {
+      try {
+        const qs = encodeURIComponent(ids.join(','));
+        const res = await fetch(toPublicApiUrl(`/company-ads/for-feed?propertyIds=${qs}`), {
+          cache: 'no-store',
+        });
+        if (!res.ok) return;
+        const data = (await res.json().catch(() => ({}))) as Record<string, CompanyAd | null>;
+        if (!cancelled) setAdsByClipId(data ?? {});
+      } catch {
+        if (cancelled) return;
+      }
+    };
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [clips]);
+
+  useEffect(() => {
+    if (!activeId) return;
+    const ad = adsByClipId[activeId];
+    if (!ad) return;
+    if (hasSeenAdClipIds.has(activeId)) return;
+
+    const now = Date.now();
+    const dueInMs = Math.max(0, 12_000 - (now - lastAdShownAtRef.current));
+    const timer = window.setTimeout(() => {
+      setAdPanelOpenByClipId((prev) => ({ ...prev, [activeId]: true }));
+      setHasSeenAdClipIds((prev) => new Set(prev).add(activeId));
+      lastAdShownAtRef.current = Date.now();
+    }, 2_500 + dueInMs);
+
+    return () => window.clearTimeout(timer);
+  }, [activeId, adsByClipId, hasSeenAdClipIds, adInteractionTick]);
 
   useEffect(() => {
     const root = containerRef.current;
@@ -262,11 +325,14 @@ export function ShortsFeed({ items }: Props) {
         const isActive = activeId === c.id;
         const muted = mutedById[c.id] !== false;
         const showProfileLink = !!c.userId;
+        const ad = adsByClipId[c.id] ?? null;
+        const isAdOpen = Boolean(ad && adPanelOpenByClipId[c.id]);
 
         return (
           <section
             key={c.id + c.src}
             className="relative isolate box-border h-screen w-full max-w-full shrink-0 snap-start snap-always overflow-hidden overflow-x-hidden bg-black"
+            onClick={() => setAdInteractionTick((v) => v + 1)}
           >
             {showProfileLink ? (
               <div className="pointer-events-auto absolute left-3 top-20 z-20 md:left-4 md:top-24">
@@ -373,6 +439,44 @@ export function ShortsFeed({ items }: Props) {
                 <Mail className="size-6" strokeWidth={2.25} aria-hidden />
               </button>
             </div>
+            {ad ? (
+              <aside
+                className={`absolute right-0 top-1/2 z-30 w-[min(84vw,22rem)] -translate-y-1/2 rounded-l-2xl border border-white/20 bg-black/80 p-3 shadow-2xl backdrop-blur-md transition-transform duration-500 ${
+                  isAdOpen ? 'translate-x-0' : 'translate-x-[105%]'
+                }`}
+                aria-hidden={!isAdOpen}
+              >
+                <button
+                  type="button"
+                  aria-label="Zavřít reklamu"
+                  onClick={() =>
+                    setAdPanelOpenByClipId((prev) => ({ ...prev, [c.id]: false }))
+                  }
+                  className="absolute right-2 top-2 rounded-full bg-black/50 px-2 py-0.5 text-xs text-white/90"
+                >
+                  ×
+                </button>
+                <img
+                  src={ad.imageUrl}
+                  alt={ad.title}
+                  className="h-28 w-full rounded-xl object-cover"
+                  loading="lazy"
+                />
+                <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-white/60">
+                  {ad.company?.name ?? 'Stavební firma'}
+                </p>
+                <h3 className="mt-1 text-sm font-semibold text-white">{ad.title}</h3>
+                <p className="mt-1 text-xs leading-relaxed text-white/80">{ad.description}</p>
+                <a
+                  href={ad.targetUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 inline-flex rounded-full bg-amber-500 px-3 py-1.5 text-xs font-semibold text-black transition hover:bg-amber-400"
+                >
+                  {ad.ctaText}
+                </a>
+              </aside>
+            ) : null}
           </section>
         );
       })}

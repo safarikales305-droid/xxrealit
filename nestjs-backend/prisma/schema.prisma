@@ -84,6 +84,7 @@ model User {
   propertyMessagesSent PropertyMessage[]   @relation("PropertyMessageSender")
 
   shortsMusicTracksUploaded ShortsMusicTrack[]
+  companyAds CompanyAd[]
 
   /// Placený / aktivní „Premium makléř“ — notifikace na vlastnické inzeráty, kontakt při souhlasu.
   isPremiumBroker                  Boolean  @default(false)
@@ -166,6 +167,25 @@ model CompanyProfile {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([verificationStatus, createdAt])
+}
+
+model CompanyAd {
+  id          String   @id @default(cuid())
+  companyId   String
+  imageUrl    String
+  title       String
+  description String   @db.Text
+  ctaText     String
+  targetUrl   String
+  categories  String[] @default([])
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company User @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, isActive])
+  @@index([isActive, updatedAt])
 }
 
 model AgencyProfile {
