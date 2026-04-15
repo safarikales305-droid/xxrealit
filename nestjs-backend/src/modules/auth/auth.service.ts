@@ -84,6 +84,9 @@ const roleMap: Record<string, UserRole> = {
   firma: UserRole.COMPANY,
   agency: UserRole.AGENCY,
   'realitni kancelar': UserRole.AGENCY,
+  'financni poradce': UserRole.FINANCIAL_ADVISOR,
+  financial_advisor: UserRole.FINANCIAL_ADVISOR,
+  investor: UserRole.INVESTOR,
 
   developer: UserRole.DEVELOPER,
 
@@ -106,6 +109,8 @@ const REGISTER_ROLES: readonly UserRole[] = [
   UserRole.AGENT,
   UserRole.COMPANY,
   UserRole.AGENCY,
+  UserRole.FINANCIAL_ADVISOR,
+  UserRole.INVESTOR,
   UserRole.DEVELOPER,
   UserRole.PRIVATE_SELLER,
 ];

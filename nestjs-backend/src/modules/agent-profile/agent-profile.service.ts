@@ -15,6 +15,8 @@ import {
 import type { SubmitAgentRequestDto } from './dto/submit-agent-request.dto';
 import type { SubmitCompanyRequestDto } from './dto/submit-company-request.dto';
 import type { SubmitAgencyRequestDto } from './dto/submit-agency-request.dto';
+import type { SubmitFinancialAdvisorRequestDto } from './dto/submit-financial-advisor-request.dto';
+import type { SubmitInvestorRequestDto } from './dto/submit-investor-request.dto';
 
 function listingInclude(viewerId?: string) {
   return viewerId
@@ -42,7 +44,12 @@ function normalizeWebsite(raw: string | undefined): string {
   return `https://${t}`;
 }
 
-type ProfessionalProfileType = 'agent' | 'company' | 'agency';
+type ProfessionalProfileType =
+  | 'agent'
+  | 'company'
+  | 'agency'
+  | 'financial_advisor'
+  | 'investor';
 
 function parseVerificationStatus(
   raw: string | undefined,
@@ -471,6 +478,90 @@ export class AgentProfileService {
     };
   }
 
+  async submitFinancialAdvisorRequest(userId: string, dto: SubmitFinancialAdvisorRequestDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+    if (!user) throw new NotFoundException('Uživatel nenalezen');
+    if (user.role === UserRole.ADMIN) {
+      throw new ForbiddenException('Administrátor nemůže podat žádost o profesionální profil.');
+    }
+    const icoRaw = (dto.ico ?? '').trim();
+    if (icoRaw && !/^\d{8}$/.test(icoRaw)) {
+      throw new BadRequestException('IČO musí mít přesně 8 číslic nebo zůstat prázdné.');
+    }
+    const existing = await this.prisma.financialAdvisorProfile.findUnique({ where: { userId } });
+    if (existing?.verificationStatus === AgentVerificationStatus.verified) {
+      throw new ConflictException('Žádost již byla schválena.');
+    }
+    const common = {
+      fullName: dto.fullName.trim().slice(0, 200),
+      brandName: (dto.brandName ?? '').trim().slice(0, 200),
+      phone: dto.phone.trim().slice(0, 40),
+      email: dto.email.trim().toLowerCase().slice(0, 200),
+      website: normalizeWebsite(dto.website),
+      ico: icoRaw,
+      city: dto.city.trim().slice(0, 120),
+      bio: dto.bio.trim().slice(0, 2000),
+      specializations: (dto.specializations ?? [])
+        .map((x) => String(x).trim())
+        .filter(Boolean)
+        .slice(0, 30),
+      avatarUrl: dto.avatarUrl?.trim() || null,
+      logoUrl: dto.logoUrl?.trim() || null,
+      verificationStatus: AgentVerificationStatus.pending,
+    };
+    const saved = existing
+      ? await this.prisma.financialAdvisorProfile.update({ where: { userId }, data: common })
+      : await this.prisma.financialAdvisorProfile.create({ data: { userId, ...common } });
+    return {
+      id: saved.id,
+      verificationStatus: saved.verificationStatus,
+      message: 'Žádost finančního poradce byla uložena a čeká na schválení administrátorem.',
+    };
+  }
+
+  async submitInvestorRequest(userId: string, dto: SubmitInvestorRequestDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+    if (!user) throw new NotFoundException('Uživatel nenalezen');
+    if (user.role === UserRole.ADMIN) {
+      throw new ForbiddenException('Administrátor nemůže podat žádost o profesionální profil.');
+    }
+    const existing = await this.prisma.investorProfile.findUnique({ where: { userId } });
+    if (existing?.verificationStatus === AgentVerificationStatus.verified) {
+      throw new ConflictException('Žádost již byla schválena.');
+    }
+    const common = {
+      fullName: dto.fullName.trim().slice(0, 200),
+      investorName: (dto.investorName ?? '').trim().slice(0, 200),
+      investorType: dto.investorType.trim().slice(0, 120),
+      phone: dto.phone.trim().slice(0, 40),
+      email: dto.email.trim().toLowerCase().slice(0, 200),
+      website: normalizeWebsite(dto.website),
+      city: dto.city.trim().slice(0, 120),
+      bio: dto.bio.trim().slice(0, 2000),
+      investmentFocus: (dto.investmentFocus ?? [])
+        .map((x) => String(x).trim())
+        .filter(Boolean)
+        .slice(0, 30),
+      avatarUrl: dto.avatarUrl?.trim() || null,
+      logoUrl: dto.logoUrl?.trim() || null,
+      verificationStatus: AgentVerificationStatus.pending,
+    };
+    const saved = existing
+      ? await this.prisma.investorProfile.update({ where: { userId }, data: common })
+      : await this.prisma.investorProfile.create({ data: { userId, ...common } });
+    return {
+      id: saved.id,
+      verificationStatus: saved.verificationStatus,
+      message: 'Žádost investora byla uložena a čeká na schválení administrátorem.',
+    };
+  }
+
   async adminListProfessional(type: ProfessionalProfileType, statusRaw?: string) {
     const status = statusRaw?.trim()
       ? parseVerificationStatus(statusRaw)
@@ -478,6 +569,20 @@ export class AgentProfileService {
     if (type === 'agent') return this.adminList(status);
     if (type === 'company') {
       return this.prisma.companyProfile.findMany({
+        where: { verificationStatus: status },
+        orderBy: { createdAt: 'desc' },
+        include: { user: { select: { id: true, email: true, name: true, role: true } } },
+      });
+    }
+    if (type === 'financial_advisor') {
+      return this.prisma.financialAdvisorProfile.findMany({
+        where: { verificationStatus: status },
+        orderBy: { createdAt: 'desc' },
+        include: { user: { select: { id: true, email: true, name: true, role: true } } },
+      });
+    }
+    if (type === 'investor') {
+      return this.prisma.investorProfile.findMany({
         where: { verificationStatus: status },
         orderBy: { createdAt: 'desc' },
         include: { user: { select: { id: true, email: true, name: true, role: true } } },
@@ -510,6 +615,54 @@ export class AgentProfileService {
       ]);
       return { ok: true, userId: profile.userId };
     }
+    if (type === 'financial_advisor') {
+      const profile = await this.prisma.financialAdvisorProfile.findUnique({
+        where: { id: profileId },
+        include: { user: { select: { id: true } } },
+      });
+      if (!profile) throw new NotFoundException('Žádost nenalezena');
+      await this.prisma.$transaction([
+        this.prisma.financialAdvisorProfile.update({
+          where: { id: profileId },
+          data: { verificationStatus: AgentVerificationStatus.verified },
+        }),
+        this.prisma.user.update({
+          where: { id: profile.userId },
+          data: {
+            role: UserRole.FINANCIAL_ADVISOR,
+            name: profile.fullName,
+            city: profile.city,
+            bio: profile.bio,
+            avatar: profile.avatarUrl ?? profile.logoUrl ?? undefined,
+          },
+        }),
+      ]);
+      return { ok: true, userId: profile.userId };
+    }
+    if (type === 'investor') {
+      const profile = await this.prisma.investorProfile.findUnique({
+        where: { id: profileId },
+        include: { user: { select: { id: true } } },
+      });
+      if (!profile) throw new NotFoundException('Žádost nenalezena');
+      await this.prisma.$transaction([
+        this.prisma.investorProfile.update({
+          where: { id: profileId },
+          data: { verificationStatus: AgentVerificationStatus.verified },
+        }),
+        this.prisma.user.update({
+          where: { id: profile.userId },
+          data: {
+            role: UserRole.INVESTOR,
+            name: profile.fullName,
+            city: profile.city,
+            bio: profile.bio,
+            avatar: profile.avatarUrl ?? profile.logoUrl ?? undefined,
+          },
+        }),
+      ]);
+      return { ok: true, userId: profile.userId };
+    }
     const profile = await this.prisma.agencyProfile.findUnique({
       where: { id: profileId },
       include: { user: { select: { id: true } } },
@@ -532,6 +685,20 @@ export class AgentProfileService {
     if (type === 'agent') return this.adminReject(profileId);
     if (type === 'company') {
       await this.prisma.companyProfile.update({
+        where: { id: profileId },
+        data: { verificationStatus: AgentVerificationStatus.rejected },
+      });
+      return { ok: true };
+    }
+    if (type === 'financial_advisor') {
+      await this.prisma.financialAdvisorProfile.update({
+        where: { id: profileId },
+        data: { verificationStatus: AgentVerificationStatus.rejected },
+      });
+      return { ok: true };
+    }
+    if (type === 'investor') {
+      await this.prisma.investorProfile.update({
         where: { id: profileId },
         data: { verificationStatus: AgentVerificationStatus.rejected },
       });

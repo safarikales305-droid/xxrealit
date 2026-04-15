@@ -70,7 +70,15 @@ export class BrokersService {
   async listPublicDirectory() {
     const rows = await this.prisma.user.findMany({
       where: {
-        role: { in: [UserRole.AGENT, UserRole.COMPANY, UserRole.AGENCY] },
+        role: {
+          in: [
+            UserRole.AGENT,
+            UserRole.COMPANY,
+            UserRole.AGENCY,
+            UserRole.FINANCIAL_ADVISOR,
+            UserRole.INVESTOR,
+          ],
+        },
         isPublicBrokerProfile: true,
         brokerProfileSlug: { not: null },
       },
@@ -104,7 +112,15 @@ export class BrokersService {
     const broker = await this.prisma.user.findFirst({
       where: {
         brokerProfileSlug: slug,
-        role: { in: [UserRole.AGENT, UserRole.COMPANY, UserRole.AGENCY] },
+        role: {
+          in: [
+            UserRole.AGENT,
+            UserRole.COMPANY,
+            UserRole.AGENCY,
+            UserRole.FINANCIAL_ADVISOR,
+            UserRole.INVESTOR,
+          ],
+        },
         isPublicBrokerProfile: true,
       },
       select: {
@@ -239,7 +255,13 @@ export class BrokersService {
       where: { id: brokerId },
       select: { role: true, allowBrokerReviews: true },
     });
-    const reviewableRoles: UserRole[] = [UserRole.AGENT, UserRole.COMPANY, UserRole.AGENCY];
+    const reviewableRoles: UserRole[] = [
+      UserRole.AGENT,
+      UserRole.COMPANY,
+      UserRole.AGENCY,
+      UserRole.FINANCIAL_ADVISOR,
+      UserRole.INVESTOR,
+    ];
     if (!broker || !reviewableRoles.includes(broker.role)) {
       throw new NotFoundException('Profesionální profil nebyl nalezen.');
     }

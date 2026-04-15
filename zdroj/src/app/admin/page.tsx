@@ -75,7 +75,9 @@ export default function AdminPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
-  const [professionalType, setProfessionalType] = useState<'agent' | 'company' | 'agency'>('agent');
+  const [professionalType, setProfessionalType] = useState<
+    'agent' | 'company' | 'agency' | 'financial_advisor' | 'investor'
+  >('agent');
   const [agentRequests, setAgentRequests] = useState<NestAdminProfessionalProfileRow[]>([]);
   const [busyAgentId, setBusyAgentId] = useState<string | null>(null);
 
@@ -468,16 +470,27 @@ export default function AdminPage() {
             <h2 className="text-lg font-semibold tracking-tight">Žádosti o profesionální role</h2>
             <select
               value={professionalType}
-              onChange={(e) => setProfessionalType(e.target.value as 'agent' | 'company' | 'agency')}
+              onChange={(e) =>
+                setProfessionalType(
+                  e.target.value as
+                    | 'agent'
+                    | 'company'
+                    | 'agency'
+                    | 'financial_advisor'
+                    | 'investor',
+                )
+              }
               className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm"
             >
               <option value="agent">Makléři</option>
               <option value="company">Stavební firmy</option>
               <option value="agency">Realitní kanceláře</option>
+              <option value="financial_advisor">Finanční poradci</option>
+              <option value="investor">Investoři</option>
             </select>
           </div>
           <p className="mb-4 max-w-3xl text-sm text-zinc-600">
-            Schválením se uživateli nastaví odpovídající role podle typu žádosti (AGENT, COMPANY, AGENCY).
+            Schválením se uživateli nastaví odpovídající role podle typu žádosti.
           </p>
           {agentRequests.length === 0 ? (
             <p className="text-sm text-zinc-500">Žádné čekající žádosti.</p>
@@ -487,7 +500,9 @@ export default function AdminPage() {
                 const r = row as Record<string, unknown>;
                 const id = String(r.id ?? '');
                 const fullName = String(r.fullName ?? r.contactFullName ?? '—');
-                const orgName = String(r.companyName ?? r.agencyName ?? '—');
+                const orgName = String(
+                  r.companyName ?? r.agencyName ?? r.brandName ?? r.investorName ?? '—',
+                );
                 const city = String(r.city ?? '—');
                 const phone = String(r.phone ?? '—');
                 const bio = String(r.bio ?? r.description ?? '');

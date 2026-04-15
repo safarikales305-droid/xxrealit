@@ -5,6 +5,8 @@ const KNOWN: readonly string[] = [
   UserRole.AGENT,
   UserRole.COMPANY,
   UserRole.AGENCY,
+  UserRole.FINANCIAL_ADVISOR,
+  UserRole.INVESTOR,
   UserRole.DEVELOPER,
   UserRole.PRIVATE_SELLER,
   UserRole.ADMIN,

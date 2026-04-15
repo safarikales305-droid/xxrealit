@@ -13,6 +13,8 @@ export const USER_ROLES = [
   'AGENT',
   'COMPANY',
   'AGENCY',
+  'FINANCIAL_ADVISOR',
+  'INVESTOR',
   'DEVELOPER',
   'PRIVATE_SELLER',
   'ADMIN',
@@ -37,6 +39,8 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   AGENT: 'Realitní makléř',
   COMPANY: 'Stavební firma',
   AGENCY: 'Realitní kancelář',
+  FINANCIAL_ADVISOR: 'Finanční poradce',
+  INVESTOR: 'Investor',
   DEVELOPER: 'Developer',
   PRIVATE_SELLER: 'Soukromý prodejce',
   ADMIN: 'Administrátor',
@@ -55,6 +59,8 @@ export const DASHBOARD_SEGMENTS: Record<UserRole, string> = {
   AGENT: 'AGENT',
   COMPANY: 'COMPANY',
   AGENCY: 'AGENCY',
+  FINANCIAL_ADVISOR: 'FINANCIAL_ADVISOR',
+  INVESTOR: 'INVESTOR',
   DEVELOPER: 'stavebni_firma',
   PRIVATE_SELLER: 'uzivatel',
   ADMIN: 'ADMIN',
@@ -74,7 +80,16 @@ export const PROFESSIONAL_UPGRADE_ELIGIBLE_ROLES = [
 /** Uživatel ještě není profesionální profil ani admin — může vidět sekci „Rozšířit účet“. */
 export function canRequestProfessionalProfileUpgrade(role: string | undefined | null): boolean {
   if (!role) return false;
-  if (role === 'AGENT' || role === 'COMPANY' || role === 'AGENCY' || role === 'ADMIN') return false;
+  if (
+    role === 'AGENT' ||
+    role === 'COMPANY' ||
+    role === 'AGENCY' ||
+    role === 'FINANCIAL_ADVISOR' ||
+    role === 'INVESTOR' ||
+    role === 'ADMIN'
+  ) {
+    return false;
+  }
   return (PROFESSIONAL_UPGRADE_ELIGIBLE_ROLES as readonly string[]).includes(role);
 }
 
@@ -83,6 +98,8 @@ export const PROFESSIONAL_CONTENT_CREATOR_ROLES = [
   'AGENT',
   'COMPANY',
   'AGENCY',
+  'FINANCIAL_ADVISOR',
+  'INVESTOR',
   'ADMIN',
 ] as const;
 

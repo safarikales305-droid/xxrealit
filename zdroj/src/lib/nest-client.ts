@@ -178,6 +178,44 @@ export type NestAgencyProfileMe = {
   updatedAt: string;
 };
 
+export type NestFinancialAdvisorProfileMe = {
+  id: string;
+  fullName: string;
+  brandName: string;
+  phone: string;
+  email: string;
+  website: string;
+  ico: string;
+  city: string;
+  bio: string;
+  specializations: string[];
+  avatarUrl: string | null;
+  logoUrl: string | null;
+  isPublic: boolean;
+  verificationStatus: 'pending' | 'verified' | 'rejected';
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NestInvestorProfileMe = {
+  id: string;
+  fullName: string;
+  investorName: string;
+  investorType: string;
+  phone: string;
+  email: string;
+  website: string;
+  city: string;
+  bio: string;
+  investmentFocus: string[];
+  avatarUrl: string | null;
+  logoUrl: string | null;
+  isPublic: boolean;
+  verificationStatus: 'pending' | 'verified' | 'rejected';
+  createdAt: string;
+  updatedAt: string;
+};
+
 /** Odpověď GET /users/me (Nest JWT). */
 export type NestMeProfile = {
   id: string;
@@ -211,6 +249,8 @@ export type NestMeProfile = {
   agentProfile?: NestAgentProfileMe | null;
   companyProfile?: NestCompanyProfileMe | null;
   agencyProfile?: NestAgencyProfileMe | null;
+  financialAdvisorProfile?: NestFinancialAdvisorProfileMe | null;
+  investorProfile?: NestInvestorProfileMe | null;
 };
 
 function parseNestAgentProfileMeJson(raw: unknown): NestAgentProfileMe | null {
@@ -309,6 +349,76 @@ function parseNestAgencyProfileMeJson(raw: unknown): NestAgencyProfileMe | null 
   };
 }
 
+function parseNestFinancialAdvisorProfileMeJson(raw: unknown): NestFinancialAdvisorProfileMe | null {
+  if (raw == null || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.id !== 'string') return null;
+  const verificationStatus = o.verificationStatus;
+  if (
+    verificationStatus !== 'pending' &&
+    verificationStatus !== 'verified' &&
+    verificationStatus !== 'rejected'
+  ) {
+    return null;
+  }
+  return {
+    id: o.id,
+    fullName: typeof o.fullName === 'string' ? o.fullName : '',
+    brandName: typeof o.brandName === 'string' ? o.brandName : '',
+    phone: typeof o.phone === 'string' ? o.phone : '',
+    email: typeof o.email === 'string' ? o.email : '',
+    website: typeof o.website === 'string' ? o.website : '',
+    ico: typeof o.ico === 'string' ? o.ico : '',
+    city: typeof o.city === 'string' ? o.city : '',
+    bio: typeof o.bio === 'string' ? o.bio : '',
+    specializations: Array.isArray(o.specializations)
+      ? o.specializations.filter((x): x is string => typeof x === 'string')
+      : [],
+    avatarUrl:
+      o.avatarUrl === null || typeof o.avatarUrl === 'string' ? (o.avatarUrl as string | null) : null,
+    logoUrl: o.logoUrl === null || typeof o.logoUrl === 'string' ? (o.logoUrl as string | null) : null,
+    isPublic: typeof o.isPublic === 'boolean' ? o.isPublic : false,
+    verificationStatus,
+    createdAt: typeof o.createdAt === 'string' ? o.createdAt : '',
+    updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : '',
+  };
+}
+
+function parseNestInvestorProfileMeJson(raw: unknown): NestInvestorProfileMe | null {
+  if (raw == null || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.id !== 'string') return null;
+  const verificationStatus = o.verificationStatus;
+  if (
+    verificationStatus !== 'pending' &&
+    verificationStatus !== 'verified' &&
+    verificationStatus !== 'rejected'
+  ) {
+    return null;
+  }
+  return {
+    id: o.id,
+    fullName: typeof o.fullName === 'string' ? o.fullName : '',
+    investorName: typeof o.investorName === 'string' ? o.investorName : '',
+    investorType: typeof o.investorType === 'string' ? o.investorType : '',
+    phone: typeof o.phone === 'string' ? o.phone : '',
+    email: typeof o.email === 'string' ? o.email : '',
+    website: typeof o.website === 'string' ? o.website : '',
+    city: typeof o.city === 'string' ? o.city : '',
+    bio: typeof o.bio === 'string' ? o.bio : '',
+    investmentFocus: Array.isArray(o.investmentFocus)
+      ? o.investmentFocus.filter((x): x is string => typeof x === 'string')
+      : [],
+    avatarUrl:
+      o.avatarUrl === null || typeof o.avatarUrl === 'string' ? (o.avatarUrl as string | null) : null,
+    logoUrl: o.logoUrl === null || typeof o.logoUrl === 'string' ? (o.logoUrl as string | null) : null,
+    isPublic: typeof o.isPublic === 'boolean' ? o.isPublic : false,
+    verificationStatus,
+    createdAt: typeof o.createdAt === 'string' ? o.createdAt : '',
+    updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : '',
+  };
+}
+
 /** GET /users/me může vracet avatarUrl nebo legacy avatar / coverImage. */
 export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
   if (raw == null || typeof raw !== 'object') return null;
@@ -365,6 +475,18 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
         ? null
         : parseNestAgencyProfileMeJson(o.agencyProfile)
       : undefined;
+  const financialAdvisorProfile =
+    'financialAdvisorProfile' in o
+      ? o.financialAdvisorProfile === null
+        ? null
+        : parseNestFinancialAdvisorProfileMeJson(o.financialAdvisorProfile)
+      : undefined;
+  const investorProfile =
+    'investorProfile' in o
+      ? o.investorProfile === null
+        ? null
+        : parseNestInvestorProfileMeJson(o.investorProfile)
+      : undefined;
   return {
     id: o.id,
     email: o.email,
@@ -411,6 +533,8 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     agentProfile,
     companyProfile,
     agencyProfile,
+    financialAdvisorProfile,
+    investorProfile,
   };
 }
 
@@ -749,7 +873,7 @@ export async function nestAdminRejectAgentProfile(
 
 export async function nestAdminProfessionalProfiles(
   token: string | null,
-  type: 'agent' | 'company' | 'agency',
+  type: 'agent' | 'company' | 'agency' | 'financial_advisor' | 'investor',
   status?: string,
 ): Promise<NestAdminProfessionalProfileRow[] | null> {
   if (!API_BASE_URL || !token) return null;
@@ -767,7 +891,7 @@ export async function nestAdminProfessionalProfiles(
 
 export async function nestAdminApproveProfessionalProfile(
   token: string | null,
-  type: 'agent' | 'company' | 'agency',
+  type: 'agent' | 'company' | 'agency' | 'financial_advisor' | 'investor',
   id: string,
 ): Promise<{ ok: boolean; error?: string }> {
   if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
@@ -782,7 +906,7 @@ export async function nestAdminApproveProfessionalProfile(
 
 export async function nestAdminRejectProfessionalProfile(
   token: string | null,
-  type: 'agent' | 'company' | 'agency',
+  type: 'agent' | 'company' | 'agency' | 'financial_advisor' | 'investor',
   id: string,
 ): Promise<{ ok: boolean; error?: string }> {
   if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
@@ -866,6 +990,44 @@ export async function nestSubmitAgencyProfileRequest(
 ): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
   if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
   const res = await fetch(`${API_BASE_URL}/agent-profile/request/agency`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  return { ok: true, data: raw };
+}
+
+export async function nestSubmitFinancialAdvisorProfileRequest(
+  token: string | null,
+  body: Record<string, unknown>,
+): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/agent-profile/request/financial-advisor`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  return { ok: true, data: raw };
+}
+
+export async function nestSubmitInvestorProfileRequest(
+  token: string | null,
+  body: Record<string, unknown>,
+): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/agent-profile/request/investor`, {
     method: 'POST',
     headers: {
       ...nestAuthHeaders(token),

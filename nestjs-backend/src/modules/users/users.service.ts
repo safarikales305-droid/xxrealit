@@ -307,6 +307,46 @@ export class UsersService {
           updatedAt: true,
         },
       },
+      financialAdvisorProfile: {
+        select: {
+          id: true,
+          fullName: true,
+          brandName: true,
+          phone: true,
+          email: true,
+          website: true,
+          ico: true,
+          city: true,
+          bio: true,
+          specializations: true,
+          avatarUrl: true,
+          logoUrl: true,
+          isPublic: true,
+          verificationStatus: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
+      investorProfile: {
+        select: {
+          id: true,
+          fullName: true,
+          investorName: true,
+          investorType: true,
+          phone: true,
+          email: true,
+          website: true,
+          city: true,
+          bio: true,
+          investmentFocus: true,
+          avatarUrl: true,
+          logoUrl: true,
+          isPublic: true,
+          verificationStatus: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
     } as const;
     let hasCropColumns = true;
     let u: any;
@@ -399,6 +439,32 @@ export class UsersService {
             updatedAt: u.agencyProfile.updatedAt.toISOString(),
           }
         : null,
+      financialAdvisorProfile: u.financialAdvisorProfile
+        ? {
+            ...u.financialAdvisorProfile,
+            avatarUrl:
+              upgradeHttpToHttpsForApi(u.financialAdvisorProfile.avatarUrl) ??
+              u.financialAdvisorProfile.avatarUrl,
+            logoUrl:
+              upgradeHttpToHttpsForApi(u.financialAdvisorProfile.logoUrl) ??
+              u.financialAdvisorProfile.logoUrl,
+            isPublic: Boolean(u.financialAdvisorProfile.isPublic),
+            createdAt: u.financialAdvisorProfile.createdAt.toISOString(),
+            updatedAt: u.financialAdvisorProfile.updatedAt.toISOString(),
+          }
+        : null,
+      investorProfile: u.investorProfile
+        ? {
+            ...u.investorProfile,
+            avatarUrl:
+              upgradeHttpToHttpsForApi(u.investorProfile.avatarUrl) ?? u.investorProfile.avatarUrl,
+            logoUrl:
+              upgradeHttpToHttpsForApi(u.investorProfile.logoUrl) ?? u.investorProfile.logoUrl,
+            isPublic: Boolean(u.investorProfile.isPublic),
+            createdAt: u.investorProfile.createdAt.toISOString(),
+            updatedAt: u.investorProfile.updatedAt.toISOString(),
+          }
+        : null,
     };
     this.logger.log(
       `[profile-media] getMeProfile userId=${u.id} hasAvatar=${Boolean(profile.avatarUrl)} hasCover=${Boolean(profile.coverImageUrl)}`,
@@ -407,6 +473,13 @@ export class UsersService {
   }
 
   async getPublicProfile(userId: string, viewerId?: string) {
+    const professionalRoles = new Set<UserRole>([
+      UserRole.AGENT,
+      UserRole.COMPANY,
+      UserRole.AGENCY,
+      UserRole.FINANCIAL_ADVISOR,
+      UserRole.INVESTOR,
+    ]);
     const baseSelect = {
       id: true,
       name: true,
@@ -462,6 +535,7 @@ export class UsersService {
     }
 
     let viewerIsAdmin = false;
+    let viewerIsProfessional = false;
     let propertyViewerAccess: PropertyViewerAccess | undefined;
     if (viewerId) {
       const vu = await this.prisma.user.findUnique({
@@ -469,6 +543,7 @@ export class UsersService {
         select: { role: true, isPremiumBroker: true },
       });
       viewerIsAdmin = vu?.role === UserRole.ADMIN;
+      viewerIsProfessional = Boolean(vu?.role && professionalRoles.has(vu.role));
       if (vu) {
         propertyViewerAccess = {
           role: vu.role,
@@ -504,6 +579,22 @@ export class UsersService {
           select: { isPublic: true },
         });
         if (!agp?.isPublic) {
+          throw new NotFoundException('User not found');
+        }
+      } else if (user.role === UserRole.FINANCIAL_ADVISOR) {
+        const fp = await this.prisma.financialAdvisorProfile.findUnique({
+          where: { userId },
+          select: { isPublic: true },
+        });
+        if (!fp?.isPublic) {
+          throw new NotFoundException('User not found');
+        }
+      } else if (user.role === UserRole.INVESTOR) {
+        const ip = await this.prisma.investorProfile.findUnique({
+          where: { userId },
+          select: { isPublic: true },
+        });
+        if (!ip?.isPublic) {
           throw new NotFoundException('User not found');
         }
       }
@@ -547,6 +638,7 @@ export class UsersService {
       followersCount: user._count.followers,
       followingCount: user._count.following,
       isFollowedByViewer,
+      canContactProfile: professionalRoles.has(user.role) && (viewerIsProfessional || viewerIsAdmin),
       },
       videos: videos.map((v) => ({
         ...v,
@@ -639,7 +731,25 @@ export class UsersService {
       });
       return { role: 'AGENCY', isPublic: profile.isPublic, hasProfile: true };
     }
-    throw new ForbiddenException('Nastavení veřejnosti profilu je jen pro AGENT, COMPANY nebo AGENCY.');
+    if (u.role === UserRole.FINANCIAL_ADVISOR) {
+      const profile = await this.prisma.financialAdvisorProfile.update({
+        where: { userId },
+        data: { isPublic },
+        select: { isPublic: true },
+      });
+      return { role: 'FINANCIAL_ADVISOR', isPublic: profile.isPublic, hasProfile: true };
+    }
+    if (u.role === UserRole.INVESTOR) {
+      const profile = await this.prisma.investorProfile.update({
+        where: { userId },
+        data: { isPublic },
+        select: { isPublic: true },
+      });
+      return { role: 'INVESTOR', isPublic: profile.isPublic, hasProfile: true };
+    }
+    throw new ForbiddenException(
+      'Nastavení veřejnosti profilu je jen pro AGENT, COMPANY, AGENCY, FINANCIAL_ADVISOR nebo INVESTOR.',
+    );
   }
 
   async updateBrokerLeadPrefs(

@@ -30,6 +30,8 @@ import {
   nestSubmitAgentProfileRequest,
   nestSubmitAgencyProfileRequest,
   nestSubmitCompanyProfileRequest,
+  nestSubmitFinancialAdvisorProfileRequest,
+  nestSubmitInvestorProfileRequest,
   nestUploadAgentProfileLogo,
   nestUploadAvatar,
   nestUploadCover,
@@ -178,6 +180,34 @@ export default function ProfilPage() {
   const [agencyAgentCount, setAgencyAgentCount] = useState('');
   const [agencyBranches, setAgencyBranches] = useState('');
   const [agencyLogoUrl, setAgencyLogoUrl] = useState<string | null>(null);
+  const [advisorFormOpen, setAdvisorFormOpen] = useState(false);
+  const [advisorSubmitting, setAdvisorSubmitting] = useState(false);
+  const [advisorFormError, setAdvisorFormError] = useState<string | null>(null);
+  const [advisorFullName, setAdvisorFullName] = useState('');
+  const [advisorBrandName, setAdvisorBrandName] = useState('');
+  const [advisorPhone, setAdvisorPhone] = useState('');
+  const [advisorEmail, setAdvisorEmail] = useState('');
+  const [advisorWeb, setAdvisorWeb] = useState('');
+  const [advisorIco, setAdvisorIco] = useState('');
+  const [advisorCity, setAdvisorCity] = useState('');
+  const [advisorBio, setAdvisorBio] = useState('');
+  const [advisorSpecializations, setAdvisorSpecializations] = useState('');
+  const [advisorAvatarUrl, setAdvisorAvatarUrl] = useState('');
+  const [advisorLogoUrl, setAdvisorLogoUrl] = useState('');
+  const [investorFormOpen, setInvestorFormOpen] = useState(false);
+  const [investorSubmitting, setInvestorSubmitting] = useState(false);
+  const [investorFormError, setInvestorFormError] = useState<string | null>(null);
+  const [investorFullName, setInvestorFullName] = useState('');
+  const [investorName, setInvestorName] = useState('');
+  const [investorType, setInvestorType] = useState('');
+  const [investorPhone, setInvestorPhone] = useState('');
+  const [investorEmail, setInvestorEmail] = useState('');
+  const [investorWeb, setInvestorWeb] = useState('');
+  const [investorCity, setInvestorCity] = useState('');
+  const [investorBio, setInvestorBio] = useState('');
+  const [investorFocus, setInvestorFocus] = useState('');
+  const [investorAvatarUrl, setInvestorAvatarUrl] = useState('');
+  const [investorLogoUrl, setInvestorLogoUrl] = useState('');
   /** Staré lokální `/uploads/…` na Railway po deployi vrací 404 — zobrazí se placeholder. */
   const [avatarRemoteFailed, setAvatarRemoteFailed] = useState(false);
   const [coverRemoteFailed, setCoverRemoteFailed] = useState(false);
@@ -211,6 +241,10 @@ export default function ProfilPage() {
           ? Boolean(me.companyProfile?.isPublic)
           : me.role === 'AGENCY'
             ? Boolean(me.agencyProfile?.isPublic)
+            : me.role === 'FINANCIAL_ADVISOR'
+              ? Boolean(me.financialAdvisorProfile?.isPublic)
+              : me.role === 'INVESTOR'
+                ? Boolean(me.investorProfile?.isPublic)
             : false;
     setProfessionalVisibility(visibility);
   }, [apiAccessToken]);
@@ -286,7 +320,10 @@ export default function ProfilPage() {
   }, [loadMyListings]);
 
   useEffect(() => {
-    if (!user?.id || !['AGENT', 'COMPANY', 'AGENCY'].includes(user.role)) {
+    if (
+      !user?.id ||
+      !['AGENT', 'COMPANY', 'AGENCY', 'FINANCIAL_ADVISOR', 'INVESTOR'].includes(user.role)
+    ) {
       setWallPosts([]);
       setWallVideos([]);
       return;
@@ -566,7 +603,7 @@ export default function ProfilPage() {
 
   async function onToggleProfessionalVisibility(next: boolean) {
     if (!apiAccessToken) return;
-    if (!['AGENT', 'COMPANY', 'AGENCY'].includes(user?.role ?? '')) return;
+    if (!['AGENT', 'COMPANY', 'AGENCY', 'FINANCIAL_ADVISOR', 'INVESTOR'].includes(user?.role ?? '')) return;
     setVisibilitySaving(true);
     const res = await nestPatchProfessionalVisibility(apiAccessToken, next);
     setVisibilitySaving(false);
@@ -629,6 +666,10 @@ export default function ProfilPage() {
       setCompanyFormOpen(true);
     } else if (uct === 'agency') {
       setAgencyFormOpen(true);
+    } else if (uct === 'financial_advisor') {
+      setAdvisorFormOpen(true);
+    } else if (uct === 'investor') {
+      setInvestorFormOpen(true);
     }
 
     router.replace('/profil', { scroll: false });
@@ -759,6 +800,84 @@ export default function ProfilPage() {
     }
     setAgencyFormOpen(false);
     showSuccess('Žádost realitní kanceláře byla odeslána a čeká na schválení.');
+    await loadNestProfile();
+  }
+
+  async function onSubmitAdvisorRequest(e: React.FormEvent) {
+    e.preventDefault();
+    setAdvisorFormError(null);
+    if (advisorBio.trim().length < 10) {
+      setAdvisorFormError('Bio musí mít alespoň 10 znaků.');
+      return;
+    }
+    const specializations = advisorSpecializations
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean);
+    if (specializations.length === 0) {
+      setAdvisorFormError('Vyplňte alespoň jednu oblast specializace.');
+      return;
+    }
+    setAdvisorSubmitting(true);
+    const res = await nestSubmitFinancialAdvisorProfileRequest(apiAccessToken, {
+      fullName: advisorFullName.trim(),
+      brandName: advisorBrandName.trim() || undefined,
+      phone: advisorPhone.trim(),
+      email: advisorEmail.trim(),
+      website: advisorWeb.trim() || undefined,
+      ico: advisorIco.trim() || undefined,
+      city: advisorCity.trim(),
+      bio: advisorBio.trim(),
+      specializations,
+      avatarUrl: advisorAvatarUrl.trim() || undefined,
+      logoUrl: advisorLogoUrl.trim() || undefined,
+    });
+    setAdvisorSubmitting(false);
+    if (!res.ok) {
+      setAdvisorFormError(res.error ?? 'Odeslání žádosti selhalo.');
+      return;
+    }
+    setAdvisorFormOpen(false);
+    showSuccess('Žádost finančního poradce byla odeslána a čeká na schválení.');
+    await loadNestProfile();
+  }
+
+  async function onSubmitInvestorRequest(e: React.FormEvent) {
+    e.preventDefault();
+    setInvestorFormError(null);
+    if (investorBio.trim().length < 10) {
+      setInvestorFormError('Bio musí mít alespoň 10 znaků.');
+      return;
+    }
+    const investmentFocus = investorFocus
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean);
+    if (investmentFocus.length === 0) {
+      setInvestorFormError('Vyplňte alespoň jedno investiční zaměření.');
+      return;
+    }
+    setInvestorSubmitting(true);
+    const res = await nestSubmitInvestorProfileRequest(apiAccessToken, {
+      fullName: investorFullName.trim(),
+      investorName: investorName.trim() || undefined,
+      investorType: investorType.trim(),
+      phone: investorPhone.trim(),
+      email: investorEmail.trim(),
+      website: investorWeb.trim() || undefined,
+      city: investorCity.trim(),
+      bio: investorBio.trim(),
+      investmentFocus,
+      avatarUrl: investorAvatarUrl.trim() || undefined,
+      logoUrl: investorLogoUrl.trim() || undefined,
+    });
+    setInvestorSubmitting(false);
+    if (!res.ok) {
+      setInvestorFormError(res.error ?? 'Odeslání žádosti selhalo.');
+      return;
+    }
+    setInvestorFormOpen(false);
+    showSuccess('Žádost investora byla odeslána a čeká na schválení.');
     await loadNestProfile();
   }
 
@@ -977,7 +1096,7 @@ export default function ProfilPage() {
               </div>
             </div>
 
-            {['AGENT', 'COMPANY', 'AGENCY'].includes(user.role) ? (
+            {['AGENT', 'COMPANY', 'AGENCY', 'FINANCIAL_ADVISOR', 'INVESTOR'].includes(user.role) ? (
               <div className="mt-5 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
                 <h3 className="text-sm font-semibold text-zinc-900">Veřejnost profilu</h3>
                 <p className="mt-1 text-xs text-zinc-600">
@@ -1064,7 +1183,11 @@ export default function ProfilPage() {
                 Předchozí žádost byla zamítnuta. Upravte údaje a pošlete novou žádost.
               </p>
             ) : null}
-            {!agentFormOpen && !companyFormOpen && !agencyFormOpen ? (
+            {!agentFormOpen &&
+            !companyFormOpen &&
+            !agencyFormOpen &&
+            !advisorFormOpen &&
+            !investorFormOpen ? (
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -1086,6 +1209,20 @@ export default function ProfilPage() {
                   className="rounded-full border border-zinc-300 bg-white px-6 py-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
                 >
                   Jsem realitní kancelář
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdvisorFormOpen(true)}
+                  className="rounded-full border border-zinc-300 bg-white px-6 py-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                >
+                  Jsem finanční poradce
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInvestorFormOpen(true)}
+                  className="rounded-full border border-zinc-300 bg-white px-6 py-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                >
+                  Jsem investor
                 </button>
               </div>
             ) : null}
@@ -1257,6 +1394,46 @@ export default function ProfilPage() {
                 <div className="flex gap-2 sm:col-span-2">
                   <button type="submit" disabled={agencySubmitting} className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50">{agencySubmitting ? 'Odesílám…' : 'Odeslat žádost'}</button>
                   <button type="button" onClick={() => setAgencyFormOpen(false)} className="rounded-full border border-zinc-300 bg-white px-6 py-2.5 text-sm font-semibold text-zinc-800">Zrušit</button>
+                </div>
+              </form>
+            ) : null}
+            {advisorFormOpen ? (
+              <form className="mt-6 grid gap-3 sm:grid-cols-2" onSubmit={(e) => void onSubmitAdvisorRequest(e)}>
+                <input required value={advisorFullName} onChange={(e) => setAdvisorFullName(e.target.value)} placeholder="Jméno a příjmení" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input value={advisorBrandName} onChange={(e) => setAdvisorBrandName(e.target.value)} placeholder="Název značky / firmy (volitelné)" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input required value={advisorPhone} onChange={(e) => setAdvisorPhone(e.target.value)} placeholder="Telefon" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input required type="email" value={advisorEmail} onChange={(e) => setAdvisorEmail(e.target.value)} placeholder="E-mail" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input value={advisorWeb} onChange={(e) => setAdvisorWeb(e.target.value)} placeholder="Web (volitelné)" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input value={advisorIco} onChange={(e) => setAdvisorIco(e.target.value)} placeholder="IČO (volitelné)" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input required value={advisorCity} onChange={(e) => setAdvisorCity(e.target.value)} placeholder="Město / oblast působnosti" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm sm:col-span-2" />
+                <textarea required value={advisorBio} onChange={(e) => setAdvisorBio(e.target.value)} placeholder="Krátké bio" rows={3} className="rounded-xl border border-zinc-200 px-3 py-2 text-sm sm:col-span-2" />
+                <input required value={advisorSpecializations} onChange={(e) => setAdvisorSpecializations(e.target.value)} placeholder="Oblasti specializace (oddělit čárkou)" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm sm:col-span-2" />
+                <input value={advisorAvatarUrl} onChange={(e) => setAdvisorAvatarUrl(e.target.value)} placeholder="Profilová fotka URL (volitelné)" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input value={advisorLogoUrl} onChange={(e) => setAdvisorLogoUrl(e.target.value)} placeholder="Logo URL (volitelné)" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                {advisorFormError ? <p className="text-sm text-red-600 sm:col-span-2">{advisorFormError}</p> : null}
+                <div className="flex gap-2 sm:col-span-2">
+                  <button type="submit" disabled={advisorSubmitting} className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50">{advisorSubmitting ? 'Odesílám…' : 'Odeslat žádost'}</button>
+                  <button type="button" onClick={() => setAdvisorFormOpen(false)} className="rounded-full border border-zinc-300 bg-white px-6 py-2.5 text-sm font-semibold text-zinc-800">Zrušit</button>
+                </div>
+              </form>
+            ) : null}
+            {investorFormOpen ? (
+              <form className="mt-6 grid gap-3 sm:grid-cols-2" onSubmit={(e) => void onSubmitInvestorRequest(e)}>
+                <input required value={investorFullName} onChange={(e) => setInvestorFullName(e.target.value)} placeholder="Jméno a příjmení / název investora" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input value={investorName} onChange={(e) => setInvestorName(e.target.value)} placeholder="Název investora (volitelné)" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input required value={investorType} onChange={(e) => setInvestorType(e.target.value)} placeholder="Typ investora" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input required value={investorPhone} onChange={(e) => setInvestorPhone(e.target.value)} placeholder="Telefon" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input required type="email" value={investorEmail} onChange={(e) => setInvestorEmail(e.target.value)} placeholder="E-mail" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input value={investorWeb} onChange={(e) => setInvestorWeb(e.target.value)} placeholder="Web (volitelné)" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input required value={investorCity} onChange={(e) => setInvestorCity(e.target.value)} placeholder="Město / lokalita" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm sm:col-span-2" />
+                <textarea required value={investorBio} onChange={(e) => setInvestorBio(e.target.value)} placeholder="Bio" rows={3} className="rounded-xl border border-zinc-200 px-3 py-2 text-sm sm:col-span-2" />
+                <input required value={investorFocus} onChange={(e) => setInvestorFocus(e.target.value)} placeholder="Investiční zaměření (oddělit čárkou)" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm sm:col-span-2" />
+                <input value={investorAvatarUrl} onChange={(e) => setInvestorAvatarUrl(e.target.value)} placeholder="Profilová fotka URL (volitelné)" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                <input value={investorLogoUrl} onChange={(e) => setInvestorLogoUrl(e.target.value)} placeholder="Logo URL (volitelné)" className="rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+                {investorFormError ? <p className="text-sm text-red-600 sm:col-span-2">{investorFormError}</p> : null}
+                <div className="flex gap-2 sm:col-span-2">
+                  <button type="submit" disabled={investorSubmitting} className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50">{investorSubmitting ? 'Odesílám…' : 'Odeslat žádost'}</button>
+                  <button type="button" onClick={() => setInvestorFormOpen(false)} className="rounded-full border border-zinc-300 bg-white px-6 py-2.5 text-sm font-semibold text-zinc-800">Zrušit</button>
                 </div>
               </form>
             ) : null}
@@ -1999,7 +2176,7 @@ export default function ProfilPage() {
           </Link>
         </section>
 
-        {['AGENT', 'COMPANY', 'AGENCY'].includes(user.role) ? (
+        {['AGENT', 'COMPANY', 'AGENCY', 'FINANCIAL_ADVISOR', 'INVESTOR'].includes(user.role) ? (
           <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
             <h2 className="text-lg font-semibold text-zinc-900">Nastavení reklam</h2>
             {user.role === 'COMPANY' ? (

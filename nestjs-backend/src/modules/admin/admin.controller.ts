@@ -128,7 +128,8 @@ export class AdminController {
 
   @Get('professional-profiles/:type')
   listProfessionalProfiles(
-    @Param('type') type: 'agent' | 'company' | 'agency',
+    @Param('type')
+    type: 'agent' | 'company' | 'agency' | 'financial_advisor' | 'investor',
     @Query('status') status?: string,
   ) {
     return this.agentProfileService.adminListProfessional(type, status);
@@ -136,7 +137,8 @@ export class AdminController {
 
   @Post('professional-profiles/:type/:id/approve')
   approveProfessionalProfile(
-    @Param('type') type: 'agent' | 'company' | 'agency',
+    @Param('type')
+    type: 'agent' | 'company' | 'agency' | 'financial_advisor' | 'investor',
     @Param('id') id: string,
   ) {
     return this.agentProfileService.adminApproveProfessional(type, id);
@@ -144,7 +146,8 @@ export class AdminController {
 
   @Post('professional-profiles/:type/:id/reject')
   rejectProfessionalProfile(
-    @Param('type') type: 'agent' | 'company' | 'agency',
+    @Param('type')
+    type: 'agent' | 'company' | 'agency' | 'financial_advisor' | 'investor',
     @Param('id') id: string,
   ) {
     return this.agentProfileService.adminRejectProfessional(type, id);

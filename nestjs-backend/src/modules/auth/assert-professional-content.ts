@@ -6,6 +6,8 @@ const PROFESSIONAL_CONTENT_ROLES = new Set<UserRole>([
   UserRole.AGENT,
   UserRole.COMPANY,
   UserRole.AGENCY,
+  UserRole.FINANCIAL_ADVISOR,
+  UserRole.INVESTOR,
   UserRole.ADMIN,
 ]);
 
@@ -13,7 +15,7 @@ export function assertUserCanCreateProfessionalContent(user: AuthUser): void {
   const role = user.role as UserRole;
   if (!PROFESSIONAL_CONTENT_ROLES.has(role)) {
     throw new ForbiddenException(
-      'Příspěvky a profesionální inzerci mohou přidávat pouze makléři, stavební firmy a realitní kanceláře.',
+      'Příspěvky a profesionální inzerci mohou přidávat pouze profesionální role.',
     );
   }
 }
