@@ -21,6 +21,7 @@ import { BrokersModule } from './modules/brokers/brokers.module';
 import { AgentProfileModule } from './modules/agent-profile/agent-profile.module';
 import { CompanyAdsModule } from './modules/company-ads/company-ads.module';
 import { EmailsModule } from './modules/emails/emails.module';
+import { StoriesModule } from './modules/stories/stories.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { EmailsModule } from './modules/emails/emails.module';
     AgentProfileModule,
     CompanyAdsModule,
     EmailsModule,
+    StoriesModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

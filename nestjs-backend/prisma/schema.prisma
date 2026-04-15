@@ -39,6 +39,11 @@ enum ReactionType {
   DISLIKE
 }
 
+enum StoryType {
+  IMAGE
+  VIDEO
+}
+
 enum ShortsListingStatus {
   draft
   ready
@@ -147,8 +152,25 @@ model User {
   agencyProfile AgencyProfile?
   financialAdvisorProfile FinancialAdvisorProfile?
   investorProfile InvestorProfile?
+  stories Story[]
 
   shortsListings ShortsListing[] @relation("UserShortsListings")
+}
+
+model Story {
+  id           String    @id @default(cuid())
+  userId       String
+  type         StoryType
+  mediaUrl     String
+  thumbnailUrl String?
+  isPublic     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt, isPublic])
+  @@index([userId, createdAt])
 }
 
 model AgentProfile {

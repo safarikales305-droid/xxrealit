@@ -2276,14 +2276,60 @@ export type NestPublicBrokerCard = {
 
 /** GET /brokers/public */
 export async function nestListPublicBrokers(token: string | null): Promise<NestPublicBrokerCard[] | null> {
-  if (!API_BASE_URL || !token) return null;
+  if (!API_BASE_URL) return null;
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (token) Object.assign(headers, nestAuthHeaders(token));
   const res = await fetch(`${API_BASE_URL}/brokers/public`, {
     cache: 'no-store',
-    headers: { Accept: 'application/json', ...nestAuthHeaders(token) },
+    headers,
   });
   if (!res.ok) return null;
   const data = (await res.json()) as unknown;
   return Array.isArray(data) ? (data as NestPublicBrokerCard[]) : null;
+}
+
+export type NestStoryRow = {
+  id: string;
+  type: 'IMAGE' | 'VIDEO';
+  mediaUrl: string;
+  thumbnailUrl: string | null;
+  createdAt: string;
+  expiresAt: string;
+  user: {
+    id: string;
+    name: string | null;
+    avatar: string | null;
+    role: string;
+    brokerProfileSlug: string | null;
+  };
+};
+
+export async function nestListPublicStories(): Promise<NestStoryRow[] | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/stories/public`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json().catch(() => null)) as unknown;
+  return Array.isArray(data) ? (data as NestStoryRow[]) : null;
+}
+
+export async function nestCreateStory(
+  token: string | null,
+  file: File,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(`${API_BASE_URL}/stories`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    body: fd,
+  });
+  if (res.ok) return { ok: true };
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
 }
 
 export type NestBrokerPublicDetail = {

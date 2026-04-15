@@ -13,19 +13,20 @@ const lightCard =
   'border border-zinc-200/90 bg-white shadow-[0_2px_16px_-4px_rgba(0,0,0,0.08),0_8px_24px_-12px_rgba(0,0,0,0.06)]';
 
 export function RightSidebar({ className = '' }: Props) {
-  const { isAuthenticated, isLoading, apiAccessToken } = useAuth();
+  const { isLoading, apiAccessToken } = useAuth();
   const [professionals, setProfessionals] = useState<NestPublicBrokerCard[]>([]);
+  const [loadingProfessionals, setLoadingProfessionals] = useState(false);
 
   useEffect(() => {
     let active = true;
-    if (!isAuthenticated || !apiAccessToken) {
-      setProfessionals([]);
-      return () => {
-        active = false;
-      };
-    }
+    setLoadingProfessionals(true);
     void nestListPublicBrokers(apiAccessToken).then((rows) => {
-      if (!active || !Array.isArray(rows)) return;
+      if (!active) return;
+      if (!Array.isArray(rows)) {
+        setProfessionals([]);
+        setLoadingProfessionals(false);
+        return;
+      }
       const ranked = [...rows].sort((a, b) => {
         const aScore =
           (a.isVerified ? 1_000 : 0) +
@@ -40,11 +41,12 @@ export function RightSidebar({ className = '' }: Props) {
         return bScore - aScore;
       });
       setProfessionals(ranked);
+      setLoadingProfessionals(false);
     });
     return () => {
       active = false;
     };
-  }, [apiAccessToken, isAuthenticated]);
+  }, [apiAccessToken]);
 
   const preview = useMemo(() => professionals.slice(0, 3), [professionals]);
   const placeholderCount = Math.max(0, 3 - preview.length);
@@ -55,13 +57,13 @@ export function RightSidebar({ className = '' }: Props) {
     if (role === 'FINANCIAL_ADVISOR') return 'Ověřený finanční poradce';
     return 'Ověřený investor';
   };
-  const profileHref = (p: NestPublicBrokerCard) => (p.slug ? `/makleri/${p.slug}` : `/profil/${p.id}`);
+  const profileHref = (p: NestPublicBrokerCard) => (p.slug ? `/makler/${p.slug}` : `/profil/${p.id}`);
 
   return (
     <aside
       className={`flex flex-col gap-6 rounded-2xl p-6 ${lightCard} ${className}`}
     >
-      {!isLoading && isAuthenticated ? (
+      {!isLoading ? (
         <div className="rounded-2xl border border-zinc-100 bg-zinc-50 p-5">
           <h2 className="text-[15px] font-semibold tracking-tight text-zinc-900">Profesionálové</h2>
           <p className="mt-1.5 text-[13px] leading-relaxed text-zinc-500">
@@ -98,9 +100,10 @@ export function RightSidebar({ className = '' }: Props) {
                 ) : null}
               </Link>
             ))}
-            {Array.from({ length: placeholderCount }).map((_, idx) => (
+            {loadingProfessionals
+              ? Array.from({ length: 3 }).map((_, idx) => (
               <div
-                key={`placeholder-${idx}`}
+                key={`loading-${idx}`}
                 className="flex items-center gap-3 rounded-xl border border-dashed border-zinc-200 bg-white p-2.5"
               >
                 <div className="h-11 w-11 rounded-full bg-zinc-100" />
@@ -109,7 +112,27 @@ export function RightSidebar({ className = '' }: Props) {
                   <div className="mt-1.5 h-3 w-24 rounded bg-zinc-100" />
                 </div>
               </div>
-            ))}
+                ))
+              : null}
+            {!loadingProfessionals && preview.length === 0 ? (
+              <div className="rounded-xl border border-zinc-200 bg-white p-3 text-xs text-zinc-600">
+                Zatím nejsou dostupné veřejné profesionální profily.
+              </div>
+            ) : null}
+            {!loadingProfessionals &&
+              preview.length > 0 &&
+              Array.from({ length: placeholderCount }).map((_, idx) => (
+                <div
+                  key={`placeholder-${idx}`}
+                  className="flex items-center gap-3 rounded-xl border border-dashed border-zinc-200 bg-white p-2.5"
+                >
+                  <div className="h-11 w-11 rounded-full bg-zinc-100" />
+                  <div className="flex-1">
+                    <div className="h-3.5 w-32 rounded bg-zinc-100" />
+                    <div className="mt-1.5 h-3 w-24 rounded bg-zinc-100" />
+                  </div>
+                </div>
+              ))}
           </div>
           <Link
             href="/makleri"

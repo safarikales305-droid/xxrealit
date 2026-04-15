@@ -28,6 +28,7 @@ model User {
   Property                        Property[]
   PropertyComment                 PropertyComment[]
   PropertyLike                    PropertyLike[]
+  Story                           Story[]
 }
 
 model Follow {
@@ -90,4 +91,24 @@ enum UserRole {
   DEVELOPER
   PRIVATE_SELLER
   ADMIN
+}
+
+enum StoryType {
+  IMAGE
+  VIDEO
+}
+
+model Story {
+  id           String    @id @default(cuid())
+  userId       String
+  type         StoryType
+  mediaUrl     String
+  thumbnailUrl String?
+  isPublic     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime
+  User         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt, isPublic])
+  @@index([userId, createdAt])
 }

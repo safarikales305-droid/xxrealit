@@ -27,6 +27,7 @@ import {
   nestListMyCompanyAds,
   nestPatchMyProperty,
   nestPatchProfileBio,
+  nestCreateStory,
   nestSubmitAgentProfileRequest,
   nestSubmitAgencyProfileRequest,
   nestSubmitCompanyProfileRequest,
@@ -220,11 +221,26 @@ export default function ProfilPage() {
   const previousCoverCropRef = useRef<ImageCrop | null>(null);
   const uctNavHandledRef = useRef(false);
   const [professionalListingDialogOpen, setProfessionalListingDialogOpen] = useState(false);
+  const [storyUploading, setStoryUploading] = useState(false);
+  const [storyError, setStoryError] = useState<string | null>(null);
 
   const showSuccess = useCallback((msg: string) => {
     setSuccessMsg(msg);
     window.setTimeout(() => setSuccessMsg(null), 4000);
   }, []);
+
+  async function onCreateStory(file: File) {
+    if (!apiAccessToken) return;
+    setStoryError(null);
+    setStoryUploading(true);
+    const res = await nestCreateStory(apiAccessToken, file);
+    setStoryUploading(false);
+    if (!res.ok) {
+      setStoryError(res.error ?? 'Přidání příběhu selhalo.');
+      return;
+    }
+    showSuccess('Příběh byl publikován na 24 hodin.');
+  }
 
   const loadNestProfile = useCallback(async () => {
     const me = await nestFetchMe(apiAccessToken);
@@ -2225,6 +2241,33 @@ export default function ProfilPage() {
             Otevřít schránku
           </Link>
         </section>
+
+        {['AGENT', 'COMPANY', 'AGENCY', 'FINANCIAL_ADVISOR', 'INVESTOR'].includes(user.role) ? (
+          <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <h2 className="text-lg font-semibold text-zinc-900">Příběhy</h2>
+            <p className="mt-2 text-sm text-zinc-600">
+              Nahrajte obrázek nebo video. Příběh je veřejný a po 24 hodinách automaticky zmizí.
+            </p>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <label className="inline-flex cursor-pointer rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2.5 text-sm font-semibold text-white">
+                {storyUploading ? 'Nahrávám…' : 'Přidat příběh'}
+                <input
+                  type="file"
+                  accept="image/*,video/*"
+                  className="sr-only"
+                  disabled={storyUploading}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    void onCreateStory(f);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
+            {storyError ? <p className="mt-3 text-sm text-red-600">{storyError}</p> : null}
+          </section>
+        ) : null}
 
         {['AGENT', 'COMPANY', 'AGENCY', 'FINANCIAL_ADVISOR', 'INVESTOR'].includes(user.role) ? (
           <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">

@@ -12,9 +12,11 @@ import {
   nestAddPostComment,
   nestFetchCommunityPosts,
   nestFetchPostComments,
+  nestListPublicStories,
   nestFetchShortVideoPublic,
   nestSetPostReaction,
   type ListingPost,
+  type NestStoryRow,
   type PostComment,
   type ShortVideo,
 } from '@/lib/nest-client';
@@ -190,22 +192,15 @@ export function HomeLayout({
   const [commentInputByPostId, setCommentInputByPostId] = useState<Record<string, string>>({});
   const [commentsOpenByPostId, setCommentsOpenByPostId] = useState<Record<string, boolean>>({});
   const [mutedByPostId, setMutedByPostId] = useState<Record<string, boolean>>({});
+  const [stories, setStories] = useState<NestStoryRow[]>([]);
+  const [storiesLoading, setStoriesLoading] = useState(false);
+  const [storyViewerOpen, setStoryViewerOpen] = useState(false);
+  const [storyViewerIndex, setStoryViewerIndex] = useState(0);
   const activeCategoryLabel =
     COMMUNITY_CATEGORIES.find((x) => x.key === activeCategory)?.label ?? 'Makléři';
 
-  const storyPosts = useMemo(
-    () =>
-      postFeed.filter((p) => {
-        const media = Array.isArray((p as { media?: unknown[] }).media)
-          ? ((p as { media?: Array<{ type?: string; url?: string }> }).media ?? [])
-          : [];
-        const hasVideo = media.some((m) => m?.type === 'video' && (m.url ?? '').trim().length > 0);
-        if (!hasVideo) return false;
-        const t = String(p.type ?? '');
-        return t === 'short';
-      }),
-    [postFeed],
-  );
+  const storyCards = useMemo(() => stories.slice(0, 20), [stories]);
+  const activeStory = storyCards[storyViewerIndex] ?? null;
 
   async function refreshPostsFeed() {
     if (!API_BASE_URL) return;
@@ -517,6 +512,22 @@ export function HomeLayout({
   }, [sharedVideoId, videoFeed]);
 
   useEffect(() => {
+    let cancelled = false;
+    setStoriesLoading(true);
+    void nestListPublicStories()
+      .then((rows) => {
+        if (cancelled) return;
+        setStories(Array.isArray(rows) ? rows : []);
+      })
+      .finally(() => {
+        if (!cancelled) setStoriesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (viewMode !== 'posts') {
       setPostsCategoryOpen(false);
     }
@@ -746,7 +757,7 @@ export function HomeLayout({
                 )
               ) : viewMode === 'posts' ? (
                 <div className="w-full min-w-0 overflow-x-hidden pb-8 pt-3">
-                  <div className="mx-auto w-full max-w-7xl px-4 py-4">
+                  <div className="mx-auto w-full max-w-7xl px-1 py-3 sm:px-3 md:px-4">
                     <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
                       <aside className="hidden xl:col-span-3 xl:block">
                         <div className="space-y-4 lg:sticky lg:top-20">
@@ -867,40 +878,43 @@ export function HomeLayout({
                           </div>
                         ) : null}
 
-                        {storyPosts.length > 0 ? (
+                        {storiesLoading || storyCards.length > 0 ? (
                           <div className="mt-4 w-full">
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                         Příběhy
                       </p>
                       <div className="no-scrollbar flex gap-3 overflow-x-auto pb-2">
-                        {storyPosts.map((p) => {
-                          const media = ((p as ListingPost).media ?? []).sort(
-                            (a, b) => a.order - b.order,
-                          );
-                          const firstVideo = media.find((m) => m.type === 'video');
-                          const src = nestAbsoluteAssetUrl(firstVideo?.url ?? '');
-                          if (!src) return null;
-                          return (
-                            <button
-                              key={String(p.id)}
-                              type="button"
-                              onClick={() =>
-                                router.push(
-                                  `/?tab=shorts&video=${encodeURIComponent(String(p.id))}`,
-                                )
-                              }
-                              className="flex h-[120px] min-w-[70px] shrink-0 overflow-hidden rounded-xl ring-2 ring-orange-500/25 ring-offset-2 transition hover:ring-orange-500/60"
-                            >
-                              <video
-                                muted
-                                playsInline
-                                preload="metadata"
-                                className="pointer-events-none h-full w-full object-cover"
-                                src={src}
-                              />
-                            </button>
-                          );
-                        })}
+                        {storiesLoading
+                          ? Array.from({ length: 6 }).map((_, idx) => (
+                              <div key={`story-skel-${idx}`} className="h-[120px] min-w-[70px] rounded-xl bg-zinc-100" />
+                            ))
+                          : storyCards.map((s, idx) => (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onClick={() => {
+                                  setStoryViewerIndex(idx);
+                                  setStoryViewerOpen(true);
+                                }}
+                                className="flex h-[120px] min-w-[70px] shrink-0 overflow-hidden rounded-xl ring-2 ring-orange-500/25 ring-offset-2 transition hover:ring-orange-500/60"
+                              >
+                                {s.type === 'VIDEO' ? (
+                                  <video
+                                    muted
+                                    playsInline
+                                    preload="metadata"
+                                    className="pointer-events-none h-full w-full object-cover"
+                                    src={nestAbsoluteAssetUrl(s.mediaUrl)}
+                                  />
+                                ) : (
+                                  <img
+                                    src={nestAbsoluteAssetUrl(s.mediaUrl)}
+                                    alt={s.user.name ?? 'Příběh'}
+                                    className="pointer-events-none h-full w-full object-cover"
+                                  />
+                                )}
+                              </button>
+                            ))}
                       </div>
                           </div>
                         ) : null}
@@ -981,7 +995,7 @@ export function HomeLayout({
                   </div>
                 </div>
               ) : (
-                <div className="mx-auto w-full max-w-xl px-3 pb-8 pt-1">
+                <div className="mx-auto w-full max-w-xl px-1 pb-8 pt-1 md:px-3">
                 <PropertyGrid properties={filteredItems} />
                 </div>
               )}
@@ -992,6 +1006,55 @@ export function HomeLayout({
           <RightSidebar className="mt-4 mb-4 w-full max-w-full flex-col" />
         </div>
       </div>
+
+      {storyViewerOpen && activeStory ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/85 p-2 sm:p-6">
+          <button
+            type="button"
+            onClick={() => setStoryViewerOpen(false)}
+            className="absolute right-3 top-3 rounded-full bg-white/15 px-3 py-1 text-sm font-semibold text-white"
+          >
+            Zavřít
+          </button>
+          <button
+            type="button"
+            onClick={() => setStoryViewerIndex((prev) => (prev > 0 ? prev - 1 : storyCards.length - 1))}
+            className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-white/15 px-3 py-2 text-white"
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            onClick={() => setStoryViewerIndex((prev) => (prev + 1) % storyCards.length)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-white/15 px-3 py-2 text-white"
+          >
+            ›
+          </button>
+          <div className="mx-auto w-full max-w-md overflow-hidden rounded-2xl border border-white/15 bg-black">
+            <div className="flex items-center justify-between px-3 py-2 text-xs text-white/80">
+              <span>{activeStory.user.name ?? 'Profesionál'}</span>
+              <span>
+                {Math.max(0, Math.ceil((new Date(activeStory.expiresAt).getTime() - Date.now()) / 3600000))}h
+              </span>
+            </div>
+            {activeStory.type === 'VIDEO' ? (
+              <video
+                src={nestAbsoluteAssetUrl(activeStory.mediaUrl)}
+                controls
+                autoPlay
+                playsInline
+                className="h-[75vh] w-full object-contain"
+              />
+            ) : (
+              <img
+                src={nestAbsoluteAssetUrl(activeStory.mediaUrl)}
+                alt={activeStory.user.name ?? 'Příběh'}
+                className="h-[75vh] w-full object-contain"
+              />
+            )}
+          </div>
+        </div>
+      ) : null}
 
     </div>
   );

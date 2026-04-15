@@ -33,7 +33,7 @@ export function Navbar({
   activePostsCategoryLabel,
 }: NavbarProps) {
   const router = useRouter();
-  const { user, isAuthenticated, isLoading, logout, refresh, apiAccessToken } = useAuth();
+  const { user, isAuthenticated, isLoading, logout, apiAccessToken } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const unreadMessages = useMessagesUnreadCount(apiAccessToken);
 
@@ -57,15 +57,6 @@ export function Navbar({
   function handleLogout() {
     setMenuOpen(false);
     logout();
-  }
-
-  function goHome() {
-    void (async () => {
-      await refresh();
-      router.push('/');
-      router.refresh();
-      setMenuOpen(false);
-    })();
   }
 
   function handleAddListingClick(e?: MouseEvent<HTMLElement>) {
@@ -300,13 +291,6 @@ export function Navbar({
                 >
                   {user.name?.trim() || 'Uživatel'}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => void goHome()}
-                  className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
-                >
-                  Prohlížet nemovitosti
-                </button>
                 <Link
                   href={profilePath}
                   className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
@@ -432,9 +416,6 @@ export function Navbar({
                 <p className="truncate text-xs font-medium text-zinc-500">
                   {user.name?.trim() || 'Uživatel'}
                 </p>
-                <button type="button" onClick={() => void goHome()} className={navBtn}>
-                  Prohlížet nemovitosti
-                </button>
                 <Link href={profilePath} className={navBtn} onClick={() => setMenuOpen(false)}>
                   Můj profil
                 </Link>

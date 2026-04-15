@@ -98,7 +98,7 @@ export function CommunityPostCard({
   }
 
   return (
-    <article className="relative w-full overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+    <article className="relative w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:rounded-3xl">
       {isOwner && !interactionsLocked ? (
         <div className="absolute right-3 top-3 z-10 flex gap-1.5">
           <button
