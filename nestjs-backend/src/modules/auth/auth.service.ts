@@ -154,9 +154,7 @@ export class AuthService {
   ) {}
 
   private resendFromAddress(): string {
-    const configured = process.env.RESEND_FROM_EMAIL?.trim();
-    if (configured) return configured;
-    return 'xxrealit <noreply@mail.xxrealit.cz>';
+    return 'xxrealit <reset@mail.xxrealit.cz>';
   }
 
   private resendErrorMessage(error: unknown): string {
@@ -246,18 +244,11 @@ export class AuthService {
         return generic;
       }
 
-      const apiKey = process.env.RESEND_API_KEY?.trim();
       const from = this.resendFromAddress();
+      const hasApiKey = Boolean(process.env.RESEND_API_KEY?.trim());
       this.logger.log(
-        `Resend config check: apiKeyPresent=${Boolean(apiKey)} from=${from}`,
+        `Resend config check: apiKeyPresent=${hasApiKey} from=${from}`,
       );
-      if (!apiKey) {
-        this.logger.error('Password reset email skipped: RESEND_API_KEY is missing.');
-        return {
-          success: false,
-          error: 'E-mailová služba není nakonfigurovaná. Kontaktujte podporu.',
-        };
-      }
 
       const token = randomBytes(32).toString('hex');
       const resetExpires = new Date(Date.now() + 60 * 60 * 1000);
@@ -267,26 +258,28 @@ export class AuthService {
       const url = `${this.appOrigin()}/reset-hesla?token=${encodeURIComponent(token)}`;
       this.logger.log(`Reset URL prepared for userId=${user.id}`);
 
-      const resend = new Resend(apiKey);
+      if (!process.env.RESEND_API_KEY?.trim()) {
+        throw new Error('Missing RESEND_API_KEY');
+      }
+      const resend = new Resend(process.env.RESEND_API_KEY);
 
-      const response = await resend.emails.send({
-        from,
-        to: email,
-        subject: 'xxrealit - obnova hesla',
-        html: `
-          <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-            <h2>Obnova hesla</h2>
-            <p>Obdrželi jsme žádost o obnovení hesla pro váš účet.</p>
-            <p>
-              Klikněte na tento odkaz:
-              <a href="${url}">${url}</a>
-            </p>
-            <p>Platnost odkazu je 60 minut.</p>
-            <p>Pokud jste o změnu hesla nežádali, tento e-mail ignorujte.</p>
-          </div>
-        `,
-        text: `Obnova hesla\n\nOtevřete odkaz: ${url}\n\nPlatnost odkazu je 60 minut.`,
-      });
+      let response: Awaited<ReturnType<typeof resend.emails.send>>;
+      try {
+        response = await resend.emails.send({
+          from: 'xxrealit <reset@mail.xxrealit.cz>',
+          to: user.email,
+          subject: 'Obnova hesla',
+          html: `     <p>Klikni na odkaz pro obnovu hesla:</p>     <a href="${url}">${url}</a>  `,
+          text: `Klikni na odkaz pro obnovu hesla: ${url}`,
+        });
+        console.log('EMAIL SENT:', response);
+      } catch (err: unknown) {
+        console.error('RESEND ERROR:', err);
+        return {
+          success: false,
+          error: `E-mail se nepodařilo odeslat (${this.resendErrorMessage(err)}).`,
+        };
+      }
 
       this.logger.log(
         `Resend send result: id=${response.data?.id ?? 'n/a'} error=${Boolean(response.error)}`,
