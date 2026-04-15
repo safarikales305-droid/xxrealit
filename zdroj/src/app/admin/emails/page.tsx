@@ -69,32 +69,6 @@ export default function AdminEmailsPage() {
           </p>
         ) : null}
 
-        <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <h2 className="text-lg font-semibold text-zinc-900">Přehled / log e-mailů</h2>
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-[900px] text-sm">
-              <thead>
-                <tr className="text-left text-zinc-500">
-                  <th>ID</th><th>Typ</th><th>Příjemce</th><th>Předmět</th><th>Stav</th><th>Šablona</th><th>Čas</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map((log) => (
-                  <tr key={log.id} className="border-t border-zinc-100">
-                    <td className="py-2 font-mono text-xs">{log.id.slice(0, 10)}...</td>
-                    <td>{log.type}</td>
-                    <td>{log.recipientEmail}</td>
-                    <td>{log.subject}</td>
-                    <td>{log.status}</td>
-                    <td>{log.templateKey ?? '—'}</td>
-                    <td>{new Date(log.createdAt).toLocaleString('cs-CZ')}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
         <section className="grid gap-6 lg:grid-cols-2">
           <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
             <h2 className="text-lg font-semibold text-zinc-900">Šablony e-mailů</h2>
@@ -248,6 +222,32 @@ export default function AdminEmailsPage() {
                 </div>
               ))}
             </div>
+          </div>
+        </section>
+
+        <section className="mt-8 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+          <h2 className="text-lg font-semibold text-zinc-900">Historie odeslaných emailů</h2>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[900px] text-sm">
+              <thead>
+                <tr className="text-left text-zinc-500">
+                  <th>ID</th><th>Typ</th><th>Příjemce</th><th>Předmět</th><th>Stav</th><th>Šablona</th><th>Čas</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map((log) => (
+                  <tr key={log.id} className="border-t border-zinc-100">
+                    <td className="py-2 font-mono text-xs">{log.id.slice(0, 10)}...</td>
+                    <td>{log.type}</td>
+                    <td>{log.recipientEmail}</td>
+                    <td>{log.subject}</td>
+                    <td>{log.status}</td>
+                    <td>{log.templateKey ?? '—'}</td>
+                    <td>{new Date(log.createdAt).toLocaleString('cs-CZ')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </section>
       </div>
