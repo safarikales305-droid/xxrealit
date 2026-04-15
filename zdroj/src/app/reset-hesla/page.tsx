@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
+import { API_BASE_URL } from '@/lib/api';
 
 const inputClass =
   'w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-[#ff6a00]/70 focus:ring-2 focus:ring-[#ff6a00]/15';
@@ -20,14 +21,24 @@ function ResetHeslaInner() {
   const [loading, setLoading] = useState(false);
 
   async function requestReset(e: React.FormEvent) {
+    console.log('SUBMIT');
     e.preventDefault();
     setError(null);
     setMessage(null);
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/reset-request', {
+      const resetRequestUrl = API_BASE_URL
+        ? `${API_BASE_URL}/auth/reset-request`
+        : '/api/auth/reset-request';
+      console.log('SENDING REQUEST', {
+        url: resetRequestUrl,
+        method: 'POST',
+        email: email.trim(),
+      });
+      const res = await fetch(resetRequestUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email: email.trim() }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -47,7 +58,8 @@ function ResetHeslaInner() {
         return;
       }
       setMessage(data.message ?? 'Zkontrolujte e-mail.');
-    } catch {
+    } catch (err) {
+      console.error('RESET REQUEST ERROR', err);
       setError('Nelze se spojit se serverem');
     } finally {
       setLoading(false);
@@ -169,6 +181,7 @@ function ResetHeslaInner() {
           <button
             type="submit"
             disabled={loading}
+            onClick={() => console.log('CLICK')}
             className="w-full rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-3.5 text-sm font-semibold text-white shadow-md disabled:opacity-60"
           >
             {loading ? 'Odesílám…' : 'Odeslat odkaz'}
