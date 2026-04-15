@@ -56,6 +56,33 @@ export class AuthController {
     return this.authService.resetPassword(email);
   }
 
+  @Post('reset-password')
+  async resetPassword(
+    @Body()
+    body: {
+      token?: string;
+      password?: string;
+      confirmPassword?: string;
+      newPassword?: string;
+      passwordConfirmation?: string;
+    },
+  ) {
+    console.log(
+      `[AUTH] reset-password received tokenPresent=${Boolean(body?.token)} hasPassword=${Boolean(body?.password || body?.newPassword)} hasConfirmation=${Boolean(body?.confirmPassword || body?.passwordConfirmation)}`,
+    );
+    const result = await this.authService.completeResetPassword({
+      token: body?.token,
+      password: body?.password ?? body?.newPassword,
+      confirmPassword: body?.confirmPassword ?? body?.passwordConfirmation,
+    });
+    if (!result.success) {
+      console.warn(`[AUTH] reset-password failed: ${result.error ?? 'unknown error'}`);
+    } else {
+      console.log('[AUTH] reset-password completed successfully.');
+    }
+    return result;
+  }
+
   @Options('reset-request')
   @HttpCode(204)
   resetRequestOptions() {

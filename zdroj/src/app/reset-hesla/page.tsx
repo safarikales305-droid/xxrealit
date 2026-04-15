@@ -73,23 +73,36 @@ function ResetHeslaInner() {
     setMessage(null);
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/reset-password', {
+      const resetPasswordUrl = API_BASE_URL
+        ? `${API_BASE_URL}/auth/reset-password`
+        : '/api/auth/reset-password';
+      console.log('SENDING RESET PASSWORD REQUEST', {
+        url: resetPasswordUrl,
+        tokenPresent: Boolean(tokenFromUrl),
+      });
+      const res = await fetch(resetPasswordUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           token: tokenFromUrl,
           password,
           confirmPassword,
         }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        setError(data.error || 'Obnova hesla selhala');
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        success?: boolean;
+        message?: string;
+      };
+      if (!res.ok || data.success === false) {
+        setError(data.error || data.message || 'Obnova hesla selhala');
         return;
       }
-      setMessage('Heslo bylo změněno. Můžete se přihlásit.');
+      setMessage(data.message || 'Heslo bylo změněno. Můžete se přihlásit.');
       setTimeout(() => router.push('/login'), 1500);
-    } catch {
+    } catch (err) {
+      console.error('RESET PASSWORD REQUEST ERROR', err);
       setError('Nelze se spojit se serverem');
     } finally {
       setLoading(false);

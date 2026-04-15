@@ -142,6 +142,12 @@ export type ResendTestResult = {
   id?: string;
 };
 
+export type CompleteResetPasswordResult = {
+  success: boolean;
+  message?: string;
+  error?: string;
+};
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -386,6 +392,87 @@ export class AuthService {
         success: false,
         error: `E-mail se nepodařilo odeslat (${this.resendErrorMessage(error)}).`,
       };
+    }
+  }
+
+  async completeResetPassword(input: {
+    token?: string;
+    password?: string;
+    confirmPassword?: string;
+  }): Promise<CompleteResetPasswordResult> {
+    try {
+      const token = String(input.token ?? '').trim();
+      const password = String(input.password ?? '');
+      const confirmPassword = String(input.confirmPassword ?? '');
+      this.logger.log(
+        `[reset-password] request received tokenPresent=${Boolean(token)} passwordLen=${password.length} confirmLen=${confirmPassword.length}`,
+      );
+
+      if (!token) {
+        this.logger.warn('[reset-password] missing token');
+        return { success: false, error: 'Token je povinný.' };
+      }
+      if (password.length < 6) {
+        this.logger.warn('[reset-password] password too short');
+        return { success: false, error: 'Heslo musí mít alespoň 6 znaků.' };
+      }
+      if (password !== confirmPassword) {
+        this.logger.warn('[reset-password] password mismatch');
+        return { success: false, error: 'Hesla se neshodují.' };
+      }
+
+      const tokenHash = require('node:crypto').createHash('sha256').update(token, 'utf8').digest('hex');
+      const now = new Date();
+      const user = await this.prisma.user.findFirst({
+        where: {
+          OR: [{ resetToken: token }, { resetToken: tokenHash }],
+          resetExpires: { gt: now },
+        },
+        select: { id: true, email: true, resetExpires: true },
+      });
+
+      if (!user) {
+        const tokenExists = await this.prisma.user.findFirst({
+          where: { OR: [{ resetToken: token }, { resetToken: tokenHash }] },
+          select: { id: true, resetExpires: true },
+        });
+        if (!tokenExists) {
+          this.logger.warn('[reset-password] token invalid (not found)');
+          return { success: false, error: 'Neplatný reset odkaz.' };
+        }
+        this.logger.warn(
+          `[reset-password] token expired userId=${tokenExists.id} expiresAt=${tokenExists.resetExpires?.toISOString() ?? 'null'}`,
+        );
+        return { success: false, error: 'Reset odkaz vypršel. Požádejte o nový.' };
+      }
+
+      this.logger.log(
+        `[reset-password] user matched userId=${user.id} expiresAt=${user.resetExpires?.toISOString() ?? 'null'}`,
+      );
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+      this.logger.log('[reset-password] password hash completed');
+
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          password: hashedPassword,
+          resetToken: null,
+          resetExpires: null,
+        },
+      });
+      this.logger.log(`[reset-password] user updated and token invalidated userId=${user.id}`);
+
+      return { success: true, message: 'Heslo bylo úspěšně změněno.' };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      const name = error instanceof Error ? error.name : 'UnknownError';
+      const stack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(
+        `[reset-password] unexpected failure name=${name} message=${message}`,
+        stack,
+      );
+      return { success: false, error: 'Obnova hesla selhala kvůli chybě serveru.' };
     }
   }
 
