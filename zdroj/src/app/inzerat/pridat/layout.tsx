@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { SellerPortalShell } from '@/components/rental/SellerPortalShell';
 
 export default function InzeratPridatLayout({ children }: { children: ReactNode }) {
-  return <SellerPortalShell>{children}</SellerPortalShell>;
+  // Listing create flow is for logged-in users across roles; do not gate by private-seller portal.
+  return <>{children}</>;
 }
