@@ -953,13 +953,7 @@ export function HomeLayout({
 
                       <aside className="hidden xl:block xl:col-span-3">
                         <div className="space-y-4 xl:sticky xl:top-20">
-                          <div className="w-full rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                            <p className="text-sm font-semibold text-zinc-800">Tip</p>
-                            <p className="mt-2 text-sm text-zinc-600">
-                              Přidávejte krátké, užitečné příspěvky. Největší dosah mají posty s fotkou nebo
-                              videem.
-                            </p>
-                          </div>
+                          <RightSidebar className="w-full max-w-full flex-col" />
                         </div>
                       </aside>
                     </div>

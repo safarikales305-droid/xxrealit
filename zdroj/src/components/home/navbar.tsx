@@ -288,14 +288,6 @@ export function Navbar({
           ) : null}
 
           <div className="hidden shrink-0 items-center gap-2 md:flex">
-            {!isLoading && isAuthenticated ? (
-              <Link
-                href="/makleri"
-                className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
-              >
-                Makléři
-              </Link>
-            ) : null}
             {isLoading ? (
               <span className="px-2 text-xs text-zinc-400" aria-hidden>
                 …

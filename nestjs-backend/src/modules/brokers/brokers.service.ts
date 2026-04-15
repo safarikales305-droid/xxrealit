@@ -70,21 +70,40 @@ export class BrokersService {
   async listPublicDirectory() {
     const rows = await this.prisma.user.findMany({
       where: {
-        role: {
-          in: [
-            UserRole.AGENT,
-            UserRole.COMPANY,
-            UserRole.AGENCY,
-            UserRole.FINANCIAL_ADVISOR,
-            UserRole.INVESTOR,
-          ],
-        },
-        isPublicBrokerProfile: true,
-        brokerProfileSlug: { not: null },
+        OR: [
+          {
+            role: UserRole.AGENT,
+            isPublicBrokerProfile: true,
+            brokerProfileSlug: { not: null },
+            agentProfile: { is: { isPublic: true } },
+          },
+          {
+            role: UserRole.COMPANY,
+            companyProfile: { is: { isPublic: true } },
+          },
+          {
+            role: UserRole.AGENCY,
+            agencyProfile: { is: { isPublic: true } },
+          },
+          {
+            role: UserRole.FINANCIAL_ADVISOR,
+            financialAdvisorProfile: { is: { isPublic: true } },
+          },
+          {
+            role: UserRole.INVESTOR,
+            investorProfile: { is: { isPublic: true } },
+          },
+        ],
       },
-      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      orderBy: [
+        { isPublicBrokerProfile: 'desc' },
+        { brokerReviewCount: 'desc' },
+        { name: 'asc' },
+        { id: 'asc' },
+      ],
       select: {
         id: true,
+        role: true,
         name: true,
         avatar: true,
         bio: true,
@@ -94,10 +113,18 @@ export class BrokersService {
         brokerReviewAverage: true,
         brokerReviewCount: true,
         allowBrokerReviews: true,
+        agentProfile: { select: { verificationStatus: true } },
+        companyProfile: { select: { verificationStatus: true } },
+        agencyProfile: { select: { verificationStatus: true } },
+        financialAdvisorProfile: { select: { verificationStatus: true } },
+        investorProfile: { select: { verificationStatus: true } },
       },
+      take: 12,
     });
     return rows.map((b) => ({
-      slug: b.brokerProfileSlug as string,
+      id: b.id,
+      slug: b.brokerProfileSlug,
+      role: b.role,
       name: b.name,
       avatarUrl: b.avatar,
       officeName: b.brokerOfficeName,
@@ -105,6 +132,16 @@ export class BrokersService {
       bioExcerpt: (b.bio ?? '').trim().slice(0, 160),
       ratingAverage: b.allowBrokerReviews ? b.brokerReviewAverage : null,
       ratingCount: b.allowBrokerReviews ? b.brokerReviewCount : null,
+      isVerified:
+        b.role === UserRole.AGENT
+          ? b.agentProfile?.verificationStatus === 'verified'
+          : b.role === UserRole.COMPANY
+            ? b.companyProfile?.verificationStatus === 'verified'
+            : b.role === UserRole.AGENCY
+              ? b.agencyProfile?.verificationStatus === 'verified'
+              : b.role === UserRole.FINANCIAL_ADVISOR
+                ? b.financialAdvisorProfile?.verificationStatus === 'verified'
+                : b.investorProfile?.verificationStatus === 'verified',
     }));
   }
 

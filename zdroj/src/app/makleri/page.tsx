@@ -72,10 +72,11 @@ export default function MakleriPage() {
                     ? b.avatarUrl
                     : nestAbsoluteAssetUrl(b.avatarUrl) || b.avatarUrl
                   : null;
+              const profileHref = b.slug ? `/makler/${encodeURIComponent(b.slug)}` : `/profil/${b.id}`;
               return (
-                <li key={b.slug}>
+                <li key={b.id}>
                   <Link
-                    href={`/makler/${encodeURIComponent(b.slug)}`}
+                    href={profileHref}
                     className="flex gap-4 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md"
                   >
                     <div className="size-16 shrink-0 overflow-hidden rounded-full bg-zinc-100">

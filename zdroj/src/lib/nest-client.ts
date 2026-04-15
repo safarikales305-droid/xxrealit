@@ -2256,7 +2256,9 @@ export async function nestListMyCompanyAds(
 }
 
 export type NestPublicBrokerCard = {
-  slug: string;
+  id: string;
+  slug: string | null;
+  role: 'AGENT' | 'COMPANY' | 'AGENCY' | 'FINANCIAL_ADVISOR' | 'INVESTOR';
   name: string | null;
   avatarUrl: string | null;
   officeName: string;
@@ -2264,6 +2266,7 @@ export type NestPublicBrokerCard = {
   bioExcerpt: string;
   ratingAverage: number | null;
   ratingCount: number | null;
+  isVerified: boolean;
 };
 
 /** GET /brokers/public */
