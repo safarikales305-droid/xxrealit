@@ -26,8 +26,19 @@ export class CreateListingPostDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(['MAKLERI', 'STAVEBNI_FIRMY', 'REALITNI_KANCELARE'])
-  category?: 'MAKLERI' | 'STAVEBNI_FIRMY' | 'REALITNI_KANCELARE';
+  @IsIn([
+    'MAKLERI',
+    'STAVEBNI_FIRMY',
+    'REALITNI_KANCELARE',
+    'FINANCNI_PORADCI',
+    'INVESTORI',
+  ])
+  category?:
+    | 'MAKLERI'
+    | 'STAVEBNI_FIRMY'
+    | 'REALITNI_KANCELARE'
+    | 'FINANCNI_PORADCI'
+    | 'INVESTORI';
 
   /** JSON array of original image filenames in the chosen order. */
   @IsOptional()

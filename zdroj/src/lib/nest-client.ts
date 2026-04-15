@@ -3239,7 +3239,12 @@ export type ListingPost = {
     favorites?: number;
     comments?: number;
   };
-  category?: 'MAKLERI' | 'STAVEBNI_FIRMY' | 'REALITNI_KANCELARE';
+  category?:
+    | 'MAKLERI'
+    | 'STAVEBNI_FIRMY'
+    | 'REALITNI_KANCELARE'
+    | 'FINANCNI_PORADCI'
+    | 'INVESTORI';
   latitude?: number | null;
   longitude?: number | null;
   distanceKm?: number;
@@ -3361,7 +3366,12 @@ export async function nestCreateListingPost(
     video?: File | null;
     images: File[];
     imageOrder: string[];
-    category?: 'MAKLERI' | 'STAVEBNI_FIRMY' | 'REALITNI_KANCELARE';
+    category?:
+      | 'MAKLERI'
+      | 'STAVEBNI_FIRMY'
+      | 'REALITNI_KANCELARE'
+      | 'FINANCNI_PORADCI'
+      | 'INVESTORI';
     latitude?: number;
     longitude?: number;
   },
@@ -3618,7 +3628,12 @@ export async function nestFetchPostDetail(postId: string): Promise<ListingPost |
 }
 
 export async function nestFetchCommunityPosts(
-  category?: 'MAKLERI' | 'STAVEBNI_FIRMY' | 'REALITNI_KANCELARE',
+  category?:
+    | 'MAKLERI'
+    | 'STAVEBNI_FIRMY'
+    | 'REALITNI_KANCELARE'
+    | 'FINANCNI_PORADCI'
+    | 'INVESTORI',
   options?: { radiusKm?: number; lat?: number; lng?: number },
 ): Promise<ListingPost[]> {
   if (!API_BASE_URL) return [];

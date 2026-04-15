@@ -22,8 +22,10 @@ enum UserRole {
 enum PostCategory {
   MAKLERI
   STAVEBNI_FIRMY
-  REMESLNICI
   REALITNI_KANCELARE
+  FINANCNI_PORADCI
+  INVESTORI
+  REMESLNICI
 }
 
 enum AgentVerificationStatus {

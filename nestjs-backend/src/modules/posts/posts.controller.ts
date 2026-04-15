@@ -36,7 +36,13 @@ export class PostsController {
     @Query('lng') lng?: string,
   ) {
     const value = (category ?? '').trim();
-    const cat = (['MAKLERI', 'STAVEBNI_FIRMY', 'REALITNI_KANCELARE'].includes(value)
+    const cat = ([
+      'MAKLERI',
+      'STAVEBNI_FIRMY',
+      'REALITNI_KANCELARE',
+      'FINANCNI_PORADCI',
+      'INVESTORI',
+    ].includes(value)
       ? (value as PostCategory)
       : undefined);
     const radius = Number(radiusKm);

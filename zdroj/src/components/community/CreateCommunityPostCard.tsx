@@ -9,7 +9,12 @@ import {
 } from '@/lib/nest-client';
 import { ProfessionalListingBlockedCard } from '@/components/auth/ProfessionalListingRestriction';
 
-type Category = 'MAKLERI' | 'STAVEBNI_FIRMY' | 'REALITNI_KANCELARE';
+type Category =
+  | 'MAKLERI'
+  | 'STAVEBNI_FIRMY'
+  | 'REALITNI_KANCELARE'
+  | 'FINANCNI_PORADCI'
+  | 'INVESTORI';
 
 type Props = {
   apiAccessToken: string | null;
@@ -150,7 +155,7 @@ export function CreateCommunityPostCard({
             'Content-Type': 'application/json',
             Authorization: `Bearer ${apiAccessToken}`,
           },
-          body: JSON.stringify({ content: text }),
+          body: JSON.stringify({ content: text, category: activeCategory }),
         });
         if (!postRes.ok) {
           setError('Odeslání textu selhalo');

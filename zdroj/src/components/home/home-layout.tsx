@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { ComponentType } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Briefcase, Building2, Home } from 'lucide-react';
+import { Briefcase, Building2, Home, Landmark, TrendingUp } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
 import { loadPropertyFeedItems } from '@/lib/load-feed';
@@ -42,11 +42,40 @@ const brandBtn =
   'rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-10 py-3.5 text-[15px] font-semibold tracking-[-0.01em] text-white shadow-[0_8px_28px_-6px_rgba(255,106,0,0.45)] transition duration-300 hover:scale-[1.02] hover:shadow-[0_12px_36px_-6px_rgba(255,80,0,0.5)] active:scale-[0.98]';
 
 const COMMUNITY_CATEGORIES = [
-  { key: 'MAKLERI', label: 'Makléři', icon: Briefcase },
-  { key: 'STAVEBNI_FIRMY', label: 'Stavební firmy', icon: Building2 },
-  { key: 'REALITNI_KANCELARE', label: 'Realitní kanceláře', icon: Home },
+  { key: 'MAKLERI', label: 'Makléři', icon: Briefcase, queryValue: 'agents' },
+  { key: 'STAVEBNI_FIRMY', label: 'Stavební firmy', icon: Building2, queryValue: 'companies' },
+  { key: 'REALITNI_KANCELARE', label: 'Realitní kanceláře', icon: Home, queryValue: 'agencies' },
+  {
+    key: 'FINANCNI_PORADCI',
+    label: 'Finanční poradci',
+    icon: Landmark,
+    queryValue: 'financial-advisors',
+  },
+  { key: 'INVESTORI', label: 'Investoři', icon: TrendingUp, queryValue: 'investors' },
 ] as const;
 const RADIUS_OPTIONS_KM = [10, 20, 30, 50, 100] as const;
+type CommunityCategory = (typeof COMMUNITY_CATEGORIES)[number]['key'];
+
+function parseCategoryFromQuery(raw: string | null): CommunityCategory {
+  switch ((raw ?? '').trim().toLowerCase()) {
+    case 'companies':
+      return 'STAVEBNI_FIRMY';
+    case 'agencies':
+      return 'REALITNI_KANCELARE';
+    case 'financial-advisors':
+      return 'FINANCNI_PORADCI';
+    case 'investors':
+      return 'INVESTORI';
+    case 'agents':
+    default:
+      return 'MAKLERI';
+  }
+}
+
+function categoryToQueryValue(category: CommunityCategory): string {
+  const matched = COMMUNITY_CATEGORIES.find((x) => x.key === category);
+  return matched?.queryValue ?? 'agents';
+}
 
 function feedShortsRowToShortVideo(row: Record<string, unknown>): ShortVideo | null {
   const id = row.id != null ? String(row.id) : '';
@@ -124,9 +153,19 @@ export function HomeLayout({
 
   useEffect(() => {
     const tab = searchParams.get('tab');
+    const category = parseCategoryFromQuery(searchParams.get('category'));
     const v = searchParams.get('video')?.trim();
+    if (tab === 'posts') {
+      setViewMode('posts');
+      setActiveCategory(category);
+      return;
+    }
     if (tab === 'shorts' || Boolean(v)) {
       setViewMode('shorts');
+      return;
+    }
+    if (tab === 'classic') {
+      setViewMode('classic');
     }
   }, [searchParams]);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
@@ -140,9 +179,8 @@ export function HomeLayout({
   const [postFeed, setPostFeed] = useState<Array<Record<string, unknown>>>([]);
   const [loadingFeed, setLoadingFeed] = useState(false);
   const shortsLoadedRef = useRef(false);
-  const [activeCategory, setActiveCategory] = useState<
-    'MAKLERI' | 'STAVEBNI_FIRMY' | 'REALITNI_KANCELARE'
-  >('MAKLERI');
+  const [activeCategory, setActiveCategory] = useState<CommunityCategory>('MAKLERI');
+  const [postsCategoryOpen, setPostsCategoryOpen] = useState(false);
   const [radiusKm, setRadiusKm] = useState<(typeof RADIUS_OPTIONS_KM)[number]>(30);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [geoDenied, setGeoDenied] = useState(false);
@@ -156,6 +194,8 @@ export function HomeLayout({
   const [commentInputByPostId, setCommentInputByPostId] = useState<Record<string, string>>({});
   const [commentsOpenByPostId, setCommentsOpenByPostId] = useState<Record<string, boolean>>({});
   const [mutedByPostId, setMutedByPostId] = useState<Record<string, boolean>>({});
+  const activeCategoryLabel =
+    COMMUNITY_CATEGORIES.find((x) => x.key === activeCategory)?.label ?? 'Makléři';
 
   const storyPosts = useMemo(
     () =>
@@ -480,6 +520,43 @@ export function HomeLayout({
     };
   }, [sharedVideoId, videoFeed]);
 
+  useEffect(() => {
+    if (viewMode !== 'posts') {
+      setPostsCategoryOpen(false);
+    }
+  }, [viewMode, activeCategory]);
+
+  function updateUrlParams(next: { tab?: 'shorts' | 'classic' | 'posts'; category?: CommunityCategory }) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next.tab) {
+      params.set('tab', next.tab);
+    }
+    if (next.tab !== 'posts') {
+      params.delete('category');
+    } else {
+      const cat = next.category ?? activeCategory;
+      params.set('category', categoryToQueryValue(cat));
+    }
+    const qs = params.toString();
+    router.replace(qs ? `/?${qs}` : '/', { scroll: false });
+  }
+
+  function onChangeViewMode(mode: ViewMode) {
+    setViewMode(mode);
+    if (mode === 'posts') {
+      updateUrlParams({ tab: 'posts', category: activeCategory });
+      return;
+    }
+    updateUrlParams({ tab: mode });
+  }
+
+  function onSelectPostsCategory(category: CommunityCategory) {
+    setActiveCategory(category);
+    setPostsCategoryOpen(false);
+    setViewMode('posts');
+    updateUrlParams({ tab: 'posts', category });
+  }
+
   return (
     <div className="flex h-[100dvh] max-h-[100dvh] w-full max-w-[100vw] flex-col overflow-x-hidden overflow-y-hidden bg-[#fafafa] text-zinc-900 md:h-screen md:max-h-screen">
       {apiConfigMissing ? (
@@ -496,10 +573,11 @@ export function HomeLayout({
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         viewMode={viewMode}
-        onViewModeChange={setViewMode}
+        onViewModeChange={onChangeViewMode}
         onMobileFiltersOpen={
           viewMode === 'classic' ? () => setMobileFiltersOpen(true) : undefined
         }
+        activePostsCategoryLabel={viewMode === 'posts' ? activeCategoryLabel : undefined}
       />
 
       {mobileFiltersOpen ? (
@@ -574,7 +652,7 @@ export function HomeLayout({
               <div className="flex flex-wrap items-center justify-center gap-3">
                 <button
                   type="button"
-                  onClick={() => setViewMode('shorts')}
+                  onClick={() => onChangeViewMode('shorts')}
                   className={brandBtn}
                 >
                   Zobrazit nemovitosti
@@ -667,7 +745,7 @@ export function HomeLayout({
                     </p>
                     <button
                       type="button"
-                      onClick={() => setViewMode('classic')}
+                        onClick={() => onChangeViewMode('classic')}
                       className="rounded-full border border-zinc-300 bg-white px-6 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
                     >
                       Přepnout na klasické zobrazení
@@ -693,28 +771,41 @@ export function HomeLayout({
                       <main className="min-w-0 xl:col-span-6">
                         <div className="sticky top-0 z-20 w-full rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur">
                           <div className="flex w-full min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                            <div className="min-w-0 flex-1">
-                              <div className="no-scrollbar flex gap-2 overflow-x-auto">
-                                {COMMUNITY_CATEGORIES.map((cat) => {
-                                  const Icon = cat.icon;
-                                  const active = activeCategory === cat.key;
-                                  return (
-                                    <button
-                                      key={cat.key}
-                                      type="button"
-                                      onClick={() => setActiveCategory(cat.key)}
-                                      className={`inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition ${
-                                        active
-                                          ? 'bg-orange-500 text-white shadow-sm'
-                                          : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
-                                      }`}
-                                    >
-                                      <Icon size={16} />
-                                      {cat.label}
-                                    </button>
-                                  );
-                                })}
-                              </div>
+                            <div className="relative min-w-0 flex-1">
+                              <button
+                                type="button"
+                                onClick={() => setPostsCategoryOpen((v) => !v)}
+                                className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-900 transition hover:bg-orange-100"
+                              >
+                                <span>Příspěvky / {activeCategoryLabel}</span>
+                                <span aria-hidden>{postsCategoryOpen ? '▴' : '▾'}</span>
+                              </button>
+                              {postsCategoryOpen ? (
+                                <div className="absolute left-0 top-12 z-30 w-[min(92vw,22rem)] rounded-2xl border border-zinc-200 bg-white p-2 shadow-xl">
+                                  <ul className="space-y-1">
+                                    {COMMUNITY_CATEGORIES.map((cat) => {
+                                      const Icon = cat.icon;
+                                      const active = activeCategory === cat.key;
+                                      return (
+                                        <li key={cat.key}>
+                                          <button
+                                            type="button"
+                                            onClick={() => onSelectPostsCategory(cat.key)}
+                                            className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition ${
+                                              active
+                                                ? 'bg-orange-500 text-white'
+                                                : 'text-zinc-700 hover:bg-zinc-100'
+                                            }`}
+                                          >
+                                            <Icon size={16} />
+                                            {cat.label}
+                                          </button>
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                </div>
+                              ) : null}
                             </div>
                             <div className="flex shrink-0 flex-wrap items-center gap-2">
                               <div className="rounded-2xl border border-slate-200 bg-white px-2 py-1 shadow-sm">
@@ -743,6 +834,9 @@ export function HomeLayout({
                               </p>
                             </div>
                           </div>
+                          <p className="mt-2 text-sm font-semibold text-zinc-700">
+                            Aktivní kategorie: {activeCategoryLabel}
+                          </p>
                         </div>
 
                         {isAuthenticated ? (
@@ -754,7 +848,7 @@ export function HomeLayout({
                               longitude={userCoords?.lng}
                               canCreatePosts={canCreateListing}
                               onPublished={async () => {
-                                setViewMode('posts');
+                                onChangeViewMode('posts');
                                 await refreshPostsFeed();
                               }}
                             />

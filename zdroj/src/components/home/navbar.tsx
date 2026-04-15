@@ -20,6 +20,7 @@ type NavbarProps = {
   viewMode?: ViewMode;
   onViewModeChange?: (mode: ViewMode) => void;
   onMobileFiltersOpen?: () => void;
+  activePostsCategoryLabel?: string;
 };
 
 const navBtn =
@@ -31,6 +32,7 @@ export function Navbar({
   viewMode,
   onViewModeChange,
   onMobileFiltersOpen,
+  activePostsCategoryLabel,
 }: NavbarProps) {
   const router = useRouter();
   const { user, isAuthenticated, isLoading, logout, refresh, apiAccessToken } = useAuth();
@@ -125,7 +127,7 @@ export function Navbar({
                 onClick={() => onViewModeChange('posts')}
                 className="min-w-0 flex-1 truncate rounded-md px-1 py-1.5 text-center text-[10px] font-semibold leading-tight text-zinc-600 transition hover:text-zinc-900 sm:text-[11px]"
               >
-                Příspěvky
+                {activePostsCategoryLabel ? `Příspěvky / ${activePostsCategoryLabel}` : 'Příspěvky'}
               </button>
             </div>
             <button
@@ -280,7 +282,9 @@ export function Navbar({
                     : 'text-zinc-600 hover:text-zinc-900'
                 }`}
               >
-                Příspěvky
+                {viewMode === 'posts' && activePostsCategoryLabel
+                  ? `Příspěvky / ${activePostsCategoryLabel}`
+                  : 'Příspěvky'}
               </button>
             </div>
           ) : null}
