@@ -127,7 +127,10 @@ export function Navbar({
                 onClick={() => onViewModeChange('posts')}
                 className="min-w-0 flex-1 truncate rounded-md px-1 py-1.5 text-center text-[10px] font-semibold leading-tight text-zinc-600 transition hover:text-zinc-900 sm:text-[11px]"
               >
-                {activePostsCategoryLabel ? `Příspěvky / ${activePostsCategoryLabel}` : 'Příspěvky'}
+                <span className="sm:hidden">Příspěvky</span>
+                <span className="hidden sm:inline">
+                  {activePostsCategoryLabel ? `Příspěvky / ${activePostsCategoryLabel}` : 'Příspěvky'}
+                </span>
               </button>
             </div>
             <button
@@ -282,9 +285,12 @@ export function Navbar({
                     : 'text-zinc-600 hover:text-zinc-900'
                 }`}
               >
-                {viewMode === 'posts' && activePostsCategoryLabel
-                  ? `Příspěvky / ${activePostsCategoryLabel}`
-                  : 'Příspěvky'}
+                <span className="md:hidden">Příspěvky</span>
+                <span className="hidden md:inline">
+                  {viewMode === 'posts' && activePostsCategoryLabel
+                    ? `Příspěvky / ${activePostsCategoryLabel}`
+                    : 'Příspěvky'}
+                </span>
               </button>
             </div>
           ) : null}

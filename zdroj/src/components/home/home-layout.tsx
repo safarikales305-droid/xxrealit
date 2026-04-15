@@ -756,7 +756,7 @@ export function HomeLayout({
                 <div className="w-full min-w-0 overflow-x-hidden pb-8 pt-3">
                   <div className="mx-auto w-full max-w-7xl px-4 py-4">
                     <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-                      <aside className="xl:col-span-3">
+                      <aside className="hidden xl:col-span-3 xl:block">
                         <div className="space-y-4 lg:sticky lg:top-20">
                           <div className="w-full rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
                             <p className="text-sm font-semibold text-zinc-800">Přehled</p>
@@ -769,15 +769,16 @@ export function HomeLayout({
                       </aside>
 
                       <main className="min-w-0 xl:col-span-6">
-                        <div className="sticky top-0 z-20 w-full rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur">
-                          <div className="flex w-full min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div className="sticky top-0 z-20 w-full rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur md:p-3">
+                          <div className="flex w-full min-w-0 items-center justify-between gap-2 md:gap-3">
                             <div className="relative min-w-0 flex-1">
                               <button
                                 type="button"
                                 onClick={() => setPostsCategoryOpen((v) => !v)}
-                                className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-900 transition hover:bg-orange-100"
+                                className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-sm font-semibold text-orange-900 transition hover:bg-orange-100 md:px-4 md:py-2"
                               >
-                                <span>Příspěvky / {activeCategoryLabel}</span>
+                                <span className="md:hidden">Příspěvky</span>
+                                <span className="hidden md:inline">Příspěvky / {activeCategoryLabel}</span>
                                 <span aria-hidden>{postsCategoryOpen ? '▴' : '▾'}</span>
                               </button>
                               {postsCategoryOpen ? (
@@ -807,8 +808,8 @@ export function HomeLayout({
                                 </div>
                               ) : null}
                             </div>
-                            <div className="flex shrink-0 flex-wrap items-center gap-2">
-                              <div className="rounded-2xl border border-slate-200 bg-white px-2 py-1 shadow-sm">
+                            <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
+                              <div className="rounded-2xl border border-slate-200 bg-white px-1.5 py-0.5 shadow-sm md:px-2 md:py-1">
                                 <select
                                   value={radiusKm}
                                   onChange={(e) =>
@@ -816,7 +817,7 @@ export function HomeLayout({
                                       Number(e.target.value) as (typeof RADIUS_OPTIONS_KM)[number],
                                     )
                                   }
-                                  className="h-8 rounded-xl bg-transparent px-2 text-sm font-medium text-zinc-700 outline-none"
+                                  className="h-7 rounded-xl bg-transparent px-1.5 text-xs font-medium text-zinc-700 outline-none md:h-8 md:px-2 md:text-sm"
                                 >
                                   {RADIUS_OPTIONS_KM.map((radius) => (
                                     <option key={radius} value={radius}>
@@ -825,7 +826,7 @@ export function HomeLayout({
                                   ))}
                                 </select>
                               </div>
-                              <p className="text-xs text-zinc-500">
+                              <p className="hidden text-xs text-zinc-500 md:block">
                                 {userCoords
                                   ? `V okruhu ${radiusKm} km od vás`
                                   : geoDenied
@@ -834,13 +835,13 @@ export function HomeLayout({
                               </p>
                             </div>
                           </div>
-                          <p className="mt-2 text-sm font-semibold text-zinc-700">
+                          <p className="mt-2 hidden text-sm font-semibold text-zinc-700 md:block">
                             Aktivní kategorie: {activeCategoryLabel}
                           </p>
                         </div>
 
                         {isAuthenticated ? (
-                          <div className="mt-4 w-full">
+                          <div className="mt-2 w-full md:mt-4">
                             <CreateCommunityPostCard
                               apiAccessToken={apiAccessToken}
                               activeCategory={activeCategory}
