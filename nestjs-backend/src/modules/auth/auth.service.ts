@@ -2,6 +2,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -136,12 +137,29 @@ export type ResetPasswordRequestResult = {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly users: UsersService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
   ) {}
+
+  private resendFromAddress(): string {
+    const configured = process.env.RESEND_FROM_EMAIL?.trim();
+    if (configured) return configured;
+    return 'xxrealit <noreply@mail.xxrealit.cz>';
+  }
+
+  private resendErrorMessage(error: unknown): string {
+    if (error && typeof error === 'object' && 'message' in error) {
+      const message = (error as { message?: unknown }).message;
+      if (typeof message === 'string' && message.trim().length > 0) return message;
+    }
+    if (error instanceof Error && error.message.trim().length > 0) return error.message;
+    return 'Resend API call failed';
+  }
 
   private appOrigin(): string {
     const raw =
@@ -158,10 +176,10 @@ export class AuthService {
     const email = emailRaw?.trim().toLowerCase() ?? '';
 
     try {
-      console.log('RESET REQUEST FOR:', email);
+      this.logger.log(`Password reset requested: ${email || '(empty email)'}`);
 
       if (!email) {
-        return { success: false, error: 'Missing email' };
+        return { success: false, error: 'Zadejte e-mail.' };
       }
 
       const user = await this.users.findByEmail(email);
@@ -176,9 +194,16 @@ export class AuthService {
       }
 
       const apiKey = process.env.RESEND_API_KEY?.trim();
+      const from = this.resendFromAddress();
+      this.logger.log(
+        `Resend config check: apiKeyPresent=${Boolean(apiKey)} from=${from}`,
+      );
       if (!apiKey) {
-        console.error('RESET ERROR FULL: Missing RESEND_API_KEY');
-        return { success: false, error: 'Missing RESEND_API_KEY' };
+        this.logger.error('Password reset email skipped: RESEND_API_KEY is missing.');
+        return {
+          success: false,
+          error: 'E-mailová služba není nakonfigurovaná. Kontaktujte podporu.',
+        };
       }
 
       const token = randomBytes(32).toString('hex');
@@ -187,53 +212,62 @@ export class AuthService {
       await this.users.setPasswordResetToken(user.id, token, resetExpires);
 
       const url = `${this.appOrigin()}/reset-hesla?token=${encodeURIComponent(token)}`;
-      console.log('RESET URL:', url);
+      this.logger.log(`Reset URL prepared for userId=${user.id}`);
 
       const resend = new Resend(apiKey);
 
       const response = await resend.emails.send({
-        from: 'onboarding@resend.dev',
+        from,
         to: email,
-        subject: 'Obnova hesla',
-        html: `<p>Klikni: <a href="${url}">${url}</a></p>`,
+        subject: 'xxrealit - obnova hesla',
+        html: `
+          <div style="font-family: Arial, sans-serif; line-height: 1.5;">
+            <h2>Obnova hesla</h2>
+            <p>Obdrželi jsme žádost o obnovení hesla pro váš účet.</p>
+            <p>
+              Klikněte na tento odkaz:
+              <a href="${url}">${url}</a>
+            </p>
+            <p>Platnost odkazu je 60 minut.</p>
+            <p>Pokud jste o změnu hesla nežádali, tento e-mail ignorujte.</p>
+          </div>
+        `,
+        text: `Obnova hesla\n\nOtevřete odkaz: ${url}\n\nPlatnost odkazu je 60 minut.`,
       });
 
-      console.log('RESEND RESPONSE:', response);
+      this.logger.log(
+        `Resend send result: id=${response.data?.id ?? 'n/a'} error=${Boolean(response.error)}`,
+      );
 
       if (response.error) {
-        const re = response.error;
-        console.error('RESEND ERROR FULL (API):', re);
-        console.error('RESEND ERROR MESSAGE:', re.message ?? '(no message)');
-        console.error('RESEND ERROR NAME:', 'name' in re ? re.name : '(no name)');
-        console.error(
-          'RESEND ERROR STATUS:',
-          'statusCode' in re ? re.statusCode : '(no statusCode)',
+        const statusCode =
+          typeof response.error === 'object' &&
+          response.error &&
+          'statusCode' in response.error
+            ? String((response.error as { statusCode?: unknown }).statusCode ?? '')
+            : 'unknown';
+        this.logger.error(
+          `Resend rejected password reset email. status=${statusCode} message=${this.resendErrorMessage(response.error)}`,
         );
-        console.error(
-          'RESEND ERROR STACK:',
-          'stack' in re && typeof (re as { stack?: string }).stack === 'string'
-            ? (re as { stack: string }).stack
-            : '(no stack)',
-        );
-        console.error('RESEND ERROR JSON:', JSON.stringify(re));
         return {
           success: false,
-          error: re.message ?? JSON.stringify(re),
+          error: `E-mail se nepodařilo odeslat (${this.resendErrorMessage(response.error)}).`,
         };
       }
 
       return {
         success: true,
-        message: 'Email odeslán',
+        message: 'Pokud účet existuje, odeslali jsme instrukce na e-mail.',
       };
     } catch (error: any) {
-      console.error('RESEND ERROR FULL:', error);
-      console.error('RESEND ERROR MESSAGE:', error?.message);
-      console.error('RESEND ERROR STACK:', error?.stack);
+      this.logger.error(
+        `Password reset email failed unexpectedly: ${this.resendErrorMessage(error)}`,
+        error?.stack,
+      );
 
       return {
         success: false,
-        error: error?.message || 'Email failed',
+        error: `E-mail se nepodařilo odeslat (${this.resendErrorMessage(error)}).`,
       };
     }
   }
