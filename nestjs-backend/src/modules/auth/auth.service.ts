@@ -166,10 +166,53 @@ export class AuthService {
     return 'Resend API call failed';
   }
 
+  private isValidEmail(email: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  }
+
+  private logResendError(context: string, error: unknown): void {
+    const base = error && typeof error === 'object' ? (error as Record<string, unknown>) : {};
+    const message =
+      typeof base.message === 'string'
+        ? base.message
+        : error instanceof Error
+          ? error.message
+          : 'Unknown error';
+    const name =
+      typeof base.name === 'string'
+        ? base.name
+        : error instanceof Error
+          ? error.name
+          : 'UnknownError';
+    const statusCode = base.statusCode ?? 'n/a';
+    const response = base.response;
+    this.logger.error(
+      `${context} message=${message} name=${name} statusCode=${String(statusCode)} response=${response ? '[present]' : '[none]'}`,
+    );
+    if (response) {
+      let responseDetail = '';
+      if (typeof response === 'string') {
+        responseDetail = response;
+      } else {
+        try {
+          responseDetail = JSON.stringify(response);
+        } catch {
+          responseDetail = '[unserializable response]';
+        }
+      }
+      this.logger.error(
+        `${context} response detail: ${responseDetail}`,
+      );
+    }
+  }
+
   async sendResendResetEmailTest(toRaw: string): Promise<ResendTestResult> {
     const to = toRaw?.trim().toLowerCase() ?? '';
     if (!to) {
       return { success: false, error: 'Zadejte cílový e-mail pro test.' };
+    }
+    if (!this.isValidEmail(to)) {
+      return { success: false, error: 'Neplatný cílový e-mail pro test.' };
     }
 
     const apiKey = process.env.RESEND_API_KEY?.trim();
@@ -184,7 +227,7 @@ export class AuthService {
     }
 
     try {
-      const resend = new Resend(apiKey);
+      const resend = new Resend(process.env.RESEND_API_KEY);
       const response = await resend.emails.send({
         from,
         to,
@@ -195,7 +238,7 @@ export class AuthService {
 
       if (response.error) {
         const msg = this.resendErrorMessage(response.error);
-        this.logger.error(`Resend test failed: ${msg}`);
+        this.logResendError('Resend test failed', response.error);
         return { success: false, error: msg };
       }
 
@@ -207,7 +250,7 @@ export class AuthService {
       };
     } catch (error: unknown) {
       const msg = this.resendErrorMessage(error);
-      this.logger.error(`Resend test failed unexpectedly: ${msg}`);
+      this.logResendError('Resend test failed unexpectedly', error);
       return { success: false, error: msg };
     }
   }
@@ -243,6 +286,10 @@ export class AuthService {
       if (!user) {
         return generic;
       }
+      if (!this.isValidEmail(user.email)) {
+        this.logger.error(`Password reset rejected: invalid recipient email "${user.email}"`);
+        return { success: false, error: 'Neplatný e-mail účtu.' };
+      }
 
       const from = this.resendFromAddress();
       const hasApiKey = Boolean(process.env.RESEND_API_KEY?.trim());
@@ -256,7 +303,9 @@ export class AuthService {
       await this.users.setPasswordResetToken(user.id, token, resetExpires);
 
       const url = `${this.appOrigin()}/reset-hesla?token=${encodeURIComponent(token)}`;
-      this.logger.log(`Reset URL prepared for userId=${user.id}`);
+      this.logger.log(
+        `Reset URL prepared for userId=${user.id} appOrigin=${this.appOrigin()} to=${user.email}`,
+      );
 
       if (!process.env.RESEND_API_KEY?.trim()) {
         throw new Error('Missing RESEND_API_KEY');
@@ -274,7 +323,7 @@ export class AuthService {
         });
         console.log('EMAIL SENT:', response);
       } catch (err: unknown) {
-        console.error('RESEND ERROR:', err);
+        this.logResendError('RESEND ERROR', err);
         return {
           success: false,
           error: `E-mail se nepodařilo odeslat (${this.resendErrorMessage(err)}).`,
@@ -295,6 +344,7 @@ export class AuthService {
         this.logger.error(
           `Resend rejected password reset email. status=${statusCode} message=${this.resendErrorMessage(response.error)}`,
         );
+        this.logResendError('Resend rejected password reset email', response.error);
         return {
           success: false,
           error: `E-mail se nepodařilo odeslat (${this.resendErrorMessage(response.error)}).`,
