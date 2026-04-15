@@ -982,17 +982,6 @@ export function HomeLayout({
             </div>
           )}
         </main>
-        {!isAuthenticated ? null : (
-          <div className="px-4 pb-4 pt-2 md:hidden">
-            <Link
-              href="/makleri"
-              className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 shadow-sm"
-            >
-              Makléři
-            </Link>
-          </div>
-        )}
-
         <div className={`hidden min-h-0 min-w-0 shrink-0 overflow-x-hidden xl:block ${viewMode === 'posts' ? 'xl:hidden' : ''}`}>
           <RightSidebar className="mt-4 mb-4 w-full max-w-full flex-col" />
         </div>
