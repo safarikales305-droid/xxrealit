@@ -1,4 +1,10 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { Prisma, type CompanyAd, type Property } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateCompanyAdDto } from './dto/create-company-ad.dto';
@@ -49,44 +55,84 @@ function tokenizeProperty(property: Pick<Property, 'propertyType' | 'subType' | 
 
 @Injectable()
 export class CompanyAdsService {
+  private readonly logger = new Logger(CompanyAdsService.name);
   private readonly cache = new Map<string, { expiresAt: number; ad: AdView | null }>();
 
   constructor(private readonly prisma: PrismaService) {}
 
   async listMine(companyId: string) {
-    return this.prisma.companyAd.findMany({
-      where: { companyId },
-      orderBy: [{ isActive: 'desc' }, { updatedAt: 'desc' }],
-    });
+    try {
+      return await this.prisma.companyAd.findMany({
+        where: { companyId },
+        orderBy: [{ isActive: 'desc' }, { updatedAt: 'desc' }],
+      });
+    } catch (error: unknown) {
+      if (this.isMissingCompanyAdTableError(error)) {
+        this.logger.error('CompanyAd table missing while listing own ads; returning empty list.');
+        return [];
+      }
+      throw error;
+    }
   }
 
   async create(companyId: string, dto: CreateCompanyAdDto) {
-    return this.prisma.companyAd.create({
-      data: this.toCreateInput(companyId, dto),
-    });
+    try {
+      return await this.prisma.companyAd.create({
+        data: this.toCreateInput(companyId, dto),
+      });
+    } catch (error: unknown) {
+      if (this.isMissingCompanyAdTableError(error)) {
+        this.logger.error('CompanyAd table missing while creating ad.');
+        throw new ServiceUnavailableException(
+          'Reklamy jsou dočasně nedostupné, zkuste to prosím později.',
+        );
+      }
+      throw error;
+    }
   }
 
   async update(companyId: string, id: string, dto: UpdateCompanyAdDto) {
-    const existing = await this.prisma.companyAd.findUnique({ where: { id } });
+    let existing: CompanyAd | null = null;
+    try {
+      existing = await this.prisma.companyAd.findUnique({ where: { id } });
+    } catch (error: unknown) {
+      if (this.isMissingCompanyAdTableError(error)) {
+        this.logger.error('CompanyAd table missing while updating ad.');
+        throw new ServiceUnavailableException(
+          'Reklamy jsou dočasně nedostupné, zkuste to prosím později.',
+        );
+      }
+      throw error;
+    }
     if (!existing) throw new NotFoundException('Reklama nebyla nalezena.');
     if (existing.companyId !== companyId) {
       throw new ForbiddenException('Tuto reklamu nemůžete upravovat.');
     }
-    const updated = await this.prisma.companyAd.update({
-      where: { id },
-      data: this.toUpdateInput(dto),
-    });
+    const updated = await this.withCompanyAdTableGuard(
+      () =>
+        this.prisma.companyAd.update({
+          where: { id },
+          data: this.toUpdateInput(dto),
+        }),
+      'updating ad',
+    );
     this.cache.delete(existing.id);
     return updated;
   }
 
   async remove(companyId: string, id: string) {
-    const existing = await this.prisma.companyAd.findUnique({ where: { id } });
+    const existing = await this.withCompanyAdTableGuard(
+      () => this.prisma.companyAd.findUnique({ where: { id } }),
+      'deleting ad lookup',
+    );
     if (!existing) throw new NotFoundException('Reklama nebyla nalezena.');
     if (existing.companyId !== companyId) {
       throw new ForbiddenException('Tuto reklamu nemůžete smazat.');
     }
-    await this.prisma.companyAd.delete({ where: { id } });
+    await this.withCompanyAdTableGuard(
+      () => this.prisma.companyAd.delete({ where: { id } }),
+      'deleting ad',
+    );
     this.cache.delete(existing.id);
     return { ok: true };
   }
@@ -121,20 +167,25 @@ export class CompanyAdsService {
     }
 
     const tokens = tokenizeProperty(property);
-    const candidates = await this.prisma.companyAd.findMany({
-      where: { isActive: true },
-      include: {
-        company: {
-          select: {
-            id: true,
-            name: true,
-            companyProfile: { select: { companyName: true, logoUrl: true } },
+    const candidates = await this.withCompanyAdTableGuard(
+      () =>
+        this.prisma.companyAd.findMany({
+          where: { isActive: true },
+          include: {
+            company: {
+              select: {
+                id: true,
+                name: true,
+                companyProfile: { select: { companyName: true, logoUrl: true } },
+              },
+            },
           },
-        },
-      },
-      orderBy: [{ updatedAt: 'desc' }],
-      take: 50,
-    });
+          orderBy: [{ updatedAt: 'desc' }],
+          take: 50,
+        }),
+      'resolving ads for property',
+      [] as AdView[],
+    );
 
     let best: AdView | null = null;
     let bestScore = 0;
@@ -163,6 +214,32 @@ export class CompanyAdsService {
       }
     }
     return score;
+  }
+
+  private isMissingCompanyAdTableError(error: unknown): boolean {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+    if (error.code !== 'P2021') return false;
+    const table = String((error.meta as { table?: unknown } | undefined)?.table ?? '');
+    return table.toLowerCase().includes('companyad');
+  }
+
+  private async withCompanyAdTableGuard<T>(
+    action: () => Promise<T>,
+    context: string,
+    fallback?: T,
+  ): Promise<T> {
+    try {
+      return await action();
+    } catch (error: unknown) {
+      if (this.isMissingCompanyAdTableError(error)) {
+        this.logger.error(`CompanyAd table missing while ${context}.`);
+        if (fallback !== undefined) return fallback;
+        throw new ServiceUnavailableException(
+          'Reklamy jsou dočasně nedostupné, zkuste to prosím později.',
+        );
+      }
+      throw error;
+    }
   }
 
   private toCreateInput(companyId: string, dto: CreateCompanyAdDto): Prisma.CompanyAdCreateInput {
