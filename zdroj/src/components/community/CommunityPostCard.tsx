@@ -1,6 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import { Heart, MessageCircle, Pencil, ThumbsDown, Trash2, Volume2, VolumeX } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
@@ -61,6 +63,7 @@ export function CommunityPostCard({
   onToggleMute,
   onOpenDetail,
 }: CommunityPostCardProps) {
+  const router = useRouter();
   const id = String(p.id ?? '');
   const media = (p.media ?? []).slice().sort((a, b) => a.order - b.order);
   if (media.length === 0) return null;
@@ -81,6 +84,18 @@ export function CommunityPostCard({
   const author = String(p.user?.name ?? 'Autor').trim() || 'Autor';
   const isOwner = String(p.user?.id ?? '') === String(currentUserId ?? '');
   const interactionsLocked = guestPreview || !isAuthenticated;
+  const [shareHint, setShareHint] = useState<string | null>(null);
+
+  function handleGuestShare() {
+    setShareHint('Pro sdílení příspěvků se přihlaste.');
+    const redirectPath =
+      typeof window !== 'undefined'
+        ? `${window.location.pathname}${window.location.search}`
+        : '/?tab=posts';
+    window.setTimeout(() => {
+      router.push(`/prihlaseni?redirect=${encodeURIComponent(redirectPath)}`);
+    }, 400);
+  }
 
   return (
     <article className="relative w-full overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
@@ -252,8 +267,19 @@ export function CommunityPostCard({
           <MessageCircle className="size-4" />
           {comments.length || Number(p._count?.comments ?? 0)}
         </button>
-        <ShareButtons title={shareTitle} url={shareUrl} variant="pill" label="Sdílet" />
+        {interactionsLocked ? (
+          <button
+            type="button"
+            onClick={handleGuestShare}
+            className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-700"
+          >
+            Sdílet
+          </button>
+        ) : (
+          <ShareButtons title={shareTitle} url={shareUrl} variant="pill" label="Sdílet" />
+        )}
       </div>
+      {shareHint ? <p className="px-3 pb-2 text-xs font-medium text-orange-700 md:px-4">{shareHint}</p> : null}
 
       {commentsOpen && !interactionsLocked ? (
         <div className="mx-3 mb-3 space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 md:mx-4">
