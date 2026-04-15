@@ -12,8 +12,14 @@ type UserContentResponse = {
     role: string;
     avatar: string | null;
   };
-  videos: Array<{ id: string; url: string; description?: string | null }>;
-  posts: Array<{ id: string; content: string; createdAt: string }>;
+  videos: Array<{ id: string; url: string; description?: string | null; createdAt?: string }>;
+  posts: Array<{
+    id: string;
+    content?: string | null;
+    description?: string | null;
+    createdAt?: string;
+    media?: Array<{ url?: string; type?: string }>;
+  }>;
   properties: Array<{
     id: string;
     title: string;
@@ -129,7 +135,43 @@ export default function UserProfileContentPage() {
               <div className="space-y-3">
                 {data.posts.map((post) => (
                   <article key={post.id} className="rounded-xl border border-zinc-200 bg-white p-3">
-                    <p className="whitespace-pre-wrap text-sm">{post.content}</p>
+                    {post.createdAt ? (
+                      <p className="text-xs text-zinc-500">
+                        {new Date(post.createdAt).toLocaleString('cs-CZ')}
+                      </p>
+                    ) : null}
+                    <p className="mt-1 whitespace-pre-wrap text-sm">
+                      {post.content || post.description || ''}
+                    </p>
+                    {Array.isArray(post.media) && post.media.length > 0 ? (
+                      <div className="mt-3 space-y-2">
+                        {post.media
+                          .filter((m) => typeof m?.url === 'string' && m.url.trim())
+                          .map((m, idx) => {
+                            const url = nestAbsoluteAssetUrl(m.url ?? '') || (m.url ?? '');
+                            const mediaType = (m.type ?? '').toLowerCase();
+                            if (mediaType === 'video') {
+                              return (
+                                <video
+                                  key={`${post.id}-video-${idx}`}
+                                  src={url}
+                                  className="max-h-80 w-full rounded bg-black"
+                                  controls
+                                  preload="metadata"
+                                />
+                              );
+                            }
+                            return (
+                              <img
+                                key={`${post.id}-image-${idx}`}
+                                src={url}
+                                alt=""
+                                className="w-full rounded object-cover"
+                              />
+                            );
+                          })}
+                      </div>
+                    ) : null}
                   </article>
                 ))}
               </div>

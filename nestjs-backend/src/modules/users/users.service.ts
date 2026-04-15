@@ -690,7 +690,10 @@ export class UsersService {
       })),
       posts: posts.map((p) => ({
         ...p,
-        media: (p.media ?? []).filter((m) => /^https?:\/\//i.test((m.url ?? '').trim())),
+        media: (p.media ?? []).map((m) => ({
+          ...m,
+          url: upgradeHttpToHttpsForApi(m.url) ?? m.url,
+        })),
       })),
       properties: properties.map((p) =>
         serializeProperty({ ...p, likes: [] }, viewerId, propertyViewerAccess),

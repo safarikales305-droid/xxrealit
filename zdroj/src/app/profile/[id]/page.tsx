@@ -211,17 +211,9 @@ export default async function ProfilePage({
           {Array.isArray(profile.posts) && profile.posts.length > 0 ? (
             <div className="mt-4 space-y-3">
               {profile.posts.map((post) => {
-                const media =
-                  Array.isArray(post.media) && post.media.length > 0
-                    ? post.media.find((m) => typeof m?.url === 'string' && m.url.trim()) ?? null
-                    : null;
-                const mediaUrl =
-                  media?.url && /^https?:\/\//i.test(media.url)
-                    ? media.url
-                    : media?.url
-                      ? nestAbsoluteAssetUrl(media.url) || media.url
-                      : null;
-                const mediaType = typeof media?.type === 'string' ? media.type.toLowerCase() : '';
+                const medias = Array.isArray(post.media)
+                  ? post.media.filter((m) => typeof m?.url === 'string' && m.url.trim())
+                  : [];
                 return (
                   <article key={post.id} className="rounded-xl border border-zinc-200 bg-white p-3">
                     {post.createdAt ? (
@@ -232,18 +224,36 @@ export default async function ProfilePage({
                     <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-800">
                       {post.content || post.description || ''}
                     </p>
-                    {mediaUrl ? (
-                      mediaType === 'video' ? (
-                        <video
-                          src={mediaUrl}
-                          className="mt-3 max-h-80 w-full rounded-lg bg-black"
-                          controls
-                          preload="metadata"
-                        />
-                      ) : (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={mediaUrl} alt="" className="mt-3 w-full rounded-lg object-cover" />
-                      )
+                    {medias.length > 0 ? (
+                      <div className="mt-3 space-y-2">
+                        {medias.map((media, idx) => {
+                          const mediaUrl =
+                            media.url && /^https?:\/\//i.test(media.url)
+                              ? media.url
+                              : nestAbsoluteAssetUrl(media.url ?? '') || (media.url ?? '');
+                          const mediaType =
+                            typeof media.type === 'string' ? media.type.toLowerCase() : '';
+                          if (mediaType === 'video') {
+                            return (
+                              <video
+                                key={`${post.id}-video-${idx}`}
+                                src={mediaUrl}
+                                className="max-h-80 w-full rounded-lg bg-black"
+                                controls
+                                preload="metadata"
+                              />
+                            );
+                          }
+                          return (
+                            <img
+                              key={`${post.id}-image-${idx}`}
+                              src={mediaUrl}
+                              alt=""
+                              className="w-full rounded-lg object-cover"
+                            />
+                          );
+                        })}
+                      </div>
                     ) : null}
                   </article>
                 );
