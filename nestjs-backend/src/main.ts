@@ -44,6 +44,21 @@ function parseCommaSeparatedHeaders(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
+function isAllowedCorsOrigin(origin: string, allowlist: string[]): boolean {
+  const normalized = normalizeOrigin(origin);
+  if (allowlist.includes(normalized)) return true;
+  try {
+    const parsed = new URL(normalized);
+    const host = parsed.hostname.toLowerCase();
+    if (host === 'xxrealit.cz' || host === 'www.xxrealit.cz') return true;
+    if (host.endsWith('.xxrealit.cz')) return true;
+    if (host === 'localhost' || host === '127.0.0.1') return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 /**
  * Povolené Origin hodnoty pro browser (JWT v Authorization; cookies dle nastavení).
  * Na Railway nastavte např. FRONTEND_URL=https://www.xxrealit.cz
@@ -129,7 +144,7 @@ async function bootstrap() {
         return;
       }
       const normalized = normalizeOrigin(origin);
-      if (corsAllowlist.includes(normalized)) {
+      if (isAllowedCorsOrigin(origin, corsAllowlist)) {
         // Reflect konkrétní origin (nutné při credentials / cookies cross-site).
         callback(null, normalized);
         return;

@@ -3,6 +3,8 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  HttpCode,
+  Options,
   Post,
   Request,
   UseGuards,
@@ -37,7 +39,27 @@ export class AuthController {
   @Post('reset-request')
   async resetRequest(@Body() body: { email?: string }) {
     const email = typeof body?.email === 'string' ? body.email : '';
+    console.log(`[AUTH] reset-request received: emailPresent=${Boolean(email?.trim())}`);
+    const result = await this.authService.resetPassword(email);
+    if (!result.success) {
+      console.warn(`[AUTH] reset-request failed: ${result.error ?? 'unknown error'}`);
+    } else {
+      console.log('[AUTH] reset-request completed successfully.');
+    }
+    return result;
+  }
+
+  @Post('forgot-password')
+  async forgotPassword(@Body() body: { email?: string }) {
+    const email = typeof body?.email === 'string' ? body.email : '';
+    console.log(`[AUTH] forgot-password received: emailPresent=${Boolean(email?.trim())}`);
     return this.authService.resetPassword(email);
+  }
+
+  @Options('reset-request')
+  @HttpCode(204)
+  resetRequestOptions() {
+    return;
   }
 
   @Post('reset-request-test')
