@@ -135,6 +135,13 @@ export type ResetPasswordRequestResult = {
   error?: string;
 };
 
+export type ResendTestResult = {
+  success: boolean;
+  message?: string;
+  error?: string;
+  id?: string;
+};
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -159,6 +166,52 @@ export class AuthService {
     }
     if (error instanceof Error && error.message.trim().length > 0) return error.message;
     return 'Resend API call failed';
+  }
+
+  async sendResendResetEmailTest(toRaw: string): Promise<ResendTestResult> {
+    const to = toRaw?.trim().toLowerCase() ?? '';
+    if (!to) {
+      return { success: false, error: 'Zadejte cílový e-mail pro test.' };
+    }
+
+    const apiKey = process.env.RESEND_API_KEY?.trim();
+    const from = this.resendFromAddress();
+    this.logger.log(`Resend test config: apiKeyPresent=${Boolean(apiKey)} from=${from}`);
+
+    if (!apiKey) {
+      return {
+        success: false,
+        error: 'E-mailová služba není nakonfigurovaná. Chybí RESEND_API_KEY.',
+      };
+    }
+
+    try {
+      const resend = new Resend(apiKey);
+      const response = await resend.emails.send({
+        from,
+        to,
+        subject: 'xxrealit - test odeslání Resend',
+        html: '<p>Test odeslání reset e-mailu přes Resend je funkční.</p>',
+        text: 'Test odeslání reset e-mailu přes Resend je funkční.',
+      });
+
+      if (response.error) {
+        const msg = this.resendErrorMessage(response.error);
+        this.logger.error(`Resend test failed: ${msg}`);
+        return { success: false, error: msg };
+      }
+
+      this.logger.log(`Resend test succeeded: id=${response.data?.id ?? 'n/a'}`);
+      return {
+        success: true,
+        message: 'Testovací e-mail byl odeslán.',
+        id: response.data?.id ?? undefined,
+      };
+    } catch (error: unknown) {
+      const msg = this.resendErrorMessage(error);
+      this.logger.error(`Resend test failed unexpectedly: ${msg}`);
+      return { success: false, error: msg };
+    }
   }
 
   private appOrigin(): string {

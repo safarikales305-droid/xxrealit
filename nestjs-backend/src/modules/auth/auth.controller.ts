@@ -1,11 +1,13 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Post,
   Request,
   UseGuards,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -18,6 +20,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly usersService: UsersService,
+    private readonly config: ConfigService,
   ) {}
 
   @Post('register')
@@ -35,6 +38,16 @@ export class AuthController {
   async resetRequest(@Body() body: { email?: string }) {
     const email = typeof body?.email === 'string' ? body.email : '';
     return this.authService.resetPassword(email);
+  }
+
+  @Post('reset-request-test')
+  async resetRequestTest(@Body() body: { email?: string }) {
+    const enabled = this.config.get<string>('ENABLE_RESEND_TEST_ENDPOINT') === 'true';
+    if (!enabled) {
+      throw new ForbiddenException('Resend test endpoint is disabled.');
+    }
+    const email = typeof body?.email === 'string' ? body.email : '';
+    return this.authService.sendResendResetEmailTest(email);
   }
 
   @Get('create-admin')
