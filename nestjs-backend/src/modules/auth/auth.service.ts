@@ -256,11 +256,32 @@ export class AuthService {
   }
 
   private appOrigin(): string {
-    const raw =
-      this.config.get<string>('NEXT_PUBLIC_APP_URL')?.trim() ||
-      this.config.get<string>('APP_URL')?.trim() ||
-      'http://localhost:3000';
-    return raw.replace(/\/+$/, '');
+    const appUrl = this.config.get<string>('APP_URL')?.trim() ?? '';
+    const frontendUrl = this.config.get<string>('NEXT_PUBLIC_APP_URL')?.trim() ?? '';
+    const candidate = appUrl || frontendUrl;
+    const normalized = candidate.replace(/\/+$/, '');
+    const nodeEnv = (this.config.get<string>('NODE_ENV') ?? process.env.NODE_ENV ?? '').trim();
+    const isProduction = nodeEnv.toLowerCase() === 'production';
+    const productionFallback = 'https://www.xxrealit.cz';
+    const localhostLike = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
+
+    if (isProduction) {
+      if (!normalized) {
+        this.logger.error(
+          `APP_URL is missing in production. Falling back to ${productionFallback}.`,
+        );
+        return productionFallback;
+      }
+      if (localhostLike.test(normalized)) {
+        this.logger.error(
+          `APP_URL resolves to localhost in production (${normalized}). Falling back to ${productionFallback}.`,
+        );
+        return productionFallback;
+      }
+      return normalized;
+    }
+
+    return normalized || 'http://localhost:3000';
   }
 
   /**
