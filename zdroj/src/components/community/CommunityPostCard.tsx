@@ -66,7 +66,6 @@ export function CommunityPostCard({
   const router = useRouter();
   const id = String(p.id ?? '');
   const media = (p.media ?? []).slice().sort((a, b) => a.order - b.order);
-  if (media.length === 0) return null;
 
   const firstVideo = media.find((m) => m.type === 'video');
   const firstImage = media.find((m) => m.type === 'image');

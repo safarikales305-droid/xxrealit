@@ -126,8 +126,6 @@ export function HomeLayout({
   const router = useRouter();
   const searchParams = useSearchParams();
   const { refresh, user, isAuthenticated, isLoading, apiAccessToken } = useAuth();
-  const isAdmin = user?.role === 'ADMIN';
-
   /** Po příchodu na homepage (včetně router.push('/')) znovu načte uživatele z tokenu přes GET /api/auth/me. */
   useEffect(() => {
     void refresh();
@@ -213,13 +211,55 @@ export function HomeLayout({
       for (const p of list) {
         const id = String(p.id ?? '');
         if (!id) continue;
-        const count = Number(
-          (p._count as { favorites?: number } | undefined)?.favorites ?? 0,
+        const likes = Number(
+          ((p as { reactions?: Array<{ type?: string }> }).reactions ?? []).filter(
+            (r) => r.type === 'LIKE',
+          ).length,
         );
-        next[id] = Number.isFinite(count) ? count : 0;
+        next[id] = Number.isFinite(likes) ? likes : 0;
       }
       return next;
     });
+    setDislikeCountByPostId((prev) => {
+      const next = { ...prev };
+      for (const p of list) {
+        const id = String(p.id ?? '');
+        if (!id) continue;
+        const dislikes = Number(
+          ((p as { reactions?: Array<{ type?: string }> }).reactions ?? []).filter(
+            (r) => r.type === 'DISLIKE',
+          ).length,
+        );
+        next[id] = Number.isFinite(dislikes) ? dislikes : 0;
+      }
+      return next;
+    });
+    if (user?.id) {
+      setLikedByPostId((prev) => {
+        const next = { ...prev };
+        for (const p of list) {
+          const id = String(p.id ?? '');
+          if (!id) continue;
+          const mine = ((p as { reactions?: Array<{ userId?: string; type?: string }> }).reactions ?? []).find(
+            (r) => String(r.userId ?? '') === user.id,
+          );
+          next[id] = mine?.type === 'LIKE';
+        }
+        return next;
+      });
+      setDislikedByPostId((prev) => {
+        const next = { ...prev };
+        for (const p of list) {
+          const id = String(p.id ?? '');
+          if (!id) continue;
+          const mine = ((p as { reactions?: Array<{ userId?: string; type?: string }> }).reactions ?? []).find(
+            (r) => String(r.userId ?? '') === user.id,
+          );
+          next[id] = mine?.type === 'DISLIKE';
+        }
+        return next;
+      });
+    }
   }
 
   async function deletePost(postId: string) {
@@ -448,10 +488,12 @@ export function HomeLayout({
           for (const p of list as Array<Record<string, unknown>>) {
             const id = String(p.id ?? '');
             if (!id) continue;
-            const count = Number(
-              (p._count as { favorites?: number } | undefined)?.favorites ?? 0,
+            const likes = Number(
+              ((p as { reactions?: Array<{ type?: string }> }).reactions ?? []).filter(
+                (r) => r.type === 'LIKE',
+              ).length,
             );
-            next[id] = Number.isFinite(count) ? count : 0;
+            next[id] = Number.isFinite(likes) ? likes : 0;
           }
           return next;
         });
@@ -469,6 +511,32 @@ export function HomeLayout({
           }
           return next;
         });
+        if (user?.id) {
+          setLikedByPostId((prev) => {
+            const next = { ...prev };
+            for (const p of list as Array<Record<string, unknown>>) {
+              const id = String(p.id ?? '');
+              if (!id) continue;
+              const mine = ((p as { reactions?: Array<{ userId?: string; type?: string }> }).reactions ?? []).find(
+                (r) => String(r.userId ?? '') === user.id,
+              );
+              next[id] = mine?.type === 'LIKE';
+            }
+            return next;
+          });
+          setDislikedByPostId((prev) => {
+            const next = { ...prev };
+            for (const p of list as Array<Record<string, unknown>>) {
+              const id = String(p.id ?? '');
+              if (!id) continue;
+              const mine = ((p as { reactions?: Array<{ userId?: string; type?: string }> }).reactions ?? []).find(
+                (r) => String(r.userId ?? '') === user.id,
+              );
+              next[id] = mine?.type === 'DISLIKE';
+            }
+            return next;
+          });
+        }
       } catch {
         if (!cancelled) setPostFeed([]);
       } finally {
@@ -478,7 +546,7 @@ export function HomeLayout({
     return () => {
       cancelled = true;
     };
-  }, [viewMode, activeCategory, radiusKm, userCoords?.lat, userCoords?.lng]);
+  }, [viewMode, activeCategory, radiusKm, userCoords?.lat, userCoords?.lng, user?.id]);
 
   useEffect(() => {
     if (!sharedVideoId) {
@@ -664,26 +732,24 @@ export function HomeLayout({
                 >
                   Zobrazit nemovitosti
                 </button>
-                {!isAdmin ? (
-                  <button
-                    type="button"
-                    disabled={isLoading}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if (!isAuthenticated) {
-                        router.push(
-                          `/prihlaseni?redirect=${encodeURIComponent('/inzerat/pridat')}`,
-                        );
-                        return;
-                      }
-                      router.push('/inzerat/pridat');
-                    }}
-                    className="rounded-full border border-zinc-300 bg-white px-8 py-3 text-[15px] font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:opacity-50"
-                  >
-                    Vytvořit inzerát
-                  </button>
-                ) : null}
+                <button
+                  type="button"
+                  disabled={isLoading}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!isAuthenticated) {
+                      router.push(
+                        `/prihlaseni?redirect=${encodeURIComponent('/inzerat/pridat')}`,
+                      );
+                      return;
+                    }
+                    router.push('/inzerat/pridat');
+                  }}
+                  className="rounded-full border border-zinc-300 bg-white px-8 py-3 text-[15px] font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  Vytvořit inzerát
+                </button>
               </div>
             </div>
           ) : showNoSearchHits || showNoSearchHitsShortsFallback ? (
@@ -939,7 +1005,7 @@ export function HomeLayout({
                             disliked={Boolean(dislikedByPostId[pid])}
                             likeCount={
                               likeCountByPostId[pid] ??
-                              Number(p._count?.favorites ?? 0)
+                              Number((p.reactions ?? []).filter((r) => r.type === 'LIKE').length)
                             }
                             dislikeCount={dislikeCountByPostId[pid] ?? 0}
                             muted={mutedByPostId[pid] ?? true}

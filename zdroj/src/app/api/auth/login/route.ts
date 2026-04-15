@@ -84,11 +84,15 @@ export async function POST(request: Request) {
               access_token: nestData.accessToken,
               session: { user: sessionUser },
             });
-            res.cookies.set(
-              ACCESS_TOKEN_COOKIE,
-              nestData.accessToken,
-              getAuthCookieSetOptions(),
-            );
+            res.cookies.set(ACCESS_TOKEN_COOKIE, nestData.accessToken, getAuthCookieSetOptions());
+            // Client actions (listing/post/reactions) read token from JS-accessible cookie.
+            res.cookies.set('token', nestData.accessToken, {
+              httpOnly: false,
+              sameSite: 'lax',
+              path: '/',
+              maxAge: 60 * 60 * 24 * 7,
+              secure: process.env.NODE_ENV === 'production',
+            });
             return res;
           }
         }
@@ -146,6 +150,13 @@ export async function POST(request: Request) {
     });
 
     res.cookies.set(ACCESS_TOKEN_COOKIE, token, getAuthCookieSetOptions());
+    res.cookies.set('token', token, {
+      httpOnly: false,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 7,
+      secure: process.env.NODE_ENV === 'production',
+    });
     return res;
   } catch (err) {
     console.error('[login]', err);

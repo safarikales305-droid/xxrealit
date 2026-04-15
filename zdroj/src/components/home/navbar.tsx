@@ -342,7 +342,7 @@ export function Navbar({
             )}
           </div>
 
-          {!isLoading && isAuthenticated && user && !isAdmin ? (
+          {!isLoading && isAuthenticated && user ? (
             <>
               <button
                 type="button"
@@ -432,18 +432,16 @@ export function Navbar({
                     ➡️ Administrace
                   </Link>
                 ) : null}
-                {!isAdmin ? (
-                  <button
-                    type="button"
-                    className={navBtn}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      handleAddListingClick();
-                    }}
-                  >
-                    Přidat inzerát
-                  </button>
-                ) : null}
+                <button
+                  type="button"
+                  className={navBtn}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    handleAddListingClick();
+                  }}
+                >
+                  Přidat inzerát
+                </button>
                 <button type="button" onClick={handleLogout} className={navBtn}>
                   Odhlásit
                 </button>
