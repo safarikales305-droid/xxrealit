@@ -12,8 +12,6 @@ import {
 import { useRouter } from 'next/navigation';
 import type { PropertyFeedItem } from '@/types/property';
 import { useAuth } from '@/hooks/use-auth';
-import { canCreateProfessionalListingsAndPosts } from '@/lib/roles';
-import { ProfessionalOnlyDialog } from '@/components/auth/ProfessionalListingRestriction';
 import { propertyFeedPrimaryVideoSrc, propertyRowPassesVideoFeedGate } from '@/lib/feed/loop-feed';
 import { propertyListingHasVideo } from '@/lib/property-feed-filters';
 
@@ -36,7 +34,6 @@ type Props = {
 export function PropertyReelsFeed({ items }: Props) {
   const router = useRouter();
   const { user, isAuthenticated, isLoading } = useAuth();
-  const [professionalOnlyOpen, setProfessionalOnlyOpen] = useState(false);
   const [excludedIds, setExcludedIds] = useState<Set<string>>(() => new Set());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [liked, setLiked] = useState<Record<string, boolean>>({});
@@ -152,10 +149,6 @@ export function PropertyReelsFeed({ items }: Props) {
     const path = '/inzerat/pridat';
     if (!isAuthenticated || !user) {
       router.push(`/prihlaseni?redirect=${encodeURIComponent(path)}`);
-      return;
-    }
-    if (!canCreateProfessionalListingsAndPosts(user.role)) {
-      setProfessionalOnlyOpen(true);
       return;
     }
     router.push(path);
@@ -285,11 +278,6 @@ export function PropertyReelsFeed({ items }: Props) {
           );
         })}
       </div>
-
-      <ProfessionalOnlyDialog
-        open={professionalOnlyOpen}
-        onClose={() => setProfessionalOnlyOpen(false)}
-      />
     </div>
   );
 }

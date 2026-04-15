@@ -18,8 +18,6 @@ import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { nestToggleFavorite, type ShortVideo } from '@/lib/nest-client';
-import { canCreateProfessionalListingsAndPosts } from '@/lib/roles';
-import { ProfessionalOnlyDialog } from '@/components/auth/ProfessionalListingRestriction';
 
 type VideoCardProps = {
   video: ShortVideo;
@@ -60,7 +58,6 @@ export default function VideoCard({
   const [sellerModalOpen, setSellerModalOpen] = useState(false);
   const [sellerActionHint, setSellerActionHint] = useState<string | null>(null);
   const [desktopPreviewUrl, setDesktopPreviewUrl] = useState<string | null>(null);
-  const [professionalOnlyOpen, setProfessionalOnlyOpen] = useState(false);
   const [companyAd, setCompanyAd] = useState<CompanyAd | null>(null);
   const [companyAdOpen, setCompanyAdOpen] = useState(false);
 
@@ -205,7 +202,6 @@ export default function VideoCard({
   }
 
   const addListingPath = '/inzerat/pridat';
-  const canPostProfessionalListing = canCreateProfessionalListingsAndPosts(user?.role);
 
   function goAddListing(e: MouseEvent<HTMLButtonElement>) {
     // On mobile inside swipeable feed prevent tap-through to underlying video/gestures.
@@ -214,10 +210,6 @@ export default function VideoCard({
     if (isLoading) return;
     if (!isAuthenticated || !user) {
       router.push(`/prihlaseni?redirect=${encodeURIComponent(addListingPath)}`);
-      return;
-    }
-    if (!canPostProfessionalListing) {
-      setProfessionalOnlyOpen(true);
       return;
     }
     router.push(addListingPath);
@@ -589,11 +581,6 @@ export default function VideoCard({
         onSent={(conversationId) => {
           router.push(`/profil/zpravy/${conversationId}`);
         }}
-      />
-
-      <ProfessionalOnlyDialog
-        open={professionalOnlyOpen}
-        onClose={() => setProfessionalOnlyOpen(false)}
       />
     </div>
   );

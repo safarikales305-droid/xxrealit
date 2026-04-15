@@ -8,8 +8,6 @@ import Logo from '@/components/Logo';
 import { useAuth } from '@/hooks/use-auth';
 import { useMessagesUnreadCount } from '@/hooks/use-messages-unread';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
-import { canCreateProfessionalListingsAndPosts } from '@/lib/roles';
-import { ProfessionalOnlyDialog } from '@/components/auth/ProfessionalListingRestriction';
 import { imageCropToStyle } from '@/components/profile/image-crop-editor-modal';
 
 export type ViewMode = 'shorts' | 'classic' | 'posts';
@@ -37,9 +35,7 @@ export function Navbar({
   const router = useRouter();
   const { user, isAuthenticated, isLoading, logout, refresh, apiAccessToken } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [professionalListingDialogOpen, setProfessionalListingDialogOpen] = useState(false);
   const unreadMessages = useMessagesUnreadCount(apiAccessToken);
-  const canCreateListing = canCreateProfessionalListingsAndPosts(user?.role);
 
   const profilePath = '/profil';
   const messagesPath = '/profil/zpravy';
@@ -78,10 +74,6 @@ export function Navbar({
     if (isLoading) return;
     if (!isAuthenticated || !user) {
       router.push(`/prihlaseni?redirect=${encodeURIComponent('/inzerat/pridat')}`);
-      return;
-    }
-    if (!canCreateListing) {
-      setProfessionalListingDialogOpen(true);
       return;
     }
     router.push('/inzerat/pridat');
@@ -494,11 +486,6 @@ export function Navbar({
           </div>
         </>
       ) : null}
-
-      <ProfessionalOnlyDialog
-        open={professionalListingDialogOpen}
-        onClose={() => setProfessionalListingDialogOpen(false)}
-      />
     </header>
   );
 }

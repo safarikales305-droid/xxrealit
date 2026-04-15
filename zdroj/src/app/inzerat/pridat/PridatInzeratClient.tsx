@@ -1,14 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { ListingCreateForm } from '@/components/listing/listing-create-form';
-import { ProfessionalListingBlockedCard } from '@/components/auth/ProfessionalListingRestriction';
 import { useAuth } from '@/hooks/use-auth';
-import { canCreateProfessionalListingsAndPosts } from '@/lib/roles';
 
 export function PridatInzeratClient() {
-  const router = useRouter();
   const { user, isLoading, isAuthenticated } = useAuth();
 
   if (isLoading) {
@@ -31,21 +27,6 @@ export function PridatInzeratClient() {
         >
           Přihlásit se
         </Link>
-      </div>
-    );
-  }
-
-  if (!canCreateProfessionalListingsAndPosts(user.role)) {
-    return (
-      <div className="mx-auto mt-8 max-w-3xl">
-        <ProfessionalListingBlockedCard />
-        <button
-          type="button"
-          onClick={() => router.push('/')}
-          className="mx-auto mt-6 block text-sm font-semibold text-[#e85d00] hover:underline"
-        >
-          Zpět na hlavní stránku
-        </button>
       </div>
     );
   }
