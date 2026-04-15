@@ -10,6 +10,7 @@ export type CommunityPostCardProps = {
   post: ListingPost;
   currentUserId: string | undefined;
   isAuthenticated: boolean;
+  guestPreview?: boolean;
   liked: boolean;
   disliked: boolean;
   likeCount: number;
@@ -37,6 +38,7 @@ export function CommunityPostCard({
   post: p,
   currentUserId,
   isAuthenticated,
+  guestPreview = false,
   liked,
   disliked,
   likeCount,
@@ -78,10 +80,11 @@ export function CommunityPostCard({
 
   const author = String(p.user?.name ?? 'Autor').trim() || 'Autor';
   const isOwner = String(p.user?.id ?? '') === String(currentUserId ?? '');
+  const interactionsLocked = guestPreview || !isAuthenticated;
 
   return (
     <article className="relative w-full overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-      {isOwner ? (
+      {isOwner && !interactionsLocked ? (
         <div className="absolute right-3 top-3 z-10 flex gap-1.5">
           <button
             type="button"
@@ -148,13 +151,14 @@ export function CommunityPostCard({
         <button
           type="button"
           className="mt-3 block w-full text-left"
-          onClick={onOpenDetail}
+          onClick={interactionsLocked ? undefined : onOpenDetail}
+          disabled={interactionsLocked}
         >
           <div className="relative w-full overflow-hidden rounded-2xl bg-black">
             <img
               src={nestAbsoluteAssetUrl(imageRaw)}
               alt=""
-              className="h-auto w-full object-contain"
+              className={`h-auto w-full object-contain ${interactionsLocked ? 'blur-sm' : ''}`}
             />
           </div>
         </button>
@@ -164,7 +168,8 @@ export function CommunityPostCard({
         <button
           type="button"
           className="mt-3 block w-full text-left"
-          onClick={onOpenDetail}
+          onClick={interactionsLocked ? undefined : onOpenDetail}
+          disabled={interactionsLocked}
         >
           <div className="relative w-full overflow-hidden rounded-2xl bg-black">
             <video
@@ -173,7 +178,7 @@ export function CommunityPostCard({
               muted={muted}
               controls
               preload="metadata"
-              className="h-auto w-full object-contain"
+              className={`h-auto w-full object-contain ${interactionsLocked ? 'blur-sm' : ''}`}
             />
             {!isPostType ? (
               <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 text-white">
@@ -192,13 +197,13 @@ export function CommunityPostCard({
 
       {editingPostId !== id ? (
         <div className="px-3 py-2">
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">
+          <p className={`whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 ${interactionsLocked ? 'blur-[3px]' : ''}`}>
             {String(p.description ?? '')}
           </p>
         </div>
       ) : null}
 
-      {showFeedVideo ? (
+      {showFeedVideo && !interactionsLocked ? (
         <div className="px-3">
           <button
             type="button"
@@ -214,7 +219,8 @@ export function CommunityPostCard({
       <div className="mt-3 flex flex-wrap items-center gap-2 px-3 pb-3 md:px-4 md:pb-4">
         <button
           type="button"
-          onClick={() => onToggleReaction('LIKE')}
+          onClick={interactionsLocked ? undefined : () => onToggleReaction('LIKE')}
+          disabled={interactionsLocked}
           className={`inline-flex items-center gap-1 rounded-full border px-3 py-2 text-sm ${
             liked
               ? 'border-rose-200 bg-rose-50 text-rose-600'
@@ -226,7 +232,8 @@ export function CommunityPostCard({
         </button>
         <button
           type="button"
-          onClick={() => onToggleReaction('DISLIKE')}
+          onClick={interactionsLocked ? undefined : () => onToggleReaction('DISLIKE')}
+          disabled={interactionsLocked}
           className={`inline-flex items-center gap-1 rounded-full border px-3 py-2 text-sm ${
             disliked
               ? 'border-slate-300 bg-slate-100 text-slate-700'
@@ -238,7 +245,8 @@ export function CommunityPostCard({
         </button>
         <button
           type="button"
-          onClick={onToggleComments}
+          onClick={interactionsLocked ? undefined : onToggleComments}
+          disabled={interactionsLocked}
           className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600"
         >
           <MessageCircle className="size-4" />
@@ -247,7 +255,7 @@ export function CommunityPostCard({
         <ShareButtons title={shareTitle} url={shareUrl} variant="pill" label="Sdílet" />
       </div>
 
-      {commentsOpen ? (
+      {commentsOpen && !interactionsLocked ? (
         <div className="mx-3 mb-3 space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 md:mx-4">
           <div className="flex items-center gap-2">
             <input

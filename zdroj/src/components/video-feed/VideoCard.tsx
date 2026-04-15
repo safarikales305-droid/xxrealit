@@ -216,10 +216,6 @@ export default function VideoCard({
   }
 
   function handleOpenListing() {
-    if (!user) {
-      router.push(`/prihlaseni?redirect=${encodeURIComponent(listingPath)}`);
-      return;
-    }
     router.push(listingPath);
   }
 
