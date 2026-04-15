@@ -329,7 +329,8 @@ export class PostsService {
         const rowLat = toNumberOrNull(row.latitude);
         const rowLng = toNumberOrNull(row.longitude);
         if (rowLat === null || rowLng === null) {
-          return null;
+          // Keep posts without geolocation visible in category feed.
+          return row;
         }
         const distanceKm = haversineKm(userLat, userLng, rowLat, rowLng);
         if (distanceKm > maxKm) return null;

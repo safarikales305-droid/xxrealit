@@ -645,6 +645,11 @@ export class UsersService {
       this.prisma.post.findMany({
         where: { userId },
         orderBy: { createdAt: 'desc' },
+        include: {
+          media: {
+            orderBy: { order: 'asc' },
+          },
+        },
       }),
       this.prisma.property.findMany({
         where:
@@ -683,7 +688,10 @@ export class UsersService {
         ...v,
         url: upgradeHttpToHttpsForApi(v.url) ?? v.url,
       })),
-      posts,
+      posts: posts.map((p) => ({
+        ...p,
+        media: (p.media ?? []).filter((m) => /^https?:\/\//i.test((m.url ?? '').trim())),
+      })),
       properties: properties.map((p) =>
         serializeProperty({ ...p, likes: [] }, viewerId, propertyViewerAccess),
       ),

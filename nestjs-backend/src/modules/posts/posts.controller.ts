@@ -292,7 +292,8 @@ export class PostsController {
       throw new BadRequestException('Nahrajte alespoň 1 obrázek nebo video.');
     }
 
-    const type: 'post' | 'short' = video ? 'short' : 'post';
+    // Respect explicit intent from create flow: community posts with video stay in "post" feed.
+    const type: 'post' | 'short' = body.type === 'short' ? 'short' : 'post';
     const priceNum = Number(body.price);
     if (!Number.isFinite(priceNum) || priceNum < 0) {
       throw new BadRequestException('Cena musí být číslo >= 0.');

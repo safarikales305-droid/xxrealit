@@ -32,8 +32,14 @@ type PublicProfile = {
     followingCount?: number;
     isFollowedByViewer?: boolean | null;
   };
-  videos?: Array<{ id: string; url: string; description?: string | null }>;
-  posts?: Array<{ id: string; content: string }>;
+  videos?: Array<{ id: string; url: string; description?: string | null; createdAt?: string }>;
+  posts?: Array<{
+    id: string;
+    content?: string | null;
+    description?: string | null;
+    createdAt?: string;
+    media?: Array<{ url?: string; type?: string }>;
+  }>;
   properties?: unknown[];
   id: string;
   name: string | null;
@@ -203,12 +209,67 @@ export default async function ProfilePage({
             Nemovitosti, videa a příspěvky
           </h2>
           {Array.isArray(profile.posts) && profile.posts.length > 0 ? (
-            <div className="mt-4 space-y-2">
-              {profile.posts.slice(0, 3).map((post) => (
-                <article key={post.id} className="rounded-xl border border-zinc-200 bg-white p-3">
-                  <p className="text-sm text-zinc-800">{post.content}</p>
-                </article>
-              ))}
+            <div className="mt-4 space-y-3">
+              {profile.posts.map((post) => {
+                const media =
+                  Array.isArray(post.media) && post.media.length > 0
+                    ? post.media.find((m) => typeof m?.url === 'string' && m.url.trim()) ?? null
+                    : null;
+                const mediaUrl =
+                  media?.url && /^https?:\/\//i.test(media.url)
+                    ? media.url
+                    : media?.url
+                      ? nestAbsoluteAssetUrl(media.url) || media.url
+                      : null;
+                const mediaType = typeof media?.type === 'string' ? media.type.toLowerCase() : '';
+                return (
+                  <article key={post.id} className="rounded-xl border border-zinc-200 bg-white p-3">
+                    {post.createdAt ? (
+                      <p className="text-xs text-zinc-500">
+                        {new Date(post.createdAt).toLocaleString('cs-CZ')}
+                      </p>
+                    ) : null}
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-800">
+                      {post.content || post.description || ''}
+                    </p>
+                    {mediaUrl ? (
+                      mediaType === 'video' ? (
+                        <video
+                          src={mediaUrl}
+                          className="mt-3 max-h-80 w-full rounded-lg bg-black"
+                          controls
+                          preload="metadata"
+                        />
+                      ) : (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={mediaUrl} alt="" className="mt-3 w-full rounded-lg object-cover" />
+                      )
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+          ) : null}
+          {Array.isArray(profile.videos) && profile.videos.length > 0 ? (
+            <div className="mt-4 space-y-3">
+              {profile.videos.map((video) => {
+                const url = /^https?:\/\//i.test(video.url)
+                  ? video.url
+                  : nestAbsoluteAssetUrl(video.url) || video.url;
+                return (
+                  <article key={video.id} className="rounded-xl border border-zinc-200 bg-white p-3">
+                    {video.createdAt ? (
+                      <p className="text-xs text-zinc-500">
+                        {new Date(video.createdAt).toLocaleString('cs-CZ')}
+                      </p>
+                    ) : null}
+                    {video.description ? (
+                      <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-800">{video.description}</p>
+                    ) : null}
+                    <video src={url} className="mt-3 max-h-80 w-full rounded-lg bg-black" controls preload="metadata" />
+                  </article>
+                );
+              })}
             </div>
           ) : null}
           <div className="mt-4">

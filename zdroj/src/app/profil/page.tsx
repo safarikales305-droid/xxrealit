@@ -1599,6 +1599,7 @@ export default function ProfilPage() {
                     : media?.url
                       ? nestAbsoluteAssetUrl(media.url) || media.url
                       : null;
+                const mediaType = typeof media?.type === 'string' ? media.type.toLowerCase() : '';
                 return (
                   <article
                     key={`post-${post.id}`}
@@ -1616,8 +1617,17 @@ export default function ProfilPage() {
                       </p>
                     )}
                     {mediaUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={mediaUrl} alt="" className="mt-3 h-44 w-full rounded-lg object-cover" />
+                      mediaType === 'video' ? (
+                        <video
+                          src={mediaUrl}
+                          className="mt-3 max-h-72 w-full rounded-lg bg-black"
+                          controls
+                          preload="metadata"
+                        />
+                      ) : (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={mediaUrl} alt="" className="mt-3 h-44 w-full rounded-lg object-cover" />
+                      )
                     ) : null}
                   </article>
                 );
