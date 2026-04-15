@@ -111,7 +111,6 @@ export class PostsService {
           select: {
             id: true,
             name: true,
-            email: true,
             avatar: true,
           },
         },
@@ -127,7 +126,6 @@ export class PostsService {
           select: {
             id: true,
             name: true,
-            email: true,
             avatar: true,
           },
         },
@@ -156,7 +154,6 @@ export class PostsService {
           select: {
             id: true,
             name: true,
-            email: true,
             avatar: true,
             role: true,
           },
@@ -202,7 +199,6 @@ export class PostsService {
           select: {
             id: true,
             name: true,
-            email: true,
             avatar: true,
             role: true,
           },
@@ -254,7 +250,6 @@ export class PostsService {
           select: {
             id: true,
             name: true,
-            email: true,
             avatar: true,
             role: true,
           },
@@ -285,7 +280,6 @@ export class PostsService {
           select: {
             id: true,
             name: true,
-            email: true,
             avatar: true,
             role: true,
           },
@@ -317,7 +311,6 @@ export class PostsService {
           select: {
             id: true,
             name: true,
-            email: true,
             avatar: true,
             role: true,
           },

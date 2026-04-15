@@ -144,9 +144,10 @@ export class PropertiesService {
         user: {
           select: {
             id: true,
-            email: true,
             avatar: true,
             name: true,
+            phone: true,
+            phonePublic: true,
             city: true,
             role: true,
           },
@@ -181,9 +182,10 @@ export class PropertiesService {
     const access = await this.viewerAccess(viewerId);
     const userPayload = {
       id: author.id,
-      email: author.email,
       name: author.name ?? null,
       avatar: author.avatar ?? null,
+      phone: author.phonePublic ? author.phone : null,
+      phonePublic: Boolean(author.phonePublic),
       role: author.role,
     };
 

@@ -250,7 +250,6 @@ export class FeedService {
           select: {
             id: true,
             name: true,
-            email: true,
             avatar: true,
             role: true,
           },

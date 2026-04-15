@@ -21,7 +21,18 @@ import type { ImageCropDto } from './dto/image-crop.dto';
 
 type LoginSafeUser = Pick<
   User,
-  'id' | 'email' | 'name' | 'password' | 'role' | 'avatar' | 'coverImage' | 'bio' | 'city' | 'createdAt'
+  | 'id'
+  | 'email'
+  | 'name'
+  | 'phone'
+  | 'phonePublic'
+  | 'password'
+  | 'role'
+  | 'avatar'
+  | 'coverImage'
+  | 'bio'
+  | 'city'
+  | 'createdAt'
 >;
 
 @Injectable()
@@ -57,6 +68,8 @@ export class UsersService {
         id: true,
         email: true,
         name: true,
+        phone: true,
+        phonePublic: true,
         password: true,
         role: true,
         avatar: true,
@@ -75,6 +88,8 @@ export class UsersService {
         id: true,
         email: true,
         name: true,
+        phone: true,
+        phonePublic: true,
         password: true,
         role: true,
         avatar: true,
@@ -89,7 +104,9 @@ export class UsersService {
   create(data: {
     email: string;
     password: string;
-    name?: string | null;
+    name: string;
+    phone: string;
+    phonePublic?: boolean;
     role: UserRole;
   }): Promise<User> {
     return this.prisma.user.create({ data });
@@ -178,14 +195,20 @@ export class UsersService {
     return { ...updated, role: ensureUserRole(updated.role) };
   }
 
-  async updateProfileBio(userId: string, bio: string | null | undefined) {
-    if (bio === undefined) {
+  async updateProfile(
+    userId: string,
+    input: { bio?: string | null; name?: string; phone?: string; phonePublic?: boolean },
+  ) {
+    const { bio, name, phone, phonePublic } = input;
+    if (bio === undefined && name === undefined && phone === undefined && phonePublic === undefined) {
       const u = await this.prisma.user.findUnique({
         where: { id: userId },
         select: {
           id: true,
           email: true,
           name: true,
+          phone: true,
+          phonePublic: true,
           avatar: true,
           avatarCrop: true,
           coverImage: true,
@@ -204,13 +227,21 @@ export class UsersService {
       bio === null || (typeof bio === 'string' && bio.trim().length === 0)
         ? null
         : String(bio).trim().slice(0, 500);
+    const data: Prisma.UserUpdateInput = {
+      bio: normalized,
+      ...(name !== undefined ? { name: name.trim().slice(0, 120) } : {}),
+      ...(phone !== undefined ? { phone: phone.trim().slice(0, 40) } : {}),
+      ...(phonePublic !== undefined ? { phonePublic } : {}),
+    };
     const updated = await this.prisma.user.update({
       where: { id: userId },
-      data: { bio: normalized },
+      data,
       select: {
         id: true,
         email: true,
         name: true,
+        phone: true,
+        phonePublic: true,
         avatar: true,
         avatarCrop: true,
         coverImage: true,
@@ -228,6 +259,8 @@ export class UsersService {
       id: true,
       email: true,
       name: true,
+      phone: true,
+      phonePublic: true,
       avatar: true,
       coverImage: true,
       bio: true,
@@ -396,6 +429,8 @@ export class UsersService {
       id: u.id,
       email: u.email,
       name: u.name,
+      phone: u.phone,
+      phonePublic: Boolean(u.phonePublic),
       role: ensureUserRole(u.role),
       createdAt: u.createdAt,
       avatarUrl: upgradeHttpToHttpsForApi(u.avatar ?? null) ?? u.avatar ?? null,
@@ -483,6 +518,8 @@ export class UsersService {
     const baseSelect = {
       id: true,
       name: true,
+      phone: true,
+      phonePublic: true,
       role: true,
       isPublicBrokerProfile: true,
       avatar: true,
@@ -626,6 +663,8 @@ export class UsersService {
       user: {
       id: user.id,
       name: user.name,
+      phone: user.phonePublic ? user.phone : null,
+      phonePublic: Boolean(user.phonePublic),
       role: ensureUserRole(user.role),
       avatar: upgradeHttpToHttpsForApi(user.avatar) ?? user.avatar,
       avatarCrop: hasCropColumns ? (user.avatarCrop ?? null) : null,

@@ -24,7 +24,6 @@ export class VideosService {
           select: {
             id: true,
             name: true,
-            email: true,
             avatar: true,
           },
         },

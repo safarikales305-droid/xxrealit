@@ -221,6 +221,8 @@ export type NestMeProfile = {
   id: string;
   email: string;
   name?: string | null;
+  phone?: string;
+  phonePublic?: boolean;
   role: string;
   avatarUrl?: string | null;
   avatarCrop?: { x: number; y: number; zoom: number } | null;
@@ -452,6 +454,7 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
   const bio = o.bio === null || typeof o.bio === 'string' ? (o.bio as string | null) : null;
   const createdAt =
     typeof o.createdAt === 'string' ? o.createdAt : new Date().toISOString();
+  const phone = typeof o.phone === 'string' ? o.phone : '';
   const brokerProgressRaw = o.brokerProgress;
   const brokerProgress =
     brokerProgressRaw != null && typeof brokerProgressRaw === 'object'
@@ -491,6 +494,8 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     id: o.id,
     email: o.email,
     name: typeof o.name === 'string' || o.name === null ? (o.name as string | null) : undefined,
+    phone,
+    phonePublic: o.phonePublic === true,
     role,
     avatarUrl,
     avatarCrop,
@@ -2773,8 +2778,15 @@ export async function nestPatchCoverCrop(
 
 export async function nestPatchProfileBio(
   token: string | null,
-  bio: string | null,
-): Promise<{ ok: boolean; bio?: string | null; error?: string }> {
+  body: { bio?: string | null; name?: string; phone?: string; phonePublic?: boolean },
+): Promise<{
+  ok: boolean;
+  bio?: string | null;
+  name?: string | null;
+  phone?: string;
+  phonePublic?: boolean;
+  error?: string;
+}> {
   if (!API_BASE_URL || !token) {
     return { ok: false, error: 'API nebo token chybí' };
   }
@@ -2786,10 +2798,11 @@ export async function nestPatchProfileBio(
       Accept: 'application/json',
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ bio }),
+    body: JSON.stringify(body),
   });
   const data = (await res.json().catch(() => ({}))) as {
     bio?: string | null;
+    user?: { name?: string | null; phone?: string; phonePublic?: boolean };
     message?: string | string[];
   };
   if (!res.ok) {
@@ -2801,7 +2814,13 @@ export async function nestPatchProfileBio(
           : `HTTP ${res.status}`;
     return { ok: false, error: msg };
   }
-  return { ok: true, bio: data.bio ?? null };
+  return {
+    ok: true,
+    bio: data.bio ?? null,
+    name: data.user?.name ?? null,
+    phone: data.user?.phone ?? '',
+    phonePublic: data.user?.phonePublic === true,
+  };
 }
 
 export type ShortVideo = {

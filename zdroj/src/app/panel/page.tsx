@@ -83,14 +83,8 @@ export default function PanelPage() {
       <p className="mt-2 text-[15px] text-zinc-600">
         Přihlášen jako{' '}
         <span className="font-medium text-zinc-800">
-          {storedUser.email ?? '—'}
+          {storedUser.name?.trim() || 'Uživatel'}
         </span>
-        {storedUser.name ? (
-          <>
-            {' '}
-            ({storedUser.name})
-          </>
-        ) : null}
       </p>
       <p className="mt-1 text-sm text-zinc-500">
         Role: {storedUser.role ?? '—'}

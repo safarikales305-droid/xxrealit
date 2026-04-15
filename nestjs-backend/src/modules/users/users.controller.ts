@@ -121,7 +121,12 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   @Patch('profile')
   async patchProfile(@CurrentUser() user: AuthUser, @Body() dto: UpdateProfileDto) {
-    const updated = await this.usersService.updateProfileBio(user.id, dto.bio);
+    const updated = await this.usersService.updateProfile(user.id, {
+      bio: dto.bio,
+      name: dto.name,
+      phone: dto.phone,
+      phonePublic: dto.phonePublic,
+    });
     return {
       success: true,
       bio: updated.bio ?? null,
@@ -129,6 +134,8 @@ export class UsersController {
         id: updated.id,
         email: updated.email,
         name: updated.name,
+        phone: updated.phone,
+        phonePublic: updated.phonePublic,
         role: updated.role,
         avatarUrl: updated.avatar ?? null,
         coverImageUrl: updated.coverImage ?? null,

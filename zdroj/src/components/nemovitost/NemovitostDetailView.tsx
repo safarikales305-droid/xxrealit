@@ -421,14 +421,11 @@ export function NemovitostDetailView({
                     className="size-full object-cover"
                   />
                 ) : (
-                  author.email.trim().charAt(0).toUpperCase()
+                  (author.name?.trim().charAt(0) || 'U').toUpperCase()
                 )}
               </div>
               <div className="min-w-0">
-                {author.name ? (
-                  <p className="font-semibold text-zinc-900">{author.name}</p>
-                ) : null}
-                <p className="truncate text-sm text-zinc-600">{author.email}</p>
+                <p className="font-semibold text-zinc-900">{author.name?.trim() || 'Uživatel'}</p>
               </div>
             </div>
           </div>

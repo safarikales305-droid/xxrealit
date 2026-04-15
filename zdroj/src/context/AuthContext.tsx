@@ -17,6 +17,8 @@ export type AuthUser = {
   email: string;
   /** Zobrazované jméno (User.name na backendu, GET /auth/me i /users/me). */
   name?: string | null;
+  phone?: string;
+  phonePublic?: boolean;
   role: string;
   createdAt: string;
   avatar?: string | null;
@@ -85,6 +87,8 @@ function normalizeMeUser(raw: unknown): AuthUser | null {
     id: o.id,
     email: o.email,
     name,
+    phone: typeof o.phone === 'string' ? o.phone : '',
+    phonePublic: o.phonePublic === true,
     role: o.role,
     createdAt,
     avatar,

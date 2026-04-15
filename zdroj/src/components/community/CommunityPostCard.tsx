@@ -76,8 +76,7 @@ export function CommunityPostCard({
     'Příspěvek';
   const shareUrl = absoluteShareUrl(`/prispevky/${encodeURIComponent(id)}`);
 
-  const author =
-    String(p.user?.name ?? p.user?.email ?? 'Autor').trim() || 'Autor';
+  const author = String(p.user?.name ?? 'Autor').trim() || 'Autor';
   const isOwner = String(p.user?.id ?? '') === String(currentUserId ?? '');
 
   return (
@@ -269,7 +268,7 @@ export function CommunityPostCard({
             {comments.map((c) => (
               <div key={c.id} className="rounded-lg bg-white px-2 py-1.5">
                 <p className="text-xs font-semibold text-zinc-700">
-                  {c.user?.name || c.user?.email || 'Uživatel'}
+                  {c.user?.name || 'Uživatel'}
                 </p>
                 <p className="text-sm text-zinc-800">{c.content}</p>
               </div>

@@ -11,7 +11,9 @@ const inputClass =
 const selectClass =
   'w-full rounded-xl border border-zinc-200/90 bg-zinc-50/80 px-4 py-3.5 text-[15px] text-zinc-900 shadow-inner shadow-zinc-100/80 outline-none transition focus:border-orange-400/80 focus:bg-white focus:ring-2 focus:ring-orange-500/20';
 
-type FieldErrors = Partial<Record<'email' | 'password' | 'confirmPassword' | 'role', string>>;
+type FieldErrors = Partial<
+  Record<'name' | 'email' | 'phone' | 'password' | 'confirmPassword' | 'role', string>
+>;
 
 type RegisterJson = {
   error?: string;
@@ -23,7 +25,9 @@ function pickFieldErrors(raw: RegisterJson['fieldErrors']): FieldErrors {
   if (!raw) return {};
   const first = (arr: string[] | undefined) => (arr && arr[0] ? arr[0] : undefined);
   return {
+    name: first(raw.name),
     email: first(raw.email),
+    phone: first(raw.phone),
     password: first(raw.password),
     confirmPassword: first(raw.confirmPassword),
     role: first(raw.role),
@@ -34,7 +38,9 @@ export default function RegistracePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = searchParams.get('redirect');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState<'PRIVATE_SELLER' | 'AGENT' | 'DEVELOPER'>('PRIVATE_SELLER');
@@ -51,7 +57,7 @@ export default function RegistracePage() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, confirmPassword, role }),
+        body: JSON.stringify({ name, email, phone, password, confirmPassword, role }),
       });
       const data = (await res.json().catch(() => ({}))) as RegisterJson;
 
@@ -72,7 +78,9 @@ export default function RegistracePage() {
                 ? 'Slabé heslo — použijte alespoň 6 znaků'
                 : fe.password,
             );
-          } else if (fe.email) setError(fe.email);
+          } else if (fe.name) setError(fe.name);
+          else if (fe.phone) setError(fe.phone);
+          else if (fe.email) setError(fe.email);
           else if (fe.role) setError(fe.role);
           else setError(data.error ?? 'Zkontrolujte údaje ve formuláři');
           return;
@@ -107,6 +115,26 @@ export default function RegistracePage() {
 
       <form onSubmit={onSubmit} className="space-y-5">
         <div>
+          <label htmlFor="name" className="mb-1.5 block text-left text-sm font-semibold text-zinc-800">
+            Jméno
+          </label>
+          <input
+            id="name"
+            type="text"
+            required
+            autoComplete="name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className={inputClass}
+            placeholder="Jan Novák"
+            aria-invalid={Boolean(fieldErrors.name)}
+          />
+          {fieldErrors.name ? (
+            <p className="mt-1.5 text-sm text-red-600">{fieldErrors.name}</p>
+          ) : null}
+        </div>
+
+        <div>
           <label htmlFor="email" className="mb-1.5 block text-left text-sm font-semibold text-zinc-800">
             E-mail
           </label>
@@ -123,6 +151,26 @@ export default function RegistracePage() {
           />
           {fieldErrors.email ? (
             <p className="mt-1.5 text-sm text-red-600">{fieldErrors.email}</p>
+          ) : null}
+        </div>
+
+        <div>
+          <label htmlFor="phone" className="mb-1.5 block text-left text-sm font-semibold text-zinc-800">
+            Telefon
+          </label>
+          <input
+            id="phone"
+            type="tel"
+            required
+            autoComplete="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            className={inputClass}
+            placeholder="+420123456789"
+            aria-invalid={Boolean(fieldErrors.phone)}
+          />
+          {fieldErrors.phone ? (
+            <p className="mt-1.5 text-sm text-red-600">{fieldErrors.phone}</p>
           ) : null}
         </div>
 

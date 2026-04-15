@@ -120,6 +120,8 @@ export class AuthController {
       id: profile.id,
       email: profile.email,
       name: profile.name,
+      phone: profile.phone,
+      phonePublic: profile.phonePublic,
       role: profile.role,
       avatar: profile.avatarUrl,
       avatarCrop: profile.avatarCrop ?? null,

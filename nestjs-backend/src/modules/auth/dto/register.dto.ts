@@ -1,6 +1,8 @@
 import {
   IsEmail,
+  IsNotEmpty,
   IsOptional,
+  Matches,
   IsString,
   MaxLength,
   MinLength,
@@ -14,10 +16,18 @@ export class RegisterDto {
   @MinLength(8)
   password!: string;
 
-  @IsOptional()
   @IsString()
+  @IsNotEmpty()
+  @MinLength(2)
   @MaxLength(120)
-  name?: string;
+  name!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^\+[1-9]\d{7,14}$/, {
+    message: 'Telefon musí být ve formátu +420123456789.',
+  })
+  phone!: string;
 
   /** Free-form label or slug; mapped to Prisma UserRole in AuthService. */
   @IsOptional()

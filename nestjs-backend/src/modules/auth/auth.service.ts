@@ -485,7 +485,14 @@ export class AuthService {
       );
     }
 
-    const name = dto.name?.trim() || null;
+    const name = dto.name?.trim() || '';
+    const phone = dto.phone?.trim() || '';
+    if (!name) {
+      throw new HttpException({ error: 'Jméno je povinné' }, HttpStatus.BAD_REQUEST);
+    }
+    if (!phone) {
+      throw new HttpException({ error: 'Telefon je povinný' }, HttpStatus.BAD_REQUEST);
+    }
     const role = dto.role;
 
     console.log('REGISTER INPUT:', {
@@ -504,6 +511,8 @@ export class AuthService {
         email,
         password: hashedPassword,
         name,
+        phone,
+        phonePublic: false,
         role: mappedRole,
       });
       void this.emailsService

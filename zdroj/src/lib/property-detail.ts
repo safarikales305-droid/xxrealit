@@ -2,8 +2,9 @@ import { safeNormalizePropertyFromApi, type PropertyFeedItem } from '@/types/pro
 
 export type PropertyDetailAuthor = {
   id: string;
-  email: string;
   name?: string | null;
+  phone?: string | null;
+  phonePublic?: boolean;
   avatar?: string | null;
   role?: string;
 };
@@ -27,13 +28,13 @@ export function normalizePropertyDetailPayload(
   if (!userRaw || typeof userRaw !== 'object') return null;
   const u = userRaw as Record<string, unknown>;
   const id = typeof u.id === 'string' ? u.id : '';
-  const email = typeof u.email === 'string' ? u.email : '';
-  if (!id || !email) return null;
+  if (!id) return null;
 
   const user: PropertyDetailAuthor = {
     id,
-    email,
     name: typeof u.name === 'string' ? u.name : null,
+    phone: typeof u.phone === 'string' ? u.phone : null,
+    phonePublic: u.phonePublic === true,
     avatar: u.avatar === null || typeof u.avatar === 'string' ? u.avatar : null,
     role: typeof u.role === 'string' ? u.role : undefined,
   };

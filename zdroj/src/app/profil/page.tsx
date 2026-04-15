@@ -139,6 +139,9 @@ export default function ProfilPage() {
 
   const [bioDraft, setBioDraft] = useState('');
   const [bioEditing, setBioEditing] = useState(false);
+  const [profileNameDraft, setProfileNameDraft] = useState('');
+  const [profilePhoneDraft, setProfilePhoneDraft] = useState('');
+  const [profilePhonePublicDraft, setProfilePhonePublicDraft] = useState(false);
 
   const [agentFormOpen, setAgentFormOpen] = useState(false);
   const [agentFullName, setAgentFullName] = useState('');
@@ -234,6 +237,9 @@ export default function ProfilPage() {
     setCoverCrop(me.coverCrop ?? null);
     setNestBio(me.bio ?? null);
     setBioDraft(me.bio ?? '');
+    setProfileNameDraft((me.name ?? '').trim());
+    setProfilePhoneDraft((me.phone ?? '').trim());
+    setProfilePhonePublicDraft(Boolean(me.phonePublic));
     const visibility =
       me.role === 'AGENT'
         ? Boolean(me.isPublicBrokerProfile)
@@ -588,7 +594,12 @@ export default function ProfilPage() {
     }
     setBioError(null);
     setBioSaving(true);
-    const res = await nestPatchProfileBio(apiAccessToken, bioDraft.trim() || null);
+    const res = await nestPatchProfileBio(apiAccessToken, {
+      bio: bioDraft.trim() || null,
+      name: profileNameDraft.trim(),
+      phone: profilePhoneDraft.trim(),
+      phonePublic: profilePhonePublicDraft,
+    });
     setBioSaving(false);
     if (!res.ok) {
       setBioError(res.error ?? 'Uložení bio se nezdařilo.');
@@ -597,7 +608,17 @@ export default function ProfilPage() {
     setNestBio(res.bio ?? null);
     setBioEditing(false);
     await refresh();
-    setUser((prev) => (prev ? { ...prev, bio: res.bio ?? null } : prev));
+    setUser((prev) =>
+      prev
+        ? {
+            ...prev,
+            name: res.name ?? (profileNameDraft.trim() || prev.name),
+            phone: res.phone ?? profilePhoneDraft.trim(),
+            phonePublic: res.phonePublic ?? profilePhonePublicDraft,
+            bio: res.bio ?? null,
+          }
+        : prev,
+    );
     showSuccess('Popis „O mně“ byl uložen.');
   }
 
@@ -998,7 +1019,7 @@ export default function ProfilPage() {
                       />
                     ) : (
                       <div className="flex size-28 items-center justify-center rounded-full bg-zinc-100 text-3xl font-semibold text-zinc-500 sm:size-32">
-                        {user.email.charAt(0).toUpperCase()}
+                        {(user.name?.trim().charAt(0) || 'U').toUpperCase()}
                       </div>
                     )}
                     {avatarUploading ? (
@@ -1016,7 +1037,7 @@ export default function ProfilPage() {
                 <div className="min-w-0 text-center sm:pb-1 sm:text-left">
                   <div className="flex flex-col items-center gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                     <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
-                      {user.email}
+                      {user.name?.trim() || 'Uživatel'}
                     </h1>
                     {user.role === 'AGENT' ? (
                       <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
@@ -1126,6 +1147,35 @@ export default function ProfilPage() {
 
             {bioEditing ? (
               <div className="mt-6 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block text-sm font-semibold text-zinc-800">
+                    Veřejné jméno
+                    <input
+                      value={profileNameDraft}
+                      onChange={(e) => setProfileNameDraft(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-normal text-zinc-900 outline-none ring-orange-500/30 focus:ring-2"
+                      placeholder="Vaše jméno"
+                    />
+                  </label>
+                  <label className="block text-sm font-semibold text-zinc-800">
+                    Telefon
+                    <input
+                      value={profilePhoneDraft}
+                      onChange={(e) => setProfilePhoneDraft(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-normal text-zinc-900 outline-none ring-orange-500/30 focus:ring-2"
+                      placeholder="+420123456789"
+                    />
+                  </label>
+                </div>
+                <label className="mt-3 inline-flex cursor-pointer items-center gap-2 text-sm text-zinc-700">
+                  <input
+                    type="checkbox"
+                    checked={profilePhonePublicDraft}
+                    onChange={(e) => setProfilePhonePublicDraft(e.target.checked)}
+                    className="size-4 rounded border-zinc-300 text-orange-600 focus:ring-orange-500/50"
+                  />
+                  Zobrazit telefon veřejně
+                </label>
                 <label className="block text-sm font-semibold text-zinc-800">
                   O mně (max. {BIO_MAX} znaků)
                 </label>

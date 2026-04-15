@@ -296,9 +296,9 @@ export function Navbar({
               <>
                 <span
                   className="max-w-[160px] truncate text-xs font-medium text-zinc-600"
-                  title={user.email}
+                  title={user.name ?? 'Uživatel'}
                 >
-                  {user.email}
+                  {user.name?.trim() || 'Uživatel'}
                 </span>
                 <button
                   type="button"
@@ -409,7 +409,7 @@ export function Navbar({
                   isShortsMobileCompact ? 'text-sm max-md:text-xs' : 'text-base'
                 }`}
               >
-                {user?.email?.trim().charAt(0).toUpperCase() || 'A'}
+                {(user?.name?.trim().charAt(0) || 'U').toUpperCase()}
               </span>
             )}
           </Link>
@@ -429,7 +429,9 @@ export function Navbar({
               <p className="text-sm text-zinc-500">Načítání…</p>
             ) : isAuthenticated && user ? (
               <div className="flex flex-col gap-2">
-                <p className="truncate text-xs font-medium text-zinc-500">{user.email}</p>
+                <p className="truncate text-xs font-medium text-zinc-500">
+                  {user.name?.trim() || 'Uživatel'}
+                </p>
                 <button type="button" onClick={() => void goHome()} className={navBtn}>
                   Prohlížet nemovitosti
                 </button>
