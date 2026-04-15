@@ -81,11 +81,45 @@ export class EmailsService implements OnModuleInit {
   }
 
   private appUrl(): string {
-    const url =
-      this.config.get<string>('APP_URL')?.trim() ||
-      this.config.get<string>('NEXT_PUBLIC_APP_URL')?.trim() ||
-      'http://localhost:3000';
-    return url.replace(/\/+$/, '');
+    const appUrl = this.config.get<string>('APP_URL')?.trim() ?? '';
+    const frontendUrl = this.config.get<string>('NEXT_PUBLIC_APP_URL')?.trim() ?? '';
+    const candidate = (appUrl || frontendUrl).replace(/\/+$/, '');
+    const nodeEnv = (this.config.get<string>('NODE_ENV') ?? process.env.NODE_ENV ?? '').trim();
+    const isProduction = nodeEnv.toLowerCase() === 'production';
+    const productionFallback = 'https://www.xxrealit.cz';
+    const localhostLike = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
+
+    if (isProduction) {
+      if (!candidate) {
+        this.logger.error(
+          `APP_URL is missing in production email flow. Falling back to ${productionFallback}.`,
+        );
+        return productionFallback;
+      }
+      if (localhostLike.test(candidate)) {
+        this.logger.error(
+          `APP_URL resolves to localhost in production email flow (${candidate}). Falling back to ${productionFallback}.`,
+        );
+        return productionFallback;
+      }
+      return candidate;
+    }
+
+    return candidate || 'http://localhost:3000';
+  }
+
+  private normalizePublicUrl(url: string): string {
+    const value = String(url ?? '').trim();
+    if (!value) return this.appUrl();
+    const nodeEnv = (this.config.get<string>('NODE_ENV') ?? process.env.NODE_ENV ?? '').trim();
+    const isProduction = nodeEnv.toLowerCase() === 'production';
+    const localhostLike = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i;
+    if (isProduction && localhostLike.test(value)) {
+      const fixed = value.replace(localhostLike, this.appUrl());
+      this.logger.error(`Localhost URL detected in production email payload. Replaced with ${fixed}`);
+      return fixed;
+    }
+    return value;
   }
 
   private senderAddress(): string {
@@ -190,10 +224,26 @@ export class EmailsService implements OnModuleInit {
       throw new Error(`Email template "${input.templateKey}" not found or inactive.`);
     }
 
-    const subject = this.render(template.subject, input.variables);
-    const htmlBody = this.render(template.htmlContent, input.variables);
-    const textBody = this.render(template.textContent, input.variables);
-    const html = this.buildLayout(htmlBody, String(input.variables.ctaUrl ?? ''));
+    const normalizedVariables: Record<string, string | number | null | undefined> = {
+      ...input.variables,
+      ctaUrl:
+        typeof input.variables.ctaUrl === 'string'
+          ? this.normalizePublicUrl(input.variables.ctaUrl)
+          : input.variables.ctaUrl,
+      resetUrl:
+        typeof input.variables.resetUrl === 'string'
+          ? this.normalizePublicUrl(input.variables.resetUrl)
+          : input.variables.resetUrl,
+      listingUrl:
+        typeof input.variables.listingUrl === 'string'
+          ? this.normalizePublicUrl(input.variables.listingUrl)
+          : input.variables.listingUrl,
+    };
+
+    const subject = this.render(template.subject, normalizedVariables);
+    const htmlBody = this.render(template.htmlContent, normalizedVariables);
+    const textBody = this.render(template.textContent, normalizedVariables);
+    const html = this.buildLayout(htmlBody, String(normalizedVariables.ctaUrl ?? ''));
 
     const payloadJson =
       input.metadata == null
@@ -273,15 +323,16 @@ export class EmailsService implements OnModuleInit {
   }
 
   async sendPasswordResetEmail(input: { email: string; resetUrl: string }) {
+    const safeResetUrl = this.normalizePublicUrl(input.resetUrl);
     return this.sendTemplatedEmail({
       type: 'password_reset',
       templateKey: 'password_reset',
       to: input.email,
       variables: {
-        resetUrl: input.resetUrl,
-        ctaUrl: input.resetUrl,
+        resetUrl: safeResetUrl,
+        ctaUrl: safeResetUrl,
       },
-      metadata: { resetUrl: input.resetUrl },
+      metadata: { resetUrl: safeResetUrl },
     });
   }
 
@@ -322,8 +373,14 @@ export class EmailsService implements OnModuleInit {
     if (!property) {
       throw new Error('Inzerát nebyl nalezen.');
     }
-    const listingUrl = `${this.appUrl()}/nemovitost/${encodeURIComponent(property.id)}`;
-    const imageUrl = property.images?.[0] ? `${this.appUrl()}${property.images[0].startsWith('/') ? '' : '/'}${property.images[0]}` : '';
+    const listingUrl = this.normalizePublicUrl(
+      `${this.appUrl()}/nemovitost/${encodeURIComponent(property.id)}`,
+    );
+    const imageUrl = property.images?.[0]
+      ? this.normalizePublicUrl(
+          `${this.appUrl()}${property.images[0].startsWith('/') ? '' : '/'}${property.images[0]}`,
+        )
+      : '';
     const senderMessage = (input.senderMessage ?? '').trim();
     const paramsLine = [
       property.propertyType,
