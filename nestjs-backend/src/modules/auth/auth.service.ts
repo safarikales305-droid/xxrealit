@@ -8,10 +8,11 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
 import { UserRole } from '@prisma/client';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { Resend } from 'resend';
 import { PrismaService } from '../../database/prisma.service';
 import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
+import { EmailsService } from '../emails/emails.service';
 import { UsersService } from '../users/users.service';
 type TokenUserShape = {
   id: string;
@@ -157,6 +158,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly emailsService: EmailsService,
   ) {}
 
   private resendFromAddress(): string {
@@ -334,47 +336,17 @@ export class AuthService {
         `Reset URL prepared for userId=${user.id} appOrigin=${this.appOrigin()} to=${user.email}`,
       );
 
-      if (!process.env.RESEND_API_KEY?.trim()) {
-        throw new Error('Missing RESEND_API_KEY');
-      }
-      const resend = new Resend(process.env.RESEND_API_KEY);
-
-      let response: Awaited<ReturnType<typeof resend.emails.send>>;
       try {
-        response = await resend.emails.send({
-          from: 'xxrealit <reset@mail.xxrealit.cz>',
-          to: user.email,
-          subject: 'Obnova hesla',
-          html: `     <p>Klikni na odkaz pro obnovu hesla:</p>     <a href="${url}">${url}</a>  `,
-          text: `Klikni na odkaz pro obnovu hesla: ${url}`,
+        await this.emailsService.sendPasswordResetEmail({
+          email: user.email,
+          resetUrl: url,
         });
-        console.log('EMAIL SENT:', response);
+        this.logger.log(`Password reset email queued/sent via template for userId=${user.id}`);
       } catch (err: unknown) {
         this.logResendError('RESEND ERROR', err);
         return {
           success: false,
           error: `E-mail se nepodařilo odeslat (${this.resendErrorMessage(err)}).`,
-        };
-      }
-
-      this.logger.log(
-        `Resend send result: id=${response.data?.id ?? 'n/a'} error=${Boolean(response.error)}`,
-      );
-
-      if (response.error) {
-        const statusCode =
-          typeof response.error === 'object' &&
-          response.error &&
-          'statusCode' in response.error
-            ? String((response.error as { statusCode?: unknown }).statusCode ?? '')
-            : 'unknown';
-        this.logger.error(
-          `Resend rejected password reset email. status=${statusCode} message=${this.resendErrorMessage(response.error)}`,
-        );
-        this.logResendError('Resend rejected password reset email', response.error);
-        return {
-          success: false,
-          error: `E-mail se nepodařilo odeslat (${this.resendErrorMessage(response.error)}).`,
         };
       }
 
@@ -421,7 +393,7 @@ export class AuthService {
         return { success: false, error: 'Hesla se neshodují.' };
       }
 
-      const tokenHash = require('node:crypto').createHash('sha256').update(token, 'utf8').digest('hex');
+      const tokenHash = createHash('sha256').update(token, 'utf8').digest('hex');
       const now = new Date();
       const user = await this.prisma.user.findFirst({
         where: {
@@ -529,6 +501,13 @@ export class AuthService {
         name,
         role: mappedRole,
       });
+      void this.emailsService
+        .sendWelcomeEmail({ email: user.email, name: user.name ?? undefined })
+        .catch((error: unknown) => {
+          this.logger.warn(
+            `Welcome email failed for userId=${user.id}: ${this.resendErrorMessage(error)}`,
+          );
+        });
 
       return this.issueTokens(user);
     } catch (err: any) {

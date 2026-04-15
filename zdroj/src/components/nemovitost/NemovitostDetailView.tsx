@@ -8,7 +8,11 @@ import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
-import { nestSubmitOwnerLeadOffer, nestToggleFavorite } from '@/lib/nest-client';
+import {
+  nestShareListingByEmail,
+  nestSubmitOwnerLeadOffer,
+  nestToggleFavorite,
+} from '@/lib/nest-client';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import type { PropertyDetailAuthor } from '@/lib/property-detail';
 import type { PropertyFeedItem } from '@/types/property';
@@ -81,11 +85,24 @@ export function NemovitostDetailView({
   const [ownerLeadText, setOwnerLeadText] = useState('');
   const [ownerLeadBusy, setOwnerLeadBusy] = useState(false);
   const [ownerLeadErr, setOwnerLeadErr] = useState<string | null>(null);
+  const [shareEmailOpen, setShareEmailOpen] = useState(false);
+  const [shareRecipientEmail, setShareRecipientEmail] = useState('');
+  const [shareRecipientName, setShareRecipientName] = useState('');
+  const [shareSenderName, setShareSenderName] = useState(user?.name ?? '');
+  const [shareSenderEmail, setShareSenderEmail] = useState(user?.email ?? '');
+  const [shareSenderMessage, setShareSenderMessage] = useState('');
+  const [shareEmailBusy, setShareEmailBusy] = useState(false);
+  const [shareEmailMsg, setShareEmailMsg] = useState<string | null>(null);
   const active = media[activeIndex] ?? media[0];
 
   useEffect(() => {
     setLiked(Boolean(p.liked));
   }, [p.id, p.liked]);
+
+  useEffect(() => {
+    setShareSenderName(user?.name ?? '');
+    setShareSenderEmail(user?.email ?? '');
+  }, [user?.email, user?.name]);
 
   const paramLines = useMemo(() => {
     const lines: string[] = [];
@@ -188,6 +205,26 @@ export function NemovitostDetailView({
       setLikeBusy(false);
       if (r.ok && typeof r.favorited === 'boolean') setLiked(r.favorited);
     });
+  }
+
+  async function handleShareByEmail() {
+    setShareEmailMsg(null);
+    const recipientEmail = shareRecipientEmail.trim().toLowerCase();
+    if (!recipientEmail) {
+      setShareEmailMsg('Zadejte e-mail příjemce.');
+      return;
+    }
+    setShareEmailBusy(true);
+    const result = await nestShareListingByEmail({
+      propertyId,
+      recipientEmail,
+      recipientName: shareRecipientName.trim() || undefined,
+      senderName: shareSenderName.trim() || undefined,
+      senderEmail: shareSenderEmail.trim() || undefined,
+      senderMessage: shareSenderMessage.trim() || undefined,
+    });
+    setShareEmailBusy(false);
+    setShareEmailMsg(result.ok ? result.message ?? 'E-mail byl odeslán.' : result.error ?? 'Odeslání selhalo.');
   }
 
   const favoriteBtnClass =
@@ -345,6 +382,13 @@ export function NemovitostDetailView({
                       variant="lightRail"
                       label="Sdílet"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShareEmailOpen(true)}
+                      className="rounded-full border-2 border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:border-orange-400 hover:text-orange-700"
+                    >
+                      Sdílet e-mailem
+                    </button>
                   </div>
                 </div>
               </div>
@@ -527,6 +571,73 @@ export function NemovitostDetailView({
                 className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-110 disabled:opacity-50"
               >
                 {ownerLeadBusy ? 'Odesílám…' : 'Odeslat nabídku'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {shareEmailOpen ? (
+        <div
+          className="fixed inset-0 z-[210] flex items-end justify-center bg-black/50 p-4 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-xl rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl">
+            <h2 className="text-lg font-semibold text-zinc-900">Sdílet inzerát e-mailem</h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <input
+                type="email"
+                value={shareRecipientEmail}
+                onChange={(e) => setShareRecipientEmail(e.target.value)}
+                className="rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                placeholder="E-mail příjemce *"
+              />
+              <input
+                type="text"
+                value={shareRecipientName}
+                onChange={(e) => setShareRecipientName(e.target.value)}
+                className="rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                placeholder="Jméno příjemce (volitelné)"
+              />
+              <input
+                type="text"
+                value={shareSenderName}
+                onChange={(e) => setShareSenderName(e.target.value)}
+                className="rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                placeholder="Vaše jméno (volitelné)"
+              />
+              <input
+                type="email"
+                value={shareSenderEmail}
+                onChange={(e) => setShareSenderEmail(e.target.value)}
+                className="rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                placeholder="Váš e-mail (volitelné)"
+              />
+            </div>
+            <textarea
+              value={shareSenderMessage}
+              onChange={(e) => setShareSenderMessage(e.target.value)}
+              rows={4}
+              className="mt-3 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+              placeholder="Osobní zpráva (volitelné)"
+            />
+            {shareEmailMsg ? <p className="mt-3 text-sm text-zinc-700">{shareEmailMsg}</p> : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShareEmailOpen(false)}
+                className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700"
+              >
+                Zavřít
+              </button>
+              <button
+                type="button"
+                disabled={shareEmailBusy}
+                onClick={() => void handleShareByEmail()}
+                className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2 text-sm font-bold text-white disabled:opacity-50"
+              >
+                {shareEmailBusy ? 'Odesílám…' : 'Odeslat'}
               </button>
             </div>
           </div>

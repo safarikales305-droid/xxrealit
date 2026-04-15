@@ -20,6 +20,7 @@ import { PremiumBrokerModule } from './modules/premium-broker/premium-broker.mod
 import { BrokersModule } from './modules/brokers/brokers.module';
 import { AgentProfileModule } from './modules/agent-profile/agent-profile.module';
 import { CompanyAdsModule } from './modules/company-ads/company-ads.module';
+import { EmailsModule } from './modules/emails/emails.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { CompanyAdsModule } from './modules/company-ads/company-ads.module';
     BrokersModule,
     AgentProfileModule,
     CompanyAdsModule,
+    EmailsModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

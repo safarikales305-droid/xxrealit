@@ -3251,6 +3251,200 @@ export async function nestCreateListingPost(
   return { ok: true, post: data.post };
 }
 
+export type NestEmailLogRow = {
+  id: string;
+  type: string;
+  templateKey?: string | null;
+  subject: string;
+  recipientEmail: string;
+  senderEmail?: string | null;
+  senderName?: string | null;
+  status: 'queued' | 'sent' | 'failed';
+  provider?: string;
+  providerMessageId?: string | null;
+  errorMessage?: string | null;
+  createdAt: string;
+  sentAt?: string | null;
+};
+
+export type NestEmailTemplateRow = {
+  id: string;
+  key: string;
+  name: string;
+  subject: string;
+  htmlContent: string;
+  textContent: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NestEmailCampaignRow = {
+  id: string;
+  type: string;
+  title: string;
+  subject: string;
+  templateKey?: string | null;
+  htmlContent: string;
+  status: 'draft' | 'scheduled' | 'sent' | 'failed';
+  createdAt: string;
+  scheduledAt?: string | null;
+  sentAt?: string | null;
+};
+
+export async function nestShareListingByEmail(input: {
+  propertyId: string;
+  recipientEmail: string;
+  recipientName?: string;
+  senderName?: string;
+  senderEmail?: string;
+  senderMessage?: string;
+}): Promise<{ ok: boolean; error?: string; message?: string }> {
+  if (!API_BASE_URL) return { ok: false, error: 'API není nakonfigurováno' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/emails/share-listing`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      success?: boolean;
+      error?: string;
+      message?: string;
+    };
+    if (!res.ok || data.success === false) {
+      return { ok: false, error: data.error ?? data.message ?? `HTTP ${res.status}` };
+    }
+    return { ok: true, message: data.message ?? 'E-mail byl odeslán.' };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestAdminEmailLogs(
+  token: string | null,
+): Promise<NestEmailLogRow[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/admin/emails/logs`, {
+      cache: 'no-store',
+      headers: nestAuthHeaders(token),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as unknown;
+    return Array.isArray(data) ? (data as NestEmailLogRow[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestAdminEmailTemplates(
+  token: string | null,
+): Promise<NestEmailTemplateRow[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/admin/emails/templates`, {
+      cache: 'no-store',
+      headers: nestAuthHeaders(token),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as unknown;
+    return Array.isArray(data) ? (data as NestEmailTemplateRow[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestAdminUpdateEmailTemplate(
+  token: string | null,
+  id: string,
+  body: Partial<Pick<NestEmailTemplateRow, 'subject' | 'htmlContent' | 'textContent' | 'isActive' | 'name'>>,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/admin/emails/templates/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { ...nestAuthHeaders(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) return { ok: false, error: nestErrorMessage(data, `HTTP ${res.status}`) };
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestAdminSendTemplateTest(
+  token: string | null,
+  id: string,
+  toEmail: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/admin/emails/templates/${encodeURIComponent(id)}/test`,
+      {
+        method: 'POST',
+        headers: { ...nestAuthHeaders(token), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ toEmail }),
+      },
+    );
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok || data.success === false) {
+      return { ok: false, error: nestErrorMessage(data, `HTTP ${res.status}`) };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestAdminEmailCampaigns(
+  token: string | null,
+): Promise<NestEmailCampaignRow[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/admin/emails/campaigns`, {
+      cache: 'no-store',
+      headers: nestAuthHeaders(token),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as unknown;
+    return Array.isArray(data) ? (data as NestEmailCampaignRow[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestAdminCreateEmailCampaign(
+  token: string | null,
+  body: {
+    type: string;
+    title: string;
+    subject: string;
+    templateKey?: string;
+    htmlContent: string;
+    scheduledAt?: string;
+  },
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/admin/emails/campaigns`, {
+      method: 'POST',
+      headers: { ...nestAuthHeaders(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok || data.success === false) {
+      return { ok: false, error: nestErrorMessage(data, `HTTP ${res.status}`) };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
 export async function nestFetchPostDetail(postId: string): Promise<ListingPost | null> {
   if (!API_BASE_URL) return null;
   const res = await fetch(`${postsApiBase()}/posts/${encodeURIComponent(postId)}`, {

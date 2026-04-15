@@ -48,6 +48,19 @@ enum ShortsVideoRenderStatus {
   failed
 }
 
+enum EmailLogStatus {
+  queued
+  sent
+  failed
+}
+
+enum EmailCampaignStatus {
+  draft
+  scheduled
+  sent
+  failed
+}
+
 model User {
   id           String     @id @default(uuid())
   email        String     @unique
@@ -192,6 +205,56 @@ model CompanyAd {
 
   @@index([companyId, isActive])
   @@index([isActive, updatedAt])
+}
+
+model EmailLog {
+  id                String         @id @default(cuid())
+  type              String
+  templateKey       String?
+  subject           String
+  recipientEmail    String
+  senderEmail       String?
+  senderName        String?
+  status            EmailLogStatus @default(queued)
+  provider          String         @default("resend")
+  providerMessageId String?
+  errorMessage      String?
+  payloadJson       Json?
+  createdAt         DateTime       @default(now())
+  sentAt            DateTime?
+
+  @@index([type, createdAt])
+  @@index([status, createdAt])
+  @@index([recipientEmail, createdAt])
+}
+
+model EmailTemplate {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  subject     String
+  htmlContent String   @db.Text
+  textContent String   @db.Text
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model EmailCampaign {
+  id          String              @id @default(cuid())
+  type        String
+  title       String
+  subject     String
+  templateKey String?
+  htmlContent String              @db.Text
+  status      EmailCampaignStatus @default(draft)
+  audienceJson Json?
+  createdAt   DateTime            @default(now())
+  scheduledAt DateTime?
+  sentAt      DateTime?
+
+  @@index([status, createdAt])
+  @@index([type, createdAt])
 }
 
 model AgencyProfile {
