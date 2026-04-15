@@ -28,27 +28,52 @@ export async function POST(req: Request) {
 
     const parsed = bodySchema.safeParse(json);
     if (!parsed.success) {
+      console.warn('[reset-password] validation failed');
       return NextResponse.json(
         { error: 'Validace selhala', details: parsed.error.flatten() },
         { status: 400 },
       );
     }
 
-    const tokenHash = hashResetToken(parsed.data.token);
+    const rawToken = parsed.data.token.trim();
+    const tokenHash = hashResetToken(rawToken);
+    console.log(
+      `[reset-password] token received; rawLength=${rawToken.length} hashLength=${tokenHash.length}`,
+    );
 
+    // Backward compatibility:
+    // - current backend reset-request stores raw token in DB
+    // - older versions may store hashed token
     const user = await prisma.user.findFirst({
       where: {
-        resetToken: tokenHash,
+        OR: [{ resetToken: rawToken }, { resetToken: tokenHash }],
         resetExpires: { gt: new Date() },
       },
+      select: { id: true, email: true, resetExpires: true },
     });
 
     if (!user) {
+      const tokenExistsWithoutExpiryCheck = await prisma.user.findFirst({
+        where: { OR: [{ resetToken: rawToken }, { resetToken: tokenHash }] },
+        select: { id: true, resetExpires: true },
+      });
+      if (!tokenExistsWithoutExpiryCheck) {
+        console.warn('[reset-password] rejected: token not found');
+      } else {
+        console.warn(
+          `[reset-password] rejected: token expired; userId=${tokenExistsWithoutExpiryCheck.id} expiresAt=${tokenExistsWithoutExpiryCheck.resetExpires?.toISOString() ?? 'null'}`,
+        );
+      }
       return NextResponse.json(
-        { error: 'Neplatný nebo expirovaný odkaz' },
+        {
+          error: tokenExistsWithoutExpiryCheck
+            ? 'Reset odkaz vypršel. Požádejte o nový.'
+            : 'Neplatný reset odkaz.',
+        },
         { status: 400 },
       );
     }
+    console.log(`[reset-password] token matched userId=${user.id} email=${user.email}`);
 
     const hashed = await hashPassword(parsed.data.password);
 
@@ -60,10 +85,14 @@ export async function POST(req: Request) {
         resetExpires: null,
       },
     });
+    console.log(`[reset-password] password updated and token invalidated for userId=${user.id}`);
 
     return NextResponse.json({ success: true });
   } catch (e) {
     console.error('[reset-password]', e);
-    return NextResponse.json({ error: 'Obnova hesla se nezdařila' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Obnova hesla se nezdařila kvůli chybě serveru.' },
+      { status: 500 },
+    );
   }
 }
