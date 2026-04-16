@@ -1,10 +1,12 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import {
+  nestCreateShortsFromClassic,
   nestDeleteMyProperty,
   nestFetchMyListings,
   nestTopMyProperty,
@@ -12,11 +14,13 @@ import {
 } from '@/lib/nest-client';
 
 export default function MojeInzeratyPage() {
+  const router = useRouter();
   const { apiAccessToken, isAuthenticated, isLoading } = useAuth();
   const [items, setItems] = useState<NestMyListingRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [shortsCreatingId, setShortsCreatingId] = useState<string | null>(null);
 
   const hasAuth = Boolean(isAuthenticated && apiAccessToken);
 
@@ -166,6 +170,63 @@ export default function MojeInzeratyPage() {
                         Smazat
                       </button>
                     </div>
+                    {item.listingType === 'CLASSIC' ? (
+                      <div className="mt-3 rounded-xl border border-orange-100 bg-orange-50/60 px-3 py-2.5 text-xs">
+                        {item.shortsVariant ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-orange-950">Shorts už existuje</span>
+                            <Link
+                              href={`/inzerat/upravit/${item.shortsVariant.id}`}
+                              className="rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-orange-900 hover:bg-orange-50"
+                            >
+                              Upravit shorts
+                            </Link>
+                          </div>
+                        ) : item.shortsDraft ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-orange-950">Koncept shorts je připraven</span>
+                            <Link
+                              href={`/inzerat/shorts-editor/${item.shortsDraft.id}`}
+                              className="rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-orange-900 hover:bg-orange-50"
+                            >
+                              Otevřít editor (fotky + hudba)
+                            </Link>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-zinc-700">
+                              Převod klasického inzerátu na Shorts vytvoří koncept, kde upravíte fotky, video i hudbu.
+                            </p>
+                            <button
+                              type="button"
+                              disabled={!apiAccessToken || shortsCreatingId === item.id}
+                              className="mt-2 rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-1.5 text-xs font-bold text-white shadow-sm disabled:opacity-50"
+                              onClick={() => {
+                                if (!apiAccessToken) return;
+                                if (
+                                  !window.confirm(
+                                    'Vytvoří se Shorts koncept s fotkami z tohoto inzerátu. V editoru pak můžete upravit pořadí i přidat hudbu.',
+                                  )
+                                ) {
+                                  return;
+                                }
+                                setShortsCreatingId(item.id);
+                                void nestCreateShortsFromClassic(apiAccessToken, item.id).then((r) => {
+                                  setShortsCreatingId(null);
+                                  if (!r.ok || !r.shortsListingId) {
+                                    setError(r.error ?? 'Nepodařilo se vytvořit shorts koncept.');
+                                    return;
+                                  }
+                                  router.push(`/inzerat/shorts-editor/${r.shortsListingId}`);
+                                });
+                              }}
+                            >
+                              {shortsCreatingId === item.id ? 'Vytvářím koncept…' : 'Převést na Shorts'}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 </article>
               );

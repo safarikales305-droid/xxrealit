@@ -16,9 +16,6 @@ import {
   nestDeleteShortsListing,
   nestFetchFavorites,
   nestFetchMe,
-  nestCreateShortsFromClassic,
-  nestFetchMyShortsDrafts,
-  nestFetchMyListings,
   nestFetchProfileWall,
   nestListNotifications,
   nestMarkNotificationRead,
@@ -29,7 +26,6 @@ import {
   nestPatchProfileVisibility,
   nestPatchProfessionalVisibility,
   nestListMyCompanyAds,
-  nestPatchMyProperty,
   nestPatchProfileBio,
   nestCreateStory,
   nestSubmitAgentProfileRequest,
@@ -43,11 +39,9 @@ import {
   nestUpdateMyPost,
   NEST_PROFILE_IMAGE_MAX_BYTES,
   type NestMeProfile,
-  type NestMyListingRow,
   type NestProfileWallPost,
   type NestProfileWallVideo,
   type NestCompanyAdRow,
-  type NestShortsListingDraft,
   type UserNotificationRow,
 } from '@/lib/nest-client';
 import {
@@ -68,15 +62,6 @@ import { ProfessionalOnlyDialog } from '@/components/auth/ProfessionalListingRes
 
 const BIO_MAX = 500;
 const ACCEPT_IMAGES = 'image/jpeg,image/jpg,image/png,image/webp';
-
-const LISTING_STATUS_LABEL: Record<string, string> = {
-  ACTIVE: 'Aktivní',
-  INACTIVE: 'Neaktivní',
-  EXPIRED: 'Expirovaný',
-  SCHEDULED: 'Naplánováno',
-  PENDING_APPROVAL: 'Čeká na schválení',
-  DELETED: 'Smazáno',
-};
 
 function assertImageFile(file: File): string | null {
   const okMime = ['image/jpeg', 'image/png', 'image/webp'].includes(file.type);
@@ -104,9 +89,6 @@ export default function ProfilPage() {
   const [favorites, setFavorites] = useState<PropertyFeedItem[]>([]);
   const [favLoading, setFavLoading] = useState(false);
   const [favError, setFavError] = useState<string | null>(null);
-  const [myListings, setMyListings] = useState<NestMyListingRow[]>([]);
-  const [listingsLoading, setListingsLoading] = useState(false);
-  const [listingsError, setListingsError] = useState<string | null>(null);
   const [wallLoading, setWallLoading] = useState(false);
   const [wallPosts, setWallPosts] = useState<NestProfileWallPost[]>([]);
   const [wallVideos, setWallVideos] = useState<NestProfileWallVideo[]>([]);
@@ -122,8 +104,6 @@ export default function ProfilPage() {
   const [brokerEmailPub, setBrokerEmailPub] = useState('');
   const [brokerFieldsSaving, setBrokerFieldsSaving] = useState(false);
   const [brokerFieldsError, setBrokerFieldsError] = useState<string | null>(null);
-  const [shortsCreatingId, setShortsCreatingId] = useState<string | null>(null);
-  const [shortsDrafts, setShortsDrafts] = useState<NestShortsListingDraft[]>([]);
 
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [coverUploading, setCoverUploading] = useState(false);
@@ -341,27 +321,6 @@ export default function ProfilPage() {
     setBrokerEmailPub(nestMe.brokerEmailPublic ?? '');
   }, [nestMe, user?.role]);
 
-  const loadMyListings = useCallback(async () => {
-    if (!apiAccessToken) {
-      setMyListings([]);
-      return;
-    }
-    setListingsLoading(true);
-    setListingsError(null);
-    const rows = await nestFetchMyListings(apiAccessToken);
-    setListingsLoading(false);
-    if (!rows) {
-      setListingsError('Inzeráty se nepodařilo načíst.');
-      setMyListings([]);
-      return;
-    }
-    setMyListings(rows);
-  }, [apiAccessToken]);
-
-  useEffect(() => {
-    void loadMyListings();
-  }, [loadMyListings]);
-
   useEffect(() => {
     if (
       !user?.id ||
@@ -378,19 +337,6 @@ export default function ProfilPage() {
       setWallVideos(rows?.videos ?? []);
     });
   }, [user?.id, user?.role, apiAccessToken]);
-
-  const loadShortsDrafts = useCallback(async () => {
-    if (!apiAccessToken) {
-      setShortsDrafts([]);
-      return;
-    }
-    const d = await nestFetchMyShortsDrafts(apiAccessToken);
-    setShortsDrafts(d ?? []);
-  }, [apiAccessToken]);
-
-  useEffect(() => {
-    void loadShortsDrafts();
-  }, [loadShortsDrafts]);
 
   /** Po návratu na stránku: pokud Nest /users/me nestihl, použij avatar z auth session. */
   useEffect(() => {
@@ -1642,74 +1588,7 @@ export default function ProfilPage() {
           </section>
         ) : null}
 
-        <section id="prispevky-profilu" className="order-20 mt-10 -mx-4 rounded-none border-y border-zinc-200 bg-white p-2 shadow-sm sm:mx-0 sm:rounded-2xl sm:border sm:p-5">
-          <h2 className="text-lg font-semibold text-zinc-900">Shorts koncepty</h2>
-          <p className="mt-1 text-sm text-zinc-600">
-            Koncepty zůstávají mimo feed, dokud je v editoru nezveřejníte.
-          </p>
-          {!apiAccessToken ? (
-            <p className="mt-4 text-sm text-amber-800">
-              Pro seznam konceptů je potřeba přihlášení s JWT k Nest API.
-            </p>
-          ) : shortsDrafts.length === 0 ? (
-            <p className="mt-4 text-sm text-zinc-600">
-              Zatím nemáte žádný rozpracovaný shorts koncept. Vytvoříte ho tlačítkem „Převést na
-              Shorts“ u klasického inzerátu níže.
-            </p>
-          ) : (
-            <ul className="mt-4 space-y-3">
-              {shortsDrafts.map((d) => {
-                const st =
-                  d.status === 'ready'
-                    ? 'Připraveno (náhled / publikace)'
-                    : d.status === 'draft'
-                      ? 'Koncept'
-                      : d.status;
-                const thumb =
-                  d.coverImage?.trim() &&
-                  (/^https?:\/\//i.test(d.coverImage)
-                    ? d.coverImage
-                    : nestAbsoluteAssetUrl(d.coverImage) || d.coverImage);
-                return (
-                  <li
-                    key={d.id}
-                    className="flex flex-col gap-3 rounded-xl border border-zinc-100 bg-zinc-50/60 p-4 sm:flex-row sm:items-center"
-                  >
-                    <div className="relative h-24 w-full shrink-0 overflow-hidden rounded-lg bg-zinc-200 sm:h-20 sm:w-32">
-                      {thumb ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={thumb} alt="" className="size-full object-cover" />
-                      ) : (
-                        <div className="flex size-full items-center justify-center text-xs text-zinc-500">
-                          Bez náhledu
-                        </div>
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-zinc-900">{d.title || 'Bez názvu'}</p>
-                      <p className="text-xs text-zinc-600">{st}</p>
-                      <p className="mt-1 truncate text-xs text-zinc-500">
-                        Zdroj:{' '}
-                        <Link
-                          href={`/nemovitost/${d.sourceListingId}`}
-                          className="font-medium text-[#e85d00] hover:underline"
-                        >
-                          klasický inzerát
-                        </Link>
-                      </p>
-                    </div>
-                    <Link
-                      href={`/inzerat/shorts-editor/${d.id}`}
-                      className="inline-flex shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2 text-sm font-bold text-white shadow-sm"
-                    >
-                      Editor
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
+        
 
         <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <h2 className="text-lg font-semibold text-zinc-900">Příspěvky</h2>
@@ -1864,301 +1743,7 @@ export default function ProfilPage() {
           )}
         </section>
 
-        <section id="moje-inzeraty" className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-lg font-semibold text-zinc-900">Vlastní inzeráty</h2>
-            {canCreateProfessionalListingsAndPosts(user.role) ? (
-              <Link
-                href="/inzerat/pridat"
-                className="inline-flex w-full shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-3 text-sm font-bold text-white shadow-md transition hover:brightness-105 sm:w-auto sm:px-8"
-              >
-                Vytvořit inzerát
-              </Link>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setProfessionalListingDialogOpen(true)}
-                className="inline-flex w-full shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-3 text-sm font-bold text-white shadow-md transition hover:brightness-105 sm:w-auto sm:px-8"
-              >
-                Vytvořit inzerát
-              </button>
-            )}
-          </div>
-          <p className="mt-1 text-sm text-zinc-600">
-            Samostatný katalog vašich realitních nabídek (prodej, pronájem, klasické i shorts inzeráty).
-          </p>
-          {!apiAccessToken ? (
-            <p className="mt-4 text-sm text-amber-800">
-              Pro seznam inzerátů je potřeba přihlášení s JWT k Nest API.
-            </p>
-          ) : listingsLoading ? (
-            <p className="mt-4 text-sm text-zinc-500">Načítám inzeráty…</p>
-          ) : listingsError ? (
-            <p className="mt-4 text-sm text-red-600">{listingsError}</p>
-          ) : myListings.length === 0 ? (
-            <p className="mt-4 text-sm text-zinc-600">
-              Zatím nemáte žádný inzerát. Vytvořte první pomocí tlačítka výše.
-            </p>
-          ) : (
-            <ul className="mt-5 space-y-4">
-              {myListings.map((row) => {
-                const statusLabel =
-                  LISTING_STATUS_LABEL[row.dashboardStatus] ?? row.dashboardStatus;
-                const typeLabel = row.listingType === 'SHORTS' ? 'Shorts' : 'Klasik';
-                const cover = row.coverUrl?.trim() ?? null;
-                const isVideoish =
-                  row.listingType === 'SHORTS' ||
-                  Boolean(cover && /\.(mp4|webm|mov)(\?|$)/i.test(cover));
-                return (
-                  <li
-                    key={row.id}
-                    className="flex flex-col gap-3 rounded-xl border border-zinc-100 bg-zinc-50/60 p-4 sm:flex-row sm:items-stretch"
-                  >
-                    <div className="relative h-28 w-full shrink-0 overflow-hidden rounded-lg bg-zinc-200 sm:h-auto sm:w-40">
-                      {cover && !isVideoish ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={
-                            /^https?:\/\//i.test(cover)
-                              ? cover
-                              : nestAbsoluteAssetUrl(cover) || cover
-                          }
-                          alt=""
-                          className="size-full object-cover"
-                        />
-                      ) : cover && isVideoish ? (
-                        <div className="flex size-full items-center justify-center bg-zinc-800 text-3xl text-white">
-                          ▶
-                        </div>
-                      ) : (
-                        <div className="flex size-full items-center justify-center text-xs text-zinc-500">
-                          Bez náhledu
-                        </div>
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-zinc-900">{row.title}</p>
-                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-600">
-                        <span>
-                          Typ: <strong className="text-zinc-800">{typeLabel}</strong>
-                        </span>
-                        <span>
-                          Cena:{' '}
-                          <strong className="text-zinc-800">
-                            {row.price.toLocaleString('cs-CZ')} {row.currency}
-                          </strong>
-                        </span>
-                        <span>
-                          Lokalita:{' '}
-                          <strong className="text-zinc-800">
-                            {row.city}
-                            {row.region ? ` · ${row.region}` : ''}
-                          </strong>
-                        </span>
-                        <span>
-                          Stav: <strong className="text-zinc-800">{statusLabel}</strong>
-                        </span>
-                        <span>
-                          Vytvořeno:{' '}
-                          <strong className="text-zinc-800">
-                            {new Date(row.createdAt).toLocaleDateString('cs-CZ')}
-                          </strong>
-                        </span>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Link
-                          href={
-                            row.listingType === 'SHORTS' && row.shortsListingId
-                              ? `/inzerat/shorts-editor/${row.shortsListingId}`
-                              : `/inzerat/upravit/${row.id}`
-                          }
-                          className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                        >
-                          {row.listingType === 'SHORTS' ? 'Upravit shorts' : 'Upravit'}
-                        </Link>
-                        <Link
-                          href={`/nemovitost/${row.id}`}
-                          className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                        >
-                          Zobrazit
-                        </Link>
-                        {row.dashboardStatus === 'ACTIVE' ||
-                        row.dashboardStatus === 'SCHEDULED' ? (
-                          <button
-                            type="button"
-                            className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100"
-                            onClick={() => {
-                              if (!apiAccessToken) return;
-                              void nestPatchMyProperty(apiAccessToken, row.id, {
-                                isActive: false,
-                              }).then((r) => {
-                                if (r.ok) void loadMyListings();
-                                else window.alert(r.error ?? 'Nepodařilo se deaktivovat.');
-                              });
-                            }}
-                          >
-                            Deaktivovat
-                          </button>
-                        ) : row.dashboardStatus === 'INACTIVE' ? (
-                          <button
-                            type="button"
-                            className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
-                            onClick={() => {
-                              if (!apiAccessToken) return;
-                              void nestPatchMyProperty(apiAccessToken, row.id, {
-                                isActive: true,
-                              }).then((r) => {
-                                if (r.ok) void loadMyListings();
-                                else window.alert(r.error ?? 'Nepodařilo se aktivovat.');
-                              });
-                            }}
-                          >
-                            Aktivovat
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="rounded-full border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
-                          onClick={() => {
-                            if (!apiAccessToken) return;
-                            const isShorts = row.listingType === 'SHORTS';
-                            const msg = isShorts
-                              ? row.shortsListingId
-                                ? 'Smazat tento shorts inzerát? Zmizí z profilu i z veřejného shorts feedu.'
-                                : 'Smazat tento shorts inzerát? (starší záznam bez editoru — smaže se veřejný inzerát.)'
-                              : 'Opravdu chcete inzerát smazat? Bude skrytý a nepůjde ho obnovit bez administrátora.';
-                            if (!window.confirm(msg)) return;
-                            if (isShorts && row.shortsListingId) {
-                              void nestDeleteShortsListing(apiAccessToken, row.shortsListingId).then(
-                                (r) => {
-                                  if (r.ok) {
-                                    void loadMyListings();
-                                    void loadShortsDrafts();
-                                  } else window.alert(r.error ?? 'Smazání shorts se nezdařilo.');
-                                },
-                              );
-                              return;
-                            }
-                            void nestDeleteMyProperty(apiAccessToken, row.id).then((r) => {
-                              if (r.ok) {
-                                void loadMyListings();
-                                void loadShortsDrafts();
-                              } else window.alert(r.error ?? 'Smazání se nezdařilo.');
-                            });
-                          }}
-                        >
-                          Smazat
-                        </button>
-                      </div>
-                      {row.listingType === 'CLASSIC' ? (
-                        <div className="mt-3 rounded-xl border border-orange-100 bg-orange-50/60 px-3 py-2.5 text-xs">
-                          {row.shortsVariant ? (
-                            <>
-                              <p className="font-semibold text-orange-950">
-                                Shorts:{' '}
-                                <span className="font-normal text-zinc-800">
-                                  {LISTING_STATUS_LABEL[row.shortsVariant.dashboardStatus] ??
-                                    row.shortsVariant.dashboardStatus}
-                                </span>
-                                {row.shortsVariant.dashboardStatus === 'ACTIVE' ? (
-                                  <span className="ml-1.5 font-medium text-emerald-700">
-                                    · aktivní ve výpisu
-                                  </span>
-                                ) : null}
-                              </p>
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                <Link
-                                  href={`/nemovitost/${row.shortsVariant.id}`}
-                                  className="rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-orange-900 hover:bg-orange-50"
-                                >
-                                  Zobrazit shorts
-                                </Link>
-                                <Link
-                                  href={`/inzerat/upravit/${row.shortsVariant.id}`}
-                                  className="rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-orange-900 hover:bg-orange-50"
-                                >
-                                  Upravit shorts
-                                </Link>
-                              </div>
-                            </>
-                          ) : row.shortsDraft ? (
-                            <>
-                              <p className="font-semibold text-orange-950">
-                                Koncept shorts:{' '}
-                                <span className="font-normal text-zinc-800">
-                                  {row.shortsDraft.status === 'ready'
-                                    ? 'Připraveno k náhledu / publikaci'
-                                    : 'Rozpracováno'}
-                                </span>
-                              </p>
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                <Link
-                                  href={`/inzerat/shorts-editor/${row.shortsDraft.id}`}
-                                  className="rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-orange-900 hover:bg-orange-50"
-                                >
-                                  Otevřít editor
-                                </Link>
-                              </div>
-                            </>
-                          ) : (
-                            <>
-                              <p className="text-zinc-700">
-                                Převeďte klasický inzerát na shorts — nejdřív koncept v editoru, pak
-                                zveřejnění do feedu.
-                              </p>
-                              <button
-                                type="button"
-                                disabled={!apiAccessToken || shortsCreatingId === row.id}
-                                className="mt-2 rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-1.5 text-xs font-bold text-white shadow-sm disabled:opacity-50"
-                                onClick={() => {
-                                  if (!apiAccessToken) return;
-                                  if (
-                                    !window.confirm(
-                                      'Vytvoří se koncept shorts s fotkami z tohoto inzerátu. Upravíte pořadí, text a hudbu v editoru a až potom zveřejníte do feedu.',
-                                    )
-                                  ) {
-                                    return;
-                                  }
-                                  setShortsCreatingId(row.id);
-                                  void nestCreateShortsFromClassic(apiAccessToken, row.id).then(
-                                    (r) => {
-                                      setShortsCreatingId(null);
-                                      if (!r.ok || !r.shortsListingId) {
-                                        window.alert(r.error ?? 'Nepodařilo se vytvořit koncept.');
-                                        return;
-                                      }
-                                      void loadMyListings();
-                                      void loadShortsDrafts();
-                                      router.push(`/inzerat/shorts-editor/${r.shortsListingId}`);
-                                    },
-                                  );
-                                }}
-                              >
-                                {shortsCreatingId === row.id
-                                  ? 'Vytvářím koncept…'
-                                  : 'Převést na Shorts'}
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      ) : row.derivedFromPropertyId ? (
-                        <p className="mt-3 text-xs text-zinc-600">
-                          Shorts vychází z klasického inzerátu{' '}
-                          <Link
-                            href={`/nemovitost/${row.derivedFromPropertyId}`}
-                            className="font-semibold text-[#e85d00] hover:underline"
-                          >
-                            otevřít klasik
-                          </Link>
-                        </p>
-                      ) : null}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
+        
 
         <section className="mt-10">
           <h2 className="text-lg font-semibold text-zinc-900">Oblíbené nemovitosti</h2>
