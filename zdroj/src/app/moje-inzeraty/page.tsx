@@ -244,7 +244,7 @@ export default function MojeInzeratyPage() {
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-semibold text-orange-950">Shorts už existuje</span>
                             <Link
-                              href={`/inzerat/upravit/${item.shortsVariant.id}`}
+                              href={`/inzerat/upravit/${item.shortsVariant?.id ?? ''}`}
                               className="rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-orange-900 hover:bg-orange-50"
                             >
                               Upravit shorts
