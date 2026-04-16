@@ -95,6 +95,15 @@ export default function VideoCard({
   }, [video.id, video.liked]);
 
   useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return;
+    // eslint-disable-next-line no-console
+    console.debug('[VideoCard][overlay viewsCount]', {
+      id: video.id,
+      viewsCount: video.viewsCount ?? null,
+    });
+  }, [video.id, video.viewsCount]);
+
+  useEffect(() => {
     setError(false);
   }, [video.id]);
 

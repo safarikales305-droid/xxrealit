@@ -101,6 +101,13 @@ function feedShortsRowToShortVideo(row: Record<string, unknown>): ShortVideo | n
       : pubRaw instanceof Date
         ? pubRaw.toISOString()
         : null;
+  const viewsRaw = row.viewsCount ?? row.views ?? row.viewCount ?? row.views_count;
+  const viewsCount =
+    typeof viewsRaw === 'number'
+      ? Math.max(0, Math.trunc(viewsRaw))
+      : typeof viewsRaw === 'string'
+        ? Math.max(0, Math.trunc(Number.parseInt(viewsRaw, 10) || 0))
+        : undefined;
   return {
     id,
     videoUrl: typeof row.videoUrl === 'string' ? row.videoUrl : null,
@@ -110,6 +117,7 @@ function feedShortsRowToShortVideo(row: Record<string, unknown>): ShortVideo | n
     city: typeof row.city === 'string' ? row.city : null,
     createdAt,
     publishedAt,
+    viewsCount,
     userId,
     liked: typeof row.liked === 'boolean' ? row.liked : undefined,
     images: Array.isArray(row.images)
@@ -445,9 +453,29 @@ export function HomeLayout({
         }
         const data = res.ok ? await res.json() : [];
         const rawList = Array.isArray(data) ? (data as Record<string, unknown>[]) : [];
+        if (process.env.NODE_ENV === 'development') {
+          // eslint-disable-next-line no-console
+          console.debug(
+            '[HomeLayout][shorts api viewsCount]',
+            rawList.slice(0, 8).map((r) => ({
+              id: String(r.id ?? ''),
+              viewsCount: r.viewsCount ?? null,
+            })),
+          );
+        }
         const list = rawList
           .map(feedShortsRowToShortVideo)
           .filter((x): x is ShortVideo => x != null);
+        if (process.env.NODE_ENV === 'development') {
+          // eslint-disable-next-line no-console
+          console.debug(
+            '[HomeLayout][shorts mapped viewsCount]',
+            list.slice(0, 8).map((r) => ({
+              id: r.id,
+              viewsCount: r.viewsCount ?? null,
+            })),
+          );
+        }
         if (cancelled) return;
         setVideoFeed(list);
         if (list.length === 0) {
