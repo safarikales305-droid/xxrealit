@@ -320,8 +320,14 @@ export default function ProfileDashboardPage() {
             <div>
               <div className="mb-4 flex items-center justify-between gap-3">
                 <h1 className="text-xl font-bold text-zinc-900">Správa inzerátů</h1>
-                <Link href="/inzerat/pridat" className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-sm font-semibold text-white">Přidat inzerát</Link>
+                <div className="flex flex-wrap gap-2">
+                  <Link href="/moje-inzeraty" className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-800">Plné centrum správy</Link>
+                  <Link href="/inzerat/pridat" className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-sm font-semibold text-white">Přidat inzerát</Link>
+                </div>
               </div>
+              <p className="mb-3 text-xs text-zinc-600">
+                Kompletní práce s klasickými i shorts inzeráty (včetně hudby, regenerace videa a editoru médií) je dostupná v plném centru správy.
+              </p>
               {listingsLoading ? <p className="text-sm text-zinc-600">Načítám inzeráty…</p> : null}
               <div className="grid gap-3 md:grid-cols-2">
                 {listings.map((item) => (

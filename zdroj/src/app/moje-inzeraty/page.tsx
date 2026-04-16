@@ -9,6 +9,7 @@ import {
   nestCreateShortsFromClassic,
   nestDeleteMyProperty,
   nestFetchMyListings,
+  nestPostShortsRegenerate,
   nestTopMyProperty,
   type NestMyListingRow,
 } from '@/lib/nest-client';
@@ -21,6 +22,7 @@ export default function MojeInzeratyPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [shortsCreatingId, setShortsCreatingId] = useState<string | null>(null);
+  const [shortsRegeneratingId, setShortsRegeneratingId] = useState<string | null>(null);
 
   const hasAuth = Boolean(isAuthenticated && apiAccessToken);
 
@@ -76,6 +78,18 @@ export default function MojeInzeratyPage() {
     await loadMyListings();
   }
 
+  async function handleRegenerateShorts(shortsListingId: string) {
+    if (!apiAccessToken) return;
+    setShortsRegeneratingId(shortsListingId);
+    setError(null);
+    const res = await nestPostShortsRegenerate(apiAccessToken, shortsListingId);
+    setShortsRegeneratingId(null);
+    if (!res.ok) {
+      setError(res.error ?? 'Přegenerování shorts selhalo.');
+      return;
+    }
+  }
+
   return (
     <div className="min-h-[100dvh] bg-[#fafafa] pb-12 text-zinc-900">
       <div className="mx-auto w-full max-w-6xl px-0 sm:px-4">
@@ -111,6 +125,10 @@ export default function MojeInzeratyPage() {
             {sortedItems.map((item) => {
               const cover = nestAbsoluteAssetUrl(item.coverUrl ?? '');
               const isVideo = /\.(mp4|webm|mov)(\?|$)/i.test(cover);
+              const isShorts = item.listingType === 'SHORTS';
+              const hasDraft = Boolean(item.shortsDraft?.id);
+              const hasVariant = Boolean(item.shortsVariant?.id);
+              const relatedShortsListingId = item.shortsListingId ?? item.shortsDraft?.id ?? null;
               return (
                 <article key={item.id} className="overflow-hidden border-y border-zinc-200 bg-white shadow-sm sm:rounded-2xl sm:border">
                   <div className="relative aspect-[16/9] w-full bg-zinc-100">
@@ -135,7 +153,7 @@ export default function MojeInzeratyPage() {
                   </div>
                   <div className="p-4">
                     <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                      {item.listingType === 'SHORTS' ? 'Video inzerát' : 'Klasický inzerát'} •{' '}
+                      {isShorts ? 'Shorts / video inzerát' : 'Klasický inzerát'} •{' '}
                       {item.dashboardStatus}
                     </p>
                     <h2 className="mt-1 text-lg font-semibold leading-snug text-zinc-900">{item.title}</h2>
@@ -151,8 +169,16 @@ export default function MojeInzeratyPage() {
                         href={`/inzerat/upravit/${encodeURIComponent(item.id)}`}
                         className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
                       >
-                        Upravit
+                        Upravit inzerát
                       </Link>
+                      {relatedShortsListingId ? (
+                        <Link
+                          href={`/inzerat/shorts-editor/${encodeURIComponent(relatedShortsListingId)}`}
+                          className="rounded-full border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100"
+                        >
+                          Editor shorts + hudba
+                        </Link>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => void handleTop(item.id)}
@@ -169,10 +195,52 @@ export default function MojeInzeratyPage() {
                       >
                         Smazat
                       </button>
+                      {!isShorts ? (
+                        <button
+                          type="button"
+                          disabled={!apiAccessToken || shortsCreatingId === item.id}
+                          className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+                          onClick={() => {
+                            if (!apiAccessToken) return;
+                            const txt = hasDraft || hasVariant
+                              ? 'Shorts už u tohoto inzerátu existuje. Chcete vytvořit nový shorts koncept z aktuálních dat?'
+                              : 'Vytvořit nový shorts koncept z tohoto klasického inzerátu?';
+                            if (!window.confirm(txt)) return;
+                            setShortsCreatingId(item.id);
+                            void nestCreateShortsFromClassic(apiAccessToken, item.id).then((r) => {
+                              setShortsCreatingId(null);
+                              if (!r.ok || !r.shortsListingId) {
+                                setError(r.error ?? 'Nepodařilo se vytvořit shorts koncept.');
+                                return;
+                              }
+                              router.push(`/inzerat/shorts-editor/${r.shortsListingId}`);
+                            });
+                          }}
+                        >
+                          {shortsCreatingId === item.id
+                            ? 'Vytvářím…'
+                            : hasDraft || hasVariant
+                              ? 'Znovu vytvořit Shorts'
+                              : 'Vytvořit Shorts'}
+                        </button>
+                      ) : null}
+                      {relatedShortsListingId ? (
+                        <button
+                          type="button"
+                          disabled={!apiAccessToken || shortsRegeneratingId === relatedShortsListingId}
+                          onClick={() => {
+                            if (!window.confirm('Přegenerovat shorts video z aktuálních fotek a hudby?')) return;
+                            void handleRegenerateShorts(relatedShortsListingId);
+                          }}
+                          className="rounded-full border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
+                        >
+                          {shortsRegeneratingId === relatedShortsListingId ? 'Generuji…' : 'Přegenerovat shorts video'}
+                        </button>
+                      ) : null}
                     </div>
-                    {item.listingType === 'CLASSIC' ? (
+                    {!isShorts ? (
                       <div className="mt-3 rounded-xl border border-orange-100 bg-orange-50/60 px-3 py-2.5 text-xs">
-                        {item.shortsVariant ? (
+                        {hasVariant ? (
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-semibold text-orange-950">Shorts už existuje</span>
                             <Link
@@ -182,11 +250,11 @@ export default function MojeInzeratyPage() {
                               Upravit shorts
                             </Link>
                           </div>
-                        ) : item.shortsDraft ? (
+                        ) : hasDraft ? (
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-semibold text-orange-950">Koncept shorts je připraven</span>
                             <Link
-                              href={`/inzerat/shorts-editor/${item.shortsDraft.id}`}
+                              href={`/inzerat/shorts-editor/${item.shortsDraft?.id}`}
                               className="rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-orange-900 hover:bg-orange-50"
                             >
                               Otevřít editor (fotky + hudba)
@@ -197,32 +265,7 @@ export default function MojeInzeratyPage() {
                             <p className="text-zinc-700">
                               Převod klasického inzerátu na Shorts vytvoří koncept, kde upravíte fotky, video i hudbu.
                             </p>
-                            <button
-                              type="button"
-                              disabled={!apiAccessToken || shortsCreatingId === item.id}
-                              className="mt-2 rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-1.5 text-xs font-bold text-white shadow-sm disabled:opacity-50"
-                              onClick={() => {
-                                if (!apiAccessToken) return;
-                                if (
-                                  !window.confirm(
-                                    'Vytvoří se Shorts koncept s fotkami z tohoto inzerátu. V editoru pak můžete upravit pořadí i přidat hudbu.',
-                                  )
-                                ) {
-                                  return;
-                                }
-                                setShortsCreatingId(item.id);
-                                void nestCreateShortsFromClassic(apiAccessToken, item.id).then((r) => {
-                                  setShortsCreatingId(null);
-                                  if (!r.ok || !r.shortsListingId) {
-                                    setError(r.error ?? 'Nepodařilo se vytvořit shorts koncept.');
-                                    return;
-                                  }
-                                  router.push(`/inzerat/shorts-editor/${r.shortsListingId}`);
-                                });
-                              }}
-                            >
-                              {shortsCreatingId === item.id ? 'Vytvářím koncept…' : 'Převést na Shorts'}
-                            </button>
+                            <p className="mt-2 text-zinc-700">Použijte tlačítko „Vytvořit Shorts“ výše.</p>
                           </>
                         )}
                       </div>

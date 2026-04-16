@@ -518,17 +518,23 @@ export class PropertiesService {
     }
 
     const draftByClassic = new Map<string, { id: string; status: string }>();
+    const shortsListingByClassic = new Map<string, string>();
     if (classicIds.length > 0) {
       const drafts = await this.prisma.shortsListing.findMany({
         where: {
           userId: ownerId,
           sourceListingId: { in: classicIds },
-          status: { in: ['draft', 'ready'] },
         },
+        orderBy: { updatedAt: 'desc' },
         select: { id: true, sourceListingId: true, status: true },
       });
       for (const d of drafts) {
-        draftByClassic.set(d.sourceListingId, { id: d.id, status: d.status });
+        if (!shortsListingByClassic.has(d.sourceListingId)) {
+          shortsListingByClassic.set(d.sourceListingId, d.id);
+        }
+        if (d.status === 'draft' || d.status === 'ready') {
+          draftByClassic.set(d.sourceListingId, { id: d.id, status: d.status });
+        }
       }
     }
 
@@ -570,7 +576,7 @@ export class PropertiesService {
       const shortsListingId =
         listingType === 'SHORTS'
           ? (shortsListingByPublishedPropertyId.get(r.id) ?? null)
-          : null;
+          : (shortsListingByClassic.get(r.id) ?? null);
       const linked =
         listingType === 'CLASSIC' ? shortsByClassic.get(r.id) ?? null : null;
       const shortsDashboardStatus = linked
@@ -708,9 +714,44 @@ export class PropertiesService {
     if (dto.title !== undefined) data.title = dto.title.trim();
     if (dto.description !== undefined) data.description = dto.description.trim();
     if (dto.price !== undefined) data.price = dto.price;
+    if (dto.currency !== undefined) data.currency = dto.currency.trim().slice(0, 8) || 'CZK';
+    if (dto.type !== undefined) data.offerType = dto.type.trim();
+    if (dto.propertyType !== undefined) data.propertyType = dto.propertyType.trim();
+    if (dto.subType !== undefined) data.subType = dto.subType.trim().slice(0, 120);
+    if (dto.address !== undefined) data.address = dto.address.trim().slice(0, 500);
     if (dto.city !== undefined) data.city = dto.city.trim();
+    if (dto.area !== undefined) data.area = dto.area;
+    if (dto.landArea !== undefined) data.landArea = dto.landArea;
+    if (dto.floor !== undefined) data.floor = dto.floor;
+    if (dto.totalFloors !== undefined) data.totalFloors = dto.totalFloors;
+    if (dto.condition !== undefined) data.condition = dto.condition.trim() || null;
+    if (dto.construction !== undefined) data.construction = dto.construction.trim() || null;
+    if (dto.ownership !== undefined) data.ownership = dto.ownership.trim() || null;
+    if (dto.energyLabel !== undefined) data.energyLabel = dto.energyLabel.trim() || null;
+    if (dto.equipment !== undefined) data.equipment = dto.equipment.trim() || null;
+    if (dto.parking !== undefined) data.parking = dto.parking;
+    if (dto.cellar !== undefined) data.cellar = dto.cellar;
+    if (dto.images !== undefined) {
+      data.images = dto.images
+        .map((u) => (typeof u === 'string' ? u.trim() : ''))
+        .filter((u) => u.length > 0);
+    }
+    if (dto.videoUrl !== undefined) {
+      const vu = dto.videoUrl.trim();
+      data.videoUrl = vu ? vu.slice(0, 2000) : null;
+    }
+    if (dto.contactName !== undefined) data.contactName = dto.contactName.trim();
+    if (dto.contactPhone !== undefined) data.contactPhone = dto.contactPhone.trim();
+    if (dto.contactEmail !== undefined) data.contactEmail = dto.contactEmail.trim().toLowerCase();
+    if (dto.isOwnerListing !== undefined) data.isOwnerListing = dto.isOwnerListing;
+    if (dto.ownerContactConsent !== undefined) data.ownerContactConsent = dto.ownerContactConsent;
     if (dto.region !== undefined) data.region = dto.region.trim().slice(0, 120);
+    if (dto.district !== undefined) data.district = dto.district.trim().slice(0, 120);
     if (dto.isActive !== undefined) data.isActive = dto.isActive;
+    if (dto.videoUrl !== undefined) {
+      const nextVideoUrl = (dto.videoUrl ?? '').trim();
+      data.listingType = nextVideoUrl ? 'SHORTS' : 'CLASSIC';
+    }
     const updated = await this.prisma.property.update({
       where: { id: propertyId },
       data,
