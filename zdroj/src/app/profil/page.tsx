@@ -1590,7 +1590,7 @@ export default function ProfilPage() {
 
         
 
-        <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <section className="order-20 mt-10 -mx-4 rounded-none border-y border-zinc-200 bg-white p-1 shadow-sm sm:mx-0 sm:rounded-2xl sm:border sm:p-5">
           <h2 className="text-lg font-semibold text-zinc-900">Příspěvky</h2>
           <p className="mt-1 text-sm text-zinc-600">
             Veřejná zeď publikovaných příspěvků, videí a promo obsahu profilu.
@@ -1602,7 +1602,7 @@ export default function ProfilPage() {
               Zatím nejsou k dispozici žádné publikované příspěvky.
             </p>
           ) : (
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 space-y-4">
               {wallPosts.map((post) => {
                 const medias = Array.isArray(post.media)
                   ? post.media.filter((m) => typeof m?.url === 'string' && m.url.trim())
@@ -1610,18 +1610,21 @@ export default function ProfilPage() {
                 return (
                   <article
                     key={`post-${post.id}`}
-                    className="rounded-xl border border-zinc-100 bg-zinc-50/70 p-2 sm:p-4"
+                    className="relative w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:rounded-3xl"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-semibold text-zinc-900">
-                        {post.title?.trim() || 'Příspěvek'}
-                      </p>
-                      <div className="flex gap-1">
+                    <div className="flex items-start justify-between gap-2 px-3 pt-3 md:px-4 md:pt-4">
+                      <div>
+                        <p className="text-xs font-medium text-zinc-500">Autor</p>
+                        <p className="mt-1 text-sm font-semibold text-zinc-900">
+                          {post.title?.trim() || 'Příspěvek'}
+                        </p>
+                      </div>
+                      <div className="flex gap-1.5">
                         <button
                           type="button"
                           disabled={wallBusyPostId === post.id}
                           onClick={() => onStartWallPostEdit(post)}
-                          className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                          className="rounded-xl border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:opacity-50"
                         >
                           Upravit
                         </button>
@@ -1629,17 +1632,17 @@ export default function ProfilPage() {
                           type="button"
                           disabled={wallBusyPostId === post.id}
                           onClick={() => void onDeleteWallPost(post.id)}
-                          className="rounded-full border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                          className="rounded-xl border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 shadow-sm hover:bg-red-50 disabled:opacity-50"
                         >
                           Smazat
                         </button>
                       </div>
                     </div>
-                    <p className="mt-1 text-xs text-zinc-500">
+                    <p className="px-3 pt-1 text-xs text-zinc-500 md:px-4">
                       {post.createdAt ? new Date(post.createdAt).toLocaleString('cs-CZ') : ''}
                     </p>
                     {wallEditPostId === post.id ? (
-                      <div className="mt-2 space-y-2">
+                      <div className="mt-2 space-y-2 px-3 pb-3 md:px-4 md:pb-4">
                         <textarea
                           value={wallEditText}
                           onChange={(e) => setWallEditText(e.target.value)}
@@ -1669,7 +1672,7 @@ export default function ProfilPage() {
                         </div>
                       </div>
                     ) : (post.content || post.description) && (
-                      <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">
+                      <p className="px-3 py-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 md:px-4">
                         {post.content || post.description}
                       </p>
                     )}
@@ -1687,7 +1690,7 @@ export default function ProfilPage() {
                               <video
                                 key={`${post.id}-video-${idx}`}
                                 src={mediaUrl}
-                                className="max-h-72 w-full rounded-lg bg-black"
+                                className="h-auto w-full rounded-2xl bg-black object-contain"
                                 controls
                                 preload="metadata"
                               />
@@ -1698,7 +1701,7 @@ export default function ProfilPage() {
                               key={`${post.id}-image-${idx}`}
                               src={mediaUrl}
                               alt=""
-                              className="h-44 w-full rounded-lg object-cover"
+                              className="h-auto w-full rounded-2xl object-contain"
                             />
                           );
                         })}
@@ -1717,21 +1720,24 @@ export default function ProfilPage() {
                 return (
                   <article
                     key={`video-${video.id}`}
-                    className="rounded-xl border border-zinc-100 bg-zinc-50/70 p-2 sm:p-4"
+                    className="relative w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:rounded-3xl"
                   >
-                    <p className="text-sm font-semibold text-zinc-900">Video příspěvek</p>
-                    <p className="mt-1 text-xs text-zinc-500">
+                    <p className="px-3 pt-3 text-xs font-medium text-zinc-500 md:px-4 md:pt-4">
+                      Video
+                    </p>
+                    <p className="px-3 pt-1 text-sm font-semibold text-zinc-900 md:px-4">Video příspěvek</p>
+                    <p className="px-3 pt-1 text-xs text-zinc-500 md:px-4">
                       {video.createdAt ? new Date(video.createdAt).toLocaleString('cs-CZ') : ''}
                     </p>
                     {video.description ? (
-                      <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">
+                      <p className="px-3 py-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 md:px-4">
                         {video.description}
                       </p>
                     ) : null}
                     {vurl ? (
                       <video
                         src={vurl}
-                        className="mt-3 max-h-72 w-full rounded-lg bg-black"
+                        className="mt-3 h-auto w-full rounded-2xl bg-black object-contain"
                         controls
                         preload="metadata"
                       />
