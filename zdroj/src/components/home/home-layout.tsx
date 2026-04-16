@@ -925,22 +925,38 @@ export function HomeLayout({
                         ) : null}
 
                         {!isAuthenticated ? (
-                          <div className="mt-3 rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-900">
-                            <p className="font-semibold">Příspěvky profesionálů jsou v guest režimu.</p>
-                            <p className="mt-1 text-orange-800/90">
-                              Pro plný obsah, reakce, komentáře a tvorbu příspěvků se přihlaste.
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                router.push(
-                                  `/prihlaseni?redirect=${encodeURIComponent('/?tab=posts')}`,
-                                )
-                              }
-                              className="mt-3 inline-flex rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-xs font-semibold text-white"
-                            >
-                              Přihlaste se
-                            </button>
+                          <div
+                            role="dialog"
+                            aria-modal="true"
+                            aria-label="Přihlášení k příspěvkům"
+                            className="fixed inset-0 z-[150] flex items-center justify-center px-4"
+                          >
+                            <div
+                              className="absolute inset-0 bg-black/35 backdrop-blur-[2px]"
+                              aria-hidden
+                            />
+                            <div className="relative w-full max-w-md rounded-3xl border border-orange-200 bg-white/95 p-6 text-center shadow-xl">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                                Příspěvky
+                              </p>
+                              <h2 className="mt-1 text-xl font-bold text-zinc-900">
+                                Přihlaste se
+                              </h2>
+                              <p className="mt-2 text-sm text-zinc-600">
+                                Přihlaste se, jinak neuvidíte příspěvky.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  router.push(
+                                    `/prihlaseni?redirect=${encodeURIComponent('/?tab=posts')}`,
+                                  )
+                                }
+                                className="mt-4 inline-flex w-full items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
+                              >
+                                Přihlaste se
+                              </button>
+                            </div>
                           </div>
                         ) : null}
 

@@ -75,6 +75,7 @@ export function NemovitostDetailView({
 }: Props) {
   const router = useRouter();
   const { user, isAuthenticated, apiAccessToken } = useAuth();
+  const shouldBlurGuestPrice = !isAuthenticated;
   const media = useMemo(() => buildMediaList(p), [p]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [sellerModalOpen, setSellerModalOpen] = useState(false);
@@ -342,7 +343,16 @@ export function NemovitostDetailView({
                 </div>
               ) : null}
               <div className="text-xl font-semibold text-orange-600">
-                {PRICE_FMT.format(p.price)}
+                <span
+                  className={
+                    shouldBlurGuestPrice
+                      ? 'select-none blur-[10px] opacity-70'
+                      : undefined
+                  }
+                  aria-hidden={shouldBlurGuestPrice ? true : undefined}
+                >
+                  {PRICE_FMT.format(p.price)}
+                </span>
               </div>
               <div className="text-sm text-zinc-500">{p.location}</div>
               {summaryLine ? (
@@ -493,7 +503,16 @@ export function NemovitostDetailView({
                       <p className="line-clamp-2 text-sm font-medium text-zinc-900">{item.title}</p>
                       <p className="mt-1 text-xs text-zinc-500">{item.location}</p>
                       <p className="mt-1 text-sm font-bold text-[#e85d00]">
-                        {PRICE_FMT.format(item.price)}
+                        <span
+                          className={
+                            shouldBlurGuestPrice
+                              ? 'select-none blur-[10px] opacity-70'
+                              : undefined
+                          }
+                          aria-hidden={shouldBlurGuestPrice ? true : undefined}
+                        >
+                          {PRICE_FMT.format(item.price)}
+                        </span>
                       </p>
                       <span className="mt-3 inline-flex min-h-[40px] w-full items-center justify-center rounded-full border-2 border-orange-400/90 bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-xs font-extrabold uppercase tracking-wide text-white shadow-md transition hover:brightness-110">
                         Zobrazit inzerát

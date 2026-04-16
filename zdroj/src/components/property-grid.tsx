@@ -22,6 +22,7 @@ type Props = {
 export function PropertyGrid({ properties }: Props) {
   const { apiAccessToken, isAuthenticated } = useAuth();
   const canFavorite = nestApiConfigured() && isAuthenticated && Boolean(apiAccessToken);
+  const shouldBlurGuestPrice = !isAuthenticated;
 
   const [likedMap, setLikedMap] = useState<Record<string, boolean>>({});
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -129,7 +130,16 @@ export function PropertyGrid({ properties }: Props) {
                   </h3>
                   <p className="mt-1.5 text-[13px] text-zinc-500">{p.location}</p>
                   <p className="mt-auto pt-3 text-lg font-bold tabular-nums text-[#e85d00]">
-                    {PRICE_FMT.format(p.price)}
+                    <span
+                      className={
+                        shouldBlurGuestPrice
+                          ? 'select-none blur-[10px] opacity-70'
+                          : undefined
+                      }
+                      aria-hidden={shouldBlurGuestPrice ? true : undefined}
+                    >
+                      {PRICE_FMT.format(p.price)}
+                    </span>
                   </p>
                 </div>
               </Link>
