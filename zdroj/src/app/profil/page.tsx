@@ -2205,313 +2205,7 @@ export default function ProfilPage() {
           )}
         </section>
 
-        {user.role === 'AGENT' && nestMe ? (
-          <section id="makler-premium" className="mt-10 space-y-6">
-            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-              <h2 className="text-lg font-semibold text-zinc-900">Veřejný profil makléře</h2>
-              <p className="mt-2 text-sm text-zinc-600">
-                Zapněte zobrazení v katalogu makléřů a volitelně přijímejte hodnocení. Údaje níže
-                se zobrazí jen na veřejné stránce.
-              </p>
-              {nestMe.brokerProfileSlug && nestMe.isPublicBrokerProfile ? (
-                <p className="mt-2 text-sm">
-                  <Link
-                    href={`/makler/${encodeURIComponent(nestMe.brokerProfileSlug)}`}
-                    className="font-semibold text-[#e85d00] hover:underline"
-                  >
-                    Otevřít veřejný profil →
-                  </Link>
-                </p>
-              ) : null}
-              <label className="mt-4 flex cursor-pointer items-start gap-3 text-sm text-zinc-800">
-                <input
-                  type="checkbox"
-                  className="mt-1 size-4 rounded border-zinc-300"
-                  checked={nestMe.isPublicBrokerProfile === true}
-                  disabled={!apiAccessToken}
-                  onChange={() => {
-                    if (!apiAccessToken) return;
-                    const next = !nestMe.isPublicBrokerProfile;
-                    void nestPatchBrokerPublicProfile(apiAccessToken, {
-                      isPublicBrokerProfile: next,
-                    }).then((r) => {
-                      if (r.ok) void loadNestProfile();
-                    });
-                  }}
-                />
-                <span>
-                  <span className="font-semibold">Zobrazovat můj profil veřejně</span>
-                  <span className="mt-0.5 block text-xs text-zinc-600">
-                    Objevíte se v přehledu makléřů na webu.
-                  </span>
-                </span>
-              </label>
-              <label className="mt-3 flex cursor-pointer items-start gap-3 text-sm text-zinc-800">
-                <input
-                  type="checkbox"
-                  className="mt-1 size-4 rounded border-zinc-300"
-                  checked={nestMe.allowBrokerReviews === true}
-                  disabled={!apiAccessToken}
-                  onChange={() => {
-                    if (!apiAccessToken) return;
-                    const next = !nestMe.allowBrokerReviews;
-                    void nestPatchBrokerPublicProfile(apiAccessToken, {
-                      allowBrokerReviews: next,
-                    }).then((r) => {
-                      if (r.ok) void loadNestProfile();
-                    });
-                  }}
-                />
-                <span>
-                  <span className="font-semibold">Povolit hodnocení a recenze</span>
-                  <span className="mt-0.5 block text-xs text-zinc-600">
-                    Přihlášení uživatelé vám mohou dát hvězdičky a napsat recenzi (jednou na účet,
-                    lze upravit).
-                  </span>
-                </span>
-              </label>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                <label className="block text-xs font-semibold text-zinc-700">
-                  Kancelář / značka
-                  <input
-                    value={brokerOffice}
-                    onChange={(e) => setBrokerOffice(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  />
-                </label>
-                <label className="block text-xs font-semibold text-zinc-700">
-                  Specializace
-                  <input
-                    value={brokerSpec}
-                    onChange={(e) => setBrokerSpec(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  />
-                </label>
-                <label className="block text-xs font-semibold text-zinc-700">
-                  Region působnosti
-                  <input
-                    value={brokerRegion}
-                    onChange={(e) => setBrokerRegion(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  />
-                </label>
-                <label className="block text-xs font-semibold text-zinc-700">
-                  Web
-                  <input
-                    value={brokerWeb}
-                    onChange={(e) => setBrokerWeb(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                    placeholder="https://…"
-                  />
-                </label>
-                <label className="block text-xs font-semibold text-zinc-700">
-                  Veřejný telefon
-                  <input
-                    value={brokerPhone}
-                    onChange={(e) => setBrokerPhone(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  />
-                </label>
-                <label className="block text-xs font-semibold text-zinc-700">
-                  Veřejný e-mail
-                  <input
-                    value={brokerEmailPub}
-                    onChange={(e) => setBrokerEmailPub(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  />
-                </label>
-              </div>
-              {brokerFieldsError ? (
-                <p className="mt-2 text-sm text-red-600">{brokerFieldsError}</p>
-              ) : null}
-              <button
-                type="button"
-                disabled={brokerFieldsSaving || !apiAccessToken}
-                className="mt-4 rounded-full bg-zinc-900 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                onClick={() => {
-                  if (!apiAccessToken) return;
-                  setBrokerFieldsError(null);
-                  setBrokerFieldsSaving(true);
-                  void nestPatchBrokerPublicProfile(apiAccessToken, {
-                    brokerOfficeName: brokerOffice,
-                    brokerSpecialization: brokerSpec,
-                    brokerRegionLabel: brokerRegion,
-                    brokerWeb,
-                    brokerPhonePublic: brokerPhone,
-                    brokerEmailPublic: brokerEmailPub,
-                  }).then((r) => {
-                    setBrokerFieldsSaving(false);
-                    if (!r.ok) {
-                      setBrokerFieldsError(r.error ?? 'Uložení se nezdařilo.');
-                      return;
-                    }
-                    void loadNestProfile();
-                    showSuccess('Údaje veřejného profilu byly uloženy.');
-                  });
-                }}
-              >
-                {brokerFieldsSaving ? 'Ukládám…' : 'Uložit údaje veřejného profilu'}
-              </button>
-            </div>
-
-            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-              <h2 className="text-lg font-semibold text-zinc-900">Premium makléř a odměny</h2>
-              <p className="mt-2 text-sm leading-relaxed text-zinc-600">
-                Za přidání inzerátu nebo video příspěvku získáváte body. Po dosažení nastavené hranice
-                se vám odemknou leady zdarma k prvnímu oslovení vlastníka bez prémiového účtu.
-                Prémiový účet nastaví administrátor.
-              </p>
-              <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold">
-                <span
-                  className={`rounded-full px-3 py-1 ${nestMe.isPremiumBroker ? 'bg-emerald-100 text-emerald-900' : 'bg-zinc-100 text-zinc-700'}`}
-                >
-                  Premium: {nestMe.isPremiumBroker ? 'ano' : 'ne'}
-                </span>
-                <span className="rounded-full bg-orange-50 px-3 py-1 text-orange-900">
-                  Body: {nestMe.brokerPoints ?? 0}
-                </span>
-                <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-900">
-                  Volné leady: {nestMe.brokerFreeLeads ?? 0}
-                </span>
-              </div>
-              {nestMe.brokerProgress ? (
-                <p className="mt-3 text-sm text-zinc-700">
-                  Do další odměny zbývá přibližně{' '}
-                  <strong>{nestMe.brokerProgress.pointsToNextReward}</strong> bodů (práh{' '}
-                  {nestMe.brokerProgress.rewardThresholdPoints}, odměna +{' '}
-                  {nestMe.brokerProgress.freeLeadsPerThreshold} leady).
-                </p>
-              ) : null}
-              <label className="mt-4 flex cursor-pointer items-start gap-3 text-sm text-zinc-800">
-                <input
-                  type="checkbox"
-                  className="mt-1 size-4 rounded border-zinc-300"
-                  checked={nestMe.brokerLeadNotificationEnabled !== false}
-                  disabled={!apiAccessToken}
-                  onChange={() => {
-                    if (!apiAccessToken) return;
-                    const current = nestMe.brokerLeadNotificationEnabled !== false;
-                    void nestPatchBrokerLeadPrefs(apiAccessToken, {
-                      brokerLeadNotificationEnabled: !current,
-                    }).then((r) => {
-                      if (r.ok) void loadNestProfile();
-                    });
-                  }}
-                />
-                <span>
-                  <span className="font-semibold">Chci notifikace o nových inzerátech od vlastníků</span>
-                  <span className="mt-0.5 block text-xs font-normal text-zinc-600">
-                    Respektuje vaše níže uvedené preference krajů a typů nemovitostí (prázdné = vše).
-                  </span>
-                </span>
-              </label>
-            </div>
-
-            <div id="notifikace" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-lg font-semibold text-zinc-900">Notifikace</h2>
-                <button
-                  type="button"
-                  disabled={notifLoading || !apiAccessToken}
-                  onClick={() => void loadNotifications()}
-                  className="text-xs font-semibold text-[#e85d00] hover:underline disabled:opacity-50"
-                >
-                  Obnovit
-                </button>
-              </div>
-              {notifLoading ? (
-                <p className="mt-3 text-sm text-zinc-500">Načítám…</p>
-              ) : notifications.length === 0 ? (
-                <p className="mt-3 text-sm text-zinc-600">Zatím žádné notifikace.</p>
-              ) : (
-                <ul className="mt-4 divide-y divide-zinc-100">
-                  {notifications.map((n) => (
-                    <li key={n.id} className="py-3">
-                      <p className="text-sm font-semibold text-zinc-900">{n.title}</p>
-                      <p className="mt-1 text-sm text-zinc-600">{n.body}</p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {!n.readAt ? (
-                          <button
-                            type="button"
-                            className="text-xs font-semibold text-[#e85d00] hover:underline"
-                            onClick={() => {
-                              if (!apiAccessToken) return;
-                              void nestMarkNotificationRead(apiAccessToken, n.id).then((ok) => {
-                                if (ok) void loadNotifications();
-                              });
-                            }}
-                          >
-                            Označit jako přečtené
-                          </button>
-                        ) : (
-                          <span className="text-xs text-zinc-400">Přečteno</span>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </section>
-        ) : null}
-
-        <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-zinc-900">Zprávy</h2>
-            {unreadMessages > 0 ? (
-              <span className="rounded-full bg-orange-500 px-2.5 py-0.5 text-xs font-bold text-white">
-                {unreadMessages > 99 ? '99+' : unreadMessages} nových
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-2 text-sm text-zinc-600">
-            Doručené a odeslané zprávy k inzerátům. Po otevření konverzace se nepřečtené označí jako
-            přečtené.
-          </p>
-          <Link
-            href="/profil/zpravy"
-            className="mt-4 inline-flex items-center justify-center rounded-full bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800"
-          >
-            Otevřít schránku
-          </Link>
-        </section>
-
-        {['AGENT', 'COMPANY', 'AGENCY', 'FINANCIAL_ADVISOR', 'INVESTOR'].includes(user.role) ? (
-          <section id="nastaveni-reklam" className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-semibold text-zinc-900">Nastavení reklam</h2>
-            {user.role === 'COMPANY' ? (
-              <>
-                <p className="mt-2 text-sm text-zinc-600">
-                  Správa reklam stavební firmy navázaných na profil a feed inzerátů.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
-                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-900">
-                    Aktivní: {activeCompanyAds}
-                  </span>
-                  <span className="rounded-full bg-zinc-100 px-3 py-1 text-zinc-700">
-                    Neaktivní: {inactiveCompanyAds}
-                  </span>
-                </div>
-                <Link
-                  href={dashboardPathForRole('COMPANY')}
-                  className="mt-4 inline-flex rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2.5 text-sm font-bold text-white shadow-sm"
-                >
-                  Otevřít správu reklam
-                </Link>
-              </>
-            ) : user.role === 'AGENCY' ? (
-              <p className="mt-2 text-sm text-zinc-600">
-                Profilové promo kanceláře je připravené pro navazující rozšíření. Zde bude přehled
-                aktivních/neaktivních reklam a jejich správa.
-              </p>
-            ) : (
-              <p className="mt-2 text-sm text-zinc-600">
-                Osobní promo makléře je připravené pro navazující rozšíření. Zde bude přehled a správa
-                reklamních bloků.
-              </p>
-            )}
-          </section>
-        ) : null}
+        
 
       </div>
 
@@ -2563,6 +2257,28 @@ export default function ProfilPage() {
                     <h3 className="text-base font-semibold text-zinc-900">Notifikace</h3>
                     <button type="button" disabled={notifLoading || !apiAccessToken} onClick={() => void loadNotifications()} className="text-xs font-semibold text-[#e85d00] hover:underline disabled:opacity-50">Obnovit</button>
                   </div>
+                  {user.role === 'AGENT' && nestMe ? (
+                    <label className="mt-3 flex cursor-pointer items-start gap-3 text-sm text-zinc-800">
+                      <input
+                        type="checkbox"
+                        className="mt-1 size-4 rounded border-zinc-300"
+                        checked={nestMe.brokerLeadNotificationEnabled !== false}
+                        disabled={!apiAccessToken}
+                        onChange={() => {
+                          if (!apiAccessToken) return;
+                          const current = nestMe.brokerLeadNotificationEnabled !== false;
+                          void nestPatchBrokerLeadPrefs(apiAccessToken, {
+                            brokerLeadNotificationEnabled: !current,
+                          }).then((r) => {
+                            if (r.ok) void loadNestProfile();
+                          });
+                        }}
+                      />
+                      <span>
+                        <span className="font-semibold">Notifikace o nových inzerátech od vlastníků</span>
+                      </span>
+                    </label>
+                  ) : null}
                   {notifLoading ? <p className="mt-3 text-sm text-zinc-500">Načítám…</p> : notifications.length === 0 ? <p className="mt-3 text-sm text-zinc-600">Zatím žádné notifikace.</p> : <ul className="mt-3 space-y-2">{notifications.slice(0, 12).map((n) => <li key={n.id} className="rounded-lg border border-zinc-200 p-3"><p className="text-sm font-semibold text-zinc-900">{n.title}</p><p className="mt-1 text-sm text-zinc-600">{n.body}</p></li>)}</ul>}
                 </>
               ) : null}
@@ -2619,16 +2335,78 @@ export default function ProfilPage() {
                     <input type="checkbox" className="mt-1 size-4 rounded border-zinc-300" checked={nestMe.allowBrokerReviews === true} disabled={!apiAccessToken} onChange={() => { if (!apiAccessToken) return; const next = !nestMe.allowBrokerReviews; void nestPatchBrokerPublicProfile(apiAccessToken, { allowBrokerReviews: next }).then((r) => { if (r.ok) void loadNestProfile(); }); }} />
                     <span><span className="font-semibold">Povolit recenze</span></span>
                   </label>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <label className="block text-xs font-semibold text-zinc-700">
+                      Kancelář / značka
+                      <input value={brokerOffice} onChange={(e) => setBrokerOffice(e.target.value)} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                    </label>
+                    <label className="block text-xs font-semibold text-zinc-700">
+                      Specializace
+                      <input value={brokerSpec} onChange={(e) => setBrokerSpec(e.target.value)} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                    </label>
+                    <label className="block text-xs font-semibold text-zinc-700">
+                      Region působnosti
+                      <input value={brokerRegion} onChange={(e) => setBrokerRegion(e.target.value)} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                    </label>
+                    <label className="block text-xs font-semibold text-zinc-700">
+                      Web
+                      <input value={brokerWeb} onChange={(e) => setBrokerWeb(e.target.value)} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                    </label>
+                    <label className="block text-xs font-semibold text-zinc-700">
+                      Veřejný telefon
+                      <input value={brokerPhone} onChange={(e) => setBrokerPhone(e.target.value)} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                    </label>
+                    <label className="block text-xs font-semibold text-zinc-700">
+                      Veřejný e-mail
+                      <input value={brokerEmailPub} onChange={(e) => setBrokerEmailPub(e.target.value)} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                    </label>
+                  </div>
+                  {brokerFieldsError ? <p className="mt-2 text-sm text-red-600">{brokerFieldsError}</p> : null}
+                  <button
+                    type="button"
+                    disabled={brokerFieldsSaving || !apiAccessToken}
+                    className="mt-3 rounded-full bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    onClick={() => {
+                      if (!apiAccessToken) return;
+                      setBrokerFieldsError(null);
+                      setBrokerFieldsSaving(true);
+                      void nestPatchBrokerPublicProfile(apiAccessToken, {
+                        brokerOfficeName: brokerOffice,
+                        brokerSpecialization: brokerSpec,
+                        brokerRegionLabel: brokerRegion,
+                        brokerWeb,
+                        brokerPhonePublic: brokerPhone,
+                        brokerEmailPublic: brokerEmailPub,
+                      }).then((r) => {
+                        setBrokerFieldsSaving(false);
+                        if (!r.ok) {
+                          setBrokerFieldsError(r.error ?? 'Uložení se nezdařilo.');
+                          return;
+                        }
+                        void loadNestProfile();
+                        showSuccess('Údaje veřejného profilu byly uloženy.');
+                      });
+                    }}
+                  >
+                    {brokerFieldsSaving ? 'Ukládám…' : 'Uložit údaje'}
+                  </button>
                 </>
               ) : null}
               {profileHubView === 'settings' && settingsView === 'premium' && user.role === 'AGENT' && nestMe ? (
                 <>
                   <h3 className="text-base font-semibold text-zinc-900">Premium makléř</h3>
-                  <p className="mt-1 text-sm text-zinc-600">Připraveno pro backend logiku premium statusu a odměn.</p>
+                  <p className="mt-1 text-sm text-zinc-600">Souhrn premium stavu a odměn v centrálním nastavení.</p>
                   <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
                     <span className={`rounded-full px-3 py-1 ${nestMe.isPremiumBroker ? 'bg-emerald-100 text-emerald-900' : 'bg-zinc-100 text-zinc-700'}`}>Premium: {nestMe.isPremiumBroker ? 'ano' : 'ne'}</span>
                     <span className="rounded-full bg-orange-50 px-3 py-1 text-orange-900">Body: {nestMe.brokerPoints ?? 0}</span>
+                    <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-900">Volné leady: {nestMe.brokerFreeLeads ?? 0}</span>
                   </div>
+                  {nestMe.brokerProgress ? (
+                    <p className="mt-3 text-sm text-zinc-700">
+                      Do další odměny zbývá přibližně{' '}
+                      <strong>{nestMe.brokerProgress.pointsToNextReward}</strong> bodů.
+                    </p>
+                  ) : null}
                 </>
               ) : null}
             </div>
