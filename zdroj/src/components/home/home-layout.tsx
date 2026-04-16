@@ -929,13 +929,13 @@ export function HomeLayout({
                             role="dialog"
                             aria-modal="true"
                             aria-label="Přihlášení k příspěvkům"
-                            className="fixed inset-0 z-[150] flex items-center justify-center px-4"
+                            className="pointer-events-none fixed inset-x-0 bottom-0 top-16 z-[90] flex items-center justify-center px-4 md:top-20"
                           >
                             <div
-                              className="absolute inset-0 bg-black/35 backdrop-blur-[2px]"
+                              className="pointer-events-none absolute inset-0 bg-black/35 backdrop-blur-[2px]"
                               aria-hidden
                             />
-                            <div className="relative w-full max-w-md rounded-3xl border border-orange-200 bg-white/95 p-6 text-center shadow-xl">
+                            <div className="pointer-events-auto relative w-full max-w-md rounded-3xl border border-orange-200 bg-white/95 p-6 text-center shadow-xl">
                               <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                                 Příspěvky
                               </p>
