@@ -1120,8 +1120,8 @@ export default function ProfilPage() {
             </div>
           </div>
 
-          <div className="relative px-4 pb-8 pt-3 sm:px-8 sm:pt-4">
-            <div className="-mt-10 flex flex-col gap-6 sm:-mt-12 sm:flex-row sm:items-end sm:justify-between">
+          <div className="relative px-4 pb-8 pt-4 sm:px-8 sm:pt-6">
+            <div className="-mt-6 flex flex-col gap-6 sm:-mt-8 sm:flex-row sm:items-end sm:justify-between">
               <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-end">
                 <div className="flex shrink-0 flex-col items-center gap-3 sm:items-start">
                   <div
@@ -1168,25 +1168,8 @@ export default function ProfilPage() {
                     </div>
                   </div>
                   </div>
-                  {['AGENT', 'COMPANY', 'AGENCY', 'FINANCIAL_ADVISOR', 'INVESTOR'].includes(user.role) ? (
-                    <label className="inline-flex cursor-pointer rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-sm font-semibold text-white shadow-sm">
-                    {storyUploading ? 'Nahrávám…' : 'Přidat příběh'}
-                    <input
-                      type="file"
-                      accept="image/*,video/*"
-                      className="sr-only"
-                      disabled={storyUploading}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (!f) return;
-                        void onCreateStory(f);
-                        e.target.value = '';
-                      }}
-                    />
-                    </label>
-                  ) : null}
                 </div>
-                <div className="min-w-0 max-w-xl text-center sm:pb-1 sm:text-left">
+                <div className="min-w-0 max-w-xl rounded-2xl bg-white/95 p-3 text-center shadow-sm ring-1 ring-zinc-100 sm:pb-2 sm:text-left">
                   <div className="flex flex-col items-center gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                     <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
                       {user.name?.trim() || 'Uživatel'}
@@ -1250,37 +1233,25 @@ export default function ProfilPage() {
                   disabled={coverUploading || !apiAccessToken}
                   onChange={(ev) => void onCoverChange(ev)}
                 />
-                {coverSrc ? (
-                  <button
-                    type="button"
-                    disabled={coverUploading || !apiAccessToken}
-                    onClick={() => void onDeleteCover()}
-                    className="rounded-full border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
-                  >
-                    Smazat cover
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  disabled={!apiAccessToken}
-                  onClick={() => {
-                    setProfileHubView('settings');
-                    setSettingsView('profile');
-                    setProfileHubOpen(true);
-                  }}
-                  className="rounded-full border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-900 transition hover:bg-orange-100 disabled:opacity-50"
-                >
-                  Nastavení
-                </button>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
+              <h3 className="text-sm font-semibold text-zinc-900">Hlavní akce profilu</h3>
+              <p className="mt-1 text-xs text-zinc-600">
+                Správa inzerátů, reklamy, nastavení profilu, zprávy a notifikace jsou soustředěné v
+                jednom horním panelu.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => {
                     setProfileHubView('my-listings');
                     setProfileHubOpen(true);
                   }}
-                  className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
+                  className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
                 >
-                  Moje inzeráty
+                  Správa inzerátů
                 </button>
                 <button
                   type="button"
@@ -1288,9 +1259,20 @@ export default function ProfilPage() {
                     setProfileHubView('ads-settings');
                     setProfileHubOpen(true);
                   }}
-                  className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
+                  className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
                 >
                   Nastavení reklam
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProfileHubView('settings');
+                    setSettingsView('profile');
+                    setProfileHubOpen(true);
+                  }}
+                  className="rounded-full border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-900 hover:bg-orange-100"
+                >
+                  Nastavení profilu
                 </button>
                 <button
                   type="button"
@@ -1298,7 +1280,7 @@ export default function ProfilPage() {
                     setProfileHubView('messages');
                     setProfileHubOpen(true);
                   }}
-                  className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
+                  className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
                 >
                   Zprávy
                 </button>
@@ -1308,30 +1290,33 @@ export default function ProfilPage() {
                     setProfileHubView('notifications');
                     setProfileHubOpen(true);
                   }}
-                  className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
+                  className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
                 >
                   Notifikace
                 </button>
               </div>
             </div>
 
-            <div className="mt-5 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
-              <h3 className="text-sm font-semibold text-zinc-900">Nastavení</h3>
-              <p className="mt-1 text-xs text-zinc-600">
-                Veřejnost profilu, heslo, premium makléř i zprávy jsou nově v panelu nastavení.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setProfileHubView('settings');
-                  setSettingsView('profile');
-                  setProfileHubOpen(true);
-                }}
-                className="mt-3 inline-flex rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
-              >
-                Otevřít nastavení
-              </button>
-            </div>
+            {['AGENT', 'COMPANY', 'AGENCY', 'FINANCIAL_ADVISOR', 'INVESTOR'].includes(user.role) ? (
+              <div className="mt-4">
+                <label className="inline-flex cursor-pointer rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-sm font-semibold text-white shadow-sm">
+                  {storyUploading ? 'Nahrávám…' : 'Přidej příběh'}
+                  <input
+                    type="file"
+                    accept="image/*,video/*"
+                    className="sr-only"
+                    disabled={storyUploading}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      void onCreateStory(f);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+                {storyError ? <p className="mt-2 text-sm text-red-600">{storyError}</p> : null}
+              </div>
+            ) : null}
 
             {avatarError ? (
               <p className="mt-4 text-sm text-red-600">{avatarError}</p>
@@ -1406,66 +1391,6 @@ export default function ProfilPage() {
                 (JWT v cookie).
               </p>
             ) : null}
-          </div>
-        </section>
-
-        <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-zinc-900">Rychlá navigace profilu</h2>
-          <p className="mt-2 text-sm text-zinc-600">
-            Horní akce otevírají panel nebo samostatné zobrazení. Už neprovádějí scroll na sekce níže.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setProfileHubView('settings');
-                setSettingsView('profile');
-                setProfileHubOpen(true);
-              }}
-              className="rounded-full border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
-            >
-              Nastavení
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setProfileHubView('my-listings');
-                setProfileHubOpen(true);
-              }}
-              className="rounded-full border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
-            >
-              Moje inzeráty
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setProfileHubView('ads-settings');
-                setProfileHubOpen(true);
-              }}
-              className="rounded-full border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
-            >
-              Nastavení reklam
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setProfileHubView('notifications');
-                setProfileHubOpen(true);
-              }}
-              className="rounded-full border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
-            >
-              Notifikace
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setProfileHubView('messages');
-                setProfileHubOpen(true);
-              }}
-              className="rounded-full border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
-            >
-              Zprávy
-            </button>
           </div>
         </section>
 
@@ -2605,8 +2530,9 @@ export default function ProfilPage() {
             <div className="max-h-[70vh] overflow-y-auto rounded-xl border border-zinc-200 p-4">
               {profileHubView === 'my-listings' ? (
                 <>
-                  <h3 className="text-base font-semibold text-zinc-900">Moje inzeráty</h3>
-                  <p className="mt-1 text-sm text-zinc-600">Rychlý přehled vašich inzerátů bez scrollování na stránce.</p>
+                  <h3 className="text-base font-semibold text-zinc-900">Správa inzerátů</h3>
+                  <p className="mt-1 text-sm text-zinc-600">Otevře plnou správu vašich vlastních inzerátů.</p>
+                  <Link href="/moje-inzeraty" className="mt-3 inline-flex rounded-full bg-zinc-900 px-4 py-2 text-sm font-semibold text-white">Otevřít správu inzerátů</Link>
                   <div className="mt-3 space-y-2">
                     {myListings.slice(0, 8).map((row) => (
                       <div key={row.id} className="rounded-lg border border-zinc-200 px-3 py-2 text-sm">
@@ -2643,7 +2569,7 @@ export default function ProfilPage() {
               {profileHubView === 'settings' && settingsView === 'profile' ? (
                 <>
                   <h3 className="text-base font-semibold text-zinc-900">Nastavení profilu</h3>
-                  <p className="mt-1 text-sm text-zinc-600">Veřejnost profilu a profilové přepínače.</p>
+                  <p className="mt-1 text-sm text-zinc-600">Heslo, veřejnost profilu, bio a profilové volby na jednom místě.</p>
                   <label className="mt-3 inline-flex cursor-pointer items-center gap-3">
                     <input type="checkbox" checked={isProfilePublic} disabled={profileVisibilitySaving || !apiAccessToken} onChange={(e) => void onToggleProfileVisibility(e.target.checked)} className="size-4 rounded border-zinc-300 text-orange-600 focus:ring-orange-500/50" />
                     <span className="text-sm font-medium text-zinc-800">{isProfilePublic ? 'Veřejný profil' : 'Neveřejný profil'}</span>
@@ -2654,6 +2580,20 @@ export default function ProfilPage() {
                       <span className="text-sm font-medium text-zinc-800">{professionalVisibility ? 'Profesionální profil je veřejný' : 'Profesionální profil je neveřejný'}</span>
                     </label>
                   ) : null}
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileHubOpen(false);
+                        setBioEditing(true);
+                        setBioDraft(bioText ?? '');
+                        setBioError(null);
+                      }}
+                      className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
+                    >
+                      Upravit bio
+                    </button>
+                  </div>
                 </>
               ) : null}
               {profileHubView === 'settings' && settingsView === 'password' ? (
@@ -2674,6 +2614,10 @@ export default function ProfilPage() {
                   <label className="mt-3 flex cursor-pointer items-start gap-3 text-sm text-zinc-800">
                     <input type="checkbox" className="mt-1 size-4 rounded border-zinc-300" checked={nestMe.isPublicBrokerProfile === true} disabled={!apiAccessToken} onChange={() => { if (!apiAccessToken) return; const next = !nestMe.isPublicBrokerProfile; void nestPatchBrokerPublicProfile(apiAccessToken, { isPublicBrokerProfile: next }).then((r) => { if (r.ok) void loadNestProfile(); }); }} />
                     <span><span className="font-semibold">Zobrazovat můj profil veřejně</span></span>
+                  </label>
+                  <label className="mt-3 flex cursor-pointer items-start gap-3 text-sm text-zinc-800">
+                    <input type="checkbox" className="mt-1 size-4 rounded border-zinc-300" checked={nestMe.allowBrokerReviews === true} disabled={!apiAccessToken} onChange={() => { if (!apiAccessToken) return; const next = !nestMe.allowBrokerReviews; void nestPatchBrokerPublicProfile(apiAccessToken, { allowBrokerReviews: next }).then((r) => { if (r.ok) void loadNestProfile(); }); }} />
+                    <span><span className="font-semibold">Povolit recenze</span></span>
                   </label>
                 </>
               ) : null}
