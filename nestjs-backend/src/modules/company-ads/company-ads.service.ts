@@ -52,6 +52,9 @@ function assertStableAdImageUrl(value: string) {
   ) {
     throw new BadRequestException('URL obrázku reklamy musí být trvalá veřejná URL, ne dočasná.');
   }
+  if (!/^https?:\/\//i.test(imageUrl)) {
+    throw new BadRequestException('URL obrázku reklamy musí být veřejná absolutní adresa (https://...).');
+  }
 }
 
 function tokenizeProperty(property: Pick<Property, 'propertyType' | 'subType' | 'title' | 'description'>): Set<string> {

@@ -57,7 +57,14 @@ export function CompanyAdsManager() {
     });
     if (!res.ok) return;
     const data = (await res.json().catch(() => [])) as CompanyAd[];
-    setItems(Array.isArray(data) ? data : []);
+    setItems(
+      Array.isArray(data)
+        ? data.map((ad) => ({
+            ...ad,
+            imageUrl: nestAbsoluteAssetUrl(ad.imageUrl ?? '').trim(),
+          }))
+        : [],
+    );
   }
 
   useEffect(() => {
@@ -95,7 +102,9 @@ export function CompanyAdsManager() {
       }
       const uploadedUrl = typeof data.url === 'string' ? data.url.trim() : '';
       if (uploadedUrl) {
-        setForm((prev) => ({ ...prev, imageUrl: uploadedUrl }));
+        const normalizedUploadedUrl = nestAbsoluteAssetUrl(uploadedUrl).trim();
+        setForm((prev) => ({ ...prev, imageUrl: normalizedUploadedUrl }));
+        setPreviewUrl(null);
         setFormError(null);
       } else {
         setFormError('Server nevrátil URL nahrané fotky reklamy.');
@@ -260,6 +269,7 @@ export function CompanyAdsManager() {
                 // eslint-disable-next-line no-console
                 console.error('[company-ad-image] preview failed', {
                   src: e.currentTarget.currentSrc || form.imageUrl,
+                  imageUrl: form.imageUrl,
                 });
               }}
             />
@@ -302,7 +312,7 @@ export function CompanyAdsManager() {
                   onClick={() => {
                     setEditingId(ad.id);
                     setForm({
-                      imageUrl: ad.imageUrl,
+                      imageUrl: nestAbsoluteAssetUrl(ad.imageUrl ?? '').trim(),
                       title: ad.title,
                       description: ad.description,
                       ctaText: ad.ctaText,

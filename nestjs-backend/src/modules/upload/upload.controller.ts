@@ -4,7 +4,7 @@ import {
   Controller,
   Logger,
   Post,
-  ServiceUnavailableException,
+  Req,
   UploadedFile,
   UploadedFiles,
   UseFilters,
@@ -21,6 +21,7 @@ import {
 import { memoryStorage } from 'multer';
 import * as fs from 'node:fs';
 import { extname, join } from 'node:path';
+import type { Request } from 'express';
 import { getUploadsPath } from '../../lib/uploads-path';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -60,6 +61,21 @@ export class UploadController {
       const p = join(dir, sub);
       if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
     }
+  }
+
+  private resolvePublicOrigin(req: Request): string {
+    const forwardedProto = String(req.headers['x-forwarded-proto'] ?? '').split(',')[0]?.trim();
+    const forwardedHost = String(req.headers['x-forwarded-host'] ?? '').split(',')[0]?.trim();
+    const host = forwardedHost || req.get('host') || '';
+    const proto = forwardedProto || req.protocol || 'https';
+    if (host) return `${proto}://${host}`;
+
+    const fallback =
+      process.env.PUBLIC_APP_URL?.trim() ||
+      process.env.NEXT_PUBLIC_API_URL?.trim() ||
+      process.env.FRONTEND_URL?.trim() ||
+      '';
+    return fallback.replace(/\/+$/, '').replace(/\/api$/i, '');
   }
 
   @Post('upload/avatar')
@@ -191,6 +207,7 @@ export class UploadController {
   )
   async uploadCompanyAdImage(
     @CurrentUser() user: AuthUser,
+    @Req() req: Request,
     @UploadedFile() file?: Express.Multer.File,
   ): Promise<{ url: string }> {
     if (!file?.buffer?.length) {
@@ -208,18 +225,25 @@ export class UploadController {
       file.mimetype,
       file.originalname,
     );
-    if (!this.profileMediaStorage.isRemotePersistent()) {
-      this.log.error(
-        '[upload/company-ad-image] Remote persistent storage is not configured. Refusing unstable local upload.',
-      );
-      throw new ServiceUnavailableException(
-        'Perzistentní úložiště médií není nakonfigurováno. Obrázky reklam nelze nyní bezpečně uložit.',
-      );
-    }
     try {
-      const { buffer: out } = await this.profileImages.processCoverForUpload(file.buffer);
-      const url = await this.profileMediaStorage.uploadCompanyAdImage(user.id, out);
-      this.log.log(`[upload/company-ad-image] cloudinary user=${user.id} len=${url.length}`);
+      const { buffer: out, ext } = await this.profileImages.processCoverForUpload(file.buffer);
+      if (this.profileMediaStorage.isRemotePersistent()) {
+        const url = await this.profileMediaStorage.uploadCompanyAdImage(user.id, out);
+        this.log.log(`[upload/company-ad-image] cloudinary user=${user.id} len=${url.length}`);
+        return { url };
+      }
+
+      const name = `${user.id}-ad-${Date.now()}${ext}`;
+      const dir = join(getUploadsPath(), 'properties');
+      fs.mkdirSync(dir, { recursive: true });
+      const outPath = join(dir, name);
+      fs.writeFileSync(outPath, out);
+      const origin = this.resolvePublicOrigin(req);
+      const path = `/uploads/properties/${name}`;
+      const url = origin ? `${origin}${path}` : path;
+      this.log.warn(
+        `[upload/company-ad-image] local fallback user=${user.id}; returning absolute=${url}`,
+      );
       return { url };
     } catch (err) {
       if (err instanceof BadRequestException) throw err;
