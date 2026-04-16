@@ -51,4 +51,26 @@ export class AdminUpdatePropertyDto {
   @IsOptional()
   @IsBoolean()
   restore?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  viewsCount?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  autoViewsEnabled?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  autoViewsIncrement?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  autoViewsIntervalMinutes?: number;
 }

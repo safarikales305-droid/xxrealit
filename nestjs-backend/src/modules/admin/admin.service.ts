@@ -341,6 +341,27 @@ export class AdminService {
     if (dto.listingType !== undefined) {
       data.listingType = dto.listingType;
     }
+    if (dto.viewsCount !== undefined) {
+      data.viewsCount = Math.max(0, Math.trunc(dto.viewsCount));
+    }
+    if (dto.autoViewsEnabled !== undefined) {
+      data.autoViewsEnabled = dto.autoViewsEnabled;
+      if (dto.autoViewsEnabled) {
+        data.lastAutoViewsAt = new Date();
+      }
+    }
+    if (dto.autoViewsIncrement !== undefined) {
+      if (dto.autoViewsIncrement <= 0) {
+        throw new BadRequestException('autoViewsIncrement musí být > 0');
+      }
+      data.autoViewsIncrement = Math.trunc(dto.autoViewsIncrement);
+    }
+    if (dto.autoViewsIntervalMinutes !== undefined) {
+      if (dto.autoViewsIntervalMinutes <= 0) {
+        throw new BadRequestException('autoViewsIntervalMinutes musí být > 0');
+      }
+      data.autoViewsIntervalMinutes = Math.trunc(dto.autoViewsIntervalMinutes);
+    }
 
     const toDateOrNull = (v: string | null | undefined): Date | null => {
       if (v === null || v === undefined) return null;

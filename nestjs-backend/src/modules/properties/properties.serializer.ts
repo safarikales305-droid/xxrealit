@@ -50,6 +50,11 @@ export type PropertyRowForApi = {
   activeFrom?: Date | null;
   activeUntil?: Date | null;
   listingType?: string;
+  viewsCount?: number;
+  autoViewsEnabled?: boolean;
+  autoViewsIncrement?: number;
+  autoViewsIntervalMinutes?: number;
+  lastAutoViewsAt?: Date | null;
   isOwnerListing?: boolean;
   ownerContactConsent?: boolean;
   region?: string;
@@ -225,6 +230,11 @@ export function serializeProperty(
     likeCount: p._count.likes,
     liked,
     listingType: p.listingType ?? null,
+    viewsCount: Math.max(0, Math.trunc(p.viewsCount ?? 0)),
+    autoViewsEnabled: Boolean(p.autoViewsEnabled),
+    autoViewsIncrement: Math.max(0, Math.trunc(p.autoViewsIncrement ?? 0)),
+    autoViewsIntervalMinutes: Math.max(0, Math.trunc(p.autoViewsIntervalMinutes ?? 0)),
+    lastAutoViewsAt: p.lastAutoViewsAt ? p.lastAutoViewsAt.toISOString() : null,
     derivedFromPropertyId: p.derivedFromPropertyId ?? null,
   };
 }

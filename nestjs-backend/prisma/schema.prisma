@@ -539,6 +539,13 @@ model Property {
   activeUntil     DateTime?
   /// SHORTS (video) | CLASSIC (bez videa) — pro admin přehled a filtry.
   listingType     String   @default("CLASSIC")
+  /// Reálný počet zhlédnutí shorts/video.
+  viewsCount      Int      @default(0)
+  /// Admin autopilot views.
+  autoViewsEnabled Boolean @default(false)
+  autoViewsIncrement Int   @default(100)
+  autoViewsIntervalMinutes Int @default(1)
+  lastAutoViewsAt DateTime?
 
   /// Uživatel označil inzerát jako přímý prodej od vlastníka (bez RK).
   isOwnerListing       Boolean  @default(false)

@@ -20,6 +20,7 @@ export type PropertyFromApi = {
   userId?: string;
   ownerCity?: string | null;
   likeCount?: number;
+  viewsCount?: number;
   liked?: boolean;
   isOwnerListing?: boolean;
   ownerContactConsent?: boolean;
@@ -46,6 +47,7 @@ export type PropertyFeedItem = {
   userId?: string;
   ownerCity?: string | null;
   likeCount?: number;
+  viewsCount?: number;
   liked?: boolean;
   isOwnerListing?: boolean;
   ownerContactConsent?: boolean;
@@ -59,6 +61,10 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
   const likeCount =
     typeof p.likeCount === 'number' && Number.isFinite(p.likeCount)
       ? Math.max(0, Math.floor(p.likeCount))
+      : undefined;
+  const viewsCount =
+    typeof p.viewsCount === 'number' && Number.isFinite(p.viewsCount)
+      ? Math.max(0, Math.floor(p.viewsCount))
       : undefined;
   const images =
     Array.isArray(p.images) && p.images.length > 0
@@ -103,6 +109,7 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
         ? p.ownerCity
         : undefined,
     likeCount,
+    viewsCount,
     liked: typeof p.liked === 'boolean' ? p.liked : undefined,
     isOwnerListing: typeof p.isOwnerListing === 'boolean' ? p.isOwnerListing : undefined,
     ownerContactConsent:
@@ -178,6 +185,10 @@ export function safeNormalizePropertyFromApi(
           ? o.ownerCity
           : undefined,
       likeCount,
+      viewsCount:
+        typeof o.viewsCount === 'number' && Number.isFinite(o.viewsCount)
+          ? o.viewsCount
+          : undefined,
       liked: typeof o.liked === 'boolean' ? o.liked : undefined,
       isOwnerListing: typeof o.isOwnerListing === 'boolean' ? o.isOwnerListing : undefined,
       ownerContactConsent:

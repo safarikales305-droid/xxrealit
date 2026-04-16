@@ -43,6 +43,17 @@ const railBtn =
 /** Obálka / zpráva prodejci — stejná velikost jako rail, výrazný oranžový akcent. */
 const railMessageBtn = `${railBtn} border-orange-400/70 bg-black/70 text-orange-100 hover:border-orange-300 hover:bg-orange-600/90 hover:text-white lg:border-orange-300 lg:bg-white lg:text-orange-700 lg:shadow-md lg:hover:border-orange-500 lg:hover:bg-orange-50 lg:hover:text-orange-800`;
 
+function formatViewsCount(value: number | null | undefined): string {
+  const n = Math.max(0, Math.trunc(value ?? 0));
+  if (n < 1000) return n.toLocaleString('cs-CZ');
+  if (n < 10_000) {
+    const oneDecimal = Math.floor(n / 100) / 10;
+    return `${oneDecimal.toLocaleString('cs-CZ', { minimumFractionDigits: 0, maximumFractionDigits: 1 })} tis.`;
+  }
+  const thousands = Math.floor(n / 1000);
+  return `${thousands.toLocaleString('cs-CZ')} tis.`;
+}
+
 export default function VideoCard({
   video,
   onMobileFiltersOpen,
@@ -497,6 +508,11 @@ export default function VideoCard({
                 Video se nepodařilo načíst
               </div>
             )}
+            <div className="pointer-events-none absolute right-[max(0.5rem,env(safe-area-inset-right))] top-[max(0.5rem,env(safe-area-inset-top))] z-[37]">
+              <div className="rounded-xl bg-black/60 px-3 py-2 text-sm font-bold text-white shadow-lg sm:px-4 sm:py-2.5 sm:text-base">
+                {`👁 ${formatViewsCount(video.viewsCount)}`}
+              </div>
+            </div>
 
             {onMobileFiltersOpen ? (
               <button

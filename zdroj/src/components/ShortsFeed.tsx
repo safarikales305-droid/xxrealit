@@ -34,6 +34,17 @@ function mockLikesForId(id: string): number {
   return 48 + Math.abs(h % 880);
 }
 
+function formatViewsCount(value: number | null | undefined): string {
+  const n = Math.max(0, Math.trunc(value ?? 0));
+  if (n < 1000) return n.toLocaleString('cs-CZ');
+  if (n < 10_000) {
+    const oneDecimal = Math.floor(n / 100) / 10;
+    return `${oneDecimal.toLocaleString('cs-CZ', { minimumFractionDigits: 0, maximumFractionDigits: 1 })} tis.`;
+  }
+  const thousands = Math.floor(n / 1000);
+  return `${thousands.toLocaleString('cs-CZ')} tis.`;
+}
+
 type Clip = PropertyFeedItem & { src: string };
 type CompanyAd = {
   id: string;
@@ -374,6 +385,11 @@ export function ShortsFeed({ items }: Props) {
               >
                 <source src={c.src} type="video/mp4" />
               </video>
+            </div>
+            <div className="pointer-events-none absolute right-3 top-3 z-[26] sm:right-4 sm:top-4">
+              <div className="rounded-xl bg-black/60 px-3 py-2 text-sm font-bold text-white shadow-lg sm:px-4 sm:py-2.5 sm:text-base">
+                {`👁 ${formatViewsCount(c.viewsCount)}`}
+              </div>
             </div>
 
             <div

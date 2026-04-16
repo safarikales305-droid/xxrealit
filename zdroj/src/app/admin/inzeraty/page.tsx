@@ -99,6 +99,10 @@ export default function AdminListingsPage() {
   const [editListingType, setEditListingType] = useState<'SHORTS' | 'CLASSIC'>('CLASSIC');
   const [editApproved, setEditApproved] = useState(false);
   const [editIsActive, setEditIsActive] = useState(true);
+  const [editViewsCount, setEditViewsCount] = useState('0');
+  const [editAutoViewsEnabled, setEditAutoViewsEnabled] = useState(false);
+  const [editAutoViewsIncrement, setEditAutoViewsIncrement] = useState('100');
+  const [editAutoViewsIntervalMinutes, setEditAutoViewsIntervalMinutes] = useState('1');
   const [editMsg, setEditMsg] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -152,6 +156,10 @@ export default function AdminListingsPage() {
     setEditListingType(r.listingType === 'SHORTS' ? 'SHORTS' : 'CLASSIC');
     setEditApproved(Boolean(r.approved));
     setEditIsActive(r.isActive !== false);
+    setEditViewsCount(String(Math.max(0, Math.trunc(r.viewsCount ?? 0))));
+    setEditAutoViewsEnabled(Boolean(r.autoViewsEnabled));
+    setEditAutoViewsIncrement(String(Math.max(1, Math.trunc(r.autoViewsIncrement ?? 100))));
+    setEditAutoViewsIntervalMinutes(String(Math.max(1, Math.trunc(r.autoViewsIntervalMinutes ?? 1))));
     setEditMsg(null);
   }
 
@@ -160,6 +168,21 @@ export default function AdminListingsPage() {
     if (!token || !editRow) return;
     setEditMsg(null);
     const priceNum = Number.parseInt(editPrice.replace(/\s/g, ''), 10);
+    const viewsNum = Number.parseInt(editViewsCount.replace(/\s/g, ''), 10);
+    const autoIncNum = Number.parseInt(editAutoViewsIncrement.replace(/\s/g, ''), 10);
+    const autoIntNum = Number.parseInt(editAutoViewsIntervalMinutes.replace(/\s/g, ''), 10);
+    if (!Number.isFinite(viewsNum) || viewsNum < 0) {
+      setEditMsg('Počet shlédnutí musí být 0 nebo vyšší.');
+      return;
+    }
+    if (!Number.isFinite(autoIncNum) || autoIncNum <= 0) {
+      setEditMsg('Auto increment musí být > 0.');
+      return;
+    }
+    if (!Number.isFinite(autoIntNum) || autoIntNum <= 0) {
+      setEditMsg('Auto interval musí být > 0 minut.');
+      return;
+    }
     const body: Record<string, unknown> = {
       title: editTitle.trim(),
       price: Number.isFinite(priceNum) && priceNum >= 0 ? priceNum : undefined,
@@ -167,6 +190,10 @@ export default function AdminListingsPage() {
       listingType: editListingType,
       approved: editApproved,
       isActive: editIsActive,
+      viewsCount: viewsNum,
+      autoViewsEnabled: editAutoViewsEnabled,
+      autoViewsIncrement: autoIncNum,
+      autoViewsIntervalMinutes: autoIntNum,
     };
     if (editActiveFrom.trim()) {
       body.activeFrom = new Date(editActiveFrom).toISOString();
@@ -396,6 +423,7 @@ export default function AdminListingsPage() {
                 <th className="px-3 py-3">Město</th>
                 <th className="px-3 py-3">Cena</th>
                 <th className="px-3 py-3">Vytvořeno</th>
+                <th className="px-3 py-3">Views</th>
                 <th className="px-3 py-3">Stav</th>
                 <th className="px-3 py-3">Aktivní od / do</th>
                 <th className="px-3 py-3 text-right">Akce</th>
@@ -404,7 +432,7 @@ export default function AdminListingsPage() {
             <tbody className="divide-y divide-zinc-100">
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-zinc-500">
+                  <td colSpan={10} className="px-4 py-10 text-center text-zinc-500">
                     Žádné záznamy. Upravte filtry nebo zkuste znovu načíst.
                   </td>
                 </tr>
@@ -436,6 +464,9 @@ export default function AdminListingsPage() {
                       <td className="px-3 py-2 tabular-nums">{formatPrice(r.price)}</td>
                       <td className="px-3 py-2 whitespace-nowrap text-xs text-zinc-600">
                         {formatDt(r.createdAt)}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-xs font-semibold tabular-nums text-zinc-900">
+                        {Math.max(0, Math.trunc(r.viewsCount ?? 0)).toLocaleString('cs-CZ')}
                       </td>
                       <td className="px-3 py-2">
                         <span
@@ -585,6 +616,60 @@ export default function AdminListingsPage() {
                     onChange={(e) => setEditIsActive(e.target.checked)}
                   />
                   Aktivní (veřejně zapnuto)
+                </label>
+              </div>
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  Views systém
+                </p>
+                <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <label className="text-sm font-medium text-zinc-700">
+                    Počáteční / aktuální views
+                    <input
+                      value={editViewsCount}
+                      onChange={(e) => setEditViewsCount(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-[#ff6a00]/55"
+                      inputMode="numeric"
+                    />
+                  </label>
+                  <label className="text-sm font-medium text-zinc-700">
+                    Auto +views
+                    <input
+                      value={editAutoViewsIncrement}
+                      onChange={(e) => setEditAutoViewsIncrement(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-[#ff6a00]/55"
+                      inputMode="numeric"
+                    />
+                  </label>
+                  <label className="text-sm font-medium text-zinc-700">
+                    Interval (min)
+                    <input
+                      value={editAutoViewsIntervalMinutes}
+                      onChange={(e) => setEditAutoViewsIntervalMinutes(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-[#ff6a00]/55"
+                      inputMode="numeric"
+                    />
+                  </label>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {[100, 500, 1000].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setEditViewsCount(String(preset))}
+                      className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-100"
+                    >
+                      {preset.toLocaleString('cs-CZ')}
+                    </button>
+                  ))}
+                </div>
+                <label className="mt-3 flex items-center gap-2 text-sm font-medium text-zinc-800">
+                  <input
+                    type="checkbox"
+                    checked={editAutoViewsEnabled}
+                    onChange={(e) => setEditAutoViewsEnabled(e.target.checked)}
+                  />
+                  Zapnout autopilota views
                 </label>
               </div>
               <div>

@@ -665,6 +665,11 @@ export type AdminListingRow = {
   activeUntil?: string | null;
   createdAt?: string;
   userId?: string;
+  viewsCount?: number;
+  autoViewsEnabled?: boolean;
+  autoViewsIncrement?: number;
+  autoViewsIntervalMinutes?: number;
+  lastAutoViewsAt?: string | null;
 };
 
 export async function nestAdminListings(
@@ -2913,6 +2918,7 @@ export type ShortVideo = {
   userId?: string;
   /** Z GET /feed/shorts (Property.publishedAt) — řazení náhledu. */
   publishedAt?: string | null;
+  viewsCount?: number;
   user?: {
     id: string;
     name?: string | null;
@@ -3043,6 +3049,10 @@ export async function nestFetchShortVideoPublic(id: string): Promise<ShortVideo 
       imageUrl: typeof p.imageUrl === 'string' ? p.imageUrl : null,
       createdAt,
       publishedAt,
+      viewsCount:
+        typeof p.viewsCount === 'number' && Number.isFinite(p.viewsCount)
+          ? Math.max(0, Math.trunc(p.viewsCount))
+          : undefined,
       userId: typeof p.userId === 'string' ? p.userId : undefined,
     };
   };
