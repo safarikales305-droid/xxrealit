@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { ComponentType } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Briefcase, Building2, Home, Landmark, TrendingUp } from 'lucide-react';
+import { Briefcase, Building2, Globe, Home, Landmark, TrendingUp } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
 import { loadPropertyFeedItems } from '@/lib/load-feed';
@@ -42,6 +42,7 @@ const brandBtn =
   'rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-10 py-3.5 text-[15px] font-semibold tracking-[-0.01em] text-white shadow-[0_8px_28px_-6px_rgba(255,106,0,0.45)] transition duration-300 hover:scale-[1.02] hover:shadow-[0_12px_36px_-6px_rgba(255,80,0,0.5)] active:scale-[0.98]';
 
 const COMMUNITY_CATEGORIES = [
+  { key: 'VSE', label: 'Zobrazit vše', icon: Globe, queryValue: 'all' },
   { key: 'MAKLERI', label: 'Makléři', icon: Briefcase, queryValue: 'agents' },
   { key: 'STAVEBNI_FIRMY', label: 'Stavební firmy', icon: Building2, queryValue: 'companies' },
   { key: 'REALITNI_KANCELARE', label: 'Realitní kanceláře', icon: Home, queryValue: 'agencies' },
@@ -58,6 +59,8 @@ type CommunityCategory = (typeof COMMUNITY_CATEGORIES)[number]['key'];
 
 function parseCategoryFromQuery(raw: string | null): CommunityCategory {
   switch ((raw ?? '').trim().toLowerCase()) {
+    case 'all':
+      return 'VSE';
     case 'companies':
       return 'STAVEBNI_FIRMY';
     case 'agencies':
@@ -67,14 +70,15 @@ function parseCategoryFromQuery(raw: string | null): CommunityCategory {
     case 'investors':
       return 'INVESTORI';
     case 'agents':
-    default:
       return 'MAKLERI';
+    default:
+      return 'VSE';
   }
 }
 
 function categoryToQueryValue(category: CommunityCategory): string {
   const matched = COMMUNITY_CATEGORIES.find((x) => x.key === category);
-  return matched?.queryValue ?? 'agents';
+  return matched?.queryValue ?? 'all';
 }
 
 function feedShortsRowToShortVideo(row: Record<string, unknown>): ShortVideo | null {
@@ -175,7 +179,7 @@ export function HomeLayout({
   const [postFeed, setPostFeed] = useState<Array<Record<string, unknown>>>([]);
   const [loadingFeed, setLoadingFeed] = useState(false);
   const shortsLoadedRef = useRef(false);
-  const [activeCategory, setActiveCategory] = useState<CommunityCategory>('MAKLERI');
+  const [activeCategory, setActiveCategory] = useState<CommunityCategory>('VSE');
   const [postsCategoryOpen, setPostsCategoryOpen] = useState(false);
   const [radiusKm, setRadiusKm] = useState<(typeof RADIUS_OPTIONS_KM)[number]>(30);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -195,7 +199,8 @@ export function HomeLayout({
   const [storyViewerOpen, setStoryViewerOpen] = useState(false);
   const [storyViewerIndex, setStoryViewerIndex] = useState(0);
   const activeCategoryLabel =
-    COMMUNITY_CATEGORIES.find((x) => x.key === activeCategory)?.label ?? 'Makléři';
+    COMMUNITY_CATEGORIES.find((x) => x.key === activeCategory)?.label ?? 'Zobrazit vše';
+  const createPostCategory = activeCategory === 'VSE' ? 'MAKLERI' : activeCategory;
 
   const storyCards = useMemo(() => stories.slice(0, 20), [stories]);
   const activeStory = storyCards[storyViewerIndex] ?? null;
@@ -850,6 +855,9 @@ export function HomeLayout({
                                 <span className="hidden md:inline">Příspěvky / {activeCategoryLabel}</span>
                                 <span aria-hidden>{postsCategoryOpen ? '▴' : '▾'}</span>
                               </button>
+                              <p className="mt-1 text-xs font-semibold text-zinc-700 md:hidden">
+                                Aktivní: {activeCategoryLabel}
+                              </p>
                               {postsCategoryOpen ? (
                                 <div className="absolute left-0 top-12 z-30 w-[min(92vw,22rem)] rounded-2xl border border-zinc-200 bg-white p-2 shadow-xl">
                                   <ul className="space-y-1">
@@ -913,7 +921,7 @@ export function HomeLayout({
                           <div className="mt-2 w-full md:mt-4">
                             <CreateCommunityPostCard
                               apiAccessToken={apiAccessToken}
-                              activeCategory={activeCategory}
+                              activeCategory={createPostCategory}
                               latitude={userCoords?.lat}
                               longitude={userCoords?.lng}
                               onPublished={async () => {

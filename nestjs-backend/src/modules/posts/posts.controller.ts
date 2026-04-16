@@ -38,13 +38,16 @@ export class PostsController {
   ) {
     const value = (category ?? '').trim();
     const cat = ([
+      'VSE',
       'MAKLERI',
       'STAVEBNI_FIRMY',
       'REALITNI_KANCELARE',
       'FINANCNI_PORADCI',
       'INVESTORI',
     ].includes(value)
-      ? (value as PostCategory)
+      ? value === 'VSE'
+        ? undefined
+        : (value as PostCategory)
       : undefined);
     const radius = Number(radiusKm);
     const userLat = Number(lat);

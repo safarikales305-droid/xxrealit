@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { PostCategory, ReactionType } from '@prisma/client';
+import { PostCategory, ReactionType, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { CreatePostDto } from './dto/create-post.dto';
@@ -48,6 +48,14 @@ function toNumberOrNull(value: unknown): number | null {
   }
   return null;
 }
+
+const PROFESSIONAL_POST_ROLES: UserRole[] = [
+  UserRole.AGENT,
+  UserRole.COMPANY,
+  UserRole.AGENCY,
+  UserRole.FINANCIAL_ADVISOR,
+  UserRole.INVESTOR,
+];
 
 @Injectable()
 export class PostsService {
@@ -324,7 +332,13 @@ export class PostsService {
     lng?: number,
   ) {
     const rows = await this.prisma.post.findMany({
-      where: category ? { category } : undefined,
+      where: {
+        type: 'post',
+        ...(category ? { category } : {}),
+        user: {
+          role: { in: PROFESSIONAL_POST_ROLES },
+        },
+      },
       orderBy: { createdAt: 'desc' },
       include: {
         media: { orderBy: { order: 'asc' } },
@@ -340,14 +354,20 @@ export class PostsService {
         },
       },
     });
+    const publicRows = rows
+      .map((row) => ({
+        ...row,
+        media: row.media.filter((m) => isPublicMediaUrl(m.url)),
+      }))
+      .filter((row) => row.media.length > 0);
     const userLat = toNumberOrNull(lat);
     const userLng = toNumberOrNull(lng);
     const radiusNum = toNumberOrNull(radiusKm);
     if (userLat === null || userLng === null || radiusNum === null) {
-      return rows;
+      return publicRows;
     }
     const maxKm = Math.max(1, radiusNum);
-    return rows
+    return publicRows
       .map((row) => {
         const rowLat = toNumberOrNull(row.latitude);
         const rowLng = toNumberOrNull(row.longitude);

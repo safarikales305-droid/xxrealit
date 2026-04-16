@@ -3700,6 +3700,7 @@ export async function nestFetchPostDetail(postId: string): Promise<ListingPost |
 
 export async function nestFetchCommunityPosts(
   category?:
+    | 'VSE'
     | 'MAKLERI'
     | 'STAVEBNI_FIRMY'
     | 'REALITNI_KANCELARE'

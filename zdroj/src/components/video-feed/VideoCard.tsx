@@ -542,7 +542,7 @@ export default function VideoCard({
               ×
             </button>
             <img
-              src={companyAd.imageUrl}
+              src={nestAbsoluteAssetUrl(companyAd.imageUrl)}
               alt={companyAd.title}
               className="h-24 w-full rounded-xl object-cover"
               loading="lazy"

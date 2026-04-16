@@ -15,6 +15,7 @@ import { CommentsPlaceholder } from '@/components/feed/comments-placeholder';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { useAuth } from '@/hooks/use-auth';
 import { toPublicApiUrl } from '@/lib/public-api';
+import { nestAbsoluteAssetUrl } from '@/lib/api';
 import type { PropertyFeedItem } from '@/types/property';
 import { isPropertyFeedVideoPlayable, propertyFeedPrimaryVideoSrc } from '@/lib/feed/loop-feed';
 
@@ -457,7 +458,7 @@ export function ShortsFeed({ items }: Props) {
                   ×
                 </button>
                 <img
-                  src={ad.imageUrl}
+                  src={nestAbsoluteAssetUrl(ad.imageUrl)}
                   alt={ad.title}
                   className="h-28 w-full rounded-xl object-cover"
                   loading="lazy"

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { API_BASE_URL } from '@/lib/api';
+import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
 import { nestAuthHeaders } from '@/lib/nest-client';
 
 type CompanyAd = {
@@ -43,6 +43,8 @@ export function CompanyAdsManager() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const isCompany = user?.role === 'COMPANY';
   const canUse = Boolean(API_BASE_URL && apiAccessToken && isCompany);
   const endpoint = useMemo(() => (API_BASE_URL ? `${API_BASE_URL}/company-ads` : ''), []);
@@ -66,23 +68,47 @@ export function CompanyAdsManager() {
 
   async function handleUpload(file: File) {
     if (!API_BASE_URL || !apiAccessToken) return;
-    const fd = new FormData();
-    fd.append('files', file);
-    const res = await fetch(`${API_BASE_URL}/upload`, {
-      method: 'POST',
-      headers: nestAuthHeaders(apiAccessToken),
-      body: fd,
-    });
-    const data = (await res.json().catch(() => ({}))) as { urls?: string[] };
-    const first = Array.isArray(data.urls) ? data.urls[0] : null;
-    if (typeof first === 'string' && first.trim()) {
-      setForm((prev) => ({ ...prev, imageUrl: first.trim() }));
+    setFormError(null);
+    setUploadingImage(true);
+    try {
+      const fd = new FormData();
+      fd.append('files', file);
+      const res = await fetch(`${API_BASE_URL}/upload`, {
+        method: 'POST',
+        headers: nestAuthHeaders(apiAccessToken),
+        body: fd,
+      });
+      const data = (await res.json().catch(() => ({}))) as { urls?: string[]; message?: string };
+      if (!res.ok) {
+        setFormError(
+          typeof data.message === 'string' && data.message.trim()
+            ? data.message
+            : 'Nahrání fotky reklamy selhalo.',
+        );
+        return;
+      }
+      const first = Array.isArray(data.urls) ? data.urls[0] : null;
+      if (typeof first === 'string' && first.trim()) {
+        setForm((prev) => ({ ...prev, imageUrl: first.trim() }));
+        setFormError(null);
+      } else {
+        setFormError('Server nevrátil URL nahrané fotky reklamy.');
+      }
+    } catch {
+      setFormError('Síťová chyba při nahrávání fotky reklamy.');
+    } finally {
+      setUploadingImage(false);
     }
   }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canUse) return;
+    setFormError(null);
+    if (!form.imageUrl.trim()) {
+      setFormError('Nahrajte nebo vyplňte hlavní fotku reklamy.');
+      return;
+    }
     setBusy(true);
     const body = {
       imageUrl: form.imageUrl.trim(),
@@ -98,7 +124,7 @@ export function CompanyAdsManager() {
     };
     const method = editingId ? 'PATCH' : 'POST';
     const url = editingId ? `${endpoint}/${encodeURIComponent(editingId)}` : endpoint;
-    await fetch(url, {
+    const submitRes = await fetch(url, {
       method,
       headers: {
         ...nestAuthHeaders(apiAccessToken),
@@ -107,6 +133,18 @@ export function CompanyAdsManager() {
       },
       body: JSON.stringify(body),
     });
+    if (!submitRes.ok) {
+      const err = (await submitRes.json().catch(() => ({}))) as { message?: string; error?: string };
+      setBusy(false);
+      setFormError(
+        typeof err.message === 'string'
+          ? err.message
+          : typeof err.error === 'string'
+            ? err.error
+            : 'Uložení reklamy selhalo.',
+      );
+      return;
+    }
     setBusy(false);
     setForm(EMPTY_FORM);
     setEditingId(null);
@@ -196,8 +234,14 @@ export function CompanyAdsManager() {
               }}
             />
           </label>
+          {formError ? <p className="text-sm font-medium text-red-600">{formError}</p> : null}
+          {uploadingImage ? <p className="text-sm text-zinc-600">Nahrávám fotku reklamy…</p> : null}
           {previewUrl || form.imageUrl ? (
-            <img src={previewUrl ?? form.imageUrl} alt="Náhled reklamy" className="h-32 w-full max-w-sm rounded-xl object-cover" />
+            <img
+              src={previewUrl ?? nestAbsoluteAssetUrl(form.imageUrl)}
+              alt="Náhled reklamy"
+              className="h-32 w-full max-w-sm rounded-xl object-cover"
+            />
           ) : null}
           <label className="flex items-center gap-2 text-sm text-zinc-700">
             <input type="checkbox" checked={form.isActive} onChange={(e) => setForm((prev) => ({ ...prev, isActive: e.target.checked }))} />
@@ -214,6 +258,12 @@ export function CompanyAdsManager() {
         <div className="mt-3 grid gap-3">
           {items.map((ad) => (
             <article key={ad.id} className="rounded-xl border border-zinc-200 p-3">
+              <img
+                src={nestAbsoluteAssetUrl(ad.imageUrl)}
+                alt={ad.title}
+                className="mb-3 h-32 w-full rounded-lg object-cover"
+                loading="lazy"
+              />
               <p className="text-xs uppercase text-zinc-500">{ad.categories.join(', ')}</p>
               <h3 className="mt-1 font-semibold">{ad.title}</h3>
               <p className="text-sm text-zinc-600">{ad.description}</p>
