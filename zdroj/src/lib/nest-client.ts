@@ -2170,6 +2170,28 @@ export async function nestDeleteMyProperty(
   return { ok: true };
 }
 
+/** POST /properties/:id/top — topování vlastního inzerátu (JWT). */
+export async function nestTopMyProperty(
+  token: string | null,
+  propertyId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/properties/${encodeURIComponent(propertyId)}/top`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true };
+}
+
 /** GET /properties/:id — detail s JWT (vlastník vidí neschválené). */
 export async function nestFetchPropertyDetailJson(
   propertyId: string,

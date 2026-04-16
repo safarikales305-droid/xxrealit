@@ -204,6 +204,12 @@ export class PropertiesController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post(':id/top')
+  topMine(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.propertiesService.topByOwner(user.id, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post(':id/like')
   toggleLike(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.propertiesService.toggleLike(id, user.id);

@@ -747,4 +747,29 @@ export class PropertiesService {
     });
     return { ok: true };
   }
+
+  async topByOwner(ownerId: string, propertyId: string) {
+    const existing = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { id: true, userId: true, deletedAt: true },
+    });
+    if (!existing || existing.deletedAt) {
+      throw new NotFoundException(`Property "${propertyId}" not found`);
+    }
+    if (existing.userId !== ownerId) {
+      throw new ForbiddenException('Tento inzerát nemůžete topovat.');
+    }
+
+    const now = new Date();
+    const boostedUntil = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+    await this.prisma.property.update({
+      where: { id: propertyId },
+      data: {
+        isActive: true,
+        activeFrom: now,
+        activeUntil: boostedUntil,
+      },
+    });
+    return { ok: true, activeUntil: boostedUntil.toISOString() };
+  }
 }
