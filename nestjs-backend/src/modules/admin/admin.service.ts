@@ -349,6 +349,9 @@ export class AdminService {
       if (dto.autoViewsEnabled) {
         data.lastAutoViewsAt = new Date();
       }
+      if (!dto.autoViewsEnabled) {
+        data.lastAutoViewsAt = null;
+      }
     }
     if (dto.autoViewsIncrement !== undefined) {
       if (dto.autoViewsIncrement <= 0) {
@@ -361,6 +364,13 @@ export class AdminService {
         throw new BadRequestException('autoViewsIntervalMinutes musí být > 0');
       }
       data.autoViewsIntervalMinutes = Math.trunc(dto.autoViewsIntervalMinutes);
+    }
+    if (
+      existing.autoViewsEnabled &&
+      existing.lastAutoViewsAt == null &&
+      dto.autoViewsEnabled === undefined
+    ) {
+      data.lastAutoViewsAt = new Date();
     }
 
     const toDateOrNull = (v: string | null | undefined): Date | null => {

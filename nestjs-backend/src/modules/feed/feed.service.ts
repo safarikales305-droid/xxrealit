@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { SEED_DEMO_VIDEO_MP4 } from '../../database/seed.constants';
 import { PrismaService } from '../../database/prisma.service';
+import { ShortsViewsAutopilotService } from './shorts-views-autopilot.service';
 import {
   classicPublicListingWhere,
   publicShortPropertyWhere,
@@ -50,7 +51,10 @@ function scoreProperty(
 export class FeedService {
   private readonly log = new Logger(FeedService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly _autoViewsAutopilot: ShortsViewsAutopilotService,
+  ) {}
 
   async getPersonalizedForUser(viewerId: string) {
     const viewer = await this.prisma.user.findUnique({

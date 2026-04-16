@@ -11,6 +11,7 @@ export class ShortsViewsAutopilotService implements OnModuleInit, OnModuleDestro
 
   onModuleInit() {
     // Lightweight scheduler without extra runtime dependency.
+    this.log.log('[auto-views] scheduler initialized (tick each 30s)');
     this.timer = setInterval(() => {
       void this.tick();
     }, 30_000);
@@ -33,7 +34,13 @@ export class ShortsViewsAutopilotService implements OnModuleInit, OnModuleDestro
         where: {
           deletedAt: null,
           autoViewsEnabled: true,
-          listingType: 'SHORTS',
+          OR: [
+            { listingType: 'SHORTS' },
+            {
+              AND: [{ videoUrl: { not: null } }, { NOT: { videoUrl: '' } }],
+            },
+            { media: { some: { type: 'video' } } },
+          ],
         },
         select: {
           id: true,
@@ -49,13 +56,21 @@ export class ShortsViewsAutopilotService implements OnModuleInit, OnModuleDestro
         const intervalMinutes = Math.trunc(row.autoViewsIntervalMinutes ?? 0);
         if (increment <= 0 || intervalMinutes <= 0) continue;
         const intervalMs = intervalMinutes * 60_000;
-        const base = row.lastAutoViewsAt ?? now;
+        if (!row.lastAutoViewsAt) {
+          await this.prisma.property.update({
+            where: { id: row.id },
+            data: { lastAutoViewsAt: now },
+          });
+          this.log.log(`[auto-views] init lastAutoViewsAt id=${row.id}`);
+          continue;
+        }
+        const base = row.lastAutoViewsAt;
         const elapsedMs = now.getTime() - base.getTime();
         const steps = Math.floor(elapsedMs / intervalMs);
         if (steps <= 0) continue;
         const added = steps * increment;
         const nextViews = Math.max(0, Math.trunc(row.viewsCount ?? 0) + added);
-        const nextLastAuto = new Date(base.getTime() + steps * intervalMs);
+        const nextLastAuto = now;
         await this.prisma.property.update({
           where: { id: row.id },
           data: {
@@ -63,6 +78,9 @@ export class ShortsViewsAutopilotService implements OnModuleInit, OnModuleDestro
             lastAutoViewsAt: nextLastAuto,
           },
         });
+        this.log.log(
+          `[auto-views] id=${row.id} old=${row.viewsCount ?? 0} add=${added} new=${nextViews} steps=${steps} intervalMin=${intervalMinutes}`,
+        );
         touched += 1;
       }
       if (touched > 0) {
