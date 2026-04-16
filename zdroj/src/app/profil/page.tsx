@@ -1058,7 +1058,7 @@ export default function ProfilPage() {
 
   return (
     <div className="min-h-[100dvh] overflow-x-hidden bg-[#fafafa] pb-16 text-zinc-900">
-      <div className="mx-auto max-w-3xl px-4 pt-6 sm:px-6">
+      <div className="mx-auto flex max-w-3xl flex-col px-4 pt-6 sm:px-6">
         <Link href="/" className="text-sm font-semibold text-[#e85d00] hover:underline">
           ← Domů
         </Link>
@@ -1712,7 +1712,7 @@ export default function ProfilPage() {
           </section>
         ) : null}
 
-        <section id="prispevky-profilu" className="mt-10 rounded-2xl border border-zinc-200 bg-white p-2 shadow-sm sm:p-5">
+        <section id="prispevky-profilu" className="order-20 mt-10 -mx-4 rounded-none border-y border-zinc-200 bg-white p-2 shadow-sm sm:mx-0 sm:rounded-2xl sm:border sm:p-5">
           <h2 className="text-lg font-semibold text-zinc-900">Shorts koncepty</h2>
           <p className="mt-1 text-sm text-zinc-600">
             Koncepty zůstávají mimo feed, dokud je v editoru nezveřejníte.
