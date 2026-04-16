@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Headers,
+  BadRequestException,
   NotFoundException,
   Param,
   Patch,
@@ -20,8 +21,10 @@ import { PropertiesService } from '../properties/properties.service';
 import { UpdateAvatarDto } from './dto/update-avatar.dto';
 import { UpdateCoverDto } from './dto/update-cover.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { UpdateBrokerLeadPrefsDto } from './dto/update-broker-lead-prefs.dto';
 import { UpdateBrokerPublicProfileDto } from './dto/update-broker-public-profile.dto';
+import { UpdateProfileVisibilityDto } from './dto/update-profile-visibility.dto';
 import { UpdateProfessionalVisibilityDto } from './dto/update-professional-visibility.dto';
 import { UsersService } from './users.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
@@ -146,6 +149,27 @@ export class UsersController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Patch('me/password')
+  async patchMyPassword(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: ChangePasswordDto,
+  ) {
+    if (dto.newPassword !== dto.confirmPassword) {
+      throw new BadRequestException('Potvrzení hesla nesouhlasí.');
+    }
+    return this.usersService.changePassword(user.id, dto.currentPassword, dto.newPassword);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('me/profile-visibility')
+  patchMyProfileVisibility(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: UpdateProfileVisibilityDto,
+  ) {
+    return this.usersService.updateUserProfileVisibility(user.id, dto.isPublic);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Patch('cover')
   async patchCover(
     @CurrentUser() user: AuthUser,
@@ -191,6 +215,28 @@ export class UsersController {
         avatarCrop: updated.avatarCrop ?? null,
         coverImageUrl: null,
         coverCrop: null,
+        bio: updated.bio ?? null,
+        createdAt: updated.createdAt.toISOString(),
+      },
+    };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('avatar')
+  async deleteAvatar(@CurrentUser() user: AuthUser) {
+    const updated = await this.usersService.clearAvatar(user.id);
+    return {
+      success: true,
+      avatarUrl: null,
+      user: {
+        id: updated.id,
+        email: updated.email,
+        name: updated.name,
+        role: updated.role,
+        avatarUrl: null,
+        avatarCrop: null,
+        coverImageUrl: updated.coverImage ?? null,
+        coverCrop: updated.coverCrop ?? null,
         bio: updated.bio ?? null,
         createdAt: updated.createdAt.toISOString(),
       },

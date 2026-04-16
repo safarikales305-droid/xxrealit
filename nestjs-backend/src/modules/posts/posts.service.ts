@@ -3,6 +3,7 @@ import { PostCategory, ReactionType } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { CreatePostDto } from './dto/create-post.dto';
+import { UpdatePostDto } from './dto/update-post.dto';
 
 function isPublicMediaUrl(url: string | null | undefined): boolean {
   const v = (url ?? '').trim();
@@ -71,6 +72,28 @@ export class PostsService {
     }
     await this.prisma.post.delete({ where: { id } });
     return { success: true };
+  }
+
+  async updatePostByOwner(id: string, userId: string, dto: UpdatePostDto) {
+    const post = await this.prisma.post.findUnique({ where: { id } });
+    if (!post) {
+      throw new NotFoundException();
+    }
+    if (post.userId !== userId) {
+      throw new ForbiddenException();
+    }
+    const nextText = (dto.content ?? dto.description ?? '').trim();
+    const updated = await this.prisma.post.update({
+      where: { id },
+      data: {
+        content: nextText || null,
+        description: nextText,
+      },
+      include: {
+        media: { orderBy: { order: 'asc' } },
+      },
+    });
+    return { success: true, post: updated };
   }
 
   async toggleFavorite(postId: string, userId: string) {

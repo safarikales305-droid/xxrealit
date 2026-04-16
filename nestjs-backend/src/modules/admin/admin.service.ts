@@ -397,6 +397,7 @@ export class AdminService {
         isPremiumBroker: true,
         brokerPoints: true,
         brokerFreeLeads: true,
+        creditBalance: true,
       },
     });
     return rows.map((u) => ({
@@ -409,7 +410,21 @@ export class AdminService {
       isPremiumBroker: u.isPremiumBroker,
       brokerPoints: u.brokerPoints,
       brokerFreeLeads: u.brokerFreeLeads,
+      creditBalance: u.creditBalance,
     }));
+  }
+
+  async updateUserCreditBalance(_actorId: string, targetId: string, creditBalance: number) {
+    const target = await this.prisma.user.findUnique({ where: { id: targetId } });
+    if (!target) {
+      throw new NotFoundException('Uživatel nenalezen');
+    }
+    const updated = await this.prisma.user.update({
+      where: { id: targetId },
+      data: { creditBalance: Math.max(0, Math.trunc(creditBalance)) },
+      select: { id: true, creditBalance: true },
+    });
+    return { ok: true, id: updated.id, creditBalance: updated.creditBalance };
   }
 
   async updateUserPremiumBroker(_actorId: string, targetId: string, isPremiumBroker: boolean) {

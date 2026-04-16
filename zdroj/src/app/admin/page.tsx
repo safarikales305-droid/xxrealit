@@ -20,6 +20,7 @@ import {
   nestAdminRejectProfessionalProfile,
   nestAdminStats,
   nestAdminUpdateUserRole,
+  nestAdminUpdateUserCredit,
   nestAdminUsers,
   type AdminStats,
   type AdminUserRow,
@@ -80,6 +81,7 @@ export default function AdminPage() {
   >('agent');
   const [agentRequests, setAgentRequests] = useState<NestAdminProfessionalProfileRow[]>([]);
   const [busyAgentId, setBusyAgentId] = useState<string | null>(null);
+  const [creditDraftByUserId, setCreditDraftByUserId] = useState<Record<string, string>>({});
 
   const [oldPw, setOldPw] = useState('');
   const [newPw, setNewPw] = useState('');
@@ -116,6 +118,13 @@ export default function AdminPage() {
       (p ?? []).filter((x): x is PropertyRow => x != null && typeof x === 'object'),
     );
     setUsersList(u ?? []);
+    setCreditDraftByUserId((prev) => {
+      const next: Record<string, string> = {};
+      for (const row of u ?? []) {
+        next[row.id] = prev[row.id] ?? String(Math.max(0, Math.trunc(row.creditBalance ?? 0)));
+      }
+      return next;
+    });
     setAgentRequests(a ?? []);
   }, [token, professionalType]);
 
@@ -248,6 +257,21 @@ export default function AdminPage() {
     setBusyUserId(null);
     if (r.ok) await refresh();
     else setLoadError(r.error ?? 'Mazání uživatele selhalo');
+  }
+
+  async function onUserCreditSave(userId: string) {
+    if (!token) return;
+    const raw = creditDraftByUserId[userId] ?? '0';
+    const credit = Number.parseInt(raw.replace(/\s/g, ''), 10);
+    if (!Number.isFinite(credit) || credit < 0) {
+      setLoadError('Kredit musí být nezáporné celé číslo.');
+      return;
+    }
+    setBusyUserId(userId);
+    const r = await nestAdminUpdateUserCredit(token, userId, credit);
+    setBusyUserId(null);
+    if (r.ok) await refresh();
+    else setLoadError(r.error ?? 'Uložení kreditu selhalo');
   }
 
   async function onPasswordSubmit(e: React.FormEvent) {
@@ -647,6 +671,7 @@ export default function AdminPage() {
                   <th className="px-4 py-3">E-mail</th>
                   <th className="px-4 py-3">Role</th>
                   <th className="hidden px-4 py-3 lg:table-cell">Premium / body</th>
+                  <th className="px-4 py-3">Kredit</th>
                   <th className="hidden px-4 py-3 sm:table-cell">Registrace</th>
                   <th className="px-4 py-3 text-right">Akce</th>
                 </tr>
@@ -691,6 +716,27 @@ export default function AdminPage() {
                       ) : (
                         <span className="text-xs text-zinc-400">—</span>
                       )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={creditDraftByUserId[u.id] ?? String(Math.max(0, u.creditBalance ?? 0))}
+                          disabled={busyUserId === u.id}
+                          onChange={(e) =>
+                            setCreditDraftByUserId((prev) => ({ ...prev, [u.id]: e.target.value }))
+                          }
+                          className="w-24 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-800 outline-none focus:border-[#ff6a00]/55 focus:ring-2 focus:ring-[#ff6a00]/15 disabled:opacity-50"
+                          inputMode="numeric"
+                        />
+                        <button
+                          type="button"
+                          disabled={busyUserId === u.id}
+                          onClick={() => void onUserCreditSave(u.id)}
+                          className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          Uložit
+                        </button>
+                      </div>
                     </td>
                     <td className="hidden px-4 py-3 text-zinc-500 sm:table-cell">
                       {u.createdAt

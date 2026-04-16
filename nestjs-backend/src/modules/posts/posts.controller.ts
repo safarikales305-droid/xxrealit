@@ -24,6 +24,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { uploadPostMedia } from './cloudinary-upload';
 import { CreateListingPostDto } from './dto/create-listing-post.dto';
 import { CreatePostDto } from './dto/create-post.dto';
+import { UpdatePostDto } from './dto/update-post.dto';
 import { PostsService } from './posts.service';
 
 @Controller('posts')
@@ -73,6 +74,16 @@ export class PostsController {
   @UseGuards(JwtAuthGuard)
   deletePost(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.postsService.deletePostByOwner(id, user.id);
+  }
+
+  @Post(':id/update')
+  @UseGuards(JwtAuthGuard)
+  updatePost(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body: UpdatePostDto,
+  ) {
+    return this.postsService.updatePostByOwner(id, user.id, body);
   }
 
   @Post(':id/favorite')

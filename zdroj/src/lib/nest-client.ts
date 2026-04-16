@@ -248,6 +248,7 @@ export type NestMeProfile = {
   brokerEmailPublic?: string;
   brokerReviewAverage?: number;
   brokerReviewCount?: number;
+  creditBalance?: number;
   agentProfile?: NestAgentProfileMe | null;
   companyProfile?: NestCompanyProfileMe | null;
   agencyProfile?: NestAgencyProfileMe | null;
@@ -535,6 +536,7 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     brokerReviewAverage:
       typeof o.brokerReviewAverage === 'number' ? o.brokerReviewAverage : undefined,
     brokerReviewCount: typeof o.brokerReviewCount === 'number' ? o.brokerReviewCount : undefined,
+    creditBalance: typeof o.creditBalance === 'number' ? o.creditBalance : undefined,
     agentProfile,
     companyProfile,
     agencyProfile,
@@ -609,6 +611,7 @@ export type AdminUserRow = {
   isPremiumBroker?: boolean;
   brokerPoints?: number;
   brokerFreeLeads?: number;
+  creditBalance?: number;
 };
 
 export async function nestAdminStats(
@@ -3764,4 +3767,115 @@ export async function nestSetPostReaction(
     dislikeCount: Number(data.dislikeCount ?? 0),
     reaction: data.reaction ?? null,
   };
+}
+
+async function nestError(res: Response): Promise<string> {
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  return nestErrorMessage(data, `HTTP ${res.status}`);
+}
+
+export async function nestAdminUpdateUserCredit(
+  token: string | null,
+  userId: string,
+  creditBalance: number,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/users/${encodeURIComponent(userId)}/credit`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ creditBalance: Math.max(0, Math.trunc(creditBalance)) }),
+  });
+  if (!res.ok) return { ok: false, error: await nestError(res) };
+  return { ok: true };
+}
+
+export async function nestDeleteAvatar(
+  token: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/users/avatar`, {
+    method: 'DELETE',
+    cache: 'no-store',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return { ok: false, error: await nestError(res) };
+  return { ok: true };
+}
+
+export async function nestPatchProfileVisibility(
+  token: string | null,
+  isPublic: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/users/me/profile-visibility`, {
+    method: 'PATCH',
+    cache: 'no-store',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ isPublic }),
+  });
+  if (!res.ok) return { ok: false, error: await nestError(res) };
+  return { ok: true };
+}
+
+export async function nestChangeMyPassword(
+  token: string | null,
+  body: { currentPassword: string; newPassword: string; confirmPassword: string },
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/users/me/password`, {
+    method: 'PATCH',
+    cache: 'no-store',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return { ok: false, error: await nestError(res) };
+  return { ok: true };
+}
+
+export async function nestUpdateMyPost(
+  token: string | null,
+  postId: string,
+  content: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const postsBase = API_BASE_URL.endsWith('/api') ? API_BASE_URL : `${API_BASE_URL}/api`;
+  const res = await fetch(`${postsBase}/posts/${encodeURIComponent(postId)}/update`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) return { ok: false, error: await nestError(res) };
+  return { ok: true };
+}
+
+export async function nestDeleteMyPost(
+  token: string | null,
+  postId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const postsBase = API_BASE_URL.endsWith('/api') ? API_BASE_URL : `${API_BASE_URL}/api`;
+  const res = await fetch(`${postsBase}/posts/${encodeURIComponent(postId)}`, {
+    method: 'DELETE',
+    cache: 'no-store',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return { ok: false, error: await nestError(res) };
+  return { ok: true };
 }

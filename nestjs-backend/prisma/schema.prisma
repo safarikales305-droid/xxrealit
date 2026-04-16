@@ -91,6 +91,7 @@ model User {
   city         String?
   /// Average rating 0–5 (manual / future reviews).
   rating       Float      @default(0)
+  creditBalance Int       @default(0)
   createdAt    DateTime   @default(now())
   resetToken   String?
   resetExpires DateTime?

@@ -18,6 +18,8 @@ import {
 } from '../properties/properties.serializer';
 import { UpdateBrokerPublicProfileDto } from './dto/update-broker-public-profile.dto';
 import type { ImageCropDto } from './dto/image-crop.dto';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const bcrypt = require('bcrypt');
 
 type LoginSafeUser = Pick<
   User,
@@ -195,6 +197,26 @@ export class UsersService {
     return { ...updated, role: ensureUserRole(updated.role) };
   }
 
+  async clearAvatar(userId: string) {
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { avatar: null, avatarCrop: Prisma.JsonNull },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        avatar: true,
+        avatarCrop: true,
+        coverImage: true,
+        coverCrop: true,
+        bio: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+    return { ...updated, role: ensureUserRole(updated.role) };
+  }
+
   async updateProfile(
     userId: string,
     input: { bio?: string | null; name?: string; phone?: string; phonePublic?: boolean },
@@ -266,6 +288,7 @@ export class UsersService {
       bio: true,
       role: true,
       createdAt: true,
+      creditBalance: true,
       isPremiumBroker: true,
       brokerLeadNotificationEnabled: true,
       brokerPreferredRegions: true,
@@ -455,6 +478,7 @@ export class UsersService {
       brokerEmailPublic: u.brokerEmailPublic,
       brokerReviewAverage: u.brokerReviewAverage,
       brokerReviewCount: u.brokerReviewCount,
+      creditBalance: u.creditBalance ?? 0,
       agentProfile,
       companyProfile: u.companyProfile
         ? {
@@ -528,6 +552,7 @@ export class UsersService {
       city: true,
       rating: true,
       createdAt: true,
+      creditBalance: true,
       _count: { select: { followers: true, following: true } },
     } as const;
     let hasCropColumns = true;
@@ -593,6 +618,9 @@ export class UsersService {
     const isOwnerViewer = Boolean(viewerId && viewerId === userId);
     const canSeePrivate = isOwnerViewer || viewerIsAdmin;
     if (!canSeePrivate) {
+      if (!user.isPublicBrokerProfile) {
+        throw new NotFoundException('User not found');
+      }
       if (user.role === UserRole.AGENT) {
         const ap = await this.prisma.agentProfile.findUnique({
           where: { userId },
@@ -683,6 +711,7 @@ export class UsersService {
       followingCount: user._count.following,
       isFollowedByViewer,
       canContactProfile: professionalRoles.has(user.role) && (viewerIsProfessional || viewerIsAdmin),
+      creditBalance: user.creditBalance ?? 0,
       },
       videos: videos.map((v) => ({
         ...v,
@@ -800,6 +829,32 @@ export class UsersService {
     throw new ForbiddenException(
       'Nastavení veřejnosti profilu je jen pro AGENT, COMPANY, AGENCY, FINANCIAL_ADVISOR nebo INVESTOR.',
     );
+  }
+
+  async updateUserProfileVisibility(userId: string, isPublic: boolean) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { isPublicBrokerProfile: isPublic },
+    });
+    return { isPublic };
+  }
+
+  async changePassword(userId: string, currentPassword: string, nextPassword: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, password: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    const ok = await bcrypt.compare(currentPassword, user.password);
+    if (!ok) {
+      throw new BadRequestException('Aktuální heslo není správné.');
+    }
+    const hashed = await bcrypt.hash(nextPassword, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: hashed },
+    });
+    return { success: true };
   }
 
   async updateBrokerLeadPrefs(

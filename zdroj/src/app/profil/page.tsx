@@ -8,7 +8,10 @@ import { useAuth } from '@/hooks/use-auth';
 import { useMessagesUnreadCount } from '@/hooks/use-messages-unread';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import {
+  nestChangeMyPassword,
+  nestDeleteAvatar,
   nestDeleteCover,
+  nestDeleteMyPost,
   nestDeleteMyProperty,
   nestDeleteShortsListing,
   nestFetchFavorites,
@@ -23,6 +26,7 @@ import {
   nestPatchBrokerPublicProfile,
   nestPatchAvatarCrop,
   nestPatchCoverCrop,
+  nestPatchProfileVisibility,
   nestPatchProfessionalVisibility,
   nestListMyCompanyAds,
   nestPatchMyProperty,
@@ -36,6 +40,7 @@ import {
   nestUploadAgentProfileLogo,
   nestUploadAvatar,
   nestUploadCover,
+  nestUpdateMyPost,
   NEST_PROFILE_IMAGE_MAX_BYTES,
   type NestMeProfile,
   type NestMyListingRow,
@@ -223,6 +228,17 @@ export default function ProfilPage() {
   const [professionalListingDialogOpen, setProfessionalListingDialogOpen] = useState(false);
   const [storyUploading, setStoryUploading] = useState(false);
   const [storyError, setStoryError] = useState<string | null>(null);
+  const [profileVisibilitySaving, setProfileVisibilitySaving] = useState(false);
+  const [isProfilePublic, setIsProfilePublic] = useState(false);
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
+  const [profileActionsOpen, setProfileActionsOpen] = useState<null | 'avatar' | 'cover'>(null);
+  const [wallEditPostId, setWallEditPostId] = useState<string | null>(null);
+  const [wallEditText, setWallEditText] = useState('');
+  const [wallBusyPostId, setWallBusyPostId] = useState<string | null>(null);
 
   const showSuccess = useCallback((msg: string) => {
     setSuccessMsg(msg);
@@ -269,6 +285,11 @@ export default function ProfilPage() {
                 ? Boolean(me.investorProfile?.isPublic)
             : false;
     setProfessionalVisibility(visibility);
+    setIsProfilePublic(
+      typeof me.isPublicBrokerProfile === 'boolean'
+        ? me.isPublicBrokerProfile
+        : visibility,
+    );
   }, [apiAccessToken]);
 
   const loadNotifications = useCallback(async () => {
@@ -653,6 +674,101 @@ export default function ProfilPage() {
     showSuccess(next ? 'Profil je nyní veřejný.' : 'Profil je nyní neveřejný.');
   }
 
+  async function onToggleProfileVisibility(next: boolean) {
+    if (!apiAccessToken) return;
+    setProfileVisibilitySaving(true);
+    const res = await nestPatchProfileVisibility(apiAccessToken, next);
+    setProfileVisibilitySaving(false);
+    if (!res.ok) {
+      showSuccess(res.error ?? 'Uložení veřejnosti profilu se nezdařilo.');
+      return;
+    }
+    setIsProfilePublic(next);
+    showSuccess(next ? 'Profil je nyní veřejný.' : 'Profil je nyní neveřejný.');
+  }
+
+  async function onChangePasswordSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!apiAccessToken) return;
+    if (newPassword.length < 8) {
+      setPasswordError('Nové heslo musí mít alespoň 8 znaků.');
+      return;
+    }
+    if (newPassword !== newPasswordConfirm) {
+      setPasswordError('Nové heslo a potvrzení se neshodují.');
+      return;
+    }
+    setPasswordError(null);
+    setPasswordSaving(true);
+    const res = await nestChangeMyPassword(apiAccessToken, {
+      currentPassword,
+      newPassword,
+      confirmPassword: newPasswordConfirm,
+    });
+    setPasswordSaving(false);
+    if (!res.ok) {
+      setPasswordError(res.error ?? 'Změna hesla se nezdařila.');
+      return;
+    }
+    setCurrentPassword('');
+    setNewPassword('');
+    setNewPasswordConfirm('');
+    showSuccess('Heslo bylo úspěšně změněno.');
+  }
+
+  async function onDeleteAvatar() {
+    if (!apiAccessToken) return;
+    if (!window.confirm('Opravdu odstranit profilovou fotku?')) return;
+    setAvatarError(null);
+    setAvatarUploading(true);
+    const res = await nestDeleteAvatar(apiAccessToken);
+    setAvatarUploading(false);
+    if (!res.ok) {
+      setAvatarError(res.error ?? 'Smazání profilové fotky se nezdařilo.');
+      return;
+    }
+    setNestAvatar(null);
+    setAvatarCrop(null);
+    await refresh();
+    setUser((prev) => (prev ? { ...prev, avatar: null, avatarCrop: null } : prev));
+    showSuccess('Profilová fotka byla odstraněna.');
+  }
+
+  function onStartWallPostEdit(post: NestProfileWallPost) {
+    setWallEditPostId(post.id);
+    setWallEditText((post.content || post.description || '').trim());
+  }
+
+  async function onSaveWallPostEdit(postId: string) {
+    if (!apiAccessToken) return;
+    const text = wallEditText.trim();
+    setWallBusyPostId(postId);
+    const res = await nestUpdateMyPost(apiAccessToken, postId, text);
+    setWallBusyPostId(null);
+    if (!res.ok) {
+      window.alert(res.error ?? 'Úprava příspěvku se nezdařila.');
+      return;
+    }
+    setWallPosts((prev) =>
+      prev.map((p) => (p.id === postId ? { ...p, content: text || null, description: text } : p)),
+    );
+    setWallEditPostId(null);
+    setWallEditText('');
+  }
+
+  async function onDeleteWallPost(postId: string) {
+    if (!apiAccessToken) return;
+    if (!window.confirm('Opravdu chcete tento příspěvek smazat?')) return;
+    setWallBusyPostId(postId);
+    const res = await nestDeleteMyPost(apiAccessToken, postId);
+    setWallBusyPostId(null);
+    if (!res.ok) {
+      window.alert(res.error ?? 'Smazání příspěvku se nezdařilo.');
+      return;
+    }
+    setWallPosts((prev) => prev.filter((p) => p.id !== postId));
+  }
+
   function prefillAgentFormFromProfile() {
     const ap = nestMe?.agentProfile;
     if (ap) {
@@ -970,7 +1086,7 @@ export default function ProfilPage() {
               if (!displayCoverSrc) return;
               e.preventDefault();
               e.stopPropagation();
-              openCoverEditorFromImage();
+              setProfileActionsOpen('cover');
             }}
             onClick={(e) => {
               if (!isTouchLikeDevice()) {
@@ -1012,7 +1128,7 @@ export default function ProfilPage() {
                     if (!displayAvatarSrc) return;
                     e.preventDefault();
                     e.stopPropagation();
-                    openAvatarEditorFromImage();
+                    setProfileActionsOpen('avatar');
                   }}
                   onClick={(e) => {
                     if (!isTouchLikeDevice()) {
@@ -1045,7 +1161,7 @@ export default function ProfilPage() {
                     ) : null}
                     <div className="pointer-events-none absolute inset-0 hidden items-center justify-center rounded-full bg-black/40 px-3 text-center text-[10px] font-semibold text-white opacity-0 transition group-hover:flex group-hover:opacity-100 group-focus-within:flex group-focus-within:opacity-100 sm:text-xs">
                       {displayAvatarSrc
-                        ? 'Chcete upravit obrázek?'
+                        ? 'Dvojklik: změna / odstranění'
                         : 'Nahrát profilovou fotku'}
                     </div>
                   </div>
@@ -1088,6 +1204,12 @@ export default function ProfilPage() {
                       {bioText}
                     </p>
                   ) : null}
+                  <p className="mt-2 text-sm font-semibold text-zinc-800">
+                    Kredit:{' '}
+                    <span className="text-[#e85d00]">
+                      {(nestMe?.creditBalance ?? 0).toLocaleString('cs-CZ')} Kč
+                    </span>
+                  </p>
                 </div>
               </div>
 
@@ -1133,13 +1255,25 @@ export default function ProfilPage() {
               </div>
             </div>
 
-            {['AGENT', 'COMPANY', 'AGENCY', 'FINANCIAL_ADVISOR', 'INVESTOR'].includes(user.role) ? (
-              <div className="mt-5 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
-                <h3 className="text-sm font-semibold text-zinc-900">Veřejnost profilu</h3>
-                <p className="mt-1 text-xs text-zinc-600">
-                  Neveřejný profil vidí pouze vlastník a administrátor.
-                </p>
-                <label className="mt-3 inline-flex cursor-pointer items-center gap-3">
+            <div className="mt-5 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
+              <h3 className="text-sm font-semibold text-zinc-900">Nastavení</h3>
+              <p className="mt-1 text-xs text-zinc-600">
+                Veřejnost profilu, heslo a další profilové volby.
+              </p>
+              <label className="mt-3 inline-flex cursor-pointer items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={isProfilePublic}
+                  disabled={profileVisibilitySaving || !apiAccessToken}
+                  onChange={(e) => void onToggleProfileVisibility(e.target.checked)}
+                  className="size-4 rounded border-zinc-300 text-orange-600 focus:ring-orange-500/50"
+                />
+                <span className="text-sm font-medium text-zinc-800">
+                  {isProfilePublic ? 'Veřejný profil' : 'Neveřejný profil'}
+                </span>
+              </label>
+              {['AGENT', 'COMPANY', 'AGENCY', 'FINANCIAL_ADVISOR', 'INVESTOR'].includes(user.role) ? (
+                <label className="mt-2 inline-flex cursor-pointer items-center gap-3">
                   <input
                     type="checkbox"
                     checked={professionalVisibility}
@@ -1148,11 +1282,44 @@ export default function ProfilPage() {
                     className="size-4 rounded border-zinc-300 text-orange-600 focus:ring-orange-500/50"
                   />
                   <span className="text-sm font-medium text-zinc-800">
-                    {professionalVisibility ? 'Profil je veřejný' : 'Profil je neveřejný'}
+                    {professionalVisibility ? 'Profesionální profil je veřejný' : 'Profesionální profil je neveřejný'}
                   </span>
                 </label>
-              </div>
-            ) : null}
+              ) : null}
+              <form className="mt-4 grid gap-2 sm:grid-cols-3" onSubmit={(e) => void onChangePasswordSubmit(e)}>
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Aktuální heslo"
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                />
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Nové heslo"
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                />
+                <input
+                  type="password"
+                  value={newPasswordConfirm}
+                  onChange={(e) => setNewPasswordConfirm(e.target.value)}
+                  placeholder="Potvrzení hesla"
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                />
+                <div className="sm:col-span-3">
+                  <button
+                    type="submit"
+                    disabled={passwordSaving || !apiAccessToken}
+                    className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    {passwordSaving ? 'Ukládám heslo…' : 'Změna hesla'}
+                  </button>
+                </div>
+              </form>
+              {passwordError ? <p className="mt-2 text-sm text-red-600">{passwordError}</p> : null}
+            </div>
 
             {avatarError ? (
               <p className="mt-4 text-sm text-red-600">{avatarError}</p>
@@ -1162,7 +1329,7 @@ export default function ProfilPage() {
             ) : null}
 
             {bioEditing ? (
-              <div className="mt-6 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
+              <div id="upravit-bio" className="mt-6 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="block text-sm font-semibold text-zinc-800">
                     Veřejné jméno
@@ -1227,6 +1394,45 @@ export default function ProfilPage() {
                 (JWT v cookie).
               </p>
             ) : null}
+          </div>
+        </section>
+
+        <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-zinc-900">Správa účtu</h2>
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <button
+              type="button"
+              onClick={() => {
+                setBioEditing(true);
+                setBioDraft(bioText ?? '');
+                setBioError(null);
+                window.location.hash = 'upravit-bio';
+              }}
+              className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-left text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
+            >
+              Upravit bio
+            </button>
+            <button
+              type="button"
+              onClick={() => (window.location.hash = 'moje-inzeraty')}
+              className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-left text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
+            >
+              Moje inzeráty
+            </button>
+            <button
+              type="button"
+              onClick={() => (window.location.hash = 'nastaveni-reklam')}
+              className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-left text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
+            >
+              Nastavení reklam
+            </button>
+            <button
+              type="button"
+              onClick={() => (window.location.hash = 'pridat-pribeh')}
+              className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-left text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
+            >
+              Přidat příběh
+            </button>
           </div>
         </section>
 
@@ -1506,7 +1712,7 @@ export default function ProfilPage() {
           </section>
         ) : null}
 
-        <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <section id="prispevky-profilu" className="mt-10 rounded-2xl border border-zinc-200 bg-white p-2 shadow-sm sm:p-5">
           <h2 className="text-lg font-semibold text-zinc-900">Shorts koncepty</h2>
           <p className="mt-1 text-sm text-zinc-600">
             Koncepty zůstávají mimo feed, dokud je v editoru nezveřejníte.
@@ -1595,15 +1801,65 @@ export default function ProfilPage() {
                 return (
                   <article
                     key={`post-${post.id}`}
-                    className="rounded-xl border border-zinc-100 bg-zinc-50/70 p-4"
+                    className="rounded-xl border border-zinc-100 bg-zinc-50/70 p-2 sm:p-4"
                   >
-                    <p className="text-sm font-semibold text-zinc-900">
-                      {post.title?.trim() || 'Příspěvek'}
-                    </p>
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-semibold text-zinc-900">
+                        {post.title?.trim() || 'Příspěvek'}
+                      </p>
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          disabled={wallBusyPostId === post.id}
+                          onClick={() => onStartWallPostEdit(post)}
+                          className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          Upravit
+                        </button>
+                        <button
+                          type="button"
+                          disabled={wallBusyPostId === post.id}
+                          onClick={() => void onDeleteWallPost(post.id)}
+                          className="rounded-full border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          Smazat
+                        </button>
+                      </div>
+                    </div>
                     <p className="mt-1 text-xs text-zinc-500">
                       {post.createdAt ? new Date(post.createdAt).toLocaleString('cs-CZ') : ''}
                     </p>
-                    {(post.content || post.description) && (
+                    {wallEditPostId === post.id ? (
+                      <div className="mt-2 space-y-2">
+                        <textarea
+                          value={wallEditText}
+                          onChange={(e) => setWallEditText(e.target.value)}
+                          rows={4}
+                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            disabled={wallBusyPostId === post.id}
+                            onClick={() => void onSaveWallPostEdit(post.id)}
+                            className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                          >
+                            Uložit
+                          </button>
+                          <button
+                            type="button"
+                            disabled={wallBusyPostId === post.id}
+                            onClick={() => {
+                              setWallEditPostId(null);
+                              setWallEditText('');
+                            }}
+                            className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 disabled:opacity-50"
+                          >
+                            Zrušit
+                          </button>
+                        </div>
+                      </div>
+                    ) : (post.content || post.description) && (
                       <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">
                         {post.content || post.description}
                       </p>
@@ -1652,7 +1908,7 @@ export default function ProfilPage() {
                 return (
                   <article
                     key={`video-${video.id}`}
-                    className="rounded-xl border border-zinc-100 bg-zinc-50/70 p-4"
+                    className="rounded-xl border border-zinc-100 bg-zinc-50/70 p-2 sm:p-4"
                   >
                     <p className="text-sm font-semibold text-zinc-900">Video příspěvek</p>
                     <p className="mt-1 text-xs text-zinc-500">
@@ -1678,7 +1934,7 @@ export default function ProfilPage() {
           )}
         </section>
 
-        <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <section id="moje-inzeraty" className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold text-zinc-900">Vlastní inzeráty</h2>
             {canCreateProfessionalListingsAndPosts(user.role) ? (
@@ -2263,7 +2519,7 @@ export default function ProfilPage() {
         </section>
 
         {['AGENT', 'COMPANY', 'AGENCY', 'FINANCIAL_ADVISOR', 'INVESTOR'].includes(user.role) ? (
-          <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <section id="pridat-pribeh" className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
             <h2 className="text-lg font-semibold text-zinc-900">Příběhy</h2>
             <p className="mt-2 text-sm text-zinc-600">
               Nahrajte obrázek nebo video. Příběh je veřejný a po 24 hodinách automaticky zmizí.
@@ -2290,7 +2546,7 @@ export default function ProfilPage() {
         ) : null}
 
         {['AGENT', 'COMPANY', 'AGENCY', 'FINANCIAL_ADVISOR', 'INVESTOR'].includes(user.role) ? (
-          <section className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <section id="nastaveni-reklam" className="mt-10 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
             <h2 className="text-lg font-semibold text-zinc-900">Nastavení reklam</h2>
             {user.role === 'COMPANY' ? (
               <>
@@ -2327,6 +2583,56 @@ export default function ProfilPage() {
         ) : null}
 
       </div>
+
+      {profileActionsOpen ? (
+        <div className="fixed inset-0 z-[210] flex items-end justify-center bg-black/45 p-3 sm:items-center">
+          <button
+            type="button"
+            className="absolute inset-0"
+            aria-label="Zavřít"
+            onClick={() => setProfileActionsOpen(null)}
+          />
+          <div className="relative z-[1] w-full max-w-sm rounded-2xl border border-zinc-200 bg-white p-4 shadow-xl">
+            <h3 className="text-sm font-semibold text-zinc-900">
+              {profileActionsOpen === 'avatar' ? 'Profilová fotka' : 'Titulní fotka'}
+            </h3>
+            <div className="mt-3 space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setProfileActionsOpen(null);
+                  if (profileActionsOpen === 'avatar') avatarInputRef.current?.click();
+                  else coverInputRef.current?.click();
+                }}
+                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              >
+                Nahrát novou fotku
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setProfileActionsOpen(null);
+                  if (profileActionsOpen === 'avatar') {
+                    void onDeleteAvatar();
+                  } else if (coverSrc) {
+                    void onDeleteCover();
+                  }
+                }}
+                className="w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+              >
+                Odstranit fotku
+              </button>
+              <button
+                type="button"
+                onClick={() => setProfileActionsOpen(null)}
+                className="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700"
+              >
+                Zrušit
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <ProfessionalOnlyDialog
         open={professionalListingDialogOpen}
