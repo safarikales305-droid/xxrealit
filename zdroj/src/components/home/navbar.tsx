@@ -298,12 +298,6 @@ export function Navbar({
                   Můj profil
                 </Link>
                 <Link
-                  href="/moje-inzeraty"
-                  className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
-                >
-                  Správa inzerátů
-                </Link>
-                <Link
                   href={messagesPath}
                   className="relative rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
                 >
@@ -424,9 +418,6 @@ export function Navbar({
                 </p>
                 <Link href={profilePath} className={navBtn} onClick={() => setMenuOpen(false)}>
                   Můj profil
-                </Link>
-                <Link href="/moje-inzeraty" className={navBtn} onClick={() => setMenuOpen(false)}>
-                  Správa inzerátů
                 </Link>
                 <Link href={messagesPath} className={navBtn} onClick={() => setMenuOpen(false)}>
                   Zprávy
