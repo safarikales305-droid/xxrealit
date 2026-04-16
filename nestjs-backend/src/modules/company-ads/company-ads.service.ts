@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -35,6 +36,22 @@ function norm(v: string | null | undefined): string {
     .toLowerCase()
     .normalize('NFD')
     .replace(/\p{Diacritic}/gu, '');
+}
+
+function assertStableAdImageUrl(value: string) {
+  const imageUrl = value.trim();
+  const lower = imageUrl.toLowerCase();
+  if (!imageUrl) {
+    throw new BadRequestException('URL obrázku reklamy je povinná.');
+  }
+  if (
+    lower.startsWith('blob:') ||
+    lower.startsWith('data:') ||
+    lower.startsWith('file:') ||
+    lower.startsWith('filesystem:')
+  ) {
+    throw new BadRequestException('URL obrázku reklamy musí být trvalá veřejná URL, ne dočasná.');
+  }
 }
 
 function tokenizeProperty(property: Pick<Property, 'propertyType' | 'subType' | 'title' | 'description'>): Set<string> {
@@ -243,6 +260,7 @@ export class CompanyAdsService {
   }
 
   private toCreateInput(companyId: string, dto: CreateCompanyAdDto): Prisma.CompanyAdCreateInput {
+    assertStableAdImageUrl(dto.imageUrl);
     return {
       company: { connect: { id: companyId } },
       imageUrl: dto.imageUrl.trim(),
@@ -257,7 +275,10 @@ export class CompanyAdsService {
 
   private toUpdateInput(dto: UpdateCompanyAdDto): Prisma.CompanyAdUpdateInput {
     const data: Prisma.CompanyAdUpdateInput = {};
-    if (typeof dto.imageUrl === 'string') data.imageUrl = dto.imageUrl.trim();
+    if (typeof dto.imageUrl === 'string') {
+      assertStableAdImageUrl(dto.imageUrl);
+      data.imageUrl = dto.imageUrl.trim();
+    }
     if (typeof dto.title === 'string') data.title = dto.title.trim();
     if (typeof dto.description === 'string') data.description = dto.description.trim();
     if (typeof dto.ctaText === 'string') data.ctaText = dto.ctaText.trim();

@@ -64,6 +64,12 @@ export function CompanyAdsManager() {
     void reload();
   }, [canUse]);
 
+  useEffect(() => {
+    if (!form.imageUrl.trim()) return;
+    // eslint-disable-next-line no-console
+    console.info('[company-ad-image] current form URL', form.imageUrl);
+  }, [form.imageUrl]);
+
   const isEditing = editingId != null;
 
   async function handleUpload(file: File) {
@@ -72,13 +78,13 @@ export function CompanyAdsManager() {
     setUploadingImage(true);
     try {
       const fd = new FormData();
-      fd.append('files', file);
-      const res = await fetch(`${API_BASE_URL}/upload`, {
+      fd.append('file', file);
+      const res = await fetch(`${API_BASE_URL}/upload/company-ad-image`, {
         method: 'POST',
         headers: nestAuthHeaders(apiAccessToken),
         body: fd,
       });
-      const data = (await res.json().catch(() => ({}))) as { urls?: string[]; message?: string };
+      const data = (await res.json().catch(() => ({}))) as { url?: string; message?: string };
       if (!res.ok) {
         setFormError(
           typeof data.message === 'string' && data.message.trim()
@@ -87,9 +93,9 @@ export function CompanyAdsManager() {
         );
         return;
       }
-      const first = Array.isArray(data.urls) ? data.urls[0] : null;
-      if (typeof first === 'string' && first.trim()) {
-        setForm((prev) => ({ ...prev, imageUrl: first.trim() }));
+      const uploadedUrl = typeof data.url === 'string' ? data.url.trim() : '';
+      if (uploadedUrl) {
+        setForm((prev) => ({ ...prev, imageUrl: uploadedUrl }));
         setFormError(null);
       } else {
         setFormError('Server nevrátil URL nahrané fotky reklamy.');
@@ -107,6 +113,15 @@ export function CompanyAdsManager() {
     setFormError(null);
     if (!form.imageUrl.trim()) {
       setFormError('Nahrajte nebo vyplňte hlavní fotku reklamy.');
+      return;
+    }
+    const normalizedImageUrl = form.imageUrl.trim().toLowerCase();
+    if (
+      normalizedImageUrl.startsWith('blob:') ||
+      normalizedImageUrl.startsWith('data:') ||
+      normalizedImageUrl.startsWith('file:')
+    ) {
+      setFormError('Obrázek reklamy musí mít trvalou veřejnou URL. Nahrajte ho znovu.');
       return;
     }
     setBusy(true);
@@ -241,6 +256,12 @@ export function CompanyAdsManager() {
               src={previewUrl ?? nestAbsoluteAssetUrl(form.imageUrl)}
               alt="Náhled reklamy"
               className="h-32 w-full max-w-sm rounded-xl object-cover"
+              onError={(e) => {
+                // eslint-disable-next-line no-console
+                console.error('[company-ad-image] preview failed', {
+                  src: e.currentTarget.currentSrc || form.imageUrl,
+                });
+              }}
             />
           ) : null}
           <label className="flex items-center gap-2 text-sm text-zinc-700">
@@ -263,6 +284,13 @@ export function CompanyAdsManager() {
                 alt={ad.title}
                 className="mb-3 h-32 w-full rounded-lg object-cover"
                 loading="lazy"
+                onError={(e) => {
+                  // eslint-disable-next-line no-console
+                  console.error('[company-ad-image] list failed', {
+                    adId: ad.id,
+                    src: e.currentTarget.currentSrc || ad.imageUrl,
+                  });
+                }}
               />
               <p className="text-xs uppercase text-zinc-500">{ad.categories.join(', ')}</p>
               <h3 className="mt-1 font-semibold">{ad.title}</h3>

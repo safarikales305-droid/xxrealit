@@ -99,4 +99,16 @@ export class ProfileMediaStorageService {
     this.log.log(`[profile-storage] agent-profile logo uploaded publicSuffix=${suffix}`);
     return url;
   }
+
+  /** Perzistentní obrázek pro company reklamu (Cloudinary public URL). */
+  async uploadCompanyAdImage(userId: string, imageBuffer: Buffer): Promise<string> {
+    const suffix = `${userId}-${Date.now()}`;
+    const url = await uploadProfileRaster(
+      imageBuffer,
+      'ads/company',
+      suffix,
+    );
+    this.log.log(`[profile-storage] company-ad image uploaded publicSuffix=${suffix}`);
+    return url;
+  }
 }

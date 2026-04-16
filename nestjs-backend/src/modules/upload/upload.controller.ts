@@ -4,6 +4,7 @@ import {
   Controller,
   Logger,
   Post,
+  ServiceUnavailableException,
   UploadedFile,
   UploadedFiles,
   UseFilters,
@@ -175,6 +176,60 @@ export class UploadController {
       this.log.error(`[upload/agent-profile-logo] selhalo user=${user.id}: ${msg}`);
       throw new BadRequestException(
         'Soubor se nepodařilo uložit na server (disk nebo oprávnění). Zkuste to prosím znovu nebo kontaktujte správce.',
+      );
+    }
+  }
+
+  @Post('upload/company-ad-image')
+  @UseGuards(JwtAuthGuard)
+  @UsePipes(noBodyValidation)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: PROFILE_UPLOAD_MAX_BYTES },
+    }),
+  )
+  async uploadCompanyAdImage(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() file?: Express.Multer.File,
+  ): Promise<{ url: string }> {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException(
+        'Soubor nebyl přijat (pole formuláře musí být pojmenované „file“).',
+      );
+    }
+    if (file.size > PROFILE_UPLOAD_MAX_BYTES) {
+      throw new BadRequestException(
+        `Soubor je příliš velký. Maximální velikost je ${PROFILE_UPLOAD_MAX_BYTES / (1024 * 1024)} MB.`,
+      );
+    }
+    await this.profileImages.validateRasterInput(
+      file.buffer,
+      file.mimetype,
+      file.originalname,
+    );
+    if (!this.profileMediaStorage.isRemotePersistent()) {
+      this.log.error(
+        '[upload/company-ad-image] Remote persistent storage is not configured. Refusing unstable local upload.',
+      );
+      throw new ServiceUnavailableException(
+        'Perzistentní úložiště médií není nakonfigurováno. Obrázky reklam nelze nyní bezpečně uložit.',
+      );
+    }
+    try {
+      const { buffer: out } = await this.profileImages.processCoverForUpload(file.buffer);
+      const url = await this.profileMediaStorage.uploadCompanyAdImage(user.id, out);
+      this.log.log(`[upload/company-ad-image] cloudinary user=${user.id} len=${url.length}`);
+      return { url };
+    } catch (err) {
+      if (err instanceof BadRequestException) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      this.log.error(
+        `[upload/company-ad-image] upload failed user=${user.id}: ${msg}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      throw new BadRequestException(
+        'Soubor se nepodařilo uložit do perzistentního úložiště.',
       );
     }
   }

@@ -61,6 +61,7 @@ export function ShortsFeed({ items }: Props) {
   const [adsByClipId, setAdsByClipId] = useState<Record<string, CompanyAd | null>>({});
   const [adPanelOpenByClipId, setAdPanelOpenByClipId] = useState<Record<string, boolean>>({});
   const [hasSeenAdClipIds, setHasSeenAdClipIds] = useState<Set<string>>(() => new Set());
+  const [brokenAdImageByClipId, setBrokenAdImageByClipId] = useState<Record<string, boolean>>({});
   const [adInteractionTick, setAdInteractionTick] = useState(0);
   const lastAdShownAtRef = useRef(0);
 
@@ -74,6 +75,7 @@ export function ShortsFeed({ items }: Props) {
     setAdsByClipId({});
     setAdPanelOpenByClipId({});
     setHasSeenAdClipIds(new Set());
+    setBrokenAdImageByClipId({});
   }, [itemsIdsKey]);
 
   const clips = useMemo<Clip[]>(() => {
@@ -176,6 +178,18 @@ export function ShortsFeed({ items }: Props) {
       cancelled = true;
     };
   }, [clips]);
+
+  useEffect(() => {
+    for (const [propertyId, ad] of Object.entries(adsByClipId)) {
+      if (!ad) continue;
+      // eslint-disable-next-line no-console
+      console.info('[company-ad-image] render URL', {
+        propertyId,
+        adId: ad.id,
+        imageUrl: ad.imageUrl,
+      });
+    }
+  }, [adsByClipId]);
 
   useEffect(() => {
     if (!activeId) return;
@@ -457,12 +471,27 @@ export function ShortsFeed({ items }: Props) {
                 >
                   ×
                 </button>
-                <img
-                  src={nestAbsoluteAssetUrl(ad.imageUrl)}
-                  alt={ad.title}
-                  className="h-28 w-full rounded-xl object-cover"
-                  loading="lazy"
-                />
+                {brokenAdImageByClipId[c.id] ? (
+                  <div className="flex h-28 w-full items-center justify-center rounded-xl bg-zinc-800 text-xs text-white/70">
+                    Obrázek reklamy se nepodařilo načíst
+                  </div>
+                ) : (
+                  <img
+                    src={nestAbsoluteAssetUrl(ad.imageUrl)}
+                    alt={ad.title}
+                    className="h-28 w-full rounded-xl object-cover"
+                    loading="lazy"
+                    onError={(e) => {
+                      setBrokenAdImageByClipId((prev) => ({ ...prev, [c.id]: true }));
+                      // eslint-disable-next-line no-console
+                      console.error('[company-ad-image] render failed', {
+                        propertyId: c.id,
+                        adId: ad.id,
+                        src: e.currentTarget.currentSrc || ad.imageUrl,
+                      });
+                    }}
+                  />
+                )}
                 <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-white/60">
                   {ad.company?.name ?? 'Stavební firma'}
                 </p>

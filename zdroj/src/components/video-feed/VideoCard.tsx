@@ -60,6 +60,7 @@ export default function VideoCard({
   const [desktopPreviewUrl, setDesktopPreviewUrl] = useState<string | null>(null);
   const [companyAd, setCompanyAd] = useState<CompanyAd | null>(null);
   const [companyAdOpen, setCompanyAdOpen] = useState(false);
+  const [companyAdImageBroken, setCompanyAdImageBroken] = useState(false);
 
   const src = nestAbsoluteAssetUrl(video.videoUrl ?? video.url ?? '').trim();
 
@@ -97,6 +98,7 @@ export default function VideoCard({
   useEffect(() => {
     setCompanyAdOpen(false);
     setCompanyAd(null);
+    setCompanyAdImageBroken(false);
     if (!API_BASE_URL) return;
     let cancelled = false;
     void fetch(`${API_BASE_URL}/company-ads/for-property/${encodeURIComponent(video.id)}`, {
@@ -117,6 +119,12 @@ export default function VideoCard({
 
   useEffect(() => {
     if (!companyAd) return;
+    // eslint-disable-next-line no-console
+    console.info('[company-ad-image] render URL', {
+      propertyId: video.id,
+      adId: companyAd.id,
+      imageUrl: companyAd.imageUrl,
+    });
     const timer = window.setTimeout(() => setCompanyAdOpen(true), 2800);
     return () => window.clearTimeout(timer);
   }, [companyAd]);
@@ -541,12 +549,27 @@ export default function VideoCard({
             >
               ×
             </button>
-            <img
-              src={nestAbsoluteAssetUrl(companyAd.imageUrl)}
-              alt={companyAd.title}
-              className="h-24 w-full rounded-xl object-cover"
-              loading="lazy"
-            />
+            {companyAdImageBroken ? (
+              <div className="flex h-24 w-full items-center justify-center rounded-xl bg-zinc-800 text-xs text-white/70">
+                Obrázek reklamy se nepodařilo načíst
+              </div>
+            ) : (
+              <img
+                src={nestAbsoluteAssetUrl(companyAd.imageUrl)}
+                alt={companyAd.title}
+                className="h-24 w-full rounded-xl object-cover"
+                loading="lazy"
+                onError={(e) => {
+                  setCompanyAdImageBroken(true);
+                  // eslint-disable-next-line no-console
+                  console.error('[company-ad-image] render failed', {
+                    propertyId: video.id,
+                    adId: companyAd.id,
+                    src: e.currentTarget.currentSrc || companyAd.imageUrl,
+                  });
+                }}
+              />
+            )}
             <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-white/65">
               {companyAd.company?.name ?? 'Stavební firma'}
             </p>
