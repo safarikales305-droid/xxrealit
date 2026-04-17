@@ -471,57 +471,118 @@ export function ShortsFeed({ items }: Props) {
               </button>
             </div>
             {ad ? (
-              <aside
-                className={`absolute right-0 top-1/2 z-30 w-[min(84vw,22rem)] -translate-y-1/2 rounded-l-2xl border border-white/20 bg-black/80 p-3 shadow-2xl backdrop-blur-md transition-transform duration-500 ${
-                  isAdOpen ? 'translate-x-0' : 'translate-x-[105%]'
-                }`}
-                aria-hidden={!isAdOpen}
-              >
-                <button
-                  type="button"
-                  aria-label="Zavřít reklamu"
-                  onClick={() =>
-                    setAdPanelOpenByClipId((prev) => ({ ...prev, [c.id]: false }))
-                  }
-                  className="absolute right-2 top-2 rounded-full bg-black/50 px-2 py-0.5 text-xs text-white/90"
+              <>
+                <aside
+                  className={`absolute inset-x-0 bottom-4 z-20 hidden px-5 md:block md:px-6 lg:px-8 ${
+                    isAdOpen
+                      ? 'translate-y-0 opacity-100'
+                      : 'pointer-events-none translate-y-3 opacity-0'
+                  } transition-all duration-300`}
+                  aria-hidden={!isAdOpen}
                 >
-                  ×
-                </button>
-                {brokenAdImageByClipId[c.id] ? (
-                  <div className="flex h-28 w-full items-center justify-center rounded-xl bg-zinc-800 text-xs text-white/70">
-                    Obrázek reklamy se nepodařilo načíst
+                  <div className="mx-auto w-full max-w-[34rem] rounded-2xl border border-white/25 bg-black/72 p-2.5 shadow-2xl backdrop-blur-md">
+                    <button
+                      type="button"
+                      aria-label="Zavřít reklamu"
+                      onClick={() =>
+                        setAdPanelOpenByClipId((prev) => ({ ...prev, [c.id]: false }))
+                      }
+                      className="absolute right-7 top-2 rounded-full bg-black/55 px-2 py-0.5 text-xs text-white/90 lg:right-9"
+                    >
+                      ×
+                    </button>
+                    <div className="flex items-center gap-2.5">
+                      {brokenAdImageByClipId[c.id] ? (
+                        <div className="flex h-14 w-20 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-[10px] text-white/70">
+                          Bez náhledu
+                        </div>
+                      ) : (
+                        <img
+                          src={nestAbsoluteAssetUrl(ad.imageUrl)}
+                          alt={ad.title}
+                          className="h-14 w-20 shrink-0 rounded-lg object-cover"
+                          loading="lazy"
+                          onError={(e) => {
+                            setBrokenAdImageByClipId((prev) => ({ ...prev, [c.id]: true }));
+                            // eslint-disable-next-line no-console
+                            console.error('[company-ad-image] render failed', {
+                              propertyId: c.id,
+                              adId: ad.id,
+                              src: e.currentTarget.currentSrc || ad.imageUrl,
+                            });
+                          }}
+                        />
+                      )}
+                      <div className="min-w-0 flex-1 pr-14">
+                        <p className="truncate text-[9px] uppercase tracking-[0.1em] text-white/55">
+                          {ad.company?.name ?? 'Stavební firma'}
+                        </p>
+                        <h3 className="mt-0.5 line-clamp-1 text-[13px] font-semibold text-white">{ad.title}</h3>
+                        <p className="line-clamp-1 text-[11px] text-white/75">{ad.description}</p>
+                      </div>
+                      <a
+                        href={ad.targetUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="shrink-0 rounded-full bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-black transition hover:bg-amber-400"
+                      >
+                        {ad.ctaText}
+                      </a>
+                    </div>
                   </div>
-                ) : (
-                  <img
-                    src={nestAbsoluteAssetUrl(ad.imageUrl)}
-                    alt={ad.title}
-                    className="h-28 w-full rounded-xl object-cover"
-                    loading="lazy"
-                    onError={(e) => {
-                      setBrokenAdImageByClipId((prev) => ({ ...prev, [c.id]: true }));
-                      // eslint-disable-next-line no-console
-                      console.error('[company-ad-image] render failed', {
-                        propertyId: c.id,
-                        adId: ad.id,
-                        src: e.currentTarget.currentSrc || ad.imageUrl,
-                      });
-                    }}
-                  />
-                )}
-                <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-white/60">
-                  {ad.company?.name ?? 'Stavební firma'}
-                </p>
-                <h3 className="mt-1 text-sm font-semibold text-white">{ad.title}</h3>
-                <p className="mt-1 text-xs leading-relaxed text-white/80">{ad.description}</p>
-                <a
-                  href={ad.targetUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-3 inline-flex rounded-full bg-amber-500 px-3 py-1.5 text-xs font-semibold text-black transition hover:bg-amber-400"
+                </aside>
+                <aside
+                  className={`absolute right-0 top-1/2 z-30 w-[min(84vw,22rem)] -translate-y-1/2 rounded-l-2xl border border-white/20 bg-black/80 p-3 shadow-2xl backdrop-blur-md transition-transform duration-500 md:hidden ${
+                    isAdOpen ? 'translate-x-0' : 'translate-x-[105%]'
+                  }`}
+                  aria-hidden={!isAdOpen}
                 >
-                  {ad.ctaText}
-                </a>
-              </aside>
+                  <button
+                    type="button"
+                    aria-label="Zavřít reklamu"
+                    onClick={() =>
+                      setAdPanelOpenByClipId((prev) => ({ ...prev, [c.id]: false }))
+                    }
+                    className="absolute right-2 top-2 rounded-full bg-black/50 px-2 py-0.5 text-xs text-white/90"
+                  >
+                    ×
+                  </button>
+                  {brokenAdImageByClipId[c.id] ? (
+                    <div className="flex h-28 w-full items-center justify-center rounded-xl bg-zinc-800 text-xs text-white/70">
+                      Obrázek reklamy se nepodařilo načíst
+                    </div>
+                  ) : (
+                    <img
+                      src={nestAbsoluteAssetUrl(ad.imageUrl)}
+                      alt={ad.title}
+                      className="h-28 w-full rounded-xl object-cover"
+                      loading="lazy"
+                      onError={(e) => {
+                        setBrokenAdImageByClipId((prev) => ({ ...prev, [c.id]: true }));
+                        // eslint-disable-next-line no-console
+                        console.error('[company-ad-image] render failed', {
+                          propertyId: c.id,
+                          adId: ad.id,
+                          src: e.currentTarget.currentSrc || ad.imageUrl,
+                        });
+                      }}
+                    />
+                  )}
+                  <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-white/60">
+                    {ad.company?.name ?? 'Stavební firma'}
+                  </p>
+                  <h3 className="mt-1 text-sm font-semibold text-white">{ad.title}</h3>
+                  <p className="mt-1 text-xs leading-relaxed text-white/80">{ad.description}</p>
+                  <a
+                    href={ad.targetUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-flex rounded-full bg-amber-500 px-3 py-1.5 text-xs font-semibold text-black transition hover:bg-amber-400"
+                  >
+                    {ad.ctaText}
+                  </a>
+                </aside>
+              </>
             ) : null}
           </section>
         );
