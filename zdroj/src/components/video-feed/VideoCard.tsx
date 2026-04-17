@@ -557,59 +557,124 @@ export default function VideoCard({
         </div>
 
         {companyAd ? (
-          <aside
-            className={`pointer-events-auto absolute right-0 top-1/2 z-[38] w-[min(84vw,20rem)] -translate-y-1/2 rounded-l-2xl border border-white/20 bg-black/80 p-3 text-white shadow-2xl backdrop-blur-md transition-transform duration-500 ${
-              companyAdOpen ? 'translate-x-0' : 'translate-x-[106%]'
-            }`}
-          >
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setCompanyAdOpen(false);
-              }}
-              className="absolute right-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-xs"
-              aria-label="Zavřít reklamu"
+          <>
+            <aside
+              className={`pointer-events-auto absolute inset-x-0 bottom-4 z-[38] hidden px-4 lg:block ${
+                companyAdOpen
+                  ? 'translate-y-0 opacity-100'
+                  : 'pointer-events-none translate-y-3 opacity-0'
+              } transition-all duration-300`}
             >
-              ×
-            </button>
-            {companyAdImageBroken ? (
-              <div className="flex h-24 w-full items-center justify-center rounded-xl bg-zinc-800 text-xs text-white/70">
-                Obrázek reklamy se nepodařilo načíst
+              <div className="mx-auto w-full max-w-[25rem] rounded-2xl border border-white/20 bg-black/75 p-2.5 text-white shadow-2xl backdrop-blur-md">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setCompanyAdOpen(false);
+                  }}
+                  className="absolute right-7 top-2 rounded-full bg-black/55 px-2 py-0.5 text-xs"
+                  aria-label="Zavřít reklamu"
+                >
+                  ×
+                </button>
+                <div className="flex items-center gap-2.5">
+                  {companyAdImageBroken ? (
+                    <div className="flex h-14 w-20 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-[10px] text-white/70">
+                      Bez náhledu
+                    </div>
+                  ) : (
+                    <img
+                      src={nestAbsoluteAssetUrl(companyAd.imageUrl)}
+                      alt={companyAd.title}
+                      className="h-14 w-20 shrink-0 rounded-lg object-cover"
+                      loading="lazy"
+                      onError={(e) => {
+                        setCompanyAdImageBroken(true);
+                        // eslint-disable-next-line no-console
+                        console.error('[company-ad-image] render failed', {
+                          propertyId: video.id,
+                          adId: companyAd.id,
+                          src: e.currentTarget.currentSrc || companyAd.imageUrl,
+                        });
+                      }}
+                    />
+                  )}
+                  <div className="min-w-0 flex-1 pr-14">
+                    <p className="truncate text-[9px] uppercase tracking-[0.1em] text-white/65">
+                      {companyAd.company?.name ?? 'Stavební firma'}
+                    </p>
+                    <h3 className="mt-0.5 line-clamp-1 text-[13px] font-semibold">{companyAd.title}</h3>
+                    <p className="line-clamp-1 text-[11px] leading-relaxed text-white/85">
+                      {companyAd.description}
+                    </p>
+                  </div>
+                  <a
+                    href={companyAd.targetUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="shrink-0 rounded-full bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-black hover:bg-amber-400"
+                  >
+                    {companyAd.ctaText}
+                  </a>
+                </div>
               </div>
-            ) : (
-              <img
-                src={nestAbsoluteAssetUrl(companyAd.imageUrl)}
-                alt={companyAd.title}
-                className="h-24 w-full rounded-xl object-cover"
-                loading="lazy"
-                onError={(e) => {
-                  setCompanyAdImageBroken(true);
-                  // eslint-disable-next-line no-console
-                  console.error('[company-ad-image] render failed', {
-                    propertyId: video.id,
-                    adId: companyAd.id,
-                    src: e.currentTarget.currentSrc || companyAd.imageUrl,
-                  });
-                }}
-              />
-            )}
-            <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-white/65">
-              {companyAd.company?.name ?? 'Stavební firma'}
-            </p>
-            <h3 className="mt-1 text-sm font-semibold">{companyAd.title}</h3>
-            <p className="mt-1 text-xs leading-relaxed text-white/85">{companyAd.description}</p>
-            <a
-              href={companyAd.targetUrl}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="mt-3 inline-flex rounded-full bg-amber-500 px-3 py-1.5 text-xs font-semibold text-black hover:bg-amber-400"
+            </aside>
+            <aside
+              className={`pointer-events-auto absolute right-0 top-1/2 z-[38] w-[min(84vw,20rem)] -translate-y-1/2 rounded-l-2xl border border-white/20 bg-black/80 p-3 text-white shadow-2xl backdrop-blur-md transition-transform duration-500 lg:hidden ${
+                companyAdOpen ? 'translate-x-0' : 'translate-x-[106%]'
+              }`}
             >
-              {companyAd.ctaText}
-            </a>
-          </aside>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setCompanyAdOpen(false);
+                }}
+                className="absolute right-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-xs"
+                aria-label="Zavřít reklamu"
+              >
+                ×
+              </button>
+              {companyAdImageBroken ? (
+                <div className="flex h-24 w-full items-center justify-center rounded-xl bg-zinc-800 text-xs text-white/70">
+                  Obrázek reklamy se nepodařilo načíst
+                </div>
+              ) : (
+                <img
+                  src={nestAbsoluteAssetUrl(companyAd.imageUrl)}
+                  alt={companyAd.title}
+                  className="h-24 w-full rounded-xl object-cover"
+                  loading="lazy"
+                  onError={(e) => {
+                    setCompanyAdImageBroken(true);
+                    // eslint-disable-next-line no-console
+                    console.error('[company-ad-image] render failed', {
+                      propertyId: video.id,
+                      adId: companyAd.id,
+                      src: e.currentTarget.currentSrc || companyAd.imageUrl,
+                    });
+                  }}
+                />
+              )}
+              <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-white/65">
+                {companyAd.company?.name ?? 'Stavební firma'}
+              </p>
+              <h3 className="mt-1 text-sm font-semibold">{companyAd.title}</h3>
+              <p className="mt-1 text-xs leading-relaxed text-white/85">{companyAd.description}</p>
+              <a
+                href={companyAd.targetUrl}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="mt-3 inline-flex rounded-full bg-amber-500 px-3 py-1.5 text-xs font-semibold text-black hover:bg-amber-400"
+              >
+                {companyAd.ctaText}
+              </a>
+            </aside>
+          </>
         ) : null}
       </div>
 
