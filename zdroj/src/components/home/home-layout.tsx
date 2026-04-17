@@ -722,29 +722,29 @@ export function HomeLayout({
         href={sidebarAd.targetUrl}
         target="_blank"
         rel="noreferrer"
-        className="block overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_2px_16px_-4px_rgba(0,0,0,0.08),0_8px_24px_-12px_rgba(0,0,0,0.06)] transition hover:border-zinc-300"
+        className="relative z-0 mx-auto block w-full max-w-[260px] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-[0_2px_14px_-6px_rgba(0,0,0,0.12)] transition hover:border-zinc-300"
         aria-label={sidebarAd.title}
       >
         {sidebarAdImageBroken ? (
-          <div className="flex aspect-[4/5] w-full items-center justify-center bg-zinc-100 px-4 text-center text-xs text-zinc-500">
+          <div className="flex aspect-[16/10] w-full items-center justify-center bg-zinc-100 px-4 text-center text-xs text-zinc-500">
             Obrázek reklamy se nepodařilo načíst
           </div>
         ) : (
           <img
             src={nestAbsoluteAssetUrl(sidebarAd.imageUrl)}
             alt={sidebarAd.title}
-            className="aspect-[4/5] w-full object-cover"
+            className="aspect-[16/10] w-full object-cover"
             loading="lazy"
             onError={() => setSidebarAdImageBroken(true)}
           />
         )}
-        <div className="space-y-1.5 p-4">
-          <p className="text-[10px] uppercase tracking-[0.12em] text-zinc-500">
+        <div className="space-y-1 p-3">
+          <p className="text-[9px] uppercase tracking-[0.1em] text-zinc-500">
             {sidebarAd.company?.name ?? 'Stavební firma'}
           </p>
-          <h3 className="line-clamp-2 text-sm font-semibold text-zinc-900">{sidebarAd.title}</h3>
-          <p className="line-clamp-3 text-xs leading-relaxed text-zinc-600">{sidebarAd.description}</p>
-          <span className="inline-flex rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-3 py-1.5 text-xs font-semibold text-white">
+          <h3 className="line-clamp-2 text-[13px] font-semibold leading-tight text-zinc-900">{sidebarAd.title}</h3>
+          <p className="line-clamp-2 text-[11px] leading-relaxed text-zinc-600">{sidebarAd.description}</p>
+          <span className="inline-flex rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-2.5 py-1 text-[11px] font-semibold text-white">
             {sidebarAd.ctaText}
           </span>
         </div>
@@ -813,7 +813,7 @@ export function HomeLayout({
         className={
           viewMode === 'posts'
             ? 'grid min-h-0 w-full min-w-0 flex-1 grid-cols-1 overflow-x-hidden p-0'
-            : 'grid min-h-0 w-full min-w-0 flex-1 grid-cols-1 overflow-x-hidden p-0 md:mx-auto md:max-w-[100rem] md:gap-4 md:p-4 md:grid-cols-[260px_1fr] xl:grid-cols-[260px_1fr_300px]'
+            : 'grid min-h-0 w-full min-w-0 flex-1 grid-cols-1 overflow-x-hidden p-0 md:mx-auto md:max-w-[100rem] md:gap-4 md:p-4 md:grid-cols-[260px_minmax(0,1fr)] xl:grid-cols-[260px_minmax(0,1fr)_272px]'
         }
       >
         <div className={`hidden min-h-0 min-w-0 shrink-0 overflow-x-hidden md:block ${viewMode === 'posts' ? 'md:hidden' : ''}`}>
@@ -1192,7 +1192,7 @@ export function HomeLayout({
                       </main>
 
                       <aside className="hidden xl:block xl:col-span-3">
-                        <div className="space-y-4 xl:sticky xl:top-20">
+                        <div className="relative z-0 space-y-4 xl:sticky xl:top-20">
                           {renderDesktopSidebarAd()}
                           <RightSidebar className="w-full max-w-full flex-col" />
                         </div>
@@ -1209,7 +1209,7 @@ export function HomeLayout({
           )}
         </main>
         <div className={`hidden min-h-0 min-w-0 shrink-0 overflow-x-hidden xl:block ${viewMode === 'posts' ? 'xl:hidden' : ''}`}>
-          <div className="mb-4 mt-4 space-y-4 xl:sticky xl:top-5">
+          <div className="relative z-0 mb-4 mt-4 space-y-4 xl:sticky xl:top-5">
             {renderDesktopSidebarAd()}
             <RightSidebar className="w-full max-w-full flex-col" />
           </div>
