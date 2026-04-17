@@ -38,6 +38,18 @@ type Props = {
   apiConfigMissing?: boolean;
 };
 
+type SidebarCompanyAd = {
+  id: string;
+  imageUrl: string;
+  title: string;
+  description: string;
+  ctaText: string;
+  targetUrl: string;
+  company?: {
+    name?: string;
+  };
+};
+
 const brandBtn =
   'rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-10 py-3.5 text-[15px] font-semibold tracking-[-0.01em] text-white shadow-[0_8px_28px_-6px_rgba(255,106,0,0.45)] transition duration-300 hover:scale-[1.02] hover:shadow-[0_12px_36px_-6px_rgba(255,80,0,0.5)] active:scale-[0.98]';
 
@@ -206,12 +218,21 @@ export function HomeLayout({
   const [storiesLoading, setStoriesLoading] = useState(false);
   const [storyViewerOpen, setStoryViewerOpen] = useState(false);
   const [storyViewerIndex, setStoryViewerIndex] = useState(0);
+  const [sidebarAd, setSidebarAd] = useState<SidebarCompanyAd | null>(null);
+  const [sidebarAdImageBroken, setSidebarAdImageBroken] = useState(false);
   const activeCategoryLabel =
     COMMUNITY_CATEGORIES.find((x) => x.key === activeCategory)?.label ?? 'Zobrazit vše';
   const createPostCategory = activeCategory === 'VSE' ? 'MAKLERI' : activeCategory;
 
   const storyCards = useMemo(() => stories.slice(0, 20), [stories]);
   const activeStory = storyCards[storyViewerIndex] ?? null;
+  const sidebarSeedPropertyId = useMemo(() => {
+    for (const p of items) {
+      const id = String(p.id ?? '').trim();
+      if (id.length > 0) return id;
+    }
+    return '';
+  }, [items]);
 
   async function refreshPostsFeed() {
     if (!API_BASE_URL) return;
@@ -634,6 +655,35 @@ export function HomeLayout({
     }
   }, [viewMode, activeCategory]);
 
+  useEffect(() => {
+    if (!API_BASE_URL || !sidebarSeedPropertyId) {
+      setSidebarAd(null);
+      setSidebarAdImageBroken(false);
+      return;
+    }
+    let cancelled = false;
+    void fetch(`${API_BASE_URL}/company-ads/for-property/${encodeURIComponent(sidebarSeedPropertyId)}`, {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        const data = (await res.json().catch(() => null)) as SidebarCompanyAd | null;
+        if (cancelled) return;
+        setSidebarAd(data);
+        setSidebarAdImageBroken(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSidebarAd(null);
+          setSidebarAdImageBroken(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sidebarSeedPropertyId]);
+
   function updateUrlParams(next: { tab?: 'shorts' | 'classic' | 'posts'; category?: CommunityCategory }) {
     const params = new URLSearchParams(searchParams.toString());
     if (next.tab) {
@@ -663,6 +713,43 @@ export function HomeLayout({
     setPostsCategoryOpen(false);
     setViewMode('posts');
     updateUrlParams({ tab: 'posts', category });
+  }
+
+  function renderDesktopSidebarAd() {
+    if (!sidebarAd) return null;
+    return (
+      <a
+        href={sidebarAd.targetUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="block overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_2px_16px_-4px_rgba(0,0,0,0.08),0_8px_24px_-12px_rgba(0,0,0,0.06)] transition hover:border-zinc-300"
+        aria-label={sidebarAd.title}
+      >
+        {sidebarAdImageBroken ? (
+          <div className="flex aspect-[4/5] w-full items-center justify-center bg-zinc-100 px-4 text-center text-xs text-zinc-500">
+            Obrázek reklamy se nepodařilo načíst
+          </div>
+        ) : (
+          <img
+            src={nestAbsoluteAssetUrl(sidebarAd.imageUrl)}
+            alt={sidebarAd.title}
+            className="aspect-[4/5] w-full object-cover"
+            loading="lazy"
+            onError={() => setSidebarAdImageBroken(true)}
+          />
+        )}
+        <div className="space-y-1.5 p-4">
+          <p className="text-[10px] uppercase tracking-[0.12em] text-zinc-500">
+            {sidebarAd.company?.name ?? 'Stavební firma'}
+          </p>
+          <h3 className="line-clamp-2 text-sm font-semibold text-zinc-900">{sidebarAd.title}</h3>
+          <p className="line-clamp-3 text-xs leading-relaxed text-zinc-600">{sidebarAd.description}</p>
+          <span className="inline-flex rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-3 py-1.5 text-xs font-semibold text-white">
+            {sidebarAd.ctaText}
+          </span>
+        </div>
+      </a>
+    );
   }
 
   return (
@@ -1106,6 +1193,7 @@ export function HomeLayout({
 
                       <aside className="hidden xl:block xl:col-span-3">
                         <div className="space-y-4 xl:sticky xl:top-20">
+                          {renderDesktopSidebarAd()}
                           <RightSidebar className="w-full max-w-full flex-col" />
                         </div>
                       </aside>
@@ -1121,7 +1209,10 @@ export function HomeLayout({
           )}
         </main>
         <div className={`hidden min-h-0 min-w-0 shrink-0 overflow-x-hidden xl:block ${viewMode === 'posts' ? 'xl:hidden' : ''}`}>
-          <RightSidebar className="mt-4 mb-4 w-full max-w-full flex-col" />
+          <div className="mb-4 mt-4 space-y-4 xl:sticky xl:top-5">
+            {renderDesktopSidebarAd()}
+            <RightSidebar className="w-full max-w-full flex-col" />
+          </div>
         </div>
       </div>
 
