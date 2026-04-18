@@ -25,6 +25,7 @@ import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { UpdateImportSourceDto } from './dto/update-import-source.dto';
 import { BulkDisableImportedDto } from './dto/bulk-disable-imported.dto';
 import { CreateImportSourceDto } from './dto/create-import-source.dto';
+import { BulkImportShortsDraftsDto } from './dto/bulk-import-shorts-drafts.dto';
 import { AdminGuard } from './guards/admin.guard';
 import { AgentProfileService } from '../agent-profile/agent-profile.service';
 
@@ -78,6 +79,9 @@ export class AdminController {
     @Query('city') city?: string,
     @Query('source') source?: string,
     @Query('importMethod') importMethod?: string,
+    @Query('propertyTypeKey') propertyTypeKey?: string,
+    @Query('importCategoryKey') importCategoryKey?: string,
+    @Query('sourcePortalKey') sourcePortalKey?: string,
     @Query('createdFrom') createdFrom?: string,
     @Query('createdTo') createdTo?: string,
   ) {
@@ -89,6 +93,9 @@ export class AdminController {
       city,
       source,
       importMethod,
+      propertyTypeKey,
+      importCategoryKey,
+      sourcePortalKey,
       createdFrom,
       createdTo,
     });
@@ -348,6 +355,18 @@ export class AdminController {
     return this.adminService.bulkDisableImportedListings({
       source: dto.source,
       method: dto.method,
+    });
+  }
+
+  @Post('imported-listings/bulk-shorts-drafts')
+  bulkShortsDraftsFromImported(
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: BulkImportShortsDraftsDto,
+  ) {
+    return this.adminService.bulkShortsDraftsFromImported({
+      sourcePortalKey: dto.sourcePortalKey,
+      limit: dto.limit,
+      propertyIds: dto.propertyIds,
     });
   }
 

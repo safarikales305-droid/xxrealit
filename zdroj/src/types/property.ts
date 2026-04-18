@@ -85,6 +85,20 @@ export type PropertyFromApi = {
   contactName?: string | null;
   contactPhone?: string | null;
   contactEmail?: string | null;
+  /** Klasifikace importu (GET /properties + filtry). */
+  sourcePortalKey?: string | null;
+  sourcePortalLabel?: string | null;
+  propertyTypeKey?: string | null;
+  propertyTypeLabel?: string | null;
+  importCategoryKey?: string | null;
+  importCategoryLabel?: string | null;
+  canGenerateShorts?: boolean;
+  shortsGenerated?: boolean;
+  shortsSourceType?: string | null;
+  region?: string | null;
+  district?: string | null;
+  importSource?: string | null;
+  importMethod?: string | null;
 };
 
 export type PropertyFeedItem = {
@@ -116,6 +130,19 @@ export type PropertyFeedItem = {
   contactName?: string | null;
   contactPhone?: string | null;
   contactEmail?: string | null;
+  sourcePortalKey?: string | null;
+  sourcePortalLabel?: string | null;
+  propertyTypeKey?: string | null;
+  propertyTypeLabel?: string | null;
+  importCategoryKey?: string | null;
+  importCategoryLabel?: string | null;
+  canGenerateShorts?: boolean;
+  shortsGenerated?: boolean;
+  shortsSourceType?: string | null;
+  region?: string | null;
+  district?: string | null;
+  importSource?: string | null;
+  importMethod?: string | null;
 };
 
 export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
@@ -218,6 +245,42 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
       p.contactEmail === null || typeof p.contactEmail === 'string'
         ? p.contactEmail
         : undefined,
+    sourcePortalKey:
+      p.sourcePortalKey === null || typeof p.sourcePortalKey === 'string'
+        ? p.sourcePortalKey
+        : undefined,
+    sourcePortalLabel:
+      p.sourcePortalLabel === null || typeof p.sourcePortalLabel === 'string'
+        ? p.sourcePortalLabel
+        : undefined,
+    propertyTypeKey:
+      p.propertyTypeKey === null || typeof p.propertyTypeKey === 'string'
+        ? p.propertyTypeKey
+        : undefined,
+    propertyTypeLabel:
+      p.propertyTypeLabel === null || typeof p.propertyTypeLabel === 'string'
+        ? p.propertyTypeLabel
+        : undefined,
+    importCategoryKey:
+      p.importCategoryKey === null || typeof p.importCategoryKey === 'string'
+        ? p.importCategoryKey
+        : undefined,
+    importCategoryLabel:
+      p.importCategoryLabel === null || typeof p.importCategoryLabel === 'string'
+        ? p.importCategoryLabel
+        : undefined,
+    canGenerateShorts: typeof p.canGenerateShorts === 'boolean' ? p.canGenerateShorts : undefined,
+    shortsGenerated: typeof p.shortsGenerated === 'boolean' ? p.shortsGenerated : undefined,
+    shortsSourceType:
+      p.shortsSourceType === null || typeof p.shortsSourceType === 'string'
+        ? p.shortsSourceType
+        : undefined,
+    region: p.region === null || typeof p.region === 'string' ? p.region : undefined,
+    district: p.district === null || typeof p.district === 'string' ? p.district : undefined,
+    importSource:
+      p.importSource === null || typeof p.importSource === 'string' ? p.importSource : undefined,
+    importMethod:
+      p.importMethod === null || typeof p.importMethod === 'string' ? p.importMethod : undefined,
   };
 }
 
@@ -302,6 +365,42 @@ export function safeNormalizePropertyFromApi(
         o.contactEmail === null || typeof o.contactEmail === 'string'
           ? o.contactEmail
           : undefined,
+      sourcePortalKey:
+        o.sourcePortalKey === null || typeof o.sourcePortalKey === 'string'
+          ? o.sourcePortalKey
+          : undefined,
+      sourcePortalLabel:
+        o.sourcePortalLabel === null || typeof o.sourcePortalLabel === 'string'
+          ? o.sourcePortalLabel
+          : undefined,
+      propertyTypeKey:
+        o.propertyTypeKey === null || typeof o.propertyTypeKey === 'string'
+          ? o.propertyTypeKey
+          : undefined,
+      propertyTypeLabel:
+        o.propertyTypeLabel === null || typeof o.propertyTypeLabel === 'string'
+          ? o.propertyTypeLabel
+          : undefined,
+      importCategoryKey:
+        o.importCategoryKey === null || typeof o.importCategoryKey === 'string'
+          ? o.importCategoryKey
+          : undefined,
+      importCategoryLabel:
+        o.importCategoryLabel === null || typeof o.importCategoryLabel === 'string'
+          ? o.importCategoryLabel
+          : undefined,
+      canGenerateShorts: typeof o.canGenerateShorts === 'boolean' ? o.canGenerateShorts : undefined,
+      shortsGenerated: typeof o.shortsGenerated === 'boolean' ? o.shortsGenerated : undefined,
+      shortsSourceType:
+        o.shortsSourceType === null || typeof o.shortsSourceType === 'string'
+          ? o.shortsSourceType
+          : undefined,
+      region: o.region === null || typeof o.region === 'string' ? o.region : undefined,
+      district: o.district === null || typeof o.district === 'string' ? o.district : undefined,
+      importSource:
+        o.importSource === null || typeof o.importSource === 'string' ? o.importSource : undefined,
+      importMethod:
+        o.importMethod === null || typeof o.importMethod === 'string' ? o.importMethod : undefined,
     });
   } catch {
     return null;

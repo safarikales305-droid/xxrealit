@@ -26,6 +26,6 @@ import { ShortsListingService } from './shorts-listing.service';
     ListingShortsFromPhotosService,
     ShortsListingService,
   ],
-  exports: [PropertiesService, PropertyMediaCloudinaryService],
+  exports: [PropertiesService, PropertyMediaCloudinaryService, ShortsListingService],
 })
 export class PropertiesModule {}

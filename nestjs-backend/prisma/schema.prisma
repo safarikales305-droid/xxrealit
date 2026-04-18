@@ -85,6 +85,13 @@ enum ListingImportPortal {
   other
 }
 
+/// Z čeho lze u inzerátu skládat shorts (video / fotky / nic).
+enum PropertyShortsSourceType {
+  video
+  images
+  none
+}
+
 model User {
   id           String     @id @default(uuid())
   email        String     @unique
@@ -586,6 +593,17 @@ model Property {
   /// Ručně vypnutý importovaný inzerát – synchronizace ho znovu neaktivuje.
   importDisabled   Boolean @default(false)
 
+  /// Klasifikace importu (filtry, budoucí portály) — `importSource` zůstává enum v DB.
+  sourcePortalKey      String                    @default("")
+  sourcePortalLabel    String                    @default("")
+  propertyTypeKey      String                    @default("")
+  propertyTypeLabel    String                    @default("")
+  importCategoryKey    String                    @default("")
+  importCategoryLabel  String                    @default("")
+  canGenerateShorts   Boolean                   @default(false)
+  shortsGenerated     Boolean                   @default(false)
+  shortsSourceType    PropertyShortsSourceType  @default(none)
+
   /// Čas zveřejnění shorts (řazení feedu); klasické inzeráty mohou mít null.
   publishedAt DateTime?
 
@@ -609,6 +627,8 @@ model Property {
   @@index([listingType, publishedAt])
   @@index([importSource, importMethod])
   @@index([importExternalId, importSource])
+  @@index([sourcePortalKey, propertyTypeKey, city])
+  @@index([importCategoryKey, sourcePortalKey])
   @@unique([importSource, importExternalId], map: "property_import_source_external_uq")
 }
 

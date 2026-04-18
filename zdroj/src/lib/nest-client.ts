@@ -679,6 +679,15 @@ export type AdminListingRow = {
   importedAt?: string | null;
   lastSyncedAt?: string | null;
   importDisabled?: boolean;
+  sourcePortalKey?: string | null;
+  sourcePortalLabel?: string | null;
+  propertyTypeKey?: string | null;
+  propertyTypeLabel?: string | null;
+  importCategoryKey?: string | null;
+  importCategoryLabel?: string | null;
+  canGenerateShorts?: boolean;
+  shortsGenerated?: boolean;
+  shortsSourceType?: string | null;
 };
 
 export type AdminImportSourceRow = {
@@ -1580,6 +1589,47 @@ export async function nestAdminRunImportPortal(
   return {
     ok: true,
     data: Array.isArray(data) ? (data as Array<{ sourceId: string; ok: boolean; error?: string }>) : [],
+  };
+}
+
+/** POST /admin/imported-listings/bulk-shorts-drafts — hromadné koncepty shorts + náhodná hudba z knihovny. */
+export async function nestAdminBulkShortsDraftsFromImported(
+  token: string | null,
+  body: { sourcePortalKey?: string; limit?: number; propertyIds?: string[] },
+): Promise<{
+  ok: boolean;
+  data?: {
+    requestedLimit: number;
+    attempted: number;
+    succeeded: number;
+    failed: number;
+    results: Array<{ id: string; ok: boolean; error?: string }>;
+  };
+  error?: string;
+}> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/imported-listings/bulk-shorts-drafts`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return {
+    ok: true,
+    data: data as {
+      requestedLimit: number;
+      attempted: number;
+      succeeded: number;
+      failed: number;
+      results: Array<{ id: string; ok: boolean; error?: string }>;
+    },
   };
 }
 

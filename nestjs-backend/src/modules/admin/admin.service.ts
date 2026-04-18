@@ -20,6 +20,7 @@ import {
 import { OwnerListingNotifyService } from '../premium-broker/owner-listing-notify.service';
 import { parseStringPromise } from 'xml2js';
 import { ImportSyncService } from '../imports/import-sync.service';
+import { ShortsListingService } from '../properties/shorts-listing.service';
 import { safeParsePrice } from '../imports/price-parse.util';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -123,6 +124,7 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly ownerListingNotify: OwnerListingNotifyService,
     private readonly importSync: ImportSyncService,
+    private readonly shortsListing: ShortsListingService,
   ) {}
 
   async stats() {
@@ -215,6 +217,9 @@ export class AdminService {
     city?: string;
     source?: string;
     importMethod?: string;
+    propertyTypeKey?: string;
+    importCategoryKey?: string;
+    sourcePortalKey?: string;
     createdFrom?: string;
     createdTo?: string;
   }) {
@@ -256,6 +261,19 @@ export class AdminService {
       if (Object.values(ListingImportMethod).includes(methodQ as ListingImportMethod)) {
         parts.push({ importMethod: methodQ as ListingImportMethod });
       }
+    }
+
+    const ptk = filters.propertyTypeKey?.trim();
+    if (ptk) {
+      parts.push({ propertyTypeKey: ptk });
+    }
+    const ick = filters.importCategoryKey?.trim();
+    if (ick) {
+      parts.push({ importCategoryKey: ick });
+    }
+    const spk = filters.sourcePortalKey?.trim();
+    if (spk) {
+      parts.push({ sourcePortalKey: spk });
     }
 
     const cf = filters.createdFrom?.trim()
@@ -916,6 +934,56 @@ export class AdminService {
       data: { password: hash },
     });
     return { success: true };
+  }
+
+  async bulkShortsDraftsFromImported(body: {
+    sourcePortalKey?: string;
+    limit?: number;
+    propertyIds?: string[];
+  }) {
+    const limit = Math.min(Math.max(body.limit ?? 50, 1), 500);
+    const where: Prisma.PropertyWhereInput = {
+      importSource: { not: null },
+      importDisabled: false,
+      deletedAt: null,
+      listingType: 'CLASSIC',
+      canGenerateShorts: true,
+      shortsGenerated: false,
+    };
+    if (body.sourcePortalKey?.trim()) {
+      where.sourcePortalKey = body.sourcePortalKey.trim();
+    }
+    if (body.propertyIds && body.propertyIds.length > 0) {
+      where.id = { in: body.propertyIds.slice(0, 500) };
+    }
+    const rows = await this.prisma.property.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: { id: true, userId: true, title: true },
+    });
+    const results: Array<{ id: string; ok: boolean; error?: string }> = [];
+    for (const r of rows) {
+      try {
+        await this.shortsListing.createDraftFromClassic(r.userId, r.id, {
+          pickRandomLibraryTrack: true,
+        });
+        results.push({ id: r.id, ok: true });
+      } catch (e) {
+        results.push({
+          id: r.id,
+          ok: false,
+          error: e instanceof Error ? e.message : 'Chyba',
+        });
+      }
+    }
+    return {
+      requestedLimit: limit,
+      attempted: rows.length,
+      succeeded: results.filter((x) => x.ok).length,
+      failed: results.filter((x) => !x.ok).length,
+      results,
+    };
   }
 
   async setBrokerReviewVisibility(reviewId: string, isVisible: boolean) {

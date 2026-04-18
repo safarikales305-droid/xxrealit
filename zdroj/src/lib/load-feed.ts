@@ -11,10 +11,13 @@ export async function loadPropertyFeedItems(
     authorization?: string;
     /** API path without base (default `/properties`). */
     path?: string;
+    /** Query řetězec bez `?` (např. `city=Praha&propertyTypeKey=byt`). */
+    query?: string;
   } = {},
 ): Promise<PropertyFeedItem[]> {
   const path = options.path ?? '/properties';
-  const url = `${base}${path}`;
+  const q = options.query?.trim();
+  const url = q ? `${base}${path}?${q}` : `${base}${path}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 

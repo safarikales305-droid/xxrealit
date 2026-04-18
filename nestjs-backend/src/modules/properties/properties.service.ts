@@ -11,7 +11,16 @@ import { PrismaService } from '../../database/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { OwnerUpdatePropertyDto } from './dto/owner-update-property.dto';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
-import { classicPublicListingWhere } from './property-listing-scope';
+import {
+  classicPublicListingWhere,
+} from './property-listing-scope';
+
+export type PublicPropertyListFilters = {
+  city?: string;
+  propertyTypeKey?: string;
+  importCategoryKey?: string;
+  sourcePortalKey?: string;
+};
 import {
   computeListingPublicStatus,
   isPropertyPubliclyListed,
@@ -61,10 +70,34 @@ export class PropertiesService {
     return u?.role === UserRole.ADMIN;
   }
 
-  async findAllPublic(viewerId?: string) {
+  private buildClassicPublicWhere(
+    filters?: PublicPropertyListFilters,
+  ): Prisma.PropertyWhereInput {
+    const parts: Prisma.PropertyWhereInput[] = [classicPublicListingWhere];
+    const city = filters?.city?.trim();
+    if (city) {
+      parts.push({ city: { contains: city, mode: 'insensitive' } });
+    }
+    const ptk = filters?.propertyTypeKey?.trim();
+    if (ptk) {
+      parts.push({ propertyTypeKey: ptk });
+    }
+    const ick = filters?.importCategoryKey?.trim();
+    if (ick) {
+      parts.push({ importCategoryKey: ick });
+    }
+    const spk = filters?.sourcePortalKey?.trim();
+    if (spk) {
+      parts.push({ sourcePortalKey: spk });
+    }
+    return parts.length === 1 ? parts[0] : { AND: parts };
+  }
+
+  async findAllPublic(viewerId?: string, filters?: PublicPropertyListFilters) {
     const access = await this.viewerAccess(viewerId);
+    const where = this.buildClassicPublicWhere(filters);
     const rows = await this.prisma.property.findMany({
-      where: classicPublicListingWhere,
+      where,
       orderBy: { createdAt: 'desc' },
       include: socialInclude(viewerId),
     });
@@ -834,5 +867,61 @@ export class PropertiesService {
       },
     });
     return { ok: true, activeUntil: boostedUntil.toISOString() };
+  }
+
+  /** Hodnoty pro filtry veřejného klasického katalogu (Klasik). */
+  async getPublicFilterOptions() {
+    const rows = await this.prisma.property.findMany({
+      where: classicPublicListingWhere,
+      select: {
+        city: true,
+        propertyTypeKey: true,
+        propertyTypeLabel: true,
+        importCategoryKey: true,
+        importCategoryLabel: true,
+        sourcePortalKey: true,
+        sourcePortalLabel: true,
+        importSource: true,
+      },
+      take: 8000,
+      orderBy: { createdAt: 'desc' },
+    });
+    const citySet = new Set<string>();
+    const propertyTypes = new Map<string, string>();
+    const importCategories = new Map<string, string>();
+    const portals = new Map<string, string>();
+    for (const r of rows) {
+      const c = (r.city ?? '').trim();
+      if (c) citySet.add(c);
+      const pk = (r.propertyTypeKey ?? '').trim();
+      if (pk) {
+        const lab = (r.propertyTypeLabel ?? '').trim() || pk;
+        propertyTypes.set(pk, lab);
+      }
+      const ik = (r.importCategoryKey ?? '').trim();
+      if (ik) {
+        const il = (r.importCategoryLabel ?? '').trim() || ik;
+        importCategories.set(ik, il);
+      }
+      const sk = (r.sourcePortalKey ?? '').trim();
+      if (sk) {
+        const sl = (r.sourcePortalLabel ?? '').trim() || sk;
+        portals.set(sk, sl);
+      } else if (r.importSource) {
+        portals.set(String(r.importSource), String(r.importSource));
+      }
+    }
+    return {
+      cities: [...citySet].sort((a, b) => a.localeCompare(b, 'cs')),
+      propertyTypes: [...propertyTypes.entries()]
+        .map(([key, label]) => ({ key, label }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'cs')),
+      importCategories: [...importCategories.entries()]
+        .map(([key, label]) => ({ key, label }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'cs')),
+      sourcePortals: [...portals.entries()]
+        .map(([key, label]) => ({ key, label }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'cs')),
+    };
   }
 }

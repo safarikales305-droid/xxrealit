@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
@@ -171,10 +172,26 @@ export class PropertiesController {
     });
   }
 
+  @Get('filter-options')
+  listPublicFilterOptions() {
+    return this.propertiesService.getPublicFilterOptions();
+  }
+
   @Get()
-  findAll(@Headers('authorization') auth?: string) {
+  findAll(
+    @Headers('authorization') auth?: string,
+    @Query('city') city?: string,
+    @Query('propertyTypeKey') propertyTypeKey?: string,
+    @Query('importCategoryKey') importCategoryKey?: string,
+    @Query('sourcePortalKey') sourcePortalKey?: string,
+  ) {
     const viewerId = parseBearerUserId(this.jwt, auth);
-    return this.propertiesService.findAllPublic(viewerId);
+    return this.propertiesService.findAllPublic(viewerId, {
+      city,
+      propertyTypeKey,
+      importCategoryKey,
+      sourcePortalKey,
+    });
   }
 
   @Get(':id')

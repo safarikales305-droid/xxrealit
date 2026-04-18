@@ -85,6 +85,15 @@ export type PropertyRowForApi = {
   importedAt?: Date | null;
   lastSyncedAt?: Date | null;
   importDisabled?: boolean;
+  sourcePortalKey?: string;
+  sourcePortalLabel?: string;
+  propertyTypeKey?: string;
+  propertyTypeLabel?: string;
+  importCategoryKey?: string;
+  importCategoryLabel?: string;
+  canGenerateShorts?: boolean;
+  shortsGenerated?: boolean;
+  shortsSourceType?: string | null;
   createdAt: Date;
   userId: string;
   user: { id: string; city: string | null };
@@ -290,5 +299,14 @@ export function serializeProperty(
     importedAt: p.importedAt ? p.importedAt.toISOString() : null,
     lastSyncedAt: p.lastSyncedAt ? p.lastSyncedAt.toISOString() : null,
     importDisabled: Boolean(p.importDisabled),
+    sourcePortalKey: (p.sourcePortalKey ?? '').trim() || null,
+    sourcePortalLabel: (p.sourcePortalLabel ?? '').trim() || null,
+    propertyTypeKey: (p.propertyTypeKey ?? '').trim() || null,
+    propertyTypeLabel: (p.propertyTypeLabel ?? '').trim() || null,
+    importCategoryKey: (p.importCategoryKey ?? '').trim() || null,
+    importCategoryLabel: (p.importCategoryLabel ?? '').trim() || null,
+    canGenerateShorts: Boolean(p.canGenerateShorts),
+    shortsGenerated: Boolean(p.shortsGenerated),
+    shortsSourceType: p.shortsSourceType ?? null,
   };
 }

@@ -312,6 +312,14 @@ export class ShortsListingService {
         throw new BadRequestException('Neplatná nebo neaktivní skladba.');
       }
       musicTrackId = track.id;
+    } else if (dto?.pickRandomLibraryTrack) {
+      const library = await this.prisma.shortsMusicTrack.findMany({
+        where: { isActive: true },
+        select: { id: true },
+      });
+      if (library.length > 0) {
+        musicTrackId = library[Math.floor(Math.random() * library.length)].id;
+      }
     }
 
     const listing = await this.prisma.shortsListing.create({
@@ -343,6 +351,10 @@ export class ShortsListingService {
     const full = await this.prisma.shortsListing.findUniqueOrThrow({
       where: { id: listing.id },
       include: { media: { orderBy: { order: 'asc' } } },
+    });
+    await this.prisma.property.update({
+      where: { id: classicPropertyId },
+      data: { shortsGenerated: true },
     });
     return this.serializeDraft(full);
   }

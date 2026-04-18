@@ -4,6 +4,11 @@ import {
   ListingImportPortal,
   Prisma,
 } from '@prisma/client';
+import {
+  computeShortsSourceForImport,
+  detectPropertyType,
+  portalKeyLabelForEnum,
+} from './import-listing-classification';
 
 /** Jen skutečná http(s) videa — relativní cesty z SOAP apod. nesmí vyřadit inzerát z Klasik feedu. */
 function normalizeImportVideoUrl(v: unknown): string | null {
@@ -602,6 +607,10 @@ export class ImportSyncService {
       endpointUrl: source.endpointUrl,
       credentialsJson: (source.credentialsJson as Record<string, unknown> | null) ?? null,
       settingsJson: (source.settingsJson as Record<string, unknown> | null) ?? null,
+      portalKey: source.portalKey?.trim() || undefined,
+      portalLabel: source.portalLabel?.trim() || undefined,
+      categoryKey: source.categoryKey?.trim() || undefined,
+      categoryLabel: source.categoryLabel?.trim() || undefined,
     };
     const settingsKeys =
       ctx.settingsJson && typeof ctx.settingsJson === 'object' && !Array.isArray(ctx.settingsJson)
@@ -955,6 +964,41 @@ export class ImportSyncService {
     throw new BadRequestException(`Nepodporovaná metoda importu: ${ctx.method}`);
   }
 
+  private importFacetPayload(
+    ctx: ImportExecutionContext,
+    row: ImportedListingDraft,
+  ) {
+    const fallback = portalKeyLabelForEnum(ctx.portal);
+    const sourcePortalKey = (ctx.portalKey?.trim() || fallback.sourcePortalKey).slice(0, 64);
+    const sourcePortalLabel = (ctx.portalLabel?.trim() || fallback.sourcePortalLabel).slice(
+      0,
+      120,
+    );
+    const importCategoryKey = (ctx.categoryKey?.trim() || DEFAULT_CATEGORY_KEY).slice(0, 64);
+    const importCategoryLabel = (ctx.categoryLabel?.trim() || DEFAULT_CATEGORY_LABEL).slice(
+      0,
+      120,
+    );
+    const categoryHint = [ctx.categoryLabel, row.propertyType].filter(Boolean).join(' ');
+    const detected = detectPropertyType({
+      title: row.title,
+      description: row.description,
+      sourceUrl: row.sourceUrl,
+      category: categoryHint || null,
+    });
+    const shorts = computeShortsSourceForImport(ctx.portal, row);
+    return {
+      sourcePortalKey,
+      sourcePortalLabel,
+      propertyTypeKey: detected.key,
+      propertyTypeLabel: detected.label,
+      importCategoryKey,
+      importCategoryLabel,
+      canGenerateShorts: shorts.canGenerateShorts,
+      shortsSourceType: shorts.shortsSourceType,
+    };
+  }
+
   private dedupeImportedRows(rows: ImportedListingDraft[]): ImportedListingDraft[] {
     const map = new Map<string, ImportedListingDraft>();
     for (const row of rows) {
@@ -1045,6 +1089,7 @@ export class ImportSyncService {
             ctx.portal,
             row.videoUrl,
           );
+          const facet = this.importFacetPayload(ctx, row);
           const created = await this.prisma.property.create({
             data: {
               userId: actorUserId,
@@ -1074,6 +1119,7 @@ export class ImportSyncService {
               importedAt: new Date(),
               lastSyncedAt: new Date(),
               importDisabled: false,
+              ...facet,
             },
           });
           // eslint-disable-next-line no-console
@@ -1113,6 +1159,7 @@ export class ImportSyncService {
           row.videoUrl,
           existing.videoUrl,
         );
+        const facet = this.importFacetPayload(ctx, row);
         const updated = await this.prisma.property.update({
           where: { id: existing.id },
           data: {
@@ -1129,6 +1176,7 @@ export class ImportSyncService {
             listingType,
             importSourceUrl: row.sourceUrl?.trim() || existing.importSourceUrl,
             lastSyncedAt: new Date(),
+            ...facet,
           },
         });
         // eslint-disable-next-line no-console

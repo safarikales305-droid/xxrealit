@@ -70,6 +70,11 @@ export type ImportExecutionContext = {
   endpointUrl?: string | null;
   credentialsJson?: Record<string, unknown> | null;
   settingsJson?: Record<string, unknown> | null;
+  /** Metadata větve importu (pro zápis na Property + budoucí portály). */
+  portalKey?: string;
+  portalLabel?: string;
+  categoryKey?: string;
+  categoryLabel?: string;
 };
 
 /** Průběh importu (NDJSON stream / admin UI). */
