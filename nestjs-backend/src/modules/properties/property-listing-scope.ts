@@ -38,6 +38,10 @@ const hideBrokenRealityImports: Prisma.PropertyWhereInput = {
         OR: [
           { images: { equals: [] } },
           { AND: [{ price: { not: null } }, { price: { lt: 1000 } }] },
+          { importSourceUrl: null },
+          { importSourceUrl: '' },
+          { importSourceUrl: 'https://www.reality.cz/' },
+          { importSourceUrl: 'https://reality.cz/' },
         ],
       },
     ],

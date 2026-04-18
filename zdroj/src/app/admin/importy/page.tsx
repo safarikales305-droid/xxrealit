@@ -56,6 +56,7 @@ type ImportSourceFormState = {
   intervalMinutes: number;
   limitPerRun: number;
   endpointUrl: string;
+  startUrl: string;
   scraperRequestDelayMs: number;
   scraperMaxRetries: number;
   scraperBackoffMultiplier: number;
@@ -66,10 +67,17 @@ type ImportSourceFormState = {
 
 function formFromServer(s: AdminImportSourceRow): ImportSourceFormState {
   const sj = (s.settingsJson ?? {}) as Record<string, unknown>;
+  const settingsStartUrl = typeof sj.startUrl === 'string' ? sj.startUrl.trim() : '';
+  const endpointUrl = s.endpointUrl ?? '';
+  const isRealityScraper = s.portal === 'reality_cz' && s.method === 'scraper';
+  const resolvedStartUrl = isRealityScraper
+    ? settingsStartUrl || endpointUrl || DEFAULT_REALITY_SCRAPER_START_URL
+    : '';
   return {
     intervalMinutes: s.intervalMinutes,
     limitPerRun: s.limitPerRun,
-    endpointUrl: s.endpointUrl ?? '',
+    endpointUrl,
+    startUrl: resolvedStartUrl,
     scraperRequestDelayMs: readSettingsNumber(sj.scraperRequestDelayMs, 3500),
     scraperMaxRetries: readSettingsNumber(sj.scraperMaxRetries, 6),
     scraperBackoffMultiplier: Math.min(
@@ -94,6 +102,10 @@ function isRealityRootUrl(url: string): boolean {
   } catch {
     return /^https?:\/\/(www\.)?reality\.cz\/?$/i.test(t);
   }
+}
+
+function isValidRealityListingUrl(url: string): boolean {
+  return /^https?:\/\/(www\.)?reality\.cz\/(prodej|pronajem)\//i.test(url.trim());
 }
 
 export default function AdminImportsPage() {
@@ -133,8 +145,12 @@ export default function AdminImportsPage() {
         const isRealityScraper = s.portal === 'reality_cz' && s.method === 'scraper';
         next[s.id] = {
           ...base,
+          startUrl:
+            isRealityScraper && !isValidRealityListingUrl(base.startUrl)
+              ? DEFAULT_REALITY_SCRAPER_START_URL
+              : base.startUrl,
           endpointUrl:
-            isRealityScraper && isRealityRootUrl(base.endpointUrl)
+            isRealityScraper && !isValidRealityListingUrl(base.endpointUrl)
               ? DEFAULT_REALITY_SCRAPER_START_URL
               : base.endpointUrl,
         };
@@ -153,6 +169,7 @@ export default function AdminImportsPage() {
         : {};
     return {
       ...prev,
+      startUrl: f.startUrl,
       scraperRequestDelayMs: f.scraperRequestDelayMs,
       scraperMaxRetries: f.scraperMaxRetries,
       scraperBackoffMultiplier: f.scraperBackoffMultiplier,
@@ -226,10 +243,10 @@ export default function AdminImportsPage() {
     const src = sources.find((s) => s.id === sourceId);
     const isRealityScraper = src?.portal === 'reality_cz' && src?.method === 'scraper';
     const f = src ? formFor(src) : null;
-    const endpointForRun = (f?.endpointUrl ?? src?.endpointUrl ?? '').trim();
-    if (isRealityScraper && (!endpointForRun || isRealityRootUrl(endpointForRun))) {
+    const startUrlForRun = (f?.startUrl ?? '').trim();
+    if (isRealityScraper && !isValidRealityListingUrl(startUrlForRun)) {
       setError(
-        'U zdroje „Reality.cz Scraper“ zadejte konkrétní výpis (např. https://www.reality.cz/prodej/byty/?strana=1), ne homepage https://www.reality.cz/.',
+        'U zdroje „Reality.cz Scraper“ zadejte validní listing URL (např. https://www.reality.cz/prodej/byty/?strana=1). Homepage https://www.reality.cz/ není povolená.',
       );
       setWarnMsg(null);
       setStatusMsg(null);
@@ -479,24 +496,40 @@ export default function AdminImportsPage() {
                       ) : null}
                     </span>
                     <input
-                      value={f.endpointUrl}
+                      value={isRealityScraper ? f.startUrl : f.endpointUrl}
                       placeholder={
                         isRealityScraper
                           ? 'https://www.reality.cz/prodej/byty/?strana=1'
                           : 'https://…'
                       }
                       className="w-full rounded-lg border border-zinc-200 px-3 py-2"
-                      onChange={(e) => setFormFor(src, { endpointUrl: e.target.value })}
+                      onChange={(e) =>
+                        setFormFor(src, isRealityScraper ? { startUrl: e.target.value } : { endpointUrl: e.target.value })
+                      }
                       onBlur={(e) => {
                         const raw = e.target.value.trim();
-                        const normalized =
-                          isRealityScraper && (!raw || isRealityRootUrl(raw))
-                            ? DEFAULT_REALITY_SCRAPER_START_URL
-                            : raw;
-                        setFormFor(src, { endpointUrl: normalized });
-                        void saveSourcePatch(src.id, {
-                          endpointUrl: normalized || null,
-                        });
+                        if (isRealityScraper) {
+                          const normalized = raw;
+                          if (!isValidRealityListingUrl(normalized)) {
+                            setError(
+                              'Start URL scraperu musí být ve tvaru https://www.reality.cz/prodej/... nebo https://www.reality.cz/pronajem/...',
+                            );
+                            setFormFor(src, { startUrl: normalized || DEFAULT_REALITY_SCRAPER_START_URL });
+                            return;
+                          }
+                          setFormFor(src, { startUrl: normalized, endpointUrl: normalized });
+                          void saveSourcePatch(src.id, {
+                            endpointUrl: normalized,
+                            settingsJson: scraperSettingsPayload(src, {
+                              ...f,
+                              startUrl: normalized,
+                              endpointUrl: normalized,
+                            }),
+                          });
+                          return;
+                        }
+                        setFormFor(src, { endpointUrl: raw });
+                        void saveSourcePatch(src.id, { endpointUrl: raw || null });
                       }}
                     />
                   </label>

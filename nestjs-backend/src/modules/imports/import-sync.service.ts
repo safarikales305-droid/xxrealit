@@ -59,6 +59,12 @@ import {
   type RealityCzScraperFetchOutcome,
 } from './reality-cz-scraper-importer.service';
 
+const DEFAULT_REALITY_SCRAPER_START_URL = 'https://www.reality.cz/prodej/byty/?strana=1';
+
+function isValidRealityListingUrl(url: string): boolean {
+  return /^https?:\/\/(www\.)?reality\.cz\/(prodej|pronajem)\//i.test(url.trim());
+}
+
 type ImportSourcePatch = {
   enabled?: boolean;
   intervalMinutes?: number;
@@ -107,8 +113,9 @@ export class ImportSyncService {
         enabled: false,
         intervalMinutes: 120,
         limitPerRun: 100,
-        endpointUrl: 'https://www.reality.cz/prodej/byty/?strana=1',
+        endpointUrl: DEFAULT_REALITY_SCRAPER_START_URL,
         settingsJson: {
+          startUrl: DEFAULT_REALITY_SCRAPER_START_URL,
           scraperListOnlyImport: false,
           scraperRequestDelayMs: 3500,
           scraperMaxRetries: 6,
@@ -125,8 +132,44 @@ export class ImportSyncService {
         method: ListingImportMethod.scraper,
         OR: [{ endpointUrl: null }, { endpointUrl: '' }],
       },
-      data: { endpointUrl: 'https://www.reality.cz/prodej/byty/?strana=1' },
+      data: { endpointUrl: DEFAULT_REALITY_SCRAPER_START_URL },
     });
+    const legacyScraperSources = await this.prisma.importSource.findMany({
+      where: {
+        portal: ListingImportPortal.reality_cz,
+        method: ListingImportMethod.scraper,
+      },
+      select: {
+        id: true,
+        endpointUrl: true,
+        settingsJson: true,
+      },
+    });
+    for (const src of legacyScraperSources) {
+      const settingsRaw =
+        src.settingsJson &&
+        typeof src.settingsJson === 'object' &&
+        !Array.isArray(src.settingsJson)
+          ? { ...(src.settingsJson as Record<string, unknown>) }
+          : {};
+      const settingsStart =
+        typeof settingsRaw.startUrl === 'string' ? settingsRaw.startUrl.trim() : '';
+      const endpointStart = src.endpointUrl?.trim() ?? '';
+      const candidate = settingsStart || endpointStart;
+      const finalStart = isValidRealityListingUrl(candidate)
+        ? candidate
+        : DEFAULT_REALITY_SCRAPER_START_URL;
+      settingsRaw.startUrl = finalStart;
+      if (src.endpointUrl?.trim() !== finalStart || settingsStart !== finalStart) {
+        await this.prisma.importSource.update({
+          where: { id: src.id },
+          data: {
+            endpointUrl: finalStart,
+            settingsJson: settingsRaw as Prisma.InputJsonValue,
+          },
+        });
+      }
+    }
     await this.prisma.importSource.upsert({
       where: {
         portal_method: {
@@ -180,6 +223,9 @@ export class ImportSyncService {
     const isRealitySoap =
       current.portal === ListingImportPortal.reality_cz &&
       current.method === ListingImportMethod.soap;
+    const isRealityScraper =
+      current.portal === ListingImportPortal.reality_cz &&
+      current.method === ListingImportMethod.scraper;
     if (patch.endpointUrl !== undefined && !isRealitySoap) {
       data.endpointUrl = patch.endpointUrl ? patch.endpointUrl.trim() : null;
     }
@@ -188,6 +234,45 @@ export class ImportSyncService {
     }
     if (patch.settingsJson !== undefined) {
       data.settingsJson = patch.settingsJson ?? Prisma.JsonNull;
+    }
+    if (isRealityScraper) {
+      const currentSettings =
+        current.settingsJson &&
+        typeof current.settingsJson === 'object' &&
+        !Array.isArray(current.settingsJson)
+          ? { ...(current.settingsJson as Record<string, unknown>) }
+          : {};
+      const patchSettings =
+        patch.settingsJson &&
+        typeof patch.settingsJson === 'object' &&
+        !Array.isArray(patch.settingsJson)
+          ? { ...(patch.settingsJson as Record<string, unknown>) }
+          : {};
+      const startFromPatch =
+        typeof patchSettings.startUrl === 'string' ? patchSettings.startUrl.trim() : '';
+      const startFromEndpoint =
+        patch.endpointUrl !== undefined ? (patch.endpointUrl?.trim() ?? '') : '';
+      const startFromCurrent =
+        typeof currentSettings.startUrl === 'string' ? currentSettings.startUrl.trim() : '';
+      const startFromCurrentEndpoint = current.endpointUrl?.trim() ?? '';
+      const resolvedStart =
+        startFromPatch ||
+        startFromEndpoint ||
+        startFromCurrent ||
+        startFromCurrentEndpoint ||
+        '';
+      if (!isValidRealityListingUrl(resolvedStart)) {
+        throw new BadRequestException(
+          'Start URL scraperu musí být validní listing URL Reality.cz (např. https://www.reality.cz/prodej/byty/?strana=1).',
+        );
+      }
+      const nextSettings = {
+        ...currentSettings,
+        ...patchSettings,
+        startUrl: resolvedStart,
+      };
+      data.settingsJson = nextSettings as Prisma.InputJsonValue;
+      data.endpointUrl = resolvedStart;
     }
     return this.prisma.importSource.update({ where: { id: sourceId }, data });
   }
@@ -226,15 +311,15 @@ export class ImportSyncService {
     const scraperStartHint =
       ctx.portal === ListingImportPortal.reality_cz &&
       ctx.method === ListingImportMethod.scraper
-        ? (ctx.endpointUrl?.trim() ||
-            (typeof ctx.settingsJson?.startUrl === 'string' ? ctx.settingsJson.startUrl.trim() : '') ||
+        ? ((typeof ctx.settingsJson?.startUrl === 'string' ? ctx.settingsJson.startUrl.trim() : '') ||
+            ctx.endpointUrl?.trim() ||
             '(nenastaveno)')
         : null;
     this.logger.log(
       `Import RUN: sourceId=${ctx.sourceId} name=${ctx.sourceName} portal=${ctx.portal} method=${ctx.method} ` +
         `limit=${ctx.limitPerRun} endpointUrl=${ctx.endpointUrl ?? 'null'} ` +
         `scraperStartHint=${scraperStartHint ?? 'n/a'} settingsKeys=[${settingsKeys}] ` +
-        `(SOAP používá REALITY_CZ_* env, scraper start URL = endpoint nebo settingsJson.startUrl)`,
+        `(SOAP používá REALITY_CZ_* env, scraper start URL = settingsJson.startUrl)`,
     );
     return this.runWithLogging(ctx, actorUserId, onProgress);
   }
@@ -419,13 +504,13 @@ export class ImportSyncService {
   }
 
   private resolveRealityCzScraperStartUrl(ctx: ImportExecutionContext): string {
-    const fromEndpoint = ctx.endpointUrl?.trim() ?? '';
     const fromSettings =
       ctx.settingsJson &&
       typeof ctx.settingsJson.startUrl === 'string' &&
       ctx.settingsJson.startUrl.trim()
         ? ctx.settingsJson.startUrl.trim()
         : '';
+    const fromEndpoint = ctx.endpointUrl?.trim() ?? '';
     const candidate = fromSettings || fromEndpoint;
     // eslint-disable-next-line no-console
     console.log('REALITY IMPORT START URL', {
@@ -436,6 +521,11 @@ export class ImportSyncService {
     if (!candidate) {
       throw new BadRequestException(
         'Zadejte start URL pro scraper Reality.cz (konkrétní výpis s parametry, např. https://www.reality.cz/prodej/byty/?strana=1).',
+      );
+    }
+    if (!isValidRealityListingUrl(candidate)) {
+      throw new BadRequestException(
+        'Invalid import URL — Použij konkrétní výpis inzerátů Reality.cz ve tvaru https://www.reality.cz/prodej/... nebo https://www.reality.cz/pronajem/....',
       );
     }
     let parsed: URL;
