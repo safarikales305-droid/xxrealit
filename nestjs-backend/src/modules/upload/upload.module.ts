@@ -8,5 +8,6 @@ import { UploadController } from './upload.controller';
   imports: [AuthModule],
   controllers: [UploadController],
   providers: [ProfileImagesService, ProfileMediaStorageService],
+  exports: [ProfileImagesService, ProfileMediaStorageService],
 })
 export class UploadModule {}

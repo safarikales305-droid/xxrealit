@@ -96,6 +96,31 @@ export class PropertyMediaCloudinaryService {
   }
 
   /**
+   * Stejná cesta jako upload z formuláře (`folder: properties`), vhodné pro import z externí URL.
+   */
+  async uploadImageBuffer(buffer: Buffer, originalname = 'import.jpg'): Promise<string> {
+    initCloudinary();
+    const ext = (originalname.split('.').pop() ?? 'jpg').toLowerCase();
+    const mime =
+      ext === 'png'
+        ? 'image/png'
+        : ext === 'webp'
+          ? 'image/webp'
+          : ext === 'gif'
+            ? 'image/gif'
+            : 'image/jpeg';
+    const file = {
+      fieldname: 'image',
+      originalname: originalname || 'import.jpg',
+      encoding: '7bit',
+      mimetype: mime,
+      buffer,
+      size: buffer.length,
+    } as Express.Multer.File;
+    return uploadPropertyImageBuffer(file);
+  }
+
+  /**
    * Hudba pro shorts (mp3/wav/m4a) — Cloudinary ukládá audio často jako `resource_type: video`.
    * Vracíme veřejnou URL + public_id pro případné smazání.
    */

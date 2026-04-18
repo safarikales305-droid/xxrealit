@@ -68,6 +68,7 @@ import {
 } from './reality-cz-scraper-importer.service';
 import { parseRealityCzScraperSettings } from './reality-cz-scraper-settings';
 import { normalizeStoredImageUrlList } from './import-image-urls';
+import { ImportImageService } from './import-image.service';
 import {
   DEFAULT_REALITY_BYTY_START_URL,
   getDefaultRealityStartUrlForCategoryKey,
@@ -212,6 +213,7 @@ export class ImportSyncService {
     private readonly prisma: PrismaService,
     private readonly soapImporter: RealityCzSoapImporter,
     private readonly scraperImporter: RealityCzScraperImporter,
+    private readonly importImageService: ImportImageService,
   ) {}
 
   async ensureDefaultSources() {
@@ -1271,6 +1273,28 @@ export class ImportSyncService {
     return [...map.values()];
   }
 
+  /**
+   * Fotky z Reality.cz stáhneme a nahrajeme stejným storage jako uživatelské inzeráty (Cloudinary / lokální uploads).
+   */
+  private async resolveImportedPropertyImagesForDb(
+    ctx: ImportExecutionContext,
+    row: ImportedListingDraft,
+    externalId: string,
+    existingPropertyId: string | null,
+  ): Promise<string[]> {
+    const normalized = normalizeStoredImageUrlList(row.images);
+    if (normalized.length === 0) return [];
+    const portalKeyRaw = (ctx.portalKey ?? String(ctx.portal)).trim() || 'import';
+    const sourcePortalKey = portalKeyRaw.replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 64) || 'import';
+    const propertyIdForMirror =
+      existingPropertyId ?? `staging-${externalId.replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 80)}`;
+    return this.importImageService.mirrorRealityListingImages({
+      urls: normalized,
+      propertyId: propertyIdForMirror,
+      sourcePortalKey,
+    });
+  }
+
   private async importListingShells(
     ctx: ImportExecutionContext,
     actorUserId: string,
@@ -1355,7 +1379,12 @@ export class ImportSyncService {
             row.videoUrl,
           );
           const facet = this.importFacetPayload(ctx, row);
-          const imagesForDb = normalizeStoredImageUrlList(row.images);
+          const imagesForDb = await this.resolveImportedPropertyImagesForDb(
+            ctx,
+            row,
+            externalId,
+            null,
+          );
           const created = await this.prisma.property.create({
             data: {
               userId: actorUserId,
@@ -1433,7 +1462,12 @@ export class ImportSyncService {
           existing.videoUrl,
         );
         const facet = this.importFacetPayload(ctx, row);
-        const imagesForDb = normalizeStoredImageUrlList(row.images);
+        const imagesForDb = await this.resolveImportedPropertyImagesForDb(
+          ctx,
+          row,
+          externalId,
+          existing.id,
+        );
         const updated = await this.prisma.property.update({
           where: { id: existing.id },
           data: {
