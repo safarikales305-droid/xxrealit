@@ -706,13 +706,13 @@ export class AdminService {
   }
 
   /**
-   * Jednorázová oprava špatných fallback cen (1 / 100 Kč) u importu Reality.cz.
+   * Jednorázová oprava špatných fallback cen (např. 1 / 100 / 697 Kč) u importu Reality.cz.
    */
   async repairRealityImportedPricePlaceholders() {
     const updated = await this.prisma.property.updateMany({
       where: {
         importSource: ListingImportPortal.reality_cz,
-        OR: [{ price: 1 }, { price: 100 }],
+        price: { not: null, lt: 1000 },
       },
       data: { price: null },
     });

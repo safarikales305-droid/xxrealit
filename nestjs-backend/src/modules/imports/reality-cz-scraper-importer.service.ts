@@ -63,6 +63,26 @@ function normalizeRealityImportedPrice(raw: unknown): number | null {
   return parsed;
 }
 
+function cleanText(value?: string | null): string | null {
+  if (!value) return null;
+  const text = String(value)
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\u00a0/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text || null;
+}
+
+function pickFirstCleanMatch(fragment: string, patterns: RegExp[]): string | null {
+  for (const re of patterns) {
+    const m = fragment.match(re);
+    const v = cleanText(m?.[1] ?? null);
+    if (v) return v;
+  }
+  return null;
+}
+
 /** První rozumný obrázek z úryvku HTML (img src/data-src, source srcset, og:image). */
 function extractBestImageFromHtmlFragment(fragment: string): string | null {
   const candidates: string[] = [];
@@ -430,15 +450,20 @@ export class RealityCzScraperImporter {
       )?.[1] ??
       html.match(
         /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i,
-      )?.[1];
+      )?.[1] ??
+      pickFirstCleanMatch(html, [
+        /<p[^>]*class=["'][^"']*(?:perex|description|desc|summary)[^"']*["'][^>]*>([\s\S]*?)<\/p>/i,
+        /<div[^>]*class=["'][^"']*(?:perex|description|desc|summary)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+        /<p[^>]*>([\s\S]*?)<\/p>/i,
+      ]);
     const og = html.match(
       /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
     )?.[1];
     const next: ImportedListingDraft = {
       ...draft,
       images: baseImages.length > 0 ? baseImages : draft.images.filter((u) => isLikelyListingImageUrl(u)),
-      description: desc?.trim()
-        ? desc.trim().slice(0, 10_000)
+      description: cleanText(desc)?.slice(0, 10_000)
+        ? cleanText(desc)!.slice(0, 10_000)
         : draft.description,
     };
     if (og && og.trim()) {
@@ -509,7 +534,14 @@ export class RealityCzScraperImporter {
     let rawLinkCount = 0;
     while ((m = re.exec(html)) !== null) {
       const raw = m[1];
-      if (!/\/detail\//i.test(raw) && !/%2[fF]detail%2[fF]/i.test(raw)) continue;
+      if (
+        !/\/detail\//i.test(raw) &&
+        !/%2[fF]detail%2[fF]/i.test(raw) &&
+        !/\/nemovitosti\//i.test(raw) &&
+        !/\/[A-Za-z0-9]+-[A-Za-z0-9]+\/?/i.test(raw)
+      ) {
+        continue;
+      }
       rawLinkCount += 1;
       const abs = raw.startsWith('http')
         ? raw
@@ -520,18 +552,33 @@ export class RealityCzScraperImporter {
       const priceText =
         extractFirstPriceKc(tail) ?? extractFirstPriceKc(html.slice(m.index, m.index + 9000));
       const near = html.slice(Math.max(0, m.index - 800), Math.min(html.length, m.index + 800));
-      const titleFromH = near.match(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i);
-      const title = titleFromH
-        ? stripTags(titleFromH[1]).replace(/\s+/g, ' ').trim()
-        : `Nabídka ${id}`;
+      const title =
+        pickFirstCleanMatch(near, [
+          /<h1[^>]*>([\s\S]*?)<\/h1>/i,
+          /<h2[^>]*>([\s\S]*?)<\/h2>/i,
+          /<h3[^>]*>([\s\S]*?)<\/h3>/i,
+          /data-testid=["'][^"']*title[^"']*["'][^>]*>([\s\S]*?)</i,
+          /<a[^>]+title=["']([^"']+)["']/i,
+        ]) ?? `Nabídka ${id}`;
       if (title.length < 3) continue;
+      const description =
+        pickFirstCleanMatch(tail, [
+          /<p[^>]*class=["'][^"']*(?:perex|description|desc|summary)[^"']*["'][^>]*>([\s\S]*?)<\/p>/i,
+          /<div[^>]*class=["'][^"']*(?:perex|description|desc|summary)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+          /<p[^>]*>([\s\S]*?)<\/p>/i,
+        ]) ?? title;
+      const locality = pickFirstCleanMatch(tail, [
+        /<span[^>]*class=["'][^"']*(?:location|local|address)[^"']*["'][^>]*>([\s\S]*?)<\/span>/i,
+        /<div[^>]*class=["'][^"']*(?:location|local|address)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+      ]);
       const imgFrag = html.slice(Math.max(0, m.index - 2200), Math.min(html.length, m.index + 4800));
       const imageUrl = extractBestImageFromHtmlFragment(imgFrag);
       items.push({
         id,
         title: title.slice(0, 250),
-        description: title.slice(0, 500),
+        description: description.slice(0, 500),
         price: priceText,
+        city: locality ?? undefined,
         url: abs,
         ...(imageUrl ? { image: imageUrl } : {}),
       });
@@ -651,17 +698,31 @@ export class RealityCzScraperImporter {
         : `https://www.reality.cz${m[1].startsWith('/') ? '' : '/'}${m[1]}`;
       const id = extractListingCodeFromRealityUrl(href);
       if (!id) continue;
-      const title = stripTags(m[2]).replace(/\s+/g, ' ').trim();
-      if (title.length < 8) continue;
       const tail = html.slice(m.index, Math.min(html.length, m.index + 3500));
+      const title =
+        cleanText(stripTags(m[2]).replace(/\s+/g, ' ').trim()) ||
+        cleanText(tail.match(/<a[^>]+title=["']([^"']+)["']/i)?.[1] ?? null) ||
+        `Nabídka ${id}`;
+      if (title.length < 8) continue;
       const priceText =
         extractFirstPriceKc(tail) ?? extractFirstPriceKc(html.slice(m.index, m.index + 8000));
+      const description =
+        pickFirstCleanMatch(tail, [
+          /<p[^>]*class=["'][^"']*(?:perex|description|desc|summary)[^"']*["'][^>]*>([\s\S]*?)<\/p>/i,
+          /<div[^>]*class=["'][^"']*(?:perex|description|desc|summary)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+          /<p[^>]*>([\s\S]*?)<\/p>/i,
+        ]) ?? title;
+      const locality = pickFirstCleanMatch(tail, [
+        /<span[^>]*class=["'][^"']*(?:location|local|address)[^"']*["'][^>]*>([\s\S]*?)<\/span>/i,
+        /<div[^>]*class=["'][^"']*(?:location|local|address)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+      ]);
       const imageUrl = extractBestImageFromHtmlFragment(tail);
       items.push({
         id,
         title,
-        description: title,
+        description,
         price: priceText,
+        city: locality ?? undefined,
         url: href,
         ...(imageUrl ? { image: imageUrl } : {}),
       });
@@ -686,16 +747,26 @@ export class RealityCzScraperImporter {
         (idData && REALITY_LISTING_CODE_RE.test(idData) ? idData.toUpperCase() : undefined);
       return {
         id,
-        title: stripTags(text(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i)),
-        description: stripTags(text(/<p[^>]*>([\s\S]*?)<\/p>/i)),
+        title:
+          cleanText(stripTags(text(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i))) ??
+          cleanText(text(/<a[^>]+title=["']([^"']+)["']/i)) ??
+          '',
+        description:
+          cleanText(
+            text(/<p[^>]*class=["'][^"']*(?:perex|description|desc|summary)[^"']*["'][^>]*>([\s\S]*?)<\/p>/i),
+          ) ??
+          cleanText(stripTags(text(/<p[^>]*>([\s\S]*?)<\/p>/i))) ??
+          '',
         price:
           extractFirstPriceKc(cardHtml) ?? text(/(\d[\d\s\u00a0]*)\s*(?:Kč|CZK)/i),
-        city: stripTags(
+        city: cleanText(stripTags(
           text(/<span[^>]*class=["'][^"']*locality[^"']*["'][^>]*>([\s\S]*?)<\/span>/i),
-        ),
-        address: stripTags(
+        )) ?? cleanText(stripTags(
+          text(/<span[^>]*class=["'][^"']*(?:location|local|address)[^"']*["'][^>]*>([\s\S]*?)<\/span>/i),
+        )),
+        address: cleanText(stripTags(
           text(/<span[^>]*class=["'][^"']*address[^"']*["'][^>]*>([\s\S]*?)<\/span>/i),
-        ),
+        )) ?? undefined,
         image:
           extractBestImageFromHtmlFragment(cardHtml) ||
           text(/<img[^>]+data-src=["']([^"']+)["']/i) ||
@@ -763,11 +834,19 @@ export class RealityCzScraperImporter {
       );
       return null;
     }
-    const title = String(raw.title ?? '').trim();
-    const description = String(raw.description ?? title).trim();
-    let city = String(raw.city ?? '').trim();
+    const title = cleanText(String(raw.title ?? '')) ?? '';
+    const description = cleanText(String(raw.description ?? title)) ?? title;
+    let city = cleanText(String(raw.city ?? '')) ?? '';
     const priceParsed = normalizeRealityImportedPrice(raw.price);
 
+    if (!city && typeof raw.sourceUrl === 'string') {
+      try {
+        const fromUrl = cleanText(decodeURIComponent(raw.sourceUrl).replace(/[-_/]/g, ' '));
+        city = guessCityFromCzechTitle(title, fromUrl ?? '');
+      } catch {
+        /* ignore malformed URL encoding */
+      }
+    }
     if (!city) {
       city = guessCityFromCzechTitle(title, description);
     }
@@ -810,8 +889,7 @@ export class RealityCzScraperImporter {
           : undefined,
     };
 
-    const address =
-      (typeof raw.address === 'string' ? raw.address : '').trim().slice(0, 240) || '';
+    const address = (cleanText(typeof raw.address === 'string' ? raw.address : '') ?? '').slice(0, 240);
     if (address) draft.address = address;
     if (videoUrl) draft.videoUrl = videoUrl;
     const sourceUrl =
