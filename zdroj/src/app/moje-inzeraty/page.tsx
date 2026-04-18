@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
+import { formatListingPrice } from '@/lib/price';
 import {
   nestCreateShortsFromClassic,
   nestDeleteMyProperty,
@@ -25,14 +26,6 @@ export default function MojeInzeratyPage() {
   const [shortsRegeneratingId, setShortsRegeneratingId] = useState<string | null>(null);
 
   const hasAuth = Boolean(isAuthenticated && apiAccessToken);
-
-  function formatListingPriceValue(price: number | null | undefined, currency?: string | null): string {
-    if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) {
-      return 'Cena na dotaz';
-    }
-    const unit = (currency ?? 'Kč').trim() || 'Kč';
-    return `${new Intl.NumberFormat('cs-CZ').format(price)} ${unit}`;
-  }
 
   async function loadMyListings() {
     if (!apiAccessToken) {
@@ -166,7 +159,7 @@ export default function MojeInzeratyPage() {
                     </p>
                     <h2 className="mt-1 text-lg font-semibold leading-snug text-zinc-900">{item.title}</h2>
                     <p className="mt-1 text-sm font-semibold text-[#e85d00]">
-                      {formatListingPriceValue(item.price, item.currency)}
+                      {formatListingPrice(item.price)}
                     </p>
                     <p className="mt-1 text-sm text-zinc-600">
                       {item.city}

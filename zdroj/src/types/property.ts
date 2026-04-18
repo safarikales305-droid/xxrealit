@@ -1,20 +1,13 @@
 import { normalizePublicVideoUrl } from '@/lib/video-url';
+import { formatListingPrice, normalizePrice } from '@/lib/price';
+export { formatListingPrice, normalizePrice } from '@/lib/price';
 
 /** API může vrátit cenu null („na dotaz“). */
 export function parseApiListingPrice(v: unknown): number | null {
   if (v === null || v === undefined) return null;
   const n = typeof v === 'number' ? v : Number(v);
-  if (!Number.isFinite(n)) return null;
-  const t = Math.trunc(n);
-  if (t <= 0) return null;
-  return t;
-}
-
-export function formatListingPrice(price: number | null | undefined): string {
-  if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) {
-    return 'Cena na dotaz';
-  }
-  return `${new Intl.NumberFormat('cs-CZ').format(price)} Kč`;
+  const normalized = normalizePrice(n);
+  return normalized == null ? null : Math.trunc(normalized);
 }
 
 export function formatListingPriceCzk(price: number | null | undefined): string {

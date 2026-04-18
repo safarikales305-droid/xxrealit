@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { dispatchMessagesChanged } from '@/hooks/use-messages-unread';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
+import { formatListingPrice } from '@/lib/price';
 import {
   nestConversationDetail,
   nestMarkConversationRead,
@@ -14,12 +15,6 @@ import {
   type NestConversationDetail,
   type NestConversationDetailMessage,
 } from '@/lib/nest-client';
-
-const priceFmt = new Intl.NumberFormat('cs-CZ', {
-  style: 'currency',
-  currency: 'CZK',
-  maximumFractionDigits: 0,
-});
 
 function formatWhen(iso: string): string {
   const d = new Date(iso);
@@ -177,11 +172,7 @@ export default function ProfilZpravaDetailPage() {
                 <div className="min-w-0">
                   <p className="font-semibold text-zinc-900">{detail.property.title}</p>
                   <p className="text-sm font-bold text-[#e85d00]">
-                    {typeof detail.property.price === 'number' &&
-                    Number.isFinite(detail.property.price) &&
-                    detail.property.price > 0
-                      ? priceFmt.format(detail.property.price)
-                      : 'Cena na dotaz'}
+                    {formatListingPrice(detail.property.price)}
                   </p>
                   <p className="text-xs text-zinc-600">{detail.property.city}</p>
                   <Link
