@@ -559,7 +559,7 @@ export default function VideoCard({
         {companyAd ? (
           <>
             <aside
-              className={`pointer-events-auto absolute inset-x-0 bottom-4 z-[38] hidden px-4 lg:block ${
+              className={`pointer-events-auto absolute inset-x-0 bottom-4 z-[38] hidden px-4 md:block ${
                 companyAdOpen
                   ? 'translate-y-0 opacity-100'
                   : 'pointer-events-none translate-y-3 opacity-0'
@@ -622,7 +622,7 @@ export default function VideoCard({
               </div>
             </aside>
             <aside
-              className={`pointer-events-auto absolute right-0 top-1/2 z-[38] w-[min(84vw,20rem)] -translate-y-1/2 rounded-l-2xl border border-white/20 bg-black/80 p-3 text-white shadow-2xl backdrop-blur-md transition-transform duration-500 lg:hidden ${
+              className={`pointer-events-auto absolute right-0 top-1/2 z-[38] w-[min(84vw,20rem)] -translate-y-1/2 rounded-l-2xl border border-white/20 bg-black/80 p-3 text-white shadow-2xl backdrop-blur-md transition-transform duration-500 md:hidden ${
                 companyAdOpen ? 'translate-x-0' : 'translate-x-[106%]'
               }`}
             >
