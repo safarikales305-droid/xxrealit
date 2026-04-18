@@ -733,7 +733,10 @@ export class AdminService {
     source?: ListingImportPortal;
     method?: ListingImportMethod;
   }) {
-    return this.importSync.bulkDisableByFilter(filter);
+    return this.importSync.bulkDisableByFilter({
+      portal: filter.source,
+      method: filter.method,
+    });
   }
 
   async updateUserRole(_actorId: string, targetId: string, newRole: UserRole) {

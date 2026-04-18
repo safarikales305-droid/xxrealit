@@ -14,20 +14,22 @@ import {
   type AdminImportSourceRow,
 } from '@/lib/nest-client';
 
-const SOURCE_OPTIONS = [
+const BULK_PORTAL_OPTIONS = [
   { value: 'reality_cz', label: 'Reality.cz' },
   { value: 'xml_feed', label: 'XML feed' },
   { value: 'csv_feed', label: 'CSV' },
-  { value: 'other', label: 'Jiný zdroj' },
+  { value: 'other', label: 'Jiný portál' },
 ] as const;
 
-const METHOD_OPTIONS = [
-  { value: 'soap', label: 'Reality.cz SOAP' },
-  { value: 'scraper', label: 'Reality.cz Scraper' },
-  { value: 'xml', label: 'XML feed' },
-  { value: 'csv', label: 'CSV' },
-  { value: 'other', label: 'Další' },
-] as const;
+const METHODS_FOR_PORTAL: Record<string, { value: string; label: string }[]> = {
+  reality_cz: [
+    { value: 'soap', label: 'SOAP' },
+    { value: 'scraper', label: 'Scraper' },
+  ],
+  xml_feed: [{ value: 'xml', label: 'XML' }],
+  csv_feed: [{ value: 'csv', label: 'CSV' }],
+  other: [{ value: 'other', label: 'Jiné' }],
+};
 
 function readSettingsNumber(v: unknown, fallback: number): number {
   const x =
@@ -61,6 +63,25 @@ type ImportSourceFormState = {
   scraperListOnlyImport: boolean;
 };
 
+function formFromServer(s: AdminImportSourceRow): ImportSourceFormState {
+  const sj = (s.settingsJson ?? {}) as Record<string, unknown>;
+  return {
+    intervalMinutes: s.intervalMinutes,
+    limitPerRun: s.limitPerRun,
+    endpointUrl: s.endpointUrl ?? '',
+    scraperRequestDelayMs: readSettingsNumber(sj.scraperRequestDelayMs, 3500),
+    scraperMaxRetries: readSettingsNumber(sj.scraperMaxRetries, 6),
+    scraperBackoffMultiplier: Math.min(
+      4,
+      Math.max(1.25, readSettingsFloat(sj.scraperBackoffMultiplier, 2)),
+    ),
+    scraperBaseBackoffMsOn429: readSettingsNumber(sj.scraperBaseBackoffMsOn429, 12_000),
+    scraperMaxDetailFetchesPerRun: readSettingsNumber(sj.scraperMaxDetailFetchesPerRun, 0),
+    scraperListOnlyImport:
+      typeof sj.scraperListOnlyImport === 'boolean' ? sj.scraperListOnlyImport : true,
+  };
+}
+
 export default function AdminImportsPage() {
   const router = useRouter();
   const { user, isLoading, apiAccessToken } = useAuth();
@@ -68,56 +89,33 @@ export default function AdminImportsPage() {
 
   const [sources, setSources] = useState<AdminImportSourceRow[]>([]);
   const [logs, setLogs] = useState<AdminImportLogRow[]>([]);
-  const [selectedSourceId, setSelectedSourceId] = useState<string>('');
+  const [formsById, setFormsById] = useState<Record<string, ImportSourceFormState>>({});
+  const [logFilterSourceId, setLogFilterSourceId] = useState<string>('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [warnMsg, setWarnMsg] = useState<string | null>(null);
-  const [sourceForm, setSourceForm] = useState<ImportSourceFormState>({
-    intervalMinutes: 60,
-    limitPerRun: 100,
-    endpointUrl: '',
-    scraperRequestDelayMs: 3500,
-    scraperMaxRetries: 6,
-    scraperBackoffMultiplier: 2,
-    scraperBaseBackoffMsOn429: 12_000,
-    scraperMaxDetailFetchesPerRun: 0,
-    scraperListOnlyImport: true,
-  });
   const [bulkSource, setBulkSource] = useState<string>('reality_cz');
   const [bulkMethod, setBulkMethod] = useState<string>('');
 
-  const selectedSource = useMemo(
-    () => sources.find((x) => x.id === selectedSourceId) ?? null,
-    [sources, selectedSourceId],
+  const bulkMethodOptions = useMemo(
+    () => METHODS_FOR_PORTAL[bulkSource] ?? METHODS_FOR_PORTAL.other,
+    [bulkSource],
   );
 
   useEffect(() => {
-    if (!selectedSource) return;
-    const sj = (selectedSource.settingsJson ?? {}) as Record<string, unknown>;
-    setSourceForm({
-      intervalMinutes: selectedSource.intervalMinutes,
-      limitPerRun: selectedSource.limitPerRun,
-      endpointUrl: selectedSource.endpointUrl ?? '',
-      scraperRequestDelayMs: readSettingsNumber(sj.scraperRequestDelayMs, 3500),
-      scraperMaxRetries: readSettingsNumber(sj.scraperMaxRetries, 6),
-      scraperBackoffMultiplier: Math.min(
-        4,
-        Math.max(1.25, readSettingsFloat(sj.scraperBackoffMultiplier, 2)),
-      ),
-      scraperBaseBackoffMsOn429: readSettingsNumber(sj.scraperBaseBackoffMsOn429, 12_000),
-      scraperMaxDetailFetchesPerRun: readSettingsNumber(sj.scraperMaxDetailFetchesPerRun, 0),
-      scraperListOnlyImport:
-        typeof sj.scraperListOnlyImport === 'boolean' ? sj.scraperListOnlyImport : true,
+    setBulkMethod('');
+  }, [bulkSource]);
+
+  useEffect(() => {
+    setFormsById((prev) => {
+      const next = { ...prev };
+      for (const s of sources) {
+        next[s.id] = formFromServer(s);
+      }
+      return next;
     });
-  }, [
-    selectedSource?.id,
-    selectedSource?.updatedAt,
-    selectedSource?.intervalMinutes,
-    selectedSource?.limitPerRun,
-    selectedSource?.endpointUrl,
-    selectedSource?.settingsJson,
-  ]);
+  }, [sources]);
 
   function scraperSettingsPayload(
     base: AdminImportSourceRow,
@@ -138,21 +136,33 @@ export default function AdminImportsPage() {
     };
   }
 
-  async function refresh(sourceId?: string) {
+  function formFor(src: AdminImportSourceRow): ImportSourceFormState {
+    return formsById[src.id] ?? formFromServer(src);
+  }
+
+  function setFormFor(src: AdminImportSourceRow, partial: Partial<ImportSourceFormState>) {
+    setFormsById((prev) => ({
+      ...prev,
+      [src.id]: { ...(prev[src.id] ?? formFromServer(src)), ...partial },
+    }));
+  }
+
+  async function refresh(overrideLogSourceId?: string) {
     if (!token) return;
     setError(null);
+    const logParam =
+      overrideLogSourceId !== undefined
+        ? overrideLogSourceId.trim() || undefined
+        : logFilterSourceId.trim() || undefined;
     const [s, l] = await Promise.all([
       nestAdminImportSources(token),
-      nestAdminImportLogs(token, sourceId),
+      nestAdminImportLogs(token, logParam),
     ]);
     if (!s) {
       setError('Nepodařilo se načíst import sources.');
       return;
     }
     setSources(s);
-    if (!selectedSourceId && s[0]) {
-      setSelectedSourceId(s[0].id);
-    }
     setLogs(l ?? []);
   }
 
@@ -182,21 +192,18 @@ export default function AdminImportsPage() {
       return;
     }
     setStatusMsg('Nastavení importu uloženo.');
-    await refresh(selectedSourceId || sourceId);
+    await refresh();
   }
 
   async function runSource(sourceId: string) {
     if (!token) return;
     const src = sources.find((s) => s.id === sourceId);
-    const isRealityScraper =
-      src?.portal === 'reality_cz' && src?.method === 'scraper';
-    const endpointForRun =
-      src?.id === selectedSourceId
-        ? sourceForm.endpointUrl.trim()
-        : (src?.endpointUrl ?? '').trim();
+    const isRealityScraper = src?.portal === 'reality_cz' && src?.method === 'scraper';
+    const f = src ? formFor(src) : null;
+    const endpointForRun = (f?.endpointUrl ?? src?.endpointUrl ?? '').trim();
     if (isRealityScraper && !endpointForRun) {
       setError(
-        'Zadejte start URL pro scraper Reality.cz do pole „Endpoint / start URL“ a nechte ho uložit (klik mimo pole nebo upravte hodnotu).',
+        'U zdroje „Reality.cz Scraper“ zadejte start URL (pole výše v jeho sekci), uložte ho (blur pole) a spusťte znovu.',
       );
       setWarnMsg(null);
       setStatusMsg(null);
@@ -217,13 +224,17 @@ export default function AdminImportsPage() {
       } else {
         setError(err);
       }
+      setLogFilterSourceId(sourceId);
+      await refresh(sourceId);
       return;
     }
     const n = Number(r.data?.importedNew ?? 0);
     const u = Number(r.data?.importedUpdated ?? 0);
     const d = Number(r.data?.disabled ?? 0);
     const sk = Number(r.data?.skipped ?? 0);
-    const warnings = Array.isArray(r.data?.warnings) ? r.data.warnings.filter((x): x is string => typeof x === 'string') : [];
+    const warnings = Array.isArray(r.data?.warnings)
+      ? r.data.warnings.filter((x): x is string => typeof x === 'string')
+      : [];
     const summary = typeof r.data?.summary === 'string' ? r.data.summary.trim() : '';
     const noDbChanges = n === 0 && u === 0;
     if (warnings.length && noDbChanges) {
@@ -244,15 +255,19 @@ export default function AdminImportsPage() {
           `Import dokončen: nové ${n}, aktualizované ${u}, přeskočeno ${sk}, ručně vypnuté přeskočeno ${d}.`,
       );
     }
-    await refresh(selectedSourceId || sourceId);
+    setLogFilterSourceId(sourceId);
+    await refresh(sourceId);
   }
 
   async function bulkDisable() {
     if (!token) return;
-    const confirmText =
-      bulkMethod.trim()
-        ? `Vypnout všechny inzeráty source=${bulkSource}, method=${bulkMethod}?`
-        : `Vypnout všechny inzeráty source=${bulkSource}?`;
+    const portalLabel = BULK_PORTAL_OPTIONS.find((x) => x.value === bulkSource)?.label ?? bulkSource;
+    const methodLabel = bulkMethod.trim()
+      ? (bulkMethodOptions.find((x) => x.value === bulkMethod)?.label ?? bulkMethod)
+      : 'všechny metody';
+    const confirmText = bulkMethod.trim()
+      ? `Vypnout všechny importované inzeráty: ${portalLabel} / ${methodLabel}?`
+      : `Vypnout všechny importované inzeráty pro portál ${portalLabel} (všechny metody)?`;
     if (!window.confirm(confirmText)) return;
     setError(null);
     setStatusMsg(null);
@@ -265,7 +280,7 @@ export default function AdminImportsPage() {
       return;
     }
     setStatusMsg(`Hromadně vypnuto ${r.affected ?? 0} inzerátů.`);
-    await refresh(selectedSourceId);
+    await refresh();
   }
 
   if (isLoading) {
@@ -279,15 +294,29 @@ export default function AdminImportsPage() {
         <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
           <div>
             <h1 className="text-xl font-semibold">Importy</h1>
-            <p className="text-sm text-zinc-600">Správa zdrojů (SOAP, Scraper, XML, CSV), ruční běhy a logy.</p>
+            <p className="text-sm text-zinc-600">
+              Každý zdroj (SOAP, Scraper, XML, CSV) má vlastní řádek v DB, vlastní nastavení a vlastní logy.
+            </p>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/admin" className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold">Admin</Link>
-            <Link href="/admin/inzeraty" className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold">Inzeráty</Link>
+            <Link
+              href="/admin"
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold"
+            >
+              Admin
+            </Link>
+            <Link
+              href="/admin/inzeraty"
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold"
+            >
+              Inzeráty
+            </Link>
           </div>
         </header>
 
-        {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
+        {error ? (
+          <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
+        ) : null}
         {statusMsg ? (
           <p
             className={`rounded-xl border px-4 py-3 text-sm ${
@@ -300,27 +329,30 @@ export default function AdminImportsPage() {
           </p>
         ) : null}
         {warnMsg ? (
-          <pre className="whitespace-pre-wrap rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-xs text-amber-950">{warnMsg}</pre>
+          <pre className="whitespace-pre-wrap rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-xs text-amber-950">
+            {warnMsg}
+          </pre>
         ) : null}
 
         <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <h2 className="mb-3 text-base font-semibold">Importní zdroje</h2>
+          <h2 className="mb-3 text-base font-semibold">Importní zdroje — přehled</h2>
           <div className="grid gap-3 md:grid-cols-2">
             {sources.map((src) => (
               <article key={src.id} className="rounded-xl border border-zinc-200 p-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedSourceId(src.id)}
-                    className={`text-left text-sm font-semibold ${selectedSourceId === src.id ? 'text-[#e85d00]' : 'text-zinc-900'}`}
-                  >
-                    {src.name}
-                  </button>
-                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">{src.portal} / {src.method}</span>
+                  <span className="text-sm font-semibold text-zinc-900">{src.name}</span>
+                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">
+                    {src.portal} / {src.method}
+                  </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <label className="flex items-center gap-2">
-                    <input type="checkbox" checked={src.enabled} onChange={(e) => void saveSourcePatch(src.id, { enabled: e.target.checked })} disabled={busyId === src.id} />
+                    <input
+                      type="checkbox"
+                      checked={src.enabled}
+                      onChange={(e) => void saveSourcePatch(src.id, { enabled: e.target.checked })}
+                      disabled={busyId === src.id}
+                    />
                     Enabled
                   </label>
                   <button
@@ -329,7 +361,7 @@ export default function AdminImportsPage() {
                     disabled={busyId === src.id}
                     className="rounded-md bg-zinc-900 px-2 py-1 text-white"
                   >
-                    Spustit
+                    Spustit ({src.method})
                   </button>
                 </div>
               </article>
@@ -337,273 +369,336 @@ export default function AdminImportsPage() {
           </div>
         </section>
 
-        {selectedSource ? (
-          <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-base font-semibold">Nastavení: {selectedSource.name}</h2>
-            <div className="grid gap-3 md:grid-cols-3">
-              <label className="text-sm">
-                <span className="mb-1 block text-xs text-zinc-600">Interval (min)</span>
-                <input
-                  value={sourceForm.intervalMinutes}
-                  type="number"
-                  min={1}
-                  className="w-full rounded-lg border border-zinc-200 px-3 py-2"
-                  onChange={(e) =>
-                    setSourceForm((f) => ({
-                      ...f,
-                      intervalMinutes: Number.parseInt(e.target.value, 10) || 1,
-                    }))
-                  }
-                  onBlur={() =>
-                    void saveSourcePatch(selectedSource.id, {
-                      intervalMinutes: sourceForm.intervalMinutes,
-                    })
-                  }
-                />
-              </label>
-              <label className="text-sm">
-                <span className="mb-1 block text-xs text-zinc-600">Limit na běh</span>
-                <input
-                  value={sourceForm.limitPerRun}
-                  type="number"
-                  min={1}
-                  className="w-full rounded-lg border border-zinc-200 px-3 py-2"
-                  onChange={(e) =>
-                    setSourceForm((f) => ({
-                      ...f,
-                      limitPerRun: Number.parseInt(e.target.value, 10) || 1,
-                    }))
-                  }
-                  onBlur={() =>
-                    void saveSourcePatch(selectedSource.id, { limitPerRun: sourceForm.limitPerRun })
-                  }
-                />
-              </label>
-              <label className="text-sm">
-                <span className="mb-1 block text-xs text-zinc-600">
-                  Endpoint / start URL
-                  {selectedSource.method === 'scraper' && selectedSource.portal === 'reality_cz' ? (
-                    <span className="text-amber-700"> (povinné pro scraper)</span>
-                  ) : null}
-                </span>
-                <input
-                  value={sourceForm.endpointUrl}
-                  placeholder={
-                    selectedSource.method === 'scraper'
-                      ? 'https://www.reality.cz/prodej/byty/'
-                      : 'Volitelné'
-                  }
-                  className="w-full rounded-lg border border-zinc-200 px-3 py-2"
-                  onChange={(e) =>
-                    setSourceForm((f) => ({ ...f, endpointUrl: e.target.value }))
-                  }
-                  onBlur={(e) =>
-                    void saveSourcePatch(selectedSource.id, {
-                      endpointUrl: e.target.value.trim() || null,
-                    })
-                  }
-                />
-              </label>
-            </div>
-            <p className="mt-3 text-xs text-zinc-500">
-              SOAP běží přes env (`REALITY_CZ_USERNAME`, `REALITY_CZ_PASSWORD`, `REALITY_CZ_TOTP_SECRET`, `REALITY_CZ_WSDL_URL`).
-              Scraper používá uloženou hodnotu z tohoto pole (případně `settingsJson.startUrl` na backendu). Pro výpis nabídek zadejte např.{' '}
-              <code className="rounded bg-zinc-100 px-1">https://www.reality.cz/prodej/byty/</code>.
-            </p>
-
-            {selectedSource.method === 'scraper' && selectedSource.portal === 'reality_cz' ? (
-              <div className="mt-6 border-t border-zinc-200 pt-4">
-                <h3 className="mb-2 text-sm font-semibold text-zinc-800">Scraper Reality.cz — šetrné stahování</h3>
-                <p className="mb-3 text-xs text-zinc-500">
-                  Mezi každým HTTP požadavkem je prodleva. Při HTTP 429 se použije exponenciální backoff. Ve výchozím režimu „jen výpis“ se nevolají detailní stránky — nejnižší zátěž pro Reality.cz.
-                </p>
-                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                  <label className="text-sm">
-                    <span className="mb-1 block text-xs text-zinc-600">Prodleva mezi požadavky (ms)</span>
+        {sources.map((src) => {
+          const f = formFor(src);
+          const isRealitySoap = src.portal === 'reality_cz' && src.method === 'soap';
+          const isRealityScraper = src.portal === 'reality_cz' && src.method === 'scraper';
+          return (
+            <section key={src.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <h2 className="mb-1 text-base font-semibold">Nastavení: {src.name}</h2>
+              <p className="mb-3 text-xs text-zinc-500">
+                Zdroj <code className="rounded bg-zinc-100 px-1">{src.id}</code> — {src.portal} /{' '}
+                {src.method}. Tlačítko Spustit výše u tohoto řádku volá výhradně tento zdroj.
+              </p>
+              <div className="grid gap-3 md:grid-cols-3">
+                <label className="text-sm">
+                  <span className="mb-1 block text-xs text-zinc-600">Interval (min)</span>
+                  <input
+                    value={f.intervalMinutes}
+                    type="number"
+                    min={1}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+                    onChange={(e) =>
+                      setFormFor(src, {
+                        intervalMinutes: Number.parseInt(e.target.value, 10) || 1,
+                      })
+                    }
+                    onBlur={() =>
+                      void saveSourcePatch(src.id, { intervalMinutes: f.intervalMinutes })
+                    }
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block text-xs text-zinc-600">Limit na běh</span>
+                  <input
+                    value={f.limitPerRun}
+                    type="number"
+                    min={1}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+                    onChange={(e) =>
+                      setFormFor(src, { limitPerRun: Number.parseInt(e.target.value, 10) || 1 })
+                    }
+                    onBlur={() => void saveSourcePatch(src.id, { limitPerRun: f.limitPerRun })}
+                  />
+                </label>
+                {!isRealitySoap ? (
+                  <label className="text-sm md:col-span-1">
+                    <span className="mb-1 block text-xs text-zinc-600">
+                      {isRealityScraper ? 'Start URL (scraper)' : 'Endpoint / URL feedu'}
+                      {isRealityScraper ? (
+                        <span className="text-amber-700"> — povinné</span>
+                      ) : null}
+                    </span>
                     <input
-                      type="number"
-                      min={500}
-                      max={60000}
-                      step={100}
-                      value={sourceForm.scraperRequestDelayMs}
-                      onChange={(e) =>
-                        setSourceForm((f) => ({
-                          ...f,
-                          scraperRequestDelayMs: Number.parseInt(e.target.value, 10) || 500,
-                        }))
+                      value={f.endpointUrl}
+                      placeholder={
+                        isRealityScraper
+                          ? 'https://www.reality.cz/prodej/byty/'
+                          : 'https://…'
                       }
-                      onBlur={(e) => {
-                        const v = Number.parseInt(e.target.value, 10) || 500;
-                        setSourceForm((f) => {
-                          const next = { ...f, scraperRequestDelayMs: v };
-                          void saveSourcePatch(selectedSource.id, {
-                            settingsJson: scraperSettingsPayload(selectedSource, next),
-                          });
-                          return next;
-                        });
-                      }}
                       className="w-full rounded-lg border border-zinc-200 px-3 py-2"
-                    />
-                  </label>
-                  <label className="text-sm">
-                    <span className="mb-1 block text-xs text-zinc-600">Max. pokusů při 429 / chybě</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={12}
-                      value={sourceForm.scraperMaxRetries}
-                      onChange={(e) =>
-                        setSourceForm((f) => ({
-                          ...f,
-                          scraperMaxRetries: Number.parseInt(e.target.value, 10) || 1,
-                        }))
+                      onChange={(e) => setFormFor(src, { endpointUrl: e.target.value })}
+                      onBlur={(e) =>
+                        void saveSourcePatch(src.id, {
+                          endpointUrl: e.target.value.trim() || null,
+                        })
                       }
-                      onBlur={(e) => {
-                        const v = Number.parseInt(e.target.value, 10) || 1;
-                        setSourceForm((f) => {
-                          const next = { ...f, scraperMaxRetries: v };
-                          void saveSourcePatch(selectedSource.id, {
-                            settingsJson: scraperSettingsPayload(selectedSource, next),
-                          });
-                          return next;
-                        });
-                      }}
-                      className="w-full rounded-lg border border-zinc-200 px-3 py-2"
                     />
                   </label>
-                  <label className="text-sm">
-                    <span className="mb-1 block text-xs text-zinc-600">Backoff násobič (429)</span>
-                    <input
-                      type="number"
-                      min={1.25}
-                      max={4}
-                      step={0.25}
-                      value={sourceForm.scraperBackoffMultiplier}
-                      onChange={(e) =>
-                        setSourceForm((f) => ({
-                          ...f,
-                          scraperBackoffMultiplier: Number.parseFloat(e.target.value) || 2,
-                        }))
-                      }
-                      onBlur={(e) => {
-                        const raw = Number.parseFloat(e.target.value) || 2;
-                        const v = Math.min(4, Math.max(1.25, raw));
-                        setSourceForm((f) => {
-                          const next = { ...f, scraperBackoffMultiplier: v };
-                          void saveSourcePatch(selectedSource.id, {
-                            settingsJson: scraperSettingsPayload(selectedSource, next),
-                          });
-                          return next;
-                        });
-                      }}
-                      className="w-full rounded-lg border border-zinc-200 px-3 py-2"
-                    />
-                  </label>
-                  <label className="text-sm">
-                    <span className="mb-1 block text-xs text-zinc-600">Základní čekání po 429 (ms)</span>
-                    <input
-                      type="number"
-                      min={2000}
-                      max={180000}
-                      step={1000}
-                      value={sourceForm.scraperBaseBackoffMsOn429}
-                      onChange={(e) =>
-                        setSourceForm((f) => ({
-                          ...f,
-                          scraperBaseBackoffMsOn429: Number.parseInt(e.target.value, 10) || 2000,
-                        }))
-                      }
-                      onBlur={(e) => {
-                        const v = Number.parseInt(e.target.value, 10) || 2000;
-                        setSourceForm((f) => {
-                          const next = { ...f, scraperBaseBackoffMsOn429: v };
-                          void saveSourcePatch(selectedSource.id, {
-                            settingsJson: scraperSettingsPayload(selectedSource, next),
-                          });
-                          return next;
-                        });
-                      }}
-                      className="w-full rounded-lg border border-zinc-200 px-3 py-2"
-                    />
-                  </label>
-                  <label className="text-sm">
-                    <span className="mb-1 block text-xs text-zinc-600">Max. detailních stránek na běh</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={30}
-                      value={sourceForm.scraperMaxDetailFetchesPerRun}
-                      disabled={sourceForm.scraperListOnlyImport}
-                      onChange={(e) =>
-                        setSourceForm((f) => ({
-                          ...f,
-                          scraperMaxDetailFetchesPerRun: Number.parseInt(e.target.value, 10) || 0,
-                        }))
-                      }
-                      onBlur={(e) => {
-                        const v = Number.parseInt(e.target.value, 10) || 0;
-                        setSourceForm((f) => {
-                          const next = {
-                            ...f,
-                            scraperMaxDetailFetchesPerRun: f.scraperListOnlyImport ? 0 : v,
-                          };
-                          void saveSourcePatch(selectedSource.id, {
-                            settingsJson: scraperSettingsPayload(selectedSource, next),
-                          });
-                          return next;
-                        });
-                      }}
-                      className="w-full rounded-lg border border-zinc-200 px-3 py-2 disabled:bg-zinc-100"
-                    />
-                  </label>
-                  <label className="flex items-center gap-2 text-sm md:col-span-2 lg:col-span-1">
-                    <input
-                      type="checkbox"
-                      checked={sourceForm.scraperListOnlyImport}
-                      onChange={(e) => {
-                        const v = e.target.checked;
-                        const next: ImportSourceFormState = {
-                          ...sourceForm,
-                          scraperListOnlyImport: v,
-                          scraperMaxDetailFetchesPerRun: v ? 0 : sourceForm.scraperMaxDetailFetchesPerRun || 10,
-                        };
-                        setSourceForm(next);
-                        void saveSourcePatch(selectedSource.id, {
-                          settingsJson: scraperSettingsPayload(selectedSource, next),
-                        });
-                      }}
-                    />
-                    <span>Jen výpis (bez HTTP na detail inzerátu)</span>
-                  </label>
-                </div>
+                ) : (
+                  <div className="text-sm text-zinc-600 md:col-span-1">
+                    <span className="mb-1 block text-xs font-medium text-zinc-700">SOAP endpoint</span>
+                    <p className="rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2 text-xs leading-relaxed">
+                      SOAP <strong>nepoužívá</strong> start URL z administrace. Konfigurace je v proměnných prostředí:{' '}
+                      <code className="text-[11px]">REALITY_CZ_USERNAME</code>,{' '}
+                      <code className="text-[11px]">REALITY_CZ_PASSWORD</code>,{' '}
+                      <code className="text-[11px]">REALITY_CZ_TOTP_SECRET</code>,{' '}
+                      <code className="text-[11px]">REALITY_CZ_WSDL_URL</code>.
+                    </p>
+                  </div>
+                )}
               </div>
-            ) : null}
-          </section>
-        ) : null}
+
+              {isRealitySoap ? (
+                <p className="mt-3 text-xs text-zinc-500">
+                  Chyba „SOAP není nakonfigurovaný“ se týká <strong>pouze</strong> tohoto zdroje po kliknutí na Spustit u
+                  Reality.cz SOAP. Pro scraper použijte sekci <strong>Reality.cz Scraper</strong> níže.
+                </p>
+              ) : null}
+
+              {isRealityScraper ? (
+                <>
+                  <p className="mt-3 text-xs text-zinc-500">
+                    Scraper bere start URL výhradně z pole <strong>Start URL</strong> výše (případně z{' '}
+                    <code className="rounded bg-zinc-100 px-1">settingsJson.startUrl</code> na backendu, pokud ho
+                    doplníte ručně v DB). Nesdílí konfiguraci s SOAP.
+                  </p>
+                  <div className="mt-6 border-t border-zinc-200 pt-4">
+                    <h3 className="mb-2 text-sm font-semibold text-zinc-800">
+                      Scraper Reality.cz — šetrné stahování
+                    </h3>
+                    <p className="mb-3 text-xs text-zinc-500">
+                      Mezi každým HTTP požadavkem je prodleva. Při HTTP 429 se použije exponenciální backoff. Ve výchozím
+                      režimu „jen výpis“ se nevolají detailní stránky.
+                    </p>
+                    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                      <label className="text-sm">
+                        <span className="mb-1 block text-xs text-zinc-600">Prodleva mezi požadavky (ms)</span>
+                        <input
+                          type="number"
+                          min={500}
+                          max={60000}
+                          step={100}
+                          value={f.scraperRequestDelayMs}
+                          onChange={(e) =>
+                            setFormFor(src, {
+                              scraperRequestDelayMs: Number.parseInt(e.target.value, 10) || 500,
+                            })
+                          }
+                          onBlur={(e) => {
+                            const v = Number.parseInt(e.target.value, 10) || 500;
+                            const next = { ...f, scraperRequestDelayMs: v };
+                            setFormFor(src, next);
+                            void saveSourcePatch(src.id, {
+                              settingsJson: scraperSettingsPayload(src, next),
+                            });
+                          }}
+                          className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+                        />
+                      </label>
+                      <label className="text-sm">
+                        <span className="mb-1 block text-xs text-zinc-600">Max. pokusů při 429 / chybě</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={12}
+                          value={f.scraperMaxRetries}
+                          onChange={(e) =>
+                            setFormFor(src, {
+                              scraperMaxRetries: Number.parseInt(e.target.value, 10) || 1,
+                            })
+                          }
+                          onBlur={(e) => {
+                            const v = Number.parseInt(e.target.value, 10) || 1;
+                            const next = { ...f, scraperMaxRetries: v };
+                            setFormFor(src, next);
+                            void saveSourcePatch(src.id, {
+                              settingsJson: scraperSettingsPayload(src, next),
+                            });
+                          }}
+                          className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+                        />
+                      </label>
+                      <label className="text-sm">
+                        <span className="mb-1 block text-xs text-zinc-600">Backoff násobič (429)</span>
+                        <input
+                          type="number"
+                          min={1.25}
+                          max={4}
+                          step={0.25}
+                          value={f.scraperBackoffMultiplier}
+                          onChange={(e) =>
+                            setFormFor(src, {
+                              scraperBackoffMultiplier: Number.parseFloat(e.target.value) || 2,
+                            })
+                          }
+                          onBlur={(e) => {
+                            const raw = Number.parseFloat(e.target.value) || 2;
+                            const v = Math.min(4, Math.max(1.25, raw));
+                            const next = { ...f, scraperBackoffMultiplier: v };
+                            setFormFor(src, next);
+                            void saveSourcePatch(src.id, {
+                              settingsJson: scraperSettingsPayload(src, next),
+                            });
+                          }}
+                          className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+                        />
+                      </label>
+                      <label className="text-sm">
+                        <span className="mb-1 block text-xs text-zinc-600">Základní čekání po 429 (ms)</span>
+                        <input
+                          type="number"
+                          min={2000}
+                          max={180000}
+                          step={1000}
+                          value={f.scraperBaseBackoffMsOn429}
+                          onChange={(e) =>
+                            setFormFor(src, {
+                              scraperBaseBackoffMsOn429: Number.parseInt(e.target.value, 10) || 2000,
+                            })
+                          }
+                          onBlur={(e) => {
+                            const v = Number.parseInt(e.target.value, 10) || 2000;
+                            const next = { ...f, scraperBaseBackoffMsOn429: v };
+                            setFormFor(src, next);
+                            void saveSourcePatch(src.id, {
+                              settingsJson: scraperSettingsPayload(src, next),
+                            });
+                          }}
+                          className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+                        />
+                      </label>
+                      <label className="text-sm">
+                        <span className="mb-1 block text-xs text-zinc-600">Max. detailních stránek na běh</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={30}
+                          value={f.scraperMaxDetailFetchesPerRun}
+                          disabled={f.scraperListOnlyImport}
+                          onChange={(e) =>
+                            setFormFor(src, {
+                              scraperMaxDetailFetchesPerRun: Number.parseInt(e.target.value, 10) || 0,
+                            })
+                          }
+                          onBlur={(e) => {
+                            const v = Number.parseInt(e.target.value, 10) || 0;
+                            const next = {
+                              ...f,
+                              scraperMaxDetailFetchesPerRun: f.scraperListOnlyImport ? 0 : v,
+                            };
+                            setFormFor(src, next);
+                            void saveSourcePatch(src.id, {
+                              settingsJson: scraperSettingsPayload(src, next),
+                            });
+                          }}
+                          className="w-full rounded-lg border border-zinc-200 px-3 py-2 disabled:bg-zinc-100"
+                        />
+                      </label>
+                      <label className="flex items-center gap-2 text-sm md:col-span-2 lg:col-span-1">
+                        <input
+                          type="checkbox"
+                          checked={f.scraperListOnlyImport}
+                          onChange={(e) => {
+                            const v = e.target.checked;
+                            const next: ImportSourceFormState = {
+                              ...f,
+                              scraperListOnlyImport: v,
+                              scraperMaxDetailFetchesPerRun: v ? 0 : f.scraperMaxDetailFetchesPerRun || 10,
+                            };
+                            setFormFor(src, next);
+                            void saveSourcePatch(src.id, {
+                              settingsJson: scraperSettingsPayload(src, next),
+                            });
+                          }}
+                        />
+                        <span>Jen výpis (bez HTTP na detail inzerátu)</span>
+                      </label>
+                    </div>
+                  </div>
+                </>
+              ) : null}
+            </section>
+          );
+        })}
 
         <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <h2 className="mb-3 text-base font-semibold">Nouzové hromadné vypnutí</h2>
+          <h2 className="mb-3 text-base font-semibold">Nouzové hromadné vypnutí importovaných inzerátů</h2>
+          <p className="mb-3 text-xs text-zinc-600">
+            Nejprve zvolte portál, pak přesnou metodu importu (např. Reality.cz / Scraper). Prázdná metoda = všechny
+            metody daného portálu.
+          </p>
           <div className="grid gap-3 md:grid-cols-3">
-            <select value={bulkSource} onChange={(e) => setBulkSource(e.target.value)} className="rounded-lg border border-zinc-200 px-3 py-2 text-sm">
-              {SOURCE_OPTIONS.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
-            </select>
-            <select value={bulkMethod} onChange={(e) => setBulkMethod(e.target.value)} className="rounded-lg border border-zinc-200 px-3 py-2 text-sm">
-              <option value="">Všechny metody</option>
-              {METHOD_OPTIONS.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
-            </select>
-            <button type="button" onClick={() => void bulkDisable()} className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+            <label className="text-sm">
+              <span className="mb-1 block text-xs text-zinc-600">Portál</span>
+              <select
+                value={bulkSource}
+                onChange={(e) => setBulkSource(e.target.value)}
+                className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+              >
+                {BULK_PORTAL_OPTIONS.map((x) => (
+                  <option key={x.value} value={x.value}>
+                    {x.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-xs text-zinc-600">Metoda importu</span>
+              <select
+                value={bulkMethod}
+                onChange={(e) => setBulkMethod(e.target.value)}
+                className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+              >
+                <option value="">Všechny metody tohoto portálu</option>
+                {bulkMethodOptions.map((x) => (
+                  <option key={x.value} value={x.value}>
+                    {x.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => void bulkDisable()}
+              className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700"
+            >
               Vypnout importované inzeráty
             </button>
           </div>
         </section>
 
         <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <h2 className="mb-3 text-base font-semibold">Import logy</h2>
+          <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+            <h2 className="text-base font-semibold">Import logy</h2>
+            <label className="text-sm">
+              <span className="mb-1 block text-xs text-zinc-600">Filtrovat podle zdroje</span>
+              <select
+                value={logFilterSourceId}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setLogFilterSourceId(v);
+                  void refresh(v);
+                }}
+                className="min-w-[220px] rounded-lg border border-zinc-200 px-3 py-2"
+              >
+                <option value="">Všechny zdroje</option>
+                {sources.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.portal}/{s.method})
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div className="space-y-2">
             {logs.map((log) => (
               <div key={log.id} className="rounded-lg border border-zinc-200 p-3 text-xs">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-semibold">{log.portal}/{log.method}</span>
+                  <span className="font-semibold">
+                    {log.portal}/{log.method}
+                    {log.source?.name ? ` — ${log.source.name}` : ''}
+                  </span>
                   <span
                     className={`rounded-full px-2 py-0.5 ${
                       log.status === 'ok'
@@ -617,14 +712,33 @@ export default function AdminImportsPage() {
                   </span>
                 </div>
                 <p className="mt-1 text-zinc-600">
-                  New {log.importedNew}, Updated {log.importedUpdated}, Skipped {log.skipped}, Disabled {log.disabled}
+                  New {log.importedNew}, Updated {log.importedUpdated}, Skipped {log.skipped}, Disabled{' '}
+                  {log.disabled}
                 </p>
                 {log.message ? <p className="mt-1 text-zinc-700">{log.message}</p> : null}
                 <p className="text-zinc-500">{new Date(log.createdAt).toLocaleString('cs-CZ')}</p>
                 {log.error ? <p className="mt-1 text-red-700">{log.error}</p> : null}
+                {log.payloadJson &&
+                typeof log.payloadJson === 'object' &&
+                log.payloadJson !== null &&
+                'run' in log.payloadJson &&
+                log.payloadJson.run != null ? (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-zinc-600">Kontext běhu (zdroj, metoda, URL)</summary>
+                    <pre className="mt-1 max-h-40 overflow-auto rounded border border-zinc-100 bg-zinc-50 p-2 text-[10px] leading-snug text-zinc-800">
+                      {JSON.stringify(
+                        (log.payloadJson as Record<string, unknown>).run,
+                        null,
+                        2,
+                      )}
+                    </pre>
+                  </details>
+                ) : null}
                 {log.payloadJson?.scraper != null && typeof log.payloadJson.scraper === 'object' ? (
                   <details className="mt-2">
-                    <summary className="cursor-pointer text-zinc-600">Technické: scraper (URL, 429, request log)</summary>
+                    <summary className="cursor-pointer text-zinc-600">
+                      Technické: scraper (URL, 429, request log)
+                    </summary>
                     <pre className="mt-1 max-h-56 overflow-auto rounded border border-zinc-100 bg-zinc-50 p-2 text-[10px] leading-snug text-zinc-800">
                       {JSON.stringify(log.payloadJson.scraper, null, 2)}
                     </pre>
@@ -639,4 +753,3 @@ export default function AdminImportsPage() {
     </div>
   );
 }
-

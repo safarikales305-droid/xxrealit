@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
@@ -26,10 +26,11 @@ export class UpdateImportSourceDto {
   @Min(1)
   limitPerRun?: number;
 
-  /** Prázdné / null smaže URL; neprázdný řetězec musí být platná http(s) URL. */
+  /** Prázdný řetězec → null; jinak platná http(s) URL (častý 400 z IsOptional + ""). */
   @IsOptional()
-  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
-  @IsUrl({ require_protocol: true, require_tld: true })
+  @Transform(({ value }) => (value === '' ? null : value))
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsUrl({ require_protocol: true, require_tld: false })
   endpointUrl?: string | null;
 
   @IsOptional()

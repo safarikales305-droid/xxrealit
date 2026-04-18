@@ -176,7 +176,12 @@ export class ImportSyncService {
     if (typeof patch.enabled === 'boolean') data.enabled = patch.enabled;
     if (typeof patch.intervalMinutes === 'number') data.intervalMinutes = Math.max(1, Math.trunc(patch.intervalMinutes));
     if (typeof patch.limitPerRun === 'number') data.limitPerRun = Math.max(1, Math.trunc(patch.limitPerRun));
-    if (patch.endpointUrl !== undefined) data.endpointUrl = patch.endpointUrl ? patch.endpointUrl.trim() : null;
+    const isRealitySoap =
+      current.portal === ListingImportPortal.reality_cz &&
+      current.method === ListingImportMethod.soap;
+    if (patch.endpointUrl !== undefined && !isRealitySoap) {
+      data.endpointUrl = patch.endpointUrl ? patch.endpointUrl.trim() : null;
+    }
     if (patch.credentialsJson !== undefined) {
       data.credentialsJson = patch.credentialsJson ?? Prisma.JsonNull;
     }
@@ -209,6 +214,23 @@ export class ImportSyncService {
       credentialsJson: (source.credentialsJson as Record<string, unknown> | null) ?? null,
       settingsJson: (source.settingsJson as Record<string, unknown> | null) ?? null,
     };
+    const settingsKeys =
+      ctx.settingsJson && typeof ctx.settingsJson === 'object' && !Array.isArray(ctx.settingsJson)
+        ? Object.keys(ctx.settingsJson as Record<string, unknown>).sort().join(',')
+        : '';
+    const scraperStartHint =
+      ctx.portal === ListingImportPortal.reality_cz &&
+      ctx.method === ListingImportMethod.scraper
+        ? (ctx.endpointUrl?.trim() ||
+            (typeof ctx.settingsJson?.startUrl === 'string' ? ctx.settingsJson.startUrl.trim() : '') ||
+            '(nenastaveno)')
+        : null;
+    this.logger.log(
+      `Import RUN: sourceId=${ctx.sourceId} name=${ctx.sourceName} portal=${ctx.portal} method=${ctx.method} ` +
+        `limit=${ctx.limitPerRun} endpointUrl=${ctx.endpointUrl ?? 'null'} ` +
+        `scraperStartHint=${scraperStartHint ?? 'n/a'} settingsKeys=[${settingsKeys}] ` +
+        `(SOAP používá REALITY_CZ_* env, scraper start URL = endpoint nebo settingsJson.startUrl)`,
+    );
     return this.runWithLogging(ctx, actorUserId);
   }
 
@@ -337,6 +359,17 @@ export class ImportSyncService {
           payloadJson: {
             startedAt,
             finishedAt: new Date(),
+            run: JSON.parse(
+              JSON.stringify({
+                sourceId: ctx.sourceId,
+                sourceName: ctx.sourceName,
+                portal: ctx.portal,
+                method: ctx.method,
+                limitPerRun: ctx.limitPerRun,
+                endpointUrl: ctx.endpointUrl ?? null,
+                settingsJson: ctx.settingsJson ?? null,
+              }),
+            ) as Prisma.InputJsonValue,
             errors: result?.errors ?? [],
             warnings: result?.warnings ?? [],
             scraper: scraperMeta
