@@ -1437,10 +1437,22 @@ export async function nestAdminUpdateImportSource(
   return { ok: true, data: data as AdminImportSourceRow };
 }
 
+/** Odpověď POST /admin/import-sources/:id/run (ImportRunResult z backendu). */
+export type NestAdminImportRunResult = {
+  importedNew?: number;
+  importedUpdated?: number;
+  skipped?: number;
+  disabled?: number;
+  summary?: string | null;
+  warnings?: string[];
+  stats?: Record<string, unknown>;
+  errors?: string[];
+};
+
 export async function nestAdminRunImportSource(
   token: string | null,
   sourceId: string,
-): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
+): Promise<{ ok: boolean; data?: NestAdminImportRunResult; error?: string }> {
   if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
   const res = await fetch(`${API_BASE_URL}/admin/import-sources/${encodeURIComponent(sourceId)}/run`, {
     method: 'POST',
@@ -1450,7 +1462,7 @@ export async function nestAdminRunImportSource(
   if (!res.ok) {
     return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
   }
-  return { ok: true, data };
+  return { ok: true, data: data as NestAdminImportRunResult };
 }
 
 export async function nestAdminImportLogs(

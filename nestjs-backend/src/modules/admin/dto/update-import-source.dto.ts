@@ -1,5 +1,13 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsInt, IsOptional, IsObject, IsString, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsInt,
+  IsObject,
+  IsOptional,
+  IsUrl,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 
 export class UpdateImportSourceDto {
   @IsOptional()
@@ -18,8 +26,10 @@ export class UpdateImportSourceDto {
   @Min(1)
   limitPerRun?: number;
 
+  /** Prázdné / null smaže URL; neprázdný řetězec musí být platná http(s) URL. */
   @IsOptional()
-  @IsString()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
+  @IsUrl({ require_protocol: true, require_tld: true })
   endpointUrl?: string | null;
 
   @IsOptional()

@@ -37,6 +37,18 @@ export type ImportRunResult = {
   skipped: number;
   disabled: number;
   errors: string[];
+  /** Varování (např. prázdný výsledek, nejspíš špatná URL stránky). */
+  warnings?: string[];
+  /** Krátká zpráva pro admin UI. */
+  summary?: string | null;
+  /** Metriky běhu (scraping, normalizace). */
+  stats?: {
+    startUrl?: string;
+    finalUrl?: string;
+    rawCandidates?: number;
+    normalizedValid?: number;
+    parseMethod?: string;
+  };
 };
 
 export type ImportExecutionContext = {

@@ -11,7 +11,10 @@ import type {
   ImportRunResult,
 } from './import-types';
 import { RealityCzSoapImporter } from './reality-cz-soap-importer.service';
-import { RealityCzScraperImporter } from './reality-cz-scraper-importer.service';
+import {
+  RealityCzScraperImporter,
+  type RealityCzScraperFetchOutcome,
+} from './reality-cz-scraper-importer.service';
 
 type ImportSourcePatch = {
   enabled?: boolean;
@@ -61,9 +64,17 @@ export class ImportSyncService {
         enabled: false,
         intervalMinutes: 120,
         limitPerRun: 100,
-        endpointUrl: 'https://www.reality.cz/',
+        endpointUrl: 'https://www.reality.cz/prodej/byty/',
       },
       update: {},
+    });
+    await this.prisma.importSource.updateMany({
+      where: {
+        portal: ListingImportPortal.reality_cz,
+        method: ListingImportMethod.scraper,
+        OR: [{ endpointUrl: null }, { endpointUrl: '' }],
+      },
+      data: { endpointUrl: 'https://www.reality.cz/prodej/byty/' },
     });
     await this.prisma.importSource.upsert({
       where: {
@@ -135,6 +146,7 @@ export class ImportSyncService {
   }
 
   async runSource(sourceId: string, actorUserId: string) {
+    await this.ensureDefaultSources();
     const source = await this.prisma.importSource.findUnique({ where: { id: sourceId } });
     if (!source) throw new NotFoundException('Import source nenalezen');
     const ctx: ImportExecutionContext = {
@@ -166,12 +178,68 @@ export class ImportSyncService {
     const startedAt = new Date();
     let result: ImportRunResult | null = null;
     let errorMessage: string | null = null;
+    let scraperMeta: RealityCzScraperFetchOutcome['meta'] | undefined;
     try {
-      const rows = await this.fetchRows(ctx);
+      const { rows, scraperMeta: sm } = await this.fetchRows(ctx);
+      scraperMeta = sm;
       result = await this.importRows(ctx, actorUserId, rows);
+      const warnings = [...(result.warnings ?? [])];
+      if (ctx.method === ListingImportMethod.scraper && scraperMeta) {
+        this.logger.log(
+          `Scraper metrics: startUrl=${scraperMeta.startUrl} finalUrl=${scraperMeta.finalUrl} raw=${scraperMeta.rawCandidates} valid=${scraperMeta.normalizedValid} parse=${scraperMeta.parseMethod}`,
+        );
+        if (scraperMeta.rawCandidates === 0) {
+          const msg =
+            'Parser nenašel žádné inzeráty na stažené stránce (zkontrolujte, zda start URL vede na výpis nabídek, ne např. jen na titulní stránku).';
+          warnings.push(msg);
+          this.logger.warn(msg);
+        } else if (scraperMeta.normalizedValid === 0) {
+          const msg = `Nalezeno ${scraperMeta.rawCandidates} kandidátů z HTML/JSON, ale žádný neprošel validací (chybí cena, titulek nebo ID).`;
+          warnings.push(msg);
+          this.logger.warn(msg);
+        }
+        const pageHint = this.describeListingPageMismatch(scraperMeta.finalUrl);
+        if (pageHint) {
+          warnings.push(pageHint);
+          this.logger.warn(pageHint);
+        }
+      }
+      const summaryParts: string[] = [];
+      if (result.importedNew || result.importedUpdated) {
+        summaryParts.push(
+          `nové ${result.importedNew}, aktualizované ${result.importedUpdated}, přeskočeno ${result.skipped}, ručně vypnuté ${result.disabled}`,
+        );
+      } else if (!errorMessage) {
+        summaryParts.push(
+          `žádné změny v DB (nové 0, aktualizované 0, přeskočeno ${result.skipped}, ručně vypnuté ${result.disabled})`,
+        );
+      }
+      if (warnings.length) {
+        summaryParts.push(`Varování: ${warnings.join(' | ')}`);
+      }
+      result.warnings = warnings;
+      result.summary = summaryParts.join('. ') || null;
+      result.stats = {
+        ...(result.stats ?? {}),
+        startUrl: scraperMeta?.startUrl,
+        finalUrl: scraperMeta?.finalUrl,
+        rawCandidates: scraperMeta?.rawCandidates,
+        normalizedValid: scraperMeta?.normalizedValid,
+        parseMethod: scraperMeta?.parseMethod,
+      };
+
+      const hasProblem =
+        warnings.length > 0 && result.importedNew === 0 && result.importedUpdated === 0;
       await this.prisma.importSource.update({
         where: { id: ctx.sourceId },
-        data: { lastRunAt: new Date(), lastStatus: 'ok' },
+        data: {
+          lastRunAt: new Date(),
+          lastStatus: errorMessage
+            ? `error: ${errorMessage}`
+            : hasProblem
+              ? `warn: ${warnings[0]?.slice(0, 240) ?? 'viz log'}`
+              : 'ok',
+        },
       });
       return result;
     } catch (error: unknown) {
@@ -183,13 +251,22 @@ export class ImportSyncService {
       });
       throw new BadRequestException(errorMessage);
     } finally {
+      const warnOutcome =
+        !errorMessage &&
+        !!result &&
+        (result.warnings?.length ?? 0) > 0 &&
+        result.importedNew === 0 &&
+        result.importedUpdated === 0;
+      const logStatus = errorMessage ? 'error' : warnOutcome ? 'warn' : 'ok';
       await this.prisma.importLog.create({
         data: {
           sourceId: ctx.sourceId,
           portal: ctx.portal,
           method: ctx.method,
-          status: errorMessage ? 'error' : 'ok',
-          message: errorMessage ? null : `Import ${ctx.sourceName} dokončen`,
+          status: logStatus,
+          message: errorMessage
+            ? null
+            : result?.summary ?? `Import ${ctx.sourceName} dokončen`,
           importedNew: result?.importedNew ?? 0,
           importedUpdated: result?.importedUpdated ?? 0,
           skipped: result?.skipped ?? 0,
@@ -199,13 +276,77 @@ export class ImportSyncService {
             startedAt,
             finishedAt: new Date(),
             errors: result?.errors ?? [],
+            warnings: result?.warnings ?? [],
+            scraper: scraperMeta ?? null,
           },
         },
       });
     }
   }
 
-  private async fetchRows(ctx: ImportExecutionContext): Promise<ImportedListingDraft[]> {
+  private describeListingPageMismatch(finalUrl: string): string | null {
+    try {
+      const u = new URL(finalUrl);
+      const path = u.pathname.toLowerCase();
+      if (!path || path === '/' || path === '') {
+        return 'Finální URL vypadá jako titulní stránka, ne výpis inzerátů — použijte URL typu /prodej/byty/ nebo vlastní výpis z Reality.cz.';
+      }
+      const looksListing =
+        path.includes('prodej') ||
+        path.includes('pronaj') ||
+        path.includes('pronáj') ||
+        path.includes('hledani') ||
+        path.includes('vyhledavani') ||
+        path.includes('search') ||
+        path.includes('byty') ||
+        path.includes('domy') ||
+        path.includes('pozemk');
+      if (!looksListing) {
+        return `URL „${finalUrl}“ pravděpodobně není stránka se seznamem nabídek (očekávejte cestu s prodej/pronájem nebo typ nemovitosti).`;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  private resolveRealityCzScraperStartUrl(ctx: ImportExecutionContext): string {
+    const fromEndpoint = ctx.endpointUrl?.trim() ?? '';
+    const fromSettings =
+      ctx.settingsJson &&
+      typeof ctx.settingsJson.startUrl === 'string' &&
+      ctx.settingsJson.startUrl.trim()
+        ? ctx.settingsJson.startUrl.trim()
+        : '';
+    const candidate = fromEndpoint || fromSettings;
+    if (!candidate) {
+      throw new BadRequestException(
+        'Zadejte start URL pro scraper Reality.cz (pole „Endpoint / start URL“ v administraci Importy musí obsahovat adresu výpisu nabídek, např. https://www.reality.cz/prodej/byty/).',
+      );
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(candidate);
+    } catch {
+      throw new BadRequestException(
+        `Neplatná start URL pro scraper: „${candidate.slice(0, 200)}“. Zadejte platnou adresu https://…`,
+      );
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new BadRequestException('Start URL musí používat protokol http nebo https.');
+    }
+    if (!parsed.hostname.toLowerCase().endsWith('reality.cz')) {
+      this.logger.warn(
+        `Scraper start URL hostitel „${parsed.hostname}“ není reality.cz — pokračujeme podle zadání.`,
+      );
+    }
+    return candidate;
+  }
+
+  private async fetchRows(ctx: ImportExecutionContext): Promise<{
+    rows: ImportedListingDraft[];
+    scraperMeta?: RealityCzScraperFetchOutcome['meta'];
+  }> {
     if (ctx.portal !== ListingImportPortal.reality_cz) {
       throw new BadRequestException('Aktuálně je implementovaný Reality.cz import');
     }
@@ -213,11 +354,14 @@ export class ImportSyncService {
       if (!this.soapImporter.supportsConfiguredRun()) {
         throw new BadRequestException('SOAP není nakonfigurovaný (REALITY_CZ_* env)');
       }
-      return this.soapImporter.fetch(ctx.limitPerRun);
+      const rows = await this.soapImporter.fetch(ctx.limitPerRun);
+      return { rows };
     }
     if (ctx.method === ListingImportMethod.scraper) {
-      const startUrl = ctx.endpointUrl || 'https://www.reality.cz/';
-      return this.scraperImporter.fetch(ctx.limitPerRun, startUrl);
+      const startUrl = this.resolveRealityCzScraperStartUrl(ctx);
+      this.logger.log(`Reality.cz scraper: používám start URL ${startUrl}`);
+      const outcome = await this.scraperImporter.fetch(ctx.limitPerRun, startUrl);
+      return { rows: outcome.rows, scraperMeta: outcome.meta };
     }
     throw new BadRequestException(`Nepodporovaná metoda importu: ${ctx.method}`);
   }

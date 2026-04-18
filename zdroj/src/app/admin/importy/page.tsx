@@ -40,6 +40,12 @@ export default function AdminImportsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [warnMsg, setWarnMsg] = useState<string | null>(null);
+  const [sourceForm, setSourceForm] = useState<{
+    intervalMinutes: number;
+    limitPerRun: number;
+    endpointUrl: string;
+  }>({ intervalMinutes: 60, limitPerRun: 100, endpointUrl: '' });
   const [bulkSource, setBulkSource] = useState<string>('reality_cz');
   const [bulkMethod, setBulkMethod] = useState<string>('');
 
@@ -47,6 +53,21 @@ export default function AdminImportsPage() {
     () => sources.find((x) => x.id === selectedSourceId) ?? null,
     [sources, selectedSourceId],
   );
+
+  useEffect(() => {
+    if (!selectedSource) return;
+    setSourceForm({
+      intervalMinutes: selectedSource.intervalMinutes,
+      limitPerRun: selectedSource.limitPerRun,
+      endpointUrl: selectedSource.endpointUrl ?? '',
+    });
+  }, [
+    selectedSource?.id,
+    selectedSource?.updatedAt,
+    selectedSource?.intervalMinutes,
+    selectedSource?.limitPerRun,
+    selectedSource?.endpointUrl,
+  ]);
 
   async function refresh(sourceId?: string) {
     if (!token) return;
@@ -84,6 +105,7 @@ export default function AdminImportsPage() {
     setBusyId(sourceId);
     setStatusMsg(null);
     setError(null);
+    setWarnMsg(null);
     const r = await nestAdminUpdateImportSource(token, sourceId, patch);
     setBusyId(null);
     if (!r.ok) {
@@ -96,9 +118,25 @@ export default function AdminImportsPage() {
 
   async function runSource(sourceId: string) {
     if (!token) return;
+    const src = sources.find((s) => s.id === sourceId);
+    const isRealityScraper =
+      src?.portal === 'reality_cz' && src?.method === 'scraper';
+    const endpointForRun =
+      src?.id === selectedSourceId
+        ? sourceForm.endpointUrl.trim()
+        : (src?.endpointUrl ?? '').trim();
+    if (isRealityScraper && !endpointForRun) {
+      setError(
+        'Zadejte start URL pro scraper Reality.cz do pole „Endpoint / start URL“ a nechte ho uložit (klik mimo pole nebo upravte hodnotu).',
+      );
+      setWarnMsg(null);
+      setStatusMsg(null);
+      return;
+    }
     setBusyId(sourceId);
     setStatusMsg(null);
     setError(null);
+    setWarnMsg(null);
     const r = await nestAdminRunImportSource(token, sourceId);
     setBusyId(null);
     if (!r.ok) {
@@ -108,7 +146,28 @@ export default function AdminImportsPage() {
     const n = Number(r.data?.importedNew ?? 0);
     const u = Number(r.data?.importedUpdated ?? 0);
     const d = Number(r.data?.disabled ?? 0);
-    setStatusMsg(`Import dokončen: nové ${n}, aktualizované ${u}, ručně vypnuté přeskočeno ${d}.`);
+    const sk = Number(r.data?.skipped ?? 0);
+    const warnings = Array.isArray(r.data?.warnings) ? r.data.warnings.filter((x): x is string => typeof x === 'string') : [];
+    const summary = typeof r.data?.summary === 'string' ? r.data.summary.trim() : '';
+    const noDbChanges = n === 0 && u === 0;
+    if (warnings.length && noDbChanges) {
+      setWarnMsg(warnings.join('\n\n'));
+      setStatusMsg(
+        summary ||
+          `Import doběhl bez nových a aktualizovaných záznamů (přeskočeno ${sk}, ručně vypnuté přeskočeno ${d}). Podrobnosti viz varování níže a záložka logů.`,
+      );
+    } else if (warnings.length) {
+      setWarnMsg(warnings.join('\n\n'));
+      setStatusMsg(
+        summary ||
+          `Import dokončen: nové ${n}, aktualizované ${u}, přeskočeno ${sk}, ručně vypnuté přeskočeno ${d}.`,
+      );
+    } else {
+      setStatusMsg(
+        summary ||
+          `Import dokončen: nové ${n}, aktualizované ${u}, přeskočeno ${sk}, ručně vypnuté přeskočeno ${d}.`,
+      );
+    }
     await refresh(selectedSourceId || sourceId);
   }
 
@@ -153,7 +212,20 @@ export default function AdminImportsPage() {
         </header>
 
         {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
-        {statusMsg ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{statusMsg}</p> : null}
+        {statusMsg ? (
+          <p
+            className={`rounded-xl border px-4 py-3 text-sm ${
+              warnMsg
+                ? 'border-amber-200 bg-amber-50 text-amber-950'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+            }`}
+          >
+            {statusMsg}
+          </p>
+        ) : null}
+        {warnMsg ? (
+          <pre className="whitespace-pre-wrap rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-xs text-amber-950">{warnMsg}</pre>
+        ) : null}
 
         <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
           <h2 className="mb-3 text-base font-semibold">Importní zdroje</h2>
@@ -196,35 +268,71 @@ export default function AdminImportsPage() {
               <label className="text-sm">
                 <span className="mb-1 block text-xs text-zinc-600">Interval (min)</span>
                 <input
-                  defaultValue={selectedSource.intervalMinutes}
+                  value={sourceForm.intervalMinutes}
                   type="number"
                   min={1}
                   className="w-full rounded-lg border border-zinc-200 px-3 py-2"
-                  onBlur={(e) => void saveSourcePatch(selectedSource.id, { intervalMinutes: Number.parseInt(e.target.value, 10) || 60 })}
+                  onChange={(e) =>
+                    setSourceForm((f) => ({
+                      ...f,
+                      intervalMinutes: Number.parseInt(e.target.value, 10) || 1,
+                    }))
+                  }
+                  onBlur={() =>
+                    void saveSourcePatch(selectedSource.id, {
+                      intervalMinutes: sourceForm.intervalMinutes,
+                    })
+                  }
                 />
               </label>
               <label className="text-sm">
                 <span className="mb-1 block text-xs text-zinc-600">Limit na běh</span>
                 <input
-                  defaultValue={selectedSource.limitPerRun}
+                  value={sourceForm.limitPerRun}
                   type="number"
                   min={1}
                   className="w-full rounded-lg border border-zinc-200 px-3 py-2"
-                  onBlur={(e) => void saveSourcePatch(selectedSource.id, { limitPerRun: Number.parseInt(e.target.value, 10) || 100 })}
+                  onChange={(e) =>
+                    setSourceForm((f) => ({
+                      ...f,
+                      limitPerRun: Number.parseInt(e.target.value, 10) || 1,
+                    }))
+                  }
+                  onBlur={() =>
+                    void saveSourcePatch(selectedSource.id, { limitPerRun: sourceForm.limitPerRun })
+                  }
                 />
               </label>
               <label className="text-sm">
-                <span className="mb-1 block text-xs text-zinc-600">Endpoint / start URL</span>
+                <span className="mb-1 block text-xs text-zinc-600">
+                  Endpoint / start URL
+                  {selectedSource.method === 'scraper' && selectedSource.portal === 'reality_cz' ? (
+                    <span className="text-amber-700"> (povinné pro scraper)</span>
+                  ) : null}
+                </span>
                 <input
-                  defaultValue={selectedSource.endpointUrl ?? ''}
+                  value={sourceForm.endpointUrl}
+                  placeholder={
+                    selectedSource.method === 'scraper'
+                      ? 'https://www.reality.cz/prodej/byty/'
+                      : 'Volitelné'
+                  }
                   className="w-full rounded-lg border border-zinc-200 px-3 py-2"
-                  onBlur={(e) => void saveSourcePatch(selectedSource.id, { endpointUrl: e.target.value.trim() || null })}
+                  onChange={(e) =>
+                    setSourceForm((f) => ({ ...f, endpointUrl: e.target.value }))
+                  }
+                  onBlur={(e) =>
+                    void saveSourcePatch(selectedSource.id, {
+                      endpointUrl: e.target.value.trim() || null,
+                    })
+                  }
                 />
               </label>
             </div>
             <p className="mt-3 text-xs text-zinc-500">
               SOAP běží přes env (`REALITY_CZ_USERNAME`, `REALITY_CZ_PASSWORD`, `REALITY_CZ_TOTP_SECRET`, `REALITY_CZ_WSDL_URL`).
-              Scraper používá nastavenou start URL jako fallback.
+              Scraper používá uloženou hodnotu z tohoto pole (případně `settingsJson.startUrl` na backendu). Pro výpis nabídek zadejte např.{' '}
+              <code className="rounded bg-zinc-100 px-1">https://www.reality.cz/prodej/byty/</code>.
             </p>
           </section>
         ) : null}
@@ -252,11 +360,22 @@ export default function AdminImportsPage() {
               <div key={log.id} className="rounded-lg border border-zinc-200 p-3 text-xs">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold">{log.portal}/{log.method}</span>
-                  <span className={`rounded-full px-2 py-0.5 ${log.status === 'ok' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>{log.status}</span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 ${
+                      log.status === 'ok'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : log.status === 'warn'
+                          ? 'bg-amber-100 text-amber-900'
+                          : 'bg-red-100 text-red-800'
+                    }`}
+                  >
+                    {log.status}
+                  </span>
                 </div>
                 <p className="mt-1 text-zinc-600">
                   New {log.importedNew}, Updated {log.importedUpdated}, Skipped {log.skipped}, Disabled {log.disabled}
                 </p>
+                {log.message ? <p className="mt-1 text-zinc-700">{log.message}</p> : null}
                 <p className="text-zinc-500">{new Date(log.createdAt).toLocaleString('cs-CZ')}</p>
                 {log.error ? <p className="mt-1 text-red-700">{log.error}</p> : null}
               </div>
