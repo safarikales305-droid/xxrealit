@@ -601,6 +601,14 @@ export type AdminStats = {
   brokerFreeLeadsOutstanding?: number;
 };
 
+export type AdminListingPhotoWatermarkSettings = {
+  enabled: boolean;
+  position: 'left-top' | 'right-top' | 'left-bottom' | 'right-bottom';
+  logoWidthRatio: number;
+  opacity: number;
+  marginPx: number;
+};
+
 export type AdminUserRow = {
   id: string;
   email: string;
@@ -623,6 +631,42 @@ export async function nestAdminStats(
   });
   if (!res.ok) return null;
   return (await res.json()) as AdminStats;
+}
+
+export async function nestAdminListingPhotoWatermarkSettings(
+  token: string | null,
+): Promise<AdminListingPhotoWatermarkSettings | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/listing-photo-watermark`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as AdminListingPhotoWatermarkSettings | null;
+}
+
+export async function nestAdminUpdateListingPhotoWatermarkSettings(
+  token: string | null,
+  body: Partial<AdminListingPhotoWatermarkSettings>,
+): Promise<{ ok: boolean; data?: AdminListingPhotoWatermarkSettings; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/admin/listing-photo-watermark`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string };
+    return { ok: false, error: err.message || `HTTP ${res.status}` };
+  }
+  const data = (await res.json().catch(() => null)) as AdminListingPhotoWatermarkSettings | null;
+  if (!data) return { ok: false, error: 'Neplatná odpověď serveru.' };
+  return { ok: true, data };
 }
 
 export async function nestAdminProperties(

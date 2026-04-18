@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { v2 as cloudinary } from 'cloudinary';
 import { initCloudinary } from '../posts/cloudinary-upload';
+import { ListingPhotoWatermarkService } from './listing-photo-watermark.service';
 
 function uploadPropertyVideoBuffer(file: Express.Multer.File): Promise<string> {
   return new Promise<string>((resolve, reject) => {
@@ -71,9 +72,27 @@ function uploadPropertyImageBuffer(file: Express.Multer.File): Promise<string> {
 
 @Injectable()
 export class PropertyMediaCloudinaryService {
+  constructor(
+    private readonly listingPhotoWatermark: ListingPhotoWatermarkService,
+  ) {}
+
   async uploadImage(file: Express.Multer.File): Promise<string> {
     initCloudinary();
     return uploadPropertyImageBuffer(file);
+  }
+
+  async uploadImageWithWatermarkVariants(file: Express.Multer.File): Promise<{
+    originalUrl: string;
+    watermarkedUrl: string | null;
+  }> {
+    initCloudinary();
+    const originalUrl = await uploadPropertyImageBuffer(file);
+    let watermarkedUrl: string | null = null;
+    const marked = await this.listingPhotoWatermark.applyWatermark(file.buffer);
+    if (marked && marked.length > 0) {
+      watermarkedUrl = await this.uploadImageBuffer(marked, `wm-${file.originalname || 'image.jpg'}`);
+    }
+    return { originalUrl, watermarkedUrl };
   }
 
   async uploadVideo(file: Express.Multer.File): Promise<string> {
@@ -118,6 +137,23 @@ export class PropertyMediaCloudinaryService {
       size: buffer.length,
     } as Express.Multer.File;
     return uploadPropertyImageBuffer(file);
+  }
+
+  async uploadImageBufferWithWatermarkVariants(
+    buffer: Buffer,
+    originalname = 'import.jpg',
+  ): Promise<{ originalUrl: string; watermarkedUrl: string | null }> {
+    initCloudinary();
+    const originalUrl = await this.uploadImageBuffer(buffer, originalname);
+    let watermarkedUrl: string | null = null;
+    const marked = await this.listingPhotoWatermark.applyWatermark(buffer);
+    if (marked && marked.length > 0) {
+      watermarkedUrl = await this.uploadImageBuffer(
+        marked,
+        `wm-${originalname || 'import.jpg'}`,
+      );
+    }
+    return { originalUrl, watermarkedUrl };
   }
 
   /**

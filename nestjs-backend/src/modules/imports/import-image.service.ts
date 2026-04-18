@@ -72,6 +72,7 @@ export type ImportExternalImageParams = {
 export type ImportExternalImageResult = {
   originalUrl: string;
   storedUrl: string;
+  watermarkedUrl?: string | null;
   mediaId?: string;
 };
 
@@ -154,10 +155,17 @@ export class ImportImageService {
     const base = `${safeFileBasePart(params.sourcePortalKey)}-${safeFileBasePart(params.propertyId)}-${params.index}-${Date.now()}`;
 
     let storedUrl: string;
+    let watermarkedUrl: string | null = null;
     if (isProfileRemoteStorageConfigured()) {
       try {
         const name = `${base}.${ext}`;
-        storedUrl = await this.propertyMediaCloudinary.uploadImageBuffer(buffer, name);
+        const uploaded =
+          await this.propertyMediaCloudinary.uploadImageBufferWithWatermarkVariants(
+            buffer,
+            name,
+          );
+        storedUrl = uploaded.originalUrl;
+        watermarkedUrl = uploaded.watermarkedUrl ?? null;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         this.log.error(`[import-image] cloudinary upload failed: ${msg}`);
@@ -183,23 +191,29 @@ export class ImportImageService {
 
     const normalizedOut = normalizeStoredImageUrl(storedUrl);
     if (!normalizedOut && storedUrl.startsWith('/')) {
-      return { originalUrl, storedUrl };
+      return { originalUrl, storedUrl, watermarkedUrl };
     }
-    return { originalUrl, storedUrl: normalizedOut ?? storedUrl };
+    return {
+      originalUrl,
+      storedUrl: normalizedOut ?? storedUrl,
+      watermarkedUrl: watermarkedUrl
+        ? normalizeStoredImageUrl(watermarkedUrl) ?? watermarkedUrl
+        : null,
+    };
   }
 
   /**
    * Pro každou URL: Reality.cz (a subdomény) zrcadlíme k našemu storage, ostatní necháme beze změny.
    */
-  async mirrorRealityListingImages(params: {
+  async mirrorRealityListingImageVariants(params: {
     urls: string[];
     propertyId: string;
     sourcePortalKey: string;
     delayMsBetweenFetches?: number;
-  }): Promise<string[]> {
+  }): Promise<Array<{ originalUrl: string; watermarkedUrl: string | null }>> {
     const delay = params.delayMsBetweenFetches ?? DEFAULT_DELAY_MS;
     const slice = params.urls.slice(0, MAX_IMAGES_PER_LISTING);
-    const out: string[] = [];
+    const out: Array<{ originalUrl: string; watermarkedUrl: string | null }> = [];
 
     for (let i = 0; i < slice.length; i += 1) {
       const raw = slice[i]!;
@@ -207,7 +221,7 @@ export class ImportImageService {
       if (!normalized) continue;
 
       if (!shouldMirrorRealityImportedImageUrl(normalized)) {
-        out.push(normalized);
+        out.push({ originalUrl: normalized, watermarkedUrl: null });
         continue;
       }
 
@@ -218,8 +232,13 @@ export class ImportImageService {
         index: i,
       });
       if (done?.storedUrl) {
-        const u = normalizeStoredImageUrl(done.storedUrl) ?? done.storedUrl;
-        if (u && !out.includes(u)) out.push(u);
+        const orig = normalizeStoredImageUrl(done.storedUrl) ?? done.storedUrl;
+        const wm = done.watermarkedUrl
+          ? normalizeStoredImageUrl(done.watermarkedUrl) ?? done.watermarkedUrl
+          : null;
+        if (orig && !out.some((x) => x.originalUrl === orig)) {
+          out.push({ originalUrl: orig, watermarkedUrl: wm });
+        }
       }
       if (delay > 0 && i < slice.length - 1) {
         await sleep(delay);
@@ -227,5 +246,18 @@ export class ImportImageService {
     }
 
     return out;
+  }
+
+  /**
+   * Legacy helper (jen seznam URL) – vrací původní URL bez watermarku.
+   */
+  async mirrorRealityListingImages(params: {
+    urls: string[];
+    propertyId: string;
+    sourcePortalKey: string;
+    delayMsBetweenFetches?: number;
+  }): Promise<string[]> {
+    const variants = await this.mirrorRealityListingImageVariants(params);
+    return variants.map((v) => v.originalUrl);
   }
 }

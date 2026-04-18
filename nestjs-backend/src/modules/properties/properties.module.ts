@@ -5,6 +5,8 @@ import { PropertiesController } from './properties.controller';
 import { PropertiesService } from './properties.service';
 import { ListingShortsFromPhotosService } from './listing-shorts-from-photos.service';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
+import { ListingPhotoWatermarkService } from './listing-photo-watermark.service';
+import { ListingWatermarkSettingsService } from './listing-watermark-settings.service';
 import { SeedController } from './seed.controller';
 import { ShortsListingController } from './shorts-listing.controller';
 import { ShortsListingService } from './shorts-listing.service';
@@ -23,9 +25,16 @@ import { ShortsListingService } from './shorts-listing.service';
   providers: [
     PropertiesService,
     PropertyMediaCloudinaryService,
+    ListingPhotoWatermarkService,
+    ListingWatermarkSettingsService,
     ListingShortsFromPhotosService,
     ShortsListingService,
   ],
-  exports: [PropertiesService, PropertyMediaCloudinaryService, ShortsListingService],
+  exports: [
+    PropertiesService,
+    PropertyMediaCloudinaryService,
+    ListingWatermarkSettingsService,
+    ShortsListingService,
+  ],
 })
 export class PropertiesModule {}

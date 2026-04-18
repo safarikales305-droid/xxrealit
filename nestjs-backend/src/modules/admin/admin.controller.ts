@@ -42,6 +42,14 @@ type ImportXmlBody = {
   url?: string;
 };
 
+type UpdateListingPhotoWatermarkBody = {
+  enabled?: boolean;
+  position?: string;
+  logoWidthRatio?: number;
+  opacity?: number;
+  marginPx?: number;
+};
+
 @Controller('admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class AdminController {
@@ -58,6 +66,25 @@ export class AdminController {
   @Get('stats')
   stats() {
     return this.adminService.stats();
+  }
+
+  @Get('listing-photo-watermark')
+  getListingPhotoWatermark() {
+    return this.adminService.getListingPhotoWatermarkSettings();
+  }
+
+  @Patch('listing-photo-watermark')
+  updateListingPhotoWatermark(
+    @Body() body: UpdateListingPhotoWatermarkBody,
+  ) {
+    return this.adminService.updateListingPhotoWatermarkSettings({
+      enabled: typeof body.enabled === 'boolean' ? body.enabled : undefined,
+      position: typeof body.position === 'string' ? body.position : undefined,
+      logoWidthRatio:
+        typeof body.logoWidthRatio === 'number' ? body.logoWidthRatio : undefined,
+      opacity: typeof body.opacity === 'number' ? body.opacity : undefined,
+      marginPx: typeof body.marginPx === 'number' ? body.marginPx : undefined,
+    });
   }
 
   @Get('properties')

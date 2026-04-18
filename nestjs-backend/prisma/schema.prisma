@@ -731,6 +731,10 @@ model PropertyMedia {
   id         String   @id @default(cuid())
   propertyId String
   url        String
+  /// Původní URL bez watermarku (fallback i při vypnuté funkci).
+  originalUrl String?
+  /// Odvozená URL s watermarkem (může chybět při selhání generování).
+  watermarkedUrl String?
   type       String
   sortOrder  Int
   createdAt  DateTime @default(now())
@@ -739,6 +743,12 @@ model PropertyMedia {
 
   @@index([propertyId])
   @@index([sortOrder])
+}
+
+model AppSetting {
+  key       String   @id
+  valueJson Json
+  updatedAt DateTime @updatedAt
 }
 
 model Visit {

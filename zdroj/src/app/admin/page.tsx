@@ -20,9 +20,12 @@ import {
   nestAdminPendingProperties,
   nestAdminRejectProfessionalProfile,
   nestAdminStats,
+  nestAdminListingPhotoWatermarkSettings,
+  nestAdminUpdateListingPhotoWatermarkSettings,
   nestAdminUpdateUserRole,
   nestAdminUpdateUserCredit,
   nestAdminUsers,
+  type AdminListingPhotoWatermarkSettings,
   type AdminStats,
   type AdminUserRow,
   type NestAdminProfessionalProfileRow,
@@ -88,14 +91,18 @@ export default function AdminPage() {
   const [importError, setImportError] = useState<string | null>(null);
   const [xmlImportSuccess, setXmlImportSuccess] = useState<string | null>(null);
   const [xmlImportError, setXmlImportError] = useState<string | null>(null);
+  const [watermarkSettings, setWatermarkSettings] =
+    useState<AdminListingPhotoWatermarkSettings | null>(null);
+  const [watermarkBusy, setWatermarkBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!token) return;
     setLoadError(null);
-    const [s, p, u] = await Promise.all([
+    const [s, p, u, wm] = await Promise.all([
       nestAdminStats(token),
       nestAdminPendingProperties(token),
       nestAdminUsers(token),
+      nestAdminListingPhotoWatermarkSettings(token),
     ]);
     const a = await nestAdminProfessionalProfiles(token, professionalType, 'pending');
     if (!s || !p || !u) {
@@ -118,7 +125,20 @@ export default function AdminPage() {
       return next;
     });
     setAgentRequests(a ?? []);
+    setWatermarkSettings(wm);
   }, [token, professionalType]);
+
+  async function onWatermarkToggle(enabled: boolean) {
+    if (!token) return;
+    setWatermarkBusy(true);
+    const r = await nestAdminUpdateListingPhotoWatermarkSettings(token, { enabled });
+    setWatermarkBusy(false);
+    if (!r.ok) {
+      setLoadError(r.error ?? 'Uložení watermark nastavení selhalo.');
+      return;
+    }
+    setWatermarkSettings(r.data ?? null);
+  }
 
   useEffect(() => {
     if (!isLoading && (!token || !user || user.role !== 'ADMIN')) {
@@ -762,6 +782,45 @@ export default function AdminPage() {
             </table>
             {usersList.length === 0 ? (
               <p className="px-4 py-6 text-center text-sm text-zinc-500">Žádní uživatelé.</p>
+            ) : null}
+          </div>
+        </section>
+
+        <section>
+          <h2 className="mb-4 text-lg font-semibold tracking-tight">Watermark fotek inzerátů</h2>
+          <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-zinc-900">
+                  Zapnout logo portálu na všech listing fotkách
+                </p>
+                <p className="mt-1 text-sm text-zinc-600">
+                  Při zapnutí se použije watermarked varianta (pokud existuje), jinak originál.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={watermarkBusy}
+                onClick={() => void onWatermarkToggle(!Boolean(watermarkSettings?.enabled))}
+                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                  watermarkSettings?.enabled
+                    ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                    : 'border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50'
+                } disabled:opacity-50`}
+              >
+                {watermarkBusy
+                  ? 'Ukládám…'
+                  : watermarkSettings?.enabled
+                    ? 'Zapnuto'
+                    : 'Vypnuto'}
+              </button>
+            </div>
+            {watermarkSettings ? (
+              <p className="mt-3 text-xs text-zinc-500">
+                Pozice: {watermarkSettings.position} · Šířka loga:{' '}
+                {Math.round(watermarkSettings.logoWidthRatio * 100)} % · Opacity:{' '}
+                {watermarkSettings.opacity.toFixed(2)} · Odsazení: {watermarkSettings.marginPx}px
+              </p>
             ) : null}
           </div>
         </section>

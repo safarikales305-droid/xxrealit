@@ -22,6 +22,10 @@ import { parseStringPromise } from 'xml2js';
 import { ImportSyncService } from '../imports/import-sync.service';
 import { ShortsListingService } from '../properties/shorts-listing.service';
 import { safeParsePrice } from '../imports/price-parse.util';
+import {
+  ListingWatermarkSettingsService,
+  type ListingWatermarkPosition,
+} from '../properties/listing-watermark-settings.service';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bcrypt = require('bcrypt');
@@ -125,7 +129,92 @@ export class AdminService {
     private readonly ownerListingNotify: OwnerListingNotifyService,
     private readonly importSync: ImportSyncService,
     private readonly shortsListing: ShortsListingService,
+    private readonly watermarkSettings: ListingWatermarkSettingsService,
   ) {}
+
+  async getListingPhotoWatermarkSettings() {
+    return this.watermarkSettings.getSettings();
+  }
+
+  async updateListingPhotoWatermarkSettings(input: {
+    enabled?: boolean;
+    position?: string;
+    logoWidthRatio?: number;
+    opacity?: number;
+    marginPx?: number;
+  }) {
+    const positionRaw = (input.position ?? '').trim();
+    const position: ListingWatermarkPosition | undefined =
+      positionRaw === 'left-top' ||
+      positionRaw === 'right-top' ||
+      positionRaw === 'left-bottom' ||
+      positionRaw === 'right-bottom'
+        ? positionRaw
+        : undefined;
+
+    const updated = await this.watermarkSettings.updateSettings({
+      enabled:
+        typeof input.enabled === 'boolean' ? input.enabled : undefined,
+      position,
+      logoWidthRatio:
+        typeof input.logoWidthRatio === 'number'
+          ? input.logoWidthRatio
+          : undefined,
+      opacity: typeof input.opacity === 'number' ? input.opacity : undefined,
+      marginPx: typeof input.marginPx === 'number' ? input.marginPx : undefined,
+    });
+
+    const mediaRows = await this.prisma.propertyMedia.findMany({
+      where: { type: 'image' },
+      select: {
+        id: true,
+        propertyId: true,
+        url: true,
+        originalUrl: true,
+        watermarkedUrl: true,
+      },
+    });
+    for (const m of mediaRows) {
+      const original = (m.originalUrl ?? m.url ?? '').trim();
+      const nextUrl =
+        updated.enabled && (m.watermarkedUrl ?? '').trim()
+          ? (m.watermarkedUrl ?? '').trim()
+          : original;
+      if (!nextUrl) continue;
+      if (nextUrl !== (m.url ?? '').trim()) {
+        await this.prisma.propertyMedia.update({
+          where: { id: m.id },
+          data: { url: nextUrl, originalUrl: original || null },
+        });
+      }
+    }
+
+    const properties = await this.prisma.property.findMany({
+      where: { deletedAt: null },
+      select: { id: true, images: true, media: { where: { type: 'image' }, orderBy: { sortOrder: 'asc' } } },
+    });
+    for (const p of properties) {
+      const mediaImages = p.media
+        .map((m) => (m.url ?? '').trim())
+        .filter((u) => u.length > 0);
+      if (mediaImages.length === 0) continue;
+      const dedupe: string[] = [];
+      const seen = new Set<string>();
+      for (const u of mediaImages) {
+        if (seen.has(u)) continue;
+        seen.add(u);
+        dedupe.push(u);
+      }
+      if (JSON.stringify(dedupe) !== JSON.stringify(p.images ?? [])) {
+        await this.prisma.property.update({
+          where: { id: p.id },
+          data: { images: dedupe },
+        });
+      }
+    }
+
+    return updated;
+  }
 
   async stats() {
     const [

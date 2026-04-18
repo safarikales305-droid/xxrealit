@@ -49,6 +49,7 @@ import { OwnerListingNotifyService } from '../premium-broker/owner-listing-notif
 import type { CreateShortsFromClassicDto } from './dto/create-shorts-from-classic.dto';
 import { socialInclude } from './shorts-listing.social-include';
 import { ShortsListingService } from './shorts-listing.service';
+import { ListingWatermarkSettingsService } from './listing-watermark-settings.service';
 
 @Injectable()
 export class PropertiesService {
@@ -60,6 +61,7 @@ export class PropertiesService {
     private readonly ownerListingNotify: OwnerListingNotifyService,
     private readonly brokerPoints: BrokerPointsService,
     private readonly shortsListingService: ShortsListingService,
+    private readonly watermarkSettings: ListingWatermarkSettingsService,
   ) {}
 
   private async viewerAccess(viewerId?: string): Promise<PropertyViewerAccess | undefined> {
@@ -519,8 +521,11 @@ export class PropertiesService {
     let images = Array.isArray(dto.images)
       ? dto.images.filter((u) => typeof u === 'string' && u.trim().length > 0)
       : [];
+    let imageVariants: Array<{ originalUrl: string; watermarkedUrl: string | null }> =
+      images.map((u) => ({ originalUrl: u, watermarkedUrl: null }));
     let videoUrl: string | null = dto.videoUrl?.trim() || null;
 
+    const wmSettings = await this.watermarkSettings.getSettings();
     if (files) {
       try {
         if (files.videoFile) {
@@ -529,10 +534,13 @@ export class PropertiesService {
           );
         }
         if (files.imageFiles.length > 0) {
-          images = await Promise.all(
+          imageVariants = await Promise.all(
             files.imageFiles.map((f) =>
-              this.propertyMediaCloudinary.uploadImage(f),
+              this.propertyMediaCloudinary.uploadImageWithWatermarkVariants(f),
             ),
+          );
+          images = imageVariants.map((x) =>
+            wmSettings.enabled && x.watermarkedUrl ? x.watermarkedUrl : x.originalUrl,
           );
         }
       } catch (error) {
@@ -544,6 +552,8 @@ export class PropertiesService {
     const mediaRows: Array<{
       propertyId: string;
       url: string;
+      originalUrl?: string | null;
+      watermarkedUrl?: string | null;
       type: 'image' | 'video';
       sortOrder: number;
     }> = [];
@@ -595,10 +605,13 @@ export class PropertiesService {
           sortOrder: 0,
         });
       }
-      for (let i = 0; i < images.length; i += 1) {
+      for (let i = 0; i < imageVariants.length; i += 1) {
+        const v = imageVariants[i]!;
         mediaRows.push({
           propertyId: created.id,
-          url: images[i],
+          url: wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl,
+          originalUrl: v.originalUrl,
+          watermarkedUrl: v.watermarkedUrl ?? null,
           type: 'image',
           sortOrder: i + 1,
         });

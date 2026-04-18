@@ -69,6 +69,7 @@ import {
 import { parseRealityCzScraperSettings } from './reality-cz-scraper-settings';
 import { normalizeStoredImageUrlList } from './import-image-urls';
 import { ImportImageService } from './import-image.service';
+import { ListingWatermarkSettingsService } from '../properties/listing-watermark-settings.service';
 import {
   DEFAULT_REALITY_BYTY_START_URL,
   getDefaultRealityStartUrlForCategoryKey,
@@ -215,6 +216,7 @@ export class ImportSyncService {
     private readonly soapImporter: RealityCzSoapImporter,
     private readonly scraperImporter: RealityCzScraperImporter,
     private readonly importImageService: ImportImageService,
+    private readonly watermarkSettings: ListingWatermarkSettingsService,
   ) {}
 
   async ensureDefaultSources() {
@@ -1282,14 +1284,14 @@ export class ImportSyncService {
     row: ImportedListingDraft,
     externalId: string,
     existingPropertyId: string | null,
-  ): Promise<string[]> {
+  ): Promise<Array<{ originalUrl: string; watermarkedUrl: string | null }>> {
     const normalized = normalizeStoredImageUrlList(row.images);
     if (normalized.length === 0) return [];
     const portalKeyRaw = (ctx.portalKey ?? String(ctx.portal)).trim() || 'import';
     const sourcePortalKey = portalKeyRaw.replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 64) || 'import';
     const propertyIdForMirror =
       existingPropertyId ?? `staging-${externalId.replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 80)}`;
-    return this.importImageService.mirrorRealityListingImages({
+    return this.importImageService.mirrorRealityListingImageVariants({
       urls: normalized,
       propertyId: propertyIdForMirror,
       sourcePortalKey,
@@ -1380,11 +1382,15 @@ export class ImportSyncService {
             row.videoUrl,
           );
           const facet = this.importFacetPayload(ctx, row);
-          const imagesForDb = await this.resolveImportedPropertyImagesForDb(
+          const wmSettings = await this.watermarkSettings.getSettings();
+          const imageVariants = await this.resolveImportedPropertyImagesForDb(
             ctx,
             row,
             externalId,
             null,
+          );
+          const imagesForDb = imageVariants.map((v) =>
+            wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl,
           );
           const created = await this.prisma.property.create({
             data: {
@@ -1425,6 +1431,18 @@ export class ImportSyncService {
               ...facet,
             },
           });
+          if (imageVariants.length > 0) {
+            await this.prisma.propertyMedia.createMany({
+              data: imageVariants.map((v, idx) => ({
+                propertyId: created.id,
+                url: wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl,
+                originalUrl: v.originalUrl,
+                watermarkedUrl: v.watermarkedUrl ?? null,
+                type: 'image',
+                sortOrder: idx + 1,
+              })),
+            });
+          }
           // eslint-disable-next-line no-console
           console.log('REALITY SAVED PROPERTY IMAGE FIELDS', {
             id: created.id,
@@ -1463,11 +1481,15 @@ export class ImportSyncService {
           existing.videoUrl,
         );
         const facet = this.importFacetPayload(ctx, row);
-        const imagesForDb = await this.resolveImportedPropertyImagesForDb(
+        const wmSettings = await this.watermarkSettings.getSettings();
+        const imageVariants = await this.resolveImportedPropertyImagesForDb(
           ctx,
           row,
           externalId,
           existing.id,
+        );
+        const imagesForDb = imageVariants.map((v) =>
+          wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl,
         );
         const updated = await this.prisma.property.update({
           where: { id: existing.id },
@@ -1510,6 +1532,21 @@ export class ImportSyncService {
             ...facet,
           },
         });
+        if (imageVariants.length > 0) {
+          await this.prisma.propertyMedia.deleteMany({
+            where: { propertyId: existing.id, type: 'image' },
+          });
+          await this.prisma.propertyMedia.createMany({
+            data: imageVariants.map((v, idx) => ({
+              propertyId: existing.id,
+              url: wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl,
+              originalUrl: v.originalUrl,
+              watermarkedUrl: v.watermarkedUrl ?? null,
+              type: 'image',
+              sortOrder: idx + 1,
+            })),
+          });
+        }
         // eslint-disable-next-line no-console
         console.log('REALITY SAVED PROPERTY IMAGE FIELDS', {
           id: updated.id,
