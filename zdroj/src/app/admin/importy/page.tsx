@@ -29,6 +29,38 @@ const METHOD_OPTIONS = [
   { value: 'other', label: 'Další' },
 ] as const;
 
+function readSettingsNumber(v: unknown, fallback: number): number {
+  const x =
+    typeof v === 'number' && Number.isFinite(v)
+      ? v
+      : typeof v === 'string'
+        ? Number.parseFloat(v)
+        : fallback;
+  return Number.isFinite(x) ? Math.trunc(x) : fallback;
+}
+
+function readSettingsFloat(v: unknown, fallback: number): number {
+  const x =
+    typeof v === 'number' && Number.isFinite(v)
+      ? v
+      : typeof v === 'string'
+        ? Number.parseFloat(v)
+        : fallback;
+  return Number.isFinite(x) ? x : fallback;
+}
+
+type ImportSourceFormState = {
+  intervalMinutes: number;
+  limitPerRun: number;
+  endpointUrl: string;
+  scraperRequestDelayMs: number;
+  scraperMaxRetries: number;
+  scraperBackoffMultiplier: number;
+  scraperBaseBackoffMsOn429: number;
+  scraperMaxDetailFetchesPerRun: number;
+  scraperListOnlyImport: boolean;
+};
+
 export default function AdminImportsPage() {
   const router = useRouter();
   const { user, isLoading, apiAccessToken } = useAuth();
@@ -41,11 +73,17 @@ export default function AdminImportsPage() {
   const [error, setError] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [warnMsg, setWarnMsg] = useState<string | null>(null);
-  const [sourceForm, setSourceForm] = useState<{
-    intervalMinutes: number;
-    limitPerRun: number;
-    endpointUrl: string;
-  }>({ intervalMinutes: 60, limitPerRun: 100, endpointUrl: '' });
+  const [sourceForm, setSourceForm] = useState<ImportSourceFormState>({
+    intervalMinutes: 60,
+    limitPerRun: 100,
+    endpointUrl: '',
+    scraperRequestDelayMs: 3500,
+    scraperMaxRetries: 6,
+    scraperBackoffMultiplier: 2,
+    scraperBaseBackoffMsOn429: 12_000,
+    scraperMaxDetailFetchesPerRun: 0,
+    scraperListOnlyImport: true,
+  });
   const [bulkSource, setBulkSource] = useState<string>('reality_cz');
   const [bulkMethod, setBulkMethod] = useState<string>('');
 
@@ -56,10 +94,21 @@ export default function AdminImportsPage() {
 
   useEffect(() => {
     if (!selectedSource) return;
+    const sj = (selectedSource.settingsJson ?? {}) as Record<string, unknown>;
     setSourceForm({
       intervalMinutes: selectedSource.intervalMinutes,
       limitPerRun: selectedSource.limitPerRun,
       endpointUrl: selectedSource.endpointUrl ?? '',
+      scraperRequestDelayMs: readSettingsNumber(sj.scraperRequestDelayMs, 3500),
+      scraperMaxRetries: readSettingsNumber(sj.scraperMaxRetries, 6),
+      scraperBackoffMultiplier: Math.min(
+        4,
+        Math.max(1.25, readSettingsFloat(sj.scraperBackoffMultiplier, 2)),
+      ),
+      scraperBaseBackoffMsOn429: readSettingsNumber(sj.scraperBaseBackoffMsOn429, 12_000),
+      scraperMaxDetailFetchesPerRun: readSettingsNumber(sj.scraperMaxDetailFetchesPerRun, 0),
+      scraperListOnlyImport:
+        typeof sj.scraperListOnlyImport === 'boolean' ? sj.scraperListOnlyImport : true,
     });
   }, [
     selectedSource?.id,
@@ -67,7 +116,27 @@ export default function AdminImportsPage() {
     selectedSource?.intervalMinutes,
     selectedSource?.limitPerRun,
     selectedSource?.endpointUrl,
+    selectedSource?.settingsJson,
   ]);
+
+  function scraperSettingsPayload(
+    base: AdminImportSourceRow,
+    f: ImportSourceFormState,
+  ): Record<string, unknown> {
+    const prev =
+      base.settingsJson && typeof base.settingsJson === 'object' && !Array.isArray(base.settingsJson)
+        ? { ...(base.settingsJson as Record<string, unknown>) }
+        : {};
+    return {
+      ...prev,
+      scraperRequestDelayMs: f.scraperRequestDelayMs,
+      scraperMaxRetries: f.scraperMaxRetries,
+      scraperBackoffMultiplier: f.scraperBackoffMultiplier,
+      scraperBaseBackoffMsOn429: f.scraperBaseBackoffMsOn429,
+      scraperMaxDetailFetchesPerRun: f.scraperListOnlyImport ? 0 : f.scraperMaxDetailFetchesPerRun,
+      scraperListOnlyImport: f.scraperListOnlyImport,
+    };
+  }
 
   async function refresh(sourceId?: string) {
     if (!token) return;
@@ -140,7 +209,14 @@ export default function AdminImportsPage() {
     const r = await nestAdminRunImportSource(token, sourceId);
     setBusyId(null);
     if (!r.ok) {
-      setError(r.error ?? 'Spuštění importu selhalo');
+      const err = r.error ?? 'Spuštění importu selhalo';
+      if (/429|Too Many Requests|blokuje příliš rychlé/i.test(err)) {
+        setError(
+          'Web Reality.cz blokuje příliš rychlé dotazy (HTTP 429). Zpomalte scraper: zvětšete „Prodleva mezi požadavky (ms)“, případně snižte „Max. detailních stránek na běh“ a nechte zapnuté „Jen výpis (bez detailů)“.',
+        );
+      } else {
+        setError(err);
+      }
       return;
     }
     const n = Number(r.data?.importedNew ?? 0);
@@ -334,6 +410,174 @@ export default function AdminImportsPage() {
               Scraper používá uloženou hodnotu z tohoto pole (případně `settingsJson.startUrl` na backendu). Pro výpis nabídek zadejte např.{' '}
               <code className="rounded bg-zinc-100 px-1">https://www.reality.cz/prodej/byty/</code>.
             </p>
+
+            {selectedSource.method === 'scraper' && selectedSource.portal === 'reality_cz' ? (
+              <div className="mt-6 border-t border-zinc-200 pt-4">
+                <h3 className="mb-2 text-sm font-semibold text-zinc-800">Scraper Reality.cz — šetrné stahování</h3>
+                <p className="mb-3 text-xs text-zinc-500">
+                  Mezi každým HTTP požadavkem je prodleva. Při HTTP 429 se použije exponenciální backoff. Ve výchozím režimu „jen výpis“ se nevolají detailní stránky — nejnižší zátěž pro Reality.cz.
+                </p>
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  <label className="text-sm">
+                    <span className="mb-1 block text-xs text-zinc-600">Prodleva mezi požadavky (ms)</span>
+                    <input
+                      type="number"
+                      min={500}
+                      max={60000}
+                      step={100}
+                      value={sourceForm.scraperRequestDelayMs}
+                      onChange={(e) =>
+                        setSourceForm((f) => ({
+                          ...f,
+                          scraperRequestDelayMs: Number.parseInt(e.target.value, 10) || 500,
+                        }))
+                      }
+                      onBlur={(e) => {
+                        const v = Number.parseInt(e.target.value, 10) || 500;
+                        setSourceForm((f) => {
+                          const next = { ...f, scraperRequestDelayMs: v };
+                          void saveSourcePatch(selectedSource.id, {
+                            settingsJson: scraperSettingsPayload(selectedSource, next),
+                          });
+                          return next;
+                        });
+                      }}
+                      className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="mb-1 block text-xs text-zinc-600">Max. pokusů při 429 / chybě</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={12}
+                      value={sourceForm.scraperMaxRetries}
+                      onChange={(e) =>
+                        setSourceForm((f) => ({
+                          ...f,
+                          scraperMaxRetries: Number.parseInt(e.target.value, 10) || 1,
+                        }))
+                      }
+                      onBlur={(e) => {
+                        const v = Number.parseInt(e.target.value, 10) || 1;
+                        setSourceForm((f) => {
+                          const next = { ...f, scraperMaxRetries: v };
+                          void saveSourcePatch(selectedSource.id, {
+                            settingsJson: scraperSettingsPayload(selectedSource, next),
+                          });
+                          return next;
+                        });
+                      }}
+                      className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="mb-1 block text-xs text-zinc-600">Backoff násobič (429)</span>
+                    <input
+                      type="number"
+                      min={1.25}
+                      max={4}
+                      step={0.25}
+                      value={sourceForm.scraperBackoffMultiplier}
+                      onChange={(e) =>
+                        setSourceForm((f) => ({
+                          ...f,
+                          scraperBackoffMultiplier: Number.parseFloat(e.target.value) || 2,
+                        }))
+                      }
+                      onBlur={(e) => {
+                        const raw = Number.parseFloat(e.target.value) || 2;
+                        const v = Math.min(4, Math.max(1.25, raw));
+                        setSourceForm((f) => {
+                          const next = { ...f, scraperBackoffMultiplier: v };
+                          void saveSourcePatch(selectedSource.id, {
+                            settingsJson: scraperSettingsPayload(selectedSource, next),
+                          });
+                          return next;
+                        });
+                      }}
+                      className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="mb-1 block text-xs text-zinc-600">Základní čekání po 429 (ms)</span>
+                    <input
+                      type="number"
+                      min={2000}
+                      max={180000}
+                      step={1000}
+                      value={sourceForm.scraperBaseBackoffMsOn429}
+                      onChange={(e) =>
+                        setSourceForm((f) => ({
+                          ...f,
+                          scraperBaseBackoffMsOn429: Number.parseInt(e.target.value, 10) || 2000,
+                        }))
+                      }
+                      onBlur={(e) => {
+                        const v = Number.parseInt(e.target.value, 10) || 2000;
+                        setSourceForm((f) => {
+                          const next = { ...f, scraperBaseBackoffMsOn429: v };
+                          void saveSourcePatch(selectedSource.id, {
+                            settingsJson: scraperSettingsPayload(selectedSource, next),
+                          });
+                          return next;
+                        });
+                      }}
+                      className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="mb-1 block text-xs text-zinc-600">Max. detailních stránek na běh</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={30}
+                      value={sourceForm.scraperMaxDetailFetchesPerRun}
+                      disabled={sourceForm.scraperListOnlyImport}
+                      onChange={(e) =>
+                        setSourceForm((f) => ({
+                          ...f,
+                          scraperMaxDetailFetchesPerRun: Number.parseInt(e.target.value, 10) || 0,
+                        }))
+                      }
+                      onBlur={(e) => {
+                        const v = Number.parseInt(e.target.value, 10) || 0;
+                        setSourceForm((f) => {
+                          const next = {
+                            ...f,
+                            scraperMaxDetailFetchesPerRun: f.scraperListOnlyImport ? 0 : v,
+                          };
+                          void saveSourcePatch(selectedSource.id, {
+                            settingsJson: scraperSettingsPayload(selectedSource, next),
+                          });
+                          return next;
+                        });
+                      }}
+                      className="w-full rounded-lg border border-zinc-200 px-3 py-2 disabled:bg-zinc-100"
+                    />
+                  </label>
+                  <label className="flex items-center gap-2 text-sm md:col-span-2 lg:col-span-1">
+                    <input
+                      type="checkbox"
+                      checked={sourceForm.scraperListOnlyImport}
+                      onChange={(e) => {
+                        const v = e.target.checked;
+                        const next: ImportSourceFormState = {
+                          ...sourceForm,
+                          scraperListOnlyImport: v,
+                          scraperMaxDetailFetchesPerRun: v ? 0 : sourceForm.scraperMaxDetailFetchesPerRun || 10,
+                        };
+                        setSourceForm(next);
+                        void saveSourcePatch(selectedSource.id, {
+                          settingsJson: scraperSettingsPayload(selectedSource, next),
+                        });
+                      }}
+                    />
+                    <span>Jen výpis (bez HTTP na detail inzerátu)</span>
+                  </label>
+                </div>
+              </div>
+            ) : null}
           </section>
         ) : null}
 
@@ -378,6 +622,14 @@ export default function AdminImportsPage() {
                 {log.message ? <p className="mt-1 text-zinc-700">{log.message}</p> : null}
                 <p className="text-zinc-500">{new Date(log.createdAt).toLocaleString('cs-CZ')}</p>
                 {log.error ? <p className="mt-1 text-red-700">{log.error}</p> : null}
+                {log.payloadJson?.scraper != null && typeof log.payloadJson.scraper === 'object' ? (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-zinc-600">Technické: scraper (URL, 429, request log)</summary>
+                    <pre className="mt-1 max-h-56 overflow-auto rounded border border-zinc-100 bg-zinc-50 p-2 text-[10px] leading-snug text-zinc-800">
+                      {JSON.stringify(log.payloadJson.scraper, null, 2)}
+                    </pre>
+                  </details>
+                ) : null}
               </div>
             ))}
             {logs.length === 0 ? <p className="text-sm text-zinc-500">Zatím bez logů.</p> : null}

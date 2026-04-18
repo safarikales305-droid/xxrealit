@@ -712,6 +712,7 @@ export type AdminImportLogRow = {
   error?: string | null;
   createdAt: string;
   source?: AdminImportSourceRow;
+  payloadJson?: Record<string, unknown> | null;
 };
 
 export async function nestAdminListings(

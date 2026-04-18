@@ -48,6 +48,12 @@ export type ImportRunResult = {
     rawCandidates?: number;
     normalizedValid?: number;
     parseMethod?: string;
+    requestLog?: unknown;
+    listPage429Count?: number;
+    detailPage429Count?: number;
+    detailFetchesAttempted?: number;
+    detailFetchesCompleted?: number;
+    scraperSettings?: unknown;
   };
 };
 

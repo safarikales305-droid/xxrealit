@@ -65,6 +65,14 @@ export class ImportSyncService {
         intervalMinutes: 120,
         limitPerRun: 100,
         endpointUrl: 'https://www.reality.cz/prodej/byty/',
+        settingsJson: {
+          scraperListOnlyImport: true,
+          scraperRequestDelayMs: 3500,
+          scraperMaxRetries: 6,
+          scraperBackoffMultiplier: 2,
+          scraperBaseBackoffMsOn429: 12_000,
+          scraperMaxDetailFetchesPerRun: 0,
+        },
       },
       update: {},
     });
@@ -186,7 +194,7 @@ export class ImportSyncService {
       const warnings = [...(result.warnings ?? [])];
       if (ctx.method === ListingImportMethod.scraper && scraperMeta) {
         this.logger.log(
-          `Scraper metrics: startUrl=${scraperMeta.startUrl} finalUrl=${scraperMeta.finalUrl} raw=${scraperMeta.rawCandidates} valid=${scraperMeta.normalizedValid} parse=${scraperMeta.parseMethod}`,
+          `Scraper metrics: startUrl=${scraperMeta.startUrl} finalUrl=${scraperMeta.finalUrl} raw=${scraperMeta.rawCandidates} valid=${scraperMeta.normalizedValid} parse=${scraperMeta.parseMethod} details=${scraperMeta.detailFetchesCompleted}/${scraperMeta.detailFetchesAttempted} list429=${scraperMeta.listPage429Count} detail429=${scraperMeta.detailPage429Count}`,
         );
         if (scraperMeta.rawCandidates === 0) {
           const msg =
@@ -226,6 +234,12 @@ export class ImportSyncService {
         rawCandidates: scraperMeta?.rawCandidates,
         normalizedValid: scraperMeta?.normalizedValid,
         parseMethod: scraperMeta?.parseMethod,
+        requestLog: scraperMeta?.requestLog,
+        listPage429Count: scraperMeta?.listPage429Count,
+        detailPage429Count: scraperMeta?.detailPage429Count,
+        detailFetchesAttempted: scraperMeta?.detailFetchesAttempted,
+        detailFetchesCompleted: scraperMeta?.detailFetchesCompleted,
+        scraperSettings: scraperMeta?.settings,
       };
 
       const hasProblem =
@@ -244,6 +258,12 @@ export class ImportSyncService {
       return result;
     } catch (error: unknown) {
       errorMessage = error instanceof Error ? error.message : 'Neznámá chyba importu';
+      if (
+        ctx.method === ListingImportMethod.scraper &&
+        /429|Too Many Requests/i.test(errorMessage)
+      ) {
+        errorMessage = `Web Reality.cz blokuje příliš rychlé dotazy (HTTP 429). V administraci Importy zvětšete prodlevu mezi požadavky, snižte počet detailů na běh nebo nechte zapnutý režim „jen výpis“. Technická hláška: ${errorMessage}`;
+      }
       this.logger.error(`Import ${ctx.portal}/${ctx.method} failed: ${errorMessage}`);
       await this.prisma.importSource.update({
         where: { id: ctx.sourceId },
@@ -277,7 +297,9 @@ export class ImportSyncService {
             finishedAt: new Date(),
             errors: result?.errors ?? [],
             warnings: result?.warnings ?? [],
-            scraper: scraperMeta ?? null,
+            scraper: scraperMeta
+              ? (JSON.parse(JSON.stringify(scraperMeta)) as Prisma.InputJsonValue)
+              : null,
           },
         },
       });
@@ -360,7 +382,11 @@ export class ImportSyncService {
     if (ctx.method === ListingImportMethod.scraper) {
       const startUrl = this.resolveRealityCzScraperStartUrl(ctx);
       this.logger.log(`Reality.cz scraper: používám start URL ${startUrl}`);
-      const outcome = await this.scraperImporter.fetch(ctx.limitPerRun, startUrl);
+      const outcome = await this.scraperImporter.fetch(
+        ctx.limitPerRun,
+        startUrl,
+        ctx.settingsJson,
+      );
       return { rows: outcome.rows, scraperMeta: outcome.meta };
     }
     throw new BadRequestException(`Nepodporovaná metoda importu: ${ctx.method}`);

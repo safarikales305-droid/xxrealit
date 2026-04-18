@@ -1,10 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { ImportedListingDraft, RawImportedListing } from './import-types';
+import {
+  parseRealityCzScraperSettings,
+  scraperSettingsForLog,
+  type RealityCzScraperRequestLogEntry,
+  type RealityCzScraperRuntimeSettings,
+} from './reality-cz-scraper-settings';
 
 const REALITY_LISTING_PATH_RE =
   /\/([A-Za-z0-9]+-[A-Za-z0-9]+)\/?(?:\?|#|$)/i;
 const DEFAULT_BROWSER_UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 type ScraperFetchResult = {
   body: string;
@@ -23,6 +29,12 @@ export type RealityCzScraperFetchOutcome = {
     normalizedValid: number;
     parseMethod: string;
     contentType: string;
+    settings: Record<string, unknown>;
+    requestLog: RealityCzScraperRequestLogEntry[];
+    listPage429Count: number;
+    detailPage429Count: number;
+    detailFetchesAttempted: number;
+    detailFetchesCompleted: number;
   };
 };
 
@@ -30,10 +42,85 @@ export type RealityCzScraperFetchOutcome = {
 export class RealityCzScraperImporter {
   private readonly logger = new Logger(RealityCzScraperImporter.name);
 
-  async fetch(limit: number, startUrl: string): Promise<RealityCzScraperFetchOutcome> {
-    const fetched = await this.fetcher(startUrl);
+  async fetch(
+    limit: number,
+    startUrl: string,
+    settingsJson: Record<string, unknown> | null | undefined,
+  ): Promise<RealityCzScraperFetchOutcome> {
+    const settings = parseRealityCzScraperSettings(settingsJson);
+    const requestLog: RealityCzScraperRequestLogEntry[] = [];
+    let listPage429Count = 0;
+    let detailPage429Count = 0;
+
+    this.logger.log(
+      `Reality.cz scraper start: url=${startUrl} delayMs=${settings.requestDelayMs} retries=${settings.maxRetries} listOnly=${settings.listOnlyImport} maxDetails=${settings.maxDetailFetchesPerRun}`,
+    );
+
+    const fetched = await this.fetchWithRetry(
+      startUrl,
+      'list_page',
+      settings,
+      requestLog,
+      (is429) => {
+        if (is429) listPage429Count += 1;
+      },
+    );
+
     const parsed = this.parseListings(fetched.body);
-    const rows = this.normalizer(parsed.items, limit);
+    let rows = this.normalizer(parsed.items, limit);
+
+    let detailFetchesAttempted = 0;
+    let detailFetchesCompleted = 0;
+
+    if (
+      !settings.listOnlyImport &&
+      settings.maxDetailFetchesPerRun > 0 &&
+      rows.length > 0
+    ) {
+      let detailSlotsUsed = 0;
+      for (let i = 0; i < rows.length && detailSlotsUsed < settings.maxDetailFetchesPerRun; i += 1) {
+        const row = rows[i];
+        const needsDetail =
+          row.images.length === 0 || (row.description?.length ?? 0) < 160;
+        if (!needsDetail) {
+          continue;
+        }
+        const detailUrl = row.sourceUrl?.trim();
+        if (!detailUrl || !/^https?:\/\/www\.reality\.cz\//i.test(detailUrl)) {
+          continue;
+        }
+        detailSlotsUsed += 1;
+        detailFetchesAttempted += 1;
+        try {
+          const detail = await this.fetchWithRetry(
+            detailUrl,
+            'detail_page',
+            settings,
+            requestLog,
+            (is429) => {
+              if (is429) detailPage429Count += 1;
+            },
+          );
+          const merged = this.mergeDetailIntoDraft(row, detail.body);
+          if (merged) {
+            rows[i] = merged;
+            detailFetchesCompleted += 1;
+          }
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          this.logger.warn(
+            `Detail fetch přeskočen (${detailUrl}): ${msg}`,
+          );
+          requestLog.push({
+            phase: 'detail_page',
+            url: detailUrl,
+            attempt: settings.maxRetries,
+            note: `failed: ${msg.slice(0, 200)}`,
+          });
+        }
+      }
+    }
+
     const meta = {
       startUrl,
       finalUrl: fetched.finalUrl,
@@ -42,33 +129,141 @@ export class RealityCzScraperImporter {
       normalizedValid: rows.length,
       parseMethod: parsed.method,
       contentType: fetched.contentType,
+      settings: scraperSettingsForLog(settings),
+      requestLog,
+      listPage429Count,
+      detailPage429Count,
+      detailFetchesAttempted,
+      detailFetchesCompleted,
     };
+
     this.logger.log(
-      `Reality.cz scraper: url=${startUrl} final=${fetched.finalUrl} method=${parsed.method} raw=${parsed.items.length} valid=${rows.length}`,
+      `Reality.cz scraper done: final=${fetched.finalUrl} method=${parsed.method} raw=${parsed.items.length} valid=${rows.length} details=${detailFetchesCompleted}/${detailFetchesAttempted} list429=${listPage429Count} detail429=${detailPage429Count}`,
     );
+
     return { rows, meta };
   }
 
-  private async fetcher(url: string): Promise<ScraperFetchResult> {
-    const maxAttempts = 3;
-    let lastErr: unknown;
-    for (let i = 0; i < maxAttempts; i += 1) {
+  private buildHeaders(targetUrl: string, phase: 'list_page' | 'detail_page'): HeadersInit {
+    let referer = 'https://www.reality.cz/';
+    try {
+      const u = new URL(targetUrl);
+      if (phase === 'detail_page') {
+        referer = `${u.origin}/`;
+      }
+    } catch {
+      /* keep default */
+    }
+    return {
+      Accept:
+        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Language': 'cs-CZ,cs;q=0.9,en-US;q=0.8,en;q=0.7',
+      'User-Agent': DEFAULT_BROWSER_UA,
+      Referer: referer,
+      'Cache-Control': 'no-cache',
+      DNT: '1',
+      'Upgrade-Insecure-Requests': '1',
+    };
+  }
+
+  private parseRetryAfterMs(header: string | null): number {
+    if (!header?.trim()) return 0;
+    const t = header.trim();
+    const asNum = Number.parseInt(t, 10);
+    if (Number.isFinite(asNum) && asNum > 0) {
+      return Math.min(asNum * 1000, 300_000);
+    }
+    const asDate = Date.parse(t);
+    if (Number.isFinite(asDate)) {
+      const delta = asDate - Date.now();
+      return delta > 0 ? Math.min(delta, 300_000) : 0;
+    }
+    return 0;
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    await new Promise((r) => setTimeout(r, ms));
+  }
+
+  /**
+   * Mezi každým HTTP požadavkem čekáme requestDelayMs (žádné burst requesty).
+   * Při 429 exponenciální backoff + optional Retry-After.
+   */
+  private async fetchWithRetry(
+    url: string,
+    phase: 'list_page' | 'detail_page',
+    settings: RealityCzScraperRuntimeSettings,
+    requestLog: RealityCzScraperRequestLogEntry[],
+    on429: (hit: boolean) => void,
+  ): Promise<ScraperFetchResult> {
+    await this.sleep(settings.requestDelayMs);
+
+    let lastErr: unknown = null;
+    for (let attempt = 1; attempt <= settings.maxRetries; attempt += 1) {
       try {
         const res = await fetch(url, {
-          headers: {
-            Accept:
-              'text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7',
-            'Accept-Language': 'cs,en-US;q=0.9,en;q=0.8',
-            'User-Agent': DEFAULT_BROWSER_UA,
-            Referer: 'https://www.reality.cz/',
-            'Cache-Control': 'no-cache',
-          },
+          headers: this.buildHeaders(url, phase),
           redirect: 'follow',
-          signal: AbortSignal.timeout(45_000),
+          signal: AbortSignal.timeout(60_000),
         });
-        if (!res.ok) {
-          throw new Error(`Scraper HTTP ${res.status} ${res.statusText || ''}`.trim());
+
+        if (res.status === 429) {
+          on429(true);
+          const fromHeader = this.parseRetryAfterMs(res.headers.get('retry-after'));
+          const exp =
+            settings.baseBackoffMsOn429 *
+            settings.backoffMultiplier ** (attempt - 1);
+          const waitMs = Math.min(
+            180_000,
+            Math.max(fromHeader || 0, exp, settings.requestDelayMs * 2),
+          );
+          this.logger.warn(
+            `HTTP 429 na ${phase} url=${url} pokus ${attempt}/${settings.maxRetries} čekám ${waitMs} ms (Retry-After: ${fromHeader || '—'})`,
+          );
+          requestLog.push({
+            phase,
+            url,
+            attempt,
+            status: 429,
+            waitBeforeRetryMs: waitMs,
+            note: 'Too Many Requests',
+          });
+          if (attempt >= settings.maxRetries) {
+            lastErr = new Error(
+              `Scraper HTTP 429 na ${phase === 'list_page' ? 'výpisové stránce (list)' : 'detailu inzerátu'} po ${settings.maxRetries} pokusech: ${url}`,
+            );
+            break;
+          }
+          await this.sleep(waitMs);
+          await this.sleep(settings.requestDelayMs);
+          continue;
         }
+
+        if (!res.ok) {
+          const err = new Error(
+            `Scraper HTTP ${res.status} ${res.statusText || ''}`.trim(),
+          );
+          if (res.status >= 500 && attempt < settings.maxRetries) {
+            lastErr = err;
+            const waitMs = Math.min(
+              60_000,
+              settings.requestDelayMs * 2 ** (attempt - 1),
+            );
+            requestLog.push({
+              phase,
+              url,
+              attempt,
+              status: res.status,
+              waitBeforeRetryMs: waitMs,
+              note: 'server error, retry',
+            });
+            await this.sleep(waitMs);
+            continue;
+          }
+          throw err;
+        }
+
+        requestLog.push({ phase, url, attempt, status: res.status });
         return {
           body: await res.text(),
           contentType: res.headers.get('content-type') ?? '',
@@ -77,11 +272,55 @@ export class RealityCzScraperImporter {
         };
       } catch (e) {
         lastErr = e;
-        const wait = 400 * (i + 1);
-        await new Promise((r) => setTimeout(r, wait));
+        const msg = e instanceof Error ? e.message : String(e);
+        if (attempt >= settings.maxRetries) {
+          break;
+        }
+        const waitMs = Math.min(45_000, settings.requestDelayMs * attempt);
+        requestLog.push({
+          phase,
+          url,
+          attempt,
+          waitBeforeRetryMs: waitMs,
+          note: msg.slice(0, 160),
+        });
+        await this.sleep(waitMs);
+        await this.sleep(settings.requestDelayMs);
       }
     }
-    throw new Error(`Reality.cz scraper failed after retries: ${String(lastErr)}`);
+
+    throw new Error(
+      `Reality.cz scraper failed after retries (${phase}): ${String(lastErr)}`,
+    );
+  }
+
+  private mergeDetailIntoDraft(
+    draft: ImportedListingDraft,
+    html: string,
+  ): ImportedListingDraft | null {
+    const desc =
+      html.match(
+        /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i,
+      )?.[1] ??
+      html.match(
+        /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i,
+      )?.[1];
+    const og = html.match(
+      /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
+    )?.[1];
+    const next: ImportedListingDraft = {
+      ...draft,
+      description: desc?.trim()
+        ? desc.trim().slice(0, 10_000)
+        : draft.description,
+    };
+    if (og && /^https?:\/\//i.test(og.trim())) {
+      const img = og.trim();
+      if (!next.images.includes(img)) {
+        next.images = [img, ...next.images].slice(0, 40);
+      }
+    }
+    return next;
   }
 
   private parseListings(body: string): {
@@ -100,7 +339,6 @@ export class RealityCzScraperImporter {
     return { items: fromArticles, method: 'article-fallback' };
   }
 
-  /** Rekurzivně hledá v JSON pole záznamů vypadajících jako inzeráty Reality.cz. */
   private tryNextDataParser(body: string): Array<Record<string, unknown>> {
     const scriptMatch = body.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
     if (!scriptMatch?.[1]) return [];
@@ -185,9 +423,6 @@ export class RealityCzScraperImporter {
     };
   }
 
-  /**
-   * Hlavní parser: odkazy na detail inzerátu (/CODE-ID/) + titulek z textu odkazu + cena z následujícího textu.
-   */
   private realityListingLinkParser(html: string): Array<Record<string, unknown>> {
     const items: Array<Record<string, unknown>> = [];
     const re =
@@ -203,7 +438,8 @@ export class RealityCzScraperImporter {
       const title = stripTags(m[2]).replace(/\s+/g, ' ').trim();
       if (title.length < 8) continue;
       const tail = html.slice(m.index, Math.min(html.length, m.index + 3500));
-      const priceText = extractFirstPriceKc(tail) ?? extractFirstPriceKc(html.slice(m.index, m.index + 8000));
+      const priceText =
+        extractFirstPriceKc(tail) ?? extractFirstPriceKc(html.slice(m.index, m.index + 8000));
       items.push({
         id,
         title,
@@ -231,7 +467,8 @@ export class RealityCzScraperImporter {
         id,
         title: stripTags(text(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i)),
         description: stripTags(text(/<p[^>]*>([\s\S]*?)<\/p>/i)),
-        price: extractFirstPriceKc(cardHtml) ?? text(/(\d[\d\s\u00a0]*)\s*(?:Kč|CZK)/i),
+        price:
+          extractFirstPriceKc(cardHtml) ?? text(/(\d[\d\s\u00a0]*)\s*(?:Kč|CZK)/i),
         city: stripTags(
           text(/<span[^>]*class=["'][^"']*locality[^"']*["'][^>]*>([\s\S]*?)<\/span>/i),
         ),
