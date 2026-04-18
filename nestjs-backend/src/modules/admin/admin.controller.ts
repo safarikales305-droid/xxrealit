@@ -10,6 +10,7 @@ import {
   UseGuards,
   ValidationPipe,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -233,7 +234,17 @@ export class AdminController {
     @Param('id') id: string,
     @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: UpdateImportSourceDto,
   ) {
-    return this.adminService.updateImportSource(id, dto);
+    return this.adminService.updateImportSource(id, {
+      ...dto,
+      credentialsJson:
+        dto.credentialsJson === undefined
+          ? undefined
+          : (dto.credentialsJson as Prisma.InputJsonValue | null),
+      settingsJson:
+        dto.settingsJson === undefined
+          ? undefined
+          : (dto.settingsJson as Prisma.InputJsonValue | null),
+    });
   }
 
   @Post('import-sources/:id/run')

@@ -18,8 +18,8 @@ type ImportSourcePatch = {
   intervalMinutes?: number;
   limitPerRun?: number;
   endpointUrl?: string | null;
-  credentialsJson?: Record<string, unknown> | null;
-  settingsJson?: Record<string, unknown> | null;
+  credentialsJson?: Prisma.InputJsonValue | null;
+  settingsJson?: Prisma.InputJsonValue | null;
 };
 
 @Injectable()
@@ -116,8 +116,12 @@ export class ImportSyncService {
     if (typeof patch.intervalMinutes === 'number') data.intervalMinutes = Math.max(1, Math.trunc(patch.intervalMinutes));
     if (typeof patch.limitPerRun === 'number') data.limitPerRun = Math.max(1, Math.trunc(patch.limitPerRun));
     if (patch.endpointUrl !== undefined) data.endpointUrl = patch.endpointUrl ? patch.endpointUrl.trim() : null;
-    if (patch.credentialsJson !== undefined) data.credentialsJson = patch.credentialsJson;
-    if (patch.settingsJson !== undefined) data.settingsJson = patch.settingsJson;
+    if (patch.credentialsJson !== undefined) {
+      data.credentialsJson = patch.credentialsJson ?? Prisma.JsonNull;
+    }
+    if (patch.settingsJson !== undefined) {
+      data.settingsJson = patch.settingsJson ?? Prisma.JsonNull;
+    }
     return this.prisma.importSource.update({ where: { id: sourceId }, data });
   }
 

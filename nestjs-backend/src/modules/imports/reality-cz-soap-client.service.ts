@@ -103,36 +103,37 @@ export class RealityCzSoapClientService {
 
   private parseListings(xml: string): ImportedListingDraft[] {
     const listingBlocks = xmlTags(xml, 'listing');
-    return listingBlocks
-      .map((block) => {
-        const externalId = xmlTag(block, 'externalId') || xmlTag(block, 'id');
-        if (!externalId) return null;
-        const title = xmlTag(block, 'title') || 'Importovaný inzerát';
-        const description = xmlTag(block, 'description') || title;
-        const priceRaw = xmlTag(block, 'price').replace(/[^\d]/g, '');
-        const price = Math.max(1, Number.parseInt(priceRaw || '0', 10) || 1);
-        const city = xmlTag(block, 'city') || xmlTag(block, 'locality') || 'Neznámé město';
-        const address = xmlTag(block, 'address');
-        const sourceUrl = xmlTag(block, 'url');
-        const offerType = xmlTag(block, 'offerType') || 'prodej';
-        const propertyType = xmlTag(block, 'propertyType') || 'byt';
-        const images = xmlTags(block, 'image').filter((x) => /^https?:\/\//i.test(x));
-        const videoUrl = xmlTag(block, 'videoUrl') || null;
-        return {
-          externalId,
-          title: title.slice(0, 250),
-          description: description.slice(0, 10_000),
-          price,
-          city: city.slice(0, 120),
-          address: address.slice(0, 240),
-          images: images.slice(0, 40),
-          videoUrl,
-          offerType,
-          propertyType,
-          sourceUrl,
-        } satisfies ImportedListingDraft;
-      })
-      .filter((x): x is ImportedListingDraft => Boolean(x));
+    const out: ImportedListingDraft[] = [];
+    for (const block of listingBlocks) {
+      const externalId = xmlTag(block, 'externalId') || xmlTag(block, 'id');
+      if (!externalId) continue;
+      const title = xmlTag(block, 'title') || 'Importovaný inzerát';
+      const description = xmlTag(block, 'description') || title;
+      const priceRaw = xmlTag(block, 'price').replace(/[^\d]/g, '');
+      const price = Math.max(1, Number.parseInt(priceRaw || '0', 10) || 1);
+      const city = xmlTag(block, 'city') || xmlTag(block, 'locality') || 'Neznámé město';
+      const address = xmlTag(block, 'address').slice(0, 240);
+      const sourceUrl = xmlTag(block, 'url').trim();
+      const offerType = xmlTag(block, 'offerType') || 'prodej';
+      const propertyType = xmlTag(block, 'propertyType') || 'byt';
+      const images = xmlTags(block, 'image').filter((x) => /^https?:\/\//i.test(x));
+      const videoUrl = xmlTag(block, 'videoUrl') || null;
+      const draft: ImportedListingDraft = {
+        externalId,
+        title: title.slice(0, 250),
+        description: description.slice(0, 10_000),
+        price,
+        city: city.slice(0, 120),
+        images: images.slice(0, 40),
+        videoUrl,
+        offerType,
+        propertyType,
+      };
+      if (address) draft.address = address;
+      if (/^https?:\/\//i.test(sourceUrl)) draft.sourceUrl = sourceUrl;
+      out.push(draft);
+    }
+    return out;
   }
 }
 

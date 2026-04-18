@@ -15,6 +15,22 @@ export type ImportedListingDraft = {
   attributes?: Record<string, unknown>;
 };
 
+/** Syrový input ze scraperu/API parseru – může být nekompletní. */
+export type RawImportedListing = {
+  externalId?: unknown;
+  title?: unknown;
+  description?: unknown;
+  price?: unknown;
+  city?: unknown;
+  address?: unknown;
+  images?: unknown;
+  videoUrl?: unknown;
+  offerType?: unknown;
+  propertyType?: unknown;
+  sourceUrl?: unknown;
+  attributes?: unknown;
+};
+
 export type ImportRunResult = {
   importedNew: number;
   importedUpdated: number;

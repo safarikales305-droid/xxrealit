@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { ImportedListingDraft } from './import-types';
+import type { ImportedListingDraft, RawImportedListing } from './import-types';
 
 type ScraperFetchResult = {
   body: string;
@@ -101,44 +101,91 @@ export class RealityCzScraperImporter {
   private normalizer(rows: Array<Record<string, unknown>>, limit: number): ImportedListingDraft[] {
     const out: ImportedListingDraft[] = [];
     for (const row of rows) {
-      const ext = String(row.externalId ?? row.id ?? row.listingId ?? '').trim();
-      if (!ext) continue;
-      const priceRaw = String(row.price ?? '').replace(/[^\d]/g, '');
-      const price = Math.max(1, Number.parseInt(priceRaw || '0', 10) || 1);
-      const title = String(row.title ?? row.name ?? 'Importovaný inzerát').trim();
-      const description = String(row.description ?? row.text ?? title).trim();
-      const city = String(row.city ?? row.locality ?? 'Neznámé město').trim();
-      const address = String(row.address ?? '').trim();
-      const imagesRaw = Array.isArray(row.images) ? row.images : [row.image ?? row.thumbnail];
-      const images = imagesRaw
-        .filter((x): x is string => typeof x === 'string' && /^https?:\/\//i.test(x))
-        .slice(0, 40);
-      const videoUrl =
-        typeof row.videoUrl === 'string' && /^https?:\/\//i.test(row.videoUrl) ? row.videoUrl : null;
-      out.push({
-        externalId: ext,
-        title: title.slice(0, 250),
-        description: description.slice(0, 10_000),
-        price,
-        city: city.slice(0, 120),
-        address: address.slice(0, 240),
-        images,
-        videoUrl,
-        offerType: String(row.offerType ?? 'prodej').trim() || 'prodej',
-        propertyType: String(row.propertyType ?? 'byt').trim() || 'byt',
-        sourceUrl: typeof row.url === 'string' ? row.url : undefined,
+      const normalized = this.normalizeRawRow({
+        externalId: row.externalId ?? row.id ?? row.listingId,
+        title: row.title ?? row.name,
+        description: row.description ?? row.text,
+        price: row.price,
+        city: row.city ?? row.locality,
+        address: row.address,
+        images: Array.isArray(row.images) ? row.images : [row.image ?? row.thumbnail],
+        videoUrl: row.videoUrl,
+        offerType: row.offerType,
+        propertyType: row.propertyType,
+        sourceUrl: row.url,
         attributes: {
           area: row.area ?? null,
           landArea: row.landArea ?? null,
           rooms: row.rooms ?? null,
         },
       });
+      if (!normalized) {
+        continue;
+      }
+      out.push(normalized);
       if (out.length >= Math.max(1, Math.min(500, Math.trunc(limit || 100)))) break;
     }
     if (out.length === 0) {
       this.logger.warn('Reality.cz scraper returned zero normalized rows.');
     }
     return out;
+  }
+
+  private normalizeRawRow(raw: RawImportedListing): ImportedListingDraft | null {
+    const externalId = String(raw.externalId ?? '').trim();
+    const title = String(raw.title ?? '').trim();
+    const description = String(raw.description ?? title).trim();
+    const city = String(raw.city ?? '').trim();
+    const priceRaw = String(raw.price ?? '').replace(/[^\d]/g, '');
+    const parsedPrice = Number.parseInt(priceRaw || '0', 10);
+    const price = Number.isFinite(parsedPrice) ? Math.max(1, parsedPrice) : 0;
+
+    const missing: string[] = [];
+    if (!externalId) missing.push('externalId');
+    if (!title) missing.push('title');
+    if (!city) missing.push('city');
+    if (!Number.isFinite(price) || price <= 0) missing.push('price');
+    if (missing.length > 0) {
+      this.logger.warn(
+        `Skipping scraper row due to missing/invalid fields: ${missing.join(', ')} (id=${externalId || 'n/a'})`,
+      );
+      return null;
+    }
+
+    const imagesRaw = Array.isArray(raw.images) ? raw.images : [];
+    const images = imagesRaw
+      .filter((x): x is string => typeof x === 'string' && /^https?:\/\//i.test(x))
+      .slice(0, 40);
+    const videoUrl =
+      typeof raw.videoUrl === 'string' && /^https?:\/\//i.test(raw.videoUrl)
+        ? raw.videoUrl.trim()
+        : null;
+    const draft: ImportedListingDraft = {
+      externalId,
+      title: title.slice(0, 250),
+      description: description.slice(0, 10_000),
+      price,
+      city: city.slice(0, 120),
+      images,
+      offerType:
+        (typeof raw.offerType === 'string' ? raw.offerType : '').trim() || 'prodej',
+      propertyType:
+        (typeof raw.propertyType === 'string' ? raw.propertyType : '').trim() || 'byt',
+      attributes:
+        raw.attributes && typeof raw.attributes === 'object'
+          ? (raw.attributes as Record<string, unknown>)
+          : undefined,
+    };
+
+    const address =
+      (typeof raw.address === 'string' ? raw.address : '').trim().slice(0, 240) || '';
+    if (address) draft.address = address;
+    if (videoUrl) draft.videoUrl = videoUrl;
+    const sourceUrl =
+      (typeof raw.sourceUrl === 'string' ? raw.sourceUrl : '').trim();
+    if (/^https?:\/\//i.test(sourceUrl)) draft.sourceUrl = sourceUrl;
+
+    return draft;
   }
 }
 

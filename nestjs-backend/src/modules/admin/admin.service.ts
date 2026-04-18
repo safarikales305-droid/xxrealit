@@ -715,8 +715,8 @@ export class AdminService {
     intervalMinutes?: number;
     limitPerRun?: number;
     endpointUrl?: string | null;
-    credentialsJson?: Record<string, unknown> | null;
-    settingsJson?: Record<string, unknown> | null;
+    credentialsJson?: Prisma.InputJsonValue | null;
+    settingsJson?: Prisma.InputJsonValue | null;
   }) {
     return this.importSync.updateSource(sourceId, patch);
   }
