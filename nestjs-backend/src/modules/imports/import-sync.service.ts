@@ -182,7 +182,6 @@ function defaultRealityScraperSettingsJson(startUrl: string): Prisma.InputJsonOb
     scraperBackoffMultiplier: 2,
     scraperBaseBackoffMsOn429: 12_000,
     scraperMaxDetailFetchesPerRun: 200,
-    scraperDetailConcurrency: 2,
   };
 }
 
