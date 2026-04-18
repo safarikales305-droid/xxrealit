@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, UserRole } from '@prisma/client';
@@ -27,6 +28,8 @@ import { ShortsListingService } from './shorts-listing.service';
 
 @Injectable()
 export class PropertiesService {
+  private readonly log = new Logger(PropertiesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly propertyMediaCloudinary: PropertyMediaCloudinaryService,
@@ -66,9 +69,22 @@ export class PropertiesService {
       include: socialInclude(viewerId),
     });
     const withVideoUrl = rows.filter((r) => (r.videoUrl ?? '').trim().length > 0).length;
-    console.log(
-      `[PropertiesService.findAllPublic] classicApprovedRows=${rows.length} nonEmptyVideoUrl=${withVideoUrl}`,
+    this.log.log(
+      `[findAllPublic] classicPublicRows=${rows.length} nonEmptyVideoUrl=${withVideoUrl}`,
     );
+    if (process.env.CLASSIC_FEED_IMPORT_DEBUG === '1') {
+      const importedAny = await this.prisma.property.count({
+        where: { importSource: { not: null }, deletedAt: null },
+      });
+      const importedInClassicFeed = await this.prisma.property.count({
+        where: {
+          AND: [{ importSource: { not: null } }, classicPublicListingWhere],
+        },
+      });
+      this.log.warn(
+        `[findAllPublic][CLASSIC_FEED_IMPORT_DEBUG] importovaných v DB (nesmazané)=${importedAny} z toho v Klasik veřejném where=${importedInClassicFeed}`,
+      );
+    }
     return rows.map((r) =>
       serializeProperty(
         { ...r, likes: 'likes' in r ? r.likes : [] },

@@ -28,7 +28,14 @@ export const classicListingWhere: Prisma.PropertyWhereInput = {
 
 /** Klasické inzeráty veřejně viditelné (feed / GET /properties). */
 export const classicPublicListingWhere: Prisma.PropertyWhereInput = {
-  AND: [classicListingWhere, approvedAndVisible],
+  AND: [
+    classicListingWhere,
+    approvedAndVisible,
+    /** Klasik výpis = explicitně CLASSIC (SHORTS patří do shorts feedu). */
+    { listingType: 'CLASSIC' },
+    /** Ručně vypnutý import — i kdyby zůstalo isActive true, neveřejný výpis. */
+    { importDisabled: false },
+  ],
 };
 
 /** Všechny schválené živé inzeráty (shorts i klasik) — veřejný profil makléře. */

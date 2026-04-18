@@ -4,6 +4,48 @@ import {
   ListingImportPortal,
   Prisma,
 } from '@prisma/client';
+
+/** Jen skutečná http(s) videa — relativní cesty z SOAP apod. nesmí vyřadit inzerát z Klasik feedu. */
+function normalizeImportVideoUrl(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  if (!t) return null;
+  if (!/^https?:\/\//i.test(t)) return null;
+  return t;
+}
+
+/**
+ * Reality.cz má často tour / embed odkazy — veřejný „Klasik“ výpis je vždy CLASSIC bez Property.videoUrl.
+ */
+function resolveImportedListingVideoAndType(
+  portal: ListingImportPortal,
+  rowVideo: string | null | undefined,
+): { videoUrl: string | null; listingType: 'CLASSIC' | 'SHORTS' } {
+  if (portal === ListingImportPortal.reality_cz) {
+    return { videoUrl: null, listingType: 'CLASSIC' };
+  }
+  const videoUrl = normalizeImportVideoUrl(rowVideo);
+  return {
+    videoUrl,
+    listingType: videoUrl ? 'SHORTS' : 'CLASSIC',
+  };
+}
+
+function resolveVideoForImportUpdate(
+  portal: ListingImportPortal,
+  rowVideo: string | null | undefined,
+  existingVideo: string | null | undefined,
+): { videoUrl: string | null; listingType: 'CLASSIC' | 'SHORTS' } {
+  if (portal === ListingImportPortal.reality_cz) {
+    return { videoUrl: null, listingType: 'CLASSIC' };
+  }
+  if (rowVideo !== undefined) {
+    const videoUrl = normalizeImportVideoUrl(rowVideo);
+    return { videoUrl, listingType: videoUrl ? 'SHORTS' : 'CLASSIC' };
+  }
+  const videoUrl = normalizeImportVideoUrl(existingVideo);
+  return { videoUrl, listingType: videoUrl ? 'SHORTS' : 'CLASSIC' };
+}
 import { PrismaService } from '../../database/prisma.service';
 import type {
   ImportExecutionContext,
@@ -424,6 +466,30 @@ export class ImportSyncService {
       rows.slice(0, Math.max(1, Math.min(500, ctx.limitPerRun))),
     );
 
+    if (ctx.portal === ListingImportPortal.reality_cz) {
+      const healed = await this.prisma.property.updateMany({
+        where: {
+          importSource: ListingImportPortal.reality_cz,
+          OR: [{ listingType: { not: 'CLASSIC' } }, { videoUrl: { not: null } }],
+        },
+        data: { listingType: 'CLASSIC', videoUrl: null },
+      });
+      if (healed.count > 0) {
+        this.logger.log(
+          `Reality.cz heal: ${healed.count} importovaných záznamů přepnuto na CLASSIC a videoUrl vymazáno (Klasik feed).`,
+        );
+      }
+    }
+
+    const createdDiagnostics: Array<{
+      id: string;
+      externalId: string;
+      listingType: string;
+      approved: boolean;
+      isActive: boolean;
+      importDisabled: boolean;
+    }> = [];
+
     for (const row of batch) {
       try {
         const externalId = row.externalId.trim().toUpperCase();
@@ -443,7 +509,11 @@ export class ImportSyncService {
           },
         });
         if (!existing) {
-          await this.prisma.property.create({
+          const { videoUrl, listingType } = resolveImportedListingVideoAndType(
+            ctx.portal,
+            row.videoUrl,
+          );
+          const created = await this.prisma.property.create({
             data: {
               userId: actorUserId,
               title: row.title,
@@ -456,14 +526,14 @@ export class ImportSyncService {
               propertyType: row.propertyType?.trim() || 'byt',
               subType: '',
               images: row.images,
-              videoUrl: row.videoUrl?.trim() || null,
+              videoUrl,
               contactName: 'Reality.cz import',
               contactPhone: '',
               contactEmail: '',
               approved: true,
               status: 'APPROVED',
               isActive: true,
-              listingType: row.videoUrl ? 'SHORTS' : 'CLASSIC',
+              listingType,
               importSource: ctx.portal,
               importMethod: ctx.method,
               importExternalId: externalId,
@@ -472,6 +542,14 @@ export class ImportSyncService {
               lastSyncedAt: new Date(),
               importDisabled: false,
             },
+          });
+          createdDiagnostics.push({
+            id: created.id,
+            externalId,
+            listingType: created.listingType,
+            approved: created.approved,
+            isActive: created.isActive,
+            importDisabled: created.importDisabled,
           });
           importedNew += 1;
           // eslint-disable-next-line no-console
@@ -486,6 +564,11 @@ export class ImportSyncService {
           continue;
         }
 
+        const { videoUrl, listingType } = resolveVideoForImportUpdate(
+          ctx.portal,
+          row.videoUrl,
+          existing.videoUrl,
+        );
         await this.prisma.property.update({
           where: { id: existing.id },
           data: {
@@ -497,8 +580,8 @@ export class ImportSyncService {
             offerType: row.offerType?.trim() || existing.offerType,
             propertyType: row.propertyType?.trim() || existing.propertyType,
             images: row.images.length > 0 ? row.images : existing.images,
-            videoUrl: row.videoUrl?.trim() || existing.videoUrl,
-            listingType: row.videoUrl ? 'SHORTS' : existing.listingType,
+            videoUrl,
+            listingType,
             importSourceUrl: row.sourceUrl?.trim() || existing.importSourceUrl,
             lastSyncedAt: new Date(),
           },
@@ -518,6 +601,13 @@ export class ImportSyncService {
           error instanceof Error ? error.message : error,
         );
       }
+    }
+
+    if (createdDiagnostics.length > 0) {
+      const preview = createdDiagnostics.slice(0, 30);
+      this.logger.log(
+        `Import: vytvořené listingy (${createdDiagnostics.length}) — ukázka: ${JSON.stringify(preview)}`,
+      );
     }
 
     return { importedNew, importedUpdated, skipped, disabled, errors };

@@ -88,6 +88,20 @@ export class FeedService {
       },
     });
 
+    if (process.env.CLASSIC_FEED_IMPORT_DEBUG === '1') {
+      const importedAny = await this.prisma.property.count({
+        where: { importSource: { not: null }, deletedAt: null },
+      });
+      const importedInClassicFeed = await this.prisma.property.count({
+        where: {
+          AND: [{ importSource: { not: null } }, classicPublicListingWhere],
+        },
+      });
+      this.log.warn(
+        `[getPersonalizedForUser][CLASSIC_FEED_IMPORT_DEBUG] importovaných v DB (nesmazané)=${importedAny} z toho v Klasik veřejném where=${importedInClassicFeed} vráceno řádků=${rows.length}`,
+      );
+    }
+
     const scored = rows.map((p) => ({
       row: p,
       score: scoreProperty(p, viewer.city, followingIds, refPrice),
