@@ -26,6 +26,14 @@ export default function MojeInzeratyPage() {
 
   const hasAuth = Boolean(isAuthenticated && apiAccessToken);
 
+  function formatListingPriceValue(price: number | null | undefined, currency?: string | null): string {
+    if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) {
+      return 'Cena na dotaz';
+    }
+    const unit = (currency ?? 'Kč').trim() || 'Kč';
+    return `${new Intl.NumberFormat('cs-CZ').format(price)} ${unit}`;
+  }
+
   async function loadMyListings() {
     if (!apiAccessToken) {
       setItems([]);
@@ -158,7 +166,7 @@ export default function MojeInzeratyPage() {
                     </p>
                     <h2 className="mt-1 text-lg font-semibold leading-snug text-zinc-900">{item.title}</h2>
                     <p className="mt-1 text-sm font-semibold text-[#e85d00]">
-                      {Number(item.price ?? 0).toLocaleString('cs-CZ')} {item.currency ?? 'Kč'}
+                      {formatListingPriceValue(item.price, item.currency)}
                     </p>
                     <p className="mt-1 text-sm text-zinc-600">
                       {item.city}

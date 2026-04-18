@@ -8,6 +8,7 @@ import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { nestFetchPostDetail, type ListingPost } from '@/lib/nest-client';
+import { formatListingPrice } from '@/types/property';
 
 export default function PrispevekDetailPage() {
   const router = useRouter();
@@ -138,7 +139,7 @@ export default function PrispevekDetailPage() {
               <>
                 <p className="mt-1 text-xl font-bold text-zinc-900">
                   <span className={!isAuthenticated ? 'blur-sm' : ''}>
-                    {Number(post.price ?? 0).toLocaleString('cs-CZ')} Kč
+                    {formatListingPrice(post.price)}
                   </span>
                 </p>
                 <p className="mt-1 text-sm text-zinc-600">{post.city}</p>

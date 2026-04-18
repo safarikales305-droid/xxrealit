@@ -7,6 +7,7 @@ import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import type { ListingPost, PostComment } from '@/lib/nest-client';
+import { formatListingPrice } from '@/types/property';
 
 export type CommunityPostCardProps = {
   post: ListingPost;
@@ -199,7 +200,7 @@ export function CommunityPostCard({
                 <p className="text-sm">{String(p.title ?? '')}</p>
                 <p className="text-lg font-bold">
                   <span className={!isAuthenticated ? 'blur-sm' : ''}>
-                    {Number(p.price ?? 0).toLocaleString('cs-CZ')} Kč
+                    {formatListingPrice(p.price)}
                   </span>
                 </p>
                 <p className="text-xs">{String(p.city ?? '')}</p>

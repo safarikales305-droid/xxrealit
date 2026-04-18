@@ -33,7 +33,7 @@ export function getPersonalizedFeed(
     if (p.userId && following.has(p.userId)) s += 100;
     if (uc && norm(p.location).includes(uc)) s += 25;
     if (p.ownerCity && uc && norm(p.ownerCity) === uc) s += 15;
-    if (ref > 0) {
+    if (ref > 0 && p.price != null && p.price > 0) {
       const ratio = p.price / ref;
       if (ratio >= 0.65 && ratio <= 1.35) s += 25;
     }
