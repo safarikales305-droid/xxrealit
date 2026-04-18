@@ -19,6 +19,8 @@ import { PatchBrokerReviewVisibilityDto } from './dto/patch-broker-review-visibi
 import { PatchPremiumBrokerDto } from './dto/patch-premium-broker.dto';
 import { PatchUserCreditDto } from './dto/patch-user-credit.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
+import { UpdateImportSourceDto } from './dto/update-import-source.dto';
+import { BulkDisableImportedDto } from './dto/bulk-disable-imported.dto';
 import { AdminGuard } from './guards/admin.guard';
 import { AgentProfileService } from '../agent-profile/agent-profile.service';
 
@@ -70,6 +72,8 @@ export class AdminController {
     @Query('status') status?: string,
     @Query('userId') userId?: string,
     @Query('city') city?: string,
+    @Query('source') source?: string,
+    @Query('importMethod') importMethod?: string,
     @Query('createdFrom') createdFrom?: string,
     @Query('createdTo') createdTo?: string,
   ) {
@@ -79,6 +83,8 @@ export class AdminController {
       status,
       userId,
       city,
+      source,
+      importMethod,
       createdFrom,
       createdTo,
     });
@@ -215,6 +221,39 @@ export class AdminController {
       user.id,
       typeof body.url === 'string' ? body.url : '',
     );
+  }
+
+  @Get('import-sources')
+  listImportSources() {
+    return this.adminService.listImportSources();
+  }
+
+  @Patch('import-sources/:id')
+  updateImportSource(
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: UpdateImportSourceDto,
+  ) {
+    return this.adminService.updateImportSource(id, dto);
+  }
+
+  @Post('import-sources/:id/run')
+  runImportSource(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.adminService.runImportSource(id, user.id);
+  }
+
+  @Get('import-logs')
+  listImportLogs(@Query('sourceId') sourceId?: string) {
+    return this.adminService.listImportLogs(typeof sourceId === 'string' ? sourceId : undefined);
+  }
+
+  @Post('import-disable/bulk')
+  bulkDisableImported(
+    @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: BulkDisableImportedDto,
+  ) {
+    return this.adminService.bulkDisableImportedListings({
+      source: dto.source,
+      method: dto.method,
+    });
   }
 
   @Patch('password')

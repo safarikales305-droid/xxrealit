@@ -3,10 +3,13 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsArray,
   IsOptional,
   IsString,
   MaxLength,
   Min,
+  ArrayMaxSize,
+  IsUrl,
 } from 'class-validator';
 
 export class AdminUpdatePropertyDto {
@@ -25,6 +28,11 @@ export class AdminUpdatePropertyDto {
   @IsString()
   @MaxLength(200)
   city?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
+  description?: string;
 
   @IsOptional()
   @IsBoolean()
@@ -51,6 +59,16 @@ export class AdminUpdatePropertyDto {
   @IsOptional()
   @IsBoolean()
   restore?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  importDisabled?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(80)
+  @IsUrl({ require_tld: false }, { each: true })
+  images?: string[];
 
   @IsOptional()
   @Type(() => Number)

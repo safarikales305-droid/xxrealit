@@ -334,6 +334,12 @@ export default function AdminPage() {
               Všechny inzeráty
             </Link>
             <Link
+              href="/admin/importy"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Importy
+            </Link>
+            <Link
               href="/admin/hudba"
               className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >

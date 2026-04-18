@@ -61,6 +61,13 @@ export type PropertyRowForApi = {
   district?: string;
   derivedFromPropertyId?: string | null;
   publishedAt?: Date | null;
+  importSource?: string | null;
+  importMethod?: string | null;
+  importExternalId?: string | null;
+  importSourceUrl?: string | null;
+  importedAt?: Date | null;
+  lastSyncedAt?: Date | null;
+  importDisabled?: boolean;
   createdAt: Date;
   userId: string;
   user: { id: string; city: string | null };
@@ -236,5 +243,12 @@ export function serializeProperty(
     autoViewsIntervalMinutes: Math.max(0, Math.trunc(p.autoViewsIntervalMinutes ?? 0)),
     lastAutoViewsAt: p.lastAutoViewsAt ? p.lastAutoViewsAt.toISOString() : null,
     derivedFromPropertyId: p.derivedFromPropertyId ?? null,
+    importSource: p.importSource ?? null,
+    importMethod: p.importMethod ?? null,
+    importExternalId: p.importExternalId ?? null,
+    importSourceUrl: p.importSourceUrl ?? null,
+    importedAt: p.importedAt ? p.importedAt.toISOString() : null,
+    lastSyncedAt: p.lastSyncedAt ? p.lastSyncedAt.toISOString() : null,
+    importDisabled: Boolean(p.importDisabled),
   };
 }

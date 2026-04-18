@@ -4,7 +4,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { Prisma, UserRole } from '@prisma/client';
+import { ListingImportMethod, ListingImportPortal, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { AdminUpdatePropertyDto } from './dto/admin-update-property.dto';
 import {
@@ -18,6 +18,7 @@ import {
 } from './rapid-realty-import';
 import { OwnerListingNotifyService } from '../premium-broker/owner-listing-notify.service';
 import { parseStringPromise } from 'xml2js';
+import { ImportSyncService } from '../imports/import-sync.service';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bcrypt = require('bcrypt');
@@ -121,6 +122,7 @@ export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ownerListingNotify: OwnerListingNotifyService,
+    private readonly importSync: ImportSyncService,
   ) {}
 
   async stats() {
@@ -211,6 +213,8 @@ export class AdminService {
     status?: string;
     userId?: string;
     city?: string;
+    source?: string;
+    importMethod?: string;
     createdFrom?: string;
     createdTo?: string;
   }) {
@@ -240,6 +244,18 @@ export class AdminService {
     const cityQ = filters.city?.trim();
     if (cityQ) {
       parts.push({ city: { contains: cityQ, mode: 'insensitive' } });
+    }
+    const sourceQ = (filters.source ?? '').trim().toLowerCase();
+    if (sourceQ) {
+      if (Object.values(ListingImportPortal).includes(sourceQ as ListingImportPortal)) {
+        parts.push({ importSource: sourceQ as ListingImportPortal });
+      }
+    }
+    const methodQ = (filters.importMethod ?? '').trim().toLowerCase();
+    if (methodQ) {
+      if (Object.values(ListingImportMethod).includes(methodQ as ListingImportMethod)) {
+        parts.push({ importMethod: methodQ as ListingImportMethod });
+      }
     }
 
     const cf = filters.createdFrom?.trim()
@@ -329,6 +345,12 @@ export class AdminService {
     if (dto.city !== undefined) {
       data.city = dto.city.trim();
     }
+    if (dto.description !== undefined) {
+      data.description = dto.description.trim();
+    }
+    if (dto.images !== undefined) {
+      data.images = dto.images.map((x) => x.trim()).filter((x) => x.length > 0);
+    }
     if (dto.isActive !== undefined) {
       data.isActive = dto.isActive;
     }
@@ -389,6 +411,12 @@ export class AdminService {
     }
     if (dto.restore === true) {
       data.deletedAt = null;
+    }
+    if (dto.importDisabled !== undefined) {
+      data.importDisabled = dto.importDisabled;
+      if (dto.importDisabled) {
+        data.isActive = false;
+      }
     }
 
     if (Object.keys(data).length === 0) {
@@ -676,6 +704,36 @@ export class AdminService {
     }
 
     return { imported };
+  }
+
+  async listImportSources() {
+    return this.importSync.listSources();
+  }
+
+  async updateImportSource(sourceId: string, patch: {
+    enabled?: boolean;
+    intervalMinutes?: number;
+    limitPerRun?: number;
+    endpointUrl?: string | null;
+    credentialsJson?: Record<string, unknown> | null;
+    settingsJson?: Record<string, unknown> | null;
+  }) {
+    return this.importSync.updateSource(sourceId, patch);
+  }
+
+  async runImportSource(sourceId: string, actorUserId: string) {
+    return this.importSync.runSource(sourceId, actorUserId);
+  }
+
+  async listImportLogs(sourceId?: string) {
+    return this.importSync.listLogs(sourceId);
+  }
+
+  async bulkDisableImportedListings(filter: {
+    source?: ListingImportPortal;
+    method?: ListingImportMethod;
+  }) {
+    return this.importSync.bulkDisableByFilter(filter);
   }
 
   async updateUserRole(_actorId: string, targetId: string, newRole: UserRole) {

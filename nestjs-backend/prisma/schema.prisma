@@ -70,6 +70,21 @@ enum EmailCampaignStatus {
   failed
 }
 
+enum ListingImportMethod {
+  soap
+  scraper
+  xml
+  csv
+  other
+}
+
+enum ListingImportPortal {
+  reality_cz
+  xml_feed
+  csv_feed
+  other
+}
+
 model User {
   id           String     @id @default(uuid())
   email        String     @unique
@@ -560,6 +575,16 @@ model Property {
   derivedFromProperty   Property?  @relation("PropertyShortsDerivation", fields: [derivedFromPropertyId], references: [id], onDelete: SetNull)
   shortsDerivedFromThis Property[] @relation("PropertyShortsDerivation")
 
+  /// Integrace importu inzerátů (Reality.cz SOAP/Scraper/XML/CSV...).
+  importSource     ListingImportPortal?
+  importMethod     ListingImportMethod?
+  importExternalId String?
+  importSourceUrl  String?
+  importedAt       DateTime?
+  lastSyncedAt     DateTime?
+  /// Ručně vypnutý importovaný inzerát – synchronizace ho znovu neaktivuje.
+  importDisabled   Boolean @default(false)
+
   /// Čas zveřejnění shorts (řazení feedu); klasické inzeráty mohou mít null.
   publishedAt DateTime?
 
@@ -581,6 +606,50 @@ model Property {
   @@index([deletedAt, isActive, approved])
   @@index([isOwnerListing, createdAt])
   @@index([listingType, publishedAt])
+  @@index([importSource, importMethod])
+  @@index([importExternalId, importSource])
+  @@unique([importSource, importExternalId], map: "property_import_source_external_uq")
+}
+
+model ImportSource {
+  id             String             @id @default(cuid())
+  portal         ListingImportPortal
+  method         ListingImportMethod
+  name           String
+  enabled        Boolean            @default(false)
+  intervalMinutes Int               @default(60)
+  limitPerRun    Int                @default(100)
+  endpointUrl    String?
+  credentialsJson Json?
+  settingsJson   Json?
+  lastRunAt      DateTime?
+  lastStatus     String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  logs           ImportLog[]
+
+  @@unique([portal, method], map: "import_source_portal_method_uq")
+  @@index([enabled, updatedAt])
+}
+
+model ImportLog {
+  id             String             @id @default(cuid())
+  sourceId       String
+  portal         ListingImportPortal
+  method         ListingImportMethod
+  status         String
+  message        String?
+  importedNew    Int                @default(0)
+  importedUpdated Int               @default(0)
+  skipped        Int                @default(0)
+  disabled       Int                @default(0)
+  error          String?
+  payloadJson    Json?
+  createdAt      DateTime           @default(now())
+  source         ImportSource       @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId, createdAt])
+  @@index([portal, method, createdAt])
 }
 
 model ShortsListing {

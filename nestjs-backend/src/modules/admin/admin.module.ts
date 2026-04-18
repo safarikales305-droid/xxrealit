@@ -4,9 +4,10 @@ import { AdminController } from './admin.controller';
 import { AdminSeedService } from './admin-seed.service';
 import { AdminService } from './admin.service';
 import { AgentProfileModule } from '../agent-profile/agent-profile.module';
+import { ImportsModule } from '../imports/imports.module';
 
 @Module({
-  imports: [AuthModule, AgentProfileModule],
+  imports: [AuthModule, AgentProfileModule, ImportsModule],
   controllers: [AdminController],
   providers: [AdminService, AdminSeedService],
 })

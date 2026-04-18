@@ -94,6 +94,8 @@ export default function AdminListingsPage() {
   const [editTitle, setEditTitle] = useState('');
   const [editPrice, setEditPrice] = useState('');
   const [editCity, setEditCity] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editImagesRaw, setEditImagesRaw] = useState('');
   const [editActiveFrom, setEditActiveFrom] = useState('');
   const [editActiveUntil, setEditActiveUntil] = useState('');
   const [editListingType, setEditListingType] = useState<'SHORTS' | 'CLASSIC'>('CLASSIC');
@@ -103,6 +105,7 @@ export default function AdminListingsPage() {
   const [editAutoViewsEnabled, setEditAutoViewsEnabled] = useState(false);
   const [editAutoViewsIncrement, setEditAutoViewsIncrement] = useState('100');
   const [editAutoViewsIntervalMinutes, setEditAutoViewsIntervalMinutes] = useState('1');
+  const [editImportDisabled, setEditImportDisabled] = useState(false);
   const [editMsg, setEditMsg] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -151,6 +154,8 @@ export default function AdminListingsPage() {
     setEditTitle((r.title ?? '').trim());
     setEditPrice(String(r.price ?? ''));
     setEditCity((r.city ?? r.location ?? '').trim());
+    setEditDescription(String(r.description ?? '').trim());
+    setEditImagesRaw(Array.isArray(r.images) ? r.images.join('\n') : '');
     setEditActiveFrom(toInputLocal(r.activeFrom));
     setEditActiveUntil(toInputLocal(r.activeUntil));
     setEditListingType(r.listingType === 'SHORTS' ? 'SHORTS' : 'CLASSIC');
@@ -160,6 +165,7 @@ export default function AdminListingsPage() {
     setEditAutoViewsEnabled(Boolean(r.autoViewsEnabled));
     setEditAutoViewsIncrement(String(Math.max(1, Math.trunc(r.autoViewsIncrement ?? 100))));
     setEditAutoViewsIntervalMinutes(String(Math.max(1, Math.trunc(r.autoViewsIntervalMinutes ?? 1))));
+    setEditImportDisabled(Boolean(r.importDisabled));
     setEditMsg(null);
   }
 
@@ -187,13 +193,19 @@ export default function AdminListingsPage() {
       title: editTitle.trim(),
       price: Number.isFinite(priceNum) && priceNum >= 0 ? priceNum : undefined,
       city: editCity.trim(),
+      description: editDescription.trim(),
       listingType: editListingType,
       approved: editApproved,
       isActive: editIsActive,
+      importDisabled: editImportDisabled,
       viewsCount: viewsNum,
       autoViewsEnabled: editAutoViewsEnabled,
       autoViewsIncrement: autoIncNum,
       autoViewsIntervalMinutes: autoIntNum,
+      images: editImagesRaw
+        .split('\n')
+        .map((x) => x.trim())
+        .filter((x) => x.length > 0),
     };
     if (editActiveFrom.trim()) {
       body.activeFrom = new Date(editActiveFrom).toISOString();
@@ -300,6 +312,12 @@ export default function AdminListingsPage() {
               className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >
               Hudba
+            </Link>
+            <Link
+              href="/admin/importy"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Importy
             </Link>
             <Link href="/" className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100">
               Web
@@ -422,6 +440,7 @@ export default function AdminListingsPage() {
                 <th className="px-3 py-3">Autor</th>
                 <th className="px-3 py-3">Město</th>
                 <th className="px-3 py-3">Cena</th>
+                <th className="px-3 py-3">Zdroj</th>
                 <th className="px-3 py-3">Vytvořeno</th>
                 <th className="px-3 py-3">Views</th>
                 <th className="px-3 py-3">Stav</th>
@@ -462,6 +481,10 @@ export default function AdminListingsPage() {
                       </td>
                       <td className="px-3 py-2">{r.city ?? r.location ?? '—'}</td>
                       <td className="px-3 py-2 tabular-nums">{formatPrice(r.price)}</td>
+                      <td className="px-3 py-2 text-xs text-zinc-600">
+                        {r.importSource ? `${r.importSource}/${r.importMethod ?? '-'}` : 'Lokální'}
+                        {r.importExternalId ? <div className="font-mono text-[10px]">{r.importExternalId}</div> : null}
+                      </td>
                       <td className="px-3 py-2 whitespace-nowrap text-xs text-zinc-600">
                         {formatDt(r.createdAt)}
                       </td>
@@ -590,6 +613,24 @@ export default function AdminListingsPage() {
                 </div>
               </div>
               <div>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">Popis</label>
+                <textarea
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  rows={4}
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-[#ff6a00]/55"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-zinc-700">Fotky (URL, každý řádek)</label>
+                <textarea
+                  value={editImagesRaw}
+                  onChange={(e) => setEditImagesRaw(e.target.value)}
+                  rows={4}
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-xs font-mono outline-none focus:border-[#ff6a00]/55"
+                />
+              </div>
+              <div>
                 <label className="mb-1 block text-sm font-medium text-zinc-700">Typ inzerátu</label>
                 <select
                   value={editListingType}
@@ -616,6 +657,14 @@ export default function AdminListingsPage() {
                     onChange={(e) => setEditIsActive(e.target.checked)}
                   />
                   Aktivní (veřejně zapnuto)
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={editImportDisabled}
+                    onChange={(e) => setEditImportDisabled(e.target.checked)}
+                  />
+                  Ručně vypnuto pro import sync
                 </label>
               </div>
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">

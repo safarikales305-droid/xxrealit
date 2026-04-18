@@ -22,6 +22,7 @@ import { AgentProfileModule } from './modules/agent-profile/agent-profile.module
 import { CompanyAdsModule } from './modules/company-ads/company-ads.module';
 import { EmailsModule } from './modules/emails/emails.module';
 import { StoriesModule } from './modules/stories/stories.module';
+import { ImportsModule } from './modules/imports/imports.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { StoriesModule } from './modules/stories/stories.module';
     CompanyAdsModule,
     EmailsModule,
     StoriesModule,
+    ImportsModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })
