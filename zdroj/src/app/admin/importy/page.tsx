@@ -8,7 +8,7 @@ import {
   nestAdminBulkDisableImported,
   nestAdminImportLogs,
   nestAdminImportSources,
-  nestAdminRunImportSource,
+  nestAdminRunImportSourceStream,
   nestAdminUpdateImportSource,
   type AdminImportLogRow,
   type AdminImportSourceRow,
@@ -77,9 +77,9 @@ function formFromServer(s: AdminImportSourceRow): ImportSourceFormState {
       Math.max(1.25, readSettingsFloat(sj.scraperBackoffMultiplier, 2)),
     ),
     scraperBaseBackoffMsOn429: readSettingsNumber(sj.scraperBaseBackoffMsOn429, 12_000),
-    scraperMaxDetailFetchesPerRun: readSettingsNumber(sj.scraperMaxDetailFetchesPerRun, 0),
+    scraperMaxDetailFetchesPerRun: readSettingsNumber(sj.scraperMaxDetailFetchesPerRun, 15),
     scraperListOnlyImport:
-      typeof sj.scraperListOnlyImport === 'boolean' ? sj.scraperListOnlyImport : true,
+      typeof sj.scraperListOnlyImport === 'boolean' ? sj.scraperListOnlyImport : false,
   };
 }
 
@@ -111,6 +111,10 @@ export default function AdminImportsPage() {
   const [warnMsg, setWarnMsg] = useState<string | null>(null);
   const [bulkSource, setBulkSource] = useState<string>('reality_cz');
   const [bulkMethod, setBulkMethod] = useState<string>('');
+  const [importProgress, setImportProgress] = useState<{
+    percent: number;
+    message: string;
+  } | null>(null);
 
   const bulkMethodOptions = useMemo(
     () => METHODS_FOR_PORTAL[bulkSource] ?? METHODS_FOR_PORTAL.other,
@@ -232,53 +236,69 @@ export default function AdminImportsPage() {
       return;
     }
     setBusyId(sourceId);
+    setImportProgress({ percent: 0, message: 'Spouštím import…' });
     setStatusMsg(null);
     setError(null);
     setWarnMsg(null);
-    const r = await nestAdminRunImportSource(token, sourceId);
-    setBusyId(null);
-    if (!r.ok) {
-      const err = r.error ?? 'Spuštění importu selhalo';
-      if (/429|Too Many Requests|blokuje příliš rychlé/i.test(err)) {
-        setError(
-          'Web Reality.cz blokuje příliš rychlé dotazy (HTTP 429). Zpomalte scraper: zvětšete „Prodleva mezi požadavky (ms)“, případně snižte „Max. detailních stránek na běh“ a nechte zapnuté „Jen výpis (bez detailů)“.',
+    try {
+      const r = await nestAdminRunImportSourceStream(token, sourceId, (ev) => {
+        if (ev.type === 'progress') {
+          setImportProgress({
+            percent: Math.min(100, Math.max(0, Math.round(ev.percent))),
+            message: ev.message || '…',
+          });
+        }
+      });
+      if (!r.ok) {
+        const err = r.error ?? 'Spuštění importu selhalo';
+        if (/429|Too Many Requests|blokuje příliš rychlé/i.test(err)) {
+          setError(
+            'Web Reality.cz blokuje příliš rychlé dotazy (HTTP 429). Zpomalte scraper: zvětšete „Prodleva mezi požadavky (ms)“, případně snižte „Max. detailních stránek na běh“ a případně zapněte „Jen výpis (bez detailů)“.',
+          );
+        } else {
+          setError(err);
+        }
+        setLogFilterSourceId(sourceId);
+        await refresh(sourceId);
+        return;
+      }
+      const n = Number(r.data?.importedNew ?? 0);
+      const u = Number(r.data?.importedUpdated ?? 0);
+      const d = Number(r.data?.disabled ?? 0);
+      const sk = Number(r.data?.skipped ?? 0);
+      const warnings = Array.isArray(r.data?.warnings)
+        ? r.data.warnings.filter((x): x is string => typeof x === 'string')
+        : [];
+      const summary = typeof r.data?.summary === 'string' ? r.data.summary.trim() : '';
+      const noDbChanges = n === 0 && u === 0;
+      if (warnings.length && noDbChanges) {
+        setWarnMsg(warnings.join('\n\n'));
+        setStatusMsg(
+          summary ||
+            `Import doběhl bez nových a aktualizovaných záznamů (přeskočeno ${sk}, ručně vypnuté přeskočeno ${d}). Podrobnosti viz varování níže a záložka logů.`,
+        );
+      } else if (warnings.length) {
+        setWarnMsg(warnings.join('\n\n'));
+        setStatusMsg(
+          summary ||
+            `Import dokončen: nové ${n}, aktualizované ${u}, přeskočeno ${sk}, ručně vypnuté přeskočeno ${d}.`,
         );
       } else {
-        setError(err);
+        setStatusMsg(
+          summary ||
+            `Import dokončen: nové ${n}, aktualizované ${u}, přeskočeno ${sk}, ručně vypnuté přeskočeno ${d}.`,
+        );
       }
       setLogFilterSourceId(sourceId);
       await refresh(sourceId);
-      return;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Neočekávaná chyba při importu.');
+      setLogFilterSourceId(sourceId);
+      await refresh(sourceId);
+    } finally {
+      setBusyId(null);
+      setImportProgress(null);
     }
-    const n = Number(r.data?.importedNew ?? 0);
-    const u = Number(r.data?.importedUpdated ?? 0);
-    const d = Number(r.data?.disabled ?? 0);
-    const sk = Number(r.data?.skipped ?? 0);
-    const warnings = Array.isArray(r.data?.warnings)
-      ? r.data.warnings.filter((x): x is string => typeof x === 'string')
-      : [];
-    const summary = typeof r.data?.summary === 'string' ? r.data.summary.trim() : '';
-    const noDbChanges = n === 0 && u === 0;
-    if (warnings.length && noDbChanges) {
-      setWarnMsg(warnings.join('\n\n'));
-      setStatusMsg(
-        summary ||
-          `Import doběhl bez nových a aktualizovaných záznamů (přeskočeno ${sk}, ručně vypnuté přeskočeno ${d}). Podrobnosti viz varování níže a záložka logů.`,
-      );
-    } else if (warnings.length) {
-      setWarnMsg(warnings.join('\n\n'));
-      setStatusMsg(
-        summary ||
-          `Import dokončen: nové ${n}, aktualizované ${u}, přeskočeno ${sk}, ručně vypnuté přeskočeno ${d}.`,
-      );
-    } else {
-      setStatusMsg(
-        summary ||
-          `Import dokončen: nové ${n}, aktualizované ${u}, přeskočeno ${sk}, ručně vypnuté přeskočeno ${d}.`,
-      );
-    }
-    setLogFilterSourceId(sourceId);
-    await refresh(sourceId);
   }
 
   async function bulkDisable() {
@@ -354,6 +374,23 @@ export default function AdminImportsPage() {
           <pre className="whitespace-pre-wrap rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-xs text-amber-950">
             {warnMsg}
           </pre>
+        ) : null}
+
+        {importProgress && busyId ? (
+          <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
+            <div className="mb-2 flex items-center justify-between gap-3 text-xs text-zinc-600">
+              <span className="min-w-0 flex-1 truncate font-medium text-zinc-800">
+                {importProgress.message}
+              </span>
+              <span className="shrink-0 tabular-nums text-zinc-900">{importProgress.percent}%</span>
+            </div>
+            <div className="h-2.5 w-full overflow-hidden rounded-full bg-zinc-200">
+              <div
+                className="h-full rounded-full bg-emerald-600 transition-[width] duration-300 ease-out"
+                style={{ width: `${importProgress.percent}%` }}
+              />
+            </div>
+          </div>
         ) : null}
 
         <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">

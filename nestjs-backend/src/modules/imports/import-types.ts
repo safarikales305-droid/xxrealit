@@ -72,3 +72,9 @@ export type ImportExecutionContext = {
   settingsJson?: Record<string, unknown> | null;
 };
 
+/** Průběh importu (NDJSON stream / admin UI). */
+export type ImportRunProgressPayload = {
+  percent: number;
+  message: string;
+};
+

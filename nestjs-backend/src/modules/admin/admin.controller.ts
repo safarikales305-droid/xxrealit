@@ -7,9 +7,11 @@ import {
   Post,
   Param,
   Query,
+  Res,
   UseGuards,
   ValidationPipe,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { Prisma } from '@prisma/client';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -250,6 +252,22 @@ export class AdminController {
   @Post('import-sources/:id/run')
   runImportSource(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.adminService.runImportSource(id, user.id);
+  }
+
+  /** Stejný import jako `/run`, ale vrací NDJSON řádky s průběhem (`type: progress` → `result` / `error`). */
+  @Post('import-sources/:id/run-stream')
+  async runImportSourceStream(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Res({ passthrough: false }) res: Response,
+  ): Promise<void> {
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Accel-Buffering', 'no');
+    await this.adminService.runImportSourceStream(id, user.id, (chunk) => {
+      res.write(chunk);
+    });
+    res.end();
   }
 
   @Get('import-logs')

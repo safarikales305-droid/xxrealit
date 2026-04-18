@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { ListingImportPortal, Prisma } from '@prisma/client';
 import { publiclyVisiblePropertyWhere } from './property-public-visibility';
 
 const videoListingDisjuncts: Prisma.PropertyWhereInput[] = [
@@ -26,6 +26,24 @@ export const classicListingWhere: Prisma.PropertyWhereInput = {
   NOT: { OR: videoListingDisjuncts },
 };
 
+/**
+ * Staré / rozbité Reality.cz importy (bez fotky nebo s podezřelou cenou pod 1000 Kč)
+ * nepatří na homepage — zůstanou v DB pro admina, ale veřejný feed je skryje.
+ */
+const hideBrokenRealityImports: Prisma.PropertyWhereInput = {
+  NOT: {
+    AND: [
+      { importSource: ListingImportPortal.reality_cz },
+      {
+        OR: [
+          { images: { equals: [] } },
+          { AND: [{ price: { not: null } }, { price: { lt: 1000 } }] },
+        ],
+      },
+    ],
+  },
+};
+
 /** Klasické inzeráty veřejně viditelné (feed / GET /properties). */
 export const classicPublicListingWhere: Prisma.PropertyWhereInput = {
   AND: [
@@ -35,6 +53,7 @@ export const classicPublicListingWhere: Prisma.PropertyWhereInput = {
     { listingType: 'CLASSIC' },
     /** Ručně vypnutý import — i kdyby zůstalo isActive true, neveřejný výpis. */
     { importDisabled: false },
+    hideBrokenRealityImports,
   ],
 };
 

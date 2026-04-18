@@ -1466,6 +1466,107 @@ export async function nestAdminRunImportSource(
   return { ok: true, data: data as NestAdminImportRunResult };
 }
 
+export type NestAdminImportStreamEvent =
+  | { type: 'progress'; percent: number; message: string }
+  | { type: 'result'; importedNew?: number; importedUpdated?: number; skipped?: number; disabled?: number; summary?: string | null; warnings?: string[]; stats?: Record<string, unknown>; errors?: string[] }
+  | { type: 'error'; message: string };
+
+/**
+ * NDJSON stream z POST `/admin/import-sources/:id/run-stream` — průběh importu + finální výsledek.
+ */
+export async function nestAdminRunImportSourceStream(
+  token: string | null,
+  sourceId: string,
+  onEvent: (ev: NestAdminImportStreamEvent) => void,
+): Promise<{ ok: boolean; data?: NestAdminImportRunResult; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(
+    `${API_BASE_URL}/admin/import-sources/${encodeURIComponent(sourceId)}/run-stream`,
+    {
+      method: 'POST',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/x-ndjson' },
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    try {
+      const data = JSON.parse(text) as Record<string, unknown>;
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    } catch {
+      return { ok: false, error: text.trim() || `HTTP ${res.status}` };
+    }
+  }
+  if (!res.body) {
+    return { ok: false, error: 'Prázdná odpověď streamu importu.' };
+  }
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  let finalResult: NestAdminImportRunResult | undefined;
+  let streamError: string | undefined;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop() ?? '';
+    for (const line of lines) {
+      const t = line.trim();
+      if (!t) continue;
+      let ev: NestAdminImportStreamEvent;
+      try {
+        ev = JSON.parse(t) as NestAdminImportStreamEvent;
+      } catch {
+        continue;
+      }
+      onEvent(ev);
+      if (ev.type === 'result') {
+        finalResult = {
+          importedNew: typeof ev.importedNew === 'number' ? ev.importedNew : 0,
+          importedUpdated: typeof ev.importedUpdated === 'number' ? ev.importedUpdated : 0,
+          skipped: typeof ev.skipped === 'number' ? ev.skipped : 0,
+          disabled: typeof ev.disabled === 'number' ? ev.disabled : 0,
+          summary: typeof ev.summary === 'string' ? ev.summary : null,
+          warnings: Array.isArray(ev.warnings) ? ev.warnings.filter((x): x is string => typeof x === 'string') : [],
+          stats: ev.stats,
+          errors: Array.isArray(ev.errors) ? ev.errors.filter((x): x is string => typeof x === 'string') : [],
+        };
+      }
+      if (ev.type === 'error') {
+        streamError = ev.message;
+      }
+    }
+  }
+  const tail = buf.trim();
+  if (tail) {
+    try {
+      const ev = JSON.parse(tail) as NestAdminImportStreamEvent;
+      onEvent(ev);
+      if (ev.type === 'result') {
+        finalResult = {
+          importedNew: typeof ev.importedNew === 'number' ? ev.importedNew : 0,
+          importedUpdated: typeof ev.importedUpdated === 'number' ? ev.importedUpdated : 0,
+          skipped: typeof ev.skipped === 'number' ? ev.skipped : 0,
+          disabled: typeof ev.disabled === 'number' ? ev.disabled : 0,
+          summary: typeof ev.summary === 'string' ? ev.summary : null,
+          warnings: Array.isArray(ev.warnings) ? ev.warnings.filter((x): x is string => typeof x === 'string') : [],
+          stats: ev.stats,
+          errors: Array.isArray(ev.errors) ? ev.errors.filter((x): x is string => typeof x === 'string') : [],
+        };
+      }
+      if (ev.type === 'error') streamError = ev.message;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (streamError) return { ok: false, error: streamError };
+  if (finalResult) return { ok: true, data: finalResult };
+  return { ok: false, error: 'Stream skončil bez výsledku importu.' };
+}
+
 export async function nestAdminImportLogs(
   token: string | null,
   sourceId?: string,

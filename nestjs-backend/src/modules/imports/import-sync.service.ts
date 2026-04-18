@@ -50,6 +50,7 @@ import { PrismaService } from '../../database/prisma.service';
 import type {
   ImportExecutionContext,
   ImportedListingDraft,
+  ImportRunProgressPayload,
   ImportRunResult,
 } from './import-types';
 import { RealityCzSoapImporter } from './reality-cz-soap-importer.service';
@@ -108,12 +109,12 @@ export class ImportSyncService {
         limitPerRun: 100,
         endpointUrl: 'https://www.reality.cz/prodej/byty/?strana=1',
         settingsJson: {
-          scraperListOnlyImport: true,
+          scraperListOnlyImport: false,
           scraperRequestDelayMs: 3500,
           scraperMaxRetries: 6,
           scraperBackoffMultiplier: 2,
           scraperBaseBackoffMsOn429: 12_000,
-          scraperMaxDetailFetchesPerRun: 0,
+          scraperMaxDetailFetchesPerRun: 15,
         },
       },
       update: {},
@@ -200,7 +201,11 @@ export class ImportSyncService {
     });
   }
 
-  async runSource(sourceId: string, actorUserId: string) {
+  async runSource(
+    sourceId: string,
+    actorUserId: string,
+    onProgress?: (e: ImportRunProgressPayload) => void,
+  ): Promise<ImportRunResult> {
     await this.ensureDefaultSources();
     const source = await this.prisma.importSource.findUnique({ where: { id: sourceId } });
     if (!source) throw new NotFoundException('Import source nenalezen');
@@ -231,7 +236,7 @@ export class ImportSyncService {
         `scraperStartHint=${scraperStartHint ?? 'n/a'} settingsKeys=[${settingsKeys}] ` +
         `(SOAP používá REALITY_CZ_* env, scraper start URL = endpoint nebo settingsJson.startUrl)`,
     );
-    return this.runWithLogging(ctx, actorUserId);
+    return this.runWithLogging(ctx, actorUserId, onProgress);
   }
 
   async bulkDisableByFilter(filter: { portal?: ListingImportPortal; method?: ListingImportMethod }) {
@@ -246,15 +251,20 @@ export class ImportSyncService {
     return { affected: updated.count };
   }
 
-  private async runWithLogging(ctx: ImportExecutionContext, actorUserId: string) {
+  private async runWithLogging(
+    ctx: ImportExecutionContext,
+    actorUserId: string,
+    onProgress?: (e: ImportRunProgressPayload) => void,
+  ): Promise<ImportRunResult> {
     const startedAt = new Date();
     let result: ImportRunResult | null = null;
     let errorMessage: string | null = null;
     let scraperMeta: RealityCzScraperFetchOutcome['meta'] | undefined;
     try {
-      const { rows, scraperMeta: sm } = await this.fetchRows(ctx);
+      onProgress?.({ percent: 1, message: `Spouštím import „${ctx.sourceName}“…` });
+      const { rows, scraperMeta: sm } = await this.fetchRows(ctx, onProgress);
       scraperMeta = sm;
-      result = await this.importRows(ctx, actorUserId, rows);
+      result = await this.importRows(ctx, actorUserId, rows, onProgress);
       const warnings = [...(result.warnings ?? [])];
       if (ctx.method === ListingImportMethod.scraper && scraperMeta) {
         this.logger.log(
@@ -319,6 +329,7 @@ export class ImportSyncService {
               : 'ok',
         },
       });
+      onProgress?.({ percent: 100, message: 'Import dokončen.' });
       return result;
     } catch (error: unknown) {
       errorMessage = error instanceof Error ? error.message : 'Neznámá chyba importu';
@@ -472,7 +483,10 @@ export class ImportSyncService {
     }
   }
 
-  private async fetchRows(ctx: ImportExecutionContext): Promise<{
+  private async fetchRows(
+    ctx: ImportExecutionContext,
+    onProgress?: (e: ImportRunProgressPayload) => void,
+  ): Promise<{
     rows: ImportedListingDraft[];
     scraperMeta?: RealityCzScraperFetchOutcome['meta'];
   }> {
@@ -483,7 +497,9 @@ export class ImportSyncService {
       if (!this.soapImporter.supportsConfiguredRun()) {
         throw new BadRequestException('SOAP není nakonfigurovaný (REALITY_CZ_* env)');
       }
+      onProgress?.({ percent: 12, message: 'Stahuji inzeráty přes Reality.cz SOAP…' });
       const rows = await this.soapImporter.fetch(ctx.limitPerRun);
+      onProgress?.({ percent: 62, message: `SOAP: načteno ${rows.length} záznamů…` });
       return { rows };
     }
     if (ctx.method === ListingImportMethod.scraper) {
@@ -493,6 +509,7 @@ export class ImportSyncService {
         ctx.limitPerRun,
         startUrl,
         ctx.settingsJson,
+        onProgress,
       );
       return { rows: outcome.rows, scraperMeta: outcome.meta };
     }
@@ -520,6 +537,7 @@ export class ImportSyncService {
     ctx: ImportExecutionContext,
     actorUserId: string,
     rows: ImportedListingDraft[],
+    onProgress?: (e: ImportRunProgressPayload) => void,
   ): Promise<ImportRunResult> {
     let importedNew = 0;
     let importedUpdated = 0;
@@ -530,6 +548,11 @@ export class ImportSyncService {
     const batch = this.dedupeImportedRows(
       rows.slice(0, Math.max(1, Math.min(500, ctx.limitPerRun))),
     );
+
+    onProgress?.({
+      percent: 72,
+      message: `Ukládám ${batch.length} záznamů do databáze…`,
+    });
 
     if (ctx.portal === ListingImportPortal.reality_cz) {
       const healed = await this.prisma.property.updateMany({
@@ -555,8 +578,13 @@ export class ImportSyncService {
       importDisabled: boolean;
     }> = [];
 
-    for (const row of batch) {
+    for (let i = 0; i < batch.length; i += 1) {
+      const row = batch[i];
       try {
+        onProgress?.({
+          percent: 72 + Math.floor((25 * i) / Math.max(1, batch.length)),
+          message: `Ukládám ${i + 1}/${batch.length}…`,
+        });
         const externalId = row.externalId.trim().toUpperCase();
         if (!externalId) {
           skipped += 1;

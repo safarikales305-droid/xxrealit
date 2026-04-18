@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  HttpException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -736,6 +737,49 @@ export class AdminService {
 
   async runImportSource(sourceId: string, actorUserId: string) {
     return this.importSync.runSource(sourceId, actorUserId);
+  }
+
+  /** NDJSON řádky: `{type:\"progress\",percent,message}` pak `{type:\"result\",...}` nebo `{type:\"error\",message}`. */
+  async runImportSourceStream(
+    sourceId: string,
+    actorUserId: string,
+    writeLine: (chunk: string) => void,
+  ): Promise<void> {
+    const emit = (obj: Record<string, unknown>) => {
+      writeLine(`${JSON.stringify(obj)}\n`);
+    };
+    try {
+      const result = await this.importSync.runSource(sourceId, actorUserId, (p) => {
+        emit({ type: 'progress', percent: p.percent, message: p.message });
+      });
+      emit({
+        type: 'result',
+        importedNew: result.importedNew,
+        importedUpdated: result.importedUpdated,
+        skipped: result.skipped,
+        disabled: result.disabled,
+        summary: result.summary ?? null,
+        warnings: result.warnings ?? [],
+        stats: result.stats ?? null,
+        errors: result.errors ?? [],
+      });
+    } catch (err: unknown) {
+      let message = 'Neznámá chyba importu';
+      if (err instanceof HttpException) {
+        const r = err.getResponse();
+        if (typeof r === 'string') {
+          message = r;
+        } else if (r && typeof r === 'object') {
+          const m = (r as { message?: unknown }).message;
+          if (Array.isArray(m)) message = m.map(String).join(', ');
+          else if (typeof m === 'string') message = m;
+          else message = err.message;
+        }
+      } else if (err instanceof Error) {
+        message = err.message;
+      }
+      emit({ type: 'error', message });
+    }
   }
 
   async listImportLogs(sourceId?: string) {

@@ -28,8 +28,9 @@ const DEFAULTS: RealityCzScraperRuntimeSettings = {
   maxRetries: 6,
   backoffMultiplier: 2,
   baseBackoffMsOn429: 12_000,
-  maxDetailFetchesPerRun: 0,
-  listOnlyImport: true,
+  /** Detaily doplňují fotku, popis a cenu z inzerátu (lze v adminu znovu zapnout „jen výpis“). */
+  maxDetailFetchesPerRun: 15,
+  listOnlyImport: false,
 };
 
 function num(
