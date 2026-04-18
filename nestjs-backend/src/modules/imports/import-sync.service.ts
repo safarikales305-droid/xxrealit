@@ -411,12 +411,12 @@ export class ImportSyncService {
             `Backfill import větev ${s.id} (${categoryKey}): start URL „${candidate.slice(0, 96)}…“ → „${aligned}“.`,
           );
         }
-        settings.startUrl = aligned;
+        const settingsWithAligned: Prisma.InputJsonObject = { ...settings, startUrl: aligned };
         await this.prisma.importSource.update({
           where: { id: s.id },
           data: {
             endpointUrl: aligned,
-            settingsJson: settings,
+            settingsJson: settingsWithAligned,
             portalKey: portalMeta.portalKey,
             portalLabel: portalMeta.portalLabel,
             categoryKey,
