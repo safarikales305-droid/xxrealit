@@ -162,7 +162,7 @@ type ImportSourcePatch = {
   settingsJson?: Prisma.InputJsonValue | null;
 };
 
-function defaultRealityScraperSettingsJson(startUrl: string): Record<string, unknown> {
+function defaultRealityScraperSettingsJson(startUrl: string): Prisma.InputJsonValue {
   return {
     startUrl,
     scraperListOnlyImport: false,
@@ -172,7 +172,7 @@ function defaultRealityScraperSettingsJson(startUrl: string): Record<string, unk
     scraperBaseBackoffMsOn429: 12_000,
     scraperMaxDetailFetchesPerRun: 48,
     scraperDetailConcurrency: 2,
-  };
+  } as Prisma.InputJsonValue;
 }
 
 function initialImportRunLive(startedAt: string): ImportRunLiveState {
@@ -586,8 +586,12 @@ export class ImportSyncService {
         : (getDefaultRealityStartUrlForCategoryKey(categoryKey) ?? DEFAULT_REALITY_BYTY_START_URL);
       const aligned = resolveRealityScraperStartUrlForCategory(candidate, categoryKey);
       const baseDefaults = defaultRealityScraperSettingsJson(aligned);
-      const mergedSettings = { ...baseDefaults, ...settings, startUrl: aligned };
-      Object.assign(settings, mergedSettings);
+      const mergedSettings = {
+        ...baseDefaults,
+        ...settings,
+        startUrl: aligned,
+      } as Prisma.InputJsonValue;
+      Object.assign(settings, mergedSettings as object);
       input.endpointUrl = aligned;
     }
     const created = await this.prisma.importSource.create({
