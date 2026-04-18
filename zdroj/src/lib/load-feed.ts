@@ -14,7 +14,7 @@ export async function loadPropertyFeedItems(
     /** Query řetězec bez `?` (např. `city=Praha&propertyTypeKey=byt`). */
     query?: string;
   } = {},
-): Promise<PropertyFeedItem[]> {
+): Promise<{ items: PropertyFeedItem[]; total: number }> {
   const path = options.path ?? '/properties';
   const q = options.query?.trim();
   const url = q ? `${base}${path}?${q}` : `${base}${path}`;
@@ -36,19 +36,33 @@ export async function loadPropertyFeedItems(
       if (process.env.NODE_ENV === 'development') {
         console.warn('[Feed] GET failed', url, res.status);
       }
-      return [];
+      return { items: [], total: 0 };
     }
 
     let data: unknown;
     try {
       data = await res.json();
     } catch {
-      return [];
+      return { items: [], total: 0 };
     }
 
-    if (!Array.isArray(data)) return [];
+    let rawItems: unknown[] = [];
+    let total = 0;
+    if (Array.isArray(data)) {
+      rawItems = data;
+      total = data.length;
+    } else if (data && typeof data === 'object') {
+      const o = data as Record<string, unknown>;
+      rawItems = Array.isArray(o.items) ? o.items : [];
+      total =
+        typeof o.total === 'number' && Number.isFinite(o.total) && o.total >= 0
+          ? Math.trunc(o.total)
+          : rawItems.length;
+    } else {
+      return { items: [], total: 0 };
+    }
 
-    const list = data
+    const list = rawItems
       .map(safeNormalizePropertyFromApi)
       .filter((x): x is PropertyFeedItem => x != null);
     if (process.env.NEXT_PUBLIC_DEBUG_LISTINGS === '1' && list.length > 0) {
@@ -67,12 +81,12 @@ export async function loadPropertyFeedItems(
         mediaLen: p.media?.length ?? 0,
       });
     }
-    return list;
+    return { items: list, total: Math.max(total, list.length) };
   } catch (err) {
     if (process.env.NODE_ENV === 'development') {
       console.warn('[Feed] GET error', url, err);
     }
-    return [];
+    return { items: [], total: 0 };
   } finally {
     clearTimeout(timeout);
   }

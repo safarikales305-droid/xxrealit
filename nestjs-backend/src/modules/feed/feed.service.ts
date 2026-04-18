@@ -183,7 +183,8 @@ export class FeedService {
       this.log.warn(
         '[feed/shorts] empty result — SHORTS_FEED_FALLBACK_DEMO=1, attaching 1 demo clip',
       );
-      return [
+      return {
+        items: [
         {
           id: 'demo-shorts-feed-placeholder',
           title: 'Ukázka shorts — přidejte schválené video inzeráty',
@@ -238,10 +239,15 @@ export class FeedService {
           listingType: 'SHORTS',
           derivedFromPropertyId: null,
         },
-      ];
+        ],
+        total: 1,
+      };
     }
 
-    return serialized;
+    return {
+      items: serialized,
+      total: serialized.length,
+    };
   }
 
   /** Social feed posts (Facebook-style), not listing shorts. */

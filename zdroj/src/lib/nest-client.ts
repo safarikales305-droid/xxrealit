@@ -3484,7 +3484,11 @@ export async function nestFetchVideos(): Promise<ShortVideo[]> {
     });
     if (!res.ok) return [];
     const data = (await res.json()) as unknown;
-    const list = Array.isArray(data) ? (data as ShortVideo[]) : [];
+    const list = Array.isArray(data)
+      ? (data as ShortVideo[])
+      : data && typeof data === 'object' && Array.isArray((data as { items?: unknown }).items)
+        ? (((data as { items: unknown[] }).items ?? []) as ShortVideo[])
+        : [];
     if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       // eslint-disable-next-line no-console
       console.debug('[nestFetchVideos] /feed/shorts count=', list.length);

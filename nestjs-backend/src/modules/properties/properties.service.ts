@@ -254,7 +254,10 @@ export class PropertiesService {
         mediaLen: Array.isArray(q.media) ? (q.media as unknown[]).length : 0,
       });
     }
-    return mapped;
+    return {
+      items: mapped,
+      total: mapped.length,
+    };
   }
 
   async findByOwner(ownerId: string, viewerId?: string) {

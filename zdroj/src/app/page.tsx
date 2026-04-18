@@ -42,7 +42,10 @@ function hasPropertyListFilters(sp: SearchParamsInput): boolean {
   );
 }
 
-async function loadHomeFeed(sp: SearchParamsInput): Promise<PropertyFeedItem[]> {
+async function loadHomeFeed(sp: SearchParamsInput): Promise<{
+  items: PropertyFeedItem[];
+  total: number;
+}> {
   const base = getServerSideApiBaseUrl();
   if (!base) {
     if (process.env.NODE_ENV === 'development') {
@@ -50,7 +53,7 @@ async function loadHomeFeed(sp: SearchParamsInput): Promise<PropertyFeedItem[]> 
         '[Home] Skipping feed: set NEXT_PUBLIC_API_URL (and API_URL for BFF routes).',
       );
     }
-    return [];
+    return { items: [], total: 0 };
   }
 
   const authorization = await getServerAuthorizationHeader();
@@ -65,8 +68,8 @@ async function loadHomeFeed(sp: SearchParamsInput): Promise<PropertyFeedItem[]> 
       authorization,
       path: '/feed/personalized',
     });
-    const classicSubset = classicListingsOnly(personalized);
-    if (personalized.length > 0 && classicSubset.length > 0) {
+    const classicSubset = classicListingsOnly(personalized.items);
+    if (personalized.items.length > 0 && classicSubset.length > 0) {
       return personalized;
     }
   }
@@ -85,8 +88,8 @@ type HomePageProps = {
 export default async function Home({ searchParams }: HomePageProps) {
   const sp = (await searchParams) ?? {};
   const base = getServerSideApiBaseUrl();
-  const rawItems = await loadHomeFeed(sp);
-  const items = classicListingsOnly(rawItems);
+  const feed = await loadHomeFeed(sp);
+  const items = classicListingsOnly(feed.items);
   const apiConfigMissing =
     process.env.NODE_ENV === 'production' && base == null;
 
@@ -100,6 +103,7 @@ export default async function Home({ searchParams }: HomePageProps) {
     >
       <HomeLayout
         items={items}
+        classicTotal={feed.total}
         ShortsFeed={ShortsFeed}
         apiConfigMissing={apiConfigMissing}
       />

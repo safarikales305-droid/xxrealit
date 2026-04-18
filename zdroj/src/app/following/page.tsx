@@ -12,17 +12,21 @@ export default async function FollowingPage() {
   const base = getServerSideApiBaseUrl();
   const authorization = await getServerAuthorizationHeader();
 
-  const items =
+  const feed =
     base && authorization
       ? await loadPropertyFeedItems(base, {
           authorization,
           path: '/properties/following',
         })
-      : [];
+      : { items: [], total: 0 };
 
   return (
     <Suspense fallback={<div className="min-h-[50dvh] bg-[#fafafa]" />}>
-      <HomeLayout items={classicListingsOnly(items)} ShortsFeed={ShortsFeed} />
+      <HomeLayout
+        items={classicListingsOnly(feed.items)}
+        classicTotal={feed.total}
+        ShortsFeed={ShortsFeed}
+      />
     </Suspense>
   );
 }

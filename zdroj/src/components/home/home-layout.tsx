@@ -32,6 +32,7 @@ import { SidebarFilters } from './sidebar-filters';
 
 type Props = {
   items: PropertyFeedItem[];
+  classicTotal: number;
   /** Wired from `app/page.tsx` — vertical `/videos/*` shorts feed. */
   ShortsFeed: ComponentType<{ items: PropertyFeedItem[] }>;
   /** Production build without NEXT_PUBLIC_API_URL / API_URL. */
@@ -144,6 +145,7 @@ function feedShortsRowToShortVideo(row: Record<string, unknown>): ShortVideo | n
  */
 export function HomeLayout({
   items,
+  classicTotal,
   ShortsFeed: _ShortsFeed,
   apiConfigMissing = false,
 }: Props) {
@@ -196,6 +198,7 @@ export function HomeLayout({
   const [shareExtraLoading, setShareExtraLoading] = useState(false);
   /** Když `/feed/shorts` vrátí 0 položek — klasický katalog z GET `/properties`. */
   const [shortsFallbackItems, setShortsFallbackItems] = useState<PropertyFeedItem[]>([]);
+  const [shortsTotal, setShortsTotal] = useState<number | null>(null);
   const [postFeed, setPostFeed] = useState<Array<Record<string, unknown>>>([]);
   const [loadingFeed, setLoadingFeed] = useState(false);
   const shortsLoadedRef = useRef(false);
@@ -424,6 +427,18 @@ export function HomeLayout({
   const shortsBootstrapBusy = loadingFeed || (shareMissingInFeed && shareExtraLoading);
 
   const hasData = classicGridItems.length > 0;
+  const listingsTotalLabel = useMemo(() => {
+    const raw =
+      viewMode === 'classic'
+        ? classicTotal
+        : viewMode === 'shorts'
+          ? shortsTotal
+          : null;
+    if (raw == null || !Number.isFinite(raw)) return 'Načítání...';
+    const n = Math.max(0, Math.trunc(raw));
+    const num = new Intl.NumberFormat('cs-CZ').format(n);
+    return `Celkem ${num} inzerátů`;
+  }, [viewMode, classicTotal, shortsTotal]);
   const showNoSearchHits =
     viewMode === 'classic' && hasData && filteredItems.length === 0;
   const showNoSearchHitsShortsFallback =
@@ -481,7 +496,15 @@ export function HomeLayout({
           );
         }
         const data = res.ok ? await res.json() : [];
-        const rawList = Array.isArray(data) ? (data as Record<string, unknown>[]) : [];
+        const rawList = Array.isArray(data)
+          ? (data as Record<string, unknown>[])
+          : data && typeof data === 'object' && Array.isArray((data as { items?: unknown }).items)
+            ? ((data as { items: Record<string, unknown>[] }).items ?? [])
+            : [];
+        const totalFromApi =
+          data && typeof data === 'object' && !Array.isArray(data)
+            ? Number((data as { total?: unknown }).total)
+            : NaN;
         if (process.env.NODE_ENV === 'development') {
           // eslint-disable-next-line no-console
           console.debug(
@@ -507,11 +530,16 @@ export function HomeLayout({
         }
         if (cancelled) return;
         setVideoFeed(list);
+        setShortsTotal(
+          Number.isFinite(totalFromApi) && totalFromApi >= 0
+            ? Math.trunc(totalFromApi)
+            : list.length,
+        );
         if (list.length === 0) {
           const classic = await loadPropertyFeedItems(API_BASE_URL, {
             path: '/properties',
           });
-          if (!cancelled) setShortsFallbackItems(classic);
+          if (!cancelled) setShortsFallbackItems(classic.items);
         } else if (!cancelled) {
           setShortsFallbackItems([]);
         }
@@ -519,6 +547,7 @@ export function HomeLayout({
       } catch {
         if (!cancelled) {
           setVideoFeed([]);
+          setShortsTotal(0);
           setShortsFallbackItems([]);
           shortsLoadedRef.current = true;
         }
@@ -828,6 +857,14 @@ export function HomeLayout({
         }
       >
         <div className={`hidden min-h-0 min-w-0 shrink-0 overflow-x-hidden md:block ${viewMode === 'posts' ? 'md:hidden' : ''}`}>
+          {viewMode === 'classic' || viewMode === 'shorts' ? (
+            <div className="mt-2 hidden rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm lg:block">
+              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Počet inzerátů
+              </p>
+              <p className="mt-1 text-xl font-bold text-zinc-900">{listingsTotalLabel}</p>
+            </div>
+          ) : null}
           <SidebarFilters className="mt-0 w-full max-w-full flex-col md:mt-2 md:mb-2 lg:mt-4 lg:mb-4" />
         </div>
 
