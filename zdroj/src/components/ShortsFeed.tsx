@@ -16,14 +16,8 @@ import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { useAuth } from '@/hooks/use-auth';
 import { toPublicApiUrl } from '@/lib/public-api';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
-import type { PropertyFeedItem } from '@/types/property';
+import { formatListingPrice, type PropertyFeedItem } from '@/types/property';
 import { isPropertyFeedVideoPlayable, propertyFeedPrimaryVideoSrc } from '@/lib/feed/loop-feed';
-
-const PRICE_FMT = new Intl.NumberFormat('cs-CZ', {
-  style: 'currency',
-  currency: 'CZK',
-  maximumFractionDigits: 0,
-});
 
 const glowBtnBase =
   'relative flex size-14 shrink-0 items-center justify-center rounded-full border border-white/20 bg-gradient-to-br from-[#ff6a00]/45 to-[#ff3c00]/40 text-xl text-white shadow-[0_0_24px_-2px_rgba(255,106,0,0.55),0_0_16px_-4px_rgba(255,60,0,0.35),inset_0_1px_0_0_rgba(255,255,255,0.2)] backdrop-blur-xl transition duration-300 ease-out hover:scale-110 hover:border-white/35 active:scale-95';
@@ -421,7 +415,7 @@ export function ShortsFeed({ items }: Props) {
                 {c.location}
               </p>
               <p className="mt-3 bg-gradient-to-r from-[#ffb366] via-[#ff8c42] to-[#ff6a00] bg-clip-text text-[1.45rem] font-bold tabular-nums tracking-[-0.02em] text-transparent sm:text-[1.6rem] [filter:drop-shadow(0_2px_10px_rgba(0,0,0,0.5))]">
-                {PRICE_FMT.format(c.price)}
+                {formatListingPrice(c.price)}
               </p>
             </div>
 

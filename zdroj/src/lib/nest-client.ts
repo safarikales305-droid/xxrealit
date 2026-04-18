@@ -1790,7 +1790,7 @@ export type NestMyListingRow = {
   id: string;
   title: string;
   listingType: 'SHORTS' | 'CLASSIC';
-  price: number;
+  price: number | null;
   currency: string;
   city: string;
   region: string;
@@ -3227,7 +3227,7 @@ export type NestConversationListItem = {
   id: string;
   propertyId: string;
   propertyTitle: string;
-  propertyPrice: number;
+  propertyPrice: number | null;
   propertyCity: string;
   propertyImageUrl: string | null;
   counterpart: { id: string; name: string | null; email: string };
@@ -3248,7 +3248,7 @@ export type NestConversationDetail = {
   property: {
     id: string;
     title: string;
-    price: number;
+    price: number | null;
     city: string;
     imageUrl: string | null;
   };
@@ -3467,7 +3467,7 @@ export type ListingPost = {
   id: string;
   title: string;
   description: string;
-  price: number;
+  price: number | null;
   city: string;
   type: 'post' | 'short' | string;
   createdAt: string;

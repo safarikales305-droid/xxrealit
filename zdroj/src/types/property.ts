@@ -10,11 +10,15 @@ export function parseApiListingPrice(v: unknown): number | null {
   return t;
 }
 
-export function formatListingPriceCzk(price: number | null | undefined): string {
-  if (typeof price === 'number' && Number.isFinite(price) && price > 0) {
-    return `${new Intl.NumberFormat('cs-CZ').format(price)} Kč`;
+export function formatListingPrice(price: number | null | undefined): string {
+  if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) {
+    return 'Cena na dotaz';
   }
-  return 'Cena na dotaz';
+  return `${new Intl.NumberFormat('cs-CZ').format(price)} Kč`;
+}
+
+export function formatListingPriceCzk(price: number | null | undefined): string {
+  return formatListingPrice(price);
 }
 
 function firstPhotoUrlFromPhotos(photos: unknown): string | null {

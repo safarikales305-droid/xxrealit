@@ -10,16 +10,10 @@ import {
   useState,
 } from 'react';
 import { useRouter } from 'next/navigation';
-import type { PropertyFeedItem } from '@/types/property';
+import { formatListingPrice, type PropertyFeedItem } from '@/types/property';
 import { useAuth } from '@/hooks/use-auth';
 import { propertyFeedPrimaryVideoSrc, propertyRowPassesVideoFeedGate } from '@/lib/feed/loop-feed';
 import { propertyListingHasVideo } from '@/lib/property-feed-filters';
-
-const PRICE_FMT = new Intl.NumberFormat('cs-CZ', {
-  style: 'currency',
-  currency: 'CZK',
-  maximumFractionDigits: 0,
-});
 
 function mockLikesForId(id: string): number {
   let h = 0;
@@ -240,7 +234,7 @@ export function PropertyReelsFeed({ items }: Props) {
                     {p.location}
                   </p>
                   <p className="mt-1 text-xl font-bold text-emerald-300 drop-shadow-md">
-                    {PRICE_FMT.format(p.price)}
+                    {formatListingPrice(p.price)}
                   </p>
                 </div>
 

@@ -1,11 +1,5 @@
 import Link from 'next/link';
-import type { PropertyFeedItem } from '@/types/property';
-
-const PRICE_FMT = new Intl.NumberFormat('cs-CZ', {
-  style: 'currency',
-  currency: 'CZK',
-  maximumFractionDigits: 0,
-});
+import { formatListingPrice, type PropertyFeedItem } from '@/types/property';
 
 type Props = {
   items: PropertyFeedItem[];
@@ -28,7 +22,7 @@ export function UserPropertiesList({ items }: Props) {
           </div>
           <div className="flex shrink-0 items-center gap-3">
             <span className="text-sm font-semibold tabular-nums text-zinc-800">
-              {PRICE_FMT.format(p.price)}
+              {formatListingPrice(p.price)}
             </span>
             <Link
               href="/"
