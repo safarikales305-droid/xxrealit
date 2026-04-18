@@ -641,19 +641,11 @@ export class RealityCzScraperImporter {
       };
     }
 
+    /** Každý řádek s platným odkazem na detail = vždy stáhnout detail (listing jen jako mezikrok). */
     const candidates: number[] = [];
     for (let i = 0; i < working.length; i += 1) {
       const r = working[i];
-      const titleShort = (r.title ?? '').trim().length < 12;
-      const genericTitle = /^nabídka\s+[A-Z0-9]{1,15}-[A-Z0-9]{1,20}$/i.test((r.title ?? '').trim());
-      const needsDetail =
-        r.images.length === 0 ||
-        (r.description?.length ?? 0) < 160 ||
-        r.price == null ||
-        titleShort ||
-        genericTitle;
       const detailUrl = r.sourceUrl?.trim();
-      if (!needsDetail) continue;
       if (!detailUrl || !/^https?:\/\/(www\.)?reality\.cz\//i.test(detailUrl)) continue;
       candidates.push(i);
     }
@@ -905,15 +897,27 @@ export class RealityCzScraperImporter {
         .map((u) => normalizeRealityImageQualityUrl(toAbsoluteRealityAssetUrl(u, 'https://www.reality.cz')))
         .filter((u) => isLikelyListingImageUrl(u)),
     );
+    const detailTitle = extractDetailTitleFromHtml(html);
+    const longDesc = extractLongDescriptionFromDetailHtml(html);
     const metaDesc = pickMetaDescriptionFromHtml(html);
+    const fromPatterns = pickFirstCleanMatch(html, [
+      /<p[^>]*class=["'][^"']*(?:perex|description|desc|summary)[^"']*["'][^>]*>([\s\S]*?)<\/p>/i,
+      /<div[^>]*class=["'][^"']*(?:perex|description|desc|summary)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+      /<[^>]+class=["'][^"']*(?:perex|description|desc|summary)[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i,
+      /<p[^>]*>([\s\S]*?)<\/p>/i,
+    ]);
+    const descCandidates = [longDesc, metaDesc, fromPatterns, draft.description].filter(
+      (x): x is string => typeof x === 'string' && x.trim().length > 0,
+    );
     const desc =
-      metaDesc ??
-      pickFirstCleanMatch(html, [
-        /<p[^>]*class=["'][^"']*(?:perex|description|desc|summary)[^"']*["'][^>]*>([\s\S]*?)<\/p>/i,
-        /<div[^>]*class=["'][^"']*(?:perex|description|desc|summary)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
-        /<[^>]+class=["'][^"']*(?:perex|description|desc|summary)[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i,
-        /<p[^>]*>([\s\S]*?)<\/p>/i,
-      ]);
+      descCandidates.length > 0
+        ? descCandidates.reduce((a, b) => (b.trim().length > a.trim().length ? b : a))
+        : draft.description;
+    const loc = extractLocationHintsFromDetailHtml(html);
+    const area = extractFloatAreaSqmFromHtml(html);
+    const floor = extractIntNearLabel(html, /\b(?:Patro|Podlaží)\b/i);
+    const totalFloors = extractIntNearLabel(html, /\b(?:Celkem\s+podlaží|Počet\s+podlaží|Podlaží\s+celkem)\b/i);
+    const condition = extractConditionSnippet(html);
     const gallery = extractGalleryUrlsFromDetailHtml(html, 100);
     const priceBand = html.length > 800_000 ? html.slice(0, 800_000) : html;
     const priceText =
@@ -951,15 +955,32 @@ export class RealityCzScraperImporter {
               .map((u) => normalizeStoredImageUrl(toAbsoluteRealityAssetUrl(u, 'https://www.reality.cz')))
               .filter((u): u is string => !!u && isLikelyListingImageUrl(u));
     const nextImages = normalizeStoredImageUrlList(nextImagesRaw);
-    const descClean = cleanText(desc ?? null);
+    const descClean = cleanText(desc ?? null) ?? draft.description;
+    const bestTitle =
+      detailTitle && detailTitle.trim().length >= (draft.title?.trim().length ?? 0)
+        ? detailTitle.trim().slice(0, 400)
+        : draft.title;
+    const nextCity = (loc.city?.trim() || draft.city || '').slice(0, 120) || draft.city;
+    const nextAddress = (
+      loc.street?.trim() ||
+      draft.address?.trim() ||
+      loc.district?.trim() ||
+      nextCity
+    ).slice(0, 240);
     const next: ImportedListingDraft = {
       ...draft,
+      title: bestTitle,
       price: mergedPrice,
       images: nextImages,
-      description:
-        descClean && descClean.length > (draft.description?.length ?? 0)
-          ? descClean.slice(0, 10_000)
-          : draft.description,
+      description: (descClean || draft.description).slice(0, 60_000),
+      city: nextCity,
+      address: nextAddress,
+      region: loc.region?.trim() || draft.region,
+      district: loc.district?.trim() || draft.district,
+      area: area ?? draft.area ?? null,
+      floor: floor ?? draft.floor ?? null,
+      totalFloors: totalFloors ?? draft.totalFloors ?? null,
+      condition: condition ?? draft.condition ?? null,
     };
     return next;
   }
@@ -1445,6 +1466,102 @@ function extractPriceFromJsonLdScripts(html: string): string | null {
     }
   }
   return null;
+}
+
+function extractDetailTitleFromHtml(html: string): string | null {
+  const h1Raw = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1];
+  const h1 = cleanText(h1Raw ? stripTags(h1Raw) : null);
+  const og =
+    html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1] ??
+    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i)?.[1];
+  const ogT = cleanText(og ?? null);
+  if (h1 && h1.length >= 10) return h1.slice(0, 400);
+  if (ogT && ogT.length >= 10) return ogT.slice(0, 400);
+  return h1 || ogT || null;
+}
+
+function extractLongDescriptionFromDetailHtml(html: string): string | null {
+  const patterns = [
+    /<div[^>]+class=["'][^"']*\bproperty-description\b[^"']*["'][^>]*>([\s\S]{120,200000}?)<\/div>/i,
+    /<div[^>]+class=["'][^"']*\bdescription\b[^"']*["'][^>]*>([\s\S]{120,200000}?)<\/div>/i,
+    /<div[^>]+data-component=["']Description["'][^>]*>([\s\S]{120,200000}?)<\/div>/i,
+    /<article[^>]*>([\s\S]{400,200000}?)<\/article>/i,
+  ];
+  let best = '';
+  for (const re of patterns) {
+    const m = html.match(re);
+    if (!m?.[1]) continue;
+    const t = cleanText(stripTags(m[1])) ?? '';
+    if (t.length > best.length) best = t;
+  }
+  return best.length >= 120 ? best.slice(0, 60_000) : null;
+}
+
+function extractLocationHintsFromDetailHtml(html: string): {
+  city?: string;
+  region?: string;
+  district?: string;
+  street?: string;
+} {
+  const out: { city?: string; region?: string; district?: string; street?: string } = {};
+  const band = html.length > 600_000 ? html.slice(0, 600_000) : html;
+  for (const m of band.matchAll(
+    /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+  )) {
+    const body = m[1] ?? '';
+    if (!body.includes('address')) continue;
+    const al = body.match(/"addressLocality"\s*:\s*"([^"\\]+)"/)?.[1];
+    const ar = body.match(/"addressRegion"\s*:\s*"([^"\\]+)"/)?.[1];
+    const sl = body.match(/"streetAddress"\s*:\s*"([^"\\]+)"/)?.[1];
+    if (al) out.city = (cleanText(al) ?? al).slice(0, 120);
+    if (ar) out.region = (cleanText(ar) ?? ar).slice(0, 120);
+    if (sl) out.street = (cleanText(sl) ?? sl).slice(0, 240);
+  }
+  if (!out.city) {
+    const crumbs = band.match(/class=["'][^"']*breadcrumb[^"']*["'][^>]*>([\s\S]{0,12000}?)<\/nav>/i)?.[1];
+    if (crumbs) {
+      const parts = [...crumbs.matchAll(/>([^<]{2,100})<\/a>/gi)]
+        .map((x) => (x[1] ?? '').trim())
+        .filter((x) => x && !/^reality\.cz$/i.test(x) && !/^domů$/i.test(x));
+      if (parts.length > 0) {
+        out.district = parts[parts.length - 1]!.slice(0, 120);
+        if (parts.length >= 2 && !out.city) out.city = parts[parts.length - 2]!.slice(0, 120);
+      }
+    }
+  }
+  return out;
+}
+
+function extractFloatAreaSqmFromHtml(html: string): number | null {
+  const labelRe =
+    /(?:Užitná\s+plocha|Podlahová\s+plocha|Celková\s+plocha|Plocha)\b/i;
+  const idx = html.search(labelRe);
+  if (idx === -1) return null;
+  const slice = html.slice(idx, idx + 1200);
+  const m = slice.match(/(\d+(?:[\s\u00a0]\d{3})*(?:[.,]\d+)?)\s*m(?:²|2|\^2)/i);
+  if (!m?.[1]) return null;
+  const raw = m[1].replace(/[\s\u00a0]/g, '').replace(',', '.');
+  const n = parseFloat(raw);
+  return Number.isFinite(n) && n > 0.5 && n < 1_000_000 ? n : null;
+}
+
+function extractIntNearLabel(html: string, label: RegExp): number | null {
+  const idx = html.search(label);
+  if (idx === -1) return null;
+  const slice = html.slice(idx, idx + 600);
+  const m = slice.match(/>\s*(\d{1,3})\s*</);
+  if (!m?.[1]) return null;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) && n >= -5 && n < 200 ? n : null;
+}
+
+function extractConditionSnippet(html: string): string | null {
+  const idx = html.search(/(?:^|>)\s*Stav\b/i);
+  if (idx === -1) return null;
+  const slice = html.slice(idx, idx + 500);
+  const m = slice.match(/Stav[^<]{0,40}<\/[^>]+>\s*<[^>]+>([^<]{2,80})/i);
+  const t = cleanText(m?.[1] ?? null);
+  return t ? t.slice(0, 120) : null;
 }
 
 function guessCityFromCzechTitle(title: string, description: string): string {

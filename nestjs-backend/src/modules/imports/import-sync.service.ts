@@ -178,7 +178,7 @@ function defaultRealityScraperSettingsJson(startUrl: string): Prisma.InputJsonOb
     scraperMaxRetries: 6,
     scraperBackoffMultiplier: 2,
     scraperBaseBackoffMsOn429: 12_000,
-    scraperMaxDetailFetchesPerRun: 48,
+    scraperMaxDetailFetchesPerRun: 200,
     scraperDetailConcurrency: 2,
   };
 }
@@ -861,9 +861,9 @@ export class ImportSyncService {
         percent: 10,
         phase: 'listing',
       });
-      result = await this.importListingShells(ctx, actorUserId, rows, emitProgress);
 
       const settings = parseRealityCzScraperSettings(ctx.settingsJson);
+      let rowsForDb = rows;
       if (
         ctx.portal === ListingImportPortal.reality_cz &&
         ctx.method === ListingImportMethod.scraper &&
@@ -874,8 +874,8 @@ export class ImportSyncService {
         emitProgress({
           phase: 'details',
           processedDetails: 0,
-          percent: 41,
-          message: 'Doplňování detailů (fotky, popisy)…',
+          percent: 12,
+          message: 'Stahuji detail každého inzerátu (fotky, cena, popis)…',
         });
         let plannedDetailSlotsForProgress = 1;
         const enr = await this.scraperImporter.enrichDraftsWithDetailsBatched(rows, settings, {
@@ -883,21 +883,24 @@ export class ImportSyncService {
             plannedDetailSlotsForProgress = Math.max(1, n);
             emitProgress({
               totalDetails: n,
+              phase: 'details',
               message:
                 n > 0
-                  ? `Načítám až ${n} detailních stránek paralelně (dávky)…`
-                  : 'Žádné detaily nejsou potřeba (výpis je dostatečně úplný).',
+                  ? `Detaily: až ${n} stránek paralelně, poté zápis do databáze…`
+                  : 'Žádné URL detailů — import jen z výpisu.',
             });
           },
           onTick: (tick) => {
             const frac = Math.min(1, tick.detailFetchesCompleted / plannedDetailSlotsForProgress);
             emitProgress({
+              phase: 'details',
               processedDetails: tick.detailFetchesCompleted,
-              percent: 40 + Math.floor(frac * 55),
+              percent: 12 + Math.floor(frac * 78),
               message: tick.message,
             });
           },
         });
+        rowsForDb = enr.rows;
         if (scraperMeta) {
           scraperMeta = {
             ...scraperMeta,
@@ -907,36 +910,29 @@ export class ImportSyncService {
             requestLog: [...(scraperMeta.requestLog ?? []), ...enr.requestLog],
           };
         }
-        const { updated: detailDbUpdated, errors: detailDbErrors } =
-          await this.applyDetailEnrichmentFromDrafts(ctx, enr.rows);
         emitProgress({
           processedDetails: enr.plannedDetailSlots,
-          percent: 97,
-          message: `Detaily zapsány do DB (${detailDbUpdated} inzerátů).`,
+          percent: 92,
+          phase: 'listing',
+          message: 'Ukládám inzeráty do databáze (po načtení detailů)…',
         });
-        result.stats = {
-          ...(result.stats ?? {}),
-          detailPhaseDbUpdates: detailDbUpdated,
-          detailPhaseDbErrors: detailDbErrors,
-        };
-        if (detailDbErrors > 0) {
-          result.errors = [...(result.errors ?? []), `Chyby zápisu detailů do DB: ${detailDbErrors}`];
-        }
       } else {
         const skipMsg =
           ctx.method !== ListingImportMethod.scraper
-            ? 'Metoda bez paralelní fáze detailů (např. SOAP).'
+            ? 'Metoda bez HTTP detailů Reality scraperu.'
             : settings.listOnlyImport || settings.maxDetailFetchesPerRun <= 0
-              ? 'Bez fáze detailů (režim jen výpis nebo limit detailů 0).'
+              ? 'Bez detailů (jen výpis nebo limit detailů 0).'
               : 'Bez fáze detailů.';
         emitProgress({
           phase: 'listing',
           totalDetails: 0,
           processedDetails: 0,
-          percent: Math.max(live.percent, 40),
+          percent: Math.max(live.percent, 12),
           message: skipMsg,
         });
       }
+
+      result = await this.importListingShells(ctx, actorUserId, rowsForDb, emitProgress);
 
       const warnings = [...(result.warnings ?? [])];
       if (ctx.method === ListingImportMethod.scraper && scraperMeta) {
@@ -987,6 +983,8 @@ export class ImportSyncService {
         detailFetchesAttempted: scraperMeta?.detailFetchesAttempted,
         detailFetchesCompleted: scraperMeta?.detailFetchesCompleted,
         scraperSettings: scraperMeta?.settings,
+        detailPhaseDbUpdates: result.importedNew + result.importedUpdated,
+        detailPhaseDbErrors: 0,
       };
 
       const hasProblem =
@@ -1273,65 +1271,6 @@ export class ImportSyncService {
     return [...map.values()];
   }
 
-  private async applyDetailEnrichmentFromDrafts(
-    ctx: ImportExecutionContext,
-    rows: ImportedListingDraft[],
-  ): Promise<{ updated: number; errors: number }> {
-    let updated = 0;
-    let errors = 0;
-    for (const row of rows) {
-      const externalId = row.externalId.trim().toUpperCase();
-      if (!externalId) continue;
-      try {
-        const existing = await this.prisma.property.findUnique({
-          where: {
-            importSource_importExternalId: {
-              importSource: ctx.portal,
-              importExternalId: externalId,
-            },
-          },
-        });
-        if (!existing || existing.importDisabled) continue;
-        const images = normalizeStoredImageUrlList(row.images);
-        const nextImages = images.length > 0 ? images : existing.images;
-        const { videoUrl, listingType } = resolveVideoForImportUpdate(
-          ctx.portal,
-          row.videoUrl,
-          existing.videoUrl,
-        );
-        const facet = this.importFacetPayload(ctx, row);
-        await this.prisma.property.update({
-          where: { id: existing.id },
-          data: {
-            title: row.title,
-            description:
-              (row.description?.length ?? 0) > (existing.description?.length ?? 0)
-                ? row.description
-                : existing.description,
-            price:
-              row.price != null && row.price > 0
-                ? Math.trunc(row.price)
-                : existing.price,
-            city: row.city,
-            address: row.address?.trim() || row.city || existing.address,
-            offerType: row.offerType?.trim() || existing.offerType,
-            propertyType: row.propertyType?.trim() || existing.propertyType,
-            images: nextImages,
-            videoUrl,
-            listingType,
-            importSourceUrl: row.sourceUrl?.trim() || existing.importSourceUrl,
-            lastSyncedAt: new Date(),
-            ...facet,
-          },
-        });
-        updated += 1;
-      } catch {
-        errors += 1;
-      }
-    }
-    return { updated, errors };
-  }
-
   private async importListingShells(
     ctx: ImportExecutionContext,
     actorUserId: string,
@@ -1353,7 +1292,7 @@ export class ImportSyncService {
       phase: 'listing',
       totalListings: batch.length,
       processedListings: 0,
-      message: `Ukládám ${batch.length} záznamů ze výpisu (fáze A)…`,
+      message: `Ukládám ${batch.length} inzerátů do databáze…`,
     });
 
     if (ctx.portal === ListingImportPortal.reality_cz) {
@@ -1426,6 +1365,13 @@ export class ImportSyncService {
                 row.price != null && row.price > 0 ? Math.trunc(row.price) : null,
               city: row.city,
               address: row.address?.trim() || row.city,
+              region: row.region?.trim() ?? '',
+              district: row.district?.trim() ?? '',
+              area: row.area ?? null,
+              floor: row.floor ?? null,
+              totalFloors: row.totalFloors ?? null,
+              condition: row.condition?.trim() || null,
+              ownership: row.ownership?.trim() || null,
               currency: 'CZK',
               offerType: row.offerType?.trim() || 'prodej',
               propertyType: row.propertyType?.trim() || 'byt',
@@ -1497,6 +1443,13 @@ export class ImportSyncService {
               row.price != null && row.price > 0 ? Math.trunc(row.price) : null,
             city: row.city,
             address: row.address?.trim() || row.city,
+            region: row.region?.trim() ?? existing.region,
+            district: row.district?.trim() ?? existing.district,
+            area: row.area ?? existing.area,
+            floor: row.floor ?? existing.floor,
+            totalFloors: row.totalFloors ?? existing.totalFloors,
+            condition: row.condition?.trim() ?? existing.condition,
+            ownership: row.ownership?.trim() ?? existing.ownership,
             offerType: row.offerType?.trim() || existing.offerType,
             propertyType: row.propertyType?.trim() || existing.propertyType,
             images: imagesForDb.length > 0 ? imagesForDb : existing.images,

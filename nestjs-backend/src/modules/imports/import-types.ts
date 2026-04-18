@@ -14,6 +14,14 @@ export type ImportedListingDraft = {
   propertyType?: string;
   sourceUrl?: string;
   attributes?: Record<string, unknown>;
+  /** Z detail stránky (mapuje se na Property.region / district / …). */
+  region?: string;
+  district?: string;
+  area?: number | null;
+  floor?: number | null;
+  totalFloors?: number | null;
+  condition?: string | null;
+  ownership?: string | null;
 };
 
 /** Syrový input ze scraperu/API parseru – může být nekompletní. */

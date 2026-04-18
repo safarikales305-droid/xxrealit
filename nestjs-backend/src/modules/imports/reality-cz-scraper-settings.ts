@@ -30,8 +30,8 @@ const DEFAULTS: RealityCzScraperRuntimeSettings = {
   maxRetries: 6,
   backoffMultiplier: 2,
   baseBackoffMsOn429: 12_000,
-  /** Detaily doplňují galerii, cover a popis — po uložení „skořápek“ běží paralelně v dávkách. */
-  maxDetailFetchesPerRun: 48,
+  /** Počet detailních stránek za běh — má pokrýt celý výpis (listing jen jako zdroj URL). */
+  maxDetailFetchesPerRun: 200,
   listOnlyImport: false,
   /** Nižší výchozí souběžnost = méně HTTP/2 a síťových chyb vůči Reality.cz / proxy. */
   detailConcurrency: 2,
