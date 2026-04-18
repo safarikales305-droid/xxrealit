@@ -609,6 +609,17 @@ export class ImportSyncService {
               importDisabled: false,
             },
           });
+          // eslint-disable-next-line no-console
+          console.log('REALITY SAVED PROPERTY IMAGE FIELDS', {
+            id: created.id,
+            title: created.title,
+            coverImage: (created as unknown as Record<string, unknown>).coverImage ?? null,
+            imageUrl: (created as unknown as Record<string, unknown>).imageUrl ?? null,
+            thumbnail: (created as unknown as Record<string, unknown>).thumbnail ?? null,
+            photos: (created as unknown as Record<string, unknown>).photos ?? null,
+            gallery: (created as unknown as Record<string, unknown>).gallery ?? null,
+            images: created.images,
+          });
           createdDiagnostics.push({
             id: created.id,
             externalId,
@@ -635,7 +646,7 @@ export class ImportSyncService {
           row.videoUrl,
           existing.videoUrl,
         );
-        await this.prisma.property.update({
+        const updated = await this.prisma.property.update({
           where: { id: existing.id },
           data: {
             title: row.title,
@@ -652,6 +663,17 @@ export class ImportSyncService {
             importSourceUrl: row.sourceUrl?.trim() || existing.importSourceUrl,
             lastSyncedAt: new Date(),
           },
+        });
+        // eslint-disable-next-line no-console
+        console.log('REALITY SAVED PROPERTY IMAGE FIELDS', {
+          id: updated.id,
+          title: updated.title,
+          coverImage: (updated as unknown as Record<string, unknown>).coverImage ?? null,
+          imageUrl: (updated as unknown as Record<string, unknown>).imageUrl ?? null,
+          thumbnail: (updated as unknown as Record<string, unknown>).thumbnail ?? null,
+          photos: (updated as unknown as Record<string, unknown>).photos ?? null,
+          gallery: (updated as unknown as Record<string, unknown>).gallery ?? null,
+          images: updated.images,
         });
         importedUpdated += 1;
         // eslint-disable-next-line no-console
