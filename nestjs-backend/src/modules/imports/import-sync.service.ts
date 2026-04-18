@@ -106,7 +106,7 @@ export class ImportSyncService {
         enabled: false,
         intervalMinutes: 120,
         limitPerRun: 100,
-        endpointUrl: 'https://www.reality.cz/prodej/byty/',
+        endpointUrl: 'https://www.reality.cz/prodej/byty/?strana=1',
         settingsJson: {
           scraperListOnlyImport: true,
           scraperRequestDelayMs: 3500,
@@ -124,7 +124,7 @@ export class ImportSyncService {
         method: ListingImportMethod.scraper,
         OR: [{ endpointUrl: null }, { endpointUrl: '' }],
       },
-      data: { endpointUrl: 'https://www.reality.cz/prodej/byty/' },
+      data: { endpointUrl: 'https://www.reality.cz/prodej/byty/?strana=1' },
     });
     await this.prisma.importSource.upsert({
       where: {
@@ -418,7 +418,7 @@ export class ImportSyncService {
     const candidate = fromEndpoint || fromSettings;
     if (!candidate) {
       throw new BadRequestException(
-        'Zadejte start URL pro scraper Reality.cz (pole „Endpoint / start URL“ v administraci Importy musí obsahovat adresu výpisu nabídek, např. https://www.reality.cz/prodej/byty/).',
+        'Zadejte start URL pro scraper Reality.cz (konkrétní výpis s parametry, např. https://www.reality.cz/prodej/byty/?strana=1).',
       );
     }
     let parsed: URL;
@@ -437,7 +437,24 @@ export class ImportSyncService {
         `Scraper start URL hostitel „${parsed.hostname}“ není reality.cz — pokračujeme podle zadání.`,
       );
     }
+    if (!this.realityScraperUrlLooksLikeListingPage(parsed.href)) {
+      throw new BadRequestException(
+        'Invalid import URL — Použij konkrétní výpis inzerátů (např. s parametrem ?strana=1 nebo lokalitou)',
+      );
+    }
     return candidate;
+  }
+
+  /** Výpis musí mít query (?…) nebo explicitně strana=, jinak jde typicky o příliš obecnou cestu bez výpisu. */
+  private realityScraperUrlLooksLikeListingPage(url: string): boolean {
+    try {
+      const u = new URL(url);
+      if (u.searchParams.toString().length > 0) return true;
+      if (/strana=/i.test(`${u.pathname}${u.search}`)) return true;
+      return false;
+    } catch {
+      return /\?[^\s#]+/i.test(url) || /strana=/i.test(url);
+    }
   }
 
   private async fetchRows(ctx: ImportExecutionContext): Promise<{

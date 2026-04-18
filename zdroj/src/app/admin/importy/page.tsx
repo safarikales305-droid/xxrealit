@@ -423,7 +423,7 @@ export default function AdminImportsPage() {
                       value={f.endpointUrl}
                       placeholder={
                         isRealityScraper
-                          ? 'https://www.reality.cz/prodej/byty/'
+                          ? 'https://www.reality.cz/prodej/byty/?strana=1'
                           : 'https://…'
                       }
                       className="w-full rounded-lg border border-zinc-200 px-3 py-2"

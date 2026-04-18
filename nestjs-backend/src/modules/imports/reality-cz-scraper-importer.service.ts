@@ -12,7 +12,9 @@ import {
   resolveRealityListingExternalId,
 } from './reality-listing-code.util';
 const DEFAULT_BROWSER_UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0';
+
+const FETCH_TIMEOUT_MS = 30_000;
 
 type ScraperFetchResult = {
   body: string;
@@ -58,7 +60,7 @@ export class RealityCzScraperImporter {
       `Reality.cz scraper start: url=${startUrl} delayMs=${settings.requestDelayMs} retries=${settings.maxRetries} listOnly=${settings.listOnlyImport} maxDetails=${settings.maxDetailFetchesPerRun}`,
     );
 
-    const fetched = await this.fetchWithRetry(
+    let fetched = await this.fetchWithRetry(
       startUrl,
       'list_page',
       settings,
@@ -68,7 +70,30 @@ export class RealityCzScraperImporter {
       },
     );
 
-    const parsed = this.parseListings(fetched.body);
+    let parsed = this.parseListings(fetched.body);
+    if (parsed.items.length === 0) {
+      const page2Url = this.withStranaPage(startUrl, 2);
+      if (page2Url !== startUrl) {
+        this.logger.log(`Reality.cz scraper: 0 inzerátů na první stránce, zkouším fallback ${page2Url}`);
+        // eslint-disable-next-line no-console
+        console.log('SCRAPING URL (fallback strana=2):', page2Url);
+        fetched = await this.fetchWithRetry(
+          page2Url,
+          'list_page',
+          settings,
+          requestLog,
+          (is429) => {
+            if (is429) listPage429Count += 1;
+          },
+        );
+        parsed = this.parseListings(fetched.body);
+      }
+    }
+
+    if (parsed.items.length === 0) {
+      this.logger.warn('0 listings found – pravděpodobně špatná URL nebo blokace');
+    }
+
     let rows = this.normalizer(parsed.items, limit);
 
     let detailFetchesAttempted = 0;
@@ -158,13 +183,21 @@ export class RealityCzScraperImporter {
     }
     return {
       Accept:
-        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
       'Accept-Language': 'cs-CZ,cs;q=0.9,en-US;q=0.8,en;q=0.7',
       'User-Agent': DEFAULT_BROWSER_UA,
       Referer: referer,
-      'Cache-Control': 'no-cache',
+      'Cache-Control': 'max-age=0',
       DNT: '1',
       'Upgrade-Insecure-Requests': '1',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': phase === 'detail_page' ? 'same-origin' : 'none',
+      'Sec-Fetch-User': '?1',
+      'sec-ch-ua':
+        '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"Windows"',
     };
   }
 
@@ -203,10 +236,12 @@ export class RealityCzScraperImporter {
     let lastErr: unknown = null;
     for (let attempt = 1; attempt <= settings.maxRetries; attempt += 1) {
       try {
+        // eslint-disable-next-line no-console
+        console.log('SCRAPING URL:', url);
         const res = await fetch(url, {
           headers: this.buildHeaders(url, phase),
           redirect: 'follow',
-          signal: AbortSignal.timeout(60_000),
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         });
 
         if (res.status === 429) {
@@ -325,10 +360,28 @@ export class RealityCzScraperImporter {
     return next;
   }
 
+  /** Přidá nebo přepíše strana= pro druhou stránku výpisu (fallback). */
+  private withStranaPage(startUrl: string, page: number): string {
+    try {
+      const u = new URL(startUrl);
+      u.searchParams.set('strana', String(page));
+      return u.toString();
+    } catch {
+      if (startUrl.includes('?')) {
+        return `${startUrl}&strana=${page}`;
+      }
+      return `${startUrl}?strana=${page}`;
+    }
+  }
+
   private parseListings(body: string): {
     items: Array<Record<string, unknown>>;
     method: string;
   } {
+    const fromDetailHrefs = this.detailListingLinkParser(body);
+    if (fromDetailHrefs.length) {
+      return { items: fromDetailHrefs, method: 'detail-href' };
+    }
     const fromLinks = this.realityListingLinkParser(body);
     if (fromLinks.length) {
       return { items: fromLinks, method: 'listing-links' };
@@ -339,6 +392,45 @@ export class RealityCzScraperImporter {
     }
     const fromArticles = this.articleCardParser(body);
     return { items: fromArticles, method: 'article-fallback' };
+  }
+
+  /**
+   * Odkazy na detail inzerátu (jako a[href*="/detail/"] v prohlížeči).
+   */
+  private detailListingLinkParser(html: string): Array<Record<string, unknown>> {
+    const re = /href=["']([^"']+)["']/gi;
+    const items: Array<Record<string, unknown>> = [];
+    let m: RegExpExecArray | null;
+    let rawLinkCount = 0;
+    while ((m = re.exec(html)) !== null) {
+      const raw = m[1];
+      if (!/\/detail\//i.test(raw) && !/%2[fF]detail%2[fF]/i.test(raw)) continue;
+      rawLinkCount += 1;
+      const abs = raw.startsWith('http')
+        ? raw
+        : `https://www.reality.cz${raw.startsWith('/') ? '' : '/'}${raw}`;
+      const id = extractListingCodeFromRealityUrl(abs);
+      if (!id) continue;
+      const tail = html.slice(m.index, Math.min(html.length, m.index + 4500));
+      const priceText =
+        extractFirstPriceKc(tail) ?? extractFirstPriceKc(html.slice(m.index, m.index + 9000));
+      const near = html.slice(Math.max(0, m.index - 800), Math.min(html.length, m.index + 800));
+      const titleFromH = near.match(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i);
+      const title = titleFromH
+        ? stripTags(titleFromH[1]).replace(/\s+/g, ' ').trim()
+        : `Nabídka ${id}`;
+      if (title.length < 3) continue;
+      items.push({
+        id,
+        title: title.slice(0, 250),
+        description: title.slice(0, 500),
+        price: priceText,
+        url: abs,
+      });
+    }
+    // eslint-disable-next-line no-console
+    console.log('FOUND LINKS:', rawLinkCount);
+    return dedupeByKey(items, (r) => String(r.id));
   }
 
   private tryNextDataParser(body: string): Array<Record<string, unknown>> {
