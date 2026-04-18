@@ -177,7 +177,11 @@ export default function ProfilZpravaDetailPage() {
                 <div className="min-w-0">
                   <p className="font-semibold text-zinc-900">{detail.property.title}</p>
                   <p className="text-sm font-bold text-[#e85d00]">
-                    {priceFmt.format(detail.property.price)}
+                    {typeof detail.property.price === 'number' &&
+                    Number.isFinite(detail.property.price) &&
+                    detail.property.price > 0
+                      ? priceFmt.format(detail.property.price)
+                      : 'Cena na dotaz'}
                   </p>
                   <p className="text-xs text-zinc-600">{detail.property.city}</p>
                   <Link
