@@ -15,6 +15,17 @@ import {
   classicPublicListingWhere,
 } from './property-listing-scope';
 
+/** Kanonické klíče (import + `detectPropertyType`) — musí sedět s `ptype` ve frontend URL. */
+const CANONICAL_PROPERTY_TYPE_KEYS = new Set([
+  'byt',
+  'dum',
+  'pozemek',
+  'garaz',
+  'komercni',
+  'chata_chalupa',
+  'ostatni',
+]);
+
 export type PublicPropertyListFilters = {
   city?: string;
   /** Čárkou oddělená města — OR (kdekoli v `city`). */
@@ -74,6 +85,74 @@ export class PropertiesService {
     return u?.role === UserRole.ADMIN;
   }
 
+  /**
+   * Veřejný filtr `propertyTypeKey` / `ptype`: DB má u importu `propertyTypeKey`,
+   * starší / ruční řádky často jen `propertyType` („dům“, „Byt“, …).
+   */
+  private buildPublicPropertyTypeFilterWhere(
+    rawKey: string | undefined | null,
+  ): Prisma.PropertyWhereInput | null {
+    const trimmed = rawKey?.trim();
+    if (!trimmed) return null;
+    const k = trimmed.toLowerCase();
+
+    const aliasToCanonical: Record<string, string> = {
+      house: 'dum',
+      dum: 'dum',
+      apartment: 'byt',
+      byt: 'byt',
+      flat: 'byt',
+      land: 'pozemek',
+      pozemek: 'pozemek',
+      commercial: 'komercni',
+      komercni: 'komercni',
+      garaz: 'garaz',
+      garage: 'garaz',
+      chata: 'chata_chalupa',
+      chalupa: 'chata_chalupa',
+      chata_chalupa: 'chata_chalupa',
+      ostatni: 'ostatni',
+    };
+
+    const canonical = aliasToCanonical[k] ?? k;
+    if (!CANONICAL_PROPERTY_TYPE_KEYS.has(canonical)) {
+      this.log.warn(
+        `[findAllPublic] Neznámý propertyTypeKey="${trimmed}" — filtr ignoruji (nevracet prázdný výpis).`,
+      );
+      return null;
+    }
+
+    const propertyTypeEqualsVariants: Record<string, string[]> = {
+      byt: ['byt'],
+      dum: ['dům', 'dum', 'dom'],
+      pozemek: ['pozemek', 'pozem'],
+      garaz: ['garáž', 'garaz'],
+      komercni: ['komerční', 'komercni'],
+      chata_chalupa: ['chata', 'chalupa', 'chata_chalupa'],
+      ostatni: ['ostatní', 'ostatni'],
+    };
+
+    const ptEq = propertyTypeEqualsVariants[canonical] ?? [canonical];
+    const OR: Prisma.PropertyWhereInput[] = [
+      { propertyTypeKey: { equals: canonical, mode: 'insensitive' } },
+      ...ptEq.map((t) => ({
+        propertyType: { equals: t, mode: 'insensitive' as const },
+      })),
+    ];
+
+    if (canonical === 'dum') {
+      OR.push({ propertyType: { contains: 'dům', mode: 'insensitive' } });
+    }
+    if (canonical === 'byt') {
+      OR.push({ propertyType: { contains: 'byt', mode: 'insensitive' } });
+    }
+    if (canonical === 'pozemek') {
+      OR.push({ propertyType: { contains: 'pozem', mode: 'insensitive' } });
+    }
+
+    return { OR };
+  }
+
   private buildClassicPublicWhere(
     filters?: PublicPropertyListFilters,
   ): Prisma.PropertyWhereInput {
@@ -96,7 +175,8 @@ export class PropertiesService {
     }
     const ptk = filters?.propertyTypeKey?.trim();
     if (ptk) {
-      parts.push({ propertyTypeKey: ptk });
+      const ptw = this.buildPublicPropertyTypeFilterWhere(ptk);
+      if (ptw) parts.push(ptw);
     }
     const ick = filters?.importCategoryKey?.trim();
     if (ick) {

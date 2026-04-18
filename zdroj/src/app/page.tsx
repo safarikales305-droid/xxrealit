@@ -22,7 +22,8 @@ function firstQuery(sp: SearchParamsInput, key: string): string | undefined {
 function buildPropertiesQueryString(sp: SearchParamsInput): string {
   const out = new URLSearchParams();
   const ptype = firstQuery(sp, 'ptype')?.trim();
-  if (ptype) out.set('propertyTypeKey', ptype);
+  /** Backend očekává kanonické klíče (byt, dum, …) — sjednotit velikost písmen z URL. */
+  if (ptype) out.set('propertyTypeKey', ptype.toLowerCase());
   const cities = firstQuery(sp, 'cities')?.trim();
   if (cities) out.set('cities', cities);
   const priceMin = firstQuery(sp, 'priceMin')?.trim();
