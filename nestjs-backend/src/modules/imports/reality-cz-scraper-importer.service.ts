@@ -6,9 +6,11 @@ import {
   type RealityCzScraperRequestLogEntry,
   type RealityCzScraperRuntimeSettings,
 } from './reality-cz-scraper-settings';
-
-const REALITY_LISTING_PATH_RE =
-  /\/([A-Za-z0-9]+-[A-Za-z0-9]+)\/?(?:\?|#|$)/i;
+import {
+  extractListingCodeFromRealityUrl,
+  REALITY_LISTING_CODE_RE,
+  resolveRealityListingExternalId,
+} from './reality-listing-code.util';
 const DEFAULT_BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
@@ -345,7 +347,17 @@ export class RealityCzScraperImporter {
     try {
       const root = JSON.parse(scriptMatch[1]) as unknown;
       const found = this.collectListingLikeObjects(root, 0);
-      return dedupeByKey(found, (r) => String(r.id ?? r.url ?? r.href ?? ''));
+      return dedupeByKey(found, (r) => {
+        const o = r as Record<string, unknown>;
+        return (
+          resolveRealityListingExternalId({
+            sourceUrl: o.url ?? o.href,
+            externalId: o.externalId,
+            id: o.id,
+            listingId: o.listingId,
+          }) ?? ''
+        );
+      });
     } catch {
       return [];
     }
@@ -383,14 +395,22 @@ export class RealityCzScraperImporter {
       (typeof obj.link === 'string' && obj.link) ||
       (typeof obj.canonicalUrl === 'string' && obj.canonicalUrl) ||
       '';
-    const pathMatch = urlRaw ? REALITY_LISTING_PATH_RE.exec(urlRaw) : null;
-    const idRaw =
-      (typeof obj.id === 'string' && obj.id) ||
-      (typeof obj.listingId === 'string' && obj.listingId) ||
-      (typeof obj.code === 'string' && obj.code) ||
-      pathMatch?.[1] ||
+    const absUrl =
+      urlRaw && urlRaw.startsWith('http')
+        ? urlRaw
+        : urlRaw
+          ? `https://www.reality.cz${urlRaw.startsWith('/') ? '' : '/'}${urlRaw}`
+          : '';
+    const fromUrl = absUrl ? extractListingCodeFromRealityUrl(absUrl) : null;
+    const idRawStr =
+      (typeof obj.id === 'string' && obj.id.trim()) ||
+      (typeof obj.listingId === 'string' && obj.listingId.trim()) ||
+      (typeof obj.code === 'string' && obj.code.trim()) ||
       '';
-    if (!idRaw || !/^[A-Za-z0-9]+-[A-Za-z0-9]+$/.test(idRaw)) return null;
+    const idRaw =
+      fromUrl ||
+      (idRawStr && REALITY_LISTING_CODE_RE.test(idRawStr) ? idRawStr.toUpperCase() : '');
+    if (!idRaw) return null;
     const title =
       (typeof obj.title === 'string' && obj.title) ||
       (typeof obj.name === 'string' && obj.name) ||
@@ -398,12 +418,9 @@ export class RealityCzScraperImporter {
     if (!title.trim()) return null;
     const priceVal =
       obj.price ?? obj.priceCzk ?? obj.amount ?? obj.rent ?? obj.salePrice;
-    const absUrl =
-      urlRaw && urlRaw.startsWith('http')
-        ? urlRaw
-        : urlRaw
-          ? `https://www.reality.cz${urlRaw.startsWith('/') ? '' : '/'}${urlRaw}`
-          : `https://www.reality.cz/${idRaw}/`;
+    const absUrlFinal =
+      absUrl ||
+      `https://www.reality.cz/${idRaw}/`;
     return {
       id: idRaw,
       title,
@@ -419,7 +436,7 @@ export class RealityCzScraperImporter {
       videoUrl: obj.videoUrl ?? obj.video,
       offerType: obj.offerType ?? obj.transactionType,
       propertyType: obj.propertyType ?? obj.estateType,
-      url: absUrl,
+      url: absUrlFinal,
     };
   }
 
@@ -432,8 +449,7 @@ export class RealityCzScraperImporter {
       const href = m[1].startsWith('http')
         ? m[1]
         : `https://www.reality.cz${m[1].startsWith('/') ? '' : '/'}${m[1]}`;
-      const idMatch = REALITY_LISTING_PATH_RE.exec(href);
-      const id = idMatch?.[1];
+      const id = extractListingCodeFromRealityUrl(href);
       if (!id) continue;
       const title = stripTags(m[2]).replace(/\s+/g, ' ').trim();
       if (title.length < 8) continue;
@@ -461,8 +477,11 @@ export class RealityCzScraperImporter {
         : hrefRaw
           ? `https://www.reality.cz${hrefRaw.startsWith('/') ? '' : '/'}${hrefRaw}`
           : '';
-      const idMatch = href ? REALITY_LISTING_PATH_RE.exec(href) : null;
-      const id = idMatch?.[1] ?? text(/data-id=["']([^"']+)["']/i);
+      const idFromHref = href ? extractListingCodeFromRealityUrl(href) : null;
+      const idData = text(/data-id=["']([^"']+)["']/i);
+      const id =
+        idFromHref ||
+        (idData && REALITY_LISTING_CODE_RE.test(idData) ? idData.toUpperCase() : undefined);
       return {
         id,
         title: stripTags(text(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i)),
@@ -489,7 +508,9 @@ export class RealityCzScraperImporter {
     const maxRows = Math.max(1, Math.min(500, Math.trunc(limit || 100)));
     for (const row of rows) {
       const normalized = this.normalizeRawRow({
-        externalId: row.externalId ?? row.id ?? row.listingId,
+        externalId: row.externalId,
+        id: row.id,
+        listingId: row.listingId,
         title: row.title ?? row.name,
         description: row.description ?? row.text ?? row.title,
         price: row.price,
@@ -521,7 +542,18 @@ export class RealityCzScraperImporter {
   }
 
   private normalizeRawRow(raw: RawImportedListing): ImportedListingDraft | null {
-    const externalId = String(raw.externalId ?? '').trim();
+    const externalId = resolveRealityListingExternalId({
+      sourceUrl: raw.sourceUrl,
+      externalId: raw.externalId,
+      id: raw.id,
+      listingId: raw.listingId,
+    });
+    if (!externalId) {
+      this.logger.warn(
+        'Skipping scraper row: neplatný nebo chybějící kód Reality.cz (zkontrolujte URL inzerátu).',
+      );
+      return null;
+    }
     const title = String(raw.title ?? '').trim();
     const description = String(raw.description ?? title).trim();
     let city = String(raw.city ?? '').trim();
@@ -537,7 +569,6 @@ export class RealityCzScraperImporter {
     }
 
     const missing: string[] = [];
-    if (!externalId) missing.push('externalId');
     if (!title) missing.push('title');
     if (!Number.isFinite(price) || price <= 0) missing.push('price');
     if (missing.length > 0) {
@@ -556,7 +587,7 @@ export class RealityCzScraperImporter {
         ? raw.videoUrl.trim()
         : null;
     const draft: ImportedListingDraft = {
-      externalId,
+      externalId: externalId,
       title: title.slice(0, 250),
       description: description.slice(0, 10_000),
       price,
@@ -630,7 +661,7 @@ function dedupeByKey<T>(items: T[], keyFn: (item: T) => string): T[] {
   const out: T[] = [];
   for (const item of items) {
     const k = keyFn(item);
-    if (!k || seen.has(k)) continue;
+    if (!k || k === 'undefined' || k === 'null' || seen.has(k)) continue;
     seen.add(k);
     out.push(item);
   }

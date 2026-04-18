@@ -392,6 +392,23 @@ export class ImportSyncService {
     throw new BadRequestException(`Nepodporovaná metoda importu: ${ctx.method}`);
   }
 
+  private dedupeImportedRows(rows: ImportedListingDraft[]): ImportedListingDraft[] {
+    const map = new Map<string, ImportedListingDraft>();
+    for (const row of rows) {
+      const id = (row.externalId ?? '').trim().toUpperCase();
+      if (!id) continue;
+      const prev = map.get(id);
+      if (
+        !prev ||
+        (row.description?.length ?? 0) > (prev.description?.length ?? 0) ||
+        (row.images?.length ?? 0) > (prev.images?.length ?? 0)
+      ) {
+        map.set(id, { ...row, externalId: id });
+      }
+    }
+    return [...map.values()];
+  }
+
   private async importRows(
     ctx: ImportExecutionContext,
     actorUserId: string,
@@ -403,16 +420,27 @@ export class ImportSyncService {
     let disabled = 0;
     const errors: string[] = [];
 
-    for (const row of rows.slice(0, Math.max(1, Math.min(500, ctx.limitPerRun)))) {
+    const batch = this.dedupeImportedRows(
+      rows.slice(0, Math.max(1, Math.min(500, ctx.limitPerRun))),
+    );
+
+    for (const row of batch) {
       try {
-        const externalId = row.externalId.trim();
+        const externalId = row.externalId.trim().toUpperCase();
         if (!externalId) {
           skipped += 1;
+          // eslint-disable-next-line no-console
+          console.log('[IMPORT]', '(empty)', (row.title ?? '').slice(0, 60), 'SKIPPED');
           continue;
         }
 
-        const existing = await this.prisma.property.findFirst({
-          where: { importSource: ctx.portal, importExternalId: externalId },
+        const existing = await this.prisma.property.findUnique({
+          where: {
+            importSource_importExternalId: {
+              importSource: ctx.portal,
+              importExternalId: externalId,
+            },
+          },
         });
         if (!existing) {
           await this.prisma.property.create({
@@ -446,11 +474,15 @@ export class ImportSyncService {
             },
           });
           importedNew += 1;
+          // eslint-disable-next-line no-console
+          console.log('[IMPORT]', externalId, (row.title ?? '').slice(0, 80), 'CREATED');
           continue;
         }
 
         if (existing.importDisabled) {
           disabled += 1;
+          // eslint-disable-next-line no-console
+          console.log('[IMPORT]', externalId, (row.title ?? '').slice(0, 80), 'SKIPPED_DISABLED');
           continue;
         }
 
@@ -472,9 +504,19 @@ export class ImportSyncService {
           },
         });
         importedUpdated += 1;
+        // eslint-disable-next-line no-console
+        console.log('[IMPORT]', externalId, (row.title ?? '').slice(0, 80), 'UPDATED');
       } catch (error: unknown) {
         skipped += 1;
         errors.push(error instanceof Error ? error.message : 'Neznámá chyba řádku');
+        // eslint-disable-next-line no-console
+        console.log(
+          '[IMPORT]',
+          (row.externalId ?? '').trim(),
+          (row.title ?? '').slice(0, 80),
+          'SKIPPED_ERROR',
+          error instanceof Error ? error.message : error,
+        );
       }
     }
 

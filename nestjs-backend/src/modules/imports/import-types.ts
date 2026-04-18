@@ -18,6 +18,9 @@ export type ImportedListingDraft = {
 /** Syrový input ze scraperu/API parseru – může být nekompletní. */
 export type RawImportedListing = {
   externalId?: unknown;
+  /** Syrové id z JSON/HTML (číselné nebo řetězec) — nepoužívat bez validace kódu Reality.cz. */
+  id?: unknown;
+  listingId?: unknown;
   title?: unknown;
   description?: unknown;
   price?: unknown;
