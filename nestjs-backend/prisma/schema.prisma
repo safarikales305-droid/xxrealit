@@ -617,6 +617,13 @@ model ImportSource {
   portal         ListingImportPortal
   method         ListingImportMethod
   name           String
+  portalKey      String             @default("")
+  portalLabel    String             @default("")
+  categoryKey    String             @default("obecne")
+  categoryLabel  String             @default("Obecné")
+  listingType    String?
+  propertyType   String?
+  sortOrder      Int                @default(0)
   enabled        Boolean            @default(false)
   intervalMinutes Int               @default(60)
   limitPerRun    Int                @default(100)
@@ -629,8 +636,10 @@ model ImportSource {
   updatedAt      DateTime           @updatedAt
   logs           ImportLog[]
 
-  @@unique([portal, method], map: "import_source_portal_method_uq")
+  @@unique([portalKey, categoryKey, method], map: "import_source_portal_category_method_uq")
   @@index([enabled, updatedAt])
+  @@index([portalKey, sortOrder, categoryLabel])
+  @@index([portalKey, categoryKey])
 }
 
 model ImportLog {

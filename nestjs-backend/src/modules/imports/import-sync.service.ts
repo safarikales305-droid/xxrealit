@@ -49,9 +49,11 @@ function resolveVideoForImportUpdate(
 import { PrismaService } from '../../database/prisma.service';
 import type {
   ImportExecutionContext,
+  ImportSourceBranchRow,
   ImportedListingDraft,
   ImportRunProgressPayload,
   ImportRunResult,
+  PortalImportAggregate,
 } from './import-types';
 import { RealityCzSoapImporter } from './reality-cz-soap-importer.service';
 import {
@@ -60,9 +62,73 @@ import {
 } from './reality-cz-scraper-importer.service';
 
 const DEFAULT_REALITY_SCRAPER_START_URL = 'https://www.reality.cz/prodej/byty/?strana=1';
+const DEFAULT_CATEGORY_KEY = 'ostatni';
+const DEFAULT_CATEGORY_LABEL = 'Ostatní';
+
+type ImportCategoryMeta = {
+  categoryKey: string;
+  categoryLabel: string;
+};
+
+type PortalMeta = {
+  portalKey: string;
+  portalLabel: string;
+};
+
+type ImportSourceCreateInput = {
+  portal: ListingImportPortal;
+  method: ListingImportMethod;
+  name: string;
+  portalKey: string;
+  portalLabel: string;
+  categoryKey: string;
+  categoryLabel: string;
+  listingType?: string | null;
+  propertyType?: string | null;
+  endpointUrl?: string | null;
+  intervalMinutes?: number;
+  limitPerRun?: number;
+  enabled?: boolean;
+  settingsJson?: Prisma.InputJsonValue | null;
+  credentialsJson?: Prisma.InputJsonValue | null;
+  sortOrder?: number;
+};
 
 function isValidRealityListingUrl(url: string): boolean {
   return /^https?:\/\/(www\.)?reality\.cz\/(prodej|pronajem)\//i.test(url.trim());
+}
+
+function normalizeCategoryKey(v: string): string {
+  return (v || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || DEFAULT_CATEGORY_KEY;
+}
+
+function inferCategoryMetaFromUrl(url?: string | null): ImportCategoryMeta {
+  const t = (url ?? '').toLowerCase();
+  if (t.includes('/byty/')) return { categoryKey: 'byty', categoryLabel: 'Byty' };
+  if (t.includes('/domy/')) return { categoryKey: 'domy', categoryLabel: 'Domy' };
+  if (t.includes('/pozemky/')) return { categoryKey: 'pozemky', categoryLabel: 'Pozemky' };
+  if (t.includes('/komercni/')) return { categoryKey: 'komercni', categoryLabel: 'Komerční' };
+  if (t.includes('/garaze/')) return { categoryKey: 'garaze', categoryLabel: 'Garáže' };
+  if (t.includes('/chaty/') || t.includes('/chalupy/')) {
+    return { categoryKey: 'chaty-chalupy', categoryLabel: 'Chaty a chalupy' };
+  }
+  return { categoryKey: DEFAULT_CATEGORY_KEY, categoryLabel: DEFAULT_CATEGORY_LABEL };
+}
+
+function portalMetaFor(portal: ListingImportPortal): PortalMeta {
+  switch (portal) {
+    case ListingImportPortal.reality_cz:
+      return { portalKey: 'reality_cz', portalLabel: 'Reality.cz' };
+    case ListingImportPortal.xml_feed:
+      return { portalKey: 'xml_feed', portalLabel: 'XML feed' };
+    case ListingImportPortal.csv_feed:
+      return { portalKey: 'csv_feed', portalLabel: 'CSV' };
+    default:
+      return { portalKey: 'other', portalLabel: 'Jiný portál' };
+  }
 }
 
 type ImportSourcePatch = {
@@ -70,6 +136,13 @@ type ImportSourcePatch = {
   intervalMinutes?: number;
   limitPerRun?: number;
   endpointUrl?: string | null;
+  portalKey?: string;
+  portalLabel?: string;
+  categoryKey?: string;
+  categoryLabel?: string;
+  listingType?: string | null;
+  propertyType?: string | null;
+  sortOrder?: number;
   credentialsJson?: Prisma.InputJsonValue | null;
   settingsJson?: Prisma.InputJsonValue | null;
 };
@@ -77,6 +150,10 @@ type ImportSourcePatch = {
 @Injectable()
 export class ImportSyncService {
   private readonly logger = new Logger(ImportSyncService.name);
+  private readonly runningBySource = new Map<
+    string,
+    { running: boolean; percent: number; message: string; startedAt: string }
+  >();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -85,132 +162,331 @@ export class ImportSyncService {
   ) {}
 
   async ensureDefaultSources() {
-    await this.prisma.importSource.upsert({
-      where: {
-        portal_method: { portal: ListingImportPortal.reality_cz, method: ListingImportMethod.soap },
-      },
-      create: {
-        portal: ListingImportPortal.reality_cz,
-        method: ListingImportMethod.soap,
-        name: 'Reality.cz SOAP',
-        enabled: false,
-        intervalMinutes: 60,
-        limitPerRun: 150,
-      },
-      update: {},
+    await this.backfillImportSourceMetadata();
+    await this.ensureDefaultSource({
+      portal: ListingImportPortal.reality_cz,
+      method: ListingImportMethod.soap,
+      name: 'Reality.cz SOAP',
+      portalKey: 'reality_cz',
+      portalLabel: 'Reality.cz',
+      categoryKey: 'soap-main',
+      categoryLabel: 'SOAP hlavní',
+      intervalMinutes: 60,
+      limitPerRun: 150,
+      enabled: false,
+      sortOrder: 10,
     });
-    await this.prisma.importSource.upsert({
-      where: {
-        portal_method: {
-          portal: ListingImportPortal.reality_cz,
-          method: ListingImportMethod.scraper,
-        },
+    await this.ensureDefaultSource({
+      portal: ListingImportPortal.reality_cz,
+      method: ListingImportMethod.scraper,
+      name: 'Reality.cz Scraper / Byty',
+      portalKey: 'reality_cz',
+      portalLabel: 'Reality.cz',
+      categoryKey: 'byty',
+      categoryLabel: 'Byty',
+      endpointUrl: DEFAULT_REALITY_SCRAPER_START_URL,
+      intervalMinutes: 120,
+      limitPerRun: 100,
+      enabled: false,
+      settingsJson: {
+        startUrl: DEFAULT_REALITY_SCRAPER_START_URL,
+        scraperListOnlyImport: false,
+        scraperRequestDelayMs: 3500,
+        scraperMaxRetries: 6,
+        scraperBackoffMultiplier: 2,
+        scraperBaseBackoffMsOn429: 12_000,
+        scraperMaxDetailFetchesPerRun: 15,
       },
-      create: {
-        portal: ListingImportPortal.reality_cz,
-        method: ListingImportMethod.scraper,
-        name: 'Reality.cz Scraper',
-        enabled: false,
-        intervalMinutes: 120,
-        limitPerRun: 100,
-        endpointUrl: DEFAULT_REALITY_SCRAPER_START_URL,
-        settingsJson: {
-          startUrl: DEFAULT_REALITY_SCRAPER_START_URL,
-          scraperListOnlyImport: false,
-          scraperRequestDelayMs: 3500,
-          scraperMaxRetries: 6,
-          scraperBackoffMultiplier: 2,
-          scraperBaseBackoffMsOn429: 12_000,
-          scraperMaxDetailFetchesPerRun: 15,
-        },
-      },
-      update: {},
+      sortOrder: 10,
     });
-    await this.prisma.importSource.updateMany({
-      where: {
-        portal: ListingImportPortal.reality_cz,
-        method: ListingImportMethod.scraper,
-        OR: [{ endpointUrl: null }, { endpointUrl: '' }],
-      },
-      data: { endpointUrl: DEFAULT_REALITY_SCRAPER_START_URL },
+    await this.ensureDefaultSource({
+      portal: ListingImportPortal.xml_feed,
+      method: ListingImportMethod.xml,
+      name: 'XML feed / Obecné',
+      portalKey: 'xml_feed',
+      portalLabel: 'XML feed',
+      categoryKey: 'obecne',
+      categoryLabel: 'Obecné',
+      intervalMinutes: 120,
+      limitPerRun: 200,
+      enabled: false,
+      sortOrder: 30,
     });
-    const legacyScraperSources = await this.prisma.importSource.findMany({
+    await this.ensureDefaultSource({
+      portal: ListingImportPortal.csv_feed,
+      method: ListingImportMethod.csv,
+      name: 'CSV / Obecné',
+      portalKey: 'csv_feed',
+      portalLabel: 'CSV',
+      categoryKey: 'obecne',
+      categoryLabel: 'Obecné',
+      intervalMinutes: 180,
+      limitPerRun: 200,
+      enabled: false,
+      sortOrder: 40,
+    });
+    await this.backfillImportSourceMetadata();
+  }
+
+  private async ensureDefaultSource(input: ImportSourceCreateInput): Promise<void> {
+    const existing = await this.prisma.importSource.findFirst({
       where: {
-        portal: ListingImportPortal.reality_cz,
-        method: ListingImportMethod.scraper,
+        portalKey: input.portalKey,
+        categoryKey: input.categoryKey,
+        method: input.method,
       },
-      select: {
-        id: true,
-        endpointUrl: true,
-        settingsJson: true,
+      select: { id: true },
+    });
+    if (existing) return;
+    await this.prisma.importSource.create({
+      data: {
+        portal: input.portal,
+        method: input.method,
+        name: input.name,
+        portalKey: input.portalKey,
+        portalLabel: input.portalLabel,
+        categoryKey: input.categoryKey,
+        categoryLabel: input.categoryLabel,
+        sortOrder: input.sortOrder ?? 0,
+        enabled: input.enabled ?? false,
+        intervalMinutes: input.intervalMinutes ?? 60,
+        limitPerRun: input.limitPerRun ?? 100,
+        endpointUrl: input.endpointUrl ?? null,
+        settingsJson: input.settingsJson ?? Prisma.JsonNull,
+        credentialsJson: input.credentialsJson ?? Prisma.JsonNull,
       },
     });
-    for (const src of legacyScraperSources) {
-      const settingsRaw =
-        src.settingsJson &&
-        typeof src.settingsJson === 'object' &&
-        !Array.isArray(src.settingsJson)
-          ? { ...(src.settingsJson as Record<string, unknown>) }
+  }
+
+  private async backfillImportSourceMetadata(): Promise<void> {
+    const all = await this.prisma.importSource.findMany({
+      orderBy: { createdAt: 'asc' },
+    });
+    for (const s of all) {
+      const portalMeta = portalMetaFor(s.portal);
+      const settings =
+        s.settingsJson && typeof s.settingsJson === 'object' && !Array.isArray(s.settingsJson)
+          ? ({ ...(s.settingsJson as Record<string, unknown>) } as Record<string, unknown>)
           : {};
-      const settingsStart =
-        typeof settingsRaw.startUrl === 'string' ? settingsRaw.startUrl.trim() : '';
-      const endpointStart = src.endpointUrl?.trim() ?? '';
-      const candidate = settingsStart || endpointStart;
-      const finalStart = isValidRealityListingUrl(candidate)
-        ? candidate
-        : DEFAULT_REALITY_SCRAPER_START_URL;
-      settingsRaw.startUrl = finalStart;
-      if (src.endpointUrl?.trim() !== finalStart || settingsStart !== finalStart) {
+      const startUrl =
+        typeof settings.startUrl === 'string' && settings.startUrl.trim()
+          ? settings.startUrl.trim()
+          : s.endpointUrl?.trim() ?? '';
+      const inferred = inferCategoryMetaFromUrl(startUrl || s.endpointUrl);
+      let categoryKey = normalizeCategoryKey((s as { categoryKey?: string }).categoryKey ?? '');
+      let categoryLabel = (s as { categoryLabel?: string }).categoryLabel?.trim() ?? '';
+      if (!categoryKey || categoryKey === DEFAULT_CATEGORY_KEY) categoryKey = inferred.categoryKey;
+      if (!categoryLabel || categoryLabel === DEFAULT_CATEGORY_LABEL) categoryLabel = inferred.categoryLabel;
+      if (s.method === ListingImportMethod.soap && s.portal === ListingImportPortal.reality_cz) {
+        categoryKey = 'soap-main';
+        categoryLabel = 'SOAP hlavní';
+      }
+      if (s.method === ListingImportMethod.scraper && s.portal === ListingImportPortal.reality_cz) {
+        const validStart = isValidRealityListingUrl(startUrl)
+          ? startUrl
+          : DEFAULT_REALITY_SCRAPER_START_URL;
+        settings.startUrl = validStart;
         await this.prisma.importSource.update({
-          where: { id: src.id },
+          where: { id: s.id },
           data: {
-            endpointUrl: finalStart,
-            settingsJson: settingsRaw as Prisma.InputJsonValue,
+            endpointUrl: validStart,
+            settingsJson: settings as Prisma.InputJsonValue,
+            portalKey: portalMeta.portalKey,
+            portalLabel: portalMeta.portalLabel,
+            categoryKey,
+            categoryLabel,
+            name: `Reality.cz Scraper / ${categoryLabel}`,
+            sortOrder: s.sortOrder || 10,
           },
         });
+        continue;
       }
+      await this.prisma.importSource.update({
+        where: { id: s.id },
+        data: {
+          portalKey: portalMeta.portalKey,
+          portalLabel: portalMeta.portalLabel,
+          categoryKey: categoryKey || DEFAULT_CATEGORY_KEY,
+          categoryLabel: categoryLabel || DEFAULT_CATEGORY_LABEL,
+          sortOrder: s.sortOrder || (portalMeta.portalKey === 'reality_cz' ? 10 : 40),
+        },
+      });
     }
-    await this.prisma.importSource.upsert({
-      where: {
-        portal_method: {
-          portal: ListingImportPortal.xml_feed,
-          method: ListingImportMethod.xml,
-        },
-      },
-      create: {
-        portal: ListingImportPortal.xml_feed,
-        method: ListingImportMethod.xml,
-        name: 'XML feed',
-        enabled: false,
-        intervalMinutes: 120,
-        limitPerRun: 200,
-      },
-      update: {},
-    });
-    await this.prisma.importSource.upsert({
-      where: {
-        portal_method: {
-          portal: ListingImportPortal.csv_feed,
-          method: ListingImportMethod.csv,
-        },
-      },
-      create: {
-        portal: ListingImportPortal.csv_feed,
-        method: ListingImportMethod.csv,
-        name: 'CSV',
-        enabled: false,
-        intervalMinutes: 180,
-        limitPerRun: 200,
-      },
-      update: {},
-    });
   }
 
   async listSources() {
     await this.ensureDefaultSources();
-    return this.prisma.importSource.findMany({
-      orderBy: [{ portal: 'asc' }, { method: 'asc' }],
+    const rows = await this.prisma.importSource.findMany({
+      orderBy: [
+        { portalLabel: 'asc' },
+        { sortOrder: 'asc' },
+        { categoryLabel: 'asc' },
+        { method: 'asc' },
+      ],
+      include: {
+        logs: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
     });
+    return rows.map((r) => this.toBranchRow(r));
+  }
+
+  async listSourcesOverview(filter: {
+    portalKey?: string;
+    onlyEnabled?: boolean;
+    onlyRunning?: boolean;
+    onlyError?: boolean;
+    search?: string;
+  }): Promise<{ portals: PortalImportAggregate[]; branches: ImportSourceBranchRow[] }> {
+    const all = await this.listSources();
+    const q = (filter.search ?? '').trim().toLowerCase();
+    const branches = all.filter((b) => {
+      if (filter.portalKey && b.portalKey !== filter.portalKey) return false;
+      if (filter.onlyEnabled && !b.enabled) return false;
+      if (filter.onlyRunning && !b.running?.running) return false;
+      if (filter.onlyError && !(b.lastStatus ?? '').toLowerCase().startsWith('error')) return false;
+      if (!q) return true;
+      const hay = `${b.portalLabel} ${b.categoryLabel} ${b.name} ${b.endpointUrl ?? ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+    const grouped = new Map<string, PortalImportAggregate>();
+    for (const b of branches) {
+      const key = b.portalKey;
+      const prev =
+        grouped.get(key) ??
+        ({
+          portalKey: b.portalKey,
+          portalLabel: b.portalLabel,
+          branchesTotal: 0,
+          branchesEnabled: 0,
+          branchesRunning: 0,
+          branchesError: 0,
+          totalNew: 0,
+          totalUpdated: 0,
+        } satisfies PortalImportAggregate);
+      prev.branchesTotal += 1;
+      if (b.enabled) prev.branchesEnabled += 1;
+      if (b.running?.running) prev.branchesRunning += 1;
+      if ((b.lastStatus ?? '').toLowerCase().startsWith('error')) prev.branchesError += 1;
+      prev.totalNew += b.latestLog?.importedNew ?? 0;
+      prev.totalUpdated += b.latestLog?.importedUpdated ?? 0;
+      grouped.set(key, prev);
+    }
+    const portals = [...grouped.values()].sort((a, b) => a.portalLabel.localeCompare(b.portalLabel));
+    return { portals, branches };
+  }
+
+  private toBranchRow(
+    r: Prisma.ImportSourceGetPayload<{ include: { logs: true } }>,
+  ): ImportSourceBranchRow {
+    const latestLog = Array.isArray(r.logs) && r.logs.length > 0 ? r.logs[0] : null;
+    const running = this.runningBySource.get(r.id);
+    return {
+      id: r.id,
+      portal: r.portal,
+      method: r.method,
+      name: r.name,
+      portalKey: r.portalKey,
+      portalLabel: r.portalLabel,
+      categoryKey: r.categoryKey,
+      categoryLabel: r.categoryLabel,
+      listingType: r.listingType,
+      propertyType: r.propertyType,
+      sortOrder: r.sortOrder,
+      enabled: r.enabled,
+      intervalMinutes: r.intervalMinutes,
+      limitPerRun: r.limitPerRun,
+      endpointUrl: r.endpointUrl,
+      credentialsJson:
+        r.credentialsJson && typeof r.credentialsJson === 'object' && !Array.isArray(r.credentialsJson)
+          ? (r.credentialsJson as Record<string, unknown>)
+          : null,
+      settingsJson:
+        r.settingsJson && typeof r.settingsJson === 'object' && !Array.isArray(r.settingsJson)
+          ? (r.settingsJson as Record<string, unknown>)
+          : null,
+      lastRunAt: r.lastRunAt,
+      lastStatus: r.lastStatus,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      latestLog: latestLog
+        ? {
+            id: latestLog.id,
+            status: latestLog.status,
+            importedNew: latestLog.importedNew,
+            importedUpdated: latestLog.importedUpdated,
+            skipped: latestLog.skipped,
+            disabled: latestLog.disabled,
+            error: latestLog.error,
+            createdAt: latestLog.createdAt,
+          }
+        : null,
+      running: running
+        ? {
+            running: running.running,
+            percent: running.percent,
+            message: running.message,
+            startedAt: running.startedAt,
+          }
+        : { running: false, percent: 0, message: '' },
+    };
+  }
+
+  async createSource(input: ImportSourceCreateInput): Promise<ImportSourceBranchRow> {
+    await this.ensureDefaultSources();
+    const portalMeta = portalMetaFor(input.portal);
+    const inferred = inferCategoryMetaFromUrl(input.endpointUrl);
+    const categoryKey = normalizeCategoryKey(input.categoryKey || inferred.categoryKey);
+    const categoryLabel = input.categoryLabel?.trim() || inferred.categoryLabel;
+    const existing = await this.prisma.importSource.findFirst({
+      where: { portalKey: portalMeta.portalKey, categoryKey, method: input.method },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new BadRequestException('Větev pro tento portál/kategorii/metodu už existuje.');
+    }
+    const settings =
+      input.settingsJson && typeof input.settingsJson === 'object' && !Array.isArray(input.settingsJson)
+        ? { ...(input.settingsJson as Record<string, unknown>) }
+        : {};
+    if (input.method === ListingImportMethod.scraper && input.portal === ListingImportPortal.reality_cz) {
+      const start = isValidRealityListingUrl(input.endpointUrl ?? '')
+        ? (input.endpointUrl ?? '').trim()
+        : DEFAULT_REALITY_SCRAPER_START_URL;
+      settings.startUrl = start;
+      input.endpointUrl = start;
+    }
+    const created = await this.prisma.importSource.create({
+      data: {
+        portal: input.portal,
+        method: input.method,
+        name:
+          input.name?.trim() ||
+          `${portalMeta.portalLabel} ${input.method.toUpperCase()} / ${categoryLabel}`,
+        portalKey: portalMeta.portalKey,
+        portalLabel: portalMeta.portalLabel,
+        categoryKey,
+        categoryLabel,
+        listingType: input.listingType ?? null,
+        propertyType: input.propertyType ?? null,
+        sortOrder: input.sortOrder ?? 50,
+        enabled: input.enabled ?? false,
+        intervalMinutes: Math.max(1, Math.trunc(input.intervalMinutes ?? 120)),
+        limitPerRun: Math.max(1, Math.trunc(input.limitPerRun ?? 100)),
+        endpointUrl: input.endpointUrl?.trim() || null,
+        settingsJson: settings as Prisma.InputJsonValue,
+        credentialsJson: input.credentialsJson ?? Prisma.JsonNull,
+      },
+      include: { logs: { orderBy: { createdAt: 'desc' }, take: 1 } },
+    });
+    return this.toBranchRow(created);
+  }
+
+  async deleteSource(sourceId: string): Promise<{ ok: true; id: string }> {
+    const existing = await this.prisma.importSource.findUnique({ where: { id: sourceId }, select: { id: true } });
+    if (!existing) throw new NotFoundException('Import source nenalezen');
+    await this.prisma.importSource.delete({ where: { id: sourceId } });
+    this.runningBySource.delete(sourceId);
+    return { ok: true, id: sourceId };
   }
 
   async updateSource(sourceId: string, patch: ImportSourcePatch) {
@@ -220,6 +496,13 @@ export class ImportSyncService {
     if (typeof patch.enabled === 'boolean') data.enabled = patch.enabled;
     if (typeof patch.intervalMinutes === 'number') data.intervalMinutes = Math.max(1, Math.trunc(patch.intervalMinutes));
     if (typeof patch.limitPerRun === 'number') data.limitPerRun = Math.max(1, Math.trunc(patch.limitPerRun));
+    if (typeof patch.sortOrder === 'number') data.sortOrder = Math.trunc(patch.sortOrder);
+    if (patch.portalKey !== undefined) data.portalKey = normalizeCategoryKey(patch.portalKey);
+    if (patch.portalLabel !== undefined) data.portalLabel = patch.portalLabel.trim() || current.portalLabel;
+    if (patch.categoryKey !== undefined) data.categoryKey = normalizeCategoryKey(patch.categoryKey);
+    if (patch.categoryLabel !== undefined) data.categoryLabel = patch.categoryLabel.trim() || current.categoryLabel;
+    if (patch.listingType !== undefined) data.listingType = patch.listingType;
+    if (patch.propertyType !== undefined) data.propertyType = patch.propertyType;
     const isRealitySoap =
       current.portal === ListingImportPortal.reality_cz &&
       current.method === ListingImportMethod.soap;
@@ -271,15 +554,31 @@ export class ImportSyncService {
         ...patchSettings,
         startUrl: resolvedStart,
       };
+      const inferred = inferCategoryMetaFromUrl(resolvedStart);
       data.settingsJson = nextSettings as Prisma.InputJsonValue;
       data.endpointUrl = resolvedStart;
+      if (patch.categoryKey === undefined) data.categoryKey = inferred.categoryKey;
+      if (patch.categoryLabel === undefined) data.categoryLabel = inferred.categoryLabel;
+    }
+    if (data.portalLabel || data.categoryLabel) {
+      const portalLabel = (data.portalLabel as string | undefined) ?? current.portalLabel;
+      const categoryLabel = (data.categoryLabel as string | undefined) ?? current.categoryLabel;
+      data.name = `${portalLabel} ${current.method.toUpperCase()} / ${categoryLabel}`;
     }
     return this.prisma.importSource.update({ where: { id: sourceId }, data });
   }
 
-  async listLogs(sourceId?: string) {
+  async listLogs(filter?: { sourceId?: string; portalKey?: string; categoryKey?: string }) {
+    const where: Prisma.ImportLogWhereInput = {};
+    if (filter?.sourceId) where.sourceId = filter.sourceId;
+    if (filter?.portalKey || filter?.categoryKey) {
+      where.source = {
+        ...(filter.portalKey ? { portalKey: filter.portalKey } : {}),
+        ...(filter.categoryKey ? { categoryKey: filter.categoryKey } : {}),
+      };
+    }
     return this.prisma.importLog.findMany({
-      where: sourceId ? { sourceId } : undefined,
+      where,
       orderBy: { createdAt: 'desc' },
       take: 120,
       include: { source: true },
@@ -321,7 +620,42 @@ export class ImportSyncService {
         `scraperStartHint=${scraperStartHint ?? 'n/a'} settingsKeys=[${settingsKeys}] ` +
         `(SOAP používá REALITY_CZ_* env, scraper start URL = settingsJson.startUrl)`,
     );
+    this.runningBySource.set(ctx.sourceId, {
+      running: true,
+      percent: 0,
+      message: 'Spouštím…',
+      startedAt: new Date().toISOString(),
+    });
     return this.runWithLogging(ctx, actorUserId, onProgress);
+  }
+
+  async runPortal(
+    portalKey: string,
+    actorUserId: string,
+    onBranchProgress?: (e: { sourceId: string; percent: number; message: string }) => void,
+  ): Promise<Array<{ sourceId: string; ok: boolean; error?: string }>> {
+    await this.ensureDefaultSources();
+    const rows = await this.prisma.importSource.findMany({
+      where: { portalKey },
+      orderBy: [{ sortOrder: 'asc' }, { categoryLabel: 'asc' }],
+      select: { id: true },
+    });
+    const out: Array<{ sourceId: string; ok: boolean; error?: string }> = [];
+    for (const r of rows) {
+      try {
+        await this.runSource(r.id, actorUserId, (p) => {
+          onBranchProgress?.({ sourceId: r.id, percent: p.percent, message: p.message });
+        });
+        out.push({ sourceId: r.id, ok: true });
+      } catch (e) {
+        out.push({
+          sourceId: r.id,
+          ok: false,
+          error: e instanceof Error ? e.message : 'Neznámá chyba',
+        });
+      }
+    }
+    return out;
   }
 
   async bulkDisableByFilter(filter: { portal?: ListingImportPortal; method?: ListingImportMethod }) {
@@ -342,14 +676,23 @@ export class ImportSyncService {
     onProgress?: (e: ImportRunProgressPayload) => void,
   ): Promise<ImportRunResult> {
     const startedAt = new Date();
+    const emitProgress = (p: ImportRunProgressPayload) => {
+      this.runningBySource.set(ctx.sourceId, {
+        running: true,
+        percent: p.percent,
+        message: p.message,
+        startedAt: startedAt.toISOString(),
+      });
+      onProgress?.(p);
+    };
     let result: ImportRunResult | null = null;
     let errorMessage: string | null = null;
     let scraperMeta: RealityCzScraperFetchOutcome['meta'] | undefined;
     try {
-      onProgress?.({ percent: 1, message: `Spouštím import „${ctx.sourceName}“…` });
-      const { rows, scraperMeta: sm } = await this.fetchRows(ctx, onProgress);
+      emitProgress({ percent: 1, message: `Spouštím import „${ctx.sourceName}“…` });
+      const { rows, scraperMeta: sm } = await this.fetchRows(ctx, emitProgress);
       scraperMeta = sm;
-      result = await this.importRows(ctx, actorUserId, rows, onProgress);
+      result = await this.importRows(ctx, actorUserId, rows, emitProgress);
       const warnings = [...(result.warnings ?? [])];
       if (ctx.method === ListingImportMethod.scraper && scraperMeta) {
         this.logger.log(
@@ -414,7 +757,7 @@ export class ImportSyncService {
               : 'ok',
         },
       });
-      onProgress?.({ percent: 100, message: 'Import dokončen.' });
+      emitProgress({ percent: 100, message: 'Import dokončen.' });
       return result;
     } catch (error: unknown) {
       errorMessage = error instanceof Error ? error.message : 'Neznámá chyba importu';
@@ -473,6 +816,12 @@ export class ImportSyncService {
               : null,
           },
         },
+      });
+      this.runningBySource.set(ctx.sourceId, {
+        running: false,
+        percent: errorMessage ? 0 : 100,
+        message: errorMessage ? `Chyba: ${errorMessage}` : 'Dokončeno',
+        startedAt: startedAt.toISOString(),
       });
     }
   }

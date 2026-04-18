@@ -24,6 +24,7 @@ import { PatchUserCreditDto } from './dto/patch-user-credit.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { UpdateImportSourceDto } from './dto/update-import-source.dto';
 import { BulkDisableImportedDto } from './dto/bulk-disable-imported.dto';
+import { CreateImportSourceDto } from './dto/create-import-source.dto';
 import { AdminGuard } from './guards/admin.guard';
 import { AgentProfileService } from '../agent-profile/agent-profile.service';
 
@@ -227,8 +228,55 @@ export class AdminController {
   }
 
   @Get('import-sources')
-  listImportSources() {
+  listImportSources(
+    @Query('portalKey') portalKey?: string,
+    @Query('onlyEnabled') onlyEnabled?: string,
+    @Query('onlyRunning') onlyRunning?: string,
+    @Query('onlyError') onlyError?: string,
+    @Query('search') search?: string,
+  ) {
+    if (
+      portalKey !== undefined ||
+      onlyEnabled !== undefined ||
+      onlyRunning !== undefined ||
+      onlyError !== undefined ||
+      search !== undefined
+    ) {
+      return this.adminService.listImportSourcesOverview({
+        portalKey: portalKey?.trim() || undefined,
+        onlyEnabled: onlyEnabled === '1' || onlyEnabled === 'true',
+        onlyRunning: onlyRunning === '1' || onlyRunning === 'true',
+        onlyError: onlyError === '1' || onlyError === 'true',
+        search: search?.trim() || undefined,
+      });
+    }
     return this.adminService.listImportSources();
+  }
+
+  @Post('import-sources')
+  createImportSource(
+    @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: CreateImportSourceDto,
+  ) {
+    return this.adminService.createImportSource({
+      portal: dto.portal,
+      method: dto.method,
+      name: dto.name?.trim() || '',
+      portalKey: dto.portalKey?.trim() || '',
+      portalLabel: dto.portalLabel?.trim() || '',
+      categoryKey: dto.categoryKey?.trim() || '',
+      categoryLabel: dto.categoryLabel?.trim() || '',
+      endpointUrl: dto.endpointUrl?.trim() || null,
+      intervalMinutes: dto.intervalMinutes,
+      limitPerRun: dto.limitPerRun,
+      enabled: dto.enabled,
+      sortOrder: dto.sortOrder,
+      settingsJson:
+        dto.settingsJson === undefined ? undefined : (dto.settingsJson as Prisma.InputJsonValue | null),
+      credentialsJson:
+        dto.credentialsJson === undefined
+          ? undefined
+          : (dto.credentialsJson as Prisma.InputJsonValue | null),
+    });
   }
 
   @Patch('import-sources/:id')
@@ -254,6 +302,11 @@ export class AdminController {
     return this.adminService.runImportSource(id, user.id);
   }
 
+  @Post('import-portals/:portalKey/run')
+  runImportPortal(@CurrentUser() user: AuthUser, @Param('portalKey') portalKey: string) {
+    return this.adminService.runImportPortal(portalKey, user.id);
+  }
+
   /** Stejný import jako `/run`, ale vrací NDJSON řádky s průběhem (`type: progress` → `result` / `error`). */
   @Post('import-sources/:id/run-stream')
   async runImportSourceStream(
@@ -271,8 +324,21 @@ export class AdminController {
   }
 
   @Get('import-logs')
-  listImportLogs(@Query('sourceId') sourceId?: string) {
-    return this.adminService.listImportLogs(typeof sourceId === 'string' ? sourceId : undefined);
+  listImportLogs(
+    @Query('sourceId') sourceId?: string,
+    @Query('portalKey') portalKey?: string,
+    @Query('categoryKey') categoryKey?: string,
+  ) {
+    return this.adminService.listImportLogs({
+      sourceId: typeof sourceId === 'string' ? sourceId : undefined,
+      portalKey: typeof portalKey === 'string' ? portalKey : undefined,
+      categoryKey: typeof categoryKey === 'string' ? categoryKey : undefined,
+    });
+  }
+
+  @Delete('import-sources/:id')
+  deleteImportSource(@Param('id') id: string) {
+    return this.adminService.deleteImportSource(id);
   }
 
   @Post('import-disable/bulk')

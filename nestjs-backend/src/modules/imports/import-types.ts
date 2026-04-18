@@ -78,3 +78,54 @@ export type ImportRunProgressPayload = {
   message: string;
 };
 
+export type ImportSourceBranchRow = {
+  id: string;
+  portal: ListingImportPortal;
+  method: ListingImportMethod;
+  name: string;
+  portalKey: string;
+  portalLabel: string;
+  categoryKey: string;
+  categoryLabel: string;
+  listingType?: string | null;
+  propertyType?: string | null;
+  sortOrder: number;
+  enabled: boolean;
+  intervalMinutes: number;
+  limitPerRun: number;
+  endpointUrl?: string | null;
+  credentialsJson?: Record<string, unknown> | null;
+  settingsJson?: Record<string, unknown> | null;
+  lastRunAt?: Date | null;
+  lastStatus?: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  latestLog?: {
+    id: string;
+    status: string;
+    importedNew: number;
+    importedUpdated: number;
+    skipped: number;
+    disabled: number;
+    error?: string | null;
+    createdAt: Date;
+  } | null;
+  running?: {
+    running: boolean;
+    percent: number;
+    message: string;
+    startedAt?: string;
+  };
+};
+
+export type PortalImportAggregate = {
+  portalKey: string;
+  portalLabel: string;
+  branchesTotal: number;
+  branchesEnabled: number;
+  branchesRunning: number;
+  branchesError: number;
+  totalNew: number;
+  totalUpdated: number;
+};
+

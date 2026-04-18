@@ -686,6 +686,13 @@ export type AdminImportSourceRow = {
   portal: string;
   method: string;
   name: string;
+  portalKey?: string;
+  portalLabel?: string;
+  categoryKey?: string;
+  categoryLabel?: string;
+  listingType?: string | null;
+  propertyType?: string | null;
+  sortOrder?: number;
   enabled: boolean;
   intervalMinutes: number;
   limitPerRun: number;
@@ -696,6 +703,22 @@ export type AdminImportSourceRow = {
   lastStatus?: string | null;
   createdAt: string;
   updatedAt: string;
+  latestLog?: {
+    id: string;
+    status: string;
+    importedNew: number;
+    importedUpdated: number;
+    skipped: number;
+    disabled: number;
+    error?: string | null;
+    createdAt: string;
+  } | null;
+  running?: {
+    running: boolean;
+    percent: number;
+    message: string;
+    startedAt?: string;
+  };
 };
 
 export type AdminImportLogRow = {
@@ -713,6 +736,22 @@ export type AdminImportLogRow = {
   createdAt: string;
   source?: AdminImportSourceRow;
   payloadJson?: Record<string, unknown> | null;
+};
+
+export type AdminImportPortalAggregate = {
+  portalKey: string;
+  portalLabel: string;
+  branchesTotal: number;
+  branchesEnabled: number;
+  branchesRunning: number;
+  branchesError: number;
+  totalNew: number;
+  totalUpdated: number;
+};
+
+export type AdminImportSourcesOverview = {
+  portals: AdminImportPortalAggregate[];
+  branches: AdminImportSourceRow[];
 };
 
 export async function nestAdminListings(
@@ -1406,13 +1445,35 @@ export async function nestAdminImportXml(
 
 export async function nestAdminImportSources(
   token: string | null,
-): Promise<AdminImportSourceRow[] | null> {
+  filter?: {
+    portalKey?: string;
+    onlyEnabled?: boolean;
+    onlyRunning?: boolean;
+    onlyError?: boolean;
+    search?: string;
+  },
+): Promise<AdminImportSourceRow[] | AdminImportSourcesOverview | null> {
   if (!API_BASE_URL || !token) return null;
-  const res = await fetch(`${API_BASE_URL}/admin/import-sources`, {
+  const sp = new URLSearchParams();
+  if (filter?.portalKey) sp.set('portalKey', filter.portalKey);
+  if (filter?.onlyEnabled) sp.set('onlyEnabled', '1');
+  if (filter?.onlyRunning) sp.set('onlyRunning', '1');
+  if (filter?.onlyError) sp.set('onlyError', '1');
+  if (filter?.search?.trim()) sp.set('search', filter.search.trim());
+  const qs = sp.toString();
+  const res = await fetch(`${API_BASE_URL}/admin/import-sources${qs ? `?${qs}` : ''}`, {
     headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
   });
   if (!res.ok) return null;
   const data = (await res.json()) as unknown;
+  if (
+    data &&
+    typeof data === 'object' &&
+    Array.isArray((data as { portals?: unknown }).portals) &&
+    Array.isArray((data as { branches?: unknown }).branches)
+  ) {
+    return data as AdminImportSourcesOverview;
+  }
   return Array.isArray(data) ? (data as AdminImportSourceRow[]) : null;
 }
 
@@ -1436,6 +1497,43 @@ export async function nestAdminUpdateImportSource(
     return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
   }
   return { ok: true, data: data as AdminImportSourceRow };
+}
+
+export async function nestAdminCreateImportSource(
+  token: string | null,
+  body: Record<string, unknown>,
+): Promise<{ ok: boolean; data?: AdminImportSourceRow; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/import-sources`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true, data: data as AdminImportSourceRow };
+}
+
+export async function nestAdminDeleteImportSource(
+  token: string | null,
+  sourceId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/import-sources/${encodeURIComponent(sourceId)}`, {
+    method: 'DELETE',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true };
 }
 
 /** Odpověď POST /admin/import-sources/:id/run (ImportRunResult z backendu). */
@@ -1464,6 +1562,25 @@ export async function nestAdminRunImportSource(
     return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
   }
   return { ok: true, data: data as NestAdminImportRunResult };
+}
+
+export async function nestAdminRunImportPortal(
+  token: string | null,
+  portalKey: string,
+): Promise<{ ok: boolean; data?: Array<{ sourceId: string; ok: boolean; error?: string }>; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/import-portals/${encodeURIComponent(portalKey)}/run`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return {
+    ok: true,
+    data: Array.isArray(data) ? (data as Array<{ sourceId: string; ok: boolean; error?: string }>) : [],
+  };
 }
 
 export type NestAdminImportStreamEvent =
@@ -1569,10 +1686,14 @@ export async function nestAdminRunImportSourceStream(
 
 export async function nestAdminImportLogs(
   token: string | null,
-  sourceId?: string,
+  filter?: { sourceId?: string; portalKey?: string; categoryKey?: string },
 ): Promise<AdminImportLogRow[] | null> {
   if (!API_BASE_URL || !token) return null;
-  const qs = sourceId ? `?sourceId=${encodeURIComponent(sourceId)}` : '';
+  const sp = new URLSearchParams();
+  if (filter?.sourceId) sp.set('sourceId', filter.sourceId);
+  if (filter?.portalKey) sp.set('portalKey', filter.portalKey);
+  if (filter?.categoryKey) sp.set('categoryKey', filter.categoryKey);
+  const qs = sp.toString() ? `?${sp.toString()}` : '';
   const res = await fetch(`${API_BASE_URL}/admin/import-logs${qs}`, {
     headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
   });

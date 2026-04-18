@@ -724,19 +724,63 @@ export class AdminService {
     return this.importSync.listSources();
   }
 
+  async listImportSourcesOverview(filter: {
+    portalKey?: string;
+    onlyEnabled?: boolean;
+    onlyRunning?: boolean;
+    onlyError?: boolean;
+    search?: string;
+  }) {
+    return this.importSync.listSourcesOverview(filter);
+  }
+
   async updateImportSource(sourceId: string, patch: {
     enabled?: boolean;
     intervalMinutes?: number;
     limitPerRun?: number;
     endpointUrl?: string | null;
+    portalKey?: string;
+    portalLabel?: string;
+    categoryKey?: string;
+    categoryLabel?: string;
+    listingType?: string | null;
+    propertyType?: string | null;
+    sortOrder?: number;
     credentialsJson?: Prisma.InputJsonValue | null;
     settingsJson?: Prisma.InputJsonValue | null;
   }) {
     return this.importSync.updateSource(sourceId, patch);
   }
 
+  async createImportSource(input: {
+    portal: ListingImportPortal;
+    method: ListingImportMethod;
+    name: string;
+    portalKey: string;
+    portalLabel: string;
+    categoryKey: string;
+    categoryLabel: string;
+    endpointUrl?: string | null;
+    intervalMinutes?: number;
+    limitPerRun?: number;
+    enabled?: boolean;
+    settingsJson?: Prisma.InputJsonValue | null;
+    credentialsJson?: Prisma.InputJsonValue | null;
+    sortOrder?: number;
+  }) {
+    return this.importSync.createSource(input);
+  }
+
+  async deleteImportSource(sourceId: string) {
+    return this.importSync.deleteSource(sourceId);
+  }
+
   async runImportSource(sourceId: string, actorUserId: string) {
     return this.importSync.runSource(sourceId, actorUserId);
+  }
+
+  async runImportPortal(portalKey: string, actorUserId: string) {
+    return this.importSync.runPortal(portalKey, actorUserId);
   }
 
   /** NDJSON řádky: `{type:\"progress\",percent,message}` pak `{type:\"result\",...}` nebo `{type:\"error\",message}`. */
@@ -782,8 +826,8 @@ export class AdminService {
     }
   }
 
-  async listImportLogs(sourceId?: string) {
-    return this.importSync.listLogs(sourceId);
+  async listImportLogs(filter?: { sourceId?: string; portalKey?: string; categoryKey?: string }) {
+    return this.importSync.listLogs(filter);
   }
 
   async bulkDisableImportedListings(filter: {

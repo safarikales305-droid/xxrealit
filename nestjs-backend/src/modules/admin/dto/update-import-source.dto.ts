@@ -4,6 +4,7 @@ import {
   IsInt,
   IsObject,
   IsOptional,
+  IsString,
   IsUrl,
   Min,
   ValidateIf,
@@ -25,6 +26,35 @@ export class UpdateImportSourceDto {
   @IsInt()
   @Min(1)
   limitPerRun?: number;
+
+  @IsOptional()
+  @IsString()
+  portalKey?: string;
+
+  @IsOptional()
+  @IsString()
+  portalLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  categoryKey?: string;
+
+  @IsOptional()
+  @IsString()
+  categoryLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  listingType?: string | null;
+
+  @IsOptional()
+  @IsString()
+  propertyType?: string | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  sortOrder?: number;
 
   /** Prázdný řetězec → null; jinak platná http(s) URL (častý 400 z IsOptional + ""). */
   @IsOptional()
