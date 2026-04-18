@@ -15,13 +15,11 @@ import {
 } from '@/lib/nest-client';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import type { PropertyDetailAuthor } from '@/lib/property-detail';
-import type { PropertyFeedItem } from '@/types/property';
-
-const PRICE_FMT = new Intl.NumberFormat('cs-CZ', {
-  style: 'currency',
-  currency: 'CZK',
-  maximumFractionDigits: 0,
-});
+import {
+  classicListingCoverUrl,
+  formatListingPriceCzk,
+  type PropertyFeedItem,
+} from '@/types/property';
 
 type MediaItem = {
   key: string;
@@ -37,6 +35,24 @@ type Props = {
   extraFields?: Record<string, unknown>;
 };
 
+function collectPhotoUrls(p: PropertyFeedItem): string[] {
+  const ext = p as PropertyFeedItem & {
+    photos?: Array<{ url?: string } | string>;
+  };
+  if (!Array.isArray(ext.photos)) return [];
+  const out: string[] = [];
+  for (const x of ext.photos) {
+    if (typeof x === 'string') {
+      const u = x.trim();
+      if (u) out.push(u);
+    } else if (x && typeof x === 'object') {
+      const u = typeof x.url === 'string' ? x.url.trim() : '';
+      if (u) out.push(u);
+    }
+  }
+  return out;
+}
+
 function buildMediaList(p: PropertyFeedItem): MediaItem[] {
   const fromRelation = [...(p.media ?? [])]
     .filter((m) => m.url?.trim())
@@ -47,13 +63,21 @@ function buildMediaList(p: PropertyFeedItem): MediaItem[] {
       type: m.type,
     }));
   if (fromRelation.length > 0) return fromRelation;
+  const photoUrls = collectPhotoUrls(p);
+  if (photoUrls.length > 0) {
+    return photoUrls.map((url, i) => ({
+      key: `photo-${i}`,
+      url,
+      type: 'image' as const,
+    }));
+  }
   const v = p.videoUrl?.trim();
   if (v) {
     return [{ key: 'video-fallback', url: v, type: 'video' }];
   }
-  const img = p.imageUrl?.trim() ?? p.images?.[0]?.trim();
-  if (img) {
-    return [{ key: 'image-fallback', url: img, type: 'image' }];
+  const cover = classicListingCoverUrl(p);
+  if (cover) {
+    return [{ key: 'image-fallback', url: cover, type: 'image' }];
   }
   return [];
 }
@@ -139,11 +163,7 @@ export function NemovitostDetailView({
   const phone = (p.contactPhone ?? '').trim();
   const email = (p.contactEmail ?? '').trim();
   const nameContact = (p.contactName ?? '').trim();
-  const coverForMessage =
-    media.find((m) => m.type === 'image')?.url?.trim() ||
-    p.imageUrl?.trim() ||
-    p.images?.find((u) => u.trim()) ||
-    null;
+  const coverForMessage = classicListingCoverUrl(p);
 
   const summaryLine = useMemo(() => {
     const parts: string[] = [];
@@ -345,13 +365,15 @@ export function NemovitostDetailView({
               <div className="text-xl font-semibold text-orange-600">
                 <span
                   className={
-                    shouldBlurGuestPrice
+                    shouldBlurGuestPrice && p.price != null && p.price > 0
                       ? 'select-none blur-[10px] opacity-70'
                       : undefined
                   }
-                  aria-hidden={shouldBlurGuestPrice ? true : undefined}
+                  aria-hidden={
+                    shouldBlurGuestPrice && p.price != null && p.price > 0 ? true : undefined
+                  }
                 >
-                  {PRICE_FMT.format(p.price)}
+                  {formatListingPriceCzk(p.price)}
                 </span>
               </div>
               <div className="text-sm text-zinc-500">{p.location}</div>
@@ -505,13 +527,17 @@ export function NemovitostDetailView({
                       <p className="mt-1 text-sm font-bold text-[#e85d00]">
                         <span
                           className={
-                            shouldBlurGuestPrice
+                            shouldBlurGuestPrice && item.price != null && item.price > 0
                               ? 'select-none blur-[10px] opacity-70'
                               : undefined
                           }
-                          aria-hidden={shouldBlurGuestPrice ? true : undefined}
+                          aria-hidden={
+                            shouldBlurGuestPrice && item.price != null && item.price > 0
+                              ? true
+                              : undefined
+                          }
                         >
-                          {PRICE_FMT.format(item.price)}
+                          {formatListingPriceCzk(item.price)}
                         </span>
                       </p>
                       <span className="mt-3 inline-flex min-h-[40px] w-full items-center justify-center rounded-full border-2 border-orange-400/90 bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-xs font-extrabold uppercase tracking-wide text-white shadow-md transition hover:brightness-110">

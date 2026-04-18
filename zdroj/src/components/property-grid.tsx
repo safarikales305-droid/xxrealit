@@ -7,13 +7,11 @@ import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { nestApiConfigured, nestToggleFavorite } from '@/lib/nest-client';
-import type { PropertyFeedItem } from '@/types/property';
-
-const PRICE_FMT = new Intl.NumberFormat('cs-CZ', {
-  style: 'currency',
-  currency: 'CZK',
-  maximumFractionDigits: 0,
-});
+import {
+  classicListingCoverUrl,
+  formatListingPriceCzk,
+  type PropertyFeedItem,
+} from '@/types/property';
 
 type Props = {
   properties: PropertyFeedItem[];
@@ -89,7 +87,7 @@ export function PropertyGrid({ properties }: Props) {
         {properties.map((p) => {
           const liked = likedMap[p.id] ?? Boolean(p.liked);
           const media = Array.isArray(p.media) ? [...p.media].sort((a, b) => a.order - b.order) : [];
-          const primaryImage = media.find((m) => m.type === 'image')?.url ?? p.imageUrl ?? p.images?.[0] ?? null;
+          const primaryImage = classicListingCoverUrl(p);
           const primaryVideo = media.find((m) => m.type === 'video')?.url ?? p.videoUrl ?? null;
           const shareUrl = absoluteShareUrl(`/nemovitost/${encodeURIComponent(p.id)}`);
           return (
@@ -132,13 +130,13 @@ export function PropertyGrid({ properties }: Props) {
                   <p className="mt-auto pt-3 text-lg font-bold tabular-nums text-[#e85d00]">
                     <span
                       className={
-                        shouldBlurGuestPrice
+                        shouldBlurGuestPrice && p.price != null && p.price > 0
                           ? 'select-none blur-[10px] opacity-70'
                           : undefined
                       }
-                      aria-hidden={shouldBlurGuestPrice ? true : undefined}
+                      aria-hidden={shouldBlurGuestPrice && p.price != null && p.price > 0 ? true : undefined}
                     >
-                      {PRICE_FMT.format(p.price)}
+                      {formatListingPriceCzk(p.price)}
                     </span>
                   </p>
                 </div>

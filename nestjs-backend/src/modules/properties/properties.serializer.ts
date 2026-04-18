@@ -21,7 +21,7 @@ export type PropertyRowForApi = {
   id: string;
   title: string;
   description: string;
-  price: number;
+  price: number | null;
   currency: string;
   offerType: string;
   propertyType: string;
@@ -193,11 +193,12 @@ export function serializeProperty(
   const primaryVideo =
     media.find((m) => m.type === 'video')?.url ?? videoUrlSafe;
 
+  const photos = images.map((url) => ({ url }));
   return {
     id: p.id,
     title: p.title,
     description: p.description,
-    price: p.price,
+    price: p.price ?? null,
     currency: p.currency,
     type: p.offerType,
     offerType: p.offerType,
@@ -218,6 +219,9 @@ export function serializeProperty(
     parking: p.parking,
     cellar: p.cellar,
     images,
+    thumbnail: primaryImage,
+    coverImage: primaryImage,
+    photos,
     imageUrl: primaryImage,
     videoUrl: primaryVideo ? secureAssetUrl(String(primaryVideo)) : null,
     media,

@@ -2,15 +2,9 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import type { PropertyFeedItem } from '@/types/property';
+import { formatListingPriceCzk, type PropertyFeedItem } from '@/types/property';
 import { propertyListingHasVideo } from '@/lib/property-feed-filters';
 import { propertyFeedPrimaryVideoSrc } from '@/lib/feed/loop-feed';
-
-const PRICE_FMT = new Intl.NumberFormat('cs-CZ', {
-  style: 'currency',
-  currency: 'CZK',
-  maximumFractionDigits: 0,
-});
 
 /** Orange glass — TikTok actions, brand #ff6a00 → #ff3c00 */
 const glowBtnBase =
@@ -109,7 +103,7 @@ export function PropertyCard({
           {p.location}
         </p>
         <p className="mt-3 bg-gradient-to-r from-[#ffb366] via-[#ff8c42] to-[#ff6a00] bg-clip-text text-[1.45rem] font-bold tabular-nums tracking-[-0.02em] text-transparent sm:text-[1.6rem] sm:tracking-[-0.025em] [filter:drop-shadow(0_2px_10px_rgba(0,0,0,0.5))]">
-          {PRICE_FMT.format(p.price)}
+          {formatListingPriceCzk(p.price)}
         </p>
         <Link
           href={`/nemovitost/${p.id}`}

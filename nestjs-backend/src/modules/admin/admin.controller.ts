@@ -267,6 +267,11 @@ export class AdminController {
     });
   }
 
+  @Post('import-reality/repair-price-placeholders')
+  repairRealityImportedPrices() {
+    return this.adminService.repairRealityImportedPricePlaceholders();
+  }
+
   @Patch('password')
   changePassword(
     @CurrentUser() user: AuthUser,

@@ -1,15 +1,66 @@
 import { normalizePublicVideoUrl } from '@/lib/video-url';
 
+/** API může vrátit cenu null („na dotaz“). */
+export function parseApiListingPrice(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n)) return null;
+  const t = Math.trunc(n);
+  if (t <= 0) return null;
+  return t;
+}
+
+export function formatListingPriceCzk(price: number | null | undefined): string {
+  if (typeof price === 'number' && Number.isFinite(price) && price > 0) {
+    return `${new Intl.NumberFormat('cs-CZ').format(price)} Kč`;
+  }
+  return 'Cena na dotaz';
+}
+
+function firstPhotoUrlFromPhotos(photos: unknown): string | null {
+  if (!Array.isArray(photos) || photos.length === 0) return null;
+  const x = photos[0];
+  if (typeof x === 'string' && x.trim()) return x.trim();
+  if (x && typeof x === 'object' && 'url' in x) {
+    const u = (x as { url?: unknown }).url;
+    if (typeof u === 'string' && u.trim()) return u.trim();
+  }
+  return null;
+}
+
+/** Náhled klasické karty: thumbnail / imageUrl / cover / photos[0] / media / images. */
+export function classicListingCoverUrl(p: PropertyFeedItem): string | null {
+  const ext = p as PropertyFeedItem & {
+    thumbnail?: string | null;
+    coverImage?: string | null;
+    photos?: Array<{ url?: string } | string>;
+  };
+  const ph = firstPhotoUrlFromPhotos(ext.photos);
+  const fromMedia = ext.media?.find((m) => m.type === 'image')?.url?.trim();
+  return (
+    ext.thumbnail?.trim() ||
+    ext.imageUrl?.trim() ||
+    ext.coverImage?.trim() ||
+    ph ||
+    fromMedia ||
+    ext.images?.[0]?.trim() ||
+    null
+  );
+}
+
 /** Shape returned by GET /properties (Nest may use `city`; treat as location in UI). */
 export type PropertyFromApi = {
   id: string;
   title: string;
-  price: number;
+  price: number | null;
   city?: string;
   location?: string;
   videoUrl?: string | null;
   imageUrl?: string | null;
+  thumbnail?: string | null;
+  coverImage?: string | null;
   images?: string[];
+  photos?: Array<{ url: string } | string>;
   media?: Array<{
     url?: string | null;
     type?: string | null;
@@ -33,11 +84,14 @@ export type PropertyFromApi = {
 export type PropertyFeedItem = {
   id: string;
   title: string;
-  price: number;
+  price: number | null;
   location: string;
   videoUrl: string | null;
   imageUrl?: string | null;
+  thumbnail?: string | null;
+  coverImage?: string | null;
   images?: string[];
+  photos?: Array<{ url: string } | string>;
   media?: Array<{
     url: string;
     type: 'image' | 'video';
@@ -70,6 +124,7 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
     Array.isArray(p.images) && p.images.length > 0
       ? p.images.filter((x): x is string => typeof x === 'string' && x.length > 0)
       : [];
+  const photos = Array.isArray(p.photos) ? p.photos : undefined;
   const media =
     Array.isArray(p.media) && p.media.length > 0
       ? p.media
@@ -87,16 +142,31 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
           .sort((a, b) => a.order - b.order)
       : undefined;
   const primaryImageFromMedia = media?.find((m) => m.type === 'image')?.url ?? null;
+  const photo0 = firstPhotoUrlFromPhotos(photos);
+  const thumb = typeof p.thumbnail === 'string' ? p.thumbnail.trim() : '';
+  const cover = typeof p.coverImage === 'string' ? p.coverImage.trim() : '';
+  const imgField =
+    typeof p.imageUrl === 'string' && p.imageUrl.trim() ? p.imageUrl.trim() : '';
+  const resolvedImage =
+    thumb ||
+    imgField ||
+    cover ||
+    photo0 ||
+    primaryImageFromMedia ||
+    images[0] ||
+    null;
+  const priceVal = parseApiListingPrice(p.price);
+
   return {
     id: p.id,
     title: p.title,
-    price: p.price,
+    price: priceVal,
     location: (p.location ?? p.city ?? '').trim() || 'Neuvedeno',
     videoUrl: normalizePublicVideoUrl(p.videoUrl),
-    imageUrl:
-      p.imageUrl === null || typeof p.imageUrl === 'string'
-        ? p.imageUrl ?? primaryImageFromMedia ?? images[0] ?? null
-        : primaryImageFromMedia ?? images[0] ?? undefined,
+    thumbnail: thumb || null,
+    coverImage: cover || null,
+    photos,
+    imageUrl: resolvedImage,
     images,
     media,
     description:
@@ -139,8 +209,7 @@ export function safeNormalizePropertyFromApi(
   const o = raw as Record<string, unknown>;
   const id = o.id != null ? String(o.id) : '';
   const title = o.title != null ? String(o.title) : '';
-  const price = Number(o.price);
-  if (!id || !title || !Number.isFinite(price)) return null;
+  if (!id || !title) return null;
 
   try {
     const likeCountRaw = o.likeCount;
@@ -149,7 +218,7 @@ export function safeNormalizePropertyFromApi(
     return normalizeProperty({
       id,
       title,
-      price,
+      price: parseApiListingPrice(o.price),
       city: typeof o.city === 'string' ? o.city : undefined,
       location: typeof o.location === 'string' ? o.location : undefined,
       videoUrl:
@@ -160,9 +229,14 @@ export function safeNormalizePropertyFromApi(
         o.imageUrl === null || typeof o.imageUrl === 'string'
           ? o.imageUrl
           : undefined,
+      thumbnail:
+        o.thumbnail === null || typeof o.thumbnail === 'string' ? o.thumbnail : undefined,
+      coverImage:
+        o.coverImage === null || typeof o.coverImage === 'string' ? o.coverImage : undefined,
       images: Array.isArray(o.images)
         ? o.images.filter((x): x is string => typeof x === 'string')
         : undefined,
+      photos: Array.isArray(o.photos) ? (o.photos as PropertyFromApi['photos']) : undefined,
       media: Array.isArray(o.media)
         ? (o.media as Array<Record<string, unknown>>).map((m) => ({
             url: typeof m.url === 'string' ? m.url : '',

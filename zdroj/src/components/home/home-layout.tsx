@@ -24,7 +24,7 @@ import { CreateCommunityPostCard } from '@/components/community/CreateCommunityP
 import { CommunityPostCard } from '@/components/community/CommunityPostCard';
 import { PropertyGrid } from '@/components/property-grid';
 import { classicListingsOnly } from '@/lib/property-feed-filters';
-import type { PropertyFeedItem } from '@/types/property';
+import { parseApiListingPrice, type PropertyFeedItem } from '@/types/property';
 import { VideoFeed } from '@/components/video-feed/VideoFeed';
 import { Navbar, type ViewMode } from './navbar';
 import { RightSidebar } from './right-sidebar';
@@ -125,7 +125,7 @@ function feedShortsRowToShortVideo(row: Record<string, unknown>): ShortVideo | n
     videoUrl: typeof row.videoUrl === 'string' ? row.videoUrl : null,
     url: typeof row.url === 'string' ? row.url : undefined,
     title: row.title != null ? String(row.title) : null,
-    price: typeof row.price === 'number' ? row.price : Number(row.price) || null,
+    price: parseApiListingPrice(row.price),
     city: typeof row.city === 'string' ? row.city : null,
     createdAt,
     publishedAt,
@@ -354,6 +354,14 @@ export function HomeLayout({
   }
 
   const classicGridItems = useMemo(() => classicListingsOnly(items), [items]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'production') return;
+    if (classicGridItems.length > 0) {
+      // eslint-disable-next-line no-console
+      console.log('CLASSIC LISTING SAMPLE', classicGridItems[0]);
+    }
+  }, [classicGridItems]);
 
   const filteredItems = useMemo(() => {
     const s = searchQuery.trim().toLowerCase();

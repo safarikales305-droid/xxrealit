@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'node:crypto';
 import type { ImportedListingDraft } from './import-types';
+import { safeParsePrice } from './price-parse.util';
 
 function base32ToBuffer(input: string): Buffer {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -109,8 +110,7 @@ export class RealityCzSoapClientService {
       if (!externalId) continue;
       const title = xmlTag(block, 'title') || 'Importovaný inzerát';
       const description = xmlTag(block, 'description') || title;
-      const priceRaw = xmlTag(block, 'price').replace(/[^\d]/g, '');
-      const price = Math.max(1, Number.parseInt(priceRaw || '0', 10) || 1);
+      const price = safeParsePrice(xmlTag(block, 'price')) ?? null;
       const city = xmlTag(block, 'city') || xmlTag(block, 'locality') || 'Neznámé město';
       const address = xmlTag(block, 'address').slice(0, 240);
       const sourceUrl = xmlTag(block, 'url').trim();

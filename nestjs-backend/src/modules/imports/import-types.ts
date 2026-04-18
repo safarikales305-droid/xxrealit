@@ -4,7 +4,8 @@ export type ImportedListingDraft = {
   externalId: string;
   title: string;
   description: string;
-  price: number;
+  /** null = cena neuvedena (žádný fallback 1 Kč) */
+  price: number | null;
   city: string;
   address?: string;
   images: string[];

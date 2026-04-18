@@ -69,8 +69,14 @@ export class PropertiesService {
       include: socialInclude(viewerId),
     });
     const withVideoUrl = rows.filter((r) => (r.videoUrl ?? '').trim().length > 0).length;
+    const withCoverImage = rows.filter(
+      (r) =>
+        Array.isArray(r.images) &&
+        r.images.some((u) => typeof u === 'string' && u.trim().length > 0),
+    ).length;
+    const withValidPrice = rows.filter((r) => r.price != null && r.price > 0).length;
     this.log.log(
-      `[findAllPublic] classicPublicRows=${rows.length} nonEmptyVideoUrl=${withVideoUrl}`,
+      `[findAllPublic] classicPublicRows=${rows.length} nonEmptyVideoUrl=${withVideoUrl} withCoverImage=${withCoverImage} validPrice=${withValidPrice}`,
     );
     if (process.env.CLASSIC_FEED_IMPORT_DEBUG === '1') {
       const importedAny = await this.prisma.property.count({

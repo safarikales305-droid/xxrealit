@@ -11,10 +11,56 @@ import {
   REALITY_LISTING_CODE_RE,
   resolveRealityListingExternalId,
 } from './reality-listing-code.util';
+import { safeParsePrice } from './price-parse.util';
 const DEFAULT_BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0';
 
 const FETCH_TIMEOUT_MS = 30_000;
+
+function toAbsoluteRealityAssetUrl(raw: string, baseOrigin = 'https://www.reality.cz'): string {
+  const t = (raw ?? '').trim();
+  if (!t) return '';
+  if (/^https?:\/\//i.test(t)) return t;
+  try {
+    return new URL(t.startsWith('/') ? t : `/${t}`, baseOrigin).href;
+  } catch {
+    return `${baseOrigin}${t.startsWith('/') ? '' : '/'}${t}`;
+  }
+}
+
+function pickFirstUrlFromSrcset(srcset: string): string | null {
+  const part = srcset.split(',')[0]?.trim();
+  if (!part) return null;
+  const url = part.split(/\s+/)[0]?.trim();
+  return url && /^https?:\/\//i.test(url) ? url : null;
+}
+
+/** První rozumný obrázek z úryvku HTML (img src/data-src, source srcset, og:image). */
+function extractBestImageFromHtmlFragment(fragment: string): string | null {
+  const candidates: string[] = [];
+  const imgTags = fragment.matchAll(/<img[^>]+>/gi);
+  for (const imgMatch of imgTags) {
+    const tag = imgMatch[0];
+    for (const attr of ['data-src', 'data-lazy-src', 'data-original', 'src']) {
+      const re = new RegExp(`${attr}=["']([^"']+)["']`, 'i');
+      const m = tag.match(re);
+      if (m?.[1]) candidates.push(m[1]);
+    }
+  }
+  for (const sm of fragment.matchAll(/<source[^>]+srcset=["']([^"']+)["']/gi)) {
+    const u = pickFirstUrlFromSrcset(sm[1] ?? '');
+    if (u) candidates.push(u);
+  }
+  const og = fragment.match(
+    /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
+  );
+  if (og?.[1]) candidates.push(og[1]);
+  for (const c of candidates) {
+    const abs = toAbsoluteRealityAssetUrl(c, 'https://www.reality.cz');
+    if (abs && /^https?:\/\//i.test(abs)) return abs;
+  }
+  return null;
+}
 
 type ScraperFetchResult = {
   body: string;
@@ -335,6 +381,9 @@ export class RealityCzScraperImporter {
     draft: ImportedListingDraft,
     html: string,
   ): ImportedListingDraft | null {
+    const baseImages = (draft.images ?? [])
+      .map((u) => toAbsoluteRealityAssetUrl(u, 'https://www.reality.cz'))
+      .filter((u) => /^https?:\/\//i.test(u));
     const desc =
       html.match(
         /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i,
@@ -347,13 +396,14 @@ export class RealityCzScraperImporter {
     )?.[1];
     const next: ImportedListingDraft = {
       ...draft,
+      images: baseImages.length > 0 ? baseImages : draft.images,
       description: desc?.trim()
         ? desc.trim().slice(0, 10_000)
         : draft.description,
     };
-    if (og && /^https?:\/\//i.test(og.trim())) {
-      const img = og.trim();
-      if (!next.images.includes(img)) {
+    if (og && og.trim()) {
+      const img = toAbsoluteRealityAssetUrl(og.trim(), 'https://www.reality.cz');
+      if (img && /^https?:\/\//i.test(img) && !next.images.includes(img)) {
         next.images = [img, ...next.images].slice(0, 40);
       }
     }
@@ -420,12 +470,15 @@ export class RealityCzScraperImporter {
         ? stripTags(titleFromH[1]).replace(/\s+/g, ' ').trim()
         : `Nabídka ${id}`;
       if (title.length < 3) continue;
+      const imgFrag = html.slice(Math.max(0, m.index - 2200), Math.min(html.length, m.index + 4800));
+      const imageUrl = extractBestImageFromHtmlFragment(imgFrag);
       items.push({
         id,
         title: title.slice(0, 250),
         description: title.slice(0, 500),
         price: priceText,
         url: abs,
+        ...(imageUrl ? { image: imageUrl } : {}),
       });
     }
     // eslint-disable-next-line no-console
@@ -548,12 +601,14 @@ export class RealityCzScraperImporter {
       const tail = html.slice(m.index, Math.min(html.length, m.index + 3500));
       const priceText =
         extractFirstPriceKc(tail) ?? extractFirstPriceKc(html.slice(m.index, m.index + 8000));
+      const imageUrl = extractBestImageFromHtmlFragment(tail);
       items.push({
         id,
         title,
         description: title,
         price: priceText,
         url: href,
+        ...(imageUrl ? { image: imageUrl } : {}),
       });
     }
     return dedupeByKey(items, (r) => String(r.id));
@@ -586,7 +641,10 @@ export class RealityCzScraperImporter {
         address: stripTags(
           text(/<span[^>]*class=["'][^"']*address[^"']*["'][^>]*>([\s\S]*?)<\/span>/i),
         ),
-        image: text(/<img[^>]+src=["']([^"']+)["']/i),
+        image:
+          extractBestImageFromHtmlFragment(cardHtml) ||
+          text(/<img[^>]+data-src=["']([^"']+)["']/i) ||
+          text(/<img[^>]+src=["']([^"']+)["']/i),
         url: href,
       } as Record<string, unknown>;
     });
@@ -608,7 +666,11 @@ export class RealityCzScraperImporter {
         price: row.price,
         city: row.city ?? row.locality,
         address: row.address,
-        images: Array.isArray(row.images) ? row.images : [row.image ?? row.thumbnail],
+        images: Array.isArray(row.images)
+          ? row.images
+          : [row.image, row.thumbnail].filter(
+              (x): x is string => typeof x === 'string' && x.length > 0,
+            ),
         videoUrl: row.videoUrl,
         offerType: row.offerType,
         propertyType: row.propertyType,
@@ -649,9 +711,14 @@ export class RealityCzScraperImporter {
     const title = String(raw.title ?? '').trim();
     const description = String(raw.description ?? title).trim();
     let city = String(raw.city ?? '').trim();
-    const priceRaw = String(raw.price ?? '').replace(/[^\d]/g, '');
-    const parsedPrice = Number.parseInt(priceRaw || '0', 10);
-    const price = Number.isFinite(parsedPrice) ? Math.max(1, parsedPrice) : 0;
+    const priceParsed =
+      typeof raw.price === 'number'
+        ? Number.isFinite(raw.price) && raw.price > 0
+          ? Math.trunc(raw.price)
+          : null
+        : safeParsePrice(
+            typeof raw.price === 'string' ? raw.price : raw.price != null ? String(raw.price) : null,
+          );
 
     if (!city) {
       city = guessCityFromCzechTitle(title, description);
@@ -660,19 +727,19 @@ export class RealityCzScraperImporter {
       city = 'Lokalita neuvedena';
     }
 
-    const missing: string[] = [];
-    if (!title) missing.push('title');
-    if (!Number.isFinite(price) || price <= 0) missing.push('price');
-    if (missing.length > 0) {
+    if (!title) {
       this.logger.warn(
-        `Skipping scraper row due to missing/invalid fields: ${missing.join(', ')} (id=${externalId || 'n/a'})`,
+        `Skipping scraper row due to missing/invalid fields: title (id=${externalId || 'n/a'})`,
       );
       return null;
     }
 
     const imagesRaw = Array.isArray(raw.images) ? raw.images : [];
     const images = imagesRaw
-      .filter((x): x is string => typeof x === 'string' && /^https?:\/\//i.test(x))
+      .flat()
+      .filter((x): x is string => typeof x === 'string' && x.length > 0)
+      .map((u) => toAbsoluteRealityAssetUrl(u.trim(), 'https://www.reality.cz'))
+      .filter((u) => /^https?:\/\//i.test(u))
       .slice(0, 40);
     const videoUrl =
       typeof raw.videoUrl === 'string' && /^https?:\/\//i.test(raw.videoUrl)
@@ -682,7 +749,7 @@ export class RealityCzScraperImporter {
       externalId: externalId,
       title: title.slice(0, 250),
       description: description.slice(0, 10_000),
-      price,
+      price: priceParsed,
       city: city.slice(0, 120),
       images,
       offerType:
@@ -702,6 +769,16 @@ export class RealityCzScraperImporter {
     const sourceUrl =
       (typeof raw.sourceUrl === 'string' ? raw.sourceUrl : '').trim();
     if (/^https?:\/\//i.test(sourceUrl)) draft.sourceUrl = sourceUrl;
+
+    // eslint-disable-next-line no-console
+    console.log('SCRAPED LISTING:', {
+      title: draft.title,
+      priceRaw: raw.price,
+      priceParsed: draft.price,
+      imageUrl: draft.images[0] ?? null,
+      detailUrl: draft.sourceUrl ?? null,
+      locality: draft.city,
+    });
 
     return draft;
   }

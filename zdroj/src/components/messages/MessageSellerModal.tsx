@@ -8,21 +8,16 @@ import {
   NEST_MESSAGE_BODY_MAX,
 } from '@/lib/nest-client';
 import { dispatchMessagesChanged } from '@/hooks/use-messages-unread';
+import { formatListingPriceCzk } from '@/types/property';
 
 const PLACEHOLDER = 'Dobrý den, mám zájem o tento inzerát…';
-
-const priceFmt = new Intl.NumberFormat('cs-CZ', {
-  style: 'currency',
-  currency: 'CZK',
-  maximumFractionDigits: 0,
-});
 
 type MessageSellerModalProps = {
   open: boolean;
   onClose: () => void;
   propertyId: string;
   listingTitle: string;
-  price: number;
+  price: number | null;
   location: string;
   coverImageUrl: string | null;
   token: string | null;
@@ -130,7 +125,9 @@ export function MessageSellerModal({
             )}
             <div className="min-w-0">
               <p className="line-clamp-2 text-sm font-semibold text-zinc-900">{listingTitle}</p>
-              <p className="mt-0.5 text-sm font-bold text-[#e85d00]">{priceFmt.format(price)}</p>
+              <p className="mt-0.5 text-sm font-bold text-[#e85d00]">
+                {formatListingPriceCzk(price)}
+              </p>
               <p className="mt-0.5 truncate text-xs text-zinc-600">{location}</p>
             </div>
           </div>

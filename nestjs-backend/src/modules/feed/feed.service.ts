@@ -26,7 +26,7 @@ function scoreProperty(
   p: {
     userId: string;
     city: string;
-    price: number;
+    price: number | null;
     user: { city: string | null };
   },
   viewerCity: string | null,
@@ -39,7 +39,7 @@ function scoreProperty(
   if (viewerCity && normCity(p.user.city) === normCity(viewerCity)) {
     s += 15;
   }
-  if (refPrice > 0) {
+  if (refPrice > 0 && p.price != null && p.price > 0) {
     const ratio = p.price / refPrice;
     if (ratio >= 0.65 && ratio <= 1.35) s += 25;
   }
@@ -312,7 +312,9 @@ export class FeedService {
       take: 20,
     });
     if (mine.length > 0) {
-      return mine.reduce((a, b) => a + b.price, 0) / mine.length;
+      const priced = mine.filter((x) => x.price != null && x.price > 0);
+      if (priced.length === 0) return null;
+      return priced.reduce((a, b) => a + (b.price ?? 0), 0) / priced.length;
     }
 
     const ids = [...followingIds];
@@ -328,6 +330,8 @@ export class FeedService {
       take: 40,
     });
     if (followed.length === 0) return null;
-    return followed.reduce((a, b) => a + b.price, 0) / followed.length;
+    const priced = followed.filter((x) => x.price != null && x.price > 0);
+    if (priced.length === 0) return null;
+    return priced.reduce((a, b) => a + (b.price ?? 0), 0) / priced.length;
   }
 }

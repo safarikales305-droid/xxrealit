@@ -568,7 +568,8 @@ export class ImportSyncService {
               userId: actorUserId,
               title: row.title,
               description: row.description,
-              price: Math.max(1, Math.trunc(row.price || 1)),
+              price:
+                row.price != null && row.price > 0 ? Math.trunc(row.price) : null,
               city: row.city,
               address: row.address?.trim() || row.city,
               currency: 'CZK',
@@ -624,7 +625,8 @@ export class ImportSyncService {
           data: {
             title: row.title,
             description: row.description,
-            price: Math.max(1, Math.trunc(row.price || 1)),
+            price:
+              row.price != null && row.price > 0 ? Math.trunc(row.price) : null,
             city: row.city,
             address: row.address?.trim() || row.city,
             offerType: row.offerType?.trim() || existing.offerType,

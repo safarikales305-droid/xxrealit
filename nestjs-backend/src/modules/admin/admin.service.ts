@@ -19,13 +19,14 @@ import {
 import { OwnerListingNotifyService } from '../premium-broker/owner-listing-notify.service';
 import { parseStringPromise } from 'xml2js';
 import { ImportSyncService } from '../imports/import-sync.service';
+import { safeParsePrice } from '../imports/price-parse.util';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bcrypt = require('bcrypt');
 
 type XmlPropertyRow = {
   title: string;
-  price: number;
+  price: number | null;
   city: string;
   description: string;
   image: string | null;
@@ -102,15 +103,13 @@ function mapXmlNodeToRow(node: Record<string, unknown>): XmlPropertyRow {
   const title =
     pickByKeys(node, ['title', 'name', 'headline']) || 'Importovaný inzerát';
   const rawPrice = pickByKeys(node, ['price', 'amount', 'cost']);
-  const priceDigits = rawPrice.replace(/[^\d]/g, '');
-  const parsedPrice = Number.parseInt(priceDigits || '0', 10);
   const city = pickByKeys(node, ['city', 'town', 'locality']) || 'Neznámé město';
   const description =
     pickByKeys(node, ['description', 'desc', 'text']) || title;
   const image = pickByKeys(node, ['image', 'img', 'photo', 'picture']) || '';
   return {
     title: title.slice(0, 250),
-    price: Number.isFinite(parsedPrice) && parsedPrice > 0 ? parsedPrice : 1,
+    price: safeParsePrice(rawPrice) ?? null,
     city: city.slice(0, 120),
     description: description.slice(0, 10_000),
     image: image || null,
@@ -704,6 +703,20 @@ export class AdminService {
     }
 
     return { imported };
+  }
+
+  /**
+   * Jednorázová oprava špatných fallback cen (1 / 100 Kč) u importu Reality.cz.
+   */
+  async repairRealityImportedPricePlaceholders() {
+    const updated = await this.prisma.property.updateMany({
+      where: {
+        importSource: ListingImportPortal.reality_cz,
+        OR: [{ price: 1 }, { price: 100 }],
+      },
+      data: { price: null },
+    });
+    return { affected: updated.count };
   }
 
   async listImportSources() {

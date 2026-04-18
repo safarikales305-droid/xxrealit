@@ -18,6 +18,7 @@ import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { nestToggleFavorite, type ShortVideo } from '@/lib/nest-client';
+import { formatListingPriceCzk, parseApiListingPrice } from '@/types/property';
 
 type VideoCardProps = {
   video: ShortVideo;
@@ -219,7 +220,7 @@ export default function VideoCard({
     ((video.images ?? []).find((u) => typeof u === 'string' && u.trim()) ?? '').trim() ||
     (video.imageUrl ?? '').trim() ||
     null;
-  const priceNum = Number(video.price ?? 0);
+  const priceVal = parseApiListingPrice(video.price);
 
   function redirectToLogin() {
     const path =
@@ -295,10 +296,12 @@ export default function VideoCard({
           <div className="mt-1 text-base font-bold tabular-nums max-md:text-[15px] sm:text-lg">
             <span
               className={
-                isAuthenticated ? 'text-orange-100' : 'blur-[6px] select-none opacity-90'
+                !isAuthenticated && priceVal != null && priceVal > 0
+                  ? 'blur-[6px] select-none opacity-90 text-orange-100'
+                  : 'text-orange-100'
               }
             >
-              {Number(video.price ?? 0).toLocaleString('cs-CZ')} Kč
+              {formatListingPriceCzk(priceVal)}
             </span>
           </div>
         </div>
@@ -431,10 +434,12 @@ export default function VideoCard({
             <div className="mt-2 text-lg font-bold tabular-nums text-zinc-900">
               <span
                 className={
-                  isAuthenticated ? 'text-orange-600' : 'blur-[6px] select-none opacity-90'
+                  !isAuthenticated && priceVal != null && priceVal > 0
+                    ? 'blur-[6px] select-none opacity-90 text-orange-600'
+                    : 'text-orange-600'
                 }
               >
-                {Number(video.price ?? 0).toLocaleString('cs-CZ')} Kč
+                {formatListingPriceCzk(priceVal)}
               </span>
             </div>
           </div>
@@ -683,7 +688,7 @@ export default function VideoCard({
         onClose={() => setSellerModalOpen(false)}
         propertyId={video.id}
         listingTitle={(video.title ?? 'Inzerát').trim() || 'Inzerát'}
-        price={priceNum}
+        price={priceVal}
         location={city || 'Neuvedeno'}
         coverImageUrl={coverStill}
         token={apiAccessToken}

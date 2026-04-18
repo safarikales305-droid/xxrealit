@@ -509,7 +509,8 @@ model Property {
   title           String
   description     String   @db.Text
   status          String   @default("PENDING")
-  price           Int
+  /// null = cena neuvedena / na dotaz (import bez parsované ceny)
+  price           Int?
   currency        String   @default("CZK")
 
   /// prodej | pronájem

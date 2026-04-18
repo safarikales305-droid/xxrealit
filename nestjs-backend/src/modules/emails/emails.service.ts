@@ -382,10 +382,14 @@ export class EmailsService implements OnModuleInit {
         )
       : '';
     const senderMessage = (input.senderMessage ?? '').trim();
+    const priceLabel =
+      property.price != null && property.price > 0
+        ? `${new Intl.NumberFormat('cs-CZ').format(property.price)} Kč`
+        : 'Cena na dotaz';
     const paramsLine = [
       property.propertyType,
       property.city,
-      `${new Intl.NumberFormat('cs-CZ').format(property.price)} Kč`,
+      priceLabel,
       property.area ? `${property.area} m²` : '',
     ]
       .filter(Boolean)
@@ -402,7 +406,7 @@ export class EmailsService implements OnModuleInit {
         recipientName: input.recipientName ?? '',
         listingTitle: property.title,
         listingLocation: property.city,
-        listingPrice: `${new Intl.NumberFormat('cs-CZ').format(property.price)} Kč`,
+        listingPrice: priceLabel,
         listingType: property.propertyType,
         listingParams: paramsLine,
         listingDescription: property.description.slice(0, 400),
