@@ -29,7 +29,7 @@ const TYPE_OPTIONS = [
   { value: 'CLASSIC', label: 'Klasik' },
 ] as const;
 
-function formatPrice(n: number | undefined): string {
+function formatPrice(n: number | null | undefined): string {
   if (typeof n !== 'number' || !Number.isFinite(n)) return '—';
   return new Intl.NumberFormat('cs-CZ', {
     style: 'currency',
