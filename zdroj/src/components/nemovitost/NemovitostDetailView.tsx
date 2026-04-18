@@ -57,29 +57,54 @@ function collectPhotoUrls(p: PropertyFeedItem): string[] {
   return out;
 }
 
+function collectImagesFieldUrls(p: PropertyFeedItem): string[] {
+  const base = getNestPublicOrigin() || undefined;
+  if (!Array.isArray(p.images) || p.images.length === 0) return [];
+  const out: string[] = [];
+  for (const raw of p.images) {
+    if (typeof raw !== 'string') continue;
+    const n = normalizeImageCandidate(raw.trim(), base);
+    if (isValidImageUrl(n)) out.push(n!);
+  }
+  return out;
+}
+
 function buildMediaList(p: PropertyFeedItem): MediaItem[] {
   const base = getNestPublicOrigin() || undefined;
-  const fromRelation = [...(p.media ?? [])]
+  const relation = [...(p.media ?? [])]
     .filter((m) => m.url?.trim())
-    .sort((a, b) => a.order - b.order)
-    .filter((m) =>
-      m.type === 'video'
-        ? Boolean(m.url?.trim())
-        : isValidImageUrl(normalizeImageCandidate(m.url?.trim(), base)),
-    )
+    .sort((a, b) => a.order - b.order);
+
+  const videos: MediaItem[] = relation
+    .filter((m) => m.type === 'video')
     .map((m, i) => ({
-      key: `${m.type}-${m.order}-${i}`,
-      url: m.url,
-      type: m.type,
+      key: `video-${m.order}-${i}`,
+      url: m.url.trim(),
+      type: 'video' as const,
     }));
-  if (fromRelation.length > 0) return fromRelation;
-  const photoUrls = collectPhotoUrls(p);
-  if (photoUrls.length > 0) {
-    return photoUrls.map((url, i) => ({
-      key: `photo-${i}`,
-      url,
-      type: 'image' as const,
-    }));
+
+  const seenNorm = new Set<string>();
+  const imagesOut: MediaItem[] = [];
+  const pushImage = (rawUrl: string, keyPrefix: string) => {
+    const n = normalizeImageCandidate(rawUrl.trim(), base);
+    if (!isValidImageUrl(n) || !n) return;
+    if (seenNorm.has(n)) return;
+    seenNorm.add(n);
+    imagesOut.push({
+      key: `${keyPrefix}-${imagesOut.length}`,
+      url: n,
+      type: 'image',
+    });
+  };
+
+  for (const m of relation) {
+    if (m.type === 'image' && m.url?.trim()) pushImage(m.url, 'media');
+  }
+  for (const u of collectImagesFieldUrls(p)) pushImage(u, 'img');
+  for (const u of collectPhotoUrls(p)) pushImage(u, 'photo');
+
+  if (videos.length > 0 || imagesOut.length > 0) {
+    return [...videos, ...imagesOut];
   }
   const v = p.videoUrl?.trim();
   if (v) {

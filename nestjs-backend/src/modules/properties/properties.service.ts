@@ -17,9 +17,13 @@ import {
 
 export type PublicPropertyListFilters = {
   city?: string;
+  /** Čárkou oddělená města — OR (kdekoli v `city`). */
+  cities?: string;
   propertyTypeKey?: string;
   importCategoryKey?: string;
   sourcePortalKey?: string;
+  priceMin?: number;
+  priceMax?: number;
 };
 import {
   computeListingPublicStatus,
@@ -74,9 +78,21 @@ export class PropertiesService {
     filters?: PublicPropertyListFilters,
   ): Prisma.PropertyWhereInput {
     const parts: Prisma.PropertyWhereInput[] = [classicPublicListingWhere];
-    const city = filters?.city?.trim();
-    if (city) {
-      parts.push({ city: { contains: city, mode: 'insensitive' } });
+    const citiesCsv = filters?.cities?.trim();
+    if (citiesCsv) {
+      const list = [...new Set(citiesCsv.split(',').map((s) => s.trim()).filter(Boolean))];
+      if (list.length === 1) {
+        parts.push({ city: { contains: list[0], mode: 'insensitive' } });
+      } else if (list.length > 1) {
+        parts.push({
+          OR: list.map((c) => ({ city: { contains: c, mode: 'insensitive' as const } })),
+        });
+      }
+    } else {
+      const city = filters?.city?.trim();
+      if (city) {
+        parts.push({ city: { contains: city, mode: 'insensitive' } });
+      }
     }
     const ptk = filters?.propertyTypeKey?.trim();
     if (ptk) {
@@ -89,6 +105,14 @@ export class PropertiesService {
     const spk = filters?.sourcePortalKey?.trim();
     if (spk) {
       parts.push({ sourcePortalKey: spk });
+    }
+    const pMin = filters?.priceMin;
+    if (typeof pMin === 'number' && Number.isFinite(pMin) && pMin >= 0) {
+      parts.push({ price: { gte: Math.trunc(pMin) } });
+    }
+    const pMax = filters?.priceMax;
+    if (typeof pMax === 'number' && Number.isFinite(pMax) && pMax >= 0) {
+      parts.push({ price: { lte: Math.trunc(pMax) } });
     }
     return parts.length === 1 ? parts[0] : { AND: parts };
   }

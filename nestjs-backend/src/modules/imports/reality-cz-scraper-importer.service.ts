@@ -84,6 +84,21 @@ function isLikelyListingImageUrl(url: string): boolean {
   return true;
 }
 
+/** URL z inline scriptů — jen hostitelé, kde typicky leží galerie Reality. */
+function isProbableRealityHostedImageUrl(url: string): boolean {
+  try {
+    const h = new URL(url).hostname.toLowerCase();
+    return (
+      h.includes('reality.cz') ||
+      h.includes('realhunter') ||
+      /^img[0-9]*\./i.test(h) ||
+      h.includes('cdn.')
+    );
+  } catch {
+    return false;
+  }
+}
+
 function normalizeRealityImportedPrice(raw: unknown): number | null {
   const parsed =
     typeof raw === 'number'
@@ -203,41 +218,89 @@ function isRealityListingDetailHref(rawHref: string, absHref: string): boolean {
   }
 }
 
-/** Galerie na detailu — více náhledů pro výběr prvního obrázku. */
-function extractGalleryUrlsFromDetailHtml(html: string, limit = 30): string[] {
-  const ordered: string[] = [];
-  const seen = new Set<string>();
-  const push = (raw: string) => {
-    const abs = normalizeRealityImageQualityUrl(
-      toAbsoluteRealityAssetUrl(raw.trim(), 'https://www.reality.cz'),
-    );
-    const stored = normalizeStoredImageUrl(abs);
-    if (!stored || !isLikelyListingImageUrl(stored) || seen.has(stored)) return;
-    seen.add(stored);
-    ordered.push(stored);
+function pushSrcsetParts(
+  raw: string | undefined,
+  pushRaw: (s: string | null | undefined) => void,
+): void {
+  if (!raw?.trim()) return;
+  for (const part of raw.split(',')) {
+    const u = part.trim().split(/\s+/)[0]?.trim();
+    if (u) pushRaw(u);
+  }
+}
+
+/**
+ * Galerie z detailu Reality — nejdřív nasbíráme kandidáty (bez předčasného zastavení),
+ * pak normalizujeme, deduplikujeme a seřadíme podle výskytu v HTML.
+ */
+function extractGalleryUrlsFromDetailHtml(html: string, limit = 80): string[] {
+  const rawCandidates: string[] = [];
+  const sink = new Set<string>();
+  const pushRaw = (s: string | null | undefined) => {
+    const t = (s ?? '').trim();
+    if (!t) return;
+    if (!sink.has(t)) {
+      sink.add(t);
+      rawCandidates.push(t);
+    }
   };
+
   const og = pickOgImageFromHtml(html);
-  if (og) push(og);
+  if (og) pushRaw(og);
+  for (const re of [
+    /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/gi,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/gi,
+    /<meta[^>]+property=["']og:image:secure_url["'][^>]+content=["']([^"']+)["']/gi,
+    /<meta[^>]+itemprop=["']image["'][^>]+content=["']([^"']+)["']/gi,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+itemprop=["']image["']/gi,
+  ]) {
+    for (const m of html.matchAll(re)) pushRaw(m[1]);
+  }
+
+  for (const lm of html.matchAll(
+    /<link[^>]+rel=["']preload["'][^>]+as=["']image["'][^>]*href=["']([^"']+)["']/gi,
+  )) {
+    pushRaw(lm[1]);
+  }
+  for (const lm of html.matchAll(
+    /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']preload["'][^>]+as=["']image["']/gi,
+  )) {
+    pushRaw(lm[1]);
+  }
+
   for (const imgMatch of html.matchAll(/<img[^>]+>/gi)) {
     const tag = imgMatch[0];
     for (const attr of [
       'data-src',
       'data-lazy-src',
+      'data-lazy-srcset',
       'data-original',
       'data-zoom-src',
+      'data-full',
+      'data-large_image',
+      'data-bg',
+      'data-background',
       'src',
     ]) {
       const re = new RegExp(`${attr}=["']([^"']+)["']`, 'i');
       const m = tag.match(re);
-      if (m?.[1]) push(m[1]);
+      if (m?.[1]) {
+        if (attr.toLowerCase().includes('srcset')) pushSrcsetParts(m[1], pushRaw);
+        else pushRaw(m[1]);
+      }
     }
-    if (ordered.length >= limit) break;
+    const srcsetM = tag.match(/\ssrcset=["']([^"']+)["']/i);
+    if (srcsetM?.[1]) pushSrcsetParts(srcsetM[1], pushRaw);
   }
-  for (const sm of html.matchAll(/<source[^>]+srcset=["']([^"']+)["']/gi)) {
-    const u = pickBestImageFromSrcset(sm[1] ?? '');
-    if (u) push(u);
-    if (ordered.length >= limit) break;
+
+  for (const sm of html.matchAll(/<source[^>]+>/gi)) {
+    const tag = sm[0];
+    const srcM = tag.match(/\ssrc=["']([^"']+)["']/i);
+    if (srcM?.[1]) pushRaw(srcM[1]);
+    const setM = tag.match(/\ssrcset=["']([^"']+)["']/i);
+    if (setM?.[1]) pushSrcsetParts(setM[1], pushRaw);
   }
+
   for (const m of html.matchAll(
     /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
   )) {
@@ -246,12 +309,12 @@ function extractGalleryUrlsFromDetailHtml(html: string, limit = 30): string[] {
       const parsed = JSON.parse(scriptBody) as unknown;
       const stack: unknown[] = [parsed];
       let guard = 0;
-      while (stack.length > 0 && guard < 2000) {
+      while (stack.length > 0 && guard < 4000) {
         guard += 1;
         const node = stack.pop();
         if (!node) continue;
         if (typeof node === 'string') {
-          if (/^https?:\/\//i.test(node)) push(node);
+          if (/^https?:\/\//i.test(node)) pushRaw(node);
           continue;
         }
         if (Array.isArray(node)) {
@@ -260,14 +323,14 @@ function extractGalleryUrlsFromDetailHtml(html: string, limit = 30): string[] {
         }
         if (typeof node === 'object') {
           const o = node as Record<string, unknown>;
-          if (typeof o.image === 'string') push(o.image);
+          if (typeof o.image === 'string') pushRaw(o.image);
           if (Array.isArray(o.image)) {
             for (const x of o.image) {
-              if (typeof x === 'string') push(x);
+              if (typeof x === 'string') pushRaw(x);
               else if (x && typeof x === 'object') {
                 const imgObj = x as Record<string, unknown>;
-                if (typeof imgObj.url === 'string') push(imgObj.url);
-                if (typeof imgObj.contentUrl === 'string') push(imgObj.contentUrl);
+                if (typeof imgObj.url === 'string') pushRaw(imgObj.url);
+                if (typeof imgObj.contentUrl === 'string') pushRaw(imgObj.contentUrl);
               }
             }
           }
@@ -277,13 +340,38 @@ function extractGalleryUrlsFromDetailHtml(html: string, limit = 30): string[] {
     } catch {
       /* ignore invalid JSON-LD */
     }
-    if (ordered.length >= limit) break;
   }
+
+  const scriptUrlRe =
+    /https?:\/\/[^"'\\s<>{}]+?\.(?:jpe?g|png|webp|gif)(?:\?[^"'\\s<>{}]*)?/gi;
+  for (const m of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)) {
+    const body = m[1] ?? '';
+    let um: RegExpExecArray | null;
+    const r = new RegExp(scriptUrlRe.source, 'gi');
+    while ((um = r.exec(body)) != null) {
+      const cand = um[0].trim();
+      if (!isProbableRealityHostedImageUrl(cand)) continue;
+      pushRaw(cand);
+    }
+  }
+
   for (const m of html.matchAll(/["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)(?:\?[^"']*)?)["']/gi)) {
-    push(m[1] ?? '');
+    pushRaw(m[1]);
+  }
+
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of rawCandidates) {
+    const abs = normalizeRealityImageQualityUrl(
+      toAbsoluteRealityAssetUrl(raw.trim(), 'https://www.reality.cz'),
+    );
+    const stored = normalizeStoredImageUrl(abs);
+    if (!stored || !isLikelyListingImageUrl(stored) || seen.has(stored)) continue;
+    seen.add(stored);
+    ordered.push(stored);
     if (ordered.length >= limit) break;
   }
-  return ordered.slice(0, limit);
+  return ordered;
 }
 
 function flattenImageUrls(val: unknown): string[] {
@@ -774,7 +862,7 @@ export class RealityCzScraperImporter {
         /<[^>]+class=["'][^"']*(?:perex|description|desc|summary)[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i,
         /<p[^>]*>([\s\S]*?)<\/p>/i,
       ]);
-    const gallery = extractGalleryUrlsFromDetailHtml(html, 35);
+    const gallery = extractGalleryUrlsFromDetailHtml(html, 80);
     const priceText =
       extractFirstPriceKc(html.slice(0, 200_000)) ??
       extractFirstPriceKc(html.slice(200_000, 400_000));
@@ -800,7 +888,7 @@ export class RealityCzScraperImporter {
     for (const u of baseImages) add(u);
     const nextImagesRaw =
       mergedUrls.length > 0
-        ? mergedUrls.slice(0, 40)
+        ? mergedUrls.slice(0, 80)
         : baseImages.length > 0
           ? baseImages
           : draft.images

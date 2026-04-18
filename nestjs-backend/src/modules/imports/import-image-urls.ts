@@ -3,7 +3,25 @@
  * jen absolutní platné http(s), bez data: a relativních cest.
  */
 
-import { isValidImageUrl } from '../../lib/image-url';
+import { isValidImageUrl, normalizeImageCandidate } from '../../lib/image-url';
+
+/** Absolutní URL vůči výchozí doméně (Reality.cz detail). */
+export function normalizeAbsoluteUrl(value?: string | null, baseUrl?: string | null): string | null {
+  return normalizeImageCandidate(value, baseUrl?.trim() || 'https://www.reality.cz');
+}
+
+export function uniqueUrls(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of values) {
+    if (v == null || typeof v !== 'string') continue;
+    const t = v.trim();
+    if (!t || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
+}
 
 export function normalizeStoredImageUrl(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;

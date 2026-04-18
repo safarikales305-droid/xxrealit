@@ -10,7 +10,38 @@ import type { PropertyFeedItem } from '@/types/property';
 /** Server-render on every request when an API URL is configured. */
 export const dynamic = 'force-dynamic';
 
-async function loadHomeFeed(): Promise<PropertyFeedItem[]> {
+type SearchParamsInput = Record<string, string | string[] | undefined>;
+
+function firstQuery(sp: SearchParamsInput, key: string): string | undefined {
+  const v = sp[key];
+  if (typeof v === 'string') return v;
+  if (Array.isArray(v)) return v[0];
+  return undefined;
+}
+
+function buildPropertiesQueryString(sp: SearchParamsInput): string {
+  const out = new URLSearchParams();
+  const ptype = firstQuery(sp, 'ptype')?.trim();
+  if (ptype) out.set('propertyTypeKey', ptype);
+  const cities = firstQuery(sp, 'cities')?.trim();
+  if (cities) out.set('cities', cities);
+  const priceMin = firstQuery(sp, 'priceMin')?.trim();
+  if (priceMin) out.set('priceMin', priceMin);
+  const priceMax = firstQuery(sp, 'priceMax')?.trim();
+  if (priceMax) out.set('priceMax', priceMax);
+  return out.toString();
+}
+
+function hasPropertyListFilters(sp: SearchParamsInput): boolean {
+  return Boolean(
+    firstQuery(sp, 'ptype')?.trim() ||
+      firstQuery(sp, 'cities')?.trim() ||
+      firstQuery(sp, 'priceMin')?.trim() ||
+      firstQuery(sp, 'priceMax')?.trim(),
+  );
+}
+
+async function loadHomeFeed(sp: SearchParamsInput): Promise<PropertyFeedItem[]> {
   const base = getServerSideApiBaseUrl();
   if (!base) {
     if (process.env.NODE_ENV === 'development') {
@@ -22,8 +53,9 @@ async function loadHomeFeed(): Promise<PropertyFeedItem[]> {
   }
 
   const authorization = await getServerAuthorizationHeader();
+  const query = buildPropertiesQueryString(sp);
 
-  if (authorization) {
+  if (authorization && !hasPropertyListFilters(sp)) {
     const personalized = await loadPropertyFeedItems(base, {
       authorization,
       path: '/feed/personalized',
@@ -36,12 +68,18 @@ async function loadHomeFeed(): Promise<PropertyFeedItem[]> {
   return loadPropertyFeedItems(base, {
     authorization,
     path: '/properties',
+    query: query || undefined,
   });
 }
 
-export default async function Home() {
+type HomePageProps = {
+  searchParams?: Promise<SearchParamsInput>;
+};
+
+export default async function Home({ searchParams }: HomePageProps) {
+  const sp = (await searchParams) ?? {};
   const base = getServerSideApiBaseUrl();
-  const rawItems = await loadHomeFeed();
+  const rawItems = await loadHomeFeed(sp);
   const items = classicListingsOnly(rawItems);
   const apiConfigMissing =
     process.env.NODE_ENV === 'production' && base == null;

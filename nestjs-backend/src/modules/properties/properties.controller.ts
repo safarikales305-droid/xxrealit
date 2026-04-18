@@ -181,16 +181,27 @@ export class PropertiesController {
   findAll(
     @Headers('authorization') auth?: string,
     @Query('city') city?: string,
+    @Query('cities') cities?: string,
     @Query('propertyTypeKey') propertyTypeKey?: string,
     @Query('importCategoryKey') importCategoryKey?: string,
     @Query('sourcePortalKey') sourcePortalKey?: string,
+    @Query('priceMin') priceMinRaw?: string,
+    @Query('priceMax') priceMaxRaw?: string,
   ) {
     const viewerId = parseBearerUserId(this.jwt, auth);
+    const parsePrice = (raw?: string): number | undefined => {
+      if (raw == null || !String(raw).trim()) return undefined;
+      const n = Math.trunc(Number(String(raw).replace(/\s/g, '')));
+      return Number.isFinite(n) && n >= 0 ? n : undefined;
+    };
     return this.propertiesService.findAllPublic(viewerId, {
       city,
+      cities,
       propertyTypeKey,
       importCategoryKey,
       sourcePortalKey,
+      priceMin: parsePrice(priceMinRaw),
+      priceMax: parsePrice(priceMaxRaw),
     });
   }
 

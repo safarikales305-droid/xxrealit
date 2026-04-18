@@ -811,7 +811,10 @@ export function HomeLayout({
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              <SidebarFilters className="rounded-xl border-0 shadow-none" />
+              <SidebarFilters
+                className="rounded-xl border-0 shadow-none"
+                onFiltersApplied={() => setMobileFiltersOpen(false)}
+              />
             </div>
           </div>
         </div>
