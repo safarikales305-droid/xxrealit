@@ -365,6 +365,9 @@ export class AdminController {
   ) {
     return this.adminService.bulkShortsDraftsFromImported({
       sourcePortalKey: dto.sourcePortalKey,
+      importCategoryKey: dto.importCategoryKey,
+      city: dto.city,
+      onlyNewImports: dto.onlyNewImports,
       limit: dto.limit,
       propertyIds: dto.propertyIds,
     });

@@ -12,6 +12,21 @@ type Props = {
   onDelete: (id: string) => void;
 };
 
+function phaseLabelCs(phase?: string): string {
+  switch (phase) {
+    case 'listing':
+      return 'Načítání výpisu';
+    case 'details':
+      return 'Doplňování detailů';
+    case 'done':
+      return 'Hotovo';
+    case 'error':
+      return 'Chyba';
+    default:
+      return 'Běží';
+  }
+}
+
 export function ImportBranchRow({ branch, busy, onRun, onEdit, onToggle, onDelete }: Props) {
   return (
     <tr className="border-t border-zinc-100 align-top">
@@ -69,11 +84,27 @@ export function ImportBranchRow({ branch, busy, onRun, onEdit, onToggle, onDelet
           </button>
         </div>
         {branch.running?.running ? (
-          <div className="mt-2 min-w-[220px]">
+          <div className="mt-2 min-w-[260px] space-y-1">
+            <div className="text-[11px] font-medium text-zinc-700">
+              {branch.portalLabel ?? branch.portal} / {branch.categoryLabel ?? '—'}
+            </div>
             <ImportProgressBar
-              percent={branch.running.percent}
-              message={branch.running.message}
+              percent={branch.running.progressPercent ?? branch.running.percent}
+              message={branch.running.currentMessage ?? branch.running.message}
             />
+            <div className="text-[11px] text-zinc-600">
+              Fáze: {phaseLabelCs(branch.running.phase)}
+            </div>
+            <div className="text-[11px] text-zinc-600">
+              Listingy: {branch.running.processedListings ?? 0} / {branch.running.totalListings ?? 0}
+            </div>
+            <div className="text-[11px] text-zinc-600">
+              Detaily: {branch.running.processedDetails ?? 0} / {branch.running.totalDetails ?? 0}
+            </div>
+            <div className="text-[11px] text-zinc-600">
+              Uloženo: {branch.running.savedCount ?? 0}, aktualizováno: {branch.running.updatedCount ?? 0}, přeskočeno:{' '}
+              {branch.running.skippedCount ?? 0}, chyby: {branch.running.errorCount ?? 0}
+            </div>
           </div>
         ) : null}
       </td>

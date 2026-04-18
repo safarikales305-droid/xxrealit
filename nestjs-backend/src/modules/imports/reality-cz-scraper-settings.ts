@@ -21,16 +21,19 @@ export type RealityCzScraperRuntimeSettings = {
   maxDetailFetchesPerRun: number;
   /** true = vynutit maxDetailFetchesPerRun = 0 (import jen z výpisové stránky). */
   listOnlyImport: boolean;
+  /** Paralelní stažení detailů (dávky); mezi dávkovými bloky se drží requestDelayMs. */
+  detailConcurrency: number;
 };
 
 const DEFAULTS: RealityCzScraperRuntimeSettings = {
-  requestDelayMs: 3500,
+  requestDelayMs: 2200,
   maxRetries: 6,
   backoffMultiplier: 2,
   baseBackoffMsOn429: 12_000,
-  /** Detaily doplňují fotku, popis a cenu z inzerátu (lze v adminu znovu zapnout „jen výpis“). */
-  maxDetailFetchesPerRun: 15,
+  /** Detaily doplňují galerii, cover a popis — po uložení „skořápek“ běží paralelně v dávkách. */
+  maxDetailFetchesPerRun: 80,
   listOnlyImport: false,
+  detailConcurrency: 4,
 };
 
 function num(
@@ -86,9 +89,9 @@ export function parseRealityCzScraperSettings(
   const listOnly = bool(raw, 'scraperListOnlyImport', DEFAULTS.listOnlyImport);
   const maxDetail = listOnly
     ? 0
-    : num(raw, 'scraperMaxDetailFetchesPerRun', DEFAULTS.maxDetailFetchesPerRun, 0, 30);
+    : num(raw, 'scraperMaxDetailFetchesPerRun', DEFAULTS.maxDetailFetchesPerRun, 0, 500);
   return {
-    requestDelayMs: num(raw, 'scraperRequestDelayMs', DEFAULTS.requestDelayMs, 500, 60_000),
+    requestDelayMs: num(raw, 'scraperRequestDelayMs', DEFAULTS.requestDelayMs, 400, 60_000),
     maxRetries: num(raw, 'scraperMaxRetries', DEFAULTS.maxRetries, 1, 12),
     backoffMultiplier: floatInRange(
       raw,
@@ -106,6 +109,7 @@ export function parseRealityCzScraperSettings(
     ),
     maxDetailFetchesPerRun: maxDetail,
     listOnlyImport: listOnly,
+    detailConcurrency: num(raw, 'scraperDetailConcurrency', DEFAULTS.detailConcurrency, 1, 8),
   };
 }
 

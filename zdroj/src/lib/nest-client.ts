@@ -727,6 +727,17 @@ export type AdminImportSourceRow = {
     percent: number;
     message: string;
     startedAt?: string;
+    phase?: string;
+    totalListings?: number;
+    processedListings?: number;
+    totalDetails?: number;
+    processedDetails?: number;
+    savedCount?: number;
+    updatedCount?: number;
+    skippedCount?: number;
+    errorCount?: number;
+    progressPercent?: number;
+    currentMessage?: string;
   };
 };
 
@@ -1595,7 +1606,14 @@ export async function nestAdminRunImportPortal(
 /** POST /admin/imported-listings/bulk-shorts-drafts — hromadné koncepty shorts + náhodná hudba z knihovny. */
 export async function nestAdminBulkShortsDraftsFromImported(
   token: string | null,
-  body: { sourcePortalKey?: string; limit?: number; propertyIds?: string[] },
+  body: {
+    sourcePortalKey?: string;
+    importCategoryKey?: string;
+    city?: string;
+    onlyNewImports?: boolean;
+    limit?: number;
+    propertyIds?: string[];
+  },
 ): Promise<{
   ok: boolean;
   data?: {
@@ -1634,7 +1652,22 @@ export async function nestAdminBulkShortsDraftsFromImported(
 }
 
 export type NestAdminImportStreamEvent =
-  | { type: 'progress'; percent: number; message: string }
+  | {
+      type: 'progress';
+      percent: number;
+      message: string;
+      phase?: string;
+      totalListings?: number;
+      processedListings?: number;
+      totalDetails?: number;
+      processedDetails?: number;
+      savedCount?: number;
+      updatedCount?: number;
+      skippedCount?: number;
+      errorCount?: number;
+      progressPercent?: number;
+      currentMessage?: string;
+    }
   | { type: 'result'; importedNew?: number; importedUpdated?: number; skipped?: number; disabled?: number; summary?: string | null; warnings?: string[]; stats?: Record<string, unknown>; errors?: string[] }
   | { type: 'error'; message: string };
 

@@ -812,7 +812,22 @@ export class AdminService {
     };
     try {
       const result = await this.importSync.runSource(sourceId, actorUserId, (p) => {
-        emit({ type: 'progress', percent: p.percent, message: p.message });
+        emit({
+          type: 'progress',
+          percent: p.percent,
+          message: p.message,
+          phase: p.phase,
+          totalListings: p.totalListings,
+          processedListings: p.processedListings,
+          totalDetails: p.totalDetails,
+          processedDetails: p.processedDetails,
+          savedCount: p.savedCount,
+          updatedCount: p.updatedCount,
+          skippedCount: p.skippedCount,
+          errorCount: p.errorCount,
+          progressPercent: p.progressPercent,
+          currentMessage: p.currentMessage,
+        });
       });
       emit({
         type: 'result',
@@ -938,6 +953,9 @@ export class AdminService {
 
   async bulkShortsDraftsFromImported(body: {
     sourcePortalKey?: string;
+    importCategoryKey?: string;
+    city?: string;
+    onlyNewImports?: boolean;
     limit?: number;
     propertyIds?: string[];
   }) {
@@ -952,6 +970,16 @@ export class AdminService {
     };
     if (body.sourcePortalKey?.trim()) {
       where.sourcePortalKey = body.sourcePortalKey.trim();
+    }
+    if (body.importCategoryKey?.trim()) {
+      where.importCategoryKey = body.importCategoryKey.trim();
+    }
+    if (body.city?.trim()) {
+      where.city = { contains: body.city.trim(), mode: 'insensitive' };
+    }
+    if (body.onlyNewImports) {
+      const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
+      where.importedAt = { gte: since };
     }
     if (body.propertyIds && body.propertyIds.length > 0) {
       where.id = { in: body.propertyIds.slice(0, 500) };

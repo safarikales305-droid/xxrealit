@@ -56,6 +56,7 @@ import type {
   ImportExecutionContext,
   ImportSourceBranchRow,
   ImportedListingDraft,
+  ImportRunLiveState,
   ImportRunProgressPayload,
   ImportRunResult,
   PortalImportAggregate,
@@ -65,6 +66,8 @@ import {
   RealityCzScraperImporter,
   type RealityCzScraperFetchOutcome,
 } from './reality-cz-scraper-importer.service';
+import { parseRealityCzScraperSettings } from './reality-cz-scraper-settings';
+import { normalizeStoredImageUrlList } from './import-image-urls';
 
 const DEFAULT_REALITY_SCRAPER_START_URL = 'https://www.reality.cz/prodej/byty/?strana=1';
 const DEFAULT_CATEGORY_KEY = 'ostatni';
@@ -152,13 +155,30 @@ type ImportSourcePatch = {
   settingsJson?: Prisma.InputJsonValue | null;
 };
 
+function initialImportRunLive(startedAt: string): ImportRunLiveState {
+  return {
+    running: true,
+    startedAt,
+    percent: 0,
+    message: 'Spouštím…',
+    phase: 'listing',
+    totalListings: 0,
+    processedListings: 0,
+    totalDetails: 0,
+    processedDetails: 0,
+    savedCount: 0,
+    updatedCount: 0,
+    skippedCount: 0,
+    errorCount: 0,
+    progressPercent: 0,
+    currentMessage: 'Spouštím…',
+  };
+}
+
 @Injectable()
 export class ImportSyncService {
   private readonly logger = new Logger(ImportSyncService.name);
-  private readonly runningBySource = new Map<
-    string,
-    { running: boolean; percent: number; message: string; startedAt: string }
-  >();
+  private readonly runningBySource = new Map<string, ImportRunLiveState>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -196,11 +216,12 @@ export class ImportSyncService {
       settingsJson: {
         startUrl: DEFAULT_REALITY_SCRAPER_START_URL,
         scraperListOnlyImport: false,
-        scraperRequestDelayMs: 3500,
+        scraperRequestDelayMs: 2200,
         scraperMaxRetries: 6,
         scraperBackoffMultiplier: 2,
         scraperBaseBackoffMsOn429: 12_000,
-        scraperMaxDetailFetchesPerRun: 15,
+        scraperMaxDetailFetchesPerRun: 80,
+        scraperDetailConcurrency: 4,
       },
       sortOrder: 10,
     });
@@ -384,7 +405,7 @@ export class ImportSyncService {
     r: Prisma.ImportSourceGetPayload<{ include: { logs: true } }>,
   ): ImportSourceBranchRow {
     const latestLog = Array.isArray(r.logs) && r.logs.length > 0 ? r.logs[0] : null;
-    const running = this.runningBySource.get(r.id);
+    const live = this.runningBySource.get(r.id);
     return {
       id: r.id,
       portal: r.portal,
@@ -425,14 +446,25 @@ export class ImportSyncService {
             createdAt: latestLog.createdAt,
           }
         : null,
-      running: running
+      running: live
         ? {
-            running: running.running,
-            percent: running.percent,
-            message: running.message,
-            startedAt: running.startedAt,
+            running: live.running,
+            percent: live.percent,
+            message: live.message,
+            startedAt: live.startedAt,
+            phase: live.phase,
+            totalListings: live.totalListings,
+            processedListings: live.processedListings,
+            totalDetails: live.totalDetails,
+            processedDetails: live.processedDetails,
+            savedCount: live.savedCount,
+            updatedCount: live.updatedCount,
+            skippedCount: live.skippedCount,
+            errorCount: live.errorCount,
+            progressPercent: live.progressPercent,
+            currentMessage: live.currentMessage,
           }
-        : { running: false, percent: 0, message: '' },
+        : { running: false, percent: 0, message: '', phase: 'done' as const },
     };
   }
 
@@ -629,12 +661,7 @@ export class ImportSyncService {
         `scraperStartHint=${scraperStartHint ?? 'n/a'} settingsKeys=[${settingsKeys}] ` +
         `(SOAP používá REALITY_CZ_* env, scraper start URL = settingsJson.startUrl)`,
     );
-    this.runningBySource.set(ctx.sourceId, {
-      running: true,
-      percent: 0,
-      message: 'Spouštím…',
-      startedAt: new Date().toISOString(),
-    });
+    this.runningBySource.set(ctx.sourceId, initialImportRunLive(new Date().toISOString()));
     return this.runWithLogging(ctx, actorUserId, onProgress);
   }
 
@@ -685,23 +712,134 @@ export class ImportSyncService {
     onProgress?: (e: ImportRunProgressPayload) => void,
   ): Promise<ImportRunResult> {
     const startedAt = new Date();
-    const emitProgress = (p: ImportRunProgressPayload) => {
-      this.runningBySource.set(ctx.sourceId, {
-        running: true,
-        percent: p.percent,
-        message: p.message,
-        startedAt: startedAt.toISOString(),
-      });
-      onProgress?.(p);
+    const startedAtIso = startedAt.toISOString();
+    let live = initialImportRunLive(startedAtIso);
+
+    const emitProgress = (patch: Partial<ImportRunProgressPayload>) => {
+      live = { ...live, ...patch, running: true, startedAt: startedAtIso };
+      if (patch.progressPercent !== undefined) live.progressPercent = patch.progressPercent;
+      else live.progressPercent = live.percent;
+      if (patch.currentMessage !== undefined) live.currentMessage = patch.currentMessage;
+      else live.currentMessage = live.message;
+      this.runningBySource.set(ctx.sourceId, live);
+      onProgress?.({ ...live });
     };
+
     let result: ImportRunResult | null = null;
     let errorMessage: string | null = null;
     let scraperMeta: RealityCzScraperFetchOutcome['meta'] | undefined;
     try {
-      emitProgress({ percent: 1, message: `Spouštím import „${ctx.sourceName}“…` });
-      const { rows, scraperMeta: sm } = await this.fetchRows(ctx, emitProgress);
+      emitProgress({
+        percent: 1,
+        message: `Spouštím import „${ctx.sourceName}“…`,
+        phase: 'listing',
+      });
+      const { rows, scraperMeta: sm } = await this.fetchRows(ctx, (partial) => {
+        if (ctx.method === ListingImportMethod.scraper) {
+          const p = partial.percent;
+          const listingFetchPct =
+            p != null ? Math.min(9, Math.max(2, Math.round(Number(p) * 0.12))) : live.percent;
+          emitProgress({
+            ...partial,
+            phase: 'listing',
+            percent: listingFetchPct,
+            progressPercent: listingFetchPct,
+            currentMessage: partial.message ?? live.message,
+          });
+        } else {
+          emitProgress({
+            ...partial,
+            phase: 'listing',
+            percent: partial.percent ?? live.percent,
+            progressPercent: partial.percent ?? live.percent,
+            currentMessage: partial.message ?? live.message,
+          });
+        }
+      });
       scraperMeta = sm;
-      result = await this.importRows(ctx, actorUserId, rows, emitProgress);
+      emitProgress({
+        totalListings: rows.length,
+        message: `Nalezeno ${rows.length} inzerátů ve výpisu…`,
+        percent: 10,
+        phase: 'listing',
+      });
+      result = await this.importListingShells(ctx, actorUserId, rows, emitProgress);
+
+      const settings = parseRealityCzScraperSettings(ctx.settingsJson);
+      if (
+        ctx.portal === ListingImportPortal.reality_cz &&
+        ctx.method === ListingImportMethod.scraper &&
+        !settings.listOnlyImport &&
+        settings.maxDetailFetchesPerRun > 0 &&
+        rows.length > 0
+      ) {
+        emitProgress({
+          phase: 'details',
+          processedDetails: 0,
+          percent: 41,
+          message: 'Doplňování detailů (fotky, popisy)…',
+        });
+        let plannedDetailSlotsForProgress = 1;
+        const enr = await this.scraperImporter.enrichDraftsWithDetailsBatched(rows, settings, {
+          onPlanned: (n) => {
+            plannedDetailSlotsForProgress = Math.max(1, n);
+            emitProgress({
+              totalDetails: n,
+              message:
+                n > 0
+                  ? `Načítám až ${n} detailních stránek paralelně (dávky)…`
+                  : 'Žádné detaily nejsou potřeba (výpis je dostatečně úplný).',
+            });
+          },
+          onTick: (tick) => {
+            const frac = Math.min(1, tick.detailFetchesCompleted / plannedDetailSlotsForProgress);
+            emitProgress({
+              processedDetails: tick.detailFetchesCompleted,
+              percent: 40 + Math.floor(frac * 55),
+              message: tick.message,
+            });
+          },
+        });
+        if (scraperMeta) {
+          scraperMeta = {
+            ...scraperMeta,
+            detailFetchesAttempted: enr.detailFetchesAttempted,
+            detailFetchesCompleted: enr.detailFetchesCompleted,
+            detailPage429Count: enr.detailPage429Count,
+            requestLog: [...(scraperMeta.requestLog ?? []), ...enr.requestLog],
+          };
+        }
+        const { updated: detailDbUpdated, errors: detailDbErrors } =
+          await this.applyDetailEnrichmentFromDrafts(ctx, enr.rows);
+        emitProgress({
+          processedDetails: enr.plannedDetailSlots,
+          percent: 97,
+          message: `Detaily zapsány do DB (${detailDbUpdated} inzerátů).`,
+        });
+        result.stats = {
+          ...(result.stats ?? {}),
+          detailPhaseDbUpdates: detailDbUpdated,
+          detailPhaseDbErrors: detailDbErrors,
+        };
+        if (detailDbErrors > 0) {
+          result.errors = [...(result.errors ?? []), `Chyby zápisu detailů do DB: ${detailDbErrors}`];
+        }
+      } else {
+        const skipMsg =
+          ctx.method !== ListingImportMethod.scraper
+            ? 'Metoda bez paralelní fáze detailů (např. SOAP).'
+            : settings.listOnlyImport || settings.maxDetailFetchesPerRun <= 0
+              ? 'Bez fáze detailů (režim jen výpis nebo limit detailů 0).'
+              : 'Bez fáze detailů.';
+        emitProgress({
+          phase: 'listing',
+          totalDetails: 0,
+          processedDetails: 0,
+          percent: Math.max(live.percent, 40),
+          message: skipMsg,
+        });
+      }
+
       const warnings = [...(result.warnings ?? [])];
       if (ctx.method === ListingImportMethod.scraper && scraperMeta) {
         this.logger.log(
@@ -766,7 +904,7 @@ export class ImportSyncService {
               : 'ok',
         },
       });
-      emitProgress({ percent: 100, message: 'Import dokončen.' });
+      emitProgress({ percent: 100, message: 'Import dokončen.', phase: 'done' });
       return result;
     } catch (error: unknown) {
       errorMessage = error instanceof Error ? error.message : 'Neznámá chyba importu';
@@ -777,6 +915,13 @@ export class ImportSyncService {
         errorMessage = `Web Reality.cz blokuje příliš rychlé dotazy (HTTP 429). V administraci Importy zvětšete prodlevu mezi požadavky, snižte počet detailů na běh nebo nechte zapnutý režim „jen výpis“. Technická hláška: ${errorMessage}`;
       }
       this.logger.error(`Import ${ctx.portal}/${ctx.method} failed: ${errorMessage}`);
+      emitProgress({
+        phase: 'error',
+        percent: 0,
+        message: `Chyba: ${errorMessage}`,
+        progressPercent: 0,
+        currentMessage: `Chyba: ${errorMessage}`,
+      });
       await this.prisma.importSource.update({
         where: { id: ctx.sourceId },
         data: { lastRunAt: new Date(), lastStatus: `error: ${errorMessage}` },
@@ -826,11 +971,16 @@ export class ImportSyncService {
           },
         },
       });
+      const doneLive = this.runningBySource.get(ctx.sourceId) ?? initialImportRunLive(startedAtIso);
       this.runningBySource.set(ctx.sourceId, {
+        ...doneLive,
         running: false,
         percent: errorMessage ? 0 : 100,
         message: errorMessage ? `Chyba: ${errorMessage}` : 'Dokončeno',
-        startedAt: startedAt.toISOString(),
+        startedAt: startedAtIso,
+        phase: errorMessage ? 'error' : 'done',
+        progressPercent: errorMessage ? 0 : 100,
+        currentMessage: errorMessage ? `Chyba: ${errorMessage}` : 'Dokončeno',
       });
     }
   }
@@ -933,7 +1083,7 @@ export class ImportSyncService {
 
   private async fetchRows(
     ctx: ImportExecutionContext,
-    onProgress?: (e: ImportRunProgressPayload) => void,
+    onProgress?: (e: Partial<ImportRunProgressPayload>) => void,
   ): Promise<{
     rows: ImportedListingDraft[];
     scraperMeta?: RealityCzScraperFetchOutcome['meta'];
@@ -1016,11 +1166,70 @@ export class ImportSyncService {
     return [...map.values()];
   }
 
-  private async importRows(
+  private async applyDetailEnrichmentFromDrafts(
+    ctx: ImportExecutionContext,
+    rows: ImportedListingDraft[],
+  ): Promise<{ updated: number; errors: number }> {
+    let updated = 0;
+    let errors = 0;
+    for (const row of rows) {
+      const externalId = row.externalId.trim().toUpperCase();
+      if (!externalId) continue;
+      try {
+        const existing = await this.prisma.property.findUnique({
+          where: {
+            importSource_importExternalId: {
+              importSource: ctx.portal,
+              importExternalId: externalId,
+            },
+          },
+        });
+        if (!existing || existing.importDisabled) continue;
+        const images = normalizeStoredImageUrlList(row.images);
+        const nextImages = images.length > 0 ? images : existing.images;
+        const { videoUrl, listingType } = resolveVideoForImportUpdate(
+          ctx.portal,
+          row.videoUrl,
+          existing.videoUrl,
+        );
+        const facet = this.importFacetPayload(ctx, row);
+        await this.prisma.property.update({
+          where: { id: existing.id },
+          data: {
+            title: row.title,
+            description:
+              (row.description?.length ?? 0) > (existing.description?.length ?? 0)
+                ? row.description
+                : existing.description,
+            price:
+              row.price != null && row.price > 0
+                ? Math.trunc(row.price)
+                : existing.price,
+            city: row.city,
+            address: row.address?.trim() || row.city || existing.address,
+            offerType: row.offerType?.trim() || existing.offerType,
+            propertyType: row.propertyType?.trim() || existing.propertyType,
+            images: nextImages,
+            videoUrl,
+            listingType,
+            importSourceUrl: row.sourceUrl?.trim() || existing.importSourceUrl,
+            lastSyncedAt: new Date(),
+            ...facet,
+          },
+        });
+        updated += 1;
+      } catch {
+        errors += 1;
+      }
+    }
+    return { updated, errors };
+  }
+
+  private async importListingShells(
     ctx: ImportExecutionContext,
     actorUserId: string,
     rows: ImportedListingDraft[],
-    onProgress?: (e: ImportRunProgressPayload) => void,
+    onProgress?: (patch: Partial<ImportRunProgressPayload>) => void,
   ): Promise<ImportRunResult> {
     let importedNew = 0;
     let importedUpdated = 0;
@@ -1033,8 +1242,11 @@ export class ImportSyncService {
     );
 
     onProgress?.({
-      percent: 72,
-      message: `Ukládám ${batch.length} záznamů do databáze…`,
+      percent: 12,
+      phase: 'listing',
+      totalListings: batch.length,
+      processedListings: 0,
+      message: `Ukládám ${batch.length} záznamů ze výpisu (fáze A)…`,
     });
 
     if (ctx.portal === ListingImportPortal.reality_cz) {
@@ -1065,8 +1277,15 @@ export class ImportSyncService {
       const row = batch[i];
       try {
         onProgress?.({
-          percent: 72 + Math.floor((25 * i) / Math.max(1, batch.length)),
-          message: `Ukládám ${i + 1}/${batch.length}…`,
+          phase: 'listing',
+          processedListings: i + 1,
+          totalListings: batch.length,
+          savedCount: importedNew,
+          updatedCount: importedUpdated,
+          skippedCount: skipped,
+          errorCount: errors.length,
+          percent: 10 + Math.floor((30 * (i + 1)) / Math.max(1, batch.length)),
+          message: `Ukládám výpis ${i + 1}/${batch.length}…`,
         });
         const externalId = row.externalId.trim().toUpperCase();
         if (!externalId) {
@@ -1090,6 +1309,7 @@ export class ImportSyncService {
             row.videoUrl,
           );
           const facet = this.importFacetPayload(ctx, row);
+          const imagesForDb = normalizeStoredImageUrlList(row.images);
           const created = await this.prisma.property.create({
             data: {
               userId: actorUserId,
@@ -1103,7 +1323,7 @@ export class ImportSyncService {
               offerType: row.offerType?.trim() || 'prodej',
               propertyType: row.propertyType?.trim() || 'byt',
               subType: '',
-              images: row.images,
+              images: imagesForDb,
               videoUrl,
               contactName: 'Reality.cz import',
               contactPhone: '',
@@ -1160,6 +1380,7 @@ export class ImportSyncService {
           existing.videoUrl,
         );
         const facet = this.importFacetPayload(ctx, row);
+        const imagesForDb = normalizeStoredImageUrlList(row.images);
         const updated = await this.prisma.property.update({
           where: { id: existing.id },
           data: {
@@ -1171,7 +1392,7 @@ export class ImportSyncService {
             address: row.address?.trim() || row.city,
             offerType: row.offerType?.trim() || existing.offerType,
             propertyType: row.propertyType?.trim() || existing.propertyType,
-            images: row.images.length > 0 ? row.images : existing.images,
+            images: imagesForDb.length > 0 ? imagesForDb : existing.images,
             videoUrl,
             listingType,
             importSourceUrl: row.sourceUrl?.trim() || existing.importSourceUrl,

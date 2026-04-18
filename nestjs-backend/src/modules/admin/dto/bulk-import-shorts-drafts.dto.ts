@@ -1,5 +1,14 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 /** Hromadná tvorba shorts konceptů z importovaných klasických inzerátů (admin). */
 export class BulkImportShortsDraftsDto {
@@ -7,6 +16,23 @@ export class BulkImportShortsDraftsDto {
   @IsString()
   @MaxLength(64)
   sourcePortalKey?: string;
+
+  /** Klíč kategorie importní větve (např. byty, domy). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  importCategoryKey?: string;
+
+  /** Část názvu města (case-insensitive). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  city?: string;
+
+  /** Jen inzeráty importované v posledních 48 h (nové importy). */
+  @IsOptional()
+  @IsBoolean()
+  onlyNewImports?: boolean;
 
   @IsOptional()
   @Type(() => Number)

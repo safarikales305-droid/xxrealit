@@ -19,6 +19,7 @@ import {
 import { PortalImportSection } from '@/components/admin/imports/PortalImportSection';
 import { ImportSourceForm } from '@/components/admin/imports/ImportSourceForm';
 import { ImportLogsPanel } from '@/components/admin/imports/ImportLogsPanel';
+import { BulkShortsFromImportsSection } from '@/components/admin/imports/BulkShortsFromImportsSection';
 
 type FiltersState = {
   portalKey: string;
@@ -148,7 +149,22 @@ export default function AdminImportsPage() {
           b.id === sourceId
             ? {
                 ...b,
-                running: { running: true, percent: ev.percent, message: ev.message },
+                running: {
+                  running: true,
+                  percent: ev.percent,
+                  message: ev.message,
+                  phase: ev.phase,
+                  totalListings: ev.totalListings,
+                  processedListings: ev.processedListings,
+                  totalDetails: ev.totalDetails,
+                  processedDetails: ev.processedDetails,
+                  savedCount: ev.savedCount,
+                  updatedCount: ev.updatedCount,
+                  skippedCount: ev.skippedCount,
+                  errorCount: ev.errorCount,
+                  progressPercent: ev.progressPercent ?? ev.percent,
+                  currentMessage: ev.currentMessage ?? ev.message,
+                },
               }
             : b,
         ),
@@ -358,6 +374,8 @@ export default function AdminImportsPage() {
             onDeleteBranch={(id) => void deleteBranch(id)}
           />
         ))}
+
+        <BulkShortsFromImportsSection token={token} branches={branches} />
 
         <ImportLogsPanel logs={logs} />
       </div>

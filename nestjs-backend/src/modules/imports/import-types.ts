@@ -77,10 +77,30 @@ export type ImportExecutionContext = {
   categoryLabel?: string;
 };
 
-/** Průběh importu (NDJSON stream / admin UI). */
+export type ImportRunPhase = 'listing' | 'details' | 'done' | 'error';
+
+/** Průběh importu (NDJSON stream / admin UI + in-memory stav větve). */
 export type ImportRunProgressPayload = {
   percent: number;
   message: string;
+  phase: ImportRunPhase;
+  totalListings: number;
+  processedListings: number;
+  totalDetails: number;
+  processedDetails: number;
+  savedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  /** Stejné jako `percent` — pro kompatibilitu se specifikací admin API. */
+  progressPercent: number;
+  currentMessage: string;
+};
+
+/** In-memory stav běžícího importu (Map v ImportSyncService). */
+export type ImportRunLiveState = ImportRunProgressPayload & {
+  running: boolean;
+  startedAt: string;
 };
 
 export type ImportSourceBranchRow = {
@@ -120,6 +140,17 @@ export type ImportSourceBranchRow = {
     percent: number;
     message: string;
     startedAt?: string;
+    phase?: ImportRunPhase;
+    totalListings?: number;
+    processedListings?: number;
+    totalDetails?: number;
+    processedDetails?: number;
+    savedCount?: number;
+    updatedCount?: number;
+    skippedCount?: number;
+    errorCount?: number;
+    progressPercent?: number;
+    currentMessage?: string;
   };
 };
 
