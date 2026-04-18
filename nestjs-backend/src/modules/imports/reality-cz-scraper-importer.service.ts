@@ -91,6 +91,8 @@ export type RealityCzScraperFetchOutcome = {
 @Injectable()
 export class RealityCzScraperImporter {
   private readonly logger = new Logger(RealityCzScraperImporter.name);
+  private static readonly LISTING_PATH_RE =
+    /(prodej|pronajem|pronaj|hledani|vyhledavani|search|byty|domy|pozemk)/i;
 
   async fetch(
     limit: number,
@@ -115,6 +117,11 @@ export class RealityCzScraperImporter {
         if (is429) listPage429Count += 1;
       },
     );
+    if (!this.looksLikeRealityListingUrl(fetched.finalUrl)) {
+      throw new BadRequestException(
+        `Reality.cz scraper byl přesměrován mimo výpis inzerátů (${fetched.finalUrl}). Zadejte konkrétní URL výpisu, ne homepage.`,
+      );
+    }
 
     let parsed = this.parseListings(fetched.body);
     if (parsed.items.length === 0) {
@@ -132,6 +139,11 @@ export class RealityCzScraperImporter {
             if (is429) listPage429Count += 1;
           },
         );
+        if (!this.looksLikeRealityListingUrl(fetched.finalUrl)) {
+          throw new BadRequestException(
+            `Reality.cz scraper fallback strana=2 skončil mimo výpis inzerátů (${fetched.finalUrl}).`,
+          );
+        }
         parsed = this.parseListings(fetched.body);
       }
     }
@@ -421,6 +433,21 @@ export class RealityCzScraperImporter {
         return `${startUrl}&strana=${page}`;
       }
       return `${startUrl}?strana=${page}`;
+    }
+  }
+
+  private looksLikeRealityListingUrl(url: string): boolean {
+    try {
+      const u = new URL(url);
+      if (!u.hostname.toLowerCase().endsWith('reality.cz')) return false;
+      const path = (u.pathname || '/').toLowerCase().replace(/\/+$/, '') || '/';
+      if (path === '/' || path === '') return false;
+      if (u.searchParams.toString().length > 0) {
+        return RealityCzScraperImporter.LISTING_PATH_RE.test(`${path}${u.search}`);
+      }
+      return RealityCzScraperImporter.LISTING_PATH_RE.test(path);
+    } catch {
+      return false;
     }
   }
 

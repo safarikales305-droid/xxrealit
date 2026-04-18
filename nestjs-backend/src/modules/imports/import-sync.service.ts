@@ -415,7 +415,13 @@ export class ImportSyncService {
       ctx.settingsJson.startUrl.trim()
         ? ctx.settingsJson.startUrl.trim()
         : '';
-    const candidate = fromEndpoint || fromSettings;
+    const candidate = fromSettings || fromEndpoint;
+    // eslint-disable-next-line no-console
+    console.log('REALITY IMPORT START URL', {
+      endpointUrl: fromEndpoint || null,
+      settingsJsonStartUrl: fromSettings || null,
+      resolvedStartUrl: candidate || null,
+    });
     if (!candidate) {
       throw new BadRequestException(
         'Zadejte start URL pro scraper Reality.cz (konkrétní výpis s parametry, např. https://www.reality.cz/prodej/byty/?strana=1).',
@@ -439,21 +445,30 @@ export class ImportSyncService {
     }
     if (!this.realityScraperUrlLooksLikeListingPage(parsed.href)) {
       throw new BadRequestException(
-        'Invalid import URL — Použij konkrétní výpis inzerátů (např. s parametrem ?strana=1 nebo lokalitou)',
+        'Invalid import URL — Použij konkrétní výpis inzerátů Reality.cz (např. /prodej/byty/, /prodej/domy/, /pronajem/byty/ nebo výpis s lokalitou).',
       );
     }
     return candidate;
   }
 
-  /** Výpis musí mít query (?…) nebo explicitně strana=, jinak jde typicky o příliš obecnou cestu bez výpisu. */
+  /** Povolen je konkrétní výpis (prodej/pronájem/typ nemovitosti/search), root homepage je zakázaná. */
   private realityScraperUrlLooksLikeListingPage(url: string): boolean {
     try {
       const u = new URL(url);
-      if (u.searchParams.toString().length > 0) return true;
+      if (!u.hostname.toLowerCase().endsWith('reality.cz')) return false;
+      const path = (u.pathname || '/').toLowerCase().replace(/\/+$/, '') || '/';
+      if (path === '/' || path === '') return false;
       if (/strana=/i.test(`${u.pathname}${u.search}`)) return true;
-      return false;
+      if (u.searchParams.toString().length > 0) {
+        return /(prodej|pronajem|pronaj|hledani|vyhledavani|search|byty|domy|pozemk)/i.test(
+          `${path}${u.search}`,
+        );
+      }
+      return /(prodej|pronajem|pronaj|hledani|vyhledavani|search|byty|domy|pozemk)/i.test(path);
     } catch {
-      return /\?[^\s#]+/i.test(url) || /strana=/i.test(url);
+      const low = url.toLowerCase();
+      if (/^https?:\/\/(www\.)?reality\.cz\/?$/i.test(low)) return false;
+      return /(prodej|pronajem|pronaj|hledani|vyhledavani|search|byty|domy|pozemk)/i.test(low);
     }
   }
 
