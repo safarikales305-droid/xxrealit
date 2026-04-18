@@ -30,6 +30,7 @@ const METHODS_FOR_PORTAL: Record<string, { value: string; label: string }[]> = {
   csv_feed: [{ value: 'csv', label: 'CSV' }],
   other: [{ value: 'other', label: 'Jiné' }],
 };
+const DEFAULT_REALITY_SCRAPER_START_URL = 'https://www.reality.cz/prodej/byty/?strana=1';
 
 function readSettingsNumber(v: unknown, fallback: number): number {
   const x =
@@ -82,6 +83,19 @@ function formFromServer(s: AdminImportSourceRow): ImportSourceFormState {
   };
 }
 
+function isRealityRootUrl(url: string): boolean {
+  const t = (url ?? '').trim();
+  if (!t) return false;
+  try {
+    const u = new URL(t);
+    const host = u.hostname.toLowerCase();
+    const path = (u.pathname || '/').replace(/\/+$/, '') || '/';
+    return host.endsWith('reality.cz') && path === '/' && !u.search;
+  } catch {
+    return /^https?:\/\/(www\.)?reality\.cz\/?$/i.test(t);
+  }
+}
+
 export default function AdminImportsPage() {
   const router = useRouter();
   const { user, isLoading, apiAccessToken } = useAuth();
@@ -111,7 +125,15 @@ export default function AdminImportsPage() {
     setFormsById((prev) => {
       const next = { ...prev };
       for (const s of sources) {
-        next[s.id] = formFromServer(s);
+        const base = formFromServer(s);
+        const isRealityScraper = s.portal === 'reality_cz' && s.method === 'scraper';
+        next[s.id] = {
+          ...base,
+          endpointUrl:
+            isRealityScraper && isRealityRootUrl(base.endpointUrl)
+              ? DEFAULT_REALITY_SCRAPER_START_URL
+              : base.endpointUrl,
+        };
       }
       return next;
     });
@@ -201,9 +223,9 @@ export default function AdminImportsPage() {
     const isRealityScraper = src?.portal === 'reality_cz' && src?.method === 'scraper';
     const f = src ? formFor(src) : null;
     const endpointForRun = (f?.endpointUrl ?? src?.endpointUrl ?? '').trim();
-    if (isRealityScraper && !endpointForRun) {
+    if (isRealityScraper && (!endpointForRun || isRealityRootUrl(endpointForRun))) {
       setError(
-        'U zdroje „Reality.cz Scraper“ zadejte start URL (pole výše v jeho sekci), uložte ho (blur pole) a spusťte znovu.',
+        'U zdroje „Reality.cz Scraper“ zadejte konkrétní výpis (např. https://www.reality.cz/prodej/byty/?strana=1), ne homepage https://www.reality.cz/.',
       );
       setWarnMsg(null);
       setStatusMsg(null);
@@ -428,11 +450,17 @@ export default function AdminImportsPage() {
                       }
                       className="w-full rounded-lg border border-zinc-200 px-3 py-2"
                       onChange={(e) => setFormFor(src, { endpointUrl: e.target.value })}
-                      onBlur={(e) =>
+                      onBlur={(e) => {
+                        const raw = e.target.value.trim();
+                        const normalized =
+                          isRealityScraper && (!raw || isRealityRootUrl(raw))
+                            ? DEFAULT_REALITY_SCRAPER_START_URL
+                            : raw;
+                        setFormFor(src, { endpointUrl: normalized });
                         void saveSourcePatch(src.id, {
-                          endpointUrl: e.target.value.trim() || null,
-                        })
-                      }
+                          endpointUrl: normalized || null,
+                        });
+                      }}
                     />
                   </label>
                 ) : (

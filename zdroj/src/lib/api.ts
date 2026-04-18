@@ -13,16 +13,77 @@ const rawPublicApiInput =
   typeof process.env.NEXT_PUBLIC_API_URL === 'string'
     ? process.env.NEXT_PUBLIC_API_URL.trim()
     : '';
+const rawServerApiInput =
+  typeof process.env.API_URL === 'string'
+    ? process.env.API_URL.trim()
+    : '';
 const rawPublicApi = rawPublicApiInput
   ? upgradeHttpToHttps(trimTrailingSlash(rawPublicApiInput))
   : '';
+const rawServerApi = rawServerApiInput
+  ? upgradeHttpToHttps(trimTrailingSlash(rawServerApiInput))
+  : '';
+
+function getRuntimeSameOriginApiBase(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    const origin = trimTrailingSlash(window.location.origin || '');
+    return origin ? `${origin}/api` : '';
+  } catch {
+    return '';
+  }
+}
+
+function isTrustedApiBase(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (host === 'xxrealit.cz' || host === 'www.xxrealit.cz') return true;
+    if (host.endsWith('.xxrealit.cz')) return true;
+    if (host === 'localhost' || host === '127.0.0.1') return true;
+    if (host.endsWith('.up.railway.app')) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function resolveApiBaseUrl(): string {
+  const envBase = rawPublicApi
+    ? withApiPrefix(rawPublicApi)
+    : rawServerApi
+      ? withApiPrefix(rawServerApi)
+      : '';
+  if (!envBase) return getRuntimeSameOriginApiBase();
+  if (typeof window !== 'undefined') {
+    const currentHost = window.location.hostname.toLowerCase();
+    const appOnPrimaryDomain =
+      currentHost === 'xxrealit.cz' ||
+      currentHost === 'www.xxrealit.cz' ||
+      currentHost.endsWith('.xxrealit.cz');
+    if (appOnPrimaryDomain) {
+      try {
+        const apiHost = new URL(envBase).hostname.toLowerCase();
+        const apiOnPrimaryDomain =
+          apiHost === 'xxrealit.cz' ||
+          apiHost === 'www.xxrealit.cz' ||
+          apiHost.endsWith('.xxrealit.cz');
+        if (!apiOnPrimaryDomain) {
+          return getRuntimeSameOriginApiBase() || envBase;
+        }
+      } catch {
+        return getRuntimeSameOriginApiBase() || envBase;
+      }
+    } else if (!isTrustedApiBase(envBase)) {
+      return getRuntimeSameOriginApiBase() || envBase;
+    }
+  }
+  return envBase;
+}
 
 /**
  * Public Nest API base. In production, only `NEXT_PUBLIC_API_URL` (no localhost).
  */
-export const API_BASE_URL = rawPublicApi
-  ? withApiPrefix(rawPublicApi)
-  : '';
+export const API_BASE_URL = resolveApiBaseUrl();
 
 if (
   typeof window !== 'undefined' &&
@@ -40,7 +101,9 @@ export const propertiesEndpoint = API_BASE_URL
 
 /** Server-side API base for RSC. */
 export function getServerSideApiBaseUrl(): string | null {
-  return rawPublicApi ? withApiPrefix(rawPublicApi) : null;
+  if (rawPublicApi) return withApiPrefix(rawPublicApi);
+  if (rawServerApi) return withApiPrefix(rawServerApi);
+  return null;
 }
 
 /** Origin bez `/api` — pro statické soubory Nest (`/uploads/...`). */
