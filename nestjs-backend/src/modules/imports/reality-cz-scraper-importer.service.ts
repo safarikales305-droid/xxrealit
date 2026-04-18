@@ -299,23 +299,259 @@ function extractPriceFromMicrodata(html: string): string | null {
   return raw && /^\d+$/.test(raw) ? raw : null;
 }
 
+function normalizeCzPhoneDigits(raw: string): string | null {
+  const d = raw.replace(/[^\d+]/g, '');
+  if (d.length < 9) return null;
+  if (d.startsWith('+420') && d.length >= 13) return d.slice(0, 17);
+  if (d.startsWith('420') && d.length >= 12) return `+${d}`.slice(0, 17);
+  if (d.startsWith('0') && d.length >= 9) return `+420${d.replace(/^0+/, '')}`.slice(0, 17);
+  if (/^9\d{8}$/.test(d)) return `+420${d}`;
+  if (d.length >= 9 && d.length <= 13) return d.startsWith('+') ? d.slice(0, 17) : `+${d}`.slice(0, 17);
+  return d.slice(0, 17);
+}
+
 function extractContactFromDetailHtml(html: string): { phone?: string; email?: string } {
   const out: { phone?: string; email?: string } = {};
-  const band = html.length > 600_000 ? html.slice(0, 600_000) : html;
+  const band = html.length > 700_000 ? html.slice(0, 700_000) : html;
   const mail = band.match(/href=["']mailto:([^"'>\s]+)["']/i)?.[1];
   if (mail) {
     const e = decodeURIComponent(mail.replace(/&amp;/g, '&')).split('?')[0].trim().toLowerCase();
     if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) out.email = e.slice(0, 120);
   }
+  if (!out.email) {
+    const m2 = band.match(
+      /(?:email|e-mail|mail)\s*[:=]\s*<\/[^>]+>\s*<[^>]+>([^<]{5,120})<\/a>/i,
+    )?.[1];
+    const e2 = cleanText(m2 ?? null)?.toLowerCase();
+    if (e2 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e2)) out.email = e2.slice(0, 120);
+  }
   const tel = band.match(/href=["']tel:([^"'>\s]+)["']/i)?.[1];
   if (tel) {
     const decoded = decodeURIComponent(tel.replace(/&amp;/g, '&'));
-    const digits = decoded.replace(/[^\d+]/g, '');
-    if (digits.length >= 9) out.phone = digits.slice(0, 40);
+    const n = normalizeCzPhoneDigits(decoded);
+    if (n) out.phone = n.slice(0, 40);
   }
   if (!out.phone) {
-    const m = band.match(/(\+420[\s\d]{9,18})/);
-    if (m?.[1]) out.phone = m[1].replace(/\s+/g, '').slice(0, 40);
+    const dataPhone =
+      band.match(/data-phone=["']([^"']+)["']/i)?.[1] ??
+      band.match(/data-tel=["']([^"']+)["']/i)?.[1] ??
+      band.match(/data-contact-phone=["']([^"']+)["']/i)?.[1];
+    if (dataPhone) {
+      const n = normalizeCzPhoneDigits(dataPhone);
+      if (n) out.phone = n.slice(0, 40);
+    }
+  }
+  if (!out.phone) {
+    const m = band.match(/(\+420[\s\d]{9,18})|(\b420\s*\d{3}\s*\d{3}\s*\d{3}\b)/);
+    if (m?.[1] || m?.[2]) {
+      const n = normalizeCzPhoneDigits((m[1] ?? m[2] ?? '').replace(/\s+/g, ''));
+      if (n) out.phone = n.slice(0, 40);
+    }
+  }
+  if (!out.phone) {
+    const m = band.match(/(?:tel|telefon|mobil)\s*[:.]?\s*<\/[^>]+>\s*<a[^>]+href=["']tel:([^"']+)["']/i);
+    if (m?.[1]) {
+      const n = normalizeCzPhoneDigits(decodeURIComponent(m[1]));
+      if (n) out.phone = n.slice(0, 40);
+    }
+  }
+  return out;
+}
+
+function extractBrokerNameFromDetailHtml(html: string): string | null {
+  const band = html.length > 500_000 ? html.slice(0, 500_000) : html;
+  const patterns = [
+    /<div[^>]+data-testid=["']advertiser-name["'][^>]*>([\s\S]*?)<\/div>/i,
+    /<[^>]+class=["'][^"']*advertiser[^"']*name[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i,
+    /"advertiserName"\s*:\s*"([^"\\]+)"/i,
+    /"contactName"\s*:\s*"([^"\\]+)"/i,
+    /"brokerName"\s*:\s*"([^"\\]+)"/i,
+    /"agencyName"\s*:\s*"([^"\\]+)"/i,
+  ];
+  for (const re of patterns) {
+    const m = band.match(re);
+    const t = cleanText(m?.[1] ? stripTags(m[1]) : null);
+    if (t && t.length >= 3 && t.length < 160 && !/^reality\.cz$/i.test(t)) return t.slice(0, 160);
+  }
+  return null;
+}
+
+/** Strukturovaná data z Next.js payloadu na detailu (cena, galerie, kontakt). */
+type RealityNextDataDetailSlice = {
+  imageUrls: string[];
+  priceNumbers: number[];
+  phones: string[];
+  emails: string[];
+  names: string[];
+  street?: string;
+  locality?: string;
+};
+
+function parseRealityDetailNextData(html: string): RealityNextDataDetailSlice | null {
+  const m = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/im);
+  if (!m?.[1]) return null;
+  let root: unknown;
+  try {
+    root = JSON.parse(m[1]);
+  } catch {
+    return null;
+  }
+  const out: RealityNextDataDetailSlice = {
+    imageUrls: [],
+    priceNumbers: [],
+    phones: [],
+    emails: [],
+    names: [],
+  };
+  const seenImg = new Set<string>();
+  let nodesVisited = 0;
+
+  const pushImg = (raw: unknown) => {
+    if (out.imageUrls.length >= 120 || typeof raw !== 'string') return;
+    const u = unescapeJsonUrlFragment(raw.replace(/\\/g, '').trim());
+    if (!/^https?:\/\//i.test(u)) return;
+    if (!isLikelyListingImageUrl(u)) return;
+    if (!isProbableRealityHostedImageUrl(u) && !/reality\.cz/i.test(u)) return;
+    const norm = normalizeStoredImageUrl(normalizeRealityImageQualityUrl(u));
+    if (!norm || seenImg.has(norm)) return;
+    seenImg.add(norm);
+    out.imageUrls.push(norm);
+  };
+
+  const pushPrice = (raw: unknown) => {
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      const t = Math.trunc(raw);
+      if (t >= MIN_REALITY_PRICE_CZK && t <= MAX_REALITY_PRICE_CZK) out.priceNumbers.push(t);
+      return;
+    }
+    if (typeof raw === 'string') {
+      const n = normalizeRealityImportedPrice(raw);
+      if (n != null) out.priceNumbers.push(n);
+    }
+  };
+
+  const pushPhone = (raw: unknown) => {
+    if (typeof raw !== 'string') return;
+    const n = normalizeCzPhoneDigits(raw);
+    if (n && !out.phones.includes(n)) out.phones.push(n.slice(0, 40));
+  };
+
+  const pushEmail = (raw: unknown) => {
+    if (typeof raw !== 'string') return;
+    const e = raw.trim().toLowerCase();
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && !out.emails.includes(e)) out.emails.push(e.slice(0, 120));
+  };
+
+  const visit = (node: unknown, depth: number) => {
+    nodesVisited += 1;
+    if (nodesVisited > 28_000 || depth > 42 || out.imageUrls.length >= 120) return;
+    if (typeof node === 'string') {
+      if (node.includes('@') && node.length < 200) pushEmail(node);
+      return;
+    }
+    if (Array.isArray(node)) {
+      for (const x of node) {
+        if (typeof x === 'string') pushImg(x);
+        visit(x, depth + 1);
+      }
+      return;
+    }
+    if (typeof node !== 'object' || node == null) return;
+    const o = node as Record<string, unknown>;
+
+    for (const k of [
+      'price',
+      'priceCzk',
+      'totalPrice',
+      'salePrice',
+      'rent',
+      'rentPrice',
+      'amount',
+      'priceValue',
+    ]) {
+      pushPrice(o[k]);
+    }
+    for (const k of ['streetAddress', 'street']) {
+      const v = o[k];
+      if (typeof v === 'string' && v.trim() && !out.street) out.street = v.trim().slice(0, 240);
+    }
+    for (const k of ['addressLocality', 'locality', 'municipality', 'city']) {
+      const v = o[k];
+      if (typeof v === 'string' && v.trim() && !out.locality) out.locality = v.trim().slice(0, 120);
+    }
+    for (const k of ['phone', 'mobile', 'telephone', 'phoneNumber', 'tel', 'cellPhone']) {
+      pushPhone(o[k]);
+    }
+    for (const k of ['email', 'mail']) {
+      pushEmail(o[k]);
+    }
+    const fn = o.firstName ?? o.givenName;
+    const ln = o.lastName ?? o.familyName;
+    if (typeof fn === 'string' && typeof ln === 'string') {
+      const full = `${fn} ${ln}`.trim();
+      if (full.length > 2 && full.length < 160 && !out.names.includes(full)) out.names.push(full.slice(0, 120));
+    }
+    for (const k of [
+      'fullName',
+      'name',
+      'companyName',
+      'agencyName',
+      'title',
+      'contactName',
+      'brokerName',
+      'advertiserName',
+    ]) {
+      const v = o[k];
+      if (typeof v === 'string') {
+        const nm = v.trim();
+        if (
+          nm.length >= 3 &&
+          nm.length < 160 &&
+          !/\d{6,}/.test(nm) &&
+          !/^https?:/i.test(nm) &&
+          !out.names.includes(nm)
+        ) {
+          out.names.push(nm.slice(0, 120));
+        }
+      }
+    }
+
+    for (const k of [
+      'images',
+      'photos',
+      'gallery',
+      'imageGallery',
+      'pictures',
+      'photoGallery',
+      'medias',
+      'imageUrls',
+    ]) {
+      const arr = o[k];
+      if (!Array.isArray(arr)) continue;
+      for (const item of arr) {
+        if (typeof item === 'string') pushImg(item);
+        else if (item && typeof item === 'object') {
+          const im = item as Record<string, unknown>;
+          for (const ik of ['url', 'src', 'href', 'originalUrl', 'fullUrl', 'largeUrl', 'imageUrl', 'path']) {
+            pushImg(im[ik]);
+          }
+        }
+      }
+    }
+
+    for (const v of Object.values(o)) visit(v, depth + 1);
+  };
+
+  visit(root, 0);
+  if (
+    out.imageUrls.length +
+      out.priceNumbers.length +
+      out.phones.length +
+      out.emails.length +
+      out.names.length ===
+    0
+  ) {
+    return null;
   }
   return out;
 }
@@ -987,6 +1223,7 @@ export class RealityCzScraperImporter {
         .map((u) => normalizeRealityImageQualityUrl(toAbsoluteRealityAssetUrl(u, 'https://www.reality.cz')))
         .filter((u) => isLikelyListingImageUrl(u)),
     );
+    const nd = parseRealityDetailNextData(html);
     const detailTitle = extractDetailTitleFromHtml(html);
     const longDesc = extractLongDescriptionFromDetailHtml(html);
     const metaDesc = pickMetaDescriptionFromHtml(html);
@@ -1008,22 +1245,36 @@ export class RealityCzScraperImporter {
     const floor = extractIntNearLabel(html, /\b(?:Patro|Podlaží)\b/i);
     const totalFloors = extractIntNearLabel(html, /\b(?:Celkem\s+podlaží|Počet\s+podlaží|Podlaží\s+celkem)\b/i);
     const condition = extractConditionSnippet(html);
-    const gallery = extractGalleryUrlsFromDetailHtml(html, 100);
+    const gallery = extractGalleryUrlsFromDetailHtml(html, 130);
     const priceBand = html.length > 900_000 ? html.slice(0, 900_000) : html;
-    const negotiable =
-      /cena\s+na\s+dotaz|cena\s*:\s*na\s+dotaz|price\s+on\s+request/i.test(
-        priceBand.toLowerCase(),
-      ) && !/\d[\d\s\u00a0]{5,}\s*(?:kč|czk)/i.test(priceBand.slice(0, 120_000));
-    const priceText = extractDetailPriceAggregated(priceBand);
-    const priceFromDetail = normalizeRealityImportedPrice(priceText);
-    /** Detail: cena na dotaz → null; jinak cena z detailu nebo záloha z výpisu. */
-    let mergedPrice: number | null;
-    if (negotiable) {
+    const ndBest =
+      nd?.priceNumbers &&
+      nd.priceNumbers.length > 0 &&
+      nd.priceNumbers.length <= 8
+        ? Math.max(...nd.priceNumbers)
+        : null;
+    let mergedPrice: number | null = draft.price;
+    let priceSource: string = 'list';
+    if (ndBest != null && ndBest >= MIN_REALITY_PRICE_CZK && ndBest <= MAX_REALITY_PRICE_CZK) {
+      mergedPrice = ndBest;
+      priceSource = '__NEXT_DATA__';
+    }
+    if (mergedPrice == null || mergedPrice < MIN_REALITY_PRICE_CZK) {
+      const priceText = extractDetailPriceAggregated(priceBand);
+      const p2 = normalizeRealityImportedPrice(priceText);
+      if (p2 != null) {
+        mergedPrice = p2;
+        priceSource = priceSource === 'list' ? 'html_jsonld' : `${priceSource}+jsonld`;
+      }
+    }
+    const headLow = priceBand.slice(0, 220_000).toLowerCase();
+    const explicitNaDotaz =
+      mergedPrice == null &&
+      /\bcena\s+na\s+dotaz\b/.test(headLow) &&
+      !/\d[\d\s\u00a0]{5,}\s*(?:kč|czk)/i.test(priceBand.slice(0, 90_000));
+    if (explicitNaDotaz) {
       mergedPrice = null;
-    } else if (priceFromDetail != null) {
-      mergedPrice = priceFromDetail;
-    } else {
-      mergedPrice = draft.price;
+      priceSource = 'na_dotaz';
     }
     const ogRaw = pickOgImageFromHtml(html);
     const ogAbs = ogRaw
@@ -1038,11 +1289,12 @@ export class RealityCzScraperImporter {
       mergedUrls.push(t);
     };
     if (ogAbs) add(ogAbs);
+    for (const u of nd?.imageUrls ?? []) add(u);
     for (const u of gallery) add(u);
     for (const u of baseImages) add(u);
     const nextImagesRaw =
       mergedUrls.length > 0
-        ? mergedUrls.slice(0, 100)
+        ? mergedUrls.slice(0, 120)
         : baseImages.length > 0
           ? baseImages
           : draft.images
@@ -1054,14 +1306,31 @@ export class RealityCzScraperImporter {
       detailTitle && detailTitle.trim().length >= (draft.title?.trim().length ?? 0)
         ? detailTitle.trim().slice(0, 400)
         : draft.title;
-    const nextCity = (loc.city?.trim() || draft.city || '').slice(0, 120) || draft.city;
+    const nextCity = (
+      (nd?.locality?.trim() || loc.city?.trim() || draft.city || '') as string
+    ).slice(0, 120) || draft.city;
     const nextAddress = (
+      nd?.street?.trim() ||
       loc.street?.trim() ||
       draft.address?.trim() ||
       loc.district?.trim() ||
       nextCity
-    ).slice(0, 240);
+    ).slice(0, 500);
     const contact = extractContactFromDetailHtml(html);
+    const phoneCandidates = [...(nd?.phones ?? []), contact.phone].filter(
+      (x): x is string => typeof x === 'string' && x.trim().length > 8,
+    );
+    const bestPhone = phoneCandidates.reduce(
+      (a, b) => (a.replace(/\D/g, '').length >= b.replace(/\D/g, '').length ? a : b),
+      '',
+    );
+    const rawEmail = (nd?.emails[0] ?? contact.email)?.trim().toLowerCase() ?? '';
+    const bestEmail =
+      rawEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail) ? rawEmail.slice(0, 120) : undefined;
+    const brokerName =
+      extractBrokerNameFromDetailHtml(html) ??
+      nd?.names.find((n) => n.length > 3 && !/reality\.cz/i.test(n)) ??
+      null;
     const next: ImportedListingDraft = {
       ...draft,
       title: bestTitle,
@@ -1077,12 +1346,18 @@ export class RealityCzScraperImporter {
       totalFloors: totalFloors ?? draft.totalFloors ?? null,
       condition: condition ?? draft.condition ?? null,
     };
-    if (contact.phone?.trim()) {
-      next.contactPhone = contact.phone.trim().slice(0, 40);
+    if (bestPhone) {
+      next.contactPhone = bestPhone.slice(0, 40);
     }
-    if (contact.email?.trim()) {
-      next.contactEmail = contact.email.trim().toLowerCase().slice(0, 120);
+    if (bestEmail) {
+      next.contactEmail = bestEmail;
     }
+    if (brokerName?.trim()) {
+      next.contactName = brokerName.trim().slice(0, 200);
+    }
+    this.logger.log(
+      `[Reality detail merge] id=${draft.externalId} galleryUrls=${nextImages.length} price=${mergedPrice ?? 'null'} priceSrc=${priceSource} phone=${Boolean(next.contactPhone)} email=${Boolean(next.contactEmail)} nextdata=${Boolean(nd)}`,
+    );
     return next;
   }
 

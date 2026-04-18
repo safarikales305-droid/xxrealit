@@ -411,7 +411,16 @@ export function NemovitostDetailView({
                   {formatListingPriceCzk(p.price)}
                 </span>
               </div>
-              <div className="text-sm text-zinc-500">{p.location}</div>
+              <div className="text-sm text-zinc-500">
+                {p.address?.trim() ? (
+                  <>
+                    <span className="block text-zinc-700">{p.address.trim()}</span>
+                    <span className="mt-0.5 block">{p.location}</span>
+                  </>
+                ) : (
+                  p.location
+                )}
+              </div>
               {summaryLine ? (
                 <div className="text-sm text-zinc-700">{summaryLine}</div>
               ) : null}
@@ -492,7 +501,9 @@ export function NemovitostDetailView({
                 )}
               </div>
               <div className="min-w-0">
-                <p className="font-semibold text-zinc-900">{author.name?.trim() || 'Uživatel'}</p>
+                <p className="font-semibold text-zinc-900">
+                  {(nameContact || author.name)?.trim() || 'Uživatel'}
+                </p>
               </div>
             </div>
           </div>

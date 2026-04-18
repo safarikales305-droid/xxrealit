@@ -1408,7 +1408,7 @@ export class ImportSyncService {
               subType: '',
               images: imagesForDb,
               videoUrl,
-              contactName: 'Reality.cz import',
+              contactName: (row.contactName?.trim() || 'Reality.cz import').slice(0, 200),
               contactPhone: (row.contactPhone ?? '').trim().slice(0, 40),
               contactEmail: (row.contactEmail ?? '').trim().toLowerCase().slice(0, 120),
               approved: true,
@@ -1473,11 +1473,18 @@ export class ImportSyncService {
           where: { id: existing.id },
           data: {
             title: row.title,
-            description: row.description,
+            description:
+              (row.description?.length ?? 0) >= (existing.description?.length ?? 0)
+                ? row.description
+                : existing.description,
             price:
-              row.price != null && row.price > 0 ? Math.trunc(row.price) : null,
+              row.price != null && row.price > 0
+                ? Math.trunc(row.price)
+                : existing.price != null && existing.price > 0
+                  ? existing.price
+                  : null,
             city: row.city,
-            address: row.address?.trim() || row.city,
+            address: (row.address?.trim() || existing.address?.trim() || row.city).slice(0, 500),
             region: row.region?.trim() ?? existing.region,
             district: row.district?.trim() ?? existing.district,
             area: row.area ?? existing.area,
@@ -1490,6 +1497,10 @@ export class ImportSyncService {
             images: imagesForDb.length > 0 ? imagesForDb : existing.images,
             videoUrl,
             listingType,
+            contactName: (row.contactName?.trim() || existing.contactName || 'Reality.cz import').slice(
+              0,
+              200,
+            ),
             contactPhone: (row.contactPhone?.trim() || existing.contactPhone || '').slice(0, 40),
             contactEmail: (row.contactEmail?.trim() || existing.contactEmail || '')
               .toLowerCase()

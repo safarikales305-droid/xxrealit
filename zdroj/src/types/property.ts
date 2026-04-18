@@ -73,6 +73,8 @@ export type PropertyFromApi = {
   title: string;
   price?: number | null | string;
   city?: string;
+  /** Ulice / číslo z importu nebo zadavatele. */
+  address?: string | null;
   location?: string;
   videoUrl?: string | null;
   /** Jednotná validní náhledová URL z API (nullable). */
@@ -121,6 +123,7 @@ export type PropertyFeedItem = {
   title: string;
   price: number | null;
   location: string;
+  address?: string | null;
   videoUrl: string | null;
   cover?: string | null;
   imageUrl?: string | null;
@@ -223,6 +226,10 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
     title: p.title,
     price: priceVal,
     location: (p.location ?? p.city ?? '').trim() || 'Neuvedeno',
+    address:
+      p.address === null || typeof p.address === 'string'
+        ? (typeof p.address === 'string' ? p.address.trim() || null : null)
+        : undefined,
     videoUrl: normalizePublicVideoUrl(p.videoUrl),
     thumbnail: thumb || null,
     coverImage: coverLegacy || null,
@@ -318,6 +325,8 @@ export function safeNormalizePropertyFromApi(
       title,
       price: o.price as PropertyFromApi['price'],
       city: typeof o.city === 'string' ? o.city : undefined,
+      address:
+        o.address === null || typeof o.address === 'string' ? (o.address as string | null) : undefined,
       location: typeof o.location === 'string' ? o.location : undefined,
       videoUrl:
         o.videoUrl === null || typeof o.videoUrl === 'string'

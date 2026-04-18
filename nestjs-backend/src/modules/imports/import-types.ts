@@ -25,6 +25,8 @@ export type ImportedListingDraft = {
   /** Z detailu inzerátu (Reality.cz apod.) — mapuje se na Property.contactPhone / contactEmail. */
   contactPhone?: string;
   contactEmail?: string;
+  /** Jméno makléře / RK z detailu — Property.contactName. */
+  contactName?: string;
 };
 
 /** Syrový input ze scraperu/API parseru – může být nekompletní. */
