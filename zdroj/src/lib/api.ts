@@ -24,6 +24,7 @@ const rawServerApi = rawServerApiInput
   ? upgradeHttpToHttps(trimTrailingSlash(rawServerApiInput))
   : '';
 
+/** Poslední záchrana: stejný origin + `/api` (jen když není nastavené žádné API URL v env). */
 function getRuntimeSameOriginApiBase(): string {
   if (typeof window === 'undefined') return '';
   try {
@@ -34,50 +35,15 @@ function getRuntimeSameOriginApiBase(): string {
   }
 }
 
-function isTrustedApiBase(url: string): boolean {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    if (host === 'xxrealit.cz' || host === 'www.xxrealit.cz') return true;
-    if (host.endsWith('.xxrealit.cz')) return true;
-    if (host === 'localhost' || host === '127.0.0.1') return true;
-    if (host.endsWith('.up.railway.app')) return true;
-    return false;
-  } catch {
-    return false;
-  }
-}
-
+/**
+ * Jednotná Nest API base (prefix `/api` odpovídá `app.setGlobalPrefix('api')` v backendu).
+ * Priorita: NEXT_PUBLIC_API_URL → API_URL (SSR) → same-origin `/api` jen bez env.
+ * Nevynucujeme same-origin na produkci — Next na www často nemá Nest pod `/api` (404).
+ */
 function resolveApiBaseUrl(): string {
-  const envBase = rawPublicApi
-    ? withApiPrefix(rawPublicApi)
-    : rawServerApi
-      ? withApiPrefix(rawServerApi)
-      : '';
-  if (!envBase) return getRuntimeSameOriginApiBase();
-  if (typeof window !== 'undefined') {
-    const currentHost = window.location.hostname.toLowerCase();
-    const appOnPrimaryDomain =
-      currentHost === 'xxrealit.cz' ||
-      currentHost === 'www.xxrealit.cz' ||
-      currentHost.endsWith('.xxrealit.cz');
-    if (appOnPrimaryDomain) {
-      try {
-        const apiHost = new URL(envBase).hostname.toLowerCase();
-        const apiOnPrimaryDomain =
-          apiHost === 'xxrealit.cz' ||
-          apiHost === 'www.xxrealit.cz' ||
-          apiHost.endsWith('.xxrealit.cz');
-        if (!apiOnPrimaryDomain) {
-          return getRuntimeSameOriginApiBase() || envBase;
-        }
-      } catch {
-        return getRuntimeSameOriginApiBase() || envBase;
-      }
-    } else if (!isTrustedApiBase(envBase)) {
-      return getRuntimeSameOriginApiBase() || envBase;
-    }
-  }
-  return envBase;
+  if (rawPublicApi) return withApiPrefix(rawPublicApi);
+  if (rawServerApi) return withApiPrefix(rawServerApi);
+  return getRuntimeSameOriginApiBase();
 }
 
 /**
@@ -91,7 +57,10 @@ if (
   API_BASE_URL
 ) {
   // eslint-disable-next-line no-console
-  console.info('[API] NEXT_PUBLIC_API_URL →', API_BASE_URL);
+  console.info('[API] resolved API_BASE_URL =', API_BASE_URL, {
+    NEXT_PUBLIC_API_URL: rawPublicApiInput || '(unset)',
+    API_URL: rawServerApiInput || '(unset)',
+  });
 }
 
 /** POST /properties on Nest; empty string if API is not configured (guard in forms). */
@@ -108,9 +77,13 @@ export function getServerSideApiBaseUrl(): string | null {
 
 /** Origin bez `/api` — pro statické soubory Nest (`/uploads/...`). */
 export function getNestPublicOrigin(): string {
-  if (!rawPublicApi) return '';
-  const noTrail = trimTrailingSlash(rawPublicApi);
-  return noTrail.replace(/\/api$/i, '');
+  if (!API_BASE_URL) return '';
+  try {
+    const u = new URL(API_BASE_URL);
+    return trimTrailingSlash(u.origin);
+  } catch {
+    return '';
+  }
 }
 
 export function nestAbsoluteAssetUrl(path: string): string {
