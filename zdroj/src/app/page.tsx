@@ -56,12 +56,17 @@ async function loadHomeFeed(sp: SearchParamsInput): Promise<PropertyFeedItem[]> 
   const authorization = await getServerAuthorizationHeader();
   const query = buildPropertiesQueryString(sp);
 
+  /**
+   * Personalizovaný feed často obsahuje jen Shorts (videoUrl / video media).
+   * Pro tab Klasik potřebujeme aspoň jeden „klasický“ řádek — jinak sjet na veřejný katalog.
+   */
   if (authorization && !hasPropertyListFilters(sp)) {
     const personalized = await loadPropertyFeedItems(base, {
       authorization,
       path: '/feed/personalized',
     });
-    if (personalized.length > 0) {
+    const classicSubset = classicListingsOnly(personalized);
+    if (personalized.length > 0 && classicSubset.length > 0) {
       return personalized;
     }
   }
