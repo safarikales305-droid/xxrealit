@@ -162,7 +162,15 @@ type ImportSourcePatch = {
   settingsJson?: Prisma.InputJsonValue | null;
 };
 
-function defaultRealityScraperSettingsJson(startUrl: string): Prisma.InputJsonValue {
+/** Objekt z DB / DTO → vždy plain object vhodný pro `settingsJson` (Prisma JSON write). */
+function asInputJsonObject(value: unknown): Prisma.InputJsonObject {
+  if (value != null && typeof value === 'object' && !Array.isArray(value)) {
+    return { ...(value as Prisma.InputJsonObject) };
+  }
+  return {};
+}
+
+function defaultRealityScraperSettingsJson(startUrl: string): Prisma.InputJsonObject {
   return {
     startUrl,
     scraperListOnlyImport: false,
@@ -172,7 +180,7 @@ function defaultRealityScraperSettingsJson(startUrl: string): Prisma.InputJsonVa
     scraperBaseBackoffMsOn429: 12_000,
     scraperMaxDetailFetchesPerRun: 48,
     scraperDetailConcurrency: 2,
-  } as Prisma.InputJsonValue;
+  };
 }
 
 function initialImportRunLive(startedAt: string): ImportRunLiveState {
@@ -376,10 +384,7 @@ export class ImportSyncService {
     });
     for (const s of all) {
       const portalMeta = portalMetaFor(s.portal);
-      const settings =
-        s.settingsJson && typeof s.settingsJson === 'object' && !Array.isArray(s.settingsJson)
-          ? ({ ...(s.settingsJson as Record<string, unknown>) } as Record<string, unknown>)
-          : {};
+      const settings = asInputJsonObject(s.settingsJson);
       const startUrl =
         typeof settings.startUrl === 'string' && settings.startUrl.trim()
           ? settings.startUrl.trim()
@@ -411,7 +416,7 @@ export class ImportSyncService {
           where: { id: s.id },
           data: {
             endpointUrl: aligned,
-            settingsJson: settings as Prisma.InputJsonValue,
+            settingsJson: settings,
             portalKey: portalMeta.portalKey,
             portalLabel: portalMeta.portalLabel,
             categoryKey,
@@ -576,22 +581,17 @@ export class ImportSyncService {
     if (existing) {
       throw new BadRequestException('Větev pro tento portál/kategorii/metodu už existuje.');
     }
-    const settings =
-      input.settingsJson && typeof input.settingsJson === 'object' && !Array.isArray(input.settingsJson)
-        ? { ...(input.settingsJson as Record<string, unknown>) }
-        : {};
+    let settings: Prisma.InputJsonObject = asInputJsonObject(input.settingsJson);
     if (input.method === ListingImportMethod.scraper && input.portal === ListingImportPortal.reality_cz) {
       const candidate = isValidRealityListingUrl(input.endpointUrl ?? '')
         ? (input.endpointUrl ?? '').trim()
         : (getDefaultRealityStartUrlForCategoryKey(categoryKey) ?? DEFAULT_REALITY_BYTY_START_URL);
       const aligned = resolveRealityScraperStartUrlForCategory(candidate, categoryKey);
-      const baseDefaults = defaultRealityScraperSettingsJson(aligned);
-      const mergedSettings = {
-        ...baseDefaults,
+      settings = {
+        ...defaultRealityScraperSettingsJson(aligned),
         ...settings,
         startUrl: aligned,
-      } as Prisma.InputJsonValue;
-      Object.assign(settings, mergedSettings as object);
+      };
       input.endpointUrl = aligned;
     }
     const created = await this.prisma.importSource.create({
@@ -612,7 +612,7 @@ export class ImportSyncService {
         intervalMinutes: Math.max(1, Math.trunc(input.intervalMinutes ?? 120)),
         limitPerRun: Math.max(1, Math.trunc(input.limitPerRun ?? 100)),
         endpointUrl: input.endpointUrl?.trim() || null,
-        settingsJson: settings as Prisma.InputJsonValue,
+        settingsJson: settings,
         credentialsJson: input.credentialsJson ?? Prisma.JsonNull,
       },
       include: { logs: { orderBy: { createdAt: 'desc' }, take: 1 } },
@@ -658,18 +658,8 @@ export class ImportSyncService {
       data.settingsJson = patch.settingsJson ?? Prisma.JsonNull;
     }
     if (isRealityScraper) {
-      const currentSettings =
-        current.settingsJson &&
-        typeof current.settingsJson === 'object' &&
-        !Array.isArray(current.settingsJson)
-          ? { ...(current.settingsJson as Record<string, unknown>) }
-          : {};
-      const patchSettings =
-        patch.settingsJson &&
-        typeof patch.settingsJson === 'object' &&
-        !Array.isArray(patch.settingsJson)
-          ? { ...(patch.settingsJson as Record<string, unknown>) }
-          : {};
+      const currentSettings = asInputJsonObject(current.settingsJson);
+      const patchSettings = asInputJsonObject(patch.settingsJson);
       const startFromPatch =
         typeof patchSettings.startUrl === 'string' ? patchSettings.startUrl.trim() : '';
       const startFromEndpoint =
@@ -697,12 +687,12 @@ export class ImportSyncService {
           `Import větev ${sourceId} (${mergedCategoryKey}): start URL sjednocena na „${aligned}“ (dříve „${resolvedStart.slice(0, 120)}…“).`,
         );
       }
-      const nextSettings = {
+      const nextSettings: Prisma.InputJsonObject = {
         ...currentSettings,
         ...patchSettings,
         startUrl: aligned,
       };
-      data.settingsJson = nextSettings as Prisma.InputJsonValue;
+      data.settingsJson = nextSettings;
       data.endpointUrl = aligned;
     }
     if (data.portalLabel || data.categoryLabel) {
