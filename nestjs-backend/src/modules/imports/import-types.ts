@@ -58,6 +58,10 @@ export type ImportRunResult = {
     detailFetchesAttempted?: number;
     detailFetchesCompleted?: number;
     scraperSettings?: unknown;
+    /** Počet záznamů aktualizovaných zápisem z fáze B (detaily) do DB. */
+    detailPhaseDbUpdates?: number;
+    /** Počet chyb při zápisu detailů do DB. */
+    detailPhaseDbErrors?: number;
   };
 };
 
