@@ -11,7 +11,7 @@ import {
   REALITY_LISTING_CODE_RE,
   resolveRealityListingExternalId,
 } from './reality-listing-code.util';
-import { safeParsePrice } from './price-parse.util';
+import { safeParsePrice, unwrapImportedPriceValue } from './price-parse.util';
 import { normalizeStoredImageUrl, normalizeStoredImageUrlList } from './import-image-urls';
 const DEFAULT_BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0';
@@ -125,12 +125,15 @@ function isProbableRealityHostedImageUrl(url: string): boolean {
 }
 
 function normalizeRealityImportedPrice(raw: unknown): number | null {
+  const unwrapped = unwrapImportedPriceValue(raw);
   const parsed =
-    typeof raw === 'number'
-      ? Number.isFinite(raw) && raw > 0
-        ? Math.trunc(raw)
+    typeof unwrapped === 'number'
+      ? Number.isFinite(unwrapped) && unwrapped > 0
+        ? Math.trunc(unwrapped)
         : null
-      : safeParsePrice(typeof raw === 'string' ? raw : raw != null ? String(raw) : null);
+      : safeParsePrice(
+          typeof unwrapped === 'string' ? unwrapped : unwrapped != null ? String(unwrapped) : null,
+        );
   if (parsed == null) return null;
   if (parsed < MIN_REALITY_PRICE_CZK) return null;
   if (parsed > MAX_REALITY_PRICE_CZK) return null;
@@ -249,8 +252,11 @@ function extractPriceFromNextData(html: string): string | null {
   const body = m[1].slice(0, 4_000_000);
   const patterns = [
     /"price"\s*:\s*(\d{4,12})(?!\d)/,
+    /"price"\s*:\s*"(\d[\d\s\u00a0]{2,18})"/,
     /"priceCzk"\s*:\s*(\d{4,12})/i,
+    /"priceCzk"\s*:\s*"(\d[\d\s\u00a0]{2,18})"/i,
     /"totalPrice"\s*:\s*(\d{4,12})/i,
+    /"totalPrice"\s*:\s*"(\d[\d\s\u00a0]{2,18})"/i,
     /"priceAmount"\s*:\s*(\d{4,12})/i,
     /"amount"\s*:\s*(\d{4,12})\s*(?:,|})/,
     /"lowPrice"\s*:\s*(\d{4,12})/i,
@@ -258,7 +264,8 @@ function extractPriceFromNextData(html: string): string | null {
   ];
   for (const re of patterns) {
     const hit = body.match(re);
-    if (hit?.[1] && hit[1].length >= 4) return hit[1].replace(/[\s\u00a0]/g, '');
+    if (hit?.[1] && hit[1].replace(/[\s\u00a0]/g, '').length >= 4)
+      return hit[1].replace(/[\s\u00a0]/g, '');
   }
   return null;
 }
@@ -468,6 +475,10 @@ function parseRealityDetailNextData(html: string): RealityNextDataDetailSlice | 
       'rentPrice',
       'amount',
       'priceValue',
+      'advertisedPrice',
+      'listingPrice',
+      'grossPrice',
+      'netPrice',
     ]) {
       pushPrice(o[k]);
     }
@@ -1247,21 +1258,24 @@ export class RealityCzScraperImporter {
     const condition = extractConditionSnippet(html);
     const gallery = extractGalleryUrlsFromDetailHtml(html, 130);
     const priceBand = html.length > 900_000 ? html.slice(0, 900_000) : html;
-    const ndBest =
-      nd?.priceNumbers &&
-      nd.priceNumbers.length > 0 &&
-      nd.priceNumbers.length <= 8
-        ? Math.max(...nd.priceNumbers)
-        : null;
+    let ndBest: number | null = null;
+    if (nd?.priceNumbers?.length) {
+      const valid = nd.priceNumbers.filter(
+        (n) => Number.isFinite(n) && n >= MIN_REALITY_PRICE_CZK && n <= MAX_REALITY_PRICE_CZK,
+      );
+      if (valid.length > 0) {
+        ndBest = Math.max(...valid);
+      }
+    }
     let mergedPrice: number | null = draft.price;
     let priceSource: string = 'list';
-    if (ndBest != null && ndBest >= MIN_REALITY_PRICE_CZK && ndBest <= MAX_REALITY_PRICE_CZK) {
+    if (ndBest != null) {
       mergedPrice = ndBest;
       priceSource = '__NEXT_DATA__';
     }
+    const aggregatedPriceText = extractDetailPriceAggregated(priceBand);
     if (mergedPrice == null || mergedPrice < MIN_REALITY_PRICE_CZK) {
-      const priceText = extractDetailPriceAggregated(priceBand);
-      const p2 = normalizeRealityImportedPrice(priceText);
+      const p2 = normalizeRealityImportedPrice(aggregatedPriceText);
       if (p2 != null) {
         mergedPrice = p2;
         priceSource = priceSource === 'list' ? 'html_jsonld' : `${priceSource}+jsonld`;
@@ -1355,8 +1369,13 @@ export class RealityCzScraperImporter {
     if (brokerName?.trim()) {
       next.contactName = brokerName.trim().slice(0, 200);
     }
+    const rawPriceSnippet =
+      aggregatedPriceText?.slice(0, 80) ??
+      (nd?.priceNumbers?.length
+        ? `nextDataNums=[${nd.priceNumbers.slice(0, 12).join(',')}${nd.priceNumbers.length > 12 ? '…' : ''}]`
+        : null);
     this.logger.log(
-      `[Reality detail merge] id=${draft.externalId} galleryUrls=${nextImages.length} price=${mergedPrice ?? 'null'} priceSrc=${priceSource} phone=${Boolean(next.contactPhone)} email=${Boolean(next.contactEmail)} nextdata=${Boolean(nd)}`,
+      `[Reality detail merge] id=${draft.externalId} sourceUrl=${(draft.sourceUrl ?? '').slice(0, 160)} rawPrice=${rawPriceSnippet ?? 'n/a'} normalizedPrice=${mergedPrice ?? 'null'} priceSrc=${priceSource} galleryUrls=${nextImages.length} phone=${Boolean(next.contactPhone)} email=${Boolean(next.contactEmail)} nextdata=${Boolean(nd)}`,
     );
     return next;
   }
@@ -1545,7 +1564,14 @@ export class RealityCzScraperImporter {
       '';
     if (!title.trim()) return null;
     const priceVal =
-      obj.price ?? obj.priceCzk ?? obj.amount ?? obj.rent ?? obj.salePrice;
+      obj.price ??
+      obj.priceCzk ??
+      obj.amount ??
+      obj.rent ??
+      obj.salePrice ??
+      obj.totalPrice ??
+      obj.advertisedPrice ??
+      obj.listingPrice;
     const absUrlFinal =
       absUrl ||
       `https://www.reality.cz/${idRaw}/`;
@@ -1817,8 +1843,8 @@ function extractFirstPriceKc(fragment: string): string | null {
     return null;
   }
   const m =
-    fragment.match(/(\d[\d\s\u00a0]{2,20})\s*(?:Kč|CZK)(?:\s*\/\s*měs)?/i) ??
-    fragment.match(/(\d[\d\s\u00a0]{2,20})\s*(?:Kč|CZK)/i);
+    fragment.match(/(\d[\d\s\u00a0]{1,22})\s*(?:Kč|CZK)(?:\s*\/\s*měs)?/i) ??
+    fragment.match(/(\d[\d\s\u00a0]{1,22})\s*(?:Kč|CZK)/i);
   return m?.[1] ?? null;
 }
 
