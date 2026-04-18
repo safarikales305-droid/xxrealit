@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { getClientTokenFromCookie } from '@/lib/api';
+import { formatListingPrice } from '@/lib/price';
 import { nestApiConfigured } from '@/lib/nest-client';
 import {
   nestAdminProfessionalProfiles,
@@ -54,15 +55,6 @@ function StatCard({ title, value }: { title: string; value: number | string }) {
       <p className="mt-2 text-2xl font-bold tabular-nums text-zinc-900">{value}</p>
     </div>
   );
-}
-
-function formatPrice(n: number | null | undefined): string {
-  if (typeof n !== 'number' || !Number.isFinite(n)) return '—';
-  return new Intl.NumberFormat('cs-CZ', {
-    style: 'currency',
-    currency: 'CZK',
-    maximumFractionDigits: 0,
-  }).format(n);
 }
 
 export default function AdminPage() {
@@ -638,7 +630,7 @@ export default function AdminPage() {
                         )}
                       </div>
                       <p className="text-sm text-zinc-600">
-                        {loc} · {formatPrice(prop.price)}
+                        {loc} · {formatListingPrice(prop.price)}
                       </p>
                     </div>
                     {!approved ? (

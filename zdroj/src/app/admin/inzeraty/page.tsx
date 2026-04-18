@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
+import { formatListingPrice } from '@/lib/price';
 import {
   nestAdminApproveProperty,
   nestAdminDeleteProperty,
@@ -28,15 +29,6 @@ const TYPE_OPTIONS = [
   { value: 'SHORTS', label: 'Shorts' },
   { value: 'CLASSIC', label: 'Klasik' },
 ] as const;
-
-function formatPrice(n: number | null | undefined): string {
-  if (typeof n !== 'number' || !Number.isFinite(n)) return '—';
-  return new Intl.NumberFormat('cs-CZ', {
-    style: 'currency',
-    currency: 'CZK',
-    maximumFractionDigits: 0,
-  }).format(n);
-}
 
 function formatDt(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -480,7 +472,7 @@ export default function AdminListingsPage() {
                         {r.authorEmail ?? r.userId ?? '—'}
                       </td>
                       <td className="px-3 py-2">{r.city ?? r.location ?? '—'}</td>
-                      <td className="px-3 py-2 tabular-nums">{formatPrice(r.price)}</td>
+                      <td className="px-3 py-2 tabular-nums">{formatListingPrice(r.price)}</td>
                       <td className="px-3 py-2 text-xs text-zinc-600">
                         {r.importSource ? `${r.importSource}/${r.importMethod ?? '-'}` : 'Lokální'}
                         {r.importExternalId ? <div className="font-mono text-[10px]">{r.importExternalId}</div> : null}

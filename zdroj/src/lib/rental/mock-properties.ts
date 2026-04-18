@@ -1,3 +1,5 @@
+import { formatListingPrice } from '@/lib/price';
+
 export type PropertyType = 'byt' | 'dum' | 'pozemek';
 
 export type MockProperty = {
@@ -93,12 +95,5 @@ export function propertyTypeLabel(t: PropertyType): string {
 }
 
 export function formatCzk(n: number | null | undefined): string {
-  if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) {
-    return 'Cena na dotaz';
-  }
-  return new Intl.NumberFormat('cs-CZ', {
-    style: 'currency',
-    currency: 'CZK',
-    maximumFractionDigits: 0,
-  }).format(n);
+  return formatListingPrice(n);
 }
