@@ -31,15 +31,40 @@ function toAbsoluteRealityAssetUrl(raw: string, baseOrigin = 'https://www.realit
   }
 }
 
+/**
+ * Nejkvalitnější URL ze srcset — preferuje největší deskriptor `NNNw` / `Nx`, jinak poslední kandidát.
+ */
 function pickBestImageFromSrcset(srcset?: string | null): string | null {
-  if (!srcset) return null;
-  const candidates = srcset
+  if (!srcset?.trim()) return null;
+  const parts = srcset
     .split(',')
     .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => part.split(/\s+/)[0]?.trim() ?? '')
     .filter(Boolean);
-  return candidates[candidates.length - 1] || null;
+  if (parts.length === 0) return null;
+  type Scored = { url: string; score: number; idx: number };
+  const scored: Scored[] = [];
+  for (let idx = 0; idx < parts.length; idx++) {
+    const part = parts[idx]!;
+    const url = part.split(/\s+/)[0]?.trim() ?? '';
+    if (!url) continue;
+    let score = 0;
+    const tokens = part.split(/\s+/).slice(1);
+    for (const tok of tokens) {
+      const t = tok.toLowerCase();
+      const wm = t.match(/^(\d+)w$/);
+      if (wm) score = Math.max(score, parseInt(wm[1]!, 10));
+      const xm = t.match(/^(\d*(?:\.\d+)?)x$/i);
+      if (xm) score = Math.max(score, Math.round(parseFloat(xm[1]!) * 2000));
+    }
+    scored.push({ url, score, idx });
+  }
+  if (scored.length === 0) return null;
+  const anyDescriptor = scored.some((s) => s.score > 0);
+  if (!anyDescriptor) {
+    return scored[scored.length - 1]!.url;
+  }
+  scored.sort((a, b) => b.score - a.score || b.idx - a.idx);
+  return scored[0]!.url;
 }
 
 function normalizeRealityImageQualityUrl(rawUrl: string): string {
@@ -48,7 +73,7 @@ function normalizeRealityImageQualityUrl(rawUrl: string): string {
   const replaced = t
     // URL variants often used for thumbnails; keep original path but drop explicit thumbnail markers.
     .replace(/([/_-])(thumb|thumbnail|small|mini)(?=[/_-]|\.|$)/gi, '$1large')
-    .replace(/([?&](?:w|width|h|height|size|maxwidth|maxheight)=)\d+/gi, '$11080');
+    .replace(/([?&](?:w|width|h|height|size|maxwidth|maxheight)=)\d+/gi, '$12048');
   try {
     const u = new URL(replaced);
     const keys = [
@@ -218,22 +243,20 @@ function isRealityListingDetailHref(rawHref: string, absHref: string): boolean {
   }
 }
 
-function pushSrcsetParts(
+/** Ze srcset uloží jen jednu — nejkvalitnější — variantu. */
+function pushBestFromSrcset(
   raw: string | undefined,
   pushRaw: (s: string | null | undefined) => void,
 ): void {
-  if (!raw?.trim()) return;
-  for (const part of raw.split(',')) {
-    const u = part.trim().split(/\s+/)[0]?.trim();
-    if (u) pushRaw(u);
-  }
+  const best = pickBestImageFromSrcset(raw);
+  if (best) pushRaw(best);
 }
 
 /**
  * Galerie z detailu Reality — nejdřív nasbíráme kandidáty (bez předčasného zastavení),
  * pak normalizujeme, deduplikujeme a seřadíme podle výskytu v HTML.
  */
-function extractGalleryUrlsFromDetailHtml(html: string, limit = 80): string[] {
+function extractGalleryUrlsFromDetailHtml(html: string, limit = 100): string[] {
   const rawCandidates: string[] = [];
   const sink = new Set<string>();
   const pushRaw = (s: string | null | undefined) => {
@@ -285,12 +308,12 @@ function extractGalleryUrlsFromDetailHtml(html: string, limit = 80): string[] {
       const re = new RegExp(`${attr}=["']([^"']+)["']`, 'i');
       const m = tag.match(re);
       if (m?.[1]) {
-        if (attr.toLowerCase().includes('srcset')) pushSrcsetParts(m[1], pushRaw);
+        if (attr.toLowerCase().includes('srcset')) pushBestFromSrcset(m[1], pushRaw);
         else pushRaw(m[1]);
       }
     }
     const srcsetM = tag.match(/\ssrcset=["']([^"']+)["']/i);
-    if (srcsetM?.[1]) pushSrcsetParts(srcsetM[1], pushRaw);
+    if (srcsetM?.[1]) pushBestFromSrcset(srcsetM[1], pushRaw);
   }
 
   for (const sm of html.matchAll(/<source[^>]+>/gi)) {
@@ -298,7 +321,36 @@ function extractGalleryUrlsFromDetailHtml(html: string, limit = 80): string[] {
     const srcM = tag.match(/\ssrc=["']([^"']+)["']/i);
     if (srcM?.[1]) pushRaw(srcM[1]);
     const setM = tag.match(/\ssrcset=["']([^"']+)["']/i);
-    if (setM?.[1]) pushSrcsetParts(setM[1], pushRaw);
+    if (setM?.[1]) pushBestFromSrcset(setM[1], pushRaw);
+  }
+
+  for (const wrap of html.matchAll(
+    /<(?:div|section|ul)[^>]+class=["'][^"']*(?:gallery|carousel|slider|swiper|photo|image|nemovitost)[^"']*["'][^>]*>/gi,
+  )) {
+    const start = wrap.index ?? 0;
+    const slice = html.slice(start, start + 120_000);
+    for (const imgMatch of slice.matchAll(/<img[^>]+>/gi)) {
+      const tag = imgMatch[0];
+      for (const attr of [
+        'data-zoom-src',
+        'data-full',
+        'data-src',
+        'data-lazy-src',
+        'data-lazy-srcset',
+        'data-original',
+        'data-large_image',
+        'src',
+      ]) {
+        const re = new RegExp(`${attr}=["']([^"']+)["']`, 'i');
+        const m = tag.match(re);
+        if (m?.[1]) {
+          if (attr.toLowerCase().includes('srcset')) pushBestFromSrcset(m[1], pushRaw);
+          else pushRaw(m[1]);
+        }
+      }
+      const srcsetM = tag.match(/\ssrcset=["']([^"']+)["']/i);
+      if (srcsetM?.[1]) pushBestFromSrcset(srcsetM[1], pushRaw);
+    }
   }
 
   for (const m of html.matchAll(
@@ -862,13 +914,17 @@ export class RealityCzScraperImporter {
         /<[^>]+class=["'][^"']*(?:perex|description|desc|summary)[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i,
         /<p[^>]*>([\s\S]*?)<\/p>/i,
       ]);
-    const gallery = extractGalleryUrlsFromDetailHtml(html, 80);
+    const gallery = extractGalleryUrlsFromDetailHtml(html, 100);
+    const priceBand = html.length > 800_000 ? html.slice(0, 800_000) : html;
     const priceText =
-      extractFirstPriceKc(html.slice(0, 200_000)) ??
-      extractFirstPriceKc(html.slice(200_000, 400_000));
+      extractPriceFromJsonLdScripts(priceBand) ??
+      extractFirstPriceKc(priceBand.slice(0, 200_000)) ??
+      extractFirstPriceKc(priceBand.slice(200_000, 400_000)) ??
+      extractFirstPriceKc(priceBand.slice(400_000, 800_000));
     const priceFromDetail = normalizeRealityImportedPrice(priceText);
+    /** Z detail stránky má cena přednost před výpisem (často přesnější / kompletní). */
     let mergedPrice = draft.price;
-    if (mergedPrice == null && priceFromDetail != null) {
+    if (priceFromDetail != null) {
       mergedPrice = priceFromDetail;
     }
     const ogRaw = pickOgImageFromHtml(html);
@@ -888,7 +944,7 @@ export class RealityCzScraperImporter {
     for (const u of baseImages) add(u);
     const nextImagesRaw =
       mergedUrls.length > 0
-        ? mergedUrls.slice(0, 80)
+        ? mergedUrls.slice(0, 100)
         : baseImages.length > 0
           ? baseImages
           : draft.images
@@ -1367,6 +1423,28 @@ function extractFirstPriceKc(fragment: string): string | null {
     fragment.match(/(\d[\d\s\u00a0]{2,20})\s*(?:Kč|CZK)(?:\s*\/\s*měs)?/i) ??
     fragment.match(/(\d[\d\s\u00a0]{2,20})\s*(?:Kč|CZK)/i);
   return m?.[1] ?? null;
+}
+
+/** Cena z JSON-LD (schema.org) na detailu Reality. */
+function extractPriceFromJsonLdScripts(html: string): string | null {
+  for (const m of html.matchAll(
+    /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+  )) {
+    const body = m[1] ?? '';
+    const patterns = [
+      /"(?:lowPrice|highPrice)"\s*:\s*"?(\d[\d\s\u00a0]{2,15})"?/i,
+      /"price"\s*:\s*"?(\d[\d\s\u00a0]{2,15})"?/i,
+      /"price"\s*:\s*(\d{4,12})(?!\d)/,
+    ];
+    for (const re of patterns) {
+      const hit = body.match(re);
+      const raw = hit?.[1];
+      if (typeof raw === 'string' && /\d/.test(raw)) {
+        return raw.replace(/[\s\u00a0]/g, '');
+      }
+    }
+  }
+  return null;
 }
 
 function guessCityFromCzechTitle(title: string, description: string): string {
