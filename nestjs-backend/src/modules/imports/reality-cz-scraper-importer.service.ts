@@ -243,6 +243,83 @@ function isRealityListingDetailHref(rawHref: string, absHref: string): boolean {
   }
 }
 
+function extractPriceFromNextData(html: string): string | null {
+  const m = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/im);
+  if (!m?.[1]) return null;
+  const body = m[1].slice(0, 4_000_000);
+  const patterns = [
+    /"price"\s*:\s*(\d{4,12})(?!\d)/,
+    /"priceCzk"\s*:\s*(\d{4,12})/i,
+    /"totalPrice"\s*:\s*(\d{4,12})/i,
+    /"priceAmount"\s*:\s*(\d{4,12})/i,
+    /"amount"\s*:\s*(\d{4,12})\s*(?:,|})/,
+    /"lowPrice"\s*:\s*(\d{4,12})/i,
+    /"highPrice"\s*:\s*(\d{4,12})/i,
+  ];
+  for (const re of patterns) {
+    const hit = body.match(re);
+    if (hit?.[1] && hit[1].length >= 4) return hit[1].replace(/[\s\u00a0]/g, '');
+  }
+  return null;
+}
+
+function unescapeJsonUrlFragment(raw: string): string {
+  return raw.replace(/\\\//g, '/').replace(/\\u002f/gi, '/');
+}
+
+/**
+ * Fotky z __NEXT_DATA__ (Next.js) — na detailu bývá kompletní galerie, která není jen v prvním <img>.
+ */
+function extractImageUrlsFromNextData(html: string, limit: number): string[] {
+  const m = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/im);
+  if (!m?.[1]) return [];
+  const body = m[1].slice(0, 4_000_000);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const re = /https?:\\?\/\\?\/[^"\\\s]+\.(?:jpe?g|png|webp)(?:\\?\?[^"\\\s]*)?/gi;
+  let um: RegExpExecArray | null;
+  while ((um = re.exec(body)) !== null && out.length < limit) {
+    const u = unescapeJsonUrlFragment(um[0].replace(/\\/g, ''));
+    if (!/^https?:\/\//i.test(u)) continue;
+    if (!isProbableRealityHostedImageUrl(u) && !/reality\.cz/i.test(u)) continue;
+    if (seen.has(u)) continue;
+    seen.add(u);
+    out.push(u);
+  }
+  return out;
+}
+
+function extractPriceFromMicrodata(html: string): string | null {
+  const band = html.length > 500_000 ? html.slice(0, 500_000) : html;
+  const m =
+    band.match(/itemprop=["']price["'][^>]*content=["']([\d\s]+)["']/i) ??
+    band.match(/itemprop=["']price["'][^>]*>([\d\s\u00a0]+)</i) ??
+    band.match(/data-endorsment-price["']?\s*=\s*["']([\d\s]+)["']/i);
+  const raw = m?.[1]?.replace(/[\s\u00a0]/g, '');
+  return raw && /^\d+$/.test(raw) ? raw : null;
+}
+
+function extractContactFromDetailHtml(html: string): { phone?: string; email?: string } {
+  const out: { phone?: string; email?: string } = {};
+  const band = html.length > 600_000 ? html.slice(0, 600_000) : html;
+  const mail = band.match(/href=["']mailto:([^"'>\s]+)["']/i)?.[1];
+  if (mail) {
+    const e = decodeURIComponent(mail.replace(/&amp;/g, '&')).split('?')[0].trim().toLowerCase();
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) out.email = e.slice(0, 120);
+  }
+  const tel = band.match(/href=["']tel:([^"'>\s]+)["']/i)?.[1];
+  if (tel) {
+    const decoded = decodeURIComponent(tel.replace(/&amp;/g, '&'));
+    const digits = decoded.replace(/[^\d+]/g, '');
+    if (digits.length >= 9) out.phone = digits.slice(0, 40);
+  }
+  if (!out.phone) {
+    const m = band.match(/(\+420[\s\d]{9,18})/);
+    if (m?.[1]) out.phone = m[1].replace(/\s+/g, '').slice(0, 40);
+  }
+  return out;
+}
+
 /** Ze srcset uloží jen jednu — nejkvalitnější — variantu. */
 function pushBestFromSrcset(
   raw: string | undefined,
@@ -270,6 +347,9 @@ function extractGalleryUrlsFromDetailHtml(html: string, limit = 100): string[] {
 
   const og = pickOgImageFromHtml(html);
   if (og) pushRaw(og);
+  for (const u of extractImageUrlsFromNextData(html, limit)) {
+    pushRaw(u);
+  }
   for (const re of [
     /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/gi,
     /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/gi,
@@ -504,7 +584,7 @@ export class RealityCzScraperImporter {
     let detailPage429Count = 0;
 
     this.logger.log(
-      `Reality.cz scraper start: url=${startUrl} delayMs=${settings.requestDelayMs} retries=${settings.maxRetries} listOnly=${settings.listOnlyImport} maxDetails=${settings.maxDetailFetchesPerRun}`,
+      `Reality.cz scraper start: url=${startUrl} delayMs=${settings.requestDelayMs} detailGapMs=${settings.detailRequestGapMs} retries=${settings.maxRetries} listOnly=${settings.listOnlyImport} maxDetails=${settings.maxDetailFetchesPerRun} detailConcurrency=${settings.detailConcurrency}`,
     );
 
     onProgress?.({ percent: 6, message: 'Stahuji výpis Reality.cz…' });
@@ -571,7 +651,7 @@ export class RealityCzScraperImporter {
       percent: 50,
       message: settings.listOnlyImport
         ? 'Režim „jen výpis“ — bez detailních HTTP dotazů.'
-        : `Výpis zpracován (${rows.length} inzerátů). Detaily se doplní ve druhé fázi po uložení základních záznamů.`,
+        : `Výpis zpracován (${rows.length} inzerátů). Každý detail se stáhne před zápisem do databáze (cena, popis, galerie, kontakt).`,
     });
 
     onProgress?.({ percent: 68, message: 'Výpis Reality.cz hotový, předávám data importu…' });
@@ -671,16 +751,24 @@ export class RealityCzScraperImporter {
         this.logger.log(`Reality.cz scraper: opakuji ${pending.length} neúspěšných detailů…`);
       }
       const failed: number[] = [];
+      const gap = Math.max(0, settings.detailRequestGapMs);
       for (let b = 0; b < pending.length; b += conc) {
-        if (b > 0) await this.sleep(settings.requestDelayMs);
+        if (gap > 0) {
+          await this.sleep(gap);
+        } else if (b > 0) {
+          await this.sleep(settings.requestDelayMs);
+        }
         const chunk = pending.slice(b, b + conc);
         await Promise.all(
           chunk.map(async (i, idxInChunk) => {
-            if (idxInChunk > 0) {
+            if (idxInChunk > 0 && gap > 0) {
+              await this.sleep(gap);
+            } else if (idxInChunk > 0) {
               await this.sleep(Math.min(900, 120 * idxInChunk));
             }
             const row = working[i];
             const detailUrl = row.sourceUrl?.trim() ?? '';
+            const extId = row.externalId?.trim() ?? '?';
             detailFetchesAttempted += 1;
             try {
               const detail = await this.fetchWithRetry(
@@ -700,12 +788,14 @@ export class RealityCzScraperImporter {
               }
             } catch (e) {
               const msg = e instanceof Error ? e.message : String(e);
-              this.logger.warn(`Detail fetch selhal (${detailUrl}): ${msg}`);
+              this.logger.warn(
+                `[Reality detail] inzerát=${extId} url=${detailUrl.slice(0, 160)}: ${msg}`,
+              );
               requestLog.push({
                 phase: 'detail_page',
                 url: detailUrl,
                 attempt: settings.maxRetries,
-                note: `failed: ${msg.slice(0, 200)}`,
+                note: `id=${extId} failed: ${msg.slice(0, 200)}`,
               });
               failed.push(i);
             }
@@ -919,17 +1009,21 @@ export class RealityCzScraperImporter {
     const totalFloors = extractIntNearLabel(html, /\b(?:Celkem\s+podlaží|Počet\s+podlaží|Podlaží\s+celkem)\b/i);
     const condition = extractConditionSnippet(html);
     const gallery = extractGalleryUrlsFromDetailHtml(html, 100);
-    const priceBand = html.length > 800_000 ? html.slice(0, 800_000) : html;
-    const priceText =
-      extractPriceFromJsonLdScripts(priceBand) ??
-      extractFirstPriceKc(priceBand.slice(0, 200_000)) ??
-      extractFirstPriceKc(priceBand.slice(200_000, 400_000)) ??
-      extractFirstPriceKc(priceBand.slice(400_000, 800_000));
+    const priceBand = html.length > 900_000 ? html.slice(0, 900_000) : html;
+    const negotiable =
+      /cena\s+na\s+dotaz|cena\s*:\s*na\s+dotaz|price\s+on\s+request/i.test(
+        priceBand.toLowerCase(),
+      ) && !/\d[\d\s\u00a0]{5,}\s*(?:kč|czk)/i.test(priceBand.slice(0, 120_000));
+    const priceText = extractDetailPriceAggregated(priceBand);
     const priceFromDetail = normalizeRealityImportedPrice(priceText);
-    /** Z detail stránky má cena přednost před výpisem (často přesnější / kompletní). */
-    let mergedPrice = draft.price;
-    if (priceFromDetail != null) {
+    /** Detail: cena na dotaz → null; jinak cena z detailu nebo záloha z výpisu. */
+    let mergedPrice: number | null;
+    if (negotiable) {
+      mergedPrice = null;
+    } else if (priceFromDetail != null) {
       mergedPrice = priceFromDetail;
+    } else {
+      mergedPrice = draft.price;
     }
     const ogRaw = pickOgImageFromHtml(html);
     const ogAbs = ogRaw
@@ -967,6 +1061,7 @@ export class RealityCzScraperImporter {
       loc.district?.trim() ||
       nextCity
     ).slice(0, 240);
+    const contact = extractContactFromDetailHtml(html);
     const next: ImportedListingDraft = {
       ...draft,
       title: bestTitle,
@@ -982,6 +1077,12 @@ export class RealityCzScraperImporter {
       totalFloors: totalFloors ?? draft.totalFloors ?? null,
       condition: condition ?? draft.condition ?? null,
     };
+    if (contact.phone?.trim()) {
+      next.contactPhone = contact.phone.trim().slice(0, 40);
+    }
+    if (contact.email?.trim()) {
+      next.contactEmail = contact.email.trim().toLowerCase().slice(0, 120);
+    }
     return next;
   }
 
@@ -1453,9 +1554,10 @@ function extractPriceFromJsonLdScripts(html: string): string | null {
   )) {
     const body = m[1] ?? '';
     const patterns = [
-      /"(?:lowPrice|highPrice)"\s*:\s*"?(\d[\d\s\u00a0]{2,15})"?/i,
+      /"(?:lowPrice|highPrice|totalPrice|priceCzk|priceAmount)"\s*:\s*"?(\d[\d\s\u00a0]{2,15})"?/i,
       /"price"\s*:\s*"?(\d[\d\s\u00a0]{2,15})"?/i,
       /"price"\s*:\s*(\d{4,12})(?!\d)/,
+      /"offers"\s*:\s*\{[^}]*"price"\s*:\s*"?(\d[\d\s\u00a0]{2,15})"?/i,
     ];
     for (const re of patterns) {
       const hit = body.match(re);
@@ -1466,6 +1568,18 @@ function extractPriceFromJsonLdScripts(html: string): string | null {
     }
   }
   return null;
+}
+
+function extractDetailPriceAggregated(html: string): string | null {
+  const band = html.length > 900_000 ? html.slice(0, 900_000) : html;
+  return (
+    extractPriceFromJsonLdScripts(band) ??
+    extractPriceFromNextData(band) ??
+    extractPriceFromMicrodata(band) ??
+    extractFirstPriceKc(band.slice(0, 280_000)) ??
+    extractFirstPriceKc(band.slice(280_000, 560_000)) ??
+    extractFirstPriceKc(band.slice(560_000, 840_000))
+  );
 }
 
 function extractDetailTitleFromHtml(html: string): string | null {
@@ -1483,8 +1597,11 @@ function extractDetailTitleFromHtml(html: string): string | null {
 function extractLongDescriptionFromDetailHtml(html: string): string | null {
   const patterns = [
     /<div[^>]+class=["'][^"']*\bproperty-description\b[^"']*["'][^>]*>([\s\S]{120,200000}?)<\/div>/i,
+    /<div[^>]+class=["'][^"']*\bpropertyDescription\b[^"']*["'][^>]*>([\s\S]{120,200000}?)<\/div>/i,
     /<div[^>]+class=["'][^"']*\bdescription\b[^"']*["'][^>]*>([\s\S]{120,200000}?)<\/div>/i,
     /<div[^>]+data-component=["']Description["'][^>]*>([\s\S]{120,200000}?)<\/div>/i,
+    /<section[^>]+class=["'][^"']*description[^"']*["'][^>]*>([\s\S]{120,200000}?)<\/section>/i,
+    /<div[^>]+id=["'][^"']*description[^"']*["'][^>]*>([\s\S]{120,200000}?)<\/div>/i,
     /<article[^>]*>([\s\S]{400,200000}?)<\/article>/i,
   ];
   let best = '';

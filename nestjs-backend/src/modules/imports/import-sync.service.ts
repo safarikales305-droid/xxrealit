@@ -175,7 +175,9 @@ function defaultRealityScraperSettingsJson(startUrl: string): Prisma.InputJsonOb
   return {
     startUrl,
     scraperListOnlyImport: false,
-    scraperRequestDelayMs: 2600,
+    scraperRequestDelayMs: 900,
+    scraperDetailConcurrency: 1,
+    scraperDetailRequestGapMs: 550,
     scraperMaxRetries: 6,
     scraperBackoffMultiplier: 2,
     scraperBaseBackoffMsOn429: 12_000,
@@ -947,7 +949,7 @@ export class ImportSyncService {
           warnings.push(msg);
           this.logger.warn(msg);
         } else if (scraperMeta.normalizedValid === 0) {
-          const msg = `Nalezeno ${scraperMeta.rawCandidates} kandidátů z HTML/JSON, ale žádný neprošel validací (chybí cena, titulek nebo ID).`;
+          const msg = `Nalezeno ${scraperMeta.rawCandidates} kandidátů z HTML/JSON, ale žádný neprošel validací (chybí titulek, ID nebo platná URL detailu).`;
           warnings.push(msg);
           this.logger.warn(msg);
         }
@@ -1408,8 +1410,8 @@ export class ImportSyncService {
               images: imagesForDb,
               videoUrl,
               contactName: 'Reality.cz import',
-              contactPhone: '',
-              contactEmail: '',
+              contactPhone: (row.contactPhone ?? '').trim().slice(0, 40),
+              contactEmail: (row.contactEmail ?? '').trim().toLowerCase().slice(0, 120),
               approved: true,
               status: 'APPROVED',
               isActive: true,
@@ -1489,6 +1491,10 @@ export class ImportSyncService {
             images: imagesForDb.length > 0 ? imagesForDb : existing.images,
             videoUrl,
             listingType,
+            contactPhone: (row.contactPhone?.trim() || existing.contactPhone || '').slice(0, 40),
+            contactEmail: (row.contactEmail?.trim() || existing.contactEmail || '')
+              .toLowerCase()
+              .slice(0, 120),
             importSourceUrl: row.sourceUrl?.trim() || existing.importSourceUrl,
             lastSyncedAt: new Date(),
             ...facet,

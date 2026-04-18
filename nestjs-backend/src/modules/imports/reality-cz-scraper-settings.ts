@@ -23,18 +23,23 @@ export type RealityCzScraperRuntimeSettings = {
   listOnlyImport: boolean;
   /** Paralelní stažení detailů (dávky); mezi dávkovými bloky se drží requestDelayMs. */
   detailConcurrency: number;
+  /** Prodleva před každým HTTP dotazem na detail (sníží riziko 429). */
+  detailRequestGapMs: number;
 };
 
 const DEFAULTS: RealityCzScraperRuntimeSettings = {
-  requestDelayMs: 2600,
+  /** Mezi obecnými HTTP požadavky (výpis, retry). */
+  requestDelayMs: 900,
   maxRetries: 6,
   backoffMultiplier: 2,
   baseBackoffMsOn429: 12_000,
   /** Počet detailních stránek za běh — má pokrýt celý výpis (listing jen jako zdroj URL). */
   maxDetailFetchesPerRun: 200,
   listOnlyImport: false,
-  /** Nižší výchozí souběžnost = méně HTTP/2 a síťových chyb vůči Reality.cz / proxy. */
-  detailConcurrency: 2,
+  /** 1 = detaily vždy po jednom (nejméně agresivní vůči Reality.cz). */
+  detailConcurrency: 1,
+  /** Pauza před každým stažením detailu (doporučeno ≥ 500 ms). */
+  detailRequestGapMs: 550,
 };
 
 function num(
@@ -111,6 +116,13 @@ export function parseRealityCzScraperSettings(
     maxDetailFetchesPerRun: maxDetail,
     listOnlyImport: listOnly,
     detailConcurrency: num(raw, 'scraperDetailConcurrency', DEFAULTS.detailConcurrency, 1, 8),
+    detailRequestGapMs: num(
+      raw,
+      'scraperDetailRequestGapMs',
+      DEFAULTS.detailRequestGapMs,
+      0,
+      30_000,
+    ),
   };
 }
 

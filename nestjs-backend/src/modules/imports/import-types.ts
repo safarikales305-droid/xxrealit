@@ -22,6 +22,9 @@ export type ImportedListingDraft = {
   totalFloors?: number | null;
   condition?: string | null;
   ownership?: string | null;
+  /** Z detailu inzerátu (Reality.cz apod.) — mapuje se na Property.contactPhone / contactEmail. */
+  contactPhone?: string;
+  contactEmail?: string;
 };
 
 /** Syrový input ze scraperu/API parseru – může být nekompletní. */
