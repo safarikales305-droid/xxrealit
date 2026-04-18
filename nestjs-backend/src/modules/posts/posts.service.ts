@@ -260,7 +260,7 @@ export class PostsService {
       data: {
         title: input.title,
         description: input.description,
-        price: input.price,
+        price: input.price ?? undefined,
         city: input.city,
         type: input.type,
         category: input.category ?? PostCategory.MAKLERI,
