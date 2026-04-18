@@ -30,11 +30,44 @@ function toAbsoluteRealityAssetUrl(raw: string, baseOrigin = 'https://www.realit
   }
 }
 
-function pickFirstUrlFromSrcset(srcset: string): string | null {
-  const part = srcset.split(',')[0]?.trim();
-  if (!part) return null;
-  const url = part.split(/\s+/)[0]?.trim();
-  return url && /^https?:\/\//i.test(url) ? url : null;
+function pickBestImageFromSrcset(srcset?: string | null): string | null {
+  if (!srcset) return null;
+  const candidates = srcset
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => part.split(/\s+/)[0]?.trim() ?? '')
+    .filter(Boolean);
+  return candidates[candidates.length - 1] || null;
+}
+
+function normalizeRealityImageQualityUrl(rawUrl: string): string {
+  const t = (rawUrl ?? '').trim();
+  if (!t) return '';
+  const replaced = t
+    // URL variants often used for thumbnails; keep original path but drop explicit thumbnail markers.
+    .replace(/([/_-])(thumb|thumbnail|small|mini)(?=[/_-]|\.|$)/gi, '$1large')
+    .replace(/([?&](?:w|width|h|height|size|maxwidth|maxheight)=)\d+/gi, '$11080');
+  try {
+    const u = new URL(replaced);
+    const keys = [
+      'w',
+      'width',
+      'h',
+      'height',
+      'size',
+      'maxwidth',
+      'maxheight',
+      'quality',
+      'q',
+      'fit',
+      'crop',
+    ];
+    for (const k of keys) u.searchParams.delete(k);
+    return u.toString();
+  } catch {
+    return replaced;
+  }
 }
 
 function isLikelyListingImageUrl(url: string): boolean {
@@ -103,7 +136,7 @@ function extractBestImageFromHtmlFragment(fragment: string): string | null {
     }
   }
   for (const sm of fragment.matchAll(/<source[^>]+srcset=["']([^"']+)["']/gi)) {
-    const u = pickFirstUrlFromSrcset(sm[1] ?? '');
+    const u = pickBestImageFromSrcset(sm[1] ?? '');
     if (u) candidates.push(u);
   }
   const og =
@@ -119,7 +152,9 @@ function extractBestImageFromHtmlFragment(fragment: string): string | null {
   )?.[1];
   if (linkImg) candidates.push(linkImg);
   for (const c of candidates) {
-    const abs = toAbsoluteRealityAssetUrl(c, 'https://www.reality.cz');
+    const abs = normalizeRealityImageQualityUrl(
+      toAbsoluteRealityAssetUrl(c, 'https://www.reality.cz'),
+    );
     if (isLikelyListingImageUrl(abs)) return abs;
   }
   return null;
@@ -171,7 +206,9 @@ function extractGalleryUrlsFromDetailHtml(html: string, limit = 30): string[] {
   const ordered: string[] = [];
   const seen = new Set<string>();
   const push = (raw: string) => {
-    const abs = toAbsoluteRealityAssetUrl(raw.trim(), 'https://www.reality.cz');
+    const abs = normalizeRealityImageQualityUrl(
+      toAbsoluteRealityAssetUrl(raw.trim(), 'https://www.reality.cz'),
+    );
     if (!isLikelyListingImageUrl(abs) || seen.has(abs)) return;
     seen.add(abs);
     ordered.push(abs);
@@ -194,8 +231,53 @@ function extractGalleryUrlsFromDetailHtml(html: string, limit = 30): string[] {
     if (ordered.length >= limit) break;
   }
   for (const sm of html.matchAll(/<source[^>]+srcset=["']([^"']+)["']/gi)) {
-    const u = pickFirstUrlFromSrcset(sm[1] ?? '');
+    const u = pickBestImageFromSrcset(sm[1] ?? '');
     if (u) push(u);
+    if (ordered.length >= limit) break;
+  }
+  for (const m of html.matchAll(
+    /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+  )) {
+    const scriptBody = m[1] ?? '';
+    try {
+      const parsed = JSON.parse(scriptBody) as unknown;
+      const stack: unknown[] = [parsed];
+      let guard = 0;
+      while (stack.length > 0 && guard < 2000) {
+        guard += 1;
+        const node = stack.pop();
+        if (!node) continue;
+        if (typeof node === 'string') {
+          if (/^https?:\/\//i.test(node)) push(node);
+          continue;
+        }
+        if (Array.isArray(node)) {
+          for (const x of node) stack.push(x);
+          continue;
+        }
+        if (typeof node === 'object') {
+          const o = node as Record<string, unknown>;
+          if (typeof o.image === 'string') push(o.image);
+          if (Array.isArray(o.image)) {
+            for (const x of o.image) {
+              if (typeof x === 'string') push(x);
+              else if (x && typeof x === 'object') {
+                const imgObj = x as Record<string, unknown>;
+                if (typeof imgObj.url === 'string') push(imgObj.url);
+                if (typeof imgObj.contentUrl === 'string') push(imgObj.contentUrl);
+              }
+            }
+          }
+          for (const v of Object.values(o)) stack.push(v);
+        }
+      }
+    } catch {
+      /* ignore invalid JSON-LD */
+    }
+    if (ordered.length >= limit) break;
+  }
+  for (const m of html.matchAll(/["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp)(?:\?[^"']*)?)["']/gi)) {
+    push(m[1] ?? '');
     if (ordered.length >= limit) break;
   }
   return ordered.slice(0, limit);
@@ -621,6 +703,7 @@ export class RealityCzScraperImporter {
   private mergeDetailIntoDraft(draft: ImportedListingDraft, html: string): ImportedListingDraft {
     const baseImages = (draft.images ?? [])
       .map((u) => toAbsoluteRealityAssetUrl(u, 'https://www.reality.cz'))
+      .map((u) => normalizeRealityImageQualityUrl(u))
       .filter((u) => isLikelyListingImageUrl(u));
     const metaDesc = pickMetaDescriptionFromHtml(html);
     const desc =
@@ -641,11 +724,13 @@ export class RealityCzScraperImporter {
       mergedPrice = priceFromDetail;
     }
     const ogRaw = pickOgImageFromHtml(html);
-    const ogAbs = ogRaw ? toAbsoluteRealityAssetUrl(ogRaw, 'https://www.reality.cz') : '';
+    const ogAbs = ogRaw
+      ? normalizeRealityImageQualityUrl(toAbsoluteRealityAssetUrl(ogRaw, 'https://www.reality.cz'))
+      : '';
     const mergedUrls: string[] = [];
     const seen = new Set<string>();
     const add = (u: string) => {
-      const t = u.trim();
+      const t = normalizeRealityImageQualityUrl(u.trim());
       if (!t || seen.has(t) || !isLikelyListingImageUrl(t)) return;
       seen.add(t);
       mergedUrls.push(t);
@@ -1070,6 +1155,7 @@ export class RealityCzScraperImporter {
       .flat()
       .filter((x): x is string => typeof x === 'string' && x.length > 0)
       .map((u) => toAbsoluteRealityAssetUrl(u.trim(), 'https://www.reality.cz'))
+      .map((u) => normalizeRealityImageQualityUrl(u))
       .filter((u) => isLikelyListingImageUrl(u))
       .slice(0, 40);
     const videoUrl =
