@@ -1,4 +1,5 @@
 import { upgradeHttpToHttps } from './public-urls';
+import { isValidImageUrl } from './images';
 
 function trimTrailingSlash(url: string): string {
   return url.replace(/\/+$/, '');
@@ -88,12 +89,16 @@ export function getNestPublicOrigin(): string {
 
 export function nestAbsoluteAssetUrl(path: string): string {
   if (!path) return '';
-  if (path.startsWith('http://') || path.startsWith('https://')) {
-    return upgradeHttpToHttps(path);
+  const t = path.trim();
+  if (!t) return '';
+  if (t.startsWith('http://') || t.startsWith('https://')) {
+    if (!isValidImageUrl(t)) return '';
+    return upgradeHttpToHttps(t);
   }
   const origin = getNestPublicOrigin();
-  if (!origin) return path;
-  const joined = `${origin}${path.startsWith('/') ? path : `/${path}`}`;
+  if (!origin) return t;
+  const joined = `${origin}${t.startsWith('/') ? t : `/${t}`}`;
+  if (!isValidImageUrl(joined)) return '';
   return upgradeHttpToHttps(joined);
 }
 

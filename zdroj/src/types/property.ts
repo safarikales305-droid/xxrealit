@@ -1,3 +1,5 @@
+import { getNestPublicOrigin } from '@/lib/api';
+import { getFirstValidImage, isValidImageUrl, normalizeImageCandidate } from '@/lib/images';
 import { normalizePublicVideoUrl } from '@/lib/video-url';
 import { formatListingPrice, normalizePrice } from '@/lib/price';
 export { formatListingPrice, normalizePrice } from '@/lib/price';
@@ -25,23 +27,28 @@ function firstPhotoUrlFromPhotos(photos: unknown): string | null {
   return null;
 }
 
-/** Náhled klasické karty: thumbnail / imageUrl / cover / photos[0] / media / images. */
+/** Náhled klasické karty: `cover` z API, pak thumbnail / imageUrl / coverImage / photos / media / images. */
 export function classicListingCoverUrl(p: PropertyFeedItem): string | null {
   const ext = p as PropertyFeedItem & {
+    cover?: string | null;
     thumbnail?: string | null;
     coverImage?: string | null;
     photos?: Array<{ url?: string } | string>;
   };
   const ph = firstPhotoUrlFromPhotos(ext.photos);
   const fromMedia = ext.media?.find((m) => m.type === 'image')?.url?.trim();
-  return (
-    ext.thumbnail?.trim() ||
-    ext.imageUrl?.trim() ||
-    ext.coverImage?.trim() ||
-    ph ||
-    fromMedia ||
-    ext.images?.[0]?.trim() ||
-    null
+  const base = getNestPublicOrigin() || undefined;
+  return getFirstValidImage(
+    [
+      typeof ext.cover === 'string' ? ext.cover.trim() : '',
+      ext.thumbnail?.trim(),
+      ext.imageUrl?.trim(),
+      ext.coverImage?.trim(),
+      ph,
+      fromMedia,
+      ext.images?.[0]?.trim(),
+    ],
+    base,
   );
 }
 
@@ -53,6 +60,8 @@ export type PropertyFromApi = {
   city?: string;
   location?: string;
   videoUrl?: string | null;
+  /** Jednotná validní náhledová URL z API (nullable). */
+  cover?: string | null;
   imageUrl?: string | null;
   thumbnail?: string | null;
   coverImage?: string | null;
@@ -84,6 +93,7 @@ export type PropertyFeedItem = {
   price: number | null;
   location: string;
   videoUrl: string | null;
+  cover?: string | null;
   imageUrl?: string | null;
   thumbnail?: string | null;
   coverImage?: string | null;
@@ -109,6 +119,7 @@ export type PropertyFeedItem = {
 };
 
 export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
+  const assetBase = getNestPublicOrigin() || undefined;
   const likeCount =
     typeof p.likeCount === 'number' && Number.isFinite(p.likeCount)
       ? Math.max(0, Math.floor(p.likeCount))
@@ -119,7 +130,10 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
       : undefined;
   const images =
     Array.isArray(p.images) && p.images.length > 0
-      ? p.images.filter((x): x is string => typeof x === 'string' && x.length > 0)
+      ? p.images
+          .filter((x): x is string => typeof x === 'string' && x.length > 0)
+          .map((x) => normalizeImageCandidate(x.trim(), assetBase))
+          .filter((x): x is string => isValidImageUrl(x))
       : [];
   const photos = Array.isArray(p.photos) ? p.photos : undefined;
   const media =
@@ -137,21 +151,29 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
             return Boolean(type && url);
           })
           .sort((a, b) => a.order - b.order)
+          .map((m) => {
+            if (m.type === 'video') {
+              return { url: m.url.trim(), type: 'video' as const, order: m.order };
+            }
+            const normalized =
+              normalizeImageCandidate(m.url.trim(), assetBase) ?? '';
+            return { url: normalized, type: 'image' as const, order: m.order };
+          })
+          .filter((m) =>
+            m.type === 'video' ? Boolean(m.url) : isValidImageUrl(m.url),
+          )
       : undefined;
   const primaryImageFromMedia = media?.find((m) => m.type === 'image')?.url ?? null;
   const photo0 = firstPhotoUrlFromPhotos(photos);
   const thumb = typeof p.thumbnail === 'string' ? p.thumbnail.trim() : '';
-  const cover = typeof p.coverImage === 'string' ? p.coverImage.trim() : '';
+  const coverLegacy = typeof p.coverImage === 'string' ? p.coverImage.trim() : '';
+  const coverApi = typeof p.cover === 'string' ? p.cover.trim() : '';
   const imgField =
     typeof p.imageUrl === 'string' && p.imageUrl.trim() ? p.imageUrl.trim() : '';
-  const resolvedImage =
-    thumb ||
-    imgField ||
-    cover ||
-    photo0 ||
-    primaryImageFromMedia ||
-    images[0] ||
-    null;
+  const resolvedImage = getFirstValidImage(
+    [coverApi, thumb, imgField, coverLegacy, photo0, primaryImageFromMedia, images[0]],
+    assetBase,
+  );
   const priceVal = parseApiListingPrice(p.price);
 
   return {
@@ -161,7 +183,8 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
     location: (p.location ?? p.city ?? '').trim() || 'Neuvedeno',
     videoUrl: normalizePublicVideoUrl(p.videoUrl),
     thumbnail: thumb || null,
-    coverImage: cover || null,
+    coverImage: coverLegacy || null,
+    cover: resolvedImage,
     photos,
     imageUrl: resolvedImage,
     images,
@@ -226,6 +249,7 @@ export function safeNormalizePropertyFromApi(
         o.imageUrl === null || typeof o.imageUrl === 'string'
           ? o.imageUrl
           : undefined,
+      cover: o.cover === null || typeof o.cover === 'string' ? o.cover : undefined,
       thumbnail:
         o.thumbnail === null || typeof o.thumbnail === 'string' ? o.thumbnail : undefined,
       coverImage:

@@ -7,7 +7,8 @@ import { Heart, MessageCircle } from 'lucide-react';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { useAuth } from '@/hooks/use-auth';
-import { nestAbsoluteAssetUrl } from '@/lib/api';
+import { getNestPublicOrigin, nestAbsoluteAssetUrl } from '@/lib/api';
+import { isValidImageUrl, normalizeImageCandidate } from '@/lib/images';
 import {
   nestShareListingByEmail,
   nestSubmitOwnerLeadOffer,
@@ -39,24 +40,33 @@ function collectPhotoUrls(p: PropertyFeedItem): string[] {
   const ext = p as PropertyFeedItem & {
     photos?: Array<{ url?: string } | string>;
   };
+  const base = getNestPublicOrigin() || undefined;
   if (!Array.isArray(ext.photos)) return [];
   const out: string[] = [];
   for (const x of ext.photos) {
     if (typeof x === 'string') {
       const u = x.trim();
-      if (u) out.push(u);
+      const n = normalizeImageCandidate(u, base);
+      if (isValidImageUrl(n)) out.push(n!);
     } else if (x && typeof x === 'object') {
       const u = typeof x.url === 'string' ? x.url.trim() : '';
-      if (u) out.push(u);
+      const n = normalizeImageCandidate(u, base);
+      if (isValidImageUrl(n)) out.push(n!);
     }
   }
   return out;
 }
 
 function buildMediaList(p: PropertyFeedItem): MediaItem[] {
+  const base = getNestPublicOrigin() || undefined;
   const fromRelation = [...(p.media ?? [])]
     .filter((m) => m.url?.trim())
     .sort((a, b) => a.order - b.order)
+    .filter((m) =>
+      m.type === 'video'
+        ? Boolean(m.url?.trim())
+        : isValidImageUrl(normalizeImageCandidate(m.url?.trim(), base)),
+    )
     .map((m, i) => ({
       key: `${m.type}-${m.order}-${i}`,
       url: m.url,

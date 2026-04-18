@@ -88,6 +88,9 @@ export function PropertyGrid({ properties }: Props) {
           const liked = likedMap[p.id] ?? Boolean(p.liked);
           const media = Array.isArray(p.media) ? [...p.media].sort((a, b) => a.order - b.order) : [];
           const primaryImage = classicListingCoverUrl(p);
+          const primaryImageSrc = primaryImage
+            ? nestAbsoluteAssetUrl(primaryImage)
+            : '';
           const primaryVideo = media.find((m) => m.type === 'video')?.url ?? p.videoUrl ?? null;
           const shareUrl = absoluteShareUrl(`/nemovitost/${encodeURIComponent(p.id)}`);
           return (
@@ -97,9 +100,9 @@ export function PropertyGrid({ properties }: Props) {
             >
               <Link href={`/nemovitost/${p.id}`} className="block flex flex-1 flex-col">
                 <div className="relative aspect-[4/3] bg-zinc-100">
-                  {primaryImage ? (
+                  {primaryImageSrc ? (
                     <img
-                      src={nestAbsoluteAssetUrl(primaryImage)}
+                      src={primaryImageSrc}
                       alt={p.title}
                       className="h-full w-full object-cover"
                     />

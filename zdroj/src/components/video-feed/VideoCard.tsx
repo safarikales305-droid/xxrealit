@@ -74,6 +74,11 @@ export default function VideoCard({
   const [companyAdOpen, setCompanyAdOpen] = useState(false);
   const [companyAdImageBroken, setCompanyAdImageBroken] = useState(false);
 
+  const companyAdImgSrc = useMemo(
+    () => (companyAd ? nestAbsoluteAssetUrl(companyAd.imageUrl).trim() : ''),
+    [companyAd],
+  );
+
   const src = nestAbsoluteAssetUrl(video.videoUrl ?? video.url ?? '').trim();
 
   const galleryPhotoUrls = useMemo(() => {
@@ -140,12 +145,6 @@ export default function VideoCard({
 
   useEffect(() => {
     if (!companyAd) return;
-    // eslint-disable-next-line no-console
-    console.info('[company-ad-image] render URL', {
-      propertyId: video.id,
-      adId: companyAd.id,
-      imageUrl: companyAd.imageUrl,
-    });
     const timer = window.setTimeout(() => setCompanyAdOpen(true), 2800);
     return () => window.clearTimeout(timer);
   }, [companyAd]);
@@ -584,25 +583,17 @@ export default function VideoCard({
                   ×
                 </button>
                 <div className="flex items-center gap-2.5">
-                  {companyAdImageBroken ? (
+                  {companyAdImageBroken || !companyAdImgSrc ? (
                     <div className="flex h-14 w-20 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-[10px] text-white/70">
                       Bez náhledu
                     </div>
                   ) : (
                     <img
-                      src={nestAbsoluteAssetUrl(companyAd.imageUrl)}
+                      src={companyAdImgSrc}
                       alt={companyAd.title}
                       className="h-14 w-20 shrink-0 rounded-lg object-cover"
                       loading="lazy"
-                      onError={(e) => {
-                        setCompanyAdImageBroken(true);
-                        // eslint-disable-next-line no-console
-                        console.error('[company-ad-image] render failed', {
-                          propertyId: video.id,
-                          adId: companyAd.id,
-                          src: e.currentTarget.currentSrc || companyAd.imageUrl,
-                        });
-                      }}
+                      onError={() => setCompanyAdImageBroken(true)}
                     />
                   )}
                   <div className="min-w-0 flex-1 pr-14">
@@ -643,25 +634,17 @@ export default function VideoCard({
               >
                 ×
               </button>
-              {companyAdImageBroken ? (
+              {companyAdImageBroken || !companyAdImgSrc ? (
                 <div className="flex h-24 w-full items-center justify-center rounded-xl bg-zinc-800 text-xs text-white/70">
                   Obrázek reklamy se nepodařilo načíst
                 </div>
               ) : (
                 <img
-                  src={nestAbsoluteAssetUrl(companyAd.imageUrl)}
+                  src={companyAdImgSrc}
                   alt={companyAd.title}
                   className="h-24 w-full rounded-xl object-cover"
                   loading="lazy"
-                  onError={(e) => {
-                    setCompanyAdImageBroken(true);
-                    // eslint-disable-next-line no-console
-                    console.error('[company-ad-image] render failed', {
-                      propertyId: video.id,
-                      adId: companyAd.id,
-                      src: e.currentTarget.currentSrc || companyAd.imageUrl,
-                    });
-                  }}
+                  onError={() => setCompanyAdImageBroken(true)}
                 />
               )}
               <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-white/65">

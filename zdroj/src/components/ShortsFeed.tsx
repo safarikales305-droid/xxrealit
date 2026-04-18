@@ -185,18 +185,6 @@ export function ShortsFeed({ items }: Props) {
   }, [clips]);
 
   useEffect(() => {
-    for (const [propertyId, ad] of Object.entries(adsByClipId)) {
-      if (!ad) continue;
-      // eslint-disable-next-line no-console
-      console.info('[company-ad-image] render URL', {
-        propertyId,
-        adId: ad.id,
-        imageUrl: ad.imageUrl,
-      });
-    }
-  }, [adsByClipId]);
-
-  useEffect(() => {
     if (!activeId) return;
     const ad = adsByClipId[activeId];
     if (!ad) return;
@@ -346,6 +334,7 @@ export function ShortsFeed({ items }: Props) {
         const muted = mutedById[c.id] !== false;
         const showProfileLink = !!c.userId;
         const ad = adsByClipId[c.id] ?? null;
+        const adImageSrc = ad ? nestAbsoluteAssetUrl(ad.imageUrl).trim() : '';
         const isAdOpen = Boolean(ad && adPanelOpenByClipId[c.id]);
 
         return (
@@ -486,25 +475,19 @@ export function ShortsFeed({ items }: Props) {
                       ×
                     </button>
                     <div className="flex items-center gap-2.5">
-                      {brokenAdImageByClipId[c.id] ? (
+                      {brokenAdImageByClipId[c.id] || !adImageSrc ? (
                         <div className="flex h-14 w-20 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-[10px] text-white/70">
                           Bez náhledu
                         </div>
                       ) : (
                         <img
-                          src={nestAbsoluteAssetUrl(ad.imageUrl)}
+                          src={adImageSrc}
                           alt={ad.title}
                           className="h-14 w-20 shrink-0 rounded-lg object-cover"
                           loading="lazy"
-                          onError={(e) => {
-                            setBrokenAdImageByClipId((prev) => ({ ...prev, [c.id]: true }));
-                            // eslint-disable-next-line no-console
-                            console.error('[company-ad-image] render failed', {
-                              propertyId: c.id,
-                              adId: ad.id,
-                              src: e.currentTarget.currentSrc || ad.imageUrl,
-                            });
-                          }}
+                          onError={() =>
+                            setBrokenAdImageByClipId((prev) => ({ ...prev, [c.id]: true }))
+                          }
                         />
                       )}
                       <div className="min-w-0 flex-1 pr-14">
@@ -541,25 +524,19 @@ export function ShortsFeed({ items }: Props) {
                   >
                     ×
                   </button>
-                  {brokenAdImageByClipId[c.id] ? (
+                  {brokenAdImageByClipId[c.id] || !adImageSrc ? (
                     <div className="flex h-28 w-full items-center justify-center rounded-xl bg-zinc-800 text-xs text-white/70">
                       Obrázek reklamy se nepodařilo načíst
                     </div>
                   ) : (
                     <img
-                      src={nestAbsoluteAssetUrl(ad.imageUrl)}
+                      src={adImageSrc}
                       alt={ad.title}
                       className="h-28 w-full rounded-xl object-cover"
                       loading="lazy"
-                      onError={(e) => {
-                        setBrokenAdImageByClipId((prev) => ({ ...prev, [c.id]: true }));
-                        // eslint-disable-next-line no-console
-                        console.error('[company-ad-image] render failed', {
-                          propertyId: c.id,
-                          adId: ad.id,
-                          src: e.currentTarget.currentSrc || ad.imageUrl,
-                        });
-                      }}
+                      onError={() =>
+                        setBrokenAdImageByClipId((prev) => ({ ...prev, [c.id]: true }))
+                      }
                     />
                   )}
                   <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-white/60">

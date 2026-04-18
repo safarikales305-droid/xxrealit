@@ -1,4 +1,10 @@
 import { UserRole } from '@prisma/client';
+import {
+  getFirstValidImage,
+  isValidImageUrl,
+  normalizeImageCandidate,
+  resolveAssetBaseUrl,
+} from '../../lib/image-url';
 import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 import { computeListingPublicStatus } from './property-public-visibility';
 
@@ -7,6 +13,17 @@ function secureAssetUrl(url: string | null | undefined): string {
   const t = String(url).trim();
   if (!t) return '';
   return upgradeHttpToHttpsForApi(t) ?? t;
+}
+
+function sanitizeListingImageUrl(
+  raw: string | null | undefined,
+  base: string | null,
+): string | null {
+  if (raw == null) return null;
+  const stepped = secureAssetUrl(raw);
+  if (!stepped) return null;
+  const normalized = normalizeImageCandidate(stepped, base);
+  return isValidImageUrl(normalized) ? normalized : null;
 }
 
 /** Kontext prohlížeče pro maskování kontaktu u vlastnických inzerátů. */
@@ -151,21 +168,30 @@ export function serializeProperty(
 
   const redact = shouldRedactOwnerContact(p, viewerId, access);
 
-  const images = (Array.isArray(p.images) ? p.images : []).map((u) =>
-    typeof u === 'string' ? secureAssetUrl(u) : u,
-  );
+  const assetBase = resolveAssetBaseUrl();
+  const images = (Array.isArray(p.images) ? p.images : [])
+    .map((u) => (typeof u === 'string' ? sanitizeListingImageUrl(u, assetBase) : null))
+    .filter((u): u is string => Boolean(u));
   const videoUrlSafe = p.videoUrl ? secureAssetUrl(p.videoUrl) : null;
   const mediaFromRelation = Array.isArray(p.media)
     ? p.media
         .filter((m) => typeof m?.url === 'string' && m.url.length > 0)
         .sort((a, b) => a.sortOrder - b.sortOrder)
-        .map((m) => ({
-          id: m.id,
-          url: secureAssetUrl(m.url),
-          type: m.type === 'video' ? 'video' : 'image',
-          order: m.sortOrder,
-          sortOrder: m.sortOrder,
-        }))
+        .map((m) => {
+          const isVideo = m.type === 'video';
+          const urlRaw = secureAssetUrl(m.url);
+          const url = isVideo
+            ? urlRaw || null
+            : sanitizeListingImageUrl(m.url, assetBase);
+          return {
+            id: m.id,
+            url: url ?? '',
+            type: isVideo ? ('video' as const) : ('image' as const),
+            order: m.sortOrder,
+            sortOrder: m.sortOrder,
+          };
+        })
+        .filter((m) => Boolean(m.url))
     : [];
   const fallbackMedia = [
     ...(videoUrlSafe
@@ -189,7 +215,16 @@ export function serializeProperty(
   ];
   const media = mediaFromRelation.length > 0 ? mediaFromRelation : fallbackMedia;
   const primaryImage =
-    media.find((m) => m.type === 'image')?.url ?? images[0] ?? null;
+    getFirstValidImage(
+      [
+        ...media
+          .filter((m) => m.type === 'image')
+          .map((m) => m.url)
+          .filter(Boolean),
+        ...images,
+      ],
+      assetBase,
+    ) ?? null;
   const primaryVideo =
     media.find((m) => m.type === 'video')?.url ?? videoUrlSafe;
 
@@ -221,6 +256,7 @@ export function serializeProperty(
     images,
     thumbnail: primaryImage,
     coverImage: primaryImage,
+    cover: primaryImage,
     photos,
     imageUrl: primaryImage,
     videoUrl: primaryVideo ? secureAssetUrl(String(primaryVideo)) : null,

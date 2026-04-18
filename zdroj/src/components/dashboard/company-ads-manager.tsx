@@ -71,12 +71,6 @@ export function CompanyAdsManager() {
     void reload();
   }, [canUse]);
 
-  useEffect(() => {
-    if (!form.imageUrl.trim()) return;
-    // eslint-disable-next-line no-console
-    console.info('[company-ad-image] current form URL', form.imageUrl);
-  }, [form.imageUrl]);
-
   const isEditing = editingId != null;
 
   async function handleUpload(file: File) {
@@ -265,13 +259,6 @@ export function CompanyAdsManager() {
               src={previewUrl ?? nestAbsoluteAssetUrl(form.imageUrl)}
               alt="Náhled reklamy"
               className="h-32 w-full max-w-sm rounded-xl object-cover"
-              onError={(e) => {
-                // eslint-disable-next-line no-console
-                console.error('[company-ad-image] preview failed', {
-                  src: e.currentTarget.currentSrc || form.imageUrl,
-                  imageUrl: form.imageUrl,
-                });
-              }}
             />
           ) : null}
           <label className="flex items-center gap-2 text-sm text-zinc-700">
@@ -294,13 +281,6 @@ export function CompanyAdsManager() {
                 alt={ad.title}
                 className="mb-3 h-32 w-full rounded-lg object-cover"
                 loading="lazy"
-                onError={(e) => {
-                  // eslint-disable-next-line no-console
-                  console.error('[company-ad-image] list failed', {
-                    adId: ad.id,
-                    src: e.currentTarget.currentSrc || ad.imageUrl,
-                  });
-                }}
               />
               <p className="text-xs uppercase text-zinc-500">{ad.categories.join(', ')}</p>
               <h3 className="mt-1 font-semibold">{ad.title}</h3>
