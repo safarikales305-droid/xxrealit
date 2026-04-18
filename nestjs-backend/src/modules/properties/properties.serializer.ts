@@ -222,7 +222,39 @@ export function serializeProperty(
       sortOrder: index + 1,
     })),
   ];
-  const media = mediaFromRelation.length > 0 ? mediaFromRelation : fallbackMedia;
+
+  type MediaRow = {
+    id: string;
+    url: string;
+    type: 'video' | 'image';
+    order: number;
+    sortOrder: number;
+  };
+  const videoRows = mediaFromRelation.filter(
+    (m): m is MediaRow => m.type === 'video' && Boolean(m.url?.trim()),
+  );
+  const relImageRows = mediaFromRelation.filter(
+    (m): m is MediaRow => m.type === 'image' && Boolean(m.url?.trim()),
+  );
+  const seenImg = new Set(relImageRows.map((m) => m.url.trim()));
+  const extraImageRows: MediaRow[] = [];
+  for (const url of images) {
+    const k = url.trim();
+    if (!k || seenImg.has(k)) continue;
+    seenImg.add(k);
+    extraImageRows.push({
+      id: `${p.id}-gallery-${extraImageRows.length}`,
+      url: k,
+      type: 'image',
+      order: relImageRows.length + extraImageRows.length,
+      sortOrder: relImageRows.length + extraImageRows.length,
+    });
+  }
+  const mergedRows = [...videoRows, ...relImageRows, ...extraImageRows];
+  const media =
+    mergedRows.length > 0
+      ? mergedRows.map((m, i) => ({ ...m, order: i, sortOrder: i }))
+      : fallbackMedia;
   const primaryImage =
     getFirstValidImage(
       [

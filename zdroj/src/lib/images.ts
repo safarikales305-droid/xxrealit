@@ -7,7 +7,6 @@ export function isValidImageUrl(value?: string | null): boolean {
   if (url.includes('undefined')) return false;
   if (url.includes('null')) return false;
   if (url.includes('[object Object]')) return false;
-  if (url.includes(',')) return false;
   try {
     const parsed = new URL(url);
     return parsed.protocol === 'http:' || parsed.protocol === 'https:';

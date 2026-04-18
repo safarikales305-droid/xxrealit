@@ -4,10 +4,25 @@ import { normalizePublicVideoUrl } from '@/lib/video-url';
 import { formatListingPrice, normalizePrice } from '@/lib/price';
 export { formatListingPrice, normalizePrice } from '@/lib/price';
 
-/** API může vrátit cenu null („na dotaz“). */
+/** API může vrátit cenu null („na dotaz“), číslo nebo řetězec z JSON. */
 export function parseApiListingPrice(v: unknown): number | null {
   if (v === null || v === undefined) return null;
-  const n = typeof v === 'number' ? v : Number(v);
+  if (typeof v === 'number') {
+    const normalized = normalizePrice(v);
+    return normalized == null ? null : Math.trunc(normalized);
+  }
+  if (typeof v === 'string') {
+    const cleaned = v.trim().replace(/[\s\u00a0\u202f]/g, '');
+    if (!cleaned) return null;
+    let candidate = cleaned;
+    if (/^\d{1,3}(\.\d{3})+(\,\d+)?$/.test(cleaned)) {
+      candidate = cleaned.replace(/\./g, '').replace(',', '.');
+    }
+    const n = Number(candidate.replace(',', '.'));
+    const normalized = normalizePrice(n);
+    return normalized == null ? null : Math.trunc(normalized);
+  }
+  const n = Number(v);
   const normalized = normalizePrice(n);
   return normalized == null ? null : Math.trunc(normalized);
 }
@@ -56,7 +71,7 @@ export function classicListingCoverUrl(p: PropertyFeedItem): string | null {
 export type PropertyFromApi = {
   id: string;
   title: string;
-  price: number | null;
+  price?: number | null | string;
   city?: string;
   location?: string;
   videoUrl?: string | null;
@@ -301,7 +316,7 @@ export function safeNormalizePropertyFromApi(
     return normalizeProperty({
       id,
       title,
-      price: parseApiListingPrice(o.price),
+      price: o.price as PropertyFromApi['price'],
       city: typeof o.city === 'string' ? o.city : undefined,
       location: typeof o.location === 'string' ? o.location : undefined,
       videoUrl:

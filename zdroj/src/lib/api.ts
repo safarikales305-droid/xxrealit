@@ -1,5 +1,4 @@
 import { upgradeHttpToHttps } from './public-urls';
-import { isValidImageUrl } from './images';
 
 function trimTrailingSlash(url: string): string {
   return url.replace(/\/+$/, '');
@@ -87,19 +86,28 @@ export function getNestPublicOrigin(): string {
   }
 }
 
+function isHttpAssetUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/** Absolutní URL pro média inzerátu — toleruje čárky v query (CDN). */
 export function nestAbsoluteAssetUrl(path: string): string {
   if (!path) return '';
   const t = path.trim();
   if (!t) return '';
   if (t.startsWith('http://') || t.startsWith('https://')) {
-    if (!isValidImageUrl(t)) return '';
-    return upgradeHttpToHttps(t);
+    const upgraded = upgradeHttpToHttps(t);
+    return isHttpAssetUrl(upgraded) ? upgraded : '';
   }
   const origin = getNestPublicOrigin();
   if (!origin) return t;
-  const joined = `${origin}${t.startsWith('/') ? t : `/${t}`}`;
-  if (!isValidImageUrl(joined)) return '';
-  return upgradeHttpToHttps(joined);
+  const joined = upgradeHttpToHttps(`${origin}${t.startsWith('/') ? t : `/${t}`}`);
+  return isHttpAssetUrl(joined) ? joined : '';
 }
 
 export function getClientTokenFromCookie(): string | null {

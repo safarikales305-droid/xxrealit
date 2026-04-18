@@ -148,13 +148,29 @@ export class PropertiesService {
         `[findAllPublic][CLASSIC_FEED_IMPORT_DEBUG] importovaných v DB (nesmazané)=${importedAny} z toho v Klasik veřejném where=${importedInClassicFeed}`,
       );
     }
-    return rows.map((r) =>
+    const mapped = rows.map((r) =>
       serializeProperty(
         { ...r, likes: 'likes' in r ? r.likes : [] },
         viewerId,
         access,
       ),
     );
+    if (process.env.LISTING_FEED_DEBUG === '1' && mapped.length > 0) {
+      const q = mapped[0] as Record<string, unknown>;
+      // eslint-disable-next-line no-console
+      console.log('PROPERTY API ITEM', {
+        id: q.id,
+        title: q.title,
+        price: q.price,
+        coverImage: q.coverImage,
+        imageUrl: q.imageUrl,
+        thumbnail: q.thumbnail,
+        photos: q.photos,
+        images: q.images,
+        mediaLen: Array.isArray(q.media) ? (q.media as unknown[]).length : 0,
+      });
+    }
+    return mapped;
   }
 
   async findByOwner(ownerId: string, viewerId?: string) {
@@ -316,6 +332,21 @@ export class PropertiesService {
       viewerId,
       access,
     );
+    if (process.env.LISTING_FEED_DEBUG === '1') {
+      const q = propertySerialized as Record<string, unknown>;
+      // eslint-disable-next-line no-console
+      console.log('PROPERTY API ITEM (detail)', {
+        id: q.id,
+        title: q.title,
+        price: q.price,
+        coverImage: q.coverImage,
+        imageUrl: q.imageUrl,
+        thumbnail: q.thumbnail,
+        photos: q.photos,
+        images: q.images,
+        mediaLen: Array.isArray(q.media) ? (q.media as unknown[]).length : 0,
+      });
+    }
 
     const otherProperties = otherRows.map((r) =>
       serializeProperty(

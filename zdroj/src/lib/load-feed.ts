@@ -48,9 +48,26 @@ export async function loadPropertyFeedItems(
 
     if (!Array.isArray(data)) return [];
 
-    return data
+    const list = data
       .map(safeNormalizePropertyFromApi)
       .filter((x): x is PropertyFeedItem => x != null);
+    if (process.env.NEXT_PUBLIC_DEBUG_LISTINGS === '1' && list.length > 0) {
+      const p = list[0];
+      // eslint-disable-next-line no-console
+      console.log('PROPERTY FEED ITEM (normalized)', {
+        id: p.id,
+        title: p.title,
+        price: p.price,
+        cover: p.cover,
+        imageUrl: p.imageUrl,
+        thumbnail: p.thumbnail,
+        coverImage: p.coverImage,
+        photos: p.photos,
+        images: p.images,
+        mediaLen: p.media?.length ?? 0,
+      });
+    }
+    return list;
   } catch (err) {
     if (process.env.NODE_ENV === 'development') {
       console.warn('[Feed] GET error', url, err);
