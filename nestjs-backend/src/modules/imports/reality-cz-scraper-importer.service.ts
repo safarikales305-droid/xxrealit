@@ -16,6 +16,8 @@ const DEFAULT_BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0';
 
 const FETCH_TIMEOUT_MS = 30_000;
+const MIN_REALITY_PRICE_CZK = 1_000;
+const MAX_REALITY_PRICE_CZK = 500_000_000;
 
 function toAbsoluteRealityAssetUrl(raw: string, baseOrigin = 'https://www.reality.cz'): string {
   const t = (raw ?? '').trim();
@@ -33,6 +35,32 @@ function pickFirstUrlFromSrcset(srcset: string): string | null {
   if (!part) return null;
   const url = part.split(/\s+/)[0]?.trim();
   return url && /^https?:\/\//i.test(url) ? url : null;
+}
+
+function isLikelyListingImageUrl(url: string): boolean {
+  const t = (url ?? '').trim();
+  if (!t || !/^https?:\/\//i.test(t) || t.toLowerCase().startsWith('data:')) return false;
+  const low = t.toLowerCase();
+  if (/\.(svg)(\?|#|$)/i.test(low)) return false;
+  if (
+    /(logo|favicon|icon|sprite|placeholder|blank|avatar|profile|cookie|consent|cmp)/i.test(low)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function normalizeRealityImportedPrice(raw: unknown): number | null {
+  const parsed =
+    typeof raw === 'number'
+      ? Number.isFinite(raw) && raw > 0
+        ? Math.trunc(raw)
+        : null
+      : safeParsePrice(typeof raw === 'string' ? raw : raw != null ? String(raw) : null);
+  if (parsed == null) return null;
+  if (parsed < MIN_REALITY_PRICE_CZK) return null;
+  if (parsed > MAX_REALITY_PRICE_CZK) return null;
+  return parsed;
 }
 
 /** První rozumný obrázek z úryvku HTML (img src/data-src, source srcset, og:image). */
@@ -57,7 +85,7 @@ function extractBestImageFromHtmlFragment(fragment: string): string | null {
   if (og?.[1]) candidates.push(og[1]);
   for (const c of candidates) {
     const abs = toAbsoluteRealityAssetUrl(c, 'https://www.reality.cz');
-    if (abs && /^https?:\/\//i.test(abs)) return abs;
+    if (isLikelyListingImageUrl(abs)) return abs;
   }
   return null;
 }
@@ -395,7 +423,7 @@ export class RealityCzScraperImporter {
   ): ImportedListingDraft | null {
     const baseImages = (draft.images ?? [])
       .map((u) => toAbsoluteRealityAssetUrl(u, 'https://www.reality.cz'))
-      .filter((u) => /^https?:\/\//i.test(u));
+      .filter((u) => isLikelyListingImageUrl(u));
     const desc =
       html.match(
         /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i,
@@ -408,14 +436,14 @@ export class RealityCzScraperImporter {
     )?.[1];
     const next: ImportedListingDraft = {
       ...draft,
-      images: baseImages.length > 0 ? baseImages : draft.images,
+      images: baseImages.length > 0 ? baseImages : draft.images.filter((u) => isLikelyListingImageUrl(u)),
       description: desc?.trim()
         ? desc.trim().slice(0, 10_000)
         : draft.description,
     };
     if (og && og.trim()) {
       const img = toAbsoluteRealityAssetUrl(og.trim(), 'https://www.reality.cz');
-      if (img && /^https?:\/\//i.test(img) && !next.images.includes(img)) {
+      if (img && isLikelyListingImageUrl(img) && !next.images.includes(img)) {
         next.images = [img, ...next.images].slice(0, 40);
       }
     }
@@ -738,14 +766,7 @@ export class RealityCzScraperImporter {
     const title = String(raw.title ?? '').trim();
     const description = String(raw.description ?? title).trim();
     let city = String(raw.city ?? '').trim();
-    const priceParsed =
-      typeof raw.price === 'number'
-        ? Number.isFinite(raw.price) && raw.price > 0
-          ? Math.trunc(raw.price)
-          : null
-        : safeParsePrice(
-            typeof raw.price === 'string' ? raw.price : raw.price != null ? String(raw.price) : null,
-          );
+    const priceParsed = normalizeRealityImportedPrice(raw.price);
 
     if (!city) {
       city = guessCityFromCzechTitle(title, description);
@@ -766,7 +787,7 @@ export class RealityCzScraperImporter {
       .flat()
       .filter((x): x is string => typeof x === 'string' && x.length > 0)
       .map((u) => toAbsoluteRealityAssetUrl(u.trim(), 'https://www.reality.cz'))
-      .filter((u) => /^https?:\/\//i.test(u))
+      .filter((u) => isLikelyListingImageUrl(u))
       .slice(0, 40);
     const videoUrl =
       typeof raw.videoUrl === 'string' && /^https?:\/\//i.test(raw.videoUrl)
