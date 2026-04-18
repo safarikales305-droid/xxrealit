@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { ImportedListingDraft, RawImportedListing } from './import-types';
 import {
   parseRealityCzScraperSettings,
