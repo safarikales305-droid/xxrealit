@@ -9,8 +9,9 @@ let cached: { path: string; source: FfmpegBinarySource } | null = null;
  *
  * Pořadí:
  * 1. `FFMPEG_PATH` — explicitní cesta (Docker / vlastní build).
- * 2. `ffmpeg-static` — bundlovaná binárka v `node_modules` (Railway bez systémového ffmpeg).
- * 3. `ffmpeg` z PATH — lokální vývoj se systémovým ffmpeg.
+ * 2. `ffmpeg-static` — volitelná závislost (`optionalDependencies`); při úspěšné instalaci je v `node_modules`.
+ *    Na některých hostinzích (např. Railway) může `npm ci` balíček přeskočit — pak se použije krok 3.
+ * 3. `ffmpeg` z PATH — lokální vývoj, nebo image s nainstalovaným ffmpeg (viz `nixpacks.toml`).
  *
  * Pro S3 / vlastní worker později: nastavte jen `FFMPEG_PATH` nebo nahraďte volání vlastním adapterem.
  */

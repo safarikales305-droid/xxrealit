@@ -32,7 +32,6 @@
     "class-validator": "^0.14.1",
     "cloudinary": "^2.9.0",
     "dotenv": "^17.3.1",
-    "ffmpeg-static": "^5.2.0",
     "multer": "^2.1.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
@@ -41,6 +40,9 @@
     "rxjs": "^7.8.1",
     "sharp": "^0.33.5",
     "xml2js": "^0.6.2"
+  },
+  "optionalDependencies": {
+    "ffmpeg-static": "^5.2.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",

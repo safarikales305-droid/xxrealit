@@ -1,2 +1,7 @@
 [variables]
 NIXPACKS_NODE_VERSION = "20"
+
+# Systémový ffmpeg — když volitelný balíček `ffmpeg-static` při `npm ci` na platformě selže,
+# backend použije `ffmpeg` z PATH (viz `src/lib/ffmpeg-binary.ts`).
+[phases.setup]
+nixPkgs = ["...", "ffmpeg"]
