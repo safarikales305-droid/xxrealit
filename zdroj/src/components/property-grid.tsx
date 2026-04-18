@@ -25,6 +25,11 @@ export function PropertyGrid({ properties }: Props) {
   const [likedMap, setLikedMap] = useState<Record<string, boolean>>({});
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Runtime rozbité náhledy (HTTP/2, blokace CDN) — po chybě <img> zobrazíme „Bez náhledu“. */
+  const [brokenCoverIds, setBrokenCoverIds] = useState<Record<string, boolean>>({});
+  const markCoverBroken = useCallback((id: string) => {
+    setBrokenCoverIds((m) => ({ ...m, [id]: true }));
+  }, []);
 
   const initialLiked = useMemo(() => {
     const m: Record<string, boolean> = {};
@@ -87,7 +92,7 @@ export function PropertyGrid({ properties }: Props) {
         {properties.map((p) => {
           const liked = likedMap[p.id] ?? Boolean(p.liked);
           const media = Array.isArray(p.media) ? [...p.media].sort((a, b) => a.order - b.order) : [];
-          const primaryImage = classicListingCoverUrl(p);
+          const primaryImage = brokenCoverIds[p.id] ? null : classicListingCoverUrl(p);
           const primaryImageSrc = primaryImage
             ? nestAbsoluteAssetUrl(primaryImage)
             : '';
@@ -105,6 +110,7 @@ export function PropertyGrid({ properties }: Props) {
                       src={primaryImageSrc}
                       alt={p.title}
                       className="h-full w-full object-cover"
+                      onError={() => markCoverBroken(p.id)}
                     />
                   ) : primaryVideo ? (
                     <video

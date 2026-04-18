@@ -3,6 +3,8 @@
  * jen absolutní platné http(s), bez data: a relativních cest.
  */
 
+import { isValidImageUrl } from '../../lib/image-url';
+
 export function normalizeStoredImageUrl(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const t = raw.trim();
@@ -13,7 +15,8 @@ export function normalizeStoredImageUrl(raw: unknown): string | null {
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
     if (!u.hostname || u.hostname.length < 2) return null;
     u.hash = '';
-    return u.href;
+    const href = u.href;
+    return isValidImageUrl(href) ? href : null;
   } catch {
     return null;
   }

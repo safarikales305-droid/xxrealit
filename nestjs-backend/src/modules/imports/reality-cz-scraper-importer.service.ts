@@ -350,7 +350,7 @@ export type RealityCzScraperFetchOutcome = {
 export class RealityCzScraperImporter {
   private readonly logger = new Logger(RealityCzScraperImporter.name);
   private static readonly LISTING_PATH_RE =
-    /(prodej|pronajem|pronaj|hledani|vyhledavani|search|byty|domy|pozemk)/i;
+    /(prodej|pronajem|pronaj|hledani|vyhledavani|search|byty|domy|pozemk|garaz|chat|chalup|komerc)/i;
 
   async fetch(
     limit: number,
@@ -543,7 +543,10 @@ export class RealityCzScraperImporter {
         if (b > 0) await this.sleep(settings.requestDelayMs);
         const chunk = pending.slice(b, b + conc);
         await Promise.all(
-          chunk.map(async (i) => {
+          chunk.map(async (i, idxInChunk) => {
+            if (idxInChunk > 0) {
+              await this.sleep(Math.min(900, 120 * idxInChunk));
+            }
             const row = working[i];
             const detailUrl = row.sourceUrl?.trim() ?? '';
             detailFetchesAttempted += 1;

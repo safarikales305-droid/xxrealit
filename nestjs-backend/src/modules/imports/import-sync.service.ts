@@ -68,8 +68,11 @@ import {
 } from './reality-cz-scraper-importer.service';
 import { parseRealityCzScraperSettings } from './reality-cz-scraper-settings';
 import { normalizeStoredImageUrlList } from './import-image-urls';
-
-const DEFAULT_REALITY_SCRAPER_START_URL = 'https://www.reality.cz/prodej/byty/?strana=1';
+import {
+  DEFAULT_REALITY_BYTY_START_URL,
+  getDefaultRealityStartUrlForCategoryKey,
+  resolveRealityScraperStartUrlForCategory,
+} from './reality-branch-url.util';
 const DEFAULT_CATEGORY_KEY = 'ostatni';
 const DEFAULT_CATEGORY_LABEL = 'Ostatní';
 
@@ -120,7 +123,11 @@ function inferCategoryMetaFromUrl(url?: string | null): ImportCategoryMeta {
   if (t.includes('/pozemky/')) return { categoryKey: 'pozemky', categoryLabel: 'Pozemky' };
   if (t.includes('/komercni/')) return { categoryKey: 'komercni', categoryLabel: 'Komerční' };
   if (t.includes('/garaze/')) return { categoryKey: 'garaze', categoryLabel: 'Garáže' };
-  if (t.includes('/chaty/') || t.includes('/chalupy/')) {
+  if (
+    t.includes('/chaty/') ||
+    t.includes('/chalupy/') ||
+    t.includes('/chaty-a-chalupy/')
+  ) {
     return { categoryKey: 'chaty-chalupy', categoryLabel: 'Chaty a chalupy' };
   }
   return { categoryKey: DEFAULT_CATEGORY_KEY, categoryLabel: DEFAULT_CATEGORY_LABEL };
@@ -154,6 +161,19 @@ type ImportSourcePatch = {
   credentialsJson?: Prisma.InputJsonValue | null;
   settingsJson?: Prisma.InputJsonValue | null;
 };
+
+function defaultRealityScraperSettingsJson(startUrl: string): Record<string, unknown> {
+  return {
+    startUrl,
+    scraperListOnlyImport: false,
+    scraperRequestDelayMs: 2600,
+    scraperMaxRetries: 6,
+    scraperBackoffMultiplier: 2,
+    scraperBaseBackoffMsOn429: 12_000,
+    scraperMaxDetailFetchesPerRun: 48,
+    scraperDetailConcurrency: 2,
+  };
+}
 
 function initialImportRunLive(startedAt: string): ImportRunLiveState {
   return {
@@ -209,21 +229,87 @@ export class ImportSyncService {
       portalLabel: 'Reality.cz',
       categoryKey: 'byty',
       categoryLabel: 'Byty',
-      endpointUrl: DEFAULT_REALITY_SCRAPER_START_URL,
+      endpointUrl: DEFAULT_REALITY_BYTY_START_URL,
       intervalMinutes: 120,
       limitPerRun: 100,
       enabled: false,
-      settingsJson: {
-        startUrl: DEFAULT_REALITY_SCRAPER_START_URL,
-        scraperListOnlyImport: false,
-        scraperRequestDelayMs: 2200,
-        scraperMaxRetries: 6,
-        scraperBackoffMultiplier: 2,
-        scraperBaseBackoffMsOn429: 12_000,
-        scraperMaxDetailFetchesPerRun: 80,
-        scraperDetailConcurrency: 4,
-      },
+      settingsJson: defaultRealityScraperSettingsJson(DEFAULT_REALITY_BYTY_START_URL),
       sortOrder: 10,
+    });
+    await this.ensureDefaultSource({
+      portal: ListingImportPortal.reality_cz,
+      method: ListingImportMethod.scraper,
+      name: 'Reality.cz Scraper / Domy',
+      portalKey: 'reality_cz',
+      portalLabel: 'Reality.cz',
+      categoryKey: 'domy',
+      categoryLabel: 'Domy',
+      endpointUrl: getDefaultRealityStartUrlForCategoryKey('domy')!,
+      intervalMinutes: 120,
+      limitPerRun: 100,
+      enabled: false,
+      settingsJson: defaultRealityScraperSettingsJson(getDefaultRealityStartUrlForCategoryKey('domy')!),
+      sortOrder: 11,
+    });
+    await this.ensureDefaultSource({
+      portal: ListingImportPortal.reality_cz,
+      method: ListingImportMethod.scraper,
+      name: 'Reality.cz Scraper / Pozemky',
+      portalKey: 'reality_cz',
+      portalLabel: 'Reality.cz',
+      categoryKey: 'pozemky',
+      categoryLabel: 'Pozemky',
+      endpointUrl: getDefaultRealityStartUrlForCategoryKey('pozemky')!,
+      intervalMinutes: 120,
+      limitPerRun: 100,
+      enabled: false,
+      settingsJson: defaultRealityScraperSettingsJson(getDefaultRealityStartUrlForCategoryKey('pozemky')!),
+      sortOrder: 12,
+    });
+    await this.ensureDefaultSource({
+      portal: ListingImportPortal.reality_cz,
+      method: ListingImportMethod.scraper,
+      name: 'Reality.cz Scraper / Garáže',
+      portalKey: 'reality_cz',
+      portalLabel: 'Reality.cz',
+      categoryKey: 'garaze',
+      categoryLabel: 'Garáže',
+      endpointUrl: getDefaultRealityStartUrlForCategoryKey('garaze')!,
+      intervalMinutes: 120,
+      limitPerRun: 100,
+      enabled: false,
+      settingsJson: defaultRealityScraperSettingsJson(getDefaultRealityStartUrlForCategoryKey('garaze')!),
+      sortOrder: 13,
+    });
+    await this.ensureDefaultSource({
+      portal: ListingImportPortal.reality_cz,
+      method: ListingImportMethod.scraper,
+      name: 'Reality.cz Scraper / Chaty a chalupy',
+      portalKey: 'reality_cz',
+      portalLabel: 'Reality.cz',
+      categoryKey: 'chaty-chalupy',
+      categoryLabel: 'Chaty a chalupy',
+      endpointUrl: getDefaultRealityStartUrlForCategoryKey('chaty-chalupy')!,
+      intervalMinutes: 120,
+      limitPerRun: 100,
+      enabled: false,
+      settingsJson: defaultRealityScraperSettingsJson(getDefaultRealityStartUrlForCategoryKey('chaty-chalupy')!),
+      sortOrder: 14,
+    });
+    await this.ensureDefaultSource({
+      portal: ListingImportPortal.reality_cz,
+      method: ListingImportMethod.scraper,
+      name: 'Reality.cz Scraper / Komerční',
+      portalKey: 'reality_cz',
+      portalLabel: 'Reality.cz',
+      categoryKey: 'komercni',
+      categoryLabel: 'Komerční',
+      endpointUrl: getDefaultRealityStartUrlForCategoryKey('komercni')!,
+      intervalMinutes: 120,
+      limitPerRun: 100,
+      enabled: false,
+      settingsJson: defaultRealityScraperSettingsJson(getDefaultRealityStartUrlForCategoryKey('komercni')!),
+      sortOrder: 15,
     });
     await this.ensureDefaultSource({
       portal: ListingImportPortal.xml_feed,
@@ -308,14 +394,23 @@ export class ImportSyncService {
         categoryLabel = 'SOAP hlavní';
       }
       if (s.method === ListingImportMethod.scraper && s.portal === ListingImportPortal.reality_cz) {
-        const validStart = isValidRealityListingUrl(startUrl)
+        if (!categoryLabel || categoryLabel === DEFAULT_CATEGORY_LABEL) {
+          categoryLabel = inferred.categoryLabel;
+        }
+        const candidate = isValidRealityListingUrl(startUrl)
           ? startUrl
-          : DEFAULT_REALITY_SCRAPER_START_URL;
-        settings.startUrl = validStart;
+          : (getDefaultRealityStartUrlForCategoryKey(categoryKey) ?? DEFAULT_REALITY_BYTY_START_URL);
+        const aligned = resolveRealityScraperStartUrlForCategory(candidate, categoryKey);
+        if (aligned !== candidate) {
+          this.logger.warn(
+            `Backfill import větev ${s.id} (${categoryKey}): start URL „${candidate.slice(0, 96)}…“ → „${aligned}“.`,
+          );
+        }
+        settings.startUrl = aligned;
         await this.prisma.importSource.update({
           where: { id: s.id },
           data: {
-            endpointUrl: validStart,
+            endpointUrl: aligned,
             settingsJson: settings as Prisma.InputJsonValue,
             portalKey: portalMeta.portalKey,
             portalLabel: portalMeta.portalLabel,
@@ -486,11 +581,14 @@ export class ImportSyncService {
         ? { ...(input.settingsJson as Record<string, unknown>) }
         : {};
     if (input.method === ListingImportMethod.scraper && input.portal === ListingImportPortal.reality_cz) {
-      const start = isValidRealityListingUrl(input.endpointUrl ?? '')
+      const candidate = isValidRealityListingUrl(input.endpointUrl ?? '')
         ? (input.endpointUrl ?? '').trim()
-        : DEFAULT_REALITY_SCRAPER_START_URL;
-      settings.startUrl = start;
-      input.endpointUrl = start;
+        : (getDefaultRealityStartUrlForCategoryKey(categoryKey) ?? DEFAULT_REALITY_BYTY_START_URL);
+      const aligned = resolveRealityScraperStartUrlForCategory(candidate, categoryKey);
+      const baseDefaults = defaultRealityScraperSettingsJson(aligned);
+      const mergedSettings = { ...baseDefaults, ...settings, startUrl: aligned };
+      Object.assign(settings, mergedSettings);
+      input.endpointUrl = aligned;
     }
     const created = await this.prisma.importSource.create({
       data: {
@@ -586,16 +684,22 @@ export class ImportSyncService {
           'Start URL scraperu musí být validní listing URL Reality.cz (např. https://www.reality.cz/prodej/byty/?strana=1).',
         );
       }
+      const mergedCategoryKey = normalizeCategoryKey(
+        (patch.categoryKey !== undefined ? String(patch.categoryKey) : current.categoryKey) ?? '',
+      );
+      const aligned = resolveRealityScraperStartUrlForCategory(resolvedStart, mergedCategoryKey);
+      if (aligned !== resolvedStart) {
+        this.logger.warn(
+          `Import větev ${sourceId} (${mergedCategoryKey}): start URL sjednocena na „${aligned}“ (dříve „${resolvedStart.slice(0, 120)}…“).`,
+        );
+      }
       const nextSettings = {
         ...currentSettings,
         ...patchSettings,
-        startUrl: resolvedStart,
+        startUrl: aligned,
       };
-      const inferred = inferCategoryMetaFromUrl(resolvedStart);
       data.settingsJson = nextSettings as Prisma.InputJsonValue;
-      data.endpointUrl = resolvedStart;
-      if (patch.categoryKey === undefined) data.categoryKey = inferred.categoryKey;
-      if (patch.categoryLabel === undefined) data.categoryLabel = inferred.categoryLabel;
+      data.endpointUrl = aligned;
     }
     if (data.portalLabel || data.categoryLabel) {
       const portalLabel = (data.portalLabel as string | undefined) ?? current.portalLabel;
@@ -1001,7 +1105,11 @@ export class ImportSyncService {
         path.includes('search') ||
         path.includes('byty') ||
         path.includes('domy') ||
-        path.includes('pozemk');
+        path.includes('pozemk') ||
+        path.includes('garaz') ||
+        path.includes('chat') ||
+        path.includes('chalup') ||
+        path.includes('komerc');
       if (!looksListing) {
         return `URL „${finalUrl}“ pravděpodobně není stránka se seznamem nabídek (očekávejte cestu s prodej/pronájem nebo typ nemovitosti).`;
       }
@@ -1057,7 +1165,8 @@ export class ImportSyncService {
         'Invalid import URL — Použij konkrétní výpis inzerátů Reality.cz (např. /prodej/byty/, /prodej/domy/, /pronajem/byty/ nebo výpis s lokalitou).',
       );
     }
-    return candidate;
+    const categoryKey = normalizeCategoryKey(ctx.categoryKey ?? '');
+    return resolveRealityScraperStartUrlForCategory(candidate, categoryKey);
   }
 
   /** Povolen je konkrétní výpis (prodej/pronájem/typ nemovitosti/search), root homepage je zakázaná. */
@@ -1069,15 +1178,19 @@ export class ImportSyncService {
       if (path === '/' || path === '') return false;
       if (/strana=/i.test(`${u.pathname}${u.search}`)) return true;
       if (u.searchParams.toString().length > 0) {
-        return /(prodej|pronajem|pronaj|hledani|vyhledavani|search|byty|domy|pozemk)/i.test(
+        return /(prodej|pronajem|pronaj|hledani|vyhledavani|search|byty|domy|pozemk|garaz|chat|chalup|komerc)/i.test(
           `${path}${u.search}`,
         );
       }
-      return /(prodej|pronajem|pronaj|hledani|vyhledavani|search|byty|domy|pozemk)/i.test(path);
+      return /(prodej|pronajem|pronaj|hledani|vyhledavani|search|byty|domy|pozemk|garaz|chat|chalup|komerc)/i.test(
+        path,
+      );
     } catch {
       const low = url.toLowerCase();
       if (/^https?:\/\/(www\.)?reality\.cz\/?$/i.test(low)) return false;
-      return /(prodej|pronajem|pronaj|hledani|vyhledavani|search|byty|domy|pozemk)/i.test(low);
+      return /(prodej|pronajem|pronaj|hledani|vyhledavani|search|byty|domy|pozemk|garaz|chat|chalup|komerc)/i.test(
+        low,
+      );
     }
   }
 

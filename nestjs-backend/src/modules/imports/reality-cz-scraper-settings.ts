@@ -26,14 +26,15 @@ export type RealityCzScraperRuntimeSettings = {
 };
 
 const DEFAULTS: RealityCzScraperRuntimeSettings = {
-  requestDelayMs: 2200,
+  requestDelayMs: 2600,
   maxRetries: 6,
   backoffMultiplier: 2,
   baseBackoffMsOn429: 12_000,
   /** Detaily doplňují galerii, cover a popis — po uložení „skořápek“ běží paralelně v dávkách. */
-  maxDetailFetchesPerRun: 80,
+  maxDetailFetchesPerRun: 48,
   listOnlyImport: false,
-  detailConcurrency: 4,
+  /** Nižší výchozí souběžnost = méně HTTP/2 a síťových chyb vůči Reality.cz / proxy. */
+  detailConcurrency: 2,
 };
 
 function num(
