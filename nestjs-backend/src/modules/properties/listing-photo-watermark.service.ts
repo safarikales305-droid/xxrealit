@@ -85,6 +85,7 @@ export class ListingPhotoWatermarkService {
 
       const logoPngRaw = await sharp(logoRaw, { failOn: 'none' })
         .resize({ width: logoWidth, withoutEnlargement: true })
+        .ensureAlpha(settings.opacity)
         .png()
         .toBuffer();
       const logoPng = await sharp(logoPngRaw)
@@ -104,7 +105,6 @@ export class ListingPhotoWatermarkService {
             input: logoPng,
             gravity: this.gravityFromPosition(settings.position),
             blend: 'over',
-            opacity: settings.opacity,
           },
         ])
         .jpeg({ quality: 86, mozjpeg: true })
