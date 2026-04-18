@@ -25,8 +25,12 @@ export default function NemovitostiPage() {
     return MOCK_PROPERTIES.filter((p) => {
       if (loc && !p.location.toLowerCase().includes(loc)) return false;
       if (type && p.type !== type) return false;
-      if (!Number.isNaN(from) && p.price < from) return false;
-      if (!Number.isNaN(to) && p.price > to) return false;
+      const price =
+        typeof p.price === 'number' && Number.isFinite(p.price) && p.price > 0
+          ? p.price
+          : null;
+      if (!Number.isNaN(from) && (price == null || price < from)) return false;
+      if (!Number.isNaN(to) && (price == null || price > to)) return false;
       return true;
     });
   }, [locality, priceFrom, priceTo, type]);
