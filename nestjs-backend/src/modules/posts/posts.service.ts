@@ -247,7 +247,7 @@ export class PostsService {
     input: {
       title: string;
       description: string;
-      price: number;
+      price: number | null;
       city: string;
       type: 'post' | 'short';
       media: Array<{ url: string; type: 'video' | 'image'; order: number }>;

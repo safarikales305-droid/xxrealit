@@ -9,7 +9,7 @@ export const RAPID_REALTY_HOST = 'realty-in-us.p.rapidapi.com';
 
 export type MappedImportRow = {
   title: string;
-  price: number;
+  price: number | null;
   city: string;
   imageUrl: string | null;
   description: string | null;

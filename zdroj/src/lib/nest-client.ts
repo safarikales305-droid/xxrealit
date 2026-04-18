@@ -653,7 +653,7 @@ export type AdminListingRow = {
   id: string;
   title?: string;
   description?: string;
-  price?: number;
+  price?: number | null;
   city?: string;
   location?: string;
   listingType?: string;
@@ -3603,7 +3603,7 @@ export async function nestCreateListingPost(
   input: {
     title: string;
     description: string;
-    price: number;
+    price: number | null;
     city: string;
     type: 'post' | 'short';
     video?: File | null;
@@ -3625,7 +3625,13 @@ export async function nestCreateListingPost(
   const fd = new FormData();
   fd.append('title', input.title);
   fd.append('description', input.description);
-  fd.append('price', String(Math.max(0, Math.trunc(input.price))));
+  const normalizedPrice =
+    typeof input.price === 'number' && Number.isFinite(input.price) && input.price > 0
+      ? Math.trunc(input.price)
+      : null;
+  if (normalizedPrice != null) {
+    fd.append('price', String(normalizedPrice));
+  }
   fd.append('city', input.city);
   fd.append('type', input.type);
   if (input.category) fd.append('category', input.category);

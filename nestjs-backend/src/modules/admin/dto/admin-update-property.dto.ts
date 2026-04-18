@@ -22,7 +22,7 @@ export class AdminUpdatePropertyDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  price?: number;
+  price?: number | null;
 
   @IsOptional()
   @IsString()

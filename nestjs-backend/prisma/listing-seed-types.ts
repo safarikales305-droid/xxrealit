@@ -9,7 +9,7 @@ export type MediaJson = {
 export type ListingJson = {
   title: string;
   description?: string;
-  price: number;
+  price: number | null;
   city: string;
   address?: string;
   approved?: boolean;

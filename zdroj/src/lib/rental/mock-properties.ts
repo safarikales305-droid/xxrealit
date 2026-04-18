@@ -4,7 +4,7 @@ export type MockProperty = {
   id: string;
   title: string;
   description: string;
-  price: number;
+  price: number | null;
   location: string;
   type: PropertyType;
   imageUrl: string;

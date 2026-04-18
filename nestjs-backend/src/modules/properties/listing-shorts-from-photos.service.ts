@@ -30,7 +30,7 @@ export type GenerateShortsFromPhotosInput = {
   images: Express.Multer.File[];
   title: string;
   city: string;
-  price: number;
+  price: number | null;
   currency: string;
   music: ShortsMusicSelection;
   includeTextOverlay: boolean;
@@ -462,7 +462,10 @@ export class ListingShortsFromPhotosService {
       if (input.includeTextOverlay) {
         const title = input.title.trim().slice(0, 120);
         const city = input.city.trim().slice(0, 120);
-        const priceLine = `${input.price.toLocaleString('cs-CZ')} ${(input.currency || 'CZK').trim().slice(0, 8)}`;
+        const priceLine =
+          typeof input.price === 'number' && Number.isFinite(input.price) && input.price > 0
+            ? `${input.price.toLocaleString('cs-CZ')} ${(input.currency || 'CZK').trim().slice(0, 8)}`
+            : 'Cena na dotaz';
         const textOut = join(tmpRoot, 'with-text.mp4');
         const ok = await this.tryDrawTextOverlay(ffmpegBin, tmpRoot, currentPath, title, city, priceLine, textOut);
         if (ok) {

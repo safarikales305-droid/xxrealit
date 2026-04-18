@@ -744,7 +744,12 @@ export class ShortsListingService {
         images: files,
         title: listing.title,
         city: classic.city,
-        price: classic.price,
+        price:
+          typeof classic.price === 'number' &&
+          Number.isFinite(classic.price) &&
+          classic.price > 0
+            ? classic.price
+            : null,
         currency: classic.currency,
         music,
         includeTextOverlay: true,
@@ -824,7 +829,12 @@ export class ShortsListingService {
         images: files,
         title: listing.title.trim() || classic.title,
         city: classic.city,
-        price: classic.price,
+        price:
+          typeof classic.price === 'number' &&
+          Number.isFinite(classic.price) &&
+          classic.price > 0
+            ? classic.price
+            : null,
         currency: classic.currency,
         music,
         includeTextOverlay: true,

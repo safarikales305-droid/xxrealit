@@ -40,7 +40,7 @@ const ROLE_OPTIONS = [
 type PropertyRow = {
   id: string;
   title?: string;
-  price?: number;
+  price?: number | null;
   city?: string;
   location?: string;
   approved?: boolean;
@@ -56,7 +56,7 @@ function StatCard({ title, value }: { title: string; value: number | string }) {
   );
 }
 
-function formatPrice(n: number | undefined): string {
+function formatPrice(n: number | null | undefined): string {
   if (typeof n !== 'number' || !Number.isFinite(n)) return '—';
   return new Intl.NumberFormat('cs-CZ', {
     style: 'currency',
