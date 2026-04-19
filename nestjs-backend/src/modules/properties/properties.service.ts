@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
@@ -418,20 +419,53 @@ export class PropertiesService {
     const likesArr =
       'likes' in property && Array.isArray(property.likes) ? property.likes : [];
 
-    const propertySerialized = serializeProperty(
-      {
-        ...property,
-        likes: likesArr,
-        _count: property._count,
-        user: { id: author.id, city: author.city ?? null },
-      },
-      viewerId,
-      access,
-    );
-    if (process.env.LISTING_FEED_DEBUG === '1') {
+    if (process.env.LISTING_DETAIL_DEBUG === '1') {
+      this.log.log('PROPERTY DETAIL DB', {
+        id: property.id,
+        title: property.title,
+        price: property.price,
+        imagesLen: Array.isArray(property.images) ? property.images.length : 0,
+        mediaLen: Array.isArray(property.media) ? property.media.length : 0,
+      });
+    }
+
+    let propertySerialized: Record<string, unknown>;
+    let otherProperties: Record<string, unknown>[];
+    try {
+      propertySerialized = serializeProperty(
+        {
+          ...property,
+          likes: likesArr,
+          _count: property._count,
+          user: { id: author.id, city: author.city ?? null },
+        },
+        viewerId,
+        access,
+      );
+      otherProperties = otherRows.map((r) =>
+        serializeProperty(
+          {
+            ...r,
+            likes: 'likes' in r ? r.likes : [],
+            _count: r._count,
+            user: r.user ?? { id: r.userId, city: null },
+          },
+          viewerId,
+          access,
+        ),
+      );
+    } catch (e) {
+      this.log.error(
+        `DETAIL SERIALIZE ERROR propertyId=${property.id}`,
+        e instanceof Error ? e.stack : String(e),
+      );
+      throw new InternalServerErrorException('Detail error');
+    }
+
+    if (process.env.LISTING_FEED_DEBUG === '1' || process.env.LISTING_DETAIL_DEBUG === '1') {
       const q = propertySerialized as Record<string, unknown>;
       // eslint-disable-next-line no-console
-      console.log('PROPERTY API ITEM (detail)', {
+      console.log('PROPERTY API ITEM (detail mapped)', {
         id: q.id,
         title: q.title,
         price: q.price,
@@ -442,22 +476,10 @@ export class PropertiesService {
         thumbnail: q.thumbnail,
         photos: q.photos,
         images: q.images,
+        galleryLen: Array.isArray(q.gallery) ? (q.gallery as unknown[]).length : 0,
         mediaLen: Array.isArray(q.media) ? (q.media as unknown[]).length : 0,
       });
     }
-
-    const otherProperties = otherRows.map((r) =>
-      serializeProperty(
-        {
-          ...r,
-          likes: 'likes' in r ? r.likes : [],
-          _count: r._count,
-          user: r.user,
-        },
-        viewerId,
-        access,
-      ),
-    );
 
     return {
       property: propertySerialized,

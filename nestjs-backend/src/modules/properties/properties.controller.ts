@@ -5,6 +5,8 @@ import {
   Delete,
   Get,
   Headers,
+  InternalServerErrorException,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -206,12 +208,19 @@ export class PropertiesController {
   }
 
   @Get(':id')
-  findOne(
+  async findOne(
     @Param('id') id: string,
     @Headers('authorization') auth?: string,
   ) {
-    const viewerId = parseBearerUserId(this.jwt, auth);
-    return this.propertiesService.findOneForDetail(id, viewerId);
+    try {
+      const viewerId = parseBearerUserId(this.jwt, auth);
+      return await this.propertiesService.findOneForDetail(id, viewerId);
+    } catch (e) {
+      if (e instanceof NotFoundException) throw e;
+      // eslint-disable-next-line no-console
+      console.error('DETAIL ENDPOINT ERROR', id, e);
+      throw new InternalServerErrorException('Detail error');
+    }
   }
 
   @UseGuards(JwtAuthGuard)
