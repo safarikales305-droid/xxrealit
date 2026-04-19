@@ -182,7 +182,12 @@ export default function AdminImportsPage() {
     });
     setBusyId(null);
     if (r.ok && r.data) {
-      setImportDebugBySource((d) => ({ ...d, [sourceId]: r.data }));
+      setImportDebugBySource((prev) => {
+        return {
+          ...prev,
+          [sourceId]: r.data as NestAdminImportRunResult,
+        };
+      });
     }
     if (!r.ok) {
       setError(r.error ?? 'Spuštění importu selhalo');
