@@ -55,6 +55,8 @@ export type ImportErrorCategory =
   | 'FETCH_ERROR'
   | 'DETAIL_PARSE_ERROR'
   | 'IMAGE_DOWNLOAD_ERROR'
+  | 'IMAGE_SAVE_ERROR'
+  | 'DB_SCHEMA_MISMATCH'
   | 'DB_VALIDATION_ERROR'
   | 'DB_CONSTRAINT_ERROR'
   | 'WATERMARK_ERROR'
@@ -132,6 +134,8 @@ export type ImportRunResult = {
     imagesDiscovered?: number;
     /** Počet fotek skutečně uložených k inzerátům. */
     imagesSaved?: number;
+    /** Počet inzerátů, kde zápis PropertyMedia selhal (inzerát mohl být uložen bez řádků médií). */
+    mediaPersistFailures?: number;
     importFailed?: number;
     importSkippedInvalid?: number;
   };

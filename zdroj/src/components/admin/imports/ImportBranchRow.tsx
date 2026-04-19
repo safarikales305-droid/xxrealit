@@ -175,6 +175,23 @@ export function ImportBranchRow({
                 {Number(stats['detailFetchesAttempted'] ?? 0)}, makléři +{Number(stats['brokersCreated'] ?? 0)} / upd{' '}
                 {Number(stats['brokersUpdated'] ?? 0)}, fotky {Number(stats['imagesSaved'] ?? stats['imagesDownloaded'] ?? stats['imagesMirrored'] ?? 0)}, deaktivováno{' '}
                 {Number(stats['deactivated'] ?? 0)}
+                {Number(stats['mediaPersistFailures'] ?? 0) > 0 ? (
+                  <>
+                    ,{' '}
+                    <span className="font-semibold text-amber-800">
+                      PropertyMedia chyby: {Number(stats['mediaPersistFailures'] ?? 0)} (DB_SCHEMA_MISMATCH / IMAGE_SAVE_ERROR)
+                    </span>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+            {Array.isArray(lastImportDebug?.warnings) && lastImportDebug.warnings.length > 0 ? (
+              <div className="rounded border border-amber-200 bg-amber-50 p-1.5 text-[10px] text-amber-950">
+                {lastImportDebug.warnings.map((w, i) => (
+                  <div key={i} className="break-all">
+                    {w}
+                  </div>
+                ))}
               </div>
             ) : null}
             {typeof lastDetailUrl === 'string' && lastDetailUrl ? (

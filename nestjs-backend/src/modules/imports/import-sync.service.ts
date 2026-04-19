@@ -105,6 +105,20 @@ function categorizeImportRowError(err: unknown): ImportErrorCategory {
   return 'UNKNOWN';
 }
 
+/** Postgres / Prisma — chybějící sloupec v DB vs. schema (např. starší migrace na Railway). */
+function isDbSchemaMismatchMessage(msg: string): boolean {
+  return (
+    /column .* does not exist/i.test(msg) ||
+    /does not exist/i.test(msg) && /column/i.test(msg)
+  );
+}
+
+function categorizeImportMediaError(err: unknown): ImportErrorCategory {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (isDbSchemaMismatchMessage(msg)) return 'DB_SCHEMA_MISMATCH';
+  return 'IMAGE_SAVE_ERROR';
+}
+
 function errStack(err: unknown): string | undefined {
   return err instanceof Error && err.stack ? err.stack.slice(0, 4000) : undefined;
 }
@@ -1180,6 +1194,12 @@ export class ImportSyncService {
           'ZERO_IMPORT_RESULT: Import doběhl bez vytvoření/aktualizace inzerátu. Zkontrolujte výpis, detail parser nebo validaci dat.',
         );
       }
+      const mediaPersistN = result.stats?.mediaPersistFailures ?? 0;
+      if (!errorMessage && mediaPersistN > 0) {
+        warnings.push(
+          `MEDIA_PERSIST_ISSUES: Zápis PropertyMedia selhal u ${mediaPersistN} inzerátů (kategorie DB_SCHEMA_MISMATCH / IMAGE_SAVE_ERROR v položkovém logu). Ověřte migrace tabulky PropertyMedia na produkci.`,
+        );
+      }
       if (warnings.length) {
         summaryParts.push(`Varování: ${warnings.join(' | ')}`);
       }
@@ -1209,23 +1229,29 @@ export class ImportSyncService {
         brokersUpdated: result.stats?.brokersUpdated ?? 0,
         imagesMirrored: result.stats?.imagesMirrored ?? 0,
         imagesDownloaded: result.stats?.imagesMirrored ?? 0,
+        imagesDiscovered: result.stats?.imagesDiscovered ?? 0,
+        imagesSaved: result.stats?.imagesSaved ?? 0,
+        mediaPersistFailures: result.stats?.mediaPersistFailures ?? 0,
         deactivated,
       };
       this.logger.log(
-        `Import summary: totalFound=${totalFoundListings} processed=${totalFoundListings} new=${result.importedNew} updated=${result.importedUpdated} skipped=${result.skipped} skippedInvalid=${result.skippedInvalid ?? 0} failed=${result.failed ?? 0} errorLines=${result.errors.length} brokersCreated=${result.stats.brokersCreated ?? 0} brokersUpdated=${result.stats.brokersUpdated ?? 0} imagesMirrored=${result.stats.imagesMirrored ?? 0} durationMs=${durationMs}`,
+        `Import summary: totalFound=${totalFoundListings} processed=${totalFoundListings} new=${result.importedNew} updated=${result.importedUpdated} skipped=${result.skipped} skippedInvalid=${result.skippedInvalid ?? 0} failed=${result.failed ?? 0} errorLines=${result.errors.length} brokersCreated=${result.stats.brokersCreated ?? 0} brokersUpdated=${result.stats.brokersUpdated ?? 0} imagesMirrored=${result.stats.imagesMirrored ?? 0} mediaPersistFailures=${result.stats.mediaPersistFailures ?? 0} durationMs=${durationMs}`,
       );
 
       const hasProblem =
         warnings.length > 0 && result.importedNew === 0 && result.importedUpdated === 0;
+      const mediaIssues = !errorMessage && mediaPersistN > 0;
       await this.prisma.importSource.update({
         where: { id: ctx.sourceId },
         data: {
           lastRunAt: new Date(),
           lastStatus: errorMessage
             ? `error: ${errorMessage}`
-            : hasProblem
-              ? `warn: ${warnings[0]?.slice(0, 240) ?? 'viz log'}`
-              : 'ok',
+            : mediaIssues
+              ? `warn: MEDIA_SAVE (${mediaPersistN}× PropertyMedia)`
+              : hasProblem
+                ? `warn: ${warnings[0]?.slice(0, 240) ?? 'viz log'}`
+                : 'ok',
         },
       });
       emitProgress({
@@ -1268,13 +1294,18 @@ export class ImportSyncService {
       });
       throw new BadRequestException(errorMessage);
     } finally {
+      const mediaIssuesFin =
+        !errorMessage &&
+        !!result &&
+        (result.stats?.mediaPersistFailures ?? 0) > 0;
       const warnOutcome =
         !errorMessage &&
         !!result &&
         (result.warnings?.length ?? 0) > 0 &&
         result.importedNew === 0 &&
         result.importedUpdated === 0;
-      const logStatus = errorMessage ? 'error' : warnOutcome ? 'warn' : 'ok';
+      const logStatus =
+        errorMessage ? 'error' : mediaIssuesFin || warnOutcome ? 'warn' : 'ok';
       await this.prisma.importLog.create({
         data: {
           sourceId: ctx.sourceId,
@@ -1694,6 +1725,72 @@ export class ImportSyncService {
     }
   }
 
+  /**
+   * Zápis PropertyMedia — plná sada polí dle Prisma; při chybějících sloupcích v DB (mismatch) opakování bez originalUrl/watermarkedUrl.
+   */
+  private async persistImportedPropertyMediaRows(params: {
+    propertyId: string;
+    imageVariants: Array<{ originalUrl: string; watermarkedUrl: string | null }>;
+    wmSettings: { enabled: boolean };
+    replaceExistingImages: boolean;
+  }): Promise<
+    { ok: true } | { ok: false; category: ImportErrorCategory; message: string }
+  > {
+    const { propertyId, imageVariants, wmSettings, replaceExistingImages } = params;
+    if (imageVariants.length === 0) return { ok: true };
+
+    const pickDisplayUrl = (v: {
+      originalUrl: string;
+      watermarkedUrl: string | null;
+    }): string =>
+      wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl;
+
+    if (replaceExistingImages) {
+      await this.prisma.propertyMedia.deleteMany({
+        where: { propertyId, type: 'image' },
+      });
+    }
+
+    const fullData = imageVariants.map((v, idx) => ({
+      propertyId,
+      url: pickDisplayUrl(v),
+      originalUrl: v.originalUrl,
+      watermarkedUrl: v.watermarkedUrl ?? null,
+      type: 'image' as const,
+      sortOrder: idx + 1,
+    }));
+
+    try {
+      await this.prisma.propertyMedia.createMany({ data: fullData });
+      return { ok: true };
+    } catch (firstErr: unknown) {
+      const msg = firstErr instanceof Error ? firstErr.message : String(firstErr);
+      if (!isDbSchemaMismatchMessage(msg)) {
+        return {
+          ok: false,
+          category: categorizeImportMediaError(firstErr),
+          message: msg,
+        };
+      }
+      try {
+        const slimData = imageVariants.map((v, idx) => ({
+          propertyId,
+          url: pickDisplayUrl(v),
+          type: 'image' as const,
+          sortOrder: idx + 1,
+        }));
+        await this.prisma.propertyMedia.createMany({ data: slimData });
+        return { ok: true };
+      } catch (secondErr: unknown) {
+        return {
+          ok: false,
+          category: categorizeImportMediaError(secondErr),
+          message: secondErr instanceof Error ? secondErr.message : String(secondErr),
+        };
+      }
+    }
+  }
+
   private async importListingShells(
     ctx: ImportExecutionContext,
     actorUserId: string,
@@ -1713,6 +1810,7 @@ export class ImportSyncService {
     let imagesMirrored = 0;
     let imagesDiscovered = 0;
     let imagesSaved = 0;
+    let mediaPersistFailures = 0;
 
     const pushItemError = (e: ImportRunItemError) => {
       itemErrors.push(e);
@@ -1947,23 +2045,30 @@ export class ImportSyncService {
             },
           });
           if (imageVariants.length > 0) {
-            try {
-              await this.prisma.propertyMedia.createMany({
-                data: imageVariants.map((v, idx) => ({
-                  propertyId: created.id,
-                  url: wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl,
-                  originalUrl: v.originalUrl,
-                  watermarkedUrl: v.watermarkedUrl ?? null,
-                  type: 'image',
-                  sortOrder: idx + 1,
-                })),
-              });
-            } catch (mediaErr) {
+            const mediaRes = await this.persistImportedPropertyMediaRows({
+              propertyId: created.id,
+              imageVariants,
+              wmSettings,
+              replaceExistingImages: false,
+            });
+            if (!mediaRes.ok) {
+              mediaPersistFailures += 1;
               this.logger.warn(
-                `[IMPORT] propertyMedia createMany (new) property=${created.id}: ${
-                  mediaErr instanceof Error ? mediaErr.message : String(mediaErr)
-                }`,
+                `[IMPORT] propertyMedia (new) property=${created.id} [${mediaRes.category}]: ${mediaRes.message}`,
               );
+              pushItemError({
+                at: new Date().toISOString(),
+                externalId: resolvedId,
+                sourceUrl: row.sourceUrl ?? null,
+                title: row.title,
+                price: row.price ?? null,
+                imagesCount: row.images.length,
+                contactEmail: row.contactEmail || null,
+                contactPhone: row.contactPhone || null,
+                saveStatus: 'failed',
+                category: mediaRes.category,
+                message: `PropertyMedia (create): ${mediaRes.message}`,
+              });
             }
           }
           createdDiagnostics.push({
@@ -2005,6 +2110,9 @@ export class ImportSyncService {
                   imagesForDb,
                   facet,
                   pushItemError,
+                  onMediaPersistFailure: () => {
+                    mediaPersistFailures += 1;
+                  },
                 });
                 importedUpdated += 1;
                 this.logger.log(`[IMPORT] UPDATED_AFTER_P2002 ${resolvedId}`);
@@ -2089,6 +2197,9 @@ export class ImportSyncService {
           imagesForDb,
           facet,
           pushItemError,
+          onMediaPersistFailure: () => {
+            mediaPersistFailures += 1;
+          },
         });
         importedUpdated += 1;
         this.logger.log(`[IMPORT] UPDATED ${resolvedId} ${row.title.slice(0, 80)}`);
@@ -2149,6 +2260,7 @@ export class ImportSyncService {
         imagesDownloaded: imagesMirrored,
         imagesDiscovered,
         imagesSaved,
+        mediaPersistFailures,
         importFailed: failed,
         importSkippedInvalid: skippedInvalid,
       },
@@ -2174,6 +2286,7 @@ export class ImportSyncService {
       shortsSourceType: PropertyShortsSourceType;
     };
     pushItemError: (e: ImportRunItemError) => void;
+    onMediaPersistFailure?: () => void;
   }): Promise<void> {
     const {
       ctx,
@@ -2185,6 +2298,7 @@ export class ImportSyncService {
       imagesForDb,
       facet,
       pushItemError,
+      onMediaPersistFailure,
     } = params;
     const { videoUrl, listingType } = resolveVideoForImportUpdate(
       ctx.portal,
@@ -2235,25 +2349,16 @@ export class ImportSyncService {
       },
     });
     if (imageVariants.length > 0) {
-      try {
-        await this.prisma.propertyMedia.deleteMany({
-          where: { propertyId: existing.id, type: 'image' },
-        });
-        await this.prisma.propertyMedia.createMany({
-          data: imageVariants.map((v, idx) => ({
-            propertyId: existing.id,
-            url: wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl,
-            originalUrl: v.originalUrl,
-            watermarkedUrl: v.watermarkedUrl ?? null,
-            type: 'image',
-            sortOrder: idx + 1,
-          })),
-        });
-      } catch (mediaErr) {
+      const mediaRes = await this.persistImportedPropertyMediaRows({
+        propertyId: existing.id,
+        imageVariants,
+        wmSettings,
+        replaceExistingImages: true,
+      });
+      if (!mediaRes.ok) {
+        onMediaPersistFailure?.();
         this.logger.warn(
-          `[IMPORT] propertyMedia update property=${existing.id}: ${
-            mediaErr instanceof Error ? mediaErr.message : String(mediaErr)
-          }`,
+          `[IMPORT] propertyMedia update property=${existing.id} [${mediaRes.category}]: ${mediaRes.message}`,
         );
         pushItemError({
           at: new Date().toISOString(),
@@ -2265,9 +2370,8 @@ export class ImportSyncService {
           contactEmail: row.contactEmail || null,
           contactPhone: row.contactPhone || null,
           saveStatus: 'failed',
-          category: 'IMAGE_DOWNLOAD_ERROR',
-          message: `propertyMedia (update): ${mediaErr instanceof Error ? mediaErr.message : String(mediaErr)}`,
-          stack: errStack(mediaErr),
+          category: mediaRes.category,
+          message: `PropertyMedia (update): ${mediaRes.message}`,
         });
       }
     }
