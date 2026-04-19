@@ -17,6 +17,8 @@ export type RealityCzScraperRuntimeSettings = {
   maxRetries: number;
   backoffMultiplier: number;
   baseBackoffMsOn429: number;
+  /** Max. počet výpisových HTML stránek (strana=1,2,…) před sloučením do jedné dávky. */
+  maxListingPages: number;
   /** 0 = žádné HTTP na detail (bezpečný režim). */
   maxDetailFetchesPerRun: number;
   /** true = vynutit maxDetailFetchesPerRun = 0 (import jen z výpisové stránky). */
@@ -33,8 +35,10 @@ const DEFAULTS: RealityCzScraperRuntimeSettings = {
   maxRetries: 6,
   backoffMultiplier: 2,
   baseBackoffMsOn429: 12_000,
+  /** Kolik výpisových stránek stáhnout (Reality.cz typicky ~20 inzerátů / stránku). */
+  maxListingPages: 120,
   /** Počet detailních stránek za běh — má pokrýt celý výpis (listing jen jako zdroj URL). */
-  maxDetailFetchesPerRun: 200,
+  maxDetailFetchesPerRun: 500,
   listOnlyImport: false,
   /** 1 = detaily vždy po jednom (nejméně agresivní vůči Reality.cz). */
   detailConcurrency: 1,
@@ -95,8 +99,9 @@ export function parseRealityCzScraperSettings(
   const listOnly = bool(raw, 'scraperListOnlyImport', DEFAULTS.listOnlyImport);
   const maxDetail = listOnly
     ? 0
-    : num(raw, 'scraperMaxDetailFetchesPerRun', DEFAULTS.maxDetailFetchesPerRun, 0, 500);
+    : num(raw, 'scraperMaxDetailFetchesPerRun', DEFAULTS.maxDetailFetchesPerRun, 0, 5000);
   return {
+    maxListingPages: num(raw, 'scraperMaxListingPages', DEFAULTS.maxListingPages, 1, 800),
     requestDelayMs: num(raw, 'scraperRequestDelayMs', DEFAULTS.requestDelayMs, 400, 60_000),
     maxRetries: num(raw, 'scraperMaxRetries', DEFAULTS.maxRetries, 1, 12),
     backoffMultiplier: floatInRange(

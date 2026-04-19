@@ -810,6 +810,15 @@ export type RealityCzScraperFetchOutcome = {
     detailPage429Count: number;
     detailFetchesAttempted: number;
     detailFetchesCompleted: number;
+    /** Počet stažených výpisových stránek (strana=…). */
+    listingPagesFetched: number;
+    /** Souhrn po každé stránce (log / admin). */
+    listingPaginationLog: Array<{
+      page: number;
+      rawOnPage: number;
+      mergedTotal: number;
+      newUniques: number;
+    }>;
   };
 };
 
@@ -831,36 +840,42 @@ export class RealityCzScraperImporter {
     let detailPage429Count = 0;
 
     this.logger.log(
-      `Reality.cz scraper start: url=${startUrl} delayMs=${settings.requestDelayMs} detailGapMs=${settings.detailRequestGapMs} retries=${settings.maxRetries} listOnly=${settings.listOnlyImport} maxDetails=${settings.maxDetailFetchesPerRun} detailConcurrency=${settings.detailConcurrency}`,
+      `Reality.cz scraper start: url=${startUrl} delayMs=${settings.requestDelayMs} maxListingPages=${settings.maxListingPages} listOnly=${settings.listOnlyImport} maxDetails=${settings.maxDetailFetchesPerRun} detailConcurrency=${settings.detailConcurrency}`,
     );
 
-    onProgress?.({ percent: 6, message: 'Stahuji výpis Reality.cz…' });
-    let fetched = await this.fetchWithRetry(
-      startUrl,
-      'list_page',
-      settings,
-      requestLog,
-      (is429) => {
-        if (is429) listPage429Count += 1;
-      },
-    );
-    if (!this.looksLikeRealityListingUrl(fetched.finalUrl)) {
-      throw new BadRequestException(
-        `Reality.cz scraper byl přesměrován mimo výpis inzerátů (${fetched.finalUrl}). Zadejte konkrétní URL výpisu, ne homepage.`,
-      );
-    }
+    const baseUrl = this.stripStranaQuery(startUrl);
+    const firstPageNum = this.readStranaPageNum(startUrl) ?? 1;
+    const maxPages = Math.max(1, settings.maxListingPages);
+    const listingPaginationLog: RealityCzScraperFetchOutcome['meta']['listingPaginationLog'] =
+      [];
 
-    onProgress?.({ percent: 14, message: 'Parsuji HTML / JSON výpisu…' });
-    let parsed = this.parseListings(fetched.body);
-    if (parsed.items.length === 0) {
-      const page2Url = this.withStranaPage(startUrl, 2);
-      if (page2Url !== startUrl) {
-        this.logger.log(`Reality.cz scraper: 0 inzerátů na první stránce, zkouším fallback ${page2Url}`);
-        // eslint-disable-next-line no-console
-        console.log('SCRAPING URL (fallback strana=2):', page2Url);
-        onProgress?.({ percent: 16, message: 'Zkouším druhou stránku výpisu…' });
-        fetched = await this.fetchWithRetry(
-          page2Url,
+    let allItems: Array<Record<string, unknown>> = [];
+    let lastParseMethod = 'none';
+    let lastFetched: ScraperFetchResult = {
+      body: '',
+      contentType: 'text/html',
+      finalUrl: startUrl,
+      status: 0,
+    };
+
+    for (let offset = 0; offset < maxPages; offset += 1) {
+      const pageNum = firstPageNum + offset;
+      const pageUrl =
+        offset === 0 ? startUrl : this.withStranaPage(baseUrl, pageNum);
+
+      if (offset > 0) {
+        await this.sleep(settings.requestDelayMs);
+      }
+
+      onProgress?.({
+        percent: Math.min(22, 6 + Math.floor(offset * 1.4)),
+        message: `Výpis Reality.cz — stránka ${pageNum} (max ${maxPages} stránek)…`,
+      });
+
+      let fetchedPage: ScraperFetchResult;
+      try {
+        fetchedPage = await this.fetchWithRetry(
+          pageUrl,
           'list_page',
           settings,
           requestLog,
@@ -868,24 +883,83 @@ export class RealityCzScraperImporter {
             if (is429) listPage429Count += 1;
           },
         );
-        if (!this.looksLikeRealityListingUrl(fetched.finalUrl)) {
+        lastFetched = fetchedPage;
+      } catch (e) {
+        if (offset === 0) throw e;
+        this.logger.warn(
+          `Reality výpis stránka ${pageNum}: HTTP selhání (${e instanceof Error ? e.message : String(e)}), ukončuji stránkování.`,
+        );
+        break;
+      }
+
+      if (!this.looksLikeRealityListingUrl(fetchedPage.finalUrl)) {
+        if (offset === 0) {
           throw new BadRequestException(
-            `Reality.cz scraper fallback strana=2 skončil mimo výpis inzerátů (${fetched.finalUrl}).`,
+            `Reality.cz scraper byl přesměrován mimo výpis inzerátů (${fetchedPage.finalUrl}). Zadejte konkrétní URL výpisu, ne homepage.`,
           );
         }
-        parsed = this.parseListings(fetched.body);
+        this.logger.warn(
+          `Reality výpis stránka ${pageNum}: odpověď není platný výpis (${fetchedPage.finalUrl}), končím stránkování.`,
+        );
+        break;
+      }
+
+      const parsedPage = this.parseListings(fetchedPage.body);
+      lastParseMethod = parsedPage.method;
+
+      if (parsedPage.items.length === 0) {
+        this.logger.log(`Reality výpis stránka ${pageNum}: 0 položek z parseru.`);
+        if (allItems.length > 0) {
+          break;
+        }
+        if (offset >= 2) {
+          break;
+        }
+        continue;
+      }
+
+      const mergedBefore = allItems.length;
+      allItems = this.mergeRawListingRows(allItems, parsedPage.items);
+      const newUniques = allItems.length - mergedBefore;
+
+      listingPaginationLog.push({
+        page: pageNum,
+        rawOnPage: parsedPage.items.length,
+        mergedTotal: allItems.length,
+        newUniques,
+      });
+
+      this.logger.log(
+        `Reality.cz výpis stránka ${pageNum}: raw=${parsedPage.items.length}, +unikátních=${newUniques}, celkem=${allItems.length}, parser=${parsedPage.method}`,
+      );
+
+      if (offset > 0 && newUniques === 0) {
+        this.logger.log(
+          `Reality výpis stránka ${pageNum}: žádné nové unikátní ID (pravděpodobně konec paginace), stop.`,
+        );
+        break;
+      }
+
+      if (allItems.length >= limit) {
+        allItems = allItems.slice(0, limit);
+        this.logger.log(`Reality výpis: dosažen limit kandidátů=${limit}.`);
+        break;
       }
     }
 
+    const parsed = { items: allItems, method: lastParseMethod };
+
     if (parsed.items.length === 0) {
-      this.logger.warn('0 listings found – pravděpodobně špatná URL nebo blokace');
+      this.logger.warn(
+        '0 listings after pagination — špatná URL, blokace, nebo prázdný výpis na všech zkoušených stránkách',
+      );
     }
 
     onProgress?.({
-      percent: 22,
-      message: `Nalezeno ${parsed.items.length} kandidátů (${parsed.method})…`,
+      percent: 24,
+      message: `Výpis: ${parsed.items.length} unikátních kandidátů (${parsed.method}), ${listingPaginationLog.length} stažených stránek…`,
     });
-    let rows = this.normalizer(parsed.items, limit);
+    const rows = this.normalizer(parsed.items, limit);
     onProgress?.({
       percent: 28,
       message: `Po validaci: ${rows.length} inzerátů z výpisu…`,
@@ -898,29 +972,36 @@ export class RealityCzScraperImporter {
       percent: 50,
       message: settings.listOnlyImport
         ? 'Režim „jen výpis“ — bez detailních HTTP dotazů.'
-        : `Výpis zpracován (${rows.length} inzerátů). Každý detail se stáhne před zápisem do databáze (cena, popis, galerie, kontakt).`,
+        : `Výpis zpracován (${rows.length} inzerátů z ${listingPaginationLog.length} stránek). Detaily dle nastavení.`,
     });
 
     onProgress?.({ percent: 68, message: 'Výpis Reality.cz hotový, předávám data importu…' });
 
     const meta = {
       startUrl,
-      finalUrl: fetched.finalUrl,
-      httpStatus: fetched.status,
+      finalUrl: lastFetched.finalUrl,
+      httpStatus: lastFetched.status,
       rawCandidates: parsed.items.length,
       normalizedValid: rows.length,
       parseMethod: parsed.method,
-      contentType: fetched.contentType,
+      contentType: lastFetched.contentType,
       settings: scraperSettingsForLog(settings),
       requestLog,
       listPage429Count,
       detailPage429Count,
       detailFetchesAttempted,
       detailFetchesCompleted,
+      listingPagesFetched: listingPaginationLog.length,
+      listingPaginationLog,
     };
 
+    const pagSummary = listingPaginationLog.slice(-40).map((l) => ({
+      p: l.page,
+      new: l.newUniques,
+      tot: l.mergedTotal,
+    }));
     this.logger.log(
-      `Reality.cz scraper done: final=${fetched.finalUrl} method=${parsed.method} raw=${parsed.items.length} valid=${rows.length} details=${detailFetchesCompleted}/${detailFetchesAttempted} list429=${listPage429Count} detail429=${detailPage429Count}`,
+      `Reality.cz scraper done: final=${lastFetched.finalUrl} method=${parsed.method} pages=${listingPaginationLog.length} raw=${parsed.items.length} valid=${rows.length} details=${detailFetchesCompleted}/${detailFetchesAttempted} list429=${listPage429Count} detail429=${detailPage429Count} pagination=${JSON.stringify(pagSummary)}`,
     );
 
     return { rows, meta };
@@ -1394,6 +1475,49 @@ export class RealityCzScraperImporter {
     }
   }
 
+  /** URL výpisu bez parametru strana (zachová ostatní filtry). */
+  private stripStranaQuery(url: string): string {
+    try {
+      const u = new URL(url);
+      u.searchParams.delete('strana');
+      return u.toString();
+    } catch {
+      return url
+        .replace(/([?&])strana=\d+/gi, '$1')
+        .replace(/\?&/, '?')
+        .replace(/[?&]$/, '');
+    }
+  }
+
+  /** Aktuální číslo stránky z ?strana= nebo null. */
+  private readStranaPageNum(url: string): number | null {
+    try {
+      const s = new URL(url).searchParams.get('strana');
+      if (s && /^\d+$/.test(s)) return Math.max(1, parseInt(s, 10));
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }
+
+  /** Sloučí kandidáty z více výpisových stránek podle kódu inzerátu / URL. */
+  private mergeRawListingRows(
+    acc: Array<Record<string, unknown>>,
+    pageItems: Array<Record<string, unknown>>,
+  ): Array<Record<string, unknown>> {
+    return dedupeByKey([...acc, ...pageItems], (r) => {
+      const o = r as Record<string, unknown>;
+      return (
+        resolveRealityListingExternalId({
+          sourceUrl: o.url ?? o.href,
+          externalId: o.externalId,
+          id: o.id,
+          listingId: o.listingId,
+        }) ?? ''
+      );
+    });
+  }
+
   private looksLikeRealityListingUrl(url: string): boolean {
     try {
       const u = new URL(url);
@@ -1699,7 +1823,7 @@ export class RealityCzScraperImporter {
     limit: number,
   ): ImportedListingDraft[] {
     const out: ImportedListingDraft[] = [];
-    const maxRows = Math.max(1, Math.min(500, Math.trunc(limit || 100)));
+    const maxRows = Math.max(1, Math.min(5000, Math.trunc(limit || 100)));
     for (const row of rows) {
       const fromImages = flattenImageUrls(row.images);
       const imgList =

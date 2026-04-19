@@ -183,7 +183,8 @@ function defaultRealityScraperSettingsJson(startUrl: string): Prisma.InputJsonOb
     scraperMaxRetries: 6,
     scraperBackoffMultiplier: 2,
     scraperBaseBackoffMsOn429: 12_000,
-    scraperMaxDetailFetchesPerRun: 200,
+    scraperMaxListingPages: 120,
+    scraperMaxDetailFetchesPerRun: 500,
   };
 }
 
@@ -944,7 +945,7 @@ export class ImportSyncService {
       const warnings = [...(result.warnings ?? [])];
       if (ctx.method === ListingImportMethod.scraper && scraperMeta) {
         this.logger.log(
-          `Scraper metrics: startUrl=${scraperMeta.startUrl} finalUrl=${scraperMeta.finalUrl} raw=${scraperMeta.rawCandidates} valid=${scraperMeta.normalizedValid} parse=${scraperMeta.parseMethod} details=${scraperMeta.detailFetchesCompleted}/${scraperMeta.detailFetchesAttempted} list429=${scraperMeta.listPage429Count} detail429=${scraperMeta.detailPage429Count}`,
+          `Scraper metrics: startUrl=${scraperMeta.startUrl} finalUrl=${scraperMeta.finalUrl} listingPages=${scraperMeta.listingPagesFetched ?? 1} raw=${scraperMeta.rawCandidates} valid=${scraperMeta.normalizedValid} parse=${scraperMeta.parseMethod} details=${scraperMeta.detailFetchesCompleted}/${scraperMeta.detailFetchesAttempted} list429=${scraperMeta.listPage429Count} detail429=${scraperMeta.detailPage429Count}`,
         );
         if (scraperMeta.rawCandidates === 0) {
           const msg =
@@ -989,6 +990,8 @@ export class ImportSyncService {
         detailPage429Count: scraperMeta?.detailPage429Count,
         detailFetchesAttempted: scraperMeta?.detailFetchesAttempted,
         detailFetchesCompleted: scraperMeta?.detailFetchesCompleted,
+        listingPagesFetched: scraperMeta?.listingPagesFetched,
+        listingPaginationLog: scraperMeta?.listingPaginationLog,
         scraperSettings: scraperMeta?.settings,
         detailPhaseDbUpdates: result.importedNew + result.importedUpdated,
         detailPhaseDbErrors: 0,
@@ -1312,9 +1315,17 @@ export class ImportSyncService {
     let disabled = 0;
     const errors: string[] = [];
 
-    const batch = this.dedupeImportedRows(
-      rows.slice(0, Math.max(1, Math.min(500, ctx.limitPerRun))),
-    );
+    const sliceCap = Math.max(1, Math.min(5000, ctx.limitPerRun));
+    const sliced = rows.slice(0, sliceCap);
+    const batch = this.dedupeImportedRows(sliced);
+    if (sliced.length !== batch.length) {
+      // eslint-disable-next-line no-console
+      console.log('[IMPORT] internal id-dedupe', {
+        before: sliced.length,
+        after: batch.length,
+        dropped: sliced.length - batch.length,
+      });
+    }
 
     onProgress?.({
       percent: 12,
