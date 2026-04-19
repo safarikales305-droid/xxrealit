@@ -1850,6 +1850,152 @@ export async function nestAdminBulkDisableImported(
   return { ok: true, affected: typeof data.affected === 'number' ? data.affected : 0 };
 }
 
+export type AdminImportedBrokerContactRow = {
+  id: string;
+  fullName: string;
+  companyName: string;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+  sourcePortal: string | null;
+  sourceUrl: string | null;
+  city: string | null;
+  notes: string | null;
+  listingCount: number;
+  status: string;
+  profileCreated: boolean;
+  invitedAt: string | null;
+  outreachStatus: string;
+  outreachNote: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminImportedBrokerContactsList = {
+  items: AdminImportedBrokerContactRow[];
+  total: number;
+  skip: number;
+  take: number;
+};
+
+export async function nestAdminBrokerContacts(
+  token: string | null,
+  query?: {
+    search?: string;
+    portal?: string;
+    hasEmail?: boolean;
+    hasPhone?: boolean;
+    profileCreated?: boolean;
+    outreachStatus?: string;
+    sort?: string;
+    skip?: number;
+    take?: number;
+  },
+): Promise<AdminImportedBrokerContactsList | null> {
+  if (!API_BASE_URL || !token) return null;
+  const sp = new URLSearchParams();
+  if (query?.search) sp.set('search', query.search);
+  if (query?.portal) sp.set('portal', query.portal);
+  if (query?.hasEmail === true) sp.set('hasEmail', '1');
+  if (query?.hasEmail === false) sp.set('hasEmail', '0');
+  if (query?.hasPhone === true) sp.set('hasPhone', '1');
+  if (query?.hasPhone === false) sp.set('hasPhone', '0');
+  if (query?.profileCreated === true) sp.set('profileCreated', '1');
+  if (query?.profileCreated === false) sp.set('profileCreated', '0');
+  if (query?.outreachStatus) sp.set('outreachStatus', query.outreachStatus);
+  if (query?.sort) sp.set('sort', query.sort);
+  if (query?.skip != null) sp.set('skip', String(query.skip));
+  if (query?.take != null) sp.set('take', String(query.take));
+  const qs = sp.toString() ? `?${sp.toString()}` : '';
+  const res = await fetch(`${API_BASE_URL}/admin/broker-contacts${qs}`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json().catch(() => null)) as AdminImportedBrokerContactsList | null;
+  if (!data || !Array.isArray(data.items)) return null;
+  return data;
+}
+
+export async function nestAdminBrokerContactDetail(
+  token: string | null,
+  id: string,
+): Promise<unknown | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/broker-contacts/${encodeURIComponent(id)}`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return res.json().catch(() => null);
+}
+
+export async function nestAdminPatchBrokerContact(
+  token: string | null,
+  id: string,
+  body: Record<string, unknown>,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/broker-contacts/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminBrokerContactsBulkUpdate(
+  token: string | null,
+  body: { ids: string[]; outreachStatus?: string; status?: string; profileCreated?: boolean },
+): Promise<{ ok: boolean; updated?: number; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/broker-contacts/bulk-update`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true, updated: typeof data.updated === 'number' ? data.updated : 0 };
+}
+
+export async function nestAdminDownloadBrokerContactsCsv(
+  token: string | null,
+  query?: { search?: string; portal?: string; hasEmail?: boolean; hasPhone?: boolean },
+): Promise<{ ok: boolean; blob?: Blob; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const sp = new URLSearchParams();
+  if (query?.search) sp.set('search', query.search);
+  if (query?.portal) sp.set('portal', query.portal);
+  if (query?.hasEmail === true) sp.set('hasEmail', '1');
+  if (query?.hasEmail === false) sp.set('hasEmail', '0');
+  if (query?.hasPhone === true) sp.set('hasPhone', '1');
+  if (query?.hasPhone === false) sp.set('hasPhone', '0');
+  const qs = sp.toString() ? `?${sp.toString()}` : '';
+  const res = await fetch(`${API_BASE_URL}/admin/broker-contacts/export${qs}`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'text/csv' },
+  });
+  if (!res.ok) {
+    return { ok: false, error: `HTTP ${res.status}` };
+  }
+  const blob = await res.blob();
+  return { ok: true, blob };
+}
+
 export async function nestUploadPropertyImages(
   token: string | null,
   files: File[],

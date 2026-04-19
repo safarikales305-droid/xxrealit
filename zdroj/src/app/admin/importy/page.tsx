@@ -307,6 +307,7 @@ export default function AdminImportsPage() {
           <div className="flex items-center gap-2">
             <Link href="/admin" className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold">Admin</Link>
             <Link href="/admin/inzeraty" className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold">Inzeráty</Link>
+            <Link href="/admin/databaze-makleiru" className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold">Makléři</Link>
           </div>
         </header>
 

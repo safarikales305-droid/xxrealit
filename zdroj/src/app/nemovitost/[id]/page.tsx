@@ -3,30 +3,48 @@ import { NemovitostDetailView } from '@/components/nemovitost/NemovitostDetailVi
 import { getServerSideApiBaseUrl } from '@/lib/api';
 import { normalizePropertyDetailPayload } from '@/lib/property-detail';
 import { getServerAuthorizationHeader } from '@/lib/server-bearer';
+import { PropertyDetailFetchError } from './fetch-error';
 
 type Props = {
   params: Promise<{ id: string }>;
 };
 
-async function fetchPropertyDetail(id: string): Promise<unknown | null> {
+async function fetchPropertyDetail(
+  id: string,
+): Promise<{ ok: boolean; status: number; body: unknown | null }> {
   const apiBase = getServerSideApiBaseUrl();
-  if (!apiBase) return null;
+  if (!apiBase) return { ok: false, status: 0, body: null };
   const authorization = await getServerAuthorizationHeader();
   const url = `${apiBase}/properties/${encodeURIComponent(id)}`;
-  const res = await fetch(url, authorization
-    ? {
-        cache: 'no-store',
-        headers: { Authorization: authorization },
-      }
-    : {
-        next: { revalidate: 30 },
-      });
+  const res = await fetch(
+    url,
+    authorization
+      ? {
+          cache: 'no-store',
+          headers: { Authorization: authorization },
+        }
+      : {
+          next: { revalidate: 30 },
+        },
+  );
 
-  if (res.status === 404) return null;
+  if (res.status === 404) return { ok: false, status: 404, body: null };
   if (!res.ok) {
-    throw new Error('PROPERTY_DETAIL_FETCH_FAILED');
+    if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console
+      console.error('[property-detail] fetch failed', { id, status: res.status, url });
+    }
+    return { ok: false, status: res.status, body: null };
   }
-  return res.json().catch(() => null);
+  const body = await res.json().catch(() => null);
+  if (process.env.NODE_ENV === 'development') {
+    // eslint-disable-next-line no-console
+    console.info('[property-detail] raw response keys', {
+      id,
+      keys: body && typeof body === 'object' ? Object.keys(body as object) : [],
+    });
+  }
+  return { ok: true, status: 200, body };
 }
 
 function pickExtraFields(rawProp: unknown): Record<string, unknown> {
@@ -47,18 +65,35 @@ function pickExtraFields(rawProp: unknown): Record<string, unknown> {
 
 export default async function NemovitostDetailPage({ params }: Props) {
   const { id } = await params;
-  const raw = await fetchPropertyDetail(id);
-  if (!raw) {
+  const result = await fetchPropertyDetail(id);
+
+  if (result.status === 404 || (result.status === 0 && !result.body)) {
     notFound();
   }
-  const parsed = normalizePropertyDetailPayload(raw);
+  if (!result.ok || result.body == null) {
+    return <PropertyDetailFetchError listingId={id} status={result.status || 502} />;
+  }
 
-  if (!parsed?.property || !parsed.user) {
+  const parsed = normalizePropertyDetailPayload(result.body, {
+    listingId: id,
+    devLog: true,
+  });
+
+  if (!parsed?.user || !parsed.property) {
+    if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console
+      console.warn('[property-detail] normalize failed', {
+        id,
+        hasUser: Boolean(parsed?.user),
+        hasProperty: Boolean(parsed?.property),
+      });
+    }
     notFound();
   }
 
-  const rawRoot = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-  const rawProperty = rawRoot.property;
+  const rawRoot =
+    result.body && typeof result.body === 'object' ? (result.body as Record<string, unknown>) : {};
+  const rawProperty = rawRoot.property ?? rawRoot.data;
   const extraFields = pickExtraFields(rawProperty);
 
   return (

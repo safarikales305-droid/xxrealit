@@ -315,7 +315,7 @@ export function serializeProperty(
     createdAt: p.createdAt,
     userId: p.userId,
     ownerCity: p.user?.city ?? null,
-    likeCount: p._count.likes,
+    likeCount: p._count?.likes ?? 0,
     liked,
     listingType: p.listingType ?? null,
     viewsCount: Math.max(0, Math.trunc(p.viewsCount ?? 0)),

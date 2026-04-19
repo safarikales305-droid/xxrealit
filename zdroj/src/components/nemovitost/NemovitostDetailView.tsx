@@ -137,6 +137,10 @@ export function NemovitostDetailView({
   const shouldBlurGuestPrice = !isAuthenticated;
   const media = useMemo(() => buildMediaList(p), [p]);
   const [activeIndex, setActiveIndex] = useState(0);
+  const safeMediaIndex = Math.min(
+    activeIndex,
+    Math.max(0, media.length > 0 ? media.length - 1 : 0),
+  );
   const [sellerModalOpen, setSellerModalOpen] = useState(false);
   const [sellerActionHint, setSellerActionHint] = useState<string | null>(null);
   const [liked, setLiked] = useState(Boolean(p.liked));
@@ -153,7 +157,15 @@ export function NemovitostDetailView({
   const [shareSenderMessage, setShareSenderMessage] = useState('');
   const [shareEmailBusy, setShareEmailBusy] = useState(false);
   const [shareEmailMsg, setShareEmailMsg] = useState<string | null>(null);
-  const active = media[activeIndex] ?? media[0];
+  const active = media[safeMediaIndex] ?? media[0];
+
+  useEffect(() => {
+    if (media.length === 0) {
+      if (activeIndex !== 0) setActiveIndex(0);
+      return;
+    }
+    if (activeIndex > media.length - 1) setActiveIndex(media.length - 1);
+  }, [media.length, activeIndex]);
 
   useEffect(() => {
     setLiked(Boolean(p.liked));
@@ -322,7 +334,7 @@ export function NemovitostDetailView({
             ← Zpět na Shorts
           </button>
 
-          {media.length > 0 && active ? (
+          {media.length > 0 && active != null ? (
             <div className="overflow-hidden rounded-2xl bg-black">
               <div className="flex min-h-[200px] items-center justify-center">
                 {active.type === 'video' ? (
@@ -349,7 +361,7 @@ export function NemovitostDetailView({
                       type="button"
                       onClick={() => setActiveIndex(index)}
                       className={`h-16 w-16 shrink-0 overflow-hidden rounded-xl border-2 transition ${
-                        index === activeIndex
+                        index === safeMediaIndex
                           ? 'border-[#e85d00] ring-2 ring-[#e85d00]/20'
                           : 'border-zinc-600'
                       }`}

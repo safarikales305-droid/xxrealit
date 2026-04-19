@@ -352,6 +352,12 @@ export default function AdminPage() {
               Importy
             </Link>
             <Link
+              href="/admin/databaze-makleiru"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Makléři (import)
+            </Link>
+            <Link
               href="/admin/hudba"
               className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >

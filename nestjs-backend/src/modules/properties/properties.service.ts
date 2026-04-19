@@ -360,7 +360,16 @@ export class PropertiesService {
       throw new NotFoundException(`Property "${id}" not found`);
     }
 
-    const author = property.user;
+    const rawAuthor = property.user;
+    const author = rawAuthor ?? {
+      id: property.userId,
+      avatar: null as string | null,
+      name: null as string | null,
+      phone: null as string | null,
+      phonePublic: false,
+      city: null as string | null,
+      role: UserRole.USER,
+    };
     const access = await this.viewerAccess(viewerId);
     const userPayload = {
       id: author.id,
@@ -414,7 +423,7 @@ export class PropertiesService {
         ...property,
         likes: likesArr,
         _count: property._count,
-        user: { id: author.id, city: author.city },
+        user: { id: author.id, city: author.city ?? null },
       },
       viewerId,
       access,

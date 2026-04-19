@@ -313,8 +313,9 @@ export function safeNormalizePropertyFromApi(
   if (raw == null || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
   const id = o.id != null ? String(o.id) : '';
-  const title = o.title != null ? String(o.title) : '';
-  if (!id || !title) return null;
+  const titleRaw = o.title != null ? String(o.title).trim() : '';
+  const title = titleRaw || 'Inzerát bez názvu';
+  if (!id) return null;
 
   try {
     const likeCountRaw = o.likeCount;

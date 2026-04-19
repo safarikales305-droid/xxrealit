@@ -619,6 +619,7 @@ model Property {
   media     PropertyMedia[]
   conversations PropertyConversation[]
   brokerLeadOffers BrokerLeadOffer[]
+  importedBrokerContactLinks ImportedBrokerContactListing[]
 
   @@index([userId])
   @@index([derivedFromPropertyId])
@@ -630,6 +631,58 @@ model Property {
   @@index([sourcePortalKey, propertyTypeKey, city])
   @@index([importCategoryKey, sourcePortalKey])
   @@unique([importSource, importExternalId], map: "property_import_source_external_uq")
+}
+
+/// Kontakt makléře / RK extrahovaný z importovaných inzerátů (dedupe e-mail → telefon).
+model ImportedBrokerContact {
+  id             String    @id @default(cuid())
+  fullName       String    @default("")
+  companyName    String    @default("")
+  email          String?
+  phone          String?
+  website        String?
+  /// Klíč portálu / enum hodnota (např. reality_cz)
+  sourcePortal   String?
+  /// Poslední známá URL inzerátu (zdroj)
+  sourceUrl      String?
+  city           String?
+  notes          String?   @db.Text
+  firstSeenAt    DateTime  @default(now())
+  lastSeenAt     DateTime  @default(now())
+  listingCount   Int       @default(0)
+  /// ACTIVE | INCOMPLETE | ARCHIVED
+  status         String    @default("ACTIVE")
+  profileCreated Boolean   @default(false)
+  invitedAt      DateTime?
+  /// none | contacted | emailed | prepared_mail | …
+  outreachStatus String    @default("none")
+  outreachNote   String?   @db.Text
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  listings ImportedBrokerContactListing[]
+
+  @@index([email])
+  @@index([phone])
+  @@index([sourcePortal])
+  @@index([lastSeenAt(sort: Desc)])
+  @@index([listingCount(sort: Desc)])
+  @@index([outreachStatus])
+  @@index([profileCreated])
+}
+
+model ImportedBrokerContactListing {
+  id         String   @id @default(cuid())
+  contactId  String
+  propertyId String
+  sourceUrl  String?
+  createdAt  DateTime @default(now())
+
+  contact  ImportedBrokerContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  property Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, propertyId])
+  @@index([propertyId])
 }
 
 model ImportSource {

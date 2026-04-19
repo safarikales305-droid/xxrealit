@@ -24,6 +24,8 @@ import { PatchUserCreditDto } from './dto/patch-user-credit.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { UpdateImportSourceDto } from './dto/update-import-source.dto';
 import { BulkDisableImportedDto } from './dto/bulk-disable-imported.dto';
+import { BulkImportedBrokerContactsDto } from './dto/bulk-imported-broker-contacts.dto';
+import { ImportedBrokerContactService } from '../imported-broker-contacts/imported-broker-contact.service';
 import { CreateImportSourceDto } from './dto/create-import-source.dto';
 import { BulkImportShortsDraftsDto } from './dto/bulk-import-shorts-drafts.dto';
 import { AdminGuard } from './guards/admin.guard';
@@ -56,6 +58,7 @@ export class AdminController {
   constructor(
     private readonly adminService: AdminService,
     private readonly agentProfileService: AgentProfileService,
+    private readonly importedBrokerContacts: ImportedBrokerContactService,
   ) {}
 
   @Get()
@@ -403,6 +406,115 @@ export class AdminController {
   @Post('import-reality/repair-price-placeholders')
   repairRealityImportedPrices() {
     return this.adminService.repairRealityImportedPricePlaceholders();
+  }
+
+  @Get('broker-contacts')
+  listBrokerContacts(
+    @Query('search') search?: string,
+    @Query('portal') portal?: string,
+    @Query('hasEmail') hasEmail?: string,
+    @Query('hasPhone') hasPhone?: string,
+    @Query('profileCreated') profileCreated?: string,
+    @Query('outreachStatus') outreachStatus?: string,
+    @Query('sort') sort?: string,
+    @Query('skip') skipRaw?: string,
+    @Query('take') takeRaw?: string,
+  ) {
+    const parseBool = (v?: string): boolean | undefined => {
+      if (v === '1' || v === 'true') return true;
+      if (v === '0' || v === 'false') return false;
+      return undefined;
+    };
+    const skip = Number(skipRaw);
+    const take = Number(takeRaw);
+    return this.importedBrokerContacts.list({
+      search: typeof search === 'string' ? search : undefined,
+      portal: typeof portal === 'string' ? portal : undefined,
+      hasEmail: parseBool(hasEmail),
+      hasPhone: parseBool(hasPhone),
+      profileCreated: parseBool(profileCreated),
+      outreachStatus: typeof outreachStatus === 'string' ? outreachStatus : undefined,
+      sort:
+        sort === 'lastSeen_asc' ||
+        sort === 'listings_desc' ||
+        sort === 'listings_asc' ||
+        sort === 'lastSeen_desc'
+          ? sort
+          : 'lastSeen_desc',
+      skip: Number.isFinite(skip) ? skip : 0,
+      take: Number.isFinite(take) ? take : 40,
+    });
+  }
+
+  @Post('broker-contacts/bulk-update')
+  bulkBrokerContacts(
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: BulkImportedBrokerContactsDto,
+  ) {
+    return this.importedBrokerContacts.bulkUpdate(dto.ids, {
+      outreachStatus: dto.outreachStatus,
+      status: dto.status,
+      profileCreated: dto.profileCreated,
+    });
+  }
+
+  @Get('broker-contacts/export')
+  async exportBrokerContactsCsv(
+    @Res() res: Response,
+    @Query('search') search?: string,
+    @Query('portal') portal?: string,
+    @Query('hasEmail') hasEmail?: string,
+    @Query('hasPhone') hasPhone?: string,
+    @Query('profileCreated') profileCreated?: string,
+    @Query('outreachStatus') outreachStatus?: string,
+  ) {
+    const parseBool = (v?: string): boolean | undefined => {
+      if (v === '1' || v === 'true') return true;
+      if (v === '0' || v === 'false') return false;
+      return undefined;
+    };
+    const rows = await this.importedBrokerContacts.listForExport({
+      search: typeof search === 'string' ? search : undefined,
+      portal: typeof portal === 'string' ? portal : undefined,
+      hasEmail: parseBool(hasEmail),
+      hasPhone: parseBool(hasPhone),
+      profileCreated: parseBool(profileCreated),
+      outreachStatus: typeof outreachStatus === 'string' ? outreachStatus : undefined,
+      sort: 'lastSeen_desc',
+    });
+    const svc = this.importedBrokerContacts;
+    const lines = [svc.csvHeader(), ...rows.map((r) => svc.toCsvRow(r))];
+    const body = `\uFEFF${lines.join('\n')}\n`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="imported-broker-contacts.csv"',
+    );
+    res.send(body);
+  }
+
+  @Get('broker-contacts/:id')
+  getBrokerContact(@Param('id') id: string) {
+    return this.importedBrokerContacts.getOne(id);
+  }
+
+  @Patch('broker-contacts/:id')
+  patchBrokerContact(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      notes?: string | null;
+      outreachStatus?: string | null;
+      outreachNote?: string | null;
+      status?: string | null;
+      profileCreated?: boolean;
+      invitedAt?: string | null;
+      fullName?: string | null;
+      companyName?: string | null;
+      website?: string | null;
+    },
+  ) {
+    return this.importedBrokerContacts.patch(id, body);
   }
 
   @Patch('password')

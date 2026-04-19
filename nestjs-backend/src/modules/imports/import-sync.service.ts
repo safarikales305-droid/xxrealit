@@ -70,6 +70,7 @@ import { parseRealityCzScraperSettings } from './reality-cz-scraper-settings';
 import { normalizeStoredImageUrlList } from './import-image-urls';
 import { ImportImageService } from './import-image.service';
 import { ListingWatermarkSettingsService } from '../properties/listing-watermark-settings.service';
+import { ImportedBrokerContactService } from '../imported-broker-contacts/imported-broker-contact.service';
 import {
   DEFAULT_REALITY_BYTY_START_URL,
   getDefaultRealityStartUrlForCategoryKey,
@@ -217,6 +218,7 @@ export class ImportSyncService {
     private readonly scraperImporter: RealityCzScraperImporter,
     private readonly importImageService: ImportImageService,
     private readonly watermarkSettings: ListingWatermarkSettingsService,
+    private readonly importedBrokerContacts: ImportedBrokerContactService,
   ) {}
 
   async ensureDefaultSources() {
@@ -1465,6 +1467,7 @@ export class ImportSyncService {
           importedNew += 1;
           // eslint-disable-next-line no-console
           console.log('[IMPORT]', externalId, (row.title ?? '').slice(0, 80), 'CREATED');
+          void this.importedBrokerContacts.syncFromImportedProperty(created.id);
           continue;
         }
 
@@ -1561,6 +1564,7 @@ export class ImportSyncService {
         importedUpdated += 1;
         // eslint-disable-next-line no-console
         console.log('[IMPORT]', externalId, (row.title ?? '').slice(0, 80), 'UPDATED');
+        void this.importedBrokerContacts.syncFromImportedProperty(updated.id);
       } catch (error: unknown) {
         skipped += 1;
         errors.push(error instanceof Error ? error.message : 'Neznámá chyba řádku');
