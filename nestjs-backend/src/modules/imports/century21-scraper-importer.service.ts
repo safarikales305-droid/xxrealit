@@ -100,9 +100,11 @@ function normalizeDetailUrl(raw: string): string | null {
     if (!u.hostname.toLowerCase().endsWith('century21.cz')) return null;
     if (!u.pathname.toLowerCase().includes('/nemovitosti/')) return null;
     const id = u.searchParams.get('id');
-    if (!id || !UUID_RE.test(id)) return null;
+    if (id && !UUID_RE.test(id)) return null;
     u.hash = '';
-    u.searchParams.set('id', id.toLowerCase());
+    if (id) {
+      u.searchParams.set('id', id.toLowerCase());
+    }
     return u.href;
   } catch {
     return null;
@@ -111,9 +113,14 @@ function normalizeDetailUrl(raw: string): string | null {
 
 function externalIdFromDetailUrl(url: string): string | null {
   try {
-    const id = new URL(url).searchParams.get('id');
-    if (!id || !UUID_RE.test(id)) return null;
-    return id.toUpperCase();
+    const parsed = new URL(url);
+    const id = parsed.searchParams.get('id');
+    if (id && UUID_RE.test(id)) return id.toUpperCase();
+    const slug = parsed.pathname.split('/').filter(Boolean).pop()?.trim() ?? '';
+    if (slug) {
+      return `C21-${slug.replace(/[^a-zA-Z0-9]+/g, '-').toUpperCase().slice(0, 56)}`;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -156,7 +163,6 @@ function extractHrefDetailUrls(html: string): string[] {
     const h = m[1]?.trim();
     if (!h || h.startsWith('#') || /^javascript:/i.test(h)) continue;
     if (!/\/nemovitosti\//i.test(h)) continue;
-    if (!/[?&]id=[0-9a-f-]{36}/i.test(h)) continue;
     try {
       const abs = new URL(h, 'https://www.century21.cz').href;
       const n = normalizeDetailUrl(abs);
@@ -172,6 +178,15 @@ function extractAbsoluteDetailUrls(html: string): string[] {
   const out: string[] = [];
   for (const m of html.matchAll(/https:\/\/www\.century21\.cz\/nemovitosti\/[^"'\\\s<>]+/gi)) {
     const n = normalizeDetailUrl(m[0]);
+    if (n) out.push(n);
+  }
+  for (const m of html.matchAll(/https:\\\/\\\/www\.century21\.cz\\\/nemovitosti\\\/[^"'\\\s<>]+/gi)) {
+    const unescaped = m[0].replace(/\\\//g, '/');
+    const n = normalizeDetailUrl(unescaped);
+    if (n) out.push(n);
+  }
+  for (const m of html.matchAll(/\/nemovitosti\/[^"'\\\s<>]+/gi)) {
+    const n = normalizeDetailUrl(`https://www.century21.cz${m[0]}`);
     if (n) out.push(n);
   }
   return out;
@@ -346,11 +361,68 @@ function parseDetailParameters(html: string): Record<string, string> {
 function parseDetailHtml(html: string): Partial<ImportedListingDraft> {
   const out: Partial<ImportedListingDraft> = {};
   try {
+    const jsonBodies = [
+      ...Array.from(
+        html.matchAll(
+          /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+        ),
+      ).map((m) => m[1] ?? ''),
+      ...Array.from(html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi))
+        .map((m) => m[1] ?? '')
+        .filter((s) => /"@type"|"description"|"offers"|"price"|"telephone"|"email"/i.test(s)),
+    ];
+    const jsonPool: Array<Record<string, unknown>> = [];
+    for (const body of jsonBodies) {
+      const t = body.trim();
+      if (!t) continue;
+      try {
+        const parsed = JSON.parse(t) as unknown;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          jsonPool.push(parsed as Record<string, unknown>);
+        } else if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (item && typeof item === 'object' && !Array.isArray(item)) {
+              jsonPool.push(item as Record<string, unknown>);
+            }
+          }
+        }
+      } catch {
+        /* ignore bad script json */
+      }
+    }
+    const pickJsonString = (
+      key: string,
+      nestedKey?: string,
+    ): string | null => {
+      for (const item of jsonPool) {
+        const direct = item[key];
+        if (typeof direct === 'string' && direct.trim()) return direct.trim();
+        if (nestedKey && direct && typeof direct === 'object' && !Array.isArray(direct)) {
+          const nested = (direct as Record<string, unknown>)[nestedKey];
+          if (typeof nested === 'string' && nested.trim()) return nested.trim();
+        }
+      }
+      return null;
+    };
+    const pickJsonPrice = (): string | null => {
+      for (const item of jsonPool) {
+        const direct = item.price;
+        if (typeof direct === 'number' || typeof direct === 'string') return String(direct);
+        const offers = item.offers;
+        if (offers && typeof offers === 'object' && !Array.isArray(offers)) {
+          const p = (offers as Record<string, unknown>).price;
+          if (typeof p === 'number' || typeof p === 'string') return String(p);
+        }
+      }
+      return null;
+    };
+
     const ogTitle =
       html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1] ??
       html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i)?.[1];
     const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1];
-    const title = cleanText(ogTitle) ?? cleanText(h1);
+    const jsonTitle = pickJsonString('name');
+    const title = cleanText(jsonTitle ?? ogTitle) ?? cleanText(h1);
     if (title) out.title = title.slice(0, 400);
 
     const descBlock =
@@ -359,24 +431,31 @@ function parseDetailHtml(html: string): Partial<ImportedListingDraft> {
     const desc = descBlock ? stripTags(descBlock).slice(0, 60_000) : null;
     if (desc && desc.length > 40) out.description = desc;
 
-    const priceStr = html.match(/(\d[\d\s\u00a0.\u202f]{3,})\s*(?:Kč|CZK)/i)?.[1];
+    const priceStr = pickJsonPrice() ?? html.match(/(\d[\d\s\u00a0.\u202f]{3,})\s*(?:Kč|CZK)/i)?.[1] ?? null;
     const priceParsed = priceStr ? normalizeListPrice(priceStr) : null;
     if (priceParsed != null) out.price = priceParsed;
 
     out.images = extractGalleryImagesFromDetailHtml(html);
 
-    const mail = html.match(/mailto:([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i)?.[1];
+    const jsonEmail = pickJsonString('email');
+    const mail = jsonEmail ?? html.match(/mailto:([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i)?.[1];
     if (mail) out.contactEmail = mail.toLowerCase().slice(0, 120);
 
+    const jsonTel = pickJsonString('telephone') ?? pickJsonString('seller', 'telephone');
     const tel =
+      jsonTel ??
       html.match(/href=["']tel:([+0-9\s\u00a0()-]{9,40})["']/i)?.[1] ??
       html.match(/\+420[\s\u00a0]*[0-9]{3}[\s\u00a0]*[0-9]{3}[\s\u00a0]*[0-9]{3}/)?.[0];
     if (tel) out.contactPhone = tel.replace(/\s+/g, ' ').trim().slice(0, 40);
 
+    const jsonBrokerName = pickJsonString('seller', 'name') ?? pickJsonString('agent', 'name');
     const brokerSection = html.match(
       /(?:makléř|makler|Makléř)[\s\S]{0,2000}?(\b[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ][a-záčďéěíňóřšťúůýž]+(?:\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ][a-záčďéěíňóřšťúůýž]+){1,3}\b)/i,
     )?.[1];
-    if (brokerSection) out.contactName = cleanText(brokerSection)?.slice(0, 120) ?? undefined;
+    const brokerNameResolved = jsonBrokerName ?? brokerSection ?? null;
+    if (brokerNameResolved) {
+      out.contactName = cleanText(brokerNameResolved)?.slice(0, 120) ?? undefined;
+    }
 
     const office =
       html.match(

@@ -157,6 +157,14 @@ export function ImportBranchRow({
               přeskočeno {lastImportDebug.skipped ?? 0}, neplatných {lastImportDebug.skippedInvalid ?? 0}, selhalo{' '}
               {lastImportDebug.failed ?? 0}
             </div>
+            {lastImportDebug.stats && typeof lastImportDebug.stats === 'object' ? (
+              <div className="text-[10px] text-zinc-600">
+                Detaily {Number(lastImportDebug.stats.detailFetchesCompleted ?? 0)} /{' '}
+                {Number(lastImportDebug.stats.detailFetchesAttempted ?? 0)}, makléři +{Number(lastImportDebug.stats.brokersCreated ?? 0)} / upd{' '}
+                {Number(lastImportDebug.stats.brokersUpdated ?? 0)}, fotky {Number(lastImportDebug.stats.imagesDownloaded ?? lastImportDebug.stats.imagesMirrored ?? 0)}, deaktivováno{' '}
+                {Number(lastImportDebug.stats.deactivated ?? 0)}
+              </div>
+            ) : null}
             <button
               type="button"
               onClick={() => setLogOpen(true)}

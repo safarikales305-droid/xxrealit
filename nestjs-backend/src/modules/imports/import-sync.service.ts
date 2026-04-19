@@ -1015,6 +1015,11 @@ export class ImportSyncService {
       });
       scraperMeta = sm;
       const totalFoundListings = rows.length;
+      if (ctx.method === ListingImportMethod.scraper && totalFoundListings === 0) {
+        throw new BadRequestException(
+          'LIST_PARSE_NO_RESULTS: Parser výpisu nenašel žádné URL inzerátů. Zkontrolujte start URL výpisu a selektory parseru.',
+        );
+      }
       emitProgress({
         totalListings: rows.length,
         message: `Nalezeno ${rows.length} inzerátů ve výpisu…`,
@@ -1086,6 +1091,15 @@ export class ImportSyncService {
                 },
               });
         rowsForDb = enr.rows;
+        if (
+          ctx.portal === ListingImportPortal.century21_cz &&
+          enr.detailFetchesAttempted > 0 &&
+          enr.detailFetchesCompleted === 0
+        ) {
+          throw new BadRequestException(
+            'DETAIL_PARSE_FAILED: Detaily se nepodařilo načíst ani jednou. Import byl zastaven, aby neproběhl pseudo-import.',
+          );
+        }
         if (scraperMeta) {
           scraperMeta = {
             ...scraperMeta,
@@ -1118,6 +1132,13 @@ export class ImportSyncService {
       }
 
       result = await this.importListingShells(ctx, actorUserId, rowsForDb, emitProgress);
+      let deactivated = 0;
+      if (ctx.method === ListingImportMethod.scraper) {
+        deactivated = await this.deactivateMissingImportedListings(ctx, rowsForDb);
+        if (deactivated > 0) {
+          this.logger.log(`Import deactivate sync: source=${ctx.sourceName} deactivated=${deactivated}`);
+        }
+      }
 
       const warnings = [...(result.warnings ?? [])];
       if (ctx.method === ListingImportMethod.scraper && scraperMeta) {
@@ -1154,6 +1175,11 @@ export class ImportSyncService {
           `žádné změny v DB (nové 0, aktualizované 0, přeskočeno ${result.skipped}, selhalo ${failedN}, ručně vypnuté ${result.disabled})`,
         );
       }
+      if (!errorMessage && result.importedNew === 0 && result.importedUpdated === 0) {
+        warnings.push(
+          'ZERO_IMPORT_RESULT: Import doběhl bez vytvoření/aktualizace inzerátu. Zkontrolujte výpis, detail parser nebo validaci dat.',
+        );
+      }
       if (warnings.length) {
         summaryParts.push(`Varování: ${warnings.join(' | ')}`);
       }
@@ -1182,6 +1208,8 @@ export class ImportSyncService {
         brokersCreated: result.stats?.brokersCreated ?? 0,
         brokersUpdated: result.stats?.brokersUpdated ?? 0,
         imagesMirrored: result.stats?.imagesMirrored ?? 0,
+        imagesDownloaded: result.stats?.imagesMirrored ?? 0,
+        deactivated,
       };
       this.logger.log(
         `Import summary: totalFound=${totalFoundListings} processed=${totalFoundListings} new=${result.importedNew} updated=${result.importedUpdated} skipped=${result.skipped} skippedInvalid=${result.skippedInvalid ?? 0} failed=${result.failed ?? 0} errorLines=${result.errors.length} brokersCreated=${result.stats.brokersCreated ?? 0} brokersUpdated=${result.stats.brokersUpdated ?? 0} imagesMirrored=${result.stats.imagesMirrored ?? 0} durationMs=${durationMs}`,
@@ -1562,6 +1590,32 @@ export class ImportSyncService {
         importDisabled: false,
       },
     });
+  }
+
+  /**
+   * Označí dříve importované záznamy jako neaktivní, pokud už se v aktuálním běhu neobjevily.
+   * Fyzicky nemažeme, jen synchronizujeme aktivitu vůči aktuálnímu výpisu portálu.
+   */
+  private async deactivateMissingImportedListings(
+    ctx: ImportExecutionContext,
+    rows: ImportedListingDraft[],
+  ): Promise<number> {
+    const seen = rows
+      .map((r) => (r.sourceUrl ?? '').trim())
+      .filter((u): u is string => !!u);
+    if (seen.length === 0) return 0;
+    const uniqueSeen = [...new Set(seen)];
+    const upd = await this.prisma.property.updateMany({
+      where: {
+        importSource: ctx.portal,
+        importMethod: ctx.method,
+        importDisabled: false,
+        isActive: true,
+        importSourceUrl: { notIn: uniqueSeen },
+      },
+      data: { isActive: false, lastSyncedAt: new Date() },
+    });
+    return upd.count;
   }
 
   /** Bezpečné hodnoty pro Prisma create/update — žádné undefined na povinných polích. */

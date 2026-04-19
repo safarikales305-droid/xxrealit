@@ -124,6 +124,10 @@ export type ImportRunResult = {
     brokersUpdated?: number;
     /** Délka běhu importu v ms (od startu runWithLogging do výsledku). */
     durationMs?: number;
+    /** Počet deaktivovaných dříve importovaných inzerátů, které už nejsou ve výpisu. */
+    deactivated?: number;
+    /** Alias pro admin report: počet stažených/zrcadlených obrázků během běhu. */
+    imagesDownloaded?: number;
     importFailed?: number;
     importSkippedInvalid?: number;
   };
