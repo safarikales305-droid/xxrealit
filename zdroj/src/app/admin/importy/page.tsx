@@ -265,6 +265,8 @@ export default function AdminImportsPage() {
       const portalEnum =
         portalKey === 'reality_cz'
           ? 'reality_cz'
+          : portalKey === 'century21_cz'
+            ? 'century21_cz'
           : portalKey === 'xml_feed'
             ? 'xml_feed'
             : portalKey === 'csv_feed'

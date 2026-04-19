@@ -7,6 +7,7 @@ import { ImportSyncService } from './import-sync.service';
 import { RealityCzSoapClientService } from './reality-cz-soap-client.service';
 import { RealityCzSoapImporter } from './reality-cz-soap-importer.service';
 import { RealityCzScraperImporter } from './reality-cz-scraper-importer.service';
+import { Century21ScraperImporter } from './century21-scraper-importer.service';
 
 @Module({
   imports: [PropertiesModule, UploadModule, ImportedBrokerContactsModule],
@@ -16,6 +17,7 @@ import { RealityCzScraperImporter } from './reality-cz-scraper-importer.service'
     RealityCzSoapClientService,
     RealityCzSoapImporter,
     RealityCzScraperImporter,
+    Century21ScraperImporter,
   ],
   exports: [ImportSyncService, ImportedBrokerContactsModule],
 })

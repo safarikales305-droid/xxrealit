@@ -80,6 +80,7 @@ enum ListingImportMethod {
 
 enum ListingImportPortal {
   reality_cz
+  century21_cz
   xml_feed
   csv_feed
   other

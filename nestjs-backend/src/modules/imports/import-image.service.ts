@@ -28,7 +28,12 @@ export function shouldMirrorRealityImportedImageUrl(url: string): boolean {
   if (!n) return false;
   const h = hostnameOf(n);
   if (!h) return false;
-  return h === 'reality.cz' || h.endsWith('.reality.cz');
+  return (
+    h === 'reality.cz' ||
+    h.endsWith('.reality.cz') ||
+    h.endsWith('century21.cz') ||
+    h.includes('igluu.cz')
+  );
 }
 
 function safeFileBasePart(value: string): string {

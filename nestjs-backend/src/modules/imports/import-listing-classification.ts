@@ -70,6 +70,8 @@ export function portalKeyLabelForEnum(portal: ListingImportPortal): {
   switch (portal) {
     case ListingImportPortal.reality_cz:
       return { sourcePortalKey: 'reality_cz', sourcePortalLabel: 'Reality.cz' };
+    case ListingImportPortal.century21_cz:
+      return { sourcePortalKey: 'century21_cz', sourcePortalLabel: 'CENTURY 21' };
     case ListingImportPortal.xml_feed:
       return { sourcePortalKey: 'xml_feed', sourcePortalLabel: 'XML feed' };
     case ListingImportPortal.csv_feed:

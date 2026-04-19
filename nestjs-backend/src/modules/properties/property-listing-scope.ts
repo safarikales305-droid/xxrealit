@@ -30,21 +30,26 @@ export const classicListingWhere: Prisma.PropertyWhereInput = {
  * Staré / rozbité Reality.cz importy (bez fotky nebo s podezřelou cenou pod 1000 Kč)
  * nepatří na homepage — zůstanou v DB pro admina, ale veřejný feed je skryje.
  */
+const brokenImportPortalUrls: Prisma.PropertyWhereInput = {
+  OR: [
+    { images: { equals: [] } },
+    { AND: [{ price: { not: null } }, { price: { lt: 1000 } }] },
+    { importSourceUrl: null },
+    { importSourceUrl: '' },
+    { importSourceUrl: 'https://www.reality.cz/' },
+    { importSourceUrl: 'https://reality.cz/' },
+  ],
+};
+
 const hideBrokenRealityImports: Prisma.PropertyWhereInput = {
   NOT: {
-    AND: [
-      { importSource: ListingImportPortal.reality_cz },
-      {
-        OR: [
-          { images: { equals: [] } },
-          { AND: [{ price: { not: null } }, { price: { lt: 1000 } }] },
-          { importSourceUrl: null },
-          { importSourceUrl: '' },
-          { importSourceUrl: 'https://www.reality.cz/' },
-          { importSourceUrl: 'https://reality.cz/' },
-        ],
-      },
-    ],
+    AND: [{ importSource: ListingImportPortal.reality_cz }, brokenImportPortalUrls],
+  },
+};
+
+const hideBrokenCentury21Imports: Prisma.PropertyWhereInput = {
+  NOT: {
+    AND: [{ importSource: ListingImportPortal.century21_cz }, brokenImportPortalUrls],
   },
 };
 
@@ -58,6 +63,7 @@ export const classicPublicListingWhere: Prisma.PropertyWhereInput = {
     /** Ručně vypnutý import — i kdyby zůstalo isActive true, neveřejný výpis. */
     { importDisabled: false },
     hideBrokenRealityImports,
+    hideBrokenCentury21Imports,
   ],
 };
 

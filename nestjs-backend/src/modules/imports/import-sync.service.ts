@@ -71,6 +71,11 @@ import {
   RealityCzScraperImporter,
   type RealityCzScraperFetchOutcome,
 } from './reality-cz-scraper-importer.service';
+import {
+  Century21ScraperImporter,
+  isValidCentury21ListingStartUrl,
+  type Century21ScraperFetchMeta,
+} from './century21-scraper-importer.service';
 import { parseRealityCzScraperSettings } from './reality-cz-scraper-settings';
 import { normalizeStoredImageUrlList } from './import-image-urls';
 import { ImportImageService } from './import-image.service';
@@ -165,6 +170,8 @@ function portalMetaFor(portal: ListingImportPortal): PortalMeta {
   switch (portal) {
     case ListingImportPortal.reality_cz:
       return { portalKey: 'reality_cz', portalLabel: 'Reality.cz' };
+    case ListingImportPortal.century21_cz:
+      return { portalKey: 'century21_cz', portalLabel: 'CENTURY 21' };
     case ListingImportPortal.xml_feed:
       return { portalKey: 'xml_feed', portalLabel: 'XML feed' };
     case ListingImportPortal.csv_feed:
@@ -213,6 +220,25 @@ function defaultRealityScraperSettingsJson(startUrl: string): Prisma.InputJsonOb
   };
 }
 
+/** Výchozí výpis (Pardubický / domy / prodej) — lze v administraci změnit. */
+const DEFAULT_CENTURY21_LISTING_START_URL =
+  'https://www.century21.cz/nemovitosti?filter=%7B%22regions%22%3A%5B%22Pardubick%C3%BD%22%5D%2C%22country%22%3A%5B%5D%2C%22county%22%3A%5B%5D%2C%22district%22%3A%5B%5D%2C%22propertyType%22%3A%5B%22HOUSE%22%5D%2C%22listingType%22%3A%22SALE%22%2C%22isAbroad%22%3Afalse%2C%22construction%22%3A%5B%5D%2C%22disposition%22%3A%5B%5D%2C%22condition%22%3A%5B%5D%2C%22ownershipType%22%3A%5B%5D%2C%22energy%22%3A%5B%5D%7D';
+
+function defaultCentury21ScraperSettingsJson(startUrl: string): Prisma.InputJsonObject {
+  return {
+    startUrl,
+    scraperListOnlyImport: false,
+    scraperRequestDelayMs: 950,
+    scraperDetailConcurrency: 2,
+    scraperDetailRequestGapMs: 650,
+    scraperMaxRetries: 6,
+    scraperBackoffMultiplier: 2,
+    scraperBaseBackoffMsOn429: 14_000,
+    scraperMaxListingPages: 40,
+    scraperMaxDetailFetchesPerRun: 500,
+  };
+}
+
 function initialImportRunLive(startedAt: string): ImportRunLiveState {
   return {
     running: true,
@@ -248,6 +274,7 @@ export class ImportSyncService {
     private readonly prisma: PrismaService,
     private readonly soapImporter: RealityCzSoapImporter,
     private readonly scraperImporter: RealityCzScraperImporter,
+    private readonly century21ScraperImporter: Century21ScraperImporter,
     private readonly importImageService: ImportImageService,
     private readonly watermarkSettings: ListingWatermarkSettingsService,
     private readonly importedBrokerContacts: ImportedBrokerContactService,
@@ -359,6 +386,21 @@ export class ImportSyncService {
       sortOrder: 15,
     });
     await this.ensureDefaultSource({
+      portal: ListingImportPortal.century21_cz,
+      method: ListingImportMethod.scraper,
+      name: 'CENTURY 21 Scraper / Domy Pardubický',
+      portalKey: 'century21_cz',
+      portalLabel: 'CENTURY 21',
+      categoryKey: 'domy',
+      categoryLabel: 'Domy',
+      endpointUrl: DEFAULT_CENTURY21_LISTING_START_URL,
+      intervalMinutes: 180,
+      limitPerRun: 150,
+      enabled: false,
+      settingsJson: defaultCentury21ScraperSettingsJson(DEFAULT_CENTURY21_LISTING_START_URL),
+      sortOrder: 26,
+    });
+    await this.ensureDefaultSource({
       portal: ListingImportPortal.xml_feed,
       method: ListingImportMethod.xml,
       name: 'XML feed / Obecné',
@@ -462,6 +504,30 @@ export class ImportSyncService {
             categoryLabel,
             name: `Reality.cz Scraper / ${categoryLabel}`,
             sortOrder: s.sortOrder || 10,
+          },
+        });
+        continue;
+      }
+      if (s.method === ListingImportMethod.scraper && s.portal === ListingImportPortal.century21_cz) {
+        const candidate = isValidCentury21ListingStartUrl(startUrl)
+          ? startUrl
+          : DEFAULT_CENTURY21_LISTING_START_URL;
+        const settingsWithStart: Prisma.InputJsonObject = {
+          ...defaultCentury21ScraperSettingsJson(candidate),
+          ...settings,
+          startUrl: candidate,
+        };
+        await this.prisma.importSource.update({
+          where: { id: s.id },
+          data: {
+            endpointUrl: candidate,
+            settingsJson: settingsWithStart,
+            portalKey: portalMeta.portalKey,
+            portalLabel: portalMeta.portalLabel,
+            categoryKey: categoryKey || 'domy',
+            categoryLabel: categoryLabel || 'Domy',
+            name: `CENTURY 21 Scraper / ${categoryLabel || 'Domy'}`,
+            sortOrder: s.sortOrder || 26,
           },
         });
         continue;
@@ -627,7 +693,10 @@ export class ImportSyncService {
       throw new BadRequestException('Větev pro tento portál/kategorii/metodu už existuje.');
     }
     let settings: Prisma.InputJsonObject = asInputJsonObject(input.settingsJson);
-    if (input.method === ListingImportMethod.scraper && input.portal === ListingImportPortal.reality_cz) {
+    if (
+      input.method === ListingImportMethod.scraper &&
+      input.portal === ListingImportPortal.reality_cz
+    ) {
       const candidate = isValidRealityListingUrl(input.endpointUrl ?? '')
         ? (input.endpointUrl ?? '').trim()
         : (getDefaultRealityStartUrlForCategoryKey(categoryKey) ?? DEFAULT_REALITY_BYTY_START_URL);
@@ -638,6 +707,23 @@ export class ImportSyncService {
         startUrl: aligned,
       };
       input.endpointUrl = aligned;
+    }
+    if (
+      input.method === ListingImportMethod.scraper &&
+      input.portal === ListingImportPortal.century21_cz
+    ) {
+      const candidate = (input.endpointUrl ?? '').trim();
+      if (!isValidCentury21ListingStartUrl(candidate)) {
+        throw new BadRequestException(
+          'Start URL scraperu musí být výpisová URL CENTURY 21 (např. https://www.century21.cz/nemovitosti?filter=...).',
+        );
+      }
+      settings = {
+        ...defaultCentury21ScraperSettingsJson(candidate),
+        ...settings,
+        startUrl: candidate,
+      };
+      input.endpointUrl = candidate;
     }
     const created = await this.prisma.importSource.create({
       data: {
@@ -693,6 +779,9 @@ export class ImportSyncService {
     const isRealityScraper =
       current.portal === ListingImportPortal.reality_cz &&
       current.method === ListingImportMethod.scraper;
+    const isCentury21Scraper =
+      current.portal === ListingImportPortal.century21_cz &&
+      current.method === ListingImportMethod.scraper;
     if (patch.endpointUrl !== undefined && !isRealitySoap) {
       data.endpointUrl = patch.endpointUrl ? patch.endpointUrl.trim() : null;
     }
@@ -739,6 +828,32 @@ export class ImportSyncService {
       };
       data.settingsJson = nextSettings;
       data.endpointUrl = aligned;
+    }
+    if (isCentury21Scraper) {
+      const currentSettings = asInputJsonObject(current.settingsJson);
+      const patchSettings = asInputJsonObject(patch.settingsJson);
+      const startFromPatch =
+        typeof patchSettings.startUrl === 'string' ? patchSettings.startUrl.trim() : '';
+      const startFromEndpoint =
+        patch.endpointUrl !== undefined ? (patch.endpointUrl?.trim() ?? '') : '';
+      const startFromCurrent =
+        typeof currentSettings.startUrl === 'string' ? currentSettings.startUrl.trim() : '';
+      const startFromCurrentEndpoint = current.endpointUrl?.trim() ?? '';
+      const resolvedStart =
+        startFromPatch || startFromEndpoint || startFromCurrent || startFromCurrentEndpoint || '';
+      if (!isValidCentury21ListingStartUrl(resolvedStart)) {
+        throw new BadRequestException(
+          'Start URL scraperu musí být výpisová URL CENTURY 21 (stránka /nemovitosti), ne detail inzerátu.',
+        );
+      }
+      const nextSettings: Prisma.InputJsonObject = {
+        ...defaultCentury21ScraperSettingsJson(resolvedStart),
+        ...currentSettings,
+        ...patchSettings,
+        startUrl: resolvedStart,
+      };
+      data.settingsJson = nextSettings;
+      data.endpointUrl = resolvedStart;
     }
     if (data.portalLabel || data.categoryLabel) {
       const portalLabel = (data.portalLabel as string | undefined) ?? current.portalLabel;
@@ -792,7 +907,6 @@ export class ImportSyncService {
         ? Object.keys(ctx.settingsJson as Record<string, unknown>).sort().join(',')
         : '';
     const scraperStartHint =
-      ctx.portal === ListingImportPortal.reality_cz &&
       ctx.method === ListingImportMethod.scraper
         ? ((typeof ctx.settingsJson?.startUrl === 'string' ? ctx.settingsJson.startUrl.trim() : '') ||
             ctx.endpointUrl?.trim() ||
@@ -870,7 +984,7 @@ export class ImportSyncService {
 
     let result: ImportRunResult | null = null;
     let errorMessage: string | null = null;
-    let scraperMeta: RealityCzScraperFetchOutcome['meta'] | undefined;
+    let scraperMeta: RealityCzScraperFetchOutcome['meta'] | Century21ScraperFetchMeta | undefined;
     try {
       emitProgress({
         percent: 1,
@@ -911,7 +1025,6 @@ export class ImportSyncService {
       const settings = parseRealityCzScraperSettings(ctx.settingsJson);
       let rowsForDb = rows;
       if (
-        ctx.portal === ListingImportPortal.reality_cz &&
         ctx.method === ListingImportMethod.scraper &&
         !settings.listOnlyImport &&
         settings.maxDetailFetchesPerRun > 0 &&
@@ -924,29 +1037,54 @@ export class ImportSyncService {
           message: 'Stahuji detail každého inzerátu (fotky, cena, popis)…',
         });
         let plannedDetailSlotsForProgress = 0;
-        const enr = await this.scraperImporter.enrichDraftsWithDetailsBatched(rows, settings, {
-          onPlanned: (n) => {
-            plannedDetailSlotsForProgress = n;
-            emitProgress({
-              totalDetails: n,
-              phase: 'details',
-              message:
-                n > 0
-                  ? `Detaily: až ${n} stránek paralelně, poté zápis do databáze…`
-                  : 'Žádné URL detailů — import jen z výpisu.',
-            });
-          },
-          onTick: (tick) => {
-            const denom = Math.max(1, plannedDetailSlotsForProgress);
-            const frac = Math.min(1, tick.detailFetchesCompleted / denom);
-            emitProgress({
-              phase: 'details',
-              processedDetails: tick.detailFetchesCompleted,
-              percent: 12 + Math.floor(frac * 78),
-              message: tick.message,
-            });
-          },
-        });
+        const enr =
+          ctx.portal === ListingImportPortal.century21_cz
+            ? await this.century21ScraperImporter.enrichDraftsWithDetailsBatched(rows, settings, {
+                onPlanned: (n) => {
+                  plannedDetailSlotsForProgress = n;
+                  emitProgress({
+                    totalDetails: n,
+                    phase: 'details',
+                    message:
+                      n > 0
+                        ? `Detaily: až ${n} stránek paralelně, poté zápis do databáze…`
+                        : 'Žádné URL detailů — import jen z výpisu.',
+                  });
+                },
+                onTick: (tick) => {
+                  const denom = Math.max(1, plannedDetailSlotsForProgress);
+                  const frac = Math.min(1, tick.detailFetchesCompleted / denom);
+                  emitProgress({
+                    phase: 'details',
+                    processedDetails: tick.detailFetchesCompleted,
+                    percent: 12 + Math.floor(frac * 78),
+                    message: tick.message,
+                  });
+                },
+              })
+            : await this.scraperImporter.enrichDraftsWithDetailsBatched(rows, settings, {
+                onPlanned: (n) => {
+                  plannedDetailSlotsForProgress = n;
+                  emitProgress({
+                    totalDetails: n,
+                    phase: 'details',
+                    message:
+                      n > 0
+                        ? `Detaily: až ${n} stránek paralelně, poté zápis do databáze…`
+                        : 'Žádné URL detailů — import jen z výpisu.',
+                  });
+                },
+                onTick: (tick) => {
+                  const denom = Math.max(1, plannedDetailSlotsForProgress);
+                  const frac = Math.min(1, tick.detailFetchesCompleted / denom);
+                  emitProgress({
+                    phase: 'details',
+                    processedDetails: tick.detailFetchesCompleted,
+                    percent: 12 + Math.floor(frac * 78),
+                    message: tick.message,
+                  });
+                },
+              });
         rowsForDb = enr.rows;
         if (scraperMeta) {
           scraperMeta = {
@@ -966,7 +1104,7 @@ export class ImportSyncService {
       } else {
         const skipMsg =
           ctx.method !== ListingImportMethod.scraper
-            ? 'Metoda bez HTTP detailů Reality scraperu.'
+            ? 'Metoda bez HTTP detail scraperu.'
             : settings.listOnlyImport || settings.maxDetailFetchesPerRun <= 0
               ? 'Bez detailů (jen výpis nebo limit detailů 0).'
               : 'Bez fáze detailů.';
@@ -996,7 +1134,10 @@ export class ImportSyncService {
           warnings.push(msg);
           this.logger.warn(msg);
         }
-        const pageHint = this.describeListingPageMismatch(scraperMeta.finalUrl);
+        const pageHint =
+          ctx.portal === ListingImportPortal.reality_cz
+            ? this.describeListingPageMismatch(scraperMeta.finalUrl)
+            : null;
         if (pageHint) {
           warnings.push(pageHint);
           this.logger.warn(pageHint);
@@ -1082,7 +1223,8 @@ export class ImportSyncService {
         ctx.method === ListingImportMethod.scraper &&
         /429|Too Many Requests/i.test(errorMessage)
       ) {
-        errorMessage = `Web Reality.cz blokuje příliš rychlé dotazy (HTTP 429). V administraci Importy zvětšete prodlevu mezi požadavky, snižte počet detailů na běh nebo nechte zapnutý režim „jen výpis“. Technická hláška: ${errorMessage}`;
+        const portalLabel = ctx.portal === ListingImportPortal.century21_cz ? 'CENTURY 21' : 'Reality.cz';
+        errorMessage = `Web ${portalLabel} blokuje příliš rychlé dotazy (HTTP 429). V administraci Importy zvětšete prodlevu mezi požadavky, snižte počet detailů na běh nebo nechte zapnutý režim „jen výpis“. Technická hláška: ${errorMessage}`;
       }
       this.logger.error(`Import ${ctx.portal}/${ctx.method} failed: ${errorMessage}`);
       emitProgress({
@@ -1243,6 +1385,28 @@ export class ImportSyncService {
     return resolveRealityScraperStartUrlForCategory(candidate, categoryKey);
   }
 
+  private resolveCentury21ScraperStartUrl(ctx: ImportExecutionContext): string {
+    const fromSettings =
+      ctx.settingsJson &&
+      typeof ctx.settingsJson.startUrl === 'string' &&
+      ctx.settingsJson.startUrl.trim()
+        ? ctx.settingsJson.startUrl.trim()
+        : '';
+    const fromEndpoint = ctx.endpointUrl?.trim() ?? '';
+    const candidate = fromSettings || fromEndpoint;
+    if (!candidate) {
+      throw new BadRequestException(
+        'Zadejte start URL pro scraper CENTURY 21 (výpis /nemovitosti?filter=...).',
+      );
+    }
+    if (!isValidCentury21ListingStartUrl(candidate)) {
+      throw new BadRequestException(
+        'Invalid import URL — použijte výpisovou URL CENTURY 21 (/nemovitosti?filter=...), nikoliv detail inzerátu.',
+      );
+    }
+    return candidate;
+  }
+
   /** Povolen je konkrétní výpis (prodej/pronájem/typ nemovitosti/search), root homepage je zakázaná. */
   private realityScraperUrlLooksLikeListingPage(url: string): boolean {
     try {
@@ -1273,12 +1437,12 @@ export class ImportSyncService {
     onProgress?: (e: Partial<ImportRunProgressPayload>) => void,
   ): Promise<{
     rows: ImportedListingDraft[];
-    scraperMeta?: RealityCzScraperFetchOutcome['meta'];
+    scraperMeta?: RealityCzScraperFetchOutcome['meta'] | Century21ScraperFetchMeta;
   }> {
-    if (ctx.portal !== ListingImportPortal.reality_cz) {
-      throw new BadRequestException('Aktuálně je implementovaný Reality.cz import');
-    }
     if (ctx.method === ListingImportMethod.soap) {
+      if (ctx.portal !== ListingImportPortal.reality_cz) {
+        throw new BadRequestException('SOAP je podporovaný jen pro Reality.cz.');
+      }
       if (!this.soapImporter.supportsConfiguredRun()) {
         throw new BadRequestException('SOAP není nakonfigurovaný (REALITY_CZ_* env)');
       }
@@ -1288,15 +1452,29 @@ export class ImportSyncService {
       return { rows };
     }
     if (ctx.method === ListingImportMethod.scraper) {
-      const startUrl = this.resolveRealityCzScraperStartUrl(ctx);
-      this.logger.log(`Reality.cz scraper: používám start URL ${startUrl}`);
-      const outcome = await this.scraperImporter.fetch(
-        ctx.limitPerRun,
-        startUrl,
-        ctx.settingsJson,
-        onProgress,
-      );
-      return { rows: outcome.rows, scraperMeta: outcome.meta };
+      if (ctx.portal === ListingImportPortal.reality_cz) {
+        const startUrl = this.resolveRealityCzScraperStartUrl(ctx);
+        this.logger.log(`Reality.cz scraper: používám start URL ${startUrl}`);
+        const outcome = await this.scraperImporter.fetch(
+          ctx.limitPerRun,
+          startUrl,
+          ctx.settingsJson,
+          onProgress,
+        );
+        return { rows: outcome.rows, scraperMeta: outcome.meta };
+      }
+      if (ctx.portal === ListingImportPortal.century21_cz) {
+        const startUrl = this.resolveCentury21ScraperStartUrl(ctx);
+        this.logger.log(`CENTURY21 scraper: používám start URL ${startUrl}`);
+        const outcome = await this.century21ScraperImporter.fetch(
+          ctx.limitPerRun,
+          startUrl,
+          ctx.settingsJson,
+          onProgress,
+        );
+        return { rows: outcome.rows, scraperMeta: outcome.meta };
+      }
+      throw new BadRequestException(`Portal ${ctx.portal} nemá scraper implementaci.`);
     }
     throw new BadRequestException(`Nepodporovaná metoda importu: ${ctx.method}`);
   }
