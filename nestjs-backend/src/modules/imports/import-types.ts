@@ -50,12 +50,45 @@ export type RawImportedListing = {
   attributes?: unknown;
 };
 
+/** Kategorie chyby u jednoho inzerátu (admin diagnostika). */
+export type ImportErrorCategory =
+  | 'FETCH_ERROR'
+  | 'DETAIL_PARSE_ERROR'
+  | 'IMAGE_DOWNLOAD_ERROR'
+  | 'DB_VALIDATION_ERROR'
+  | 'DB_CONSTRAINT_ERROR'
+  | 'WATERMARK_ERROR'
+  | 'CONTACT_PARSE_ERROR'
+  | 'UNKNOWN';
+
+/** Jedna položka chybového logu importu (JSON pro admin / ImportLog). */
+export type ImportRunItemError = {
+  at: string;
+  externalId: string;
+  sourceUrl?: string | null;
+  title?: string | null;
+  price?: number | null;
+  imagesCount?: number;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  saveStatus: 'failed' | 'skipped_invalid' | 'skipped_disabled' | 'skipped_duplicate';
+  category: ImportErrorCategory;
+  message: string;
+  stack?: string;
+};
+
 export type ImportRunResult = {
   importedNew: number;
   importedUpdated: number;
   skipped: number;
+  /** Řádky, které nešlo uložit kvůli výjimce (odlišné od „přeskočeno“ bez chyby). */
+  failed?: number;
+  /** Neplatný řádek (chybí ID/URL apod.). */
+  skippedInvalid?: number;
   disabled: number;
   errors: string[];
+  /** Strukturovaný log posledních chyb (max. cca 200 položek na běh). */
+  itemErrors?: ImportRunItemError[];
   /** Varování (např. prázdný výsledek, nejspíš špatná URL stránky). */
   warnings?: string[];
   /** Krátká zpráva pro admin UI. */
@@ -91,6 +124,8 @@ export type ImportRunResult = {
     brokersUpdated?: number;
     /** Délka běhu importu v ms (od startu runWithLogging do výsledku). */
     durationMs?: number;
+    importFailed?: number;
+    importSkippedInvalid?: number;
   };
 };
 
@@ -125,6 +160,14 @@ export type ImportRunProgressPayload = {
   updatedCount: number;
   skippedCount: number;
   errorCount: number;
+  failedCount?: number;
+  /** Poslední zpracovaná URL inzerátu (diagnostika zaseknutí). */
+  lastProcessedSourceUrl?: string | null;
+  lastItemErrorMessage?: string | null;
+  lastItemErrorCategory?: ImportErrorCategory | null;
+  lastItemErrorExternalId?: string | null;
+  /** Posledních N položek chyb pro rychlý náhled v adminu. */
+  itemErrorLog?: ImportRunItemError[];
   /** Stejné jako `percent` — pro kompatibilitu se specifikací admin API. */
   progressPercent: number;
   currentMessage: string;
@@ -182,6 +225,12 @@ export type ImportSourceBranchRow = {
     updatedCount?: number;
     skippedCount?: number;
     errorCount?: number;
+    failedCount?: number;
+    lastProcessedSourceUrl?: string | null;
+    lastItemErrorMessage?: string | null;
+    lastItemErrorCategory?: ImportErrorCategory | null;
+    lastItemErrorExternalId?: string | null;
+    itemErrorLog?: ImportRunItemError[];
     progressPercent?: number;
     currentMessage?: string;
   };

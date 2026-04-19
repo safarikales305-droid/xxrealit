@@ -914,6 +914,12 @@ export class AdminService {
           updatedCount: p.updatedCount,
           skippedCount: p.skippedCount,
           errorCount: p.errorCount,
+          failedCount: p.failedCount,
+          lastProcessedSourceUrl: p.lastProcessedSourceUrl,
+          lastItemErrorMessage: p.lastItemErrorMessage,
+          lastItemErrorCategory: p.lastItemErrorCategory,
+          lastItemErrorExternalId: p.lastItemErrorExternalId,
+          itemErrorLog: p.itemErrorLog,
           progressPercent: p.progressPercent,
           currentMessage: p.currentMessage,
         });
@@ -923,11 +929,14 @@ export class AdminService {
         importedNew: result.importedNew,
         importedUpdated: result.importedUpdated,
         skipped: result.skipped,
+        skippedInvalid: result.skippedInvalid,
+        failed: result.failed,
         disabled: result.disabled,
         summary: result.summary ?? null,
         warnings: result.warnings ?? [],
         stats: result.stats ?? null,
         errors: result.errors ?? [],
+        itemErrors: result.itemErrors ?? [],
       });
     } catch (err: unknown) {
       let message = 'Neznámá chyba importu';

@@ -780,6 +780,12 @@ export type AdminImportSourceRow = {
     updatedCount?: number;
     skippedCount?: number;
     errorCount?: number;
+    failedCount?: number;
+    lastProcessedSourceUrl?: string | null;
+    lastItemErrorMessage?: string | null;
+    lastItemErrorCategory?: string | null;
+    lastItemErrorExternalId?: string | null;
+    itemErrorLog?: Array<Record<string, unknown>>;
     progressPercent?: number;
     currentMessage?: string;
   };
@@ -1605,11 +1611,14 @@ export type NestAdminImportRunResult = {
   importedNew?: number;
   importedUpdated?: number;
   skipped?: number;
+  skippedInvalid?: number;
+  failed?: number;
   disabled?: number;
   summary?: string | null;
   warnings?: string[];
   stats?: Record<string, unknown>;
   errors?: string[];
+  itemErrors?: Array<Record<string, unknown>>;
 };
 
 export async function nestAdminRunImportSource(
@@ -1709,10 +1718,29 @@ export type NestAdminImportStreamEvent =
       updatedCount?: number;
       skippedCount?: number;
       errorCount?: number;
+      failedCount?: number;
+      lastProcessedSourceUrl?: string | null;
+      lastItemErrorMessage?: string | null;
+      lastItemErrorCategory?: string | null;
+      lastItemErrorExternalId?: string | null;
+      itemErrorLog?: Array<Record<string, unknown>>;
       progressPercent?: number;
       currentMessage?: string;
     }
-  | { type: 'result'; importedNew?: number; importedUpdated?: number; skipped?: number; disabled?: number; summary?: string | null; warnings?: string[]; stats?: Record<string, unknown>; errors?: string[] }
+  | {
+      type: 'result';
+      importedNew?: number;
+      importedUpdated?: number;
+      skipped?: number;
+      skippedInvalid?: number;
+      failed?: number;
+      disabled?: number;
+      summary?: string | null;
+      warnings?: string[];
+      stats?: Record<string, unknown>;
+      errors?: string[];
+      itemErrors?: Array<Record<string, unknown>>;
+    }
   | { type: 'error'; message: string };
 
 /**
@@ -1772,11 +1800,14 @@ export async function nestAdminRunImportSourceStream(
           importedNew: typeof ev.importedNew === 'number' ? ev.importedNew : 0,
           importedUpdated: typeof ev.importedUpdated === 'number' ? ev.importedUpdated : 0,
           skipped: typeof ev.skipped === 'number' ? ev.skipped : 0,
+          skippedInvalid: typeof ev.skippedInvalid === 'number' ? ev.skippedInvalid : 0,
+          failed: typeof ev.failed === 'number' ? ev.failed : 0,
           disabled: typeof ev.disabled === 'number' ? ev.disabled : 0,
           summary: typeof ev.summary === 'string' ? ev.summary : null,
           warnings: Array.isArray(ev.warnings) ? ev.warnings.filter((x): x is string => typeof x === 'string') : [],
           stats: ev.stats,
           errors: Array.isArray(ev.errors) ? ev.errors.filter((x): x is string => typeof x === 'string') : [],
+          itemErrors: Array.isArray(ev.itemErrors) ? ev.itemErrors : [],
         };
       }
       if (ev.type === 'error') {
@@ -1794,11 +1825,14 @@ export async function nestAdminRunImportSourceStream(
           importedNew: typeof ev.importedNew === 'number' ? ev.importedNew : 0,
           importedUpdated: typeof ev.importedUpdated === 'number' ? ev.importedUpdated : 0,
           skipped: typeof ev.skipped === 'number' ? ev.skipped : 0,
+          skippedInvalid: typeof ev.skippedInvalid === 'number' ? ev.skippedInvalid : 0,
+          failed: typeof ev.failed === 'number' ? ev.failed : 0,
           disabled: typeof ev.disabled === 'number' ? ev.disabled : 0,
           summary: typeof ev.summary === 'string' ? ev.summary : null,
           warnings: Array.isArray(ev.warnings) ? ev.warnings.filter((x): x is string => typeof x === 'string') : [],
           stats: ev.stats,
           errors: Array.isArray(ev.errors) ? ev.errors.filter((x): x is string => typeof x === 'string') : [],
+          itemErrors: Array.isArray(ev.itemErrors) ? ev.itemErrors : [],
         };
       }
       if (ev.type === 'error') streamError = ev.message;

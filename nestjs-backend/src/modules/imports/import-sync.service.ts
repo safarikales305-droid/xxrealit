@@ -3,6 +3,8 @@ import {
   ListingImportMethod,
   ListingImportPortal,
   Prisma,
+  Property,
+  PropertyShortsSourceType,
 } from '@prisma/client';
 import {
   computeShortsSourceForImport,
@@ -53,7 +55,9 @@ function resolveVideoForImportUpdate(
 }
 import { PrismaService } from '../../database/prisma.service';
 import type {
+  ImportErrorCategory,
   ImportExecutionContext,
+  ImportRunItemError,
   ImportSourceBranchRow,
   ImportedListingDraft,
   ImportRunLiveState,
@@ -61,6 +65,7 @@ import type {
   ImportRunResult,
   PortalImportAggregate,
 } from './import-types';
+import { resolveRealityListingExternalId } from './reality-listing-code.util';
 import { RealityCzSoapImporter } from './reality-cz-soap-importer.service';
 import {
   RealityCzScraperImporter,
@@ -78,6 +83,26 @@ import {
 } from './reality-branch-url.util';
 const DEFAULT_CATEGORY_KEY = 'ostatni';
 const DEFAULT_CATEGORY_LABEL = 'Ostatní';
+
+const MAX_ITEM_ERROR_LOG = 200;
+const MAX_ITEM_ERROR_LIVE_TAIL = 40;
+
+function categorizeImportRowError(err: unknown): ImportErrorCategory {
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    if (err.code === 'P2002' || err.code === 'P2003') return 'DB_CONSTRAINT_ERROR';
+    return 'DB_VALIDATION_ERROR';
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/watermark|Cloudinary|cloudinary/i.test(msg)) return 'WATERMARK_ERROR';
+  if (/fetch|ECONNRESET|ETIMEDOUT|network/i.test(msg)) return 'FETCH_ERROR';
+  if (/image|download|sharp|buffer|mime/i.test(msg)) return 'IMAGE_DOWNLOAD_ERROR';
+  if (/contact|email|phone/i.test(msg)) return 'CONTACT_PARSE_ERROR';
+  return 'UNKNOWN';
+}
+
+function errStack(err: unknown): string | undefined {
+  return err instanceof Error && err.stack ? err.stack.slice(0, 4000) : undefined;
+}
 
 type ImportCategoryMeta = {
   categoryKey: string;
@@ -203,6 +228,12 @@ function initialImportRunLive(startedAt: string): ImportRunLiveState {
     updatedCount: 0,
     skippedCount: 0,
     errorCount: 0,
+    failedCount: 0,
+    lastProcessedSourceUrl: null,
+    lastItemErrorMessage: null,
+    lastItemErrorCategory: null,
+    lastItemErrorExternalId: null,
+    itemErrorLog: [],
     progressPercent: 0,
     currentMessage: 'Spouštím…',
   };
@@ -569,6 +600,12 @@ export class ImportSyncService {
             updatedCount: live.updatedCount,
             skippedCount: live.skippedCount,
             errorCount: live.errorCount,
+            failedCount: live.failedCount,
+            lastProcessedSourceUrl: live.lastProcessedSourceUrl,
+            lastItemErrorMessage: live.lastItemErrorMessage,
+            lastItemErrorCategory: live.lastItemErrorCategory,
+            lastItemErrorExternalId: live.lastItemErrorExternalId,
+            itemErrorLog: live.itemErrorLog,
             progressPercent: live.progressPercent,
             currentMessage: live.currentMessage,
           }
@@ -966,13 +1003,14 @@ export class ImportSyncService {
         }
       }
       const summaryParts: string[] = [];
+      const failedN = result.failed ?? 0;
       if (result.importedNew || result.importedUpdated) {
         summaryParts.push(
-          `nové ${result.importedNew}, aktualizované ${result.importedUpdated}, přeskočeno ${result.skipped}, ručně vypnuté ${result.disabled}`,
+          `nové ${result.importedNew}, aktualizované ${result.importedUpdated}, přeskočeno ${result.skipped}, selhalo ${failedN}, ručně vypnuté ${result.disabled}`,
         );
       } else if (!errorMessage) {
         summaryParts.push(
-          `žádné změny v DB (nové 0, aktualizované 0, přeskočeno ${result.skipped}, ručně vypnuté ${result.disabled})`,
+          `žádné změny v DB (nové 0, aktualizované 0, přeskočeno ${result.skipped}, selhalo ${failedN}, ručně vypnuté ${result.disabled})`,
         );
       }
       if (warnings.length) {
@@ -997,7 +1035,7 @@ export class ImportSyncService {
         listingPaginationLog: scraperMeta?.listingPaginationLog,
         scraperSettings: scraperMeta?.settings,
         detailPhaseDbUpdates: result.importedNew + result.importedUpdated,
-        detailPhaseDbErrors: 0,
+        detailPhaseDbErrors: result.failed ?? 0,
         totalFound: totalFoundListings,
         durationMs,
         brokersCreated: result.stats?.brokersCreated ?? 0,
@@ -1005,7 +1043,7 @@ export class ImportSyncService {
         imagesMirrored: result.stats?.imagesMirrored ?? 0,
       };
       this.logger.log(
-        `Import summary: totalFound=${totalFoundListings} processed=${totalFoundListings} new=${result.importedNew} updated=${result.importedUpdated} skipped=${result.skipped} failedRowErrors=${result.errors.length} brokersCreated=${result.stats.brokersCreated ?? 0} brokersUpdated=${result.stats.brokersUpdated ?? 0} imagesMirrored=${result.stats.imagesMirrored ?? 0} durationMs=${durationMs}`,
+        `Import summary: totalFound=${totalFoundListings} processed=${totalFoundListings} new=${result.importedNew} updated=${result.importedUpdated} skipped=${result.skipped} skippedInvalid=${result.skippedInvalid ?? 0} failed=${result.failed ?? 0} errorLines=${result.errors.length} brokersCreated=${result.stats.brokersCreated ?? 0} brokersUpdated=${result.stats.brokersUpdated ?? 0} imagesMirrored=${result.stats.imagesMirrored ?? 0} durationMs=${durationMs}`,
       );
 
       const hasProblem =
@@ -1021,7 +1059,22 @@ export class ImportSyncService {
               : 'ok',
         },
       });
-      emitProgress({ percent: 100, message: 'Import dokončen.', phase: 'done' });
+      emitProgress({
+        percent: 100,
+        message: 'Import dokončen.',
+        phase: 'done',
+        failedCount: result.failed ?? 0,
+        itemErrorLog: result.itemErrors?.slice(-MAX_ITEM_ERROR_LIVE_TAIL) ?? [],
+        lastItemErrorMessage: result.itemErrors?.length
+          ? result.itemErrors[result.itemErrors.length - 1]?.message ?? null
+          : null,
+        lastItemErrorCategory: result.itemErrors?.length
+          ? result.itemErrors[result.itemErrors.length - 1]?.category ?? null
+          : null,
+        lastItemErrorExternalId: result.itemErrors?.length
+          ? result.itemErrors[result.itemErrors.length - 1]?.externalId ?? null
+          : null,
+      });
       return result;
     } catch (error: unknown) {
       errorMessage = error instanceof Error ? error.message : 'Neznámá chyba importu';
@@ -1088,6 +1141,11 @@ export class ImportSyncService {
             summary: result?.stats
               ? (JSON.parse(JSON.stringify(result.stats)) as Prisma.InputJsonValue)
               : null,
+            itemErrors: result?.itemErrors?.length
+              ? (JSON.parse(JSON.stringify(result.itemErrors.slice(-80))) as Prisma.InputJsonValue)
+              : null,
+            failed: result?.failed ?? 0,
+            skippedInvalid: result?.skippedInvalid ?? 0,
           },
         },
       });
@@ -1281,7 +1339,13 @@ export class ImportSyncService {
   private dedupeImportedRows(rows: ImportedListingDraft[]): ImportedListingDraft[] {
     const map = new Map<string, ImportedListingDraft>();
     for (const row of rows) {
-      const id = (row.externalId ?? '').trim().toUpperCase();
+      const id =
+        (row.externalId ?? '').trim().toUpperCase() ||
+        resolveRealityListingExternalId({
+          sourceUrl: row.sourceUrl,
+          externalId: row.externalId,
+        }) ||
+        '';
       if (!id) continue;
       const prev = map.get(id);
       if (
@@ -1293,6 +1357,68 @@ export class ImportSyncService {
       }
     }
     return [...map.values()];
+  }
+
+  /** Najde záznam podle (portál + externalId) nebo podle URL u stejného portálu. */
+  private async findImportPropertyForPersistence(
+    ctx: ImportExecutionContext,
+    externalId: string,
+    sourceUrl?: string | null,
+  ) {
+    const eid = externalId.trim().toUpperCase();
+    const byKey = await this.prisma.property.findUnique({
+      where: {
+        importSource_importExternalId: {
+          importSource: ctx.portal,
+          importExternalId: eid,
+        },
+      },
+    });
+    if (byKey) return byKey;
+    const u = (sourceUrl ?? '').trim();
+    if (!u) return null;
+    return this.prisma.property.findFirst({
+      where: {
+        importSource: ctx.portal,
+        importSourceUrl: u,
+        importDisabled: false,
+      },
+    });
+  }
+
+  /** Bezpečné hodnoty pro Prisma create/update — žádné undefined na povinných polích. */
+  private sanitizeImportedListingDraft(
+    row: ImportedListingDraft,
+    externalId: string,
+  ): ImportedListingDraft {
+    const eid = externalId.trim().toUpperCase();
+    const title =
+      String(row.title ?? '')
+        .trim()
+        .slice(0, 400) || `Inzerát ${eid}`.slice(0, 400);
+    const description =
+      String(row.description ?? '').trim().slice(0, 60_000) ||
+      'Importovaný inzerát — popis doplníme z detailu nebo ručně v administraci.';
+    const city = String(row.city ?? '').trim().slice(0, 120) || 'Neuvedeno';
+    const address = String(row.address ?? '').trim().slice(0, 500) || city;
+    const images = Array.isArray(row.images)
+      ? row.images.filter((u): u is string => typeof u === 'string' && u.trim().length > 4)
+      : [];
+    return {
+      ...row,
+      externalId: eid,
+      title,
+      description,
+      city,
+      address,
+      images,
+      offerType: String(row.offerType ?? 'prodej').trim().slice(0, 40) || 'prodej',
+      propertyType: String(row.propertyType ?? 'byt').trim().slice(0, 40) || 'byt',
+      region: String(row.region ?? '').trim().slice(0, 200),
+      district: String(row.district ?? '').trim().slice(0, 200),
+      contactPhone: String(row.contactPhone ?? '').trim().slice(0, 40),
+      contactEmail: String(row.contactEmail ?? '').trim().toLowerCase().slice(0, 120),
+    };
   }
 
   /**
@@ -1345,11 +1471,31 @@ export class ImportSyncService {
     let importedNew = 0;
     let importedUpdated = 0;
     let skipped = 0;
+    let skippedInvalid = 0;
+    let failed = 0;
     let disabled = 0;
     const errors: string[] = [];
+    const itemErrors: ImportRunItemError[] = [];
     let brokersCreated = 0;
     let brokersUpdated = 0;
     let imagesMirrored = 0;
+
+    const pushItemError = (e: ImportRunItemError) => {
+      itemErrors.push(e);
+      if (itemErrors.length > MAX_ITEM_ERROR_LOG) itemErrors.shift();
+      errors.push(`[${e.category}] ${e.externalId}: ${e.message}`);
+      const tail = itemErrors.slice(-MAX_ITEM_ERROR_LIVE_TAIL);
+      onProgress?.({
+        lastProcessedSourceUrl: e.sourceUrl ?? null,
+        lastItemErrorMessage: e.message,
+        lastItemErrorCategory: e.category,
+        lastItemErrorExternalId: e.externalId,
+        itemErrorLog: tail,
+        errorCount: errors.length,
+        failedCount: failed,
+        skippedCount: skipped,
+      });
+    };
 
     const sliceCap = Math.max(1, Math.min(5000, ctx.limitPerRun));
     const sliced = rows.slice(0, sliceCap);
@@ -1368,6 +1514,8 @@ export class ImportSyncService {
       phase: 'listing',
       totalListings: batch.length,
       processedListings: 0,
+      failedCount: 0,
+      itemErrorLog: [],
       message: `Ukládám ${batch.length} inzerátů do databáze…`,
     });
 
@@ -1396,61 +1544,138 @@ export class ImportSyncService {
     }> = [];
 
     for (let i = 0; i < batch.length; i += 1) {
-      const row = batch[i];
-      try {
-        onProgress?.({
-          phase: 'listing',
-          processedListings: i + 1,
-          totalListings: batch.length,
-          savedCount: importedNew,
-          updatedCount: importedUpdated,
-          skippedCount: skipped,
-          errorCount: errors.length,
-          percent: 10 + Math.floor((30 * (i + 1)) / Math.max(1, batch.length)),
-          message: `Ukládám výpis ${i + 1}/${batch.length}…`,
-        });
-        const externalId = row.externalId.trim().toUpperCase();
-        if (!externalId) {
-          skipped += 1;
-          // eslint-disable-next-line no-console
-          console.log('[IMPORT]', '(empty)', (row.title ?? '').slice(0, 60), 'SKIPPED');
-          continue;
-        }
+      const rowRaw = batch[i]!;
+      const resolvedId =
+        (rowRaw.externalId ?? '').trim().toUpperCase() ||
+        resolveRealityListingExternalId({
+          sourceUrl: rowRaw.sourceUrl,
+          externalId: rowRaw.externalId,
+        }) ||
+        '';
 
-        const existing = await this.prisma.property.findUnique({
-          where: {
-            importSource_importExternalId: {
-              importSource: ctx.portal,
-              importExternalId: externalId,
-            },
-          },
+      onProgress?.({
+        phase: 'listing',
+        processedListings: i + 1,
+        totalListings: batch.length,
+        savedCount: importedNew,
+        updatedCount: importedUpdated,
+        skippedCount: skipped,
+        failedCount: failed,
+        errorCount: errors.length,
+        percent: 10 + Math.floor((30 * (i + 1)) / Math.max(1, batch.length)),
+        message: `Ukládám výpis ${i + 1}/${batch.length}…`,
+        lastProcessedSourceUrl: rowRaw.sourceUrl?.trim() ?? null,
+      });
+
+      if (!resolvedId) {
+        skipped += 1;
+        skippedInvalid += 1;
+        pushItemError({
+          at: new Date().toISOString(),
+          externalId: '(empty)',
+          sourceUrl: rowRaw.sourceUrl ?? null,
+          title: (rowRaw.title as string | null) ?? null,
+          price: rowRaw.price ?? null,
+          imagesCount: Array.isArray(rowRaw.images) ? rowRaw.images.length : 0,
+          contactEmail: rowRaw.contactEmail ?? null,
+          contactPhone: rowRaw.contactPhone ?? null,
+          saveStatus: 'skipped_invalid',
+          category: 'UNKNOWN',
+          message: 'Nelze odvodit kód inzerátu (externalId ani kód Reality z URL).',
         });
-        if (!existing) {
-          const { videoUrl, listingType } = resolveImportedListingVideoAndType(
-            ctx.portal,
-            row.videoUrl,
-          );
-          const facet = this.importFacetPayload(ctx, row);
-          const wmSettings = await this.watermarkSettings.getSettings();
-          const mirrorStats = { mirroredSuccess: 0 };
-          const imageVariants = await this.resolveImportedPropertyImagesForDb(
-            ctx,
-            row,
-            externalId,
-            null,
-            mirrorStats,
-          );
-          imagesMirrored += mirrorStats.mirroredSuccess ?? 0;
-          const imagesForDb = imageVariants.map((v) =>
-            wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl,
-          );
+        this.logger.warn(`[IMPORT] skipped_invalid empty id title=${String(rowRaw.title).slice(0, 80)}`);
+        continue;
+      }
+
+      const row = this.sanitizeImportedListingDraft(
+        { ...rowRaw, externalId: resolvedId },
+        resolvedId,
+      );
+      const hasTitle = row.title.trim().length > 0;
+      const hasUrl = Boolean(row.sourceUrl?.trim());
+      if (!hasTitle && !hasUrl) {
+        skipped += 1;
+        skippedInvalid += 1;
+        pushItemError({
+          at: new Date().toISOString(),
+          externalId: resolvedId,
+          sourceUrl: row.sourceUrl ?? null,
+          title: row.title,
+          price: row.price ?? null,
+          imagesCount: row.images.length,
+          contactEmail: row.contactEmail || null,
+          contactPhone: row.contactPhone || null,
+          saveStatus: 'skipped_invalid',
+          category: 'UNKNOWN',
+          message: 'Chybí titul i zdrojová URL — inzerát nelze bezpečně uložit.',
+        });
+        continue;
+      }
+
+      let wmSettings: { enabled: boolean } = { enabled: false };
+      try {
+        wmSettings = await this.watermarkSettings.getSettings();
+      } catch (we) {
+        this.logger.warn(
+          `[IMPORT] watermark settings fallback: ${we instanceof Error ? we.message : String(we)}`,
+        );
+      }
+
+      let existing: Awaited<ReturnType<typeof this.prisma.property.findUnique>> = null;
+      try {
+        existing = await this.findImportPropertyForPersistence(ctx, resolvedId, row.sourceUrl);
+      } catch (fe) {
+        failed += 1;
+        const cat = categorizeImportRowError(fe);
+        pushItemError({
+          at: new Date().toISOString(),
+          externalId: resolvedId,
+          sourceUrl: row.sourceUrl ?? null,
+          title: row.title,
+          price: row.price ?? null,
+          imagesCount: row.images.length,
+          contactEmail: row.contactEmail || null,
+          contactPhone: row.contactPhone || null,
+          saveStatus: 'failed',
+          category: cat,
+          message: fe instanceof Error ? fe.message : String(fe),
+          stack: errStack(fe),
+        });
+        continue;
+      }
+
+      const mirrorStats = { mirroredSuccess: 0 };
+      let imageVariants: Array<{ originalUrl: string; watermarkedUrl: string | null }> = [];
+      try {
+        imageVariants = await this.resolveImportedPropertyImagesForDb(
+          ctx,
+          row,
+          resolvedId,
+          existing?.id ?? null,
+          mirrorStats,
+        );
+      } catch (imgErr) {
+        this.logger.warn(
+          `[IMPORT] images ext=${resolvedId}: ${imgErr instanceof Error ? imgErr.message : String(imgErr)}`,
+        );
+      }
+      imagesMirrored += mirrorStats.mirroredSuccess ?? 0;
+
+      const imagesForDb = imageVariants
+        .map((v) => (wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl))
+        .filter((u): u is string => typeof u === 'string' && u.trim().length > 0);
+
+      const facet = this.importFacetPayload(ctx, row);
+
+      if (!existing) {
+        const { videoUrl, listingType } = resolveImportedListingVideoAndType(ctx.portal, row.videoUrl);
+        try {
           const created = await this.prisma.property.create({
             data: {
               userId: actorUserId,
               title: row.title,
               description: row.description,
-              price:
-                row.price != null && row.price > 0 ? Math.trunc(row.price) : null,
+              price: row.price != null && row.price > 0 ? Math.trunc(row.price) : null,
               city: row.city,
               address: row.address?.trim() || row.city,
               region: row.region?.trim() ?? '',
@@ -1477,7 +1702,7 @@ export class ImportSyncService {
               listingType,
               importSource: ctx.portal,
               importMethod: ctx.method,
-              importExternalId: externalId,
+              importExternalId: resolvedId,
               importSourceUrl: row.sourceUrl?.trim() || null,
               importedAt: new Date(),
               lastSyncedAt: new Date(),
@@ -1486,156 +1711,178 @@ export class ImportSyncService {
             },
           });
           if (imageVariants.length > 0) {
-            await this.prisma.propertyMedia.createMany({
-              data: imageVariants.map((v, idx) => ({
-                propertyId: created.id,
-                url: wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl,
-                originalUrl: v.originalUrl,
-                watermarkedUrl: v.watermarkedUrl ?? null,
-                type: 'image',
-                sortOrder: idx + 1,
-              })),
-            });
+            try {
+              await this.prisma.propertyMedia.createMany({
+                data: imageVariants.map((v, idx) => ({
+                  propertyId: created.id,
+                  url: wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl,
+                  originalUrl: v.originalUrl,
+                  watermarkedUrl: v.watermarkedUrl ?? null,
+                  type: 'image',
+                  sortOrder: idx + 1,
+                })),
+              });
+            } catch (mediaErr) {
+              this.logger.warn(
+                `[IMPORT] propertyMedia createMany (new) property=${created.id}: ${
+                  mediaErr instanceof Error ? mediaErr.message : String(mediaErr)
+                }`,
+              );
+            }
           }
-          // eslint-disable-next-line no-console
-          console.log('REALITY SAVED PROPERTY IMAGE FIELDS', {
-            id: created.id,
-            title: created.title,
-            coverImage: (created as unknown as Record<string, unknown>).coverImage ?? null,
-            imageUrl: (created as unknown as Record<string, unknown>).imageUrl ?? null,
-            thumbnail: (created as unknown as Record<string, unknown>).thumbnail ?? null,
-            photos: (created as unknown as Record<string, unknown>).photos ?? null,
-            gallery: (created as unknown as Record<string, unknown>).gallery ?? null,
-            images: created.images,
-          });
           createdDiagnostics.push({
             id: created.id,
-            externalId,
+            externalId: resolvedId,
             listingType: created.listingType,
             approved: created.approved,
             isActive: created.isActive,
             importDisabled: created.importDisabled,
           });
           importedNew += 1;
-          // eslint-disable-next-line no-console
-          console.log('[IMPORT]', externalId, (row.title ?? '').slice(0, 80), 'CREATED');
-          const br = await this.importedBrokerContacts.syncFromImportedProperty(created.id);
-          if (br === 'created') brokersCreated += 1;
-          else if (br === 'updated') brokersUpdated += 1;
-          continue;
+          this.logger.log(`[IMPORT] CREATED ${resolvedId} ${row.title.slice(0, 80)}`);
+          try {
+            const br = await this.importedBrokerContacts.syncFromImportedProperty(created.id);
+            if (br === 'created') brokersCreated += 1;
+            else if (br === 'updated') brokersUpdated += 1;
+          } catch (brErr) {
+            this.logger.warn(
+              `[IMPORT] broker sync (ignored) property=${created.id}: ${
+                brErr instanceof Error ? brErr.message : String(brErr)
+              }`,
+            );
+          }
+        } catch (createErr: unknown) {
+          if (
+            createErr instanceof Prisma.PrismaClientKnownRequestError &&
+            createErr.code === 'P2002'
+          ) {
+            const again = await this.findImportPropertyForPersistence(ctx, resolvedId, row.sourceUrl);
+            if (again && !again.importDisabled) {
+              try {
+                await this.runImportPropertyUpdateBranch({
+                  ctx,
+                  row,
+                  resolvedId,
+                  existing: again,
+                  wmSettings,
+                  imageVariants,
+                  imagesForDb,
+                  facet,
+                  pushItemError,
+                });
+                importedUpdated += 1;
+                this.logger.log(`[IMPORT] UPDATED_AFTER_P2002 ${resolvedId}`);
+                try {
+                  const br = await this.importedBrokerContacts.syncFromImportedProperty(again.id);
+                  if (br === 'created') brokersCreated += 1;
+                  else if (br === 'updated') brokersUpdated += 1;
+                } catch {
+                  /* ignore */
+                }
+              } catch (upErr) {
+                failed += 1;
+                pushItemError({
+                  at: new Date().toISOString(),
+                  externalId: resolvedId,
+                  sourceUrl: row.sourceUrl ?? null,
+                  title: row.title,
+                  price: row.price ?? null,
+                  imagesCount: row.images.length,
+                  contactEmail: row.contactEmail || null,
+                  contactPhone: row.contactPhone || null,
+                  saveStatus: 'failed',
+                  category: categorizeImportRowError(upErr),
+                  message: upErr instanceof Error ? upErr.message : String(upErr),
+                  stack: errStack(upErr),
+                });
+              }
+            } else {
+              failed += 1;
+              pushItemError({
+                at: new Date().toISOString(),
+                externalId: resolvedId,
+                sourceUrl: row.sourceUrl ?? null,
+                title: row.title,
+                price: row.price ?? null,
+                imagesCount: row.images.length,
+                contactEmail: row.contactEmail || null,
+                contactPhone: row.contactPhone || null,
+                saveStatus: 'failed',
+                category: 'DB_CONSTRAINT_ERROR',
+                message: createErr instanceof Error ? createErr.message : String(createErr),
+                stack: errStack(createErr),
+              });
+            }
+          } else {
+            failed += 1;
+            pushItemError({
+              at: new Date().toISOString(),
+              externalId: resolvedId,
+              sourceUrl: row.sourceUrl ?? null,
+              title: row.title,
+              price: row.price ?? null,
+              imagesCount: row.images.length,
+              contactEmail: row.contactEmail || null,
+              contactPhone: row.contactPhone || null,
+              saveStatus: 'failed',
+              category: categorizeImportRowError(createErr),
+              message: createErr instanceof Error ? createErr.message : String(createErr),
+              stack: errStack(createErr),
+            });
+          }
         }
+        continue;
+      }
 
-        if (existing.importDisabled) {
-          disabled += 1;
-          // eslint-disable-next-line no-console
-          console.log('[IMPORT]', externalId, (row.title ?? '').slice(0, 80), 'SKIPPED_DISABLED');
-          continue;
-        }
-
-        const { videoUrl, listingType } = resolveVideoForImportUpdate(
-          ctx.portal,
-          row.videoUrl,
-          existing.videoUrl,
+      if (existing.importDisabled) {
+        disabled += 1;
+        this.logger.log(
+          `[IMPORT] SKIPPED_DISABLED ${resolvedId} ${row.title.slice(0, 60)} propertyId=${existing.id}`,
         );
-        const facet = this.importFacetPayload(ctx, row);
-        const wmSettings = await this.watermarkSettings.getSettings();
-        const mirrorStats = { mirroredSuccess: 0 };
-        const imageVariants = await this.resolveImportedPropertyImagesForDb(
+        continue;
+      }
+
+      try {
+        await this.runImportPropertyUpdateBranch({
           ctx,
           row,
-          externalId,
-          existing.id,
-          mirrorStats,
-        );
-        imagesMirrored += mirrorStats.mirroredSuccess ?? 0;
-        const imagesForDb = imageVariants.map((v) =>
-          wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl,
-        );
-        const updated = await this.prisma.property.update({
-          where: { id: existing.id },
-          data: {
-            title: row.title,
-            description:
-              (row.description?.length ?? 0) >= (existing.description?.length ?? 0)
-                ? row.description
-                : existing.description,
-            price:
-              row.price != null && row.price > 0
-                ? Math.trunc(row.price)
-                : existing.price != null && existing.price > 0
-                  ? existing.price
-                  : null,
-            city: row.city,
-            address: (row.address?.trim() || existing.address?.trim() || row.city).slice(0, 500),
-            region: row.region?.trim() ?? existing.region,
-            district: row.district?.trim() ?? existing.district,
-            area: row.area ?? existing.area,
-            floor: row.floor ?? existing.floor,
-            totalFloors: row.totalFloors ?? existing.totalFloors,
-            condition: row.condition?.trim() ?? existing.condition,
-            ownership: row.ownership?.trim() ?? existing.ownership,
-            offerType: row.offerType?.trim() || existing.offerType,
-            propertyType: row.propertyType?.trim() || existing.propertyType,
-            images: imagesForDb.length > 0 ? imagesForDb : existing.images,
-            videoUrl,
-            listingType,
-            contactName: (
-              this.formatImportedContactNameForDb(row) ??
-              existing.contactName?.trim() ??
-              'Reality.cz import'
-            ).slice(0, 200),
-            contactPhone: (row.contactPhone?.trim() || existing.contactPhone || '').slice(0, 40),
-            contactEmail: (row.contactEmail?.trim() || existing.contactEmail || '')
-              .toLowerCase()
-              .slice(0, 120),
-            importSourceUrl: row.sourceUrl?.trim() || existing.importSourceUrl,
-            lastSyncedAt: new Date(),
-            ...facet,
-          },
-        });
-        if (imageVariants.length > 0) {
-          await this.prisma.propertyMedia.deleteMany({
-            where: { propertyId: existing.id, type: 'image' },
-          });
-          await this.prisma.propertyMedia.createMany({
-            data: imageVariants.map((v, idx) => ({
-              propertyId: existing.id,
-              url: wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl,
-              originalUrl: v.originalUrl,
-              watermarkedUrl: v.watermarkedUrl ?? null,
-              type: 'image',
-              sortOrder: idx + 1,
-            })),
-          });
-        }
-        // eslint-disable-next-line no-console
-        console.log('REALITY SAVED PROPERTY IMAGE FIELDS', {
-          id: updated.id,
-          title: updated.title,
-          coverImage: (updated as unknown as Record<string, unknown>).coverImage ?? null,
-          imageUrl: (updated as unknown as Record<string, unknown>).imageUrl ?? null,
-          thumbnail: (updated as unknown as Record<string, unknown>).thumbnail ?? null,
-          photos: (updated as unknown as Record<string, unknown>).photos ?? null,
-          gallery: (updated as unknown as Record<string, unknown>).gallery ?? null,
-          images: updated.images,
+          resolvedId,
+          existing,
+          wmSettings,
+          imageVariants,
+          imagesForDb,
+          facet,
+          pushItemError,
         });
         importedUpdated += 1;
-        // eslint-disable-next-line no-console
-        console.log('[IMPORT]', externalId, (row.title ?? '').slice(0, 80), 'UPDATED');
-        const br = await this.importedBrokerContacts.syncFromImportedProperty(updated.id);
-        if (br === 'created') brokersCreated += 1;
-        else if (br === 'updated') brokersUpdated += 1;
-      } catch (error: unknown) {
-        skipped += 1;
-        errors.push(error instanceof Error ? error.message : 'Neznámá chyba řádku');
-        // eslint-disable-next-line no-console
-        console.log(
-          '[IMPORT]',
-          (row.externalId ?? '').trim(),
-          (row.title ?? '').slice(0, 80),
-          'SKIPPED_ERROR',
-          error instanceof Error ? error.message : error,
-        );
+        this.logger.log(`[IMPORT] UPDATED ${resolvedId} ${row.title.slice(0, 80)}`);
+        try {
+          const br = await this.importedBrokerContacts.syncFromImportedProperty(existing.id);
+          if (br === 'created') brokersCreated += 1;
+          else if (br === 'updated') brokersUpdated += 1;
+        } catch (brErr) {
+          this.logger.warn(
+            `[IMPORT] broker sync (ignored) property=${existing.id}: ${
+              brErr instanceof Error ? brErr.message : String(brErr)
+            }`,
+          );
+        }
+      } catch (upErr: unknown) {
+        failed += 1;
+        pushItemError({
+          at: new Date().toISOString(),
+          externalId: resolvedId,
+          sourceUrl: row.sourceUrl ?? null,
+          title: row.title,
+          price: row.price ?? null,
+          imagesCount: row.images.length,
+          contactEmail: row.contactEmail || null,
+          contactPhone: row.contactPhone || null,
+          saveStatus: 'failed',
+          category: categorizeImportRowError(upErr),
+          message: upErr instanceof Error ? upErr.message : String(upErr),
+          stack: errStack(upErr),
+        });
       }
     }
 
@@ -1646,18 +1893,145 @@ export class ImportSyncService {
       );
     }
 
+    this.logger.log(
+      `[IMPORT] shell done new=${importedNew} updated=${importedUpdated} skipped=${skipped} skippedInvalid=${skippedInvalid} failed=${failed} disabled=${disabled} itemErrors=${itemErrors.length}`,
+    );
+
     return {
       importedNew,
       importedUpdated,
       skipped,
+      skippedInvalid,
+      failed,
       disabled,
       errors,
+      itemErrors,
       stats: {
         brokersCreated,
         brokersUpdated,
         imagesMirrored,
+        importFailed: failed,
+        importSkippedInvalid: skippedInvalid,
       },
     };
+  }
+
+  private async runImportPropertyUpdateBranch(params: {
+    ctx: ImportExecutionContext;
+    row: ImportedListingDraft;
+    resolvedId: string;
+    existing: Property;
+    wmSettings: { enabled: boolean };
+    imageVariants: Array<{ originalUrl: string; watermarkedUrl: string | null }>;
+    imagesForDb: string[];
+    facet: {
+      sourcePortalKey: string;
+      sourcePortalLabel: string;
+      propertyTypeKey: string;
+      propertyTypeLabel: string;
+      importCategoryKey: string;
+      importCategoryLabel: string;
+      canGenerateShorts: boolean;
+      shortsSourceType: PropertyShortsSourceType;
+    };
+    pushItemError: (e: ImportRunItemError) => void;
+  }): Promise<void> {
+    const {
+      ctx,
+      row,
+      resolvedId,
+      existing,
+      wmSettings,
+      imageVariants,
+      imagesForDb,
+      facet,
+      pushItemError,
+    } = params;
+    const { videoUrl, listingType } = resolveVideoForImportUpdate(
+      ctx.portal,
+      row.videoUrl,
+      existing.videoUrl,
+    );
+    await this.prisma.property.update({
+      where: { id: existing.id },
+      data: {
+        title: row.title,
+        description:
+          (row.description?.length ?? 0) >= (existing.description?.length ?? 0)
+            ? row.description
+            : existing.description,
+        price:
+          row.price != null && row.price > 0
+            ? Math.trunc(row.price)
+            : existing.price != null && existing.price > 0
+              ? existing.price
+              : null,
+        city: row.city,
+        address: (row.address?.trim() || existing.address?.trim() || row.city).slice(0, 500),
+        region: row.region?.trim() ?? existing.region,
+        district: row.district?.trim() ?? existing.district,
+        area: row.area ?? existing.area,
+        floor: row.floor ?? existing.floor,
+        totalFloors: row.totalFloors ?? existing.totalFloors,
+        condition: row.condition?.trim() ?? existing.condition,
+        ownership: row.ownership?.trim() ?? existing.ownership,
+        offerType: row.offerType?.trim() || existing.offerType,
+        propertyType: row.propertyType?.trim() || existing.propertyType,
+        images: imagesForDb.length > 0 ? imagesForDb : existing.images,
+        videoUrl,
+        listingType,
+        contactName: (
+          this.formatImportedContactNameForDb(row) ??
+          existing.contactName?.trim() ??
+          'Reality.cz import'
+        ).slice(0, 200),
+        contactPhone: (row.contactPhone?.trim() || existing.contactPhone || '').slice(0, 40),
+        contactEmail: (row.contactEmail?.trim() || existing.contactEmail || '')
+          .toLowerCase()
+          .slice(0, 120),
+        importSourceUrl: row.sourceUrl?.trim() || existing.importSourceUrl,
+        importExternalId: resolvedId,
+        lastSyncedAt: new Date(),
+        ...facet,
+      },
+    });
+    if (imageVariants.length > 0) {
+      try {
+        await this.prisma.propertyMedia.deleteMany({
+          where: { propertyId: existing.id, type: 'image' },
+        });
+        await this.prisma.propertyMedia.createMany({
+          data: imageVariants.map((v, idx) => ({
+            propertyId: existing.id,
+            url: wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl,
+            originalUrl: v.originalUrl,
+            watermarkedUrl: v.watermarkedUrl ?? null,
+            type: 'image',
+            sortOrder: idx + 1,
+          })),
+        });
+      } catch (mediaErr) {
+        this.logger.warn(
+          `[IMPORT] propertyMedia update property=${existing.id}: ${
+            mediaErr instanceof Error ? mediaErr.message : String(mediaErr)
+          }`,
+        );
+        pushItemError({
+          at: new Date().toISOString(),
+          externalId: resolvedId,
+          sourceUrl: row.sourceUrl ?? null,
+          title: row.title,
+          price: row.price ?? null,
+          imagesCount: row.images.length,
+          contactEmail: row.contactEmail || null,
+          contactPhone: row.contactPhone || null,
+          saveStatus: 'failed',
+          category: 'IMAGE_DOWNLOAD_ERROR',
+          message: `propertyMedia (update): ${mediaErr instanceof Error ? mediaErr.message : String(mediaErr)}`,
+          stack: errStack(mediaErr),
+        });
+      }
+    }
   }
 }
 

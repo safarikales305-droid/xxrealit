@@ -1,11 +1,16 @@
 'use client';
 
-import type { AdminImportPortalAggregate, AdminImportSourceRow } from '@/lib/nest-client';
+import type {
+  AdminImportPortalAggregate,
+  AdminImportSourceRow,
+  NestAdminImportRunResult,
+} from '@/lib/nest-client';
 import { ImportBranchRow } from './ImportBranchRow';
 
 type Props = {
   portal: AdminImportPortalAggregate;
   branches: AdminImportSourceRow[];
+  importDebugBySource?: Record<string, NestAdminImportRunResult>;
   busyId?: string | null;
   onRunPortal: (portalKey: string) => void;
   onAddBranch: (portalKey: string) => void;
@@ -18,6 +23,7 @@ type Props = {
 export function PortalImportSection({
   portal,
   branches,
+  importDebugBySource,
   busyId,
   onRunPortal,
   onAddBranch,
@@ -73,6 +79,7 @@ export function PortalImportSection({
               <ImportBranchRow
                 key={b.id}
                 branch={b}
+                lastImportDebug={importDebugBySource?.[b.id]}
                 busy={busyId === b.id}
                 onRun={onRunBranch}
                 onEdit={onEditBranch}

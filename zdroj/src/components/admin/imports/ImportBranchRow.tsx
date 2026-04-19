@@ -1,10 +1,14 @@
 'use client';
 
-import type { AdminImportSourceRow } from '@/lib/nest-client';
+import { useState } from 'react';
+import { createPortal } from 'react-dom';
+import type { AdminImportSourceRow, NestAdminImportRunResult } from '@/lib/nest-client';
 import { ImportProgressBar } from './ImportProgressBar';
 
 type Props = {
   branch: AdminImportSourceRow;
+  /** Poslední výsledek streamu po dokončení běhu (log chyb). */
+  lastImportDebug?: NestAdminImportRunResult;
   busy: boolean;
   onRun: (id: string) => void;
   onEdit: (branch: AdminImportSourceRow) => void;
@@ -27,8 +31,26 @@ function phaseLabelCs(phase?: string): string {
   }
 }
 
-export function ImportBranchRow({ branch, busy, onRun, onEdit, onToggle, onDelete }: Props) {
+export function ImportBranchRow({
+  branch,
+  lastImportDebug,
+  busy,
+  onRun,
+  onEdit,
+  onToggle,
+  onDelete,
+}: Props) {
+  const [logOpen, setLogOpen] = useState(false);
+  const liveLog = branch.running?.itemErrorLog;
+  const doneLog = lastImportDebug?.itemErrors;
+  const logPayload = (liveLog?.length ? liveLog : doneLog) ?? [];
+  const lastErr = branch.running?.lastItemErrorMessage ?? null;
+  const lastCat = branch.running?.lastItemErrorCategory ?? null;
+  const lastUrl = branch.running?.lastProcessedSourceUrl ?? null;
+  const lastExt = branch.running?.lastItemErrorExternalId ?? null;
+
   return (
+    <>
     <tr className="border-t border-zinc-100 align-top">
       <td className="px-3 py-2">
         <div className="font-medium text-zinc-900">{branch.categoryLabel ?? 'Obecné'}</div>
@@ -103,11 +125,74 @@ export function ImportBranchRow({ branch, busy, onRun, onEdit, onToggle, onDelet
             </div>
             <div className="text-[11px] text-zinc-600">
               Uloženo: {branch.running.savedCount ?? 0}, aktualizováno: {branch.running.updatedCount ?? 0}, přeskočeno:{' '}
-              {branch.running.skippedCount ?? 0}, chyby: {branch.running.errorCount ?? 0}
+              {branch.running.skippedCount ?? 0}, řádků chyb: {branch.running.errorCount ?? 0}, selhání DB:{' '}
+              {branch.running.failedCount ?? 0}
             </div>
+            {lastUrl ? (
+              <div className="text-[10px] text-zinc-500 break-all" title={lastUrl}>
+                Poslední URL: {lastUrl.slice(0, 120)}
+                {lastUrl.length > 120 ? '…' : ''}
+              </div>
+            ) : null}
+            {lastErr ? (
+              <div className="rounded border border-amber-200 bg-amber-50 p-1.5 text-[10px] text-amber-950">
+                <span className="font-semibold">{lastCat ?? 'CHYBA'}:</span> [{lastExt ?? '—'}] {lastErr}
+              </div>
+            ) : null}
+            {(logPayload.length > 0 || (lastImportDebug?.itemErrors?.length ?? 0) > 0) && (
+              <button
+                type="button"
+                onClick={() => setLogOpen(true)}
+                className="mt-1 rounded border border-zinc-300 bg-white px-2 py-0.5 text-[10px] font-semibold text-zinc-800"
+              >
+                Zobrazit log chyb ({logPayload.length || lastImportDebug?.itemErrors?.length})
+              </button>
+            )}
+          </div>
+        ) : null}
+        {!branch.running?.running && lastImportDebug?.itemErrors?.length ? (
+          <div className="mt-2 space-y-1">
+            <div className="text-[10px] text-zinc-600">
+              Poslední běh: nové {lastImportDebug.importedNew ?? 0}, update {lastImportDebug.importedUpdated ?? 0},
+              přeskočeno {lastImportDebug.skipped ?? 0}, neplatných {lastImportDebug.skippedInvalid ?? 0}, selhalo{' '}
+              {lastImportDebug.failed ?? 0}
+            </div>
+            <button
+              type="button"
+              onClick={() => setLogOpen(true)}
+              className="rounded border border-zinc-300 bg-white px-2 py-0.5 text-[10px] font-semibold text-zinc-800"
+            >
+              Log chyb posledního běhu ({lastImportDebug.itemErrors?.length})
+            </button>
           </div>
         ) : null}
       </td>
     </tr>
+    {typeof document !== 'undefined' && logOpen
+      ? createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div
+              role="dialog"
+              className="max-h-[85vh] w-full max-w-3xl overflow-auto rounded-xl border border-zinc-200 bg-white p-4 shadow-xl"
+            >
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-zinc-900">Log chyb importu — {branch.categoryLabel}</h3>
+                <button
+                  type="button"
+                  onClick={() => setLogOpen(false)}
+                  className="rounded bg-zinc-900 px-2 py-1 text-xs font-semibold text-white"
+                >
+                  Zavřít
+                </button>
+              </div>
+              <pre className="whitespace-pre-wrap break-all text-[11px] text-zinc-800">
+                {JSON.stringify(logPayload.length ? logPayload : lastImportDebug?.itemErrors ?? [], null, 2)}
+              </pre>
+            </div>
+          </div>,
+          document.body,
+        )
+      : null}
+    </>
   );
 }

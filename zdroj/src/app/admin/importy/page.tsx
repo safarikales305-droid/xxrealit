@@ -15,6 +15,7 @@ import {
   type AdminImportLogRow,
   type AdminImportPortalAggregate,
   type AdminImportSourceRow,
+  type NestAdminImportRunResult,
 } from '@/lib/nest-client';
 import { PortalImportSection } from '@/components/admin/imports/PortalImportSection';
 import { ImportSourceForm } from '@/components/admin/imports/ImportSourceForm';
@@ -72,6 +73,9 @@ export default function AdminImportsPage() {
   const [branches, setBranches] = useState<AdminImportSourceRow[]>([]);
   const [logs, setLogs] = useState<AdminImportLogRow[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [importDebugBySource, setImportDebugBySource] = useState<
+    Record<string, NestAdminImportRunResult>
+  >({});
   const [error, setError] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -162,6 +166,12 @@ export default function AdminImportsPage() {
                   updatedCount: ev.updatedCount,
                   skippedCount: ev.skippedCount,
                   errorCount: ev.errorCount,
+                  failedCount: ev.failedCount,
+                  lastProcessedSourceUrl: ev.lastProcessedSourceUrl,
+                  lastItemErrorMessage: ev.lastItemErrorMessage,
+                  lastItemErrorCategory: ev.lastItemErrorCategory,
+                  lastItemErrorExternalId: ev.lastItemErrorExternalId,
+                  itemErrorLog: ev.itemErrorLog,
                   progressPercent: ev.progressPercent ?? ev.percent,
                   currentMessage: ev.currentMessage ?? ev.message,
                 },
@@ -171,6 +181,9 @@ export default function AdminImportsPage() {
       );
     });
     setBusyId(null);
+    if (r.ok && r.data) {
+      setImportDebugBySource((d) => ({ ...d, [sourceId]: r.data }));
+    }
     if (!r.ok) {
       setError(r.error ?? 'Spuštění importu selhalo');
       await refresh({ sourceId });
@@ -358,6 +371,7 @@ export default function AdminImportsPage() {
             key={portal.portalKey}
             portal={portal}
             branches={grouped.get(portal.portalKey) ?? []}
+            importDebugBySource={importDebugBySource}
             busyId={busyId}
             onRunPortal={(key) => void runPortal(key)}
             onAddBranch={(key) => {
