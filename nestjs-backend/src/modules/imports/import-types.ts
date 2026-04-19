@@ -128,6 +128,10 @@ export type ImportRunResult = {
     deactivated?: number;
     /** Alias pro admin report: počet stažených/zrcadlených obrázků během běhu. */
     imagesDownloaded?: number;
+    /** Počet URL fotek nalezených ve scrapovaných detailech. */
+    imagesDiscovered?: number;
+    /** Počet fotek skutečně uložených k inzerátům. */
+    imagesSaved?: number;
     importFailed?: number;
     importSkippedInvalid?: number;
   };

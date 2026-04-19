@@ -137,6 +137,7 @@ export function NemovitostDetailView({
   const shouldBlurGuestPrice = !isAuthenticated;
   const media = useMemo(() => buildMediaList(p), [p]);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const safeMediaIndex = Math.min(
     activeIndex,
     Math.max(0, media.length > 0 ? media.length - 1 : 0),
@@ -210,6 +211,8 @@ export function NemovitostDetailView({
   const phone = (p.contactPhone ?? '').trim();
   const email = (p.contactEmail ?? '').trim();
   const nameContact = (p.contactName ?? '').trim();
+  const companyName =
+    (p as PropertyFeedItem & { companyName?: string | null }).companyName?.trim() ?? '';
   const coverForMessage = classicListingCoverUrl(p);
 
   const summaryLine = useMemo(() => {
@@ -346,11 +349,18 @@ export function NemovitostDetailView({
                     className="h-auto max-h-[80vh] w-full rounded-2xl bg-black object-contain"
                   />
                 ) : (
-                  <img
-                    src={nestAbsoluteAssetUrl(active.url)}
-                    alt={p.title}
-                    className="h-auto max-h-[80vh] w-full rounded-2xl bg-black object-contain"
-                  />
+                  <button
+                    type="button"
+                    onClick={() => setLightboxOpen(true)}
+                    className="w-full"
+                    aria-label="Otevřít galerii fotek"
+                  >
+                    <img
+                      src={nestAbsoluteAssetUrl(active.url)}
+                      alt={p.title}
+                      className="h-auto max-h-[80vh] w-full rounded-2xl bg-black object-contain"
+                    />
+                  </button>
                 )}
               </div>
               {media.length > 1 ? (
@@ -530,6 +540,7 @@ export function NemovitostDetailView({
             {directContactOk && (phone || email) ? (
               <div className="mt-3 space-y-2 rounded-xl border border-zinc-100 bg-zinc-50/80 p-3 text-sm text-zinc-800">
                 {nameContact ? <p className="font-medium">{nameContact}</p> : null}
+                {companyName ? <p className="text-zinc-600">{companyName}</p> : null}
                 {phone ? (
                   <p>
                     Tel.:{' '}
@@ -740,6 +751,27 @@ export function NemovitostDetailView({
                 {shareEmailBusy ? 'Odesílám…' : 'Odeslat'}
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {lightboxOpen && media.filter((m) => m.type === 'image').length > 0 ? (
+        <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/80 p-4">
+          <div className="w-full max-w-6xl">
+            <div className="mb-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setLightboxOpen(false)}
+                className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-zinc-900"
+              >
+                Zavřít
+              </button>
+            </div>
+            <img
+              src={nestAbsoluteAssetUrl((media[safeMediaIndex] ?? media[0])?.url ?? '')}
+              alt={p.title}
+              className="max-h-[80vh] w-full rounded-xl object-contain"
+            />
           </div>
         </div>
       ) : null}

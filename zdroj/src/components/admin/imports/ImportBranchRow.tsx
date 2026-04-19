@@ -48,6 +48,18 @@ export function ImportBranchRow({
   const lastCat = branch.running?.lastItemErrorCategory ?? null;
   const lastUrl = branch.running?.lastProcessedSourceUrl ?? null;
   const lastExt = branch.running?.lastItemErrorExternalId ?? null;
+  const stats =
+    lastImportDebug?.stats && typeof lastImportDebug.stats === 'object'
+      ? (lastImportDebug.stats as Record<string, unknown>)
+      : null;
+  const detailReqLog = Array.isArray(stats?.['requestLog'])
+    ? (stats?.['requestLog'] as Array<Record<string, unknown>>)
+    : [];
+  const lastDetailUrl =
+    [...detailReqLog]
+      .reverse()
+      .find((x) => x?.['phase'] === 'detail_page' && typeof x?.['url'] === 'string')?.['url'] ??
+    null;
 
   return (
     <>
@@ -157,12 +169,17 @@ export function ImportBranchRow({
               přeskočeno {lastImportDebug.skipped ?? 0}, neplatných {lastImportDebug.skippedInvalid ?? 0}, selhalo{' '}
               {lastImportDebug.failed ?? 0}
             </div>
-            {lastImportDebug.stats && typeof lastImportDebug.stats === 'object' ? (
+            {stats ? (
               <div className="text-[10px] text-zinc-600">
-                Detaily {Number(lastImportDebug.stats.detailFetchesCompleted ?? 0)} /{' '}
-                {Number(lastImportDebug.stats.detailFetchesAttempted ?? 0)}, makléři +{Number(lastImportDebug.stats.brokersCreated ?? 0)} / upd{' '}
-                {Number(lastImportDebug.stats.brokersUpdated ?? 0)}, fotky {Number(lastImportDebug.stats.imagesDownloaded ?? lastImportDebug.stats.imagesMirrored ?? 0)}, deaktivováno{' '}
-                {Number(lastImportDebug.stats.deactivated ?? 0)}
+                Detaily {Number(stats['detailFetchesCompleted'] ?? 0)} /{' '}
+                {Number(stats['detailFetchesAttempted'] ?? 0)}, makléři +{Number(stats['brokersCreated'] ?? 0)} / upd{' '}
+                {Number(stats['brokersUpdated'] ?? 0)}, fotky {Number(stats['imagesSaved'] ?? stats['imagesDownloaded'] ?? stats['imagesMirrored'] ?? 0)}, deaktivováno{' '}
+                {Number(stats['deactivated'] ?? 0)}
+              </div>
+            ) : null}
+            {typeof lastDetailUrl === 'string' && lastDetailUrl ? (
+              <div className="text-[10px] text-zinc-500 break-all">
+                Poslední detail URL: {lastDetailUrl}
               </div>
             ) : null}
             <button

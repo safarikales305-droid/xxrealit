@@ -65,6 +65,16 @@ function safeDateIso(v: unknown): string | null {
   return null;
 }
 
+function splitContactNameAndCompany(raw: unknown): { contactName: string; companyName: string | null } {
+  const text = safeStr(raw, '').trim();
+  if (!text) return { contactName: '', companyName: null };
+  const sepIdx = text.indexOf(' · ');
+  if (sepIdx <= 0) return { contactName: text, companyName: null };
+  const name = text.slice(0, sepIdx).trim();
+  const company = text.slice(sepIdx + 3).trim();
+  return { contactName: name || text, companyName: company || null };
+}
+
 /** DB řádek PropertyMedia — veřejná URL: watermark → originál → hlavní `url`. */
 function pickMediaDisplayUrl(m: Record<string, unknown>): string {
   const pick = (k: string): string => {
@@ -234,6 +244,7 @@ function serializePropertyEmergency(
 ): Record<string, unknown> {
   const redact = shouldRedactOwnerContact(p as PropertyRowForApi, viewerId, access);
   const pid = safeStr(p.id, 'unknown');
+  const split = splitContactNameAndCompany(p.contactName);
   return {
     id: pid,
     title: safeStr(p.title, 'Inzerát'),
@@ -263,7 +274,9 @@ function serializePropertyEmergency(
     parking: Boolean(p.parking),
     cellar: Boolean(p.cellar),
     images: [],
+    galleryImages: [],
     gallery: [],
+    mainImage: null,
     thumbnail: null,
     coverImage: null,
     cover: null,
@@ -276,7 +289,8 @@ function serializePropertyEmergency(
     region: safeTrim(p.region),
     district: safeTrim(p.district),
     directContactVisible: !redact,
-    contactName: redact ? '' : safeStr(p.contactName, ''),
+    contactName: redact ? '' : split.contactName,
+    companyName: redact ? null : split.companyName,
     contactPhone: redact ? '' : safeStr(p.contactPhone, ''),
     contactEmail: redact ? '' : safeStr(p.contactEmail, ''),
     approved: Boolean(p.approved),
@@ -299,6 +313,8 @@ function serializePropertyEmergency(
     importMethod: p.importMethod ?? null,
     importExternalId: p.importExternalId ?? null,
     importSourceUrl: p.importSourceUrl ?? null,
+    sourceUrl: p.importSourceUrl ?? null,
+    sourcePortal: safeTrim(p.sourcePortalKey) || p.importSource || null,
     importedAt: safeDateIso(p.importedAt),
     lastSyncedAt: safeDateIso(p.lastSyncedAt),
     importDisabled: Boolean(p.importDisabled),
@@ -431,6 +447,7 @@ function serializePropertyCore(
   const gallery = [...images];
 
   const priceOut = safePriceField(p.price);
+  const split = splitContactNameAndCompany(p.contactName);
 
   return {
     id: safeStr(p.id, ''),
@@ -461,7 +478,9 @@ function serializePropertyCore(
     parking: Boolean(p.parking),
     cellar: Boolean(p.cellar),
     images,
+    galleryImages: [...images],
     gallery,
+    mainImage: primaryImage,
     thumbnail: primaryImage,
     coverImage: primaryImage,
     cover: primaryImage,
@@ -474,7 +493,8 @@ function serializePropertyCore(
     region: safeTrim(p.region),
     district: safeTrim(p.district),
     directContactVisible: !redact,
-    contactName: redact ? '' : safeStr(p.contactName, ''),
+    contactName: redact ? '' : split.contactName,
+    companyName: redact ? null : split.companyName,
     contactPhone: redact ? '' : safeStr(p.contactPhone, ''),
     contactEmail: redact ? '' : safeStr(p.contactEmail, ''),
     approved: Boolean(p.approved),
@@ -497,6 +517,8 @@ function serializePropertyCore(
     importMethod: p.importMethod ?? null,
     importExternalId: p.importExternalId ?? null,
     importSourceUrl: p.importSourceUrl ?? null,
+    sourceUrl: p.importSourceUrl ?? null,
+    sourcePortal: safeTrim(p.sourcePortalKey) || p.importSource || null,
     importedAt: safeDateIso(p.importedAt),
     lastSyncedAt: safeDateIso(p.lastSyncedAt),
     importDisabled: Boolean(p.importDisabled),

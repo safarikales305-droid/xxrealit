@@ -83,6 +83,8 @@ export type PropertyFromApi = {
   thumbnail?: string | null;
   coverImage?: string | null;
   images?: string[];
+  galleryImages?: string[];
+  mainImage?: string | null;
   photos?: Array<{ url: string } | string>;
   media?: Array<{
     url?: string | null;
@@ -100,6 +102,7 @@ export type PropertyFromApi = {
   ownerContactConsent?: boolean;
   directContactVisible?: boolean;
   contactName?: string | null;
+  companyName?: string | null;
   contactPhone?: string | null;
   contactEmail?: string | null;
   /** Klasifikace importu (GET /properties + filtry). */
@@ -116,6 +119,8 @@ export type PropertyFromApi = {
   district?: string | null;
   importSource?: string | null;
   importMethod?: string | null;
+  sourceUrl?: string | null;
+  sourcePortal?: string | null;
 };
 
 export type PropertyFeedItem = {
@@ -130,6 +135,8 @@ export type PropertyFeedItem = {
   thumbnail?: string | null;
   coverImage?: string | null;
   images?: string[];
+  galleryImages?: string[];
+  mainImage?: string | null;
   photos?: Array<{ url: string } | string>;
   media?: Array<{
     url: string;
@@ -146,6 +153,7 @@ export type PropertyFeedItem = {
   ownerContactConsent?: boolean;
   directContactVisible?: boolean;
   contactName?: string | null;
+  companyName?: string | null;
   contactPhone?: string | null;
   contactEmail?: string | null;
   sourcePortalKey?: string | null;
@@ -161,6 +169,8 @@ export type PropertyFeedItem = {
   district?: string | null;
   importSource?: string | null;
   importMethod?: string | null;
+  sourceUrl?: string | null;
+  sourcePortal?: string | null;
 };
 
 export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
@@ -176,6 +186,11 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
   const images =
     Array.isArray(p.images) && p.images.length > 0
       ? p.images
+          .filter((x): x is string => typeof x === 'string' && x.length > 0)
+          .map((x) => normalizeImageCandidate(x.trim(), assetBase))
+          .filter((x): x is string => isValidImageUrl(x))
+      : Array.isArray(p.galleryImages) && p.galleryImages.length > 0
+        ? p.galleryImages
           .filter((x): x is string => typeof x === 'string' && x.length > 0)
           .map((x) => normalizeImageCandidate(x.trim(), assetBase))
           .filter((x): x is string => isValidImageUrl(x))
@@ -216,7 +231,7 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
   const imgField =
     typeof p.imageUrl === 'string' && p.imageUrl.trim() ? p.imageUrl.trim() : '';
   const resolvedImage = getFirstValidImage(
-    [coverApi, thumb, imgField, coverLegacy, photo0, primaryImageFromMedia, images[0]],
+    [p.mainImage ?? null, coverApi, thumb, imgField, coverLegacy, photo0, primaryImageFromMedia, images[0]],
     assetBase,
   );
   const priceVal = parseApiListingPrice(p.price);
@@ -237,6 +252,8 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
     photos,
     imageUrl: resolvedImage,
     images,
+    galleryImages: images,
+    mainImage: resolvedImage,
     media,
     description:
       p.description === null || typeof p.description === 'string'
@@ -258,6 +275,10 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
     contactName:
       p.contactName === null || typeof p.contactName === 'string'
         ? p.contactName
+        : undefined,
+    companyName:
+      p.companyName === null || typeof p.companyName === 'string'
+        ? p.companyName
         : undefined,
     contactPhone:
       p.contactPhone === null || typeof p.contactPhone === 'string'
@@ -303,6 +324,10 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
       p.importSource === null || typeof p.importSource === 'string' ? p.importSource : undefined,
     importMethod:
       p.importMethod === null || typeof p.importMethod === 'string' ? p.importMethod : undefined,
+    sourceUrl:
+      p.sourceUrl === null || typeof p.sourceUrl === 'string' ? p.sourceUrl : undefined,
+    sourcePortal:
+      p.sourcePortal === null || typeof p.sourcePortal === 'string' ? p.sourcePortal : undefined,
   };
 }
 
@@ -345,6 +370,11 @@ export function safeNormalizePropertyFromApi(
       images: Array.isArray(o.images)
         ? o.images.filter((x): x is string => typeof x === 'string')
         : undefined,
+      galleryImages: Array.isArray(o.galleryImages)
+        ? o.galleryImages.filter((x): x is string => typeof x === 'string')
+        : undefined,
+      mainImage:
+        o.mainImage === null || typeof o.mainImage === 'string' ? o.mainImage : undefined,
       photos: Array.isArray(o.photos) ? (o.photos as PropertyFromApi['photos']) : undefined,
       media: Array.isArray(o.media)
         ? (o.media as Array<Record<string, unknown>>).map((m) => ({
@@ -381,6 +411,10 @@ export function safeNormalizePropertyFromApi(
       contactName:
         o.contactName === null || typeof o.contactName === 'string'
           ? o.contactName
+          : undefined,
+      companyName:
+        o.companyName === null || typeof o.companyName === 'string'
+          ? o.companyName
           : undefined,
       contactPhone:
         o.contactPhone === null || typeof o.contactPhone === 'string'
@@ -426,6 +460,12 @@ export function safeNormalizePropertyFromApi(
         o.importSource === null || typeof o.importSource === 'string' ? o.importSource : undefined,
       importMethod:
         o.importMethod === null || typeof o.importMethod === 'string' ? o.importMethod : undefined,
+      sourceUrl:
+        o.sourceUrl === null || typeof o.sourceUrl === 'string' ? o.sourceUrl : undefined,
+      sourcePortal:
+        o.sourcePortal === null || typeof o.sourcePortal === 'string'
+          ? o.sourcePortal
+          : undefined,
     });
   } catch {
     return null;

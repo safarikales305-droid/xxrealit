@@ -1711,6 +1711,8 @@ export class ImportSyncService {
     let brokersCreated = 0;
     let brokersUpdated = 0;
     let imagesMirrored = 0;
+    let imagesDiscovered = 0;
+    let imagesSaved = 0;
 
     const pushItemError = (e: ImportRunItemError) => {
       itemErrors.push(e);
@@ -1823,6 +1825,7 @@ export class ImportSyncService {
         { ...rowRaw, externalId: resolvedId },
         resolvedId,
       );
+      imagesDiscovered += Array.isArray(row.images) ? row.images.length : 0;
       const hasTitle = row.title.trim().length > 0;
       const hasUrl = Boolean(row.sourceUrl?.trim());
       if (!hasTitle && !hasUrl) {
@@ -1896,6 +1899,7 @@ export class ImportSyncService {
       const imagesForDb = imageVariants
         .map((v) => (wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl))
         .filter((u): u is string => typeof u === 'string' && u.trim().length > 0);
+      imagesSaved += imagesForDb.length;
 
       const facet = this.importFacetPayload(ctx, row);
 
@@ -2142,6 +2146,9 @@ export class ImportSyncService {
         brokersCreated,
         brokersUpdated,
         imagesMirrored,
+        imagesDownloaded: imagesMirrored,
+        imagesDiscovered,
+        imagesSaved,
         importFailed: failed,
         importSkippedInvalid: skippedInvalid,
       },
