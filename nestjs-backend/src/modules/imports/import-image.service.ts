@@ -11,6 +11,8 @@ const MAX_DOWNLOAD_BYTES = 15 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 45_000;
 const DEFAULT_DELAY_MS = 120;
 const MAX_IMAGES_PER_LISTING = 24;
+/** Paralelní stažení fotek jednoho inzerátu (omezení zahlcení). */
+const MIRROR_IMAGE_CONCURRENCY = 4;
 
 function hostnameOf(url: string): string | null {
   try {
@@ -168,8 +170,21 @@ export class ImportImageService {
         watermarkedUrl = uploaded.watermarkedUrl ?? null;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        this.log.error(`[import-image] cloudinary upload failed: ${msg}`);
-        return null;
+        this.log.error(`[import-image] cloudinary upload failed, zkouším lokální zálohu: ${msg}`);
+        const dir = join(getUploadsPath(), 'properties');
+        try {
+          fs.mkdirSync(dir, { recursive: true });
+          const name = `${base}.${ext}`;
+          const outPath = join(dir, name);
+          fs.writeFileSync(outPath, buffer);
+          storedUrl = `/uploads/properties/${name}`;
+          watermarkedUrl = null;
+          this.log.warn(`[import-image] uloženo lokálně po selhání watermarku: ${storedUrl}`);
+        } catch (e2) {
+          const m2 = e2 instanceof Error ? e2.message : String(e2);
+          this.log.error(`[import-image] ani lokální záloha po Cloudinary selhání: ${m2}`);
+          return null;
+        }
       }
     } else {
       const dir = join(getUploadsPath(), 'properties');
@@ -210,37 +225,63 @@ export class ImportImageService {
     propertyId: string;
     sourcePortalKey: string;
     delayMsBetweenFetches?: number;
+    /** Inkrementuje se při úspěšném stažení+zrcadlení z reality.cz CDN. */
+    stats?: { mirroredSuccess?: number };
   }): Promise<Array<{ originalUrl: string; watermarkedUrl: string | null }>> {
     const delay = params.delayMsBetweenFetches ?? DEFAULT_DELAY_MS;
     const slice = params.urls.slice(0, MAX_IMAGES_PER_LISTING);
     const out: Array<{ originalUrl: string; watermarkedUrl: string | null }> = [];
 
-    for (let i = 0; i < slice.length; i += 1) {
+    type Variant = { originalUrl: string; watermarkedUrl: string | null };
+    const mirrorOne = async (i: number): Promise<{ items: Variant[]; mirroredInc: number }> => {
       const raw = slice[i]!;
-      const normalized = normalizeStoredImageUrl(raw);
-      if (!normalized) continue;
+      try {
+        const normalized = normalizeStoredImageUrl(raw);
+        if (!normalized) return { items: [], mirroredInc: 0 };
 
-      if (!shouldMirrorRealityImportedImageUrl(normalized)) {
-        out.push({ originalUrl: normalized, watermarkedUrl: null });
-        continue;
+        if (!shouldMirrorRealityImportedImageUrl(normalized)) {
+          return { items: [{ originalUrl: normalized, watermarkedUrl: null }], mirroredInc: 0 };
+        }
+
+        const done = await this.importExternalImageToPortal({
+          imageUrl: normalized,
+          propertyId: params.propertyId,
+          sourcePortalKey: params.sourcePortalKey,
+          index: i,
+        });
+        if (done?.storedUrl) {
+          const orig = normalizeStoredImageUrl(done.storedUrl) ?? done.storedUrl;
+          const wm = done.watermarkedUrl
+            ? normalizeStoredImageUrl(done.watermarkedUrl) ?? done.watermarkedUrl
+            : null;
+          if (orig) {
+            return { items: [{ originalUrl: orig, watermarkedUrl: wm }], mirroredInc: 1 };
+          }
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        this.log.warn(`[import-image] mirror slot ${i} failed: ${msg.slice(0, 160)}`);
       }
+      return { items: [], mirroredInc: 0 };
+    };
 
-      const done = await this.importExternalImageToPortal({
-        imageUrl: normalized,
-        propertyId: params.propertyId,
-        sourcePortalKey: params.sourcePortalKey,
-        index: i,
-      });
-      if (done?.storedUrl) {
-        const orig = normalizeStoredImageUrl(done.storedUrl) ?? done.storedUrl;
-        const wm = done.watermarkedUrl
-          ? normalizeStoredImageUrl(done.watermarkedUrl) ?? done.watermarkedUrl
-          : null;
-        if (orig && !out.some((x) => x.originalUrl === orig)) {
-          out.push({ originalUrl: orig, watermarkedUrl: wm });
+    for (let i = 0; i < slice.length; ) {
+      const batchEnd = Math.min(slice.length, i + MIRROR_IMAGE_CONCURRENCY);
+      const batch = await Promise.all(
+        Array.from({ length: batchEnd - i }, (_, k) => mirrorOne(i + k)),
+      );
+      for (const { items, mirroredInc } of batch) {
+        if (params.stats && mirroredInc > 0) {
+          params.stats.mirroredSuccess = (params.stats.mirroredSuccess ?? 0) + mirroredInc;
+        }
+        for (const item of items) {
+          if (item.originalUrl && !out.some((x) => x.originalUrl === item.originalUrl)) {
+            out.push(item);
+          }
         }
       }
-      if (delay > 0 && i < slice.length - 1) {
+      i = batchEnd;
+      if (delay > 0 && i < slice.length) {
         await sleep(delay);
       }
     }

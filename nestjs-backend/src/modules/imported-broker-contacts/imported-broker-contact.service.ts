@@ -23,6 +23,15 @@ function meaningfulName(v: string | null | undefined): string | null {
   return t.slice(0, 200);
 }
 
+/** Formát z importu: „makléř · kancelář“. */
+function splitImportedContactDisplay(contactName: string): { person: string; companyFromField: string } {
+  const t = (contactName ?? '').trim();
+  const sep = ' · ';
+  const i = t.indexOf(sep);
+  if (i === -1) return { person: t, companyFromField: '' };
+  return { person: t.slice(0, i).trim(), companyFromField: t.slice(i + sep.length).trim() };
+}
+
 export type ListImportedBrokerContactsQuery = {
   search?: string;
   portal?: string;
@@ -45,28 +54,34 @@ export class ImportedBrokerContactService {
    * Po uložení importovaného inzerátu — párování podle e-mailu, pak telefonu, jinak nový neúplný záznam.
    * Nikdy nevyhodí výjimku ven (import musí doběhnout).
    */
-  async syncFromImportedProperty(propertyId: string): Promise<void> {
+  async syncFromImportedProperty(
+    propertyId: string,
+  ): Promise<'created' | 'updated' | 'skipped'> {
     try {
-      await this.syncFromImportedPropertyInner(propertyId);
+      return await this.syncFromImportedPropertyInner(propertyId);
     } catch (e) {
       this.logger.warn(
         `syncFromImportedProperty failed propertyId=${propertyId}: ${
           e instanceof Error ? e.message : String(e)
         }`,
       );
+      return 'skipped';
     }
   }
 
-  private async syncFromImportedPropertyInner(propertyId: string): Promise<void> {
+  private async syncFromImportedPropertyInner(
+    propertyId: string,
+  ): Promise<'created' | 'updated' | 'skipped'> {
     const property = await this.prisma.property.findUnique({
       where: { id: propertyId },
     });
-    if (!property) return;
-    if (!property.importSource || !property.importExternalId) return;
+    if (!property) return 'skipped';
+    if (!property.importSource || !property.importExternalId) return 'skipped';
 
     const email = normEmail(property.contactEmail);
     const phone = normPhone(property.contactPhone);
-    const name = meaningfulName(property.contactName) ?? '';
+    const { person, companyFromField } = splitImportedContactDisplay(property.contactName ?? '');
+    const name = meaningfulName(person) ?? '';
     const listingUrl = property.importSourceUrl?.trim() || null;
     const portal =
       (property.sourcePortalKey ?? '').trim() ||
@@ -74,27 +89,32 @@ export class ImportedBrokerContactService {
       null;
     const portalLabel = (property.sourcePortalLabel ?? '').trim() || null;
     const city = (property.city ?? '').trim() || null;
-    const company =
+    const companyFromPortal =
       portalLabel && !name.toLowerCase().includes(portalLabel.toLowerCase())
         ? portalLabel.slice(0, 200)
         : '';
+    const company = (companyFromField || companyFromPortal).slice(0, 200);
 
     const parsedLog = {
       propertyId,
       email: Boolean(email),
       phone: Boolean(phone),
       nameLen: name.length,
+      companyLen: company.length,
       listingUrl: Boolean(listingUrl),
     };
     this.logger.log(`[broker-contact] contact parsed ${JSON.stringify(parsedLog)}`);
 
-    if (!email && !phone && !(meaningfulName(property.contactName) && listingUrl)) {
+    const hasNameAndUrl = name.length >= 2 && Boolean(listingUrl);
+    const hasNameCompanyUrl = name.length >= 2 && company.length >= 2 && Boolean(listingUrl);
+    if (!email && !phone && !hasNameAndUrl && !hasNameCompanyUrl) {
       this.logger.log(
         `[broker-contact] skip propertyId=${propertyId} (no email/phone and no name+url)`,
       );
-      return;
+      return 'skipped';
     }
 
+    let outcome: 'created' | 'updated' = 'updated';
     await this.prisma.$transaction(async (tx) => {
       const existingLink = await tx.importedBrokerContactListing.findFirst({
         where: { propertyId },
@@ -112,9 +132,6 @@ export class ImportedBrokerContactService {
       const now = new Date();
 
       if (!contact) {
-        if (!email && !phone && !(meaningfulName(property.contactName) && listingUrl)) {
-          return;
-        }
         contact = await tx.importedBrokerContact.create({
           data: {
             fullName: name || 'Neznámý kontakt',
@@ -132,6 +149,7 @@ export class ImportedBrokerContactService {
           },
         });
         this.logger.log(`[broker-contact] created new broker contact id=${contact.id}`);
+        outcome = 'created';
       } else {
         await tx.importedBrokerContact.update({
           where: { id: contact.id },
@@ -180,6 +198,7 @@ export class ImportedBrokerContactService {
         this.logger.log(`[broker-contact] linked propertyId=${propertyId} to contact=${contact.id}`);
       }
     });
+    return outcome;
   }
 
   async list(q: ListImportedBrokerContactsQuery) {

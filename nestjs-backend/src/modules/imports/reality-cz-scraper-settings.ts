@@ -40,8 +40,8 @@ const DEFAULTS: RealityCzScraperRuntimeSettings = {
   /** Počet detailních stránek za běh — má pokrýt celý výpis (listing jen jako zdroj URL). */
   maxDetailFetchesPerRun: 500,
   listOnlyImport: false,
-  /** 1 = detaily vždy po jednom (nejméně agresivní vůči Reality.cz). */
-  detailConcurrency: 1,
+  /** 3 = rozumný paralelismus detailů (omezeno max. 5 v parseru). */
+  detailConcurrency: 3,
   /** Pauza před každým stažením detailu (doporučeno ≥ 500 ms). */
   detailRequestGapMs: 550,
 };
@@ -120,7 +120,7 @@ export function parseRealityCzScraperSettings(
     ),
     maxDetailFetchesPerRun: maxDetail,
     listOnlyImport: listOnly,
-    detailConcurrency: num(raw, 'scraperDetailConcurrency', DEFAULTS.detailConcurrency, 1, 8),
+    detailConcurrency: num(raw, 'scraperDetailConcurrency', DEFAULTS.detailConcurrency, 1, 5),
     detailRequestGapMs: num(
       raw,
       'scraperDetailRequestGapMs',

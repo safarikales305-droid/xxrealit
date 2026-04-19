@@ -863,6 +863,7 @@ export class ImportSyncService {
         }
       });
       scraperMeta = sm;
+      const totalFoundListings = rows.length;
       emitProgress({
         totalListings: rows.length,
         message: `Nalezeno ${rows.length} inzerátů ve výpisu…`,
@@ -885,10 +886,10 @@ export class ImportSyncService {
           percent: 12,
           message: 'Stahuji detail každého inzerátu (fotky, cena, popis)…',
         });
-        let plannedDetailSlotsForProgress = 1;
+        let plannedDetailSlotsForProgress = 0;
         const enr = await this.scraperImporter.enrichDraftsWithDetailsBatched(rows, settings, {
           onPlanned: (n) => {
-            plannedDetailSlotsForProgress = Math.max(1, n);
+            plannedDetailSlotsForProgress = n;
             emitProgress({
               totalDetails: n,
               phase: 'details',
@@ -899,7 +900,8 @@ export class ImportSyncService {
             });
           },
           onTick: (tick) => {
-            const frac = Math.min(1, tick.detailFetchesCompleted / plannedDetailSlotsForProgress);
+            const denom = Math.max(1, plannedDetailSlotsForProgress);
+            const frac = Math.min(1, tick.detailFetchesCompleted / denom);
             emitProgress({
               phase: 'details',
               processedDetails: tick.detailFetchesCompleted,
@@ -978,6 +980,7 @@ export class ImportSyncService {
       }
       result.warnings = warnings;
       result.summary = summaryParts.join('. ') || null;
+      const durationMs = Date.now() - startedAt.getTime();
       result.stats = {
         ...(result.stats ?? {}),
         startUrl: scraperMeta?.startUrl,
@@ -995,7 +998,15 @@ export class ImportSyncService {
         scraperSettings: scraperMeta?.settings,
         detailPhaseDbUpdates: result.importedNew + result.importedUpdated,
         detailPhaseDbErrors: 0,
+        totalFound: totalFoundListings,
+        durationMs,
+        brokersCreated: result.stats?.brokersCreated ?? 0,
+        brokersUpdated: result.stats?.brokersUpdated ?? 0,
+        imagesMirrored: result.stats?.imagesMirrored ?? 0,
       };
+      this.logger.log(
+        `Import summary: totalFound=${totalFoundListings} processed=${totalFoundListings} new=${result.importedNew} updated=${result.importedUpdated} skipped=${result.skipped} failedRowErrors=${result.errors.length} brokersCreated=${result.stats.brokersCreated ?? 0} brokersUpdated=${result.stats.brokersUpdated ?? 0} imagesMirrored=${result.stats.imagesMirrored ?? 0} durationMs=${durationMs}`,
+      );
 
       const hasProblem =
         warnings.length > 0 && result.importedNew === 0 && result.importedUpdated === 0;
@@ -1073,6 +1084,9 @@ export class ImportSyncService {
             warnings: result?.warnings ?? [],
             scraper: scraperMeta
               ? (JSON.parse(JSON.stringify(scraperMeta)) as Prisma.InputJsonValue)
+              : null,
+            summary: result?.stats
+              ? (JSON.parse(JSON.stringify(result.stats)) as Prisma.InputJsonValue)
               : null,
           },
         },
@@ -1284,23 +1298,42 @@ export class ImportSyncService {
   /**
    * Fotky z Reality.cz stáhneme a nahrajeme stejným storage jako uživatelské inzeráty (Cloudinary / lokální uploads).
    */
+  private formatImportedContactNameForDb(row: ImportedListingDraft): string | null {
+    const name = (row.contactName ?? '').trim();
+    const co = (row.contactCompany ?? '').trim();
+    if (!name && !co) return null;
+    if (name && co) return `${name} · ${co}`.slice(0, 200);
+    return (name || co).slice(0, 200);
+  }
+
   private async resolveImportedPropertyImagesForDb(
     ctx: ImportExecutionContext,
     row: ImportedListingDraft,
     externalId: string,
     existingPropertyId: string | null,
+    mirrorStats?: { mirroredSuccess?: number },
   ): Promise<Array<{ originalUrl: string; watermarkedUrl: string | null }>> {
-    const normalized = normalizeStoredImageUrlList(row.images);
-    if (normalized.length === 0) return [];
-    const portalKeyRaw = (ctx.portalKey ?? String(ctx.portal)).trim() || 'import';
-    const sourcePortalKey = portalKeyRaw.replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 64) || 'import';
-    const propertyIdForMirror =
-      existingPropertyId ?? `staging-${externalId.replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 80)}`;
-    return this.importImageService.mirrorRealityListingImageVariants({
-      urls: normalized,
-      propertyId: propertyIdForMirror,
-      sourcePortalKey,
-    });
+    try {
+      const normalized = normalizeStoredImageUrlList(row.images);
+      if (normalized.length === 0) return [];
+      const portalKeyRaw = (ctx.portalKey ?? String(ctx.portal)).trim() || 'import';
+      const sourcePortalKey = portalKeyRaw.replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 64) || 'import';
+      const propertyIdForMirror =
+        existingPropertyId ?? `staging-${externalId.replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 80)}`;
+      return await this.importImageService.mirrorRealityListingImageVariants({
+        urls: normalized,
+        propertyId: propertyIdForMirror,
+        sourcePortalKey,
+        stats: mirrorStats,
+      });
+    } catch (e) {
+      this.logger.warn(
+        `resolveImportedPropertyImagesForDb failed ext=${externalId}: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+      return [];
+    }
   }
 
   private async importListingShells(
@@ -1314,6 +1347,9 @@ export class ImportSyncService {
     let skipped = 0;
     let disabled = 0;
     const errors: string[] = [];
+    let brokersCreated = 0;
+    let brokersUpdated = 0;
+    let imagesMirrored = 0;
 
     const sliceCap = Math.max(1, Math.min(5000, ctx.limitPerRun));
     const sliced = rows.slice(0, sliceCap);
@@ -1396,12 +1432,15 @@ export class ImportSyncService {
           );
           const facet = this.importFacetPayload(ctx, row);
           const wmSettings = await this.watermarkSettings.getSettings();
+          const mirrorStats = { mirroredSuccess: 0 };
           const imageVariants = await this.resolveImportedPropertyImagesForDb(
             ctx,
             row,
             externalId,
             null,
+            mirrorStats,
           );
+          imagesMirrored += mirrorStats.mirroredSuccess ?? 0;
           const imagesForDb = imageVariants.map((v) =>
             wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl,
           );
@@ -1427,7 +1466,9 @@ export class ImportSyncService {
               subType: '',
               images: imagesForDb,
               videoUrl,
-              contactName: (row.contactName?.trim() || 'Reality.cz import').slice(0, 200),
+              contactName: (
+                this.formatImportedContactNameForDb(row) ?? 'Reality.cz import'
+              ).slice(0, 200),
               contactPhone: (row.contactPhone ?? '').trim().slice(0, 40),
               contactEmail: (row.contactEmail ?? '').trim().toLowerCase().slice(0, 120),
               approved: true,
@@ -1478,7 +1519,9 @@ export class ImportSyncService {
           importedNew += 1;
           // eslint-disable-next-line no-console
           console.log('[IMPORT]', externalId, (row.title ?? '').slice(0, 80), 'CREATED');
-          void this.importedBrokerContacts.syncFromImportedProperty(created.id);
+          const br = await this.importedBrokerContacts.syncFromImportedProperty(created.id);
+          if (br === 'created') brokersCreated += 1;
+          else if (br === 'updated') brokersUpdated += 1;
           continue;
         }
 
@@ -1496,12 +1539,15 @@ export class ImportSyncService {
         );
         const facet = this.importFacetPayload(ctx, row);
         const wmSettings = await this.watermarkSettings.getSettings();
+        const mirrorStats = { mirroredSuccess: 0 };
         const imageVariants = await this.resolveImportedPropertyImagesForDb(
           ctx,
           row,
           externalId,
           existing.id,
+          mirrorStats,
         );
+        imagesMirrored += mirrorStats.mirroredSuccess ?? 0;
         const imagesForDb = imageVariants.map((v) =>
           wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl,
         );
@@ -1533,10 +1579,11 @@ export class ImportSyncService {
             images: imagesForDb.length > 0 ? imagesForDb : existing.images,
             videoUrl,
             listingType,
-            contactName: (row.contactName?.trim() || existing.contactName || 'Reality.cz import').slice(
-              0,
-              200,
-            ),
+            contactName: (
+              this.formatImportedContactNameForDb(row) ??
+              existing.contactName?.trim() ??
+              'Reality.cz import'
+            ).slice(0, 200),
             contactPhone: (row.contactPhone?.trim() || existing.contactPhone || '').slice(0, 40),
             contactEmail: (row.contactEmail?.trim() || existing.contactEmail || '')
               .toLowerCase()
@@ -1575,7 +1622,9 @@ export class ImportSyncService {
         importedUpdated += 1;
         // eslint-disable-next-line no-console
         console.log('[IMPORT]', externalId, (row.title ?? '').slice(0, 80), 'UPDATED');
-        void this.importedBrokerContacts.syncFromImportedProperty(updated.id);
+        const br = await this.importedBrokerContacts.syncFromImportedProperty(updated.id);
+        if (br === 'created') brokersCreated += 1;
+        else if (br === 'updated') brokersUpdated += 1;
       } catch (error: unknown) {
         skipped += 1;
         errors.push(error instanceof Error ? error.message : 'Neznámá chyba řádku');
@@ -1597,7 +1646,18 @@ export class ImportSyncService {
       );
     }
 
-    return { importedNew, importedUpdated, skipped, disabled, errors };
+    return {
+      importedNew,
+      importedUpdated,
+      skipped,
+      disabled,
+      errors,
+      stats: {
+        brokersCreated,
+        brokersUpdated,
+        imagesMirrored,
+      },
+    };
   }
 }
 

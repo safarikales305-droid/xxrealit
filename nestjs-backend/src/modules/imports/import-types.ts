@@ -27,6 +27,8 @@ export type ImportedListingDraft = {
   contactEmail?: string;
   /** Jméno makléře / RK z detailu — Property.contactName. */
   contactName?: string;
+  /** Název realitní kanceláře z detailu (uloží se spolu s jménem jako „jméno · kancelář“ v contactName). */
+  contactCompany?: string;
 };
 
 /** Syrový input ze scraperu/API parseru – může být nekompletní. */
@@ -75,6 +77,16 @@ export type ImportRunResult = {
     detailPhaseDbUpdates?: number;
     /** Počet chyb při zápisu detailů do DB. */
     detailPhaseDbErrors?: number;
+    /** Počet nalezených řádků ve výpisu před zápisem (po scraperu). */
+    totalFound?: number;
+    /** Úspěšně zrcadlené fotky z portálu během běhu. */
+    imagesMirrored?: number;
+    /** Nově vytvořené záznamy ImportedBrokerContact. */
+    brokersCreated?: number;
+    /** Aktualizované existující kontakty makléřů. */
+    brokersUpdated?: number;
+    /** Délka běhu importu v ms (od startu runWithLogging do výsledku). */
+    durationMs?: number;
   };
 };
 
