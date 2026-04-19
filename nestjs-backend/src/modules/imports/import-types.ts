@@ -72,6 +72,10 @@ export type ImportRunResult = {
     detailPage429Count?: number;
     detailFetchesAttempted?: number;
     detailFetchesCompleted?: number;
+    /** Počet stažených výpisových stránek (paginace Reality.cz atd.). */
+    listingPagesFetched?: number;
+    /** Stručný log stránek výpisu (diagnostika scraperu). */
+    listingPaginationLog?: unknown;
     scraperSettings?: unknown;
     /** Počet záznamů aktualizovaných zápisem z fáze B (detaily) do DB. */
     detailPhaseDbUpdates?: number;
