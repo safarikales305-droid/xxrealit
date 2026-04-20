@@ -8,6 +8,9 @@ import { isProfileRemoteStorageConfigured } from '../upload/profile-media-storag
 import { normalizeStoredImageUrl } from './import-image-urls';
 
 const MAX_DOWNLOAD_BYTES = 15 * 1024 * 1024;
+const MIN_DOWNLOAD_BYTES = 12 * 1024;
+const MIN_IMAGE_WIDTH = 480;
+const MIN_IMAGE_HEIGHT = 320;
 const FETCH_TIMEOUT_MS = 45_000;
 const DEFAULT_DELAY_MS = 120;
 const MAX_IMAGES_PER_LISTING = 24;
@@ -140,6 +143,12 @@ export class ImportImageService {
         this.log.warn(`[import-image] empty response body url=${originalUrl.slice(0, 100)}`);
         return null;
       }
+      if (arr.byteLength < MIN_DOWNLOAD_BYTES) {
+        this.log.warn(
+          `[import-image] body too small bytes=${arr.byteLength} min=${MIN_DOWNLOAD_BYTES} url=${originalUrl.slice(0, 100)}`,
+        );
+        return null;
+      }
       if (arr.byteLength > MAX_DOWNLOAD_BYTES) {
         this.log.warn(`[import-image] body too large bytes=${arr.byteLength}`);
         return null;
@@ -164,6 +173,25 @@ export class ImportImageService {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.log.warn(`[import-image] validate failed: ${msg}`);
+      return null;
+    }
+    const width = Number(meta.width ?? 0);
+    const height = Number(meta.height ?? 0);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      this.log.warn(`[import-image] invalid dimensions width=${width} height=${height}`);
+      return null;
+    }
+    if (width < MIN_IMAGE_WIDTH || height < MIN_IMAGE_HEIGHT) {
+      this.log.warn(
+        `[import-image] image too small ${width}x${height} min=${MIN_IMAGE_WIDTH}x${MIN_IMAGE_HEIGHT} url=${originalUrl.slice(0, 100)}`,
+      );
+      return null;
+    }
+    const ratio = Math.max(width / height, height / width);
+    if (ratio > 5) {
+      this.log.warn(
+        `[import-image] extreme aspect ratio width=${width} height=${height} ratio=${ratio.toFixed(2)} url=${originalUrl.slice(0, 100)}`,
+      );
       return null;
     }
 
