@@ -170,18 +170,33 @@ export function ImportBranchRow({
               {lastImportDebug.failed ?? 0}
             </div>
             {stats ? (
-              <div className="text-[10px] text-zinc-600">
-                Detaily {Number(stats['detailFetchesCompleted'] ?? 0)} /{' '}
-                {Number(stats['detailFetchesAttempted'] ?? 0)}, makléři +{Number(stats['brokersCreated'] ?? 0)} / upd{' '}
-                {Number(stats['brokersUpdated'] ?? 0)}, fotky {Number(stats['imagesSaved'] ?? stats['imagesDownloaded'] ?? stats['imagesMirrored'] ?? 0)}, deaktivováno{' '}
-                {Number(stats['deactivated'] ?? 0)}
+              <div className="space-y-1 text-[10px] text-zinc-600">
+                <div>
+                  Detaily {Number(stats['detailFetchesCompleted'] ?? 0)} /{' '}
+                  {Number(stats['detailFetchesAttempted'] ?? 0)}, makléři +{Number(stats['brokersCreated'] ?? 0)} / upd{' '}
+                  {Number(stats['brokersUpdated'] ?? 0)}, deaktivováno {Number(stats['deactivated'] ?? 0)}
+                </div>
+                <div>
+                  Fotky: nalezeno {Number(stats['imagesDiscovered'] ?? 0)}, validní po filtru{' '}
+                  {Number(stats['validImagesAfterFilter'] ?? 0)}, staženo{' '}
+                  {Number(stats['imagesDownloaded'] ?? stats['imagesMirrored'] ?? 0)}, uloženo{' '}
+                  {Number(stats['imagesSaved'] ?? 0)}
+                </div>
+                <div className="break-all">
+                  firstImageUrl: {String(stats['firstImageUrl'] ?? '—')}
+                </div>
+                <div className="break-all">
+                  firstStoredUrl: {String(stats['firstStoredUrl'] ?? '—')}
+                </div>
+                <div>
+                  Kontakt parser: name {Number(stats['contactNameParsed'] ?? 0)}, email{' '}
+                  {Number(stats['contactEmailParsed'] ?? 0)}, phone {Number(stats['contactPhoneParsed'] ?? 0)}, zahoz. tokeny{' '}
+                  {Number(stats['invalidContactTokensFiltered'] ?? 0)}
+                </div>
                 {Number(stats['mediaPersistFailures'] ?? 0) > 0 ? (
-                  <>
-                    ,{' '}
-                    <span className="font-semibold text-amber-800">
-                      PropertyMedia chyby: {Number(stats['mediaPersistFailures'] ?? 0)} (DB_SCHEMA_MISMATCH / IMAGE_SAVE_ERROR)
-                    </span>
-                  </>
+                  <div className="font-semibold text-amber-800">
+                    PropertyMedia chyby: {Number(stats['mediaPersistFailures'] ?? 0)} (DB_SCHEMA_MISMATCH / IMAGE_SAVE_ERROR)
+                  </div>
                 ) : null}
               </div>
             ) : null}

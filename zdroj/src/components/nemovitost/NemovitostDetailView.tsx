@@ -138,6 +138,7 @@ export function NemovitostDetailView({
   const media = useMemo(() => buildMediaList(p), [p]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [brokenMediaKeys, setBrokenMediaKeys] = useState<Record<string, boolean>>({});
   const safeMediaIndex = Math.min(
     activeIndex,
     Math.max(0, media.length > 0 ? media.length - 1 : 0),
@@ -167,6 +168,10 @@ export function NemovitostDetailView({
     }
     if (activeIndex > media.length - 1) setActiveIndex(media.length - 1);
   }, [media.length, activeIndex]);
+
+  useEffect(() => {
+    setBrokenMediaKeys({});
+  }, [p.id]);
 
   useEffect(() => {
     setLiked(Boolean(p.liked));
@@ -348,7 +353,7 @@ export function NemovitostDetailView({
                     playsInline
                     className="h-auto max-h-[80vh] w-full rounded-2xl bg-black object-contain"
                   />
-                ) : (
+                ) : !brokenMediaKeys[active.key] ? (
                   <button
                     type="button"
                     onClick={() => setLightboxOpen(true)}
@@ -359,8 +364,15 @@ export function NemovitostDetailView({
                       src={nestAbsoluteAssetUrl(active.url)}
                       alt={p.title}
                       className="h-auto max-h-[80vh] w-full rounded-2xl bg-black object-contain"
+                      onError={() =>
+                        setBrokenMediaKeys((prev) => ({ ...prev, [active.key]: true }))
+                      }
                     />
                   </button>
+                ) : (
+                  <div className="flex min-h-[200px] w-full items-center justify-center rounded-2xl bg-zinc-100 text-sm text-zinc-500">
+                    Náhled není dostupný
+                  </div>
                 )}
               </div>
               {media.length > 1 ? (
@@ -388,6 +400,9 @@ export function NemovitostDetailView({
                           src={nestAbsoluteAssetUrl(item.url)}
                           alt=""
                           className="h-full w-full object-cover"
+                          onError={() =>
+                            setBrokenMediaKeys((prev) => ({ ...prev, [item.key]: true }))
+                          }
                         />
                       )}
                     </button>
@@ -771,6 +786,10 @@ export function NemovitostDetailView({
               src={nestAbsoluteAssetUrl((media[safeMediaIndex] ?? media[0])?.url ?? '')}
               alt={p.title}
               className="max-h-[80vh] w-full rounded-xl object-contain"
+              onError={(e) => {
+                const target = e.currentTarget;
+                target.style.display = 'none';
+              }}
             />
           </div>
         </div>

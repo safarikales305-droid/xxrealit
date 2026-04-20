@@ -130,7 +130,16 @@ export class ImportImageService {
         this.log.warn(`[import-image] content-length too large url=${originalUrl.slice(0, 80)}`);
         return null;
       }
+      const ct = (res.headers.get('content-type') ?? '').toLowerCase();
+      if (!ct.startsWith('image/')) {
+        this.log.warn(`[import-image] non-image content-type="${ct}" url=${originalUrl.slice(0, 100)}`);
+        return null;
+      }
       const arr = new Uint8Array(await res.arrayBuffer());
+      if (arr.byteLength <= 0) {
+        this.log.warn(`[import-image] empty response body url=${originalUrl.slice(0, 100)}`);
+        return null;
+      }
       if (arr.byteLength > MAX_DOWNLOAD_BYTES) {
         this.log.warn(`[import-image] body too large bytes=${arr.byteLength}`);
         return null;

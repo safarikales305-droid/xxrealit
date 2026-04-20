@@ -1257,7 +1257,14 @@ export class ImportSyncService {
         imagesMirrored: result.stats?.imagesMirrored ?? 0,
         imagesDownloaded: result.stats?.imagesMirrored ?? 0,
         imagesDiscovered: result.stats?.imagesDiscovered ?? 0,
+        validImagesAfterFilter: result.stats?.validImagesAfterFilter ?? 0,
         imagesSaved: result.stats?.imagesSaved ?? 0,
+        firstImageUrl: result.stats?.firstImageUrl ?? null,
+        firstStoredUrl: result.stats?.firstStoredUrl ?? null,
+        contactNameParsed: result.stats?.contactNameParsed ?? 0,
+        contactEmailParsed: result.stats?.contactEmailParsed ?? 0,
+        contactPhoneParsed: result.stats?.contactPhoneParsed ?? 0,
+        invalidContactTokensFiltered: result.stats?.invalidContactTokensFiltered ?? 0,
         mediaPersistFailures: result.stats?.mediaPersistFailures ?? 0,
         deactivated,
       };
@@ -1839,7 +1846,14 @@ export class ImportSyncService {
     let brokersUpdated = 0;
     let imagesMirrored = 0;
     let imagesDiscovered = 0;
+    let validImagesAfterFilter = 0;
     let imagesSaved = 0;
+    let firstImageUrl: string | null = null;
+    let firstStoredUrl: string | null = null;
+    let contactNameParsed = 0;
+    let contactEmailParsed = 0;
+    let contactPhoneParsed = 0;
+    let invalidContactTokensFiltered = 0;
     let mediaPersistFailures = 0;
 
     const pushItemError = (e: ImportRunItemError) => {
@@ -1954,6 +1968,15 @@ export class ImportSyncService {
         resolvedId,
       );
       imagesDiscovered += Array.isArray(row.images) ? row.images.length : 0;
+      validImagesAfterFilter += row.images.length;
+      if (!firstImageUrl && row.images.length > 0) firstImageUrl = row.images[0] ?? null;
+      if (row.contactName?.trim()) contactNameParsed += 1;
+      if (row.contactEmail?.trim()) contactEmailParsed += 1;
+      if (row.contactPhone?.trim()) contactPhoneParsed += 1;
+      invalidContactTokensFiltered += Math.max(
+        0,
+        Math.trunc(Number(row.invalidContactTokensFiltered ?? 0)),
+      );
       const hasTitle = row.title.trim().length > 0;
       const hasUrl = Boolean(row.sourceUrl?.trim());
       if (!hasTitle && !hasUrl) {
@@ -2028,6 +2051,7 @@ export class ImportSyncService {
         .map((v) => (wmSettings.enabled && v.watermarkedUrl ? v.watermarkedUrl : v.originalUrl))
         .filter((u): u is string => typeof u === 'string' && u.trim().length > 0);
       imagesSaved += imagesForDb.length;
+      if (!firstStoredUrl && imagesForDb.length > 0) firstStoredUrl = imagesForDb[0] ?? null;
 
       const facet = this.importFacetPayload(ctx, row);
 
@@ -2318,7 +2342,14 @@ export class ImportSyncService {
         imagesMirrored,
         imagesDownloaded: imagesMirrored,
         imagesDiscovered,
+        validImagesAfterFilter,
         imagesSaved,
+        firstImageUrl,
+        firstStoredUrl,
+        contactNameParsed,
+        contactEmailParsed,
+        contactPhoneParsed,
+        invalidContactTokensFiltered,
         mediaPersistFailures,
         importFailed: failed,
         importSkippedInvalid: skippedInvalid,

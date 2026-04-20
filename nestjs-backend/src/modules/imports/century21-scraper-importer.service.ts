@@ -289,7 +289,14 @@ function isLikelyGalleryImageUrl(url: string): boolean {
   const low = url.toLowerCase();
   if (!/^https?:\/\//i.test(url) || low.startsWith('data:')) return false;
   if (/\.(svg)(\?|#|$)/i.test(low)) return false;
-  if (/(logo|favicon|icon|sprite|placeholder|avatar|cmp|cookie)/i.test(low)) return false;
+  if (
+    /(logo|favicon|icon|icons|sprite|placeholder|avatar|cmp|cookie|contact_phone|contact_mail|contact_email)/i.test(
+      low,
+    )
+  ) {
+    return false;
+  }
+  if (/\/wp-content\/uploads\/static\//i.test(low)) return false;
   return true;
 }
 
@@ -315,9 +322,23 @@ function extractGalleryImagesFromDetailHtml(html: string, limit = 80): string[] 
 
   for (const imgMatch of html.matchAll(/<img[^>]+>/gi)) {
     const tag = imgMatch[0];
-    for (const attr of ['data-src', 'data-lazy-src', 'data-zoom-src', 'data-full', 'src']) {
+    for (const attr of [
+      'data-src',
+      'data-lazy-src',
+      'data-original',
+      'data-zoom-src',
+      'data-full',
+      'src',
+    ]) {
       const mm = tag.match(new RegExp(`${attr}=["']([^"']+)["']`, 'i'));
       if (mm?.[1]) push(mm[1]);
+    }
+    const srcset = tag.match(/srcset=["']([^"']+)["']/i)?.[1] ?? '';
+    if (srcset) {
+      for (const seg of srcset.split(',')) {
+        const u = seg.trim().split(/\s+/)[0] ?? '';
+        if (u) push(u);
+      }
     }
   }
 
@@ -336,6 +357,44 @@ function extractGalleryImagesFromDetailHtml(html: string, limit = 80): string[] 
     }
   }
   return ordered;
+}
+
+function cleanContactToken(raw: string): string {
+  return raw
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function looksInvalidContactToken(v: string): boolean {
+  const t = v.trim().toLowerCase();
+  if (!t) return true;
+  if (/^https?:\/\//.test(t)) return true;
+  if (/\.svg(\?|#|$)/.test(t)) return true;
+  if (/(icon|icons|logo|placeholder|contact_phone|contact_mail|contact_email)/.test(t)) return true;
+  return false;
+}
+
+function extractEmailFromHtml(html: string): string | null {
+  const mailto = html.match(/mailto:([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i)?.[1];
+  if (mailto) return mailto.toLowerCase().slice(0, 120);
+  const m = html.match(/\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b/);
+  if (!m?.[1]) return null;
+  return m[1].toLowerCase().slice(0, 120);
+}
+
+function extractPhoneFromHtml(html: string): string | null {
+  const telHref = html.match(/href=["']tel:([^"']+)["']/i)?.[1] ?? '';
+  const telToken = cleanContactToken(telHref);
+  if (telToken && !looksInvalidContactToken(telToken)) {
+    const compact = telToken.replace(/[^\d+]/g, '');
+    if (compact.replace(/\D/g, '').length >= 9) return telToken.slice(0, 40);
+  }
+  const any = html.match(/(?:\+420\s*)?\d(?:[\s().-]*\d){8,14}/);
+  if (!any?.[0]) return null;
+  const token = cleanContactToken(any[0]);
+  if (looksInvalidContactToken(token)) return null;
+  return token.slice(0, 40);
 }
 
 function parseDetailParameters(html: string): Record<string, string> {
@@ -370,6 +429,7 @@ function parseNumericArea(v: unknown): number | null {
 
 function parseDetailHtml(html: string): Partial<ImportedListingDraft> {
   const out: Partial<ImportedListingDraft> = {};
+  let invalidContactTokensFiltered = 0;
   try {
     const jsonBodies = [
       ...Array.from(
@@ -468,15 +528,16 @@ function parseDetailHtml(html: string): Partial<ImportedListingDraft> {
     out.images = extractGalleryImagesFromDetailHtml(html);
 
     const jsonEmail = pickJsonString('email');
-    const mail = jsonEmail ?? html.match(/mailto:([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i)?.[1];
+    const mail = jsonEmail ?? extractEmailFromHtml(html);
     if (mail) out.contactEmail = mail.toLowerCase().slice(0, 120);
 
     const jsonTel = pickJsonString('telephone') ?? pickJsonString('seller', 'telephone');
-    const tel =
-      jsonTel ??
-      html.match(/href=["']tel:([+0-9\s\u00a0()-]{9,40})["']/i)?.[1] ??
-      html.match(/\+420[\s\u00a0]*[0-9]{3}[\s\u00a0]*[0-9]{3}[\s\u00a0]*[0-9]{3}/)?.[0];
-    if (tel) out.contactPhone = tel.replace(/\s+/g, ' ').trim().slice(0, 40);
+    const tel = jsonTel ?? extractPhoneFromHtml(html);
+    if (tel) {
+      const t = cleanContactToken(tel);
+      if (!looksInvalidContactToken(t)) out.contactPhone = t.slice(0, 40);
+      else invalidContactTokensFiltered += 1;
+    }
 
     const jsonBrokerName = pickJsonString('seller', 'name') ?? pickJsonString('agent', 'name');
     const brokerSection = html.match(
@@ -484,7 +545,9 @@ function parseDetailHtml(html: string): Partial<ImportedListingDraft> {
     )?.[1];
     const brokerNameResolved = jsonBrokerName ?? brokerSection ?? null;
     if (brokerNameResolved) {
-      out.contactName = cleanText(brokerNameResolved)?.slice(0, 120) ?? undefined;
+      const cleaned = cleanText(brokerNameResolved)?.slice(0, 120) ?? '';
+      if (!looksInvalidContactToken(cleaned)) out.contactName = cleaned;
+      else invalidContactTokensFiltered += 1;
     }
 
     const office =
@@ -568,6 +631,7 @@ function parseDetailHtml(html: string): Partial<ImportedListingDraft> {
   } catch {
     /* vrátíme částečný out */
   }
+  out.invalidContactTokensFiltered = invalidContactTokensFiltered;
   return out;
 }
 

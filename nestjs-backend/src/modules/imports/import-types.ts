@@ -29,6 +29,8 @@ export type ImportedListingDraft = {
   contactName?: string;
   /** Název realitní kanceláře z detailu (uloží se spolu s jménem jako „jméno · kancelář“ v contactName). */
   contactCompany?: string;
+  /** Debug: kolik nevalidních kontakt tokenů (icon/svg/url) parser odfiltroval. */
+  invalidContactTokensFiltered?: number;
 };
 
 /** Syrový input ze scraperu/API parseru – může být nekompletní. */
@@ -134,8 +136,22 @@ export type ImportRunResult = {
     imagesDownloaded?: number;
     /** Počet URL fotek nalezených ve scrapovaných detailech. */
     imagesDiscovered?: number;
+    /** Počet validních URL po filtraci parseru (bez icon/svg/placeholder). */
+    validImagesAfterFilter?: number;
     /** Počet fotek skutečně uložených k inzerátům. */
     imagesSaved?: number;
+    /** První validní URL fotky nalezená parserem (diagnostika). */
+    firstImageUrl?: string | null;
+    /** První skutečně uložená URL ve storage (diagnostika). */
+    firstStoredUrl?: string | null;
+    /** Počet inzerátů s nenulovým jménem kontaktu po parseru. */
+    contactNameParsed?: number;
+    /** Počet inzerátů s nenulovým e-mailem po parseru. */
+    contactEmailParsed?: number;
+    /** Počet inzerátů s nenulovým telefonem po parseru. */
+    contactPhoneParsed?: number;
+    /** Kolik kontakt tokenů parser zahodil jako technické assety/URL. */
+    invalidContactTokensFiltered?: number;
     /** Počet inzerátů, kde zápis PropertyMedia selhal (inzerát mohl být uložen bez řádků médií). */
     mediaPersistFailures?: number;
     importFailed?: number;
