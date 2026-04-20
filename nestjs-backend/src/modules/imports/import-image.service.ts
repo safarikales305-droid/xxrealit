@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'node:fs';
 import { join } from 'node:path';
+import type { Metadata } from 'sharp';
 import { getUploadsPath } from '../../lib/uploads-path';
 import { PropertyMediaCloudinaryService } from '../properties/property-media-cloudinary.service';
 import { ProfileImagesService } from '../upload/profile-images.service';
@@ -163,7 +164,7 @@ export class ImportImageService {
 
     const originalnameGuess = `import-${params.sourcePortalKey}-${params.index}.${extFromMimeOrUrl(contentType, originalUrl)}`;
 
-    let meta: { format?: string };
+    let meta: Metadata;
     try {
       meta = await this.profileImages.validateRasterInput(
         buffer,
@@ -175,9 +176,9 @@ export class ImportImageService {
       this.log.warn(`[import-image] validate failed: ${msg}`);
       return null;
     }
-    const width = Number(meta.width ?? 0);
-    const height = Number(meta.height ?? 0);
-    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    const width = typeof meta.width === 'number' ? meta.width : null;
+    const height = typeof meta.height === 'number' ? meta.height : null;
+    if (width === null || height === null || width <= 0 || height <= 0) {
       this.log.warn(`[import-image] invalid dimensions width=${width} height=${height}`);
       return null;
     }

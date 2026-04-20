@@ -95,6 +95,11 @@ export function ImportSourceForm({ open, branch, defaultPortalKey, onClose, onSu
               }}
               className="w-full rounded-lg border border-zinc-200 px-3 py-2"
             />
+            {portalKey === 'century21_cz' ? (
+              <p className="mt-1 text-xs text-zinc-500">
+                Pro CENTURY21 použijte URL výpisu (`/nemovitosti?...`). Detail inzerátu se načítá přes Playwright render.
+              </p>
+            ) : null}
           </label>
           <label className="text-sm">
             <span className="mb-1 block text-xs text-zinc-600">Kategorie key</span>

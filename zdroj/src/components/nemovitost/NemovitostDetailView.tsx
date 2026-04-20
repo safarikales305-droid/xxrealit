@@ -59,9 +59,14 @@ function collectPhotoUrls(p: PropertyFeedItem): string[] {
 
 function collectImagesFieldUrls(p: PropertyFeedItem): string[] {
   const base = getNestPublicOrigin() || undefined;
-  if (!Array.isArray(p.images) || p.images.length === 0) return [];
+  const candidates = [
+    ...(Array.isArray(p.images) ? p.images : []),
+    ...(Array.isArray(p.galleryImages) ? p.galleryImages : []),
+    ...(typeof p.mainImage === 'string' && p.mainImage.trim() ? [p.mainImage.trim()] : []),
+  ];
+  if (candidates.length === 0) return [];
   const out: string[] = [];
-  for (const raw of p.images) {
+  for (const raw of candidates) {
     if (typeof raw !== 'string') continue;
     const n = normalizeImageCandidate(raw.trim(), base);
     if (isValidImageUrl(n)) out.push(n!);
@@ -396,14 +401,20 @@ export function NemovitostDetailView({
                           className="h-full w-full object-cover"
                         />
                       ) : (
-                        <img
-                          src={nestAbsoluteAssetUrl(item.url)}
-                          alt=""
-                          className="h-full w-full object-cover"
-                          onError={() =>
-                            setBrokenMediaKeys((prev) => ({ ...prev, [item.key]: true }))
-                          }
-                        />
+                        !brokenMediaKeys[item.key] ? (
+                          <img
+                            src={nestAbsoluteAssetUrl(item.url)}
+                            alt=""
+                            className="h-full w-full object-cover"
+                            onError={() =>
+                              setBrokenMediaKeys((prev) => ({ ...prev, [item.key]: true }))
+                            }
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center bg-zinc-200 text-[10px] text-zinc-600">
+                            Bez náhledu
+                          </div>
+                        )
                       )}
                     </button>
                   ))}

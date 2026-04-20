@@ -8,6 +8,9 @@ import {
 } from './reality-cz-scraper-settings';
 import { safeParsePrice, unwrapImportedPriceValue } from './price-parse.util';
 import { normalizeStoredImageUrl } from './import-image-urls';
+import { Century21DetailPlaywrightService } from './century21-detail-playwright.service';
+import { Century21ListService } from './century21-list.service';
+import { Century21ParserService } from './century21-parser.service';
 
 const FETCH_TIMEOUT_MS = 30_000;
 const DEFAULT_BROWSER_UA =
@@ -638,6 +641,11 @@ function parseDetailHtml(html: string): Partial<ImportedListingDraft> {
 @Injectable()
 export class Century21ScraperImporter {
   private readonly logger = new Logger(Century21ScraperImporter.name);
+  constructor(
+    private readonly detailPlaywright: Century21DetailPlaywrightService,
+    private readonly century21List: Century21ListService,
+    private readonly century21Parser: Century21ParserService,
+  ) {}
 
   private buildHeaders(_url: string): Record<string, string> {
     return {
@@ -810,21 +818,21 @@ export class Century21ScraperImporter {
         break;
       }
 
-      const hrefUrls = extractHrefDetailUrls(fetched.body);
-      const absUrls = extractAbsoluteDetailUrls(fetched.body);
-      const mergedOnPage = mergeUniqueUrls([...hrefUrls, ...absUrls]);
+      const hrefUrls = this.century21List.extractHrefDetailUrls(fetched.body);
+      const absUrls = this.century21List.extractAbsoluteDetailUrls(fetched.body);
+      const mergedOnPage = this.century21List.mergeUniqueUrls([...hrefUrls, ...absUrls]);
       const mergedBefore = draftsByUrl.size;
 
       for (const detailUrl of mergedOnPage) {
         if (draftsByUrl.size >= limit) break;
-        const frag = cardFragmentForUrl(fetched.body, detailUrl);
+        const frag = this.century21List.cardFragmentForUrl(fetched.body, detailUrl);
         const card = parseListCardFragment(frag);
-        const eid = externalIdFromDetailUrl(detailUrl);
+        const eid = this.century21List.externalIdFromDetailUrl(detailUrl);
         if (!eid) continue;
         const priceNum = card.priceText ? normalizeListPrice(card.priceText) : null;
         const row: ImportedListingDraft = {
           externalId: eid,
-          title: (card.title ?? slugFallbackTitle(detailUrl)).slice(0, 400),
+          title: (card.title ?? this.century21List.slugFallbackTitle(detailUrl)).slice(0, 400),
           description: '',
           price: priceNum,
           city: (card.address ?? 'Neuvedeno').slice(0, 120),
@@ -849,7 +857,7 @@ export class Century21ScraperImporter {
       if (draftsByUrl.size >= limit) break;
       if (pageIdx > 0 && newUniques === 0 && mergedOnPage.length === 0) break;
 
-      const next = extractNextListingPageUrl(fetched.body, fetched.finalUrl);
+      const next = this.century21List.extractNextListingPageUrl(fetched.body, fetched.finalUrl);
       if (!next || next === pageUrl) {
         if (pageIdx === 0 && mergedOnPage.length === 0) {
           this.logger.warn('CENTURY21: první stránka bez odkazů na detail (?id=) — zkontrolujte HTML výpisu.');
@@ -977,16 +985,18 @@ export class Century21ScraperImporter {
             emitTick(`Detail CENTURY21 ${detailFetchesCompleted}/${plannedDetailSlots}…`);
 
             try {
-              const fetched = await this.fetchWithRetry(
+              const rendered = await this.detailPlaywright.renderDetailHtml(url, {
+                timeoutMs: FETCH_TIMEOUT_MS + 15_000,
+                retries: settings.maxRetries,
+              });
+              requestLog.push({
+                phase: 'detail_page',
                 url,
-                'detail_page',
-                settings,
-                requestLog,
-                (is429) => {
-                  if (is429) detailPage429Count += 1;
-                },
-              );
-              const parsed = parseDetailHtml(fetched.body);
+                attempt: 1,
+                status: 200,
+                note: `playwright_final_url=${rendered.finalUrl.slice(0, 220)}`,
+              });
+              const parsed = this.century21Parser.parseDetailHtml(rendered.html);
               const cur = working[idx]!;
               working[idx] = {
                 ...cur,
