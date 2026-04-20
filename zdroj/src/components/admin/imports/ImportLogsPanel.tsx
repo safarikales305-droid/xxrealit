@@ -19,9 +19,9 @@ export function ImportLogsPanel({ logs }: Props) {
               </span>
               <span
                 className={`rounded-full px-2 py-0.5 ${
-                  log.status === 'ok'
+                  log.status === 'ok' || log.status === 'completed'
                     ? 'bg-emerald-100 text-emerald-800'
-                    : log.status === 'warn'
+                    : log.status === 'warn' || log.status === 'completed_with_errors'
                       ? 'bg-amber-100 text-amber-900'
                       : 'bg-red-100 text-red-800'
                 }`}

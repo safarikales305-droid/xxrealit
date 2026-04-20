@@ -105,6 +105,17 @@ function categorizeImportRowError(err: unknown): ImportErrorCategory {
   return 'UNKNOWN';
 }
 
+function categorizePropertySaveError(err: unknown): ImportErrorCategory {
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    if (err.code === 'P2002' || err.code === 'P2003') return 'DB_CONSTRAINT_ERROR';
+    return 'PROPERTY_SAVE_ERROR';
+  }
+  if (isDbSchemaMismatchMessage(err instanceof Error ? err.message : String(err))) {
+    return 'DB_SCHEMA_MISMATCH';
+  }
+  return 'PROPERTY_SAVE_ERROR';
+}
+
 /** Postgres / Prisma — chybějící sloupec v DB vs. schema (např. starší migrace na Railway). */
 function isDbSchemaMismatchMessage(msg: string): boolean {
   return (
@@ -121,6 +132,22 @@ function categorizeImportMediaError(err: unknown): ImportErrorCategory {
 
 function errStack(err: unknown): string | undefined {
   return err instanceof Error && err.stack ? err.stack.slice(0, 4000) : undefined;
+}
+
+function importedLandAreaFromAttributes(row: ImportedListingDraft): number | null {
+  const attrs = row.attributes;
+  if (!attrs || typeof attrs !== 'object' || Array.isArray(attrs)) return null;
+  const raw =
+    (attrs as Record<string, unknown>).landArea ??
+    (attrs as Record<string, unknown>)['Plocha pozemku'] ??
+    (attrs as Record<string, unknown>).land_area ??
+    null;
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return Math.trunc(raw);
+  if (typeof raw !== 'string') return null;
+  const m = raw.match(/(\d{1,6}(?:[.,]\d{1,2})?)/);
+  if (!m?.[1]) return null;
+  const n = Number(m[1].replace(',', '.'));
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
 }
 
 type ImportCategoryMeta = {
@@ -1304,8 +1331,11 @@ export class ImportSyncService {
         (result.warnings?.length ?? 0) > 0 &&
         result.importedNew === 0 &&
         result.importedUpdated === 0;
-      const logStatus =
-        errorMessage ? 'error' : mediaIssuesFin || warnOutcome ? 'warn' : 'ok';
+      const logStatus = errorMessage
+        ? 'failed'
+        : mediaIssuesFin || warnOutcome
+          ? 'completed_with_errors'
+          : 'completed';
       await this.prisma.importLog.create({
         data: {
           sourceId: ctx.sourceId,
@@ -2015,6 +2045,7 @@ export class ImportSyncService {
               region: row.region?.trim() ?? '',
               district: row.district?.trim() ?? '',
               area: row.area ?? null,
+              landArea: importedLandAreaFromAttributes(row),
               floor: row.floor ?? null,
               totalFloors: row.totalFloors ?? null,
               condition: row.condition?.trim() || null,
@@ -2091,6 +2122,20 @@ export class ImportSyncService {
                 brErr instanceof Error ? brErr.message : String(brErr)
               }`,
             );
+            pushItemError({
+              at: new Date().toISOString(),
+              externalId: resolvedId,
+              sourceUrl: row.sourceUrl ?? null,
+              title: row.title,
+              price: row.price ?? null,
+              imagesCount: row.images.length,
+              contactEmail: row.contactEmail || null,
+              contactPhone: row.contactPhone || null,
+              saveStatus: 'failed',
+              category: 'BROKER_SAVE_ERROR',
+              message: `broker sync (create): ${brErr instanceof Error ? brErr.message : String(brErr)}`,
+              stack: errStack(brErr),
+            });
           }
         } catch (createErr: unknown) {
           if (
@@ -2135,7 +2180,7 @@ export class ImportSyncService {
                   contactEmail: row.contactEmail || null,
                   contactPhone: row.contactPhone || null,
                   saveStatus: 'failed',
-                  category: categorizeImportRowError(upErr),
+                  category: categorizePropertySaveError(upErr),
                   message: upErr instanceof Error ? upErr.message : String(upErr),
                   stack: errStack(upErr),
                 });
@@ -2169,7 +2214,7 @@ export class ImportSyncService {
               contactEmail: row.contactEmail || null,
               contactPhone: row.contactPhone || null,
               saveStatus: 'failed',
-              category: categorizeImportRowError(createErr),
+              category: categorizePropertySaveError(createErr),
               message: createErr instanceof Error ? createErr.message : String(createErr),
               stack: errStack(createErr),
             });
@@ -2213,6 +2258,20 @@ export class ImportSyncService {
               brErr instanceof Error ? brErr.message : String(brErr)
             }`,
           );
+          pushItemError({
+            at: new Date().toISOString(),
+            externalId: resolvedId,
+            sourceUrl: row.sourceUrl ?? null,
+            title: row.title,
+            price: row.price ?? null,
+            imagesCount: row.images.length,
+            contactEmail: row.contactEmail || null,
+            contactPhone: row.contactPhone || null,
+            saveStatus: 'failed',
+            category: 'BROKER_SAVE_ERROR',
+            message: `broker sync (update): ${brErr instanceof Error ? brErr.message : String(brErr)}`,
+            stack: errStack(brErr),
+          });
         }
       } catch (upErr: unknown) {
         failed += 1;
@@ -2226,7 +2285,7 @@ export class ImportSyncService {
           contactEmail: row.contactEmail || null,
           contactPhone: row.contactPhone || null,
           saveStatus: 'failed',
-          category: categorizeImportRowError(upErr),
+          category: categorizePropertySaveError(upErr),
           message: upErr instanceof Error ? upErr.message : String(upErr),
           stack: errStack(upErr),
         });
@@ -2324,6 +2383,7 @@ export class ImportSyncService {
         region: row.region?.trim() ?? existing.region,
         district: row.district?.trim() ?? existing.district,
         area: row.area ?? existing.area,
+        landArea: importedLandAreaFromAttributes(row) ?? existing.landArea,
         floor: row.floor ?? existing.floor,
         totalFloors: row.totalFloors ?? existing.totalFloors,
         condition: row.condition?.trim() ?? existing.condition,

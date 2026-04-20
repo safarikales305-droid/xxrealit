@@ -358,6 +358,16 @@ function parseDetailParameters(html: string): Record<string, string> {
   return attrs;
 }
 
+function parseNumericArea(v: unknown): number | null {
+  if (typeof v === 'number' && Number.isFinite(v) && v > 0) return Math.trunc(v);
+  if (typeof v !== 'string') return null;
+  const m = v.replace(/\u00a0/g, ' ').match(/(\d{1,4}(?:[.,]\d{1,2})?)/);
+  if (!m?.[1]) return null;
+  const n = Number(m[1].replace(',', '.'));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.trunc(n);
+}
+
 function parseDetailHtml(html: string): Partial<ImportedListingDraft> {
   const out: Partial<ImportedListingDraft> = {};
   try {
@@ -416,6 +426,26 @@ function parseDetailHtml(html: string): Partial<ImportedListingDraft> {
       }
       return null;
     };
+    const pickNestedString = (
+      value: unknown,
+      keys: string[],
+    ): string | null => {
+      if (!value || typeof value !== 'object') return null;
+      const rec = value as Record<string, unknown>;
+      for (const k of keys) {
+        const v = rec[k];
+        if (typeof v === 'string' && v.trim()) return v.trim();
+      }
+      return null;
+    };
+    const firstJsonValue = (keys: string[]): unknown => {
+      for (const item of jsonPool) {
+        for (const key of keys) {
+          if (item[key] != null) return item[key];
+        }
+      }
+      return null;
+    };
 
     const ogTitle =
       html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1] ??
@@ -466,6 +496,64 @@ function parseDetailHtml(html: string): Partial<ImportedListingDraft> {
 
     const params = parseDetailParameters(html);
     if (Object.keys(params).length) out.attributes = params as Record<string, unknown>;
+
+    const jsonAddress = firstJsonValue(['address']);
+    const addressFromJson = pickNestedString(jsonAddress, [
+      'streetAddress',
+      'addressLocality',
+      'addressRegion',
+      'name',
+    ]);
+    const addressDom =
+      html.match(/(?:Adresa|Lokalita)[^<]{0,20}<\/[^>]+>\s*<[^>]*>([^<]{4,220})</i)?.[1] ??
+      html.match(/<meta[^>]+property=["']og:street-address["'][^>]+content=["']([^"']+)["']/i)?.[1] ??
+      null;
+    const resolvedAddress = cleanText(addressFromJson ?? addressDom);
+    if (resolvedAddress) out.address = resolvedAddress.slice(0, 500);
+
+    const cityFromJson = pickNestedString(jsonAddress, ['addressLocality']);
+    const regionFromJson = pickNestedString(jsonAddress, ['addressRegion']);
+    if (cityFromJson) out.city = cityFromJson.slice(0, 120);
+    if (regionFromJson) out.region = regionFromJson.slice(0, 200);
+
+    const listingTypeRaw =
+      pickJsonString('availabilityStarts') ??
+      pickJsonString('category') ??
+      pickJsonString('listingType') ??
+      '';
+    if (/pron[aá]jem|rent/i.test(listingTypeRaw + ' ' + (out.title ?? ''))) {
+      out.offerType = 'pronájem';
+    } else {
+      out.offerType = 'prodej';
+    }
+
+    const propertyTypeRaw =
+      pickJsonString('@type') ??
+      pickJsonString('category') ??
+      pickJsonString('propertyType') ??
+      '';
+    if (/house|d[uů]m|villa|rodinn/i.test(propertyTypeRaw + ' ' + (out.title ?? ''))) {
+      out.propertyType = 'dům';
+    } else if (/apartment|flat|byt/i.test(propertyTypeRaw + ' ' + (out.title ?? ''))) {
+      out.propertyType = 'byt';
+    } else if (/land|pozem/i.test(propertyTypeRaw + ' ' + (out.title ?? ''))) {
+      out.propertyType = 'pozemek';
+    }
+
+    const areaCandidate =
+      params['Užitná plocha'] ??
+      params['Uzitna plocha'] ??
+      params['Podlahová plocha'] ??
+      params['Plocha'] ??
+      null;
+    const landCandidate = params['Plocha pozemku'] ?? params['Pozemek'] ?? null;
+    const areaParsed = parseNumericArea(areaCandidate);
+    const landParsed = parseNumericArea(landCandidate);
+    if (areaParsed != null) out.area = areaParsed;
+    if (landParsed != null) {
+      const attrs = (out.attributes ?? {}) as Record<string, unknown>;
+      out.attributes = { ...attrs, landArea: landParsed };
+    }
 
     const cityHint =
       params['Obec'] ??
@@ -845,11 +933,16 @@ export class Century21ScraperImporter {
                     : cur.description || 'Import CENTURY 21 — popis doplníme ručně.',
                 price: parsed.price != null ? parsed.price : cur.price,
                 images: parsed.images?.length ? parsed.images : cur.images,
+                address: parsed.address?.trim() ? parsed.address : cur.address,
                 contactPhone: parsed.contactPhone ?? cur.contactPhone,
                 contactEmail: parsed.contactEmail ?? cur.contactEmail,
                 contactName: parsed.contactName ?? cur.contactName,
                 contactCompany: parsed.contactCompany ?? cur.contactCompany,
                 city: parsed.city?.trim() ? parsed.city! : cur.city,
+                region: parsed.region?.trim() ? parsed.region : cur.region,
+                offerType: parsed.offerType?.trim() ? parsed.offerType : cur.offerType,
+                propertyType: parsed.propertyType?.trim() ? parsed.propertyType : cur.propertyType,
+                area: parsed.area ?? cur.area,
                 attributes:
                   parsed.attributes && Object.keys(parsed.attributes).length
                     ? { ...(cur.attributes as object), ...(parsed.attributes as object) }
