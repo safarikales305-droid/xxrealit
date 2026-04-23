@@ -49,6 +49,7 @@ export function ImportSourceForm({ open, branch, defaultPortalKey, onClose, onSu
   const [startUrl, setStartUrl] = useState(branch?.startUrl || '');
   const [sourcePortal, setSourcePortal] = useState(branch?.sourcePortal || '');
   const [notes, setNotes] = useState(branch?.notes || '');
+  const [apifyApiKey, setApifyApiKey] = useState('');
   const [isActive, setIsActive] = useState(branch?.isActive ?? true);
   const [intervalMinutes, setIntervalMinutes] = useState(branch?.intervalMinutes || 120);
   const [limitPerRun, setLimitPerRun] = useState(branch?.limitPerRun || 100);
@@ -172,8 +173,13 @@ export function ImportSourceForm({ open, branch, defaultPortalKey, onClose, onSu
                 <input value={datasetId} onChange={(e) => setDatasetId(e.target.value)} className="w-full rounded-lg border border-zinc-200 px-3 py-2" />
               </label>
               <label className="text-sm">
-                <span className="mb-1 block text-xs text-zinc-600">Start URL (informativně)</span>
-                <input value={startUrl} onChange={(e) => setStartUrl(e.target.value)} className="w-full rounded-lg border border-zinc-200 px-3 py-2" />
+                <span className="mb-1 block text-xs text-zinc-600">APIFY_URL</span>
+                <input
+                  value={startUrl}
+                  onChange={(e) => setStartUrl(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+                  placeholder="https://api.apify.com/v2/datasets/.../items?format=json"
+                />
               </label>
               <label className="text-sm">
                 <span className="mb-1 block text-xs text-zinc-600">Source portal</span>
@@ -182,6 +188,22 @@ export function ImportSourceForm({ open, branch, defaultPortalKey, onClose, onSu
               <label className="text-sm md:col-span-2">
                 <span className="mb-1 block text-xs text-zinc-600">Poznámky</span>
                 <input value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full rounded-lg border border-zinc-200 px-3 py-2" />
+              </label>
+              <label className="text-sm md:col-span-2">
+                <span className="mb-1 block text-xs text-zinc-600">APIFY API klíč</span>
+                <input
+                  type="password"
+                  value={apifyApiKey}
+                  onChange={(e) => setApifyApiKey(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+                  placeholder="apify_api_..."
+                />
+                <p className="mt-1 text-[11px] text-zinc-500">
+                  Nevyplněné pole ponechá existující klíč beze změny. Klíč se ukládá jen backendu.
+                </p>
+                {branch?.credentialsJson && typeof branch.credentialsJson === 'object' && (branch.credentialsJson as Record<string, unknown>).apifyToken ? (
+                  <p className="mt-1 text-[11px] font-medium text-emerald-700">V této větvi je již APIFY klíč uložen.</p>
+                ) : null}
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
@@ -213,6 +235,10 @@ export function ImportSourceForm({ open, branch, defaultPortalKey, onClose, onSu
                 startUrl: startUrl || null,
                 sourcePortal: sourcePortal || null,
                 notes: notes || null,
+                credentialsJson:
+                  sourceType === 'APIFY' && apifyApiKey.trim()
+                    ? { apifyToken: apifyApiKey.trim() }
+                    : undefined,
                 isActive,
                 intervalMinutes,
                 limitPerRun,

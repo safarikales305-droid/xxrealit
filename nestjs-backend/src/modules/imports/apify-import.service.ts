@@ -36,9 +36,14 @@ export class ApifyImportService {
     actorTaskId?: string | null;
     datasetId?: string | null;
     startUrl?: string | null;
+    credentialsJson?: Record<string, unknown> | null;
     settingsJson?: Record<string, unknown> | null;
   }): Promise<{ rows: ImportedListingDraft[]; meta: ApifyFetchMeta }> {
-    const token = (process.env.APIFY_TOKEN ?? '').trim();
+    const tokenFromSource =
+      params.credentialsJson && typeof params.credentialsJson.apifyToken === 'string'
+        ? params.credentialsJson.apifyToken.trim()
+        : '';
+    const token = tokenFromSource || (process.env.APIFY_TOKEN ?? '').trim();
     if (!token) throw new BadRequestException('APIFY_TOKEN není nastaven.');
 
     const actorId =

@@ -1797,6 +1797,7 @@ export class ImportSyncService {
           actorTaskId: ctx.actorTaskId,
           datasetId: ctx.datasetId,
           startUrl: ctx.startUrl,
+          credentialsJson: ctx.credentialsJson,
           settingsJson: ctx.settingsJson,
         });
         return { rows: outcome.rows, scraperMeta: outcome.meta };

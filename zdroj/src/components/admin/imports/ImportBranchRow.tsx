@@ -79,8 +79,19 @@ export function ImportBranchRow({
         <div className="font-medium text-zinc-900">{branch.categoryLabel ?? 'Obecné'}</div>
         <div className="text-[11px] text-zinc-500">{branch.method}</div>
       </td>
+      <td className="px-3 py-2 text-xs">
+        <span
+          className={`rounded-full px-2 py-0.5 font-semibold ${
+            branch.method === 'apify' ? 'bg-indigo-100 text-indigo-800' : 'bg-zinc-100 text-zinc-700'
+          }`}
+        >
+          {branch.method === 'apify' ? 'APIFY' : 'SCRAPER'}
+        </span>
+      </td>
       <td className="px-3 py-2 text-xs text-zinc-700">
-        <div className="max-w-[340px] truncate">{branch.endpointUrl || '—'}</div>
+        <div className="max-w-[340px] truncate">
+          {branch.method === 'apify' ? branch.startUrl || '—' : branch.endpointUrl || '—'}
+        </div>
       </td>
       <td className="px-3 py-2 text-xs">{branch.intervalMinutes} min</td>
       <td className="px-3 py-2 text-xs">{branch.limitPerRun}</td>
@@ -236,7 +247,26 @@ export function ImportBranchRow({
         ) : null}
         {!branch.running?.running ? (
           <div className="mt-1 space-y-0.5 text-[10px] text-zinc-600">
-            <div>stav: {normalizeAdminImportStatus(branch)}</div>
+            <div>
+              stav:{' '}
+              <span
+                className={`rounded-full px-1.5 py-0.5 font-semibold ${
+                  normalizeAdminImportStatus(branch) === 'running'
+                    ? 'bg-blue-100 text-blue-800'
+                    : normalizeAdminImportStatus(branch) === 'completed'
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : normalizeAdminImportStatus(branch) === 'completed_with_errors'
+                        ? 'bg-amber-100 text-amber-900'
+                        : normalizeAdminImportStatus(branch) === 'failed'
+                          ? 'bg-red-100 text-red-800'
+                          : normalizeAdminImportStatus(branch) === 'disabled'
+                            ? 'bg-zinc-200 text-zinc-700'
+                            : 'bg-zinc-100 text-zinc-700'
+                }`}
+              >
+                {normalizeAdminImportStatus(branch)}
+              </span>
+            </div>
             {branch.actorId ? <div className="break-all">actorId: {branch.actorId}</div> : null}
             {branch.lastRunId ? <div className="break-all">runId: {branch.lastRunId}</div> : null}
             {branch.lastDatasetId ? <div className="break-all">datasetId: {branch.lastDatasetId}</div> : null}

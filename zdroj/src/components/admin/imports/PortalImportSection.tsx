@@ -59,10 +59,11 @@ export function PortalImportSection({
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="min-w-[1100px] w-full text-left">
+        <table className="min-w-[1250px] w-full text-left">
           <thead className="bg-zinc-50 text-[11px] uppercase text-zinc-500">
             <tr>
               <th className="px-3 py-2">Kategorie</th>
+              <th className="px-3 py-2">Typ zdroje</th>
               <th className="px-3 py-2">Start URL</th>
               <th className="px-3 py-2">Interval</th>
               <th className="px-3 py-2">Limit</th>
