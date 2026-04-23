@@ -1780,6 +1780,37 @@ export async function nestAdminRunImportPortal(
   };
 }
 
+export type AdminApifyDatasetImportResult = {
+  imported: number;
+  updated: number;
+  failed: number;
+  brokersCreated: number;
+  brokersUpdated: number;
+  imagesSaved: number;
+  lastError: string | null;
+};
+
+export async function nestAdminImportApifyDataset(
+  token: string | null,
+  datasetUrl: string,
+): Promise<{ ok: boolean; data?: AdminApifyDatasetImportResult; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/imports/apify-dataset`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ datasetUrl }),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true, data: data as AdminApifyDatasetImportResult };
+}
+
 /** POST /admin/imported-listings/bulk-shorts-drafts — hromadné koncepty shorts + náhodná hudba z knihovny. */
 export async function nestAdminBulkShortsDraftsFromImported(
   token: string | null,

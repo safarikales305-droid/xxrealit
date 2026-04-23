@@ -31,7 +31,7 @@ import { Century21ScraperImporter } from './century21-scraper-importer.service';
     Century21ParserService,
     Century21ScraperImporter,
   ],
-  exports: [ImportSyncService, ImportedBrokerContactsModule],
+  exports: [ImportSyncService, ImportImageService, ImportedBrokerContactsModule],
 })
 export class ImportsModule {}
 

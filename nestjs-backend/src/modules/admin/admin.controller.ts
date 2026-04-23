@@ -43,6 +43,9 @@ type ImportPropertiesBody = {
 type ImportXmlBody = {
   url?: string;
 };
+type ImportApifyDatasetBody = {
+  datasetUrl?: string;
+};
 
 type UpdateListingPhotoWatermarkBody = {
   enabled?: boolean;
@@ -261,6 +264,17 @@ export class AdminController {
     return this.adminService.importPropertiesFromXml(
       user.id,
       typeof body.url === 'string' ? body.url : '',
+    );
+  }
+
+  @Post('imports/apify-dataset')
+  importApifyDataset(
+    @CurrentUser() user: AuthUser,
+    @Body() body: ImportApifyDatasetBody,
+  ) {
+    return this.adminService.importApifyDataset(
+      user.id,
+      typeof body.datasetUrl === 'string' ? body.datasetUrl : '',
     );
   }
 

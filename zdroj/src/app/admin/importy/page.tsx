@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   nestAdminCreateImportSource,
   nestAdminDeleteImportSource,
+  nestAdminImportApifyDataset,
   nestAdminImportLogs,
   nestAdminImportSources,
   nestAdminRunImportPortal,
@@ -85,6 +86,8 @@ export default function AdminImportsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editBranch, setEditBranch] = useState<AdminImportSourceRow | null>(null);
   const [defaultPortalKey, setDefaultPortalKey] = useState<string>('reality_cz');
+  const [apifyDatasetUrl, setApifyDatasetUrl] = useState('');
+  const [apifyImportBusy, setApifyImportBusy] = useState(false);
 
   async function refresh(logFilter?: { sourceId?: string; portalKey?: string; categoryKey?: string }) {
     if (!token) return;
@@ -416,6 +419,28 @@ export default function AdminImportsPage() {
     await refresh();
   }
 
+  async function importFromApifyDataset() {
+    if (!token || apifyImportBusy) return;
+    const url = apifyDatasetUrl.trim();
+    if (!url) {
+      setError('Vyplň APIFY_DATASET_URL.');
+      return;
+    }
+    setApifyImportBusy(true);
+    setError(null);
+    setStatusMsg(null);
+    const r = await nestAdminImportApifyDataset(token, url);
+    setApifyImportBusy(false);
+    if (!r.ok || !r.data) {
+      setError(r.error ?? 'APIFY dataset import selhal.');
+      return;
+    }
+    setStatusMsg(
+      `APIFY dataset import: imported ${r.data.imported}, updated ${r.data.updated}, failed ${r.data.failed}, brokers +${r.data.brokersCreated}/${r.data.brokersUpdated}, images ${r.data.imagesSaved}${r.data.lastError ? `, lastError: ${r.data.lastError}` : ''}.`,
+    );
+    await refresh();
+  }
+
   if (isLoading) return <div className="flex min-h-screen items-center justify-center">Načítání…</div>;
   if (!token || !user || user.role !== 'ADMIN') return null;
 
@@ -472,6 +497,32 @@ export default function AdminImportsPage() {
               <input type="checkbox" checked={filters.onlyError} onChange={(e) => setFilters((p) => ({ ...p, onlyError: e.target.checked }))} />
               <span>Jen s chybou</span>
             </label>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+          <h2 className="text-base font-semibold">Ruční import z Apify datasetu</h2>
+          <p className="mt-1 text-xs text-zinc-600">
+            Vlož APIFY_DATASET_URL a spusť import bez RapidAPI/XML polí.
+          </p>
+          <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-center">
+            <label className="flex-1 text-sm">
+              <span className="mb-1 block text-xs text-zinc-600">Apify dataset URL</span>
+              <input
+                value={apifyDatasetUrl}
+                onChange={(e) => setApifyDatasetUrl(e.target.value)}
+                placeholder="https://api.apify.com/v2/datasets/.../items?clean=true&format=json&token=..."
+                className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => void importFromApifyDataset()}
+              disabled={apifyImportBusy}
+              className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              {apifyImportBusy ? 'Importuji…' : 'Importovat z Apify'}
+            </button>
           </div>
         </section>
 
