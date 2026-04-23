@@ -154,6 +154,8 @@ export type ImportRunResult = {
     invalidContactTokensFiltered?: number;
     /** Počet inzerátů, kde zápis PropertyMedia selhal (inzerát mohl být uložen bez řádků médií). */
     mediaPersistFailures?: number;
+    runId?: string | null;
+    datasetId?: string | null;
     importFailed?: number;
     importSkippedInvalid?: number;
   };

@@ -1476,7 +1476,7 @@ export class ImportSyncService {
         datasetId: (scraperMeta as { datasetId?: string | null } | undefined)?.datasetId ?? null,
       };
       this.logger.log(
-        `Import summary: totalFound=${totalFoundListings} processed=${totalFoundListings} new=${result.importedNew} updated=${result.importedUpdated} skipped=${result.skipped} skippedInvalid=${result.skippedInvalid ?? 0} failed=${result.failed ?? 0} errorLines=${result.errors.length} brokersCreated=${result.stats.brokersCreated ?? 0} brokersUpdated=${result.stats.brokersUpdated ?? 0} imagesMirrored=${result.stats.imagesMirrored ?? 0} mediaPersistFailures=${result.stats.mediaPersistFailures ?? 0} durationMs=${durationMs}`,
+        `Import summary: totalFound=${totalFoundListings} processed=${totalFoundListings} new=${result.importedNew} updated=${result.importedUpdated} skipped=${result.skipped} skippedInvalid=${result.skippedInvalid ?? 0} failed=${result.failed ?? 0} errorLines=${result.errors.length} brokersCreated=${result.stats?.brokersCreated ?? 0} brokersUpdated=${result.stats?.brokersUpdated ?? 0} imagesMirrored=${result.stats?.imagesMirrored ?? 0} mediaPersistFailures=${result.stats?.mediaPersistFailures ?? 0} durationMs=${durationMs}`,
       );
 
       const hasProblem =
@@ -1488,8 +1488,7 @@ export class ImportSyncService {
           lastRunAt: new Date(),
           lastRunId: (scraperMeta as { runId?: string | null } | undefined)?.runId ?? null,
           lastDatasetId:
-            (scraperMeta as { datasetId?: string | null } | undefined)?.datasetId ??
-            ((result?.stats?.['datasetId'] as string | undefined) ?? null),
+            (scraperMeta as { datasetId?: string | null } | undefined)?.datasetId ?? null,
           lastProcessedUrl: live.lastProcessedSourceUrl ?? null,
           lastError: null,
           lastStatus: errorMessage

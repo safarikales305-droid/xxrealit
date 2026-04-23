@@ -48,9 +48,10 @@ export class ApifyImportService {
     const actorTaskId =
       (params.actorTaskId ?? '').trim() ||
       (typeof params.settingsJson?.actorTaskId === 'string' ? params.settingsJson.actorTaskId : '').trim();
-    let datasetId =
+    let datasetId: string | null =
       (params.datasetId ?? '').trim() ||
-      (typeof params.settingsJson?.datasetId === 'string' ? params.settingsJson.datasetId : '').trim();
+      (typeof params.settingsJson?.datasetId === 'string' ? params.settingsJson.datasetId : '').trim() ||
+      null;
     const startUrl =
       (params.startUrl ?? '').trim() ||
       (typeof params.settingsJson?.startUrl === 'string' ? params.settingsJson.startUrl : '').trim();
