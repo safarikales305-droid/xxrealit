@@ -1120,11 +1120,10 @@ export class AdminService {
         ? [rawSingleImage]
         : [];
     const sourceUrl = pick('sourceUrl', 'url', 'detailUrl', 'listingUrl', 'Odkaz', 'Link');
-    const actorId = pick('ID_aktéra', 'ID_aktera', 'actorId', 'actor_id', 'id_aktera');
     const externalId =
       pick('externalId', 'id', 'itemId', 'listingId', 'ID') ||
       sourceUrl ||
-      `${actorId || 'apify'}-${index + 1}`;
+      `apify-dataset-item-${index + 1}`;
     return {
       externalId,
       sourceUrl,
@@ -1183,6 +1182,10 @@ export class AdminService {
   }
 
   private async ensureManualApifySource(datasetUrl: string) {
+    const datasetId = this.extractDatasetIdFromApifyItemsUrl(datasetUrl);
+    const settingsJson: Prisma.InputJsonValue = {
+      sourceType: 'APIFY_DATASET',
+    };
     const existing = await this.prisma.importSource.findUnique({
       where: {
         portalKey_categoryKey_method: {
@@ -1192,7 +1195,17 @@ export class AdminService {
         },
       },
     });
-    if (existing) return existing;
+    if (existing) {
+      return this.prisma.importSource.update({
+        where: { id: existing.id },
+        data: {
+          datasetId: datasetId || undefined,
+          actorId: null,
+          actorTaskId: null,
+          settingsJson,
+        },
+      });
+    }
     return this.prisma.importSource.create({
       data: {
         portal: ListingImportPortal.apify,
@@ -1205,10 +1218,24 @@ export class AdminService {
         enabled: true,
         intervalMinutes: 60,
         limitPerRun: 500,
+        datasetId: datasetId || undefined,
+        actorId: null,
+        actorTaskId: null,
         startUrl: datasetUrl,
+        settingsJson,
         isActive: true,
       },
     });
+  }
+
+  private extractDatasetIdFromApifyItemsUrl(datasetUrl: string): string {
+    try {
+      const parsed = new URL(datasetUrl);
+      const m = parsed.pathname.match(/\/v2\/datasets\/([^/]+)\/items$/i);
+      return m?.[1]?.trim() ?? '';
+    } catch {
+      return '';
+    }
   }
 
   /**
