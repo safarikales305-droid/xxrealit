@@ -734,6 +734,30 @@ export type AdminListingRow = {
   shortsSourceType?: string | null;
 };
 
+export type AdminImportRunState = {
+  running: boolean;
+  percent: number;
+  message: string;
+  startedAt?: string;
+  phase?: string;
+  totalListings?: number;
+  processedListings?: number;
+  totalDetails?: number;
+  processedDetails?: number;
+  savedCount?: number;
+  updatedCount?: number;
+  skippedCount?: number;
+  errorCount?: number;
+  failedCount?: number;
+  lastProcessedSourceUrl?: string | null;
+  lastItemErrorMessage?: string | null;
+  lastItemErrorCategory?: string | null;
+  lastItemErrorExternalId?: string | null;
+  itemErrorLog?: Array<Record<string, unknown>>;
+  progressPercent?: number;
+  currentMessage?: string;
+};
+
 export type AdminImportSourceRow = {
   id: string;
   portal: string;
@@ -777,29 +801,7 @@ export type AdminImportSourceRow = {
     error?: string | null;
     createdAt: string;
   } | null;
-  running?: {
-    running: boolean;
-    percent: number;
-    message: string;
-    startedAt?: string;
-    phase?: string;
-    totalListings?: number;
-    processedListings?: number;
-    totalDetails?: number;
-    processedDetails?: number;
-    savedCount?: number;
-    updatedCount?: number;
-    skippedCount?: number;
-    errorCount?: number;
-    failedCount?: number;
-    lastProcessedSourceUrl?: string | null;
-    lastItemErrorMessage?: string | null;
-    lastItemErrorCategory?: string | null;
-    lastItemErrorExternalId?: string | null;
-    itemErrorLog?: Array<Record<string, unknown>>;
-    progressPercent?: number;
-    currentMessage?: string;
-  };
+  running?: AdminImportRunState | null;
 };
 
 export type AdminImportLogRow = {

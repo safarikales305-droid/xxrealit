@@ -17,6 +17,7 @@ import {
   nestAdminUpdateImportSource,
   type AdminImportLogRow,
   type AdminImportPortalAggregate,
+  type AdminImportRunState,
   type AdminImportSourceRow,
   type NestAdminImportRunResult,
 } from '@/lib/nest-client';
@@ -172,28 +173,29 @@ export default function AdminImportsPage() {
         const processed = Number(job.processedItems ?? 0);
         const total = Number(job.totalItems ?? 0);
         const progress = Number(job.progressPercent ?? 0);
+        const runningState: AdminImportRunState | null =
+          job.status === 'queued' || job.status === 'running'
+            ? {
+                running: true,
+                percent: progress,
+                progressPercent: progress,
+                message: `APIFY import (${processed}/${total})`,
+                currentMessage: `APIFY import (${processed}/${total})`,
+                phase: 'details',
+                totalListings: total,
+                processedListings: processed,
+                savedCount: Number(job.imported ?? 0),
+                updatedCount: Number(job.updated ?? 0),
+                errorCount: Number(job.failed ?? 0),
+                failedCount: Number(job.failed ?? 0),
+              }
+            : null;
         setBranches((prev) =>
           prev.map((b) =>
             b.id === sourceId
               ? {
                   ...b,
-                  running:
-                    job.status === 'queued' || job.status === 'running'
-                      ? {
-                          running: true,
-                          percent: progress,
-                          progressPercent: progress,
-                          message: `APIFY import (${processed}/${total})`,
-                          currentMessage: `APIFY import (${processed}/${total})`,
-                          phase: 'details',
-                          totalListings: total,
-                          processedListings: processed,
-                          savedCount: Number(job.imported ?? 0),
-                          updatedCount: Number(job.updated ?? 0),
-                          errorCount: Number(job.failed ?? 0),
-                          failedCount: Number(job.failed ?? 0),
-                        }
-                      : null,
+                  running: runningState,
                 }
               : b,
           ),
