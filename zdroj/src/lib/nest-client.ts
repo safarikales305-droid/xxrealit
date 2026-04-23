@@ -1664,6 +1664,67 @@ export async function nestAdminRunApifyImportSource(
   return { ok: true, data: data as NestAdminImportRunResult };
 }
 
+export type ApifyImportQueueJob = {
+  id: string;
+  sourceId: string;
+  apifyUrl: string;
+  APIFY_URL?: string;
+  status: 'queued' | 'running' | 'completed' | 'completed_with_errors' | 'failed' | 'disabled';
+  imported: number;
+  updated: number;
+  failed: number;
+  errors: string[];
+  imagesSaved: number;
+  progressPercent?: number;
+  totalItems?: number;
+  processedItems?: number;
+  runAt: string;
+  finishedAt?: string;
+};
+
+export async function nestImportApifyQueueStart(
+  token: string | null,
+  payload: { sourceId: string; APIFY_URL?: string },
+): Promise<{ ok: boolean; data?: { jobId: string; status: string; APIFY_URL?: string }; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/import/apify`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok || data.ok === false) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return {
+    ok: true,
+    data: {
+      jobId: String(data.jobId ?? ''),
+      status: String(data.status ?? 'queued'),
+      APIFY_URL: typeof data.APIFY_URL === 'string' ? data.APIFY_URL : undefined,
+    },
+  };
+}
+
+export async function nestImportApifyQueueJob(
+  token: string | null,
+  jobId: string,
+): Promise<{ ok: boolean; data?: ApifyImportQueueJob; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/import/apify/jobs/${encodeURIComponent(jobId)}`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok || data.ok === false) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true, data: (data.job ?? data) as ApifyImportQueueJob };
+}
+
 export async function nestAdminToggleImportSource(
   token: string | null,
   sourceId: string,

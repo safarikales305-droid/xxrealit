@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import axios from 'axios';
 import { ListingImportMethod, ListingImportPortal, Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { ImportedBrokerContactService } from '../imported-broker-contacts/imported-broker-contact.service';
@@ -28,6 +29,9 @@ type QueueJob = {
   lastProcessedUrl: string | null;
   runAt: string;
   finishedAt?: string;
+  totalItems?: number;
+  processedItems?: number;
+  progressPercent?: number;
 };
 
 @Injectable()
@@ -57,6 +61,9 @@ export class ApifyImportQueueService {
       brokersUpdated: 0,
       lastProcessedUrl: null,
       runAt: new Date().toISOString(),
+      totalItems: 0,
+      processedItems: 0,
+      progressPercent: 0,
     };
     this.jobs.set(job.id, job);
 
@@ -108,6 +115,9 @@ export class ApifyImportQueueService {
 
     try {
       const items = await this.fetchItems(job.apifyUrl, token);
+      job.totalItems = items.length;
+      job.processedItems = 0;
+      job.progressPercent = items.length > 0 ? 1 : 100;
       const seenSourceUrls = new Set<string>();
       for (const item of items) {
         try {
@@ -238,6 +248,12 @@ export class ApifyImportQueueService {
           const m = e instanceof Error ? e.message : String(e);
           if (job.errors.length < 40) job.errors.push(m);
         }
+        job.processedItems = (job.processedItems ?? 0) + 1;
+        const total = Math.max(1, job.totalItems ?? 1);
+        job.progressPercent = Math.max(
+          1,
+          Math.min(99, Math.round(((job.processedItems ?? 0) / total) * 100)),
+        );
       }
 
       await this.prisma.property.updateMany({
@@ -252,6 +268,7 @@ export class ApifyImportQueueService {
 
       job.status = job.failed > 0 ? 'completed_with_errors' : 'completed';
       job.finishedAt = new Date().toISOString();
+      job.progressPercent = 100;
 
       await this.prisma.importSource.update({
         where: { id: job.sourceId },
@@ -283,6 +300,7 @@ export class ApifyImportQueueService {
       job.failed += 1;
       job.errors.push(e instanceof Error ? e.message : String(e));
       job.finishedAt = new Date().toISOString();
+      job.progressPercent = 100;
       await this.prisma.importSource.update({
         where: { id: job.sourceId },
         data: {
@@ -297,16 +315,16 @@ export class ApifyImportQueueService {
 
   private async fetchItems(apifyUrl: string, token: string): Promise<Record<string, unknown>[]> {
     if (!/^https?:\/\//i.test(apifyUrl)) throw new BadRequestException('APIFY_URL musí být validní URL.');
-    const res = await fetch(apifyUrl, {
+    const res = await axios.get(apifyUrl, {
+      timeout: 45_000,
+      responseType: 'json',
+      validateStatus: (s: number) => s >= 200 && s < 300,
       headers: {
         Accept: 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
     });
-    if (!res.ok) {
-      throw new BadRequestException(`APIFY dataset fetch failed: HTTP ${res.status}`);
-    }
-    const json = (await res.json().catch(() => null)) as unknown;
+    const json = res.data as unknown;
     if (Array.isArray(json)) {
       return json.filter((x): x is Record<string, unknown> => x != null && typeof x === 'object');
     }

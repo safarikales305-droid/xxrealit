@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import axios from 'axios';
 import * as fs from 'node:fs';
 import { join } from 'node:path';
 import type { Metadata } from 'sharp';
@@ -109,37 +110,28 @@ export class ImportImageService {
     let buffer: Buffer;
     let contentType: string | null;
     try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
-      let res: Response;
-      try {
-        res = await fetch(originalUrl, {
-          redirect: 'follow',
-          signal: ctrl.signal,
-          headers: {
-            'User-Agent':
-              'Mozilla/5.0 (compatible; XXRealitImport/1.0; +https://www.xxrealit.cz)',
-            Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-          },
-        });
-      } finally {
-        clearTimeout(timer);
-      }
-      if (!res.ok) {
-        this.log.warn(`[import-image] HTTP ${res.status} ${originalUrl.slice(0, 120)}`);
-        return null;
-      }
-      const cl = res.headers.get('content-length');
+      const res = await axios.get(originalUrl, {
+        responseType: 'arraybuffer',
+        timeout: FETCH_TIMEOUT_MS,
+        maxRedirects: 5,
+        validateStatus: (s: number) => s >= 200 && s < 300,
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (compatible; XXRealitImport/1.0; +https://www.xxrealit.cz)',
+          Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+        },
+      });
+      const cl = String(res.headers['content-length'] ?? '');
       if (cl && Number(cl) > MAX_DOWNLOAD_BYTES) {
         this.log.warn(`[import-image] content-length too large url=${originalUrl.slice(0, 80)}`);
         return null;
       }
-      const ct = (res.headers.get('content-type') ?? '').toLowerCase();
+      const ct = String(res.headers['content-type'] ?? '').toLowerCase();
       if (!ct.startsWith('image/')) {
         this.log.warn(`[import-image] non-image content-type="${ct}" url=${originalUrl.slice(0, 100)}`);
         return null;
       }
-      const arr = new Uint8Array(await res.arrayBuffer());
+      const arr = new Uint8Array(res.data);
       if (arr.byteLength <= 0) {
         this.log.warn(`[import-image] empty response body url=${originalUrl.slice(0, 100)}`);
         return null;
@@ -155,7 +147,7 @@ export class ImportImageService {
         return null;
       }
       buffer = Buffer.from(arr);
-      contentType = res.headers.get('content-type');
+      contentType = String(res.headers['content-type'] ?? '');
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.log.warn(`[import-image] fetch failed ${originalUrl.slice(0, 100)}: ${msg}`);

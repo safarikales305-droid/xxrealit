@@ -112,7 +112,7 @@ export function ImportBranchRow({
             disabled={busy}
             className="rounded bg-zinc-900 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-60"
           >
-            Spustit
+            {branch.method === 'apify' ? 'Importovat' : 'Spustit'}
           </button>
           <button
             type="button"

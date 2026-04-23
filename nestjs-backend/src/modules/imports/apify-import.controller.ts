@@ -12,6 +12,10 @@ class CreateApifyImportDto {
   @IsOptional()
   @IsUrl({ require_tld: false })
   apifyUrl?: string;
+
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  APIFY_URL?: string;
 }
 
 class ToggleApifyImportDto {
@@ -36,7 +40,7 @@ export class ApifyImportController {
     if (!source) {
       return { ok: false, error: 'Import source nenalezen' };
     }
-    const apifyUrl = (body.apifyUrl ?? source.startUrl ?? '').trim();
+    const apifyUrl = (body.APIFY_URL ?? body.apifyUrl ?? source.startUrl ?? '').trim();
     if (!apifyUrl) {
       return { ok: false, error: 'APIFY_URL je povinná (body.apifyUrl nebo source.startUrl).' };
     }
@@ -48,6 +52,7 @@ export class ApifyImportController {
       sourceId: source.id,
       status: job.status,
       apifyUrl: job.apifyUrl,
+      APIFY_URL: job.apifyUrl,
     };
   }
 

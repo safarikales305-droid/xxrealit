@@ -10,7 +10,8 @@ import {
   nestAdminImportLogs,
   nestAdminImportSources,
   nestAdminRunImportPortal,
-  nestAdminRunApifyImportSource,
+  nestImportApifyQueueJob,
+  nestImportApifyQueueStart,
   nestAdminRunImportSourceStream,
   nestAdminToggleImportSource,
   nestAdminUpdateImportSource,
@@ -150,17 +151,81 @@ export default function AdminImportsPage() {
     setError(null);
     const branch = branches.find((b) => b.id === sourceId) ?? null;
     if (branch?.method === 'apify') {
-      const r = await nestAdminRunApifyImportSource(token, sourceId);
-      setBusyId(null);
-      if (!r.ok) {
-        setError(r.error ?? 'Spuštění APIFY importu selhalo');
+      const start = await nestImportApifyQueueStart(token, {
+        sourceId,
+        APIFY_URL: branch.startUrl ?? undefined,
+      });
+      if (!start.ok || !start.data?.jobId) {
+        setBusyId(null);
+        setError(start.error ?? 'Spuštění APIFY importu selhalo');
         await refresh({ sourceId });
         return;
       }
-      if (r.data) {
-        setImportDebugBySource((prev) => ({ ...prev, [sourceId]: r.data as NestAdminImportRunResult }));
+      let done = false;
+      while (!done) {
+        await new Promise((r) => setTimeout(r, 1200));
+        const poll = await nestImportApifyQueueJob(token, start.data.jobId);
+        if (!poll.ok || !poll.data) {
+          break;
+        }
+        const job = poll.data;
+        const processed = Number(job.processedItems ?? 0);
+        const total = Number(job.totalItems ?? 0);
+        const progress = Number(job.progressPercent ?? 0);
+        setBranches((prev) =>
+          prev.map((b) =>
+            b.id === sourceId
+              ? {
+                  ...b,
+                  running:
+                    job.status === 'queued' || job.status === 'running'
+                      ? {
+                          running: true,
+                          percent: progress,
+                          progressPercent: progress,
+                          message: `APIFY import (${processed}/${total})`,
+                          currentMessage: `APIFY import (${processed}/${total})`,
+                          phase: 'details',
+                          totalListings: total,
+                          processedListings: processed,
+                          savedCount: Number(job.imported ?? 0),
+                          updatedCount: Number(job.updated ?? 0),
+                          errorCount: Number(job.failed ?? 0),
+                          failedCount: Number(job.failed ?? 0),
+                        }
+                      : null,
+                }
+              : b,
+          ),
+        );
+        if (
+          job.status === 'completed' ||
+          job.status === 'completed_with_errors' ||
+          job.status === 'failed' ||
+          job.status === 'disabled'
+        ) {
+          done = true;
+          setImportDebugBySource((prev) => ({
+            ...prev,
+            [sourceId]: {
+              importedNew: job.imported,
+              importedUpdated: job.updated,
+              failed: job.failed,
+              errors: job.errors,
+              stats: {
+                progressPercent: job.progressPercent,
+                totalItems: job.totalItems,
+                processedItems: job.processedItems,
+                imagesSaved: job.imagesSaved,
+              },
+            },
+          }));
+          setStatusMsg(
+            `APIFY import dokončen: importováno ${job.imported}, aktualizováno ${job.updated}, chyby ${job.failed}.`,
+          );
+        }
       }
-      setStatusMsg('APIFY import dokončen.');
+      setBusyId(null);
       await refresh({ sourceId });
       return;
     }
