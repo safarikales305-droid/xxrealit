@@ -879,6 +879,7 @@ export class ImportSyncService {
       input.portalKey = 'apify';
       input.portalLabel = 'APIFY';
       input.sourcePortal = (input.sourcePortal ?? 'apify').trim() || 'apify';
+      input.endpointUrl = null;
     }
     const created = await this.prisma.importSource.create({
       data: {
@@ -1048,6 +1049,7 @@ export class ImportSyncService {
       data.method = ListingImportMethod.apify;
       data.portalKey = 'apify';
       data.portalLabel = 'APIFY';
+      data.endpointUrl = null;
       data.settingsJson = mergedSettings;
       if (patch.sourcePortal === undefined && !current.sourcePortal) data.sourcePortal = 'apify';
     }

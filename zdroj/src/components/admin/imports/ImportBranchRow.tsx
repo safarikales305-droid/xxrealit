@@ -31,6 +31,17 @@ function phaseLabelCs(phase?: string): string {
   }
 }
 
+function normalizeAdminImportStatus(branch: AdminImportSourceRow): string {
+  if (!branch.enabled) return 'disabled';
+  if (branch.running?.running) return 'running';
+  const s = (branch.latestLog?.status ?? '').toLowerCase();
+  if (!s) return 'idle';
+  if (s === 'completed' || s === 'ok') return 'completed';
+  if (s === 'completed_with_errors' || s.startsWith('warn')) return 'completed_with_errors';
+  if (s === 'failed' || s.startsWith('error')) return 'failed';
+  return s;
+}
+
 export function ImportBranchRow({
   branch,
   lastImportDebug,
@@ -225,9 +236,11 @@ export function ImportBranchRow({
         ) : null}
         {!branch.running?.running ? (
           <div className="mt-1 space-y-0.5 text-[10px] text-zinc-600">
-            <div>stav: {branch.enabled ? (branch.latestLog?.status ?? 'idle') : 'disabled'}</div>
+            <div>stav: {normalizeAdminImportStatus(branch)}</div>
+            {branch.actorId ? <div className="break-all">actorId: {branch.actorId}</div> : null}
             {branch.lastRunId ? <div className="break-all">runId: {branch.lastRunId}</div> : null}
             {branch.lastDatasetId ? <div className="break-all">datasetId: {branch.lastDatasetId}</div> : null}
+            <div>failed: {lastImportDebug?.failed ?? 0}</div>
             {branch.lastError ? <div className="break-all text-red-700">lastError: {branch.lastError}</div> : null}
           </div>
         ) : null}

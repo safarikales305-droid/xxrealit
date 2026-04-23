@@ -33,11 +33,13 @@ function inferCategoryFromUrl(url: string): { key: string; label: string } {
 }
 
 export function ImportSourceForm({ open, branch, defaultPortalKey, onClose, onSubmit }: Props) {
+  const sourceTypeFromBranch = branch?.method === 'apify' || branch?.portal === 'apify' ? 'APIFY' : 'SCRAPER';
+  const [sourceType, setSourceType] = useState<'SCRAPER' | 'APIFY'>(sourceTypeFromBranch);
   const [portalKey, setPortalKey] = useState(branch?.portalKey || defaultPortalKey || 'reality_cz');
   const [portalLabel, setPortalLabel] = useState(
     branch?.portalLabel || (defaultPortalKey === 'century21_cz' ? 'CENTURY 21' : 'Reality.cz'),
   );
-  const [method, setMethod] = useState(branch?.method || 'scraper');
+  const [method, setMethod] = useState(branch?.method || (sourceType === 'APIFY' ? 'apify' : 'scraper'));
   const [categoryKey, setCategoryKey] = useState(branch?.categoryKey || 'byty');
   const [categoryLabel, setCategoryLabel] = useState(branch?.categoryLabel || 'Byty');
   const [endpointUrl, setEndpointUrl] = useState(branch?.endpointUrl || '');
@@ -77,15 +79,30 @@ export function ImportSourceForm({ open, branch, defaultPortalKey, onClose, onSu
             <input value={portalLabel} onChange={(e) => setPortalLabel(e.target.value)} className="w-full rounded-lg border border-zinc-200 px-3 py-2" />
           </label>
           <label className="text-sm">
-            <span className="mb-1 block text-xs text-zinc-600">Metoda</span>
-            <select value={method} onChange={(e) => setMethod(e.target.value)} className="w-full rounded-lg border border-zinc-200 px-3 py-2">
-              <option value="scraper">scraper</option>
-              <option value="soap">soap</option>
-              <option value="apify">apify</option>
-              <option value="xml">xml</option>
-              <option value="csv">csv</option>
-              <option value="other">other</option>
+            <span className="mb-1 block text-xs text-zinc-600">Typ zdroje</span>
+            <select
+              value={sourceType}
+              onChange={(e) => {
+                const next = e.target.value === 'APIFY' ? 'APIFY' : 'SCRAPER';
+                setSourceType(next);
+                if (next === 'APIFY') {
+                  setMethod('apify');
+                  setPortalKey('apify');
+                  if (!portalLabel || portalLabel.toLowerCase() === 'reality.cz') setPortalLabel('APIFY');
+                } else {
+                  if (method === 'apify') setMethod('scraper');
+                  if (portalKey === 'apify') setPortalKey('reality_cz');
+                }
+              }}
+              className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+            >
+              <option value="SCRAPER">SCRAPER</option>
+              <option value="APIFY">APIFY</option>
             </select>
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block text-xs text-zinc-600">Metoda (interní)</span>
+            <input value={method} onChange={(e) => setMethod(e.target.value)} className="w-full rounded-lg border border-zinc-200 px-3 py-2" />
           </label>
           <label className="text-sm">
             <span className="mb-1 block text-xs text-zinc-600">Kategorie (preset)</span>
@@ -103,6 +120,7 @@ export function ImportSourceForm({ open, branch, defaultPortalKey, onClose, onSu
               ))}
             </select>
           </label>
+          {sourceType !== 'APIFY' ? (
           <label className="text-sm md:col-span-2">
             <span className="mb-1 block text-xs text-zinc-600">Start URL</span>
             <input
@@ -122,6 +140,7 @@ export function ImportSourceForm({ open, branch, defaultPortalKey, onClose, onSu
               </p>
             ) : null}
           </label>
+          ) : null}
           <label className="text-sm">
             <span className="mb-1 block text-xs text-zinc-600">Kategorie key</span>
             <input value={categoryKey} onChange={(e) => setCategoryKey(e.target.value)} className="w-full rounded-lg border border-zinc-200 px-3 py-2" />
@@ -138,7 +157,7 @@ export function ImportSourceForm({ open, branch, defaultPortalKey, onClose, onSu
             <span className="mb-1 block text-xs text-zinc-600">Limit</span>
             <input type="number" min={1} value={limitPerRun} onChange={(e) => setLimitPerRun(Number.parseInt(e.target.value, 10) || 1)} className="w-full rounded-lg border border-zinc-200 px-3 py-2" />
           </label>
-          {method === 'apify' ? (
+          {sourceType === 'APIFY' ? (
             <>
               <label className="text-sm">
                 <span className="mb-1 block text-xs text-zinc-600">Actor ID</span>
@@ -184,10 +203,10 @@ export function ImportSourceForm({ open, branch, defaultPortalKey, onClose, onSu
                 id: branch?.id,
                 portalKey,
                 portalLabel,
-                method,
+                method: sourceType === 'APIFY' ? 'apify' : method,
                 categoryKey,
                 categoryLabel,
-                endpointUrl: endpointUrl || null,
+                endpointUrl: sourceType === 'APIFY' ? null : endpointUrl || null,
                 actorId: actorId || null,
                 actorTaskId: actorTaskId || null,
                 datasetId: datasetId || null,
