@@ -2,6 +2,7 @@ import {
   BadRequestException,
   HttpException,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -126,6 +127,8 @@ function mapXmlNodeToRow(node: Record<string, unknown>): XmlPropertyRow {
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly ownerListingNotify: OwnerListingNotifyService,
@@ -818,13 +821,12 @@ export class AdminService {
   }
 
   async importApifyDataset(adminUserId: string, datasetUrlRaw: string) {
-    const datasetUrl = (datasetUrlRaw ?? '').trim();
-    if (!datasetUrl) {
+    const datasetUrlInput = (datasetUrlRaw ?? '').trim();
+    if (!datasetUrlInput) {
       throw new BadRequestException('datasetUrl je povinný');
     }
-    if (!/^https?:\/\//i.test(datasetUrl)) {
-      throw new BadRequestException('datasetUrl musí být validní URL');
-    }
+    const datasetUrl = this.normalizeApifyDatasetUrl(datasetUrlInput);
+    const datasetUrlForLog = this.sanitizeUrlForLog(datasetUrl);
 
     const source = await this.ensureManualApifySource(datasetUrl);
     let imported = 0;
@@ -837,28 +839,47 @@ export class AdminService {
     const seenExternalIds = new Set<string>();
     const seenSourceUrls = new Set<string>();
 
-    const response = await fetch(datasetUrl, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(45_000),
-    }).catch(() => null);
-    if (!response || !response.ok) {
-      throw new BadRequestException(
-        `Nepodařilo se stáhnout dataset (${response?.status ?? 'network-error'})`,
+    this.logger.log(`[apify-dataset] import start url=${datasetUrlForLog}`);
+    let rows: Record<string, unknown>[];
+    try {
+      const response = await fetch(datasetUrl, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(45_000),
+      });
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        throw new BadRequestException(
+          `Apify dataset vrátil HTTP ${response.status}${body ? `: ${body.slice(0, 240)}` : ''}`,
+        );
+      }
+      const payload = (await response.json().catch(() => null)) as unknown;
+      if (!Array.isArray(payload)) {
+        throw new BadRequestException(
+          'Apify dataset musí vracet JSON pole (array). Zkontroluj URL a parametry clean=true&format=json.',
+        );
+      }
+      rows = payload.filter(
+        (x): x is Record<string, unknown> => !!x && typeof x === 'object',
       );
+    } catch (e) {
+      if (e instanceof BadRequestException) throw e;
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new BadRequestException(`Nepodařilo se stáhnout/parsovat Apify dataset: ${msg}`);
     }
-    const payload = (await response.json().catch(() => null)) as unknown;
-    const rowsRaw = Array.isArray(payload)
-      ? payload
-      : payload && typeof payload === 'object' && Array.isArray((payload as { items?: unknown }).items)
-        ? (payload as { items: unknown[] }).items
-        : [];
-    const rows = rowsRaw.filter((x): x is Record<string, unknown> => !!x && typeof x === 'object');
 
-    for (const item of rows) {
+    if (rows.length === 0) {
+      throw new BadRequestException('Apify dataset neobsahuje žádné položky.');
+    }
+    this.logger.log(`[apify-dataset] items=${rows.length} firstKeys=${Object.keys(rows[0] ?? {}).slice(0, 20).join(',')}`);
+
+    for (let index = 0; index < rows.length; index += 1) {
+      const item = rows[index]!;
       try {
-        const mapped = this.mapApifyDatasetItem(item);
+        const mapped = this.mapApifyDatasetItem(item, index);
         if (!mapped.externalId && !mapped.sourceUrl) {
           failed += 1;
+          lastError = `Položka #${index + 1} nemá externalId ani sourceUrl.`;
+          this.logger.warn(`[apify-dataset] mapping skip index=${index} reason=${lastError}`);
           continue;
         }
         if (mapped.externalId) seenExternalIds.add(mapped.externalId);
@@ -984,6 +1005,9 @@ export class AdminService {
       } catch (e) {
         failed += 1;
         lastError = e instanceof Error ? e.message : String(e);
+        this.logger.warn(
+          `[apify-dataset] item failed index=${index} error=${lastError}`,
+        );
       }
     }
 
@@ -1045,7 +1069,7 @@ export class AdminService {
     };
   }
 
-  private mapApifyDatasetItem(item: Record<string, unknown>) {
+  private mapApifyDatasetItem(item: Record<string, unknown>, index: number) {
     const asString = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
     const pick = (...keys: string[]): string => {
       for (const key of keys) {
@@ -1054,38 +1078,80 @@ export class AdminService {
       }
       return '';
     };
+    const pickAny = (...keys: string[]): unknown => {
+      for (const key of keys) {
+        if (key in item) return item[key];
+      }
+      return undefined;
+    };
     const location =
-      item.location && typeof item.location === 'object'
-        ? (item.location as Record<string, unknown>)
+      pickAny('location', 'Umístění', 'Umisteni') &&
+      typeof pickAny('location', 'Umístění', 'Umisteni') === 'object'
+        ? (pickAny('location', 'Umístění', 'Umisteni') as Record<string, unknown>)
         : null;
     const contact =
       item.contact && typeof item.contact === 'object'
         ? (item.contact as Record<string, unknown>)
         : null;
-    const images = Array.isArray(item.images)
-      ? item.images
+    const rawImages = pickAny('images', 'Obrázky', 'Obrazky');
+    const rawSingleImage = pick('image', 'Obraz');
+    const images = Array.isArray(rawImages)
+      ? rawImages
           .filter((x): x is string => typeof x === 'string')
           .map((x) => x.trim())
           .filter((x) => /^https?:\/\//i.test(x))
-      : [];
+      : rawSingleImage && /^https?:\/\//i.test(rawSingleImage)
+        ? [rawSingleImage]
+        : [];
     const sourceUrl = pick('sourceUrl', 'url', 'detailUrl', 'listingUrl');
-    const externalId = pick('externalId', 'id', 'itemId', 'listingId') || sourceUrl;
+    const actorId = pick('ID_aktéra', 'ID_aktera', 'actorId', 'actor_id', 'id_aktera');
+    const externalId =
+      pick('externalId', 'id', 'itemId', 'listingId', 'ID') ||
+      sourceUrl ||
+      `${actorId || 'apify'}-${index + 1}`;
     return {
       externalId,
       sourceUrl,
-      title: pick('title', 'name') || 'APIFY inzerát',
-      description: pick('description', 'text'),
-      price: safeParsePrice(pick('price', 'priceText', 'priceValue')),
+      title: pick('title', 'Titul', 'name', 'Název', 'Nazev') || 'APIFY inzerát',
+      description: pick('description', 'popis', 'Popis', 'text'),
+      price: safeParsePrice(pick('price', 'Cena', 'priceText', 'priceValue')),
       address: pick('address', 'streetAddress') || asString(location?.address),
-      city: pick('city') || asString(location?.city),
+      city: pick('city', 'Město', 'Mesto') || asString(location?.city),
       propertyType: pick('propertyType', 'type') || 'nemovitost',
       offerType: pick('offerType', 'listingType') || 'prodej',
       contactName: pick('contactName') || asString(contact?.name),
       contactEmail: pick('contactEmail', 'email') || asString(contact?.email),
       contactPhone: pick('contactPhone', 'phone') || asString(contact?.phone),
-      companyName: pick('companyName', 'agencyName') || asString(contact?.company),
+      companyName:
+        pick('companyName', 'agencyName', 'agency', 'company', 'Značka', 'Znacka') ||
+        asString(contact?.company),
       images,
     };
+  }
+
+  private normalizeApifyDatasetUrl(raw: string): string {
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      throw new BadRequestException('datasetUrl musí být validní URL');
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new BadRequestException('datasetUrl musí začínat http:// nebo https://');
+    }
+    if (!parsed.searchParams.get('clean')) parsed.searchParams.set('clean', 'true');
+    if (!parsed.searchParams.get('format')) parsed.searchParams.set('format', 'json');
+    return parsed.toString();
+  }
+
+  private sanitizeUrlForLog(raw: string): string {
+    try {
+      const parsed = new URL(raw);
+      if (parsed.searchParams.has('token')) parsed.searchParams.set('token', '***');
+      return parsed.toString();
+    } catch {
+      return raw;
+    }
   }
 
   private async ensureManualApifySource(datasetUrl: string) {
