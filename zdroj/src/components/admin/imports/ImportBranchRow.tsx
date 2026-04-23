@@ -223,6 +223,14 @@ export function ImportBranchRow({
             </button>
           </div>
         ) : null}
+        {!branch.running?.running ? (
+          <div className="mt-1 space-y-0.5 text-[10px] text-zinc-600">
+            <div>stav: {branch.enabled ? (branch.latestLog?.status ?? 'idle') : 'disabled'}</div>
+            {branch.lastRunId ? <div className="break-all">runId: {branch.lastRunId}</div> : null}
+            {branch.lastDatasetId ? <div className="break-all">datasetId: {branch.lastDatasetId}</div> : null}
+            {branch.lastError ? <div className="break-all text-red-700">lastError: {branch.lastError}</div> : null}
+          </div>
+        ) : null}
       </td>
     </tr>
     {typeof document !== 'undefined' && logOpen

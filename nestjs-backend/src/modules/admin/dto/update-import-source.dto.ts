@@ -64,6 +64,41 @@ export class UpdateImportSourceDto {
   endpointUrl?: string | null;
 
   @IsOptional()
+  @Transform(({ value }) => (value === '' ? null : value))
+  @IsString()
+  actorId?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' ? null : value))
+  @IsString()
+  actorTaskId?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' ? null : value))
+  @IsString()
+  datasetId?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' ? null : value))
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsUrl({ require_protocol: true, require_tld: false })
+  startUrl?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' ? null : value))
+  @IsString()
+  sourcePortal?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' ? null : value))
+  @IsString()
+  notes?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsOptional()
   @IsObject()
   credentialsJson?: Record<string, unknown> | null;
 

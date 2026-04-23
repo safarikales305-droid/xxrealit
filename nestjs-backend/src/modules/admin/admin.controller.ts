@@ -303,6 +303,13 @@ export class AdminController {
       categoryKey: dto.categoryKey?.trim() || '',
       categoryLabel: dto.categoryLabel?.trim() || '',
       endpointUrl: dto.endpointUrl?.trim() || null,
+      actorId: dto.actorId?.trim() || null,
+      actorTaskId: dto.actorTaskId?.trim() || null,
+      datasetId: dto.datasetId?.trim() || null,
+      startUrl: dto.startUrl?.trim() || null,
+      sourcePortal: dto.sourcePortal?.trim() || null,
+      notes: dto.notes?.trim() || null,
+      isActive: dto.isActive,
       intervalMinutes: dto.intervalMinutes,
       limitPerRun: dto.limitPerRun,
       enabled: dto.enabled,
@@ -337,6 +344,24 @@ export class AdminController {
   @Post('import-sources/:id/run')
   runImportSource(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.adminService.runImportSource(id, user.id);
+  }
+
+  @Post('imports/apify/:sourceId/run')
+  runApifyImportSource(@CurrentUser() user: AuthUser, @Param('sourceId') sourceId: string) {
+    return this.adminService.runApifyImportSource(sourceId, user.id);
+  }
+
+  @Patch('imports/:sourceId/toggle')
+  toggleImportSource(
+    @Param('sourceId') sourceId: string,
+    @Body() body: { enabled?: boolean },
+  ) {
+    return this.adminService.toggleImportSource(sourceId, body.enabled === true);
+  }
+
+  @Get('imports/:sourceId/status')
+  getImportSourceStatus(@Param('sourceId') sourceId: string) {
+    return this.adminService.getImportSourceStatus(sourceId);
   }
 
   @Post('import-portals/:portalKey/run')

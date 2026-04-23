@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ApifyImportService } from './apify-import.service';
 import { ImportedBrokerContactsModule } from '../imported-broker-contacts/imported-broker-contact.module';
 import { PropertiesModule } from '../properties/properties.module';
 import { UploadModule } from '../upload/upload.module';
@@ -16,6 +17,7 @@ import { Century21ScraperImporter } from './century21-scraper-importer.service';
   imports: [PropertiesModule, UploadModule, ImportedBrokerContactsModule],
   providers: [
     ImportSyncService,
+    ApifyImportService,
     ImportImageService,
     RealityCzSoapClientService,
     RealityCzSoapImporter,

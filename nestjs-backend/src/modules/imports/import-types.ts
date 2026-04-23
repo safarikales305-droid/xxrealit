@@ -173,6 +173,12 @@ export type ImportExecutionContext = {
   portalLabel?: string;
   categoryKey?: string;
   categoryLabel?: string;
+  actorId?: string | null;
+  actorTaskId?: string | null;
+  datasetId?: string | null;
+  startUrl?: string | null;
+  sourcePortal?: string | null;
+  notes?: string | null;
 };
 
 export type ImportRunPhase = 'listing' | 'details' | 'done' | 'error';
@@ -225,6 +231,17 @@ export type ImportSourceBranchRow = {
   intervalMinutes: number;
   limitPerRun: number;
   endpointUrl?: string | null;
+  actorId?: string | null;
+  actorTaskId?: string | null;
+  datasetId?: string | null;
+  startUrl?: string | null;
+  sourcePortal?: string | null;
+  notes?: string | null;
+  isActive?: boolean;
+  lastRunId?: string | null;
+  lastDatasetId?: string | null;
+  lastProcessedUrl?: string | null;
+  lastError?: string | null;
   credentialsJson?: Record<string, unknown> | null;
   settingsJson?: Record<string, unknown> | null;
   lastRunAt?: Date | null;

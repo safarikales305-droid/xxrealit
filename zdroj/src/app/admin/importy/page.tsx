@@ -10,7 +10,9 @@ import {
   nestAdminImportLogs,
   nestAdminImportSources,
   nestAdminRunImportPortal,
+  nestAdminRunApifyImportSource,
   nestAdminRunImportSourceStream,
+  nestAdminToggleImportSource,
   nestAdminUpdateImportSource,
   type AdminImportLogRow,
   type AdminImportPortalAggregate,
@@ -146,6 +148,22 @@ export default function AdminImportsPage() {
     setBusyId(sourceId);
     setStatusMsg(null);
     setError(null);
+    const branch = branches.find((b) => b.id === sourceId) ?? null;
+    if (branch?.method === 'apify') {
+      const r = await nestAdminRunApifyImportSource(token, sourceId);
+      setBusyId(null);
+      if (!r.ok) {
+        setError(r.error ?? 'Spuštění APIFY importu selhalo');
+        await refresh({ sourceId });
+        return;
+      }
+      if (r.data) {
+        setImportDebugBySource((prev) => ({ ...prev, [sourceId]: r.data as NestAdminImportRunResult }));
+      }
+      setStatusMsg('APIFY import dokončen.');
+      await refresh({ sourceId });
+      return;
+    }
     const r = await nestAdminRunImportSourceStream(token, sourceId, (ev) => {
       if (ev.type !== 'progress') return;
       setBranches((prev) =>
@@ -221,7 +239,7 @@ export default function AdminImportsPage() {
   async function toggleBranch(sourceId: string, enabled: boolean) {
     if (!token) return;
     setBusyId(sourceId);
-    const r = await nestAdminUpdateImportSource(token, sourceId, { enabled });
+    const r = await nestAdminToggleImportSource(token, sourceId, enabled);
     setBusyId(null);
     if (!r.ok) {
       setError(r.error ?? 'Uložení změny selhalo');
@@ -255,6 +273,13 @@ export default function AdminImportsPage() {
       categoryKey: payload.categoryKey,
       categoryLabel: payload.categoryLabel,
       endpointUrl: payload.endpointUrl,
+      actorId: payload.actorId,
+      actorTaskId: payload.actorTaskId,
+      datasetId: payload.datasetId,
+      startUrl: payload.startUrl,
+      sourcePortal: payload.sourcePortal,
+      notes: payload.notes,
+      isActive: payload.isActive,
       intervalMinutes: payload.intervalMinutes,
       limitPerRun: payload.limitPerRun,
       enabled: payload.enabled,
@@ -272,6 +297,8 @@ export default function AdminImportsPage() {
           ? 'reality_cz'
           : portalKey === 'century21_cz'
             ? 'century21_cz'
+          : portalKey === 'apify'
+            ? 'apify'
           : portalKey === 'xml_feed'
             ? 'xml_feed'
             : portalKey === 'csv_feed'
@@ -280,6 +307,8 @@ export default function AdminImportsPage() {
       const methodEnum =
         method === 'soap'
           ? 'soap'
+          : method === 'apify'
+            ? 'apify'
           : method === 'xml'
             ? 'xml'
             : method === 'csv'

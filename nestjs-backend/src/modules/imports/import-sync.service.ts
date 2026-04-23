@@ -76,6 +76,7 @@ import {
   isValidCentury21ListingStartUrl,
   type Century21ScraperFetchMeta,
 } from './century21-scraper-importer.service';
+import { ApifyImportService, type ApifyFetchMeta } from './apify-import.service';
 import { parseRealityCzScraperSettings } from './reality-cz-scraper-settings';
 import { normalizeStoredImageUrlList } from './import-image-urls';
 import { ImportImageService } from './import-image.service';
@@ -171,6 +172,13 @@ type ImportSourceCreateInput = {
   listingType?: string | null;
   propertyType?: string | null;
   endpointUrl?: string | null;
+  actorId?: string | null;
+  actorTaskId?: string | null;
+  datasetId?: string | null;
+  startUrl?: string | null;
+  sourcePortal?: string | null;
+  notes?: string | null;
+  isActive?: boolean;
   intervalMinutes?: number;
   limitPerRun?: number;
   enabled?: boolean;
@@ -213,6 +221,8 @@ function portalMetaFor(portal: ListingImportPortal): PortalMeta {
       return { portalKey: 'reality_cz', portalLabel: 'Reality.cz' };
     case ListingImportPortal.century21_cz:
       return { portalKey: 'century21_cz', portalLabel: 'CENTURY 21' };
+    case ListingImportPortal.apify:
+      return { portalKey: 'apify', portalLabel: 'APIFY' };
     case ListingImportPortal.xml_feed:
       return { portalKey: 'xml_feed', portalLabel: 'XML feed' };
     case ListingImportPortal.csv_feed:
@@ -227,6 +237,13 @@ type ImportSourcePatch = {
   intervalMinutes?: number;
   limitPerRun?: number;
   endpointUrl?: string | null;
+  actorId?: string | null;
+  actorTaskId?: string | null;
+  datasetId?: string | null;
+  startUrl?: string | null;
+  sourcePortal?: string | null;
+  notes?: string | null;
+  isActive?: boolean;
   portalKey?: string;
   portalLabel?: string;
   categoryKey?: string;
@@ -280,6 +297,20 @@ function defaultCentury21ScraperSettingsJson(startUrl: string): Prisma.InputJson
   };
 }
 
+function defaultApifySettingsJson(input: {
+  actorId?: string | null;
+  actorTaskId?: string | null;
+  datasetId?: string | null;
+  startUrl?: string | null;
+}): Prisma.InputJsonObject {
+  return {
+    actorId: input.actorId ?? null,
+    actorTaskId: input.actorTaskId ?? null,
+    datasetId: input.datasetId ?? null,
+    startUrl: input.startUrl ?? null,
+  };
+}
+
 function initialImportRunLive(startedAt: string): ImportRunLiveState {
   return {
     running: true,
@@ -316,6 +347,7 @@ export class ImportSyncService {
     private readonly soapImporter: RealityCzSoapImporter,
     private readonly scraperImporter: RealityCzScraperImporter,
     private readonly century21ScraperImporter: Century21ScraperImporter,
+    private readonly apifyImportService: ApifyImportService,
     private readonly importImageService: ImportImageService,
     private readonly watermarkSettings: ListingWatermarkSettingsService,
     private readonly importedBrokerContacts: ImportedBrokerContactService,
@@ -442,6 +474,24 @@ export class ImportSyncService {
       sortOrder: 26,
     });
     await this.ensureDefaultSource({
+      portal: ListingImportPortal.apify,
+      method: ListingImportMethod.apify,
+      name: 'APIFY / Obecné',
+      portalKey: 'apify',
+      portalLabel: 'APIFY',
+      categoryKey: 'obecne',
+      categoryLabel: 'Obecné',
+      intervalMinutes: 180,
+      limitPerRun: 150,
+      enabled: false,
+      actorId: process.env.APIFY_DEFAULT_ACTOR_ID ?? null,
+      sourcePortal: 'apify',
+      settingsJson: defaultApifySettingsJson({
+        actorId: process.env.APIFY_DEFAULT_ACTOR_ID ?? null,
+      }),
+      sortOrder: 28,
+    });
+    await this.ensureDefaultSource({
       portal: ListingImportPortal.xml_feed,
       method: ListingImportMethod.xml,
       name: 'XML feed / Obecné',
@@ -494,6 +544,13 @@ export class ImportSyncService {
         intervalMinutes: input.intervalMinutes ?? 60,
         limitPerRun: input.limitPerRun ?? 100,
         endpointUrl: input.endpointUrl ?? null,
+        actorId: input.actorId ?? null,
+        actorTaskId: input.actorTaskId ?? null,
+        datasetId: input.datasetId ?? null,
+        startUrl: input.startUrl ?? null,
+        sourcePortal: input.sourcePortal ?? null,
+        notes: input.notes ?? null,
+        isActive: input.isActive ?? true,
         settingsJson: input.settingsJson ?? Prisma.JsonNull,
         credentialsJson: input.credentialsJson ?? Prisma.JsonNull,
       },
@@ -569,6 +626,31 @@ export class ImportSyncService {
             categoryLabel: categoryLabel || 'Domy',
             name: `CENTURY 21 Scraper / ${categoryLabel || 'Domy'}`,
             sortOrder: s.sortOrder || 26,
+          },
+        });
+        continue;
+      }
+      if (s.method === ListingImportMethod.apify || s.portal === ListingImportPortal.apify) {
+        const settingsWithDefaults: Prisma.InputJsonObject = {
+          ...defaultApifySettingsJson({
+            actorId: (s as { actorId?: string | null }).actorId ?? null,
+            actorTaskId: (s as { actorTaskId?: string | null }).actorTaskId ?? null,
+            datasetId: (s as { datasetId?: string | null }).datasetId ?? null,
+            startUrl: (s as { startUrl?: string | null }).startUrl ?? null,
+          }),
+          ...settings,
+        };
+        await this.prisma.importSource.update({
+          where: { id: s.id },
+          data: {
+            portal: ListingImportPortal.apify,
+            method: ListingImportMethod.apify,
+            settingsJson: settingsWithDefaults,
+            portalKey: 'apify',
+            portalLabel: 'APIFY',
+            sourcePortal: (s as { sourcePortal?: string | null }).sourcePortal ?? 'apify',
+            isActive: (s as { isActive?: boolean }).isActive ?? true,
+            sortOrder: s.sortOrder || 28,
           },
         });
         continue;
@@ -668,6 +750,17 @@ export class ImportSyncService {
       intervalMinutes: r.intervalMinutes,
       limitPerRun: r.limitPerRun,
       endpointUrl: r.endpointUrl,
+      actorId: r.actorId,
+      actorTaskId: r.actorTaskId,
+      datasetId: r.datasetId,
+      startUrl: r.startUrl,
+      sourcePortal: r.sourcePortal,
+      notes: r.notes,
+      isActive: r.isActive,
+      lastRunId: r.lastRunId,
+      lastDatasetId: r.lastDatasetId,
+      lastProcessedUrl: r.lastProcessedUrl,
+      lastError: r.lastError,
       credentialsJson:
         r.credentialsJson && typeof r.credentialsJson === 'object' && !Array.isArray(r.credentialsJson)
           ? (r.credentialsJson as Record<string, unknown>)
@@ -766,6 +859,27 @@ export class ImportSyncService {
       };
       input.endpointUrl = candidate;
     }
+    if (input.method === ListingImportMethod.apify || input.portal === ListingImportPortal.apify) {
+      input.portal = ListingImportPortal.apify;
+      input.method = ListingImportMethod.apify;
+      const actorId = (input.actorId ?? '').trim();
+      const actorTaskId = (input.actorTaskId ?? '').trim();
+      if (!actorId && !actorTaskId) {
+        throw new BadRequestException('APIFY větev potřebuje actorId nebo actorTaskId.');
+      }
+      settings = {
+        ...defaultApifySettingsJson({
+          actorId: actorId || null,
+          actorTaskId: actorTaskId || null,
+          datasetId: (input.datasetId ?? '').trim() || null,
+          startUrl: (input.startUrl ?? '').trim() || null,
+        }),
+        ...settings,
+      };
+      input.portalKey = 'apify';
+      input.portalLabel = 'APIFY';
+      input.sourcePortal = (input.sourcePortal ?? 'apify').trim() || 'apify';
+    }
     const created = await this.prisma.importSource.create({
       data: {
         portal: input.portal,
@@ -784,6 +898,13 @@ export class ImportSyncService {
         intervalMinutes: Math.max(1, Math.trunc(input.intervalMinutes ?? 120)),
         limitPerRun: Math.max(1, Math.trunc(input.limitPerRun ?? 100)),
         endpointUrl: input.endpointUrl?.trim() || null,
+        actorId: input.actorId?.trim() || null,
+        actorTaskId: input.actorTaskId?.trim() || null,
+        datasetId: input.datasetId?.trim() || null,
+        startUrl: input.startUrl?.trim() || null,
+        sourcePortal: input.sourcePortal?.trim() || null,
+        notes: input.notes?.trim() || null,
+        isActive: input.isActive ?? true,
         settingsJson: settings,
         credentialsJson: input.credentialsJson ?? Prisma.JsonNull,
       },
@@ -814,6 +935,13 @@ export class ImportSyncService {
     if (patch.categoryLabel !== undefined) data.categoryLabel = patch.categoryLabel.trim() || current.categoryLabel;
     if (patch.listingType !== undefined) data.listingType = patch.listingType;
     if (patch.propertyType !== undefined) data.propertyType = patch.propertyType;
+    if (patch.actorId !== undefined) data.actorId = patch.actorId ? patch.actorId.trim() : null;
+    if (patch.actorTaskId !== undefined) data.actorTaskId = patch.actorTaskId ? patch.actorTaskId.trim() : null;
+    if (patch.datasetId !== undefined) data.datasetId = patch.datasetId ? patch.datasetId.trim() : null;
+    if (patch.startUrl !== undefined) data.startUrl = patch.startUrl ? patch.startUrl.trim() : null;
+    if (patch.sourcePortal !== undefined) data.sourcePortal = patch.sourcePortal ? patch.sourcePortal.trim() : null;
+    if (patch.notes !== undefined) data.notes = patch.notes ? patch.notes.trim() : null;
+    if (patch.isActive !== undefined) data.isActive = patch.isActive;
     const isRealitySoap =
       current.portal === ListingImportPortal.reality_cz &&
       current.method === ListingImportMethod.soap;
@@ -823,6 +951,9 @@ export class ImportSyncService {
     const isCentury21Scraper =
       current.portal === ListingImportPortal.century21_cz &&
       current.method === ListingImportMethod.scraper;
+    const isApifySource =
+      current.portal === ListingImportPortal.apify ||
+      current.method === ListingImportMethod.apify;
     if (patch.endpointUrl !== undefined && !isRealitySoap) {
       data.endpointUrl = patch.endpointUrl ? patch.endpointUrl.trim() : null;
     }
@@ -896,6 +1027,30 @@ export class ImportSyncService {
       data.settingsJson = nextSettings;
       data.endpointUrl = resolvedStart;
     }
+    if (isApifySource) {
+      const actorId = (patch.actorId !== undefined ? patch.actorId : current.actorId)?.trim() ?? '';
+      const actorTaskId =
+        (patch.actorTaskId !== undefined ? patch.actorTaskId : current.actorTaskId)?.trim() ?? '';
+      if (!actorId && !actorTaskId) {
+        throw new BadRequestException('APIFY větev potřebuje actorId nebo actorTaskId.');
+      }
+      const mergedSettings: Prisma.InputJsonObject = {
+        ...defaultApifySettingsJson({
+          actorId: actorId || null,
+          actorTaskId: actorTaskId || null,
+          datasetId: (patch.datasetId !== undefined ? patch.datasetId : current.datasetId) ?? null,
+          startUrl: (patch.startUrl !== undefined ? patch.startUrl : current.startUrl) ?? null,
+        }),
+        ...asInputJsonObject(current.settingsJson),
+        ...asInputJsonObject(patch.settingsJson),
+      };
+      data.portal = ListingImportPortal.apify;
+      data.method = ListingImportMethod.apify;
+      data.portalKey = 'apify';
+      data.portalLabel = 'APIFY';
+      data.settingsJson = mergedSettings;
+      if (patch.sourcePortal === undefined && !current.sourcePortal) data.sourcePortal = 'apify';
+    }
     if (data.portalLabel || data.categoryLabel) {
       const portalLabel = (data.portalLabel as string | undefined) ?? current.portalLabel;
       const categoryLabel = (data.categoryLabel as string | undefined) ?? current.categoryLabel;
@@ -942,6 +1097,12 @@ export class ImportSyncService {
       portalLabel: source.portalLabel?.trim() || undefined,
       categoryKey: source.categoryKey?.trim() || undefined,
       categoryLabel: source.categoryLabel?.trim() || undefined,
+      actorId: source.actorId,
+      actorTaskId: source.actorTaskId,
+      datasetId: source.datasetId,
+      startUrl: source.startUrl,
+      sourcePortal: source.sourcePortal,
+      notes: source.notes,
     };
     const settingsKeys =
       ctx.settingsJson && typeof ctx.settingsJson === 'object' && !Array.isArray(ctx.settingsJson)
@@ -992,6 +1153,40 @@ export class ImportSyncService {
     return out;
   }
 
+  async toggleSourceEnabled(sourceId: string, enabled: boolean) {
+    const row = await this.prisma.importSource.update({
+      where: { id: sourceId },
+      data: { enabled },
+      include: { logs: { orderBy: { createdAt: 'desc' }, take: 1 } },
+    });
+    return this.toBranchRow(row);
+  }
+
+  async getSourceStatus(sourceId: string) {
+    const row = await this.prisma.importSource.findUnique({
+      where: { id: sourceId },
+      include: { logs: { orderBy: { createdAt: 'desc' }, take: 1 } },
+    });
+    if (!row) throw new NotFoundException('Import source nenalezen');
+    const branch = this.toBranchRow(row);
+    const running = this.runningBySource.get(sourceId);
+    return {
+      id: branch.id,
+      status: !branch.enabled
+        ? 'disabled'
+        : running?.running
+          ? 'running'
+          : branch.latestLog?.status ?? 'idle',
+      enabled: branch.enabled,
+      running: running ?? { running: false },
+      lastRunId: branch.lastRunId ?? null,
+      lastDatasetId: branch.lastDatasetId ?? null,
+      lastProcessedUrl: branch.lastProcessedUrl ?? null,
+      lastError: branch.lastError ?? null,
+      latestLog: branch.latestLog ?? null,
+    };
+  }
+
   async bulkDisableByFilter(filter: { portal?: ListingImportPortal; method?: ListingImportMethod }) {
     const where: Prisma.PropertyWhereInput = {
       importSource: filter.portal ?? undefined,
@@ -1025,7 +1220,11 @@ export class ImportSyncService {
 
     let result: ImportRunResult | null = null;
     let errorMessage: string | null = null;
-    let scraperMeta: RealityCzScraperFetchOutcome['meta'] | Century21ScraperFetchMeta | undefined;
+    let scraperMeta:
+      | RealityCzScraperFetchOutcome['meta']
+      | Century21ScraperFetchMeta
+      | ApifyFetchMeta
+      | undefined;
     try {
       emitProgress({
         percent: 1,
@@ -1056,7 +1255,10 @@ export class ImportSyncService {
       });
       scraperMeta = sm;
       const totalFoundListings = rows.length;
-      if (ctx.method === ListingImportMethod.scraper && totalFoundListings === 0) {
+      if (
+        (ctx.method === ListingImportMethod.scraper || ctx.method === ListingImportMethod.apify) &&
+        totalFoundListings === 0
+      ) {
         throw new BadRequestException(
           'LIST_PARSE_NO_RESULTS: Parser výpisu nenašel žádné URL inzerátů. Zkontrolujte start URL výpisu a selektory parseru.',
         );
@@ -1174,7 +1376,7 @@ export class ImportSyncService {
 
       result = await this.importListingShells(ctx, actorUserId, rowsForDb, emitProgress);
       let deactivated = 0;
-      if (ctx.method === ListingImportMethod.scraper) {
+      if (ctx.method === ListingImportMethod.scraper || ctx.method === ListingImportMethod.apify) {
         deactivated = await this.deactivateMissingImportedListings(ctx, rowsForDb);
         if (deactivated > 0) {
           this.logger.log(`Import deactivate sync: source=${ctx.sourceName} deactivated=${deactivated}`);
@@ -1182,7 +1384,10 @@ export class ImportSyncService {
       }
 
       const warnings = [...(result.warnings ?? [])];
-      if (ctx.method === ListingImportMethod.scraper && scraperMeta) {
+      if (
+        (ctx.method === ListingImportMethod.scraper || ctx.method === ListingImportMethod.apify) &&
+        scraperMeta
+      ) {
         this.logger.log(
           `Scraper metrics: startUrl=${scraperMeta.startUrl} finalUrl=${scraperMeta.finalUrl} listingPages=${scraperMeta.listingPagesFetched ?? 1} raw=${scraperMeta.rawCandidates} valid=${scraperMeta.normalizedValid} parse=${scraperMeta.parseMethod} details=${scraperMeta.detailFetchesCompleted}/${scraperMeta.detailFetchesAttempted} list429=${scraperMeta.listPage429Count} detail429=${scraperMeta.detailPage429Count}`,
         );
@@ -1267,6 +1472,8 @@ export class ImportSyncService {
         invalidContactTokensFiltered: result.stats?.invalidContactTokensFiltered ?? 0,
         mediaPersistFailures: result.stats?.mediaPersistFailures ?? 0,
         deactivated,
+        runId: (scraperMeta as { runId?: string | null } | undefined)?.runId ?? null,
+        datasetId: (scraperMeta as { datasetId?: string | null } | undefined)?.datasetId ?? null,
       };
       this.logger.log(
         `Import summary: totalFound=${totalFoundListings} processed=${totalFoundListings} new=${result.importedNew} updated=${result.importedUpdated} skipped=${result.skipped} skippedInvalid=${result.skippedInvalid ?? 0} failed=${result.failed ?? 0} errorLines=${result.errors.length} brokersCreated=${result.stats.brokersCreated ?? 0} brokersUpdated=${result.stats.brokersUpdated ?? 0} imagesMirrored=${result.stats.imagesMirrored ?? 0} mediaPersistFailures=${result.stats.mediaPersistFailures ?? 0} durationMs=${durationMs}`,
@@ -1279,6 +1486,12 @@ export class ImportSyncService {
         where: { id: ctx.sourceId },
         data: {
           lastRunAt: new Date(),
+          lastRunId: (scraperMeta as { runId?: string | null } | undefined)?.runId ?? null,
+          lastDatasetId:
+            (scraperMeta as { datasetId?: string | null } | undefined)?.datasetId ??
+            ((result?.stats?.['datasetId'] as string | undefined) ?? null),
+          lastProcessedUrl: live.lastProcessedSourceUrl ?? null,
+          lastError: null,
           lastStatus: errorMessage
             ? `error: ${errorMessage}`
             : mediaIssues
@@ -1324,7 +1537,12 @@ export class ImportSyncService {
       });
       await this.prisma.importSource.update({
         where: { id: ctx.sourceId },
-        data: { lastRunAt: new Date(), lastStatus: `error: ${errorMessage}` },
+        data: {
+          lastRunAt: new Date(),
+          lastStatus: `error: ${errorMessage}`,
+          lastError: errorMessage.slice(0, 600),
+          lastProcessedUrl: live.lastProcessedSourceUrl ?? null,
+        },
       });
       throw new BadRequestException(errorMessage);
     } finally {
@@ -1533,7 +1751,7 @@ export class ImportSyncService {
     onProgress?: (e: Partial<ImportRunProgressPayload>) => void,
   ): Promise<{
     rows: ImportedListingDraft[];
-    scraperMeta?: RealityCzScraperFetchOutcome['meta'] | Century21ScraperFetchMeta;
+    scraperMeta?: RealityCzScraperFetchOutcome['meta'] | Century21ScraperFetchMeta | ApifyFetchMeta;
   }> {
     if (ctx.method === ListingImportMethod.soap) {
       if (ctx.portal !== ListingImportPortal.reality_cz) {
@@ -1547,7 +1765,7 @@ export class ImportSyncService {
       onProgress?.({ percent: 62, message: `SOAP: načteno ${rows.length} záznamů…` });
       return { rows };
     }
-    if (ctx.method === ListingImportMethod.scraper) {
+    if (ctx.method === ListingImportMethod.scraper || ctx.method === ListingImportMethod.apify) {
       if (ctx.portal === ListingImportPortal.reality_cz) {
         const startUrl = this.resolveRealityCzScraperStartUrl(ctx);
         this.logger.log(`Reality.cz scraper: používám start URL ${startUrl}`);
@@ -1568,6 +1786,18 @@ export class ImportSyncService {
           ctx.settingsJson,
           onProgress,
         );
+        return { rows: outcome.rows, scraperMeta: outcome.meta };
+      }
+      if (ctx.portal === ListingImportPortal.apify || ctx.method === ListingImportMethod.apify) {
+        onProgress?.({ percent: 8, message: 'APIFY: spouštím actor a načítám dataset…' });
+        const outcome = await this.apifyImportService.fetch({
+          limit: ctx.limitPerRun,
+          actorId: ctx.actorId,
+          actorTaskId: ctx.actorTaskId,
+          datasetId: ctx.datasetId,
+          startUrl: ctx.startUrl,
+          settingsJson: ctx.settingsJson,
+        });
         return { rows: outcome.rows, scraperMeta: outcome.meta };
       }
       throw new BadRequestException(`Portal ${ctx.portal} nemá scraper implementaci.`);

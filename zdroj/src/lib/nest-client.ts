@@ -750,6 +750,17 @@ export type AdminImportSourceRow = {
   intervalMinutes: number;
   limitPerRun: number;
   endpointUrl?: string | null;
+  actorId?: string | null;
+  actorTaskId?: string | null;
+  datasetId?: string | null;
+  startUrl?: string | null;
+  sourcePortal?: string | null;
+  notes?: string | null;
+  isActive?: boolean;
+  lastRunId?: string | null;
+  lastDatasetId?: string | null;
+  lastProcessedUrl?: string | null;
+  lastError?: string | null;
   credentialsJson?: Record<string, unknown> | null;
   settingsJson?: Record<string, unknown> | null;
   lastRunAt?: string | null;
@@ -1635,6 +1646,56 @@ export async function nestAdminRunImportSource(
     return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
   }
   return { ok: true, data: data as NestAdminImportRunResult };
+}
+
+export async function nestAdminRunApifyImportSource(
+  token: string | null,
+  sourceId: string,
+): Promise<{ ok: boolean; data?: NestAdminImportRunResult; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/imports/apify/${encodeURIComponent(sourceId)}/run`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true, data: data as NestAdminImportRunResult };
+}
+
+export async function nestAdminToggleImportSource(
+  token: string | null,
+  sourceId: string,
+  enabled: boolean,
+): Promise<{ ok: boolean; data?: AdminImportSourceRow; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/imports/${encodeURIComponent(sourceId)}/toggle`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ enabled }),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true, data: data as AdminImportSourceRow };
+}
+
+export async function nestAdminImportSourceStatus(
+  token: string | null,
+  sourceId: string,
+): Promise<Record<string, unknown> | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/imports/${encodeURIComponent(sourceId)}/status`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as Record<string, unknown> | null;
 }
 
 export async function nestAdminRunImportPortal(

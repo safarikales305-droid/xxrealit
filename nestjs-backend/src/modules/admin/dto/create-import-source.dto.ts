@@ -45,6 +45,35 @@ export class CreateImportSourceDto {
   endpointUrl?: string | null;
 
   @IsOptional()
+  @IsString()
+  actorId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  actorTaskId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  datasetId?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
+  @IsUrl({ require_protocol: true, require_tld: false })
+  startUrl?: string | null;
+
+  @IsOptional()
+  @IsString()
+  sourcePortal?: string | null;
+
+  @IsOptional()
+  @IsString()
+  notes?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)

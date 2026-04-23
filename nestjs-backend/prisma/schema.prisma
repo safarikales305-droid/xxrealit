@@ -73,6 +73,7 @@ enum EmailCampaignStatus {
 enum ListingImportMethod {
   soap
   scraper
+  apify
   xml
   csv
   other
@@ -81,6 +82,7 @@ enum ListingImportMethod {
 enum ListingImportPortal {
   reality_cz
   century21_cz
+  apify
   xml_feed
   csv_feed
   other
@@ -702,6 +704,17 @@ model ImportSource {
   intervalMinutes Int               @default(60)
   limitPerRun    Int                @default(100)
   endpointUrl    String?
+  actorId        String?
+  actorTaskId    String?
+  datasetId      String?
+  startUrl       String?
+  sourcePortal   String?
+  notes          String?             @db.Text
+  isActive       Boolean             @default(true)
+  lastRunId      String?
+  lastDatasetId  String?
+  lastProcessedUrl String?
+  lastError      String?
   credentialsJson Json?
   settingsJson   Json?
   lastRunAt      DateTime?

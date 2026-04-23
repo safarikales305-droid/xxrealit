@@ -41,6 +41,13 @@ export function ImportSourceForm({ open, branch, defaultPortalKey, onClose, onSu
   const [categoryKey, setCategoryKey] = useState(branch?.categoryKey || 'byty');
   const [categoryLabel, setCategoryLabel] = useState(branch?.categoryLabel || 'Byty');
   const [endpointUrl, setEndpointUrl] = useState(branch?.endpointUrl || '');
+  const [actorId, setActorId] = useState(branch?.actorId || '');
+  const [actorTaskId, setActorTaskId] = useState(branch?.actorTaskId || '');
+  const [datasetId, setDatasetId] = useState(branch?.datasetId || '');
+  const [startUrl, setStartUrl] = useState(branch?.startUrl || '');
+  const [sourcePortal, setSourcePortal] = useState(branch?.sourcePortal || '');
+  const [notes, setNotes] = useState(branch?.notes || '');
+  const [isActive, setIsActive] = useState(branch?.isActive ?? true);
   const [intervalMinutes, setIntervalMinutes] = useState(branch?.intervalMinutes || 120);
   const [limitPerRun, setLimitPerRun] = useState(branch?.limitPerRun || 100);
   const [enabled, setEnabled] = useState(branch?.enabled ?? false);
@@ -56,7 +63,14 @@ export function ImportSourceForm({ open, branch, defaultPortalKey, onClose, onSu
         <div className="grid gap-3 md:grid-cols-2">
           <label className="text-sm">
             <span className="mb-1 block text-xs text-zinc-600">Portál key</span>
-            <input value={portalKey} onChange={(e) => setPortalKey(e.target.value)} className="w-full rounded-lg border border-zinc-200 px-3 py-2" />
+            <select value={portalKey} onChange={(e) => setPortalKey(e.target.value)} className="w-full rounded-lg border border-zinc-200 px-3 py-2">
+              <option value="reality_cz">reality_cz</option>
+              <option value="century21_cz">century21_cz</option>
+              <option value="apify">apify</option>
+              <option value="xml_feed">xml_feed</option>
+              <option value="csv_feed">csv_feed</option>
+              <option value="other">other</option>
+            </select>
           </label>
           <label className="text-sm">
             <span className="mb-1 block text-xs text-zinc-600">Portál label</span>
@@ -64,7 +78,14 @@ export function ImportSourceForm({ open, branch, defaultPortalKey, onClose, onSu
           </label>
           <label className="text-sm">
             <span className="mb-1 block text-xs text-zinc-600">Metoda</span>
-            <input value={method} onChange={(e) => setMethod(e.target.value)} className="w-full rounded-lg border border-zinc-200 px-3 py-2" />
+            <select value={method} onChange={(e) => setMethod(e.target.value)} className="w-full rounded-lg border border-zinc-200 px-3 py-2">
+              <option value="scraper">scraper</option>
+              <option value="soap">soap</option>
+              <option value="apify">apify</option>
+              <option value="xml">xml</option>
+              <option value="csv">csv</option>
+              <option value="other">other</option>
+            </select>
           </label>
           <label className="text-sm">
             <span className="mb-1 block text-xs text-zinc-600">Kategorie (preset)</span>
@@ -117,6 +138,38 @@ export function ImportSourceForm({ open, branch, defaultPortalKey, onClose, onSu
             <span className="mb-1 block text-xs text-zinc-600">Limit</span>
             <input type="number" min={1} value={limitPerRun} onChange={(e) => setLimitPerRun(Number.parseInt(e.target.value, 10) || 1)} className="w-full rounded-lg border border-zinc-200 px-3 py-2" />
           </label>
+          {method === 'apify' ? (
+            <>
+              <label className="text-sm">
+                <span className="mb-1 block text-xs text-zinc-600">Actor ID</span>
+                <input value={actorId} onChange={(e) => setActorId(e.target.value)} className="w-full rounded-lg border border-zinc-200 px-3 py-2" />
+              </label>
+              <label className="text-sm">
+                <span className="mb-1 block text-xs text-zinc-600">Task ID (volitelné)</span>
+                <input value={actorTaskId} onChange={(e) => setActorTaskId(e.target.value)} className="w-full rounded-lg border border-zinc-200 px-3 py-2" />
+              </label>
+              <label className="text-sm">
+                <span className="mb-1 block text-xs text-zinc-600">Dataset ID (volitelné)</span>
+                <input value={datasetId} onChange={(e) => setDatasetId(e.target.value)} className="w-full rounded-lg border border-zinc-200 px-3 py-2" />
+              </label>
+              <label className="text-sm">
+                <span className="mb-1 block text-xs text-zinc-600">Start URL (informativně)</span>
+                <input value={startUrl} onChange={(e) => setStartUrl(e.target.value)} className="w-full rounded-lg border border-zinc-200 px-3 py-2" />
+              </label>
+              <label className="text-sm">
+                <span className="mb-1 block text-xs text-zinc-600">Source portal</span>
+                <input value={sourcePortal} onChange={(e) => setSourcePortal(e.target.value)} className="w-full rounded-lg border border-zinc-200 px-3 py-2" />
+              </label>
+              <label className="text-sm md:col-span-2">
+                <span className="mb-1 block text-xs text-zinc-600">Poznámky</span>
+                <input value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full rounded-lg border border-zinc-200 px-3 py-2" />
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+                <span>isActive</span>
+              </label>
+            </>
+          ) : null}
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
             <span>Enabled</span>
@@ -135,6 +188,13 @@ export function ImportSourceForm({ open, branch, defaultPortalKey, onClose, onSu
                 categoryKey,
                 categoryLabel,
                 endpointUrl: endpointUrl || null,
+                actorId: actorId || null,
+                actorTaskId: actorTaskId || null,
+                datasetId: datasetId || null,
+                startUrl: startUrl || null,
+                sourcePortal: sourcePortal || null,
+                notes: notes || null,
+                isActive,
                 intervalMinutes,
                 limitPerRun,
                 enabled,

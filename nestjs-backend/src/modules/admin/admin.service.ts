@@ -846,6 +846,13 @@ export class AdminService {
     intervalMinutes?: number;
     limitPerRun?: number;
     endpointUrl?: string | null;
+    actorId?: string | null;
+    actorTaskId?: string | null;
+    datasetId?: string | null;
+    startUrl?: string | null;
+    sourcePortal?: string | null;
+    notes?: string | null;
+    isActive?: boolean;
     portalKey?: string;
     portalLabel?: string;
     categoryKey?: string;
@@ -868,6 +875,13 @@ export class AdminService {
     categoryKey: string;
     categoryLabel: string;
     endpointUrl?: string | null;
+    actorId?: string | null;
+    actorTaskId?: string | null;
+    datasetId?: string | null;
+    startUrl?: string | null;
+    sourcePortal?: string | null;
+    notes?: string | null;
+    isActive?: boolean;
     intervalMinutes?: number;
     limitPerRun?: number;
     enabled?: boolean;
@@ -884,6 +898,18 @@ export class AdminService {
 
   async runImportSource(sourceId: string, actorUserId: string) {
     return this.importSync.runSource(sourceId, actorUserId);
+  }
+
+  async runApifyImportSource(sourceId: string, actorUserId: string) {
+    return this.importSync.runSource(sourceId, actorUserId);
+  }
+
+  async toggleImportSource(sourceId: string, enabled: boolean) {
+    return this.importSync.toggleSourceEnabled(sourceId, enabled);
+  }
+
+  async getImportSourceStatus(sourceId: string) {
+    return this.importSync.getSourceStatus(sourceId);
   }
 
   async runImportPortal(portalKey: string, actorUserId: string) {
