@@ -821,252 +821,268 @@ export class AdminService {
   }
 
   async importApifyDataset(adminUserId: string, datasetUrlRaw: string) {
-    const datasetUrlInput = (datasetUrlRaw ?? '').trim();
-    if (!datasetUrlInput) {
-      throw new BadRequestException('datasetUrl je povinný');
-    }
-    const datasetUrl = this.normalizeApifyDatasetUrl(datasetUrlInput);
-    const datasetUrlForLog = this.sanitizeUrlForLog(datasetUrl);
-
-    const source = await this.ensureManualApifySource(datasetUrl);
-    let imported = 0;
-    let updated = 0;
-    let failed = 0;
-    let brokersCreated = 0;
-    let brokersUpdated = 0;
-    let imagesSaved = 0;
-    let lastError: string | null = null;
-    const seenExternalIds = new Set<string>();
-    const seenSourceUrls = new Set<string>();
-
-    this.logger.log(`[apify-dataset] import start url=${datasetUrlForLog}`);
-    let rows: Record<string, unknown>[];
     try {
-      const response = await fetch(datasetUrl, {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(45_000),
-      });
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        throw new BadRequestException(
-          `Apify dataset vrátil HTTP ${response.status}${body ? `: ${body.slice(0, 240)}` : ''}`,
-        );
+      const datasetUrlInput = (datasetUrlRaw ?? '').trim();
+      if (!datasetUrlInput) {
+        throw new BadRequestException('datasetUrl je povinný');
       }
-      const payload = (await response.json().catch(() => null)) as unknown;
-      if (!Array.isArray(payload)) {
-        throw new BadRequestException(
-          'Apify dataset musí vracet JSON pole (array). Zkontroluj URL a parametry clean=true&format=json.',
-        );
-      }
-      rows = payload.filter(
-        (x): x is Record<string, unknown> => !!x && typeof x === 'object',
-      );
-    } catch (e) {
-      if (e instanceof BadRequestException) throw e;
-      const msg = e instanceof Error ? e.message : String(e);
-      throw new BadRequestException(`Nepodařilo se stáhnout/parsovat Apify dataset: ${msg}`);
-    }
+      const datasetUrl = this.normalizeApifyDatasetUrl(datasetUrlInput);
+      const datasetUrlForLog = this.sanitizeUrlForLog(datasetUrl);
 
-    if (rows.length === 0) {
-      throw new BadRequestException('Apify dataset neobsahuje žádné položky.');
-    }
-    this.logger.log(`[apify-dataset] items=${rows.length} firstKeys=${Object.keys(rows[0] ?? {}).slice(0, 20).join(',')}`);
+      const source = await this.ensureManualApifySource(datasetUrl);
+      let imported = 0;
+      let updated = 0;
+      let failed = 0;
+      let brokersCreated = 0;
+      let brokersUpdated = 0;
+      let imagesSaved = 0;
+      let lastError: string | null = null;
+      const seenExternalIds = new Set<string>();
+      const seenSourceUrls = new Set<string>();
+      let firstItemKeys: string[] = [];
 
-    for (let index = 0; index < rows.length; index += 1) {
-      const item = rows[index]!;
+      this.logger.log(`[apify-dataset] import start url=${datasetUrlForLog}`);
+      let rows: Record<string, unknown>[];
       try {
-        const mapped = this.mapApifyDatasetItem(item, index);
-        if (!mapped.externalId && !mapped.sourceUrl) {
-          failed += 1;
-          lastError = `Položka #${index + 1} nemá externalId ani sourceUrl.`;
-          this.logger.warn(`[apify-dataset] mapping skip index=${index} reason=${lastError}`);
-          continue;
+        const response = await fetch(datasetUrl, {
+          headers: { Accept: 'application/json' },
+          signal: AbortSignal.timeout(45_000),
+        });
+        if (!response.ok) {
+          const body = await response.text().catch(() => '');
+          throw new BadRequestException(
+            `Apify dataset vrátil HTTP ${response.status}${body ? `: ${body.slice(0, 240)}` : ''}`,
+          );
         }
-        if (mapped.externalId) seenExternalIds.add(mapped.externalId);
-        if (mapped.sourceUrl) seenSourceUrls.add(mapped.sourceUrl);
+        const payload = (await response.json().catch(() => null)) as unknown;
+        if (!Array.isArray(payload)) {
+          throw new BadRequestException(
+            'Apify dataset musí vracet JSON pole (array). Zkontroluj URL a parametry clean=true&format=json.',
+          );
+        }
+        rows = payload.filter(
+          (x): x is Record<string, unknown> => !!x && typeof x === 'object',
+        );
+      } catch (e) {
+        if (e instanceof BadRequestException) throw e;
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new BadRequestException(`Nepodařilo se stáhnout/parsovat Apify dataset: ${msg}`);
+      }
 
-        let property = mapped.externalId
-          ? await this.prisma.property.findUnique({
+      if (rows.length === 0) {
+        throw new BadRequestException('Apify dataset neobsahuje žádné položky.');
+      }
+      firstItemKeys = Object.keys(rows[0] ?? {}).slice(0, 20);
+      this.logger.log(
+        `[apify-dataset] items=${rows.length} firstKeys=${firstItemKeys.join(',')}`,
+      );
+
+      for (let index = 0; index < rows.length; index += 1) {
+        const item = rows[index]!;
+        try {
+          const mapped = this.mapApifyDatasetItem(item, index);
+          if (!mapped.externalId && !mapped.sourceUrl) {
+            failed += 1;
+            lastError = `Položka #${index + 1} nemá externalId ani sourceUrl.`;
+            this.logger.warn(`[apify-dataset] mapping skip index=${index} reason=${lastError}`);
+            continue;
+          }
+          if (mapped.externalId) seenExternalIds.add(mapped.externalId);
+          if (mapped.sourceUrl) seenSourceUrls.add(mapped.sourceUrl);
+
+          let property = mapped.sourceUrl
+            ? await this.prisma.property.findFirst({
+                where: {
+                  importSource: ListingImportPortal.apify,
+                  importMethod: ListingImportMethod.apify,
+                  importSourceUrl: mapped.sourceUrl,
+                },
+              })
+            : null;
+          if (!property && mapped.externalId) {
+            property = await this.prisma.property.findUnique({
               where: {
                 importSource_importExternalId: {
                   importSource: ListingImportPortal.apify,
                   importExternalId: mapped.externalId,
                 },
               },
-            })
-          : null;
-        if (!property && mapped.sourceUrl) {
-          property = await this.prisma.property.findFirst({
-            where: {
-              importSource: ListingImportPortal.apify,
-              importMethod: ListingImportMethod.apify,
-              importSourceUrl: mapped.sourceUrl,
-            },
-          });
-        }
+            });
+          }
 
-        const isNew = !property;
-        if (!property) {
-          property = await this.prisma.property.create({
-            data: {
-              userId: adminUserId,
-              title: mapped.title,
-              description: mapped.description || mapped.title,
-              price: mapped.price,
-              city: mapped.city || 'Neuvedeno',
-              address: mapped.address || mapped.city || 'Neuvedeno',
-              region: undefined,
-              offerType: mapped.offerType,
-              propertyType: mapped.propertyType,
-              images: [],
-              approved: true,
-              status: 'APPROVED',
-              isActive: true,
-              listingType: 'CLASSIC',
-              importSource: ListingImportPortal.apify,
-              importMethod: ListingImportMethod.apify,
-              importExternalId: mapped.externalId || `source:${mapped.sourceUrl}`,
-              importSourceUrl: mapped.sourceUrl || undefined,
-              importedAt: new Date(),
-              lastSyncedAt: new Date(),
-              sourcePortalKey: 'apify',
-              sourcePortalLabel: 'APIFY',
-              importCategoryKey: 'manual_dataset',
-              importCategoryLabel: 'Manual dataset',
-              contactName: mapped.contactName || '',
-              contactPhone: mapped.contactPhone || '',
-              contactEmail: mapped.contactEmail || '',
-            },
-          });
-        } else {
-          property = await this.prisma.property.update({
-            where: { id: property.id },
-            data: {
-              title: mapped.title || property.title,
-              description: mapped.description || property.description,
-              price: mapped.price ?? property.price,
-              city: mapped.city || property.city,
-              address: mapped.address || property.address,
-              offerType: mapped.offerType || property.offerType,
-              propertyType: mapped.propertyType || property.propertyType,
-              importSourceUrl: mapped.sourceUrl || property.importSourceUrl,
-              isActive: true,
-              lastSyncedAt: new Date(),
-              contactName: mapped.contactName || property.contactName,
-              contactPhone: mapped.contactPhone || property.contactPhone,
-              contactEmail: mapped.contactEmail || property.contactEmail,
-            },
-          });
-        }
+          const isNew = !property;
+          if (!property) {
+            property = await this.prisma.property.create({
+              data: {
+                userId: adminUserId,
+                title: mapped.title,
+                description: mapped.description || mapped.title,
+                price: mapped.price,
+                city: mapped.city || 'Neuvedeno',
+                address: mapped.address || mapped.city || 'Neuvedeno',
+                region: undefined,
+                offerType: mapped.offerType,
+                propertyType: mapped.propertyType,
+                area: mapped.usableArea,
+                landArea: mapped.landArea,
+                images: [],
+                approved: true,
+                status: 'APPROVED',
+                isActive: true,
+                listingType: 'CLASSIC',
+                importSource: ListingImportPortal.apify,
+                importMethod: ListingImportMethod.apify,
+                importExternalId: mapped.externalId || `source:${mapped.sourceUrl}`,
+                importSourceUrl: mapped.sourceUrl || undefined,
+                importedAt: new Date(),
+                lastSyncedAt: new Date(),
+                sourcePortalKey: 'apify',
+                sourcePortalLabel: 'APIFY',
+                importCategoryKey: 'manual_dataset',
+                importCategoryLabel: 'Manual dataset',
+                contactName: mapped.contactName || mapped.companyName || '',
+                contactPhone: mapped.contactPhone || '',
+                contactEmail: mapped.contactEmail || '',
+              },
+            });
+          } else {
+            property = await this.prisma.property.update({
+              where: { id: property.id },
+              data: {
+                title: mapped.title || property.title,
+                description: mapped.description || property.description,
+                price: mapped.price ?? property.price,
+                city: mapped.city || property.city,
+                address: mapped.address || property.address,
+                offerType: mapped.offerType || property.offerType,
+                propertyType: mapped.propertyType || property.propertyType,
+                area: mapped.usableArea ?? property.area,
+                landArea: mapped.landArea ?? property.landArea,
+                importSourceUrl: mapped.sourceUrl || property.importSourceUrl,
+                isActive: true,
+                lastSyncedAt: new Date(),
+                contactName: mapped.contactName || mapped.companyName || property.contactName,
+                contactPhone: mapped.contactPhone || property.contactPhone,
+                contactEmail: mapped.contactEmail || property.contactEmail,
+              },
+            });
+          }
 
-        const mediaVariants: Array<{ originalUrl: string; watermarkedUrl: string | null }> = [];
-        for (let i = 0; i < mapped.images.length; i += 1) {
-          const mirrored = await this.importImages.importExternalImageToPortal({
-            imageUrl: mapped.images[i]!,
-            propertyId: property.id,
-            sourcePortalKey: 'apify',
-            index: i,
-          });
-          if (!mirrored?.storedUrl) continue;
-          mediaVariants.push({
-            originalUrl: mirrored.storedUrl,
-            watermarkedUrl: mirrored.watermarkedUrl ?? null,
-          });
-        }
-        imagesSaved += mediaVariants.length;
-
-        if (mediaVariants.length > 0) {
-          const imageUrls = mediaVariants.map((m) => m.originalUrl);
-          await this.prisma.property.update({
-            where: { id: property.id },
-            data: { images: imageUrls },
-          });
-          await this.prisma.propertyMedia.deleteMany({
-            where: { propertyId: property.id, type: 'image' },
-          });
-          await this.prisma.propertyMedia.createMany({
-            data: mediaVariants.map((m, idx) => ({
+          const mediaVariants: Array<{ originalUrl: string; watermarkedUrl: string | null }> = [];
+          for (let i = 0; i < mapped.images.length; i += 1) {
+            const mirrored = await this.importImages.importExternalImageToPortal({
+              imageUrl: mapped.images[i]!,
               propertyId: property.id,
-              url: m.originalUrl,
-              originalUrl: m.originalUrl,
-              watermarkedUrl: m.watermarkedUrl,
-              type: 'image',
-              sortOrder: idx + 1,
-            })),
-          });
+              sourcePortalKey: 'apify',
+              index: i,
+            });
+            if (!mirrored?.storedUrl) continue;
+            mediaVariants.push({
+              originalUrl: mirrored.storedUrl,
+              watermarkedUrl: mirrored.watermarkedUrl ?? null,
+            });
+          }
+          imagesSaved += mediaVariants.length;
+
+          if (mediaVariants.length > 0) {
+            const imageUrls = mediaVariants.map((m) => m.originalUrl);
+            await this.prisma.property.update({
+              where: { id: property.id },
+              data: { images: imageUrls },
+            });
+            await this.prisma.propertyMedia.deleteMany({
+              where: { propertyId: property.id, type: 'image' },
+            });
+            await this.prisma.propertyMedia.createMany({
+              data: mediaVariants.map((m, idx) => ({
+                propertyId: property.id,
+                url: m.originalUrl,
+                originalUrl: m.originalUrl,
+                watermarkedUrl: m.watermarkedUrl,
+                type: 'image',
+                sortOrder: idx + 1,
+              })),
+            });
+          }
+
+          const brokerSync = await this.importedBrokers.syncFromImportedProperty(property.id);
+          if (brokerSync === 'created') brokersCreated += 1;
+          if (brokerSync === 'updated') brokersUpdated += 1;
+
+          if (isNew) imported += 1;
+          else updated += 1;
+        } catch (e) {
+          failed += 1;
+          lastError = e instanceof Error ? e.message : String(e);
+          this.logger.warn(
+            `[apify-dataset] item failed index=${index} error=${lastError}`,
+          );
         }
-
-        const brokerSync = await this.importedBrokers.syncFromImportedProperty(property.id);
-        if (brokerSync === 'created') brokersCreated += 1;
-        if (brokerSync === 'updated') brokersUpdated += 1;
-
-        if (isNew) imported += 1;
-        else updated += 1;
-      } catch (e) {
-        failed += 1;
-        lastError = e instanceof Error ? e.message : String(e);
-        this.logger.warn(
-          `[apify-dataset] item failed index=${index} error=${lastError}`,
-        );
       }
-    }
 
-    await this.prisma.property.updateMany({
-      where: {
-        importSource: ListingImportPortal.apify,
-        importMethod: ListingImportMethod.apify,
-        isActive: true,
-        AND: [
-          { importExternalId: { notIn: [...seenExternalIds] } },
-          { importSourceUrl: { notIn: [...seenSourceUrls] } },
-        ],
-      },
-      data: { isActive: false, lastSyncedAt: new Date() },
-    });
+      await this.prisma.property.updateMany({
+        where: {
+          importSource: ListingImportPortal.apify,
+          importMethod: ListingImportMethod.apify,
+          isActive: true,
+          AND: [
+            { importExternalId: { notIn: [...seenExternalIds] } },
+            { importSourceUrl: { notIn: [...seenSourceUrls] } },
+          ],
+        },
+        data: { isActive: false, lastSyncedAt: new Date() },
+      });
 
-    await this.prisma.importSource.update({
-      where: { id: source.id },
-      data: {
-        startUrl: datasetUrl,
-        lastRunAt: new Date(),
-        lastStatus: failed > 0 ? 'completed_with_errors' : 'completed',
-        lastError,
-      },
-    });
-    await this.prisma.importLog.create({
-      data: {
-        sourceId: source.id,
-        portal: ListingImportPortal.apify,
-        method: ListingImportMethod.apify,
-        status: failed > 0 ? 'completed_with_errors' : 'completed',
-        importedNew: imported,
-        importedUpdated: updated,
-        skipped: 0,
-        disabled: 0,
-        error: lastError,
-        message: `Manual APIFY dataset import: imported=${imported}, updated=${updated}, failed=${failed}`,
-        payloadJson: {
-          datasetUrl,
-          imported,
-          updated,
-          failed,
-          brokersCreated,
-          brokersUpdated,
-          imagesSaved,
+      await this.prisma.importSource.update({
+        where: { id: source.id },
+        data: {
+          startUrl: datasetUrl,
+          lastRunAt: new Date(),
+          lastStatus: failed > 0 ? 'completed_with_errors' : 'completed',
           lastError,
-        } as Prisma.InputJsonValue,
-      },
-    });
+        },
+      });
+      await this.prisma.importLog.create({
+        data: {
+          sourceId: source.id,
+          portal: ListingImportPortal.apify,
+          method: ListingImportMethod.apify,
+          status: failed > 0 ? 'completed_with_errors' : 'completed',
+          importedNew: imported,
+          importedUpdated: updated,
+          skipped: 0,
+          disabled: 0,
+          error: lastError,
+          message: `Manual APIFY dataset import: imported=${imported}, updated=${updated}, failed=${failed}`,
+          payloadJson: {
+            datasetUrl: datasetUrlForLog,
+            imported,
+            updated,
+            failed,
+            brokersCreated,
+            brokersUpdated,
+            imagesSaved,
+            firstItemKeys,
+            lastError,
+          } as Prisma.InputJsonValue,
+        },
+      });
 
-    return {
-      imported,
-      updated,
-      failed,
-      brokersCreated,
-      brokersUpdated,
-      imagesSaved,
-      lastError,
-    };
+      return {
+        imported,
+        updated,
+        failed,
+        brokersCreated,
+        brokersUpdated,
+        imagesSaved,
+        firstItemKeys,
+        lastError,
+      };
+    } catch (e) {
+      if (e instanceof HttpException) throw e;
+      const message = e instanceof Error ? e.message : String(e);
+      throw new BadRequestException(`Import Apify datasetu selhal: ${message}`);
+    }
   }
 
   private mapApifyDatasetItem(item: Record<string, unknown>, index: number) {
@@ -1103,7 +1119,7 @@ export class AdminService {
       : rawSingleImage && /^https?:\/\//i.test(rawSingleImage)
         ? [rawSingleImage]
         : [];
-    const sourceUrl = pick('sourceUrl', 'url', 'detailUrl', 'listingUrl');
+    const sourceUrl = pick('sourceUrl', 'url', 'detailUrl', 'listingUrl', 'Odkaz', 'Link');
     const actorId = pick('ID_aktéra', 'ID_aktera', 'actorId', 'actor_id', 'id_aktera');
     const externalId =
       pick('externalId', 'id', 'itemId', 'listingId', 'ID') ||
@@ -1115,7 +1131,10 @@ export class AdminService {
       title: pick('title', 'Titul', 'name', 'Název', 'Nazev') || 'APIFY inzerát',
       description: pick('description', 'popis', 'Popis', 'text'),
       price: safeParsePrice(pick('price', 'Cena', 'priceText', 'priceValue')),
-      address: pick('address', 'streetAddress') || asString(location?.address),
+      address:
+        pick('address', 'adresa', 'streetAddress') ||
+        asString(location?.address) ||
+        asString(pickAny('Umístění', 'Umisteni')),
       city: pick('city', 'Město', 'Mesto') || asString(location?.city),
       propertyType: pick('propertyType', 'type') || 'nemovitost',
       offerType: pick('offerType', 'listingType') || 'prodej',
@@ -1125,6 +1144,8 @@ export class AdminService {
       companyName:
         pick('companyName', 'agencyName', 'agency', 'company', 'Značka', 'Znacka') ||
         asString(contact?.company),
+      usableArea: safeParsePrice(pick('Plocha_domu_m2', 'usableArea')),
+      landArea: safeParsePrice(pick('Plocha_pozemku_m2', 'landArea')),
       images,
     };
   }
@@ -1138,6 +1159,13 @@ export class AdminService {
     }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw new BadRequestException('datasetUrl musí začínat http:// nebo https://');
+    }
+    const path = parsed.pathname.toLowerCase();
+    const isDatasetItems = path.includes('/v2/datasets/') && path.endsWith('/items');
+    if (!isDatasetItems) {
+      throw new BadRequestException(
+        'Použijte Apify Dataset items URL, ne Actor run/Input URL.',
+      );
     }
     if (!parsed.searchParams.get('clean')) parsed.searchParams.set('clean', 'true');
     if (!parsed.searchParams.get('format')) parsed.searchParams.set('format', 'json');

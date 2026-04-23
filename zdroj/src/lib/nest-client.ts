@@ -1787,6 +1787,7 @@ export type AdminApifyDatasetImportResult = {
   brokersCreated: number;
   brokersUpdated: number;
   imagesSaved: number;
+  firstItemKeys?: string[];
   lastError: string | null;
 };
 

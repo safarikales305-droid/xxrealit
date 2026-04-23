@@ -421,22 +421,38 @@ export default function AdminImportsPage() {
 
   async function importFromApifyDataset() {
     if (!token || apifyImportBusy) return;
-    const url = apifyDatasetUrl.trim();
-    if (!url) {
+    const rawUrl = apifyDatasetUrl.trim();
+    if (!rawUrl) {
       setError('Vyplň APIFY_DATASET_URL.');
       return;
     }
+    let normalizedUrl = '';
+    try {
+      const parsed = new URL(rawUrl);
+      const path = parsed.pathname.toLowerCase();
+      if (!path.includes('/datasets/') || !path.endsWith('/items')) {
+        setError('Použijte Apify Dataset items URL, ne Actor run/Input URL.');
+        return;
+      }
+      if (!parsed.searchParams.get('clean')) parsed.searchParams.set('clean', 'true');
+      if (!parsed.searchParams.get('format')) parsed.searchParams.set('format', 'json');
+      normalizedUrl = parsed.toString();
+    } catch {
+      setError('APIFY_DATASET_URL není validní URL.');
+      return;
+    }
+    setApifyDatasetUrl(normalizedUrl);
     setApifyImportBusy(true);
     setError(null);
     setStatusMsg(null);
-    const r = await nestAdminImportApifyDataset(token, url);
+    const r = await nestAdminImportApifyDataset(token, normalizedUrl);
     setApifyImportBusy(false);
     if (!r.ok || !r.data) {
       setError(r.error ?? 'APIFY dataset import selhal.');
       return;
     }
     setStatusMsg(
-      `APIFY dataset import: imported ${r.data.imported}, updated ${r.data.updated}, failed ${r.data.failed}, brokers +${r.data.brokersCreated}/${r.data.brokersUpdated}, images ${r.data.imagesSaved}${r.data.lastError ? `, lastError: ${r.data.lastError}` : ''}.`,
+      `APIFY dataset import: imported ${r.data.imported}, updated ${r.data.updated}, failed ${r.data.failed}, brokers +${r.data.brokersCreated}/${r.data.brokersUpdated}, images ${r.data.imagesSaved}${r.data.firstItemKeys?.length ? `, firstItemKeys: ${r.data.firstItemKeys.join(', ')}` : ''}${r.data.lastError ? `, lastError: ${r.data.lastError}` : ''}.`,
     );
     await refresh();
   }
@@ -503,7 +519,10 @@ export default function AdminImportsPage() {
         <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
           <h2 className="text-base font-semibold">Ruční import z Apify datasetu</h2>
           <p className="mt-1 text-xs text-zinc-600">
-            Vlož APIFY_DATASET_URL a spusť import bez RapidAPI/XML polí.
+            Vložte Dataset items URL z Apify, ne Actor run URL.
+          </p>
+          <p className="mt-1 break-all text-[11px] text-zinc-500">
+            Příklad: https://api.apify.com/v2/datasets/XXXX/items?clean=true&format=json&token=TOKEN
           </p>
           <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-center">
             <label className="flex-1 text-sm">
