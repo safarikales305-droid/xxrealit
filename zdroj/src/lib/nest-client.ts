@@ -756,6 +756,7 @@ export type AdminImportRunState = {
   itemErrorLog?: Array<Record<string, unknown>>;
   progressPercent?: number;
   currentMessage?: string;
+  etaSeconds?: number | null;
 };
 
 export type AdminImportSourceRow = {
@@ -789,6 +790,12 @@ export type AdminImportSourceRow = {
   settingsJson?: Record<string, unknown> | null;
   lastRunAt?: string | null;
   lastStatus?: string | null;
+  progressPercent?: number;
+  totalItems?: number | null;
+  processedItems?: number;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  currentMessage?: string | null;
   createdAt: string;
   updatedAt: string;
   latestLog?: {
@@ -1759,6 +1766,32 @@ export async function nestAdminImportSourceStatus(
   });
   if (!res.ok) return null;
   return (await res.json().catch(() => null)) as Record<string, unknown> | null;
+}
+
+export type AdminImportProgressRow = {
+  progressPercent: number;
+  processedItems: number;
+  totalItems: number | null;
+  etaSeconds: number | null;
+  currentMessage: string;
+  lastError?: string | null;
+  running?: boolean;
+  done?: boolean;
+};
+
+export async function nestAdminImportProgress(
+  token: string | null,
+  sourceId: string,
+): Promise<{ ok: boolean; data?: AdminImportProgressRow; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/import/${encodeURIComponent(sourceId)}/progress`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true, data: data as AdminImportProgressRow };
 }
 
 export async function nestAdminRunImportPortal(

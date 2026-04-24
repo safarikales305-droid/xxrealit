@@ -771,6 +771,12 @@ export class ImportSyncService {
           : null,
       lastRunAt: r.lastRunAt,
       lastStatus: r.lastStatus,
+      progressPercent: r.progressPercent ?? 0,
+      totalItems: r.totalItems ?? null,
+      processedItems: r.processedItems ?? 0,
+      startedAt: r.startedAt ?? null,
+      finishedAt: r.finishedAt ?? null,
+      currentMessage: r.currentMessage ?? null,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
       latestLog: latestLog
@@ -808,6 +814,7 @@ export class ImportSyncService {
             itemErrorLog: live.itemErrorLog,
             progressPercent: live.progressPercent,
             currentMessage: live.currentMessage,
+            etaSeconds: live.etaSeconds ?? null,
           }
         : { running: false, percent: 0, message: '', phase: 'done' as const },
     };
@@ -1122,7 +1129,19 @@ export class ImportSyncService {
         `scraperStartHint=${scraperStartHint ?? 'n/a'} settingsKeys=[${settingsKeys}] ` +
         `(SOAP používá REALITY_CZ_* env, scraper start URL = settingsJson.startUrl)`,
     );
-    this.runningBySource.set(ctx.sourceId, initialImportRunLive(new Date().toISOString()));
+    const startedAt = new Date();
+    this.runningBySource.set(ctx.sourceId, initialImportRunLive(startedAt.toISOString()));
+    await this.prisma.importSource.update({
+      where: { id: ctx.sourceId },
+      data: {
+        startedAt,
+        finishedAt: null,
+        totalItems: null,
+        processedItems: 0,
+        progressPercent: 0,
+        currentMessage: 'Spouštím…',
+      },
+    });
     return this.runWithLogging(ctx, actorUserId, onProgress);
   }
 
@@ -1189,6 +1208,60 @@ export class ImportSyncService {
     };
   }
 
+  async getSourceProgress(sourceId: string) {
+    const row = await this.prisma.importSource.findUnique({
+      where: { id: sourceId },
+      select: {
+        id: true,
+        progressPercent: true,
+        processedItems: true,
+        totalItems: true,
+        startedAt: true,
+        finishedAt: true,
+        currentMessage: true,
+        lastError: true,
+      },
+    });
+    if (!row) throw new NotFoundException('Import source nenalezen');
+
+    const live = this.runningBySource.get(sourceId);
+    const totalItems = live?.totalListings ?? row.totalItems ?? null;
+    const processedItems = live?.processedListings ?? row.processedItems ?? 0;
+    const progressPercent =
+      totalItems && totalItems > 0
+        ? Math.min(100, Math.max(0, Math.round((processedItems / totalItems) * 100)))
+        : Math.min(100, Math.max(0, Math.round(live?.progressPercent ?? row.progressPercent ?? 0)));
+    const startedAt = live?.startedAt ? new Date(live.startedAt) : row.startedAt;
+    const nowMs = Date.now();
+    const elapsedMs = startedAt ? nowMs - startedAt.getTime() : 0;
+    const etaSeconds =
+      startedAt && totalItems && totalItems > 0 && processedItems > 0 && processedItems < totalItems
+        ? Math.max(
+            0,
+            Math.round((((totalItems - processedItems) * (elapsedMs / processedItems)) as number) / 1000),
+          )
+        : null;
+    const fallbackMessage =
+      totalItems == null || totalItems <= 0
+        ? 'Načítám...'
+        : processedItems === 0
+          ? 'Zpracovávám...'
+          : etaSeconds != null
+            ? `Zbývá cca ${etaSeconds} s`
+            : 'Zpracovávám...';
+
+    return {
+      progressPercent,
+      processedItems,
+      totalItems,
+      etaSeconds,
+      currentMessage: live?.currentMessage ?? row.currentMessage ?? fallbackMessage,
+      lastError: row.lastError ?? null,
+      running: live?.running ?? (!!row.startedAt && !row.finishedAt),
+      done: progressPercent >= 100 || (!!row.finishedAt && !live?.running),
+    };
+  }
+
   async bulkDisableByFilter(filter: { portal?: ListingImportPortal; method?: ListingImportMethod }) {
     const where: Prisma.PropertyWhereInput = {
       importSource: filter.portal ?? undefined,
@@ -1208,7 +1281,62 @@ export class ImportSyncService {
   ): Promise<ImportRunResult> {
     const startedAt = new Date();
     const startedAtIso = startedAt.toISOString();
+    const startedAtMs = startedAt.getTime();
     let live = initialImportRunLive(startedAtIso);
+    let lastPersistProcessed = -1;
+    let lastPersistAt = 0;
+    let persistQueue: Promise<void> = Promise.resolve();
+
+    const queuePersistProgress = (force = false) => {
+      persistQueue = persistQueue
+        .then(async () => {
+          const total = live.totalListings && live.totalListings > 0 ? live.totalListings : null;
+          const processed = Math.max(0, live.processedListings ?? 0);
+          const progressPercent =
+            total && total > 0
+              ? Math.min(100, Math.max(0, Math.round((processed / total) * 100)))
+              : Math.min(100, Math.max(0, Math.round(live.progressPercent ?? live.percent ?? 0)));
+          const now = Date.now();
+          const etaSeconds =
+            total && processed > 0 && processed < total
+              ? Math.max(0, Math.round((((total - processed) * ((now - startedAtMs) / processed)) as number) / 1000))
+              : null;
+          const computedMessage =
+            total == null || total <= 0
+              ? 'Načítám...'
+              : processed === 0
+                ? 'Zpracovávám...'
+                : etaSeconds != null
+                  ? `Zbývá cca ${etaSeconds} s`
+                  : 'Zpracovávám...';
+
+          live.etaSeconds = etaSeconds;
+          live.currentMessage = computedMessage;
+
+          const shouldPersistByCount = processed > 0 && processed - lastPersistProcessed >= 5;
+          const shouldPersistByTime = now - lastPersistAt >= 10_000;
+          if (!force && !shouldPersistByCount && !shouldPersistByTime) return;
+
+          await this.prisma.importSource.update({
+            where: { id: ctx.sourceId },
+            data: {
+              startedAt,
+              finishedAt: null,
+              totalItems: total ?? null,
+              processedItems: processed,
+              progressPercent,
+              currentMessage: computedMessage,
+            },
+          });
+          lastPersistProcessed = processed;
+          lastPersistAt = now;
+        })
+        .catch((e) => {
+          this.logger.warn(
+            `Progress persist failed source=${ctx.sourceId}: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        });
+    };
 
     const emitProgress = (patch: Partial<ImportRunProgressPayload>) => {
       live = { ...live, ...patch, running: true, startedAt: startedAtIso };
@@ -1217,6 +1345,7 @@ export class ImportSyncService {
       if (patch.currentMessage !== undefined) live.currentMessage = patch.currentMessage;
       else live.currentMessage = live.message;
       this.runningBySource.set(ctx.sourceId, live);
+      queuePersistProgress(false);
       onProgress?.({ ...live });
     };
 
@@ -1616,7 +1745,20 @@ export class ImportSyncService {
         phase: errorMessage ? 'error' : 'done',
         progressPercent: errorMessage ? 0 : 100,
         currentMessage: errorMessage ? `Chyba: ${errorMessage}` : 'Dokončeno',
+        etaSeconds: 0,
       });
+      await this.prisma.importSource.update({
+        where: { id: ctx.sourceId },
+        data: {
+          finishedAt: new Date(),
+          progressPercent: errorMessage ? 0 : 100,
+          totalItems: doneLive.totalListings ?? null,
+          processedItems: doneLive.processedListings ?? 0,
+          currentMessage: errorMessage ? `Chyba: ${errorMessage}` : 'Dokončeno',
+        },
+      });
+      queuePersistProgress(true);
+      await persistQueue;
     }
   }
 

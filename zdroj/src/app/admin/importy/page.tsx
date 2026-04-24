@@ -9,6 +9,7 @@ import {
   nestAdminDeleteImportSource,
   nestAdminImportApifyDataset,
   nestAdminImportLogs,
+  nestAdminImportProgress,
   nestAdminImportSources,
   nestAdminRunImportPortal,
   nestImportApifyQueueJob,
@@ -128,6 +129,58 @@ export default function AdminImportsPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, user?.role, filters.portalKey, filters.onlyEnabled, filters.onlyRunning, filters.onlyError, filters.search]);
+
+  useEffect(() => {
+    if (!token || user?.role !== 'ADMIN') return;
+    const timer = setInterval(() => {
+      const activeIds = branches
+        .filter((b) => b.running?.running || (typeof b.progressPercent === 'number' && b.progressPercent > 0 && b.progressPercent < 100))
+        .map((b) => b.id);
+      if (activeIds.length === 0) return;
+      void Promise.all(
+        activeIds.map(async (id) => {
+          const r = await nestAdminImportProgress(token, id);
+          if (!r.ok || !r.data) return;
+          setBranches((prev) =>
+            prev.map((b) =>
+              b.id === id
+                ? {
+                    ...b,
+                    progressPercent: r.data!.progressPercent,
+                    processedItems: r.data!.processedItems,
+                    totalItems: r.data!.totalItems,
+                    currentMessage: r.data!.currentMessage,
+                    running:
+                      r.data!.running === false && r.data!.done
+                        ? {
+                            ...(b.running ?? { running: false, percent: 0, message: '' }),
+                            running: false,
+                            percent: r.data!.progressPercent,
+                            progressPercent: r.data!.progressPercent,
+                            processedListings: r.data!.processedItems,
+                            totalListings: r.data!.totalItems ?? undefined,
+                            currentMessage: r.data!.currentMessage,
+                            etaSeconds: r.data!.etaSeconds,
+                          }
+                        : {
+                            ...(b.running ?? { running: true, percent: 0, message: '' }),
+                            running: true,
+                            percent: r.data!.progressPercent,
+                            progressPercent: r.data!.progressPercent,
+                            processedListings: r.data!.processedItems,
+                            totalListings: r.data!.totalItems ?? undefined,
+                            currentMessage: r.data!.currentMessage,
+                            etaSeconds: r.data!.etaSeconds,
+                          },
+                  }
+                : b,
+            ),
+          );
+        }),
+      );
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [branches, token, user?.role]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, AdminImportSourceRow[]>();

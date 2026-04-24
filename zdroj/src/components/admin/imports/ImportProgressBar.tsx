@@ -3,9 +3,20 @@
 type Props = {
   percent: number;
   message?: string;
+  processed?: number;
+  total?: number | null;
+  etaSeconds?: number | null;
+  stalled?: boolean;
 };
 
-export function ImportProgressBar({ percent, message }: Props) {
+function formatEta(seconds: number): string {
+  if (seconds < 60) return `${seconds} s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m} min ${s} s`;
+}
+
+export function ImportProgressBar({ percent, message, processed, total, etaSeconds, stalled }: Props) {
   const p = Math.min(100, Math.max(0, Math.round(percent)));
   return (
     <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2">
@@ -18,6 +29,20 @@ export function ImportProgressBar({ percent, message }: Props) {
           className="h-full rounded-full bg-emerald-600 transition-[width] duration-300 ease-out"
           style={{ width: `${p}%` }}
         />
+      </div>
+      <div className="mt-1 text-[11px] text-zinc-600">
+        {typeof total === 'number' && total > 0 && typeof processed === 'number'
+          ? `${p} % (${processed} / ${total})`
+          : 'Načítám...'}
+      </div>
+      <div className="text-[11px] text-zinc-600">
+        {stalled
+          ? 'Zpracovávám...'
+          : typeof etaSeconds === 'number' && etaSeconds > 0
+            ? `⏱ zbývá cca ${formatEta(etaSeconds)}`
+            : p >= 100
+              ? 'Dokončeno'
+              : 'Zpracovávám...'}
       </div>
     </div>
   );

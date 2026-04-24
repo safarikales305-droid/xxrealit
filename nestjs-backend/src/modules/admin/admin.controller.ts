@@ -378,6 +378,11 @@ export class AdminController {
     return this.adminService.getImportSourceStatus(sourceId);
   }
 
+  @Get('import/:sourceId/progress')
+  getImportSourceProgress(@Param('sourceId') sourceId: string) {
+    return this.adminService.getImportSourceProgress(sourceId);
+  }
+
   @Post('import-portals/:portalKey/run')
   runImportPortal(@CurrentUser() user: AuthUser, @Param('portalKey') portalKey: string) {
     return this.adminService.runImportPortal(portalKey, user.id);

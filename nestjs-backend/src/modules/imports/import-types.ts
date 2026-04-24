@@ -215,6 +215,7 @@ export type ImportRunProgressPayload = {
 export type ImportRunLiveState = ImportRunProgressPayload & {
   running: boolean;
   startedAt: string;
+  etaSeconds?: number | null;
 };
 
 export type ImportSourceBranchRow = {
@@ -248,6 +249,12 @@ export type ImportSourceBranchRow = {
   settingsJson?: Record<string, unknown> | null;
   lastRunAt?: Date | null;
   lastStatus?: string | null;
+  progressPercent?: number;
+  totalItems?: number | null;
+  processedItems?: number;
+  startedAt?: Date | null;
+  finishedAt?: Date | null;
+  currentMessage?: string | null;
   createdAt: Date;
   updatedAt: Date;
   latestLog?: {

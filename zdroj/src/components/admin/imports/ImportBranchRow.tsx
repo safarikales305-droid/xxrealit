@@ -147,6 +147,9 @@ export function ImportBranchRow({
             <ImportProgressBar
               percent={branch.running.progressPercent ?? branch.running.percent}
               message={branch.running.currentMessage ?? branch.running.message}
+              processed={branch.running.processedListings}
+              total={branch.running.totalListings ?? null}
+              etaSeconds={branch.running.etaSeconds ?? null}
             />
             <div className="text-[11px] text-zinc-600">
               Fáze: {phaseLabelCs(branch.running.phase)}

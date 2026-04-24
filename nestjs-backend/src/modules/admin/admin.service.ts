@@ -1337,6 +1337,10 @@ export class AdminService {
     return this.importSync.getSourceStatus(sourceId);
   }
 
+  async getImportSourceProgress(sourceId: string) {
+    return this.importSync.getSourceProgress(sourceId);
+  }
+
   async runImportPortal(portalKey: string, actorUserId: string) {
     return this.importSync.runPortal(portalKey, actorUserId);
   }
