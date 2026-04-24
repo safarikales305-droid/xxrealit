@@ -1200,8 +1200,8 @@ export class AdminService {
         where: { id: existing.id },
         data: {
           datasetId: datasetId || undefined,
-          actorId: null,
-          actorTaskId: null,
+          datasetUrl,
+          sourceType: 'APIFY_DATASET',
           settingsJson,
         },
       });
@@ -1219,8 +1219,8 @@ export class AdminService {
         intervalMinutes: 60,
         limitPerRun: 500,
         datasetId: datasetId || undefined,
-        actorId: null,
-        actorTaskId: null,
+        datasetUrl,
+        sourceType: 'APIFY_DATASET',
         startUrl: datasetUrl,
         settingsJson,
         isActive: true,

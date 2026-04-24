@@ -707,6 +707,8 @@ model ImportSource {
   actorId        String?
   actorTaskId    String?
   datasetId      String?
+  datasetUrl     String?
+  sourceType     String?             @default("SCRAPER")
   startUrl       String?
   sourcePortal   String?
   notes          String?             @db.Text
