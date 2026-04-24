@@ -183,7 +183,7 @@ export type ImportExecutionContext = {
   notes?: string | null;
 };
 
-export type ImportRunPhase = 'listing' | 'details' | 'done' | 'error';
+export type ImportRunPhase = 'listing' | 'details' | 'done' | 'error' | 'running';
 
 /** Průběh importu (NDJSON stream / admin UI + in-memory stav větve). */
 export type ImportRunProgressPayload = {
@@ -273,6 +273,8 @@ export type ImportSourceBranchRow = {
     message: string;
     startedAt?: string;
     phase?: ImportRunPhase;
+    processedItems?: number;
+    totalItems?: number;
     totalListings?: number;
     processedListings?: number;
     totalDetails?: number;
@@ -288,7 +290,8 @@ export type ImportSourceBranchRow = {
     lastItemErrorExternalId?: string | null;
     itemErrorLog?: ImportRunItemError[];
     progressPercent?: number;
-    currentMessage?: string;
+    currentMessage?: string | null;
+    etaSeconds?: number | null;
   };
 };
 
