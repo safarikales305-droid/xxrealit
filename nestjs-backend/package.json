@@ -13,7 +13,7 @@
   "scripts": {
     "build": "prisma generate && nest build",
     "start": "node dist/main.js",
-    "start:prod": "prisma db push && node dist/main.js",
+    "start:prod": "sh -c 'prisma generate && (prisma db push --accept-data-loss || true) && node dist/main.js'",
     "start:dev": "nest start --watch",
     "postinstall": "prisma generate",
     "seed": "tsx prisma/seed.ts",

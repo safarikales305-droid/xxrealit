@@ -412,6 +412,8 @@ model Post {
   id          String   @id @default(cuid())
   title       String   @default("")
   description String   @default("")
+  imageUrl    String?
+  videoUrl    String?
   price       Int      @default(0)
   city        String   @default("")
   latitude    Float?
