@@ -969,6 +969,9 @@ export class AdminService {
           }
 
           const mediaVariants: Array<{ originalUrl: string; watermarkedUrl: string | null }> = [];
+        // Debug importu fotek z Apify (požadavek adminu)
+        // eslint-disable-next-line no-console
+        console.log('IMAGES:', mapped.images);
           for (let i = 0; i < mapped.images.length; i += 1) {
             const mirrored = await this.importImages.importExternalImageToPortal({
               imageUrl: mapped.images[i]!,
@@ -1109,16 +1112,23 @@ export class AdminService {
       item.contact && typeof item.contact === 'object'
         ? (item.contact as Record<string, unknown>)
         : null;
+    const normalizeImageUrl = (v: unknown): string | null => {
+      if (typeof v !== 'string') return null;
+      const t = v.trim();
+      if (!/^https?:\/\//i.test(t)) return null;
+      return t;
+    };
     const rawImages = pickAny('images', 'Obrázky', 'Obrazky');
-    const rawSingleImage = pick('image', 'Obraz');
-    const images = Array.isArray(rawImages)
+    const rawSingleImage =
+      normalizeImageUrl(pickAny('obraz')) ??
+      normalizeImageUrl(pickAny('Obraz')) ??
+      normalizeImageUrl(pickAny('image'));
+    const imagesFromArray = Array.isArray(rawImages)
       ? rawImages
-          .filter((x): x is string => typeof x === 'string')
-          .map((x) => x.trim())
-          .filter((x) => /^https?:\/\//i.test(x))
-      : rawSingleImage && /^https?:\/\//i.test(rawSingleImage)
-        ? [rawSingleImage]
-        : [];
+          .map((x) => normalizeImageUrl(x))
+          .filter((x): x is string => Boolean(x))
+      : [];
+    const images = imagesFromArray.length > 0 ? imagesFromArray : rawSingleImage ? [rawSingleImage] : [];
     const sourceUrl = pick('sourceUrl', 'url', 'detailUrl', 'listingUrl', 'Odkaz', 'Link');
     const externalId =
       pick('externalId', 'id', 'itemId', 'listingId', 'ID') ||

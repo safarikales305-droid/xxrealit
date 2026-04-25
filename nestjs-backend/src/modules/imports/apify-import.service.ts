@@ -223,13 +223,24 @@ export class ApifyImportService {
     const title = getStr('title', 'name', 'headline') || 'Import APIFY';
     if (!sourceUrl && !externalId) return null;
 
+    const normalizeImageUrl = (v: unknown): string | null => {
+      if (typeof v !== 'string') return null;
+      const t = v.trim();
+      if (!/^https?:\/\//i.test(t)) return null;
+      return t;
+    };
     const imagesRaw = item.images;
-    const images =
-      Array.isArray(imagesRaw)
-        ? imagesRaw
-            .filter((x): x is string => typeof x === 'string' && /^https?:\/\//i.test(x))
-            .map((x) => x.trim())
-        : [];
+    const singleRaw =
+      normalizeImageUrl(item.obraz) ??
+      normalizeImageUrl(item.Obraz) ??
+      normalizeImageUrl(item.image) ??
+      null;
+    const imagesFromArray = Array.isArray(imagesRaw)
+      ? imagesRaw
+          .map((x) => normalizeImageUrl(x))
+          .filter((x): x is string => Boolean(x))
+      : [];
+    const images = imagesFromArray.length > 0 ? imagesFromArray : singleRaw ? [singleRaw] : [];
 
     const company = getStr('companyName', 'agencyName', 'brokerCompany');
     const row: ImportedListingDraft = {
