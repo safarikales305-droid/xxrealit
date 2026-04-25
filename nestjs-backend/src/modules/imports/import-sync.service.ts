@@ -5,6 +5,7 @@ import {
   Prisma,
   Property,
   PropertyShortsSourceType,
+  UserRole,
 } from '@prisma/client';
 import {
   computeShortsSourceForImport,
@@ -2210,6 +2211,13 @@ export class ImportSyncService {
     rows: ImportedListingDraft[],
     onProgress?: (patch: Partial<ImportRunProgressPayload>) => void,
   ): Promise<ImportRunResult> {
+    const importUserId =
+      ctx.method === ListingImportMethod.apify
+        ? await this.resolveImportUserId(actorUserId)
+        : actorUserId;
+    if (!importUserId) {
+      throw new BadRequestException('Import bot user not found');
+    }
     let importedNew = 0;
     let importedUpdated = 0;
     let skipped = 0;
@@ -2436,7 +2444,7 @@ export class ImportSyncService {
         try {
           const created = await this.prisma.property.create({
             data: {
-              userId: actorUserId,
+              userId: importUserId,
               title: row.title,
               description: row.description,
               price: row.price != null && row.price > 0 ? Math.trunc(row.price) : null,
@@ -2731,6 +2739,41 @@ export class ImportSyncService {
         importSkippedInvalid: skippedInvalid,
       },
     };
+  }
+
+  private async resolveImportUserId(preferredUserId?: string | null): Promise<string | null> {
+    if (preferredUserId) {
+      const preferred = await this.prisma.user.findUnique({
+        where: { id: preferredUserId },
+        select: { id: true },
+      });
+      if (preferred?.id) return preferred.id;
+    }
+
+    const botEmail = 'import-bot@xxrealit.cz';
+    const bot = await this.prisma.user.findUnique({
+      where: { email: botEmail },
+      select: { id: true },
+    });
+    if (bot?.id) return bot.id;
+
+    const admin = await this.prisma.user.findFirst({
+      where: { role: UserRole.ADMIN },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    if (admin?.id) return admin.id;
+
+    const created = await this.prisma.user.create({
+      data: {
+        email: botEmail,
+        name: 'Import Bot',
+        role: UserRole.ADMIN,
+        password: `!IMPORT_BOT_DISABLED_${Date.now()}`,
+      },
+      select: { id: true },
+    });
+    return created.id ?? null;
   }
 
   private async runImportPropertyUpdateBranch(params: {

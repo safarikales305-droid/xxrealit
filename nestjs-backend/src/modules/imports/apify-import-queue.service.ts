@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import axios from 'axios';
-import { ListingImportMethod, ListingImportPortal, Prisma } from '@prisma/client';
+import { ListingImportMethod, ListingImportPortal, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { ImportedBrokerContactService } from '../imported-broker-contacts/imported-broker-contact.service';
 import { ImportImageService } from './import-image.service';
@@ -29,6 +29,7 @@ type QueueJob = {
   lastProcessedUrl: string | null;
   runAt: string;
   finishedAt?: string;
+  importUserId?: string;
   totalItems?: number;
   processedItems?: number;
   progressPercent?: number;
@@ -105,6 +106,14 @@ export class ApifyImportQueueService {
     }
 
     job.status = 'running';
+    const importUserId = await this.resolveImportUserId();
+    if (!importUserId) {
+      job.status = 'failed';
+      job.errors.push('Import bot user not found');
+      job.finishedAt = new Date().toISOString();
+      return;
+    }
+    job.importUserId = importUserId;
     const credentials =
       source.credentialsJson && typeof source.credentialsJson === 'object' && !Array.isArray(source.credentialsJson)
         ? (source.credentialsJson as Record<string, unknown>)
@@ -143,7 +152,7 @@ export class ApifyImportQueueService {
           if (!property) {
             property = await this.prisma.property.create({
               data: {
-                userId: 'system',
+                userId: importUserId,
                 title: mapped.title,
                 description: mapped.description,
                 price: mapped.price,
@@ -298,6 +307,9 @@ export class ApifyImportQueueService {
         },
       });
       this.logger.log(`APIFY import done: imported=${job.imported} updated=${job.updated} failed=${job.failed}`);
+      this.logger.log(
+        `APIFY import user=${importUserId} imported=${job.imported} updated=${job.updated} failed=${job.failed}`,
+      );
     } catch (e) {
       job.status = 'failed';
       job.failed += 1;
@@ -314,6 +326,33 @@ export class ApifyImportQueueService {
         },
       });
     }
+  }
+
+  private async resolveImportUserId(): Promise<string | null> {
+    const botEmail = 'import-bot@xxrealit.cz';
+    const bot = await this.prisma.user.findUnique({
+      where: { email: botEmail },
+      select: { id: true },
+    });
+    if (bot?.id) return bot.id;
+
+    const admin = await this.prisma.user.findFirst({
+      where: { role: UserRole.ADMIN },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    if (admin?.id) return admin.id;
+
+    const created = await this.prisma.user.create({
+      data: {
+        email: botEmail,
+        name: 'Import Bot',
+        role: UserRole.ADMIN,
+        password: `!IMPORT_BOT_DISABLED_${Date.now()}`,
+      },
+      select: { id: true },
+    });
+    return created.id ?? null;
   }
 
   private async fetchItems(apifyUrl: string, token: string): Promise<Record<string, unknown>[]> {

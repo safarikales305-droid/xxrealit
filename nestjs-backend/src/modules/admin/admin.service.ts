@@ -822,6 +822,10 @@ export class AdminService {
 
   async importApifyDataset(adminUserId: string, datasetUrlRaw: string) {
     try {
+      const importUserId = await this.resolveImportUserId(adminUserId);
+      if (!importUserId) {
+        throw new BadRequestException('Import bot user not found');
+      }
       const datasetUrlInput = (datasetUrlRaw ?? '').trim();
       if (!datasetUrlInput) {
         throw new BadRequestException('datasetUrl je povinný');
@@ -876,6 +880,7 @@ export class AdminService {
       this.logger.log(
         `[apify-dataset] items=${rows.length} firstKeys=${firstItemKeys.join(',')}`,
       );
+      this.logger.log(`[apify-dataset] importUserId=${importUserId}`);
 
       for (let index = 0; index < rows.length; index += 1) {
         const item = rows[index]!;
@@ -914,7 +919,7 @@ export class AdminService {
           if (!property) {
             property = await this.prisma.property.create({
               data: {
-                userId: adminUserId,
+                userId: importUserId,
                 title: mapped.title,
                 description: mapped.description || mapped.title,
                 price: mapped.price,
@@ -1070,8 +1075,12 @@ export class AdminService {
           } as Prisma.InputJsonValue,
         },
       });
+      this.logger.log(
+        `[apify-dataset] importUserId=${importUserId} imported=${imported} updated=${updated} failed=${failed}`,
+      );
 
       return {
+        importUserId,
         imported,
         updated,
         failed,
@@ -1246,6 +1255,41 @@ export class AdminService {
     } catch {
       return '';
     }
+  }
+
+  private async resolveImportUserId(preferredUserId?: string | null): Promise<string | null> {
+    if (preferredUserId) {
+      const preferred = await this.prisma.user.findUnique({
+        where: { id: preferredUserId },
+        select: { id: true },
+      });
+      if (preferred?.id) return preferred.id;
+    }
+
+    const botEmail = 'import-bot@xxrealit.cz';
+    const bot = await this.prisma.user.findUnique({
+      where: { email: botEmail },
+      select: { id: true },
+    });
+    if (bot?.id) return bot.id;
+
+    const admin = await this.prisma.user.findFirst({
+      where: { role: UserRole.ADMIN },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    if (admin?.id) return admin.id;
+
+    const created = await this.prisma.user.create({
+      data: {
+        email: botEmail,
+        name: 'Import Bot',
+        role: UserRole.ADMIN,
+        password: `!IMPORT_BOT_DISABLED_${Date.now()}`,
+      },
+      select: { id: true },
+    });
+    return created.id ?? null;
   }
 
   /**
