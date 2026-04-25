@@ -158,6 +158,10 @@ export type ImportRunResult = {
     datasetId?: string | null;
     importFailed?: number;
     importSkippedInvalid?: number;
+    itemsWithImage?: number;
+    itemsWithDetailUrl?: number;
+    detailsFetched?: number;
+    detailsFailed?: number;
   };
 };
 

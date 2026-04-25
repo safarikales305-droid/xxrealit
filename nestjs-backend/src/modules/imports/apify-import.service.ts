@@ -24,6 +24,10 @@ export type ApifyFetchMeta = {
   listingPaginationLog: Array<Record<string, unknown>>;
   runId?: string | null;
   datasetId?: string | null;
+  itemsWithImage?: number;
+  itemsWithDetailUrl?: number;
+  detailsFetched?: number;
+  detailsFailed?: number;
 };
 
 @Injectable()
@@ -84,9 +88,34 @@ export class ApifyImportService {
 
     const items = await this.fetchDatasetItems(token, datasetId, params.limit, requestLog);
     const rows: ImportedListingDraft[] = [];
+    let itemsWithImage = 0;
+    let itemsWithDetailUrl = 0;
+    let detailsFetched = 0;
+    let detailsFailed = 0;
     for (const item of items) {
       const row = this.mapItem(item);
       if (!row) continue;
+      if (row.images.length > 0) itemsWithImage += 1;
+      if (row.sourceUrl) {
+        itemsWithDetailUrl += 1;
+        try {
+          const detail = await this.fetchDetail(row.sourceUrl);
+          detailsFetched += 1;
+          if (!row.description && detail.description) row.description = detail.description;
+          if (!row.contactEmail && detail.contactEmail) row.contactEmail = detail.contactEmail;
+          if (!row.contactPhone && detail.contactPhone) row.contactPhone = detail.contactPhone;
+          if (!row.contactName && detail.contactName) row.contactName = detail.contactName;
+          if (!row.contactCompany && detail.companyName) row.contactCompany = detail.companyName;
+          row.images = [...new Set([...detail.images, ...row.images])];
+        } catch (e) {
+          detailsFailed += 1;
+          this.logger.warn(
+            `DETAIL_FETCH_FAILED ext=${row.externalId} url=${row.sourceUrl}: ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          );
+        }
+      }
       rows.push(row);
       if (rows.length >= params.limit) break;
     }
@@ -116,6 +145,10 @@ export class ApifyImportService {
         listingPaginationLog: [],
         runId,
         datasetId,
+        itemsWithImage,
+        itemsWithDetailUrl,
+        detailsFetched,
+        detailsFailed,
       },
     };
   }
@@ -218,7 +251,7 @@ export class ApifyImportService {
       }
       return null;
     };
-    const sourceUrl = getStr('sourceUrl', 'url', 'detailUrl', 'listingUrl');
+    const sourceUrl = getStr('sourceUrl', 'url', 'detailUrl', 'listingUrl', 'Odkaz', 'Link');
     const externalId = getStr('externalId', 'id', 'listingId', 'itemId') || sourceUrl.slice(-80);
     const title = getStr('title', 'name', 'headline') || 'Import APIFY';
     if (!sourceUrl && !externalId) return null;
@@ -261,5 +294,56 @@ export class ApifyImportService {
       images,
     };
     return row;
+  }
+
+  private async fetchDetail(url: string): Promise<{
+    description?: string;
+    contactName?: string;
+    contactEmail?: string;
+    contactPhone?: string;
+    companyName?: string;
+    images: string[];
+  }> {
+    const res = await fetch(url, {
+      headers: { Accept: 'text/html,application/xhtml+xml' },
+      signal: AbortSignal.timeout(25_000),
+    });
+    if (!res.ok) throw new BadRequestException(`Detail fetch selhal (${res.status}).`);
+    const html = await res.text();
+    const one = (re: RegExp): string => {
+      const m = html.match(re);
+      return (m?.[1] ?? '').trim();
+    };
+    const description =
+      one(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i) ||
+      one(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i);
+    const email = one(/mailto:([^"'>\s]+)/i).toLowerCase();
+    const phone = one(/(\+?\d[\d\s().-]{7,}\d)/i);
+    const rawImgs = new Set<string>();
+    const ogImg = one(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
+    if (ogImg) rawImgs.add(ogImg);
+    for (const m of html.matchAll(/<img[^>]+(?:src|data-src)=["']([^"']+)["']/gi)) {
+      const src = (m[1] ?? '').trim();
+      if (src) rawImgs.add(src);
+      if (rawImgs.size >= 24) break;
+    }
+    const absolute = (u: string): string => {
+      try {
+        return new URL(u, url).toString();
+      } catch {
+        return '';
+      }
+    };
+    const images = [...rawImgs]
+      .map((u) => absolute(u))
+      .filter((u) => /^https?:\/\//i.test(u) && !/\.svg(\?|$)/i.test(u));
+    return {
+      description: description || undefined,
+      contactName: undefined,
+      contactEmail: email || undefined,
+      contactPhone: phone || undefined,
+      companyName: undefined,
+      images: [...new Set(images)],
+    };
   }
 }

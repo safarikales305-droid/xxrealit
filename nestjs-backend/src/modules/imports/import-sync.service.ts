@@ -1608,6 +1608,12 @@ export class ImportSyncService {
         deactivated,
         runId: (scraperMeta as { runId?: string | null } | undefined)?.runId ?? null,
         datasetId: (scraperMeta as { datasetId?: string | null } | undefined)?.datasetId ?? null,
+        itemsWithImage: (scraperMeta as { itemsWithImage?: number } | undefined)?.itemsWithImage ?? 0,
+        itemsWithDetailUrl:
+          (scraperMeta as { itemsWithDetailUrl?: number } | undefined)?.itemsWithDetailUrl ?? 0,
+        detailsFetched:
+          (scraperMeta as { detailsFetched?: number } | undefined)?.detailsFetched ?? 0,
+        detailsFailed: (scraperMeta as { detailsFailed?: number } | undefined)?.detailsFailed ?? 0,
       };
       this.logger.log(
         `Import summary: totalFound=${totalFoundListings} processed=${totalFoundListings} new=${result.importedNew} updated=${result.importedUpdated} skipped=${result.skipped} skippedInvalid=${result.skippedInvalid ?? 0} failed=${result.failed ?? 0} errorLines=${result.errors.length} brokersCreated=${result.stats?.brokersCreated ?? 0} brokersUpdated=${result.stats?.brokersUpdated ?? 0} imagesMirrored=${result.stats?.imagesMirrored ?? 0} mediaPersistFailures=${result.stats?.mediaPersistFailures ?? 0} durationMs=${durationMs}`,

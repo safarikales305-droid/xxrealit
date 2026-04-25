@@ -1820,6 +1820,10 @@ export type AdminApifyDatasetImportResult = {
   brokersCreated: number;
   brokersUpdated: number;
   imagesSaved: number;
+  itemsWithImage?: number;
+  itemsWithDetailUrl?: number;
+  detailsFetched?: number;
+  detailsFailed?: number;
   firstItemKeys?: string[];
   lastError: string | null;
 };

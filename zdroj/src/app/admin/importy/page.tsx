@@ -505,7 +505,7 @@ export default function AdminImportsPage() {
       return;
     }
     setStatusMsg(
-      `APIFY dataset import: imported ${r.data.imported}, updated ${r.data.updated}, failed ${r.data.failed}, brokers +${r.data.brokersCreated}/${r.data.brokersUpdated}, images ${r.data.imagesSaved}${r.data.firstItemKeys?.length ? `, firstItemKeys: ${r.data.firstItemKeys.join(', ')}` : ''}${r.data.lastError ? `, lastError: ${r.data.lastError}` : ''}.`,
+      `APIFY dataset import: imported ${r.data.imported}, updated ${r.data.updated}, failed ${r.data.failed}, brokers +${r.data.brokersCreated}/${r.data.brokersUpdated}, images ${r.data.imagesSaved}, itemsWithImage ${r.data.itemsWithImage ?? 0}, itemsWithDetailUrl ${r.data.itemsWithDetailUrl ?? 0}, details ${r.data.detailsFetched ?? 0}/${r.data.detailsFailed ?? 0}${r.data.firstItemKeys?.length ? `, firstItemKeys: ${r.data.firstItemKeys.join(', ')}` : ''}${r.data.lastError ? `, lastError: ${r.data.lastError}` : ''}.`,
     );
     await refresh();
   }

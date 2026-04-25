@@ -840,6 +840,10 @@ export class AdminService {
       let brokersCreated = 0;
       let brokersUpdated = 0;
       let imagesSaved = 0;
+      let itemsWithImage = 0;
+      let itemsWithDetailUrl = 0;
+      let detailsFetched = 0;
+      let detailsFailed = 0;
       let lastError: string | null = null;
       const seenExternalIds = new Set<string>();
       const seenSourceUrls = new Set<string>();
@@ -876,6 +880,16 @@ export class AdminService {
       if (rows.length === 0) {
         throw new BadRequestException('Apify dataset neobsahuje žádné položky.');
       }
+      const hasAnyDetailUrl = rows.some((item) =>
+        ['sourceUrl', 'detailUrl', 'url', 'Odkaz', 'Link'].some(
+          (k) => typeof item[k] === 'string' && String(item[k]).trim().length > 0,
+        ),
+      );
+      if (!hasAnyDetailUrl) {
+        throw new BadRequestException(
+          'Apify dataset neobsahuje detailUrl/sourceUrl, nelze stáhnout plný detail.',
+        );
+      }
       firstItemKeys = Object.keys(rows[0] ?? {}).slice(0, 20);
       this.logger.log(
         `[apify-dataset] items=${rows.length} firstKeys=${firstItemKeys.join(',')}`,
@@ -886,6 +900,28 @@ export class AdminService {
         const item = rows[index]!;
         try {
           const mapped = this.mapApifyDatasetItem(item, index);
+          if (mapped.images.length > 0) itemsWithImage += 1;
+          if (mapped.sourceUrl) itemsWithDetailUrl += 1;
+          if (mapped.sourceUrl) {
+            try {
+              const detail = await this.fetchApifyDetail(mapped.sourceUrl);
+              detailsFetched += 1;
+              if (!mapped.description && detail.description) mapped.description = detail.description;
+              if (!mapped.address && detail.address) mapped.address = detail.address;
+              if (!mapped.city && detail.city) mapped.city = detail.city;
+              if (!mapped.contactName && detail.contactName) mapped.contactName = detail.contactName;
+              if (!mapped.contactEmail && detail.contactEmail) mapped.contactEmail = detail.contactEmail;
+              if (!mapped.contactPhone && detail.contactPhone) mapped.contactPhone = detail.contactPhone;
+              if (!mapped.companyName && detail.companyName) mapped.companyName = detail.companyName;
+              const merged = [...detail.images, ...mapped.images].filter(Boolean);
+              mapped.images = [...new Set(merged)];
+            } catch (detailErr) {
+              detailsFailed += 1;
+              this.logger.warn(
+                `[apify-dataset] DETAIL_FETCH_FAILED index=${index} url=${mapped.sourceUrl} err=${detailErr instanceof Error ? detailErr.message : String(detailErr)}`,
+              );
+            }
+          }
           if (!mapped.externalId && !mapped.sourceUrl) {
             failed += 1;
             lastError = `Položka #${index + 1} nemá externalId ani sourceUrl.`;
@@ -984,7 +1020,12 @@ export class AdminService {
               sourcePortalKey: 'apify',
               index: i,
             });
-            if (!mirrored?.storedUrl) continue;
+            if (!mirrored?.storedUrl) {
+              this.logger.warn(
+                `[apify-dataset] IMAGE_DOWNLOAD_ERROR url=${mapped.images[i] ?? ''}`,
+              );
+              continue;
+            }
             mediaVariants.push({
               originalUrl: mirrored.storedUrl,
               watermarkedUrl: mirrored.watermarkedUrl ?? null,
@@ -1070,6 +1111,10 @@ export class AdminService {
             brokersCreated,
             brokersUpdated,
             imagesSaved,
+            itemsWithImage,
+            itemsWithDetailUrl,
+            detailsFetched,
+            detailsFailed,
             firstItemKeys,
             lastError,
           } as Prisma.InputJsonValue,
@@ -1087,6 +1132,10 @@ export class AdminService {
         brokersCreated,
         brokersUpdated,
         imagesSaved,
+        itemsWithImage,
+        itemsWithDetailUrl,
+        detailsFetched,
+        detailsFailed,
         firstItemKeys,
         lastError,
       };
@@ -1165,6 +1214,71 @@ export class AdminService {
       usableArea: safeParsePrice(pick('Plocha_domu_m2', 'usableArea')),
       landArea: safeParsePrice(pick('Plocha_pozemku_m2', 'landArea')),
       images,
+    };
+  }
+
+  private async fetchApifyDetail(url: string): Promise<{
+    description?: string;
+    address?: string;
+    city?: string;
+    contactName?: string;
+    contactEmail?: string;
+    contactPhone?: string;
+    companyName?: string;
+    images: string[];
+  }> {
+    const res = await fetch(url, {
+      headers: { Accept: 'text/html,application/xhtml+xml' },
+      signal: AbortSignal.timeout(25_000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const html = await res.text();
+    const one = (re: RegExp): string => {
+      const m = html.match(re);
+      return (m?.[1] ?? '').trim();
+    };
+    const decode = (s: string): string =>
+      s
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>');
+    const description =
+      decode(one(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)) ||
+      decode(one(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)) ||
+      '';
+    const mail = one(/mailto:([^"'>\s]+)/i).toLowerCase();
+    const phone = one(/(\+?\d[\d\s().-]{7,}\d)/i);
+
+    const rawImgs = new Set<string>();
+    const og = one(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
+    if (og) rawImgs.add(og);
+    for (const m of html.matchAll(/<img[^>]+(?:src|data-src)=["']([^"']+)["']/gi)) {
+      const src = (m[1] ?? '').trim();
+      if (src) rawImgs.add(src);
+      if (rawImgs.size >= 24) break;
+    }
+    const toAbs = (u: string): string => {
+      try {
+        return new URL(u, url).toString();
+      } catch {
+        return '';
+      }
+    };
+    const images = [...rawImgs]
+      .map((u) => toAbs(u))
+      .filter((u) => /^https?:\/\//i.test(u) && !/\.svg(\?|$)/i.test(u));
+
+    return {
+      description: description || undefined,
+      address: undefined,
+      city: undefined,
+      contactName: undefined,
+      contactEmail: mail || undefined,
+      contactPhone: phone || undefined,
+      companyName: undefined,
+      images: [...new Set(images)],
     };
   }
 

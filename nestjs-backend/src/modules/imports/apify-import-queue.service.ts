@@ -216,7 +216,10 @@ export class ApifyImportQueueService {
               sourcePortalKey: 'apify',
               index: i,
             });
-            if (!done?.storedUrl) continue;
+            if (!done?.storedUrl) {
+              this.logger.warn(`[apify-queue] IMAGE_DOWNLOAD_ERROR url=${img}`);
+              continue;
+            }
             storedUrls.push(done.storedUrl);
             variants.push({
               originalUrl: done.storedUrl,
