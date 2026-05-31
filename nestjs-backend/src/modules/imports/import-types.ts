@@ -334,6 +334,9 @@ export type ImportSourceBranchRow = {
     createdAt: Date;
   } | null;
   running?: ImportBranchStatus;
+  /** Po toggle větve — kolik inzerátů bylo skryto / znovu zobrazeno. */
+  propertiesAffected?: number;
+  visibilityMessage?: string;
 };
 
 export type PortalImportAggregate = {

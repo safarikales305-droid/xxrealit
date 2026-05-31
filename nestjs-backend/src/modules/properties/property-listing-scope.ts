@@ -1,4 +1,5 @@
 import { ListingImportPortal, Prisma } from '@prisma/client';
+import { importedListingPubliclyVisibleWhere } from './property-import-branch-visibility';
 import { publiclyVisiblePropertyWhere } from './property-public-visibility';
 
 const videoListingDisjuncts: Prisma.PropertyWhereInput[] = [
@@ -16,6 +17,7 @@ const approvedAndVisible: Prisma.PropertyWhereInput = {
 export const publicShortPropertyWhere: Prisma.PropertyWhereInput = {
   AND: [
     approvedAndVisible,
+    importedListingPubliclyVisibleWhere,
     { listingType: 'SHORTS' },
     { OR: videoListingDisjuncts },
   ],
@@ -58,14 +60,15 @@ export const classicPublicListingWhere: Prisma.PropertyWhereInput = {
   AND: [
     classicListingWhere,
     approvedAndVisible,
+    importedListingPubliclyVisibleWhere,
     /** Klasik výpis = explicitně CLASSIC (SHORTS patří do shorts feedu). */
     { listingType: 'CLASSIC' },
-    /** Ručně vypnutý import — i kdyby zůstalo isActive true, neveřejný výpis. */
-    { importDisabled: false },
     hideBrokenRealityImports,
     hideBrokenCentury21Imports,
   ],
 };
 
 /** Všechny schválené živé inzeráty (shorts i klasik) — veřejný profil makléře. */
-export const anyPublicListingWhere: Prisma.PropertyWhereInput = approvedAndVisible;
+export const anyPublicListingWhere: Prisma.PropertyWhereInput = {
+  AND: [approvedAndVisible, importedListingPubliclyVisibleWhere],
+};

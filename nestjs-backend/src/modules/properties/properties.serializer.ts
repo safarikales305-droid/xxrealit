@@ -155,6 +155,9 @@ export type PropertyRowForApi = {
   importedAt?: Date | null;
   lastSyncedAt?: Date | null;
   importDisabled?: boolean;
+  hiddenByImportDisabled?: boolean;
+  importSourceId?: string | null;
+  importSourceBranch?: { enabled: boolean } | null;
   sourcePortalKey?: string;
   sourcePortalLabel?: string;
   propertyTypeKey?: string;
@@ -318,6 +321,14 @@ function serializePropertyEmergency(
     importedAt: safeDateIso(p.importedAt),
     lastSyncedAt: safeDateIso(p.lastSyncedAt),
     importDisabled: Boolean(p.importDisabled),
+    hiddenByImportDisabled: Boolean(p.hiddenByImportDisabled),
+    importSourceId: p.importSourceId ?? null,
+    importVisibilityNote:
+      p.importSource != null && (p.hiddenByImportDisabled || p.importSourceBranch?.enabled === false)
+        ? 'Skrytý — importní větev je vypnutá'
+        : p.importDisabled
+          ? 'Skrytý — import ručně vypnut'
+          : null,
     sourcePortalKey: safeTrim(p.sourcePortalKey) || null,
     sourcePortalLabel: safeTrim(p.sourcePortalLabel) || null,
     propertyTypeKey: safeTrim(p.propertyTypeKey) || null,
@@ -522,6 +533,14 @@ function serializePropertyCore(
     importedAt: safeDateIso(p.importedAt),
     lastSyncedAt: safeDateIso(p.lastSyncedAt),
     importDisabled: Boolean(p.importDisabled),
+    hiddenByImportDisabled: Boolean(p.hiddenByImportDisabled),
+    importSourceId: p.importSourceId ?? null,
+    importVisibilityNote:
+      p.importSource != null && (p.hiddenByImportDisabled || p.importSourceBranch?.enabled === false)
+        ? 'Skrytý — importní větev je vypnutá'
+        : p.importDisabled
+          ? 'Skrytý — import ručně vypnut'
+          : null,
     sourcePortalKey: safeTrim(p.sourcePortalKey) || null,
     sourcePortalLabel: safeTrim(p.sourcePortalLabel) || null,
     propertyTypeKey: safeTrim(p.propertyTypeKey) || null,

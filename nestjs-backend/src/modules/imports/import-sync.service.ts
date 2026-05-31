@@ -68,6 +68,7 @@ import {
   type ImportRunResult,
   type PortalImportAggregate,
 } from './import-types';
+import { propertiesForImportBranchWhere } from '../properties/property-import-branch-visibility';
 import { resolveRealityListingExternalId } from './reality-listing-code.util';
 import { RealityCzSoapImporter } from './reality-cz-soap-importer.service';
 import {
@@ -1071,6 +1072,11 @@ export class ImportSyncService {
     await this.ensureDefaultSources();
     const source = await this.prisma.importSource.findUnique({ where: { id: sourceId } });
     if (!source) throw new NotFoundException('Import source nenalezen');
+    if (!source.enabled) {
+      throw new BadRequestException(
+        'Importní větev je vypnutá. Zapněte ji v administraci, pokud chcete spustit import.',
+      );
+    }
     const ctx: ImportExecutionContext = {
       sourceId: source.id,
       sourceName: source.name,
@@ -1153,12 +1159,41 @@ export class ImportSyncService {
   }
 
   async toggleSourceEnabled(sourceId: string, enabled: boolean) {
+    const source = await this.prisma.importSource.findUnique({ where: { id: sourceId } });
+    if (!source) throw new NotFoundException('Import source nenalezen');
+
+    const branchWhere = propertiesForImportBranchWhere(source);
+    let propertiesAffected = 0;
+
+    if (!enabled) {
+      const updated = await this.prisma.property.updateMany({
+        where: branchWhere,
+        data: { isActive: false, hiddenByImportDisabled: true },
+      });
+      propertiesAffected = updated.count;
+    } else {
+      const updated = await this.prisma.property.updateMany({
+        where: {
+          AND: [branchWhere, { hiddenByImportDisabled: true }, { importDisabled: false }],
+        },
+        data: { isActive: true, hiddenByImportDisabled: false },
+      });
+      propertiesAffected = updated.count;
+    }
+
     const row = await this.prisma.importSource.update({
       where: { id: sourceId },
       data: { enabled },
       include: { logs: { orderBy: { createdAt: 'desc' }, take: 1 } },
     });
-    return this.toBranchRow(row);
+    const branch = this.toBranchRow(row);
+    return {
+      ...branch,
+      propertiesAffected,
+      visibilityMessage: enabled
+        ? `Znovu zobrazeno ${propertiesAffected} inzerátů na veřejném portálu.`
+        : `Skryto ${propertiesAffected} inzerátů z veřejného portálu (data zůstávají v databázi).`,
+    };
   }
 
   async getSourceStatus(sourceId: string) {
@@ -2030,13 +2065,26 @@ export class ImportSyncService {
       .filter((u): u is string => !!u);
     if (seen.length === 0) return 0;
     const uniqueSeen = [...new Set(seen)];
+    const branchScope: Prisma.PropertyWhereInput = {
+      OR: [
+        { importSourceId: ctx.sourceId },
+        {
+          importSourceId: null,
+          importSource: ctx.portal,
+          importMethod: ctx.method,
+          importCategoryKey: (ctx.categoryKey ?? '').trim() || undefined,
+          sourcePortalKey: (ctx.portalKey ?? '').trim() || undefined,
+        },
+      ],
+    };
     const upd = await this.prisma.property.updateMany({
       where: {
-        importSource: ctx.portal,
-        importMethod: ctx.method,
-        importDisabled: false,
-        isActive: true,
-        importSourceUrl: { notIn: uniqueSeen },
+        AND: [
+          branchScope,
+          { importDisabled: false },
+          { isActive: true },
+          { importSourceUrl: { notIn: uniqueSeen } },
+        ],
       },
       data: { isActive: false, lastSyncedAt: new Date() },
     });
@@ -2198,6 +2246,11 @@ export class ImportSyncService {
     if (!importUserId) {
       throw new BadRequestException('Import bot user not found');
     }
+    const branchRow = await this.prisma.importSource.findUnique({
+      where: { id: ctx.sourceId },
+      select: { enabled: true },
+    });
+    const branchEnabled = branchRow?.enabled ?? true;
     let importedNew = 0;
     let importedUpdated = 0;
     let skipped = 0;
@@ -2451,10 +2504,12 @@ export class ImportSyncService {
               contactEmail: (row.contactEmail ?? '').trim().toLowerCase().slice(0, 120),
               approved: true,
               status: 'APPROVED',
-              isActive: true,
+              isActive: branchEnabled,
+              hiddenByImportDisabled: !branchEnabled,
               listingType,
               importSource: ctx.portal,
               importMethod: ctx.method,
+              importSourceId: ctx.sourceId,
               importExternalId: resolvedId,
               importSourceUrl: row.sourceUrl?.trim() || null,
               importedAt: new Date(),
@@ -2834,6 +2889,7 @@ export class ImportSyncService {
           .slice(0, 120),
         importSourceUrl: row.sourceUrl?.trim() || existing.importSourceUrl,
         importExternalId: resolvedId,
+        importSourceId: ctx.sourceId,
         lastSyncedAt: new Date(),
         ...facet,
       },

@@ -597,6 +597,11 @@ model Property {
   lastSyncedAt     DateTime?
   /// Ručně vypnutý importovaný inzerát – synchronizace ho znovu neaktivuje.
   importDisabled   Boolean @default(false)
+  /// FK na konkrétní importní větev (ImportSource).
+  importSourceId   String?
+  importSourceBranch ImportSource? @relation(fields: [importSourceId], references: [id], onDelete: SetNull)
+  /// Skrytý kvůli vypnuté importní větvi (veřejný portál); data v DB zůstávají.
+  hiddenByImportDisabled Boolean @default(false)
 
   /// Klasifikace importu (filtry, budoucí portály) — `importSource` zůstává enum v DB.
   sourcePortalKey      String                    @default("")
@@ -635,6 +640,8 @@ model Property {
   @@index([importExternalId, importSource])
   @@index([sourcePortalKey, propertyTypeKey, city])
   @@index([importCategoryKey, sourcePortalKey])
+  @@index([importSourceId])
+  @@index([hiddenByImportDisabled, isActive])
   @@unique([importSource, importExternalId], map: "property_import_source_external_uq")
 }
 
@@ -732,6 +739,7 @@ model ImportSource {
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
   logs           ImportLog[]
+  properties     Property[]
 
   @@unique([portalKey, categoryKey, method], map: "import_source_portal_category_method_uq")
   @@index([enabled, updatedAt])

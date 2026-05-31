@@ -12,9 +12,8 @@ import { PrismaService } from '../../database/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { OwnerUpdatePropertyDto } from './dto/owner-update-property.dto';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
-import {
-  classicPublicListingWhere,
-} from './property-listing-scope';
+import { isImportedListingPubliclyVisible } from './property-import-branch-visibility';
+import { classicPublicListingWhere } from './property-listing-scope';
 
 /** Kanonické klíče (import + `detectPropertyType`) — musí sedět s `ptype` ve frontend URL. */
 const CANONICAL_PROPERTY_TYPE_KEYS = new Set([
@@ -321,6 +320,7 @@ export class PropertiesService {
     const property = await this.prisma.property.findUnique({
       where: { id },
       include: {
+        importSourceBranch: { select: { enabled: true } },
         media: {
           orderBy: { sortOrder: 'asc' },
         },
@@ -358,6 +358,9 @@ export class PropertiesService {
       throw new NotFoundException(`Property "${id}" not found`);
     }
     if (!admin && !isOwner && !isPropertyPubliclyListed(property)) {
+      throw new NotFoundException(`Property "${id}" not found`);
+    }
+    if (!admin && !isOwner && !isImportedListingPubliclyVisible(property)) {
       throw new NotFoundException(`Property "${id}" not found`);
     }
 
