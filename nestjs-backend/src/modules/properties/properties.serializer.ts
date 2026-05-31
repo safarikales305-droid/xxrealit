@@ -137,6 +137,7 @@ export type PropertyRowForApi = {
   activeFrom?: Date | null;
   activeUntil?: Date | null;
   listingType?: string;
+  isTiparTip?: boolean;
   viewsCount?: number;
   autoViewsEnabled?: boolean;
   autoViewsIncrement?: number;
@@ -245,7 +246,8 @@ function serializePropertyEmergency(
   viewerId?: string,
   access?: PropertyViewerAccess,
 ): Record<string, unknown> {
-  const redact = shouldRedactOwnerContact(p as PropertyRowForApi, viewerId, access);
+  const redact =
+    Boolean(p.isTiparTip) || shouldRedactOwnerContact(p as PropertyRowForApi, viewerId, access);
   const pid = safeStr(p.id, 'unknown');
   const split = splitContactNameAndCompany(p.contactName);
   return {
@@ -306,6 +308,8 @@ function serializePropertyEmergency(
       : 0,
     liked: false,
     listingType: p.listingType ?? null,
+    isTiparTip: Boolean(p.isTiparTip),
+    tiparBadge: p.isTiparTip ? 'Tip na nemovitost' : null,
     viewsCount: 0,
     autoViewsEnabled: false,
     autoViewsIncrement: 0,
@@ -351,7 +355,7 @@ function serializePropertyCore(
     Array.isArray(p.likes) &&
     p.likes.length > 0;
 
-  const redact = shouldRedactOwnerContact(p, viewerId, access);
+  const redact = Boolean(p.isTiparTip) || shouldRedactOwnerContact(p, viewerId, access);
 
   const assetBase = resolveAssetBaseUrl();
   const images = (Array.isArray(p.images) ? p.images : [])
@@ -518,6 +522,8 @@ function serializePropertyCore(
       : 0,
     liked,
     listingType: p.listingType ?? null,
+    isTiparTip: Boolean(p.isTiparTip),
+    tiparBadge: p.isTiparTip ? 'Tip na nemovitost' : null,
     viewsCount: Math.max(0, Math.trunc(Number(p.viewsCount ?? 0))),
     autoViewsEnabled: Boolean(p.autoViewsEnabled),
     autoViewsIncrement: Math.max(0, Math.trunc(Number(p.autoViewsIncrement ?? 0))),

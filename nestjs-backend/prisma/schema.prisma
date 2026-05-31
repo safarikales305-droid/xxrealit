@@ -117,6 +117,8 @@ model User {
   /// Average rating 0–5 (manual / future reviews).
   rating       Float      @default(0)
   creditBalance Int       @default(0)
+  /// Aktivní role tipaře — může vytvářet tipy na nemovitosti.
+  isTipar       Boolean   @default(false)
   createdAt    DateTime   @default(now())
   resetToken   String?
   resetExpires DateTime?
@@ -181,6 +183,10 @@ model User {
   stories Story[]
 
   shortsListings ShortsListing[] @relation("UserShortsListings")
+  tiparPosts     TiparPost[]
+  contactUnlocks ContactUnlock[]
+  creditTransactionsAsBuyer CreditTransaction[] @relation("CreditTransactionBuyer")
+  creditTransactionsAsTipar CreditTransaction[] @relation("CreditTransactionTipar")
 }
 
 model Story {
@@ -567,6 +573,8 @@ model Property {
   activeUntil     DateTime?
   /// SHORTS (video) | CLASSIC (bez videa) — pro admin přehled a filtry.
   listingType     String   @default("CLASSIC")
+  /// Tip od tipaře ve Shorts feedu (kontakt jen po odemčení kreditem).
+  isTiparTip      Boolean  @default(false)
   /// Reálný počet zhlédnutí shorts/video.
   viewsCount      Int      @default(0)
   /// Admin autopilot views.
@@ -619,6 +627,7 @@ model Property {
 
   shortsListingSources     ShortsListing[] @relation("ShortsListingSourceProperty")
   publishedFromShortsDraft ShortsListing? @relation("PublishedShortsProperty")
+  tiparPostPublished       TiparPost?     @relation("TiparPublishedProperty")
 
   createdAt       DateTime @default(now())
   userId          String
@@ -636,6 +645,7 @@ model Property {
   @@index([deletedAt, isActive, approved])
   @@index([isOwnerListing, createdAt])
   @@index([listingType, publishedAt])
+  @@index([isTiparTip, listingType])
   @@index([importSource, importMethod])
   @@index([importExternalId, importSource])
   @@index([sourcePortalKey, propertyTypeKey, city])
@@ -922,6 +932,74 @@ model UserNotification {
 
   @@index([userId, readAt])
   @@index([userId, createdAt])
+}
+
+/// Tipařský příspěvek — tip na nemovitost, volitelně ve Shorts feedu.
+model TiparPost {
+  id                  String    @id @default(cuid())
+  userId              String
+  title               String
+  description         String    @db.Text
+  images              String[]  @default([])
+  videoUrl            String?
+  city                String    @default("")
+  propertyPrice       Int?
+  sourceUrl           String?
+  ownerNote           String?   @db.Text
+  contactName         String    @default("")
+  contactPhone        String    @default("")
+  contactEmail        String    @default("")
+  contactUnlockPrice  Int       @default(100)
+  isShorts            Boolean   @default(false)
+  publishedPropertyId String?   @unique
+  isActive            Boolean   @default(true)
+  approved            Boolean   @default(true)
+  deletedAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  publishedProperty Property?          @relation("TiparPublishedProperty", fields: [publishedPropertyId], references: [id], onDelete: SetNull)
+  contactUnlocks    ContactUnlock[]
+  creditTransactions CreditTransaction[]
+
+  @@index([userId, createdAt])
+  @@index([isShorts, isActive, approved])
+  @@index([deletedAt])
+}
+
+/// Odemčení kontaktu tipařského tipu (idempotentní — jednou zaplaceno, pak zdarma).
+model ContactUnlock {
+  id          String   @id @default(cuid())
+  userId      String
+  tiparPostId String
+  amount      Int
+  unlockedAt  DateTime @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tiparPost TiparPost @relation(fields: [tiparPostId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tiparPostId])
+  @@index([tiparPostId])
+}
+
+/// Kreditní transakce (odemčení kontaktu tipaře).
+model CreditTransaction {
+  id           String   @id @default(cuid())
+  buyerUserId  String
+  tiparUserId  String
+  tiparPostId  String
+  amount       Int
+  type         String   @default("CONTACT_UNLOCK")
+  createdAt    DateTime @default(now())
+
+  buyer     User      @relation("CreditTransactionBuyer", fields: [buyerUserId], references: [id], onDelete: Cascade)
+  tipar     User      @relation("CreditTransactionTipar", fields: [tiparUserId], references: [id], onDelete: Cascade)
+  tiparPost TiparPost @relation(fields: [tiparPostId], references: [id], onDelete: Cascade)
+
+  @@index([buyerUserId, createdAt])
+  @@index([tiparUserId, createdAt])
+  @@index([tiparPostId])
 }
 
 /// Historie bodů + idempotence (dedupeKey).

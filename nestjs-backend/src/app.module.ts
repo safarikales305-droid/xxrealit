@@ -23,6 +23,7 @@ import { CompanyAdsModule } from './modules/company-ads/company-ads.module';
 import { EmailsModule } from './modules/emails/emails.module';
 import { StoriesModule } from './modules/stories/stories.module';
 import { ImportsModule } from './modules/imports/imports.module';
+import { TiparModule } from './modules/tipar/tipar.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { ImportsModule } from './modules/imports/imports.module';
     EmailsModule,
     StoriesModule,
     ImportsModule,
+    TiparModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

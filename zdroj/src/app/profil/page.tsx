@@ -33,6 +33,7 @@ import {
   nestSubmitCompanyProfileRequest,
   nestSubmitFinancialAdvisorProfileRequest,
   nestSubmitInvestorProfileRequest,
+  nestTiparActivate,
   nestUploadAgentProfileLogo,
   nestUploadAvatar,
   nestUploadCover,
@@ -93,6 +94,7 @@ export default function ProfilPage() {
   const [wallPosts, setWallPosts] = useState<NestProfileWallPost[]>([]);
   const [wallVideos, setWallVideos] = useState<NestProfileWallVideo[]>([]);
   const [visibilitySaving, setVisibilitySaving] = useState(false);
+  const [tiparActivating, setTiparActivating] = useState(false);
   const [professionalVisibility, setProfessionalVisibility] = useState<boolean>(false);
   const [companyAds, setCompanyAds] = useState<NestCompanyAdRow[]>([]);
 
@@ -1152,6 +1154,40 @@ export default function ProfilPage() {
                       {(nestMe?.creditBalance ?? 0).toLocaleString('cs-CZ')} Kč
                     </span>
                   </p>
+                  <div className="mt-3 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+                    {nestMe?.isTipar ? (
+                      <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900">
+                        Tipař
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={tiparActivating || !apiAccessToken}
+                        onClick={() => {
+                          void (async () => {
+                            if (!apiAccessToken) return;
+                            setTiparActivating(true);
+                            const r = await nestTiparActivate(apiAccessToken);
+                            setTiparActivating(false);
+                            if (r.ok) {
+                              setNestMe((prev) => (prev ? { ...prev, isTipar: true } : prev));
+                            }
+                          })();
+                        }}
+                        className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60"
+                      >
+                        {tiparActivating ? 'Aktivuji…' : 'Jsem tipař'}
+                      </button>
+                    )}
+                    {nestMe?.isTipar ? (
+                      <Link
+                        href="/profil/tipy"
+                        className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        Moje tipy
+                      </Link>
+                    ) : null}
+                  </div>
                 </div>
               </div>
 

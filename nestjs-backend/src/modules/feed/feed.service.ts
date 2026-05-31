@@ -138,6 +138,7 @@ export class FeedService {
       take: 40,
       include: {
         media: { orderBy: { sortOrder: 'asc' } },
+        tiparPostPublished: { select: { id: true, contactUnlockPrice: true } },
         _count: { select: { likes: true } },
         user: { select: { id: true, city: true } },
       },
@@ -158,18 +159,23 @@ export class FeedService {
       `[feed/shorts] DB rows=${sorted.length} (videoUrl=${withVideoUrl}, mediaVideo=${withVideoMedia}) listingType=SHORTS+approved+visible`,
     );
 
-    const serialized = sorted.map((r) =>
-      serializeProperty(
+    const serialized: Record<string, unknown>[] = sorted.map((r) => {
+      const base = serializeProperty(
         { ...r, likes: [] as { id: string }[] },
         undefined,
-      ),
-    );
+      ) as Record<string, unknown>;
+      return {
+        ...base,
+        tiparPostId: r.tiparPostPublished?.id ?? null,
+        contactUnlockPrice: r.tiparPostPublished?.contactUnlockPrice ?? null,
+      };
+    });
 
     if (serialized.length > 0) {
       const sample = serialized.slice(0, 3).map((x) => ({
-        id: x.id,
-        publishedAt: x.publishedAt,
-        createdAt: x.createdAt,
+        id: x['id'],
+        publishedAt: x['publishedAt'],
+        createdAt: x['createdAt'],
       }));
       this.log.log(`[feed/shorts] response sample: ${JSON.stringify(sample)}`);
     } else {

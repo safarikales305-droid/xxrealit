@@ -25,6 +25,7 @@ import { ImportImageService } from '../imports/import-image.service';
 import { ShortsListingService } from '../properties/shorts-listing.service';
 import { safeParsePrice } from '../imports/price-parse.util';
 import { ImportedBrokerContactService } from '../imported-broker-contacts/imported-broker-contact.service';
+import { TiparService } from '../tipar/tipar.service';
 import {
   ListingWatermarkSettingsService,
   type ListingWatermarkPosition,
@@ -137,6 +138,7 @@ export class AdminService {
     private readonly importedBrokers: ImportedBrokerContactService,
     private readonly shortsListing: ShortsListingService,
     private readonly watermarkSettings: ListingWatermarkSettingsService,
+    private readonly tipar: TiparService,
   ) {}
 
   async getListingPhotoWatermarkSettings() {
@@ -1759,5 +1761,21 @@ export class AdminService {
       },
     });
     return { ok: true };
+  }
+
+  listTiparPosts() {
+    return this.tipar.adminListPosts();
+  }
+
+  getTiparStats() {
+    return this.tipar.adminStats();
+  }
+
+  hideTiparPost(postId: string) {
+    return this.tipar.adminHidePost(postId);
+  }
+
+  deleteTiparPost(postId: string) {
+    return this.tipar.adminDeletePost(postId);
   }
 }

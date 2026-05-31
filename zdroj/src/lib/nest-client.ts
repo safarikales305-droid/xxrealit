@@ -249,6 +249,7 @@ export type NestMeProfile = {
   brokerReviewAverage?: number;
   brokerReviewCount?: number;
   creditBalance?: number;
+  isTipar?: boolean;
   agentProfile?: NestAgentProfileMe | null;
   companyProfile?: NestCompanyProfileMe | null;
   agencyProfile?: NestAgencyProfileMe | null;
@@ -537,6 +538,7 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
       typeof o.brokerReviewAverage === 'number' ? o.brokerReviewAverage : undefined,
     brokerReviewCount: typeof o.brokerReviewCount === 'number' ? o.brokerReviewCount : undefined,
     creditBalance: typeof o.creditBalance === 'number' ? o.creditBalance : undefined,
+    isTipar: typeof o.isTipar === 'boolean' ? o.isTipar : undefined,
     agentProfile,
     companyProfile,
     agencyProfile,
@@ -4780,11 +4782,178 @@ export async function nestDeleteMyPost(
 ): Promise<{ ok: boolean; error?: string }> {
   if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
   const postsBase = API_BASE_URL.endsWith('/api') ? API_BASE_URL : `${API_BASE_URL}/api`;
-  const res = await fetch(`${postsBase}/posts/${encodeURIComponent(postId)}`, {
-    method: 'DELETE',
-    cache: 'no-store',
+  if (!res.ok) return { ok: false, error: await nestError(res) };
+  return { ok: true };
+}
+
+export type TiparPostRow = {
+  id: string;
+  userId: string;
+  title: string;
+  description: string;
+  images: string[];
+  videoUrl?: string | null;
+  city: string;
+  propertyPrice?: number | null;
+  sourceUrl?: string | null;
+  ownerNote?: string | null;
+  contactUnlockPrice: number;
+  isShorts: boolean;
+  publishedPropertyId?: string | null;
+  contactUnlocked?: boolean;
+  contact?: {
+    contactName: string | null;
+    contactPhone: string | null;
+    contactEmail: string | null;
+  };
+  tiparBadge?: string;
+  unlockCount?: number;
+  author?: { id: string; name: string; avatar?: string | null; isTipar?: boolean };
+  isOwner?: boolean;
+  createdAt: string;
+};
+
+export async function nestTiparActivate(
+  token: string | null,
+): Promise<{ ok: boolean; isTipar?: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/tipar/activate`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true, isTipar: data.isTipar === true };
+}
+
+export async function nestTiparMyPosts(token: string | null): Promise<TiparPostRow[]> {
+  if (!API_BASE_URL || !token) return [];
+  const res = await fetch(`${API_BASE_URL}/tipar/posts/me`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return [];
+  const data = await res.json().catch(() => []);
+  return Array.isArray(data) ? (data as TiparPostRow[]) : [];
+}
+
+export async function nestTiparGetPost(
+  token: string | null,
+  postId: string,
+): Promise<TiparPostRow | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/tipar/posts/${encodeURIComponent(postId)}`, {
+    headers: token
+      ? { ...nestAuthHeaders(token), Accept: 'application/json' }
+      : { Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as TiparPostRow | null;
+}
+
+export async function nestTiparCreatePost(
+  token: string | null,
+  body: Record<string, unknown>,
+): Promise<{ ok: boolean; data?: TiparPostRow; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/tipar/posts`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data as Record<string, unknown>, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true, data: data as TiparPostRow };
+}
+
+export async function nestTiparUnlockContact(
+  token: string | null,
+  postId: string,
+): Promise<{
+  ok: boolean;
+  data?: {
+    unlocked: boolean;
+    alreadyOwned?: boolean;
+    cost?: number;
+    creditBalance?: number;
+    contact?: TiparPostRow['contact'];
+  };
+  error?: string;
+  code?: string;
+}> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(
+    `${API_BASE_URL}/tipar/posts/${encodeURIComponent(postId)}/unlock-contact`,
+    {
+      method: 'POST',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    },
+  );
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    const msg =
+      typeof data.message === 'string'
+        ? data.message
+        : nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`);
+    return {
+      ok: false,
+      error: msg,
+      code: typeof data.code === 'string' ? data.code : undefined,
+    };
+  }
+  return {
+    ok: true,
+    data: data as {
+      unlocked: boolean;
+      alreadyOwned?: boolean;
+      cost?: number;
+      creditBalance?: number;
+      contact?: TiparPostRow['contact'];
+    },
+  };
+}
+
+export async function nestAdminTiparPosts(token: string | null): Promise<TiparPostRow[]> {
+  if (!API_BASE_URL || !token) return [];
+  const res = await fetch(`${API_BASE_URL}/admin/tipar/posts`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return [];
+  const data = await res.json().catch(() => []);
+  return Array.isArray(data) ? (data as TiparPostRow[]) : [];
+}
+
+export async function nestAdminTiparStats(
+  token: string | null,
+): Promise<Record<string, unknown> | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/tipar/stats`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as Record<string, unknown> | null;
+}
+
+export async function nestAdminHideTiparPost(
+  token: string | null,
+  postId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/tipar/posts/${encodeURIComponent(postId)}/hide`, {
+    method: 'PATCH',
     headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
   });
   if (!res.ok) return { ok: false, error: await nestError(res) };
   return { ok: true };
 }
+

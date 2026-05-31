@@ -572,4 +572,24 @@ export class AdminController {
       typeof body.newPassword === 'string' ? body.newPassword : '';
     return this.adminService.changePassword(user.id, oldPassword, newPassword);
   }
+
+  @Get('tipar/posts')
+  listTiparPosts() {
+    return this.adminService.listTiparPosts();
+  }
+
+  @Get('tipar/stats')
+  getTiparStats() {
+    return this.adminService.getTiparStats();
+  }
+
+  @Patch('tipar/posts/:id/hide')
+  hideTiparPost(@Param('id') id: string) {
+    return this.adminService.hideTiparPost(id);
+  }
+
+  @Delete('tipar/posts/:id')
+  deleteTiparPost(@Param('id') id: string) {
+    return this.adminService.deleteTiparPost(id);
+  }
 }

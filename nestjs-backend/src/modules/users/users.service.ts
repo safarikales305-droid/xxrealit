@@ -289,6 +289,7 @@ export class UsersService {
       role: true,
       createdAt: true,
       creditBalance: true,
+      isTipar: true,
       isPremiumBroker: true,
       brokerLeadNotificationEnabled: true,
       brokerPreferredRegions: true,
@@ -479,6 +480,7 @@ export class UsersService {
       brokerReviewAverage: u.brokerReviewAverage,
       brokerReviewCount: u.brokerReviewCount,
       creditBalance: u.creditBalance ?? 0,
+      isTipar: Boolean(u.isTipar),
       agentProfile,
       companyProfile: u.companyProfile
         ? {
@@ -553,6 +555,7 @@ export class UsersService {
       rating: true,
       createdAt: true,
       creditBalance: true,
+      isTipar: true,
       _count: { select: { followers: true, following: true } },
     } as const;
     let hasCropColumns = true;
@@ -712,6 +715,7 @@ export class UsersService {
       isFollowedByViewer,
       canContactProfile: professionalRoles.has(user.role) && (viewerIsProfessional || viewerIsAdmin),
       creditBalance: user.creditBalance ?? 0,
+      isTipar: Boolean(user.isTipar),
       },
       videos: videos.map((v) => ({
         ...v,
