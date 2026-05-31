@@ -1613,17 +1613,21 @@ export async function nestAdminCreateImportSource(
 export async function nestAdminDeleteImportSource(
   token: string | null,
   sourceId: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; deletedId?: string; propertiesAffected?: number; error?: string }> {
   if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
   const res = await fetch(`${API_BASE_URL}/admin/import-sources/${encodeURIComponent(sourceId)}`, {
     method: 'DELETE',
     headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
   });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
-    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
   }
-  return { ok: true };
+  const deletedId =
+    typeof data.deletedId === 'string' ? data.deletedId : sourceId;
+  const propertiesAffected =
+    typeof data.propertiesAffected === 'number' ? data.propertiesAffected : undefined;
+  return { ok: true, deletedId, propertiesAffected };
 }
 
 /** Odpověď POST /admin/import-sources/:id/run (ImportRunResult z backendu). */

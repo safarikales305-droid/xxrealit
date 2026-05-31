@@ -375,14 +375,31 @@ export default function AdminImportsPage() {
     if (!token) return;
     if (!window.confirm('Opravdu smazat tuto importní větev?')) return;
     setBusyId(sourceId);
+    setError(null);
+    setStatusMsg(null);
     const r = await nestAdminDeleteImportSource(token, sourceId);
     setBusyId(null);
     if (!r.ok) {
       setError(r.error ?? 'Smazání větve selhalo');
       return;
     }
-    setStatusMsg('Importní větev byla smazána.');
-    await refresh();
+    const deletedId = r.deletedId ?? sourceId;
+    setBranches((prev) => {
+      const next = prev.filter((b) => b.id !== deletedId);
+      setPortals(groupPortalsFromBranches(next));
+      return next;
+    });
+    setImportDebugBySource((prev) => {
+      const copy = { ...prev };
+      delete copy[deletedId];
+      return copy;
+    });
+    const hidden = r.propertiesAffected;
+    setStatusMsg(
+      hidden != null && hidden > 0
+        ? `Importní větev byla smazána. Z veřejného portálu skryto ${hidden} inzerátů.`
+        : 'Importní větev byla smazána.',
+    );
   }
 
   async function submitForm(payload: Record<string, unknown>) {
@@ -601,7 +618,9 @@ export default function AdminImportsPage() {
         {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
         {statusMsg ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{statusMsg}</p> : null}
 
-        {portals.map((portal) => (
+        {portals
+          .filter((portal) => (grouped.get(portal.portalKey) ?? []).length > 0)
+          .map((portal) => (
           <PortalImportSection
             key={portal.portalKey}
             portal={portal}

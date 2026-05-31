@@ -320,7 +320,7 @@ export class PropertiesService {
     const property = await this.prisma.property.findUnique({
       where: { id },
       include: {
-        importSourceBranch: { select: { enabled: true } },
+        importSourceBranch: { select: { enabled: true, deletedAt: true, isDeleted: true } },
         media: {
           orderBy: { sortOrder: 'asc' },
         },

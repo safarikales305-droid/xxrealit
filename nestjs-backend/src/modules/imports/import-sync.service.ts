@@ -94,6 +94,12 @@ import {
 const DEFAULT_CATEGORY_KEY = 'ostatni';
 const DEFAULT_CATEGORY_LABEL = 'Ostatní';
 
+/** Nesmazané importní větve (admin výpis, run, toggle). */
+const activeImportSourceWhere: Prisma.ImportSourceWhereInput = {
+  deletedAt: null,
+  isDeleted: false,
+};
+
 const MAX_ITEM_ERROR_LOG = 200;
 const MAX_ITEM_ERROR_LIVE_TAIL = 40;
 
@@ -530,6 +536,7 @@ export class ImportSyncService {
         portalKey: input.portalKey,
         categoryKey: input.categoryKey,
         method: input.method,
+        ...activeImportSourceWhere,
       },
       select: { id: true },
     });
@@ -563,6 +570,7 @@ export class ImportSyncService {
 
   private async backfillImportSourceMetadata(): Promise<void> {
     const all = await this.prisma.importSource.findMany({
+      where: activeImportSourceWhere,
       orderBy: { createdAt: 'asc' },
     });
     for (const s of all) {
@@ -675,6 +683,7 @@ export class ImportSyncService {
   async listSources() {
     await this.ensureDefaultSources();
     const rows = await this.prisma.importSource.findMany({
+      where: activeImportSourceWhere,
       orderBy: [
         { portalLabel: 'asc' },
         { sortOrder: 'asc' },
@@ -806,7 +815,12 @@ export class ImportSyncService {
     const categoryKey = normalizeCategoryKey(input.categoryKey || inferred.categoryKey);
     const categoryLabel = input.categoryLabel?.trim() || inferred.categoryLabel;
     const existing = await this.prisma.importSource.findFirst({
-      where: { portalKey: portalMeta.portalKey, categoryKey, method: input.method },
+      where: {
+        portalKey: portalMeta.portalKey,
+        categoryKey,
+        method: input.method,
+        ...activeImportSourceWhere,
+      },
       select: { id: true },
     });
     if (existing) {
@@ -900,16 +914,41 @@ export class ImportSyncService {
     return this.toBranchRow(created);
   }
 
-  async deleteSource(sourceId: string): Promise<{ ok: true; id: string }> {
-    const existing = await this.prisma.importSource.findUnique({ where: { id: sourceId }, select: { id: true } });
-    if (!existing) throw new NotFoundException('Import source nenalezen');
-    await this.prisma.importSource.delete({ where: { id: sourceId } });
+  async deleteSource(sourceId: string): Promise<{
+    success: true;
+    deletedId: string;
+    propertiesAffected: number;
+  }> {
+    const source = await this.prisma.importSource.findFirst({
+      where: { id: sourceId, ...activeImportSourceWhere },
+    });
+    if (!source) throw new NotFoundException('Import source nenalezen');
+
+    const branchWhere = propertiesForImportBranchWhere(source);
+    const hidden = await this.prisma.property.updateMany({
+      where: branchWhere,
+      data: { isActive: false, hiddenByImportDisabled: true },
+    });
+
+    await this.prisma.importSource.update({
+      where: { id: sourceId },
+      data: {
+        deletedAt: new Date(),
+        isDeleted: true,
+        enabled: false,
+        isActive: false,
+        finishedAt: new Date(),
+        currentMessage: 'Větev smazána',
+      },
+    });
     this.runningBySource.delete(sourceId);
-    return { ok: true, id: sourceId };
+    return { success: true, deletedId: sourceId, propertiesAffected: hidden.count };
   }
 
   async updateSource(sourceId: string, patch: ImportSourcePatch) {
-    const current = await this.prisma.importSource.findUnique({ where: { id: sourceId } });
+    const current = await this.prisma.importSource.findFirst({
+      where: { id: sourceId, ...activeImportSourceWhere },
+    });
     if (!current) throw new NotFoundException('Import source nenalezen');
     const data: Prisma.ImportSourceUpdateInput = {};
     if (typeof patch.enabled === 'boolean') data.enabled = patch.enabled;
@@ -1070,7 +1109,9 @@ export class ImportSyncService {
     onProgress?: (e: ImportRunProgressPayload) => void,
   ): Promise<ImportRunResult> {
     await this.ensureDefaultSources();
-    const source = await this.prisma.importSource.findUnique({ where: { id: sourceId } });
+    const source = await this.prisma.importSource.findFirst({
+      where: { id: sourceId, ...activeImportSourceWhere },
+    });
     if (!source) throw new NotFoundException('Import source nenalezen');
     if (!source.enabled) {
       throw new BadRequestException(
@@ -1136,7 +1177,7 @@ export class ImportSyncService {
   ): Promise<Array<{ sourceId: string; ok: boolean; error?: string }>> {
     await this.ensureDefaultSources();
     const rows = await this.prisma.importSource.findMany({
-      where: { portalKey },
+      where: { portalKey, ...activeImportSourceWhere },
       orderBy: [{ sortOrder: 'asc' }, { categoryLabel: 'asc' }],
       select: { id: true },
     });
@@ -1159,7 +1200,9 @@ export class ImportSyncService {
   }
 
   async toggleSourceEnabled(sourceId: string, enabled: boolean) {
-    const source = await this.prisma.importSource.findUnique({ where: { id: sourceId } });
+    const source = await this.prisma.importSource.findFirst({
+      where: { id: sourceId, ...activeImportSourceWhere },
+    });
     if (!source) throw new NotFoundException('Import source nenalezen');
 
     const branchWhere = propertiesForImportBranchWhere(source);
@@ -1197,8 +1240,8 @@ export class ImportSyncService {
   }
 
   async getSourceStatus(sourceId: string) {
-    const row = await this.prisma.importSource.findUnique({
-      where: { id: sourceId },
+    const row = await this.prisma.importSource.findFirst({
+      where: { id: sourceId, ...activeImportSourceWhere },
       include: { logs: { orderBy: { createdAt: 'desc' }, take: 1 } },
     });
     if (!row) throw new NotFoundException('Import source nenalezen');
@@ -1221,8 +1264,8 @@ export class ImportSyncService {
   }
 
   async getSourceProgress(sourceId: string) {
-    const row = await this.prisma.importSource.findUnique({
-      where: { id: sourceId },
+    const row = await this.prisma.importSource.findFirst({
+      where: { id: sourceId, ...activeImportSourceWhere },
       select: {
         id: true,
         progressPercent: true,

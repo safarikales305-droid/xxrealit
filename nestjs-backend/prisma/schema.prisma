@@ -738,10 +738,13 @@ model ImportSource {
   currentMessage String?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
+  deletedAt      DateTime?
+  isDeleted      Boolean            @default(false)
   logs           ImportLog[]
   properties     Property[]
 
   @@unique([portalKey, categoryKey, method], map: "import_source_portal_category_method_uq")
+  @@index([deletedAt])
   @@index([enabled, updatedAt])
   @@index([portalKey, sortOrder, categoryLabel])
   @@index([portalKey, categoryKey])

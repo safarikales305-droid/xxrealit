@@ -92,9 +92,9 @@ export class ApifyImportQueueService {
     const source = await this.prisma.importSource.findUnique({
       where: { id: job.sourceId },
     });
-    if (!source) {
+    if (!source || source.isDeleted || source.deletedAt) {
       job.status = 'failed';
-      job.errors.push('Import source nenalezen');
+      job.errors.push('Import source nenalezen nebo byl smazán');
       job.finishedAt = new Date().toISOString();
       return;
     }

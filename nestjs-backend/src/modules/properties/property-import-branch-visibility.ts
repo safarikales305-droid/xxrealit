@@ -40,7 +40,16 @@ export const importedListingPubliclyVisibleWhere: Prisma.PropertyWhereInput = {
         { importDisabled: false },
         { hiddenByImportDisabled: false },
         {
-          OR: [{ importSourceId: null }, { importSourceBranch: { enabled: true } }],
+          OR: [
+            { importSourceId: null },
+            {
+              importSourceBranch: {
+                enabled: true,
+                deletedAt: null,
+                isDeleted: false,
+              },
+            },
+          ],
         },
       ],
     },
@@ -51,7 +60,7 @@ export type PropertyImportVisibilityFields = {
   importSource: ListingImportPortal | null;
   importDisabled: boolean;
   hiddenByImportDisabled: boolean;
-  importSourceBranch?: Pick<ImportSource, 'enabled'> | null;
+  importSourceBranch?: Pick<ImportSource, 'enabled' | 'deletedAt' | 'isDeleted'> | null;
 };
 
 export function isImportedListingPubliclyVisible(
@@ -60,6 +69,9 @@ export function isImportedListingPubliclyVisible(
   if (p.importSource == null) return true;
   if (p.importDisabled) return false;
   if (p.hiddenByImportDisabled) return false;
-  if (p.importSourceBranch && !p.importSourceBranch.enabled) return false;
+  if (p.importSourceBranch) {
+    if (p.importSourceBranch.isDeleted || p.importSourceBranch.deletedAt) return false;
+    if (!p.importSourceBranch.enabled) return false;
+  }
   return true;
 }
