@@ -567,6 +567,8 @@ model Property {
   deletedAt       DateTime?
   /// Admin / uživatel může vypnout veřejné zobrazení (skrytý / neaktivní).
   isActive        Boolean  @default(true)
+  /// Veřejný výpis — false = skrytý (import větev vypnutá/smazaná apod.).
+  isVisible       Boolean  @default(true)
   /// Začátek veřejného zobrazení (null = ihned po splnění ostatních podmínek).
   activeFrom      DateTime?
   /// Konec veřejného zobrazení (null = bez konce). Po překročení = expirovaný.
@@ -643,6 +645,7 @@ model Property {
   @@index([userId])
   @@index([derivedFromPropertyId])
   @@index([deletedAt, isActive, approved])
+  @@index([isVisible, isActive])
   @@index([isOwnerListing, createdAt])
   @@index([listingType, publishedAt])
   @@index([isTiparTip, listingType])

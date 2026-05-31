@@ -8,6 +8,7 @@ import {
   nestAdminHideTiparPost,
   nestAdminTiparPosts,
   nestAdminTiparStats,
+  type TiparAdminStats,
   type TiparPostRow,
 } from '@/lib/nest-client';
 
@@ -15,7 +16,7 @@ export default function AdminTiparPage() {
   const router = useRouter();
   const { user, isLoading, apiAccessToken } = useAuth();
   const [posts, setPosts] = useState<TiparPostRow[]>([]);
-  const [stats, setStats] = useState<Record<string, unknown> | null>(null);
+  const [stats, setStats] = useState<TiparAdminStats | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -47,15 +48,15 @@ export default function AdminTiparPage() {
 
       {stats ? (
         <div className="mt-4 grid gap-3 sm:grid-cols-4">
-          {[
-            ['Tipů celkem', stats.postsTotal],
-            ['Odemčení', stats.unlocksTotal],
-            ['Tipařů', stats.tiparsCount],
-            ['Kredit tipařům', stats.totalCreditsEarned],
-          ].map(([label, val]) => (
+          {Object.entries({
+            'Tipů celkem': stats.postsTotal,
+            Odemčení: stats.unlocksTotal,
+            Tipařů: stats.tiparsCount,
+            'Kredit tipařům': stats.totalCreditsEarned,
+          } as Record<string, string | number | boolean | null>).map(([label, val]) => (
             <div key={String(label)} className="rounded-xl border border-zinc-200 bg-white p-3">
-              <p className="text-xs text-zinc-500">{label}</p>
-              <p className="text-xl font-semibold">{String(val ?? 0)}</p>
+              <p className="text-xs text-zinc-500">{String(label)}</p>
+              <p className="text-xl font-semibold">{String(val ?? '')}</p>
             </div>
           ))}
         </div>

@@ -4782,6 +4782,14 @@ export async function nestDeleteMyPost(
 ): Promise<{ ok: boolean; error?: string }> {
   if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
   const postsBase = API_BASE_URL.endsWith('/api') ? API_BASE_URL : `${API_BASE_URL}/api`;
+  const res = await fetch(`${postsBase}/posts/${encodeURIComponent(postId)}`, {
+    method: 'DELETE',
+    cache: 'no-store',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+    },
+  });
   if (!res.ok) return { ok: false, error: await nestError(res) };
   return { ok: true };
 }
@@ -4933,15 +4941,30 @@ export async function nestAdminTiparPosts(token: string | null): Promise<TiparPo
   return Array.isArray(data) ? (data as TiparPostRow[]) : [];
 }
 
+export type TiparAdminStats = {
+  postsTotal: number;
+  unlocksTotal: number;
+  tiparsCount: number;
+  totalCreditsEarned: number;
+  transactionCount?: number;
+  topTipars?: Array<{
+    userId: string;
+    name?: string | null;
+    email?: string | null;
+    totalEarned?: number;
+    unlockCount?: number;
+  }>;
+};
+
 export async function nestAdminTiparStats(
   token: string | null,
-): Promise<Record<string, unknown> | null> {
+): Promise<TiparAdminStats | null> {
   if (!API_BASE_URL || !token) return null;
   const res = await fetch(`${API_BASE_URL}/admin/tipar/stats`, {
     headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
   });
   if (!res.ok) return null;
-  return (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  return (await res.json().catch(() => null)) as TiparAdminStats | null;
 }
 
 export async function nestAdminHideTiparPost(
