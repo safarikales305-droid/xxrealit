@@ -68,7 +68,11 @@ import {
   type ImportRunResult,
   type PortalImportAggregate,
 } from './import-types';
-import { propertiesForImportBranchWhere } from '../properties/property-import-branch-visibility';
+import {
+  importPropertyHiddenData,
+  importPropertyRestoredData,
+  propertiesForImportBranchWhere,
+} from '../properties/property-import-branch-visibility';
 import { resolveRealityListingExternalId } from './reality-listing-code.util';
 import { RealityCzSoapImporter } from './reality-cz-soap-importer.service';
 import {
@@ -927,7 +931,7 @@ export class ImportSyncService {
     const branchWhere = propertiesForImportBranchWhere(source);
     const hidden = await this.prisma.property.updateMany({
       where: branchWhere,
-      data: { isActive: false, hiddenByImportDisabled: true },
+      data: { ...importPropertyHiddenData, importSourceId: null },
     });
 
     await this.prisma.importSource.update({
@@ -1211,7 +1215,7 @@ export class ImportSyncService {
     if (!enabled) {
       const updated = await this.prisma.property.updateMany({
         where: branchWhere,
-        data: { isActive: false, hiddenByImportDisabled: true },
+        data: importPropertyHiddenData,
       });
       propertiesAffected = updated.count;
     } else {
@@ -1219,7 +1223,7 @@ export class ImportSyncService {
         where: {
           AND: [branchWhere, { hiddenByImportDisabled: true }, { importDisabled: false }],
         },
-        data: { isActive: true, hiddenByImportDisabled: false },
+        data: importPropertyRestoredData,
       });
       propertiesAffected = updated.count;
     }
@@ -2548,6 +2552,7 @@ export class ImportSyncService {
               approved: true,
               status: 'APPROVED',
               isActive: branchEnabled,
+              isVisible: branchEnabled,
               hiddenByImportDisabled: !branchEnabled,
               listingType,
               importSource: ctx.portal,

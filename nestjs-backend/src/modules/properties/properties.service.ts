@@ -320,7 +320,9 @@ export class PropertiesService {
     const property = await this.prisma.property.findUnique({
       where: { id },
       include: {
-        importSourceBranch: { select: { enabled: true, deletedAt: true, isDeleted: true } },
+        importSourceBranch: {
+          select: { enabled: true, isActive: true, deletedAt: true, isDeleted: true },
+        },
         media: {
           orderBy: { sortOrder: 'asc' },
         },
@@ -732,6 +734,7 @@ export class PropertiesService {
         id: string;
         deletedAt: Date | null;
         isActive: boolean;
+        isVisible: boolean;
         activeFrom: Date | null;
         activeUntil: Date | null;
         approved: boolean;
@@ -749,6 +752,7 @@ export class PropertiesService {
           derivedFromPropertyId: true,
           deletedAt: true,
           isActive: true,
+          isVisible: true,
           activeFrom: true,
           activeUntil: true,
           approved: true,
@@ -807,6 +811,7 @@ export class PropertiesService {
         {
           deletedAt: r.deletedAt,
           isActive: r.isActive,
+          isVisible: r.isVisible,
           activeFrom: r.activeFrom,
           activeUntil: r.activeUntil,
           approved: r.approved,
@@ -828,6 +833,7 @@ export class PropertiesService {
             {
               deletedAt: linked.deletedAt,
               isActive: linked.isActive,
+              isVisible: linked.isVisible,
               activeFrom: linked.activeFrom,
               activeUntil: linked.activeUntil,
               approved: linked.approved,

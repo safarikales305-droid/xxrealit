@@ -65,7 +65,7 @@ export const importedListingPubliclyVisibleWhere: Prisma.PropertyWhereInput = {
         { importDisabled: false },
         { hiddenByImportDisabled: false },
         { importSourceId: { not: null } },
-        { importSourceBranch: activeImportBranchWhere },
+        { importSourceBranch: { is: activeImportBranchWhere } },
       ],
     },
   ],
@@ -76,17 +76,11 @@ export const importedPropertiesMissingActiveBranchWhere: Prisma.PropertyWhereInp
   importSource: { not: null },
   OR: [
     { importSourceId: null },
-    {
-      importSourceBranch: {
-        OR: [
-          { is: null },
-          { enabled: false },
-          { isActive: false },
-          { isDeleted: true },
-          { deletedAt: { not: null } },
-        ],
-      },
-    },
+    { importSourceBranch: { is: null } },
+    { importSourceBranch: { is: { enabled: false } } },
+    { importSourceBranch: { is: { isActive: false } } },
+    { importSourceBranch: { is: { isDeleted: true } } },
+    { importSourceBranch: { is: { deletedAt: { not: null } } } },
   ],
 };
 

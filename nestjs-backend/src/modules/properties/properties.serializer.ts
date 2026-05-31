@@ -186,6 +186,7 @@ export type PropertyRowForApi = {
 export type PropertyRowForAdmin = PropertyRowForApi & {
   deletedAt: Date | null;
   isActive: boolean;
+  isVisible: boolean;
   activeFrom: Date | null;
   activeUntil: Date | null;
   listingType: string;
@@ -219,6 +220,7 @@ export function serializeAdminPropertyRow(
     listingStatus: computeListingPublicStatus({
       deletedAt: r.deletedAt,
       isActive: r.isActive,
+      isVisible: r.isVisible,
       activeFrom: r.activeFrom,
       activeUntil: r.activeUntil,
       approved: r.approved,

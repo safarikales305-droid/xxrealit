@@ -7,6 +7,7 @@ export function publiclyVisiblePropertyWhere(
   return {
     deletedAt: null,
     isActive: true,
+    isVisible: true,
     AND: [
       { OR: [{ activeFrom: null }, { activeFrom: { lte: now } }] },
       { OR: [{ activeUntil: null }, { activeUntil: { gte: now } }] },
@@ -17,6 +18,7 @@ export function publiclyVisiblePropertyWhere(
 export type ListingLifecycleFields = {
   deletedAt: Date | null;
   isActive: boolean;
+  isVisible: boolean;
   activeFrom: Date | null;
   activeUntil: Date | null;
   approved: boolean;
@@ -35,6 +37,7 @@ export function computeListingPublicStatus(
   if (p.deletedAt) return 'DELETED';
   if (!p.approved) return 'PENDING_APPROVAL';
   if (!p.isActive) return 'INACTIVE';
+  if (!p.isVisible) return 'INACTIVE';
   if (p.activeUntil && p.activeUntil < now) return 'EXPIRED';
   if (p.activeFrom && p.activeFrom > now) return 'SCHEDULED';
   return 'ACTIVE';
