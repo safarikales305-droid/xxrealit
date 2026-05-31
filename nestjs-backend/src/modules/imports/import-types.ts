@@ -189,9 +189,45 @@ export type ImportExecutionContext = {
 
 export type ImportRunPhase = 'listing' | 'details' | 'done' | 'error' | 'running';
 
-/** Průběh importu (NDJSON stream / admin UI + in-memory stav větve). */
-export type ImportRunProgressPayload = {
+/**
+ * Sdílená progress pole (NDJSON stream, in-memory live state, admin API `running`).
+ * Všechny spotřebovatelé (`ImportRunLiveState`, `ImportBranchStatus`, …) vycházejí z tohoto typu.
+ */
+export type ImportProgress = {
   percent: number;
+  progressPercent?: number;
+  processedListings?: number;
+  totalListings?: number;
+  /** Alias pro `processedListings` (DB sloupec ImportSource.processedItems). */
+  processedItems?: number;
+  /** Alias pro `totalListings` (DB sloupec ImportSource.totalItems). */
+  totalItems?: number;
+  etaSeconds?: number | null;
+  currentMessage?: string | null;
+  message?: string;
+  phase?: ImportRunPhase | string;
+  startedAt?: string;
+  totalDetails?: number;
+  processedDetails?: number;
+  savedCount?: number;
+  updatedCount?: number;
+  skippedCount?: number;
+  errorCount?: number;
+  failedCount?: number;
+  lastProcessedSourceUrl?: string | null;
+  lastItemErrorMessage?: string | null;
+  lastItemErrorCategory?: ImportErrorCategory | null;
+  lastItemErrorExternalId?: string | null;
+  itemErrorLog?: ImportRunItemError[];
+};
+
+/** Stav běžící větve v odpovědi API (`ImportSourceBranchRow.running`). */
+export type ImportBranchStatus = ImportProgress & {
+  running: boolean;
+};
+
+/** Průběh importu (NDJSON stream / emitProgress callback). */
+export type ImportRunProgressPayload = ImportProgress & {
   message: string;
   phase: ImportRunPhase;
   totalListings: number;
@@ -202,15 +238,6 @@ export type ImportRunProgressPayload = {
   updatedCount: number;
   skippedCount: number;
   errorCount: number;
-  failedCount?: number;
-  /** Poslední zpracovaná URL inzerátu (diagnostika zaseknutí). */
-  lastProcessedSourceUrl?: string | null;
-  lastItemErrorMessage?: string | null;
-  lastItemErrorCategory?: ImportErrorCategory | null;
-  lastItemErrorExternalId?: string | null;
-  /** Posledních N položek chyb pro rychlý náhled v adminu. */
-  itemErrorLog?: ImportRunItemError[];
-  /** Stejné jako `percent` — pro kompatibilitu se specifikací admin API. */
   progressPercent: number;
   currentMessage: string;
 };
@@ -219,8 +246,43 @@ export type ImportRunProgressPayload = {
 export type ImportRunLiveState = ImportRunProgressPayload & {
   running: boolean;
   startedAt: string;
-  etaSeconds?: number | null;
 };
+
+export const IMPORT_BRANCH_IDLE: ImportBranchStatus = {
+  running: false,
+  percent: 0,
+  message: '',
+  phase: 'done',
+};
+
+export function importRunLiveToBranchStatus(live: ImportRunLiveState): ImportBranchStatus {
+  return {
+    running: live.running,
+    percent: live.percent,
+    message: live.message,
+    startedAt: live.startedAt,
+    phase: live.phase,
+    processedItems: live.processedListings,
+    totalItems: live.totalListings,
+    totalListings: live.totalListings,
+    processedListings: live.processedListings,
+    totalDetails: live.totalDetails,
+    processedDetails: live.processedDetails,
+    savedCount: live.savedCount,
+    updatedCount: live.updatedCount,
+    skippedCount: live.skippedCount,
+    errorCount: live.errorCount,
+    failedCount: live.failedCount,
+    lastProcessedSourceUrl: live.lastProcessedSourceUrl,
+    lastItemErrorMessage: live.lastItemErrorMessage,
+    lastItemErrorCategory: live.lastItemErrorCategory,
+    lastItemErrorExternalId: live.lastItemErrorExternalId,
+    itemErrorLog: live.itemErrorLog,
+    progressPercent: live.progressPercent,
+    currentMessage: live.currentMessage,
+    etaSeconds: live.etaSeconds ?? null,
+  };
+}
 
 export type ImportSourceBranchRow = {
   id: string;
@@ -271,32 +333,7 @@ export type ImportSourceBranchRow = {
     error?: string | null;
     createdAt: Date;
   } | null;
-  running?: {
-    running: boolean;
-    percent: number;
-    message: string;
-    startedAt?: string;
-    phase?: ImportRunPhase;
-    processedItems?: number;
-    totalItems?: number;
-    totalListings?: number;
-    processedListings?: number;
-    totalDetails?: number;
-    processedDetails?: number;
-    savedCount?: number;
-    updatedCount?: number;
-    skippedCount?: number;
-    errorCount?: number;
-    failedCount?: number;
-    lastProcessedSourceUrl?: string | null;
-    lastItemErrorMessage?: string | null;
-    lastItemErrorCategory?: ImportErrorCategory | null;
-    lastItemErrorExternalId?: string | null;
-    itemErrorLog?: ImportRunItemError[];
-    progressPercent?: number;
-    currentMessage?: string | null;
-    etaSeconds?: number | null;
-  };
+  running?: ImportBranchStatus;
 };
 
 export type PortalImportAggregate = {

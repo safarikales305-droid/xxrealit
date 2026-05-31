@@ -55,16 +55,18 @@ function resolveVideoForImportUpdate(
   return { videoUrl, listingType: videoUrl ? 'SHORTS' : 'CLASSIC' };
 }
 import { PrismaService } from '../../database/prisma.service';
-import type {
-  ImportErrorCategory,
-  ImportExecutionContext,
-  ImportRunItemError,
-  ImportSourceBranchRow,
-  ImportedListingDraft,
-  ImportRunLiveState,
-  ImportRunProgressPayload,
-  ImportRunResult,
-  PortalImportAggregate,
+import {
+  IMPORT_BRANCH_IDLE,
+  importRunLiveToBranchStatus,
+  type ImportErrorCategory,
+  type ImportExecutionContext,
+  type ImportRunItemError,
+  type ImportSourceBranchRow,
+  type ImportedListingDraft,
+  type ImportRunLiveState,
+  type ImportRunProgressPayload,
+  type ImportRunResult,
+  type PortalImportAggregate,
 } from './import-types';
 import { resolveRealityListingExternalId } from './reality-listing-code.util';
 import { RealityCzSoapImporter } from './reality-cz-soap-importer.service';
@@ -792,34 +794,7 @@ export class ImportSyncService {
             createdAt: latestLog.createdAt,
           }
         : null,
-      running: live
-        ? {
-            running: live.running,
-            percent: live.percent,
-            message: live.message,
-            startedAt: live.startedAt ?? new Date().toISOString(),
-            phase: live.phase ?? 'running',
-            processedItems: live.processedListings,
-            totalItems: live.totalListings,
-            totalListings: live.totalListings,
-            processedListings: live.processedListings,
-            totalDetails: live.totalDetails,
-            processedDetails: live.processedDetails,
-            savedCount: live.savedCount,
-            updatedCount: live.updatedCount,
-            skippedCount: live.skippedCount,
-            errorCount: live.errorCount,
-            failedCount: live.failedCount,
-            lastProcessedSourceUrl: live.lastProcessedSourceUrl,
-            lastItemErrorMessage: live.lastItemErrorMessage,
-            lastItemErrorCategory: live.lastItemErrorCategory,
-            lastItemErrorExternalId: live.lastItemErrorExternalId,
-            itemErrorLog: live.itemErrorLog,
-            progressPercent: live.progressPercent,
-            currentMessage: live.currentMessage,
-            etaSeconds: live.etaSeconds ?? null,
-          }
-        : { running: false, percent: 0, message: '', phase: 'done' as const },
+      running: live ? importRunLiveToBranchStatus(live) : IMPORT_BRANCH_IDLE,
     };
   }
 
@@ -1193,16 +1168,15 @@ export class ImportSyncService {
     });
     if (!row) throw new NotFoundException('Import source nenalezen');
     const branch = this.toBranchRow(row);
-    const running = this.runningBySource.get(sourceId);
     return {
       id: branch.id,
       status: !branch.enabled
         ? 'disabled'
-        : running?.running
+        : branch.running?.running
           ? 'running'
           : branch.latestLog?.status ?? 'idle',
       enabled: branch.enabled,
-      running: running ?? { running: false },
+      running: branch.running ?? IMPORT_BRANCH_IDLE,
       lastRunId: branch.lastRunId ?? null,
       lastDatasetId: branch.lastDatasetId ?? null,
       lastProcessedUrl: branch.lastProcessedUrl ?? null,
