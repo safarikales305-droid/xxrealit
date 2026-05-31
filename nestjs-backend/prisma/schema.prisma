@@ -944,6 +944,8 @@ model TiparPost {
   title               String
   description         String    @db.Text
   images              String[]  @default([])
+  /// Hlavní fotka (první v galerii) — denormalizace pro karty a detail.
+  mainImage           String?
   videoUrl            String?
   city                String    @default("")
   propertyPrice       Int?

@@ -64,56 +64,72 @@ export default function TiparDetailPage() {
   }
 
   const unlocked = Boolean(post.contactUnlocked);
+  const heroImage = post.mainImage ?? post.images?.[0] ?? null;
+  const galleryImages = (post.images ?? []).filter((url) => url !== heroImage);
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-8">
       <Link href="/" className="text-sm text-zinc-500 hover:underline">
         ← Zpět
       </Link>
-      <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-2xl font-semibold">{post.title}</h1>
-          {post.isShorts ? (
-            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900">
-              Tip na nemovitost
-            </span>
-          ) : null}
-        </div>
-        <p className="mt-2 text-sm text-zinc-600">{post.city}</p>
-        {post.propertyPrice != null && post.propertyPrice > 0 ? (
-          <p className="mt-1 text-lg font-semibold text-[#e85d00]">
-            {post.propertyPrice.toLocaleString('cs-CZ')} Kč
-          </p>
-        ) : null}
-        <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">
-          {post.description}
-        </p>
-        {post.ownerNote ? (
-          <p className="mt-3 rounded-lg bg-zinc-50 p-3 text-sm text-zinc-700">{post.ownerNote}</p>
-        ) : null}
-        {post.sourceUrl ? (
-          <a
-            href={post.sourceUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-3 inline-block text-sm font-semibold text-[#e85d00] hover:underline"
-          >
-            Odkaz na zdroj
-          </a>
-        ) : null}
+      <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
         {post.videoUrl ? (
-          <video src={post.videoUrl} controls className="mt-4 w-full rounded-xl bg-black" />
-        ) : null}
-        {post.images?.length ? (
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            {post.images.map((url) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img key={url} src={url} alt="" className="h-32 w-full rounded-lg object-cover" />
-            ))}
-          </div>
+          <video
+            src={post.videoUrl}
+            controls
+            playsInline
+            className="aspect-[9/16] max-h-[70vh] w-full bg-black object-contain sm:max-h-[520px]"
+          />
+        ) : heroImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={heroImage} alt="" className="aspect-[4/3] w-full object-cover" />
         ) : null}
 
-        <section className="mt-6 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+        <div className="p-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-semibold">{post.title}</h1>
+            {post.isShorts ? (
+              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900">
+                Shorts tip na nemovitost
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-2 text-sm text-zinc-600">{post.city}</p>
+          {post.propertyPrice != null && post.propertyPrice > 0 ? (
+            <p className="mt-1 text-lg font-semibold text-[#e85d00]">
+              {post.propertyPrice.toLocaleString('cs-CZ')} Kč
+            </p>
+          ) : null}
+          <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">
+            {post.description}
+          </p>
+          {post.ownerNote ? (
+            <p className="mt-3 rounded-lg bg-zinc-50 p-3 text-sm text-zinc-700">{post.ownerNote}</p>
+          ) : null}
+          {post.sourceUrl ? (
+            <a
+              href={post.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 inline-block text-sm font-semibold text-[#e85d00] hover:underline"
+            >
+              Odkaz na zdroj
+            </a>
+          ) : null}
+
+          {galleryImages.length > 0 ? (
+            <div className="mt-4">
+              <h2 className="mb-2 text-sm font-semibold text-zinc-800">Galerie</h2>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {galleryImages.map((url) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={url} src={url} alt="" className="h-28 w-full rounded-lg object-cover" />
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <section className="mt-6 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
           <h2 className="text-sm font-semibold text-zinc-900">Kontakt na prodejce</h2>
           {unlocked ? (
             <div className="mt-2 space-y-1 text-sm text-zinc-800">
@@ -159,6 +175,7 @@ export default function TiparDetailPage() {
             </>
           )}
         </section>
+        </div>
       </div>
 
       {showCreditModal ? (

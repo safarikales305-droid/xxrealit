@@ -34,6 +34,7 @@ import { ShortsListingService } from './shorts-listing.service';
     PropertiesService,
     PropertyMediaCloudinaryService,
     ListingWatermarkSettingsService,
+    ListingShortsFromPhotosService,
     ShortsListingService,
   ],
 })

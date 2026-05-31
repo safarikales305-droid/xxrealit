@@ -6,8 +6,20 @@ import {
 } from '@nestjs/common';
 import { Prisma, TiparPost } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { PropertyMediaCloudinaryService } from '../properties/property-media-cloudinary.service';
+import {
+  ListingShortsFromPhotosService,
+  type ShortsMusicSelection,
+} from '../properties/listing-shorts-from-photos.service';
+import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 import { CreateTiparPostDto } from './dto/create-tipar-post.dto';
 import { UpdateTiparPostDto } from './dto/update-tipar-post.dto';
+import {
+  galleryMainImage,
+  parseMultipartBool,
+  parseMultipartInt,
+  parseMultipartStr,
+} from './tipar-media.util';
 
 const activeTiparPostWhere: Prisma.TiparPostWhereInput = {
   deletedAt: null,
@@ -19,7 +31,11 @@ export type TiparPostPublic = ReturnType<TiparService['serializePostPublic']>;
 
 @Injectable()
 export class TiparService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly media: PropertyMediaCloudinaryService,
+    private readonly shortsFromPhotos: ListingShortsFromPhotosService,
+  ) {}
 
   async activateTipar(userId: string) {
     const user = await this.prisma.user.update({
@@ -32,19 +48,195 @@ export class TiparService {
 
   async createPost(userId: string, dto: CreateTiparPostDto) {
     await this.requireTipar(userId);
+    const images = (dto.images ?? []).filter((u) => typeof u === 'string' && u.trim().length > 0);
+    return this.persistNewPost(userId, {
+      title: dto.title,
+      description: dto.description,
+      images,
+      mainImage: galleryMainImage(images),
+      videoUrl: dto.videoUrl?.trim() || null,
+      city: dto.city,
+      propertyPrice: dto.propertyPrice,
+      sourceUrl: dto.sourceUrl,
+      ownerNote: dto.ownerNote,
+      contactName: dto.contactName,
+      contactPhone: dto.contactPhone,
+      contactEmail: dto.contactEmail,
+      contactUnlockPrice: dto.contactUnlockPrice,
+      isShorts: dto.isShorts,
+    });
+  }
+
+  async createPostMultipart(
+    userId: string,
+    body: Record<string, unknown>,
+    files: {
+      orderedImages: Express.Multer.File[];
+      videoFile: Express.Multer.File | null;
+    },
+  ) {
+    await this.requireTipar(userId);
+    const isShorts = parseMultipartBool(body.isShorts);
+    const externalVideo = parseMultipartStr(body.videoUrl).trim();
+    let videoUrl = externalVideo || null;
+
+    if (files.videoFile) {
+      videoUrl = await this.media.uploadVideo(files.videoFile);
+    }
+
+    const imageUrls: string[] = [];
+    for (const file of files.orderedImages) {
+      imageUrls.push(await this.media.uploadImage(file));
+    }
+
+    if (imageUrls.length === 0 && !isShorts) {
+      throw new BadRequestException('Přidejte alespoň jednu fotku.');
+    }
+    if (isShorts && !videoUrl) {
+      throw new BadRequestException('Shorts tip vyžaduje video nebo vygenerované video z fotek.');
+    }
+
+    return this.persistNewPost(userId, {
+      title: parseMultipartStr(body.title),
+      description: parseMultipartStr(body.description),
+      images: imageUrls,
+      mainImage: galleryMainImage(imageUrls),
+      videoUrl,
+      city: parseMultipartStr(body.city),
+      propertyPrice: parseMultipartInt(body.propertyPrice),
+      sourceUrl: parseMultipartStr(body.sourceUrl) || undefined,
+      ownerNote: parseMultipartStr(body.ownerNote) || undefined,
+      contactName: parseMultipartStr(body.contactName),
+      contactPhone: parseMultipartStr(body.contactPhone),
+      contactEmail: parseMultipartStr(body.contactEmail),
+      contactUnlockPrice: parseMultipartInt(body.contactUnlockPrice),
+      isShorts,
+    });
+  }
+
+  async uploadPhoto(userId: string, file: Express.Multer.File) {
+    await this.requireTipar(userId);
+    const url = await this.media.uploadImage(file);
+    return { url };
+  }
+
+  async uploadVideo(userId: string, file: Express.Multer.File) {
+    await this.requireTipar(userId);
+    const url = await this.media.uploadVideo(file);
+    return { url };
+  }
+
+  async generateShortsFromPhotos(
+    userId: string,
+    body: Record<string, unknown>,
+    imageFiles: Express.Multer.File[],
+  ) {
+    await this.requireTipar(userId);
+    return this.runShortsGeneration(body, imageFiles);
+  }
+
+  async generateShortsForPost(
+    userId: string,
+    postId: string,
+    body: Record<string, unknown>,
+    imageFiles: Express.Multer.File[],
+  ) {
+    await this.requireTipar(userId);
+    const post = await this.prisma.tiparPost.findFirst({
+      where: { id: postId, userId, deletedAt: null },
+    });
+    if (!post) throw new NotFoundException('Tip nenalezen');
+
+    let files = imageFiles;
+    if (files.length === 0 && post.images.length >= 2) {
+      files = await this.fetchImagesAsMulterFiles(post.images);
+    }
+    if (files.length < 2) {
+      throw new BadRequestException('Pro generování shorts jsou potřeba alespoň 2 fotky.');
+    }
+
+    const mergedBody: Record<string, unknown> = {
+      title: parseMultipartStr(body.title) || post.title,
+      city: parseMultipartStr(body.city) || post.city,
+      price: body.price ?? post.propertyPrice ?? 0,
+      currency: parseMultipartStr(body.currency, 'CZK'),
+      musicTrackId: body.musicTrackId,
+      musicKey: body.musicKey,
+      includeTextOverlay: body.includeTextOverlay,
+    };
+
+    const result = await this.runShortsGeneration(mergedBody, files);
+    const updated = await this.prisma.tiparPost.update({
+      where: { id: postId },
+      data: { videoUrl: result.videoUrl, isShorts: true },
+    });
+    await this.syncShortsProperty(updated);
+    return { ...result, postId };
+  }
+
+  async reorderMedia(userId: string, postId: string, orderedUrls: string[]) {
+    const post = await this.prisma.tiparPost.findFirst({
+      where: { id: postId, userId, deletedAt: null },
+    });
+    if (!post) throw new NotFoundException('Tip nenalezen');
+
+    const allowed = new Set(post.images);
+    const next = orderedUrls
+      .map((u) => u.trim())
+      .filter((u) => u.length > 0 && allowed.has(u));
+    if (next.length === 0) {
+      throw new BadRequestException('Neplatné pořadí fotek.');
+    }
+    for (const url of post.images) {
+      if (!next.includes(url)) next.push(url);
+    }
+
+    const updated = await this.prisma.tiparPost.update({
+      where: { id: postId },
+      data: { images: next, mainImage: galleryMainImage(next) },
+    });
+    await this.syncShortsProperty(updated);
+    return this.getPostForViewer(postId, userId);
+  }
+
+  private async persistNewPost(
+    userId: string,
+    dto: {
+      title: string;
+      description: string;
+      images: string[];
+      mainImage: string | null;
+      videoUrl: string | null;
+      city?: string;
+      propertyPrice?: number;
+      sourceUrl?: string;
+      ownerNote?: string;
+      contactName?: string;
+      contactPhone?: string;
+      contactEmail?: string;
+      contactUnlockPrice?: number;
+      isShorts?: boolean;
+    },
+  ) {
     const isShorts = Boolean(dto.isShorts);
     if (isShorts && !(dto.videoUrl ?? '').trim()) {
-      throw new BadRequestException('Shorts tip vyžaduje video URL.');
+      throw new BadRequestException('Shorts tip vyžaduje video.');
     }
+    if (!isShorts && dto.images.length === 0) {
+      throw new BadRequestException('Přidejte alespoň jednu fotku.');
+    }
+
     const post = await this.prisma.tiparPost.create({
       data: {
         userId,
         title: dto.title.trim(),
         description: dto.description.trim(),
-        images: (dto.images ?? []).filter((u) => typeof u === 'string' && u.trim().length > 0),
+        images: dto.images,
+        mainImage: dto.mainImage,
         videoUrl: dto.videoUrl?.trim() || null,
         city: (dto.city ?? '').trim() || 'Neuvedeno',
-        propertyPrice: dto.propertyPrice != null ? Math.max(0, Math.trunc(dto.propertyPrice)) : null,
+        propertyPrice:
+          dto.propertyPrice != null ? Math.max(0, Math.trunc(dto.propertyPrice)) : null,
         sourceUrl: dto.sourceUrl?.trim() || null,
         ownerNote: dto.ownerNote?.trim() || null,
         contactName: (dto.contactName ?? '').trim(),
@@ -56,6 +248,79 @@ export class TiparService {
     });
     await this.syncShortsProperty(post);
     return this.getPostForViewer(post.id, userId);
+  }
+
+  private async runShortsGeneration(
+    body: Record<string, unknown>,
+    imageFiles: Express.Multer.File[],
+  ) {
+    if (imageFiles.length < 2) {
+      throw new BadRequestException('Přidejte alespoň dvě fotky.');
+    }
+
+    const title = parseMultipartStr(body.title).trim();
+    const city = parseMultipartStr(body.city).trim();
+    const priceRaw = parseMultipartInt(body.price);
+    const price = priceRaw != null && priceRaw >= 0 ? priceRaw : 0;
+    const currency = parseMultipartStr(body.currency, 'CZK').trim() || 'CZK';
+    const trackId =
+      typeof body.musicTrackId === 'string' ? body.musicTrackId.trim() : '';
+    let music: ShortsMusicSelection;
+    if (trackId) {
+      const track = await this.prisma.shortsMusicTrack.findFirst({
+        where: { id: trackId, isActive: true },
+      });
+      if (!track) {
+        throw new BadRequestException('Neplatná nebo neaktivní skladba.');
+      }
+      music = { kind: 'library', fileUrl: track.fileUrl };
+    } else {
+      const musicKey = ListingShortsFromPhotosService.parseMusicKey(body.musicKey);
+      music = musicKey === 'none' ? { kind: 'none' } : { kind: 'builtin', key: musicKey };
+    }
+    const includeTextOverlay = ListingShortsFromPhotosService.parseBool(body.includeTextOverlay);
+    if (includeTextOverlay && (!title || !city || priceRaw == null || priceRaw < 0)) {
+      throw new BadRequestException(
+        'Pro text ve videu vyplňte titulek, lokalitu a platnou cenu.',
+      );
+    }
+
+    return this.shortsFromPhotos.generateAndUpload({
+      images: imageFiles,
+      title,
+      city,
+      price,
+      currency,
+      music,
+      includeTextOverlay,
+    });
+  }
+
+  private async fetchImagesAsMulterFiles(urls: string[]): Promise<Express.Multer.File[]> {
+    const out: Express.Multer.File[] = [];
+    let i = 0;
+    for (const raw of urls) {
+      const url = upgradeHttpToHttpsForApi(raw.trim()) ?? raw.trim();
+      if (!url) continue;
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const buffer = Buffer.from(await res.arrayBuffer());
+      const ext = url.includes('.png')
+        ? '.png'
+        : url.includes('.webp')
+          ? '.webp'
+          : '.jpg';
+      out.push({
+        fieldname: 'images',
+        originalname: `tip-image-${i}${ext}`,
+        encoding: '7bit',
+        mimetype: ext === '.png' ? 'image/png' : 'image/jpeg',
+        buffer,
+        size: buffer.length,
+      } as Express.Multer.File);
+      i += 1;
+    }
+    return out;
   }
 
   async updatePost(userId: string, postId: string, dto: UpdateTiparPostDto) {
@@ -77,7 +342,12 @@ export class TiparService {
         ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
         ...(dto.description !== undefined ? { description: dto.description.trim() } : {}),
         ...(dto.images !== undefined
-          ? { images: dto.images.filter((u) => typeof u === 'string' && u.trim().length > 0) }
+          ? {
+              images: dto.images.filter((u) => typeof u === 'string' && u.trim().length > 0),
+              mainImage: galleryMainImage(
+                dto.images.filter((u) => typeof u === 'string' && u.trim().length > 0),
+              ),
+            }
           : {}),
         ...(dto.videoUrl !== undefined ? { videoUrl } : {}),
         ...(dto.city !== undefined ? { city: dto.city.trim() || 'Neuvedeno' } : {}),
@@ -386,6 +656,7 @@ export class TiparService {
       title: row.title,
       description: row.description,
       images: row.images,
+      mainImage: row.mainImage ?? galleryMainImage(row.images),
       videoUrl: row.videoUrl,
       city: row.city,
       propertyPrice: row.propertyPrice,

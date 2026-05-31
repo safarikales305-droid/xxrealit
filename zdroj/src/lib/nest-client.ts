@@ -4800,6 +4800,7 @@ export type TiparPostRow = {
   title: string;
   description: string;
   images: string[];
+  mainImage?: string | null;
   videoUrl?: string | null;
   city: string;
   propertyPrice?: number | null;
@@ -4873,6 +4874,137 @@ export async function nestTiparCreatePost(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data as Record<string, unknown>, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true, data: data as TiparPostRow };
+}
+
+/** POST /api/tips — multipart vytvoření tipu s fotkami a videem. */
+export async function nestTipCreateMultipart(
+  token: string | null,
+  formData: FormData,
+): Promise<{ ok: true; data: TiparPostRow } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/tips`, {
+      method: 'POST',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+      body: formData,
+    });
+    const data = (await res.json().catch(() => ({}))) as TiparPostRow & {
+      message?: string | string[];
+      error?: string;
+    };
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data as Record<string, unknown>, `HTTP ${res.status}`),
+      };
+    }
+    return { ok: true, data: data as TiparPostRow };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+/** POST /api/tips/upload-photo */
+export async function nestTipUploadPhoto(
+  token: string | null,
+  file: File,
+): Promise<{ ok: true; url: string } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(`${API_BASE_URL}/tips/upload-photo`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    body: fd,
+  });
+  const data = (await res.json().catch(() => ({}))) as { url?: string };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data as Record<string, unknown>, `HTTP ${res.status}`),
+    };
+  }
+  const url = typeof data.url === 'string' ? data.url.trim() : '';
+  if (!url) return { ok: false, error: 'Server nevrátil URL fotky.' };
+  return { ok: true, url };
+}
+
+/** POST /api/tips/upload-video */
+export async function nestTipUploadVideo(
+  token: string | null,
+  file: File,
+): Promise<{ ok: true; url: string } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(`${API_BASE_URL}/tips/upload-video`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    body: fd,
+  });
+  const data = (await res.json().catch(() => ({}))) as { url?: string };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data as Record<string, unknown>, `HTTP ${res.status}`),
+    };
+  }
+  const url = typeof data.url === 'string' ? data.url.trim() : '';
+  if (!url) return { ok: false, error: 'Server nevrátil URL videa.' };
+  return { ok: true, url };
+}
+
+/** POST /api/tips/generate-shorts-from-photos */
+export async function nestTipGenerateShortsFromPhotos(
+  token: string | null,
+  formData: FormData,
+): Promise<{ ok: true; videoUrl: string } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/tips/generate-shorts-from-photos`, {
+      method: 'POST',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+      body: formData,
+    });
+    const data = (await res.json().catch(() => ({}))) as { videoUrl?: string };
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data as Record<string, unknown>, `HTTP ${res.status}`),
+      };
+    }
+    const videoUrl = typeof data.videoUrl === 'string' ? data.videoUrl.trim() : '';
+    if (!videoUrl) return { ok: false, error: 'Server nevrátil odkaz na video.' };
+    return { ok: true, videoUrl };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+/** PATCH /api/tips/:id/media-order */
+export async function nestTipReorderMedia(
+  token: string | null,
+  tipId: string,
+  orderedUrls: string[],
+): Promise<{ ok: boolean; data?: TiparPostRow; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/tips/${encodeURIComponent(tipId)}/media-order`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ orderedUrls }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
