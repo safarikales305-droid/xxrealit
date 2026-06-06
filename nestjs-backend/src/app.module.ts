@@ -24,6 +24,7 @@ import { EmailsModule } from './modules/emails/emails.module';
 import { StoriesModule } from './modules/stories/stories.module';
 import { ImportsModule } from './modules/imports/imports.module';
 import { TiparModule } from './modules/tipar/tipar.module';
+import { SocialModule } from './modules/social/social.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { TiparModule } from './modules/tipar/tipar.module';
     StoriesModule,
     ImportsModule,
     TiparModule,
+    SocialModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

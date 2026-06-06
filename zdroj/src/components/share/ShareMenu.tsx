@@ -97,16 +97,23 @@ export function ShareMenu({ title, url, onClose, onCopied }: ShareMenuProps) {
             <Share2 className="size-5 shrink-0 text-orange-600" />
             <span>Sdílet (systém)</span>
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              window.open(facebookShareUrl(url), '_blank', 'noopener,noreferrer');
-            }}
-            className="flex w-full items-center gap-3 rounded-2xl border border-zinc-200 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50"
-          >
-            <Facebook className="size-5 shrink-0 text-blue-600" />
-            <span>Facebook</span>
-          </button>
+          <div className="rounded-2xl border border-zinc-200">
+            <button
+              type="button"
+              onClick={() => {
+                window.open(facebookShareUrl(url), '_blank', 'noopener,noreferrer');
+              }}
+              className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50"
+            >
+              <Facebook className="size-5 shrink-0 text-blue-600" />
+              <span>Sdílet odkaz na Facebook</span>
+            </button>
+            <p className="border-t border-zinc-100 px-4 py-2 text-xs leading-relaxed text-zinc-500">
+              Sdílením odkazu se na Facebooku nevytvoří příspěvek s přehrávatelným videem. Pro
+              nativní video příspěvek otevřete detail Shorts tipu a použijte „Nahrát video na
+              Facebook“.
+            </p>
+          </div>
           <div className="rounded-2xl border border-zinc-100 bg-zinc-50/80 p-2">
             <p className="px-2 pb-2 pt-1 text-xs font-medium text-zinc-500">
               TikTok, YouTube a Instagram nemají spolehlivé webové sdílení — zkopírujte odkaz nebo

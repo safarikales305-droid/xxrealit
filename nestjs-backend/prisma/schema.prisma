@@ -187,6 +187,7 @@ model User {
   contactUnlocks ContactUnlock[]
   creditTransactionsAsBuyer CreditTransaction[] @relation("CreditTransactionBuyer")
   creditTransactionsAsTipar CreditTransaction[] @relation("CreditTransactionTipar")
+  facebookConnection FacebookConnection?
 }
 
 model Story {
@@ -1009,6 +1010,20 @@ model CreditTransaction {
   @@index([buyerUserId, createdAt])
   @@index([tiparUserId, createdAt])
   @@index([tiparPostId])
+}
+
+/// Propojení uživatelského účtu s Facebookem (Graph API — nahrání videa).
+model FacebookConnection {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  facebookUserId String
+  accessToken    String    @db.Text
+  tokenExpiresAt DateTime?
+  scopes         String[]  @default([])
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 /// Historie bodů + idempotence (dedupeKey).

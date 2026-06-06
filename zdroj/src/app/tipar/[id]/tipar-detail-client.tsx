@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
+import { FacebookShortsShare } from '@/components/share/FacebookShortsShare';
 import { ShortsVideoFrame } from '@/components/tipar/shorts-video-frame';
 import { getAppOrigin } from '@/lib/app-url';
 import {
@@ -45,8 +46,6 @@ export function TiparDetailClient({ id }: Props) {
     }
     return `${getAppOrigin()}/tipar/${id}`;
   }, [id]);
-
-  const facebookShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
 
   async function unlock() {
     if (!apiAccessToken || !post) return;
@@ -125,16 +124,14 @@ export function TiparDetailClient({ id }: Props) {
             </a>
           ) : null}
 
-          <div className="mt-4">
-            <a
-              href={facebookShareUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 rounded-full bg-[#1877F2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#166fe5]"
-            >
-              Sdílet na Facebooku
-            </a>
-          </div>
+          <FacebookShortsShare
+            listingUrl={shareUrl}
+            title={post.title}
+            city={post.city}
+            price={post.propertyPrice}
+            videoUrl={playbackVideo}
+            apiAccessToken={apiAccessToken}
+          />
 
           {galleryImages.length > 0 ? (
             <div className="mt-4">

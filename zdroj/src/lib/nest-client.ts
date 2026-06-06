@@ -5156,3 +5156,120 @@ export async function nestAdminHideTiparPost(
   return { ok: true };
 }
 
+export type FacebookPublicConfig = {
+  configured: boolean;
+  appId: string | null;
+};
+
+export async function nestFacebookGetConfig(): Promise<FacebookPublicConfig> {
+  if (!API_BASE_URL) {
+    return { configured: false, appId: null };
+  }
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook/config`, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (!res.ok) return { configured: false, appId: null };
+    const data = (await res.json().catch(() => ({}))) as FacebookPublicConfig;
+    return {
+      configured: Boolean(data.configured),
+      appId: typeof data.appId === 'string' ? data.appId : null,
+    };
+  } catch {
+    return { configured: false, appId: null };
+  }
+}
+
+export async function nestFacebookGetStatus(
+  token: string | null,
+): Promise<{ connected: boolean; facebookUserId?: string | null }> {
+  if (!API_BASE_URL || !token) return { connected: false };
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook/status`, {
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (!res.ok) return { connected: false };
+    const data = (await res.json().catch(() => ({}))) as {
+      connected?: boolean;
+      facebookUserId?: string | null;
+    };
+    return {
+      connected: Boolean(data.connected),
+      facebookUserId: data.facebookUserId ?? null,
+    };
+  } catch {
+    return { connected: false };
+  }
+}
+
+export async function nestFacebookConnect(
+  token: string | null,
+  accessToken: string,
+): Promise<{ ok: true; facebookUserId?: string } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook/connect`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ accessToken }),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return {
+      ok: true,
+      facebookUserId:
+        typeof data.facebookUserId === 'string' ? data.facebookUserId : undefined,
+    };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestFacebookUploadVideo(
+  token: string | null,
+  body: {
+    videoUrl: string;
+    title: string;
+    description: string;
+    listingUrl: string;
+  },
+): Promise<{ ok: true; facebookVideoId?: string } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook/upload-video`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return {
+      ok: true,
+      facebookVideoId:
+        typeof data.facebookVideoId === 'string' ? data.facebookVideoId : undefined,
+    };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
