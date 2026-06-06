@@ -81,7 +81,8 @@ export class TiparService {
     await this.requireTipar(userId);
     const isShorts = parseMultipartBool(body.isShorts);
     const externalVideo = parseMultipartStr(body.videoUrl).trim();
-    let videoUrl = externalVideo || null;
+    const generatedFromBody = parseMultipartStr(body.generatedVideoUrl).trim();
+    let videoUrl = externalVideo || generatedFromBody || null;
 
     if (files.videoFile) {
       videoUrl = await this.media.uploadVideo(files.videoFile);
@@ -101,7 +102,7 @@ export class TiparService {
 
     const musicTrackId = parseMultipartStr(body.musicTrackId).trim() || null;
     const generatedVideoUrl =
-      parseMultipartStr(body.generatedVideoUrl).trim() ||
+      generatedFromBody ||
       (parseMultipartBool(body.isGeneratedVideo) ? videoUrl : null);
 
     return this.persistNewPost(userId, {
@@ -143,12 +144,16 @@ export class TiparService {
     );
 
     const isShorts = body.isShorts !== undefined ? parseMultipartBool(body.isShorts) : existing.isShorts;
+    const generatedFromBody =
+      body.generatedVideoUrl !== undefined
+        ? parseMultipartStr(body.generatedVideoUrl).trim() || null
+        : null;
     let videoUrl =
       body.videoUrl !== undefined
         ? parseMultipartStr(body.videoUrl).trim() || null
         : existing.videoUrl;
     const generatedVideoUrl =
-      parseMultipartStr(body.generatedVideoUrl).trim() ||
+      generatedFromBody ??
       (body.generatedVideoUrl === null ? null : existing.generatedVideoUrl);
     const musicTrackId =
       body.musicTrackId !== undefined
@@ -157,6 +162,8 @@ export class TiparService {
 
     if (files.videoFile) {
       videoUrl = await this.media.uploadVideo(files.videoFile);
+    } else if (!videoUrl && generatedFromBody) {
+      videoUrl = generatedFromBody;
     }
 
     if (imageUrls.length === 0 && !isShorts && existing.images.length === 0) {
@@ -182,10 +189,9 @@ export class TiparService {
         ...(imageUrls.length > 0 || body.imageSlots !== undefined
           ? { images: finalImages, mainImage: galleryMainImage(finalImages) }
           : {}),
-        ...(body.videoUrl !== undefined || files.videoFile
+        ...(body.videoUrl !== undefined || body.generatedVideoUrl !== undefined || files.videoFile
           ? { videoUrl, generatedVideoUrl: generatedVideoUrl ?? videoUrl }
           : {}),
-        ...(body.generatedVideoUrl !== undefined ? { generatedVideoUrl } : {}),
         ...(body.musicTrackId !== undefined ? { selectedMusicId: musicTrackId } : {}),
         ...(body.city !== undefined ? { city: parseMultipartStr(body.city).trim() || 'Neuvedeno' } : {}),
         ...(body.propertyPrice !== undefined

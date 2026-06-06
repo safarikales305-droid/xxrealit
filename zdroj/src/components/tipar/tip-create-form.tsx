@@ -66,6 +66,7 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const stopMusic = useCallback(() => {
     const el = audioRef.current;
@@ -316,7 +317,7 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
     setGeneratedPreviewUrl(null);
   }
 
-  function buildFormData(): FormData {
+  function buildFormData(opts: { resolvedVideoUrl: string; effectiveIsShorts: boolean }): FormData {
     const fd = new FormData();
     fd.append('title', title.trim());
     fd.append('description', description.trim());
@@ -328,12 +329,14 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
     fd.append('contactPhone', normalizeTiparPhone(contactPhone));
     fd.append('contactEmail', contactEmail.trim());
     fd.append('contactUnlockPrice', contactUnlockPrice.trim() || '100');
-    fd.append('isShorts', String(isShorts));
+    fd.append('isShorts', String(opts.effectiveIsShorts));
     if (shortsMusicTrackId.trim()) fd.append('musicTrackId', shortsMusicTrackId.trim());
-    if (videoUrl.trim()) fd.append('videoUrl', videoUrl.trim());
-    if (generatedPreviewUrl) {
-      fd.append('generatedVideoUrl', generatedPreviewUrl);
-      fd.append('isGeneratedVideo', 'true');
+    if (opts.resolvedVideoUrl) {
+      fd.append('videoUrl', opts.resolvedVideoUrl);
+      if (generatedPreviewUrl && opts.resolvedVideoUrl === generatedPreviewUrl) {
+        fd.append('generatedVideoUrl', generatedPreviewUrl);
+        fd.append('isGeneratedVideo', 'true');
+      }
     }
     if (videoFile) fd.append('video', videoFile);
 
@@ -355,6 +358,7 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setSuccessMessage(null);
     stopMusic();
 
     if (!nestApiConfigured() || !apiAccessToken) {
@@ -373,21 +377,19 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
       return;
     }
 
-    const activeVideo = videoFile || videoUrl.trim() || generatedPreviewUrl;
-    if (isShorts && !activeVideo) {
+    const resolvedVideoUrl = videoFile ? '' : (videoUrl.trim() || generatedPreviewUrl || '');
+    const effectiveIsShorts = isShorts || Boolean(!videoFile && resolvedVideoUrl && generatedPreviewUrl);
+
+    if (effectiveIsShorts && !videoFile && !resolvedVideoUrl) {
       setError('Shorts tip vyžaduje nahrané nebo vygenerované video.');
       return;
     }
-    if (!isShorts && imageItems.length === 0) {
+    if (!effectiveIsShorts && imageItems.length === 0) {
       setError('Přidejte alespoň jednu fotku.');
       return;
     }
 
-    if (generatedPreviewUrl && !videoUrl.trim()) {
-      setVideoUrl(generatedPreviewUrl);
-    }
-
-    const fd = buildFormData();
+    const fd = buildFormData({ resolvedVideoUrl, effectiveIsShorts });
     setSubmitting(true);
     const r = isEdit && editTip
       ? await nestTipUpdateMultipart(apiAccessToken, editTip.id, fd)
@@ -397,6 +399,7 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
       setError(r.error ?? 'Uložení tipu selhalo.');
       return;
     }
+    setSuccessMessage('Tip publikován');
     onSaved?.(r.data);
   }
 
@@ -411,6 +414,12 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
       <h2 className="text-lg font-semibold text-zinc-900">
         {isEdit ? 'Upravit tip' : 'Nový tip na nemovitost'}
       </h2>
+
+      {successMessage ? (
+        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          {successMessage}
+        </p>
+      ) : null}
 
       {error ? (
         <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -502,24 +511,59 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
         <p className="text-sm font-semibold">Shorts video z fotek</p>
         {imageItems.length >= 2 ? (
           <>
-            <div className="space-y-2">
-              {shortsMusicTracks.map((track) => (
-                <div key={track.id} className="flex items-center justify-between gap-2 rounded-lg border bg-white px-3 py-2">
-                  <span className="truncate text-sm">{track.title}</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShortsMusicTrackId(track.id);
-                      toggleMusic(track);
-                    }}
-                    className="shrink-0 rounded-full border px-3 py-1 text-xs font-semibold"
+            <fieldset className="space-y-2">
+              <legend className="text-xs font-medium text-zinc-700">Hudba ve videu (volitelné)</legend>
+              <label
+                className={`flex cursor-pointer items-center justify-between gap-2 rounded-lg border px-3 py-2 ${
+                  !shortsMusicTrackId ? 'border-[#e85d00] bg-orange-50' : 'border-zinc-200 bg-white'
+                }`}
+              >
+                <span className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="shortsMusic"
+                    checked={!shortsMusicTrackId}
+                    onChange={() => setShortsMusicTrackId('')}
+                    className="accent-[#e85d00]"
+                  />
+                  Bez hudby
+                </span>
+              </label>
+              {shortsMusicTracks.map((track) => {
+                const selected = shortsMusicTrackId === track.id;
+                return (
+                  <label
+                    key={track.id}
+                    className={`flex cursor-pointer items-center justify-between gap-2 rounded-lg border px-3 py-2 ${
+                      selected ? 'border-[#e85d00] bg-orange-50' : 'border-zinc-200 bg-white'
+                    }`}
                   >
-                    {playingMusicId === track.id ? 'Zastavit' : 'Přehrát'}
-                  </button>
-                </div>
-              ))}
+                    <span className="flex min-w-0 items-center gap-2">
+                      <input
+                        type="radio"
+                        name="shortsMusic"
+                        checked={selected}
+                        onChange={() => setShortsMusicTrackId(track.id)}
+                        className="accent-[#e85d00]"
+                      />
+                      <span className="truncate text-sm">{track.title}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(ev) => {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        toggleMusic(track);
+                      }}
+                      className="shrink-0 rounded-full border border-zinc-300 px-3 py-1 text-xs font-semibold hover:bg-zinc-50"
+                    >
+                      {playingMusicId === track.id ? 'Zastavit' : 'Přehrát'}
+                    </button>
+                  </label>
+                );
+              })}
               {shortsMusicTracksLoading ? <p className="text-xs text-zinc-500">Načítám hudbu…</p> : null}
-            </div>
+            </fieldset>
             <audio ref={audioRef} className="hidden" onEnded={() => setPlayingMusicId(null)} />
             <label className="flex items-center gap-2 text-xs">
               <input type="checkbox" checked={shortsTextOverlay} onChange={(e) => setShortsTextOverlay(e.target.checked)} />

@@ -20,6 +20,7 @@ export default function ProfilTipyPage() {
   const [editingPost, setEditingPost] = useState<TiparPostRow | null>(null);
   const [focusShorts, setFocusShorts] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [publishSuccess, setPublishSuccess] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !user) router.replace('/login');
@@ -90,6 +91,12 @@ export default function ProfilTipyPage() {
         </button>
       </div>
 
+      {publishSuccess ? (
+        <p className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          Tip publikován
+        </p>
+      ) : null}
+
       {showForm ? (
         <div className="mb-8">
           <TipCreateForm
@@ -98,6 +105,7 @@ export default function ProfilTipyPage() {
             onCancel={closeForm}
             onSaved={() => {
               closeForm();
+              setPublishSuccess(true);
               void refreshPosts();
             }}
           />
