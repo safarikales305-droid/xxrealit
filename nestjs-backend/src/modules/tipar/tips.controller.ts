@@ -121,7 +121,7 @@ export class TipsController {
     for (const image of imageFiles) {
       assertTiparImageFile(image);
     }
-    return this.tipar.generateShortsForPost(user.id, id, body, imageFiles);
+    return this.tipar.generateShortsForPost(user, id, body, imageFiles);
   }
 
   /** PATCH /api/tips/:id/media-order */
@@ -132,6 +132,43 @@ export class TipsController {
     @Param('id') id: string,
     @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: ReorderTiparMediaDto,
   ) {
-    return this.tipar.reorderMedia(user.id, id, dto.orderedUrls);
+    return this.tipar.reorderMedia(user, id, dto.orderedUrls);
+  }
+
+  /** PATCH /api/tips/:id — úprava tipu (multipart). */
+  @Patch(':id')
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'video', maxCount: 1 },
+        { name: 'images', maxCount: 30 },
+      ],
+      propertyMediaMemoryMulterOptions,
+    ),
+  )
+  update(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: Record<string, unknown>,
+    @UploadedFiles()
+    files?: {
+      video?: Express.Multer.File[];
+      images?: Express.Multer.File[];
+    },
+  ) {
+    const imageFiles = files?.images ?? [];
+    if (imageFiles.length > 30) {
+      throw new BadRequestException('Max 30 fotek');
+    }
+    for (const image of orderUploadedImages(imageFiles, body.imageOrder)) {
+      assertTiparImageFile(image);
+    }
+    const videoFile = files?.video?.[0] ?? null;
+    if (videoFile) assertTiparVideoFile(videoFile);
+    return this.tipar.updatePostMultipart(user, id, body, {
+      orderedImages: orderUploadedImages(imageFiles, body.imageOrder),
+      videoFile,
+    });
   }
 }

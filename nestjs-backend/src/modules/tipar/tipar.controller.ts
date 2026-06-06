@@ -69,13 +69,13 @@ export class TiparController {
     @Param('id') id: string,
     @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: UpdateTiparPostDto,
   ) {
-    return this.tipar.updatePost(user.id, id, dto);
+    return this.tipar.updatePost(user, id, dto);
   }
 
   @Delete('posts/:id')
   @UseGuards(JwtAuthGuard)
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.tipar.deletePost(user.id, id);
+    return this.tipar.deletePost(user, id);
   }
 
   @Post('posts/:id/unlock-contact')

@@ -14,11 +14,14 @@ import {
 import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 import { CreateTiparPostDto } from './dto/create-tipar-post.dto';
 import { UpdateTiparPostDto } from './dto/update-tipar-post.dto';
+import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import {
   galleryMainImage,
   parseMultipartBool,
   parseMultipartInt,
   parseMultipartStr,
+  requireTiparPhone,
+  resolveImageGalleryFromSlots,
 } from './tipar-media.util';
 
 const activeTiparPostWhere: Prisma.TiparPostWhereInput = {
@@ -60,7 +63,7 @@ export class TiparService {
       sourceUrl: dto.sourceUrl,
       ownerNote: dto.ownerNote,
       contactName: dto.contactName,
-      contactPhone: dto.contactPhone,
+      contactPhone: dto.contactPhone ?? '',
       contactEmail: dto.contactEmail,
       contactUnlockPrice: dto.contactUnlockPrice,
       isShorts: dto.isShorts,
@@ -96,12 +99,19 @@ export class TiparService {
       throw new BadRequestException('Shorts tip vyžaduje video nebo vygenerované video z fotek.');
     }
 
+    const musicTrackId = parseMultipartStr(body.musicTrackId).trim() || null;
+    const generatedVideoUrl =
+      parseMultipartStr(body.generatedVideoUrl).trim() ||
+      (parseMultipartBool(body.isGeneratedVideo) ? videoUrl : null);
+
     return this.persistNewPost(userId, {
       title: parseMultipartStr(body.title),
       description: parseMultipartStr(body.description),
       images: imageUrls,
       mainImage: galleryMainImage(imageUrls),
       videoUrl,
+      generatedVideoUrl,
+      selectedMusicId: musicTrackId,
       city: parseMultipartStr(body.city),
       propertyPrice: parseMultipartInt(body.propertyPrice),
       sourceUrl: parseMultipartStr(body.sourceUrl) || undefined,
@@ -112,6 +122,96 @@ export class TiparService {
       contactUnlockPrice: parseMultipartInt(body.contactUnlockPrice),
       isShorts,
     });
+  }
+
+  async updatePostMultipart(
+    user: AuthUser,
+    postId: string,
+    body: Record<string, unknown>,
+    files: {
+      orderedImages: Express.Multer.File[];
+      videoFile: Express.Multer.File | null;
+    },
+  ) {
+    await this.requireTipar(user.id);
+    const existing = await this.assertCanModifyPost(user, postId);
+
+    const imageUrls = await resolveImageGalleryFromSlots(
+      body.imageSlots,
+      files.orderedImages,
+      (f) => this.media.uploadImage(f),
+    );
+
+    const isShorts = body.isShorts !== undefined ? parseMultipartBool(body.isShorts) : existing.isShorts;
+    let videoUrl =
+      body.videoUrl !== undefined
+        ? parseMultipartStr(body.videoUrl).trim() || null
+        : existing.videoUrl;
+    const generatedVideoUrl =
+      parseMultipartStr(body.generatedVideoUrl).trim() ||
+      (body.generatedVideoUrl === null ? null : existing.generatedVideoUrl);
+    const musicTrackId =
+      body.musicTrackId !== undefined
+        ? parseMultipartStr(body.musicTrackId).trim() || null
+        : existing.selectedMusicId;
+
+    if (files.videoFile) {
+      videoUrl = await this.media.uploadVideo(files.videoFile);
+    }
+
+    if (imageUrls.length === 0 && !isShorts && existing.images.length === 0) {
+      throw new BadRequestException('Přidejte alespoň jednu fotku.');
+    }
+    const finalImages = imageUrls.length > 0 ? imageUrls : existing.images;
+    if (isShorts && !videoUrl) {
+      throw new BadRequestException('Shorts tip vyžaduje video nebo vygenerované video z fotek.');
+    }
+
+    const contactPhone =
+      body.contactPhone !== undefined
+        ? requireTiparPhone(parseMultipartStr(body.contactPhone))
+        : requireTiparPhone(existing.contactPhone);
+
+    const post = await this.prisma.tiparPost.update({
+      where: { id: postId },
+      data: {
+        ...(body.title !== undefined ? { title: parseMultipartStr(body.title).trim() } : {}),
+        ...(body.description !== undefined
+          ? { description: parseMultipartStr(body.description).trim() }
+          : {}),
+        ...(imageUrls.length > 0 || body.imageSlots !== undefined
+          ? { images: finalImages, mainImage: galleryMainImage(finalImages) }
+          : {}),
+        ...(body.videoUrl !== undefined || files.videoFile
+          ? { videoUrl, generatedVideoUrl: generatedVideoUrl ?? videoUrl }
+          : {}),
+        ...(body.generatedVideoUrl !== undefined ? { generatedVideoUrl } : {}),
+        ...(body.musicTrackId !== undefined ? { selectedMusicId: musicTrackId } : {}),
+        ...(body.city !== undefined ? { city: parseMultipartStr(body.city).trim() || 'Neuvedeno' } : {}),
+        ...(body.propertyPrice !== undefined
+          ? { propertyPrice: Math.max(0, parseMultipartInt(body.propertyPrice) ?? 0) }
+          : {}),
+        ...(body.sourceUrl !== undefined
+          ? { sourceUrl: parseMultipartStr(body.sourceUrl).trim() || null }
+          : {}),
+        ...(body.ownerNote !== undefined
+          ? { ownerNote: parseMultipartStr(body.ownerNote).trim() || null }
+          : {}),
+        ...(body.contactName !== undefined
+          ? { contactName: parseMultipartStr(body.contactName).trim() }
+          : {}),
+        contactPhone,
+        ...(body.contactEmail !== undefined
+          ? { contactEmail: parseMultipartStr(body.contactEmail).trim().toLowerCase() }
+          : {}),
+        ...(body.contactUnlockPrice !== undefined
+          ? { contactUnlockPrice: Math.max(0, parseMultipartInt(body.contactUnlockPrice) ?? 100) }
+          : {}),
+        ...(body.isShorts !== undefined ? { isShorts } : {}),
+      },
+    });
+    await this.syncShortsProperty(post);
+    return this.getPostForViewer(post.id, user.id);
   }
 
   async uploadPhoto(userId: string, file: Express.Multer.File) {
@@ -136,16 +236,13 @@ export class TiparService {
   }
 
   async generateShortsForPost(
-    userId: string,
+    user: AuthUser,
     postId: string,
     body: Record<string, unknown>,
     imageFiles: Express.Multer.File[],
   ) {
-    await this.requireTipar(userId);
-    const post = await this.prisma.tiparPost.findFirst({
-      where: { id: postId, userId, deletedAt: null },
-    });
-    if (!post) throw new NotFoundException('Tip nenalezen');
+    await this.requireTipar(user.id);
+    const post = await this.assertCanModifyPost(user, postId);
 
     let files = imageFiles;
     if (files.length === 0 && post.images.length >= 2) {
@@ -166,19 +263,23 @@ export class TiparService {
     };
 
     const result = await this.runShortsGeneration(mergedBody, files);
+    const trackId = typeof body.musicTrackId === 'string' ? body.musicTrackId.trim() : '';
     const updated = await this.prisma.tiparPost.update({
       where: { id: postId },
-      data: { videoUrl: result.videoUrl, isShorts: true },
+      data: {
+        videoUrl: result.videoUrl,
+        generatedVideoUrl: result.videoUrl,
+        isShorts: true,
+        ...(trackId ? { selectedMusicId: trackId } : {}),
+      },
     });
     await this.syncShortsProperty(updated);
     return { ...result, postId };
   }
 
-  async reorderMedia(userId: string, postId: string, orderedUrls: string[]) {
-    const post = await this.prisma.tiparPost.findFirst({
-      where: { id: postId, userId, deletedAt: null },
-    });
-    if (!post) throw new NotFoundException('Tip nenalezen');
+  async reorderMedia(user: AuthUser, postId: string, orderedUrls: string[]) {
+    await this.requireTipar(user.id);
+    const post = await this.assertCanModifyPost(user, postId);
 
     const allowed = new Set(post.images);
     const next = orderedUrls
@@ -196,7 +297,7 @@ export class TiparService {
       data: { images: next, mainImage: galleryMainImage(next) },
     });
     await this.syncShortsProperty(updated);
-    return this.getPostForViewer(postId, userId);
+    return this.getPostForViewer(postId, user.id);
   }
 
   private async persistNewPost(
@@ -216,6 +317,8 @@ export class TiparService {
       contactEmail?: string;
       contactUnlockPrice?: number;
       isShorts?: boolean;
+      generatedVideoUrl?: string | null;
+      selectedMusicId?: string | null;
     },
   ) {
     const isShorts = Boolean(dto.isShorts);
@@ -225,6 +328,7 @@ export class TiparService {
     if (!isShorts && dto.images.length === 0) {
       throw new BadRequestException('Přidejte alespoň jednu fotku.');
     }
+    const contactPhone = requireTiparPhone(dto.contactPhone ?? '');
 
     const post = await this.prisma.tiparPost.create({
       data: {
@@ -234,13 +338,15 @@ export class TiparService {
         images: dto.images,
         mainImage: dto.mainImage,
         videoUrl: dto.videoUrl?.trim() || null,
+        generatedVideoUrl: dto.generatedVideoUrl?.trim() || dto.videoUrl?.trim() || null,
+        selectedMusicId: dto.selectedMusicId?.trim() || null,
         city: (dto.city ?? '').trim() || 'Neuvedeno',
         propertyPrice:
           dto.propertyPrice != null ? Math.max(0, Math.trunc(dto.propertyPrice)) : null,
         sourceUrl: dto.sourceUrl?.trim() || null,
         ownerNote: dto.ownerNote?.trim() || null,
         contactName: (dto.contactName ?? '').trim(),
-        contactPhone: (dto.contactPhone ?? '').trim(),
+        contactPhone,
         contactEmail: (dto.contactEmail ?? '').trim().toLowerCase(),
         contactUnlockPrice: Math.max(0, Math.trunc(dto.contactUnlockPrice ?? 100)),
         isShorts,
@@ -323,11 +429,9 @@ export class TiparService {
     return out;
   }
 
-  async updatePost(userId: string, postId: string, dto: UpdateTiparPostDto) {
-    const existing = await this.prisma.tiparPost.findFirst({
-      where: { id: postId, userId, deletedAt: null },
-    });
-    if (!existing) throw new NotFoundException('Tip nenalezen');
+  async updatePost(user: AuthUser, postId: string, dto: UpdateTiparPostDto) {
+    await this.requireTipar(user.id);
+    const existing = await this.assertCanModifyPost(user, postId);
 
     const isShorts = dto.isShorts ?? existing.isShorts;
     const videoUrl =
@@ -335,6 +439,10 @@ export class TiparService {
     if (isShorts && !videoUrl) {
       throw new BadRequestException('Shorts tip vyžaduje video URL.');
     }
+    const contactPhone =
+      dto.contactPhone !== undefined
+        ? requireTiparPhone(dto.contactPhone)
+        : requireTiparPhone(existing.contactPhone);
 
     const post = await this.prisma.tiparPost.update({
       where: { id: postId },
@@ -357,7 +465,7 @@ export class TiparService {
         ...(dto.sourceUrl !== undefined ? { sourceUrl: dto.sourceUrl?.trim() || null } : {}),
         ...(dto.ownerNote !== undefined ? { ownerNote: dto.ownerNote?.trim() || null } : {}),
         ...(dto.contactName !== undefined ? { contactName: dto.contactName.trim() } : {}),
-        ...(dto.contactPhone !== undefined ? { contactPhone: dto.contactPhone.trim() } : {}),
+        contactPhone,
         ...(dto.contactEmail !== undefined
           ? { contactEmail: dto.contactEmail.trim().toLowerCase() }
           : {}),
@@ -368,14 +476,11 @@ export class TiparService {
       },
     });
     await this.syncShortsProperty(post);
-    return this.getPostForViewer(post.id, userId);
+    return this.getPostForViewer(post.id, user.id);
   }
 
-  async deletePost(userId: string, postId: string) {
-    const existing = await this.prisma.tiparPost.findFirst({
-      where: { id: postId, userId, deletedAt: null },
-    });
-    if (!existing) throw new NotFoundException('Tip nenalezen');
+  async deletePost(user: AuthUser, postId: string) {
+    const existing = await this.assertCanModifyPost(user, postId);
 
     await this.prisma.tiparPost.update({
       where: { id: postId },
@@ -615,6 +720,17 @@ export class TiparService {
     return { success: true, deletedId: postId };
   }
 
+  private async assertCanModifyPost(user: AuthUser, postId: string): Promise<TiparPost> {
+    const post = await this.prisma.tiparPost.findFirst({
+      where: { id: postId, deletedAt: null },
+    });
+    if (!post) throw new NotFoundException('Tip nenalezen');
+    if (post.userId !== user.id && user.role !== 'ADMIN') {
+      throw new ForbiddenException('Nemáte oprávnění upravit tento tip.');
+    }
+    return post;
+  }
+
   private async requireTipar(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -658,6 +774,8 @@ export class TiparService {
       images: row.images,
       mainImage: row.mainImage ?? galleryMainImage(row.images),
       videoUrl: row.videoUrl,
+      generatedVideoUrl: row.generatedVideoUrl,
+      selectedMusicId: row.selectedMusicId,
       city: row.city,
       propertyPrice: row.propertyPrice,
       sourceUrl: row.sourceUrl,

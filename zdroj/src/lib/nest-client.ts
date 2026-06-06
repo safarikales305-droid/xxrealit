@@ -4802,6 +4802,8 @@ export type TiparPostRow = {
   images: string[];
   mainImage?: string | null;
   videoUrl?: string | null;
+  generatedVideoUrl?: string | null;
+  selectedMusicId?: string | null;
   city: string;
   propertyPrice?: number | null;
   sourceUrl?: string | null;
@@ -4988,6 +4990,48 @@ export async function nestTipGenerateShortsFromPhotos(
   } catch {
     return { ok: false, error: 'Síťová chyba' };
   }
+}
+
+/** PATCH /api/tips/:id — multipart úprava tipu. */
+export async function nestTipUpdateMultipart(
+  token: string | null,
+  tipId: string,
+  formData: FormData,
+): Promise<{ ok: true; data: TiparPostRow } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/tips/${encodeURIComponent(tipId)}`, {
+      method: 'PATCH',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+      body: formData,
+    });
+    const data = (await res.json().catch(() => ({}))) as TiparPostRow & Record<string, unknown>;
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return { ok: true, data: data as TiparPostRow };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestTiparDeletePost(
+  token: string | null,
+  postId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/tipar/posts/${encodeURIComponent(postId)}`, {
+    method: 'DELETE',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true };
 }
 
 /** PATCH /api/tips/:id/media-order */

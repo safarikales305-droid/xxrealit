@@ -947,6 +947,10 @@ model TiparPost {
   /// Hlavní fotka (první v galerii) — denormalizace pro karty a detail.
   mainImage           String?
   videoUrl            String?
+  /// Vygenerované Shorts video (náhled před publikováním / zdroj pro videoUrl).
+  generatedVideoUrl   String?
+  /// ID skladby z knihovny použité při generování Shorts.
+  selectedMusicId     String?
   city                String    @default("")
   propertyPrice       Int?
   sourceUrl           String?

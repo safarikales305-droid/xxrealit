@@ -18,6 +18,9 @@ const ALLOWED_IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
 const MIN_IMAGES = 2;
 const MAX_IMAGES = 15;
 const FPS = 30;
+const SHORTS_WIDTH = 720;
+const SHORTS_HEIGHT = 1280;
+const VIDEO_BITRATE = '1800k';
 
 export type ShortsMusicKey = 'none' | 'demo_soft' | 'demo_warm' | 'demo_pulse';
 
@@ -37,7 +40,7 @@ export type GenerateShortsFromPhotosInput = {
 };
 
 function clampTotalSeconds(imageCount: number): number {
-  return Math.min(20, Math.max(8, Math.round(imageCount * 2)));
+  return Math.min(60, Math.max(15, Math.round(imageCount * 3)));
 }
 
 /** Délka jednoho snímku při concat slideshow (bez přechodů). */
@@ -204,7 +207,7 @@ export class ListingShortsFromPhotosService {
   }
 
   /**
-   * Každý vstup → stejný JPEG 1080×1920, ASCII název (žádná diakritika z původního názvu souboru).
+   * Každý vstup → stejný JPEG 720×1280 (9:16), ASCII název.
    */
   private async normalizeSlides(
     tmpRoot: string,
@@ -227,8 +230,8 @@ export class ListingShortsFromPhotosService {
           ...(usePages ? { pages: 1 as const } : {}),
         }).rotate();
         await pipeline
-          .resize(1080, 1920, { fit: 'cover', position: 'centre' })
-          .jpeg({ quality: 88, mozjpeg: true, chromaSubsampling: '4:2:0' })
+          .resize(SHORTS_WIDTH, SHORTS_HEIGHT, { fit: 'cover', position: 'centre' })
+          .jpeg({ quality: 85, mozjpeg: true, chromaSubsampling: '4:2:0' })
           .toFile(abs);
         this.log.log(
           `[shorts-generator] normalizováno #${i + 1}: ${rel} (src ${meta.format ?? '?'} ${meta.width ?? '?'}×${meta.height ?? '?'})`,
@@ -262,13 +265,17 @@ export class ListingShortsFromPhotosService {
       '-i',
       ffconcatPath,
       '-vf',
-      `fps=${FPS},format=yuv420p`,
+      `scale=${SHORTS_WIDTH}:${SHORTS_HEIGHT}:force_original_aspect_ratio=increase,crop=${SHORTS_WIDTH}:${SHORTS_HEIGHT},fps=${FPS},format=yuv420p`,
       '-c:v',
       'libx264',
       '-preset',
       'veryfast',
-      '-crf',
-      '23',
+      '-b:v',
+      VIDEO_BITRATE,
+      '-maxrate',
+      '2500k',
+      '-bufsize',
+      '5000k',
       '-pix_fmt',
       'yuv420p',
       '-movflags',
@@ -408,8 +415,12 @@ export class ListingShortsFromPhotosService {
       'libx264',
       '-preset',
       'veryfast',
-      '-crf',
-      '23',
+      '-b:v',
+      VIDEO_BITRATE,
+      '-maxrate',
+      '2500k',
+      '-bufsize',
+      '5000k',
       '-pix_fmt',
       'yuv420p',
       '-movflags',

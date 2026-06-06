@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
+import { ShortsVideoFrame } from '@/components/tipar/shorts-video-frame';
+import { isValidTiparPhone, normalizeTiparPhone } from '@/lib/tipar-phone';
 import {
   nestApiConfigured,
   nestListActiveShortsMusicTracks,
   nestTipCreateMultipart,
   nestTipGenerateShortsFromPhotos,
+  nestTipUpdateMultipart,
   type ShortsMusicTrackDto,
   type TiparPostRow,
 } from '@/lib/nest-client';
@@ -15,13 +18,24 @@ const inputClass =
   'w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-[#ff6a00]/55 focus:ring-2 focus:ring-[#ff6a00]/15';
 const labelClass = 'mb-1.5 block text-sm font-medium text-zinc-800';
 
+type ImageItem = {
+  id: string;
+  previewUrl: string;
+  file?: File;
+  existingUrl?: string;
+};
+
 type Props = {
-  onCreated?: (post: TiparPostRow) => void;
+  editTip?: TiparPostRow | null;
+  focusShorts?: boolean;
+  onSaved?: (post: TiparPostRow) => void;
   onCancel?: () => void;
 };
 
-export function TipCreateForm({ onCreated, onCancel }: Props) {
+export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel }: Props) {
   const { apiAccessToken } = useAuth();
+  const isEdit = Boolean(editTip?.id);
+  const shortsSectionRef = useRef<HTMLDivElement | null>(null);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -35,25 +49,101 @@ export function TipCreateForm({ onCreated, onCancel }: Props) {
   const [contactUnlockPrice, setContactUnlockPrice] = useState('100');
   const [isShorts, setIsShorts] = useState(false);
 
-  const [imageFiles, setImageFiles] = useState<File[]>([]);
-  const [imagePreviews, setImagePreviews] = useState<
-    Array<{ id: string; file: File; previewUrl: string }>
-  >([]);
+  const [imageItems, setImageItems] = useState<ImageItem[]>([]);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState('');
+  const [generatedPreviewUrl, setGeneratedPreviewUrl] = useState<string | null>(null);
 
   const [shortsMusicTrackId, setShortsMusicTrackId] = useState('');
   const [shortsMusicTracks, setShortsMusicTracks] = useState<ShortsMusicTrackDto[]>([]);
   const [shortsMusicTracksLoading, setShortsMusicTracksLoading] = useState(false);
-  const shortsPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playingMusicId, setPlayingMusicId] = useState<string | null>(null);
   const [shortsTextOverlay, setShortsTextOverlay] = useState(true);
   const [shortsGenerating, setShortsGenerating] = useState(false);
   const [shortsError, setShortsError] = useState<string | null>(null);
-  const [shortsSuccess, setShortsSuccess] = useState<string | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const stopMusic = useCallback(() => {
+    const el = audioRef.current;
+    if (el) {
+      el.pause();
+      el.currentTime = 0;
+    }
+    setPlayingMusicId(null);
+  }, []);
+
+  const playMusic = useCallback(
+    (track: ShortsMusicTrackDto) => {
+      const el = audioRef.current;
+      if (!el || !track.fileUrl) return;
+      stopMusic();
+      el.src = track.fileUrl;
+      void el.play()
+        .then(() => setPlayingMusicId(track.id))
+        .catch(() => setPlayingMusicId(null));
+    },
+    [stopMusic],
+  );
+
+  const toggleMusic = useCallback(
+    (track: ShortsMusicTrackDto) => {
+      if (playingMusicId === track.id) {
+        stopMusic();
+        return;
+      }
+      playMusic(track);
+    },
+    [playMusic, playingMusicId, stopMusic],
+  );
+
+  useEffect(() => {
+    return () => {
+      stopMusic();
+      for (const item of imageItems) {
+        if (item.file && item.previewUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(item.previewUrl);
+        }
+      }
+      if (videoPreviewUrl?.startsWith('blob:')) URL.revokeObjectURL(videoPreviewUrl);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!editTip) return;
+    setTitle(editTip.title);
+    setDescription(editTip.description);
+    setCity(editTip.city);
+    setPropertyPrice(editTip.propertyPrice != null ? String(editTip.propertyPrice) : '');
+    setSourceUrl(editTip.sourceUrl ?? '');
+    setOwnerNote(editTip.ownerNote ?? '');
+    setContactName(editTip.contact?.contactName ?? '');
+    setContactPhone(editTip.contact?.contactPhone ?? '');
+    setContactEmail(editTip.contact?.contactEmail ?? '');
+    setContactUnlockPrice(String(editTip.contactUnlockPrice ?? 100));
+    setIsShorts(editTip.isShorts);
+    setVideoUrl(editTip.videoUrl ?? '');
+    setGeneratedPreviewUrl(editTip.generatedVideoUrl ?? null);
+    setShortsMusicTrackId(editTip.selectedMusicId ?? '');
+    setImageItems(
+      (editTip.images ?? []).map((url) => ({
+        id: `existing-${url}`,
+        previewUrl: url,
+        existingUrl: url,
+      })),
+    );
+  }, [editTip]);
+
+  useEffect(() => {
+    if (focusShorts && shortsSectionRef.current) {
+      shortsSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setIsShorts(true);
+    }
+  }, [focusShorts, editTip?.id]);
 
   useEffect(() => {
     if (!nestApiConfigured() || !apiAccessToken) {
@@ -73,31 +163,26 @@ export function TipCreateForm({ onCreated, onCancel }: Props) {
     };
   }, [apiAccessToken]);
 
-  const onPickImageFiles = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const list = e.target.files;
-      if (!list?.length) return;
-      const picked = Array.from(list).filter((f) => f.type.startsWith('image/'));
-      if (picked.length === 0) return;
-      const merged = [...imageFiles, ...picked].slice(0, 30);
-      setImageFiles(merged);
-      setImagePreviews((prev) => {
-        const next = [...prev];
-        for (const file of picked) {
-          if (next.length >= 30) break;
-          next.push({
-            id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            file,
-            previewUrl: URL.createObjectURL(file),
-          });
-        }
-        return next;
-      });
-      setError(null);
-      e.target.value = '';
-    },
-    [imageFiles],
-  );
+  const onPickImageFiles = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const list = e.target.files;
+    if (!list?.length) return;
+    const picked = Array.from(list).filter((f) => f.type.startsWith('image/'));
+    if (picked.length === 0) return;
+    setImageItems((prev) => {
+      const next = [...prev];
+      for (const file of picked) {
+        if (next.length >= 30) break;
+        next.push({
+          id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          file,
+          previewUrl: URL.createObjectURL(file),
+        });
+      }
+      return next;
+    });
+    setError(null);
+    e.target.value = '';
+  }, []);
 
   const onPickVideoFile = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -107,55 +192,30 @@ export function TipCreateForm({ onCreated, onCancel }: Props) {
         setError('Vyberte prosím video soubor.');
         return;
       }
-      if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+      if (videoPreviewUrl?.startsWith('blob:')) URL.revokeObjectURL(videoPreviewUrl);
       setVideoFile(file);
       setVideoPreviewUrl(URL.createObjectURL(file));
       setVideoUrl('');
-      setShortsSuccess(null);
+      setGeneratedPreviewUrl(null);
       setError(null);
       e.target.value = '';
     },
     [videoPreviewUrl],
   );
 
-  const moveImageLeft = useCallback((index: number) => {
-    if (index <= 0) return;
-    setImageFiles((prev) => {
+  const moveImage = useCallback((index: number, dir: -1 | 1) => {
+    setImageItems((prev) => {
+      const target = index + dir;
+      if (target < 0 || target >= prev.length) return prev;
       const next = [...prev];
-      [next[index - 1], next[index]] = [next[index], next[index - 1]];
-      return next;
-    });
-    setImagePreviews((prev) => {
-      const next = [...prev];
-      [next[index - 1], next[index]] = [next[index], next[index - 1]];
-      return next;
-    });
-  }, []);
-
-  const moveImageRight = useCallback((index: number) => {
-    setImageFiles((prev) => {
-      if (index >= prev.length - 1) return prev;
-      const next = [...prev];
-      [next[index], next[index + 1]] = [next[index + 1], next[index]];
-      return next;
-    });
-    setImagePreviews((prev) => {
-      if (index >= prev.length - 1) return prev;
-      const next = [...prev];
-      [next[index], next[index + 1]] = [next[index + 1], next[index]];
+      [next[index], next[target]] = [next[target], next[index]];
       return next;
     });
   }, []);
 
   const setAsMainImage = useCallback((index: number) => {
     if (index <= 0) return;
-    setImageFiles((prev) => {
-      const next = [...prev];
-      const [item] = next.splice(index, 1);
-      next.unshift(item);
-      return next;
-    });
-    setImagePreviews((prev) => {
+    setImageItems((prev) => {
       const next = [...prev];
       const [item] = next.splice(index, 1);
       next.unshift(item);
@@ -164,22 +224,37 @@ export function TipCreateForm({ onCreated, onCancel }: Props) {
   }, []);
 
   const removeImage = useCallback((index: number) => {
-    setImageFiles((prev) => prev.filter((_, i) => i !== index));
-    setImagePreviews((prev) => {
+    setImageItems((prev) => {
       const target = prev[index];
-      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      if (target?.file && target.previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(target.previewUrl);
+      }
       return prev.filter((_, i) => i !== index);
     });
   }, []);
 
+  const collectImageFilesForShorts = useCallback(async (): Promise<File[]> => {
+    const files: File[] = [];
+    for (const item of imageItems) {
+      if (item.file) {
+        files.push(item.file);
+      } else if (item.existingUrl) {
+        const res = await fetch(item.existingUrl);
+        const blob = await res.blob();
+        files.push(new File([blob], 'photo.jpg', { type: blob.type || 'image/jpeg' }));
+      }
+    }
+    return files;
+  }, [imageItems]);
+
   const generateShortsFromPhotos = useCallback(async () => {
     setShortsError(null);
-    setShortsSuccess(null);
+    stopMusic();
     if (!nestApiConfigured() || !apiAccessToken) {
       setShortsError('Přihlaste se a nastavte NEXT_PUBLIC_API_URL.');
       return;
     }
-    if (imagePreviews.length < 2) {
+    if (imageItems.length < 2) {
       setShortsError('Přidejte alespoň dvě fotky.');
       return;
     }
@@ -200,13 +275,13 @@ export function TipCreateForm({ onCreated, onCancel }: Props) {
     fd.append('currency', 'CZK');
     if (shortsMusicTrackId.trim()) {
       fd.append('musicTrackId', shortsMusicTrackId.trim());
-      fd.append('musicKey', 'none');
-    } else {
-      fd.append('musicKey', 'none');
     }
+    fd.append('musicKey', 'none');
     fd.append('includeTextOverlay', String(shortsTextOverlay));
-    for (const img of imagePreviews) {
-      fd.append('images', img.file);
+
+    const imageFiles = await collectImageFilesForShorts();
+    for (const f of imageFiles) {
+      fd.append('images', f);
     }
 
     setShortsGenerating(true);
@@ -216,43 +291,74 @@ export function TipCreateForm({ onCreated, onCancel }: Props) {
       setShortsError(r.error ?? 'Generování selhalo.');
       return;
     }
-    if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+    if (videoPreviewUrl?.startsWith('blob:')) URL.revokeObjectURL(videoPreviewUrl);
     setVideoFile(null);
     setVideoPreviewUrl(null);
-    setVideoUrl(r.videoUrl);
+    setGeneratedPreviewUrl(r.videoUrl);
     setIsShorts(true);
-    setShortsSuccess('Shorts video je hotové. Po publikování se tip zobrazí ve Shorts feedu.');
   }, [
     apiAccessToken,
     city,
-    imagePreviews,
+    collectImageFilesForShorts,
+    imageItems.length,
     propertyPrice,
     shortsMusicTrackId,
     shortsTextOverlay,
+    stopMusic,
     title,
     videoPreviewUrl,
   ]);
 
-  function resetMedia() {
-    for (const p of imagePreviews) {
-      URL.revokeObjectURL(p.previewUrl);
+  function useGeneratedVideo() {
+    if (!generatedPreviewUrl) return;
+    setVideoUrl(generatedPreviewUrl);
+    setIsShorts(true);
+    setGeneratedPreviewUrl(null);
+  }
+
+  function buildFormData(): FormData {
+    const fd = new FormData();
+    fd.append('title', title.trim());
+    fd.append('description', description.trim());
+    fd.append('city', city.trim());
+    if (propertyPrice.trim()) fd.append('propertyPrice', propertyPrice.trim());
+    if (sourceUrl.trim()) fd.append('sourceUrl', sourceUrl.trim());
+    if (ownerNote.trim()) fd.append('ownerNote', ownerNote.trim());
+    fd.append('contactName', contactName.trim());
+    fd.append('contactPhone', normalizeTiparPhone(contactPhone));
+    fd.append('contactEmail', contactEmail.trim());
+    fd.append('contactUnlockPrice', contactUnlockPrice.trim() || '100');
+    fd.append('isShorts', String(isShorts));
+    if (shortsMusicTrackId.trim()) fd.append('musicTrackId', shortsMusicTrackId.trim());
+    if (videoUrl.trim()) fd.append('videoUrl', videoUrl.trim());
+    if (generatedPreviewUrl) {
+      fd.append('generatedVideoUrl', generatedPreviewUrl);
+      fd.append('isGeneratedVideo', 'true');
     }
-    setImagePreviews([]);
-    setImageFiles([]);
-    if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
-    setVideoPreviewUrl(null);
-    setVideoFile(null);
-    setVideoUrl('');
-    setShortsSuccess(null);
-    setShortsError(null);
+    if (videoFile) fd.append('video', videoFile);
+
+    const slots = imageItems.map((img) =>
+      img.existingUrl ? `existing:${img.existingUrl}` : `new:${img.id}`,
+    );
+    if (isEdit) {
+      fd.append('imageSlots', JSON.stringify(slots));
+    }
+    imageItems.forEach((img, index) => {
+      if (img.file) {
+        fd.append('images', img.file);
+        fd.append('imageOrder', String(index + 1));
+      }
+    });
+    return fd;
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    stopMusic();
 
     if (!nestApiConfigured() || !apiAccessToken) {
-      setError('Přihlaste se pro vytvoření tipu.');
+      setError('Přihlaste se pro uložení tipu.');
       return;
     }
 
@@ -262,65 +368,50 @@ export function TipCreateForm({ onCreated, onCancel }: Props) {
       setError('Vyplňte název a popis tipu.');
       return;
     }
+    if (!isValidTiparPhone(contactPhone)) {
+      setError('Telefonní kontakt je povinný.');
+      return;
+    }
 
-    const hasVideo = Boolean(videoFile || videoUrl.trim());
-    if (isShorts && !hasVideo) {
+    const activeVideo = videoFile || videoUrl.trim() || generatedPreviewUrl;
+    if (isShorts && !activeVideo) {
       setError('Shorts tip vyžaduje nahrané nebo vygenerované video.');
       return;
     }
-    if (!isShorts && imagePreviews.length === 0) {
+    if (!isShorts && imageItems.length === 0) {
       setError('Přidejte alespoň jednu fotku.');
       return;
     }
 
-    const fd = new FormData();
-    fd.append('title', t);
-    fd.append('description', d);
-    fd.append('city', city.trim());
-    if (propertyPrice.trim()) fd.append('propertyPrice', propertyPrice.trim());
-    if (sourceUrl.trim()) fd.append('sourceUrl', sourceUrl.trim());
-    if (ownerNote.trim()) fd.append('ownerNote', ownerNote.trim());
-    fd.append('contactName', contactName.trim());
-    fd.append('contactPhone', contactPhone.trim());
-    fd.append('contactEmail', contactEmail.trim());
-    fd.append('contactUnlockPrice', contactUnlockPrice.trim() || '100');
-    fd.append('isShorts', String(isShorts));
-    if (videoUrl.trim()) fd.append('videoUrl', videoUrl.trim());
-    if (videoFile) fd.append('video', videoFile);
+    if (generatedPreviewUrl && !videoUrl.trim()) {
+      setVideoUrl(generatedPreviewUrl);
+    }
 
-    imagePreviews.forEach((img, index) => {
-      fd.append('images', img.file);
-      fd.append('imageOrder', String(index + 1));
-    });
-
+    const fd = buildFormData();
     setSubmitting(true);
-    const r = await nestTipCreateMultipart(apiAccessToken, fd);
+    const r = isEdit && editTip
+      ? await nestTipUpdateMultipart(apiAccessToken, editTip.id, fd)
+      : await nestTipCreateMultipart(apiAccessToken, fd);
     setSubmitting(false);
     if (!r.ok) {
       setError(r.error ?? 'Uložení tipu selhalo.');
       return;
     }
-
-    resetMedia();
-    setTitle('');
-    setDescription('');
-    setCity('');
-    setPropertyPrice('');
-    setSourceUrl('');
-    setOwnerNote('');
-    setContactName('');
-    setContactPhone('');
-    setContactEmail('');
-    setContactUnlockPrice('100');
-    setIsShorts(false);
-    if (r.data) onCreated?.(r.data);
+    onSaved?.(r.data);
   }
+
+  const displayVideoUrl =
+    generatedPreviewUrl || videoPreviewUrl || (videoUrl.trim() ? videoUrl : null);
 
   return (
     <form
       onSubmit={(e) => void handleSubmit(e)}
       className="mx-auto w-full max-w-2xl space-y-6 rounded-2xl border border-zinc-200 bg-white p-4 sm:p-6"
     >
+      <h2 className="text-lg font-semibold text-zinc-900">
+        {isEdit ? 'Upravit tip' : 'Nový tip na nemovitost'}
+      </h2>
+
       {error ? (
         <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
@@ -338,7 +429,6 @@ export function TipCreateForm({ onCreated, onCancel }: Props) {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             className={inputClass}
-            placeholder="Zajímavý byt v centru…"
           />
         </div>
         <div>
@@ -352,250 +442,159 @@ export function TipCreateForm({ onCreated, onCancel }: Props) {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             className={`${inputClass} resize-y`}
-            placeholder="Proč je nemovitost zajímavá…"
           />
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <label className={labelClass} htmlFor="tip-city">
-              Lokalita
-            </label>
-            <input
-              id="tip-city"
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              className={inputClass}
-              placeholder="Praha 5"
-            />
-          </div>
-          <div>
-            <label className={labelClass} htmlFor="tip-price">
-              Cena nemovitosti (Kč)
-            </label>
-            <input
-              id="tip-price"
-              type="number"
-              min={0}
-              value={propertyPrice}
-              onChange={(e) => setPropertyPrice(e.target.value)}
-              className={inputClass}
-            />
-          </div>
+          <input
+            placeholder="Lokalita"
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            className={inputClass}
+          />
+          <input
+            placeholder="Cena nemovitosti (Kč)"
+            type="number"
+            min={0}
+            value={propertyPrice}
+            onChange={(e) => setPropertyPrice(e.target.value)}
+            className={inputClass}
+          />
         </div>
       </div>
 
       <fieldset className="space-y-3 rounded-xl border border-zinc-100 bg-zinc-50/50 p-4">
         <legend className="px-1 text-sm font-semibold text-zinc-900">Fotky a video</legend>
-
-        <div>
-          <p className="mb-2 text-xs text-zinc-600">
-            Nahrát fotky (min. 1, max 30). První fotka = hlavní náhled.
-          </p>
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif,image/*"
-            multiple
-            capture="environment"
-            onChange={onPickImageFiles}
-            className="block w-full text-sm text-zinc-600 file:mr-3 file:rounded-lg file:border-0 file:bg-[#e85d00] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white"
-          />
-        </div>
-
-        {imagePreviews.length > 0 ? (
-          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3">
-            {imagePreviews.map((img, index) => (
+        <input
+          type="file"
+          accept="image/*"
+          multiple
+          capture="environment"
+          onChange={onPickImageFiles}
+          className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-[#e85d00] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white"
+        />
+        {imageItems.length > 0 ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {imageItems.map((img, index) => (
               <div key={img.id} className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
-                <div className="relative">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={img.previewUrl} alt="" className="h-28 w-full object-cover sm:h-32" />
-                  <span className="absolute left-1.5 top-1.5 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-semibold text-white">
-                    {index === 0 ? 'Hlavní' : index + 1}
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-center gap-1 p-1.5">
-                  <button type="button" onClick={() => moveImageLeft(index)} className="rounded border px-1.5 py-0.5 text-[10px]">
-                    ←
-                  </button>
-                  <button type="button" onClick={() => moveImageRight(index)} className="rounded border px-1.5 py-0.5 text-[10px]">
-                    →
-                  </button>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={img.previewUrl} alt="" className="h-28 w-full object-cover sm:h-32" />
+                <div className="flex flex-wrap gap-1 p-1.5">
+                  <button type="button" onClick={() => moveImage(index, -1)} className="rounded border px-1.5 py-0.5 text-[10px]">←</button>
+                  <button type="button" onClick={() => moveImage(index, 1)} className="rounded border px-1.5 py-0.5 text-[10px]">→</button>
                   {index > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => setAsMainImage(index)}
-                      className="rounded border border-[#e85d00]/40 px-1.5 py-0.5 text-[10px] text-[#e85d00]"
-                    >
-                      Hlavní
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => removeImage(index)}
-                    className="ml-auto rounded border border-red-200 px-1.5 py-0.5 text-[10px] text-red-600"
-                  >
-                    Smazat
-                  </button>
+                    <button type="button" onClick={() => setAsMainImage(index)} className="rounded border border-[#e85d00]/40 px-1.5 py-0.5 text-[10px] text-[#e85d00]">Hlavní</button>
+                  ) : (
+                    <span className="rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white">Hlavní</span>
+                  )}
+                  <button type="button" onClick={() => removeImage(index)} className="ml-auto rounded border border-red-200 px-1.5 py-0.5 text-[10px] text-red-600">Smazat</button>
                 </div>
               </div>
             ))}
           </div>
-        ) : (
-          <p className="text-xs text-zinc-500">Zatím žádné fotky.</p>
-        )}
-
-        <div>
-          <p className="mb-2 text-xs text-zinc-600">Nahrát video (volitelné, max 1)</p>
-          <input
-            type="file"
-            accept="video/*"
-            capture="environment"
-            onChange={onPickVideoFile}
-            className="block w-full text-sm text-zinc-600 file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-800 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white"
-          />
-        </div>
-
-        {videoPreviewUrl ? (
-          <video src={videoPreviewUrl} controls playsInline className="w-full rounded-xl bg-black" />
         ) : null}
-        {videoUrl && !videoPreviewUrl ? (
-          <video src={videoUrl} controls playsInline className="w-full rounded-xl bg-black" />
+        <input type="file" accept="video/*" capture="environment" onChange={onPickVideoFile} className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-800 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white" />
+        {displayVideoUrl && !generatedPreviewUrl ? (
+          <ShortsVideoFrame src={displayVideoUrl} />
         ) : null}
+      </fieldset>
 
-        {imagePreviews.length >= 2 ? (
-          <div className="rounded-xl border border-[#e85d00]/30 bg-orange-50/60 p-3">
-            <p className="text-sm font-semibold text-zinc-900">Vytvořit Shorts video z fotek</p>
-            <p className="mt-1 text-xs text-zinc-600">
-              Vertikální video 9:16 s přechody a volitelnou hudbou z knihovny.
-            </p>
-            <div className="mt-3">
-              <label className={labelClass} htmlFor="tip-shorts-music">
-                Hudba
-              </label>
-              <select
-                id="tip-shorts-music"
-                value={shortsMusicTrackId}
-                onChange={(e) => setShortsMusicTrackId(e.target.value)}
-                disabled={shortsGenerating || shortsMusicTracksLoading}
-                className={inputClass}
-              >
-                <option value="">Bez hudby</option>
-                {shortsMusicTracks.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.title}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                disabled={!shortsMusicTrackId || shortsGenerating}
-                onClick={() => {
-                  const t = shortsMusicTracks.find((x) => x.id === shortsMusicTrackId);
-                  const el = shortsPreviewAudioRef.current;
-                  if (!t?.fileUrl || !el) return;
-                  el.src = t.fileUrl;
-                  void el.play().catch(() => undefined);
-                }}
-                className="mt-2 rounded-lg border bg-white px-3 py-1 text-xs font-semibold"
-              >
-                Přehrát ukázku
-              </button>
-              <audio ref={shortsPreviewAudioRef} className="hidden" />
+      <div ref={shortsSectionRef} className="space-y-3 rounded-xl border border-[#e85d00]/25 bg-orange-50/40 p-4">
+        <p className="text-sm font-semibold">Shorts video z fotek</p>
+        {imageItems.length >= 2 ? (
+          <>
+            <div className="space-y-2">
+              {shortsMusicTracks.map((track) => (
+                <div key={track.id} className="flex items-center justify-between gap-2 rounded-lg border bg-white px-3 py-2">
+                  <span className="truncate text-sm">{track.title}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShortsMusicTrackId(track.id);
+                      toggleMusic(track);
+                    }}
+                    className="shrink-0 rounded-full border px-3 py-1 text-xs font-semibold"
+                  >
+                    {playingMusicId === track.id ? 'Zastavit' : 'Přehrát'}
+                  </button>
+                </div>
+              ))}
+              {shortsMusicTracksLoading ? <p className="text-xs text-zinc-500">Načítám hudbu…</p> : null}
             </div>
-            <label className="mt-2 flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
-                checked={shortsTextOverlay}
-                onChange={(e) => setShortsTextOverlay(e.target.checked)}
-              />
+            <audio ref={audioRef} className="hidden" onEnded={() => setPlayingMusicId(null)} />
+            <label className="flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={shortsTextOverlay} onChange={(e) => setShortsTextOverlay(e.target.checked)} />
               Text s názvem, lokalitou a cenou
             </label>
-            {shortsError ? <p className="mt-2 text-xs text-red-600">{shortsError}</p> : null}
-            {shortsSuccess ? <p className="mt-2 text-xs text-emerald-700">{shortsSuccess}</p> : null}
+            {shortsError ? <p className="text-xs text-red-600">{shortsError}</p> : null}
             <button
               type="button"
               disabled={shortsGenerating}
               onClick={() => void generateShortsFromPhotos()}
-              className="mt-3 rounded-full bg-[#e85d00] px-4 py-2 text-xs font-semibold text-white disabled:opacity-60"
+              className="rounded-full bg-[#e85d00] px-4 py-2 text-xs font-semibold text-white disabled:opacity-60"
             >
               {shortsGenerating ? 'Generuji video…' : 'Vygenerovat Shorts video'}
             </button>
+          </>
+        ) : (
+          <p className="text-xs text-zinc-600">Pro generování Shorts přidejte alespoň 2 fotky.</p>
+        )}
+
+        {generatedPreviewUrl ? (
+          <div className="mt-4 space-y-3 rounded-xl border border-zinc-200 bg-white p-3">
+            <p className="text-sm font-semibold">Náhled Shorts videa</p>
+            <ShortsVideoFrame src={generatedPreviewUrl} />
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={useGeneratedVideo} className="rounded-full bg-[#e85d00] px-4 py-2 text-xs font-semibold text-white">
+                Použít video
+              </button>
+              <button type="button" onClick={() => void generateShortsFromPhotos()} className="rounded-full border px-4 py-2 text-xs font-semibold">
+                Přegenerovat
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setGeneratedPreviewUrl(null);
+                  shortsSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
+                }}
+                className="rounded-full border px-4 py-2 text-xs font-semibold"
+              >
+                Vybrat jinou hudbu
+              </button>
+            </div>
           </div>
         ) : null}
-      </fieldset>
+      </div>
 
       <div className="space-y-3">
-        <input
-          placeholder="Odkaz na zdroj (volitelné)"
-          value={sourceUrl}
-          onChange={(e) => setSourceUrl(e.target.value)}
-          className={inputClass}
-        />
-        <textarea
-          placeholder="Vlastní poznámka (volitelné)"
-          rows={2}
-          value={ownerNote}
-          onChange={(e) => setOwnerNote(e.target.value)}
-          className={inputClass}
-        />
+        <input placeholder="Odkaz na zdroj" value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} className={inputClass} />
+        <textarea placeholder="Vlastní poznámka" rows={2} value={ownerNote} onChange={(e) => setOwnerNote(e.target.value)} className={inputClass} />
         <div className="grid gap-3 sm:grid-cols-3">
+          <input placeholder="Kontakt — jméno" value={contactName} onChange={(e) => setContactName(e.target.value)} className={inputClass} />
           <input
-            placeholder="Kontakt — jméno"
-            value={contactName}
-            onChange={(e) => setContactName(e.target.value)}
-            className={inputClass}
-          />
-          <input
-            placeholder="Telefon"
+            placeholder="Telefon *"
+            required
             value={contactPhone}
             onChange={(e) => setContactPhone(e.target.value)}
             className={inputClass}
           />
-          <input
-            placeholder="E-mail"
-            value={contactEmail}
-            onChange={(e) => setContactEmail(e.target.value)}
-            className={inputClass}
-          />
+          <input placeholder="E-mail" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} className={inputClass} />
         </div>
-        <input
-          placeholder="Cena za odemčení kontaktu (Kč)"
-          type="number"
-          min={0}
-          value={contactUnlockPrice}
-          onChange={(e) => setContactUnlockPrice(e.target.value)}
-          className={inputClass}
-        />
+        <input type="number" min={0} placeholder="Cena za odemčení kontaktu (Kč)" value={contactUnlockPrice} onChange={(e) => setContactUnlockPrice(e.target.value)} className={inputClass} />
         <label className="flex items-start gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={isShorts}
-            onChange={(e) => setIsShorts(e.target.checked)}
-            className="mt-1"
-          />
+          <input type="checkbox" checked={isShorts} onChange={(e) => setIsShorts(e.target.checked)} className="mt-1" />
           <span>
             <strong>Zobrazit jako Shorts tip na nemovitost</strong>
-            <span className="mt-0.5 block text-xs text-zinc-500">
-              Ve Shorts feedu; kontakt zůstane zamčený za kredit. Vyžaduje video nebo vygenerované
-              video z fotek.
-            </span>
+            <span className="mt-0.5 block text-xs text-zinc-500">Vyžaduje video nebo vygenerované video z fotek.</span>
           </span>
         </label>
       </div>
 
       <div className="flex flex-wrap gap-3">
-        <button
-          type="submit"
-          disabled={submitting}
-          className="rounded-full bg-[#e85d00] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-        >
-          {submitting ? 'Publikuji…' : 'Publikovat tip'}
+        <button type="submit" disabled={submitting} className="rounded-full bg-[#e85d00] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
+          {submitting ? 'Ukládám…' : isEdit ? 'Uložit změny' : 'Publikovat tip'}
         </button>
         {onCancel ? (
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-full border border-zinc-200 px-5 py-2.5 text-sm font-semibold text-zinc-700"
-          >
+          <button type="button" onClick={() => { stopMusic(); onCancel(); }} className="rounded-full border border-zinc-200 px-5 py-2.5 text-sm font-semibold text-zinc-700">
             Zavřít
           </button>
         ) : null}

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
+import { ShortsVideoFrame } from '@/components/tipar/shorts-video-frame';
 import {
   nestFetchMe,
   nestTiparGetPost,
@@ -74,12 +75,7 @@ export default function TiparDetailPage() {
       </Link>
       <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
         {post.videoUrl ? (
-          <video
-            src={post.videoUrl}
-            controls
-            playsInline
-            className="aspect-[9/16] max-h-[70vh] w-full bg-black object-contain sm:max-h-[520px]"
-          />
+          <ShortsVideoFrame src={post.videoUrl} className="max-md:rounded-none" />
         ) : heroImage ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={heroImage} alt="" className="aspect-[4/3] w-full object-cover" />
