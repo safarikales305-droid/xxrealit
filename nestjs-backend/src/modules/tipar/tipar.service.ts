@@ -101,9 +101,9 @@ export class TiparService {
     }
 
     const musicTrackId = parseMultipartStr(body.musicTrackId).trim() || null;
+    const isGeneratedVideo = parseMultipartBool(body.isGeneratedVideo);
     const generatedVideoUrl =
-      generatedFromBody ||
-      (parseMultipartBool(body.isGeneratedVideo) ? videoUrl : null);
+      generatedFromBody || (isGeneratedVideo && videoUrl ? videoUrl : null);
 
     return this.persistNewPost(userId, {
       title: parseMultipartStr(body.title),
@@ -147,14 +147,18 @@ export class TiparService {
     const generatedFromBody =
       body.generatedVideoUrl !== undefined
         ? parseMultipartStr(body.generatedVideoUrl).trim() || null
-        : null;
+        : undefined;
     let videoUrl =
       body.videoUrl !== undefined
         ? parseMultipartStr(body.videoUrl).trim() || null
         : existing.videoUrl;
-    const generatedVideoUrl =
-      generatedFromBody ??
-      (body.generatedVideoUrl === null ? null : existing.generatedVideoUrl);
+    const isGeneratedVideo = parseMultipartBool(body.isGeneratedVideo);
+    let generatedVideoUrl =
+      generatedFromBody !== undefined
+        ? generatedFromBody || (isGeneratedVideo && videoUrl ? videoUrl : null)
+        : isGeneratedVideo && videoUrl
+          ? videoUrl
+          : existing.generatedVideoUrl;
     const musicTrackId =
       body.musicTrackId !== undefined
         ? parseMultipartStr(body.musicTrackId).trim() || null
@@ -189,7 +193,10 @@ export class TiparService {
         ...(imageUrls.length > 0 || body.imageSlots !== undefined
           ? { images: finalImages, mainImage: galleryMainImage(finalImages) }
           : {}),
-        ...(body.videoUrl !== undefined || body.generatedVideoUrl !== undefined || files.videoFile
+        ...(body.videoUrl !== undefined ||
+        body.generatedVideoUrl !== undefined ||
+        isGeneratedVideo ||
+        files.videoFile
           ? { videoUrl, generatedVideoUrl: generatedVideoUrl ?? videoUrl }
           : {}),
         ...(body.musicTrackId !== undefined ? { selectedMusicId: musicTrackId } : {}),

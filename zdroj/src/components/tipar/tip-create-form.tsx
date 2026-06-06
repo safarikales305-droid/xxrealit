@@ -53,7 +53,9 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState('');
+  const [generatedVideoUrl, setGeneratedVideoUrl] = useState('');
   const [generatedPreviewUrl, setGeneratedPreviewUrl] = useState<string | null>(null);
+  const [isGeneratedVideoUsed, setIsGeneratedVideoUsed] = useState(false);
 
   const [shortsMusicTrackId, setShortsMusicTrackId] = useState('');
   const [shortsMusicTracks, setShortsMusicTracks] = useState<ShortsMusicTrackDto[]>([]);
@@ -128,7 +130,10 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
     setContactUnlockPrice(String(editTip.contactUnlockPrice ?? 100));
     setIsShorts(editTip.isShorts);
     setVideoUrl(editTip.videoUrl ?? '');
-    setGeneratedPreviewUrl(editTip.generatedVideoUrl ?? null);
+    const existingGenerated = editTip.generatedVideoUrl ?? '';
+    setGeneratedVideoUrl(existingGenerated);
+    setGeneratedPreviewUrl(null);
+    setIsGeneratedVideoUsed(Boolean(editTip.videoUrl && existingGenerated));
     setShortsMusicTrackId(editTip.selectedMusicId ?? '');
     setImageItems(
       (editTip.images ?? []).map((url) => ({
@@ -197,7 +202,9 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
       setVideoFile(file);
       setVideoPreviewUrl(URL.createObjectURL(file));
       setVideoUrl('');
+      setGeneratedVideoUrl('');
       setGeneratedPreviewUrl(null);
+      setIsGeneratedVideoUsed(false);
       setError(null);
       e.target.value = '';
     },
@@ -295,7 +302,9 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
     if (videoPreviewUrl?.startsWith('blob:')) URL.revokeObjectURL(videoPreviewUrl);
     setVideoFile(null);
     setVideoPreviewUrl(null);
+    setGeneratedVideoUrl(r.videoUrl);
     setGeneratedPreviewUrl(r.videoUrl);
+    setIsGeneratedVideoUsed(false);
     setIsShorts(true);
   }, [
     apiAccessToken,
@@ -311,18 +320,69 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
   ]);
 
   function useGeneratedVideo() {
-    if (!generatedPreviewUrl) return;
-    setVideoUrl(generatedPreviewUrl);
+    const url = (generatedPreviewUrl || generatedVideoUrl).trim();
+    if (!url) return;
+    setGeneratedVideoUrl(url);
+    setVideoUrl(url);
+    setIsGeneratedVideoUsed(true);
     setIsShorts(true);
     setGeneratedPreviewUrl(null);
+    setError(null);
+    setShortsError(null);
   }
 
-  function buildFormData(opts: { resolvedVideoUrl: string; effectiveIsShorts: boolean }): FormData {
+  function formDataToDebugPayload(fd: FormData): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of fd.entries()) {
+      if (value instanceof File) {
+        const prev = out[key];
+        const label = `[File ${value.name} ${value.size}b]`;
+        out[key] = prev ? (Array.isArray(prev) ? [...prev, label] : [prev, label]) : label;
+      } else {
+        const prev = out[key];
+        out[key] = prev ? (Array.isArray(prev) ? [...prev, value] : [prev, value]) : value;
+      }
+    }
+    return out;
+  }
+
+  function resetFormState() {
+    stopMusic();
+    setTitle('');
+    setDescription('');
+    setCity('');
+    setPropertyPrice('');
+    setSourceUrl('');
+    setOwnerNote('');
+    setContactName('');
+    setContactPhone('');
+    setContactEmail('');
+    setContactUnlockPrice('100');
+    setIsShorts(false);
+    setImageItems([]);
+    setVideoFile(null);
+    setVideoPreviewUrl(null);
+    setVideoUrl('');
+    setGeneratedVideoUrl('');
+    setGeneratedPreviewUrl(null);
+    setIsGeneratedVideoUsed(false);
+    setShortsMusicTrackId('');
+    setShortsError(null);
+    setError(null);
+    setSuccessMessage(null);
+  }
+
+  function buildFormData(opts: {
+    resolvedVideoUrl: string;
+    resolvedGeneratedVideoUrl: string;
+    effectiveIsShorts: boolean;
+    markGeneratedVideo: boolean;
+  }): FormData {
     const fd = new FormData();
     fd.append('title', title.trim());
     fd.append('description', description.trim());
     fd.append('city', city.trim());
-    if (propertyPrice.trim()) fd.append('propertyPrice', propertyPrice.trim());
+    fd.append('propertyPrice', propertyPrice.trim() || '0');
     if (sourceUrl.trim()) fd.append('sourceUrl', sourceUrl.trim());
     if (ownerNote.trim()) fd.append('ownerNote', ownerNote.trim());
     fd.append('contactName', contactName.trim());
@@ -333,10 +393,12 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
     if (shortsMusicTrackId.trim()) fd.append('musicTrackId', shortsMusicTrackId.trim());
     if (opts.resolvedVideoUrl) {
       fd.append('videoUrl', opts.resolvedVideoUrl);
-      if (generatedPreviewUrl && opts.resolvedVideoUrl === generatedPreviewUrl) {
-        fd.append('generatedVideoUrl', generatedPreviewUrl);
-        fd.append('isGeneratedVideo', 'true');
-      }
+    }
+    if (opts.resolvedGeneratedVideoUrl) {
+      fd.append('generatedVideoUrl', opts.resolvedGeneratedVideoUrl);
+    }
+    if (opts.markGeneratedVideo) {
+      fd.append('isGeneratedVideo', 'true');
     }
     if (videoFile) fd.append('video', videoFile);
 
@@ -377,10 +439,20 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
       return;
     }
 
-    const resolvedVideoUrl = videoFile ? '' : (videoUrl.trim() || generatedPreviewUrl || '');
-    const effectiveIsShorts = isShorts || Boolean(!videoFile && resolvedVideoUrl && generatedPreviewUrl);
+    const resolvedGeneratedVideoUrl = (
+      generatedVideoUrl.trim() ||
+      generatedPreviewUrl ||
+      (isGeneratedVideoUsed ? videoUrl.trim() : '')
+    ).trim();
+    const resolvedVideoUrl = videoFile
+      ? ''
+      : (videoUrl.trim() || generatedPreviewUrl || generatedVideoUrl.trim());
+    const effectiveIsShorts =
+      isShorts ||
+      isGeneratedVideoUsed ||
+      Boolean(!videoFile && (resolvedVideoUrl || resolvedGeneratedVideoUrl));
 
-    if (effectiveIsShorts && !videoFile && !resolvedVideoUrl) {
+    if (effectiveIsShorts && !videoFile && !resolvedVideoUrl && !resolvedGeneratedVideoUrl) {
       setError('Shorts tip vyžaduje nahrané nebo vygenerované video.');
       return;
     }
@@ -389,22 +461,42 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
       return;
     }
 
-    const fd = buildFormData({ resolvedVideoUrl, effectiveIsShorts });
+    const markGeneratedVideo = Boolean(
+      resolvedGeneratedVideoUrl &&
+        (isGeneratedVideoUsed || resolvedGeneratedVideoUrl === resolvedVideoUrl),
+    );
+    const fd = buildFormData({
+      resolvedVideoUrl: resolvedVideoUrl || resolvedGeneratedVideoUrl,
+      resolvedGeneratedVideoUrl,
+      effectiveIsShorts,
+      markGeneratedVideo,
+    });
+
+    const payload = formDataToDebugPayload(fd);
+    console.log('TIP SUBMIT PAYLOAD', payload);
+
     setSubmitting(true);
     const r = isEdit && editTip
       ? await nestTipUpdateMultipart(apiAccessToken, editTip.id, fd)
       : await nestTipCreateMultipart(apiAccessToken, fd);
     setSubmitting(false);
+
+    console.log('TIP API RESPONSE', r);
+
     if (!r.ok) {
       setError(r.error ?? 'Uložení tipu selhalo.');
       return;
     }
-    setSuccessMessage('Tip publikován');
+    setSuccessMessage('Tip byl publikován');
+    resetFormState();
     onSaved?.(r.data);
   }
 
   const displayVideoUrl =
-    generatedPreviewUrl || videoPreviewUrl || (videoUrl.trim() ? videoUrl : null);
+    generatedPreviewUrl ||
+    videoPreviewUrl ||
+    (videoUrl.trim() ? videoUrl : null) ||
+    (generatedVideoUrl.trim() ? generatedVideoUrl : null);
 
   return (
     <form
@@ -505,6 +597,11 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
         {displayVideoUrl && !generatedPreviewUrl ? (
           <ShortsVideoFrame src={displayVideoUrl} />
         ) : null}
+        {isGeneratedVideoUsed && videoUrl.trim() ? (
+          <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
+            Video je připravené k publikování
+          </p>
+        ) : null}
       </fieldset>
 
       <div ref={shortsSectionRef} className="space-y-3 rounded-xl border border-[#e85d00]/25 bg-orange-50/40 p-4">
@@ -598,6 +695,8 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
                 type="button"
                 onClick={() => {
                   setGeneratedPreviewUrl(null);
+                  setGeneratedVideoUrl('');
+                  setIsGeneratedVideoUsed(false);
                   shortsSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
                 }}
                 className="rounded-full border px-4 py-2 text-xs font-semibold"
