@@ -3,6 +3,8 @@ import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 
 export type PropertyOgMediaInput = {
   facebookShareImageUrl?: string | null;
+  /** Nastaveno až po úspěšném vygenerování statického JPG — bez něj použij fallback fotku. */
+  facebookShareImageAt?: Date | string | null;
   thumbnailUrl?: string | null;
   mainImage?: string | null;
   images?: string[];
@@ -171,8 +173,21 @@ export function appendOgImageCacheVersion(
   }
 }
 
-export function isFacebookShareImageReady(url: string | null | undefined): boolean {
-  return isValidPublicOgImageUrl(url);
+export function isFacebookShareImageReady(
+  url: string | null | undefined,
+  generatedAt?: Date | string | null,
+): boolean {
+  if (!isValidPublicOgImageUrl(url)) return false;
+  if (!generatedAt) return false;
+  if (generatedAt instanceof Date) return !Number.isNaN(generatedAt.getTime());
+  return Boolean(String(generatedAt).trim());
+}
+
+export function canUseFacebookShareOgImage(input: PropertyOgMediaInput): boolean {
+  return isFacebookShareImageReady(
+    input.facebookShareImageUrl,
+    input.facebookShareImageAt,
+  );
 }
 
 export const OG_IMAGE_PRIORITY_STEPS: Array<{
@@ -197,7 +212,7 @@ export function resolvePropertyOgImageWithSource(
   siteFallbackUrl = getPortalLogoFallbackUrl(),
 ): ResolvedOgImage {
   const fb = input.facebookShareImageUrl?.trim();
-  if (fb && isValidPublicOgImageUrl(fb)) {
+  if (fb && canUseFacebookShareOgImage(input)) {
     return {
       url: fb,
       source: 'facebookShareImage',

@@ -189,7 +189,7 @@ export function FacebookShortsShare({
           rel="noreferrer"
           className="font-semibold text-[#1877F2] hover:underline"
         >
-          obnovte náhled Facebook
+          aktualizujte náhled Facebook
         </a>
         .
       </p>

@@ -1,6 +1,7 @@
 export type OgMetaForShare = {
   isReadyForFacebook?: boolean;
   facebookShareImageUrl?: string | null;
+  facebookShareImageAt?: string | null;
   thumbnailUrl?: string | null;
   mainImage?: string | null;
   firstGalleryImage?: string | null;
@@ -18,8 +19,11 @@ function isPublicImageUrl(raw: string | null | undefined): boolean {
 /** Priorita: facebookShareImageUrl → thumbnail → main → galerie → videoThumbnail → selectedOg (logo až poslední). */
 export function pickFacebookShareImage(meta: OgMetaForShare | null): string | null {
   if (!meta) return null;
+  const fbReady =
+    Boolean(meta.isReadyForFacebook) ||
+    Boolean(meta.facebookShareImageUrl?.trim() && meta.facebookShareImageAt?.trim());
   const chain = [
-    meta.facebookShareImageUrl,
+    fbReady ? meta.facebookShareImageUrl : null,
     meta.thumbnailUrl,
     meta.mainImage,
     meta.firstGalleryImage,
@@ -39,8 +43,11 @@ export function pickFacebookShareImage(meta: OgMetaForShare | null): string | nu
 
 export function hasNonLogoFallbackImage(meta: OgMetaForShare | null): boolean {
   if (!meta) return false;
+  const fbReady =
+    Boolean(meta.isReadyForFacebook) ||
+    Boolean(meta.facebookShareImageUrl?.trim() && meta.facebookShareImageAt?.trim());
   const chain = [
-    meta.facebookShareImageUrl,
+    fbReady ? meta.facebookShareImageUrl : null,
     meta.thumbnailUrl,
     meta.mainImage,
     meta.firstGalleryImage,

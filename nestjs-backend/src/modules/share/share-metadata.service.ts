@@ -92,6 +92,7 @@ export class ShareMetadataService {
     const resolved = resolvePropertyOgImageWithSource(
       {
         facebookShareImageUrl: property.facebookShareImageUrl,
+        facebookShareImageAt: property.facebookShareImageAt,
         thumbnailUrl: property.thumbnailUrl,
         mainImage: property.mainImage,
         images: property.images,

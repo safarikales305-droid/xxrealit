@@ -995,8 +995,8 @@ export class ShortsListingService {
     );
 
     const publishedId = result.created.id;
-    void this.facebookShareImage
-      .ensureForProperty({
+    try {
+      const fbUrl = await this.facebookShareImage.ensureForProperty({
         id: publishedId,
         thumbnailUrl: ogMedia.thumbnailUrl,
         mainImage: ogMedia.mainImage,
@@ -1004,16 +1004,16 @@ export class ShortsListingService {
         generatedVideoThumbnail: ogMedia.generatedVideoThumbnail,
         videoUrl,
         force: true,
-      })
-      .then(async (fbUrl) => {
-        if (fbUrl) {
-          await this.prisma.property.update({
-            where: { id: publishedId },
-            data: { facebookShareImageUrl: fbUrl, facebookShareImageAt: new Date() },
-          });
-        }
-      })
-      .catch(() => undefined);
+      });
+      if (fbUrl) {
+        await this.prisma.property.update({
+          where: { id: publishedId },
+          data: { facebookShareImageUrl: fbUrl, facebookShareImageAt: new Date() },
+        });
+      }
+    } catch {
+      // Publikování neblokujeme — og:image použije fallback fotku.
+    }
 
     const full = result.full;
     if (!full) {

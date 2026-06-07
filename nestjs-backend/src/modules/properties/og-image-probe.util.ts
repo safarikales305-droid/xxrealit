@@ -4,6 +4,7 @@ import {
   type PropertyOgMediaInput,
   type ResolvedOgImage,
   OG_IMAGE_PRIORITY_STEPS,
+  canUseFacebookShareOgImage,
   getPortalLogoFallbackUrl,
   isPortalBrandingUrl,
   isValidPublicOgImageUrl,
@@ -125,7 +126,7 @@ export async function resolvePropertyOgImageBest(
   siteFallbackUrl = getPortalLogoFallbackUrl(),
 ): Promise<ResolvedOgImageWithProbe> {
   const fb = input.facebookShareImageUrl?.trim();
-  if (fb && isValidPublicOgImageUrl(fb)) {
+  if (fb && canUseFacebookShareOgImage(input)) {
     return {
       url: fb,
       source: 'facebookShareImage',

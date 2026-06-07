@@ -881,7 +881,7 @@ export class TiparService {
       });
     }
     if (propertyId) {
-      void this.propertiesService
+      await this.propertiesService
         .ensureFacebookShareImage(propertyId, true)
         .catch(() => undefined);
     }

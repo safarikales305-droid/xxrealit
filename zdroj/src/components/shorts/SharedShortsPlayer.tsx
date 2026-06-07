@@ -4,6 +4,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
+import {
+  isShortsSoundEnabled,
+  setShortsSoundEnabled,
+} from '@/lib/shorts-sound-preference';
 import type { PublicShortsListing } from '@/lib/shorts-listing-video';
 
 type Props = {
@@ -15,20 +19,14 @@ export function SharedShortsPlayer({ listing, detailHref }: Props) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [needsPlayButton, setNeedsPlayButton] = useState(false);
+  const [soundOn, setSoundOn] = useState(false);
   const [videoError, setVideoError] = useState(false);
 
   const videoSrc = listing.videoUrl ? nestAbsoluteAssetUrl(listing.videoUrl) : '';
   const imageSrc = listing.imageUrl ? nestAbsoluteAssetUrl(listing.imageUrl) : '';
   const showVideo = Boolean(videoSrc) && !videoError;
 
-  useEffect(() => {
-    // eslint-disable-next-line no-console
-    console.log('SHORTS DETAIL DATA', listing);
-    // eslint-disable-next-line no-console
-    console.log('SHORTS VIDEO URL', videoSrc);
-  }, [listing, videoSrc]);
-
-  const tryAutoplay = useCallback(() => {
+  const tryAutoplayMuted = useCallback(() => {
     const el = videoRef.current;
     if (!el || !videoSrc) return;
     el.muted = true;
@@ -37,10 +35,31 @@ export function SharedShortsPlayer({ listing, detailHref }: Props) {
       .catch(() => setNeedsPlayButton(true));
   }, [videoSrc]);
 
+  const tryEnableSound = useCallback(async () => {
+    const el = videoRef.current;
+    if (!el || !videoSrc) return false;
+    el.muted = false;
+    el.volume = 1;
+    try {
+      await el.play();
+      setSoundOn(true);
+      setNeedsPlayButton(false);
+      setShortsSoundEnabled(true);
+      return true;
+    } catch {
+      el.muted = true;
+      setSoundOn(false);
+      return false;
+    }
+  }, [videoSrc]);
+
   useEffect(() => {
     if (!showVideo) return;
-    tryAutoplay();
-  }, [showVideo, tryAutoplay]);
+    tryAutoplayMuted();
+    if (isShortsSoundEnabled()) {
+      void tryEnableSound();
+    }
+  }, [showVideo, tryAutoplayMuted, tryEnableSound]);
 
   function handleBack() {
     if (typeof window !== 'undefined' && window.history.length > 1) {
@@ -78,23 +97,34 @@ export function SharedShortsPlayer({ listing, detailHref }: Props) {
                 autoPlay
                 muted
                 playsInline
-                controls
-                preload="metadata"
+                loop
+                preload="auto"
                 className="h-full w-full object-cover"
-                onLoadedData={() => tryAutoplay()}
+                onLoadedData={() => tryAutoplayMuted()}
                 onError={() => setVideoError(true)}
               />
               {needsPlayButton ? (
-                <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/35">
+                <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/35">
                   <button
                     type="button"
                     onClick={() => {
                       setNeedsPlayButton(false);
-                      tryAutoplay();
+                      tryAutoplayMuted();
                     }}
                     className="rounded-full bg-orange-600 px-6 py-3 text-sm font-bold text-white shadow-lg hover:bg-orange-700"
                   >
                     Přehrát video
+                  </button>
+                </div>
+              ) : null}
+              {!soundOn ? (
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                  <button
+                    type="button"
+                    onClick={() => void tryEnableSound()}
+                    className="pointer-events-auto rounded-full border border-white/40 bg-black/65 px-5 py-3 text-base font-bold text-white shadow-lg backdrop-blur-sm transition hover:bg-black/80"
+                  >
+                    🔊 Zapnout zvuk
                   </button>
                 </div>
               ) : null}

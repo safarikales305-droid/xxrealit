@@ -175,7 +175,10 @@ export function resolveListingOgImage(listing: ListingOgInput): ResolvedOgImage 
   }
 
   const fb = listing.facebookShareImageUrl?.trim();
-  if (fb && isValidPublicOgImageUrl(fb)) {
+  const fbReady =
+    Boolean(fb && isValidPublicOgImageUrl(fb)) &&
+    Boolean(listing.facebookShareImageAt?.trim());
+  if (fbReady && fb) {
     return {
       url: fb,
       source: 'facebookShareImage',

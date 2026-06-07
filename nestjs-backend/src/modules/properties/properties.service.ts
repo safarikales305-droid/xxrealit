@@ -97,7 +97,7 @@ export class PropertiesService {
     });
     if (!property) return null;
     const url = await this.facebookShareImage.ensureForProperty({ ...property, force });
-    if (url && url !== property.facebookShareImageUrl) {
+    if (url) {
       await this.prisma.property.update({
         where: { id: property.id },
         data: { facebookShareImageUrl: url, facebookShareImageAt: new Date() },
@@ -410,6 +410,7 @@ export class PropertiesService {
 
     const ogInput = {
       facebookShareImageUrl: property.facebookShareImageUrl,
+      facebookShareImageAt: property.facebookShareImageAt,
       thumbnailUrl: property.thumbnailUrl,
       mainImage: property.mainImage,
       images: property.images,
@@ -426,10 +427,10 @@ export class PropertiesService {
     const versionMs =
       property.facebookShareImageAt?.getTime() ?? property.createdAt.getTime();
     const versionedOgImage = appendOgImageCacheVersion(resolved.url, versionMs);
-    const isReadyForFacebook = isFacebookShareImageReady(property.facebookShareImageUrl);
-    if (!isReadyForFacebook && propertyHasListingMedia(ogInput)) {
-      void this.ensureFacebookShareImage(property.id).catch(() => undefined);
-    }
+    const isReadyForFacebook = isFacebookShareImageReady(
+      property.facebookShareImageUrl,
+      property.facebookShareImageAt,
+    );
 
     // eslint-disable-next-line no-console
     console.log('OG IMAGE SOURCE', {
@@ -957,9 +958,11 @@ export class PropertiesService {
         await this.prisma.propertyMedia.createMany({ data: mediaRows });
       }
 
-      void this.ensureFacebookShareImage(created.id).catch((err) => {
+      try {
+        await this.ensureFacebookShareImage(created.id, true);
+      } catch (err) {
         this.log.warn(`Facebook share image po vytvoření ${created.id}: ${String(err)}`);
-      });
+      }
 
       const full = await this.prisma.property.findUnique({
         where: { id: created.id },

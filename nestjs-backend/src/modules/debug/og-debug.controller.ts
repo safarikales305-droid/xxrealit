@@ -53,6 +53,7 @@ export class OgDebugController {
 
     const ogInput = {
       facebookShareImageUrl: property.facebookShareImageUrl,
+      facebookShareImageAt: property.facebookShareImageAt,
       thumbnailUrl: property.thumbnailUrl,
       mainImage: property.mainImage,
       images: property.images,
@@ -99,7 +100,10 @@ export class OgDebugController {
       isWhiteOrBlank: probe.isWhiteOrBlank,
       loadTimeMs,
       isCached: Boolean(cacheControl),
-      isReadyForFacebook: isFacebookShareImageReady(property.facebookShareImageUrl),
+      isReadyForFacebook: isFacebookShareImageReady(
+        property.facebookShareImageUrl,
+        property.facebookShareImageAt,
+      ),
       cacheControl,
     };
   }

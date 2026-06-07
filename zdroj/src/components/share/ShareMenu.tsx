@@ -91,8 +91,6 @@ export function ShareMenu({
   const [shareCopy, setShareCopy] = useState<{ title: string; description: string } | null>(
     null,
   );
-  const [canShareFacebook, setCanShareFacebook] = useState(true);
-  const [checkingPreview, setCheckingPreview] = useState(false);
   const [fbShareNotice, setFbShareNotice] = useState<string | null>(null);
 
   const videoUrl = shorts?.videoUrl?.trim() || null;
@@ -109,16 +107,10 @@ export function ShareMenu({
 
   useEffect(() => {
     if (!listingId || !API_BASE_URL) {
-      setCanShareFacebook(true);
-      setCheckingPreview(false);
       setFbShareNotice(null);
       return;
     }
     let cancelled = false;
-    setCheckingPreview(true);
-    setCanShareFacebook(false);
-    setFbShareNotice(null);
-
     const shareAs = url.includes('/shorts/') ? 'shorts' : 'classic';
     const fetchMeta = async (): Promise<OgMetaForShare | null> => {
       try {
@@ -135,24 +127,17 @@ export function ShareMenu({
 
     void waitForFacebookShareMeta(fetchMeta).then(({ noImageWarning }) => {
       if (cancelled) return;
-      setCheckingPreview(false);
-      setCanShareFacebook(true);
       if (noImageWarning) {
         setFbShareNotice(
           'Sdílím odkaz, náhledový obrázek se může doplnit později.',
         );
+      } else {
+        setFbShareNotice(null);
       }
     });
 
-    const hardTimeout = window.setTimeout(() => {
-      if (cancelled) return;
-      setCheckingPreview(false);
-      setCanShareFacebook(true);
-    }, 2000);
-
     return () => {
       cancelled = true;
-      window.clearTimeout(hardTimeout);
     };
   }, [listingId, url]);
 
@@ -276,11 +261,6 @@ export function ShareMenu({
               {error}
             </p>
           ) : null}
-          {checkingPreview && listingId ? (
-            <p className="mb-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
-              Kontroluji náhled pro Facebook…
-            </p>
-          ) : null}
           {fbShareNotice ? (
             <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
               {fbShareNotice}
@@ -289,9 +269,7 @@ export function ShareMenu({
 
           <button
             type="button"
-            disabled={!canShareFacebook}
             onClick={async () => {
-              if (!canShareFacebook) return;
               const ok = await handleNativeShare(shareTitle, url);
               if (ok) onClose();
             }}
@@ -334,12 +312,10 @@ export function ShareMenu({
           <div className="rounded-2xl border border-zinc-200">
             <button
               type="button"
-              disabled={!canShareFacebook}
               onClick={() => {
-                if (!canShareFacebook) return;
                 window.open(facebookShareUrl(url), '_blank', 'noopener,noreferrer');
               }}
-              className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50"
             >
               <Facebook className="size-5 shrink-0 text-blue-600" />
               <span>Sdílet odkaz na Facebook</span>
@@ -351,7 +327,7 @@ export function ShareMenu({
               className="flex w-full items-center gap-3 border-t border-zinc-100 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50"
             >
               <RefreshCw className="size-5 shrink-0 text-zinc-600" />
-              <span>Obnovit náhled Facebook</span>
+              <span>Aktualizovat náhled Facebook</span>
             </a>
             {videoUrl ? (
               <button
