@@ -7,6 +7,7 @@ import {
 import { Prisma, TiparPost } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { PropertyMediaCloudinaryService } from '../properties/property-media-cloudinary.service';
+import { PropertiesService } from '../properties/properties.service';
 import { computeStoredOgMediaFields } from '../properties/property-og-media.util';
 import {
   ListingShortsFromPhotosService,
@@ -39,6 +40,7 @@ export class TiparService {
     private readonly prisma: PrismaService,
     private readonly media: PropertyMediaCloudinaryService,
     private readonly shortsFromPhotos: ListingShortsFromPhotosService,
+    private readonly propertiesService: PropertiesService,
   ) {}
 
   async activateTipar(userId: string) {
@@ -862,20 +864,24 @@ export class TiparService {
       user: { connect: { id: post.userId } },
     };
 
+    let propertyId = post.publishedPropertyId;
     if (post.publishedPropertyId) {
       await this.prisma.property.update({
         where: { id: post.publishedPropertyId },
         data: data as Prisma.PropertyUpdateInput,
       });
-      return;
+    } else {
+      const created = await this.prisma.property.create({
+        data: data as Prisma.PropertyCreateInput,
+      });
+      propertyId = created.id;
+      await this.prisma.tiparPost.update({
+        where: { id: post.id },
+        data: { publishedPropertyId: created.id },
+      });
     }
-
-    const created = await this.prisma.property.create({
-      data: data as Prisma.PropertyCreateInput,
-    });
-    await this.prisma.tiparPost.update({
-      where: { id: post.id },
-      data: { publishedPropertyId: created.id },
-    });
+    if (propertyId) {
+      await this.propertiesService.ensureFacebookShareImage(propertyId, true).catch(() => undefined);
+    }
   }
 }

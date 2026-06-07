@@ -2,6 +2,7 @@ import { resolveAssetBaseUrl } from '../../lib/image-url';
 import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 
 export type PropertyOgMediaInput = {
+  facebookShareImageUrl?: string | null;
   thumbnailUrl?: string | null;
   mainImage?: string | null;
   images?: string[];
@@ -10,6 +11,7 @@ export type PropertyOgMediaInput = {
 };
 
 export type OgImageSource =
+  | 'facebookShareImage'
   | 'thumbnailUrl'
   | 'mainImage'
   | 'firstGalleryImage'
@@ -148,10 +150,36 @@ export function pickVideoThumbnail(input: PropertyOgMediaInput): string | null {
   );
 }
 
+export function appendOgImageCacheVersion(
+  url: string,
+  versionMs: number | string | Date | null | undefined,
+): string {
+  if (!url.trim()) return url;
+  const v =
+    versionMs instanceof Date
+      ? versionMs.getTime()
+      : versionMs != null && String(versionMs).trim()
+        ? String(versionMs).trim()
+        : Date.now();
+  try {
+    const u = new URL(url.trim());
+    u.searchParams.set('v', String(v));
+    return u.href;
+  } catch {
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}v=${v}`;
+  }
+}
+
+export function isFacebookShareImageReady(url: string | null | undefined): boolean {
+  return isValidPublicOgImageUrl(url);
+}
+
 export const OG_IMAGE_PRIORITY_STEPS: Array<{
   pick: (input: PropertyOgMediaInput) => string | null | undefined;
   source: OgImageSource;
 }> = [
+  { pick: (i) => i.facebookShareImageUrl, source: 'facebookShareImage' },
   { pick: (i) => i.thumbnailUrl, source: 'thumbnailUrl' },
   { pick: (i) => i.mainImage, source: 'mainImage' },
   { pick: (i) => i.images?.[0], source: 'firstGalleryImage' },
@@ -162,13 +190,24 @@ export const OG_IMAGE_PRIORITY_STEPS: Array<{
 ];
 
 /**
- * Priorita: thumbnailUrl → mainImage → galerie → videoThumbnail → logo (jen bez médií).
+ * Priorita: facebookShareImageUrl → thumbnailUrl → mainImage → galerie → videoThumbnail → logo.
  */
 export function resolvePropertyOgImageWithSource(
   input: PropertyOgMediaInput,
   siteFallbackUrl = getPortalLogoFallbackUrl(),
 ): ResolvedOgImage {
+  const fb = input.facebookShareImageUrl?.trim();
+  if (fb && isValidPublicOgImageUrl(fb)) {
+    return {
+      url: fb,
+      source: 'facebookShareImage',
+      usedFallbackLogo: false,
+      isLogoFallback: false,
+    };
+  }
+
   for (const step of OG_IMAGE_PRIORITY_STEPS) {
+    if (step.source === 'facebookShareImage') continue;
     const normalized = normalizeOgImageCandidate(step.pick(input));
     if (normalized) {
       return {

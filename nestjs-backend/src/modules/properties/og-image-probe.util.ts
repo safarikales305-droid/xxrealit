@@ -6,6 +6,7 @@ import {
   OG_IMAGE_PRIORITY_STEPS,
   getPortalLogoFallbackUrl,
   isPortalBrandingUrl,
+  isValidPublicOgImageUrl,
   normalizeOgImageCandidate,
   pickVideoThumbnail,
   propertyHasListingMedia,
@@ -123,7 +124,20 @@ export async function resolvePropertyOgImageBest(
   input: PropertyOgMediaInput,
   siteFallbackUrl = getPortalLogoFallbackUrl(),
 ): Promise<ResolvedOgImageWithProbe> {
-  const photoSteps = OG_IMAGE_PRIORITY_STEPS.filter((s) => s.source !== 'videoThumbnail');
+  const fb = input.facebookShareImageUrl?.trim();
+  if (fb && isValidPublicOgImageUrl(fb)) {
+    return {
+      url: fb,
+      source: 'facebookShareImage',
+      usedFallbackLogo: false,
+      isLogoFallback: false,
+      probe: null,
+    };
+  }
+
+  const photoSteps = OG_IMAGE_PRIORITY_STEPS.filter(
+    (s) => s.source !== 'videoThumbnail' && s.source !== 'facebookShareImage',
+  );
   const videoStep = OG_IMAGE_PRIORITY_STEPS.find((s) => s.source === 'videoThumbnail');
 
   for (const step of photoSteps) {

@@ -10,6 +10,7 @@ import { ListingWatermarkSettingsService } from './listing-watermark-settings.se
 import { SeedController } from './seed.controller';
 import { ShortsListingController } from './shorts-listing.controller';
 import { ShortsListingService } from './shorts-listing.service';
+import { FacebookShareImageService } from './facebook-share-image.service';
 import { VideoOgThumbnailService } from './video-og-thumbnail.service';
 import { ShareModule } from '../share/share.module';
 
@@ -33,6 +34,7 @@ import { ShareModule } from '../share/share.module';
     ListingShortsFromPhotosService,
     ShortsListingService,
     VideoOgThumbnailService,
+    FacebookShareImageService,
   ],
   exports: [
     PropertiesService,
@@ -41,6 +43,7 @@ import { ShareModule } from '../share/share.module';
     ListingShortsFromPhotosService,
     ShortsListingService,
     VideoOgThumbnailService,
+    FacebookShareImageService,
   ],
 })
 export class PropertiesModule {}

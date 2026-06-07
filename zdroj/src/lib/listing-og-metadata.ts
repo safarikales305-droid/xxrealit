@@ -13,7 +13,10 @@ export type ListingOgInput = {
   listingType?: string | null;
   videoUrl?: string | null;
   thumbnailUrl?: string | null;
+  facebookShareImageUrl?: string | null;
+  facebookShareImageAt?: string | null;
   mainImage?: string | null;
+  updatedAt?: string | null;
   generatedVideoThumbnail?: string | null;
   images?: string[];
   resolvedOgImage?: string | null;
@@ -24,6 +27,7 @@ export type ListingOgInput = {
 };
 
 export type OgImageSource =
+  | 'facebookShareImage'
   | 'thumbnailUrl'
   | 'mainImage'
   | 'firstGalleryImage'
@@ -142,7 +146,20 @@ export type ResolvedOgImage = {
   isLogoFallback: boolean;
 };
 
-/** Priorita: thumbnailUrl → mainImage → galerie → videoThumbnail → logo jen bez médií. */
+function appendOgImageVersion(url: string, version?: string | null): string {
+  if (!url.trim()) return url;
+  const v = version?.trim() || String(Date.now());
+  try {
+    const u = new URL(url.trim());
+    u.searchParams.set('v', v);
+    return u.href;
+  } catch {
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}v=${v}`;
+  }
+}
+
+/** Priorita: facebookShareImageUrl → thumbnailUrl → mainImage → galerie → videoThumbnail → logo. */
 export function resolveListingOgImage(listing: ListingOgInput): ResolvedOgImage {
   if (
     listing.resolvedOgImage &&
@@ -151,7 +168,17 @@ export function resolveListingOgImage(listing: ListingOgInput): ResolvedOgImage 
   ) {
     return {
       url: listing.resolvedOgImage,
-      source: listing.ogImageSource ?? 'thumbnailUrl',
+      source: listing.ogImageSource ?? 'facebookShareImage',
+      usedFallbackLogo: false,
+      isLogoFallback: false,
+    };
+  }
+
+  const fb = listing.facebookShareImageUrl?.trim();
+  if (fb && isValidPublicOgImageUrl(fb)) {
+    return {
+      url: fb,
+      source: 'facebookShareImage',
       usedFallbackLogo: false,
       isLogoFallback: false,
     };
@@ -261,7 +288,10 @@ export function buildListingOpenGraphMetadata(listing: ListingOgInput): Metadata
   const description =
     (listing.ogDescription || '').trim() || 'Podívejte se na zajímavou nemovitost na XXrealit.';
   const resolved = resolveListingOgImage(listing);
-  const imageUrl = resolved.url;
+  const versionSource =
+    listing.facebookShareImageAt?.trim() || listing.updatedAt?.trim() || null;
+  const versionMs = versionSource ? String(new Date(versionSource).getTime()) : null;
+  const imageUrl = appendOgImageVersion(resolved.url, versionMs);
   const videoThumbnail = pickVideoThumbnail(listing);
 
   // eslint-disable-next-line no-console

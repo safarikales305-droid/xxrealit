@@ -22,6 +22,7 @@ import { OwnerListingNotifyService } from '../premium-broker/owner-listing-notif
 import { parseStringPromise } from 'xml2js';
 import { ImportSyncService } from '../imports/import-sync.service';
 import { ImportImageService } from '../imports/import-image.service';
+import { PropertiesService } from '../properties/properties.service';
 import { ShortsListingService } from '../properties/shorts-listing.service';
 import { safeParsePrice } from '../imports/price-parse.util';
 import { ImportedBrokerContactService } from '../imported-broker-contacts/imported-broker-contact.service';
@@ -140,6 +141,7 @@ export class AdminService {
     private readonly importSync: ImportSyncService,
     private readonly importImages: ImportImageService,
     private readonly importedBrokers: ImportedBrokerContactService,
+    private readonly propertiesService: PropertiesService,
     private readonly shortsListing: ShortsListingService,
     private readonly watermarkSettings: ListingWatermarkSettingsService,
     private readonly tipar: TiparService,
@@ -646,6 +648,7 @@ export class AdminService {
       where: { id: propertyId },
       data: { approved: true, status: 'APPROVED', isActive: true },
     });
+    await this.propertiesService.ensureFacebookShareImage(propertyId, true).catch(() => undefined);
     if (wasPending && updated.isOwnerListing && !updated.derivedFromPropertyId) {
       await this.ownerListingNotify.notifyPremiumBrokersForNewOwnerListing({
         id: updated.id,

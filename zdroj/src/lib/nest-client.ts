@@ -5385,11 +5385,13 @@ export async function nestSocialUploadVideo(
 export type OgDebugResponse = {
   selectedOgImage: string;
   selectedSource:
+    | 'facebookShareImage'
     | 'thumbnailUrl'
     | 'mainImage'
     | 'firstGalleryImage'
     | 'videoThumbnail'
     | 'logo';
+  facebookShareImageUrl?: string | null;
   thumbnailUrl: string | null;
   mainImage: string | null;
   firstGalleryImage: string | null;
@@ -5408,6 +5410,10 @@ export type OgDebugResponse = {
   height?: number | null;
   isPublic?: boolean;
   isWhiteOrBlank?: boolean;
+  loadTimeMs?: number | null;
+  isCached?: boolean;
+  isReadyForFacebook?: boolean;
+  cacheControl?: string | null;
 };
 
 export async function nestOgDebug(propertyId: string): Promise<OgDebugResponse | null> {

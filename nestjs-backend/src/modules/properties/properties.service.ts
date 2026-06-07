@@ -14,18 +14,15 @@ import { CreatePropertyDto } from './dto/create-property.dto';
 import { OwnerUpdatePropertyDto } from './dto/owner-update-property.dto';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
 import { ShareMetadataService } from '../share/share-metadata.service';
-import { resolvePropertyOgImageBest } from './og-image-probe.util';
+import { FacebookShareImageService } from './facebook-share-image.service';
 import {
-  buildOgDescription,
-  buildOgTitle,
+  appendOgImageCacheVersion,
   computeStoredOgMediaFields,
-  deriveThumbnailUrlFromListing,
   getPortalLogoFallbackUrl,
-  getSiteOriginForOg,
-  isPortalBrandingUrl,
-  normalizeOgImageCandidate,
+  isFacebookShareImageReady,
   pickVideoThumbnail,
   propertyHasListingMedia,
+  resolvePropertyOgImageWithSource,
 } from './property-og-media.util';
 import {
   isImportedListingPubliclyVisible,
@@ -81,7 +78,33 @@ export class PropertiesService {
     private readonly shortsListingService: ShortsListingService,
     private readonly watermarkSettings: ListingWatermarkSettingsService,
     private readonly shareMetadata: ShareMetadataService,
+    private readonly facebookShareImage: FacebookShareImageService,
   ) {}
+
+  /** Předgeneruje statický JPG 1200×630 pro Facebook og:image. */
+  async ensureFacebookShareImage(propertyId: string, force = false): Promise<string | null> {
+    const property = await this.prisma.property.findFirst({
+      where: { id: propertyId.trim(), deletedAt: null },
+      select: {
+        id: true,
+        facebookShareImageUrl: true,
+        thumbnailUrl: true,
+        mainImage: true,
+        images: true,
+        generatedVideoThumbnail: true,
+        videoUrl: true,
+      },
+    });
+    if (!property) return null;
+    const url = await this.facebookShareImage.ensureForProperty({ ...property, force });
+    if (url && url !== property.facebookShareImageUrl) {
+      await this.prisma.property.update({
+        where: { id: property.id },
+        data: { facebookShareImageUrl: url, facebookShareImageAt: new Date() },
+      });
+    }
+    return url;
+  }
 
   private async viewerAccess(viewerId?: string): Promise<PropertyViewerAccess | undefined> {
     if (!viewerId) return undefined;
@@ -350,8 +373,11 @@ export class PropertiesService {
         videoUrl: true,
         thumbnailUrl: true,
         mainImage: true,
+        facebookShareImageUrl: true,
         generatedVideoThumbnail: true,
         images: true,
+        facebookShareImageAt: true,
+        createdAt: true,
         approved: true,
         deletedAt: true,
         isActive: true,
@@ -382,24 +408,9 @@ export class PropertiesService {
       throw new NotFoundException(`Property "${id}" not found`);
     }
 
-    let thumbnailUrl = property.thumbnailUrl;
-    const needsThumbnail =
-      !thumbnailUrl?.trim() ||
-      isPortalBrandingUrl(thumbnailUrl) ||
-      !normalizeOgImageCandidate(thumbnailUrl);
-    if (needsThumbnail) {
-      const derived = deriveThumbnailUrlFromListing(property);
-      if (derived) {
-        thumbnailUrl = derived;
-        await this.prisma.property.update({
-          where: { id: property.id },
-          data: { thumbnailUrl: derived },
-        });
-      }
-    }
-
     const ogInput = {
-      thumbnailUrl,
+      facebookShareImageUrl: property.facebookShareImageUrl,
+      thumbnailUrl: property.thumbnailUrl,
       mainImage: property.mainImage,
       images: property.images,
       generatedVideoThumbnail: property.generatedVideoThumbnail,
@@ -411,19 +422,28 @@ export class PropertiesService {
     const contentType =
       shareAs ?? (this.shareMetadata.isShortsListing(property) ? 'shorts' : 'classic');
     const shareMeta = await this.shareMetadata.resolveForProperty(property.id, contentType);
-    const resolved = await resolvePropertyOgImageBest(ogInput, getPortalLogoFallbackUrl());
+    const resolved = resolvePropertyOgImageWithSource(ogInput, getPortalLogoFallbackUrl());
+    const versionMs =
+      property.facebookShareImageAt?.getTime() ?? property.createdAt.getTime();
+    const versionedOgImage = appendOgImageCacheVersion(resolved.url, versionMs);
+    const isReadyForFacebook = isFacebookShareImageReady(property.facebookShareImageUrl);
+    if (!isReadyForFacebook && propertyHasListingMedia(ogInput)) {
+      void this.ensureFacebookShareImage(property.id).catch(() => undefined);
+    }
 
     // eslint-disable-next-line no-console
     console.log('OG IMAGE SOURCE', {
       listingId: property.id,
-      thumbnailUrl,
+      facebookShareImageUrl: property.facebookShareImageUrl,
+      thumbnailUrl: property.thumbnailUrl,
       mainImage: property.mainImage,
       galleryFirst: firstGalleryImage,
       videoThumbnail,
-      selectedOgImage: shareMeta.ogImage,
+      selectedOgImage: versionedOgImage,
       selectedSource: resolved.source,
       shareUrl: shareMeta.shareUrl,
       contentType: shareMeta.contentType,
+      isReadyForFacebook,
       priceIncluded: false,
     });
 
@@ -436,17 +456,18 @@ export class PropertiesService {
       currency: property.currency,
       listingType: property.listingType,
       videoUrl: property.videoUrl,
-      thumbnailUrl,
+      thumbnailUrl: property.thumbnailUrl,
       mainImage: property.mainImage,
+      facebookShareImageUrl: property.facebookShareImageUrl,
       generatedVideoThumbnail: property.generatedVideoThumbnail,
       images: property.images,
       firstGalleryImage,
       videoThumbnail,
       ogTitle: shareMeta.ogTitle,
       ogDescription: shareMeta.ogDescription,
-      ogImage: shareMeta.ogImage,
-      image: shareMeta.ogImage,
-      selectedOgImage: shareMeta.ogImage,
+      ogImage: versionedOgImage,
+      image: versionedOgImage,
+      selectedOgImage: versionedOgImage,
       source: resolved.source,
       selectedSource: resolved.source,
       shareUrl: shareMeta.shareUrl,
@@ -454,10 +475,11 @@ export class PropertiesService {
       contentType: shareMeta.contentType,
       adminTextSource: shareMeta.adminTextSource,
       priceIncluded: false,
-      usedFallbackLogo: shareMeta.isLogoFallback,
-      isLogoFallback: shareMeta.isLogoFallback,
+      usedFallbackLogo: resolved.isLogoFallback,
+      isLogoFallback: resolved.isLogoFallback,
       warning: shareMeta.warning,
-      isWhiteOrBlank: resolved.probe?.isWhiteOrBlank ?? false,
+      isReadyForFacebook,
+      facebookShareImageAt: property.facebookShareImageAt?.toISOString() ?? null,
     };
   }
 
@@ -934,6 +956,10 @@ export class PropertiesService {
       if (mediaRows.length > 0) {
         await this.prisma.propertyMedia.createMany({ data: mediaRows });
       }
+
+      void this.ensureFacebookShareImage(created.id).catch((err) => {
+        this.log.warn(`Facebook share image po vytvoření ${created.id}: ${String(err)}`);
+      });
 
       const full = await this.prisma.property.findUnique({
         where: { id: created.id },

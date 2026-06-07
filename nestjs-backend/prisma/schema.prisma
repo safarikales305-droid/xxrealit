@@ -562,6 +562,10 @@ model Property {
   thumbnailUrl    String?
   /// Statický snímek z videa, pokud chybí fotky.
   generatedVideoThumbnail String?
+  /// Předgenerovaný JPG 1200×630 pro Facebook og:image (statický, veřejný).
+  facebookShareImageUrl String?
+  /// Čas vygenerování facebookShareImageUrl (cache-bust ?v= pro OG).
+  facebookShareImageAt DateTime?
   videoUrl        String?
 
   contactName     String   @default("")

@@ -23,6 +23,7 @@ import {
   shareTextsForType,
   type ShareContentType,
 } from '@/lib/share-texts';
+import { API_BASE_URL } from '@/lib/api';
 import {
   nestSocialUploadVideo,
   type SocialPlatform,
@@ -86,8 +87,46 @@ export function ShareMenu({
   const [shareCopy, setShareCopy] = useState<{ title: string; description: string } | null>(
     null,
   );
+  const [ogReady, setOgReady] = useState<boolean | null>(null);
 
   const videoUrl = shorts?.videoUrl?.trim() || null;
+
+  const listingId = (() => {
+    try {
+      const path = new URL(url).pathname;
+      const m = path.match(/\/(?:shorts|nemovitost)\/([^/?#]+)/i);
+      return m?.[1] ?? null;
+    } catch {
+      return null;
+    }
+  })();
+
+  useEffect(() => {
+    if (!listingId || !API_BASE_URL) {
+      setOgReady(true);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE_URL}/properties/${encodeURIComponent(listingId)}/og-meta`,
+          { cache: 'no-store', headers: { Accept: 'application/json' } },
+        );
+        if (!res.ok) {
+          if (!cancelled) setOgReady(false);
+          return;
+        }
+        const data = (await res.json()) as { isReadyForFacebook?: boolean };
+        if (!cancelled) setOgReady(Boolean(data.isReadyForFacebook));
+      } catch {
+        if (!cancelled) setOgReady(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [listingId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -209,14 +248,26 @@ export function ShareMenu({
               {error}
             </p>
           ) : null}
+          {ogReady === false ? (
+            <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Připravuji náhled… Facebook obrázek ještě není hotový. Zkuste za chvíli.
+            </p>
+          ) : null}
+          {ogReady === null && listingId ? (
+            <p className="mb-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+              Kontroluji náhled pro Facebook…
+            </p>
+          ) : null}
 
           <button
             type="button"
+            disabled={ogReady === false || ogReady === null}
             onClick={async () => {
+              if (ogReady !== true) return;
               const ok = await handleNativeShare(shareTitle, url);
               if (ok) onClose();
             }}
-            className="flex w-full items-center gap-3 rounded-2xl border border-zinc-200 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50"
+            className="flex w-full items-center gap-3 rounded-2xl border border-zinc-200 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Share2 className="size-5 shrink-0 text-orange-600" />
             <span>Sdílet odkaz (systém)</span>
@@ -255,8 +306,12 @@ export function ShareMenu({
           <div className="rounded-2xl border border-zinc-200">
             <button
               type="button"
-              onClick={() => window.open(facebookShareUrl(url), '_blank', 'noopener,noreferrer')}
-              className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50"
+              disabled={ogReady === false || ogReady === null}
+              onClick={() => {
+                if (ogReady !== true) return;
+                window.open(facebookShareUrl(url), '_blank', 'noopener,noreferrer');
+              }}
+              className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Facebook className="size-5 shrink-0 text-blue-600" />
               <span>Sdílet odkaz na Facebook</span>

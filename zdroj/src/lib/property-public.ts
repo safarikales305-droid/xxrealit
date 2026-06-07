@@ -39,6 +39,7 @@ export async function fetchPropertyForOgMetadata(
   const ogSource = (v: unknown): OgImageSource | null => {
     const s = str(v);
     if (
+      s === 'facebookShareImage' ||
       s === 'thumbnailUrl' ||
       s === 'mainImage' ||
       s === 'firstGalleryImage' ||
@@ -75,6 +76,9 @@ export async function fetchPropertyForOgMetadata(
     ogTitle: str(prop.ogTitle),
     ogDescription: str(prop.ogDescription),
     shareUrl: str(prop.shareUrl) ?? str(prop.publicUrl),
+    facebookShareImageUrl: str(prop.facebookShareImageUrl),
+    facebookShareImageAt: str(prop.facebookShareImageAt),
+    updatedAt: str(prop.updatedAt),
   });
 
   try {

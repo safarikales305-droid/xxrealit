@@ -2,6 +2,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import type { NextFunction, Request, Response } from 'express';
 import * as fs from 'node:fs';
 import { AppModule } from './app.module';
 import { PrismaService } from './database/prisma.service';
@@ -125,6 +126,12 @@ async function bootstrap() {
   if (!fs.existsSync(uploadsRoot)) {
     fs.mkdirSync(uploadsRoot, { recursive: true });
   }
+
+  app.use('/uploads/share', (_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Content-Type', 'image/jpeg');
+    next();
+  });
 
   app.useStaticAssets(uploadsRoot, { prefix: '/uploads/' });
 

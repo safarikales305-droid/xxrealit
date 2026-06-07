@@ -53,6 +53,12 @@ export default async function DebugOgPropertyPage({ params }: Props) {
       <dl className="mt-6 space-y-3 rounded-2xl border border-zinc-200 bg-white p-5 text-sm">
         <div><dt className="font-semibold text-zinc-500">selectedOgImage</dt><dd className="mt-1 break-all font-mono text-xs">{ogImage}</dd></div>
         <div><dt className="font-semibold text-zinc-500">selectedSource</dt><dd className="mt-1">{d.selectedSource}</dd></div>
+        <div><dt className="font-semibold text-zinc-500">facebookShareImageUrl</dt><dd className="mt-1 break-all text-xs">{d.facebookShareImageUrl ?? '—'}</dd></div>
+        <div><dt className="font-semibold text-zinc-500">isReadyForFacebook</dt><dd className="mt-1">{d.isReadyForFacebook ? 'ano' : 'ne'}</dd></div>
+        <div><dt className="font-semibold text-zinc-500">loadTimeMs</dt><dd className="mt-1">{d.loadTimeMs ?? '—'}</dd></div>
+        <div><dt className="font-semibold text-zinc-500">contentType</dt><dd className="mt-1">{d.contentType ?? '—'}</dd></div>
+        <div><dt className="font-semibold text-zinc-500">contentLength</dt><dd className="mt-1">{d.contentLength ?? '—'}</dd></div>
+        <div><dt className="font-semibold text-zinc-500">isCached</dt><dd className="mt-1">{d.isCached ? 'ano' : 'ne'}</dd></div>
         <div><dt className="font-semibold text-zinc-500">thumbnailUrl</dt><dd className="mt-1 break-all text-xs">{d.thumbnailUrl ?? '—'}</dd></div>
         <div><dt className="font-semibold text-zinc-500">mainImage</dt><dd className="mt-1 break-all text-xs">{d.mainImage ?? '—'}</dd></div>
         <div><dt className="font-semibold text-zinc-500">firstGalleryImage</dt><dd className="mt-1 break-all text-xs">{d.firstGalleryImage ?? '—'}</dd></div>

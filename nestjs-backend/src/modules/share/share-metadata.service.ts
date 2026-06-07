@@ -1,6 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
-import { resolvePropertyOgImageBest } from '../properties/og-image-probe.util';
 import {
   isImportedProperty,
   isImportedListingPubliclyVisible,
@@ -9,10 +8,13 @@ import {
   computeListingPublicStatus,
   isPropertyPubliclyListed,
 } from '../properties/property-public-visibility';
+import { resolvePropertyOgImageBest } from '../properties/og-image-probe.util';
 import {
+  appendOgImageCacheVersion,
   getPortalLogoFallbackUrl,
   getSiteOriginForOg,
   propertyHasListingMedia,
+  resolvePropertyOgImageWithSource,
 } from '../properties/property-og-media.util';
 import {
   DEFAULT_SHARE_TEXTS,
@@ -71,8 +73,11 @@ export class ShareMetadataService {
         videoUrl: true,
         thumbnailUrl: true,
         mainImage: true,
+        facebookShareImageUrl: true,
         images: true,
         generatedVideoThumbnail: true,
+        facebookShareImageAt: true,
+        createdAt: true,
       },
     });
     if (!property) throw new NotFoundException('Inzerát nenalezen');
@@ -84,8 +89,9 @@ export class ShareMetadataService {
       contentType,
       settings,
     );
-    const resolved = await resolvePropertyOgImageBest(
+    const resolved = resolvePropertyOgImageWithSource(
       {
+        facebookShareImageUrl: property.facebookShareImageUrl,
         thumbnailUrl: property.thumbnailUrl,
         mainImage: property.mainImage,
         images: property.images,
@@ -94,6 +100,9 @@ export class ShareMetadataService {
       },
       getPortalLogoFallbackUrl(),
     );
+    const versionMs =
+      property.facebookShareImageAt?.getTime() ?? property.createdAt.getTime();
+    const ogImage = appendOgImageCacheVersion(resolved.url, versionMs);
 
     const warning =
       resolved.isLogoFallback && propertyHasListingMedia(property)
@@ -104,7 +113,7 @@ export class ShareMetadataService {
       shareUrl: this.listingShareUrl(property.id, contentType),
       ogTitle: title,
       ogDescription: description.slice(0, 160),
-      ogImage: resolved.url,
+      ogImage,
       contentType,
       priceIncluded: false,
       adminTextSource,
@@ -116,6 +125,20 @@ export class ShareMetadataService {
   async resolveForTip(tipId: string, forcedShorts?: boolean): Promise<ShareMetadataResult> {
     const post = await this.prisma.tiparPost.findFirst({
       where: { id: tipId.trim(), deletedAt: null, isActive: true, approved: true },
+      include: {
+        publishedProperty: {
+          select: {
+            facebookShareImageUrl: true,
+            facebookShareImageAt: true,
+            thumbnailUrl: true,
+            mainImage: true,
+            images: true,
+            generatedVideoThumbnail: true,
+            videoUrl: true,
+            createdAt: true,
+          },
+        },
+      },
     });
     if (!post) {
       throw new NotFoundException('Tip nenalezen');
@@ -129,27 +152,21 @@ export class ShareMetadataService {
       settings,
     );
 
-    const imageRaw =
-      post.mainImage?.trim() ||
-      post.images[0]?.trim() ||
-      post.generatedVideoUrl?.trim() ||
-      post.videoUrl?.trim() ||
-      '';
-
-    let ogImage = getPortalLogoFallbackUrl();
-    if (imageRaw) {
-      const resolved = await resolvePropertyOgImageBest(
-        {
-          thumbnailUrl: imageRaw,
-          mainImage: imageRaw,
-          images: post.images,
-          generatedVideoThumbnail: post.generatedVideoUrl,
-          videoUrl: post.videoUrl,
-        },
-        getPortalLogoFallbackUrl(),
-      );
-      ogImage = resolved.url;
-    }
+    const pub = post.publishedProperty;
+    const ogInput = {
+      facebookShareImageUrl: pub?.facebookShareImageUrl ?? null,
+      thumbnailUrl: pub?.thumbnailUrl ?? post.mainImage,
+      mainImage: pub?.mainImage ?? post.mainImage,
+      images: pub?.images?.length ? pub.images : post.images,
+      generatedVideoThumbnail: pub?.generatedVideoThumbnail ?? post.generatedVideoUrl,
+      videoUrl: pub?.videoUrl ?? post.videoUrl,
+    };
+    const resolved = await resolvePropertyOgImageBest(ogInput, getPortalLogoFallbackUrl());
+    const versionMs =
+      pub?.facebookShareImageAt?.getTime() ??
+      pub?.createdAt?.getTime() ??
+      post.updatedAt.getTime();
+    const ogImage = appendOgImageCacheVersion(resolved.url, versionMs);
 
     return {
       shareUrl: this.tipShareUrl(id, isShorts),
@@ -159,7 +176,7 @@ export class ShareMetadataService {
       contentType,
       priceIncluded: false,
       adminTextSource,
-      isLogoFallback: ogImage.includes('/icons/'),
+      isLogoFallback: resolved.isLogoFallback,
       warning: null,
     };
   }

@@ -15,6 +15,7 @@ import {
   type ShortsMusicSelection,
 } from './listing-shorts-from-photos.service';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
+import { FacebookShareImageService } from './facebook-share-image.service';
 import { computeStoredOgMediaFields } from './property-og-media.util';
 import { socialInclude } from './shorts-listing.social-include';
 import {
@@ -124,6 +125,7 @@ export class ShortsListingService {
     private readonly listingShortsFromPhotos: ListingShortsFromPhotosService,
     private readonly brokerPoints: BrokerPointsService,
     private readonly propertyMediaCloudinary: PropertyMediaCloudinaryService,
+    private readonly facebookShareImage: FacebookShareImageService,
   ) {}
 
   private async viewerAccess(viewerId: string): Promise<PropertyViewerAccess> {
@@ -991,6 +993,22 @@ export class ShortsListingService {
       result.created.id,
       'SHORTS',
     );
+
+    const fbUrl = await this.facebookShareImage.ensureForProperty({
+      id: result.created.id,
+      thumbnailUrl: ogMedia.thumbnailUrl,
+      mainImage: ogMedia.mainImage,
+      images: urls,
+      generatedVideoThumbnail: ogMedia.generatedVideoThumbnail,
+      videoUrl,
+      force: true,
+    });
+    if (fbUrl) {
+      await this.prisma.property.update({
+        where: { id: result.created.id },
+        data: { facebookShareImageUrl: fbUrl, facebookShareImageAt: new Date() },
+      });
+    }
 
     const full = result.full;
     if (!full) {
