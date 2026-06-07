@@ -1306,6 +1306,9 @@ export class PropertiesService {
       data,
       include: socialInclude(ownerId),
     });
+    if (dto.images !== undefined || dto.videoUrl !== undefined) {
+      void this.ensureFacebookShareImage(propertyId, true).catch(() => undefined);
+    }
     const likesArr =
       'likes' in updated && Array.isArray(updated.likes) ? updated.likes : [];
     const ownerAccess = await this.viewerAccess(ownerId);

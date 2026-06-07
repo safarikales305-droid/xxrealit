@@ -648,7 +648,9 @@ export class AdminService {
       where: { id: propertyId },
       data: { approved: true, status: 'APPROVED', isActive: true },
     });
-    await this.propertiesService.ensureFacebookShareImage(propertyId, true).catch(() => undefined);
+    void this.propertiesService
+      .ensureFacebookShareImage(propertyId, true)
+      .catch(() => undefined);
     if (wasPending && updated.isOwnerListing && !updated.derivedFromPropertyId) {
       await this.ownerListingNotify.notifyPremiumBrokersForNewOwnerListing({
         id: updated.id,

@@ -994,21 +994,26 @@ export class ShortsListingService {
       'SHORTS',
     );
 
-    const fbUrl = await this.facebookShareImage.ensureForProperty({
-      id: result.created.id,
-      thumbnailUrl: ogMedia.thumbnailUrl,
-      mainImage: ogMedia.mainImage,
-      images: urls,
-      generatedVideoThumbnail: ogMedia.generatedVideoThumbnail,
-      videoUrl,
-      force: true,
-    });
-    if (fbUrl) {
-      await this.prisma.property.update({
-        where: { id: result.created.id },
-        data: { facebookShareImageUrl: fbUrl, facebookShareImageAt: new Date() },
-      });
-    }
+    const publishedId = result.created.id;
+    void this.facebookShareImage
+      .ensureForProperty({
+        id: publishedId,
+        thumbnailUrl: ogMedia.thumbnailUrl,
+        mainImage: ogMedia.mainImage,
+        images: urls,
+        generatedVideoThumbnail: ogMedia.generatedVideoThumbnail,
+        videoUrl,
+        force: true,
+      })
+      .then(async (fbUrl) => {
+        if (fbUrl) {
+          await this.prisma.property.update({
+            where: { id: publishedId },
+            data: { facebookShareImageUrl: fbUrl, facebookShareImageAt: new Date() },
+          });
+        }
+      })
+      .catch(() => undefined);
 
     const full = result.full;
     if (!full) {
