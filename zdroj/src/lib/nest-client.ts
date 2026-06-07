@@ -3554,6 +3554,36 @@ export async function nestAdminShareGateVideoUpload(
   return { ok: true, video: data as ShareGateVideoAdminDto };
 }
 
+/** PATCH /admin/share-gate-videos/:id — multipart metadata + volitelně video/poster. */
+export async function nestAdminShareGateVideoPatch(
+  token: string | null,
+  id: string,
+  formData: FormData,
+): Promise<{ ok: true; video: ShareGateVideoAdminDto } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/admin/share-gate-videos/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    body: formData,
+  });
+  const data = (await res.json().catch(() => ({}))) as ShareGateVideoAdminDto & {
+    message?: string | string[];
+    error?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  if (!data?.id) {
+    return { ok: false, error: 'Server nevrátil upravené video.' };
+  }
+  return { ok: true, video: data as ShareGateVideoAdminDto };
+}
+
 export async function nestAdminShareGateVideoUpdate(
   token: string | null,
   id: string,
@@ -3566,31 +3596,26 @@ export async function nestAdminShareGateVideoUpdate(
     buttonText?: string;
     activeFrom?: string | null;
     activeTo?: string | null;
+    clearPoster?: boolean;
   },
-): Promise<{ ok: boolean; error?: string }> {
-  if (!API_BASE_URL || !token) {
-    return { ok: false, error: 'API nebo token chybí' };
-  }
-  const res = await fetch(`${API_BASE_URL}/admin/share-gate-videos/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    headers: {
-      ...nestAuthHeaders(token),
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-  const data = (await res.json().catch(() => ({}))) as {
-    message?: string | string[];
-    error?: string;
-  };
-  if (!res.ok) {
-    return {
-      ok: false,
-      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
-    };
-  }
-  return { ok: true };
+  files?: { video?: File | null; poster?: File | null },
+): Promise<{ ok: boolean; error?: string; video?: ShareGateVideoAdminDto }> {
+  const fd = new FormData();
+  if (body.title !== undefined) fd.append('title', body.title);
+  if (body.targetType !== undefined) fd.append('targetType', body.targetType);
+  if (body.isActive !== undefined) fd.append('isActive', body.isActive ? 'true' : 'false');
+  if (body.sortOrder !== undefined) fd.append('sortOrder', String(body.sortOrder));
+  if (body.minWatchSeconds !== undefined) fd.append('minWatchSeconds', String(body.minWatchSeconds));
+  if (body.buttonText !== undefined) fd.append('buttonText', body.buttonText);
+  if (body.activeFrom !== undefined) fd.append('activeFrom', body.activeFrom ?? '');
+  if (body.activeTo !== undefined) fd.append('activeTo', body.activeTo ?? '');
+  if (body.clearPoster) fd.append('clearPoster', 'true');
+  if (files?.video) fd.append('video', files.video);
+  if (files?.poster) fd.append('poster', files.poster);
+
+  const r = await nestAdminShareGateVideoPatch(token, id, fd);
+  if (!r.ok) return { ok: false, error: r.error };
+  return { ok: true, video: r.video };
 }
 
 export async function nestAdminShareGateVideoDelete(

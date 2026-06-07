@@ -153,6 +153,18 @@ export class ShareGateVideoService {
     });
   }
 
+  private parseBoolField(raw: string | undefined): boolean {
+    return !['0', 'false', 'off', 'no'].includes((raw ?? 'true').trim().toLowerCase());
+  }
+
+  private parseTargetType(raw: string | undefined): ShareGateTargetType {
+    const targetTypeRaw = (raw ?? 'ALL').trim().toUpperCase();
+    if (!Object.values(ShareGateTargetType).includes(targetTypeRaw as ShareGateTargetType)) {
+      throw new BadRequestException('Neplatný targetType.');
+    }
+    return targetTypeRaw as ShareGateTargetType;
+  }
+
   async update(id: string, dto: UpdateShareGateVideoDto) {
     const existing = await this.prisma.shareGateVideo.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Reklamní video nenalezeno.');
@@ -179,6 +191,82 @@ export class ShareGateVideoService {
           ? { activeTo: parseOptionalDate(dto.activeTo) ?? null }
           : {}),
       },
+    });
+  }
+
+  async updateFromForm(
+    id: string,
+    videoFile: Express.Multer.File | undefined,
+    posterFile: Express.Multer.File | undefined,
+    fields: Record<string, string | undefined>,
+  ) {
+    const existing = await this.prisma.shareGateVideo.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Reklamní video nenalezeno.');
+
+    const data: {
+      title?: string;
+      videoUrl?: string;
+      posterUrl?: string | null;
+      targetType?: ShareGateTargetType;
+      isActive?: boolean;
+      sortOrder?: number;
+      minWatchSeconds?: number;
+      buttonText?: string;
+      activeFrom?: Date | null;
+      activeTo?: Date | null;
+    } = {};
+
+    if (fields.title !== undefined) {
+      const title = fields.title.trim();
+      if (!title) throw new BadRequestException('Vyplňte název videa.');
+      data.title = title.slice(0, 200);
+    }
+    if (fields.targetType !== undefined) {
+      data.targetType = this.parseTargetType(fields.targetType);
+    }
+    if (fields.isActive !== undefined) {
+      data.isActive = this.parseBoolField(fields.isActive);
+    }
+    if (fields.sortOrder !== undefined) {
+      const sortOrder = Number.parseInt(fields.sortOrder, 10);
+      data.sortOrder = Number.isFinite(sortOrder) ? Math.max(0, sortOrder) : 0;
+    }
+    if (fields.minWatchSeconds !== undefined) {
+      const minWatchSeconds = Number.parseInt(fields.minWatchSeconds, 10);
+      data.minWatchSeconds =
+        Number.isFinite(minWatchSeconds) && minWatchSeconds >= 1
+          ? Math.min(120, minWatchSeconds)
+          : 5;
+    }
+    if (fields.buttonText !== undefined) {
+      data.buttonText = (fields.buttonText || 'Pokračovat na inzerát').trim().slice(0, 120);
+    }
+    if (fields.activeFrom !== undefined) {
+      data.activeFrom = parseOptionalDate(fields.activeFrom) ?? null;
+    }
+    if (fields.activeTo !== undefined) {
+      data.activeTo = parseOptionalDate(fields.activeTo) ?? null;
+    }
+    if (fields.clearPoster === 'true') {
+      data.posterUrl = null;
+    }
+
+    if (videoFile) {
+      this.assertVideoFile(videoFile);
+      data.videoUrl = await this.cloudinary.uploadVideo(videoFile);
+    }
+    if (posterFile) {
+      this.assertPosterFile(posterFile);
+      data.posterUrl = await this.cloudinary.uploadImage(posterFile);
+    }
+
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException('Žádná pole k úpravě.');
+    }
+
+    return this.prisma.shareGateVideo.update({
+      where: { id },
+      data,
     });
   }
 

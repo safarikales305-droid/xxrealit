@@ -16,7 +16,6 @@ import { AdminGuard } from '../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { shareGateVideoMemoryMulterOptions } from '../upload/multer-upload.config';
 import { CreateShareGateVideoDto } from './dto/create-share-gate-video.dto';
-import { UpdateShareGateVideoDto } from './dto/update-share-gate-video.dto';
 import { ShareGateVideoService } from './share-gate-video.service';
 
 @Controller('admin/share-gate-videos')
@@ -60,8 +59,33 @@ export class ShareGateVideoAdminController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateShareGateVideoDto) {
-    return this.shareGateVideos.update(id, dto);
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'video', maxCount: 1 },
+        { name: 'poster', maxCount: 1 },
+      ],
+      shareGateVideoMemoryMulterOptions,
+    ),
+  )
+  update(
+    @Param('id') id: string,
+    @UploadedFiles()
+    files: {
+      video?: Express.Multer.File[];
+      poster?: Express.Multer.File[];
+    },
+    @Body() body: Record<string, string | undefined>,
+  ) {
+    if (body && Object.keys(body).length > 0) {
+      return this.shareGateVideos.updateFromForm(
+        id,
+        files.video?.[0],
+        files.poster?.[0],
+        body,
+      );
+    }
+    throw new BadRequestException('Chybí data k úpravě.');
   }
 
   @Delete(':id')
