@@ -4,6 +4,7 @@ import { resolveListingOgImageUrl } from '@/lib/listing-og-metadata';
 import { tipShareUrl } from '@/lib/public-share-url';
 import { fetchShareTexts, shareTextsForType } from '@/lib/share-texts';
 import { fetchTiparPostPublic, tiparPostVideoUrl } from '@/lib/tipar-public';
+import { ShareGateShell } from '@/components/share/ShareGateShell';
 import { TiparDetailClient } from '../../tipar/[id]/tipar-detail-client';
 
 export const dynamic = 'force-dynamic';
@@ -61,5 +62,9 @@ export default async function TipyDetailPage({ params }: Props) {
   if (post.isShorts && tiparPostVideoUrl(post)) {
     redirect(`/shorts/tip/${encodeURIComponent(id)}`);
   }
-  return <TiparDetailClient id={id} />;
+  return (
+    <ShareGateShell type="TIP_LISTING" listingId={id}>
+      <TiparDetailClient id={id} />
+    </ShareGateShell>
+  );
 }

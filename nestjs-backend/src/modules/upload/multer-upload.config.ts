@@ -25,6 +25,12 @@ export const shortsMusicMemoryMulterOptions = {
   limits: { fileSize: 25 * 1024 * 1024, files: 1 },
 };
 
+/** Admin — reklamní video pro sdílené odkazy (video + volitelný poster). */
+export const shareGateVideoMemoryMulterOptions = {
+  storage: memoryStorage(),
+  limits: { fileSize: 120 * 1024 * 1024, files: 2 },
+};
+
 export const propertyImagesMulterOptions = {
   storage: diskStorage({
     destination: (_req, _file, cb) => {

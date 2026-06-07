@@ -415,6 +415,36 @@ model ShortsMusicTrack {
   @@index([createdAt])
 }
 
+/// Reklamní video před zobrazením sdíleného odkazu (jen nepřihlášení).
+enum ShareGateTargetType {
+  CLASSIC_LISTING
+  SHORTS_LISTING
+  TIP_LISTING
+  TIP_SHORTS
+  ALL
+}
+
+model ShareGateVideo {
+  id                   String              @id @default(cuid())
+  title                String
+  videoUrl             String
+  posterUrl            String?
+  targetType           ShareGateTargetType @default(ALL)
+  isActive             Boolean             @default(true)
+  sortOrder            Int                 @default(0)
+  minWatchSeconds      Int                 @default(5)
+  buttonText           String              @default("Pokračovat na inzerát")
+  activeFrom           DateTime?
+  activeTo             DateTime?
+  cloudinaryVideoPublicId String?
+  cloudinaryPosterPublicId String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  @@index([targetType, isActive, sortOrder])
+  @@index([isActive, sortOrder])
+}
+
 model Post {
   id          String   @id @default(cuid())
   title       String   @default("")

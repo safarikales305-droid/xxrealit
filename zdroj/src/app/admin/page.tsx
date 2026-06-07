@@ -384,6 +384,12 @@ export default function AdminPage() {
               Hudba (shorts)
             </Link>
             <Link
+              href="/admin/reklamni-videa-sdileni"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Reklamní videa (sdílení)
+            </Link>
+            <Link
               href="/admin/tipar"
               className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >

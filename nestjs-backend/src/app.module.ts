@@ -28,6 +28,7 @@ import { SocialModule } from './modules/social/social.module';
 import { DebugModule } from './modules/debug/debug.module';
 import { ShareModule } from './modules/share/share.module';
 import { LinkPreviewModule } from './modules/link-preview/link-preview.module';
+import { ShareGateVideoModule } from './modules/share-gate-video/share-gate-video.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { LinkPreviewModule } from './modules/link-preview/link-preview.module';
     DebugModule,
     ShareModule,
     LinkPreviewModule,
+    ShareGateVideoModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

@@ -3497,6 +3497,123 @@ export async function nestAdminShortsMusicDelete(
   return { ok: true };
 }
 
+export type ShareGateVideoAdminDto = {
+  id: string;
+  title: string;
+  videoUrl: string;
+  posterUrl: string | null;
+  targetType: string;
+  isActive: boolean;
+  sortOrder: number;
+  minWatchSeconds: number;
+  buttonText: string;
+  activeFrom: string | null;
+  activeTo: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function nestAdminShareGateVideosList(
+  token: string | null,
+): Promise<ShareGateVideoAdminDto[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/share-gate-videos`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  if (!res.ok) return null;
+  const data = (await res.json().catch(() => [])) as unknown;
+  return Array.isArray(data) ? (data as ShareGateVideoAdminDto[]) : null;
+}
+
+export async function nestAdminShareGateVideoUpload(
+  token: string | null,
+  formData: FormData,
+): Promise<{ ok: true; video: ShareGateVideoAdminDto } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/admin/share-gate-videos/upload`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    body: formData,
+  });
+  const data = (await res.json().catch(() => ({}))) as ShareGateVideoAdminDto & {
+    message?: string | string[];
+    error?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  if (!data?.id) {
+    return { ok: false, error: 'Server nevrátil video.' };
+  }
+  return { ok: true, video: data as ShareGateVideoAdminDto };
+}
+
+export async function nestAdminShareGateVideoUpdate(
+  token: string | null,
+  id: string,
+  body: {
+    title?: string;
+    targetType?: string;
+    isActive?: boolean;
+    sortOrder?: number;
+    minWatchSeconds?: number;
+    buttonText?: string;
+    activeFrom?: string | null;
+    activeTo?: string | null;
+  },
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/admin/share-gate-videos/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    message?: string | string[];
+    error?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminShareGateVideoDelete(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(`${API_BASE_URL}/admin/share-gate-videos/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true };
+}
+
 /** POST /properties/generate-shorts-from-photos — JWT, multipart `images[]` + textová pole. */
 export async function nestGeneratePropertyShortsFromPhotos(
   token: string | null,

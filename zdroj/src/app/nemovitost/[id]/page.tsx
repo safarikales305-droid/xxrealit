@@ -6,6 +6,7 @@ import { buildListingOpenGraphMetadata } from '@/lib/listing-og-metadata';
 import { normalizePropertyDetailPayload } from '@/lib/property-detail';
 import { fetchPropertyForOgMetadata } from '@/lib/property-public';
 import { getServerAuthorizationHeader } from '@/lib/server-bearer';
+import { ShareGateShell } from '@/components/share/ShareGateShell';
 import { ShareListingInactive, ShareListingNotFound } from '@/components/share/ShareListingStatus';
 import { fetchPublicListingShare } from '@/lib/listing-share-public';
 import { PropertyDetailFetchError } from './fetch-error';
@@ -97,13 +98,15 @@ function renderFromPublicShare(
   );
   if (!parsed?.user || !parsed.property) return null;
   return (
-    <NemovitostDetailView
-      propertyId={id}
-      property={parsed.property}
-      author={parsed.user}
-      other={[]}
-      extraFields={pickExtraFields(property)}
-    />
+    <ShareGateShell type="CLASSIC_LISTING" listingId={id}>
+      <NemovitostDetailView
+        propertyId={id}
+        property={parsed.property}
+        author={parsed.user}
+        other={[]}
+        extraFields={pickExtraFields(property)}
+      />
+    </ShareGateShell>
   );
 }
 
@@ -165,12 +168,14 @@ export default async function NemovitostDetailPage({ params }: Props) {
   const extraFields = pickExtraFields(rawProperty);
 
   return (
-    <NemovitostDetailView
-      propertyId={id}
-      property={parsed.property}
-      author={parsed.user}
-      other={parsed.other}
-      extraFields={extraFields}
-    />
+    <ShareGateShell type="CLASSIC_LISTING" listingId={id}>
+      <NemovitostDetailView
+        propertyId={id}
+        property={parsed.property}
+        author={parsed.user}
+        other={parsed.other}
+        extraFields={extraFields}
+      />
+    </ShareGateShell>
   );
 }

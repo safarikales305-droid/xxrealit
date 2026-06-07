@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { ShareGateShell } from '@/components/share/ShareGateShell';
 import { TipShortsPlayer } from '@/components/tipar/TipShortsPlayer';
 import { ShareListingNotFound } from '@/components/share/ShareListingStatus';
 import { getAppOrigin } from '@/lib/app-url';
@@ -105,10 +106,12 @@ export default async function ShortsTipPage({ params }: Props) {
   }
 
   return (
-    <TipShortsPlayer
-      videoUrl={videoUrl}
-      title={post.title}
-      backHref={`${getAppOrigin()}/tipy/${encodeURIComponent(id)}`}
-    />
+    <ShareGateShell type="TIP_SHORTS" listingId={id}>
+      <TipShortsPlayer
+        videoUrl={videoUrl}
+        title={post.title}
+        backHref={`${getAppOrigin()}/tipy/${encodeURIComponent(id)}`}
+      />
+    </ShareGateShell>
   );
 }

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { ShareGateShell } from '@/components/share/ShareGateShell';
 import { SharedShortsPlayer } from '@/components/shorts/SharedShortsPlayer';
 import {
   ShareListingInactive,
@@ -44,5 +45,9 @@ export default async function ShortsListingPage({ params }: Props) {
   const listing = parsePublicShortsListing(result.property, id);
   const detailHref = `/nemovitost/${encodeURIComponent(id)}`;
 
-  return <SharedShortsPlayer listing={listing} detailHref={detailHref} />;
+  return (
+    <ShareGateShell type="SHORTS_LISTING" listingId={id}>
+      <SharedShortsPlayer listing={listing} detailHref={detailHref} />
+    </ShareGateShell>
+  );
 }
