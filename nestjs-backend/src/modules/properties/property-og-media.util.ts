@@ -11,17 +11,35 @@ export type PropertyOgMediaInput = {
 
 export type OgImageSource =
   | 'thumbnailUrl'
-  | 'generatedVideoThumbnail'
   | 'mainImage'
   | 'firstGalleryImage'
-  | 'videoPoster'
+  | 'videoThumbnail'
   | 'logo';
 
 export type ResolvedOgImage = {
   url: string;
   source: OgImageSource;
   usedFallbackLogo: boolean;
+  isLogoFallback: boolean;
 };
+
+const BRANDING_MARKERS = [
+  'logo',
+  'favicon',
+  'icon-',
+  '/icons/',
+  'x-logo',
+  'portal',
+  '/logo',
+  '/favicon',
+] as const;
+
+/** URL nesmí být logo/favicon portálu. */
+export function isPortalBrandingUrl(url: string | null | undefined): boolean {
+  if (!url?.trim()) return false;
+  const u = url.trim().toLowerCase();
+  return BRANDING_MARKERS.some((m) => u.includes(m));
+}
 
 /** Ověří veřejnou HTTPS URL vhodnou pro og:image. */
 export function isValidPublicOgImageUrl(url: string | null | undefined): boolean {
@@ -30,17 +48,31 @@ export function isValidPublicOgImageUrl(url: string | null | undefined): boolean
   if (u.startsWith('blob:') || u.startsWith('data:')) return false;
   if (/localhost|127\.0\.0\.1/i.test(u)) return false;
   if (!/^https:\/\//i.test(u)) return false;
+  if (isPortalBrandingUrl(u)) return false;
   return true;
+}
+
+export function getSiteOriginForOg(): string {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    'https://www.xxrealit.cz'
+  ).replace(/\/+$/, '');
+}
+
+export function getPortalLogoFallbackUrl(): string {
+  return `${getSiteOriginForOg()}/icons/icon-192.png`;
 }
 
 function toAbsoluteHttps(raw: string): string | null {
   const upgraded = upgradeHttpToHttpsForApi(raw.trim()) ?? raw.trim();
   if (isValidPublicOgImageUrl(upgraded)) return upgraded;
   if (upgraded.startsWith('/')) {
-    const base = resolveAssetBaseUrl();
-    if (!base) return null;
-    const abs = `${base.replace(/\/+$/, '')}${upgraded}`;
-    return isValidPublicOgImageUrl(abs) ? abs : null;
+    const bases = [resolveAssetBaseUrl(), getSiteOriginForOg()].filter(Boolean) as string[];
+    for (const base of bases) {
+      const abs = `${base.replace(/\/+$/, '')}${upgraded}`;
+      if (isValidPublicOgImageUrl(abs)) return abs;
+    }
   }
   return null;
 }
@@ -49,12 +81,22 @@ function toAbsoluteHttps(raw: string): string | null {
 export function pickPropertyMainImage(images: string[]): string | null {
   for (const raw of images) {
     const u = typeof raw === 'string' ? raw.trim() : '';
-    if (u) return u;
+    if (u && !isPortalBrandingUrl(u)) return u;
   }
   return null;
 }
 
-/** Cloudinary poster z videa — snímek z 2. sekundy (ne bílý úvod). */
+export function propertyHasListingMedia(input: PropertyOgMediaInput): boolean {
+  return Boolean(
+    input.thumbnailUrl?.trim() ||
+      input.mainImage?.trim() ||
+      input.images?.some((i) => i?.trim() && !isPortalBrandingUrl(i)) ||
+      input.generatedVideoThumbnail?.trim() ||
+      input.videoUrl?.trim(),
+  );
+}
+
+/** Cloudinary poster z videa — snímek z 2. sekundy. */
 export function cloudinaryVideoPosterUrl(videoUrl: string | null | undefined): string | null {
   const u = upgradeHttpToHttpsForApi(videoUrl?.trim() ?? '') ?? '';
   if (!u || !/res\.cloudinary\.com/i.test(u) || !/\/video\/upload\//i.test(u)) {
@@ -66,7 +108,7 @@ export function cloudinaryVideoPosterUrl(videoUrl: string | null | undefined): s
   const prefix = u.slice(0, idx + marker.length);
   const rest = u.slice(idx + marker.length);
   const transform = 'w_1200,h_630,c_fill,so_2,f_jpg,q_auto';
-  if (rest.startsWith(transform + '/')) return u;
+  if (rest.startsWith(`${transform}/`)) return u;
   const withoutExt = rest.replace(/\.[a-z0-9]+$/i, '');
   return `${prefix}${transform}/${withoutExt}.jpg`;
 }
@@ -88,9 +130,9 @@ export function cloudinaryOgImageUrl(imageUrl: string | null | undefined): strin
   return `${prefix}${transform}/${rest}`;
 }
 
-/** Normalizuje kandidáta na OG obrázek (absolutní HTTPS JPG 1200×630). */
+/** Normalizuje kandidáta na OG obrázek (absolutní HTTPS JPG). */
 export function normalizeOgImageCandidate(raw: string | null | undefined): string | null {
-  if (!raw?.trim()) return null;
+  if (!raw?.trim() || isPortalBrandingUrl(raw)) return null;
   if (/\/video\/upload\//i.test(raw)) {
     const poster = cloudinaryVideoPosterUrl(raw);
     return poster && isValidPublicOgImageUrl(poster) ? poster : null;
@@ -99,41 +141,91 @@ export function normalizeOgImageCandidate(raw: string | null | undefined): strin
   return img && isValidPublicOgImageUrl(img) ? img : null;
 }
 
+export function pickVideoThumbnail(input: PropertyOgMediaInput): string | null {
+  return (
+    normalizeOgImageCandidate(input.generatedVideoThumbnail) ??
+    normalizeOgImageCandidate(cloudinaryVideoPosterUrl(input.videoUrl))
+  );
+}
+
+export const OG_IMAGE_PRIORITY_STEPS: Array<{
+  pick: (input: PropertyOgMediaInput) => string | null | undefined;
+  source: OgImageSource;
+}> = [
+  { pick: (i) => i.thumbnailUrl, source: 'thumbnailUrl' },
+  { pick: (i) => i.mainImage, source: 'mainImage' },
+  { pick: (i) => i.images?.[0], source: 'firstGalleryImage' },
+  {
+    pick: (i) => i.generatedVideoThumbnail ?? cloudinaryVideoPosterUrl(i.videoUrl),
+    source: 'videoThumbnail',
+  },
+];
+
 /**
- * Priorita OG obrázku (sync — bez probe):
- * thumbnailUrl → první fotka galerie → mainImage → generatedVideoThumbnail → video poster → logo
+ * Priorita: thumbnailUrl → mainImage → galerie → videoThumbnail → logo (jen bez médií).
  */
 export function resolvePropertyOgImageWithSource(
   input: PropertyOgMediaInput,
-  siteFallbackUrl: string,
+  siteFallbackUrl = getPortalLogoFallbackUrl(),
 ): ResolvedOgImage {
-  const steps: Array<{ raw: string | null | undefined; source: OgImageSource }> = [
-    { raw: input.thumbnailUrl, source: 'thumbnailUrl' },
-    { raw: input.images?.[0], source: 'firstGalleryImage' },
-    { raw: input.mainImage, source: 'mainImage' },
-    { raw: input.generatedVideoThumbnail, source: 'generatedVideoThumbnail' },
-    { raw: cloudinaryVideoPosterUrl(input.videoUrl), source: 'videoPoster' },
-  ];
-
-  for (const step of steps) {
-    const normalized = normalizeOgImageCandidate(step.raw);
+  for (const step of OG_IMAGE_PRIORITY_STEPS) {
+    const normalized = normalizeOgImageCandidate(step.pick(input));
     if (normalized) {
-      return { url: normalized, source: step.source, usedFallbackLogo: false };
+      return {
+        url: normalized,
+        source: step.source,
+        usedFallbackLogo: false,
+        isLogoFallback: false,
+      };
     }
   }
 
+  if (propertyHasListingMedia(input)) {
+    for (const step of OG_IMAGE_PRIORITY_STEPS) {
+      const raw = step.pick(input)?.trim();
+      if (!raw || isPortalBrandingUrl(raw)) continue;
+      const abs = toAbsoluteHttps(raw);
+      if (abs) {
+        return {
+          url: abs,
+          source: step.source,
+          usedFallbackLogo: false,
+          isLogoFallback: false,
+        };
+      }
+    }
+  }
+
+  const fallback = siteFallbackUrl;
+  const isLogo = true;
   return {
-    url: isValidPublicOgImageUrl(siteFallbackUrl) ? siteFallbackUrl : siteFallbackUrl,
+    url: fallback,
     source: 'logo',
-    usedFallbackLogo: true,
+    usedFallbackLogo: isLogo,
+    isLogoFallback: isLogo,
   };
 }
 
 export function resolvePropertyOgImageUrl(
   input: PropertyOgMediaInput,
-  siteFallbackUrl: string,
+  siteFallbackUrl?: string,
 ): string {
   return resolvePropertyOgImageWithSource(input, siteFallbackUrl).url;
+}
+
+/** Odvodí a uloží thumbnailUrl z mainImage / galerie, pokud chybí. */
+export function deriveThumbnailUrlFromListing(input: {
+  mainImage?: string | null;
+  images?: string[];
+  generatedVideoThumbnail?: string | null;
+  videoUrl?: string | null;
+}): string | null {
+  return (
+    normalizeOgImageCandidate(input.mainImage) ??
+    normalizeOgImageCandidate(input.images?.[0]) ??
+    normalizeOgImageCandidate(input.generatedVideoThumbnail) ??
+    normalizeOgImageCandidate(cloudinaryVideoPosterUrl(input.videoUrl))
+  );
 }
 
 export function buildOgTitle(
@@ -155,18 +247,6 @@ export function buildOgDescription(city: string, description: string): string {
   return combined.slice(0, 160);
 }
 
-export function getSiteOriginForOg(): string {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    'https://www.xxrealit.cz'
-  ).replace(/\/+$/, '');
-}
-
-export function getPortalLogoFallbackUrl(): string {
-  return `${getSiteOriginForOg()}/icons/icon-192.png`;
-}
-
 export function computeStoredOgMediaFields(input: {
   images: string[];
   videoUrl?: string | null;
@@ -177,14 +257,15 @@ export function computeStoredOgMediaFields(input: {
   generatedVideoThumbnail: string | null;
 } {
   const mainImage = pickPropertyMainImage(input.images);
-  const galleryFirst = normalizeOgImageCandidate(input.images[0]);
   let generatedVideoThumbnail = input.generatedVideoThumbnail?.trim() || null;
   if (!generatedVideoThumbnail && input.videoUrl?.trim()) {
     generatedVideoThumbnail = cloudinaryVideoPosterUrl(input.videoUrl);
   }
-  const videoThumb = normalizeOgImageCandidate(generatedVideoThumbnail);
-  /** Pro OG preferuj reálnou fotku z galerie před video snímkem. */
-  const thumbnailUrl = galleryFirst ?? videoThumb ?? normalizeOgImageCandidate(mainImage) ?? null;
+  const thumbnailUrl =
+    normalizeOgImageCandidate(mainImage) ??
+    normalizeOgImageCandidate(input.images[0]) ??
+    normalizeOgImageCandidate(generatedVideoThumbnail) ??
+    null;
   return {
     mainImage,
     thumbnailUrl,

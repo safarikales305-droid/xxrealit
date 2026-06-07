@@ -3,9 +3,13 @@ import {
   type OgImageSource,
   type PropertyOgMediaInput,
   type ResolvedOgImage,
-  cloudinaryVideoPosterUrl,
+  OG_IMAGE_PRIORITY_STEPS,
   getPortalLogoFallbackUrl,
+  isPortalBrandingUrl,
   normalizeOgImageCandidate,
+  pickVideoThumbnail,
+  propertyHasListingMedia,
+  resolvePropertyOgImageWithSource,
 } from './property-og-media.util';
 
 export type OgImageProbeResult = {
@@ -18,7 +22,6 @@ export type OgImageProbeResult = {
   isWhiteOrBlank: boolean;
 };
 
-/** Detekce prázdného / bílého snímku (typické u ffmpeg z času 0s). */
 export async function isImageBufferWhiteOrBlank(buffer: Buffer): Promise<boolean> {
   if (!buffer.length) return true;
   try {
@@ -56,6 +59,8 @@ export async function probeOgImageUrl(url: string): Promise<OgImageProbeResult> 
     isPublic: false,
     isWhiteOrBlank: false,
   };
+
+  if (isPortalBrandingUrl(url)) return empty;
 
   try {
     const res = await fetch(url, {
@@ -106,60 +111,71 @@ export async function probeOgImageUrl(url: string): Promise<OgImageProbeResult> 
   }
 }
 
-const OG_CANDIDATE_STEPS: Array<{
-  pick: (input: PropertyOgMediaInput) => string | null | undefined;
-  source: OgImageSource;
-  rejectIfWhite: boolean;
-}> = [
-  { pick: (i) => i.thumbnailUrl, source: 'thumbnailUrl', rejectIfWhite: true },
-  { pick: (i) => i.images?.[0], source: 'firstGalleryImage', rejectIfWhite: false },
-  { pick: (i) => i.mainImage, source: 'mainImage', rejectIfWhite: false },
-  {
-    pick: (i) => i.generatedVideoThumbnail,
-    source: 'generatedVideoThumbnail',
-    rejectIfWhite: true,
-  },
-  {
-    pick: (i) => cloudinaryVideoPosterUrl(i.videoUrl),
-    source: 'videoPoster',
-    rejectIfWhite: true,
-  },
-];
-
 export type ResolvedOgImageWithProbe = ResolvedOgImage & {
   probe: OgImageProbeResult | null;
 };
 
 /**
- * Vybere nejlepší og:image — přeskočí 404, neveřejné a bílé video thumbnaily.
- * Priorita: thumbnailUrl → galerie → mainImage → generatedVideoThumbnail → video poster → logo.
+ * Vybere og:image — fotky bez probe, video thumbnail s probe (přeskočí bílý).
+ * Nikdy logo, pokud inzerát má jakékoliv médium.
  */
 export async function resolvePropertyOgImageBest(
   input: PropertyOgMediaInput,
   siteFallbackUrl = getPortalLogoFallbackUrl(),
 ): Promise<ResolvedOgImageWithProbe> {
-  for (const step of OG_CANDIDATE_STEPS) {
+  const photoSteps = OG_IMAGE_PRIORITY_STEPS.filter((s) => s.source !== 'videoThumbnail');
+  const videoStep = OG_IMAGE_PRIORITY_STEPS.find((s) => s.source === 'videoThumbnail');
+
+  for (const step of photoSteps) {
     const normalized = normalizeOgImageCandidate(step.pick(input));
-    if (!normalized) continue;
-
-    const probe = await probeOgImageUrl(normalized);
-    if (!probe.isPublic) continue;
-    if (step.rejectIfWhite && probe.isWhiteOrBlank) continue;
-
+    if (!normalized || isPortalBrandingUrl(normalized)) continue;
     return {
       url: normalized,
       source: step.source,
       usedFallbackLogo: false,
-      probe,
+      isLogoFallback: false,
+      probe: await probeOgImageUrl(normalized),
     };
   }
 
-  const fallback = siteFallbackUrl;
-  const probe = await probeOgImageUrl(fallback);
-  return {
-    url: fallback,
-    source: 'logo',
-    usedFallbackLogo: true,
-    probe,
-  };
+  if (videoStep) {
+    const normalized = pickVideoThumbnail(input);
+    if (normalized && !isPortalBrandingUrl(normalized)) {
+      const probe = await probeOgImageUrl(normalized);
+      if (!probe.isWhiteOrBlank) {
+        return {
+          url: normalized,
+          source: 'videoThumbnail',
+          usedFallbackLogo: false,
+          isLogoFallback: false,
+          probe,
+        };
+      }
+    }
+  }
+
+  if (propertyHasListingMedia(input)) {
+    const sync = resolvePropertyOgImageWithSource(input, siteFallbackUrl);
+    if (!sync.isLogoFallback) {
+      return { ...sync, probe: await probeOgImageUrl(sync.url) };
+    }
+  }
+
+  if (!propertyHasListingMedia(input)) {
+    const fallback = siteFallbackUrl;
+    return {
+      url: fallback,
+      source: 'logo',
+      usedFallbackLogo: true,
+      isLogoFallback: true,
+      probe: await probeOgImageUrl(fallback),
+    };
+  }
+
+  const sync = resolvePropertyOgImageWithSource(input, siteFallbackUrl);
+  return { ...sync, probe: null };
+}
+
+export function mapSourceToApiLabel(source: OgImageSource): string {
+  return source;
 }

@@ -15,57 +15,81 @@ export type ListingOgInput = {
   mainImage?: string | null;
   generatedVideoThumbnail?: string | null;
   images?: string[];
-  /** Předpočítané z API /api/properties/:id/og-meta */
   resolvedOgImage?: string | null;
   ogImageSource?: OgImageSource | null;
 };
 
 export type OgImageSource =
   | 'thumbnailUrl'
-  | 'generatedVideoThumbnail'
   | 'mainImage'
   | 'firstGalleryImage'
-  | 'videoPoster'
+  | 'videoThumbnail'
   | 'logo';
 
 const OG_IMAGE_TRANSFORM = 'w_1200,h_630,c_fill,f_jpg,q_auto';
 
-export function getPortalLogoFallbackUrl(): string {
-  return ensureAbsoluteOgUrl('/icons/icon-192.png');
+const BRANDING_MARKERS = [
+  'logo',
+  'favicon',
+  'icon-',
+  '/icons/',
+  'x-logo',
+  'portal',
+  '/logo',
+  '/favicon',
+] as const;
+
+export function isPortalBrandingUrl(url: string | null | undefined): boolean {
+  if (!url?.trim()) return false;
+  const u = url.trim().toLowerCase();
+  return BRANDING_MARKERS.some((m) => u.includes(m));
 }
 
-/** Ověří, že URL je veřejná HTTPS adresa vhodná pro og:image. */
+export function getPortalLogoFallbackUrl(): string {
+  return `${getAppOrigin()}/icons/icon-192.png`;
+}
+
 export function isValidPublicOgImageUrl(url: string | null | undefined): boolean {
   if (!url?.trim()) return false;
   const u = url.trim();
   if (u.startsWith('blob:') || u.startsWith('data:')) return false;
   if (/localhost|127\.0\.0\.1/i.test(u)) return false;
   if (!/^https:\/\//i.test(u)) return false;
+  if (isPortalBrandingUrl(u)) return false;
   return true;
 }
 
-export function ensureAbsoluteOgUrl(url: string): string {
+/** Převede relativní cestu na absolutní HTTPS — nikdy nevrací logo jako fallback. */
+export function toAbsoluteListingImageUrl(url: string): string | null {
   const t = upgradeHttpToHttps(url.trim());
-  if (!t) return getPortalLogoFallbackUrl();
-  if (/^https:\/\//i.test(t)) return t;
-  if (t.startsWith('//')) return `https:${t}`;
-  const origin = getAppOrigin();
-  const abs = t.startsWith('/') ? `${origin}${t}` : `${origin}/${t}`;
-  return isValidPublicOgImageUrl(abs) ? abs : getPortalLogoFallbackUrl();
+  if (!t || isPortalBrandingUrl(t)) return null;
+  if (isValidPublicOgImageUrl(t)) return t;
+  if (t.startsWith('//')) {
+    const abs = `https:${t}`;
+    return isValidPublicOgImageUrl(abs) ? abs : null;
+  }
+  if (t.startsWith('/')) {
+    const abs = `${getAppOrigin()}${t}`;
+    return isValidPublicOgImageUrl(abs) ? abs : null;
+  }
+  const abs = `${getAppOrigin()}/${t}`;
+  return isValidPublicOgImageUrl(abs) ? abs : null;
 }
 
-function cloudinaryOgImageUrl(imageUrl: string): string {
+function cloudinaryOgImageUrl(imageUrl: string): string | null {
   const u = upgradeHttpToHttps(imageUrl.trim());
+  if (isPortalBrandingUrl(u)) return null;
   if (!/res\.cloudinary\.com/i.test(u) || !/\/image\/upload\//i.test(u)) {
-    return u;
+    return toAbsoluteListingImageUrl(u);
   }
   const marker = '/image/upload/';
   const idx = u.indexOf(marker);
-  if (idx < 0) return u;
+  if (idx < 0) return toAbsoluteListingImageUrl(u);
   const prefix = u.slice(0, idx + marker.length);
   const rest = u.slice(idx + marker.length);
   if (rest.startsWith(`${OG_IMAGE_TRANSFORM}/`)) return u;
-  return `${prefix}${OG_IMAGE_TRANSFORM}/${rest}`;
+  const out = `${prefix}${OG_IMAGE_TRANSFORM}/${rest}`;
+  return isValidPublicOgImageUrl(out) ? out : null;
 }
 
 function cloudinaryVideoPosterUrl(videoUrl: string): string | null {
@@ -78,62 +102,101 @@ function cloudinaryVideoPosterUrl(videoUrl: string): string | null {
   const rest = u.slice(idx + marker.length);
   const transform = `${OG_IMAGE_TRANSFORM},so_2`;
   const withoutExt = rest.replace(/\.[a-z0-9]+$/i, '');
-  return `${prefix}${transform}/${withoutExt}.jpg`;
+  const out = `${prefix}${transform}/${withoutExt}.jpg`;
+  return isValidPublicOgImageUrl(out) ? out : null;
 }
 
 function normalizeOgImageCandidate(raw: string | null | undefined): string | null {
-  if (!raw?.trim()) return null;
+  if (!raw?.trim() || isPortalBrandingUrl(raw)) return null;
   if (/\/video\/upload\//i.test(raw)) {
-    const poster = cloudinaryVideoPosterUrl(raw);
-    if (!poster) return null;
-    const abs = ensureAbsoluteOgUrl(poster);
-    return isValidPublicOgImageUrl(abs) ? abs : null;
+    return cloudinaryVideoPosterUrl(raw);
   }
-  const img = cloudinaryOgImageUrl(raw);
-  if (!img) return null;
-  const abs = ensureAbsoluteOgUrl(img);
-  return isValidPublicOgImageUrl(abs) ? abs : null;
+  return cloudinaryOgImageUrl(raw);
+}
+
+function pickVideoThumbnail(listing: ListingOgInput): string | null {
+  return (
+    normalizeOgImageCandidate(listing.generatedVideoThumbnail) ??
+    (listing.videoUrl ? cloudinaryVideoPosterUrl(listing.videoUrl) : null)
+  );
+}
+
+function listingHasMedia(listing: ListingOgInput): boolean {
+  return Boolean(
+    listing.thumbnailUrl?.trim() ||
+      listing.mainImage?.trim() ||
+      listing.images?.some((i) => i?.trim() && !isPortalBrandingUrl(i)) ||
+      listing.generatedVideoThumbnail?.trim() ||
+      listing.videoUrl?.trim(),
+  );
 }
 
 export type ResolvedOgImage = {
   url: string;
   source: OgImageSource;
   usedFallbackLogo: boolean;
+  isLogoFallback: boolean;
 };
 
-/** Priorita: thumbnailUrl → galerie → mainImage → generatedVideoThumbnail → video poster → logo. */
+/** Priorita: thumbnailUrl → mainImage → galerie → videoThumbnail → logo jen bez médií. */
 export function resolveListingOgImage(listing: ListingOgInput): ResolvedOgImage {
-  if (listing.resolvedOgImage && isValidPublicOgImageUrl(listing.resolvedOgImage)) {
-    const source = listing.ogImageSource ?? 'thumbnailUrl';
+  if (
+    listing.resolvedOgImage &&
+    isValidPublicOgImageUrl(listing.resolvedOgImage) &&
+    !isPortalBrandingUrl(listing.resolvedOgImage)
+  ) {
     return {
       url: listing.resolvedOgImage,
-      source,
-      usedFallbackLogo: source === 'logo',
+      source: listing.ogImageSource ?? 'thumbnailUrl',
+      usedFallbackLogo: false,
+      isLogoFallback: false,
     };
   }
 
   const steps: Array<{ raw: string | null | undefined; source: OgImageSource }> = [
     { raw: listing.thumbnailUrl, source: 'thumbnailUrl' },
-    { raw: listing.images?.[0], source: 'firstGalleryImage' },
     { raw: listing.mainImage, source: 'mainImage' },
-    { raw: listing.generatedVideoThumbnail, source: 'generatedVideoThumbnail' },
-    {
-      raw: listing.videoUrl ? cloudinaryVideoPosterUrl(listing.videoUrl) : null,
-      source: 'videoPoster',
-    },
+    { raw: listing.images?.[0], source: 'firstGalleryImage' },
+    { raw: pickVideoThumbnail(listing), source: 'videoThumbnail' },
   ];
 
   for (const step of steps) {
     const normalized = normalizeOgImageCandidate(step.raw);
     if (normalized) {
-      return { url: normalized, source: step.source, usedFallbackLogo: false };
+      return { url: normalized, source: step.source, usedFallbackLogo: false, isLogoFallback: false };
     }
+  }
+
+  if (listingHasMedia(listing)) {
+    for (const step of steps) {
+      const raw = step.raw?.trim();
+      if (!raw || isPortalBrandingUrl(raw)) continue;
+      const abs = toAbsoluteListingImageUrl(raw);
+      if (abs) {
+        return { url: abs, source: step.source, usedFallbackLogo: false, isLogoFallback: false };
+      }
+    }
+  }
+
+  if (!listingHasMedia(listing)) {
+    return {
+      url: getPortalLogoFallbackUrl(),
+      source: 'logo',
+      usedFallbackLogo: true,
+      isLogoFallback: true,
+    };
+  }
+
+  const gallery = normalizeOgImageCandidate(listing.images?.[0]);
+  if (gallery) {
+    return { url: gallery, source: 'firstGalleryImage', usedFallbackLogo: false, isLogoFallback: false };
   }
 
   return {
     url: getPortalLogoFallbackUrl(),
     source: 'logo',
     usedFallbackLogo: true,
+    isLogoFallback: true,
   };
 }
 
@@ -190,13 +253,34 @@ export function buildListingOpenGraphMetadata(listing: ListingOgInput): Metadata
   const pageUrl = listingPublicDetailUrl(listing.id);
   const title = buildListingOgTitle(listing);
   const description = buildListingOgDescription(listing);
-  const { url: imageUrl } = resolveListingOgImage(listing);
+  const resolved = resolveListingOgImage(listing);
+  const imageUrl = resolved.url;
+  const videoThumbnail = pickVideoThumbnail(listing);
+
+  // eslint-disable-next-line no-console
+  console.log('OG IMAGE SOURCE', {
+    listingId: listing.id,
+    thumbnailUrl: listing.thumbnailUrl,
+    mainImage: listing.mainImage,
+    galleryFirst: listing.images?.[0] ?? null,
+    videoThumbnail,
+    selectedOgImage: imageUrl,
+    selectedSource: resolved.source,
+    isLogoFallback: resolved.isLogoFallback,
+  });
+
   const isShorts =
     String(listing.listingType ?? '').toUpperCase() === 'SHORTS' ||
     Boolean(listing.videoUrl?.trim());
   const ogType = isShorts ? 'video.other' : 'article';
   const videoAbs = listing.videoUrl?.trim()
-    ? ensureAbsoluteOgUrl(listing.videoUrl.trim())
+    ? (() => {
+        const t = upgradeHttpToHttps(listing.videoUrl!.trim());
+        if (!t || /localhost|127\.0\.0\.1/i.test(t)) return null;
+        if (/^https:\/\//i.test(t)) return t;
+        if (t.startsWith('//')) return `https:${t}`;
+        return t.startsWith('/') ? `${getAppOrigin()}${t}` : `${getAppOrigin()}/${t}`;
+      })()
     : null;
 
   return {

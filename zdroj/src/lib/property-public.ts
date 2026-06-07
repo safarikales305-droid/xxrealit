@@ -37,12 +37,14 @@ export async function fetchPropertyForOgMetadata(id: string): Promise<ListingOgI
     const s = str(v);
     if (
       s === 'thumbnailUrl' ||
-      s === 'generatedVideoThumbnail' ||
       s === 'mainImage' ||
       s === 'firstGalleryImage' ||
+      s === 'videoThumbnail' ||
+      s === 'generatedVideoThumbnail' ||
       s === 'videoPoster' ||
       s === 'logo'
     ) {
+      if (s === 'generatedVideoThumbnail' || s === 'videoPoster') return 'videoThumbnail';
       return s;
     }
     return null;
@@ -61,8 +63,12 @@ export async function fetchPropertyForOgMetadata(id: string): Promise<ListingOgI
     mainImage: str(prop.mainImage) ?? str(prop.coverImage),
     generatedVideoThumbnail: str(prop.generatedVideoThumbnail),
     images: strArray(prop.images).length ? strArray(prop.images) : strArray(prop.galleryImages),
-    resolvedOgImage: str(prop.ogImage) ?? str(prop.image),
-    ogImageSource: ogSource(prop.source) ?? ogSource(prop.ogImageSource),
+    resolvedOgImage:
+      str(prop.selectedOgImage) ?? str(prop.ogImage) ?? str(prop.image),
+    ogImageSource:
+      ogSource(prop.selectedSource) ??
+      ogSource(prop.source) ??
+      ogSource(prop.ogImageSource),
   });
 
   try {

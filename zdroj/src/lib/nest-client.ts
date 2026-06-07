@@ -5310,31 +5310,31 @@ export async function nestSocialUploadVideo(
 }
 
 export type OgDebugResponse = {
-  publicUrl: string;
-  title: string;
-  description: string;
-  ogImage: string;
-  image: string;
-  imageIsAbsolute: boolean;
-  imageStatus: number | null;
-  contentType: string | null;
-  contentLength: number | null;
-  width: number | null;
-  height: number | null;
-  isPublic: boolean;
-  isWhiteOrBlank: boolean;
-  usedFallbackLogo: boolean;
-  source:
+  selectedOgImage: string;
+  selectedSource:
     | 'thumbnailUrl'
-    | 'generatedVideoThumbnail'
     | 'mainImage'
     | 'firstGalleryImage'
-    | 'videoPoster'
+    | 'videoThumbnail'
     | 'logo';
-  thumbnailUrl?: string | null;
-  generatedVideoThumbnail?: string | null;
-  mainImage?: string | null;
-  galleryFirst?: string | null;
+  thumbnailUrl: string | null;
+  mainImage: string | null;
+  firstGalleryImage: string | null;
+  videoThumbnail: string | null;
+  isLogoFallback: boolean;
+  warning: string | null;
+  publicUrl?: string;
+  title?: string;
+  description?: string;
+  ogImage?: string;
+  image?: string;
+  imageStatus?: number | null;
+  contentType?: string | null;
+  contentLength?: number | null;
+  width?: number | null;
+  height?: number | null;
+  isPublic?: boolean;
+  isWhiteOrBlank?: boolean;
 };
 
 export async function nestOgDebug(propertyId: string): Promise<OgDebugResponse | null> {

@@ -1,12 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import {
-  buildListingOgDescription,
-  buildListingOgTitle,
-  facebookDebuggerUrl,
-  listingPublicDetailUrl,
-} from '@/lib/listing-og-metadata';
+import { facebookDebuggerUrl, listingPublicDetailUrl } from '@/lib/listing-og-metadata';
 import { nestOgDebug } from '@/lib/nest-client';
 
 export const dynamic = 'force-dynamic';
@@ -25,13 +20,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function DebugOgPropertyPage({ params }: Props) {
   const { id } = await params;
-  const apiDebug = await nestOgDebug(id);
-  if (!apiDebug) notFound();
+  const d = await nestOgDebug(id);
+  if (!d) notFound();
 
-  const publicUrl = apiDebug.publicUrl || listingPublicDetailUrl(id);
-  const ogTitle = apiDebug.title || buildListingOgTitle({ id, title: 'Inzerát' });
-  const ogDescription = apiDebug.description || '';
-  const ogImage = apiDebug.ogImage || apiDebug.image;
+  const publicUrl = d.publicUrl || listingPublicDetailUrl(id);
+  const ogImage = d.selectedOgImage || d.ogImage || d.image || '';
 
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-4 py-10 font-sans text-zinc-900">
@@ -42,89 +35,38 @@ export default async function DebugOgPropertyPage({ params }: Props) {
       </p>
 
       <h1 className="text-2xl font-bold">Open Graph debug</h1>
-      <p className="mt-1 text-sm text-zinc-600">Inzerát {id}</p>
 
-      {apiDebug.usedFallbackLogo ? (
+      {d.warning ? (
         <div className="mt-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
-          <strong>usedFallbackLogo = true</strong> — chybí použitelná fotka inzerátu.
+          <strong>{d.warning}</strong>
         </div>
-      ) : apiDebug.isWhiteOrBlank ? (
-        <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Aktuální og:image je bílý/prázdný — měl by se přepnout na galerii (source: {apiDebug.source}).
+      ) : d.isLogoFallback ? (
+        <div className="mt-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+          isLogoFallback = true — použito logo portálu.
         </div>
       ) : (
         <div className="mt-4 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-          OG obrázek OK — zdroj: <strong>{apiDebug.source}</strong>
-          {apiDebug.isPublic ? '' : ' (neveřejný!)'}
+          OG obrázek OK — zdroj: <strong>{d.selectedSource}</strong>
         </div>
       )}
 
-      <dl className="mt-6 space-y-4 rounded-2xl border border-zinc-200 bg-white p-5 text-sm">
-        <div>
-          <dt className="font-semibold text-zinc-500">publicUrl</dt>
-          <dd className="mt-1 break-all">
-            <a href={publicUrl} className="text-orange-600 hover:underline">
-              {publicUrl}
-            </a>
-          </dd>
-        </div>
-        <div>
-          <dt className="font-semibold text-zinc-500">og:title</dt>
-          <dd className="mt-1">{ogTitle}</dd>
-        </div>
-        <div>
-          <dt className="font-semibold text-zinc-500">og:description</dt>
-          <dd className="mt-1">{ogDescription}</dd>
-        </div>
-        <div>
-          <dt className="font-semibold text-zinc-500">og:image</dt>
-          <dd className="mt-1 break-all font-mono text-xs">{ogImage}</dd>
-        </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <div>
-            <dt className="font-semibold text-zinc-500">imageStatus</dt>
-            <dd className="mt-1">{apiDebug.imageStatus ?? '—'}</dd>
-          </div>
-          <div>
-            <dt className="font-semibold text-zinc-500">contentType</dt>
-            <dd className="mt-1">{apiDebug.contentType ?? '—'}</dd>
-          </div>
-          <div>
-            <dt className="font-semibold text-zinc-500">contentLength</dt>
-            <dd className="mt-1">{apiDebug.contentLength ?? '—'}</dd>
-          </div>
-          <div>
-            <dt className="font-semibold text-zinc-500">width</dt>
-            <dd className="mt-1">{apiDebug.width ?? '—'}</dd>
-          </div>
-          <div>
-            <dt className="font-semibold text-zinc-500">height</dt>
-            <dd className="mt-1">{apiDebug.height ?? '—'}</dd>
-          </div>
-          <div>
-            <dt className="font-semibold text-zinc-500">isPublic</dt>
-            <dd className="mt-1">{apiDebug.isPublic ? 'ano' : 'ne'}</dd>
-          </div>
-          <div>
-            <dt className="font-semibold text-zinc-500">isWhiteOrBlank</dt>
-            <dd className="mt-1">{apiDebug.isWhiteOrBlank ? 'ano' : 'ne'}</dd>
-          </div>
-          <div>
-            <dt className="font-semibold text-zinc-500">source</dt>
-            <dd className="mt-1">{apiDebug.source}</dd>
-          </div>
-        </div>
+      <dl className="mt-6 space-y-3 rounded-2xl border border-zinc-200 bg-white p-5 text-sm">
+        <div><dt className="font-semibold text-zinc-500">selectedOgImage</dt><dd className="mt-1 break-all font-mono text-xs">{ogImage}</dd></div>
+        <div><dt className="font-semibold text-zinc-500">selectedSource</dt><dd className="mt-1">{d.selectedSource}</dd></div>
+        <div><dt className="font-semibold text-zinc-500">thumbnailUrl</dt><dd className="mt-1 break-all text-xs">{d.thumbnailUrl ?? '—'}</dd></div>
+        <div><dt className="font-semibold text-zinc-500">mainImage</dt><dd className="mt-1 break-all text-xs">{d.mainImage ?? '—'}</dd></div>
+        <div><dt className="font-semibold text-zinc-500">firstGalleryImage</dt><dd className="mt-1 break-all text-xs">{d.firstGalleryImage ?? '—'}</dd></div>
+        <div><dt className="font-semibold text-zinc-500">videoThumbnail</dt><dd className="mt-1 break-all text-xs">{d.videoThumbnail ?? '—'}</dd></div>
+        <div><dt className="font-semibold text-zinc-500">isLogoFallback</dt><dd className="mt-1">{d.isLogoFallback ? 'ano' : 'ne'}</dd></div>
       </dl>
 
-      <div className="mt-6">
-        <p className="mb-2 text-sm font-semibold text-zinc-700">Náhled og:image</p>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={ogImage}
-          alt="OG náhled"
-          className="max-h-80 w-full rounded-xl border border-zinc-200 object-cover"
-        />
-      </div>
+      {ogImage ? (
+        <div className="mt-6">
+          <p className="mb-2 text-sm font-semibold">Náhled</p>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={ogImage} alt="" className="max-h-80 w-full rounded-xl border object-cover" />
+        </div>
+      ) : null}
 
       <p className="mt-8">
         <a
@@ -138,7 +80,7 @@ export default async function DebugOgPropertyPage({ params }: Props) {
       </p>
 
       <pre className="mt-8 overflow-x-auto rounded-xl bg-zinc-900 p-4 text-xs text-zinc-100">
-        {JSON.stringify(apiDebug, null, 2)}
+        {JSON.stringify(d, null, 2)}
       </pre>
     </main>
   );

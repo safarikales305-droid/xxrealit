@@ -4,8 +4,13 @@ import { resolvePropertyOgImageBest } from '../properties/og-image-probe.util';
 import {
   buildOgDescription,
   buildOgTitle,
+  deriveThumbnailUrlFromListing,
   getPortalLogoFallbackUrl,
   getSiteOriginForOg,
+  isPortalBrandingUrl,
+  normalizeOgImageCandidate,
+  pickVideoThumbnail,
+  propertyHasListingMedia,
 } from '../properties/property-og-media.util';
 
 @Controller('debug/og')
@@ -45,30 +50,67 @@ export class OgDebugController {
       throw new NotFoundException('Inzerát nenalezen');
     }
 
-    const siteOrigin = getSiteOriginForOg();
-    const resolved = await resolvePropertyOgImageBest(
-      {
-        thumbnailUrl: property.thumbnailUrl,
-        mainImage: property.mainImage,
-        images: property.images,
-        generatedVideoThumbnail: property.generatedVideoThumbnail,
-        videoUrl: property.videoUrl,
-      },
-      getPortalLogoFallbackUrl(),
-    );
+    let thumbnailUrl = property.thumbnailUrl;
+    if (
+      !thumbnailUrl?.trim() ||
+      isPortalBrandingUrl(thumbnailUrl) ||
+      !normalizeOgImageCandidate(thumbnailUrl)
+    ) {
+      const derived = deriveThumbnailUrlFromListing(property);
+      if (derived) {
+        thumbnailUrl = derived;
+        await this.prisma.property.update({
+          where: { id: property.id },
+          data: { thumbnailUrl: derived },
+        });
+      }
+    }
 
-    const publicUrl = `${siteOrigin}/nemovitost/${property.id}`;
-    const title = buildOgTitle(property.title, property.price, property.currency);
-    const description = buildOgDescription(property.city, property.description);
+    const ogInput = {
+      thumbnailUrl,
+      mainImage: property.mainImage,
+      images: property.images,
+      generatedVideoThumbnail: property.generatedVideoThumbnail,
+      videoUrl: property.videoUrl,
+    };
+    const firstGalleryImage = property.images[0] ?? null;
+    const videoThumbnail = pickVideoThumbnail(ogInput);
+
+    const resolved = await resolvePropertyOgImageBest(ogInput, getPortalLogoFallbackUrl());
     const probe = resolved.probe;
+    const isLogoFallback = resolved.isLogoFallback;
+    const warning =
+      isLogoFallback && propertyHasListingMedia(property)
+        ? 'Listing has images but OG selected logo'
+        : null;
+
+    // eslint-disable-next-line no-console
+    console.log('OG IMAGE SOURCE', {
+      listingId: property.id,
+      thumbnailUrl,
+      mainImage: property.mainImage,
+      galleryFirst: firstGalleryImage,
+      videoThumbnail,
+      selectedOgImage: resolved.url,
+      selectedSource: resolved.source,
+      isLogoFallback,
+      warning,
+    });
 
     return {
-      publicUrl,
-      title,
-      description,
+      selectedOgImage: resolved.url,
+      selectedSource: resolved.source,
+      thumbnailUrl,
+      mainImage: property.mainImage,
+      firstGalleryImage,
+      videoThumbnail,
+      isLogoFallback,
+      warning,
+      publicUrl: `${getSiteOriginForOg()}/nemovitost/${property.id}`,
+      title: buildOgTitle(property.title, property.price, property.currency),
+      description: buildOgDescription(property.city, property.description),
       ogImage: resolved.url,
       image: resolved.url,
-      imageIsAbsolute: /^https:\/\//i.test(resolved.url),
       imageStatus: probe?.imageStatus ?? null,
       contentType: probe?.contentType ?? null,
       contentLength: probe?.contentLength ?? null,
@@ -76,12 +118,6 @@ export class OgDebugController {
       height: probe?.height ?? null,
       isPublic: probe?.isPublic ?? false,
       isWhiteOrBlank: probe?.isWhiteOrBlank ?? false,
-      usedFallbackLogo: resolved.usedFallbackLogo,
-      source: resolved.source,
-      thumbnailUrl: property.thumbnailUrl,
-      generatedVideoThumbnail: property.generatedVideoThumbnail,
-      mainImage: property.mainImage,
-      galleryFirst: property.images[0] ?? null,
     };
   }
 }
