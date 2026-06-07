@@ -1,5 +1,6 @@
 import { getServerSideApiBaseUrl } from '@/lib/api';
 import type { ShortVideo } from '@/lib/nest-client';
+import { resolveShortsListingVideoUrl } from '@/lib/shorts-listing-video';
 
 export type PublicShareFetchResult =
   | { ok: true; property: Record<string, unknown>; user: Record<string, unknown> }
@@ -65,19 +66,6 @@ export async function fetchPublicListingShare(
   }
 }
 
-function videoFromMedia(property: Record<string, unknown>): string | null {
-  const media = property.media;
-  if (!Array.isArray(media)) return null;
-  for (const row of media) {
-    const m = asRecord(row);
-    if (!m) continue;
-    const type = str(m.type)?.toLowerCase();
-    const url = str(m.url);
-    if (type === 'video' && url) return url;
-  }
-  return null;
-}
-
 export function propertyToShortVideo(
   property: Record<string, unknown>,
   fallbackId: string,
@@ -89,8 +77,7 @@ export function propertyToShortVideo(
     str(property.thumbnailUrl) ??
     images[0] ??
     null;
-  const videoUrl =
-    str(property.videoUrl) ?? videoFromMedia(property) ?? null;
+  const videoUrl = resolveShortsListingVideoUrl(property);
 
   return {
     id: str(property.id) ?? fallbackId,
@@ -112,5 +99,5 @@ export function propertyToShortVideo(
 }
 
 export function propertyHasPlayableVideo(property: Record<string, unknown>): boolean {
-  return Boolean(str(property.videoUrl)?.trim() || videoFromMedia(property));
+  return Boolean(resolveShortsListingVideoUrl(property));
 }

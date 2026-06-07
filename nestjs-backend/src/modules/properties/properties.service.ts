@@ -8,7 +8,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, UserRole } from '@prisma/client';
+import { Prisma, ShortsListingStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { OwnerUpdatePropertyDto } from './dto/owner-update-property.dto';
@@ -27,7 +27,10 @@ import {
   pickVideoThumbnail,
   propertyHasListingMedia,
 } from './property-og-media.util';
-import { isImportedListingPubliclyVisible } from './property-import-branch-visibility';
+import {
+  isImportedListingPubliclyVisible,
+  isImportedProperty,
+} from './property-import-branch-visibility';
 import { classicPublicListingWhere } from './property-listing-scope';
 
 /** Kanonické klíče (import + `detectPropertyType`) — musí sedět s `ptype` ve frontend URL. */
@@ -538,11 +541,34 @@ export class PropertiesService {
       access,
     );
 
+    const shortsListing = await this.prisma.shortsListing.findFirst({
+      where: { publishedPropertyId: property.id, status: ShortsListingStatus.published },
+      select: { videoUrl: true },
+      orderBy: { publishedAt: 'desc' },
+    });
+    const mediaVideo =
+      property.media.find((m) => m.type === 'video' && (m.url ?? '').trim())?.url?.trim() ||
+      null;
+    const generatedVideoUrl = shortsListing?.videoUrl?.trim() || null;
+    const videoUrlField = property.videoUrl?.trim() || null;
+    const importedVideoUrl =
+      property.importSource != null && isImportedProperty(property) ? mediaVideo : null;
+
     const contentType =
       shareAs ?? (this.shareMetadata.isShortsListing(property) ? 'shorts' : 'classic');
 
     return {
-      property: propertySerialized,
+      property: {
+        ...propertySerialized,
+        generatedVideoUrl,
+        importedVideoUrl,
+        galleryImages: property.images,
+        isShorts:
+          String(property.listingType ?? '').toUpperCase() === 'SHORTS' ||
+          Boolean(videoUrlField || generatedVideoUrl || mediaVideo),
+        isActive: property.isActive,
+        isVisible: property.isVisible,
+      },
       user: {
         id: author.id,
         name: author.name ?? null,
