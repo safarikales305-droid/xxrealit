@@ -12,7 +12,8 @@ import { listingShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { nestToggleFavorite, type ShortVideo } from '@/lib/nest-client';
-import { formatListingPriceCzk, parseApiListingPrice } from '@/types/property';
+import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
+import { parseApiListingPrice } from '@/types/property';
 
 type VideoCardProps = {
   video: ShortVideo;
@@ -287,17 +288,14 @@ export default function VideoCard({
             {video.title ?? ''}
           </div>
           {city ? <div className="mt-0.5 text-xs text-white/85 sm:text-sm">{city}</div> : null}
-          <div className="mt-1 text-base font-bold tabular-nums max-md:text-[15px] sm:text-lg">
-            <span
-              className={
-                !isAuthenticated && priceVal != null && priceVal > 0
-                  ? 'blur-[6px] select-none opacity-90 text-orange-100'
-                  : 'text-orange-100'
-              }
-            >
-              {formatListingPriceCzk(priceVal)}
-            </span>
-          </div>
+          <ListingPriceDisplay
+            as="div"
+            price={priceVal}
+            isAuthenticated={isAuthenticated}
+            className="mt-1 text-base font-bold tabular-nums max-md:text-[15px] sm:text-lg"
+            valueClassName="text-orange-100"
+            blurredClassName="blurred-price select-none blur-[6px] opacity-90 text-orange-100"
+          />
         </div>
 
         <button
@@ -427,17 +425,14 @@ export default function VideoCard({
               {video.title ?? ''}
             </div>
             {city ? <div className="mt-1 text-sm text-zinc-600">{city}</div> : null}
-            <div className="mt-2 text-lg font-bold tabular-nums text-zinc-900">
-              <span
-                className={
-                  !isAuthenticated && priceVal != null && priceVal > 0
-                    ? 'blur-[6px] select-none opacity-90 text-orange-600'
-                    : 'text-orange-600'
-                }
-              >
-                {formatListingPriceCzk(priceVal)}
-              </span>
-            </div>
+            <ListingPriceDisplay
+              as="div"
+              price={priceVal}
+              isAuthenticated={isAuthenticated}
+              className="mt-2 text-lg font-bold tabular-nums text-zinc-900"
+              valueClassName="text-orange-600"
+              blurredClassName="blurred-price select-none blur-[6px] opacity-90 text-orange-600"
+            />
           </div>
 
           <button

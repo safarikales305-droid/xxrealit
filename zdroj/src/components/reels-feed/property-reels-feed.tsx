@@ -10,7 +10,8 @@ import {
   useState,
 } from 'react';
 import { useRouter } from 'next/navigation';
-import { formatListingPrice, type PropertyFeedItem } from '@/types/property';
+import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
+import type { PropertyFeedItem } from '@/types/property';
 import { useAuth } from '@/hooks/use-auth';
 import { propertyFeedPrimaryVideoSrc, propertyRowPassesVideoFeedGate } from '@/lib/feed/loop-feed';
 import { propertyListingHasVideo } from '@/lib/property-feed-filters';
@@ -233,9 +234,14 @@ export function PropertyReelsFeed({ items }: Props) {
                   <p className="mt-2 text-base font-medium text-white/85">
                     {p.location}
                   </p>
-                  <p className="mt-1 text-xl font-bold text-emerald-300 drop-shadow-md">
-                    {formatListingPrice(p.price)}
-                  </p>
+                  <ListingPriceDisplay
+                    as="p"
+                    price={p.price}
+                    isAuthenticated={isAuthenticated}
+                    className="mt-1 text-xl font-bold drop-shadow-md"
+                    valueClassName="text-emerald-300"
+                    blurredClassName="blurred-price select-none blur-[6px] opacity-90 text-emerald-200"
+                  />
                 </div>
 
                 <div className="absolute bottom-[max(5rem,env(safe-area-inset-bottom))] right-3 z-10 flex flex-col items-center gap-5">

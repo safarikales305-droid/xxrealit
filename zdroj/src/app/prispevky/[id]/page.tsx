@@ -9,7 +9,7 @@ import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { LinkPreviewCard } from '@/components/community/LinkPreviewCard';
 import { nestFetchPostDetail, type ListingPost } from '@/lib/nest-client';
-import { formatListingPrice } from '@/types/property';
+import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
 
 export default function PrispevekDetailPage() {
   const router = useRouter();
@@ -138,11 +138,13 @@ export default function PrispevekDetailPage() {
             </div>
             {!isCommunityPost ? (
               <>
-                <p className="mt-1 text-xl font-bold text-zinc-900">
-                  <span className={!isAuthenticated ? 'blur-sm' : ''}>
-                    {formatListingPrice(post.price)}
-                  </span>
-                </p>
+                <ListingPriceDisplay
+                  as="p"
+                  price={post.price}
+                  isAuthenticated={isAuthenticated}
+                  className="mt-1 text-xl font-bold text-zinc-900"
+                  blurredClassName="blurred-price select-none blur-sm"
+                />
                 <p className="mt-1 text-sm text-zinc-600">{post.city}</p>
               </>
             ) : null}

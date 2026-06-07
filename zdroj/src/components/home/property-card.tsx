@@ -2,7 +2,9 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { formatListingPriceCzk, type PropertyFeedItem } from '@/types/property';
+import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
+import { useAuth } from '@/hooks/use-auth';
+import type { PropertyFeedItem } from '@/types/property';
 import { propertyListingHasVideo } from '@/lib/property-feed-filters';
 import { propertyFeedPrimaryVideoSrc } from '@/lib/feed/loop-feed';
 
@@ -27,6 +29,7 @@ export function PropertyCard({
   onToggleLike,
   onVideoBroken,
 }: Props) {
+  const { isAuthenticated } = useAuth();
   const [muted, setMuted] = useState(true);
   const [videoFailed, setVideoFailed] = useState(false);
 
@@ -102,9 +105,15 @@ export function PropertyCard({
         <p className="mt-3.5 text-[15px] font-medium leading-relaxed text-white/90 drop-shadow-lg">
           {p.location}
         </p>
-        <p className="mt-3 bg-gradient-to-r from-[#ffb366] via-[#ff8c42] to-[#ff6a00] bg-clip-text text-[1.45rem] font-bold tabular-nums tracking-[-0.02em] text-transparent sm:text-[1.6rem] sm:tracking-[-0.025em] [filter:drop-shadow(0_2px_10px_rgba(0,0,0,0.5))]">
-          {formatListingPriceCzk(p.price)}
-        </p>
+        <ListingPriceDisplay
+          as="p"
+          price={p.price}
+          isAuthenticated={isAuthenticated}
+          className="mt-3 text-[1.45rem] font-bold tabular-nums tracking-[-0.02em] sm:text-[1.6rem] sm:tracking-[-0.025em] [filter:drop-shadow(0_2px_10px_rgba(0,0,0,0.5))]"
+          labelClassName="price-label text-white/95"
+          valueClassName="bg-gradient-to-r from-[#ffb366] via-[#ff8c42] to-[#ff6a00] bg-clip-text text-transparent"
+          blurredClassName="blurred-price select-none blur-[6px] opacity-90 text-orange-200"
+        />
         <Link
           href={`/nemovitost/${p.id}`}
           className="pointer-events-auto mt-4 inline-flex w-fit rounded-full border border-white/35 bg-white/10 px-4 py-2 text-[13px] font-semibold text-white backdrop-blur-sm transition hover:bg-white/20"

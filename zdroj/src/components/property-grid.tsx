@@ -7,11 +7,8 @@ import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { listingShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { nestApiConfigured, nestToggleFavorite } from '@/lib/nest-client';
-import {
-  classicListingCoverUrl,
-  formatListingPriceCzk,
-  type PropertyFeedItem,
-} from '@/types/property';
+import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
+import { classicListingCoverUrl, type PropertyFeedItem } from '@/types/property';
 
 type Props = {
   properties: PropertyFeedItem[];
@@ -20,8 +17,6 @@ type Props = {
 export function PropertyGrid({ properties }: Props) {
   const { apiAccessToken, isAuthenticated } = useAuth();
   const canFavorite = nestApiConfigured() && isAuthenticated && Boolean(apiAccessToken);
-  const shouldBlurGuestPrice = !isAuthenticated;
-
   const [likedMap, setLikedMap] = useState<Record<string, boolean>>({});
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -139,18 +134,12 @@ export function PropertyGrid({ properties }: Props) {
                     {p.title}
                   </h3>
                   <p className="mt-1.5 text-[13px] text-zinc-500">{p.location}</p>
-                  <p className="mt-auto pt-3 text-lg font-bold tabular-nums text-[#e85d00]">
-                    <span
-                      className={
-                        shouldBlurGuestPrice && p.price != null && p.price > 0
-                          ? 'select-none blur-[10px] opacity-70'
-                          : undefined
-                      }
-                      aria-hidden={shouldBlurGuestPrice && p.price != null && p.price > 0 ? true : undefined}
-                    >
-                      {formatListingPriceCzk(p.price)}
-                    </span>
-                  </p>
+                  <ListingPriceDisplay
+                    as="p"
+                    price={p.price}
+                    isAuthenticated={isAuthenticated}
+                    className="mt-auto pt-3 text-lg font-bold tabular-nums text-[#e85d00]"
+                  />
                 </div>
               </Link>
               <div className="absolute right-2 top-2 flex flex-col gap-2">

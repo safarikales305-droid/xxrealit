@@ -157,6 +157,15 @@ body {
   }
 }
 
+.price-label {
+  filter: none;
+  -webkit-filter: none;
+}
+
+.blurred-price {
+  display: inline-block;
+}
+
 @keyframes view-fade-in {
   from {
     opacity: 0;

@@ -7,7 +7,7 @@ import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import type { ListingPost, PostComment } from '@/lib/nest-client';
-import { formatListingPrice } from '@/types/property';
+import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
 import { LinkPreviewCard, type LinkPreviewData } from '@/components/community/LinkPreviewCard';
 
 export type CommunityPostCardProps = {
@@ -210,11 +210,13 @@ export function CommunityPostCard({
             {!isPostType ? (
               <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 text-white">
                 <p className="text-sm">{String(p.title ?? '')}</p>
-                <p className="text-lg font-bold">
-                  <span className={!isAuthenticated ? 'blur-sm' : ''}>
-                    {formatListingPrice(p.price)}
-                  </span>
-                </p>
+                <ListingPriceDisplay
+                  as="p"
+                  price={p.price}
+                  isAuthenticated={isAuthenticated}
+                  className="text-lg font-bold"
+                  blurredClassName="blurred-price select-none blur-sm"
+                />
                 <p className="text-xs">{String(p.city ?? '')}</p>
               </div>
             ) : null}
