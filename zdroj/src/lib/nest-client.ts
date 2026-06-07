@@ -1,6 +1,6 @@
 'use client';
 
-import { API_BASE_URL, getClientTokenFromCookie } from '@/lib/api';
+import { API_BASE_URL, getClientTokenFromCookie, getLinkPreviewApiUrl } from '@/lib/api';
 
 function getStoredToken(): string | null {
   return getClientTokenFromCookie();
@@ -4317,16 +4317,22 @@ export type LinkPreviewResponse = {
   failed?: boolean;
 };
 
-const LINK_PREVIEW_CLIENT_TIMEOUT_MS = 5_000;
+const LINK_PREVIEW_CLIENT_TIMEOUT_MS = 8_000;
 
 export async function nestFetchLinkPreview(
   token: string,
   url: string,
   signal?: AbortSignal,
 ): Promise<{ ok: true; preview: LinkPreviewResponse } | { ok: false; error?: string }> {
-  if (!API_BASE_URL || !token) {
+  const apiUrl = getLinkPreviewApiUrl();
+
+  if (!apiUrl || !token) {
     return { ok: false, error: 'API nebo token chybí' };
   }
+
+  // eslint-disable-next-line no-console
+  console.log('LINK PREVIEW FETCH URL', apiUrl);
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LINK_PREVIEW_CLIENT_TIMEOUT_MS);
   const merged = signal
@@ -4337,7 +4343,7 @@ export async function nestFetchLinkPreview(
     : controller.signal;
 
   try {
-    const res = await fetch(`${postsApiBase()}/link-preview`, {
+    const res = await fetch(apiUrl, {
       method: 'POST',
       signal: merged,
       headers: {
@@ -4351,6 +4357,14 @@ export async function nestFetchLinkPreview(
       message?: string | string[];
       error?: string;
     };
+
+    // eslint-disable-next-line no-console
+    console.log('LINK PREVIEW RESPONSE', {
+      status: res.status,
+      ok: res.ok,
+      body: data,
+    });
+
     if (!res.ok) {
       const msg =
         typeof data.message === 'string'

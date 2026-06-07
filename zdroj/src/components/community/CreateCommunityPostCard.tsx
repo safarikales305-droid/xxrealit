@@ -28,7 +28,7 @@ type Props = {
   onPublished: () => void | Promise<void>;
 };
 
-const PREVIEW_MAX_WAIT_MS = 5_000;
+const PREVIEW_MAX_WAIT_MS = 8_000;
 
 export function CreateCommunityPostCard({
   apiAccessToken,

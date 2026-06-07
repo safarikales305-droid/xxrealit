@@ -68,6 +68,33 @@ export const propertiesEndpoint = API_BASE_URL
   ? `${API_BASE_URL}/properties`
   : '';
 
+/** POST /api/link-preview — vždy s prefixem /api. */
+export function getLinkPreviewApiUrl(): string {
+  if (typeof window !== 'undefined') {
+    try {
+      const pageOrigin = trimTrailingSlash(window.location.origin || '');
+      if (pageOrigin) {
+        let apiOrigin = '';
+        if (API_BASE_URL) {
+          const apiRoot = trimTrailingSlash(API_BASE_URL).replace(/\/api$/i, '');
+          apiOrigin = new URL(`${apiRoot}/`).origin;
+        }
+        // Stejný origin → Next.js proxy (server-side fetch, bez CORS)
+        if (!apiOrigin || apiOrigin === pageOrigin) {
+          return `${pageOrigin}/api/link-preview`;
+        }
+      }
+    } catch {
+      /* fallback níže */
+    }
+  }
+
+  if (!API_BASE_URL) return '';
+  const base = trimTrailingSlash(API_BASE_URL);
+  const withApi = base.endsWith('/api') ? base : `${base}/api`;
+  return `${withApi}/link-preview`;
+}
+
 /** Server-side API base for RSC. */
 export function getServerSideApiBaseUrl(): string | null {
   if (rawPublicApi) return withApiPrefix(rawPublicApi);

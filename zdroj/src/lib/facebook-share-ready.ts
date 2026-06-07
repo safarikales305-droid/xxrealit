@@ -72,7 +72,7 @@ export function logFacebookShareReady(
   });
 }
 
-const PREVIEW_WAIT_MS = 2000;
+const PREVIEW_WAIT_MS = 8000;
 const POLL_MS = 400;
 
 export async function waitForFacebookShareMeta(
