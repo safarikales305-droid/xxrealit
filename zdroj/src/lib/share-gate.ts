@@ -28,26 +28,40 @@ export type ShareGateVideoAdmin = ShareGateVideoPublic & {
 
 const SEEN_PREFIX = 'shareGateSeen:';
 
-export function shareGateSeenStorageKey(
-  type: ShareGateTargetType,
-  listingId: string,
-): string {
-  return `${SEEN_PREFIX}${type}:${listingId}`;
+const LEGACY_SHARE_GATE_TYPES: ShareGateTargetType[] = [
+  'CLASSIC_LISTING',
+  'SHORTS_LISTING',
+  'TIP_LISTING',
+  'TIP_SHORTS',
+  'ALL',
+];
+
+/** Jedna session značka na inzerát — platí napříč /shorts, /nemovitost atd. */
+export function shareGateSeenStorageKey(listingId: string): string {
+  return `${SEEN_PREFIX}${listingId.trim()}`;
 }
 
-export function isShareGateSeen(type: ShareGateTargetType, listingId: string): boolean {
+export function isShareGateSeen(listingId: string): boolean {
   if (typeof window === 'undefined') return false;
+  const id = listingId.trim();
+  if (!id) return false;
   try {
-    return sessionStorage.getItem(shareGateSeenStorageKey(type, listingId)) === 'true';
+    if (sessionStorage.getItem(shareGateSeenStorageKey(id)) === 'true') return true;
+    for (const type of LEGACY_SHARE_GATE_TYPES) {
+      if (sessionStorage.getItem(`${SEEN_PREFIX}${type}:${id}`) === 'true') return true;
+    }
+    return false;
   } catch {
     return false;
   }
 }
 
-export function markShareGateSeen(type: ShareGateTargetType, listingId: string): void {
+export function markShareGateSeen(listingId: string): void {
   if (typeof window === 'undefined') return;
+  const id = listingId.trim();
+  if (!id) return;
   try {
-    sessionStorage.setItem(shareGateSeenStorageKey(type, listingId), 'true');
+    sessionStorage.setItem(shareGateSeenStorageKey(id), 'true');
   } catch {
     /* ignore */
   }

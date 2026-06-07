@@ -32,7 +32,7 @@ export function ShareGateShell({ type, listingId, children }: Props) {
       return;
     }
 
-    if (isShareGateSeen(type, listingId)) {
+    if (isShareGateSeen(listingId)) {
       setGatePassed(true);
       setLoadingGate(false);
       return;
@@ -52,7 +52,7 @@ export function ShareGateShell({ type, listingId, children }: Props) {
   }, [isLoading, isAuthenticated, type, listingId]);
 
   function handleContinue() {
-    markShareGateSeen(type, listingId);
+    markShareGateSeen(listingId);
     setGatePassed(true);
   }
 

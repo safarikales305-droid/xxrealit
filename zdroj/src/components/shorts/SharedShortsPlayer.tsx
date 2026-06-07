@@ -8,6 +8,7 @@ import { ShortsSoundToggle } from '@/components/shorts/ShortsSoundToggle';
 import { useAuth } from '@/hooks/use-auth';
 import { useShortsVideoSound } from '@/hooks/use-shorts-video-sound';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
+import { markShareGateSeen } from '@/lib/share-gate';
 import type { PublicShortsListing } from '@/lib/shorts-listing-video';
 
 type Props = {
@@ -58,6 +59,10 @@ export function SharedShortsPlayer({ listing, detailHref }: Props) {
     router.push('/?tab=shorts');
   }
 
+  function handleDetailClick() {
+    markShareGateSeen(listing.id);
+  }
+
   return (
     <div className="flex min-h-[100dvh] w-full flex-col items-center justify-center bg-zinc-950">
       <header className="absolute inset-x-0 top-0 z-[70] flex flex-wrap items-center justify-between gap-2 p-3">
@@ -70,6 +75,7 @@ export function SharedShortsPlayer({ listing, detailHref }: Props) {
         </button>
         <Link
           href={detailHref}
+          onClick={handleDetailClick}
           className="inline-flex rounded-full border border-orange-400/60 bg-orange-600/90 px-3 py-1.5 text-sm font-semibold text-white backdrop-blur-md hover:bg-orange-600"
         >
           Zobrazit detail inzerátu
@@ -130,6 +136,7 @@ export function SharedShortsPlayer({ listing, detailHref }: Props) {
               <p className="text-sm text-white/60">Video není dostupné</p>
               <Link
                 href={detailHref}
+                onClick={handleDetailClick}
                 className="rounded-full bg-orange-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-orange-700"
               >
                 Zobrazit inzerát
