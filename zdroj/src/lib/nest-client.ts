@@ -3929,9 +3929,23 @@ export async function nestFetchVideos(): Promise<ShortVideo[]> {
 export async function nestFetchShortVideoPublic(id: string): Promise<ShortVideo | null> {
   if (!id.trim()) return null;
   if (!API_BASE_URL) return null;
+  const videoFromMedia = (p: Record<string, unknown>): string | null => {
+    const media = p.media;
+    if (!Array.isArray(media)) return null;
+    for (const row of media) {
+      if (!row || typeof row !== 'object') continue;
+      const m = row as Record<string, unknown>;
+      const type = typeof m.type === 'string' ? m.type.toLowerCase() : '';
+      const url = typeof m.url === 'string' ? m.url.trim() : '';
+      if (type === 'video' && url) return url;
+    }
+    return null;
+  };
+
   const mapDetailProperty = (p: Record<string, unknown>, fallbackId: string): ShortVideo | null => {
     const videoUrl =
-      typeof p.videoUrl === 'string' && p.videoUrl.trim() ? p.videoUrl.trim() : null;
+      (typeof p.videoUrl === 'string' && p.videoUrl.trim() ? p.videoUrl.trim() : null) ||
+      videoFromMedia(p);
     if (!videoUrl) return null;
     const createdRaw = p.createdAt;
     const createdAt =
@@ -3973,16 +3987,31 @@ export async function nestFetchShortVideoPublic(id: string): Promise<ShortVideo 
     };
   };
   try {
-    const res = await fetch(`${API_BASE_URL}/properties/${encodeURIComponent(id)}`, {
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-    });
-    if (res.ok) {
-      const root = (await res.json()) as { property?: Record<string, unknown> };
-      const p = root.property;
-      if (p && typeof p === 'object') {
-        const mapped = mapDetailProperty(p, id);
-        if (mapped) return mapped;
+    const apiBase = API_BASE_URL;
+    if (apiBase) {
+      const shareRes = await fetch(
+        `${apiBase}/properties/${encodeURIComponent(id)}/public-share?shareAs=shorts`,
+        { cache: 'no-store', headers: { Accept: 'application/json' } },
+      );
+      if (shareRes.ok) {
+        const root = (await shareRes.json()) as { property?: Record<string, unknown> };
+        const p = root.property;
+        if (p && typeof p === 'object') {
+          const mapped = mapDetailProperty(p, id);
+          if (mapped) return mapped;
+        }
+      }
+      const res = await fetch(`${apiBase}/properties/${encodeURIComponent(id)}`, {
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+      });
+      if (res.ok) {
+        const root = (await res.json()) as { property?: Record<string, unknown> };
+        const p = root.property;
+        if (p && typeof p === 'object') {
+          const mapped = mapDetailProperty(p, id);
+          if (mapped) return mapped;
+        }
       }
     }
   } catch {

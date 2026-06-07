@@ -1,11 +1,19 @@
-import { Controller, Get, NotFoundException, Param } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Query } from '@nestjs/common';
 import { ShareMetadataService } from './share-metadata.service';
 
-@Controller('debug/share')
+@Controller('debug')
 export class ShareDebugController {
   constructor(private readonly shareMeta: ShareMetadataService) {}
 
-  @Get(':type/:id')
+  @Get('share-url')
+  diagnoseShareUrl(@Query('id') id?: string, @Query('type') type?: string) {
+    if (!id?.trim() || !type?.trim()) {
+      throw new NotFoundException('Parametry id a type jsou povinné');
+    }
+    return this.shareMeta.diagnoseShareUrl(id.trim(), type.trim());
+  }
+
+  @Get('share/:type/:id')
   async debug(@Param('type') type: string, @Param('id') id: string) {
     try {
       const meta = await this.shareMeta.resolveByType(type, id);

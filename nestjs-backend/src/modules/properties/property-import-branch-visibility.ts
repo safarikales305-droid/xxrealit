@@ -51,9 +51,17 @@ export function propertiesForImportBranchWhere(source: {
   };
 }
 
+/** Ruční / uživatelský inzerát — bez importní metadata. */
+export function isImportedProperty(p: PropertyImportVisibilityFields): boolean {
+  if (p.importSource == null) return false;
+  return Boolean(
+    p.importSourceId?.trim() || p.importExternalId?.trim() || p.importSourceUrl?.trim(),
+  );
+}
+
 /**
  * Importovaný inzerát veřejně jen s platnou aktivní větve (ImportSource).
- * Ruční inzeráty (`importSource` null) nejsou omezeny větvemi.
+ * Ruční inzeráty nejsou omezeny větvemi.
  */
 export const importedListingPubliclyVisibleWhere: Prisma.PropertyWhereInput = {
   OR: [
@@ -61,6 +69,14 @@ export const importedListingPubliclyVisibleWhere: Prisma.PropertyWhereInput = {
     {
       AND: [
         { importSource: { not: null } },
+        { importSourceId: null },
+        { importExternalId: null },
+      ],
+    },
+    {
+      AND: [
+        { importSource: { not: null } },
+        { OR: [{ importSourceId: { not: null } }, { importExternalId: { not: null } }] },
         { isVisible: true },
         { importDisabled: false },
         { hiddenByImportDisabled: false },
@@ -90,6 +106,8 @@ export type PropertyImportVisibilityFields = {
   hiddenByImportDisabled: boolean;
   isVisible: boolean;
   importSourceId?: string | null;
+  importExternalId?: string | null;
+  importSourceUrl?: string | null;
   importSourceBranch?: Pick<
     ImportSource,
     'enabled' | 'isActive' | 'deletedAt' | 'isDeleted'
@@ -111,7 +129,7 @@ export function computeImportBranchAdminStatus(
 export function isImportedListingPubliclyVisible(
   p: PropertyImportVisibilityFields,
 ): boolean {
-  if (p.importSource == null) return true;
+  if (!isImportedProperty(p)) return true;
   if (!p.isVisible) return false;
   if (p.importDisabled) return false;
   if (p.hiddenByImportDisabled) return false;

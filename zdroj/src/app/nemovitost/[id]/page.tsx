@@ -6,6 +6,8 @@ import { buildListingOpenGraphMetadata } from '@/lib/listing-og-metadata';
 import { normalizePropertyDetailPayload } from '@/lib/property-detail';
 import { fetchPropertyForOgMetadata } from '@/lib/property-public';
 import { getServerAuthorizationHeader } from '@/lib/server-bearer';
+import { ShareListingInactive, ShareListingNotFound } from '@/components/share/ShareListingStatus';
+import { fetchPublicListingShare } from '@/lib/listing-share-public';
 import { PropertyDetailFetchError } from './fetch-error';
 
 type Props = {
@@ -84,14 +86,59 @@ function pickExtraFields(rawProp: unknown): Record<string, unknown> {
   };
 }
 
+function renderFromPublicShare(
+  id: string,
+  property: Record<string, unknown>,
+  user: Record<string, unknown>,
+) {
+  const parsed = normalizePropertyDetailPayload(
+    { property, user, otherProperties: [] },
+    { listingId: id, devLog: true },
+  );
+  if (!parsed?.user || !parsed.property) return null;
+  return (
+    <NemovitostDetailView
+      propertyId={id}
+      property={parsed.property}
+      author={parsed.user}
+      other={[]}
+      extraFields={pickExtraFields(property)}
+    />
+  );
+}
+
 export default async function NemovitostDetailPage({ params }: Props) {
   const { id } = await params;
+  const publicShare = await fetchPublicListingShare(id, 'classic');
+  if (!publicShare.ok) {
+    if (publicShare.status === 410) {
+      return <ShareListingInactive listingId={id} />;
+    }
+    if (publicShare.status === 404) {
+      return (
+        <ShareListingNotFound
+          title="Inzerát nenalezen"
+          message={publicShare.message}
+          listingId={id}
+        />
+      );
+    }
+  }
+
   const result = await fetchPropertyDetail(id);
 
   if (result.status === 404 || (result.status === 0 && !result.body)) {
+    if (publicShare.ok) {
+      const fallback = renderFromPublicShare(id, publicShare.property, publicShare.user);
+      if (fallback) return fallback;
+    }
     notFound();
   }
   if (!result.ok || result.body == null) {
+    if (publicShare.ok) {
+      const fallback = renderFromPublicShare(id, publicShare.property, publicShare.user);
+      if (fallback) return fallback;
+    }
     return <PropertyDetailFetchError listingId={id} status={result.status || 502} />;
   }
 

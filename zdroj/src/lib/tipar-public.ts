@@ -22,7 +22,7 @@ export async function fetchTiparPostPublic(id: string): Promise<TiparPostPublic 
   try {
     const res = await fetch(`${apiBase}/tipar/posts/${encodeURIComponent(trimmed)}`, {
       headers: { Accept: 'application/json' },
-      next: { revalidate: 300 },
+      cache: 'no-store',
     });
     if (!res.ok) return null;
     return (await res.json().catch(() => null)) as TiparPostPublic | null;

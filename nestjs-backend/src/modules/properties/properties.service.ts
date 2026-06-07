@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  GoneException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -454,6 +455,106 @@ export class PropertiesService {
       isLogoFallback: shareMeta.isLogoFallback,
       warning: shareMeta.warning,
       isWhiteOrBlank: resolved.probe?.isWhiteOrBlank ?? false,
+    };
+  }
+
+  async findOneForPublicShare(id: string, shareAs?: 'classic' | 'shorts', viewerId?: string) {
+    const property = await this.prisma.property.findFirst({
+      where: { id: id.trim(), deletedAt: null },
+      include: {
+        importSourceBranch: {
+          select: { enabled: true, isActive: true, deletedAt: true, isDeleted: true },
+        },
+        media: { orderBy: { sortOrder: 'asc' } },
+        user: {
+          select: {
+            id: true,
+            avatar: true,
+            name: true,
+            phone: true,
+            phonePublic: true,
+            city: true,
+            role: true,
+          },
+        },
+        _count: { select: { likes: true } },
+        ...(viewerId
+          ? {
+              likes: {
+                where: { userId: viewerId },
+                select: { id: true },
+                take: 1,
+              },
+            }
+          : {}),
+      },
+    });
+
+    if (!property) {
+      throw new NotFoundException('Inzerát nenalezen');
+    }
+
+    const admin = await this.viewerIsAdmin(viewerId);
+    const isOwner = viewerId === property.userId;
+    const publicStatus = computeListingPublicStatus(property);
+
+    if (!property.approved && !admin && !isOwner) {
+      throw new NotFoundException('Inzerát nenalezen');
+    }
+    if (!admin && !isOwner) {
+      if (publicStatus === 'DELETED' || publicStatus === 'PENDING_APPROVAL') {
+        throw new NotFoundException('Inzerát nenalezen');
+      }
+      if (publicStatus !== 'ACTIVE') {
+        throw new GoneException('Inzerát již není aktivní');
+      }
+      if (!isImportedListingPubliclyVisible(property)) {
+        throw new NotFoundException('Inzerát není veřejně dostupný');
+      }
+    }
+
+    const rawAuthor = property.user;
+    const author = rawAuthor ?? {
+      id: property.userId,
+      avatar: null as string | null,
+      name: null as string | null,
+      phone: null as string | null,
+      phonePublic: false,
+      city: null as string | null,
+      role: UserRole.USER,
+    };
+    const access = await this.viewerAccess(viewerId);
+    const likesArr =
+      'likes' in property && Array.isArray(property.likes) ? property.likes : [];
+
+    const propertySerialized = serializeProperty(
+      {
+        ...property,
+        likes: likesArr,
+        _count: property._count,
+        user: { id: author.id, city: author.city ?? null },
+      },
+      viewerId,
+      access,
+    );
+
+    const contentType =
+      shareAs ?? (this.shareMetadata.isShortsListing(property) ? 'shorts' : 'classic');
+
+    return {
+      property: propertySerialized,
+      user: {
+        id: author.id,
+        name: author.name ?? null,
+        avatar: author.avatar ?? null,
+        phone: author.phonePublic ? author.phone : null,
+        phonePublic: Boolean(author.phonePublic),
+        role: author.role,
+      },
+      shareAs: contentType,
+      shareUrl: this.shareMetadata.listingShareUrl(property.id, contentType),
+      blurredPrice: !viewerId,
+      publicStatus,
     };
   }
 

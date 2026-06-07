@@ -2,6 +2,14 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { resolvePropertyOgImageBest } from '../properties/og-image-probe.util';
 import {
+  isImportedProperty,
+  isImportedListingPubliclyVisible,
+} from '../properties/property-import-branch-visibility';
+import {
+  computeListingPublicStatus,
+  isPropertyPubliclyListed,
+} from '../properties/property-public-visibility';
+import {
   getPortalLogoFallbackUrl,
   getSiteOriginForOg,
   propertyHasListingMedia,
@@ -153,6 +161,127 @@ export class ShareMetadataService {
       adminTextSource,
       isLogoFallback: ogImage.includes('/icons/'),
       warning: null,
+    };
+  }
+
+  private routeExistsForType(type: string): boolean {
+    const t = type.trim().toLowerCase();
+    return ['shorts', 'listing-shorts', 'classic', 'listing', 'nemovitost', 'tip', 'tipar', 'tipy', 'tip-shorts', 'tipar-shorts'].includes(t);
+  }
+
+  async diagnoseShareUrl(
+    id: string,
+    type: string,
+  ): Promise<{
+    shareUrl: string;
+    routeExists: boolean;
+    apiStatus: number;
+    listingFound: boolean;
+    isImported: boolean;
+    importBranchRequired: boolean;
+    isVisible: boolean;
+    isActive: boolean;
+    reasonIfHidden: string | null;
+  }> {
+    const t = type.trim().toLowerCase();
+    const trimmed = id.trim();
+
+    if (t === 'tip' || t === 'tipar' || t === 'tipy' || t === 'tip-shorts' || t === 'tipar-shorts') {
+      const post = await this.prisma.tiparPost.findFirst({
+        where: { id: trimmed, deletedAt: null },
+      });
+      const isShorts = t === 'tip-shorts' || t === 'tipar-shorts' || Boolean(post?.isShorts);
+      const shareUrl = post ? this.tipShareUrl(post.id, isShorts) : '';
+      if (!post) {
+        return {
+          shareUrl,
+          routeExists: this.routeExistsForType(type),
+          apiStatus: 404,
+          listingFound: false,
+          isImported: false,
+          importBranchRequired: false,
+          isVisible: false,
+          isActive: false,
+          reasonIfHidden: 'Tip nenalezen',
+        };
+      }
+      const visible = Boolean(post.isActive && post.approved);
+      return {
+        shareUrl,
+        routeExists: this.routeExistsForType(type),
+        apiStatus: visible ? 200 : 410,
+        listingFound: true,
+        isImported: false,
+        importBranchRequired: false,
+        isVisible: visible,
+        isActive: Boolean(post.isActive),
+        reasonIfHidden: visible ? null : 'Tip již není aktivní',
+      };
+    }
+
+    const property = await this.prisma.property.findFirst({
+      where: { id: trimmed, deletedAt: null },
+      include: {
+        importSourceBranch: {
+          select: { enabled: true, isActive: true, deletedAt: true, isDeleted: true },
+        },
+      },
+    });
+
+    const contentType: 'classic' | 'shorts' =
+      t === 'shorts' || t === 'listing-shorts'
+        ? 'shorts'
+        : property && this.isShortsListing(property)
+          ? 'shorts'
+          : 'classic';
+    const shareUrl = property ? this.listingShareUrl(property.id, contentType) : '';
+
+    if (!property) {
+      return {
+        shareUrl,
+        routeExists: this.routeExistsForType(type),
+        apiStatus: 404,
+        listingFound: false,
+        isImported: false,
+        importBranchRequired: false,
+        isVisible: false,
+        isActive: false,
+        reasonIfHidden: 'Inzerát nenalezen',
+      };
+    }
+
+    const imported = isImportedProperty(property);
+    const branchRequired = imported;
+    const publicStatus = computeListingPublicStatus(property);
+    const listed = isPropertyPubliclyListed(property);
+    const importOk = isImportedListingPubliclyVisible(property);
+    let reasonIfHidden: string | null = null;
+    let apiStatus = 200;
+
+    if (!property.approved) {
+      reasonIfHidden = 'Inzerát čeká na schválení';
+      apiStatus = 404;
+    } else if (!listed) {
+      reasonIfHidden =
+        publicStatus === 'INACTIVE' || publicStatus === 'EXPIRED'
+          ? 'Inzerát již není aktivní'
+          : `Stav inzerátu: ${publicStatus}`;
+      apiStatus = 410;
+    } else if (!importOk) {
+      reasonIfHidden = 'Importní větev je vypnutá nebo chybí';
+      apiStatus = 404;
+    }
+
+    return {
+      shareUrl,
+      routeExists: this.routeExistsForType(type),
+      apiStatus,
+      listingFound: true,
+      isImported: imported,
+      importBranchRequired: branchRequired,
+      isVisible: Boolean(property.isVisible),
+      isActive: Boolean(property.isActive),
+      reasonIfHidden,
     };
   }
 

@@ -221,6 +221,22 @@ export class PropertiesController {
     return this.propertiesService.findOneOgMeta(id, shareAs);
   }
 
+  @Get(':id/public-share')
+  async findOnePublicShare(
+    @Param('id') id: string,
+    @Query('shareAs') shareAsRaw?: string,
+    @Headers('authorization') auth?: string,
+  ) {
+    const shareAs =
+      shareAsRaw?.trim().toLowerCase() === 'shorts'
+        ? 'shorts'
+        : shareAsRaw?.trim().toLowerCase() === 'classic'
+          ? 'classic'
+          : undefined;
+    const viewerId = parseBearerUserId(this.jwt, auth);
+    return this.propertiesService.findOneForPublicShare(id, shareAs, viewerId);
+  }
+
   @Get(':id')
   async findOne(
     @Param('id') id: string,
