@@ -48,13 +48,13 @@ export function ShareGateModal({ video, onContinue }: Props) {
   }, []);
 
   useEffect(() => {
-    const el = videoRef.current;
-    if (!el) return;
-
     let cancelled = false;
     const wantSound = isShareGateSoundEnabled();
 
     async function startPlayback() {
+      const el = videoRef.current;
+      if (!el) return;
+
       if (wantSound) {
         el.muted = false;
         el.volume = 1;
@@ -66,7 +66,13 @@ export function ShareGateModal({ video, onContinue }: Props) {
           }
           return;
         } catch {
-          /* autoplay se zvukem zablokován */
+          el.muted = true;
+          await el.play().catch(() => {});
+          if (!cancelled) {
+            setMuted(true);
+            setAutoplayBlocked(true);
+          }
+          return;
         }
       }
 
@@ -75,16 +81,10 @@ export function ShareGateModal({ video, onContinue }: Props) {
         await el.play();
         if (!cancelled) {
           setMuted(true);
-          if (wantSound) {
-            setAutoplayBlocked(true);
-          }
         }
       } catch {
         if (!cancelled) {
           setMuted(true);
-          if (wantSound) {
-            setAutoplayBlocked(true);
-          }
         }
       }
     }
@@ -98,14 +98,17 @@ export function ShareGateModal({ video, onContinue }: Props) {
 
   function toggleSound() {
     const el = videoRef.current;
+    if (!el) return;
+
     const nextMuted = !muted;
-    if (!nextMuted && el) {
+    if (!nextMuted) {
       el.muted = false;
       el.volume = 1;
       void el.play()
         .then(() => applyMutedState(false))
         .catch(() => {
-          if (el) el.muted = true;
+          const videoEl = videoRef.current;
+          if (videoEl) videoEl.muted = true;
           setMuted(true);
           setShareGateSoundEnabled(false);
           setAutoplayBlocked(true);
@@ -118,12 +121,14 @@ export function ShareGateModal({ video, onContinue }: Props) {
   function enableSoundFromPrompt() {
     const el = videoRef.current;
     if (!el) return;
+
     el.muted = false;
     el.volume = 1;
     void el.play()
       .then(() => applyMutedState(false))
       .catch(() => {
-        el.muted = true;
+        const videoEl = videoRef.current;
+        if (videoEl) videoEl.muted = true;
         setMuted(true);
         setShareGateSoundEnabled(false);
       });
