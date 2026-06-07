@@ -5313,9 +5313,16 @@ export type OgDebugResponse = {
   publicUrl: string;
   title: string;
   description: string;
+  ogImage: string;
   image: string;
   imageIsAbsolute: boolean;
   imageStatus: number | null;
+  contentType: string | null;
+  contentLength: number | null;
+  width: number | null;
+  height: number | null;
+  isPublic: boolean;
+  isWhiteOrBlank: boolean;
   usedFallbackLogo: boolean;
   source:
     | 'thumbnailUrl'

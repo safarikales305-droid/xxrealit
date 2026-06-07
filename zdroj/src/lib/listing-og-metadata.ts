@@ -76,7 +76,7 @@ function cloudinaryVideoPosterUrl(videoUrl: string): string | null {
   if (idx < 0) return null;
   const prefix = u.slice(0, idx + marker.length);
   const rest = u.slice(idx + marker.length);
-  const transform = `${OG_IMAGE_TRANSFORM},so_1`;
+  const transform = `${OG_IMAGE_TRANSFORM},so_2`;
   const withoutExt = rest.replace(/\.[a-z0-9]+$/i, '');
   return `${prefix}${transform}/${withoutExt}.jpg`;
 }
@@ -101,7 +101,7 @@ export type ResolvedOgImage = {
   usedFallbackLogo: boolean;
 };
 
-/** Priorita: thumbnailUrl → generatedVideoThumbnail → mainImage → galerie → video poster → logo. */
+/** Priorita: thumbnailUrl → galerie → mainImage → generatedVideoThumbnail → video poster → logo. */
 export function resolveListingOgImage(listing: ListingOgInput): ResolvedOgImage {
   if (listing.resolvedOgImage && isValidPublicOgImageUrl(listing.resolvedOgImage)) {
     const source = listing.ogImageSource ?? 'thumbnailUrl';
@@ -114,9 +114,9 @@ export function resolveListingOgImage(listing: ListingOgInput): ResolvedOgImage 
 
   const steps: Array<{ raw: string | null | undefined; source: OgImageSource }> = [
     { raw: listing.thumbnailUrl, source: 'thumbnailUrl' },
-    { raw: listing.generatedVideoThumbnail, source: 'generatedVideoThumbnail' },
-    { raw: listing.mainImage, source: 'mainImage' },
     { raw: listing.images?.[0], source: 'firstGalleryImage' },
+    { raw: listing.mainImage, source: 'mainImage' },
+    { raw: listing.generatedVideoThumbnail, source: 'generatedVideoThumbnail' },
     {
       raw: listing.videoUrl ? cloudinaryVideoPosterUrl(listing.videoUrl) : null,
       source: 'videoPoster',

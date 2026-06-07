@@ -12,13 +12,13 @@ import { PrismaService } from '../../database/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { OwnerUpdatePropertyDto } from './dto/owner-update-property.dto';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
+import { resolvePropertyOgImageBest } from './og-image-probe.util';
 import {
   buildOgDescription,
   buildOgTitle,
   computeStoredOgMediaFields,
   getPortalLogoFallbackUrl,
   getSiteOriginForOg,
-  resolvePropertyOgImageWithSource,
 } from './property-og-media.util';
 import { isImportedListingPubliclyVisible } from './property-import-branch-visibility';
 import { classicPublicListingWhere } from './property-listing-scope';
@@ -372,7 +372,7 @@ export class PropertiesService {
     }
 
     const siteOrigin = getSiteOriginForOg();
-    const resolved = resolvePropertyOgImageWithSource(
+    const resolved = await resolvePropertyOgImageBest(
       {
         thumbnailUrl: property.thumbnailUrl,
         mainImage: property.mainImage,
@@ -399,8 +399,10 @@ export class PropertiesService {
       ogTitle: buildOgTitle(property.title, property.price, property.currency),
       ogDescription: buildOgDescription(property.city, property.description),
       ogImage: resolved.url,
+      image: resolved.url,
       source: resolved.source,
       usedFallbackLogo: resolved.usedFallbackLogo,
+      isWhiteOrBlank: resolved.probe?.isWhiteOrBlank ?? false,
       publicUrl: `${siteOrigin}/nemovitost/${property.id}`,
     };
   }

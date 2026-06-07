@@ -1,11 +1,11 @@
 import { Controller, Get, NotFoundException, Param } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { resolvePropertyOgImageBest } from '../properties/og-image-probe.util';
 import {
   buildOgDescription,
   buildOgTitle,
   getPortalLogoFallbackUrl,
   getSiteOriginForOg,
-  resolvePropertyOgImageWithSource,
 } from '../properties/property-og-media.util';
 
 @Controller('debug/og')
@@ -46,8 +46,7 @@ export class OgDebugController {
     }
 
     const siteOrigin = getSiteOriginForOg();
-    const fallback = getPortalLogoFallbackUrl();
-    const resolved = resolvePropertyOgImageWithSource(
+    const resolved = await resolvePropertyOgImageBest(
       {
         thumbnailUrl: property.thumbnailUrl,
         mainImage: property.mainImage,
@@ -55,28 +54,28 @@ export class OgDebugController {
         generatedVideoThumbnail: property.generatedVideoThumbnail,
         videoUrl: property.videoUrl,
       },
-      fallback,
+      getPortalLogoFallbackUrl(),
     );
-
-    let imageStatus: number | null = null;
-    try {
-      const head = await fetch(resolved.url, { method: 'HEAD', redirect: 'follow' });
-      imageStatus = head.status;
-    } catch {
-      imageStatus = null;
-    }
 
     const publicUrl = `${siteOrigin}/nemovitost/${property.id}`;
     const title = buildOgTitle(property.title, property.price, property.currency);
     const description = buildOgDescription(property.city, property.description);
+    const probe = resolved.probe;
 
     return {
       publicUrl,
       title,
       description,
+      ogImage: resolved.url,
       image: resolved.url,
       imageIsAbsolute: /^https:\/\//i.test(resolved.url),
-      imageStatus,
+      imageStatus: probe?.imageStatus ?? null,
+      contentType: probe?.contentType ?? null,
+      contentLength: probe?.contentLength ?? null,
+      width: probe?.width ?? null,
+      height: probe?.height ?? null,
+      isPublic: probe?.isPublic ?? false,
+      isWhiteOrBlank: probe?.isWhiteOrBlank ?? false,
       usedFallbackLogo: resolved.usedFallbackLogo,
       source: resolved.source,
       thumbnailUrl: property.thumbnailUrl,

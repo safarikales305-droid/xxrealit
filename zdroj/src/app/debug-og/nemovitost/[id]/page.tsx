@@ -6,9 +6,7 @@ import {
   buildListingOgTitle,
   facebookDebuggerUrl,
   listingPublicDetailUrl,
-  resolveListingOgImage,
 } from '@/lib/listing-og-metadata';
-import { fetchPropertyForOgMetadata } from '@/lib/property-public';
 import { nestOgDebug } from '@/lib/nest-client';
 
 export const dynamic = 'force-dynamic';
@@ -25,27 +23,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-async function probeImageStatus(url: string): Promise<number | null> {
-  try {
-    const res = await fetch(url, { method: 'HEAD', redirect: 'follow', cache: 'no-store' });
-    return res.status;
-  } catch {
-    return null;
-  }
-}
-
 export default async function DebugOgPropertyPage({ params }: Props) {
   const { id } = await params;
-  const listing = await fetchPropertyForOgMetadata(id);
-  if (!listing) notFound();
-
   const apiDebug = await nestOgDebug(id);
-  const publicUrl = listingPublicDetailUrl(id);
-  const ogTitle = buildListingOgTitle(listing);
-  const ogDescription = buildListingOgDescription(listing);
-  const resolved = resolveListingOgImage(listing);
-  const imageStatus =
-    apiDebug?.imageStatus ?? (await probeImageStatus(resolved.url));
+  if (!apiDebug) notFound();
+
+  const publicUrl = apiDebug.publicUrl || listingPublicDetailUrl(id);
+  const ogTitle = apiDebug.title || buildListingOgTitle({ id, title: 'Inzerát' });
+  const ogDescription = apiDebug.description || '';
+  const ogImage = apiDebug.ogImage || apiDebug.image;
 
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-4 py-10 font-sans text-zinc-900">
@@ -58,15 +44,18 @@ export default async function DebugOgPropertyPage({ params }: Props) {
       <h1 className="text-2xl font-bold">Open Graph debug</h1>
       <p className="mt-1 text-sm text-zinc-600">Inzerát {id}</p>
 
-      {resolved.usedFallbackLogo || apiDebug?.usedFallbackLogo ? (
+      {apiDebug.usedFallbackLogo ? (
         <div className="mt-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
-          <strong>usedFallbackLogo = true</strong> — Facebook dostane logo portálu. Zkontrolujte
-          thumbnailUrl, generatedVideoThumbnail, mainImage nebo galerii. Zdroj:{' '}
-          {apiDebug?.source ?? resolved.source}.
+          <strong>usedFallbackLogo = true</strong> — chybí použitelná fotka inzerátu.
+        </div>
+      ) : apiDebug.isWhiteOrBlank ? (
+        <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Aktuální og:image je bílý/prázdný — měl by se přepnout na galerii (source: {apiDebug.source}).
         </div>
       ) : (
         <div className="mt-4 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-          OG obrázek je z inzerátu (zdroj: {apiDebug?.source ?? resolved.source}).
+          OG obrázek OK — zdroj: <strong>{apiDebug.source}</strong>
+          {apiDebug.isPublic ? '' : ' (neveřejný!)'}
         </div>
       )}
 
@@ -89,15 +78,41 @@ export default async function DebugOgPropertyPage({ params }: Props) {
         </div>
         <div>
           <dt className="font-semibold text-zinc-500">og:image</dt>
-          <dd className="mt-1 break-all font-mono text-xs">{resolved.url}</dd>
+          <dd className="mt-1 break-all font-mono text-xs">{ogImage}</dd>
         </div>
-        <div>
-          <dt className="font-semibold text-zinc-500">image status (HEAD)</dt>
-          <dd className="mt-1">{imageStatus ?? 'nelze ověřit'}</dd>
-        </div>
-        <div>
-          <dt className="font-semibold text-zinc-500">source</dt>
-          <dd className="mt-1">{apiDebug?.source ?? resolved.source}</dd>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div>
+            <dt className="font-semibold text-zinc-500">imageStatus</dt>
+            <dd className="mt-1">{apiDebug.imageStatus ?? '—'}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-zinc-500">contentType</dt>
+            <dd className="mt-1">{apiDebug.contentType ?? '—'}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-zinc-500">contentLength</dt>
+            <dd className="mt-1">{apiDebug.contentLength ?? '—'}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-zinc-500">width</dt>
+            <dd className="mt-1">{apiDebug.width ?? '—'}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-zinc-500">height</dt>
+            <dd className="mt-1">{apiDebug.height ?? '—'}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-zinc-500">isPublic</dt>
+            <dd className="mt-1">{apiDebug.isPublic ? 'ano' : 'ne'}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-zinc-500">isWhiteOrBlank</dt>
+            <dd className="mt-1">{apiDebug.isWhiteOrBlank ? 'ano' : 'ne'}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-zinc-500">source</dt>
+            <dd className="mt-1">{apiDebug.source}</dd>
+          </div>
         </div>
       </dl>
 
@@ -105,8 +120,8 @@ export default async function DebugOgPropertyPage({ params }: Props) {
         <p className="mb-2 text-sm font-semibold text-zinc-700">Náhled og:image</p>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={resolved.url}
-          alt={listing.title}
+          src={ogImage}
+          alt="OG náhled"
           className="max-h-80 w-full rounded-xl border border-zinc-200 object-cover"
         />
       </div>
@@ -122,11 +137,9 @@ export default async function DebugOgPropertyPage({ params }: Props) {
         </a>
       </p>
 
-      {apiDebug ? (
-        <pre className="mt-8 overflow-x-auto rounded-xl bg-zinc-900 p-4 text-xs text-zinc-100">
-          {JSON.stringify(apiDebug, null, 2)}
-        </pre>
-      ) : null}
+      <pre className="mt-8 overflow-x-auto rounded-xl bg-zinc-900 p-4 text-xs text-zinc-100">
+        {JSON.stringify(apiDebug, null, 2)}
+      </pre>
     </main>
   );
 }

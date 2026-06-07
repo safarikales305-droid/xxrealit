@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { resolveFfmpegBinary } from '../../lib/ffmpeg-binary';
 import { runFfmpegCapture } from '../../lib/ffmpeg-run';
+import { isImageBufferWhiteOrBlank } from './og-image-probe.util';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
 
 @Injectable()
@@ -13,7 +14,7 @@ export class VideoOgThumbnailService {
 
   constructor(private readonly cloudinary: PropertyMediaCloudinaryService) {}
 
-  /** Extrahuje snímek 1200×630 z lokálního MP4 a nahraje na Cloudinary. */
+  /** Extrahuje snímek 1200×630 JPG z času ~2s (ne bílý úvod videa). */
   async extractAndUploadFromFile(videoPath: string): Promise<string | null> {
     const ffmpeg = resolveFfmpegBinary();
     if (!ffmpeg.path) {
@@ -21,6 +22,19 @@ export class VideoOgThumbnailService {
       return null;
     }
 
+    const seekSeconds = [2, 3, 1.5];
+    for (const ss of seekSeconds) {
+      const url = await this.tryExtractFrame(ffmpeg.path, videoPath, ss);
+      if (url) return url;
+    }
+    return null;
+  }
+
+  private async tryExtractFrame(
+    ffmpegPath: string,
+    videoPath: string,
+    seekSec: number,
+  ): Promise<string | null> {
     const tmpRoot = join(tmpdir(), `og-thumb-${randomBytes(8).toString('hex')}`);
     await mkdir(tmpRoot, { recursive: true });
     const outPath = join(tmpRoot, 'og-thumb.jpg');
@@ -31,25 +45,29 @@ export class VideoOgThumbnailService {
         '-loglevel',
         'error',
         '-ss',
-        '1',
+        String(seekSec),
         '-i',
         videoPath,
-        '-vframes',
+        '-frames:v',
         '1',
         '-vf',
         'scale=1200:630:force_original_aspect_ratio=increase,crop=1200:630',
         '-q:v',
-        '3',
+        '2',
         '-y',
         outPath,
       ];
-      const { code, stderr } = await runFfmpegCapture(ffmpeg.path, args);
+      const { code, stderr } = await runFfmpegCapture(ffmpegPath, args);
       if (code !== 0) {
-        this.log.warn(`ffmpeg OG thumbnail selhal: ${stderr.slice(-500)}`);
+        this.log.warn(`ffmpeg OG thumbnail (ss=${seekSec}) selhal: ${stderr.slice(-500)}`);
         return null;
       }
       const buffer = await readFile(outPath);
       if (!buffer.length) return null;
+      if (await isImageBufferWhiteOrBlank(buffer)) {
+        this.log.warn(`OG thumbnail ss=${seekSec}s je bílý — zkouším další čas`);
+        return null;
+      }
       return await this.cloudinary.uploadImageBuffer(buffer, 'og-thumbnail.jpg');
     } catch (e) {
       this.log.warn(

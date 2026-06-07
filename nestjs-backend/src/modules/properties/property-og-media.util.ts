@@ -1,3 +1,4 @@
+import { resolveAssetBaseUrl } from '../../lib/image-url';
 import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 
 export type PropertyOgMediaInput = {
@@ -32,6 +33,18 @@ export function isValidPublicOgImageUrl(url: string | null | undefined): boolean
   return true;
 }
 
+function toAbsoluteHttps(raw: string): string | null {
+  const upgraded = upgradeHttpToHttpsForApi(raw.trim()) ?? raw.trim();
+  if (isValidPublicOgImageUrl(upgraded)) return upgraded;
+  if (upgraded.startsWith('/')) {
+    const base = resolveAssetBaseUrl();
+    if (!base) return null;
+    const abs = `${base.replace(/\/+$/, '')}${upgraded}`;
+    return isValidPublicOgImageUrl(abs) ? abs : null;
+  }
+  return null;
+}
+
 /** První platná fotka z galerie. */
 export function pickPropertyMainImage(images: string[]): string | null {
   for (const raw of images) {
@@ -41,7 +54,7 @@ export function pickPropertyMainImage(images: string[]): string | null {
   return null;
 }
 
-/** Cloudinary poster z videa (bez re-uploadu). */
+/** Cloudinary poster z videa — snímek z 2. sekundy (ne bílý úvod). */
 export function cloudinaryVideoPosterUrl(videoUrl: string | null | undefined): string | null {
   const u = upgradeHttpToHttpsForApi(videoUrl?.trim() ?? '') ?? '';
   if (!u || !/res\.cloudinary\.com/i.test(u) || !/\/video\/upload\//i.test(u)) {
@@ -52,45 +65,43 @@ export function cloudinaryVideoPosterUrl(videoUrl: string | null | undefined): s
   if (idx < 0) return null;
   const prefix = u.slice(0, idx + marker.length);
   const rest = u.slice(idx + marker.length);
-  const transform = 'w_1200,h_630,c_fill,so_1,f_jpg,q_auto';
+  const transform = 'w_1200,h_630,c_fill,so_2,f_jpg,q_auto';
   if (rest.startsWith(transform + '/')) return u;
   const withoutExt = rest.replace(/\.[a-z0-9]+$/i, '');
   return `${prefix}${transform}/${withoutExt}.jpg`;
 }
 
-/** Cloudinary transformace obrázku na 1200×630 pro OG. */
+/** Cloudinary transformace obrázku na 1200×630 JPG pro OG. */
 export function cloudinaryOgImageUrl(imageUrl: string | null | undefined): string | null {
-  const u = upgradeHttpToHttpsForApi(imageUrl?.trim() ?? '') ?? '';
-  if (!u) return null;
-  if (!/res\.cloudinary\.com/i.test(u) || !/\/image\/upload\//i.test(u)) {
-    return u;
+  const abs = toAbsoluteHttps(imageUrl?.trim() ?? '');
+  if (!abs) return null;
+  if (!/res\.cloudinary\.com/i.test(abs) || !/\/image\/upload\//i.test(abs)) {
+    return abs;
   }
   const marker = '/image/upload/';
-  const idx = u.indexOf(marker);
-  if (idx < 0) return u;
-  const prefix = u.slice(0, idx + marker.length);
-  const rest = u.slice(idx + marker.length);
+  const idx = abs.indexOf(marker);
+  if (idx < 0) return abs;
+  const prefix = abs.slice(0, idx + marker.length);
+  const rest = abs.slice(idx + marker.length);
   const transform = 'w_1200,h_630,c_fill,f_jpg,q_auto';
-  if (rest.startsWith(transform + '/')) return u;
+  if (rest.startsWith(`${transform}/`)) return abs;
   return `${prefix}${transform}/${rest}`;
 }
 
-/** Normalizuje kandidáta na OG obrázek (Cloudinary image/video poster → JPG 1200×630). */
+/** Normalizuje kandidáta na OG obrázek (absolutní HTTPS JPG 1200×630). */
 export function normalizeOgImageCandidate(raw: string | null | undefined): string | null {
   if (!raw?.trim()) return null;
-  const u = upgradeHttpToHttpsForApi(raw.trim()) ?? raw.trim();
-  let candidate: string | null;
-  if (/\/video\/upload\//i.test(u)) {
-    candidate = cloudinaryVideoPosterUrl(u) ?? u;
-  } else {
-    candidate = cloudinaryOgImageUrl(u) ?? u;
+  if (/\/video\/upload\//i.test(raw)) {
+    const poster = cloudinaryVideoPosterUrl(raw);
+    return poster && isValidPublicOgImageUrl(poster) ? poster : null;
   }
-  return isValidPublicOgImageUrl(candidate) ? candidate : null;
+  const img = cloudinaryOgImageUrl(raw);
+  return img && isValidPublicOgImageUrl(img) ? img : null;
 }
 
 /**
- * Priorita OG obrázku:
- * thumbnailUrl → generatedVideoThumbnail → mainImage → první fotka → video poster → logo
+ * Priorita OG obrázku (sync — bez probe):
+ * thumbnailUrl → první fotka galerie → mainImage → generatedVideoThumbnail → video poster → logo
  */
 export function resolvePropertyOgImageWithSource(
   input: PropertyOgMediaInput,
@@ -98,9 +109,9 @@ export function resolvePropertyOgImageWithSource(
 ): ResolvedOgImage {
   const steps: Array<{ raw: string | null | undefined; source: OgImageSource }> = [
     { raw: input.thumbnailUrl, source: 'thumbnailUrl' },
-    { raw: input.generatedVideoThumbnail, source: 'generatedVideoThumbnail' },
-    { raw: input.mainImage, source: 'mainImage' },
     { raw: input.images?.[0], source: 'firstGalleryImage' },
+    { raw: input.mainImage, source: 'mainImage' },
+    { raw: input.generatedVideoThumbnail, source: 'generatedVideoThumbnail' },
     { raw: cloudinaryVideoPosterUrl(input.videoUrl), source: 'videoPoster' },
   ];
 
@@ -111,13 +122,11 @@ export function resolvePropertyOgImageWithSource(
     }
   }
 
-  const fallback = isValidPublicOgImageUrl(siteFallbackUrl)
-    ? siteFallbackUrl
-    : siteFallbackUrl.startsWith('http')
-      ? siteFallbackUrl
-      : siteFallbackUrl;
-
-  return { url: fallback, source: 'logo', usedFallbackLogo: true };
+  return {
+    url: isValidPublicOgImageUrl(siteFallbackUrl) ? siteFallbackUrl : siteFallbackUrl,
+    source: 'logo',
+    usedFallbackLogo: true,
+  };
 }
 
 export function resolvePropertyOgImageUrl(
@@ -168,15 +177,14 @@ export function computeStoredOgMediaFields(input: {
   generatedVideoThumbnail: string | null;
 } {
   const mainImage = pickPropertyMainImage(input.images);
+  const galleryFirst = normalizeOgImageCandidate(input.images[0]);
   let generatedVideoThumbnail = input.generatedVideoThumbnail?.trim() || null;
   if (!generatedVideoThumbnail && input.videoUrl?.trim()) {
     generatedVideoThumbnail = cloudinaryVideoPosterUrl(input.videoUrl);
   }
-  const thumbnailUrl =
-    normalizeOgImageCandidate(generatedVideoThumbnail) ??
-    normalizeOgImageCandidate(mainImage) ??
-    normalizeOgImageCandidate(input.images[0]) ??
-    null;
+  const videoThumb = normalizeOgImageCandidate(generatedVideoThumbnail);
+  /** Pro OG preferuj reálnou fotku z galerie před video snímkem. */
+  const thumbnailUrl = galleryFirst ?? videoThumb ?? normalizeOgImageCandidate(mainImage) ?? null;
   return {
     mainImage,
     thumbnailUrl,
