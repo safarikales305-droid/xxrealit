@@ -5273,3 +5273,63 @@ export async function nestFacebookUploadVideo(
   }
 }
 
+export type SocialPlatform = 'facebook' | 'tiktok' | 'youtube' | 'instagram';
+
+export async function nestSocialUploadVideo(
+  token: string | null,
+  platform: SocialPlatform,
+  body: {
+    videoUrl: string;
+    title: string;
+    description: string;
+    listingUrl: string;
+  },
+): Promise<{ ok: true } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/${platform}/upload-video`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export type OgDebugResponse = {
+  title: string;
+  description: string;
+  image: string;
+  video: string | null;
+  imageStatus: number | null;
+  isAbsoluteUrl: boolean;
+  pageUrl?: string;
+};
+
+export async function nestOgDebug(propertyId: string): Promise<OgDebugResponse | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/debug/og/${encodeURIComponent(propertyId)}`, {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return null;
+    return (await res.json().catch(() => null)) as OgDebugResponse | null;
+  } catch {
+    return null;
+  }
+}
+

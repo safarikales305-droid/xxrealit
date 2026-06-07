@@ -77,7 +77,7 @@ export function FacebookShortsShare({
       return;
     }
     if (!apiAccessToken) {
-      setError('Pro nahrání videa se přihlaste do účtu XXrealit.');
+      setError('Pro nahrání videa je nutné propojit účet Facebook.');
       return;
     }
     if (!fbConfigured || !fbAppId) {
@@ -189,7 +189,7 @@ export function FacebookShortsShare({
           rel="noreferrer"
           className="font-semibold text-[#1877F2] hover:underline"
         >
-          obnovte náhled pro Facebook
+          obnovte náhled Facebook
         </a>
         .
       </p>

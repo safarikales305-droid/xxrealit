@@ -9,6 +9,13 @@ export type ShareButtonsProps = {
   url: string;
   className?: string;
   label?: string;
+  shorts?: {
+    videoUrl?: string | null;
+    city?: string | null;
+    price?: number | null;
+    currency?: string | null;
+    apiAccessToken?: string | null;
+  };
   /** `videoRail` — velký kulatý button pro overlay u shorts (tmavé pozadí, oranžový hover). */
   /** `lightRail` — stejná velikost jako videoRail, pro světlé pozadí (detail inzerátu). */
   variant?: 'icon' | 'pill' | 'videoRail' | 'lightRail';
@@ -23,6 +30,7 @@ export function ShareButtons({
   label,
   variant = 'icon',
   tone = 'neutral',
+  shorts,
 }: ShareButtonsProps) {
   const [open, setOpen] = useState(false);
   const [toast, setToast] = useState(false);
@@ -67,6 +75,7 @@ export function ShareButtons({
         <ShareMenu
           title={title}
           url={url}
+          shorts={shorts}
           onClose={() => setOpen(false)}
           onCopied={() => {
             setToast(true);

@@ -51,9 +51,19 @@ export function cloudinaryOgImageUrl(imageUrl: string | null | undefined): strin
   return `${prefix}${transform}/${rest}`;
 }
 
+/** Normalizuje kandidáta na OG obrázek (Cloudinary image/video poster → JPG 1200×630). */
+export function normalizeOgImageCandidate(raw: string | null | undefined): string | null {
+  if (!raw?.trim()) return null;
+  const u = upgradeHttpToHttpsForApi(raw.trim()) ?? raw.trim();
+  if (/\/video\/upload\//i.test(u)) {
+    return cloudinaryVideoPosterUrl(u) ?? u;
+  }
+  return cloudinaryOgImageUrl(u) ?? u;
+}
+
 /**
  * Priorita OG obrázku:
- * thumbnailUrl → mainImage → první fotka → generatedVideoThumbnail → poster z videa
+ * thumbnailUrl → generatedVideoThumbnail → mainImage → první fotka → logo
  */
 export function resolvePropertyOgImageUrl(
   input: PropertyOgMediaInput,
@@ -61,16 +71,34 @@ export function resolvePropertyOgImageUrl(
 ): string {
   const candidates = [
     input.thumbnailUrl,
+    input.generatedVideoThumbnail,
     input.mainImage,
     input.images?.[0],
-    input.generatedVideoThumbnail,
     cloudinaryVideoPosterUrl(input.videoUrl),
   ];
   for (const raw of candidates) {
-    const transformed = cloudinaryOgImageUrl(raw) ?? raw?.trim();
-    if (transformed) return transformed;
+    const normalized = normalizeOgImageCandidate(raw);
+    if (normalized) return normalized;
   }
   return siteFallbackUrl;
+}
+
+export function buildOgTitle(
+  title: string,
+  price: number | null | undefined,
+  currency = 'CZK',
+): string {
+  const t = title.trim() || 'Inzerát';
+  if (price == null || !Number.isFinite(price) || price <= 0) {
+    return `${t} · Cena na dotaz`;
+  }
+  return `${t} · ${Math.round(price).toLocaleString('cs-CZ')} ${(currency || 'CZK').trim()}`;
+}
+
+export function buildOgDescription(city: string, description: string): string {
+  const loc = city.trim() || 'Lokalita neuvedena';
+  const desc = description.trim().replace(/\s+/g, ' ').slice(0, 160);
+  return desc ? `${loc} — ${desc}` : loc;
 }
 
 export function computeStoredOgMediaFields(input: {
@@ -84,11 +112,14 @@ export function computeStoredOgMediaFields(input: {
 } {
   const mainImage = pickPropertyMainImage(input.images);
   let generatedVideoThumbnail = input.generatedVideoThumbnail?.trim() || null;
-  if (!generatedVideoThumbnail && !mainImage && input.videoUrl?.trim()) {
+  if (!generatedVideoThumbnail && input.videoUrl?.trim()) {
     generatedVideoThumbnail = cloudinaryVideoPosterUrl(input.videoUrl);
   }
-  const thumbnailSource = mainImage ?? generatedVideoThumbnail;
-  const thumbnailUrl = thumbnailSource ? cloudinaryOgImageUrl(thumbnailSource) : null;
+  const thumbnailUrl =
+    normalizeOgImageCandidate(generatedVideoThumbnail) ??
+    normalizeOgImageCandidate(mainImage) ??
+    normalizeOgImageCandidate(input.images[0]) ??
+    null;
   return {
     mainImage,
     thumbnailUrl,

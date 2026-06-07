@@ -12,7 +12,12 @@ import { PrismaService } from '../../database/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { OwnerUpdatePropertyDto } from './dto/owner-update-property.dto';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
-import { computeStoredOgMediaFields } from './property-og-media.util';
+import {
+  buildOgDescription,
+  buildOgTitle,
+  computeStoredOgMediaFields,
+  resolvePropertyOgImageUrl,
+} from './property-og-media.util';
 import { isImportedListingPubliclyVisible } from './property-import-branch-visibility';
 import { classicPublicListingWhere } from './property-listing-scope';
 
@@ -317,6 +322,88 @@ export class PropertiesService {
    * Detail inzerátu + autor + další inzeráty stejného uživatele.
    * Neschválený inzerát vidí jen admin nebo vlastník.
    */
+  /** Veřejná metadata pro Open Graph (Facebook crawler, SSR generateMetadata). */
+  async findOneOgMeta(id: string) {
+    const property = await this.prisma.property.findFirst({
+      where: { id: id.trim(), deletedAt: null },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        city: true,
+        price: true,
+        currency: true,
+        listingType: true,
+        videoUrl: true,
+        thumbnailUrl: true,
+        mainImage: true,
+        generatedVideoThumbnail: true,
+        images: true,
+        approved: true,
+        deletedAt: true,
+        isActive: true,
+        isVisible: true,
+        activeFrom: true,
+        activeUntil: true,
+        status: true,
+        importSource: true,
+        importDisabled: true,
+        hiddenByImportDisabled: true,
+        importSourceId: true,
+        importSourceBranch: {
+          select: { enabled: true, isActive: true, deletedAt: true, isDeleted: true },
+        },
+      },
+    });
+
+    if (!property) {
+      throw new NotFoundException(`Property "${id}" not found`);
+    }
+    if (!property.approved) {
+      throw new NotFoundException(`Property "${id}" not found`);
+    }
+    if (!isPropertyPubliclyListed(property)) {
+      throw new NotFoundException(`Property "${id}" not found`);
+    }
+    if (!isImportedListingPubliclyVisible(property)) {
+      throw new NotFoundException(`Property "${id}" not found`);
+    }
+
+    const siteOrigin =
+      process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+      process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+      'https://www.xxrealit.cz';
+    const fallback = `${siteOrigin.replace(/\/+$/, '')}/icons/icon-192.png`;
+    const ogImage = resolvePropertyOgImageUrl(
+      {
+        thumbnailUrl: property.thumbnailUrl,
+        mainImage: property.mainImage,
+        images: property.images,
+        generatedVideoThumbnail: property.generatedVideoThumbnail,
+        videoUrl: property.videoUrl,
+      },
+      fallback,
+    );
+
+    return {
+      id: property.id,
+      title: property.title,
+      description: property.description,
+      city: property.city,
+      price: property.price,
+      currency: property.currency,
+      listingType: property.listingType,
+      videoUrl: property.videoUrl,
+      thumbnailUrl: property.thumbnailUrl,
+      mainImage: property.mainImage,
+      generatedVideoThumbnail: property.generatedVideoThumbnail,
+      images: property.images,
+      ogTitle: buildOgTitle(property.title, property.price, property.currency),
+      ogDescription: buildOgDescription(property.city, property.description),
+      ogImage,
+    };
+  }
+
   async findOneForDetail(id: string, viewerId?: string) {
     const property = await this.prisma.property.findUnique({
       where: { id },

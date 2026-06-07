@@ -775,7 +775,7 @@ export class ShortsListingService {
       if (!classic) {
         throw new NotFoundException('Zdrojový inzerát neexistuje');
       }
-      const { videoUrl, generatedVideoThumbnail } =
+      const { videoUrl, generatedVideoThumbnail, thumbnailUrl } =
         await this.listingShortsFromPhotos.generateAndUpload({
         images: files,
         title: listing.title,
@@ -808,7 +808,7 @@ export class ShortsListingService {
         await this.applyVideoToPublishedProperty(
           publishedPid,
           videoUrl,
-          generatedVideoThumbnail,
+          generatedVideoThumbnail ?? thumbnailUrl,
         );
         await this.syncPublishedMetadataToProperty(id);
       }
@@ -881,7 +881,7 @@ export class ShortsListingService {
         includeTextOverlay: true,
       });
       videoUrl = gen.videoUrl;
-      generatedVideoThumbnail = gen.generatedVideoThumbnail;
+      generatedVideoThumbnail = gen.generatedVideoThumbnail ?? gen.thumbnailUrl;
     }
 
     const ogMedia = computeStoredOgMediaFields({

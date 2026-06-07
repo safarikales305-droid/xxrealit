@@ -449,7 +449,11 @@ export class ListingShortsFromPhotosService {
    */
   async generateAndUpload(
     input: GenerateShortsFromPhotosInput,
-  ): Promise<{ videoUrl: string; generatedVideoThumbnail: string | null }> {
+  ): Promise<{
+    videoUrl: string;
+    generatedVideoThumbnail: string | null;
+    thumbnailUrl: string | null;
+  }> {
     validateImages(input.images);
     const { path: ffmpegBin, source: ffmpegSource } = this.getFfmpeg();
     await assertFfmpegAvailable(this.log, ffmpegBin, ffmpegSource);
@@ -536,7 +540,11 @@ export class ListingShortsFromPhotosService {
         (await this.videoOgThumbnail.extractAndUploadFromFile(finalPath)) ??
         null;
       this.log.log(`[shorts-generator] hotovo, upload ${mp4.length} B → Cloudinary`);
-      return { videoUrl, generatedVideoThumbnail };
+      return {
+        videoUrl,
+        generatedVideoThumbnail,
+        thumbnailUrl: generatedVideoThumbnail,
+      };
     } catch (e) {
       if (e instanceof BadRequestException || e instanceof ServiceUnavailableException) {
         throw e;

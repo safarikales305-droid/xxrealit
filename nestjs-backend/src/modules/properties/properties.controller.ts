@@ -207,6 +207,11 @@ export class PropertiesController {
     });
   }
 
+  @Get(':id/og-meta')
+  findOneOgMeta(@Param('id') id: string) {
+    return this.propertiesService.findOneOgMeta(id);
+  }
+
   @Get(':id')
   async findOne(
     @Param('id') id: string,

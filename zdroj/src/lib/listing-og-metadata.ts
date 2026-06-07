@@ -20,7 +20,16 @@ export type ListingOgInput = {
 const OG_IMAGE_TRANSFORM = 'w_1200,h_630,c_fill,f_jpg,q_auto';
 
 export function getPortalLogoFallbackUrl(): string {
-  return `${getAppOrigin()}/icons/icon-192.png`;
+  return ensureAbsoluteOgUrl('/icons/icon-192.png');
+}
+
+export function ensureAbsoluteOgUrl(url: string): string {
+  const t = upgradeHttpToHttps(url.trim());
+  if (!t) return getPortalLogoFallbackUrl();
+  if (/^https:\/\//i.test(t)) return t;
+  if (t.startsWith('//')) return `https:${t}`;
+  const origin = getAppOrigin();
+  return t.startsWith('/') ? `${origin}${t}` : `${origin}/${t}`;
 }
 
 function cloudinaryOgImageUrl(imageUrl: string): string {
@@ -50,19 +59,28 @@ function cloudinaryVideoPosterUrl(videoUrl: string): string | null {
   return `${prefix}${transform}/${withoutExt}.jpg`;
 }
 
-/** Priorita: thumbnailUrl → mainImage → galerie → generatedVideoThumbnail → poster z videa → logo. */
+function normalizeOgImageCandidate(raw: string | null | undefined): string | null {
+  if (!raw?.trim()) return null;
+  if (/\/video\/upload\//i.test(raw)) {
+    const poster = cloudinaryVideoPosterUrl(raw);
+    return poster ? ensureAbsoluteOgUrl(poster) : null;
+  }
+  const img = cloudinaryOgImageUrl(raw);
+  return img ? ensureAbsoluteOgUrl(img) : null;
+}
+
+/** Priorita: thumbnailUrl → generatedVideoThumbnail → mainImage → galerie → logo. */
 export function resolveListingOgImageUrl(listing: ListingOgInput): string {
   const candidates = [
     listing.thumbnailUrl,
+    listing.generatedVideoThumbnail,
     listing.mainImage,
     listing.images?.[0],
-    listing.generatedVideoThumbnail,
     listing.videoUrl ? cloudinaryVideoPosterUrl(listing.videoUrl) : null,
   ];
   for (const raw of candidates) {
-    if (typeof raw !== 'string' || !raw.trim()) continue;
-    const url = cloudinaryOgImageUrl(raw);
-    if (url) return url;
+    const normalized = normalizeOgImageCandidate(raw);
+    if (normalized) return normalized;
   }
   return getPortalLogoFallbackUrl();
 }
@@ -88,6 +106,22 @@ export function buildListingOgDescription(listing: ListingOgInput): string {
   return short ? `${city} — ${short}` : city;
 }
 
+export function buildListingSharePostText(opts: {
+  title: string;
+  city?: string | null;
+  price?: number | null;
+  currency?: string | null;
+  url: string;
+}): string {
+  const lines = [
+    opts.title.trim(),
+    formatListingPrice(opts.price, opts.currency ?? 'CZK'),
+    (opts.city || '').trim() || 'Lokalita neuvedena',
+    opts.url.trim(),
+  ];
+  return lines.filter(Boolean).join('\n');
+}
+
 export function listingPublicDetailUrl(id: string): string {
   return `${getAppOrigin()}/nemovitost/${encodeURIComponent(id)}`;
 }
@@ -104,24 +138,29 @@ export function buildListingOpenGraphMetadata(listing: ListingOgInput): Metadata
   const isShorts =
     String(listing.listingType ?? '').toUpperCase() === 'SHORTS' ||
     Boolean(listing.videoUrl?.trim());
+  const ogType = isShorts ? 'video.other' : 'article';
+  const videoAbs = listing.videoUrl?.trim()
+    ? ensureAbsoluteOgUrl(listing.videoUrl.trim())
+    : null;
 
   return {
     title,
     description,
     alternates: { canonical: pageUrl },
     openGraph: {
-      type: isShorts ? 'video.other' : 'article',
+      type: ogType,
       title,
       description,
       url: pageUrl,
       siteName: 'XXrealit',
       locale: 'cs_CZ',
-      images: [{ url: imageUrl, width: 1200, height: 630, alt: listing.title }],
-      ...(listing.videoUrl?.trim()
+      images: [{ url: imageUrl, width: 1200, height: 630, alt: listing.title, type: 'image/jpeg' }],
+      ...(videoAbs
         ? {
             videos: [
               {
-                url: upgradeHttpToHttps(listing.videoUrl.trim()),
+                url: videoAbs,
+                secureUrl: videoAbs,
                 type: 'video/mp4',
                 width: 720,
                 height: 1280,
@@ -136,13 +175,25 @@ export function buildListingOpenGraphMetadata(listing: ListingOgInput): Metadata
       description,
       images: [imageUrl],
     },
-    other: listing.videoUrl?.trim()
-      ? {
-          'og:video': upgradeHttpToHttps(listing.videoUrl.trim()),
-          'og:video:type': 'video/mp4',
-          'og:video:width': '720',
-          'og:video:height': '1280',
-        }
-      : undefined,
+    other: {
+      'og:title': title,
+      'og:description': description,
+      'og:image': imageUrl,
+      'og:image:secure_url': imageUrl,
+      'og:image:width': '1200',
+      'og:image:height': '630',
+      'og:image:type': 'image/jpeg',
+      'og:url': pageUrl,
+      'og:type': ogType,
+      ...(videoAbs
+        ? {
+            'og:video': videoAbs,
+            'og:video:secure_url': videoAbs,
+            'og:video:type': 'video/mp4',
+            'og:video:width': '720',
+            'og:video:height': '1280',
+          }
+        : {}),
+    },
   };
 }

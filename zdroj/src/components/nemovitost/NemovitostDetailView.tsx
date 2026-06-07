@@ -505,6 +505,13 @@ export function NemovitostDetailView({
                       url={shareUrl}
                       variant="lightRail"
                       label="Sdílet"
+                      shorts={{
+                        videoUrl: typeof p.videoUrl === 'string' ? p.videoUrl : null,
+                        city: typeof p.location === 'string' ? p.location : null,
+                        price: typeof p.price === 'number' ? p.price : null,
+                        currency: 'CZK',
+                        apiAccessToken,
+                      }}
                     />
                     <button
                       type="button"

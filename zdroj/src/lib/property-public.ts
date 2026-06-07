@@ -33,9 +33,34 @@ export async function fetchPropertyForOgMetadata(id: string): Promise<ListingOgI
   const trimmed = id.trim();
   if (!apiBase || !trimmed) return null;
 
+  const mapOgPayload = (prop: Record<string, unknown>): ListingOgInput => ({
+    id: str(prop.id) ?? trimmed,
+    title: str(prop.title) ?? 'Inzerát',
+    description: str(prop.description),
+    city: str(prop.city) ?? str(prop.location),
+    price: num(prop.price),
+    currency: str(prop.currency) ?? 'CZK',
+    listingType: str(prop.listingType),
+    videoUrl: str(prop.videoUrl),
+    thumbnailUrl: str(prop.thumbnailUrl) ?? str(prop.thumbnail),
+    mainImage: str(prop.mainImage) ?? str(prop.coverImage),
+    generatedVideoThumbnail: str(prop.generatedVideoThumbnail),
+    images: strArray(prop.images).length ? strArray(prop.images) : strArray(prop.galleryImages),
+  });
+
   try {
+    const ogRes = await fetch(`${apiBase}/properties/${encodeURIComponent(trimmed)}/og-meta`, {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (ogRes.ok) {
+      const ogBody = (await ogRes.json().catch(() => null)) as unknown;
+      const og = asRecord(ogBody);
+      if (og) return mapOgPayload(og);
+    }
+
     const res = await fetch(`${apiBase}/properties/${encodeURIComponent(trimmed)}`, {
-      next: { revalidate: 300 },
+      cache: 'no-store',
       headers: { Accept: 'application/json' },
     });
     if (!res.ok) return null;
@@ -43,23 +68,7 @@ export async function fetchPropertyForOgMetadata(id: string): Promise<ListingOgI
     const root = asRecord(body);
     if (!root) return null;
     const prop = asRecord(root.property) ?? root;
-
-    return {
-      id: str(prop.id) ?? trimmed,
-      title: str(prop.title) ?? 'Inzerát',
-      description: str(prop.description),
-      city: str(prop.city) ?? str(prop.location),
-      price: num(prop.price),
-      currency: str(prop.currency) ?? 'CZK',
-      listingType: str(prop.listingType),
-      videoUrl: str(prop.videoUrl),
-      thumbnailUrl: str(prop.thumbnailUrl) ?? str(prop.thumbnail),
-      mainImage: str(prop.mainImage) ?? str(prop.coverImage),
-      generatedVideoThumbnail: str(prop.generatedVideoThumbnail),
-      images: strArray(prop.images).length
-        ? strArray(prop.images)
-        : strArray(prop.galleryImages),
-    };
+    return mapOgPayload(prop);
   } catch {
     return null;
   }
