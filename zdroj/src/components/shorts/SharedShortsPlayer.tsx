@@ -107,12 +107,14 @@ export function SharedShortsPlayer({ listing, detailHref }: Props) {
                 </div>
               ) : null}
               {!isLoading && !isAuthenticated ? <GuestShortsCta /> : null}
-              <ShortsSoundToggle
-                variant="overlay"
-                className="shorts-rail-sound"
-                muted={muted}
-                onToggle={toggleSound}
-              />
+              <div className="shorts-actions">
+                <ShortsSoundToggle
+                  variant="rail"
+                  className="shorts-rail-sound"
+                  muted={muted}
+                  onToggle={toggleSound}
+                />
+              </div>
             </>
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-zinc-900 px-4 text-center">

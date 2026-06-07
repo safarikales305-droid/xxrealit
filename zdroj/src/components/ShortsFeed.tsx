@@ -399,16 +399,16 @@ export function ShortsFeed({ items }: Props) {
               </p>
             </div>
 
-            <div className="pointer-events-none absolute inset-0 z-10">
+            <div className="shorts-actions">
               {soundByClipId[c.id] ? (
                 <ShortsSoundToggle
                   variant="rail"
-                  className="shorts-rail-sound pointer-events-auto"
+                  className="shorts-rail-sound"
                   muted={soundByClipId[c.id].muted}
                   onToggle={soundByClipId[c.id].toggleSound}
                 />
               ) : null}
-              <div className="favorite-button pointer-events-auto flex flex-col items-center gap-1.5">
+              <div className="favorite-button flex flex-col items-center gap-1.5">
                 <button
                   type="button"
                   aria-label="Líbí se mi"
@@ -425,7 +425,7 @@ export function ShortsFeed({ items }: Props) {
                   {likes[c.id] ?? 0}
                 </span>
               </div>
-              <div className="share-button pointer-events-auto flex flex-col items-center gap-1">
+              <div className="share-button flex flex-col items-center gap-1">
                 <span
                   className={`${glowBtnBase} pointer-events-none opacity-90`}
                   aria-hidden
@@ -439,7 +439,7 @@ export function ShortsFeed({ items }: Props) {
                 aria-label="Napsat prodejci"
                 title="Napsat prodejci"
                 onClick={() => handleWriteSeller(c)}
-                className={`message-button ${glowBtnBase} pointer-events-auto`}
+                className={`message-button ${glowBtnBase}`}
               >
                 <Mail className="size-6" strokeWidth={2.25} aria-hidden />
               </button>

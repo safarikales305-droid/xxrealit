@@ -90,18 +90,18 @@ body {
 
 .guest-shorts-cta {
   position: absolute;
-  left: 12px;
-  right: 86px;
-  bottom: 145px;
-  z-index: 25;
-  max-width: calc(100% - 110px);
-  padding: 7px 10px;
+  top: max(58px, calc(env(safe-area-inset-top, 0px) + 46px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 35;
+  max-width: 88%;
+  padding: 7px 12px;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 700;
   line-height: 1.2;
   text-align: center;
-  white-space: normal;
+  white-space: nowrap;
   background: linear-gradient(135deg, #ff6a00, #ff3d00);
   color: white;
   box-shadow: 0 8px 24px rgba(255, 90, 0, 0.3);
@@ -114,55 +114,45 @@ body {
 }
 
 .guest-shorts-cta:active {
-  transform: scale(0.98);
+  transform: translateX(-50%) scale(0.98);
 }
 
 @media (max-width: 1023px) {
-  .shorts-video-stage .shorts-rail-sound,
-  .shorts-video-stage .sound-toggle--overlay.shorts-rail-sound {
+  .shorts-video-stage .shorts-actions {
     position: absolute;
+    right: max(12px, env(safe-area-inset-right, 0px));
+    bottom: 90px;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    pointer-events: auto;
+  }
+
+  .shorts-video-stage .shorts-actions .sound-toggle--overlay,
+  .shorts-video-stage .shorts-actions .shorts-rail-sound,
+  .shorts-video-stage .shorts-actions .favorite-button,
+  .shorts-video-stage .shorts-actions .share-button,
+  .shorts-video-stage .shorts-actions .message-button,
+  .shorts-video-stage .shorts-actions .add-listing-button {
+    position: static;
     top: auto;
-    right: max(12px, env(safe-area-inset-right, 0px));
-    bottom: 260px;
-    z-index: 35;
+    right: auto;
+    bottom: auto;
+    transform: none;
   }
 
-  .shorts-video-stage .favorite-button {
-    position: absolute;
-    right: max(12px, env(safe-area-inset-right, 0px));
-    bottom: 205px;
-    z-index: 35;
-  }
-
-  .shorts-video-stage .share-button {
-    position: absolute;
-    right: max(12px, env(safe-area-inset-right, 0px));
-    bottom: 150px;
-    z-index: 35;
-  }
-
-  .shorts-video-stage .message-button {
-    position: absolute;
-    right: max(12px, env(safe-area-inset-right, 0px));
-    bottom: 95px;
-    z-index: 35;
-  }
-
-  .shorts-video-stage .add-listing-button {
-    position: absolute;
-    right: max(12px, env(safe-area-inset-right, 0px));
-    bottom: 40px;
-    z-index: 35;
+  .shorts-video-stage .shorts-actions .sound-toggle--overlay:active {
+    transform: scale(0.97);
   }
 }
 
 @media (min-width: 1024px) {
   .shorts-video-stage .guest-shorts-cta {
-    left: 16px;
-    right: 96px;
-    bottom: 160px;
+    top: 16px;
     font-size: 13px;
-    max-width: calc(100% - 120px);
+    padding: 8px 14px;
   }
 }
 

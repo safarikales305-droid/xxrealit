@@ -325,13 +325,8 @@ export default function VideoCard({
     );
   }
 
-  function renderActionRail(options: {
-    desktopLightShare?: boolean;
-    showSound?: boolean;
-    mobileFixed?: boolean;
-  }) {
-    const { desktopLightShare, showSound = true, mobileFixed = false } = options;
-    const mobileBtn = mobileFixed ? 'pointer-events-auto' : '';
+  function renderActionRail(options: { desktopLightShare?: boolean; showSound?: boolean }) {
+    const { desktopLightShare, showSound = true } = options;
     return (
       <>
         {showSound && !desktopPreviewUrl && !error ? (
@@ -340,7 +335,7 @@ export default function VideoCard({
             desktopLight={desktopLightShare}
             muted={muted}
             onToggle={toggleSound}
-            className={`${mobileFixed ? 'shorts-rail-sound' : ''} ${mobileBtn}`.trim()}
+            className="shorts-rail-sound"
           />
         ) : null}
 
@@ -348,7 +343,7 @@ export default function VideoCard({
           type="button"
           disabled={likeBusy}
           onClick={handleFavoriteClick}
-          className={`favorite-button ${railBtn} ${mobileBtn} ${
+          className={`favorite-button ${railBtn} ${
             liked
               ? 'border-orange-400/90 bg-orange-600/90 text-white lg:border-orange-500 lg:bg-orange-500 lg:text-white'
               : ''
@@ -365,7 +360,7 @@ export default function VideoCard({
           title={shareTitle}
           url={shareUrl}
           variant={desktopLightShare ? 'lightRail' : 'videoRail'}
-          className={`share-button ${mobileBtn}`.trim()}
+          className="share-button"
           shorts={{
             videoUrl: video.videoUrl ?? video.url ?? null,
             apiAccessToken,
@@ -375,7 +370,7 @@ export default function VideoCard({
         <button
           type="button"
           onClick={handleWriteSeller}
-          className={`message-button ${railMessageBtn} ${mobileBtn}`}
+          className={`message-button ${railMessageBtn}`}
           aria-label="Napsat prodejci"
           title="Napsat prodejci"
         >
@@ -389,7 +384,7 @@ export default function VideoCard({
             e.preventDefault();
             e.stopPropagation();
           }}
-          className={`add-listing-button ${railBtn} touch-manipulation border-orange-400/85 bg-gradient-to-br from-[#ff6a00]/95 to-[#ff3c00]/95 text-white hover:brightness-110 lg:border-orange-400 lg:bg-gradient-to-br lg:from-[#ff6a00] lg:to-[#ff3c00] lg:text-white lg:hover:brightness-110 ${mobileBtn}`}
+          className={`add-listing-button ${railBtn} touch-manipulation border-orange-400/85 bg-gradient-to-br from-[#ff6a00]/95 to-[#ff3c00]/95 text-white hover:brightness-110 lg:border-orange-400 lg:bg-gradient-to-br lg:from-[#ff6a00] lg:to-[#ff3c00] lg:text-white lg:hover:brightness-110`}
           aria-label="Přidat inzerát"
         >
           <Plus className="size-6" strokeWidth={2.5} aria-hidden />
@@ -545,9 +540,9 @@ export default function VideoCard({
               </button>
             ) : null}
 
-            {/* Mobil: akce v pravém sloupci (fixní pozice přes CSS) */}
-            <div className="pointer-events-none absolute inset-0 z-[35] lg:hidden">
-              {renderActionRail({ desktopLightShare: false, mobileFixed: true })}
+            {/* Mobil: akce v pravém sloupci */}
+            <div className="shorts-actions lg:hidden">
+              {renderActionRail({ desktopLightShare: false })}
             </div>
 
             {/* Mobil: spodní info vůči videu */}
