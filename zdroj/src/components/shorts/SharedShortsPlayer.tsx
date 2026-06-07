@@ -77,7 +77,7 @@ export function SharedShortsPlayer({ listing, detailHref }: Props) {
       </header>
 
       <div className="flex w-full flex-1 items-center justify-center px-0 py-14 md:px-4">
-        <div className="relative h-[100dvh] w-full max-w-[100vw] overflow-hidden bg-zinc-900 md:h-auto md:max-h-[calc(100vh-80px)] md:w-full md:max-w-[430px] md:aspect-[9/16] md:rounded-2xl md:shadow-2xl">
+        <div className="shorts-video-stage relative h-[100dvh] w-full max-w-[100vw] overflow-hidden bg-zinc-900 md:h-auto md:max-h-[calc(100vh-80px)] md:w-full md:max-w-[430px] md:aspect-[9/16] md:rounded-2xl md:shadow-2xl">
           {showVideo ? (
             <>
               <video
@@ -107,7 +107,12 @@ export function SharedShortsPlayer({ listing, detailHref }: Props) {
                 </div>
               ) : null}
               {!isLoading && !isAuthenticated ? <GuestShortsCta /> : null}
-              <ShortsSoundToggle variant="overlay" muted={muted} onToggle={toggleSound} />
+              <ShortsSoundToggle
+                variant="overlay"
+                className="shorts-rail-sound"
+                muted={muted}
+                onToggle={toggleSound}
+              />
             </>
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-zinc-900 px-4 text-center">

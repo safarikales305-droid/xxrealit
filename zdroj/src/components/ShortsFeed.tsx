@@ -336,7 +336,7 @@ export function ShortsFeed({ items }: Props) {
         return (
           <section
             key={c.id + c.src}
-            className="relative isolate box-border h-screen w-full max-w-full shrink-0 snap-start snap-always overflow-hidden overflow-x-hidden bg-black"
+            className="shorts-video-stage relative isolate box-border h-screen w-full max-w-full shrink-0 snap-start snap-always overflow-hidden overflow-x-hidden bg-black"
             onClick={() => setAdInteractionTick((v) => v + 1)}
           >
             {showProfileLink ? (
@@ -360,7 +360,7 @@ export function ShortsFeed({ items }: Props) {
               }}
             />
             {!isLoading && !isAuthenticated ? <GuestShortsCta /> : null}
-            <div className="pointer-events-none absolute right-3 top-3 z-[26] sm:right-4 sm:top-4">
+            <div className="views-badge">
               <div className="rounded-xl bg-black/60 px-3 py-2 text-sm font-bold text-white shadow-lg sm:px-4 sm:py-2.5 sm:text-base">
                 {`👁 ${formatViewsCount(c.viewsCount)}`}
               </div>
@@ -399,15 +399,16 @@ export function ShortsFeed({ items }: Props) {
               </p>
             </div>
 
-            <div className="pointer-events-auto absolute bottom-24 right-5 z-10 flex flex-col items-center gap-4 sm:bottom-28 sm:right-7 sm:gap-5">
+            <div className="pointer-events-none absolute inset-0 z-10">
               {soundByClipId[c.id] ? (
                 <ShortsSoundToggle
                   variant="rail"
+                  className="shorts-rail-sound pointer-events-auto"
                   muted={soundByClipId[c.id].muted}
                   onToggle={soundByClipId[c.id].toggleSound}
                 />
               ) : null}
-              <div className="flex flex-col items-center gap-1.5">
+              <div className="favorite-button pointer-events-auto flex flex-col items-center gap-1.5">
                 <button
                   type="button"
                   aria-label="Líbí se mi"
@@ -424,7 +425,7 @@ export function ShortsFeed({ items }: Props) {
                   {likes[c.id] ?? 0}
                 </span>
               </div>
-              <div className="flex flex-col items-center gap-1">
+              <div className="share-button pointer-events-auto flex flex-col items-center gap-1">
                 <span
                   className={`${glowBtnBase} pointer-events-none opacity-90`}
                   aria-hidden
@@ -438,7 +439,7 @@ export function ShortsFeed({ items }: Props) {
                 aria-label="Napsat prodejci"
                 title="Napsat prodejci"
                 onClick={() => handleWriteSeller(c)}
-                className={glowBtnBase}
+                className={`message-button ${glowBtnBase} pointer-events-auto`}
               >
                 <Mail className="size-6" strokeWidth={2.25} aria-hidden />
               </button>

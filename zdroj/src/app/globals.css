@@ -80,16 +80,31 @@ body {
   transform: scale(0.97);
 }
 
-.guest-shorts-cta {
+.views-badge {
+  position: absolute;
   top: max(12px, env(safe-area-inset-top, 0px));
-  padding: 8px 12px;
+  right: max(12px, env(safe-area-inset-right, 0px));
+  z-index: 37;
+  pointer-events: none;
+}
+
+.guest-shorts-cta {
+  position: absolute;
+  left: 12px;
+  right: 86px;
+  bottom: 145px;
+  z-index: 25;
+  max-width: calc(100% - 110px);
+  padding: 7px 10px;
   border-radius: 999px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  white-space: normal;
   background: linear-gradient(135deg, #ff6a00, #ff3d00);
   color: white;
   box-shadow: 0 8px 24px rgba(255, 90, 0, 0.3);
-  white-space: nowrap;
   text-decoration: none;
   transition: filter 0.15s ease, transform 0.1s ease;
 }
@@ -99,13 +114,55 @@ body {
 }
 
 .guest-shorts-cta:active {
-  transform: translateX(-50%) scale(0.98);
+  transform: scale(0.98);
+}
+
+@media (max-width: 1023px) {
+  .shorts-video-stage .shorts-rail-sound,
+  .shorts-video-stage .sound-toggle--overlay.shorts-rail-sound {
+    position: absolute;
+    top: auto;
+    right: max(12px, env(safe-area-inset-right, 0px));
+    bottom: 260px;
+    z-index: 35;
+  }
+
+  .shorts-video-stage .favorite-button {
+    position: absolute;
+    right: max(12px, env(safe-area-inset-right, 0px));
+    bottom: 205px;
+    z-index: 35;
+  }
+
+  .shorts-video-stage .share-button {
+    position: absolute;
+    right: max(12px, env(safe-area-inset-right, 0px));
+    bottom: 150px;
+    z-index: 35;
+  }
+
+  .shorts-video-stage .message-button {
+    position: absolute;
+    right: max(12px, env(safe-area-inset-right, 0px));
+    bottom: 95px;
+    z-index: 35;
+  }
+
+  .shorts-video-stage .add-listing-button {
+    position: absolute;
+    right: max(12px, env(safe-area-inset-right, 0px));
+    bottom: 40px;
+    z-index: 35;
+  }
 }
 
 @media (min-width: 1024px) {
-  .guest-shorts-cta {
-    font-size: 14px;
-    padding: 10px 16px;
+  .shorts-video-stage .guest-shorts-cta {
+    left: 16px;
+    right: 96px;
+    bottom: 160px;
+    font-size: 13px;
+    max-width: calc(100% - 120px);
   }
 }
 

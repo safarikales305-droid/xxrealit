@@ -325,8 +325,13 @@ export default function VideoCard({
     );
   }
 
-  function renderActionRail(options: { desktopLightShare?: boolean; showSound?: boolean }) {
-    const { desktopLightShare, showSound = true } = options;
+  function renderActionRail(options: {
+    desktopLightShare?: boolean;
+    showSound?: boolean;
+    mobileFixed?: boolean;
+  }) {
+    const { desktopLightShare, showSound = true, mobileFixed = false } = options;
+    const mobileBtn = mobileFixed ? 'pointer-events-auto' : '';
     return (
       <>
         {showSound && !desktopPreviewUrl && !error ? (
@@ -335,6 +340,7 @@ export default function VideoCard({
             desktopLight={desktopLightShare}
             muted={muted}
             onToggle={toggleSound}
+            className={`${mobileFixed ? 'shorts-rail-sound' : ''} ${mobileBtn}`.trim()}
           />
         ) : null}
 
@@ -342,7 +348,7 @@ export default function VideoCard({
           type="button"
           disabled={likeBusy}
           onClick={handleFavoriteClick}
-          className={`${railBtn} ${
+          className={`favorite-button ${railBtn} ${mobileBtn} ${
             liked
               ? 'border-orange-400/90 bg-orange-600/90 text-white lg:border-orange-500 lg:bg-orange-500 lg:text-white'
               : ''
@@ -359,6 +365,7 @@ export default function VideoCard({
           title={shareTitle}
           url={shareUrl}
           variant={desktopLightShare ? 'lightRail' : 'videoRail'}
+          className={`share-button ${mobileBtn}`.trim()}
           shorts={{
             videoUrl: video.videoUrl ?? video.url ?? null,
             apiAccessToken,
@@ -368,7 +375,7 @@ export default function VideoCard({
         <button
           type="button"
           onClick={handleWriteSeller}
-          className={railMessageBtn}
+          className={`message-button ${railMessageBtn} ${mobileBtn}`}
           aria-label="Napsat prodejci"
           title="Napsat prodejci"
         >
@@ -382,7 +389,7 @@ export default function VideoCard({
             e.preventDefault();
             e.stopPropagation();
           }}
-          className={`${railBtn} touch-manipulation border-orange-400/85 bg-gradient-to-br from-[#ff6a00]/95 to-[#ff3c00]/95 text-white hover:brightness-110 lg:border-orange-400 lg:bg-gradient-to-br lg:from-[#ff6a00] lg:to-[#ff3c00] lg:text-white lg:hover:brightness-110`}
+          className={`add-listing-button ${railBtn} touch-manipulation border-orange-400/85 bg-gradient-to-br from-[#ff6a00]/95 to-[#ff3c00]/95 text-white hover:brightness-110 lg:border-orange-400 lg:bg-gradient-to-br lg:from-[#ff6a00] lg:to-[#ff3c00] lg:text-white lg:hover:brightness-110 ${mobileBtn}`}
           aria-label="Přidat inzerát"
         >
           <Plus className="size-6" strokeWidth={2.5} aria-hidden />
@@ -475,7 +482,7 @@ export default function VideoCard({
         {/* Střed: video (9:16) */}
         <div className="relative flex min-h-0 flex-1 flex-col lg:max-w-[min(480px,min(46vw,calc((min(88vh,100dvh-9rem))*9/16+2rem)))] lg:shrink-0 lg:items-center lg:justify-center">
           <div
-            className="relative min-h-0 flex-1 overflow-hidden lg:flex lg:h-[min(88vh,calc(100dvh-9rem))] lg:w-[min(100%,calc(min(88vh,100dvh-9rem)*9/16))] lg:max-w-[min(420px,42vw)] lg:flex-none lg:shrink-0 lg:items-center lg:justify-center lg:rounded-xl lg:border lg:border-zinc-200 lg:bg-zinc-950 lg:shadow-[0_24px_70px_rgba(0,0,0,0.18)]"
+            className="shorts-video-stage relative min-h-0 flex-1 overflow-hidden lg:flex lg:h-[min(88vh,calc(100dvh-9rem))] lg:w-[min(100%,calc(min(88vh,100dvh-9rem)*9/16))] lg:max-w-[min(420px,42vw)] lg:flex-none lg:shrink-0 lg:items-center lg:justify-center lg:rounded-xl lg:border lg:border-zinc-200 lg:bg-zinc-950 lg:shadow-[0_24px_70px_rgba(0,0,0,0.18)]"
           >
             {desktopPreviewUrl ? (
               <>
@@ -518,7 +525,7 @@ export default function VideoCard({
                 Video se nepodařilo načíst
               </div>
             )}
-            <div className="pointer-events-none absolute right-[max(0.5rem,env(safe-area-inset-right))] top-[max(0.5rem,env(safe-area-inset-top))] z-[37]">
+            <div className="views-badge">
               <div className="rounded-xl bg-black/60 px-3 py-2 text-sm font-bold text-white shadow-lg sm:px-4 sm:py-2.5 sm:text-base">
                 {`👁 ${formatViewsCount(video.viewsCount)}`}
               </div>
@@ -538,14 +545,14 @@ export default function VideoCard({
               </button>
             ) : null}
 
-            {/* Mobil: akce přes video — zvuk, srdíčko, sdílet, zpráva */}
-            <div className="pointer-events-auto absolute right-2 z-[35] flex flex-col items-center gap-2.5 max-lg:top-[max(3.25rem,calc(env(safe-area-inset-top,0px)+2.75rem))] max-lg:bottom-[calc(14.5rem+env(safe-area-inset-bottom,0px))] max-lg:justify-start sm:right-4 lg:hidden">
-              {renderActionRail({ desktopLightShare: false })}
+            {/* Mobil: akce v pravém sloupci (fixní pozice přes CSS) */}
+            <div className="pointer-events-none absolute inset-0 z-[35] lg:hidden">
+              {renderActionRail({ desktopLightShare: false, mobileFixed: true })}
             </div>
 
             {/* Mobil: spodní info vůči videu */}
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[25] lg:hidden">
-              <div className="bg-gradient-to-t from-black via-black/95 to-black/25 px-3 pt-10 pr-[4rem] text-white shadow-[0_-12px_40px_rgba(0,0,0,0.45)] max-[1023px]:pb-[max(2rem,calc(env(safe-area-inset-bottom,0px)+1.5rem))] sm:px-4 sm:pr-24 sm:pt-14">
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[20] lg:hidden">
+              <div className="bg-gradient-to-t from-black via-black/95 to-black/25 px-3 pt-16 pr-[4.5rem] text-white shadow-[0_-12px_40px_rgba(0,0,0,0.45)] max-[1023px]:pb-[max(2rem,calc(env(safe-area-inset-bottom,0px)+1.5rem))] sm:px-4 sm:pr-24 sm:pt-16">
                 <div className="pointer-events-auto mx-auto max-w-lg sm:max-w-lg">
                   {renderMobileListingInfo()}
                 </div>
