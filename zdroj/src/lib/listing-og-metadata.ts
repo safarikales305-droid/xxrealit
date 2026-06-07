@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { getAppOrigin } from '@/lib/app-url';
+import { listingShareUrl } from '@/lib/public-share-url';
 import { upgradeHttpToHttps } from '@/lib/public-urls';
 
 export type ListingOgInput = {
@@ -17,6 +18,9 @@ export type ListingOgInput = {
   images?: string[];
   resolvedOgImage?: string | null;
   ogImageSource?: OgImageSource | null;
+  ogTitle?: string | null;
+  ogDescription?: string | null;
+  shareUrl?: string | null;
 };
 
 export type OgImageSource =
@@ -227,17 +231,10 @@ export function buildListingOgDescription(listing: ListingOgInput): string {
 
 export function buildListingSharePostText(opts: {
   title: string;
-  city?: string | null;
-  price?: number | null;
-  currency?: string | null;
+  description?: string | null;
   url: string;
 }): string {
-  const lines = [
-    opts.title.trim(),
-    formatListingPrice(opts.price, opts.currency ?? 'CZK'),
-    (opts.city || '').trim() || 'Lokalita neuvedena',
-    opts.url.trim(),
-  ];
+  const lines = [opts.title.trim(), (opts.description || '').trim(), opts.url.trim()];
   return lines.filter(Boolean).join('\n');
 }
 
@@ -250,9 +247,19 @@ export function facebookDebuggerUrl(pageUrl: string): string {
 }
 
 export function buildListingOpenGraphMetadata(listing: ListingOgInput): Metadata {
-  const pageUrl = listingPublicDetailUrl(listing.id);
-  const title = buildListingOgTitle(listing);
-  const description = buildListingOgDescription(listing);
+  const isShorts =
+    String(listing.listingType ?? '').toUpperCase() === 'SHORTS' ||
+    Boolean(listing.videoUrl?.trim());
+  const pageUrl =
+    listing.shareUrl?.trim() ||
+    listingShareUrl(listing.id, {
+      listingType: listing.listingType,
+      videoUrl: listing.videoUrl,
+      force: isShorts ? 'shorts' : 'classic',
+    });
+  const title = (listing.ogTitle || '').trim() || 'Nový inzerát na portálu XXrealit';
+  const description =
+    (listing.ogDescription || '').trim() || 'Podívejte se na zajímavou nemovitost na XXrealit.';
   const resolved = resolveListingOgImage(listing);
   const imageUrl = resolved.url;
   const videoThumbnail = pickVideoThumbnail(listing);
@@ -266,12 +273,9 @@ export function buildListingOpenGraphMetadata(listing: ListingOgInput): Metadata
     videoThumbnail,
     selectedOgImage: imageUrl,
     selectedSource: resolved.source,
-    isLogoFallback: resolved.isLogoFallback,
+    shareUrl: pageUrl,
+    priceIncluded: false,
   });
-
-  const isShorts =
-    String(listing.listingType ?? '').toUpperCase() === 'SHORTS' ||
-    Boolean(listing.videoUrl?.trim());
   const ogType = isShorts ? 'video.other' : 'article';
   const videoAbs = listing.videoUrl?.trim()
     ? (() => {

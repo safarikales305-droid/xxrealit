@@ -26,6 +26,7 @@ import { ImportsModule } from './modules/imports/imports.module';
 import { TiparModule } from './modules/tipar/tipar.module';
 import { SocialModule } from './modules/social/social.module';
 import { DebugModule } from './modules/debug/debug.module';
+import { ShareModule } from './modules/share/share.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { DebugModule } from './modules/debug/debug.module';
     TiparModule,
     SocialModule,
     DebugModule,
+    ShareModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

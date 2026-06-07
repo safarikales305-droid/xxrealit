@@ -14,7 +14,7 @@ import {
   nestSubmitOwnerLeadOffer,
   nestToggleFavorite,
 } from '@/lib/nest-client';
-import { listingPublicShareUrl } from '@/lib/public-share-url';
+import { listingShareUrl } from '@/lib/public-share-url';
 import type { PropertyDetailAuthor } from '@/lib/property-detail';
 import {
   classicListingCoverUrl,
@@ -209,7 +209,10 @@ export function NemovitostDetailView({
       ? nestAbsoluteAssetUrl(author.avatar)
       : null;
 
-  const shareUrl = listingPublicShareUrl(propertyId);
+  const shareUrl = listingShareUrl(propertyId, {
+    videoUrl: typeof p.videoUrl === 'string' ? p.videoUrl : null,
+    force: p.videoUrl ? 'shorts' : 'classic',
+  });
 
   const ownerId = String(p.userId ?? author.id ?? '').trim();
   const isOwner = Boolean(
@@ -507,9 +510,6 @@ export function NemovitostDetailView({
                       label="Sdílet"
                       shorts={{
                         videoUrl: typeof p.videoUrl === 'string' ? p.videoUrl : null,
-                        city: typeof p.location === 'string' ? p.location : null,
-                        price: typeof p.price === 'number' ? p.price : null,
-                        currency: 'CZK',
                         apiAccessToken,
                       }}
                     />

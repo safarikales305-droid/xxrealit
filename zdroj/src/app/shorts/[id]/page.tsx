@@ -1,28 +1,28 @@
-'use client';
+import type { Metadata } from 'next';
+import { notFound } from 'next/navigation';
+import { ShortsSinglePage } from '@/components/shorts/ShortsSinglePage';
+import { buildListingOpenGraphMetadata } from '@/lib/listing-og-metadata';
+import { nestFetchShortVideoPublic } from '@/lib/nest-client';
+import { fetchPropertyForOgMetadata } from '@/lib/property-public';
 
-import { useParams, useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+export const dynamic = 'force-dynamic';
 
-/**
- * Zpětná kompatibilita: staré odkazy /shorts/[id] přesměrují na veřejný shorts feed
- * s aktivním videem (úvodní stránka, ne samostatný detail stránky).
- */
-export default function ShortsLegacyRedirectPage() {
-  const router = useRouter();
-  const params = useParams<{ id: string }>();
-  const id = (params?.id ?? '').trim();
+type Props = {
+  params: Promise<{ id: string }>;
+};
 
-  useEffect(() => {
-    if (!id) {
-      router.replace('/');
-      return;
-    }
-    router.replace(`/?tab=shorts&video=${encodeURIComponent(id)}`);
-  }, [id, router]);
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { id } = await params;
+  const listing = await fetchPropertyForOgMetadata(id, 'shorts');
+  if (!listing) {
+    return { title: 'Shorts inzerát na XXrealit' };
+  }
+  return buildListingOpenGraphMetadata(listing);
+}
 
-  return (
-    <main className="flex min-h-[100dvh] flex-col items-center justify-center bg-black px-4 text-center text-sm text-white/75">
-      <p>Otevírám shorts…</p>
-    </main>
-  );
+export default async function ShortsListingPage({ params }: Props) {
+  const { id } = await params;
+  const video = await nestFetchShortVideoPublic(id);
+  if (!video) notFound();
+  return <ShortsSinglePage video={video} backHref={`/nemovitost/${encodeURIComponent(id)}`} />;
 }

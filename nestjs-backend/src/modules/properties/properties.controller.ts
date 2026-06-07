@@ -208,8 +208,17 @@ export class PropertiesController {
   }
 
   @Get(':id/og-meta')
-  findOneOgMeta(@Param('id') id: string) {
-    return this.propertiesService.findOneOgMeta(id);
+  findOneOgMeta(
+    @Param('id') id: string,
+    @Query('shareAs') shareAsRaw?: string,
+  ) {
+    const shareAs =
+      shareAsRaw?.trim().toLowerCase() === 'shorts'
+        ? 'shorts'
+        : shareAsRaw?.trim().toLowerCase() === 'classic'
+          ? 'classic'
+          : undefined;
+    return this.propertiesService.findOneOgMeta(id, shareAs);
   }
 
   @Get(':id')

@@ -12,6 +12,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { OwnerUpdatePropertyDto } from './dto/owner-update-property.dto';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
+import { ShareMetadataService } from '../share/share-metadata.service';
 import { resolvePropertyOgImageBest } from './og-image-probe.util';
 import {
   buildOgDescription,
@@ -75,6 +76,7 @@ export class PropertiesService {
     private readonly brokerPoints: BrokerPointsService,
     private readonly shortsListingService: ShortsListingService,
     private readonly watermarkSettings: ListingWatermarkSettingsService,
+    private readonly shareMetadata: ShareMetadataService,
   ) {}
 
   private async viewerAccess(viewerId?: string): Promise<PropertyViewerAccess | undefined> {
@@ -330,7 +332,7 @@ export class PropertiesService {
    * Neschválený inzerát vidí jen admin nebo vlastník.
    */
   /** Veřejná metadata pro Open Graph (Facebook crawler, SSR generateMetadata). */
-  async findOneOgMeta(id: string) {
+  async findOneOgMeta(id: string, shareAs?: 'classic' | 'shorts') {
     const property = await this.prisma.property.findFirst({
       where: { id: id.trim(), deletedAt: null },
       select: {
@@ -402,14 +404,10 @@ export class PropertiesService {
     const videoThumbnail = pickVideoThumbnail(ogInput);
     const firstGalleryImage = property.images[0] ?? null;
 
-    const siteOrigin = getSiteOriginForOg();
+    const contentType =
+      shareAs ?? (this.shareMetadata.isShortsListing(property) ? 'shorts' : 'classic');
+    const shareMeta = await this.shareMetadata.resolveForProperty(property.id, contentType);
     const resolved = await resolvePropertyOgImageBest(ogInput, getPortalLogoFallbackUrl());
-
-    const isLogoFallback = resolved.isLogoFallback;
-    const warning =
-      isLogoFallback && propertyHasListingMedia(property)
-        ? 'Listing has images but OG selected logo'
-        : null;
 
     // eslint-disable-next-line no-console
     console.log('OG IMAGE SOURCE', {
@@ -418,10 +416,11 @@ export class PropertiesService {
       mainImage: property.mainImage,
       galleryFirst: firstGalleryImage,
       videoThumbnail,
-      selectedOgImage: resolved.url,
+      selectedOgImage: shareMeta.ogImage,
       selectedSource: resolved.source,
-      isLogoFallback,
-      warning,
+      shareUrl: shareMeta.shareUrl,
+      contentType: shareMeta.contentType,
+      priceIncluded: false,
     });
 
     return {
@@ -439,18 +438,22 @@ export class PropertiesService {
       images: property.images,
       firstGalleryImage,
       videoThumbnail,
-      ogTitle: buildOgTitle(property.title, property.price, property.currency),
-      ogDescription: buildOgDescription(property.city, property.description),
-      ogImage: resolved.url,
-      image: resolved.url,
-      selectedOgImage: resolved.url,
+      ogTitle: shareMeta.ogTitle,
+      ogDescription: shareMeta.ogDescription,
+      ogImage: shareMeta.ogImage,
+      image: shareMeta.ogImage,
+      selectedOgImage: shareMeta.ogImage,
       source: resolved.source,
       selectedSource: resolved.source,
-      usedFallbackLogo: resolved.usedFallbackLogo,
-      isLogoFallback,
-      warning,
+      shareUrl: shareMeta.shareUrl,
+      publicUrl: shareMeta.shareUrl,
+      contentType: shareMeta.contentType,
+      adminTextSource: shareMeta.adminTextSource,
+      priceIncluded: false,
+      usedFallbackLogo: shareMeta.isLogoFallback,
+      isLogoFallback: shareMeta.isLogoFallback,
+      warning: shareMeta.warning,
       isWhiteOrBlank: resolved.probe?.isWhiteOrBlank ?? false,
-      publicUrl: `${siteOrigin}/nemovitost/${property.id}`,
     };
   }
 

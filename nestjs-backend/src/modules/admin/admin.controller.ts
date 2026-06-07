@@ -93,6 +93,27 @@ export class AdminController {
     });
   }
 
+  @Get('share-texts')
+  getShareTexts() {
+    return this.adminService.getShareTextsSettings();
+  }
+
+  @Patch('share-texts')
+  updateShareTexts(
+    @Body()
+    body: {
+      shareClassicTitle?: string;
+      shareClassicDescription?: string;
+      shareShortsTitle?: string;
+      shareShortsDescription?: string;
+      shareTipTitle?: string;
+      shareTipDescription?: string;
+      shareTiparPromoText?: string;
+    },
+  ) {
+    return this.adminService.updateShareTextsSettings(body);
+  }
+
   @Get('properties')
   listProperties() {
     return this.adminService.listAllProperties();

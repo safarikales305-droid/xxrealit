@@ -1,17 +1,47 @@
 import { getAppOrigin } from '@/lib/app-url';
 
-/** Kanonická veřejná origin pro sdílení (Facebook, TikTok, …). */
 export function getShareOrigin(): string {
   return getAppOrigin();
 }
 
-/** Absolutní veřejná URL detailu inzerátu — vždy https://www.xxrealit.cz/nemovitost/ID */
-export function listingPublicShareUrl(listingId: string): string {
-  const id = listingId.trim();
-  return `${getShareOrigin()}/nemovitost/${encodeURIComponent(id)}`;
+export function isShortsListing(input: {
+  listingType?: string | null;
+  videoUrl?: string | null;
+}): boolean {
+  return (
+    String(input.listingType ?? '').toUpperCase() === 'SHORTS' ||
+    Boolean(input.videoUrl?.trim())
+  );
 }
 
-/** Absolutní URL pro sdílení libovolné cesty na kanonické doméně. */
+/** URL pro sdílení inzerátu podle typu. */
+export function listingShareUrl(
+  listingId: string,
+  opts?: { listingType?: string | null; videoUrl?: string | null; force?: 'classic' | 'shorts' },
+): string {
+  const id = listingId.trim();
+  const origin = getShareOrigin();
+  const asShorts =
+    opts?.force === 'shorts' ||
+    (opts?.force !== 'classic' && isShortsListing(opts ?? {}));
+  return asShorts
+    ? `${origin}/shorts/${encodeURIComponent(id)}`
+    : `${origin}/nemovitost/${encodeURIComponent(id)}`;
+}
+
+/** @deprecated použijte listingShareUrl */
+export function listingPublicShareUrl(listingId: string): string {
+  return listingShareUrl(listingId);
+}
+
+export function tipShareUrl(tipId: string, isShorts: boolean): string {
+  const id = tipId.trim();
+  const origin = getShareOrigin();
+  return isShorts
+    ? `${origin}/shorts/tip/${encodeURIComponent(id)}`
+    : `${origin}/tipy/${encodeURIComponent(id)}`;
+}
+
 export function absoluteShareUrl(path: string): string {
   const origin = getShareOrigin();
   const p = path.startsWith('/') ? path : `/${path}`;

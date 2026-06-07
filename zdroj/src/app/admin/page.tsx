@@ -21,11 +21,14 @@ import {
   nestAdminRejectProfessionalProfile,
   nestAdminStats,
   nestAdminListingPhotoWatermarkSettings,
+  nestAdminShareTextsSettings,
   nestAdminUpdateListingPhotoWatermarkSettings,
+  nestAdminUpdateShareTextsSettings,
   nestAdminUpdateUserRole,
   nestAdminUpdateUserCredit,
   nestAdminUsers,
   type AdminListingPhotoWatermarkSettings,
+  type AdminShareTextsSettings,
   type AdminStats,
   type AdminUserRow,
   type NestAdminProfessionalProfileRow,
@@ -94,15 +97,18 @@ export default function AdminPage() {
   const [watermarkSettings, setWatermarkSettings] =
     useState<AdminListingPhotoWatermarkSettings | null>(null);
   const [watermarkBusy, setWatermarkBusy] = useState(false);
+  const [shareTexts, setShareTexts] = useState<AdminShareTextsSettings | null>(null);
+  const [shareTextsBusy, setShareTextsBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!token) return;
     setLoadError(null);
-    const [s, p, u, wm] = await Promise.all([
+    const [s, p, u, wm, st] = await Promise.all([
       nestAdminStats(token),
       nestAdminPendingProperties(token),
       nestAdminUsers(token),
       nestAdminListingPhotoWatermarkSettings(token),
+      nestAdminShareTextsSettings(token),
     ]);
     const a = await nestAdminProfessionalProfiles(token, professionalType, 'pending');
     if (!s || !p || !u) {
@@ -126,7 +132,21 @@ export default function AdminPage() {
     });
     setAgentRequests(a ?? []);
     setWatermarkSettings(wm);
+    setShareTexts(st);
   }, [token, professionalType]);
+
+  async function onSaveShareTexts(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!token || !shareTexts) return;
+    setShareTextsBusy(true);
+    const r = await nestAdminUpdateShareTextsSettings(token, shareTexts);
+    setShareTextsBusy(false);
+    if (!r.ok) {
+      setLoadError(r.error ?? 'Uložení textů pro sdílení selhalo.');
+      return;
+    }
+    setShareTexts(r.data ?? shareTexts);
+  }
 
   async function onWatermarkToggle(enabled: boolean) {
     if (!token) return;
@@ -835,6 +855,54 @@ export default function AdminPage() {
               </p>
             ) : null}
           </div>
+        </section>
+
+        <section>
+          <h2 className="mb-4 text-lg font-semibold tracking-tight">Texty pro sdílení</h2>
+          <p className="mb-4 max-w-2xl text-sm text-zinc-600">
+            Nadpisy a popisy pro náhled odkazu na Facebooku a dalších sítích. Cena se v náhledu
+            nezobrazuje.
+          </p>
+          {shareTexts ? (
+            <form
+              onSubmit={(e) => void onSaveShareTexts(e)}
+              className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"
+            >
+              {(
+                [
+                  ['shareClassicTitle', 'Klasický inzerát — titulek'],
+                  ['shareClassicDescription', 'Klasický inzerát — popis'],
+                  ['shareShortsTitle', 'Shorts inzerát — titulek'],
+                  ['shareShortsDescription', 'Shorts inzerát — popis'],
+                  ['shareTipTitle', 'Tipařský tip — titulek'],
+                  ['shareTipDescription', 'Tipařský tip — popis'],
+                  ['shareTiparPromoText', 'Tipařský Shorts — promo titulek'],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key} className="block text-sm">
+                  <span className="mb-1 block font-medium text-zinc-700">{label}</span>
+                  <input
+                    value={shareTexts[key]}
+                    onChange={(ev) =>
+                      setShareTexts((prev) =>
+                        prev ? { ...prev, [key]: ev.target.value } : prev,
+                      )
+                    }
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+                  />
+                </label>
+              ))}
+              <button
+                type="submit"
+                disabled={shareTextsBusy}
+                className="rounded-full bg-orange-600 px-5 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
+              >
+                {shareTextsBusy ? 'Ukládám…' : 'Uložit texty'}
+              </button>
+            </form>
+          ) : (
+            <p className="text-sm text-zinc-500">Načítání textů…</p>
+          )}
         </section>
 
         <section>

@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
-  const listing = await fetchPropertyForOgMetadata(id);
+  const listing = await fetchPropertyForOgMetadata(id, 'classic');
   if (!listing) {
     if (process.env.NODE_ENV === 'development') {
       // eslint-disable-next-line no-console

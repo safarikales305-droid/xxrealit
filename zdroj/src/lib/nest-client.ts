@@ -646,6 +646,50 @@ export async function nestAdminListingPhotoWatermarkSettings(
   return (await res.json().catch(() => null)) as AdminListingPhotoWatermarkSettings | null;
 }
 
+export type AdminShareTextsSettings = {
+  shareClassicTitle: string;
+  shareClassicDescription: string;
+  shareShortsTitle: string;
+  shareShortsDescription: string;
+  shareTipTitle: string;
+  shareTipDescription: string;
+  shareTiparPromoText: string;
+};
+
+export async function nestAdminShareTextsSettings(
+  token: string | null,
+): Promise<AdminShareTextsSettings | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/share-texts`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as AdminShareTextsSettings | null;
+}
+
+export async function nestAdminUpdateShareTextsSettings(
+  token: string | null,
+  body: Partial<AdminShareTextsSettings>,
+): Promise<{ ok: boolean; data?: AdminShareTextsSettings; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/share-texts`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string };
+    return { ok: false, error: err.message || `HTTP ${res.status}` };
+  }
+  const data = (await res.json().catch(() => null)) as AdminShareTextsSettings | null;
+  if (!data) return { ok: false, error: 'Neplatná odpověď serveru.' };
+  return { ok: true, data };
+}
+
 export async function nestAdminUpdateListingPhotoWatermarkSettings(
   token: string | null,
   body: Partial<AdminListingPhotoWatermarkSettings>,

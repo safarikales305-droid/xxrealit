@@ -11,9 +11,11 @@ import { SeedController } from './seed.controller';
 import { ShortsListingController } from './shorts-listing.controller';
 import { ShortsListingService } from './shorts-listing.service';
 import { VideoOgThumbnailService } from './video-og-thumbnail.service';
+import { ShareModule } from '../share/share.module';
 
 @Module({
   imports: [
+    ShareModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

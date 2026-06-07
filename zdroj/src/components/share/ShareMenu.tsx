@@ -18,6 +18,12 @@ import {
   facebookDebuggerUrl,
 } from '@/lib/listing-og-metadata';
 import {
+  fetchShareTextsClient,
+  inferShareContentTypeFromUrl,
+  shareTextsForType,
+  type ShareContentType,
+} from '@/lib/share-texts';
+import {
   nestSocialUploadVideo,
   type SocialPlatform,
 } from '@/lib/nest-client';
@@ -30,11 +36,11 @@ export type ShareMenuProps = {
   /** Shorts / video inzerát — rozšířené sdílení na sociální sítě. */
   shorts?: {
     videoUrl?: string | null;
-    city?: string | null;
-    price?: number | null;
-    currency?: string | null;
+    shareDescription?: string | null;
     apiAccessToken?: string | null;
   };
+  /** Přepíše odvození typu z URL (admin texty pro sdílení). */
+  contentType?: ShareContentType;
 };
 
 const facebookShareUrl = (u: string) =>
@@ -66,17 +72,41 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export function ShareMenu({ title, url, onClose, onCopied, shorts }: ShareMenuProps) {
+export function ShareMenu({
+  title,
+  url,
+  onClose,
+  onCopied,
+  shorts,
+  contentType,
+}: ShareMenuProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyPlatform, setBusyPlatform] = useState<SocialPlatform | null>(null);
+  const [shareCopy, setShareCopy] = useState<{ title: string; description: string } | null>(
+    null,
+  );
 
   const videoUrl = shorts?.videoUrl?.trim() || null;
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const texts = await fetchShareTextsClient();
+      if (cancelled) return;
+      const type = contentType ?? inferShareContentTypeFromUrl(url);
+      setShareCopy(shareTextsForType(type, texts));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [url, contentType]);
+
+  const shareTitle = shareCopy?.title ?? title;
+  const shareDescription = shareCopy?.description ?? shorts?.shareDescription ?? null;
   const postText = buildListingSharePostText({
-    title,
-    city: shorts?.city,
-    price: shorts?.price,
-    currency: shorts?.currency,
+    title: shareTitle,
+    description: shareDescription,
     url,
   });
 
@@ -110,7 +140,7 @@ export function ShareMenu({ title, url, onClose, onCopied, shorts }: ShareMenuPr
       setBusyPlatform(platform);
       const r = await nestSocialUploadVideo(shorts.apiAccessToken, platform, {
         videoUrl,
-        title,
+        title: shareTitle,
         description: postText,
         listingUrl: url,
       });
@@ -124,7 +154,7 @@ export function ShareMenu({ title, url, onClose, onCopied, shorts }: ShareMenuPr
       }
       setNotice(`Video bylo odesláno na ${label}.`);
     },
-    [postText, shorts?.apiAccessToken, title, url, videoUrl],
+    [postText, shareTitle, shorts?.apiAccessToken, url, videoUrl],
   );
 
   function downloadVideo() {
@@ -183,7 +213,7 @@ export function ShareMenu({ title, url, onClose, onCopied, shorts }: ShareMenuPr
           <button
             type="button"
             onClick={async () => {
-              const ok = await handleNativeShare(title, url);
+              const ok = await handleNativeShare(shareTitle, url);
               if (ok) onClose();
             }}
             className="flex w-full items-center gap-3 rounded-2xl border border-zinc-200 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50"

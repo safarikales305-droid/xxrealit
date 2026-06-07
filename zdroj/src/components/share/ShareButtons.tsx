@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Share2 } from 'lucide-react';
+import type { ShareContentType } from '@/lib/share-texts';
 import { ShareMenu } from './ShareMenu';
 
 export type ShareButtonsProps = {
@@ -11,9 +12,7 @@ export type ShareButtonsProps = {
   label?: string;
   shorts?: {
     videoUrl?: string | null;
-    city?: string | null;
-    price?: number | null;
-    currency?: string | null;
+    shareDescription?: string | null;
     apiAccessToken?: string | null;
   };
   /** `videoRail` — velký kulatý button pro overlay u shorts (tmavé pozadí, oranžový hover). */
@@ -21,6 +20,7 @@ export type ShareButtonsProps = {
   variant?: 'icon' | 'pill' | 'videoRail' | 'lightRail';
   /** `brand` — oranžový pill pro stránku inzerátu. */
   tone?: 'neutral' | 'brand';
+  contentType?: ShareContentType;
 };
 
 export function ShareButtons({
@@ -31,6 +31,7 @@ export function ShareButtons({
   variant = 'icon',
   tone = 'neutral',
   shorts,
+  contentType,
 }: ShareButtonsProps) {
   const [open, setOpen] = useState(false);
   const [toast, setToast] = useState(false);
@@ -76,6 +77,7 @@ export function ShareButtons({
           title={title}
           url={url}
           shorts={shorts}
+          contentType={contentType}
           onClose={() => setOpen(false)}
           onCopied={() => {
             setToast(true);

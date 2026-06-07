@@ -30,6 +30,10 @@ import {
   ListingWatermarkSettingsService,
   type ListingWatermarkPosition,
 } from '../properties/listing-watermark-settings.service';
+import {
+  ShareTextsSettingsService,
+  type ShareTextsSettings,
+} from '../share/share-texts-settings.service';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bcrypt = require('bcrypt');
@@ -139,7 +143,16 @@ export class AdminService {
     private readonly shortsListing: ShortsListingService,
     private readonly watermarkSettings: ListingWatermarkSettingsService,
     private readonly tipar: TiparService,
+    private readonly shareTextsSettings: ShareTextsSettingsService,
   ) {}
+
+  async getShareTextsSettings() {
+    return this.shareTextsSettings.getSettings();
+  }
+
+  async updateShareTextsSettings(patch: Partial<ShareTextsSettings>) {
+    return this.shareTextsSettings.updateSettings(patch);
+  }
 
   async getListingPhotoWatermarkSettings() {
     return this.watermarkSettings.getSettings();

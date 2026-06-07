@@ -1,20 +1,21 @@
 import type { Metadata } from 'next';
+import { notFound, redirect } from 'next/navigation';
 import { resolveListingOgImageUrl } from '@/lib/listing-og-metadata';
 import { tipShareUrl } from '@/lib/public-share-url';
 import { fetchShareTexts, shareTextsForType } from '@/lib/share-texts';
 import { fetchTiparPostPublic, tiparPostVideoUrl } from '@/lib/tipar-public';
-import { TiparDetailClient } from './tipar-detail-client';
+import { TiparDetailClient } from '../../tipar/[id]/tipar-detail-client';
 
-type PageProps = {
+export const dynamic = 'force-dynamic';
+
+type Props = {
   params: Promise<{ id: string }>;
 };
 
-export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   const post = await fetchTiparPostPublic(id);
-  if (!post) {
-    return { title: 'Tip na nemovitost' };
-  }
+  if (!post) return { title: 'Tip na XXrealit' };
 
   const texts = await fetchShareTexts();
   const tipType = post.isShorts ? 'tip-shorts' : 'tip';
@@ -28,51 +29,37 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     videoUrl: post.videoUrl,
     generatedVideoThumbnail: post.generatedVideoUrl,
   });
-  const videoUrl = tiparPostVideoUrl(post);
 
   return {
     title,
     description,
     alternates: { canonical: pageUrl },
     openGraph: {
-      type: post.isShorts && videoUrl ? 'video.other' : 'article',
+      type: 'article',
       title,
       description,
       url: pageUrl,
       siteName: 'XXrealit.cz',
       locale: 'cs_CZ',
       images: [{ url: imageUrl, width: 1200, height: 630, alt: title }],
-      ...(videoUrl
-        ? {
-            videos: [
-              {
-                url: videoUrl,
-                secureUrl: videoUrl,
-                type: 'video/mp4',
-                width: 720,
-                height: 1280,
-              },
-            ],
-          }
-        : {}),
     },
-    twitter: {
-      card: 'summary_large_image',
-      title,
-      description,
-      images: [imageUrl],
-    },
+    twitter: { card: 'summary_large_image', title, description, images: [imageUrl] },
     other: {
       'og:title': title,
       'og:description': description,
       'og:image': imageUrl,
       'og:url': pageUrl,
-      'og:type': post.isShorts && videoUrl ? 'video.other' : 'article',
+      'og:type': 'article',
     },
   };
 }
 
-export default async function TiparDetailPage({ params }: PageProps) {
+export default async function TipyDetailPage({ params }: Props) {
   const { id } = await params;
+  const post = await fetchTiparPostPublic(id);
+  if (!post) notFound();
+  if (post.isShorts && tiparPostVideoUrl(post)) {
+    redirect(`/shorts/tip/${encodeURIComponent(id)}`);
+  }
   return <TiparDetailClient id={id} />;
 }

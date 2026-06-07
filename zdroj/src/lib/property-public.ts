@@ -28,7 +28,10 @@ function strArray(v: unknown): string[] {
 }
 
 /** Veřejný fetch inzerátu pro SSR metadata (Facebook crawler). */
-export async function fetchPropertyForOgMetadata(id: string): Promise<ListingOgInput | null> {
+export async function fetchPropertyForOgMetadata(
+  id: string,
+  shareAs?: 'classic' | 'shorts',
+): Promise<ListingOgInput | null> {
   const apiBase = getServerSideApiBaseUrl();
   const trimmed = id.trim();
   if (!apiBase || !trimmed) return null;
@@ -69,13 +72,20 @@ export async function fetchPropertyForOgMetadata(id: string): Promise<ListingOgI
       ogSource(prop.selectedSource) ??
       ogSource(prop.source) ??
       ogSource(prop.ogImageSource),
+    ogTitle: str(prop.ogTitle),
+    ogDescription: str(prop.ogDescription),
+    shareUrl: str(prop.shareUrl) ?? str(prop.publicUrl),
   });
 
   try {
-    const ogRes = await fetch(`${apiBase}/properties/${encodeURIComponent(trimmed)}/og-meta`, {
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-    });
+    const ogQuery = shareAs ? `?shareAs=${encodeURIComponent(shareAs)}` : '';
+    const ogRes = await fetch(
+      `${apiBase}/properties/${encodeURIComponent(trimmed)}/og-meta${ogQuery}`,
+      {
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+      },
+    );
     if (ogRes.ok) {
       const ogBody = (await ogRes.json().catch(() => null)) as unknown;
       const og = asRecord(ogBody);

@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
-import { listingPublicShareUrl } from '@/lib/public-share-url';
+import { listingShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { nestToggleFavorite, type ShortVideo } from '@/lib/nest-client';
@@ -204,7 +204,10 @@ export default function VideoCard({
 
   const shareTitle = (video.title ?? 'Inzerát').trim().slice(0, 120) || 'Inzerát';
   /** Veřejný detail inzerátu — Facebook crawler musí dostat SSR metadata z /nemovitost/[id]. */
-  const shareUrl = listingPublicShareUrl(video.id);
+  const shareUrl = listingShareUrl(video.id, {
+    videoUrl: video.videoUrl ?? video.url ?? null,
+    listingType: video.videoUrl || video.url ? 'SHORTS' : undefined,
+  });
   const city = (video.city ?? '').trim();
 
   const listingPath = `/nemovitost/${encodeURIComponent(video.id)}?from=shorts`;
@@ -365,9 +368,6 @@ export default function VideoCard({
           variant={desktopLightShare ? 'lightRail' : 'videoRail'}
           shorts={{
             videoUrl: video.videoUrl ?? video.url ?? null,
-            city: city || null,
-            price: priceVal,
-            currency: 'CZK',
             apiAccessToken,
           }}
         />
