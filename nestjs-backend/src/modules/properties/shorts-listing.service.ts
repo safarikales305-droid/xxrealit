@@ -15,6 +15,7 @@ import {
   type ShortsMusicSelection,
 } from './listing-shorts-from-photos.service';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
+import { computeStoredOgMediaFields } from './property-og-media.util';
 import { socialInclude } from './shorts-listing.social-include';
 import {
   serializeProperty,
@@ -462,6 +463,10 @@ export class ShortsListingService {
       );
     }
     const pid = listing.publishedPropertyId;
+    const ogMedia = computeStoredOgMediaFields({
+      images: urls,
+      videoUrl: listing.videoUrl,
+    });
     await this.prisma.$transaction(async (tx) => {
       await tx.property.update({
         where: { id: pid },
@@ -469,6 +474,9 @@ export class ShortsListingService {
           title: listing.title.trim().slice(0, 250),
           description: listing.description.trim(),
           images: urls,
+          mainImage: ogMedia.mainImage,
+          thumbnailUrl: ogMedia.thumbnailUrl,
+          generatedVideoThumbnail: ogMedia.generatedVideoThumbnail,
         },
       });
       await tx.propertyMedia.deleteMany({
@@ -505,13 +513,28 @@ export class ShortsListingService {
   private async applyVideoToPublishedProperty(
     propertyId: string,
     videoUrl: string,
+    generatedVideoThumbnail?: string | null,
   ) {
     const v = videoUrl.trim();
     if (!v) return;
+    const existing = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { images: true },
+    });
+    const ogMedia = computeStoredOgMediaFields({
+      images: existing?.images ?? [],
+      videoUrl: v,
+      generatedVideoThumbnail,
+    });
     await this.prisma.$transaction([
       this.prisma.property.update({
         where: { id: propertyId },
-        data: { videoUrl: v },
+        data: {
+          videoUrl: v,
+          mainImage: ogMedia.mainImage,
+          thumbnailUrl: ogMedia.thumbnailUrl,
+          generatedVideoThumbnail: ogMedia.generatedVideoThumbnail,
+        },
       }),
       this.prisma.propertyMedia.updateMany({
         where: { propertyId, type: 'video' },
@@ -752,7 +775,8 @@ export class ShortsListingService {
       if (!classic) {
         throw new NotFoundException('Zdrojový inzerát neexistuje');
       }
-      const { videoUrl } = await this.listingShortsFromPhotos.generateAndUpload({
+      const { videoUrl, generatedVideoThumbnail } =
+        await this.listingShortsFromPhotos.generateAndUpload({
         images: files,
         title: listing.title,
         city: classic.city,
@@ -781,7 +805,11 @@ export class ShortsListingService {
         },
       });
       if (listing.status === ShortsListingStatus.published && publishedPid) {
-        await this.applyVideoToPublishedProperty(publishedPid, videoUrl);
+        await this.applyVideoToPublishedProperty(
+          publishedPid,
+          videoUrl,
+          generatedVideoThumbnail,
+        );
         await this.syncPublishedMetadataToProperty(id);
       }
       return this.getByIdForOwner(userId, id);
@@ -834,6 +862,7 @@ export class ShortsListingService {
     }
 
     let videoUrl = (listing.videoUrl ?? '').trim();
+    let generatedVideoThumbnail: string | null = null;
     if (!videoUrl) {
       const files = await downloadImageUrlsAsMulterFiles(urls.slice(0, 15));
       const music = await this.resolveMusicSelection(listing);
@@ -852,7 +881,14 @@ export class ShortsListingService {
         includeTextOverlay: true,
       });
       videoUrl = gen.videoUrl;
+      generatedVideoThumbnail = gen.generatedVideoThumbnail;
     }
+
+    const ogMedia = computeStoredOgMediaFields({
+      images: urls,
+      videoUrl,
+      generatedVideoThumbnail,
+    });
 
     const publishedAt = new Date();
     const coverStill =
@@ -884,6 +920,9 @@ export class ShortsListingService {
           parking: classic.parking,
           cellar: classic.cellar,
           images: urls,
+          mainImage: ogMedia.mainImage,
+          thumbnailUrl: ogMedia.thumbnailUrl,
+          generatedVideoThumbnail: ogMedia.generatedVideoThumbnail,
           videoUrl,
           contactName: classic.contactName,
           contactPhone: classic.contactPhone,

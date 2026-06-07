@@ -1,6 +1,5 @@
+import { getServerSideApiBaseUrl } from '@/lib/api';
 import { upgradeHttpToHttps } from '@/lib/public-urls';
-
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/+$/, '');
 
 export type TiparPostPublic = {
   id: string;
@@ -12,13 +11,16 @@ export type TiparPostPublic = {
   generatedVideoUrl?: string | null;
   city: string;
   isShorts: boolean;
+  publishedPropertyId?: string | null;
+  propertyPrice?: number | null;
 };
 
 export async function fetchTiparPostPublic(id: string): Promise<TiparPostPublic | null> {
   const trimmed = id.trim();
-  if (!API_BASE || !trimmed) return null;
+  const apiBase = getServerSideApiBaseUrl();
+  if (!apiBase || !trimmed) return null;
   try {
-    const res = await fetch(`${API_BASE}/tipar/posts/${encodeURIComponent(trimmed)}`, {
+    const res = await fetch(`${apiBase}/tipar/posts/${encodeURIComponent(trimmed)}`, {
       headers: { Accept: 'application/json' },
       next: { revalidate: 300 },
     });

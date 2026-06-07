@@ -7,9 +7,11 @@ import {
   Facebook,
   Link2,
   PlayCircle,
+  RefreshCw,
   Share2,
   X,
 } from 'lucide-react';
+import { facebookDebuggerUrl } from '@/lib/listing-og-metadata';
 
 export type ShareMenuProps = {
   title: string;
@@ -113,6 +115,15 @@ export function ShareMenu({ title, url, onClose, onCopied }: ShareMenuProps) {
               nativní video příspěvek otevřete detail Shorts tipu a použijte „Nahrát video na
               Facebook“.
             </p>
+            <a
+              href={facebookDebuggerUrl(url)}
+              target="_blank"
+              rel="noreferrer"
+              className="flex w-full items-center gap-3 border-t border-zinc-100 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50"
+            >
+              <RefreshCw className="size-5 shrink-0 text-zinc-600" />
+              <span>Obnovit náhled pro Facebook</span>
+            </a>
           </div>
           <div className="rounded-2xl border border-zinc-100 bg-zinc-50/80 p-2">
             <p className="px-2 pb-2 pt-1 text-xs font-medium text-zinc-500">

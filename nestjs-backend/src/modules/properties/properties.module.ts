@@ -10,6 +10,7 @@ import { ListingWatermarkSettingsService } from './listing-watermark-settings.se
 import { SeedController } from './seed.controller';
 import { ShortsListingController } from './shorts-listing.controller';
 import { ShortsListingService } from './shorts-listing.service';
+import { VideoOgThumbnailService } from './video-og-thumbnail.service';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { ShortsListingService } from './shorts-listing.service';
     ListingWatermarkSettingsService,
     ListingShortsFromPhotosService,
     ShortsListingService,
+    VideoOgThumbnailService,
   ],
   exports: [
     PropertiesService,
@@ -36,6 +38,7 @@ import { ShortsListingService } from './shorts-listing.service';
     ListingWatermarkSettingsService,
     ListingShortsFromPhotosService,
     ShortsListingService,
+    VideoOgThumbnailService,
   ],
 })
 export class PropertiesModule {}

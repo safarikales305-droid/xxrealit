@@ -11,6 +11,7 @@ import {
 } from '../../lib/ffmpeg-binary';
 import { quoteFfmpegArgv, runFfmpegCapture } from '../../lib/ffmpeg-run';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
+import { VideoOgThumbnailService } from './video-og-thumbnail.service';
 
 import sharp = require('sharp');
 
@@ -193,7 +194,10 @@ export class ListingShortsFromPhotosService {
   private readonly log = new Logger(ListingShortsFromPhotosService.name);
   private loggedFfmpegResolution = false;
 
-  constructor(private readonly cloudinary: PropertyMediaCloudinaryService) {}
+  constructor(
+    private readonly cloudinary: PropertyMediaCloudinaryService,
+    private readonly videoOgThumbnail: VideoOgThumbnailService,
+  ) {}
 
   private getFfmpeg(): { path: string; source: FfmpegBinarySource } {
     const resolved = resolveFfmpegBinary();
@@ -443,7 +447,9 @@ export class ListingShortsFromPhotosService {
    * Vertikální MP4 (9:16): Sharp → JPEG snímky → concat → volitelně AAC z lavfi → volitelně drawtext.
    * Při chybě hudby/textu se použije kratší pipeline (viz logy).
    */
-  async generateAndUpload(input: GenerateShortsFromPhotosInput): Promise<{ videoUrl: string }> {
+  async generateAndUpload(
+    input: GenerateShortsFromPhotosInput,
+  ): Promise<{ videoUrl: string; generatedVideoThumbnail: string | null }> {
     validateImages(input.images);
     const { path: ffmpegBin, source: ffmpegSource } = this.getFfmpeg();
     await assertFfmpegAvailable(this.log, ffmpegBin, ffmpegSource);
@@ -526,8 +532,11 @@ export class ListingShortsFromPhotosService {
       }
 
       const videoUrl = await this.cloudinary.uploadVideoBuffer(mp4, 'listing-shorts.mp4');
+      const generatedVideoThumbnail =
+        (await this.videoOgThumbnail.extractAndUploadFromFile(finalPath)) ??
+        null;
       this.log.log(`[shorts-generator] hotovo, upload ${mp4.length} B → Cloudinary`);
-      return { videoUrl };
+      return { videoUrl, generatedVideoThumbnail };
     } catch (e) {
       if (e instanceof BadRequestException || e instanceof ServiceUnavailableException) {
         throw e;

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { FacebookShortsShare } from '@/components/share/FacebookShortsShare';
 import { ShortsVideoFrame } from '@/components/tipar/shorts-video-frame';
+import { listingPublicDetailUrl } from '@/lib/listing-og-metadata';
 import { getAppOrigin } from '@/lib/app-url';
 import {
   nestFetchMe,
@@ -41,11 +42,14 @@ export function TiparDetailClient({ id }: Props) {
   }, [apiAccessToken]);
 
   const shareUrl = useMemo(() => {
+    if (post?.publishedPropertyId) {
+      return listingPublicDetailUrl(post.publishedPropertyId);
+    }
     if (typeof window !== 'undefined') {
       return `${window.location.origin}/tipar/${id}`;
     }
     return `${getAppOrigin()}/tipar/${id}`;
-  }, [id]);
+  }, [id, post?.publishedPropertyId]);
 
   async function unlock() {
     if (!apiAccessToken || !post) return;

@@ -1,10 +1,12 @@
 import type { Metadata } from 'next';
 import { getAppOrigin } from '@/lib/app-url';
 import {
-  fetchTiparPostPublic,
-  tiparPostImageUrl,
-  tiparPostVideoUrl,
-} from '@/lib/tipar-public';
+  buildListingOgDescription,
+  buildListingOgTitle,
+  buildListingOpenGraphMetadata,
+  resolveListingOgImageUrl,
+} from '@/lib/listing-og-metadata';
+import { fetchTiparPostPublic, tiparPostVideoUrl } from '@/lib/tipar-public';
 import { TiparDetailClient } from './tipar-detail-client';
 
 type PageProps = {
@@ -18,24 +20,50 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     return { title: 'Tip na nemovitost' };
   }
 
+  if (post.publishedPropertyId) {
+    const { fetchPropertyForOgMetadata } = await import('@/lib/property-public');
+    const listing = await fetchPropertyForOgMetadata(post.publishedPropertyId);
+    if (listing) {
+      return buildListingOpenGraphMetadata(listing);
+    }
+  }
+
   const pageUrl = `${getAppOrigin()}/tipar/${id}`;
-  const description = (post.description || post.title || '').trim().slice(0, 200);
-  const imageUrl = tiparPostImageUrl(post);
+  const title = buildListingOgTitle({
+    id,
+    title: post.title,
+    price: post.propertyPrice,
+    city: post.city,
+  });
+  const description = buildListingOgDescription({
+    id,
+    title: post.title,
+    description: post.description,
+    city: post.city,
+  });
+  const imageUrl = resolveListingOgImageUrl({
+    id,
+    title: post.title,
+    mainImage: post.mainImage,
+    images: post.images,
+    videoUrl: post.videoUrl,
+    generatedVideoThumbnail: post.generatedVideoUrl,
+  });
   const videoUrl = tiparPostVideoUrl(post);
   const isVideoShorts = Boolean(post.isShorts && videoUrl);
 
   return {
-    title: post.title,
+    title,
     description,
     alternates: { canonical: pageUrl },
     openGraph: {
       type: isVideoShorts ? 'video.other' : 'article',
-      title: post.title,
+      title,
       description,
       url: pageUrl,
       siteName: 'XXrealit',
       locale: 'cs_CZ',
-      images: imageUrl ? [{ url: imageUrl, alt: post.title }] : undefined,
+      images: [{ url: imageUrl, width: 1200, height: 630, alt: post.title }],
       videos: videoUrl
         ? [
             {
@@ -49,10 +77,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
         : undefined,
     },
     twitter: {
-      card: videoUrl ? 'player' : imageUrl ? 'summary_large_image' : 'summary',
-      title: post.title,
+      card: 'summary_large_image',
+      title,
       description,
-      images: imageUrl ? [imageUrl] : undefined,
+      images: [imageUrl],
     },
     other: videoUrl
       ? {

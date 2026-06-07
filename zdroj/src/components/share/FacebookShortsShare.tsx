@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { facebookDebuggerUrl } from '@/lib/listing-og-metadata';
 import {
   nestFacebookConnect,
   nestFacebookGetConfig,
@@ -179,6 +180,19 @@ export function FacebookShortsShare({
           {error}
         </p>
       ) : null}
+
+      <p className="text-xs text-zinc-500">
+        Po změně fotek nebo videa{' '}
+        <a
+          href={facebookDebuggerUrl(listingUrl)}
+          target="_blank"
+          rel="noreferrer"
+          className="font-semibold text-[#1877F2] hover:underline"
+        >
+          obnovte náhled pro Facebook
+        </a>
+        .
+      </p>
     </section>
   );
 }

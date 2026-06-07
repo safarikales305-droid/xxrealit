@@ -127,6 +127,9 @@ export type PropertyRowForApi = {
   parking: boolean;
   cellar: boolean;
   images: string[];
+  mainImage?: string | null;
+  thumbnailUrl?: string | null;
+  generatedVideoThumbnail?: string | null;
   videoUrl: string | null;
   contactName: string;
   contactPhone: string;
@@ -449,6 +452,8 @@ function serializePropertyCore(
   const primaryImage =
     getFirstValidImage(
       [
+        typeof p.mainImage === 'string' ? p.mainImage : '',
+        typeof p.thumbnailUrl === 'string' ? p.thumbnailUrl : '',
         ...media
           .filter((m) => m.type === 'image')
           .map((m) => m.url)
@@ -457,6 +462,14 @@ function serializePropertyCore(
       ],
       assetBase,
     ) ?? null;
+  const ogThumbnail =
+    (typeof p.thumbnailUrl === 'string' && p.thumbnailUrl.trim()
+      ? sanitizeListingImageUrl(p.thumbnailUrl, assetBase)
+      : null) ??
+    (typeof p.generatedVideoThumbnail === 'string' && p.generatedVideoThumbnail.trim()
+      ? sanitizeListingImageUrl(p.generatedVideoThumbnail, assetBase)
+      : null) ??
+    primaryImage;
   const primaryVideo =
     media.find((m) => m.type === 'video')?.url ?? videoUrlSafe;
 
@@ -498,9 +511,12 @@ function serializePropertyCore(
     galleryImages: [...images],
     gallery,
     mainImage: primaryImage,
-    thumbnail: primaryImage,
-    coverImage: primaryImage,
-    cover: primaryImage,
+    thumbnailUrl: ogThumbnail,
+    thumbnail: ogThumbnail,
+    generatedVideoThumbnail:
+      typeof p.generatedVideoThumbnail === 'string' ? p.generatedVideoThumbnail : null,
+    coverImage: ogThumbnail ?? primaryImage,
+    cover: ogThumbnail ?? primaryImage,
     photos,
     imageUrl: primaryImage,
     videoUrl: primaryVideo ? secureAssetUrl(String(primaryVideo)) : null,

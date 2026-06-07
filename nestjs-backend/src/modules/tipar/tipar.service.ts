@@ -7,6 +7,7 @@ import {
 import { Prisma, TiparPost } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { PropertyMediaCloudinaryService } from '../properties/property-media-cloudinary.service';
+import { computeStoredOgMediaFields } from '../properties/property-og-media.util';
 import {
   ListingShortsFromPhotosService,
   type ShortsMusicSelection,
@@ -834,6 +835,10 @@ export class TiparService {
     }
 
     const images = post.images.filter((u) => u.trim().length > 0);
+    const ogMedia = computeStoredOgMediaFields({
+      images,
+      videoUrl: post.videoUrl,
+    });
     const data: Prisma.PropertyCreateInput | Prisma.PropertyUpdateInput = {
       title: post.title,
       description: post.description,
@@ -841,6 +846,9 @@ export class TiparService {
       city: post.city,
       address: post.city,
       images,
+      mainImage: ogMedia.mainImage,
+      thumbnailUrl: ogMedia.thumbnailUrl,
+      generatedVideoThumbnail: ogMedia.generatedVideoThumbnail,
       videoUrl: post.videoUrl,
       listingType: 'SHORTS',
       isTiparTip: true,

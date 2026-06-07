@@ -556,6 +556,12 @@ model Property {
   cellar          Boolean  @default(false)
 
   images          String[] @default([])
+  /// Hlavní fotka pro karty a OG (denormalizace).
+  mainImage       String?
+  /// Náhled 1200×630 pro Facebook / Open Graph.
+  thumbnailUrl    String?
+  /// Statický snímek z videa, pokud chybí fotky.
+  generatedVideoThumbnail String?
   videoUrl        String?
 
   contactName     String   @default("")

@@ -12,6 +12,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { OwnerUpdatePropertyDto } from './dto/owner-update-property.dto';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
+import { computeStoredOgMediaFields } from './property-og-media.util';
 import { isImportedListingPubliclyVisible } from './property-import-branch-visibility';
 import { classicPublicListingWhere } from './property-listing-scope';
 
@@ -597,6 +598,8 @@ export class PropertiesService {
       sortOrder: number;
     }> = [];
 
+    const ogMedia = computeStoredOgMediaFields({ images, videoUrl });
+
     try {
       const created = await this.prisma.property.create({
         data: {
@@ -621,6 +624,9 @@ export class PropertiesService {
           parking: dto.parking ?? false,
           cellar: dto.cellar ?? false,
           images,
+          mainImage: ogMedia.mainImage,
+          thumbnailUrl: ogMedia.thumbnailUrl,
+          generatedVideoThumbnail: ogMedia.generatedVideoThumbnail,
           videoUrl,
           contactName: dto.contactName.trim(),
           contactPhone: dto.contactPhone.trim(),

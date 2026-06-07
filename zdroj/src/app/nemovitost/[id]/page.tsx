@@ -1,13 +1,25 @@
+import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { NemovitostDetailView } from '@/components/nemovitost/NemovitostDetailView';
 import { getServerSideApiBaseUrl } from '@/lib/api';
+import { buildListingOpenGraphMetadata } from '@/lib/listing-og-metadata';
 import { normalizePropertyDetailPayload } from '@/lib/property-detail';
+import { fetchPropertyForOgMetadata } from '@/lib/property-public';
 import { getServerAuthorizationHeader } from '@/lib/server-bearer';
 import { PropertyDetailFetchError } from './fetch-error';
 
 type Props = {
   params: Promise<{ id: string }>;
 };
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { id } = await params;
+  const listing = await fetchPropertyForOgMetadata(id);
+  if (!listing) {
+    return { title: 'Inzerát nemovitosti' };
+  }
+  return buildListingOpenGraphMetadata(listing);
+}
 
 async function fetchPropertyDetail(
   id: string,
