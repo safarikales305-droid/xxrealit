@@ -115,10 +115,11 @@ function stringFromJsonLd(blocks: unknown[]): { title?: string; description?: st
   };
 
   for (const block of blocks) visit(block);
+  const image = pickBestImage(images) ?? undefined;
   return {
     title,
     description,
-    image: pickBestImage(images),
+    image,
   };
 }
 
