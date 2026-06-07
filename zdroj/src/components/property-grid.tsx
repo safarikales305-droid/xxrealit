@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
-import { absoluteShareUrl } from '@/lib/public-share-url';
+import { listingPublicShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { nestApiConfigured, nestToggleFavorite } from '@/lib/nest-client';
 import {
@@ -97,7 +97,7 @@ export function PropertyGrid({ properties }: Props) {
             ? nestAbsoluteAssetUrl(primaryImage)
             : '';
           const primaryVideo = media.find((m) => m.type === 'video')?.url ?? p.videoUrl ?? null;
-          const shareUrl = absoluteShareUrl(`/nemovitost/${encodeURIComponent(p.id)}`);
+          const shareUrl = listingPublicShareUrl(p.id);
           return (
             <article
               key={p.id + (p.videoUrl ?? '') + (p.imageUrl ?? '')}

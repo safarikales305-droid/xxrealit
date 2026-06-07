@@ -8,6 +8,30 @@ export type PropertyOgMediaInput = {
   videoUrl?: string | null;
 };
 
+export type OgImageSource =
+  | 'thumbnailUrl'
+  | 'generatedVideoThumbnail'
+  | 'mainImage'
+  | 'firstGalleryImage'
+  | 'videoPoster'
+  | 'logo';
+
+export type ResolvedOgImage = {
+  url: string;
+  source: OgImageSource;
+  usedFallbackLogo: boolean;
+};
+
+/** Ověří veřejnou HTTPS URL vhodnou pro og:image. */
+export function isValidPublicOgImageUrl(url: string | null | undefined): boolean {
+  if (!url?.trim()) return false;
+  const u = url.trim();
+  if (u.startsWith('blob:') || u.startsWith('data:')) return false;
+  if (/localhost|127\.0\.0\.1/i.test(u)) return false;
+  if (!/^https:\/\//i.test(u)) return false;
+  return true;
+}
+
 /** První platná fotka z galerie. */
 export function pickPropertyMainImage(images: string[]): string | null {
   for (const raw of images) {
@@ -55,32 +79,52 @@ export function cloudinaryOgImageUrl(imageUrl: string | null | undefined): strin
 export function normalizeOgImageCandidate(raw: string | null | undefined): string | null {
   if (!raw?.trim()) return null;
   const u = upgradeHttpToHttpsForApi(raw.trim()) ?? raw.trim();
+  let candidate: string | null;
   if (/\/video\/upload\//i.test(u)) {
-    return cloudinaryVideoPosterUrl(u) ?? u;
+    candidate = cloudinaryVideoPosterUrl(u) ?? u;
+  } else {
+    candidate = cloudinaryOgImageUrl(u) ?? u;
   }
-  return cloudinaryOgImageUrl(u) ?? u;
+  return isValidPublicOgImageUrl(candidate) ? candidate : null;
 }
 
 /**
  * Priorita OG obrázku:
- * thumbnailUrl → generatedVideoThumbnail → mainImage → první fotka → logo
+ * thumbnailUrl → generatedVideoThumbnail → mainImage → první fotka → video poster → logo
  */
+export function resolvePropertyOgImageWithSource(
+  input: PropertyOgMediaInput,
+  siteFallbackUrl: string,
+): ResolvedOgImage {
+  const steps: Array<{ raw: string | null | undefined; source: OgImageSource }> = [
+    { raw: input.thumbnailUrl, source: 'thumbnailUrl' },
+    { raw: input.generatedVideoThumbnail, source: 'generatedVideoThumbnail' },
+    { raw: input.mainImage, source: 'mainImage' },
+    { raw: input.images?.[0], source: 'firstGalleryImage' },
+    { raw: cloudinaryVideoPosterUrl(input.videoUrl), source: 'videoPoster' },
+  ];
+
+  for (const step of steps) {
+    const normalized = normalizeOgImageCandidate(step.raw);
+    if (normalized) {
+      return { url: normalized, source: step.source, usedFallbackLogo: false };
+    }
+  }
+
+  const fallback = isValidPublicOgImageUrl(siteFallbackUrl)
+    ? siteFallbackUrl
+    : siteFallbackUrl.startsWith('http')
+      ? siteFallbackUrl
+      : siteFallbackUrl;
+
+  return { url: fallback, source: 'logo', usedFallbackLogo: true };
+}
+
 export function resolvePropertyOgImageUrl(
   input: PropertyOgMediaInput,
   siteFallbackUrl: string,
 ): string {
-  const candidates = [
-    input.thumbnailUrl,
-    input.generatedVideoThumbnail,
-    input.mainImage,
-    input.images?.[0],
-    cloudinaryVideoPosterUrl(input.videoUrl),
-  ];
-  for (const raw of candidates) {
-    const normalized = normalizeOgImageCandidate(raw);
-    if (normalized) return normalized;
-  }
-  return siteFallbackUrl;
+  return resolvePropertyOgImageWithSource(input, siteFallbackUrl).url;
 }
 
 export function buildOgTitle(
@@ -90,15 +134,28 @@ export function buildOgTitle(
 ): string {
   const t = title.trim() || 'Inzerát';
   if (price == null || !Number.isFinite(price) || price <= 0) {
-    return `${t} · Cena na dotaz`;
+    return `${t} | Cena na dotaz`;
   }
-  return `${t} · ${Math.round(price).toLocaleString('cs-CZ')} ${(currency || 'CZK').trim()}`;
+  return `${t} | ${Math.round(price).toLocaleString('cs-CZ')} ${(currency || 'CZK').trim()}`;
 }
 
 export function buildOgDescription(city: string, description: string): string {
   const loc = city.trim() || 'Lokalita neuvedena';
-  const desc = description.trim().replace(/\s+/g, ' ').slice(0, 160);
-  return desc ? `${loc} — ${desc}` : loc;
+  const desc = description.trim().replace(/\s+/g, ' ');
+  const combined = desc ? `${loc} ${desc}` : loc;
+  return combined.slice(0, 160);
+}
+
+export function getSiteOriginForOg(): string {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    'https://www.xxrealit.cz'
+  ).replace(/\/+$/, '');
+}
+
+export function getPortalLogoFallbackUrl(): string {
+  return `${getSiteOriginForOg()}/icons/icon-192.png`;
 }
 
 export function computeStoredOgMediaFields(input: {

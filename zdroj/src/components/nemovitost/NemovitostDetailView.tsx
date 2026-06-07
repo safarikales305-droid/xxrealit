@@ -14,7 +14,7 @@ import {
   nestSubmitOwnerLeadOffer,
   nestToggleFavorite,
 } from '@/lib/nest-client';
-import { absoluteShareUrl } from '@/lib/public-share-url';
+import { listingPublicShareUrl } from '@/lib/public-share-url';
 import type { PropertyDetailAuthor } from '@/lib/property-detail';
 import {
   classicListingCoverUrl,
@@ -209,7 +209,7 @@ export function NemovitostDetailView({
       ? nestAbsoluteAssetUrl(author.avatar)
       : null;
 
-  const shareUrl = absoluteShareUrl(`/nemovitost/${encodeURIComponent(propertyId)}`);
+  const shareUrl = listingPublicShareUrl(propertyId);
 
   const ownerId = String(p.userId ?? author.id ?? '').trim();
   const isOwner = Boolean(

@@ -1,5 +1,5 @@
 import { getServerSideApiBaseUrl } from '@/lib/api';
-import type { ListingOgInput } from '@/lib/listing-og-metadata';
+import type { ListingOgInput, OgImageSource } from '@/lib/listing-og-metadata';
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v != null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
@@ -33,6 +33,21 @@ export async function fetchPropertyForOgMetadata(id: string): Promise<ListingOgI
   const trimmed = id.trim();
   if (!apiBase || !trimmed) return null;
 
+  const ogSource = (v: unknown): OgImageSource | null => {
+    const s = str(v);
+    if (
+      s === 'thumbnailUrl' ||
+      s === 'generatedVideoThumbnail' ||
+      s === 'mainImage' ||
+      s === 'firstGalleryImage' ||
+      s === 'videoPoster' ||
+      s === 'logo'
+    ) {
+      return s;
+    }
+    return null;
+  };
+
   const mapOgPayload = (prop: Record<string, unknown>): ListingOgInput => ({
     id: str(prop.id) ?? trimmed,
     title: str(prop.title) ?? 'Inzerát',
@@ -46,6 +61,8 @@ export async function fetchPropertyForOgMetadata(id: string): Promise<ListingOgI
     mainImage: str(prop.mainImage) ?? str(prop.coverImage),
     generatedVideoThumbnail: str(prop.generatedVideoThumbnail),
     images: strArray(prop.images).length ? strArray(prop.images) : strArray(prop.galleryImages),
+    resolvedOgImage: str(prop.ogImage) ?? str(prop.image),
+    ogImageSource: ogSource(prop.source) ?? ogSource(prop.ogImageSource),
   });
 
   try {

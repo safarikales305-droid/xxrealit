@@ -3,16 +3,27 @@ import { PrismaService } from '../../database/prisma.service';
 import {
   buildOgDescription,
   buildOgTitle,
-  resolvePropertyOgImageUrl,
+  getPortalLogoFallbackUrl,
+  getSiteOriginForOg,
+  resolvePropertyOgImageWithSource,
 } from '../properties/property-og-media.util';
-import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 
 @Controller('debug/og')
 export class OgDebugController {
   constructor(private readonly prisma: PrismaService) {}
 
+  @Get('nemovitost/:id')
+  async getPropertyOgDebug(@Param('id') id: string) {
+    return this.buildPropertyOgDebug(id);
+  }
+
+  /** @deprecated použijte /debug/og/nemovitost/:id */
   @Get(':id')
-  async getOgDebug(@Param('id') id: string) {
+  async getOgDebugLegacy(@Param('id') id: string) {
+    return this.buildPropertyOgDebug(id);
+  }
+
+  private async buildPropertyOgDebug(id: string) {
     const property = await this.prisma.property.findFirst({
       where: { id: id.trim(), deletedAt: null },
       select: {
@@ -27,9 +38,6 @@ export class OgDebugController {
         thumbnailUrl: true,
         generatedVideoThumbnail: true,
         videoUrl: true,
-        approved: true,
-        isActive: true,
-        isVisible: true,
       },
     });
 
@@ -37,13 +45,9 @@ export class OgDebugController {
       throw new NotFoundException('Inzerát nenalezen');
     }
 
-    const siteOrigin =
-      process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-      process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-      'https://www.xxrealit.cz';
-    const fallback = `${siteOrigin.replace(/\/+$/, '')}/icons/icon-192.png`;
-
-    const image = resolvePropertyOgImageUrl(
+    const siteOrigin = getSiteOriginForOg();
+    const fallback = getPortalLogoFallbackUrl();
+    const resolved = resolvePropertyOgImageWithSource(
       {
         thumbnailUrl: property.thumbnailUrl,
         mainImage: property.mainImage,
@@ -56,24 +60,25 @@ export class OgDebugController {
 
     let imageStatus: number | null = null;
     try {
-      const head = await fetch(image, { method: 'HEAD', redirect: 'follow' });
+      const head = await fetch(resolved.url, { method: 'HEAD', redirect: 'follow' });
       imageStatus = head.status;
     } catch {
       imageStatus = null;
     }
 
-    const video = property.videoUrl
-      ? upgradeHttpToHttpsForApi(property.videoUrl) ?? property.videoUrl
-      : null;
+    const publicUrl = `${siteOrigin}/nemovitost/${property.id}`;
+    const title = buildOgTitle(property.title, property.price, property.currency);
+    const description = buildOgDescription(property.city, property.description);
 
     return {
-      title: buildOgTitle(property.title, property.price, property.currency),
-      description: buildOgDescription(property.city, property.description),
-      image,
-      video,
+      publicUrl,
+      title,
+      description,
+      image: resolved.url,
+      imageIsAbsolute: /^https:\/\//i.test(resolved.url),
       imageStatus,
-      isAbsoluteUrl: /^https:\/\//i.test(image),
-      pageUrl: `${siteOrigin.replace(/\/+$/, '')}/nemovitost/${property.id}`,
+      usedFallbackLogo: resolved.usedFallbackLogo,
+      source: resolved.source,
       thumbnailUrl: property.thumbnailUrl,
       generatedVideoThumbnail: property.generatedVideoThumbnail,
       mainImage: property.mainImage,

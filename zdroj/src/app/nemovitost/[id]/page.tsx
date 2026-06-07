@@ -18,7 +18,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   const listing = await fetchPropertyForOgMetadata(id);
   if (!listing) {
-    return { title: 'Inzerát nemovitosti' };
+    if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console
+      console.warn('[og-metadata] fetch failed for', id, '— Facebook může zobrazit logo portálu');
+    }
+    return {
+      title: 'Inzerát nemovitosti',
+      robots: { index: true, follow: true },
+    };
   }
   return buildListingOpenGraphMetadata(listing);
 }

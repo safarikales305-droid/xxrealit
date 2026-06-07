@@ -15,12 +15,33 @@ export type ListingOgInput = {
   mainImage?: string | null;
   generatedVideoThumbnail?: string | null;
   images?: string[];
+  /** Předpočítané z API /api/properties/:id/og-meta */
+  resolvedOgImage?: string | null;
+  ogImageSource?: OgImageSource | null;
 };
+
+export type OgImageSource =
+  | 'thumbnailUrl'
+  | 'generatedVideoThumbnail'
+  | 'mainImage'
+  | 'firstGalleryImage'
+  | 'videoPoster'
+  | 'logo';
 
 const OG_IMAGE_TRANSFORM = 'w_1200,h_630,c_fill,f_jpg,q_auto';
 
 export function getPortalLogoFallbackUrl(): string {
   return ensureAbsoluteOgUrl('/icons/icon-192.png');
+}
+
+/** Ověří, že URL je veřejná HTTPS adresa vhodná pro og:image. */
+export function isValidPublicOgImageUrl(url: string | null | undefined): boolean {
+  if (!url?.trim()) return false;
+  const u = url.trim();
+  if (u.startsWith('blob:') || u.startsWith('data:')) return false;
+  if (/localhost|127\.0\.0\.1/i.test(u)) return false;
+  if (!/^https:\/\//i.test(u)) return false;
+  return true;
 }
 
 export function ensureAbsoluteOgUrl(url: string): string {
@@ -29,7 +50,8 @@ export function ensureAbsoluteOgUrl(url: string): string {
   if (/^https:\/\//i.test(t)) return t;
   if (t.startsWith('//')) return `https:${t}`;
   const origin = getAppOrigin();
-  return t.startsWith('/') ? `${origin}${t}` : `${origin}/${t}`;
+  const abs = t.startsWith('/') ? `${origin}${t}` : `${origin}/${t}`;
+  return isValidPublicOgImageUrl(abs) ? abs : getPortalLogoFallbackUrl();
 }
 
 function cloudinaryOgImageUrl(imageUrl: string): string {
@@ -63,26 +85,60 @@ function normalizeOgImageCandidate(raw: string | null | undefined): string | nul
   if (!raw?.trim()) return null;
   if (/\/video\/upload\//i.test(raw)) {
     const poster = cloudinaryVideoPosterUrl(raw);
-    return poster ? ensureAbsoluteOgUrl(poster) : null;
+    if (!poster) return null;
+    const abs = ensureAbsoluteOgUrl(poster);
+    return isValidPublicOgImageUrl(abs) ? abs : null;
   }
   const img = cloudinaryOgImageUrl(raw);
-  return img ? ensureAbsoluteOgUrl(img) : null;
+  if (!img) return null;
+  const abs = ensureAbsoluteOgUrl(img);
+  return isValidPublicOgImageUrl(abs) ? abs : null;
 }
 
-/** Priorita: thumbnailUrl → generatedVideoThumbnail → mainImage → galerie → logo. */
-export function resolveListingOgImageUrl(listing: ListingOgInput): string {
-  const candidates = [
-    listing.thumbnailUrl,
-    listing.generatedVideoThumbnail,
-    listing.mainImage,
-    listing.images?.[0],
-    listing.videoUrl ? cloudinaryVideoPosterUrl(listing.videoUrl) : null,
-  ];
-  for (const raw of candidates) {
-    const normalized = normalizeOgImageCandidate(raw);
-    if (normalized) return normalized;
+export type ResolvedOgImage = {
+  url: string;
+  source: OgImageSource;
+  usedFallbackLogo: boolean;
+};
+
+/** Priorita: thumbnailUrl → generatedVideoThumbnail → mainImage → galerie → video poster → logo. */
+export function resolveListingOgImage(listing: ListingOgInput): ResolvedOgImage {
+  if (listing.resolvedOgImage && isValidPublicOgImageUrl(listing.resolvedOgImage)) {
+    const source = listing.ogImageSource ?? 'thumbnailUrl';
+    return {
+      url: listing.resolvedOgImage,
+      source,
+      usedFallbackLogo: source === 'logo',
+    };
   }
-  return getPortalLogoFallbackUrl();
+
+  const steps: Array<{ raw: string | null | undefined; source: OgImageSource }> = [
+    { raw: listing.thumbnailUrl, source: 'thumbnailUrl' },
+    { raw: listing.generatedVideoThumbnail, source: 'generatedVideoThumbnail' },
+    { raw: listing.mainImage, source: 'mainImage' },
+    { raw: listing.images?.[0], source: 'firstGalleryImage' },
+    {
+      raw: listing.videoUrl ? cloudinaryVideoPosterUrl(listing.videoUrl) : null,
+      source: 'videoPoster',
+    },
+  ];
+
+  for (const step of steps) {
+    const normalized = normalizeOgImageCandidate(step.raw);
+    if (normalized) {
+      return { url: normalized, source: step.source, usedFallbackLogo: false };
+    }
+  }
+
+  return {
+    url: getPortalLogoFallbackUrl(),
+    source: 'logo',
+    usedFallbackLogo: true,
+  };
+}
+
+export function resolveListingOgImageUrl(listing: ListingOgInput): string {
+  return resolveListingOgImage(listing).url;
 }
 
 export function formatListingPrice(price: number | null | undefined, currency = 'CZK'): string {
@@ -96,14 +152,14 @@ export function formatListingPrice(price: number | null | undefined, currency = 
 export function buildListingOgTitle(listing: ListingOgInput): string {
   const title = (listing.title || 'Inzerát').trim();
   const priceLine = formatListingPrice(listing.price, listing.currency ?? 'CZK');
-  return `${title} · ${priceLine}`;
+  return `${title} | ${priceLine}`;
 }
 
 export function buildListingOgDescription(listing: ListingOgInput): string {
   const city = (listing.city || '').trim() || 'Lokalita neuvedena';
   const desc = (listing.description || '').trim().replace(/\s+/g, ' ');
-  const short = desc.slice(0, 160);
-  return short ? `${city} — ${short}` : city;
+  const combined = desc ? `${city} ${desc}` : city;
+  return combined.slice(0, 160);
 }
 
 export function buildListingSharePostText(opts: {
@@ -134,7 +190,7 @@ export function buildListingOpenGraphMetadata(listing: ListingOgInput): Metadata
   const pageUrl = listingPublicDetailUrl(listing.id);
   const title = buildListingOgTitle(listing);
   const description = buildListingOgDescription(listing);
-  const imageUrl = resolveListingOgImageUrl(listing);
+  const { url: imageUrl } = resolveListingOgImage(listing);
   const isShorts =
     String(listing.listingType ?? '').toUpperCase() === 'SHORTS' ||
     Boolean(listing.videoUrl?.trim());
@@ -152,7 +208,7 @@ export function buildListingOpenGraphMetadata(listing: ListingOgInput): Metadata
       title,
       description,
       url: pageUrl,
-      siteName: 'XXrealit',
+      siteName: 'XXrealit.cz',
       locale: 'cs_CZ',
       images: [{ url: imageUrl, width: 1200, height: 630, alt: listing.title, type: 'image/jpeg' }],
       ...(videoAbs

@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
-import { absoluteShareUrl } from '@/lib/public-share-url';
+import { listingPublicShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { nestToggleFavorite, type ShortVideo } from '@/lib/nest-client';
@@ -203,10 +203,8 @@ export default function VideoCard({
   }
 
   const shareTitle = (video.title ?? 'Inzerát').trim().slice(0, 120) || 'Inzerát';
-  /** Veřejný deep link do hlavního shorts feedu (stejné UI jako TikTok režim na úvodní stránce). */
-  const shareUrl = absoluteShareUrl(
-    `/?tab=shorts&video=${encodeURIComponent(video.id)}`,
-  );
+  /** Veřejný detail inzerátu — Facebook crawler musí dostat SSR metadata z /nemovitost/[id]. */
+  const shareUrl = listingPublicShareUrl(video.id);
   const city = (video.city ?? '').trim();
 
   const listingPath = `/nemovitost/${encodeURIComponent(video.id)}?from=shorts`;
@@ -365,6 +363,13 @@ export default function VideoCard({
           title={shareTitle}
           url={shareUrl}
           variant={desktopLightShare ? 'lightRail' : 'videoRail'}
+          shorts={{
+            videoUrl: video.videoUrl ?? video.url ?? null,
+            city: city || null,
+            price: priceVal,
+            currency: 'CZK',
+            apiAccessToken,
+          }}
         />
 
         <button

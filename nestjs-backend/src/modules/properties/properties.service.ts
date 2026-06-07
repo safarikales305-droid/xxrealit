@@ -16,7 +16,9 @@ import {
   buildOgDescription,
   buildOgTitle,
   computeStoredOgMediaFields,
-  resolvePropertyOgImageUrl,
+  getPortalLogoFallbackUrl,
+  getSiteOriginForOg,
+  resolvePropertyOgImageWithSource,
 } from './property-og-media.util';
 import { isImportedListingPubliclyVisible } from './property-import-branch-visibility';
 import { classicPublicListingWhere } from './property-listing-scope';
@@ -369,12 +371,8 @@ export class PropertiesService {
       throw new NotFoundException(`Property "${id}" not found`);
     }
 
-    const siteOrigin =
-      process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-      process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-      'https://www.xxrealit.cz';
-    const fallback = `${siteOrigin.replace(/\/+$/, '')}/icons/icon-192.png`;
-    const ogImage = resolvePropertyOgImageUrl(
+    const siteOrigin = getSiteOriginForOg();
+    const resolved = resolvePropertyOgImageWithSource(
       {
         thumbnailUrl: property.thumbnailUrl,
         mainImage: property.mainImage,
@@ -382,7 +380,7 @@ export class PropertiesService {
         generatedVideoThumbnail: property.generatedVideoThumbnail,
         videoUrl: property.videoUrl,
       },
-      fallback,
+      getPortalLogoFallbackUrl(),
     );
 
     return {
@@ -400,7 +398,10 @@ export class PropertiesService {
       images: property.images,
       ogTitle: buildOgTitle(property.title, property.price, property.currency),
       ogDescription: buildOgDescription(property.city, property.description),
-      ogImage,
+      ogImage: resolved.url,
+      source: resolved.source,
+      usedFallbackLogo: resolved.usedFallbackLogo,
+      publicUrl: `${siteOrigin}/nemovitost/${property.id}`,
     };
   }
 

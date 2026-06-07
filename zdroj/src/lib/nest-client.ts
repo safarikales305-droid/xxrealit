@@ -5310,22 +5310,36 @@ export async function nestSocialUploadVideo(
 }
 
 export type OgDebugResponse = {
+  publicUrl: string;
   title: string;
   description: string;
   image: string;
-  video: string | null;
+  imageIsAbsolute: boolean;
   imageStatus: number | null;
-  isAbsoluteUrl: boolean;
-  pageUrl?: string;
+  usedFallbackLogo: boolean;
+  source:
+    | 'thumbnailUrl'
+    | 'generatedVideoThumbnail'
+    | 'mainImage'
+    | 'firstGalleryImage'
+    | 'videoPoster'
+    | 'logo';
+  thumbnailUrl?: string | null;
+  generatedVideoThumbnail?: string | null;
+  mainImage?: string | null;
+  galleryFirst?: string | null;
 };
 
 export async function nestOgDebug(propertyId: string): Promise<OgDebugResponse | null> {
   if (!API_BASE_URL) return null;
   try {
-    const res = await fetch(`${API_BASE_URL}/debug/og/${encodeURIComponent(propertyId)}`, {
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-    });
+    const res = await fetch(
+      `${API_BASE_URL}/debug/og/nemovitost/${encodeURIComponent(propertyId)}`,
+      {
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+      },
+    );
     if (!res.ok) return null;
     return (await res.json().catch(() => null)) as OgDebugResponse | null;
   } catch {

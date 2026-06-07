@@ -1,15 +1,19 @@
-/** Absolutní URL pro sdílení (Facebook atd.). */
+import { getAppOrigin } from '@/lib/app-url';
+
+/** Kanonická veřejná origin pro sdílení (Facebook, TikTok, …). */
 export function getShareOrigin(): string {
-  if (typeof window !== 'undefined') {
-    return window.location.origin;
-  }
-  const env = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, '');
-  return env ?? '';
+  return getAppOrigin();
 }
 
+/** Absolutní veřejná URL detailu inzerátu — vždy https://www.xxrealit.cz/nemovitost/ID */
+export function listingPublicShareUrl(listingId: string): string {
+  const id = listingId.trim();
+  return `${getShareOrigin()}/nemovitost/${encodeURIComponent(id)}`;
+}
+
+/** Absolutní URL pro sdílení libovolné cesty na kanonické doméně. */
 export function absoluteShareUrl(path: string): string {
   const origin = getShareOrigin();
   const p = path.startsWith('/') ? path : `/${path}`;
-  if (!origin) return p;
   return `${origin}${p}`;
 }
