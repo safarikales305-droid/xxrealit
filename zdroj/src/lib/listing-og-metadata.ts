@@ -276,6 +276,22 @@ export function facebookDebuggerUrl(pageUrl: string): string {
   return `https://developers.facebook.com/tools/debug/?q=${encodeURIComponent(pageUrl)}`;
 }
 
+/** Krátký text pro WhatsApp / messenger — bez ceny, z admin šablon. */
+export function buildShareMessageText(opts: {
+  title: string;
+  description?: string | null;
+}): string {
+  return [opts.title.trim(), (opts.description || '').trim()].filter(Boolean).join(' ');
+}
+
+export function whatsAppShareUrl(opts: {
+  shareText: string;
+  url: string;
+}): string {
+  const text = `${opts.shareText.trim()} ${opts.url.trim()}`.trim();
+  return `https://wa.me/?text=${encodeURIComponent(text)}`;
+}
+
 export function buildListingOpenGraphMetadata(listing: ListingOgInput): Metadata {
   const isShorts =
     String(listing.listingType ?? '').toUpperCase() === 'SHORTS' ||

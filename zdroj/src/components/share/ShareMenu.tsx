@@ -15,8 +15,11 @@ import {
 } from 'lucide-react';
 import {
   buildListingSharePostText,
+  buildShareMessageText,
   facebookDebuggerUrl,
+  whatsAppShareUrl,
 } from '@/lib/listing-og-metadata';
+import { WhatsAppIcon } from '@/components/share/WhatsAppIcon';
 import {
   fetchShareTextsClient,
   inferShareContentTypeFromUrl,
@@ -159,6 +162,13 @@ export function ShareMenu({
   const postText = buildListingSharePostText({
     title: shareTitle,
     description: shareDescription,
+    url,
+  });
+  const whatsappHref = whatsAppShareUrl({
+    shareText: buildShareMessageText({
+      title: shareTitle,
+      description: shareDescription,
+    }),
     url,
   });
 
@@ -320,6 +330,15 @@ export function ShareMenu({
               <Facebook className="size-5 shrink-0 text-blue-600" />
               <span>Sdílet odkaz na Facebook</span>
             </button>
+            <a
+              href={whatsappHref}
+              target="_blank"
+              rel="noreferrer"
+              className="flex w-full items-center gap-3 border-t border-zinc-100 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50"
+            >
+              <WhatsAppIcon className="size-5 shrink-0 text-[#25D366]" />
+              <span>WhatsApp</span>
+            </a>
             <a
               href={facebookDebuggerUrl(url)}
               target="_blank"
