@@ -1,8 +1,12 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Volume2, VolumeX } from 'lucide-react';
 import type { ShareGateVideoPublic } from '@/lib/share-gate';
+import {
+  isShareGateSoundEnabled,
+  setShareGateSoundEnabled,
+} from '@/lib/share-gate-sound-preference';
 
 type Props = {
   video: ShareGateVideoPublic;
@@ -12,6 +16,7 @@ type Props = {
 export function ShareGateModal({ video, onContinue }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [muted, setMuted] = useState(true);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(video.minWatchSeconds);
   const canContinue = secondsLeft <= 0;
 
@@ -25,18 +30,103 @@ export function ShareGateModal({ video, onContinue }: Props) {
     return () => window.clearTimeout(timer);
   }, [secondsLeft]);
 
+  const applyMutedState = useCallback((nextMuted: boolean, persist = true) => {
+    const el = videoRef.current;
+    if (el) {
+      el.muted = nextMuted;
+      if (!nextMuted) {
+        el.volume = 1;
+      }
+    }
+    setMuted(nextMuted);
+    if (persist) {
+      setShareGateSoundEnabled(!nextMuted);
+    }
+    if (!nextMuted) {
+      setAutoplayBlocked(false);
+    }
+  }, []);
+
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
-    el.muted = muted;
-    if (!muted) {
-      el.volume = 1;
+
+    let cancelled = false;
+    const wantSound = isShareGateSoundEnabled();
+
+    async function startPlayback() {
+      if (wantSound) {
+        el.muted = false;
+        el.volume = 1;
+        try {
+          await el.play();
+          if (!cancelled) {
+            setMuted(false);
+            setAutoplayBlocked(false);
+          }
+          return;
+        } catch {
+          /* autoplay se zvukem zablokován */
+        }
+      }
+
+      el.muted = true;
+      try {
+        await el.play();
+        if (!cancelled) {
+          setMuted(true);
+          if (wantSound) {
+            setAutoplayBlocked(true);
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setMuted(true);
+          if (wantSound) {
+            setAutoplayBlocked(true);
+          }
+        }
+      }
     }
-    void el.play().catch(() => undefined);
-  }, [muted, video.videoUrl]);
+
+    void startPlayback();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [video.id, video.videoUrl]);
 
   function toggleSound() {
-    setMuted((m) => !m);
+    const el = videoRef.current;
+    const nextMuted = !muted;
+    if (!nextMuted && el) {
+      el.muted = false;
+      el.volume = 1;
+      void el.play()
+        .then(() => applyMutedState(false))
+        .catch(() => {
+          if (el) el.muted = true;
+          setMuted(true);
+          setShareGateSoundEnabled(false);
+          setAutoplayBlocked(true);
+        });
+      return;
+    }
+    applyMutedState(nextMuted);
+  }
+
+  function enableSoundFromPrompt() {
+    const el = videoRef.current;
+    if (!el) return;
+    el.muted = false;
+    el.volume = 1;
+    void el.play()
+      .then(() => applyMutedState(false))
+      .catch(() => {
+        el.muted = true;
+        setMuted(true);
+        setShareGateSoundEnabled(false);
+      });
   }
 
   return (
@@ -69,21 +159,25 @@ export function ShareGateModal({ video, onContinue }: Props) {
           {muted ? (
             <>
               <VolumeX className="size-4 shrink-0" strokeWidth={2.25} aria-hidden />
-              <span className="hidden sm:inline">🔇 Zvuk vypnutý</span>
-              <span className="sm:hidden" aria-hidden>
-                🔇
-              </span>
+              <span>🔇 Zvuk vypnutý</span>
             </>
           ) : (
             <>
               <Volume2 className="size-4 shrink-0" strokeWidth={2.25} aria-hidden />
-              <span className="hidden sm:inline">🔊 Zvuk zapnutý</span>
-              <span className="sm:hidden" aria-hidden>
-                🔊
-              </span>
+              <span>🔊 Zvuk zapnutý</span>
             </>
           )}
         </button>
+
+        {autoplayBlocked && muted ? (
+          <button
+            type="button"
+            onClick={enableSoundFromPrompt}
+            className="absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-orange-200/90 bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-3 text-sm font-extrabold text-white shadow-[0_12px_40px_rgba(255,80,0,0.45)] transition hover:brightness-110 active:scale-[0.98]"
+          >
+            Zapnout zvuk
+          </button>
+        ) : null}
       </div>
 
       <div className="shrink-0 border-t border-white/10 bg-gradient-to-t from-black via-zinc-950 to-zinc-950 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4">
