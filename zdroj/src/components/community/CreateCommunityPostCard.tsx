@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Image as ImageIcon, Send, Video } from 'lucide-react';
 import { API_BASE_URL } from '@/lib/api';
 import { extractFirstUrl } from '@/lib/extract-first-url';
+import { buildClientLinkPreviewFallback } from '@/lib/link-preview-client';
 import {
   nestCreateListingPost,
   nestApiConfigured,
@@ -27,6 +28,8 @@ type Props = {
   onPublished: () => void | Promise<void>;
 };
 
+const PREVIEW_MAX_WAIT_MS = 5_000;
+
 export function CreateCommunityPostCard({
   apiAccessToken,
   activeCategory,
@@ -41,13 +44,16 @@ export function CreateCommunityPostCard({
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
   const [linkPreview, setLinkPreview] = useState<LinkPreviewResponse | null>(null);
   const [linkPreviewLoading, setLinkPreviewLoading] = useState(false);
+  const [linkPreviewFailed, setLinkPreviewFailed] = useState(false);
   const [linkPreviewDismissed, setLinkPreviewDismissed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const previewAbortRef = useRef<string | null>(null);
+  const previewRequestIdRef = useRef(0);
+
+  const detectedUrl = extractFirstUrl(description);
 
   useEffect(() => {
     if (!imageFile) {
@@ -70,40 +76,62 @@ export function CreateCommunityPostCard({
   }, [videoFile]);
 
   useEffect(() => {
-    if (imageFile || videoFile || linkPreviewDismissed || !apiAccessToken) {
-      return;
-    }
-    const detected = extractFirstUrl(description);
-    if (!detected) {
-      setLinkPreview(null);
-      setLinkPreviewLoading(false);
-      previewAbortRef.current = null;
-      return;
-    }
-    if (linkPreview?.url === detected) return;
-
-    const timer = window.setTimeout(() => {
-      previewAbortRef.current = detected;
-      setLinkPreviewLoading(true);
-      void nestFetchLinkPreview(apiAccessToken, detected).then((r) => {
-        if (previewAbortRef.current !== detected) return;
+    if (imageFile || videoFile || linkPreviewDismissed || !apiAccessToken || !detectedUrl) {
+      if (!detectedUrl) {
+        setLinkPreview(null);
         setLinkPreviewLoading(false);
+        setLinkPreviewFailed(false);
+      }
+      return;
+    }
+    if (linkPreview?.url === detectedUrl && !linkPreview.failed) return;
+
+    const requestId = previewRequestIdRef.current + 1;
+    previewRequestIdRef.current = requestId;
+    setLinkPreviewFailed(false);
+
+    const debounce = window.setTimeout(() => {
+      // eslint-disable-next-line no-console
+      console.log('LINK PREVIEW START', detectedUrl);
+      setLinkPreviewLoading(true);
+
+      const hardStop = window.setTimeout(() => {
+        if (previewRequestIdRef.current !== requestId) return;
+        setLinkPreviewLoading(false);
+        setLinkPreviewFailed(true);
+        setLinkPreview((prev) => prev ?? buildClientLinkPreviewFallback(detectedUrl));
+      }, PREVIEW_MAX_WAIT_MS);
+
+      void nestFetchLinkPreview(apiAccessToken, detectedUrl).then((r) => {
+        if (previewRequestIdRef.current !== requestId) return;
+        window.clearTimeout(hardStop);
+        setLinkPreviewLoading(false);
+
         if (r.ok) {
+          // eslint-disable-next-line no-console
+          console.log('LINK PREVIEW RESULT', r.preview);
           setLinkPreview(r.preview);
-        } else {
-          setLinkPreview(null);
+          setLinkPreviewFailed(Boolean(r.preview.failed));
+          return;
         }
+
+        // eslint-disable-next-line no-console
+        console.log('LINK PREVIEW RESULT', { error: r.error });
+        const fallback = buildClientLinkPreviewFallback(detectedUrl);
+        setLinkPreview(fallback);
+        setLinkPreviewFailed(true);
       });
     }, 600);
 
-    return () => window.clearTimeout(timer);
+    return () => window.clearTimeout(debounce);
   }, [
-    description,
+    detectedUrl,
     imageFile,
     videoFile,
     linkPreviewDismissed,
     apiAccessToken,
     linkPreview?.url,
+    linkPreview?.failed,
   ]);
 
   function clearMedia() {
@@ -118,7 +146,8 @@ export function CreateCommunityPostCard({
     setLinkPreview(null);
     setLinkPreviewDismissed(true);
     setLinkPreviewLoading(false);
-    previewAbortRef.current = null;
+    setLinkPreviewFailed(false);
+    previewRequestIdRef.current += 1;
   }
 
   function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
@@ -161,15 +190,23 @@ export function CreateCommunityPostCard({
     setVideoFile(f);
   }
 
+  function resolvePreviewForSubmit(): LinkPreviewResponse | null {
+    if (linkPreviewDismissed || !detectedUrl) return null;
+    return linkPreview ?? buildClientLinkPreviewFallback(detectedUrl);
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     const text = description.trim();
+    const urlInText = detectedUrl;
+    const previewForPost = resolvePreviewForSubmit();
+
     if (!nestApiConfigured() || !apiAccessToken) {
       setError('Přihlaste se a nastavte API.');
       return;
     }
-    if (!text && !imageFile && !videoFile && !linkPreview) {
+    if (!text && !imageFile && !videoFile && !urlInText) {
       setError('Napište text nebo přidejte foto / video.');
       return;
     }
@@ -199,28 +236,52 @@ export function CreateCommunityPostCard({
         const postsBase = API_BASE_URL.endsWith('/api')
           ? API_BASE_URL
           : `${API_BASE_URL}/api`;
+
+        const payload = {
+          text,
+          content: text,
+          description: text,
+          category: activeCategory,
+          ...(urlInText
+            ? {
+                externalUrl: previewForPost?.url ?? urlInText,
+                previewTitle: previewForPost?.title ?? undefined,
+                previewDescription: previewForPost?.description ?? undefined,
+                previewImage: previewForPost?.image ?? undefined,
+                previewSiteName: previewForPost?.siteName ?? undefined,
+              }
+            : {}),
+        };
+
+        // eslint-disable-next-line no-console
+        console.log('POST SUBMIT PAYLOAD', payload);
+
         const postRes = await fetch(`${postsBase}/posts`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${apiAccessToken}`,
           },
-          body: JSON.stringify({
-            content: text,
-            category: activeCategory,
-            ...(linkPreview
-              ? {
-                  externalUrl: linkPreview.url,
-                  previewTitle: linkPreview.title,
-                  previewDescription: linkPreview.description,
-                  previewImage: linkPreview.image,
-                  previewSiteName: linkPreview.siteName,
-                }
-              : {}),
-          }),
+          body: JSON.stringify(payload),
         });
+
+        const responseBody = await postRes.json().catch(() => null);
+        // eslint-disable-next-line no-console
+        console.log('POST SUBMIT RESPONSE', {
+          status: postRes.status,
+          ok: postRes.ok,
+          body: responseBody,
+        });
+
         if (!postRes.ok) {
-          setError('Odeslání textu selhalo');
+          const msg =
+            responseBody &&
+            typeof responseBody === 'object' &&
+            'message' in responseBody &&
+            typeof (responseBody as { message?: unknown }).message === 'string'
+              ? (responseBody as { message: string }).message
+              : 'Odeslání příspěvku selhalo';
+          setError(msg);
           return;
         }
       }
@@ -229,13 +290,21 @@ export function CreateCommunityPostCard({
       clearMedia();
       setLinkPreview(null);
       setLinkPreviewDismissed(false);
+      setLinkPreviewFailed(false);
+      setLinkPreviewLoading(false);
+      previewRequestIdRef.current += 1;
       await onPublished();
     } finally {
       setLoading(false);
     }
   }
 
-  const canSubmit = Boolean(description.trim() || imageFile || videoFile || linkPreview);
+  const canSubmit = Boolean(
+    description.trim() || imageFile || videoFile || detectedUrl,
+  );
+
+  const showLinkCard =
+    Boolean(linkPreview) && !imageFile && !videoFile && !linkPreviewDismissed;
 
   return (
     <form
@@ -279,7 +348,13 @@ export function CreateCommunityPostCard({
         <p className="mt-3 text-sm text-zinc-500">Načítám náhled odkazu…</p>
       ) : null}
 
-      {linkPreview && !imageFile && !videoFile && !linkPreviewDismissed ? (
+      {linkPreviewFailed && !linkPreviewLoading ? (
+        <p className="mt-3 text-sm text-amber-800">
+          Náhled se nepodařilo načíst, příspěvek bude publikován s odkazem.
+        </p>
+      ) : null}
+
+      {showLinkCard && linkPreview ? (
         <LinkPreviewCard preview={linkPreview} onRemove={clearLinkPreview} />
       ) : null}
 

@@ -66,7 +66,7 @@ export class PostsController {
   @UseGuards(JwtAuthGuard)
   create(@CurrentUser() user: AuthUser, @Body() body: CreatePostDto) {
     assertUserCanCreateProfessionalContent(user);
-    const text = (body.description ?? body.content ?? '').trim();
+    const text = (body.text ?? body.description ?? body.content ?? '').trim();
     const hasPreview = Boolean(body.externalUrl?.trim());
     if (!text && !hasPreview) {
       throw new BadRequestException('Obsah příspěvku je povinný.');

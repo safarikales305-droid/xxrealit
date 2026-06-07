@@ -3,6 +3,11 @@ import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validato
 export class CreatePostDto {
   @IsOptional()
   @IsString()
+  @MaxLength(4000)
+  text?: string;
+
+  @IsOptional()
+  @IsString()
   @MinLength(1)
   @MaxLength(4000)
   content?: string;

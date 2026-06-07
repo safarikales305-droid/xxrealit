@@ -8,8 +8,9 @@ export type LinkPreviewData = {
   url: string;
   title: string;
   description: string;
-  image: string;
+  image: string | null;
   siteName: string;
+  failed?: boolean;
 };
 
 type Props = {
@@ -20,7 +21,9 @@ type Props = {
 
 export function LinkPreviewCard({ preview, onRemove, compact = false }: Props) {
   const href = preview.url.trim();
-  const imageSrc = nestAbsoluteAssetUrl(preview.image.trim());
+  const imageSrc = preview.image?.trim()
+    ? nestAbsoluteAssetUrl(preview.image.trim())
+    : '';
   const domain = preview.siteName?.trim() || hostnameFromUrl(href);
   const title = preview.title?.trim() || domain;
   const description = preview.description?.trim() || '';

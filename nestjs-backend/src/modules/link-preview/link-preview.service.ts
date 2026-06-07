@@ -1,18 +1,16 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { assertSafeExternalUrl } from './link-preview-security.util';
+import {
+  buildLinkPreviewFallback,
+  type LinkPreviewResult,
+} from './link-preview-fallback.util';
 import { parseOgFromHtml } from './og-html-parser.util';
 import { LinkPreviewImageService } from './link-preview-image.service';
 
-const HTML_TIMEOUT_MS = 5_000;
+const TOTAL_TIMEOUT_MS = 5_000;
+const HTML_TIMEOUT_MS = 4_000;
+const MIRROR_TIMEOUT_MS = 2_000;
 const MAX_HTML_BYTES = 2 * 1024 * 1024;
-
-export type LinkPreviewResult = {
-  url: string;
-  title: string;
-  description: string;
-  image: string;
-  siteName: string;
-};
 
 @Injectable()
 export class LinkPreviewService {
@@ -21,8 +19,28 @@ export class LinkPreviewService {
   constructor(private readonly images: LinkPreviewImageService) {}
 
   async fetchPreview(rawUrl: string): Promise<LinkPreviewResult> {
-    const parsed = assertSafeExternalUrl(rawUrl);
-    const requestUrl = parsed.href;
+    try {
+      return await Promise.race([
+        this.fetchPreviewInternal(rawUrl),
+        new Promise<LinkPreviewResult>((resolve) => {
+          setTimeout(() => resolve(buildLinkPreviewFallback(rawUrl)), TOTAL_TIMEOUT_MS);
+        }),
+      ]);
+    } catch (e) {
+      this.log.warn(
+        `Link preview selhal (${rawUrl}): ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return buildLinkPreviewFallback(rawUrl);
+    }
+  }
+
+  private async fetchPreviewInternal(rawUrl: string): Promise<LinkPreviewResult> {
+    let requestUrl: string;
+    try {
+      requestUrl = assertSafeExternalUrl(rawUrl).href;
+    } catch {
+      return buildLinkPreviewFallback(rawUrl);
+    }
 
     let html = '';
     try {
@@ -32,11 +50,13 @@ export class LinkPreviewService {
         headers: {
           Accept: 'text/html,application/xhtml+xml',
           'User-Agent':
-            'Mozilla/5.0 (compatible; XXrealitLinkPreview/1.0; +https://www.xxrealit.cz)',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'cs-CZ,cs;q=0.9',
         },
       });
       if (!res.ok) {
-        throw new BadRequestException(`Stránku se nepodařilo načíst (${res.status})`);
+        this.log.warn(`Link preview HTTP ${res.status} pro ${requestUrl}`);
+        return buildLinkPreviewFallback(requestUrl);
       }
       const reader = res.body?.getReader();
       if (!reader) {
@@ -59,22 +79,34 @@ export class LinkPreviewService {
         html = Buffer.concat(chunks).toString('utf-8');
       }
     } catch (e) {
-      if (e instanceof BadRequestException) throw e;
-      this.log.warn(`Fetch HTML selhal: ${e instanceof Error ? e.message : String(e)}`);
-      throw new BadRequestException('Náhled odkazu se nepodařilo načíst');
+      this.log.warn(
+        `Fetch HTML selhal (${requestUrl}): ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return buildLinkPreviewFallback(requestUrl);
+    }
+
+    if (!html.trim()) {
+      return buildLinkPreviewFallback(requestUrl);
     }
 
     const meta = parseOgFromHtml(html, requestUrl);
-    const image = meta.image
-      ? await this.images.mirrorRemoteImage(meta.image, meta.url)
-      : await this.images.getPlaceholderUrl();
+    let image: string | null = null;
+    if (meta.image) {
+      image = await Promise.race([
+        this.images.mirrorRemoteImage(meta.image, meta.url),
+        new Promise<string | null>((resolve) => {
+          setTimeout(() => resolve(null), MIRROR_TIMEOUT_MS);
+        }),
+      ]);
+    }
 
     return {
       url: meta.url,
       title: meta.title || meta.siteName || 'Odkaz',
-      description: meta.description,
+      description: meta.description || 'Kliknutím otevřete původní inzerát.',
       image,
       siteName: meta.siteName,
+      failed: false,
     };
   }
 }

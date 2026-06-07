@@ -46,7 +46,7 @@ export class LinkPreviewImageService {
     return this.placeholderUrl;
   }
 
-  async mirrorRemoteImage(remoteUrl: string, pageUrl: string): Promise<string> {
+  async mirrorRemoteImage(remoteUrl: string, pageUrl: string): Promise<string | null> {
     try {
       const res = await fetch(remoteUrl, {
         redirect: 'follow',
@@ -101,7 +101,7 @@ export class LinkPreviewImageService {
       this.log.warn(
         `Mirror obrázku selhal (${remoteUrl}): ${e instanceof Error ? e.message : String(e)}`,
       );
-      return this.getPlaceholderUrl();
+      return null;
     }
   }
 }

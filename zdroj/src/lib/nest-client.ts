@@ -4312,20 +4312,34 @@ export type LinkPreviewResponse = {
   url: string;
   title: string;
   description: string;
-  image: string;
+  image: string | null;
   siteName: string;
+  failed?: boolean;
 };
+
+const LINK_PREVIEW_CLIENT_TIMEOUT_MS = 5_000;
 
 export async function nestFetchLinkPreview(
   token: string,
   url: string,
+  signal?: AbortSignal,
 ): Promise<{ ok: true; preview: LinkPreviewResponse } | { ok: false; error?: string }> {
   if (!API_BASE_URL || !token) {
     return { ok: false, error: 'API nebo token chybí' };
   }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LINK_PREVIEW_CLIENT_TIMEOUT_MS);
+  const merged = signal
+    ? (() => {
+        signal.addEventListener('abort', () => controller.abort(), { once: true });
+        return controller.signal;
+      })()
+    : controller.signal;
+
   try {
     const res = await fetch(`${postsApiBase()}/link-preview`, {
       method: 'POST',
+      signal: merged,
       headers: {
         ...nestAuthHeaders(token),
         'Content-Type': 'application/json',
@@ -4353,7 +4367,9 @@ export async function nestFetchLinkPreview(
     }
     return { ok: true, preview: data };
   } catch {
-    return { ok: false, error: 'Síťová chyba' };
+    return { ok: false, error: 'Síťová chyba nebo timeout' };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

@@ -1,5 +1,6 @@
 import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { buildLinkPreviewFallback } from './link-preview-fallback.util';
 import { LinkPreviewDto } from './dto/link-preview.dto';
 import { LinkPreviewService } from './link-preview.service';
 
@@ -9,7 +10,11 @@ export class LinkPreviewController {
 
   @Post()
   @UseGuards(JwtAuthGuard)
-  fetch(@Body() dto: LinkPreviewDto) {
-    return this.linkPreview.fetchPreview(dto.url);
+  async fetch(@Body() dto: LinkPreviewDto) {
+    try {
+      return await this.linkPreview.fetchPreview(dto.url);
+    } catch {
+      return buildLinkPreviewFallback(dto.url);
+    }
   }
 }

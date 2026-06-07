@@ -201,7 +201,7 @@ export class PostsService {
   }
 
   create(userId: string, dto: CreatePostDto) {
-    const text = (dto.description ?? dto.content ?? '').trim();
+    const text = (dto.text ?? dto.description ?? dto.content ?? '').trim();
     const preview = linkPreviewDataFromDto(dto);
     return this.prisma.post.create({
       data: {
