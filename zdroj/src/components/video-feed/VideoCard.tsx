@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { Filter, Heart, Mail, MessageCircle, Plus, RotateCcw } from 'lucide-react';
+import { GuestShortsCta } from '@/components/shorts/GuestShortsCta';
 import { ShortsSoundToggle } from '@/components/shorts/ShortsSoundToggle';
 import { useAuth } from '@/hooks/use-auth';
 import { useShortsVideoSound } from '@/hooks/use-shorts-video-sound';
@@ -324,10 +325,19 @@ export default function VideoCard({
     );
   }
 
-  function renderActionRail(options: { desktopLightShare?: boolean }) {
-    const { desktopLightShare } = options;
+  function renderActionRail(options: { desktopLightShare?: boolean; showSound?: boolean }) {
+    const { desktopLightShare, showSound = true } = options;
     return (
       <>
+        {showSound && !desktopPreviewUrl && !error ? (
+          <ShortsSoundToggle
+            variant="rail"
+            desktopLight={desktopLightShare}
+            muted={muted}
+            onToggle={toggleSound}
+          />
+        ) : null}
+
         <button
           type="button"
           disabled={likeBusy}
@@ -345,16 +355,6 @@ export default function VideoCard({
           />
         </button>
 
-        <button
-          type="button"
-          onClick={handleWriteSeller}
-          className={railMessageBtn}
-          aria-label="Napsat prodejci"
-          title="Napsat prodejci"
-        >
-          <Mail className="size-6" strokeWidth={2.25} aria-hidden />
-        </button>
-
         <ShareButtons
           title={shareTitle}
           url={shareUrl}
@@ -364,6 +364,16 @@ export default function VideoCard({
             apiAccessToken,
           }}
         />
+
+        <button
+          type="button"
+          onClick={handleWriteSeller}
+          className={railMessageBtn}
+          aria-label="Napsat prodejci"
+          title="Napsat prodejci"
+        >
+          <Mail className="size-6" strokeWidth={2.25} aria-hidden />
+        </button>
 
         <button
           type="button"
@@ -502,9 +512,6 @@ export default function VideoCard({
                     onVideoBroken?.(video.id);
                   }}
                 />
-                {!desktopPreviewUrl ? (
-                  <ShortsSoundToggle muted={muted} onToggle={toggleSound} />
-                ) : null}
               </>
             ) : (
               <div className="absolute inset-0 flex items-center justify-center bg-black text-sm text-white/50">
@@ -516,6 +523,8 @@ export default function VideoCard({
                 {`👁 ${formatViewsCount(video.viewsCount)}`}
               </div>
             </div>
+
+            {!isLoading && !isAuthenticated ? <GuestShortsCta /> : null}
 
             {onMobileFiltersOpen ? (
               <button
@@ -529,8 +538,8 @@ export default function VideoCard({
               </button>
             ) : null}
 
-            {/* Mobil: akce přes video */}
-            <div className="pointer-events-auto absolute right-2 z-[35] flex flex-col items-center gap-2.5 max-lg:top-[3.85rem] max-lg:bottom-[calc(13.25rem+env(safe-area-inset-bottom,0px))] max-lg:justify-center sm:right-4 lg:hidden">
+            {/* Mobil: akce přes video — zvuk, srdíčko, sdílet, zpráva */}
+            <div className="pointer-events-auto absolute right-2 z-[35] flex flex-col items-center gap-2.5 max-lg:top-[max(3.25rem,calc(env(safe-area-inset-top,0px)+2.75rem))] max-lg:bottom-[calc(14.5rem+env(safe-area-inset-bottom,0px))] max-lg:justify-start sm:right-4 lg:hidden">
               {renderActionRail({ desktopLightShare: false })}
             </div>
 

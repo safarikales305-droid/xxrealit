@@ -17,7 +17,12 @@ import { useAuth } from '@/hooks/use-auth';
 import { toPublicApiUrl } from '@/lib/public-api';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { formatListingPrice, type PropertyFeedItem } from '@/types/property';
-import { ShortsFeedClipVideo } from '@/components/shorts/ShortsFeedClipVideo';
+import { GuestShortsCta } from '@/components/shorts/GuestShortsCta';
+import {
+  ShortsFeedClipVideo,
+  type ShortsClipSoundControl,
+} from '@/components/shorts/ShortsFeedClipVideo';
+import { ShortsSoundToggle } from '@/components/shorts/ShortsSoundToggle';
 import { isPropertyFeedVideoPlayable, propertyFeedPrimaryVideoSrc } from '@/lib/feed/loop-feed';
 
 const glowBtnBase =
@@ -60,7 +65,10 @@ type Props = {
  */
 export function ShortsFeed({ items }: Props) {
   const router = useRouter();
-  const { user, isAuthenticated, apiAccessToken } = useAuth();
+  const { user, isAuthenticated, isLoading, apiAccessToken } = useAuth();
+  const [soundByClipId, setSoundByClipId] = useState<
+    Record<string, ShortsClipSoundControl>
+  >({});
   const [sellerClip, setSellerClip] = useState<Clip | null>(null);
   const [sellerActionHint, setSellerActionHint] = useState<string | null>(null);
   const [brokenClipIds, setBrokenClipIds] = useState<Set<string>>(() => new Set());
@@ -347,7 +355,11 @@ export function ShortsFeed({ items }: Props) {
               src={c.src}
               isActive={isActive}
               onError={() => markClipBroken(c.id)}
+              onSoundReady={(control) => {
+                setSoundByClipId((prev) => ({ ...prev, [c.id]: control }));
+              }}
             />
+            {!isLoading && !isAuthenticated ? <GuestShortsCta /> : null}
             <div className="pointer-events-none absolute right-3 top-3 z-[26] sm:right-4 sm:top-4">
               <div className="rounded-xl bg-black/60 px-3 py-2 text-sm font-bold text-white shadow-lg sm:px-4 sm:py-2.5 sm:text-base">
                 {`👁 ${formatViewsCount(c.viewsCount)}`}
@@ -387,7 +399,14 @@ export function ShortsFeed({ items }: Props) {
               </p>
             </div>
 
-            <div className="absolute bottom-24 right-5 z-10 flex flex-col items-center gap-5 sm:bottom-28 sm:right-7">
+            <div className="pointer-events-auto absolute bottom-24 right-5 z-10 flex flex-col items-center gap-4 sm:bottom-28 sm:right-7 sm:gap-5">
+              {soundByClipId[c.id] ? (
+                <ShortsSoundToggle
+                  variant="rail"
+                  muted={soundByClipId[c.id].muted}
+                  onToggle={soundByClipId[c.id].toggleSound}
+                />
+              ) : null}
               <div className="flex flex-col items-center gap-1.5">
                 <button
                   type="button"

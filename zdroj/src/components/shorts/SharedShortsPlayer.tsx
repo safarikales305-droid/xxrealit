@@ -3,7 +3,9 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { GuestShortsCta } from '@/components/shorts/GuestShortsCta';
 import { ShortsSoundToggle } from '@/components/shorts/ShortsSoundToggle';
+import { useAuth } from '@/hooks/use-auth';
 import { useShortsVideoSound } from '@/hooks/use-shorts-video-sound';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import type { PublicShortsListing } from '@/lib/shorts-listing-video';
@@ -15,6 +17,7 @@ type Props = {
 
 export function SharedShortsPlayer({ listing, detailHref }: Props) {
   const router = useRouter();
+  const { isAuthenticated, isLoading } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [needsPlayButton, setNeedsPlayButton] = useState(false);
   const [videoError, setVideoError] = useState(false);
@@ -103,7 +106,8 @@ export function SharedShortsPlayer({ listing, detailHref }: Props) {
                   </button>
                 </div>
               ) : null}
-              <ShortsSoundToggle muted={muted} onToggle={toggleSound} />
+              {!isLoading && !isAuthenticated ? <GuestShortsCta /> : null}
+              <ShortsSoundToggle variant="overlay" muted={muted} onToggle={toggleSound} />
             </>
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-zinc-900 px-4 text-center">
