@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Camera,
   Download,
@@ -95,8 +96,13 @@ export function ShareMenu({
     null,
   );
   const [fbShareNotice, setFbShareNotice] = useState<string | null>(null);
+  const [portalReady, setPortalReady] = useState(false);
 
   const videoUrl = shorts?.videoUrl?.trim() || null;
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
 
   const listingId = (() => {
     try {
@@ -232,24 +238,24 @@ export function ShareMenu({
     setNotice('Stahování videa bylo spuštěno. Poté ho nahrajte na sociální síť.');
   }
 
-  return (
-    <div
-      className="fixed inset-0 z-[200] flex items-end justify-center p-0 sm:items-center sm:p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Sdílet"
-    >
+  const optionClass =
+    'share-option gap-3 rounded-2xl border border-zinc-200 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50';
+  const optionFlatClass =
+    'share-option gap-3 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50 disabled:opacity-60';
+
+  const menu = (
+    <div className="share-modal-overlay" role="dialog" aria-modal="true" aria-label="Sdílet">
       <button
         type="button"
-        className="absolute inset-0 bg-black/40"
+        className="share-modal-backdrop"
         aria-label="Zavřít"
         onClick={onClose}
       />
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative z-10 w-full max-w-md rounded-t-3xl border border-zinc-200/80 bg-white shadow-2xl sm:rounded-3xl"
+        className="share-modal border border-zinc-200/80 bg-white shadow-2xl"
       >
-        <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3">
+        <div className="share-modal-header flex items-center justify-between border-b border-zinc-100 px-4 py-3">
           <span className="text-sm font-semibold text-zinc-900">Sdílet</span>
           <button
             type="button"
@@ -260,7 +266,7 @@ export function ShareMenu({
             <X className="size-5" />
           </button>
         </div>
-        <div className="max-h-[min(75dvh,32rem)] space-y-1 overflow-y-auto p-3 pb-6">
+        <div className="share-modal-body space-y-1">
           {notice ? (
             <p className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
               {notice}
@@ -283,7 +289,7 @@ export function ShareMenu({
               const ok = await handleNativeShare(shareTitle, url);
               if (ok) onClose();
             }}
-            className="flex w-full items-center gap-3 rounded-2xl border border-zinc-200 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className={optionClass}
           >
             <Share2 className="size-5 shrink-0 text-orange-600" />
             <span>Sdílet odkaz (systém)</span>
@@ -292,7 +298,7 @@ export function ShareMenu({
           <button
             type="button"
             onClick={() => void copyText(url).then((ok) => ok && notifyCopied())}
-            className="flex w-full items-center gap-3 rounded-2xl border border-zinc-200 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50"
+            className={optionClass}
           >
             <Link2 className="size-5 shrink-0 text-zinc-600" />
             <span>Kopírovat odkaz</span>
@@ -303,7 +309,7 @@ export function ShareMenu({
               <button
                 type="button"
                 onClick={() => void copyText(postText).then((ok) => ok && setNotice('Text příspěvku zkopírován.'))}
-                className="flex w-full items-center gap-3 rounded-2xl border border-zinc-200 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50"
+                className={optionClass}
               >
                 <FileText className="size-5 shrink-0 text-zinc-600" />
                 <span>Kopírovat text příspěvku</span>
@@ -311,7 +317,7 @@ export function ShareMenu({
               <button
                 type="button"
                 onClick={downloadVideo}
-                className="flex w-full items-center gap-3 rounded-2xl border border-zinc-200 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50"
+                className={optionClass}
               >
                 <Download className="size-5 shrink-0 text-zinc-600" />
                 <span>Stáhnout video</span>
@@ -325,7 +331,7 @@ export function ShareMenu({
               onClick={() => {
                 window.open(facebookShareUrl(url), '_blank', 'noopener,noreferrer');
               }}
-              className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50"
+              className={optionFlatClass}
             >
               <Facebook className="size-5 shrink-0 text-blue-600" />
               <span>Sdílet odkaz na Facebook</span>
@@ -334,7 +340,7 @@ export function ShareMenu({
               href={whatsappHref}
               target="_blank"
               rel="noreferrer"
-              className="flex w-full items-center gap-3 border-t border-zinc-100 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50"
+              className={`${optionFlatClass} border-t border-zinc-100`}
             >
               <WhatsAppIcon className="size-5 shrink-0 text-[#25D366]" />
               <span>WhatsApp</span>
@@ -343,7 +349,7 @@ export function ShareMenu({
               href={facebookDebuggerUrl(url)}
               target="_blank"
               rel="noreferrer"
-              className="flex w-full items-center gap-3 border-t border-zinc-100 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50"
+              className={`${optionFlatClass} border-t border-zinc-100`}
             >
               <RefreshCw className="size-5 shrink-0 text-zinc-600" />
               <span>Aktualizovat náhled Facebook</span>
@@ -353,7 +359,7 @@ export function ShareMenu({
                 type="button"
                 disabled={busyPlatform === 'facebook'}
                 onClick={() => void tryUpload('facebook', 'Facebook')}
-                className="flex w-full items-center gap-3 border-t border-zinc-100 px-4 py-3 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-50 disabled:opacity-60"
+                className={`${optionFlatClass} border-t border-zinc-100`}
               >
                 <Facebook className="size-5 shrink-0 text-blue-600" />
                 <span>{busyPlatform === 'facebook' ? 'Nahrávám…' : 'Nahrát na Facebook'}</span>
@@ -379,7 +385,7 @@ export function ShareMenu({
                     type="button"
                     disabled={busyPlatform === platform}
                     onClick={() => void tryUpload(platform, label)}
-                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-zinc-800 hover:bg-white disabled:opacity-60"
+                    className="share-option gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-zinc-800 hover:bg-white disabled:opacity-60"
                   >
                     <Icon className="size-4 shrink-0 text-zinc-600" />
                     <span>{busyPlatform === platform ? 'Nahrávám…' : `Nahrát na ${label}`}</span>
@@ -392,7 +398,7 @@ export function ShareMenu({
                         `Otevřeno ${label}. Stáhněte video a nahrajte ho ručně, pokud není účet propojený.`,
                       );
                     }}
-                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs text-zinc-600 hover:bg-white"
+                    className="share-option gap-3 rounded-xl px-3 py-2.5 text-left text-xs text-zinc-600 hover:bg-white"
                   >
                     <ExternalLink className="size-3.5 shrink-0" />
                     <span>Otevřít {label === 'YouTube Shorts' ? 'YouTube Studio' : label}</span>
@@ -419,7 +425,7 @@ export function ShareMenu({
                     void copyText(url).then((ok) => ok && notifyCopied());
                     window.open(SOCIAL_LINKS[platform], '_blank', 'noopener,noreferrer');
                   }}
-                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-zinc-800 hover:bg-white"
+                  className="share-option gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-zinc-800 hover:bg-white"
                 >
                   <Icon className="size-4 shrink-0 text-zinc-600" />
                   <span>{label} — kopírovat odkaz a otevřít</span>
@@ -431,4 +437,7 @@ export function ShareMenu({
       </div>
     </div>
   );
+
+  if (!portalReady || typeof document === 'undefined') return null;
+  return createPortal(menu, document.body);
 }
