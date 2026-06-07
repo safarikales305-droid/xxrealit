@@ -12,11 +12,7 @@ export function isShortsSoundEnabled(): boolean {
 export function setShortsSoundEnabled(enabled: boolean): void {
   if (typeof window === 'undefined') return;
   try {
-    if (enabled) {
-      localStorage.setItem(SHORTS_SOUND_STORAGE_KEY, 'true');
-    } else {
-      localStorage.removeItem(SHORTS_SOUND_STORAGE_KEY);
-    }
+    localStorage.setItem(SHORTS_SOUND_STORAGE_KEY, enabled ? 'true' : 'false');
   } catch {
     /* ignore */
   }

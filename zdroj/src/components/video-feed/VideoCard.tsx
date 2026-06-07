@@ -2,17 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  Filter,
-  Heart,
-  Mail,
-  MessageCircle,
-  Plus,
-  RotateCcw,
-  Volume2,
-  VolumeX,
-} from 'lucide-react';
+import { Filter, Heart, Mail, MessageCircle, Plus, RotateCcw } from 'lucide-react';
+import { ShortsSoundToggle } from '@/components/shorts/ShortsSoundToggle';
 import { useAuth } from '@/hooks/use-auth';
+import { useShortsVideoSound } from '@/hooks/use-shorts-video-sound';
 import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
 import { listingShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
@@ -64,7 +57,6 @@ export default function VideoCard({
   const { user, isAuthenticated, isLoading, apiAccessToken } = useAuth();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [error, setError] = useState(false);
-  const [muted, setMuted] = useState(true);
   const [liked, setLiked] = useState(Boolean(video.liked));
   const [likeBusy, setLikeBusy] = useState(false);
   const [sellerModalOpen, setSellerModalOpen] = useState(false);
@@ -80,6 +72,11 @@ export default function VideoCard({
   );
 
   const src = nestAbsoluteAssetUrl(video.videoUrl ?? video.url ?? '').trim();
+
+  const { muted, toggleSound } = useShortsVideoSound(videoRef, {
+    enabled: Boolean(src) && !error && !desktopPreviewUrl,
+    videoKey: video.id,
+  });
 
   const galleryPhotoUrls = useMemo(() => {
     const raw: string[] = [];
@@ -189,10 +186,6 @@ export default function VideoCard({
 
     return () => observer.disconnect();
   }, [muted, video.id, error, desktopPreviewUrl]);
-
-  useEffect(() => {
-    if (videoRef.current) videoRef.current.muted = muted;
-  }, [muted]);
 
   if (!src) {
     return (
@@ -374,19 +367,6 @@ export default function VideoCard({
 
         <button
           type="button"
-          onClick={() => setMuted((m) => !m)}
-          className={railBtn}
-          aria-label={muted ? 'Zapnout zvuk' : 'Ztlumit'}
-        >
-          {muted ? (
-            <VolumeX className="size-6" strokeWidth={2.25} />
-          ) : (
-            <Volume2 className="size-6" strokeWidth={2.25} />
-          )}
-        </button>
-
-        <button
-          type="button"
           onClick={goAddListing}
           onPointerDown={(e) => {
             e.preventDefault();
@@ -507,20 +487,25 @@ export default function VideoCard({
             ) : null}
 
             {!error ? (
-              <video
-                ref={videoRef}
-                src={src}
-                muted={muted}
-                playsInline
-                loop
-                autoPlay
-                preload="metadata"
-                className={`absolute inset-0 box-border h-full w-full object-cover ${desktopPreviewUrl ? 'lg:opacity-0 lg:pointer-events-none' : ''} lg:object-contain`}
-                onError={() => {
-                  setError(true);
-                  onVideoBroken?.(video.id);
-                }}
-              />
+              <>
+                <video
+                  ref={videoRef}
+                  src={src}
+                  muted={muted}
+                  playsInline
+                  loop
+                  autoPlay
+                  preload="metadata"
+                  className={`absolute inset-0 box-border h-full w-full object-cover ${desktopPreviewUrl ? 'lg:opacity-0 lg:pointer-events-none' : ''} lg:object-contain`}
+                  onError={() => {
+                    setError(true);
+                    onVideoBroken?.(video.id);
+                  }}
+                />
+                {!desktopPreviewUrl ? (
+                  <ShortsSoundToggle muted={muted} onToggle={toggleSound} />
+                ) : null}
+              </>
             ) : (
               <div className="absolute inset-0 flex items-center justify-center bg-black text-sm text-white/50">
                 Video se nepodařilo načíst

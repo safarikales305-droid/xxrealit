@@ -3,11 +3,9 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ShortsSoundToggle } from '@/components/shorts/ShortsSoundToggle';
+import { useShortsVideoSound } from '@/hooks/use-shorts-video-sound';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
-import {
-  isShortsSoundEnabled,
-  setShortsSoundEnabled,
-} from '@/lib/shorts-sound-preference';
 import type { PublicShortsListing } from '@/lib/shorts-listing-video';
 
 type Props = {
@@ -19,47 +17,35 @@ export function SharedShortsPlayer({ listing, detailHref }: Props) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [needsPlayButton, setNeedsPlayButton] = useState(false);
-  const [soundOn, setSoundOn] = useState(false);
   const [videoError, setVideoError] = useState(false);
 
   const videoSrc = listing.videoUrl ? nestAbsoluteAssetUrl(listing.videoUrl) : '';
   const imageSrc = listing.imageUrl ? nestAbsoluteAssetUrl(listing.imageUrl) : '';
   const showVideo = Boolean(videoSrc) && !videoError;
 
+  const { muted, toggleSound } = useShortsVideoSound(videoRef, {
+    enabled: showVideo,
+    videoKey: videoSrc,
+  });
+
   const tryAutoplayMuted = useCallback(() => {
     const el = videoRef.current;
     if (!el || !videoSrc) return;
-    el.muted = true;
+    if (!muted) {
+      el.muted = false;
+      el.volume = 1;
+    } else {
+      el.muted = true;
+    }
     void el.play()
       .then(() => setNeedsPlayButton(false))
       .catch(() => setNeedsPlayButton(true));
-  }, [videoSrc]);
-
-  const tryEnableSound = useCallback(async () => {
-    const el = videoRef.current;
-    if (!el || !videoSrc) return false;
-    el.muted = false;
-    el.volume = 1;
-    try {
-      await el.play();
-      setSoundOn(true);
-      setNeedsPlayButton(false);
-      setShortsSoundEnabled(true);
-      return true;
-    } catch {
-      el.muted = true;
-      setSoundOn(false);
-      return false;
-    }
-  }, [videoSrc]);
+  }, [muted, videoSrc]);
 
   useEffect(() => {
     if (!showVideo) return;
     tryAutoplayMuted();
-    if (isShortsSoundEnabled()) {
-      void tryEnableSound();
-    }
-  }, [showVideo, tryAutoplayMuted, tryEnableSound]);
+  }, [showVideo, tryAutoplayMuted]);
 
   function handleBack() {
     if (typeof window !== 'undefined' && window.history.length > 1) {
@@ -95,7 +81,7 @@ export function SharedShortsPlayer({ listing, detailHref }: Props) {
                 ref={videoRef}
                 src={videoSrc}
                 autoPlay
-                muted
+                muted={muted}
                 playsInline
                 loop
                 preload="auto"
@@ -117,17 +103,7 @@ export function SharedShortsPlayer({ listing, detailHref }: Props) {
                   </button>
                 </div>
               ) : null}
-              {!soundOn ? (
-                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-                  <button
-                    type="button"
-                    onClick={() => void tryEnableSound()}
-                    className="pointer-events-auto rounded-full border border-white/40 bg-black/65 px-5 py-3 text-base font-bold text-white shadow-lg backdrop-blur-sm transition hover:bg-black/80"
-                  >
-                    🔊 Zapnout zvuk
-                  </button>
-                </div>
-              ) : null}
+              <ShortsSoundToggle muted={muted} onToggle={toggleSound} />
             </>
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-zinc-900 px-4 text-center">

@@ -17,6 +17,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { toPublicApiUrl } from '@/lib/public-api';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { formatListingPrice, type PropertyFeedItem } from '@/types/property';
+import { ShortsFeedClipVideo } from '@/components/shorts/ShortsFeedClipVideo';
 import { isPropertyFeedVideoPlayable, propertyFeedPrimaryVideoSrc } from '@/lib/feed/loop-feed';
 
 const glowBtnBase =
@@ -97,11 +98,6 @@ export function ShortsFeed({ items }: Props) {
   const [activeId, setActiveId] = useState<string | null>(
     clips[0]?.id ?? null,
   );
-  const [mutedById, setMutedById] = useState<Record<string, boolean>>(() => {
-    const init: Record<string, boolean> = {};
-    for (const c of clips) init[c.id] = true;
-    return init;
-  });
   const [liked, setLiked] = useState<Record<string, boolean>>({});
   const [likes, setLikes] = useState<Record<string, number>>({});
 
@@ -143,9 +139,6 @@ export function ShortsFeed({ items }: Props) {
 
   useEffect(() => {
     setActiveId(clips[0]?.id ?? null);
-    const m: Record<string, boolean> = {};
-    for (const c of clips) m[c.id] = true;
-    setMutedById(m);
 
     const likeInit: Record<string, number> = {};
     const likedInit: Record<string, boolean> = {};
@@ -275,10 +268,6 @@ export function ShortsFeed({ items }: Props) {
     }
   }, []);
 
-  const toggleMuted = useCallback((id: string) => {
-    setMutedById((prev) => ({ ...prev, [id]: !prev[id] }));
-  }, []);
-
   const handleWriteSeller = useCallback(
     (clip: Clip) => {
       if (!isAuthenticated || !apiAccessToken) {
@@ -331,7 +320,6 @@ export function ShortsFeed({ items }: Props) {
       ) : null}
       {clips.map((c) => {
         const isActive = activeId === c.id;
-        const muted = mutedById[c.id] !== false;
         const showProfileLink = !!c.userId;
         const ad = adsByClipId[c.id] ?? null;
         const adImageSrc = ad ? nestAbsoluteAssetUrl(ad.imageUrl).trim() : '';
@@ -354,21 +342,12 @@ export function ShortsFeed({ items }: Props) {
               </div>
             ) : null}
 
-            <div className="absolute inset-0 flex items-center justify-center">
-              <video
-                data-clip-id={c.id}
-                muted={muted}
-                playsInline
-                autoPlay
-                loop
-                controls
-                preload="metadata"
-                className="w-full h-full object-cover"
-                onError={() => markClipBroken(c.id)}
-              >
-                <source src={c.src} type="video/mp4" />
-              </video>
-            </div>
+            <ShortsFeedClipVideo
+              clipId={c.id}
+              src={c.src}
+              isActive={isActive}
+              onError={() => markClipBroken(c.id)}
+            />
             <div className="pointer-events-none absolute right-3 top-3 z-[26] sm:right-4 sm:top-4">
               <div className="rounded-xl bg-black/60 px-3 py-2 text-sm font-bold text-white shadow-lg sm:px-4 sm:py-2.5 sm:text-base">
                 {`👁 ${formatViewsCount(c.viewsCount)}`}
@@ -426,14 +405,6 @@ export function ShortsFeed({ items }: Props) {
                   {likes[c.id] ?? 0}
                 </span>
               </div>
-              <button
-                type="button"
-                aria-label={muted ? 'Zapnout zvuk' : 'Vypnout zvuk'}
-                onClick={() => toggleMuted(c.id)}
-                className={glowBtnBase}
-              >
-                {muted ? '🔇' : '🔊'}
-              </button>
               <div className="flex flex-col items-center gap-1">
                 <span
                   className={`${glowBtnBase} pointer-events-none opacity-90`}
