@@ -4301,7 +4301,61 @@ export type ListingPost = {
     postId: string;
     type: 'LIKE' | 'DISLIKE';
   }>;
+  externalUrl?: string | null;
+  previewTitle?: string | null;
+  previewDescription?: string | null;
+  previewImage?: string | null;
+  previewSiteName?: string | null;
 };
+
+export type LinkPreviewResponse = {
+  url: string;
+  title: string;
+  description: string;
+  image: string;
+  siteName: string;
+};
+
+export async function nestFetchLinkPreview(
+  token: string,
+  url: string,
+): Promise<{ ok: true; preview: LinkPreviewResponse } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  try {
+    const res = await fetch(`${postsApiBase()}/link-preview`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ url }),
+    });
+    const data = (await res.json().catch(() => ({}))) as LinkPreviewResponse & {
+      message?: string | string[];
+      error?: string;
+    };
+    if (!res.ok) {
+      const msg =
+        typeof data.message === 'string'
+          ? data.message
+          : Array.isArray(data.message)
+            ? data.message.join(', ')
+            : typeof data.error === 'string'
+              ? data.error
+              : `HTTP ${res.status}`;
+      return { ok: false, error: msg };
+    }
+    if (!data.url?.trim()) {
+      return { ok: false, error: 'Náhled se nepodařilo načíst' };
+    }
+    return { ok: true, preview: data };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
 
 function postsApiBase(): string {
   return API_BASE_URL.endsWith('/api') ? API_BASE_URL : `${API_BASE_URL}/api`;

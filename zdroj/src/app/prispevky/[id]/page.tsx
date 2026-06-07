@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
+import { LinkPreviewCard } from '@/components/community/LinkPreviewCard';
 import { nestFetchPostDetail, type ListingPost } from '@/lib/nest-client';
 import { formatListingPrice } from '@/types/property';
 
@@ -148,6 +149,17 @@ export default function PrispevekDetailPage() {
             <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-800">
               {post.description}
             </p>
+            {post.externalUrl?.trim() ? (
+              <LinkPreviewCard
+                preview={{
+                  url: post.externalUrl.trim(),
+                  title: (post.previewTitle ?? '').trim() || post.externalUrl.trim(),
+                  description: (post.previewDescription ?? '').trim(),
+                  image: (post.previewImage ?? '').trim(),
+                  siteName: (post.previewSiteName ?? '').trim(),
+                }}
+              />
+            ) : null}
             <Link href="/" className="mt-4 inline-block text-sm font-semibold text-orange-600">
               Další příspěvky
             </Link>

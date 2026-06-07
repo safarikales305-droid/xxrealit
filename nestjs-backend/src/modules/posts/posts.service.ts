@@ -10,6 +10,41 @@ function isPublicMediaUrl(url: string | null | undefined): boolean {
   return /^https?:\/\//i.test(v);
 }
 
+function postHasFeedVisibility(row: {
+  media: Array<{ url: string }>;
+  externalUrl?: string | null;
+  previewImage?: string | null;
+}): boolean {
+  if (row.media.length > 0) return true;
+  return Boolean(row.externalUrl?.trim() || row.previewImage?.trim());
+}
+
+function linkPreviewDataFromDto(dto: {
+  externalUrl?: string;
+  previewTitle?: string;
+  previewDescription?: string;
+  previewImage?: string;
+  previewSiteName?: string;
+}) {
+  const externalUrl = dto.externalUrl?.trim() || null;
+  if (!externalUrl) {
+    return {
+      externalUrl: null,
+      previewTitle: null,
+      previewDescription: null,
+      previewImage: null,
+      previewSiteName: null,
+    };
+  }
+  return {
+    externalUrl,
+    previewTitle: dto.previewTitle?.trim().slice(0, 500) || null,
+    previewDescription: dto.previewDescription?.trim().slice(0, 2000) || null,
+    previewImage: dto.previewImage?.trim() || null,
+    previewSiteName: dto.previewSiteName?.trim().slice(0, 200) || null,
+  };
+}
+
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const toRad = (v: number) => (v * Math.PI) / 180;
   const R = 6371;
@@ -167,6 +202,7 @@ export class PostsService {
 
   create(userId: string, dto: CreatePostDto) {
     const text = (dto.description ?? dto.content ?? '').trim();
+    const preview = linkPreviewDataFromDto(dto);
     return this.prisma.post.create({
       data: {
         type: 'post',
@@ -177,6 +213,7 @@ export class PostsService {
         userId,
         content: text || null,
         description: text || '',
+        ...preview,
       },
       include: {
         media: { orderBy: { order: 'asc' } },
@@ -359,7 +396,7 @@ export class PostsService {
         ...row,
         media: row.media.filter((m) => isPublicMediaUrl(m.url)),
       }))
-      .filter((row) => row.media.length > 0);
+      .filter((row) => postHasFeedVisibility(row));
     const userLat = toNumberOrNull(lat);
     const userLng = toNumberOrNull(lng);
     const radiusNum = toNumberOrNull(radiusKm);

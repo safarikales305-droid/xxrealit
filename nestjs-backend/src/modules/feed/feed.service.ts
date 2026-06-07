@@ -22,6 +22,15 @@ function isPublicMediaUrl(url: string | null | undefined): boolean {
   return /^https?:\/\//i.test(v);
 }
 
+function postHasFeedVisibility(p: {
+  media: Array<{ url: string }>;
+  externalUrl?: string | null;
+  previewImage?: string | null;
+}): boolean {
+  if (p.media.length > 0) return true;
+  return Boolean(p.externalUrl?.trim() || p.previewImage?.trim());
+}
+
 function scoreProperty(
   p: {
     userId: string;
@@ -291,7 +300,7 @@ export class FeedService {
         ...p,
         media: p.media.filter((m) => isPublicMediaUrl(m.url)),
       }))
-      .filter((p) => p.media.length > 0)
+      .filter((p) => postHasFeedVisibility(p))
       .map((p) => {
         console.log('[feed/posts]', p.id, p.media);
         return p;

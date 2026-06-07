@@ -127,7 +127,7 @@ async function bootstrap() {
     fs.mkdirSync(uploadsRoot, { recursive: true });
   }
 
-  app.use('/uploads/share', (_req: Request, res: Response, next: NextFunction) => {
+  app.use(['/uploads/share', '/uploads/link-previews'], (_req: Request, res: Response, next: NextFunction) => {
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     res.setHeader('Content-Type', 'image/jpeg');
     next();

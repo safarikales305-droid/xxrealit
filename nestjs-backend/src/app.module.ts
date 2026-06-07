@@ -27,6 +27,7 @@ import { TiparModule } from './modules/tipar/tipar.module';
 import { SocialModule } from './modules/social/social.module';
 import { DebugModule } from './modules/debug/debug.module';
 import { ShareModule } from './modules/share/share.module';
+import { LinkPreviewModule } from './modules/link-preview/link-preview.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { ShareModule } from './modules/share/share.module';
     SocialModule,
     DebugModule,
     ShareModule,
+    LinkPreviewModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

@@ -28,4 +28,29 @@ export class CreatePostDto {
     | 'REALITNI_KANCELARE'
     | 'FINANCNI_PORADCI'
     | 'INVESTORI';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  externalUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  previewTitle?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  previewDescription?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  previewImage?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  previewSiteName?: string;
 }

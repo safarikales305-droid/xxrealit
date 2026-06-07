@@ -428,6 +428,12 @@ model Post {
   type        String   @default("post")
   category    PostCategory @default(MAKLERI)
   content     String?
+  /// Externí odkaz (Sreality, Bezrealitky…) — náhled jako u Facebooku.
+  externalUrl         String?
+  previewTitle        String?
+  previewDescription  String?  @db.Text
+  previewImage        String?
+  previewSiteName     String?
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   media       Media[]

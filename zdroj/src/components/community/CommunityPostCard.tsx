@@ -8,6 +8,7 @@ import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import type { ListingPost, PostComment } from '@/lib/nest-client';
 import { formatListingPrice } from '@/types/property';
+import { LinkPreviewCard, type LinkPreviewData } from '@/components/community/LinkPreviewCard';
 
 export type CommunityPostCardProps = {
   post: ListingPost;
@@ -80,6 +81,17 @@ export function CommunityPostCard({
     (p.description ?? '').trim().slice(0, 80) ||
     'Příspěvek';
   const shareUrl = absoluteShareUrl(`/prispevky/${encodeURIComponent(id)}`);
+
+  const externalUrl = String(p.externalUrl ?? '').trim();
+  const linkPreview: LinkPreviewData | null = externalUrl
+    ? {
+        url: externalUrl,
+        title: String(p.previewTitle ?? '').trim() || externalUrl,
+        description: String(p.previewDescription ?? '').trim(),
+        image: String(p.previewImage ?? '').trim(),
+        siteName: String(p.previewSiteName ?? '').trim(),
+      }
+    : null;
 
   const author = String(p.user?.name ?? 'Autor').trim() || 'Autor';
   const isOwner = String(p.user?.id ?? '') === String(currentUserId ?? '');
@@ -215,6 +227,11 @@ export function CommunityPostCard({
           <p className={`whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 ${interactionsLocked ? 'blur-[3px]' : ''}`}>
             {String(p.description ?? '')}
           </p>
+          {linkPreview && !showFeedImage && !showFeedVideo ? (
+            <div className={interactionsLocked ? 'pointer-events-none blur-sm' : ''}>
+              <LinkPreviewCard preview={linkPreview} compact />
+            </div>
+          ) : null}
         </div>
       ) : null}
 

@@ -67,7 +67,8 @@ export class PostsController {
   create(@CurrentUser() user: AuthUser, @Body() body: CreatePostDto) {
     assertUserCanCreateProfessionalContent(user);
     const text = (body.description ?? body.content ?? '').trim();
-    if (!text) {
+    const hasPreview = Boolean(body.externalUrl?.trim());
+    if (!text && !hasPreview) {
       throw new BadRequestException('Obsah příspěvku je povinný.');
     }
     return this.postsService.create(user.id, body);

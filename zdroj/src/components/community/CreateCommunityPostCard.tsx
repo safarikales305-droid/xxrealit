@@ -3,10 +3,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Image as ImageIcon, Send, Video } from 'lucide-react';
 import { API_BASE_URL } from '@/lib/api';
+import { extractFirstUrl } from '@/lib/extract-first-url';
 import {
   nestCreateListingPost,
   nestApiConfigured,
+  nestFetchLinkPreview,
+  type LinkPreviewResponse,
 } from '@/lib/nest-client';
+import { LinkPreviewCard } from '@/components/community/LinkPreviewCard';
 
 type Category =
   | 'MAKLERI'
@@ -35,11 +39,15 @@ export function CreateCommunityPostCard({
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
+  const [linkPreview, setLinkPreview] = useState<LinkPreviewResponse | null>(null);
+  const [linkPreviewLoading, setLinkPreviewLoading] = useState(false);
+  const [linkPreviewDismissed, setLinkPreviewDismissed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const previewAbortRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!imageFile) {
@@ -61,12 +69,56 @@ export function CreateCommunityPostCard({
     return () => URL.revokeObjectURL(u);
   }, [videoFile]);
 
+  useEffect(() => {
+    if (imageFile || videoFile || linkPreviewDismissed || !apiAccessToken) {
+      return;
+    }
+    const detected = extractFirstUrl(description);
+    if (!detected) {
+      setLinkPreview(null);
+      setLinkPreviewLoading(false);
+      previewAbortRef.current = null;
+      return;
+    }
+    if (linkPreview?.url === detected) return;
+
+    const timer = window.setTimeout(() => {
+      previewAbortRef.current = detected;
+      setLinkPreviewLoading(true);
+      void nestFetchLinkPreview(apiAccessToken, detected).then((r) => {
+        if (previewAbortRef.current !== detected) return;
+        setLinkPreviewLoading(false);
+        if (r.ok) {
+          setLinkPreview(r.preview);
+        } else {
+          setLinkPreview(null);
+        }
+      });
+    }, 600);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    description,
+    imageFile,
+    videoFile,
+    linkPreviewDismissed,
+    apiAccessToken,
+    linkPreview?.url,
+  ]);
+
   function clearMedia() {
     setImageFile(null);
     setVideoFile(null);
     setError(null);
     if (imageInputRef.current) imageInputRef.current.value = '';
     if (videoInputRef.current) videoInputRef.current.value = '';
+  }
+
+  function clearLinkPreview() {
+    setLinkPreview(null);
+    setLinkPreviewDismissed(true);
+    setLinkPreviewLoading(false);
+    previewAbortRef.current = null;
   }
 
   function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
@@ -84,6 +136,7 @@ export function CreateCommunityPostCard({
       return;
     }
     setVideoFile(null);
+    clearLinkPreview();
     if (videoInputRef.current) videoInputRef.current.value = '';
     setImageFile(f);
   }
@@ -103,6 +156,7 @@ export function CreateCommunityPostCard({
       return;
     }
     setImageFile(null);
+    clearLinkPreview();
     if (imageInputRef.current) imageInputRef.current.value = '';
     setVideoFile(f);
   }
@@ -115,7 +169,7 @@ export function CreateCommunityPostCard({
       setError('Přihlaste se a nastavte API.');
       return;
     }
-    if (!text && !imageFile && !videoFile) {
+    if (!text && !imageFile && !videoFile && !linkPreview) {
       setError('Napište text nebo přidejte foto / video.');
       return;
     }
@@ -151,7 +205,19 @@ export function CreateCommunityPostCard({
             'Content-Type': 'application/json',
             Authorization: `Bearer ${apiAccessToken}`,
           },
-          body: JSON.stringify({ content: text, category: activeCategory }),
+          body: JSON.stringify({
+            content: text,
+            category: activeCategory,
+            ...(linkPreview
+              ? {
+                  externalUrl: linkPreview.url,
+                  previewTitle: linkPreview.title,
+                  previewDescription: linkPreview.description,
+                  previewImage: linkPreview.image,
+                  previewSiteName: linkPreview.siteName,
+                }
+              : {}),
+          }),
         });
         if (!postRes.ok) {
           setError('Odeslání textu selhalo');
@@ -161,13 +227,15 @@ export function CreateCommunityPostCard({
 
       setDescription('');
       clearMedia();
+      setLinkPreview(null);
+      setLinkPreviewDismissed(false);
       await onPublished();
     } finally {
       setLoading(false);
     }
   }
 
-  const canSubmit = Boolean(description.trim() || imageFile || videoFile);
+  const canSubmit = Boolean(description.trim() || imageFile || videoFile || linkPreview);
 
   return (
     <form
@@ -178,7 +246,10 @@ export function CreateCommunityPostCard({
         ref={textareaRef}
         rows={1}
         value={description}
-        onChange={(e) => setDescription(e.target.value)}
+        onChange={(e) => {
+          setLinkPreviewDismissed(false);
+          setDescription(e.target.value);
+        }}
         onInput={(e) => {
           e.currentTarget.style.height = 'auto';
           e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
@@ -203,6 +274,14 @@ export function CreateCommunityPostCard({
         aria-label="Přidat video"
         onChange={onPickVideo}
       />
+
+      {linkPreviewLoading && !imageFile && !videoFile ? (
+        <p className="mt-3 text-sm text-zinc-500">Načítám náhled odkazu…</p>
+      ) : null}
+
+      {linkPreview && !imageFile && !videoFile && !linkPreviewDismissed ? (
+        <LinkPreviewCard preview={linkPreview} onRemove={clearLinkPreview} />
+      ) : null}
 
       {(videoPreview || imagePreview) && (
         <div className="mt-3 overflow-hidden rounded-2xl border border-zinc-200 bg-black/5">

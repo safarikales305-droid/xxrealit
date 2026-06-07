@@ -20,7 +20,7 @@ export function ensureUploadsPathExists(): string {
 /** Podadresáře pro statické `/uploads/...` i pro zápis avatarů / cover / inzerátů. */
 export function ensureStandardUploadSubdirs(): void {
   const root = ensureUploadsPathExists();
-  for (const sub of ['properties', 'videos', 'avatars', 'covers', 'share/facebook']) {
+  for (const sub of ['properties', 'videos', 'avatars', 'covers', 'share/facebook', 'link-previews']) {
     const p = join(root, sub);
     if (!fs.existsSync(p)) {
       fs.mkdirSync(p, { recursive: true });
