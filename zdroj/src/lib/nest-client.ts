@@ -3734,6 +3734,112 @@ export async function nestAdminBonusCampaignUpdate(
   return { ok: true, campaign: data };
 }
 
+export type RegistrationGateAdminSettings = {
+  id: string;
+  requireFirstContent: boolean;
+  shortsGateEnabled: boolean;
+  shortsGateAfterViews: number;
+  gateType: string;
+  title: string;
+  description: string;
+  buttonText: string;
+  videoUrl: string | null;
+  bannerImageUrl: string | null;
+  skipAfterSeconds: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function nestAdminRegistrationGateGet(
+  token: string | null,
+): Promise<RegistrationGateAdminSettings | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/registration-gate`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as RegistrationGateAdminSettings | null;
+}
+
+export async function nestAdminRegistrationGatePatch(
+  token: string | null,
+  body: Partial<
+    Omit<RegistrationGateAdminSettings, 'id' | 'createdAt' | 'updatedAt'>
+  >,
+): Promise<{ ok: true; settings: RegistrationGateAdminSettings } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/registration-gate`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as RegistrationGateAdminSettings & {
+    message?: string;
+    error?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true, settings: data };
+}
+
+export async function nestAdminRegistrationGateUploadVideo(
+  token: string | null,
+  file: File,
+): Promise<{ ok: true; settings: RegistrationGateAdminSettings } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const fd = new FormData();
+  fd.append('video', file);
+  const res = await fetch(`${API_BASE_URL}/admin/registration-gate/upload-video`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    body: fd,
+  });
+  const data = (await res.json().catch(() => ({}))) as RegistrationGateAdminSettings & {
+    message?: string;
+    error?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true, settings: data };
+}
+
+export async function nestAdminRegistrationGateUploadBanner(
+  token: string | null,
+  file: File,
+): Promise<{ ok: true; settings: RegistrationGateAdminSettings } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const fd = new FormData();
+  fd.append('banner', file);
+  const res = await fetch(`${API_BASE_URL}/admin/registration-gate/upload-banner`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    body: fd,
+  });
+  const data = (await res.json().catch(() => ({}))) as RegistrationGateAdminSettings & {
+    message?: string;
+    error?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true, settings: data };
+}
+
 export async function nestAdminBonusCampaignDelete(
   token: string | null,
   id: string,

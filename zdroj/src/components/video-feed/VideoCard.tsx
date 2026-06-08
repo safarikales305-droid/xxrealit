@@ -21,6 +21,7 @@ type VideoCardProps = {
   onMobileFiltersOpen?: () => void;
   /** Selhání načtení / přehrávání — rodič záznam odfiltruje a případně posune scroll. */
   onVideoBroken?: (videoId: string) => void;
+  onGuestVideoViewed?: (videoId: string) => void;
 };
 
 type CompanyAd = {
@@ -54,10 +55,12 @@ export default function VideoCard({
   video,
   onMobileFiltersOpen,
   onVideoBroken,
+  onGuestVideoViewed,
 }: VideoCardProps) {
   const router = useRouter();
   const { user, isAuthenticated, isLoading, apiAccessToken } = useAuth();
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const guestViewReportedRef = useRef(false);
   const [error, setError] = useState(false);
   const [liked, setLiked] = useState(Boolean(video.liked));
   const [likeBusy, setLikeBusy] = useState(false);
@@ -110,6 +113,7 @@ export default function VideoCard({
 
   useEffect(() => {
     setError(false);
+    guestViewReportedRef.current = false;
   }, [video.id]);
 
   useEffect(() => {
@@ -177,6 +181,10 @@ export default function VideoCard({
 
         if (entry.isIntersecting) {
           tryPlay();
+          if (!isAuthenticated && !guestViewReportedRef.current) {
+            guestViewReportedRef.current = true;
+            onGuestVideoViewed?.(video.id);
+          }
         } else {
           vid.pause();
         }
@@ -187,7 +195,7 @@ export default function VideoCard({
     observer.observe(vid);
 
     return () => observer.disconnect();
-  }, [muted, video.id, error, desktopPreviewUrl]);
+  }, [muted, video.id, error, desktopPreviewUrl, isAuthenticated, onGuestVideoViewed]);
 
   if (!src) {
     return (

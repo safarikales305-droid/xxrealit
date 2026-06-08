@@ -8,8 +8,19 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  isGuestShortsGateShown,
+  markGuestShortsGateShown,
+  registerGuestShortsView,
+} from '@/lib/guest-shorts-views';
 import type { ShortVideo } from '@/lib/nest-client';
+import {
+  fetchRegistrationGateSettings,
+  type PublicRegistrationGateSettings,
+} from '@/lib/registration-gate';
 import { isShortVideoPlayable } from '@/lib/feed/loop-feed';
+import { GuestShortsRegistrationGateModal } from '@/components/registration/GuestShortsRegistrationGateModal';
 import VideoCard from './VideoCard';
 
 type VideoFeedProps = {
@@ -26,7 +37,10 @@ type VideoFeedProps = {
  * — Po doscrollování na konec se feed vrátí na začátek (smyčka).
  */
 export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
+  const { isAuthenticated, isLoading } = useAuth();
   const [excludedIds, setExcludedIds] = useState<Set<string>>(() => new Set());
+  const [gateSettings, setGateSettings] = useState<PublicRegistrationGateSettings | null>(null);
+  const [gateOpen, setGateOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const feedIdsKey = useMemo(() => videos.map((v) => v.id).join('\0'), [videos]);
@@ -34,6 +48,28 @@ export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
   useEffect(() => {
     setExcludedIds(new Set());
   }, [feedIdsKey]);
+
+  useEffect(() => {
+    if (isLoading || isAuthenticated) {
+      setGateSettings(null);
+      setGateOpen(false);
+      return;
+    }
+    void fetchRegistrationGateSettings().then((s) => setGateSettings(s));
+  }, [isAuthenticated, isLoading]);
+
+  const onGuestVideoViewed = useCallback(
+    (videoId: string) => {
+      if (isLoading || isAuthenticated || !gateSettings?.shortsGateEnabled) return;
+      if (isGuestShortsGateShown() || gateOpen) return;
+      const count = registerGuestShortsView(videoId);
+      if (count >= gateSettings.shortsGateAfterViews) {
+        markGuestShortsGateShown();
+        setGateOpen(true);
+      }
+    },
+    [gateOpen, gateSettings, isAuthenticated, isLoading],
+  );
 
   const validVideos = useMemo(
     () => videos.filter((v) => isShortVideoPlayable(v) && !excludedIds.has(v.id)),
@@ -102,10 +138,17 @@ export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
               video={video}
               onMobileFiltersOpen={onMobileFiltersOpen}
               onVideoBroken={onBroken}
+              onGuestVideoViewed={onGuestVideoViewed}
             />
           </div>
         ))}
       </div>
+      {gateOpen && gateSettings ? (
+        <GuestShortsRegistrationGateModal
+          settings={gateSettings}
+          onDismiss={() => setGateOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -14,11 +14,13 @@ import { FacebookShareImageService } from './facebook-share-image.service';
 import { VideoOgThumbnailService } from './video-og-thumbnail.service';
 import { ShareModule } from '../share/share.module';
 import { BonusCampaignModule } from '../bonus-campaign/bonus-campaign.module';
+import { RegistrationGateModule } from '../registration-gate/registration-gate.module';
 
 @Module({
   imports: [
     ShareModule,
     BonusCampaignModule,
+    RegistrationGateModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

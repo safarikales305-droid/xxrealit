@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { BonusSourceType, Prisma, TiparPost } from '@prisma/client';
 import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
+import { RegistrationGateService } from '../registration-gate/registration-gate.service';
 import { PrismaService } from '../../database/prisma.service';
 import { PropertyMediaCloudinaryService } from '../properties/property-media-cloudinary.service';
 import { PropertiesService } from '../properties/properties.service';
@@ -43,6 +44,7 @@ export class TiparService {
     private readonly shortsFromPhotos: ListingShortsFromPhotosService,
     private readonly propertiesService: PropertiesService,
     private readonly bonusCampaign: BonusCampaignService,
+    private readonly registrationGate: RegistrationGateService,
   ) {}
 
   async activateTipar(userId: string) {
@@ -371,6 +373,7 @@ export class TiparService {
       },
     });
     await this.syncShortsProperty(post);
+    await this.registrationGate.markFirstContentCompleted(userId);
     const bonusGranted = await this.bonusCampaign.tryGrantBonus(
       userId,
       BonusSourceType.TIP,

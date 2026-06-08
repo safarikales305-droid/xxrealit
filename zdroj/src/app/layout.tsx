@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { AuthProvider } from "@/context/AuthContext";
+import { FirstContentGuard } from "@/components/registration/FirstContentGuard";
 import { PwaInstallPrompt } from "@/components/pwa/PwaInstallPrompt";
 import { getSiteMetadataBase } from "@/lib/app-url";
 import "./globals.css";
@@ -32,7 +33,9 @@ export default function RootLayout({
     <html lang="cs">
       <body>
         <AuthProvider>
-          <div className="w-full min-h-screen">{children}</div>
+          <FirstContentGuard>
+            <div className="w-full min-h-screen">{children}</div>
+          </FirstContentGuard>
           <PwaInstallPrompt />
         </AuthProvider>
       </body>

@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { RegistrationGateService } from '../registration-gate/registration-gate.service';
 import { UsersService } from '../users/users.service';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -22,6 +23,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly usersService: UsersService,
+    private readonly registrationGate: RegistrationGateService,
     private readonly config: ConfigService,
   ) {}
 
@@ -112,9 +114,15 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Get('me')
   async getMe(@Request() req: { user: AuthUser }) {
+    await this.registrationGate.syncFirstContentStatus(req.user.id);
+    const requireFirstContent = await this.registrationGate.getRequireFirstContent();
     const profile = await this.usersService.getMeProfile(req.user.id);
     if (!profile) {
-      return req.user;
+      return {
+        ...req.user,
+        firstContentCompleted: false,
+        requireFirstContent,
+      };
     }
     return {
       id: profile.id,
@@ -129,6 +137,8 @@ export class AuthController {
       coverCrop: profile.coverCrop ?? null,
       bio: profile.bio ?? null,
       createdAt: profile.createdAt.toISOString(),
+      firstContentCompleted: Boolean(profile.firstContentCompleted),
+      requireFirstContent,
     };
   }
 }

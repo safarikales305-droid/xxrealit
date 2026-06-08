@@ -117,6 +117,8 @@ model User {
   /// Average rating 0–5 (manual / future reviews).
   rating       Float      @default(0)
   creditBalance Int       @default(0)
+  /// Uživatel vložil první inzerát nebo tip (onboarding po registraci).
+  firstContentCompleted Boolean @default(false)
   /// Aktivní role tipaře — může vytvářet tipy na nemovitosti.
   isTipar       Boolean   @default(false)
   createdAt    DateTime   @default(now())
@@ -1187,4 +1189,21 @@ model CreditLedger {
 
   @@index([userId, createdAt])
   @@index([type])
+}
+
+/// Nastavení registrace a Shorts výzvy pro hosty (singleton řádek id=default).
+model RegistrationGateSetting {
+  id                  String   @id @default("default")
+  requireFirstContent Boolean  @default(false)
+  shortsGateEnabled   Boolean  @default(false)
+  shortsGateAfterViews Int     @default(4)
+  gateType            String   @default("BANNER")
+  title               String   @default("Založte si účet na XXrealit")
+  description         String   @default("Inzerujte, tipujte a vydělávejte s portálem XXrealit.")
+  buttonText          String   @default("Založit účet")
+  videoUrl            String?
+  bannerImageUrl      String?
+  skipAfterSeconds    Int      @default(5)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }

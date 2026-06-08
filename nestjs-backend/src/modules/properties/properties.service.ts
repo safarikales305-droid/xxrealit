@@ -30,6 +30,7 @@ import {
 } from './property-import-branch-visibility';
 import { classicPublicListingWhere } from './property-listing-scope';
 import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
+import { RegistrationGateService } from '../registration-gate/registration-gate.service';
 import { BonusSourceType } from '@prisma/client';
 
 /** Kanonické klíče (import + `detectPropertyType`) — musí sedět s `ptype` ve frontend URL. */
@@ -82,6 +83,7 @@ export class PropertiesService {
     private readonly shareMetadata: ShareMetadataService,
     private readonly facebookShareImage: FacebookShareImageService,
     private readonly bonusCampaign: BonusCampaignService,
+    private readonly registrationGate: RegistrationGateService,
   ) {}
 
   /** Předgeneruje statický JPG 1200×630 pro Facebook og:image. */
@@ -986,6 +988,7 @@ export class PropertiesService {
       );
 
       const ownerAccess = await this.viewerAccess(ownerId);
+      await this.registrationGate.markFirstContentCompleted(ownerId);
       const bonusGranted = await this.bonusCampaign.tryGrantBonus(
         ownerId,
         BonusSourceType.LISTING,

@@ -289,6 +289,7 @@ export class UsersService {
       role: true,
       createdAt: true,
       creditBalance: true,
+      firstContentCompleted: true,
       isTipar: true,
       isPremiumBroker: true,
       brokerLeadNotificationEnabled: true,
@@ -480,6 +481,7 @@ export class UsersService {
       brokerReviewAverage: u.brokerReviewAverage,
       brokerReviewCount: u.brokerReviewCount,
       creditBalance: u.creditBalance ?? 0,
+      firstContentCompleted: Boolean(u.firstContentCompleted),
       isTipar: Boolean(u.isTipar),
       agentProfile,
       companyProfile: u.companyProfile

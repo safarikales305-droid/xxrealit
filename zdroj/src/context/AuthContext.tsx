@@ -26,6 +26,8 @@ export type AuthUser = {
   coverImage?: string | null;
   coverCrop?: { x: number; y: number; zoom: number } | null;
   bio?: string | null;
+  firstContentCompleted?: boolean;
+  requireFirstContent?: boolean;
 };
 
 type AuthContextValue = {
@@ -96,6 +98,8 @@ function normalizeMeUser(raw: unknown): AuthUser | null {
     coverImage,
     coverCrop,
     bio,
+    firstContentCompleted: o.firstContentCompleted === true,
+    requireFirstContent: o.requireFirstContent === true,
   };
 }
 

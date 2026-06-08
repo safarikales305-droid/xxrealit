@@ -33,7 +33,7 @@ type Props = {
 };
 
 export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel }: Props) {
-  const { apiAccessToken } = useAuth();
+  const { apiAccessToken, refresh } = useAuth();
   const isEdit = Boolean(editTip?.id);
   const shortsSectionRef = useRef<HTMLDivElement | null>(null);
 
@@ -494,6 +494,7 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
     setSuccessMessage(
       bonusMsg ? `Tip byl publikován. ${bonusMsg}` : 'Tip byl publikován',
     );
+    await refresh();
     resetFormState();
     onSaved?.(r.data);
   }

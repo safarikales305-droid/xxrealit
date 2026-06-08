@@ -17,7 +17,7 @@ const sectionTitle =
   'mb-4 flex items-center gap-2 text-base font-semibold tracking-tight text-zinc-900';
 
 export function ListingCreateForm() {
-  const { apiAccessToken } = useAuth();
+  const { apiAccessToken, refresh } = useAuth();
 
   const [offerType, setOfferType] = useState('prodej');
   const [propertyType, setPropertyType] = useState('byt');
@@ -333,6 +333,7 @@ export function ListingCreateForm() {
     }
     setSuccess(true);
     if (r.bonusGranted?.message) setBonusMessage(r.bonusGranted.message);
+    await refresh();
     setTitle('');
     setDescription('');
     setPrice('');
