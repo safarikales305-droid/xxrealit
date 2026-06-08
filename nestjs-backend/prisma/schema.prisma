@@ -187,6 +187,8 @@ model User {
   contactUnlocks ContactUnlock[]
   creditTransactionsAsBuyer CreditTransaction[] @relation("CreditTransactionBuyer")
   creditTransactionsAsTipar CreditTransaction[] @relation("CreditTransactionTipar")
+  creditLedgerEntries CreditLedger[]
+  bonusClaims         BonusClaim[]
   facebookConnection FacebookConnection?
 }
 
@@ -1120,4 +1122,69 @@ model BrokerReview {
 
   @@unique([brokerId, authorId])
   @@index([brokerId, isVisible, createdAt])
+}
+
+enum BonusAppliesTo {
+  LISTING
+  TIP
+  BOTH
+}
+
+enum BonusSourceType {
+  LISTING
+  TIP
+}
+
+/// Bonusová akce pro nové inzeráty / tipy.
+model BonusCampaign {
+  id          String         @id @default(cuid())
+  title       String
+  ctaText     String         @default("Založ účet, inzeruj a vydělávej")
+  bonusText   String         @default("Bonus 1 000 Kč kreditu při vložení inzerátu nebo tipu")
+  amount      Int
+  appliesTo   BonusAppliesTo @default(BOTH)
+  isActive    Boolean        @default(false)
+  activeFrom  DateTime?
+  activeTo    DateTime?
+  oncePerUser Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  claims BonusClaim[]
+
+  @@index([isActive, activeFrom, activeTo])
+}
+
+/// Připsaný bonus uživateli (1× podle kampaně).
+model BonusClaim {
+  id         String          @id @default(cuid())
+  userId     String
+  campaignId String
+  amount     Int
+  sourceType BonusSourceType
+  sourceId   String
+  createdAt  DateTime        @default(now())
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign BonusCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, campaignId])
+  @@index([userId, createdAt])
+  @@index([campaignId])
+}
+
+/// Historie pohybů kreditu (bonusy, budoucí typy).
+model CreditLedger {
+  id          String   @id @default(cuid())
+  userId      String
+  amount      Int
+  type        String
+  referenceId String?
+  description String?
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([type])
 }

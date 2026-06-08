@@ -29,6 +29,7 @@ import { DebugModule } from './modules/debug/debug.module';
 import { ShareModule } from './modules/share/share.module';
 import { LinkPreviewModule } from './modules/link-preview/link-preview.module';
 import { ShareGateVideoModule } from './modules/share-gate-video/share-gate-video.module';
+import { BonusCampaignModule } from './modules/bonus-campaign/bonus-campaign.module';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { ShareGateVideoModule } from './modules/share-gate-video/share-gate-vide
     ShareModule,
     LinkPreviewModule,
     ShareGateVideoModule,
+    BonusCampaignModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

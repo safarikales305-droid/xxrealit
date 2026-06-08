@@ -13,10 +13,12 @@ import { ShortsListingService } from './shorts-listing.service';
 import { FacebookShareImageService } from './facebook-share-image.service';
 import { VideoOgThumbnailService } from './video-og-thumbnail.service';
 import { ShareModule } from '../share/share.module';
+import { BonusCampaignModule } from '../bonus-campaign/bonus-campaign.module';
 
 @Module({
   imports: [
     ShareModule,
+    BonusCampaignModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

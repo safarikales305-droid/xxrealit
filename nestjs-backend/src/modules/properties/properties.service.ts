@@ -29,6 +29,8 @@ import {
   isImportedProperty,
 } from './property-import-branch-visibility';
 import { classicPublicListingWhere } from './property-listing-scope';
+import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
+import { BonusSourceType } from '@prisma/client';
 
 /** Kanonické klíče (import + `detectPropertyType`) — musí sedět s `ptype` ve frontend URL. */
 const CANONICAL_PROPERTY_TYPE_KEYS = new Set([
@@ -79,6 +81,7 @@ export class PropertiesService {
     private readonly watermarkSettings: ListingWatermarkSettingsService,
     private readonly shareMetadata: ShareMetadataService,
     private readonly facebookShareImage: FacebookShareImageService,
+    private readonly bonusCampaign: BonusCampaignService,
   ) {}
 
   /** Předgeneruje statický JPG 1200×630 pro Facebook og:image. */
@@ -983,7 +986,12 @@ export class PropertiesService {
       );
 
       const ownerAccess = await this.viewerAccess(ownerId);
-      return serializeProperty(
+      const bonusGranted = await this.bonusCampaign.tryGrantBonus(
+        ownerId,
+        BonusSourceType.LISTING,
+        full.id,
+      );
+      const serialized = serializeProperty(
         {
           ...full,
           likes: likesArr,
@@ -993,6 +1001,10 @@ export class PropertiesService {
         ownerId,
         ownerAccess,
       );
+      return {
+        ...serialized,
+        bonusGranted: bonusGranted.granted ? bonusGranted : undefined,
+      };
     } catch (e) {
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&

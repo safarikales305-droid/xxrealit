@@ -487,7 +487,13 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
       setError(r.error ?? 'Uložení tipu selhalo.');
       return;
     }
-    setSuccessMessage('Tip byl publikován');
+    const bonusMsg =
+      !isEdit && r.data && typeof r.data === 'object' && 'bonusGranted' in r.data
+        ? (r.data as { bonusGranted?: { message?: string } }).bonusGranted?.message
+        : undefined;
+    setSuccessMessage(
+      bonusMsg ? `Tip byl publikován. ${bonusMsg}` : 'Tip byl publikován',
+    );
     resetFormState();
     onSaved?.(r.data);
   }

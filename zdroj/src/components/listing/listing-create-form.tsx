@@ -60,6 +60,7 @@ export function ListingCreateForm() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [bonusMessage, setBonusMessage] = useState<string | null>(null);
 
   /** Prázdné = bez hudby; jinak ID skladby z admin knihovny. */
   const [shortsMusicTrackId, setShortsMusicTrackId] = useState('');
@@ -236,6 +237,7 @@ export function ListingCreateForm() {
     e.preventDefault();
     setError(null);
     setSuccess(false);
+    setBonusMessage(null);
 
     if (!nestApiConfigured() || !apiAccessToken) {
       setError('Nastavte NEXT_PUBLIC_API_URL a přihlaste se (Nest JWT).');
@@ -330,6 +332,7 @@ export function ListingCreateForm() {
       return;
     }
     setSuccess(true);
+    if (r.bonusGranted?.message) setBonusMessage(r.bonusGranted.message);
     setTitle('');
     setDescription('');
     setPrice('');
@@ -370,11 +373,15 @@ export function ListingCreateForm() {
       className="mx-auto w-full max-w-3xl space-y-10 pb-16"
     >
       {success ? (
-        <div
-          className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-medium text-emerald-900"
-          role="status"
-        >
-          Inzerát čeká na schválení administrátorem. Po schválení se zobrazí na hlavní stránce.
+        <div className="space-y-2" role="status">
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-medium text-emerald-900">
+            Inzerát čeká na schválení administrátorem. Po schválení se zobrazí na hlavní stránce.
+          </div>
+          {bonusMessage ? (
+            <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-4 text-sm font-semibold text-orange-900">
+              {bonusMessage}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

@@ -2408,7 +2408,9 @@ export async function nestCreatePropertyListing(
 export async function nestCreatePropertyListingMultipart(
   token: string | null,
   formData: FormData,
-): Promise<{ ok: true } | { ok: false; error?: string }> {
+): Promise<
+  { ok: true; bonusGranted?: BonusGrantedDto } | { ok: false; error?: string }
+> {
   if (!API_BASE_URL || !token) {
     return { ok: false, error: 'API nebo token chybí' };
   }
@@ -2424,6 +2426,7 @@ export async function nestCreatePropertyListingMultipart(
     const data = (await res.json().catch(() => ({}))) as {
       message?: string | string[];
       error?: string;
+      bonusGranted?: BonusGrantedDto;
     };
     if (!res.ok) {
       const msg =
@@ -2436,7 +2439,10 @@ export async function nestCreatePropertyListingMultipart(
               : `HTTP ${res.status}`;
       return { ok: false, error: msg };
     }
-    return { ok: true };
+    return {
+      ok: true,
+      bonusGranted: data.bonusGranted?.granted ? data.bonusGranted : undefined,
+    };
   } catch {
     return { ok: false, error: 'Síťová chyba' };
   }
@@ -3626,6 +3632,114 @@ export async function nestAdminShareGateVideoDelete(
     return { ok: false, error: 'API nebo token chybí' };
   }
   const res = await fetch(`${API_BASE_URL}/admin/share-gate-videos/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true };
+}
+
+export type BonusCampaignAdminDto = {
+  id: string;
+  title: string;
+  ctaText: string;
+  bonusText: string;
+  amount: number;
+  appliesTo: 'LISTING' | 'TIP' | 'BOTH';
+  isActive: boolean;
+  activeFrom: string | null;
+  activeTo: string | null;
+  oncePerUser: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BonusGrantedDto = {
+  granted: boolean;
+  amount?: number;
+  message?: string;
+  campaignId?: string;
+};
+
+export async function nestAdminBonusCampaignsList(
+  token: string | null,
+): Promise<BonusCampaignAdminDto[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/bonus-campaigns`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => null);
+  return Array.isArray(data) ? (data as BonusCampaignAdminDto[]) : null;
+}
+
+export async function nestAdminBonusCampaignCreate(
+  token: string | null,
+  body: Omit<BonusCampaignAdminDto, 'id' | 'createdAt' | 'updatedAt'>,
+): Promise<{ ok: true; campaign: BonusCampaignAdminDto } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/bonus-campaigns`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as BonusCampaignAdminDto & {
+    message?: string;
+    error?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true, campaign: data };
+}
+
+export async function nestAdminBonusCampaignUpdate(
+  token: string | null,
+  id: string,
+  body: Partial<Omit<BonusCampaignAdminDto, 'id' | 'createdAt' | 'updatedAt'>>,
+): Promise<{ ok: true; campaign: BonusCampaignAdminDto } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/bonus-campaigns/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as BonusCampaignAdminDto & {
+    message?: string;
+    error?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true, campaign: data };
+}
+
+export async function nestAdminBonusCampaignDelete(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/bonus-campaigns/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
   });

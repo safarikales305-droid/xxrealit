@@ -4,7 +4,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, TiparPost } from '@prisma/client';
+import { BonusSourceType, Prisma, TiparPost } from '@prisma/client';
+import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
 import { PrismaService } from '../../database/prisma.service';
 import { PropertyMediaCloudinaryService } from '../properties/property-media-cloudinary.service';
 import { PropertiesService } from '../properties/properties.service';
@@ -41,6 +42,7 @@ export class TiparService {
     private readonly media: PropertyMediaCloudinaryService,
     private readonly shortsFromPhotos: ListingShortsFromPhotosService,
     private readonly propertiesService: PropertiesService,
+    private readonly bonusCampaign: BonusCampaignService,
   ) {}
 
   async activateTipar(userId: string) {
@@ -369,7 +371,16 @@ export class TiparService {
       },
     });
     await this.syncShortsProperty(post);
-    return this.getPostForViewer(post.id, userId);
+    const bonusGranted = await this.bonusCampaign.tryGrantBonus(
+      userId,
+      BonusSourceType.TIP,
+      post.id,
+    );
+    const viewer = await this.getPostForViewer(post.id, userId);
+    return {
+      ...viewer,
+      bonusGranted: bonusGranted.granted ? bonusGranted : undefined,
+    };
   }
 
   private async runShortsGeneration(
