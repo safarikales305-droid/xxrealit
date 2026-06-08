@@ -114,13 +114,23 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Get('me')
   async getMe(@Request() req: { user: AuthUser }) {
-    await this.registrationGate.syncFirstContentStatus(req.user.id);
-    const requireFirstContent = await this.registrationGate.getRequireFirstContent();
     const profile = await this.usersService.getMeProfile(req.user.id);
+    const isAdmin = profile?.role === 'ADMIN' || req.user.role === 'ADMIN';
+
+    let firstContentCompleted = true;
+    let requireFirstContent = false;
+
+    if (!isAdmin) {
+      firstContentCompleted = await this.registrationGate.syncFirstContentStatus(
+        req.user.id,
+      );
+      requireFirstContent = await this.registrationGate.getRequireFirstContent();
+    }
+
     if (!profile) {
       return {
         ...req.user,
-        firstContentCompleted: false,
+        firstContentCompleted,
         requireFirstContent,
       };
     }
@@ -137,7 +147,7 @@ export class AuthController {
       coverCrop: profile.coverCrop ?? null,
       bio: profile.bio ?? null,
       createdAt: profile.createdAt.toISOString(),
-      firstContentCompleted: Boolean(profile.firstContentCompleted),
+      firstContentCompleted,
       requireFirstContent,
     };
   }

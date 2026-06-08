@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, forwardRef } from '@nestjs/common';
 import type { RegistrationGateSetting } from '@prisma/client';
 import { extname } from 'node:path';
 import { PrismaService } from '../../database/prisma.service';
@@ -27,6 +27,7 @@ const DEFAULTS = {
 export class RegistrationGateService {
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => PropertyMediaCloudinaryService))
     private readonly cloudinary: PropertyMediaCloudinaryService,
   ) {}
 

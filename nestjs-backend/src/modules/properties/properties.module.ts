@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PropertiesController } from './properties.controller';
@@ -20,7 +20,7 @@ import { RegistrationGateModule } from '../registration-gate/registration-gate.m
   imports: [
     ShareModule,
     BonusCampaignModule,
-    RegistrationGateModule,
+    forwardRef(() => RegistrationGateModule),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

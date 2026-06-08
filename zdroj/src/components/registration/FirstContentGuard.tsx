@@ -15,7 +15,9 @@ export function FirstContentGuard({ children }: Props) {
   const router = useRouter();
 
   const needsOnboarding = Boolean(
-    user?.requireFirstContent && !user.firstContentCompleted,
+    user?.role !== 'ADMIN' &&
+      user?.requireFirstContent &&
+      !user.firstContentCompleted,
   );
   const allowed = isPathAllowedForFirstContent(pathname ?? '');
 

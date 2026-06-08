@@ -15,7 +15,11 @@ export default function FirstContentOnboardingPage() {
       router.replace('/prihlaseni?redirect=%2Fonboarding%2Ffirst-content');
       return;
     }
-    if (!user?.requireFirstContent || user.firstContentCompleted) {
+    if (
+      user.role === 'ADMIN' ||
+      !user.requireFirstContent ||
+      user.firstContentCompleted
+    ) {
       router.replace('/');
     }
   }, [isLoading, isAuthenticated, user, router]);
