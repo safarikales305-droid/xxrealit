@@ -1,6 +1,10 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
+import { EmailsModule } from '../emails/emails.module';
+import { MessagesModule } from '../messages/messages.module';
+import { ListingsController } from './listings.controller';
+import { ListingContactUnlockService } from './listing-contact-unlock.service';
 import { PropertiesController } from './properties.controller';
 import { PropertiesService } from './properties.service';
 import { ListingShortsFromPhotosService } from './listing-shorts-from-photos.service';
@@ -21,6 +25,8 @@ import { RegistrationGateModule } from '../registration-gate/registration-gate.m
     ShareModule,
     BonusCampaignModule,
     forwardRef(() => RegistrationGateModule),
+    MessagesModule,
+    EmailsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -29,8 +35,9 @@ import { RegistrationGateModule } from '../registration-gate/registration-gate.m
       }),
     }),
   ],
-  controllers: [PropertiesController, SeedController, ShortsListingController],
+  controllers: [PropertiesController, ListingsController, SeedController, ShortsListingController],
   providers: [
+    ListingContactUnlockService,
     PropertiesService,
     PropertyMediaCloudinaryService,
     ListingPhotoWatermarkService,
@@ -41,6 +48,7 @@ import { RegistrationGateModule } from '../registration-gate/registration-gate.m
     FacebookShareImageService,
   ],
   exports: [
+    ListingContactUnlockService,
     PropertiesService,
     PropertyMediaCloudinaryService,
     ListingWatermarkSettingsService,

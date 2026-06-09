@@ -422,4 +422,62 @@ export class EmailsService implements OnModuleInit {
       },
     });
   }
+
+  async sendContactLeadEmail(input: {
+    to: string;
+    ownerName: string;
+    listingTitle: string;
+    listingUrl: string;
+    leadName: string;
+    leadEmail: string;
+    leadPhone: string;
+    date: string;
+    time: string;
+  }) {
+    const listingUrl = this.normalizePublicUrl(input.listingUrl);
+    const subject = `Zájemce o inzerát: ${input.listingTitle}`;
+    const html = this.buildLayout(
+      [
+        `<p>Dobrý den ${input.ownerName},</p>`,
+        `<p><strong>Uživatel projevil zájem o váš inzerát a zobrazil si kontakt.</strong></p>`,
+        `<p><strong>Inzerát:</strong> ${input.listingTitle}</p>`,
+        `<p><strong>Jméno zájemce:</strong> ${input.leadName}</p>`,
+        `<p><strong>E-mail:</strong> ${input.leadEmail}</p>`,
+        `<p><strong>Telefon:</strong> ${input.leadPhone}</p>`,
+        `<p><strong>Datum:</strong> ${input.date} ${input.time}</p>`,
+        `<p><a href="${listingUrl}">Otevřít inzerát</a></p>`,
+      ].join(''),
+      listingUrl,
+    );
+    const text = [
+      `Dobrý den ${input.ownerName},`,
+      '',
+      'Uživatel projevil zájem o váš inzerát a zobrazil si kontakt.',
+      '',
+      `Inzerát: ${input.listingTitle}`,
+      `Jméno: ${input.leadName}`,
+      `E-mail: ${input.leadEmail}`,
+      `Telefon: ${input.leadPhone}`,
+      `Datum: ${input.date} ${input.time}`,
+      '',
+      listingUrl,
+    ].join('\n');
+
+    const apiKey = this.config.get<string>('RESEND_API_KEY')?.trim();
+    if (!apiKey) {
+      throw new Error('Missing RESEND_API_KEY');
+    }
+    const resend = new Resend(apiKey);
+    const response = await resend.emails.send({
+      from: this.senderAddress(),
+      to: input.to,
+      subject,
+      html,
+      text,
+    });
+    if (response.error) {
+      throw new Error(response.error.message || 'Unknown resend error');
+    }
+    return { ok: true };
+  }
 }

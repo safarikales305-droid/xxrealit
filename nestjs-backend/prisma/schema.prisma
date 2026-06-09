@@ -187,6 +187,9 @@ model User {
   shortsListings ShortsListing[] @relation("UserShortsListings")
   tiparPosts     TiparPost[]
   contactUnlocks ContactUnlock[]
+  listingContactUnlocks ListingContactUnlock[]
+  contactLeadsAsInterested ContactLead[] @relation("ContactLeadInterested")
+  contactLeadsAsOwner      ContactLead[] @relation("ContactLeadOwner")
   creditTransactionsAsBuyer CreditTransaction[] @relation("CreditTransactionBuyer")
   creditTransactionsAsTipar CreditTransaction[] @relation("CreditTransactionTipar")
   creditLedgerEntries CreditLedger[]
@@ -611,6 +614,9 @@ model Property {
   contactName     String   @default("")
   contactPhone    String   @default("")
   contactEmail    String   @default("")
+  /// Placené odemčení kontaktu (kredit zájemce).
+  isContactPaid   Boolean  @default(false)
+  contactUnlockPrice Int   @default(0)
 
   /// Ve veřejném výpisu jen schválené; admin vidí vše v admin API.
   approved        Boolean  @default(false)
@@ -692,6 +698,8 @@ model Property {
   conversations PropertyConversation[]
   brokerLeadOffers BrokerLeadOffer[]
   importedBrokerContactLinks ImportedBrokerContactListing[]
+  listingContactUnlocks ListingContactUnlock[]
+  contactLeads          ContactLead[] @relation("ContactLeadListing")
 
   @@index([userId])
   @@index([derivedFromPropertyId])
@@ -1022,10 +1030,51 @@ model TiparPost {
   publishedProperty Property?          @relation("TiparPublishedProperty", fields: [publishedPropertyId], references: [id], onDelete: SetNull)
   contactUnlocks    ContactUnlock[]
   creditTransactions CreditTransaction[]
+  contactLeads      ContactLead[] @relation("ContactLeadTip")
 
   @@index([userId, createdAt])
   @@index([isShorts, isActive, approved])
   @@index([deletedAt])
+}
+
+/// Odemčení kontaktu inzerátu (idempotentní — jednou zaplaceno, pak zdarma).
+model ListingContactUnlock {
+  id         String   @id @default(cuid())
+  userId     String
+  propertyId String
+  amount     Int      @default(0)
+  unlockedAt DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, propertyId])
+  @@index([propertyId])
+}
+
+/// Lead zájemce po vyplnění formuláře před zobrazením kontaktu.
+model ContactLead {
+  id               String   @id @default(cuid())
+  listingId        String?
+  tipId            String?
+  interestedUserId String
+  ownerUserId      String
+  name             String
+  email            String
+  phone            String
+  unlockPrice      Int      @default(0)
+  creditCharged    Boolean  @default(false)
+  createdAt        DateTime @default(now())
+
+  listing        Property?  @relation("ContactLeadListing", fields: [listingId], references: [id], onDelete: SetNull)
+  tip            TiparPost? @relation("ContactLeadTip", fields: [tipId], references: [id], onDelete: SetNull)
+  interestedUser User       @relation("ContactLeadInterested", fields: [interestedUserId], references: [id], onDelete: Cascade)
+  owner          User       @relation("ContactLeadOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@index([tipId])
+  @@index([ownerUserId, createdAt])
+  @@index([interestedUserId, createdAt])
 }
 
 /// Odemčení kontaktu tipařského tipu (idempotentní — jednou zaplaceno, pak zdarma).

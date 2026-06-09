@@ -120,6 +120,12 @@ function normalizePropertyFromDetailShape(prop: Record<string, unknown>): Proper
       isOwnerListing: typeof prop.isOwnerListing === 'boolean' ? prop.isOwnerListing : undefined,
       directContactVisible:
         typeof prop.directContactVisible === 'boolean' ? prop.directContactVisible : undefined,
+      contactUnlocked: prop.contactUnlocked === true,
+      contactUnlockPrice:
+        typeof prop.contactUnlockPrice === 'number' && Number.isFinite(prop.contactUnlockPrice)
+          ? Math.max(0, Math.trunc(prop.contactUnlockPrice))
+          : undefined,
+      isContactPaid: prop.isContactPaid === true,
     });
   } catch {
     return null;

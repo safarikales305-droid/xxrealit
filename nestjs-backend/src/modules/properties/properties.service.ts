@@ -60,8 +60,10 @@ import {
 } from './property-public-visibility';
 import {
   serializeProperty,
+  type PropertySerializeOptions,
   type PropertyViewerAccess,
 } from './properties.serializer';
+import { ListingContactUnlockService } from './listing-contact-unlock.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { OwnerListingNotifyService } from '../premium-broker/owner-listing-notify.service';
 import type { CreateShortsFromClassicDto } from './dto/create-shorts-from-classic.dto';
@@ -84,6 +86,7 @@ export class PropertiesService {
     private readonly facebookShareImage: FacebookShareImageService,
     private readonly bonusCampaign: BonusCampaignService,
     private readonly registrationGate: RegistrationGateService,
+    private readonly listingContactUnlock: ListingContactUnlockService,
   ) {}
 
   /** Předgeneruje statický JPG 1200×630 pro Facebook og:image. */
@@ -730,6 +733,23 @@ export class PropertiesService {
       });
     }
 
+    const contactUnlocked = await this.listingContactUnlock.hasUnlocked(
+      viewerId,
+      property.id,
+      Boolean(property.isTiparTip),
+    );
+    const contactUnlockPrice = await this.listingContactUnlock.resolveUnlockPrice({
+      id: property.id,
+      isTiparTip: Boolean(property.isTiparTip),
+      isContactPaid: Boolean(property.isContactPaid),
+      contactUnlockPrice: property.contactUnlockPrice ?? 0,
+    });
+    const serializeOpts: PropertySerializeOptions = {
+      contactUnlocked,
+      contactUnlockPrice,
+      isContactPaid: Boolean(property.isContactPaid) || Boolean(property.isTiparTip),
+    };
+
     let propertySerialized: Record<string, unknown>;
     let otherProperties: Record<string, unknown>[];
     try {
@@ -742,6 +762,7 @@ export class PropertiesService {
         },
         viewerId,
         access,
+        serializeOpts,
       );
       otherProperties = otherRows.map((r) =>
         serializeProperty(

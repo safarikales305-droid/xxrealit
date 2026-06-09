@@ -101,6 +101,9 @@ export type PropertyFromApi = {
   isOwnerListing?: boolean;
   ownerContactConsent?: boolean;
   directContactVisible?: boolean;
+  contactUnlocked?: boolean;
+  contactUnlockPrice?: number;
+  isContactPaid?: boolean;
   contactName?: string | null;
   companyName?: string | null;
   contactPhone?: string | null;
@@ -152,6 +155,9 @@ export type PropertyFeedItem = {
   isOwnerListing?: boolean;
   ownerContactConsent?: boolean;
   directContactVisible?: boolean;
+  contactUnlocked?: boolean;
+  contactUnlockPrice?: number;
+  isContactPaid?: boolean;
   contactName?: string | null;
   companyName?: string | null;
   contactPhone?: string | null;
@@ -272,6 +278,12 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
       typeof p.ownerContactConsent === 'boolean' ? p.ownerContactConsent : undefined,
     directContactVisible:
       typeof p.directContactVisible === 'boolean' ? p.directContactVisible : undefined,
+    contactUnlocked: p.contactUnlocked === true,
+    contactUnlockPrice:
+      typeof p.contactUnlockPrice === 'number' && Number.isFinite(p.contactUnlockPrice)
+        ? Math.max(0, Math.trunc(p.contactUnlockPrice))
+        : undefined,
+    isContactPaid: p.isContactPaid === true,
     contactName:
       p.contactName === null || typeof p.contactName === 'string'
         ? p.contactName
@@ -408,6 +420,12 @@ export function safeNormalizePropertyFromApi(
         typeof o.ownerContactConsent === 'boolean' ? o.ownerContactConsent : undefined,
       directContactVisible:
         typeof o.directContactVisible === 'boolean' ? o.directContactVisible : undefined,
+      contactUnlocked: o.contactUnlocked === true,
+      contactUnlockPrice:
+        typeof o.contactUnlockPrice === 'number' && Number.isFinite(o.contactUnlockPrice)
+          ? Math.max(0, Math.trunc(o.contactUnlockPrice))
+          : undefined,
+      isContactPaid: o.isContactPaid === true,
       contactName:
         o.contactName === null || typeof o.contactName === 'string'
           ? o.contactName

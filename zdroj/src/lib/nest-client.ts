@@ -5626,6 +5626,73 @@ export async function nestTiparUnlockContact(
   };
 }
 
+export async function nestListingUnlockContact(
+  token: string | null,
+  listingId: string,
+  payload: { name: string; email: string; phone: string },
+): Promise<{
+  ok: boolean;
+  data?: {
+    phone: string | null;
+    email: string | null;
+    contactName: string | null;
+    alreadyUnlocked: boolean;
+    creditCharged: number;
+  };
+  error?: string;
+  code?: string;
+}> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(
+    `${API_BASE_URL}/listings/${encodeURIComponent(listingId)}/unlock-contact`,
+    {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    const nested =
+      data.message && typeof data.message === 'object' && !Array.isArray(data.message)
+        ? (data.message as Record<string, unknown>)
+        : null;
+    const msg =
+      typeof data.message === 'string'
+        ? data.message
+        : typeof nested?.message === 'string'
+          ? nested.message
+          : nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`);
+    return {
+      ok: false,
+      error: msg,
+      code:
+        typeof data.code === 'string'
+          ? data.code
+          : typeof nested?.code === 'string'
+            ? nested.code
+            : undefined,
+    };
+  }
+  return {
+    ok: true,
+    data: {
+      phone: typeof data.phone === 'string' ? data.phone : null,
+      email: typeof data.email === 'string' ? data.email : null,
+      contactName: typeof data.contactName === 'string' ? data.contactName : null,
+      alreadyUnlocked: data.alreadyUnlocked === true,
+      creditCharged:
+        typeof data.creditCharged === 'number' && Number.isFinite(data.creditCharged)
+          ? data.creditCharged
+          : 0,
+    },
+  };
+}
+
 export async function nestAdminTiparPosts(token: string | null): Promise<TiparPostRow[]> {
   if (!API_BASE_URL || !token) return [];
   const res = await fetch(`${API_BASE_URL}/admin/tipar/posts`, {

@@ -4,12 +4,14 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { Heart, MessageCircle } from 'lucide-react';
+import { ContactLeadModal } from '@/components/listing/ContactLeadModal';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { useAuth } from '@/hooks/use-auth';
 import { getNestPublicOrigin, nestAbsoluteAssetUrl } from '@/lib/api';
 import { isValidImageUrl, normalizeImageCandidate } from '@/lib/images';
 import {
+  nestListingUnlockContact,
   nestShareListingByEmail,
   nestSubmitOwnerLeadOffer,
   nestToggleFavorite,
@@ -160,6 +162,15 @@ export function NemovitostDetailView({
   const [shareSenderMessage, setShareSenderMessage] = useState('');
   const [shareEmailBusy, setShareEmailBusy] = useState(false);
   const [shareEmailMsg, setShareEmailMsg] = useState<string | null>(null);
+  const [contactLeadOpen, setContactLeadOpen] = useState(false);
+  const [contactLeadBusy, setContactLeadBusy] = useState(false);
+  const [contactLeadError, setContactLeadError] = useState<string | null>(null);
+  const [contactSuccessMsg, setContactSuccessMsg] = useState<string | null>(null);
+  const [unlockedContact, setUnlockedContact] = useState<{
+    phone: string | null;
+    email: string | null;
+    contactName: string | null;
+  } | null>(null);
   const active = media[safeMediaIndex] ?? media[0];
 
   useEffect(() => {
@@ -216,10 +227,12 @@ export function NemovitostDetailView({
   );
   const isAgentViewer = user?.role === 'AGENT';
   const showOwnerBadges = Boolean(p.isOwnerListing);
-  const directContactOk = p.directContactVisible === true;
-  const phone = (p.contactPhone ?? '').trim();
-  const email = (p.contactEmail ?? '').trim();
-  const nameContact = (p.contactName ?? '').trim();
+  const directContactOk = p.directContactVisible === true || p.contactUnlocked === true;
+  const phone = (unlockedContact?.phone ?? p.contactPhone ?? '').trim();
+  const email = (unlockedContact?.email ?? p.contactEmail ?? '').trim();
+  const nameContact = (unlockedContact?.contactName ?? p.contactName ?? '').trim();
+  const contactRevealed = directContactOk || Boolean(unlockedContact);
+  const contactUnlockPrice = p.contactUnlockPrice ?? 0;
   const companyName =
     (p as PropertyFeedItem & { companyName?: string | null }).companyName?.trim() ?? '';
   const coverForMessage = classicListingCoverUrl(p);
@@ -236,7 +249,43 @@ export function NemovitostDetailView({
 
   function redirectToLoginForMessages() {
     const path = `/nemovitost/${encodeURIComponent(propertyId)}`;
-    router.push(`/prihlaseni?redirect=${encodeURIComponent(path)}`);
+    router.push(`/login?redirect=${encodeURIComponent(path)}`);
+  }
+
+  function handleShowContact() {
+    if (!isAuthenticated || !apiAccessToken) {
+      window.alert('Pro zobrazení kontaktu se přihlaste.');
+      redirectToLoginForMessages();
+      return;
+    }
+    if (isOwner || contactRevealed) return;
+    setContactLeadError(null);
+    setContactLeadOpen(true);
+  }
+
+  async function handleContactLeadSubmit(lead: {
+    name: string;
+    email: string;
+    phone: string;
+  }) {
+    if (!apiAccessToken) return;
+    setContactLeadBusy(true);
+    setContactLeadError(null);
+    const r = await nestListingUnlockContact(apiAccessToken, propertyId, lead);
+    setContactLeadBusy(false);
+    if (!r.ok || !r.data) {
+      setContactLeadError(r.error ?? 'Odemčení kontaktu se nezdařilo.');
+      return;
+    }
+    setContactLeadOpen(false);
+    setUnlockedContact({
+      phone: r.data.phone,
+      email: r.data.email,
+      contactName: r.data.contactName,
+    });
+    setContactSuccessMsg(
+      'Kontakt byl odemčen. Vaše údaje byly odeslány inzerentovi.',
+    );
   }
 
   function handleWriteSeller() {
@@ -311,7 +360,40 @@ export function NemovitostDetailView({
     'inline-flex size-14 shrink-0 items-center justify-center rounded-full border-2 border-orange-300/90 bg-white text-orange-700 shadow-[0_6px_24px_rgba(0,0,0,0.08)] transition hover:border-orange-500 hover:bg-gradient-to-br hover:from-orange-50 hover:to-amber-50 hover:text-orange-800 active:scale-95 disabled:pointer-events-none disabled:opacity-45';
 
   const primaryMessageClass =
-    'inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full border-2 border-orange-400/90 bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-3.5 text-base font-extrabold text-white shadow-[0_12px_36px_rgba(255,90,0,0.35)] transition hover:brightness-110 active:scale-[0.99] sm:text-lg';
+    'mx-auto flex h-[50px] w-full max-w-[360px] items-center justify-center gap-2 rounded-full border-2 border-orange-400/90 bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2.5 text-sm font-bold text-white shadow-[0_8px_24px_rgba(255,90,0,0.3)] transition hover:brightness-110 active:scale-[0.99] max-md:max-w-none';
+
+  const secondaryActionClass =
+    'mx-auto flex h-[50px] w-full max-w-[360px] items-center justify-center gap-2 rounded-full border-2 border-zinc-300 bg-white px-5 py-2.5 text-sm font-bold text-zinc-800 shadow-sm transition hover:border-orange-300 hover:bg-orange-50 max-md:max-w-none';
+
+  function renderContactBlock(compact = false) {
+    if (!contactRevealed || (!phone && !email)) return null;
+    return (
+      <div
+        className={`space-y-2 rounded-xl border border-emerald-200 bg-emerald-50/90 text-sm text-zinc-800 ${compact ? 'mt-3 p-3' : 'mt-3 p-3'}`}
+      >
+        {contactSuccessMsg ? (
+          <p className="font-medium text-emerald-800">{contactSuccessMsg}</p>
+        ) : null}
+        {nameContact ? <p className="font-semibold">{nameContact}</p> : null}
+        {phone ? (
+          <p>
+            Telefon:{' '}
+            <a href={`tel:${phone}`} className="font-semibold text-orange-700 hover:underline">
+              {phone}
+            </a>
+          </p>
+        ) : null}
+        {email ? (
+          <p className="break-all">
+            E-mail:{' '}
+            <a href={`mailto:${email}`} className="font-semibold text-orange-700 hover:underline">
+              {email}
+            </a>
+          </p>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6">
@@ -468,17 +550,36 @@ export function NemovitostDetailView({
                 <p className="text-[11px] font-extrabold uppercase tracking-wider text-orange-800/75">
                   Rychlé akce
                 </p>
-                <div className="mt-3 flex flex-col gap-3">
+                <div className="mt-3 flex flex-col items-center gap-3">
                   <button type="button" onClick={handleWriteSeller} className={primaryMessageClass}>
-                    <MessageCircle className="size-6 shrink-0" strokeWidth={2.25} aria-hidden />
+                    <MessageCircle className="size-5 shrink-0" strokeWidth={2.25} aria-hidden />
                     Odeslat zprávu prodejci
                   </button>
+                  {!isOwner ? (
+                    <button
+                      type="button"
+                      onClick={handleShowContact}
+                      className={secondaryActionClass}
+                      disabled={contactRevealed}
+                    >
+                      Zobrazit kontakt
+                      {contactUnlockPrice > 0 && !contactRevealed
+                        ? ` (${contactUnlockPrice.toLocaleString('cs-CZ')} Kč)`
+                        : ''}
+                    </button>
+                  ) : null}
+                  {contactLeadError && !contactLeadOpen ? (
+                    <p className="w-full max-w-[360px] text-sm font-medium text-red-600" role="alert">
+                      {contactLeadError}
+                    </p>
+                  ) : null}
+                  {renderContactBlock(true)}
                   {sellerActionHint ? (
-                    <p className="text-sm font-medium text-amber-800" role="status">
+                    <p className="w-full text-sm font-medium text-amber-800" role="status">
                       {sellerActionHint}
                     </p>
                   ) : null}
-                  <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex w-full flex-wrap items-center justify-center gap-3">
                     <button
                       type="button"
                       disabled={likeBusy}
@@ -558,35 +659,25 @@ export function NemovitostDetailView({
             <p className="mt-2 text-sm text-zinc-600">
               Domluvte si prohlídku nebo doplňující informace u inzerenta.
             </p>
-            {directContactOk && (phone || email) ? (
-              <div className="mt-3 space-y-2 rounded-xl border border-zinc-100 bg-zinc-50/80 p-3 text-sm text-zinc-800">
-                {nameContact ? <p className="font-medium">{nameContact}</p> : null}
-                {companyName ? <p className="text-zinc-600">{companyName}</p> : null}
-                {phone ? (
-                  <p>
-                    Tel.:{' '}
-                    <a href={`tel:${phone}`} className="font-semibold text-orange-700 hover:underline">
-                      {phone}
-                    </a>
-                  </p>
-                ) : null}
-                {email ? (
-                  <p className="break-all">
-                    E-mail:{' '}
-                    <a href={`mailto:${email}`} className="font-semibold text-orange-700 hover:underline">
-                      {email}
-                    </a>
-                  </p>
-                ) : null}
-              </div>
-            ) : p.isOwnerListing ? (
+            {!isOwner ? (
+              <button
+                type="button"
+                onClick={handleShowContact}
+                className={`${secondaryActionClass} mt-3`}
+                disabled={contactRevealed}
+              >
+                Zobrazit kontakt
+              </button>
+            ) : null}
+            {renderContactBlock()}
+            {!contactRevealed && p.isOwnerListing ? (
               <p className="mt-2 text-sm text-zinc-600">
-                U tohoto inzerátu není veřejně zobrazen přímý kontakt. Použijte zprávu přes platformu
-                nebo (jako makléř) nabídku služeb.
+                Kontakt zobrazíte po vyplnění krátkého formuláře. U vlastnických inzerátů můžete
+                také nabídnout služby jako makléř.
               </p>
             ) : null}
             <button type="button" onClick={handleWriteSeller} className={`${primaryMessageClass} mt-4`}>
-              <MessageCircle className="size-5 shrink-0 sm:size-6" strokeWidth={2.25} aria-hidden />
+              <MessageCircle className="size-5 shrink-0" strokeWidth={2.25} aria-hidden />
               Odeslat zprávu prodejci
             </button>
             {p.isOwnerListing && isAgentViewer && !isOwner ? (
@@ -636,6 +727,18 @@ export function NemovitostDetailView({
           )}
         </aside>
       </div>
+
+      <ContactLeadModal
+        open={contactLeadOpen}
+        busy={contactLeadBusy}
+        error={contactLeadError}
+        defaultName={user?.name ?? ''}
+        defaultEmail={user?.email ?? ''}
+        defaultPhone={user?.phone ?? ''}
+        unlockPrice={contactUnlockPrice}
+        onClose={() => setContactLeadOpen(false)}
+        onSubmit={(lead) => void handleContactLeadSubmit(lead)}
+      />
 
       <MessageSellerModal
         open={sellerModalOpen}

@@ -141,6 +141,8 @@ export type PropertyRowForApi = {
   activeUntil?: Date | null;
   listingType?: string;
   isTiparTip?: boolean;
+  isContactPaid?: boolean;
+  contactUnlockPrice?: number;
   viewsCount?: number;
   autoViewsEnabled?: boolean;
   autoViewsIncrement?: number;
@@ -231,6 +233,12 @@ export function serializeAdminPropertyRow(
   };
 }
 
+export type PropertySerializeOptions = {
+  contactUnlocked?: boolean;
+  contactUnlockPrice?: number;
+  isContactPaid?: boolean;
+};
+
 function shouldRedactOwnerContact(
   p: PropertyRowForApi,
   viewerId?: string,
@@ -246,13 +254,32 @@ function shouldRedactOwnerContact(
   return true;
 }
 
+function shouldHideListingContact(
+  p: PropertyRowForApi,
+  viewerId?: string,
+  access?: PropertyViewerAccess,
+  opts?: PropertySerializeOptions,
+): boolean {
+  if (access?.isAdmin) return false;
+  if (!viewerId) return true;
+  if (viewerId === p.userId) return false;
+  if (opts?.contactUnlocked) return false;
+  if (shouldRedactOwnerContact(p, viewerId, access)) return true;
+  return true;
+}
+
 function serializePropertyEmergency(
   p: Partial<PropertyRowForApi> & { id?: string },
   viewerId?: string,
   access?: PropertyViewerAccess,
+  opts?: PropertySerializeOptions,
 ): Record<string, unknown> {
-  const redact =
-    Boolean(p.isTiparTip) || shouldRedactOwnerContact(p as PropertyRowForApi, viewerId, access);
+  const redact = shouldHideListingContact(
+    p as PropertyRowForApi,
+    viewerId,
+    access,
+    opts,
+  );
   const pid = safeStr(p.id, 'unknown');
   const split = splitContactNameAndCompany(p.contactName);
   return {
@@ -354,13 +381,17 @@ function serializePropertyCore(
   p: PropertyRowForApi,
   viewerId?: string,
   access?: PropertyViewerAccess,
+  opts?: PropertySerializeOptions,
 ): Record<string, unknown> {
   const liked =
     viewerId != null &&
     Array.isArray(p.likes) &&
     p.likes.length > 0;
 
-  const redact = Boolean(p.isTiparTip) || shouldRedactOwnerContact(p, viewerId, access);
+  const redact = shouldHideListingContact(p, viewerId, access, opts);
+  const unlockPrice =
+    opts?.contactUnlockPrice ??
+    (p.isTiparTip ? 0 : Math.max(0, p.contactUnlockPrice ?? 0));
 
   const assetBase = resolveAssetBaseUrl();
   const images = (Array.isArray(p.images) ? p.images : [])
@@ -526,6 +557,9 @@ function serializePropertyCore(
     region: safeTrim(p.region),
     district: safeTrim(p.district),
     directContactVisible: !redact,
+    contactUnlocked: Boolean(opts?.contactUnlocked),
+    contactUnlockPrice: unlockPrice,
+    isContactPaid: Boolean(opts?.isContactPaid ?? p.isContactPaid),
     contactName: redact ? '' : split.contactName,
     companyName: redact ? null : split.companyName,
     contactPhone: redact ? '' : safeStr(p.contactPhone, ''),
@@ -581,9 +615,10 @@ export function serializeProperty(
   p: PropertyRowForApi,
   viewerId?: string,
   access?: PropertyViewerAccess,
+  opts?: PropertySerializeOptions,
 ): Record<string, unknown> {
   try {
-    const out = serializePropertyCore(p, viewerId, access);
+    const out = serializePropertyCore(p, viewerId, access, opts);
     if (process.env.LISTING_DETAIL_DEBUG === '1') {
       // eslint-disable-next-line no-console
       console.log('PROPERTY SERIALIZE OK', {
@@ -598,6 +633,6 @@ export function serializeProperty(
   } catch (e) {
     // eslint-disable-next-line no-console
     console.error('SERIALIZE_PROPERTY_ERROR', p?.id, e);
-    return serializePropertyEmergency(p, viewerId, access);
+    return serializePropertyEmergency(p, viewerId, access, opts);
   }
 }
