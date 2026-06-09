@@ -1,4 +1,4 @@
-import { Global, Module } from '@nestjs/common';
+import { Global, Module, forwardRef } from '@nestjs/common';
 import { PrismaModule } from '../../database/prisma.module';
 import { MessagesModule } from '../messages/messages.module';
 import { BrokerLeadOfferService } from './broker-lead-offer.service';
@@ -9,7 +9,7 @@ import { OwnerListingNotifyService } from './owner-listing-notify.service';
 
 @Global()
 @Module({
-  imports: [PrismaModule, MessagesModule],
+  imports: [PrismaModule, forwardRef(() => MessagesModule)],
   controllers: [NotificationsController],
   providers: [
     NotificationsService,

@@ -25,7 +25,7 @@ import { RegistrationGateModule } from '../registration-gate/registration-gate.m
     ShareModule,
     BonusCampaignModule,
     forwardRef(() => RegistrationGateModule),
-    MessagesModule,
+    forwardRef(() => MessagesModule),
     EmailsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

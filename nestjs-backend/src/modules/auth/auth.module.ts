@@ -14,7 +14,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
   imports: [
     ConfigModule,
     forwardRef(() => UsersModule),
-    RegistrationGateModule,
+    forwardRef(() => RegistrationGateModule),
     EmailsModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
