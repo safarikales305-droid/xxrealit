@@ -424,7 +424,9 @@ export function HomeLayout({
   const shareMissingInFeed = Boolean(
     sharedVideoId && !videoFeed.some((v) => v.id === sharedVideoId),
   );
-  const shortsBootstrapBusy = loadingFeed || (shareMissingInFeed && shareExtraLoading);
+  /** Feed zobrazíme hned po načtení shorts; sdílené video / profily jdou na pozadí. */
+  const shortsBootstrapBusy =
+    loadingFeed && videoFeed.length === 0 && filteredShortsFallback.length === 0;
 
   const hasData = classicGridItems.length > 0;
   const listingsTotalLabel = useMemo(() => {
@@ -484,10 +486,13 @@ export function HomeLayout({
     setLoadingFeed(true);
 
     void (async () => {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 12_000);
       try {
         const shortsUrl = `${API_BASE_URL}/feed/shorts`;
         const res = await fetch(shortsUrl, {
-          next: { revalidate: 20 },
+          cache: 'no-store',
+          signal: controller.signal,
         });
         if (!res.ok) {
           // eslint-disable-next-line no-console
@@ -544,14 +549,26 @@ export function HomeLayout({
           setShortsFallbackItems([]);
         }
         shortsLoadedRef.current = true;
-      } catch {
+      } catch (err) {
+        if (process.env.NODE_ENV === 'development') {
+          // eslint-disable-next-line no-console
+          console.warn('[HomeLayout] shorts feed load failed', err);
+        }
         if (!cancelled) {
           setVideoFeed([]);
           setShortsTotal(0);
-          setShortsFallbackItems([]);
+          try {
+            const classic = await loadPropertyFeedItems(API_BASE_URL, {
+              path: '/properties',
+            });
+            if (!cancelled) setShortsFallbackItems(classic.items);
+          } catch {
+            if (!cancelled) setShortsFallbackItems([]);
+          }
           shortsLoadedRef.current = true;
         }
       } finally {
+        window.clearTimeout(timeout);
         if (!cancelled) setLoadingFeed(false);
       }
     })();
@@ -661,6 +678,13 @@ export function HomeLayout({
       .then((v) => {
         if (cancelled) return;
         setShareExtraVideo(v?.id === sharedVideoId ? v : null);
+      })
+      .catch((err) => {
+        if (process.env.NODE_ENV === 'development') {
+          // eslint-disable-next-line no-console
+          console.warn('[HomeLayout] shared short video load failed', sharedVideoId, err);
+        }
+        if (!cancelled) setShareExtraVideo(null);
       })
       .finally(() => {
         if (!cancelled) setShareExtraLoading(false);

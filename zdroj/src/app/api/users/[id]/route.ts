@@ -18,5 +18,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
   });
 
   const data = await res.json().catch(() => ({}));
-  return NextResponse.json(data, { status: res.status });
+  if (!res.ok) {
+    return NextResponse.json({ user: null, videos: [], posts: [], properties: [] });
+  }
+  return NextResponse.json(data);
 }

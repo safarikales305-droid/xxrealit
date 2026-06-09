@@ -20,29 +20,35 @@ export function RightSidebar({ className = '' }: Props) {
   useEffect(() => {
     let active = true;
     setLoadingProfessionals(true);
-    void nestListPublicBrokers(apiAccessToken).then((rows) => {
-      if (!active) return;
-      if (!Array.isArray(rows)) {
+    void nestListPublicBrokers(apiAccessToken)
+      .then((rows) => {
+        if (!active) return;
+        if (!Array.isArray(rows)) {
+          setProfessionals([]);
+          return;
+        }
+        const ranked = [...rows].sort((a, b) => {
+          const aScore =
+            (a.isVerified ? 1_000 : 0) +
+            (a.avatarUrl ? 100 : 0) +
+            ((a.ratingCount ?? 0) > 0 ? 10 : 0) +
+            ((a.officeName.trim().length > 0 || a.regionLabel.trim().length > 0) ? 1 : 0);
+          const bScore =
+            (b.isVerified ? 1_000 : 0) +
+            (b.avatarUrl ? 100 : 0) +
+            ((b.ratingCount ?? 0) > 0 ? 10 : 0) +
+            ((b.officeName.trim().length > 0 || b.regionLabel.trim().length > 0) ? 1 : 0);
+          return bScore - aScore;
+        });
+        setProfessionals(ranked);
+      })
+      .catch(() => {
+        if (!active) return;
         setProfessionals([]);
-        setLoadingProfessionals(false);
-        return;
-      }
-      const ranked = [...rows].sort((a, b) => {
-        const aScore =
-          (a.isVerified ? 1_000 : 0) +
-          (a.avatarUrl ? 100 : 0) +
-          ((a.ratingCount ?? 0) > 0 ? 10 : 0) +
-          ((a.officeName.trim().length > 0 || a.regionLabel.trim().length > 0) ? 1 : 0);
-        const bScore =
-          (b.isVerified ? 1_000 : 0) +
-          (b.avatarUrl ? 100 : 0) +
-          ((b.ratingCount ?? 0) > 0 ? 10 : 0) +
-          ((b.officeName.trim().length > 0 || b.regionLabel.trim().length > 0) ? 1 : 0);
-        return bScore - aScore;
+      })
+      .finally(() => {
+        if (active) setLoadingProfessionals(false);
       });
-      setProfessionals(ranked);
-      setLoadingProfessionals(false);
-    });
     return () => {
       active = false;
     };
@@ -57,7 +63,8 @@ export function RightSidebar({ className = '' }: Props) {
     if (role === 'FINANCIAL_ADVISOR') return 'Ověřený finanční poradce';
     return 'Ověřený investor';
   };
-  const profileHref = (p: NestPublicBrokerCard) => (p.slug ? `/makler/${p.slug}` : `/profil/${p.id}`);
+  const profileHref = (p: NestPublicBrokerCard) =>
+    p.slug ? `/makler/${p.slug}` : `/profile/${p.id}`;
 
   return (
     <aside
@@ -74,6 +81,7 @@ export function RightSidebar({ className = '' }: Props) {
               <Link
                 key={p.id}
                 href={profileHref(p)}
+                prefetch={false}
                 className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-white p-2.5 transition hover:border-zinc-300"
               >
                 <img

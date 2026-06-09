@@ -72,7 +72,9 @@ export default function MakleriPage() {
                     ? b.avatarUrl
                     : nestAbsoluteAssetUrl(b.avatarUrl) || b.avatarUrl
                   : null;
-              const profileHref = b.slug ? `/makler/${encodeURIComponent(b.slug)}` : `/profil/${b.id}`;
+              const profileHref = b.slug
+                ? `/makler/${encodeURIComponent(b.slug)}`
+                : `/profile/${b.id}`;
               return (
                 <li key={b.id}>
                   <Link

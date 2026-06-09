@@ -270,6 +270,13 @@ export class UsersController {
     @Headers('authorization') auth?: string,
   ) {
     const viewerId = parseBearerUserId(this.jwt, auth);
-    return this.usersService.getPublicProfile(id, viewerId);
+    try {
+      return await this.usersService.getPublicProfile(id, viewerId);
+    } catch (err) {
+      if (err instanceof NotFoundException) {
+        return { user: null, videos: [], posts: [], properties: [] };
+      }
+      throw err;
+    }
   }
 }

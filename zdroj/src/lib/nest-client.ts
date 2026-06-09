@@ -2602,24 +2602,52 @@ export async function nestFetchProfileWall(
   profileUserId: string,
   token?: string | null,
 ): Promise<{ posts: NestProfileWallPost[]; videos: NestProfileWallVideo[] } | null> {
-  if (!API_BASE_URL) return null;
-  const res = await fetch(`${API_BASE_URL}/users/${encodeURIComponent(profileUserId)}`, {
-    cache: 'no-store',
-    headers: {
-      Accept: 'application/json',
-      ...(token ? nestAuthHeaders(token) : {}),
-    },
-  });
-  if (!res.ok) return null;
-  const data = (await res.json().catch(() => null)) as
-    | {
-        posts?: unknown[];
-        videos?: unknown[];
-      }
-    | null;
-  const posts = Array.isArray(data?.posts) ? (data?.posts as NestProfileWallPost[]) : [];
-  const videos = Array.isArray(data?.videos) ? (data?.videos as NestProfileWallVideo[]) : [];
+  const profile = await nestFetchPublicProfile(profileUserId, token);
+  if (!profile) return null;
+  const posts = Array.isArray(profile.posts) ? (profile.posts as NestProfileWallPost[]) : [];
+  const videos = Array.isArray(profile.videos) ? (profile.videos as NestProfileWallVideo[]) : [];
   return { posts, videos };
+}
+
+/** GET /users/:id — chybějící profil vrátí null, nevyhazuje. */
+export async function nestFetchPublicProfile(
+  profileUserId: string,
+  token?: string | null,
+): Promise<{
+  user: Record<string, unknown> | null;
+  posts?: unknown[];
+  videos?: unknown[];
+  properties?: unknown[];
+} | null> {
+  if (!API_BASE_URL || !profileUserId.trim()) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/users/${encodeURIComponent(profileUserId)}`, {
+      cache: 'no-store',
+      headers: {
+        Accept: 'application/json',
+        ...(token ? nestAuthHeaders(token) : {}),
+      },
+    });
+    const data = (await res.json().catch(() => null)) as {
+      user?: Record<string, unknown> | null;
+      posts?: unknown[];
+      videos?: unknown[];
+      properties?: unknown[];
+    } | null;
+    if (!res.ok || !data?.user) {
+      console.error('PROFILE LOAD FAILED', profileUserId, res.status);
+      return null;
+    }
+    return {
+      user: data.user,
+      posts: data.posts,
+      videos: data.videos,
+      properties: data.properties,
+    };
+  } catch (err) {
+    console.error('PROFILE LOAD FAILED', profileUserId, err);
+    return null;
+  }
 }
 
 export type NestShortsMediaItem = {

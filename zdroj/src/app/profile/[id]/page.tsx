@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
 import { FollowButton } from '@/components/profile/follow-button';
 import { UserPropertiesList } from '@/components/profile/user-properties-list';
 import { ROLE_LABELS, isUserRole } from '@/lib/roles';
@@ -71,7 +70,15 @@ export default async function ProfilePage({
   const { id } = await params;
   const base = getServerSideApiBaseUrl();
   if (!base) {
-    notFound();
+    return (
+      <main className="mx-auto max-w-lg px-4 py-16 text-center">
+        <h1 className="text-xl font-bold text-zinc-900">Profil není k dispozici</h1>
+        <p className="mt-2 text-sm text-zinc-600">API není nakonfigurováno.</p>
+        <Link href="/" className="mt-6 inline-block text-sm font-semibold text-[#e85d00] hover:underline">
+          Zpět na úvod
+        </Link>
+      </main>
+    );
   }
 
   const auth = await getServerAuthorizationHeader();
@@ -90,8 +97,18 @@ export default async function ProfilePage({
     ),
   ]);
 
-  if (!profile) {
-    notFound();
+  if (!profile?.user && !profile?.id) {
+    return (
+      <main className="mx-auto max-w-lg px-4 py-16 text-center">
+        <h1 className="text-xl font-bold text-zinc-900">Profil není k dispozici</h1>
+        <p className="mt-2 text-sm text-zinc-600">
+          Tento veřejný profil neexistuje nebo není zobrazen.
+        </p>
+        <Link href="/" className="mt-6 inline-block text-sm font-semibold text-[#e85d00] hover:underline">
+          Zpět na úvod
+        </Link>
+      </main>
+    );
   }
 
   const profileUser = profile.user ?? profile;
