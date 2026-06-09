@@ -90,11 +90,19 @@ const roleMap: Record<string, UserRole> = {
 
   developer: UserRole.DEVELOPER,
 
+  craftsman: UserRole.CRAFTSMAN,
+  remeslnik: UserRole.CRAFTSMAN,
+  'remeslnik ucet': UserRole.CRAFTSMAN,
+
+  tipster: UserRole.TIPSTER,
+  tipar: UserRole.TIPSTER,
+  'tipar ucet': UserRole.TIPSTER,
+
   admin: UserRole.USER,
   administrator: UserRole.USER,
-  remeslnik: UserRole.USER,
-  firmicka: UserRole.USER,
-  'stavebni firma': UserRole.DEVELOPER,
+  firmicka: UserRole.COMPANY,
+  'stavebni firma': UserRole.COMPANY,
+  'majitel stavebni firmy': UserRole.COMPANY,
 };
 
 function mapRegisterRole(input?: string): UserRole {
@@ -113,6 +121,8 @@ const REGISTER_ROLES: readonly UserRole[] = [
   UserRole.INVESTOR,
   UserRole.DEVELOPER,
   UserRole.PRIVATE_SELLER,
+  UserRole.CRAFTSMAN,
+  UserRole.TIPSTER,
 ];
 
 function errorDetailForResponse(err: unknown): Record<string, unknown> {
@@ -514,6 +524,7 @@ export class AuthService {
         phone,
         phonePublic: false,
         role: mappedRole,
+        isTipar: mappedRole === UserRole.TIPSTER,
       });
       void this.emailsService
         .sendWelcomeEmail({ email: user.email, name: user.name ?? undefined })

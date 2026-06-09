@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CreditTopUpSection } from '@/components/profile/CreditTopUpSection';
 import { PropertyGrid } from '@/components/property-grid';
 import { useAuth } from '@/hooks/use-auth';
 import { useMessagesUnreadCount } from '@/hooks/use-messages-unread';
@@ -1250,6 +1251,14 @@ export default function ProfilPage() {
                 </Link>
               </div>
             </div>
+
+            <CreditTopUpSection
+              token={apiAccessToken}
+              initialBalance={nestMe?.creditBalance}
+              onBalanceChange={(balance) =>
+                setNestMe((prev) => (prev ? { ...prev, creditBalance: balance } : prev))
+              }
+            />
 
             {['AGENT', 'COMPANY', 'AGENCY', 'FINANCIAL_ADVISOR', 'INVESTOR'].includes(user.role) ? (
               <div className="mt-4">

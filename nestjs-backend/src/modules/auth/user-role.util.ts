@@ -9,6 +9,8 @@ const KNOWN: readonly string[] = [
   UserRole.INVESTOR,
   UserRole.DEVELOPER,
   UserRole.PRIVATE_SELLER,
+  UserRole.CRAFTSMAN,
+  UserRole.TIPSTER,
   UserRole.ADMIN,
 ];
 

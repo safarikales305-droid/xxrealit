@@ -17,6 +17,8 @@ export const USER_ROLES = [
   'INVESTOR',
   'DEVELOPER',
   'PRIVATE_SELLER',
+  'CRAFTSMAN',
+  'TIPSTER',
   'ADMIN',
 ] as const;
 
@@ -43,6 +45,8 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   INVESTOR: 'Investor',
   DEVELOPER: 'Developer',
   PRIVATE_SELLER: 'Soukromý prodejce',
+  CRAFTSMAN: 'Řemeslník',
+  TIPSTER: 'Tipař',
   ADMIN: 'Administrátor',
 };
 
@@ -63,6 +67,8 @@ export const DASHBOARD_SEGMENTS: Record<UserRole, string> = {
   INVESTOR: 'INVESTOR',
   DEVELOPER: 'stavebni_firma',
   PRIVATE_SELLER: 'uzivatel',
+  CRAFTSMAN: 'remeslnik',
+  TIPSTER: 'uzivatel',
   ADMIN: 'ADMIN',
 };
 

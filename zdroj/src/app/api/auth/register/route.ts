@@ -1,10 +1,17 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { API_BASE_URL } from '@/lib/api';
+import {
+  REGISTRATION_ACCOUNT_TYPES,
+  type RegistrationAccountType,
+} from '@/lib/registration-account-types';
 
 export const runtime = 'nodejs';
 
-const ALLOWED_ROLES = ['PRIVATE_SELLER', 'AGENT', 'DEVELOPER'] as const;
+const ALLOWED_ROLES = REGISTRATION_ACCOUNT_TYPES.map((t) => t.value) as [
+  RegistrationAccountType,
+  ...RegistrationAccountType[],
+];
 
 const bodySchema = z
   .object({

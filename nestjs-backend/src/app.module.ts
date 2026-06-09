@@ -31,6 +31,7 @@ import { LinkPreviewModule } from './modules/link-preview/link-preview.module';
 import { ShareGateVideoModule } from './modules/share-gate-video/share-gate-video.module';
 import { BonusCampaignModule } from './modules/bonus-campaign/bonus-campaign.module';
 import { RegistrationGateModule } from './modules/registration-gate/registration-gate.module';
+import { CreditsModule } from './modules/credits/credits.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { RegistrationGateModule } from './modules/registration-gate/registration
     ShareGateVideoModule,
     BonusCampaignModule,
     RegistrationGateModule,
+    CreditsModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

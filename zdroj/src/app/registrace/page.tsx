@@ -4,6 +4,10 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { AuthPageShell } from '@/components/auth/auth-page-shell';
+import {
+  REGISTRATION_ACCOUNT_TYPES,
+  type RegistrationAccountType,
+} from '@/lib/registration-account-types';
 
 const inputClass =
   'w-full rounded-xl border border-zinc-200/90 bg-zinc-50/80 px-4 py-3.5 text-[15px] text-zinc-900 shadow-inner shadow-zinc-100/80 outline-none transition placeholder:text-zinc-400 focus:border-orange-400/80 focus:bg-white focus:ring-2 focus:ring-orange-500/20';
@@ -43,7 +47,7 @@ export default function RegistracePage() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [role, setRole] = useState<'PRIVATE_SELLER' | 'AGENT' | 'DEVELOPER'>('PRIVATE_SELLER');
+  const [role, setRole] = useState<RegistrationAccountType>('USER');
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [loading, setLoading] = useState(false);
@@ -182,15 +186,15 @@ export default function RegistracePage() {
             id="role"
             name="role"
             value={role}
-            onChange={(e) =>
-              setRole(e.target.value as 'PRIVATE_SELLER' | 'AGENT' | 'DEVELOPER')
-            }
+            onChange={(e) => setRole(e.target.value as RegistrationAccountType)}
             className={selectClass}
             aria-invalid={Boolean(fieldErrors.role)}
           >
-            <option value="PRIVATE_SELLER">Soukromý prodejce</option>
-            <option value="AGENT">Realitní makléř</option>
-            <option value="DEVELOPER">Developer</option>
+            {REGISTRATION_ACCOUNT_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
           </select>
           {fieldErrors.role ? (
             <p className="mt-1.5 text-sm text-red-600">{fieldErrors.role}</p>

@@ -110,6 +110,7 @@ export class UsersService {
     phone: string;
     phonePublic?: boolean;
     role: UserRole;
+    isTipar?: boolean;
   }): Promise<User> {
     return this.prisma.user.create({ data });
   }
@@ -289,6 +290,8 @@ export class UsersService {
       role: true,
       createdAt: true,
       creditBalance: true,
+      creditDebt: true,
+      accountLimited: true,
       firstContentCompleted: true,
       isTipar: true,
       isPremiumBroker: true,
@@ -481,6 +484,8 @@ export class UsersService {
       brokerReviewAverage: u.brokerReviewAverage,
       brokerReviewCount: u.brokerReviewCount,
       creditBalance: u.creditBalance ?? 0,
+      creditDebt: u.creditDebt ?? 0,
+      accountLimited: Boolean(u.accountLimited),
       firstContentCompleted: Boolean(u.firstContentCompleted),
       isTipar: Boolean(u.isTipar),
       agentProfile,

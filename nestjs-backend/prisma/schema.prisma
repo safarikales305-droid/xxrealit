@@ -16,7 +16,17 @@ enum UserRole {
   INVESTOR
   DEVELOPER
   PRIVATE_SELLER
+  CRAFTSMAN
+  TIPSTER
   ADMIN
+}
+
+enum CreditTopUpStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+  EXPIRED
+  REVERSED
 }
 
 enum PostCategory {
@@ -117,6 +127,10 @@ model User {
   /// Average rating 0–5 (manual / future reviews).
   rating       Float      @default(0)
   creditBalance Int       @default(0)
+  /// Dluh po neuhrazeném / zrušeném dobití kreditu (když uživatel kredit mezitím utratil).
+  creditDebt    Int       @default(0)
+  /// Omezený účet kvůli neuhrazenému dobití kreditu.
+  accountLimited Boolean  @default(false)
   /// Uživatel vložil první inzerát nebo tip (onboarding po registraci).
   firstContentCompleted Boolean @default(false)
   /// Aktivní role tipaře — může vytvářet tipy na nemovitosti.
@@ -193,6 +207,7 @@ model User {
   creditTransactionsAsBuyer CreditTransaction[] @relation("CreditTransactionBuyer")
   creditTransactionsAsTipar CreditTransaction[] @relation("CreditTransactionTipar")
   creditLedgerEntries CreditLedger[]
+  creditTopUpTransactions CreditTopUpTransaction[]
   bonusClaims         BonusClaim[]
   facebookConnection FacebookConnection?
 }
@@ -1238,6 +1253,44 @@ model CreditLedger {
 
   @@index([userId, createdAt])
   @@index([type])
+}
+
+/// Nastavení bankovního dobití kreditu (singleton řádek id=default).
+model CreditTopUpSetting {
+  id                  String   @id @default("default")
+  accountNumber       String   @default("")
+  bankCode            String   @default("")
+  recipientName       String   @default("XXRealit")
+  minAmount           Int      @default(300)
+  maxAmount           Int      @default(100000)
+  paymentMessage      String   @default("Dobiti kreditu XXRealit")
+  confirmDeadlineDays Int      @default(2)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+/// Dobití kreditu bankovním převodem (QR platba).
+model CreditTopUpTransaction {
+  id                  String            @id @default(cuid())
+  userId              String
+  amount              Int
+  variableSymbol      String
+  invoiceNumber       String
+  status              CreditTopUpStatus @default(PENDING)
+  qrPayload           String            @db.Text
+  creditedImmediately Boolean           @default(true)
+  expiresAt           DateTime
+  confirmedAt         DateTime?
+  rejectedAt          DateTime?
+  reversedAt          DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, expiresAt])
+  @@index([variableSymbol])
 }
 
 /// Nastavení registrace a Shorts výzvy pro hosty (singleton řádek id=default).

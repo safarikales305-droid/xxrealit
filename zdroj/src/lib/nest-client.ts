@@ -5946,3 +5946,223 @@ export async function nestOgDebug(propertyId: string): Promise<OgDebugResponse |
   }
 }
 
+export type CreditBalanceDto = {
+  creditBalance: number;
+  creditDebt: number;
+  accountLimited: boolean;
+  warning: string | null;
+  pendingTopUps: Array<{
+    id: string;
+    amount: number;
+    status: string;
+    expiresAt: string;
+    variableSymbol: string;
+  }>;
+};
+
+export type CreditTopUpResultDto = {
+  transactionId: string;
+  amount: number;
+  variableSymbol: string;
+  invoiceNumber: string;
+  qrPayload: string;
+  qrImageUrl: string;
+  expiresAt: string;
+  message: string;
+  paymentDetails: {
+    accountNumber: string;
+    bankCode: string;
+    recipientName: string;
+    amount: number;
+    currency: string;
+    variableSymbol: string;
+    paymentMessage: string;
+  };
+};
+
+export type CreditTopUpAdminDto = {
+  id: string;
+  userId: string;
+  userEmail: string;
+  userName: string;
+  amount: number;
+  variableSymbol: string;
+  invoiceNumber: string;
+  status: string;
+  qrPayload: string;
+  creditedImmediately: boolean;
+  expiresAt: string;
+  confirmedAt: string | null;
+  rejectedAt: string | null;
+  reversedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  qrImageUrl: string;
+  paymentDetails: {
+    account: string;
+    amount: number;
+    currency: string;
+    variableSymbol: string;
+    message: string;
+  };
+};
+
+export type CreditTopUpSettingsDto = {
+  id: string;
+  accountNumber: string;
+  bankCode: string;
+  recipientName: string;
+  minAmount: number;
+  maxAmount: number;
+  paymentMessage: string;
+  confirmDeadlineDays: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function nestCreditsBalance(token: string | null): Promise<CreditBalanceDto | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/credits/balance`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as CreditBalanceDto | null;
+}
+
+export async function nestCreditsTopUp(
+  token: string | null,
+  amount: number,
+): Promise<{ ok: true; data: CreditTopUpResultDto } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/credits/top-up`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ amount }),
+  });
+  const data = (await res.json().catch(() => ({}))) as CreditTopUpResultDto & {
+    message?: string | string[];
+    error?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true, data };
+}
+
+export async function nestAdminCreditTopUpsList(
+  token: string | null,
+): Promise<CreditTopUpAdminDto[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/credits/top-ups`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => null);
+  return Array.isArray(data) ? (data as CreditTopUpAdminDto[]) : null;
+}
+
+export async function nestAdminCreditTopUpConfirm(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/credits/top-ups/${encodeURIComponent(id)}/confirm`, {
+    method: 'PATCH',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminCreditTopUpReject(
+  token: string | null,
+  id: string,
+  blockAccount = false,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/credits/top-ups/${encodeURIComponent(id)}/reject`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ blockAccount }),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminCreditTopUpReverse(
+  token: string | null,
+  id: string,
+  blockAccount = false,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/credits/top-ups/${encodeURIComponent(id)}/reverse`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ blockAccount }),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminCreditSettingsGet(
+  token: string | null,
+): Promise<CreditTopUpSettingsDto | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/credits/settings`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as CreditTopUpSettingsDto | null;
+}
+
+export async function nestAdminCreditSettingsUpdate(
+  token: string | null,
+  body: Partial<Omit<CreditTopUpSettingsDto, 'id' | 'createdAt' | 'updatedAt'>>,
+): Promise<{ ok: true; settings: CreditTopUpSettingsDto } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/credits/settings`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as CreditTopUpSettingsDto & {
+    message?: string;
+    error?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true, settings: data };
+}
+

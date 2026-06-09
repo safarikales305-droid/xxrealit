@@ -41,6 +41,10 @@ const ROLE_OPTIONS = [
   'AGENCY',
   'DEVELOPER',
   'PRIVATE_SELLER',
+  'CRAFTSMAN',
+  'TIPSTER',
+  'FINANCIAL_ADVISOR',
+  'INVESTOR',
   'ADMIN',
 ] as const;
 
@@ -388,6 +392,18 @@ export default function AdminPage() {
               className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >
               Bonusové akce
+            </Link>
+            <Link
+              href="/admin/dobiti-kreditu"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Dobití kreditů
+            </Link>
+            <Link
+              href="/admin/nastaveni-plateb-kreditu"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Nastavení plateb kreditu
             </Link>
             <Link
               href="/admin/registrace-a-vyzvy"
