@@ -9,7 +9,10 @@ import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
 import { RegistrationGateService } from '../registration-gate/registration-gate.service';
 import { PrismaService } from '../../database/prisma.service';
 import { PropertyMediaCloudinaryService } from '../properties/property-media-cloudinary.service';
+import { ListingContactUnlockService } from '../properties/listing-contact-unlock.service';
 import { PropertiesService } from '../properties/properties.service';
+import { UnlockListingContactDto } from '../properties/dto/unlock-listing-contact.dto';
+import { isContactComplete, resolveListingContact } from '../properties/contact-resolve.util';
 import { computeStoredOgMediaFields } from '../properties/property-og-media.util';
 import {
   ListingShortsFromPhotosService,
@@ -43,6 +46,7 @@ export class TiparService {
     private readonly media: PropertyMediaCloudinaryService,
     private readonly shortsFromPhotos: ListingShortsFromPhotosService,
     private readonly propertiesService: PropertiesService,
+    private readonly listingContactUnlock: ListingContactUnlockService,
     private readonly bonusCampaign: BonusCampaignService,
     private readonly registrationGate: RegistrationGateService,
   ) {}
@@ -349,6 +353,14 @@ export class TiparService {
       throw new BadRequestException('Přidejte alespoň jednu fotku.');
     }
     const contactPhone = requireTiparPhone(dto.contactPhone ?? '');
+    const contactName = (dto.contactName ?? '').trim();
+    const contactEmail = (dto.contactEmail ?? '').trim().toLowerCase();
+    if (!contactName) {
+      throw new BadRequestException('Kontaktní jméno je povinné.');
+    }
+    if (!contactEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+      throw new BadRequestException('Kontaktní e-mail je povinný.');
+    }
 
     const post = await this.prisma.tiparPost.create({
       data: {
@@ -365,9 +377,9 @@ export class TiparService {
           dto.propertyPrice != null ? Math.max(0, Math.trunc(dto.propertyPrice)) : null,
         sourceUrl: dto.sourceUrl?.trim() || null,
         ownerNote: dto.ownerNote?.trim() || null,
-        contactName: (dto.contactName ?? '').trim(),
+        contactName,
         contactPhone,
-        contactEmail: (dto.contactEmail ?? '').trim().toLowerCase(),
+        contactEmail,
         contactUnlockPrice: Math.max(0, Math.trunc(dto.contactUnlockPrice ?? 100)),
         isShorts,
       },
@@ -548,9 +560,26 @@ export class TiparService {
     });
     const out = [];
     for (const r of rows) {
-      const unlocked = viewerId ? await this.hasUnlocked(viewerId, r.id) : false;
+      const unlocked = viewerId
+        ? await this.hasUnlocked(viewerId, r.id, r.publishedPropertyId)
+        : false;
       const isOwner = viewerId === r.userId;
-      out.push(this.serializePostPublic(r, viewerId, isOwner, unlocked || isOwner));
+      const tipster = await this.prisma.user.findUnique({
+        where: { id: r.userId },
+        select: { name: true, phone: true, email: true },
+      });
+      const contactUnlockAvailable = isContactComplete(
+        resolveListingContact({ tip: r, owner: tipster }),
+      );
+      out.push(
+        this.serializePostPublic(
+          r,
+          viewerId,
+          isOwner,
+          unlocked || isOwner,
+          contactUnlockAvailable,
+        ),
+      );
     }
     return out;
   }
@@ -568,95 +597,28 @@ export class TiparService {
       const isOwner = viewerId === row.userId;
       if (!isOwner) throw new NotFoundException('Tip nenalezen');
     }
-    const unlocked = viewerId ? await this.hasUnlocked(viewerId, postId) : false;
+    const unlocked = viewerId
+      ? await this.hasUnlocked(viewerId, postId, row.publishedPropertyId)
+      : false;
     const isOwner = viewerId === row.userId;
-    return this.serializePostPublic(row, viewerId, isOwner, unlocked || isOwner);
+    const tipster = await this.prisma.user.findUnique({
+      where: { id: row.userId },
+      select: { name: true, phone: true, email: true },
+    });
+    const contactUnlockAvailable = isContactComplete(
+      resolveListingContact({ tip: row, owner: tipster }),
+    );
+    return this.serializePostPublic(
+      row,
+      viewerId,
+      isOwner,
+      unlocked || isOwner,
+      contactUnlockAvailable,
+    );
   }
 
-  async unlockContact(buyerUserId: string, postId: string) {
-    const post = await this.prisma.tiparPost.findFirst({
-      where: { id: postId, ...activeTiparPostWhere },
-    });
-    if (!post) throw new NotFoundException('Tip nenalezen');
-    if (post.userId === buyerUserId) {
-      return {
-        unlocked: true,
-        alreadyOwned: true,
-        cost: 0,
-        contact: this.contactPayload(post),
-        creditBalance: (
-          await this.prisma.user.findUnique({
-            where: { id: buyerUserId },
-            select: { creditBalance: true },
-          })
-        )?.creditBalance,
-      };
-    }
-
-    const existing = await this.prisma.contactUnlock.findUnique({
-      where: { userId_tiparPostId: { userId: buyerUserId, tiparPostId: postId } },
-    });
-    if (existing) {
-      const buyer = await this.prisma.user.findUnique({
-        where: { id: buyerUserId },
-        select: { creditBalance: true },
-      });
-      return {
-        unlocked: true,
-        alreadyOwned: true,
-        cost: 0,
-        contact: this.contactPayload(post),
-        creditBalance: buyer?.creditBalance ?? 0,
-      };
-    }
-
-    const price = Math.max(0, post.contactUnlockPrice);
-    const buyer = await this.prisma.user.findUnique({
-      where: { id: buyerUserId },
-      select: { creditBalance: true },
-    });
-    if (!buyer) throw new NotFoundException('Uživatel nenalezen');
-    if (buyer.creditBalance < price) {
-      throw new ForbiddenException({
-        message: 'Nemáte dostatek kreditu. Dobijte si kredit.',
-        code: 'INSUFFICIENT_CREDIT',
-        required: price,
-        creditBalance: buyer.creditBalance,
-      });
-    }
-
-    const newBalance = await this.prisma.$transaction(async (tx) => {
-      await tx.contactUnlock.create({
-        data: { userId: buyerUserId, tiparPostId: postId, amount: price },
-      });
-      await tx.creditTransaction.create({
-        data: {
-          buyerUserId,
-          tiparUserId: post.userId,
-          tiparPostId: postId,
-          amount: price,
-          type: 'CONTACT_UNLOCK',
-        },
-      });
-      const updatedBuyer = await tx.user.update({
-        where: { id: buyerUserId },
-        data: { creditBalance: { decrement: price } },
-        select: { creditBalance: true },
-      });
-      await tx.user.update({
-        where: { id: post.userId },
-        data: { creditBalance: { increment: price } },
-      });
-      return updatedBuyer.creditBalance;
-    });
-
-    return {
-      unlocked: true,
-      alreadyOwned: false,
-      cost: price,
-      contact: this.contactPayload(post),
-      creditBalance: newBalance,
-    };
+  async unlockContact(buyerUserId: string, postId: string, dto: UnlockListingContactDto) {
+    return this.listingContactUnlock.unlockTipContact(buyerUserId, postId, dto);
   }
 
   async adminListPosts() {
@@ -771,11 +733,16 @@ export class TiparService {
     }
   }
 
-  private async hasUnlocked(userId: string, postId: string) {
-    const row = await this.prisma.contactUnlock.findUnique({
-      where: { userId_tiparPostId: { userId, tiparPostId: postId } },
-    });
-    return !!row;
+  private async hasUnlocked(userId: string, postId: string, publishedPropertyId?: string | null) {
+    if (publishedPropertyId) {
+      const viaListing = await this.listingContactUnlock.hasUnlocked(
+        userId,
+        publishedPropertyId,
+        true,
+      );
+      if (viaListing) return true;
+    }
+    return this.listingContactUnlock.hasUnlockedTip(userId, postId);
   }
 
   private contactPayload(post: TiparPost) {
@@ -794,6 +761,7 @@ export class TiparService {
     viewerId: string | undefined,
     isOwner: boolean,
     contactUnlocked: boolean,
+    contactUnlockAvailable = true,
   ) {
     const showContact = isOwner || contactUnlocked;
     return {
@@ -811,6 +779,7 @@ export class TiparService {
       sourceUrl: row.sourceUrl,
       ownerNote: row.ownerNote,
       contactUnlockPrice: row.contactUnlockPrice,
+      contactUnlockAvailable,
       isShorts: row.isShorts,
       publishedPropertyId: row.publishedPropertyId,
       isActive: row.isActive,

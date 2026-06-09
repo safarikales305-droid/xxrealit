@@ -233,6 +233,7 @@ export function NemovitostDetailView({
   const nameContact = (unlockedContact?.contactName ?? p.contactName ?? '').trim();
   const contactRevealed = directContactOk || Boolean(unlockedContact);
   const contactUnlockPrice = p.contactUnlockPrice ?? 0;
+  const contactUnlockAvailable = p.contactUnlockAvailable !== false;
   const companyName =
     (p as PropertyFeedItem & { companyName?: string | null }).companyName?.trim() ?? '';
   const coverForMessage = classicListingCoverUrl(p);
@@ -555,7 +556,7 @@ export function NemovitostDetailView({
                     <MessageCircle className="size-5 shrink-0" strokeWidth={2.25} aria-hidden />
                     Odeslat zprávu prodejci
                   </button>
-                  {!isOwner ? (
+                  {!isOwner && contactUnlockAvailable ? (
                     <button
                       type="button"
                       onClick={handleShowContact}
@@ -659,7 +660,7 @@ export function NemovitostDetailView({
             <p className="mt-2 text-sm text-zinc-600">
               Domluvte si prohlídku nebo doplňující informace u inzerenta.
             </p>
-            {!isOwner ? (
+            {!isOwner && contactUnlockAvailable ? (
               <button
                 type="button"
                 onClick={handleShowContact}

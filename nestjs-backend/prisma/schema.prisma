@@ -204,6 +204,7 @@ model User {
   listingContactUnlocks ListingContactUnlock[]
   contactLeadsAsInterested ContactLead[] @relation("ContactLeadInterested")
   contactLeadsAsOwner      ContactLead[] @relation("ContactLeadOwner")
+  contactLeadsAsTipster    ContactLead[] @relation("ContactLeadTipster")
   creditTransactionsAsBuyer CreditTransaction[] @relation("CreditTransactionBuyer")
   creditTransactionsAsTipar CreditTransaction[] @relation("CreditTransactionTipar")
   creditLedgerEntries CreditLedger[]
@@ -1069,27 +1070,36 @@ model ListingContactUnlock {
 
 /// Lead zájemce po vyplnění formuláře před zobrazením kontaktu.
 model ContactLead {
-  id               String   @id @default(cuid())
-  listingId        String?
-  tipId            String?
-  interestedUserId String
-  ownerUserId      String
-  name             String
-  email            String
-  phone            String
-  unlockPrice      Int      @default(0)
-  creditCharged    Boolean  @default(false)
-  createdAt        DateTime @default(now())
+  id                 String   @id @default(cuid())
+  listingId          String?
+  tipId              String?
+  sourceType         String   @default("LISTING")
+  sourceId           String?
+  interestedUserId   String
+  ownerUserId        String
+  tipsterUserId      String?
+  name               String
+  email              String
+  phone              String
+  unlockPrice        Int      @default(0)
+  portalAmount       Int      @default(0)
+  tipsterAmount      Int      @default(0)
+  ownerChargedAmount Int      @default(0)
+  creditCharged      Boolean  @default(false)
+  createdAt          DateTime @default(now())
 
   listing        Property?  @relation("ContactLeadListing", fields: [listingId], references: [id], onDelete: SetNull)
   tip            TiparPost? @relation("ContactLeadTip", fields: [tipId], references: [id], onDelete: SetNull)
   interestedUser User       @relation("ContactLeadInterested", fields: [interestedUserId], references: [id], onDelete: Cascade)
   owner          User       @relation("ContactLeadOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  tipster        User?      @relation("ContactLeadTipster", fields: [tipsterUserId], references: [id], onDelete: SetNull)
 
   @@index([listingId])
   @@index([tipId])
+  @@index([sourceType, sourceId])
   @@index([ownerUserId, createdAt])
   @@index([interestedUserId, createdAt])
+  @@index([tipsterUserId, createdAt])
 }
 
 /// Odemčení kontaktu tipařského tipu (idempotentní — jednou zaplaceno, pak zdarma).
@@ -1109,13 +1119,19 @@ model ContactUnlock {
 
 /// Kreditní transakce (odemčení kontaktu tipaře).
 model CreditTransaction {
-  id           String   @id @default(cuid())
-  buyerUserId  String
-  tiparUserId  String
-  tiparPostId  String
-  amount       Int
-  type         String   @default("CONTACT_UNLOCK")
-  createdAt    DateTime @default(now())
+  id                 String   @id @default(cuid())
+  buyerUserId        String
+  tiparUserId        String
+  tiparPostId        String
+  amount             Int
+  type               String   @default("CONTACT_UNLOCK")
+  sourceType         String?
+  sourceId           String?
+  counterpartyUserId String?
+  portalAmount       Int?
+  tipsterAmount      Int?
+  description        String?
+  createdAt          DateTime @default(now())
 
   buyer     User      @relation("CreditTransactionBuyer", fields: [buyerUserId], references: [id], onDelete: Cascade)
   tipar     User      @relation("CreditTransactionTipar", fields: [tiparUserId], references: [id], onDelete: Cascade)
@@ -1124,6 +1140,17 @@ model CreditTransaction {
   @@index([buyerUserId, createdAt])
   @@index([tiparUserId, createdAt])
   @@index([tiparPostId])
+  @@index([sourceType, sourceId])
+}
+
+/// Globální nastavení provizí a cen za kontakty.
+model ContactMonetizationSetting {
+  id                       String   @id @default("default")
+  tipPortalPercent         Int      @default(30)
+  tipTipsterPercent        Int      @default(70)
+  ownerListingContactPrice Int      @default(50)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 }
 
 /// Propojení uživatelského účtu s Facebookem (Graph API — nahrání videa).

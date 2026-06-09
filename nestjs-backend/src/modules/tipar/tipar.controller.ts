@@ -16,6 +16,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { parseBearerUserId } from '../auth/auth-token.util';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { TiparService } from './tipar.service';
+import { UnlockListingContactDto } from '../properties/dto/unlock-listing-contact.dto';
 import { CreateTiparPostDto } from './dto/create-tipar-post.dto';
 import { UpdateTiparPostDto } from './dto/update-tipar-post.dto';
 
@@ -80,7 +81,12 @@ export class TiparController {
 
   @Post('posts/:id/unlock-contact')
   @UseGuards(JwtAuthGuard)
-  unlockContact(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.tipar.unlockContact(user.id, id);
+  unlockContact(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: UnlockListingContactDto,
+  ) {
+    return this.tipar.unlockContact(user.id, id, dto);
   }
 }

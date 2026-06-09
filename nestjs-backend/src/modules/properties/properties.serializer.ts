@@ -236,6 +236,7 @@ export function serializeAdminPropertyRow(
 export type PropertySerializeOptions = {
   contactUnlocked?: boolean;
   contactUnlockPrice?: number;
+  contactUnlockAvailable?: boolean;
   isContactPaid?: boolean;
 };
 
@@ -559,6 +560,7 @@ function serializePropertyCore(
     directContactVisible: !redact,
     contactUnlocked: Boolean(opts?.contactUnlocked),
     contactUnlockPrice: unlockPrice,
+    contactUnlockAvailable: opts?.contactUnlockAvailable !== false,
     isContactPaid: Boolean(opts?.isContactPaid ?? p.isContactPaid),
     contactName: redact ? '' : split.contactName,
     companyName: redact ? null : split.companyName,

@@ -125,6 +125,8 @@ function normalizePropertyFromDetailShape(prop: Record<string, unknown>): Proper
         typeof prop.contactUnlockPrice === 'number' && Number.isFinite(prop.contactUnlockPrice)
           ? Math.max(0, Math.trunc(prop.contactUnlockPrice))
           : undefined,
+      contactUnlockAvailable:
+        typeof prop.contactUnlockAvailable === 'boolean' ? prop.contactUnlockAvailable : undefined,
       isContactPaid: prop.isContactPaid === true,
     });
   } catch {

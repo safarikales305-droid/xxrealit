@@ -103,6 +103,7 @@ export type PropertyFromApi = {
   directContactVisible?: boolean;
   contactUnlocked?: boolean;
   contactUnlockPrice?: number;
+  contactUnlockAvailable?: boolean;
   isContactPaid?: boolean;
   contactName?: string | null;
   companyName?: string | null;
@@ -157,6 +158,7 @@ export type PropertyFeedItem = {
   directContactVisible?: boolean;
   contactUnlocked?: boolean;
   contactUnlockPrice?: number;
+  contactUnlockAvailable?: boolean;
   isContactPaid?: boolean;
   contactName?: string | null;
   companyName?: string | null;
@@ -283,6 +285,8 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
       typeof p.contactUnlockPrice === 'number' && Number.isFinite(p.contactUnlockPrice)
         ? Math.max(0, Math.trunc(p.contactUnlockPrice))
         : undefined,
+    contactUnlockAvailable:
+      typeof p.contactUnlockAvailable === 'boolean' ? p.contactUnlockAvailable : undefined,
     isContactPaid: p.isContactPaid === true,
     contactName:
       p.contactName === null || typeof p.contactName === 'string'
@@ -425,6 +429,8 @@ export function safeNormalizePropertyFromApi(
         typeof o.contactUnlockPrice === 'number' && Number.isFinite(o.contactUnlockPrice)
           ? Math.max(0, Math.trunc(o.contactUnlockPrice))
           : undefined,
+      contactUnlockAvailable:
+        typeof o.contactUnlockAvailable === 'boolean' ? o.contactUnlockAvailable : undefined,
       isContactPaid: o.isContactPaid === true,
       contactName:
         o.contactName === null || typeof o.contactName === 'string'

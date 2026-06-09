@@ -5356,6 +5356,7 @@ export type TiparPostRow = {
   sourceUrl?: string | null;
   ownerNote?: string | null;
   contactUnlockPrice: number;
+  contactUnlockAvailable?: boolean;
   isShorts: boolean;
   publishedPropertyId?: string | null;
   contactUnlocked?: boolean;
@@ -5610,6 +5611,7 @@ export async function nestTipReorderMedia(
 export async function nestTiparUnlockContact(
   token: string | null,
   postId: string,
+  payload: { name: string; email: string; phone: string },
 ): Promise<{
   ok: boolean;
   data?: {
@@ -5627,7 +5629,12 @@ export async function nestTiparUnlockContact(
     `${API_BASE_URL}/tipar/posts/${encodeURIComponent(postId)}/unlock-contact`,
     {
       method: 'POST',
-      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
     },
   );
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
@@ -6182,6 +6189,50 @@ export async function nestAdminCreditSettingsUpdate(
     body: JSON.stringify(body),
   });
   const data = (await res.json().catch(() => ({}))) as CreditTopUpSettingsDto & {
+    message?: string;
+    error?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true, settings: data };
+}
+
+export type ContactMonetizationSettingsDto = {
+  tipPortalPercent: number;
+  tipTipsterPercent: number;
+  ownerListingContactPrice: number;
+};
+
+export async function nestAdminContactMonetizationGet(
+  token: string | null,
+): Promise<ContactMonetizationSettingsDto | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/contact-monetization`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as ContactMonetizationSettingsDto | null;
+}
+
+export async function nestAdminContactMonetizationUpdate(
+  token: string | null,
+  body: Partial<ContactMonetizationSettingsDto>,
+): Promise<{ ok: true; settings: ContactMonetizationSettingsDto } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/contact-monetization`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as ContactMonetizationSettingsDto & {
     message?: string;
     error?: string;
   };

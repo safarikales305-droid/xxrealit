@@ -10,7 +10,17 @@ import { PrismaService } from '../../database/prisma.service';
 import { EmailsService } from '../emails/emails.service';
 import { MessagesService } from '../messages/messages.service';
 import { NotificationsService } from '../premium-broker/notifications.service';
+import { ContactMonetizationService } from './contact-monetization.service';
+import {
+  isContactComplete,
+  resolveListingContact,
+  type ResolvedContact,
+} from './contact-resolve.util';
 import { UnlockListingContactDto } from './dto/unlock-listing-contact.dto';
+
+const MISSING_CONTACT_MSG = 'Kontakt u tohoto inzerátu není vyplněný.';
+
+type ContactSourceType = 'LISTING' | 'TIP' | 'TIP_SHORTS';
 
 function normalizePhone(phone: string): string {
   return phone.trim();
@@ -19,18 +29,6 @@ function normalizePhone(phone: string): string {
 function isValidPhone(phone: string): boolean {
   const digits = phone.replace(/\D/g, '');
   return digits.length >= 9 && digits.length <= 15;
-}
-
-function contactPayload(row: {
-  contactName: string;
-  contactPhone: string;
-  contactEmail: string;
-}) {
-  return {
-    contactName: row.contactName?.trim() || null,
-    phone: row.contactPhone?.trim() || null,
-    email: row.contactEmail?.trim() || null,
-  };
 }
 
 @Injectable()
@@ -43,14 +41,19 @@ export class ListingContactUnlockService {
     private readonly messages: MessagesService,
     private readonly emails: EmailsService,
     private readonly config: ConfigService,
+    private readonly monetization: ContactMonetizationService,
   ) {}
 
   async resolveUnlockPrice(property: {
     id: string;
     isTiparTip: boolean;
     isContactPaid: boolean;
+    isOwnerListing: boolean;
     contactUnlockPrice: number;
   }): Promise<number> {
+    if (property.isOwnerListing && !property.isTiparTip) {
+      return 0;
+    }
     if (property.isTiparTip) {
       const tip = await this.prisma.tiparPost.findFirst({
         where: { publishedPropertyId: property.id, deletedAt: null },
@@ -80,10 +83,54 @@ export class ListingContactUnlockService {
       select: { id: true },
     });
     if (!tip) return false;
+    return this.hasUnlockedTip(userId, tip.id);
+  }
+
+  async hasUnlockedTip(userId: string, tipId: string): Promise<boolean> {
     const tipUnlock = await this.prisma.contactUnlock.findUnique({
-      where: { userId_tiparPostId: { userId, tiparPostId: tip.id } },
+      where: { userId_tiparPostId: { userId, tiparPostId: tipId } },
     });
     return Boolean(tipUnlock);
+  }
+
+  async isContactUnlockAvailableForProperty(propertyId: string): Promise<boolean> {
+    const property = await this.prisma.property.findFirst({
+      where: { id: propertyId, deletedAt: null },
+      select: {
+        id: true,
+        isTiparTip: true,
+        contactName: true,
+        contactPhone: true,
+        contactEmail: true,
+        userId: true,
+      },
+    });
+    if (!property) return false;
+
+    const tip = property.isTiparTip
+      ? await this.prisma.tiparPost.findFirst({
+          where: { publishedPropertyId: property.id, deletedAt: null },
+          select: {
+            contactName: true,
+            contactPhone: true,
+            contactEmail: true,
+            userId: true,
+          },
+        })
+      : null;
+
+    const ownerId = tip?.userId ?? property.userId;
+    const owner = await this.prisma.user.findUnique({
+      where: { id: ownerId },
+      select: { name: true, phone: true, email: true },
+    });
+
+    const contact = resolveListingContact({
+      listing: property,
+      tip,
+      owner,
+    });
+    return isContactComplete(contact);
   }
 
   private validateLead(dto: UnlockListingContactDto) {
@@ -102,6 +149,23 @@ export class ListingContactUnlockService {
     return { name, email, phone };
   }
 
+  private assertContactAvailable(contact: ResolvedContact) {
+    if (!contact.phone && !contact.email) {
+      throw new BadRequestException(MISSING_CONTACT_MSG);
+    }
+    if (!isContactComplete(contact)) {
+      throw new BadRequestException(MISSING_CONTACT_MSG);
+    }
+  }
+
+  private contactResponse(contact: ResolvedContact) {
+    return {
+      phone: contact.phone,
+      email: contact.email,
+      contactName: contact.contactName,
+    };
+  }
+
   async unlockContact(buyerUserId: string, propertyId: string, dto: UnlockListingContactDto) {
     const property = await this.prisma.property.findFirst({
       where: { id: propertyId, deletedAt: null },
@@ -115,21 +179,42 @@ export class ListingContactUnlockService {
         contactEmail: true,
         isTiparTip: true,
         isContactPaid: true,
+        isOwnerListing: true,
         contactUnlockPrice: true,
       },
     });
     if (!property) throw new NotFoundException('Inzerát nenalezen');
 
-    const contact = contactPayload(property);
-    if (!contact.phone && !contact.email) {
-      throw new BadRequestException('U tohoto inzerátu není k dispozici kontakt.');
-    }
+    const tip = property.isTiparTip
+      ? await this.prisma.tiparPost.findFirst({
+          where: { publishedPropertyId: property.id, deletedAt: null },
+          select: {
+            id: true,
+            userId: true,
+            isShorts: true,
+            contactName: true,
+            contactPhone: true,
+            contactEmail: true,
+            contactUnlockPrice: true,
+          },
+        })
+      : null;
+
+    const ownerUser = await this.prisma.user.findUnique({
+      where: { id: tip?.userId ?? property.userId },
+      select: { id: true, name: true, phone: true, email: true },
+    });
+
+    const contact = resolveListingContact({
+      listing: property,
+      tip,
+      owner: ownerUser,
+    });
+    this.assertContactAvailable(contact);
 
     if (property.userId === buyerUserId) {
       return {
-        phone: contact.phone,
-        email: contact.email,
-        contactName: contact.contactName,
+        ...this.contactResponse(contact),
         alreadyUnlocked: true,
         creditCharged: 0,
       };
@@ -142,16 +227,28 @@ export class ListingContactUnlockService {
     );
     if (alreadyUnlocked) {
       return {
-        phone: contact.phone,
-        email: contact.email,
-        contactName: contact.contactName,
+        ...this.contactResponse(contact),
         alreadyUnlocked: true,
         creditCharged: 0,
       };
     }
 
     const lead = this.validateLead(dto);
-    const price = await this.resolveUnlockPrice(property);
+    const settings = await this.monetization.getSettings();
+    const buyerPrice = await this.resolveUnlockPrice(property);
+    const ownerCharge =
+      property.isOwnerListing && !property.isTiparTip
+        ? settings.ownerListingContactPrice
+        : 0;
+    const sourceType: ContactSourceType = property.isTiparTip
+      ? tip?.isShorts
+        ? 'TIP_SHORTS'
+        : 'TIP'
+      : 'LISTING';
+    const tipSplit =
+      property.isTiparTip && buyerPrice > 0
+        ? this.monetization.computeTipSplit(buyerPrice, settings)
+        : { portalAmount: 0, tipsterAmount: buyerPrice };
 
     const buyer = await this.prisma.user.findUnique({
       where: { id: buyerUserId },
@@ -159,31 +256,24 @@ export class ListingContactUnlockService {
     });
     if (!buyer) throw new NotFoundException('Uživatel nenalezen');
 
-    if (price > 0 && buyer.creditBalance < price) {
+    if (buyerPrice > 0 && buyer.creditBalance < buyerPrice) {
       throw new ForbiddenException({
         message: 'Nemáte dostatek kreditu. Dobijte si kredit.',
         code: 'INSUFFICIENT_CREDIT',
-        required: price,
+        required: buyerPrice,
         creditBalance: buyer.creditBalance,
       });
     }
 
-    const tip =
-      property.isTiparTip
-        ? await this.prisma.tiparPost.findFirst({
-            where: { publishedPropertyId: property.id, deletedAt: null },
-            select: { id: true, userId: true },
-          })
-        : null;
-
-    const creditRecipientId = tip?.userId ?? property.userId;
+    const tipsterUserId = tip?.userId ?? null;
+    const notifyUserId = tipsterUserId ?? property.userId;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.listingContactUnlock.create({
         data: {
           userId: buyerUserId,
           propertyId,
-          amount: price,
+          amount: buyerPrice,
         },
       });
 
@@ -192,71 +282,321 @@ export class ListingContactUnlockService {
           data: {
             userId: buyerUserId,
             tiparPostId: tip.id,
-            amount: price,
+            amount: buyerPrice,
           },
         });
-        if (price > 0) {
-          await tx.creditTransaction.create({
-            data: {
-              buyerUserId,
-              tiparUserId: tip.userId,
-              tiparPostId: tip.id,
-              amount: price,
-              type: 'CONTACT_UNLOCK',
-            },
-          });
-        }
       }
 
-      if (price > 0) {
+      if (buyerPrice > 0) {
         await tx.user.update({
           where: { id: buyerUserId },
-          data: { creditBalance: { decrement: price } },
-        });
-        await tx.user.update({
-          where: { id: creditRecipientId },
-          data: { creditBalance: { increment: price } },
+          data: { creditBalance: { decrement: buyerPrice } },
         });
         await tx.creditLedger.create({
           data: {
             userId: buyerUserId,
-            amount: -price,
+            amount: -buyerPrice,
             type: 'CONTACT_UNLOCK',
             referenceId: propertyId,
             description: `Odemčení kontaktu: ${property.title}`,
           },
         });
+
+        if (property.isTiparTip && tipsterUserId) {
+          if (tipSplit.tipsterAmount > 0) {
+            await tx.user.update({
+              where: { id: tipsterUserId },
+              data: { creditBalance: { increment: tipSplit.tipsterAmount } },
+            });
+            await tx.creditLedger.create({
+              data: {
+                userId: tipsterUserId,
+                amount: tipSplit.tipsterAmount,
+                type: 'CONTACT_UNLOCK_TIPSTER',
+                referenceId: tip?.id ?? propertyId,
+                description: `Provize za odemčení kontaktu tipu: ${property.title}`,
+              },
+            });
+          }
+          if (tip) {
+            await tx.creditTransaction.create({
+              data: {
+                buyerUserId,
+                tiparUserId: tipsterUserId,
+                tiparPostId: tip.id,
+                amount: buyerPrice,
+                type: 'CONTACT_UNLOCK',
+                sourceType,
+                sourceId: propertyId,
+                counterpartyUserId: tipsterUserId,
+                portalAmount: tipSplit.portalAmount,
+                tipsterAmount: tipSplit.tipsterAmount,
+                description: `Odemčení kontaktu tipu: ${property.title}`,
+              },
+            });
+          }
+        } else if (!property.isTiparTip && buyerPrice > 0) {
+          await tx.user.update({
+            where: { id: property.userId },
+            data: { creditBalance: { increment: buyerPrice } },
+          });
+          await tx.creditLedger.create({
+            data: {
+              userId: property.userId,
+              amount: buyerPrice,
+              type: 'CONTACT_UNLOCK',
+              referenceId: propertyId,
+              description: `Odemčení kontaktu inzerátu: ${property.title}`,
+            },
+          });
+        }
+      }
+
+      let ownerChargedAmount = 0;
+      if (ownerCharge > 0) {
+        ownerChargedAmount = await this.monetization.chargeOwnerForLead(
+          tx,
+          property.userId,
+          ownerCharge,
+          propertyId,
+          `Poplatek za lead u vlastního inzerátu: ${property.title}`,
+        );
       }
 
       await tx.contactLead.create({
         data: {
           listingId: propertyId,
           tipId: tip?.id ?? null,
+          sourceType,
+          sourceId: propertyId,
           interestedUserId: buyerUserId,
           ownerUserId: property.userId,
+          tipsterUserId,
           name: lead.name,
           email: lead.email,
           phone: lead.phone,
-          unlockPrice: price,
-          creditCharged: price > 0,
+          unlockPrice: buyerPrice,
+          portalAmount: property.isTiparTip ? tipSplit.portalAmount : 0,
+          tipsterAmount: property.isTiparTip ? tipSplit.tipsterAmount : 0,
+          ownerChargedAmount,
+          creditCharged: buyerPrice > 0,
         },
       });
     });
 
     await this.notifyOwner({
       buyerUserId,
-      ownerUserId: property.userId,
+      ownerUserId: notifyUserId,
       propertyId: property.id,
       propertyTitle: property.title,
       lead,
     });
 
     return {
-      phone: contact.phone,
-      email: contact.email,
-      contactName: contact.contactName,
+      ...this.contactResponse(contact),
       alreadyUnlocked: false,
-      creditCharged: price,
+      creditCharged: buyerPrice,
+    };
+  }
+
+  async unlockTipContact(buyerUserId: string, tipId: string, dto: UnlockListingContactDto) {
+    const tip = await this.prisma.tiparPost.findFirst({
+      where: { id: tipId, deletedAt: null, isActive: true, approved: true },
+      select: {
+        id: true,
+        userId: true,
+        title: true,
+        isShorts: true,
+        publishedPropertyId: true,
+        contactName: true,
+        contactPhone: true,
+        contactEmail: true,
+        contactUnlockPrice: true,
+      },
+    });
+    if (!tip) throw new NotFoundException('Tip nenalezen');
+
+    if (tip.publishedPropertyId) {
+      return this.unlockContact(buyerUserId, tip.publishedPropertyId, dto);
+    }
+
+    const tipster = await this.prisma.user.findUnique({
+      where: { id: tip.userId },
+      select: { name: true, phone: true, email: true },
+    });
+    const contact = resolveListingContact({ tip, owner: tipster });
+    this.assertContactAvailable(contact);
+
+    if (tip.userId === buyerUserId) {
+      return {
+        unlocked: true,
+        alreadyOwned: true,
+        cost: 0,
+        contact: {
+          contactName: contact.contactName,
+          contactPhone: contact.phone,
+          contactEmail: contact.email,
+        },
+        creditBalance: (
+          await this.prisma.user.findUnique({
+            where: { id: buyerUserId },
+            select: { creditBalance: true },
+          })
+        )?.creditBalance,
+      };
+    }
+
+    if (await this.hasUnlockedTip(buyerUserId, tipId)) {
+      const buyer = await this.prisma.user.findUnique({
+        where: { id: buyerUserId },
+        select: { creditBalance: true },
+      });
+      return {
+        unlocked: true,
+        alreadyOwned: true,
+        cost: 0,
+        contact: {
+          contactName: contact.contactName,
+          contactPhone: contact.phone,
+          contactEmail: contact.email,
+        },
+        creditBalance: buyer?.creditBalance ?? 0,
+      };
+    }
+
+    const lead = this.validateLead(dto);
+    const settings = await this.monetization.getSettings();
+    const buyerPrice = Math.max(0, tip.contactUnlockPrice);
+    const tipSplit = this.monetization.computeTipSplit(buyerPrice, settings);
+    const sourceType: ContactSourceType = tip.isShorts ? 'TIP_SHORTS' : 'TIP';
+
+    const buyer = await this.prisma.user.findUnique({
+      where: { id: buyerUserId },
+      select: { creditBalance: true },
+    });
+    if (!buyer) throw new NotFoundException('Uživatel nenalezen');
+    if (buyerPrice > 0 && buyer.creditBalance < buyerPrice) {
+      throw new ForbiddenException({
+        message: 'Nemáte dostatek kreditu. Dobijte si kredit.',
+        code: 'INSUFFICIENT_CREDIT',
+        required: buyerPrice,
+        creditBalance: buyer.creditBalance,
+      });
+    }
+
+    const newBalance = await this.prisma.$transaction(async (tx) => {
+      await tx.contactUnlock.create({
+        data: { userId: buyerUserId, tiparPostId: tipId, amount: buyerPrice },
+      });
+
+      if (buyerPrice > 0) {
+        const updatedBuyer = await tx.user.update({
+          where: { id: buyerUserId },
+          data: { creditBalance: { decrement: buyerPrice } },
+          select: { creditBalance: true },
+        });
+
+        await tx.creditLedger.create({
+          data: {
+            userId: buyerUserId,
+            amount: -buyerPrice,
+            type: 'CONTACT_UNLOCK',
+            referenceId: tipId,
+            description: `Odemčení kontaktu tipu: ${tip.title}`,
+          },
+        });
+
+        if (tipSplit.tipsterAmount > 0) {
+          await tx.user.update({
+            where: { id: tip.userId },
+            data: { creditBalance: { increment: tipSplit.tipsterAmount } },
+          });
+          await tx.creditLedger.create({
+            data: {
+              userId: tip.userId,
+              amount: tipSplit.tipsterAmount,
+              type: 'CONTACT_UNLOCK_TIPSTER',
+              referenceId: tipId,
+              description: `Provize za odemčení kontaktu tipu: ${tip.title}`,
+            },
+          });
+        }
+
+        await tx.creditTransaction.create({
+          data: {
+            buyerUserId,
+            tiparUserId: tip.userId,
+            tiparPostId: tipId,
+            amount: buyerPrice,
+            type: 'CONTACT_UNLOCK',
+            sourceType,
+            sourceId: tipId,
+            counterpartyUserId: tip.userId,
+            portalAmount: tipSplit.portalAmount,
+            tipsterAmount: tipSplit.tipsterAmount,
+            description: `Odemčení kontaktu tipu: ${tip.title}`,
+          },
+        });
+
+        await tx.contactLead.create({
+          data: {
+            tipId,
+            sourceType,
+            sourceId: tipId,
+            interestedUserId: buyerUserId,
+            ownerUserId: tip.userId,
+            tipsterUserId: tip.userId,
+            name: lead.name,
+            email: lead.email,
+            phone: lead.phone,
+            unlockPrice: buyerPrice,
+            portalAmount: tipSplit.portalAmount,
+            tipsterAmount: tipSplit.tipsterAmount,
+            creditCharged: true,
+          },
+        });
+
+        return updatedBuyer.creditBalance;
+      }
+
+      await tx.contactLead.create({
+        data: {
+          tipId,
+          sourceType,
+          sourceId: tipId,
+          interestedUserId: buyerUserId,
+          ownerUserId: tip.userId,
+          tipsterUserId: tip.userId,
+          name: lead.name,
+          email: lead.email,
+          phone: lead.phone,
+          unlockPrice: 0,
+          creditCharged: false,
+        },
+      });
+
+      return buyer.creditBalance;
+    });
+
+    await this.notifyOwner({
+      buyerUserId,
+      ownerUserId: tip.userId,
+      propertyId: tipId,
+      propertyTitle: tip.title,
+      lead,
+      listingPath: `/tipar/${tipId}`,
+    });
+
+    return {
+      unlocked: true,
+      alreadyOwned: false,
+      cost: buyerPrice,
+      contact: {
+        contactName: contact.contactName,
+        contactPhone: contact.phone,
+        contactEmail: contact.email,
+      },
+      creditBalance: newBalance,
     };
   }
 
@@ -266,8 +606,9 @@ export class ListingContactUnlockService {
     propertyId: string;
     propertyTitle: string;
     lead: { name: string; email: string; phone: string };
+    listingPath?: string;
   }) {
-    const listingUrl = this.listingUrl(input.propertyId);
+    const listingUrl = this.listingUrl(input.propertyId, input.listingPath);
     const now = new Date();
     const dateStr = now.toLocaleDateString('cs-CZ');
     const timeStr = now.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
@@ -338,11 +679,12 @@ export class ListingContactUnlockService {
     }
   }
 
-  private listingUrl(propertyId: string): string {
+  private listingUrl(propertyId: string, path?: string): string {
     const base =
       this.config.get<string>('FRONTEND_URL')?.trim() ||
       this.config.get<string>('NEXT_PUBLIC_SITE_URL')?.trim() ||
       'https://www.xxrealit.cz';
-    return `${base.replace(/\/+$/, '')}/nemovitost/${propertyId}`;
+    const suffix = path ?? `/nemovitost/${propertyId}`;
+    return `${base.replace(/\/+$/, '')}${suffix}`;
   }
 }

@@ -3,6 +3,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { EmailsModule } from '../emails/emails.module';
 import { MessagesModule } from '../messages/messages.module';
+import { ContactMonetizationAdminController } from './contact-monetization-admin.controller';
+import { ContactMonetizationService } from './contact-monetization.service';
 import { ListingsController } from './listings.controller';
 import { ListingContactUnlockService } from './listing-contact-unlock.service';
 import { PropertiesController } from './properties.controller';
@@ -35,8 +37,15 @@ import { RegistrationGateModule } from '../registration-gate/registration-gate.m
       }),
     }),
   ],
-  controllers: [PropertiesController, ListingsController, SeedController, ShortsListingController],
+  controllers: [
+    PropertiesController,
+    ListingsController,
+    ContactMonetizationAdminController,
+    SeedController,
+    ShortsListingController,
+  ],
   providers: [
+    ContactMonetizationService,
     ListingContactUnlockService,
     PropertiesService,
     PropertyMediaCloudinaryService,
@@ -48,6 +57,7 @@ import { RegistrationGateModule } from '../registration-gate/registration-gate.m
     FacebookShareImageService,
   ],
   exports: [
+    ContactMonetizationService,
     ListingContactUnlockService,
     PropertiesService,
     PropertyMediaCloudinaryService,

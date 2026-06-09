@@ -738,15 +738,19 @@ export class PropertiesService {
       property.id,
       Boolean(property.isTiparTip),
     );
+    const contactUnlockAvailable =
+      await this.listingContactUnlock.isContactUnlockAvailableForProperty(property.id);
     const contactUnlockPrice = await this.listingContactUnlock.resolveUnlockPrice({
       id: property.id,
       isTiparTip: Boolean(property.isTiparTip),
       isContactPaid: Boolean(property.isContactPaid),
+      isOwnerListing: Boolean(property.isOwnerListing),
       contactUnlockPrice: property.contactUnlockPrice ?? 0,
     });
     const serializeOpts: PropertySerializeOptions = {
       contactUnlocked,
       contactUnlockPrice,
+      contactUnlockAvailable,
       isContactPaid: Boolean(property.isContactPaid) || Boolean(property.isTiparTip),
     };
 

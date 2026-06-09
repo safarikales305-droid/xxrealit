@@ -406,6 +406,12 @@ export default function AdminPage() {
               Nastavení plateb kreditu
             </Link>
             <Link
+              href="/admin/provize-a-kontakty"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Provize a kontakty
+            </Link>
+            <Link
               href="/admin/registrace-a-vyzvy"
               className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >

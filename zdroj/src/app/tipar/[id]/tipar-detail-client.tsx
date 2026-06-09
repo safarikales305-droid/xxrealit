@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
+import { ContactLeadModal } from '@/components/listing/ContactLeadModal';
 import { useAuth } from '@/hooks/use-auth';
 import { FacebookShortsShare } from '@/components/share/FacebookShortsShare';
 import { ShortsVideoFrame } from '@/components/tipar/shorts-video-frame';
@@ -18,12 +20,19 @@ type Props = {
 };
 
 export function TiparDetailClient({ id }: Props) {
-  const { apiAccessToken } = useAuth();
+  const router = useRouter();
+  const { user, apiAccessToken } = useAuth();
   const [post, setPost] = useState<TiparPostRow | null>(null);
   const [credit, setCredit] = useState<number | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [contactLeadOpen, setContactLeadOpen] = useState(false);
+  const [contactLeadBusy, setContactLeadBusy] = useState(false);
+  const [contactLeadError, setContactLeadError] = useState<string | null>(null);
   const [showCreditModal, setShowCreditModal] = useState(false);
+  const [revealedContact, setRevealedContact] = useState<{
+    contactName: string | null;
+    contactPhone: string | null;
+    contactEmail: string | null;
+  } | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -51,21 +60,35 @@ export function TiparDetailClient({ id }: Props) {
     return tipShareUrl(id, Boolean(post.isShorts));
   }, [id, post]);
 
-  async function unlock() {
+  function handleShowContact() {
+    if (!apiAccessToken) {
+      router.push(`/login?redirect=${encodeURIComponent(`/tipar/${id}`)}`);
+      return;
+    }
+    setContactLeadError(null);
+    setContactLeadOpen(true);
+  }
+
+  async function handleContactLeadSubmit(lead: { name: string; email: string; phone: string }) {
     if (!apiAccessToken || !post) return;
-    setBusy(true);
-    setError(null);
-    const r = await nestTiparUnlockContact(apiAccessToken, post.id);
-    setBusy(false);
+    setContactLeadBusy(true);
+    setContactLeadError(null);
+    const r = await nestTiparUnlockContact(apiAccessToken, post.id, lead);
+    setContactLeadBusy(false);
     if (!r.ok) {
       if (r.code === 'INSUFFICIENT_CREDIT') {
+        setContactLeadOpen(false);
         setShowCreditModal(true);
         return;
       }
-      setError(r.error ?? 'Odemčení kontaktu selhalo');
+      setContactLeadError(r.error ?? 'Odemčení kontaktu selhalo');
       return;
     }
     if (r.data?.creditBalance != null) setCredit(r.data.creditBalance);
+    if (r.data?.contact) {
+      setRevealedContact(r.data.contact);
+    }
+    setContactLeadOpen(false);
     const refreshed = await nestTiparGetPost(apiAccessToken, post.id);
     if (refreshed) setPost(refreshed);
   }
@@ -78,7 +101,9 @@ export function TiparDetailClient({ id }: Props) {
     );
   }
 
-  const unlocked = Boolean(post.contactUnlocked);
+  const unlocked = Boolean(post.contactUnlocked) || Boolean(revealedContact);
+  const contactUnlockAvailable = post.contactUnlockAvailable !== false;
+  const displayContact = revealedContact ?? post.contact;
   const heroImage = post.mainImage ?? post.images?.[0] ?? null;
   const galleryImages = (post.images ?? []).filter((url) => url !== heroImage);
   const playbackVideo = post.videoUrl || post.generatedVideoUrl || null;
@@ -153,35 +178,44 @@ export function TiparDetailClient({ id }: Props) {
             <h2 className="text-sm font-semibold text-zinc-900">Kontakt na prodejce</h2>
             {unlocked ? (
               <div className="mt-2 space-y-1 text-sm text-zinc-800">
-                {post.contact?.contactName ? <p>{post.contact.contactName}</p> : null}
-                {post.contact?.contactPhone ? (
+                {displayContact?.contactName ? <p>{displayContact.contactName}</p> : null}
+                {displayContact?.contactPhone ? (
                   <p>
-                    <a href={`tel:${post.contact.contactPhone}`} className="font-semibold text-[#e85d00]">
-                      {post.contact.contactPhone}
+                    <a href={`tel:${displayContact.contactPhone}`} className="font-semibold text-[#e85d00]">
+                      {displayContact.contactPhone}
                     </a>
                   </p>
                 ) : null}
-                {post.contact?.contactEmail ? (
+                {displayContact?.contactEmail ? (
                   <p>
-                    <a href={`mailto:${post.contact.contactEmail}`} className="font-semibold text-[#e85d00]">
-                      {post.contact.contactEmail}
+                    <a href={`mailto:${displayContact.contactEmail}`} className="font-semibold text-[#e85d00]">
+                      {displayContact.contactEmail}
                     </a>
                   </p>
                 ) : null}
               </div>
-            ) : (
+            ) : contactUnlockAvailable ? (
               <>
-                <p className="mt-2 text-sm text-zinc-600">Kontakt je skrytý do odemčení kreditem.</p>
-                {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
+                <p className="mt-2 text-sm text-zinc-600">
+                  Kontakt je skrytý do vyplnění formuláře
+                  {post.contactUnlockPrice > 0
+                    ? ` a odečtení ${post.contactUnlockPrice.toLocaleString('cs-CZ')} Kč kreditu`
+                    : ''}
+                  .
+                </p>
+                {contactLeadError && !contactLeadOpen ? (
+                  <p className="mt-2 text-sm text-red-600">{contactLeadError}</p>
+                ) : null}
                 <button
                   type="button"
-                  disabled={busy || !apiAccessToken}
-                  onClick={() => void unlock()}
+                  disabled={!apiAccessToken}
+                  onClick={handleShowContact}
                   className="mt-3 rounded-full bg-[#e85d00] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                 >
-                  {busy
-                    ? 'Zpracovávám…'
-                    : `Získat kontakt za ${post.contactUnlockPrice.toLocaleString('cs-CZ')} Kč`}
+                  Zobrazit kontakt
+                  {post.contactUnlockPrice > 0
+                    ? ` (${post.contactUnlockPrice.toLocaleString('cs-CZ')} Kč)`
+                    : ''}
                 </button>
                 {!apiAccessToken ? (
                   <p className="mt-2 text-xs text-zinc-500">
@@ -193,30 +227,51 @@ export function TiparDetailClient({ id }: Props) {
                   </p>
                 ) : null}
               </>
+            ) : (
+              <p className="mt-2 text-sm text-zinc-600">Kontakt u tohoto tipu není vyplněný.</p>
             )}
           </section>
         </div>
       </div>
+
+      <ContactLeadModal
+        open={contactLeadOpen}
+        busy={contactLeadBusy}
+        error={contactLeadError}
+        defaultName={user?.name ?? ''}
+        defaultEmail={user?.email ?? ''}
+        unlockPrice={post.contactUnlockPrice}
+        onClose={() => setContactLeadOpen(false)}
+        onSubmit={handleContactLeadSubmit}
+      />
 
       {showCreditModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="max-w-sm rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold">Dobijte si kredit</h3>
             <p className="mt-2 text-sm text-zinc-600">
-              Nemáte dostatek kreditu. Dobijte si kredit v administraci nebo kontaktujte podporu.
+              Nemáte dostatek kreditu. Dobijte si kredit v profilu.
             </p>
             {credit != null ? (
               <p className="mt-2 text-sm">
                 Váš kredit: <strong>{credit.toLocaleString('cs-CZ')} Kč</strong>
               </p>
             ) : null}
-            <button
-              type="button"
-              onClick={() => setShowCreditModal(false)}
-              className="mt-4 rounded-full bg-zinc-900 px-4 py-2 text-sm font-semibold text-white"
-            >
-              Zavřít
-            </button>
+            <div className="mt-4 flex gap-2">
+              <Link
+                href="/profil"
+                className="rounded-full bg-[#e85d00] px-4 py-2 text-sm font-semibold text-white"
+              >
+                Dobít kredit
+              </Link>
+              <button
+                type="button"
+                onClick={() => setShowCreditModal(false)}
+                className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700"
+              >
+                Zavřít
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

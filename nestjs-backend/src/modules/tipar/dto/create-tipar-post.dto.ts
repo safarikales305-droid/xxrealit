@@ -1,12 +1,14 @@
 import {
   IsArray,
   IsBoolean,
+  IsEmail,
   IsInt,
   IsOptional,
   IsString,
   IsUrl,
   MaxLength,
   Min,
+  MinLength,
 } from 'class-validator';
 
 export class CreateTiparPostDto {
@@ -48,20 +50,19 @@ export class CreateTiparPostDto {
   @MaxLength(10_000)
   ownerNote?: string;
 
-  @IsOptional()
   @IsString()
+  @MinLength(1)
   @MaxLength(200)
-  contactName?: string;
+  contactName!: string;
 
-  @IsOptional()
   @IsString()
+  @MinLength(9)
   @MaxLength(40)
-  contactPhone?: string;
+  contactPhone!: string;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  contactEmail?: string;
+  @IsEmail()
+  @MaxLength(320)
+  contactEmail!: string;
 
   @IsOptional()
   @IsInt()
