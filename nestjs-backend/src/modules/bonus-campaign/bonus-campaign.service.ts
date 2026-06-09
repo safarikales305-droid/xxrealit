@@ -32,6 +32,15 @@ function formatBonusMessage(amount: number): string {
   return `Gratulujeme, získali jste bonus ${amount.toLocaleString('cs-CZ')} Kč kreditu.`;
 }
 
+const DEFAULT_CTA_TEXT = 'Založ účet, inzeruj a vydělávej';
+const DEFAULT_BONUS_TEXT =
+  'Bonus 1 000 Kč kreditu při vložení inzerátu nebo tipu';
+
+function trimOrDefault(value: string | null | undefined, fallback: string): string {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : fallback;
+}
+
 @Injectable()
 export class BonusCampaignService {
   constructor(private readonly prisma: PrismaService) {}
@@ -94,14 +103,14 @@ export class BonusCampaignService {
     const created = await this.prisma.bonusCampaign.create({
       data: {
         title: dto.title.trim(),
-        ctaText: dto.ctaText.trim(),
-        bonusText: dto.bonusText.trim(),
+        ctaText: trimOrDefault(dto.ctaText, DEFAULT_CTA_TEXT),
+        bonusText: trimOrDefault(dto.bonusText, DEFAULT_BONUS_TEXT),
         amount: Math.max(1, Math.trunc(dto.amount)),
         appliesTo: dto.appliesTo,
-        isActive: dto.isActive,
+        isActive: dto.isActive ?? false,
         activeFrom: parseOptionalDate(dto.activeFrom),
         activeTo: parseOptionalDate(dto.activeTo),
-        oncePerUser: dto.oncePerUser,
+        oncePerUser: dto.oncePerUser ?? true,
       },
     });
     return this.serializeAdmin(created);
@@ -113,8 +122,12 @@ export class BonusCampaignService {
 
     const data: Prisma.BonusCampaignUpdateInput = {};
     if (dto.title !== undefined) data.title = dto.title.trim();
-    if (dto.ctaText !== undefined) data.ctaText = dto.ctaText.trim();
-    if (dto.bonusText !== undefined) data.bonusText = dto.bonusText.trim();
+    if (dto.ctaText !== undefined) {
+      data.ctaText = trimOrDefault(dto.ctaText, DEFAULT_CTA_TEXT);
+    }
+    if (dto.bonusText !== undefined) {
+      data.bonusText = trimOrDefault(dto.bonusText, DEFAULT_BONUS_TEXT);
+    }
     if (dto.amount !== undefined) data.amount = Math.max(1, Math.trunc(dto.amount));
     if (dto.appliesTo !== undefined) data.appliesTo = dto.appliesTo;
     if (dto.isActive !== undefined) data.isActive = dto.isActive;
