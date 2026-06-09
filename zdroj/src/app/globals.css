@@ -204,8 +204,10 @@ body {
 }
 
 @media (min-width: 1024px) {
+  /* Pod views-badge (top 12px + výška ~40px) + min. 20px mezera */
   .shorts-video-stage .guest-shorts-cta-wrap {
-    top: 16px;
+    top: 72px;
+    max-width: min(calc(100% - 5.5rem), 18rem);
   }
 
   .shorts-video-stage .guest-shorts-cta {
