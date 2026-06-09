@@ -1,70 +1,54 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState } from 'react';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import type { PublicRegistrationGateSettings } from '@/lib/registration-gate';
+import { LoopingVideoWithSound } from './LoopingVideoWithSound';
 
 type Props = {
   settings: PublicRegistrationGateSettings;
-  onDismiss: () => void;
 };
 
-export function GuestShortsRegistrationGateModal({ settings, onDismiss }: Props) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [secondsLeft, setSecondsLeft] = useState(settings.skipAfterSeconds);
+export function GuestShortsRegistrationGateModal({ settings }: Props) {
   const isVideo = settings.gateType.toUpperCase() === 'VIDEO';
-  const canSkip = !isVideo || secondsLeft <= 0;
-
-  useEffect(() => {
-    setSecondsLeft(settings.skipAfterSeconds);
-  }, [settings.skipAfterSeconds]);
-
-  useEffect(() => {
-    if (!isVideo || secondsLeft <= 0) return;
-    const timer = window.setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
-    return () => window.clearTimeout(timer);
-  }, [isVideo, secondsLeft]);
-
-  const startVideo = useCallback(() => {
-    const el = videoRef.current;
-    if (!el) return;
-    el.muted = true;
-    void el.play().catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (!isVideo) return;
-    startVideo();
-  }, [isVideo, settings.videoUrl, startVideo]);
-
   const bannerSrc = settings.bannerImageUrl
     ? nestAbsoluteAssetUrl(settings.bannerImageUrl)
     : '';
   const videoSrc = settings.videoUrl ? nestAbsoluteAssetUrl(settings.videoUrl) : '';
+  const registerLabel = settings.buttonText?.trim() || 'Založit účet';
 
   return (
-    <div className="fixed inset-0 z-[500] flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4">
-      <div className="relative w-full max-w-lg overflow-hidden rounded-t-3xl bg-zinc-950 shadow-2xl sm:rounded-3xl">
+    <div
+      className="fixed inset-0 z-[500] flex flex-col bg-gradient-to-b from-zinc-950 via-[#1a0a00] to-black"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="guest-registration-gate-title"
+    >
+      <div className="flex min-h-0 flex-1 flex-col">
         {isVideo && videoSrc ? (
-          <div className="relative aspect-[9/16] max-h-[55dvh] w-full bg-black sm:max-h-[420px]">
-            <video
-              ref={videoRef}
+          <div className="relative min-h-0 flex-1 bg-black">
+            <LoopingVideoWithSound
               src={videoSrc}
-              className="h-full w-full object-cover"
-              playsInline
-              muted
-              autoPlay
-              onLoadedData={startVideo}
+              className="h-full w-full"
+              videoClassName="h-full w-full object-cover"
             />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-5 pb-4 pt-16">
+              <h2
+                id="guest-registration-gate-title"
+                className="text-2xl font-bold text-white drop-shadow-md"
+              >
+                {settings.title}
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-white/90">{settings.description}</p>
+            </div>
           </div>
         ) : (
           <div
-            className="relative flex min-h-[180px] items-end bg-gradient-to-br from-[#ff6a00] via-[#ff4500] to-[#c41e00] p-5 sm:min-h-[220px]"
+            className="relative flex min-h-0 flex-1 flex-col justify-end bg-gradient-to-br from-[#ff6a00] via-[#ff4500] to-[#c41e00] p-6"
             style={
               bannerSrc
                 ? {
-                    backgroundImage: `linear-gradient(to top, rgba(0,0,0,0.75), rgba(0,0,0,0.25)), url(${bannerSrc})`,
+                    backgroundImage: `linear-gradient(to top, rgba(0,0,0,0.82), rgba(0,0,0,0.35)), url(${bannerSrc})`,
                     backgroundSize: 'cover',
                     backgroundPosition: 'center',
                   }
@@ -72,37 +56,41 @@ export function GuestShortsRegistrationGateModal({ settings, onDismiss }: Props)
             }
           >
             <div>
-              <h2 className="text-xl font-bold text-white drop-shadow-md">{settings.title}</h2>
-              <p className="mt-2 text-sm leading-relaxed text-white/90">{settings.description}</p>
+              <h2
+                id="guest-registration-gate-title"
+                className="text-2xl font-bold text-white drop-shadow-md sm:text-3xl"
+              >
+                {settings.title}
+              </h2>
+              <p className="mt-3 max-w-md text-sm leading-relaxed text-white/90 sm:text-base">
+                {settings.description}
+              </p>
             </div>
           </div>
         )}
 
-        <div className="space-y-3 p-5">
-          {isVideo ? (
-            <>
-              <h2 className="text-lg font-bold text-white">{settings.title}</h2>
-              <p className="text-sm leading-relaxed text-zinc-300">{settings.description}</p>
-            </>
-          ) : null}
+        <div className="shrink-0 space-y-3 border-t border-orange-500/20 bg-zinc-950/95 px-5 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] backdrop-blur sm:mx-auto sm:mb-6 sm:max-w-lg sm:rounded-3xl sm:border sm:border-orange-500/30 sm:shadow-2xl">
+          {isVideo ? null : (
+            <div className="sm:hidden">
+              <p className="text-xs font-semibold uppercase tracking-wide text-orange-400">
+                XXrealit
+              </p>
+            </div>
+          )}
 
           <Link
             href="/registrace"
-            className="flex w-full items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-3 text-sm font-bold text-white shadow-lg transition hover:brightness-110"
+            className="flex w-full items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-3.5 text-sm font-bold text-white shadow-lg shadow-orange-900/40 transition hover:brightness-110"
           >
-            {settings.buttonText}
+            {registerLabel}
           </Link>
 
-          <button
-            type="button"
-            disabled={!canSkip}
-            onClick={onDismiss}
-            className="flex w-full items-center justify-center rounded-full border border-zinc-600 px-5 py-3 text-sm font-semibold text-zinc-200 transition hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-45"
+          <Link
+            href="/login"
+            className="flex w-full items-center justify-center rounded-full border-2 border-orange-400/60 bg-transparent px-5 py-3.5 text-sm font-bold text-orange-100 transition hover:bg-orange-500/10"
           >
-            {canSkip
-              ? 'Pokračovat bez registrace'
-              : `Pokračovat můžete za ${secondsLeft} s`}
-          </button>
+            Přihlásit se
+          </Link>
         </div>
       </div>
     </div>

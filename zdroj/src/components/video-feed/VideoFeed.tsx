@@ -10,9 +10,8 @@ import {
 } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import {
-  isGuestShortsGateShown,
-  markGuestShortsGateShown,
-  registerGuestShortsView,
+  incrementGuestShortsView,
+  resetGuestShortsViews,
 } from '@/lib/guest-shorts-views';
 import type { ShortVideo } from '@/lib/nest-client';
 import {
@@ -59,12 +58,15 @@ export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
   }, [isAuthenticated, isLoading]);
 
   const onGuestVideoViewed = useCallback(
-    (videoId: string) => {
+    (_videoId: string) => {
       if (isLoading || isAuthenticated || !gateSettings?.shortsGateEnabled) return;
-      if (isGuestShortsGateShown() || gateOpen) return;
-      const count = registerGuestShortsView(videoId);
-      if (count >= gateSettings.shortsGateAfterViews) {
-        markGuestShortsGateShown();
+      if (gateOpen) return;
+
+      const gateEvery = gateSettings.shortsGateAfterViews || 4;
+      const views = incrementGuestShortsView();
+
+      if (views >= gateEvery) {
+        resetGuestShortsViews();
         setGateOpen(true);
       }
     },
@@ -144,10 +146,7 @@ export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
         ))}
       </div>
       {gateOpen && gateSettings ? (
-        <GuestShortsRegistrationGateModal
-          settings={gateSettings}
-          onDismiss={() => setGateOpen(false)}
-        />
+        <GuestShortsRegistrationGateModal settings={gateSettings} />
       ) : null}
     </div>
   );

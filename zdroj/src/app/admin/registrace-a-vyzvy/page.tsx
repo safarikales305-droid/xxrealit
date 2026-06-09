@@ -3,7 +3,9 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
+import { LoopingVideoWithSound } from '@/components/registration/LoopingVideoWithSound';
 import { useAuth } from '@/hooks/use-auth';
+import { nestAbsoluteAssetUrl } from '@/lib/api';
 import {
   nestAdminRegistrationGateGet,
   nestAdminRegistrationGatePatch,
@@ -87,6 +89,13 @@ export default function AdminRegistrationGatePage() {
     return <div className="min-h-[40vh] bg-zinc-50" />;
   }
 
+  const videoPreviewUrl = settings.videoUrl
+    ? nestAbsoluteAssetUrl(settings.videoUrl)
+    : '';
+  const bannerPreviewUrl = settings.bannerImageUrl
+    ? nestAbsoluteAssetUrl(settings.bannerImageUrl)
+    : '';
+
   return (
     <div className="min-h-screen bg-zinc-50">
       <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/95 backdrop-blur">
@@ -125,8 +134,15 @@ export default function AdminRegistrationGatePage() {
           </label>
         </section>
 
-        <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm space-y-4">
-          <h2 className="text-lg font-semibold text-zinc-900">B) Výzva ve Shorts (hosté)</h2>
+        <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm space-y-5">
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-900">B) Výzva ve Shorts (hosté)</h2>
+            <p className="mt-1 text-sm text-zinc-600">
+              Nepřihlášení uživatelé uvidí výzvu po nastaveném počtu zhlédnutých Shorts. Výzva se opakuje
+              pravidelně.
+            </p>
+          </div>
+
           <label className="flex items-center gap-2 text-sm font-medium">
             <input
               type="checkbox"
@@ -134,7 +150,7 @@ export default function AdminRegistrationGatePage() {
               onChange={(e) => void save({ shortsGateEnabled: e.target.checked })}
               disabled={busy}
             />
-            Zapnout výzvu k registraci ve Shorts
+            Zapnout výzvu ve Shorts
           </label>
 
           <label className="block text-sm">
@@ -154,18 +170,31 @@ export default function AdminRegistrationGatePage() {
             />
           </label>
 
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium">Typ výzvy</span>
-            <select
-              className="w-full max-w-xs rounded-xl border border-zinc-200 px-3 py-2"
-              value={settings.gateType}
-              onChange={(e) => void save({ gateType: e.target.value })}
-              disabled={busy}
-            >
-              <option value="BANNER">Banner</option>
-              <option value="VIDEO">Video</option>
-            </select>
-          </label>
+          <fieldset className="space-y-2">
+            <legend className="mb-1 text-sm font-medium">Typ výzvy</legend>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="gateType"
+                value="VIDEO"
+                checked={settings.gateType.toUpperCase() === 'VIDEO'}
+                onChange={() => void save({ gateType: 'VIDEO' })}
+                disabled={busy}
+              />
+              Video
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="gateType"
+                value="BANNER"
+                checked={settings.gateType.toUpperCase() === 'BANNER'}
+                onChange={() => void save({ gateType: 'BANNER' })}
+                disabled={busy}
+              />
+              Banner
+            </label>
+          </fieldset>
 
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Titulek</span>
@@ -195,11 +224,12 @@ export default function AdminRegistrationGatePage() {
               value={settings.buttonText}
               onChange={(e) => setSettings((s) => (s ? { ...s, buttonText: e.target.value } : s))}
               onBlur={() => void save({ buttonText: settings.buttonText })}
+              placeholder="Založit účet"
             />
           </label>
 
           <label className="block text-sm">
-            <span className="mb-1 block font-medium">Skip po sekundách (video)</span>
+            <span className="mb-1 block font-medium">Čas přeskočení videa (sekund)</span>
             <input
               type="number"
               min={0}
@@ -215,13 +245,14 @@ export default function AdminRegistrationGatePage() {
             />
           </label>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Nahrát video</span>
+          <div className="space-y-4 border-t border-zinc-100 pt-4">
+            <div>
+              <label className="block text-sm font-medium">Nahrát video</label>
               <input
                 type="file"
                 accept="video/mp4,video/webm,video/quicktime"
                 disabled={busy}
+                className="mt-2 block w-full text-sm"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f) void uploadVideo(f);
@@ -229,15 +260,34 @@ export default function AdminRegistrationGatePage() {
                 }}
               />
               {settings.videoUrl ? (
-                <p className="mt-1 truncate text-xs text-zinc-500">{settings.videoUrl}</p>
-              ) : null}
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Nahrát banner</span>
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs font-medium text-zinc-500">URL videa</p>
+                  <p className="break-all rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-700">
+                    {settings.videoUrl}
+                  </p>
+                  {videoPreviewUrl ? (
+                    <div className="overflow-hidden rounded-xl border border-zinc-200 bg-black">
+                      <LoopingVideoWithSound
+                        src={videoPreviewUrl}
+                        className="aspect-video w-full"
+                        videoClassName="h-full w-full object-contain"
+                        showNativeControls
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-zinc-500">Zatím není nahráno žádné video.</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium">Nahrát banner</label>
               <input
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
                 disabled={busy}
+                className="mt-2 block w-full text-sm"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f) void uploadBanner(f);
@@ -245,9 +295,26 @@ export default function AdminRegistrationGatePage() {
                 }}
               />
               {settings.bannerImageUrl ? (
-                <p className="mt-1 truncate text-xs text-zinc-500">{settings.bannerImageUrl}</p>
-              ) : null}
-            </label>
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs font-medium text-zinc-500">URL banneru</p>
+                  <p className="break-all rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-700">
+                    {settings.bannerImageUrl}
+                  </p>
+                  {bannerPreviewUrl ? (
+                    <div className="overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={bannerPreviewUrl}
+                        alt="Náhled banneru výzvy"
+                        className="max-h-64 w-full object-contain"
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-zinc-500">Zatím není nahrán žádný banner.</p>
+              )}
+            </div>
           </div>
         </section>
       </main>
