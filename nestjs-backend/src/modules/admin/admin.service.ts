@@ -430,7 +430,12 @@ export class AdminService {
         });
         break;
       case 'ACTIVE':
-        parts.push({ deletedAt: null, approved: true, isActive: true });
+        parts.push({
+          deletedAt: null,
+          approved: true,
+          isActive: true,
+          isVisible: true,
+        });
         parts.push({
           OR: [{ activeFrom: null }, { activeFrom: { lte: now } }],
         });
@@ -588,6 +593,11 @@ export class AdminService {
         brokerPoints: true,
         brokerFreeLeads: true,
         creditBalance: true,
+        realCreditBalance: true,
+        bonusCreditBalance: true,
+        pendingCreditBalance: true,
+        isCreditVerified: true,
+        firstTopUpUsed: true,
       },
     });
     return rows.map((u) => ({
@@ -601,6 +611,11 @@ export class AdminService {
       brokerPoints: u.brokerPoints,
       brokerFreeLeads: u.brokerFreeLeads,
       creditBalance: u.creditBalance,
+      realCreditBalance: u.realCreditBalance,
+      bonusCreditBalance: u.bonusCreditBalance,
+      pendingCreditBalance: u.pendingCreditBalance,
+      isCreditVerified: u.isCreditVerified,
+      firstTopUpUsed: u.firstTopUpUsed,
     }));
   }
 
@@ -609,12 +624,24 @@ export class AdminService {
     if (!target) {
       throw new NotFoundException('Uživatel nenalezen');
     }
+    const real = Math.max(0, Math.trunc(creditBalance));
     const updated = await this.prisma.user.update({
       where: { id: targetId },
-      data: { creditBalance: Math.max(0, Math.trunc(creditBalance)) },
-      select: { id: true, creditBalance: true },
+      data: {
+        realCreditBalance: real,
+        creditBalance:
+          real + Math.max(0, target.bonusCreditBalance) + Math.max(0, target.pendingCreditBalance),
+      },
+      select: {
+        id: true,
+        creditBalance: true,
+        realCreditBalance: true,
+        bonusCreditBalance: true,
+        pendingCreditBalance: true,
+        isCreditVerified: true,
+      },
     });
-    return { ok: true, id: updated.id, creditBalance: updated.creditBalance };
+    return { ok: true, id: updated.id, creditBalance: updated.creditBalance, user: updated };
   }
 
   async updateUserPremiumBroker(_actorId: string, targetId: string, isPremiumBroker: boolean) {

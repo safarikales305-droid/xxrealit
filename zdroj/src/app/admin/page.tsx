@@ -26,6 +26,8 @@ import {
   nestAdminUpdateShareTextsSettings,
   nestAdminUpdateUserRole,
   nestAdminUpdateUserCredit,
+  nestAdminVerifyUserCredit,
+  nestAdminUnverifyUserCredit,
   nestAdminUsers,
   type AdminListingPhotoWatermarkSettings,
   type AdminShareTextsSettings,
@@ -130,7 +132,9 @@ export default function AdminPage() {
     setCreditDraftByUserId((prev) => {
       const next: Record<string, string> = {};
       for (const row of u ?? []) {
-        next[row.id] = prev[row.id] ?? String(Math.max(0, Math.trunc(row.creditBalance ?? 0)));
+        next[row.id] =
+          prev[row.id] ??
+          String(Math.max(0, Math.trunc(row.realCreditBalance ?? row.creditBalance ?? 0)));
       }
       return next;
     });
@@ -308,6 +312,24 @@ export default function AdminPage() {
     setBusyUserId(null);
     if (r.ok) await refresh();
     else setLoadError(r.error ?? 'Uložení kreditu selhalo');
+  }
+
+  async function onVerifyUserCredit(userId: string) {
+    if (!token) return;
+    setBusyUserId(userId);
+    const r = await nestAdminVerifyUserCredit(token, userId);
+    setBusyUserId(null);
+    if (r.ok) await refresh();
+    else setLoadError(r.error ?? 'Ověření kreditu selhalo');
+  }
+
+  async function onUnverifyUserCredit(userId: string) {
+    if (!token) return;
+    setBusyUserId(userId);
+    const r = await nestAdminUnverifyUserCredit(token, userId);
+    setBusyUserId(null);
+    if (r.ok) await refresh();
+    else setLoadError(r.error ?? 'Zrušení ověření selhalo');
   }
 
   async function onPasswordSubmit(e: React.FormEvent) {
@@ -808,24 +830,58 @@ export default function AdminPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <input
-                          value={creditDraftByUserId[u.id] ?? String(Math.max(0, u.creditBalance ?? 0))}
-                          disabled={busyUserId === u.id}
-                          onChange={(e) =>
-                            setCreditDraftByUserId((prev) => ({ ...prev, [u.id]: e.target.value }))
-                          }
-                          className="w-24 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-800 outline-none focus:border-[#ff6a00]/55 focus:ring-2 focus:ring-[#ff6a00]/15 disabled:opacity-50"
-                          inputMode="numeric"
-                        />
-                        <button
-                          type="button"
-                          disabled={busyUserId === u.id}
-                          onClick={() => void onUserCreditSave(u.id)}
-                          className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:opacity-50"
-                        >
-                          Uložit
-                        </button>
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-xs text-zinc-500">
+                          Běžný {(u.realCreditBalance ?? u.creditBalance ?? 0).toLocaleString('cs-CZ')} ·
+                          Bonus {(u.bonusCreditBalance ?? 0).toLocaleString('cs-CZ')} · Čekající{' '}
+                          {(u.pendingCreditBalance ?? 0).toLocaleString('cs-CZ')} Kč
+                        </span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            value={
+                              creditDraftByUserId[u.id] ??
+                              String(Math.max(0, u.realCreditBalance ?? u.creditBalance ?? 0))
+                            }
+                            disabled={busyUserId === u.id}
+                            onChange={(e) =>
+                              setCreditDraftByUserId((prev) => ({ ...prev, [u.id]: e.target.value }))
+                            }
+                            className="w-24 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-800 outline-none focus:border-[#ff6a00]/55 focus:ring-2 focus:ring-[#ff6a00]/15 disabled:opacity-50"
+                            inputMode="numeric"
+                            title="Ruční úprava běžného kreditu"
+                          />
+                          <button
+                            type="button"
+                            disabled={busyUserId === u.id}
+                            onClick={() => void onUserCreditSave(u.id)}
+                            className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:opacity-50"
+                          >
+                            Uložit
+                          </button>
+                          {u.isCreditVerified ? (
+                            <button
+                              type="button"
+                              disabled={busyUserId === u.id}
+                              onClick={() => void onUnverifyUserCredit(u.id)}
+                              className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-900 transition hover:bg-amber-100 disabled:opacity-50"
+                            >
+                              Zrušit ověření
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={busyUserId === u.id}
+                              onClick={() => void onVerifyUserCredit(u.id)}
+                              className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-900 transition hover:bg-emerald-100 disabled:opacity-50"
+                            >
+                              Ověřit pro kredit
+                            </button>
+                          )}
+                        </div>
+                        <span className="text-[11px] text-zinc-400">
+                          {u.isCreditVerified ? 'Ověřen pro kredit' : 'Neověřen'}
+                          {u.firstTopUpUsed ? ' · první dobití použito' : ''}
+                        </span>
                       </div>
                     </td>
                     <td className="hidden px-4 py-3 text-zinc-500 sm:table-cell">

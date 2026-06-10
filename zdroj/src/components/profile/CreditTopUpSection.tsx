@@ -17,7 +17,16 @@ type Props = {
 export function CreditTopUpSection({ token, initialBalance, onBalanceChange }: Props) {
   const [balanceInfo, setBalanceInfo] = useState<CreditBalanceDto | null>(
     initialBalance != null
-      ? { creditBalance: initialBalance, creditDebt: 0, accountLimited: false, warning: null, pendingTopUps: [] }
+      ? {
+          creditBalance: initialBalance,
+          realCreditBalance: initialBalance,
+          bonusCreditBalance: 0,
+          pendingCreditBalance: 0,
+          creditDebt: 0,
+          accountLimited: false,
+          warning: null,
+          pendingTopUps: [],
+        }
       : null,
   );
   const [amount, setAmount] = useState('500');
@@ -62,10 +71,17 @@ export function CreditTopUpSection({ token, initialBalance, onBalanceChange }: P
     <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
       <h2 className="text-lg font-bold text-zinc-900">Kredit</h2>
       <p className="mt-1 text-sm text-zinc-600">
-        Aktuální zůstatek:{' '}
+        Celkem:{' '}
         <span className="font-semibold text-[#e85d00]">
           {(balanceInfo?.creditBalance ?? 0).toLocaleString('cs-CZ')} Kč
         </span>
+        {balanceInfo ? (
+          <span className="mt-1 block text-xs text-zinc-500">
+            Běžný {(balanceInfo.realCreditBalance ?? 0).toLocaleString('cs-CZ')} Kč · Bonus{' '}
+            {(balanceInfo.bonusCreditBalance ?? 0).toLocaleString('cs-CZ')} Kč · Čekající{' '}
+            {(balanceInfo.pendingCreditBalance ?? 0).toLocaleString('cs-CZ')} Kč
+          </span>
+        ) : null}
         {balanceInfo && balanceInfo.creditDebt > 0 ? (
           <span className="ml-2 text-red-600">
             (dluh {(balanceInfo.creditDebt).toLocaleString('cs-CZ')} Kč)

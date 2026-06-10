@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { CreditTopUpStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { CreditWalletService } from './credit-wallet.service';
 import { UpdateCreditSettingsDto } from './dto/update-credit-settings.dto';
 import { buildQrImageUrl, buildSpdPayload } from './utils/spd-qr.util';
 
@@ -18,7 +19,10 @@ const PENDING_MESSAGE =
 export class CreditsService {
   private readonly logger = new Logger(CreditsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly wallet: CreditWalletService,
+  ) {}
 
   private async getSettingsRow() {
     const row = await this.prisma.creditTopUpSetting.findUnique({
@@ -40,6 +44,12 @@ export class CreditsService {
       maxAmount: row.maxAmount,
       paymentMessage: row.paymentMessage,
       confirmDeadlineDays: row.confirmDeadlineDays,
+      allowUnverifiedFirstTopUp: row.allowUnverifiedFirstTopUp,
+      maxUnverifiedFirstTopUpAmount: row.maxUnverifiedFirstTopUpAmount,
+      allowPendingCreditSpending: row.allowPendingCreditSpending,
+      allowPendingForInternalServices: row.allowPendingForInternalServices,
+      allowBonusCreditOnListingContacts: row.allowBonusCreditOnListingContacts,
+      allowBonusCreditOnTipContacts: row.allowBonusCreditOnTipContacts,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
@@ -99,8 +109,13 @@ export class CreditsService {
       where: { id: userId },
       select: {
         creditBalance: true,
+        realCreditBalance: true,
+        bonusCreditBalance: true,
+        pendingCreditBalance: true,
         creditDebt: true,
         accountLimited: true,
+        isCreditVerified: true,
+        firstTopUpUsed: true,
       },
     });
     if (!user) throw new NotFoundException('Uživatel nenalezen');
@@ -124,10 +139,13 @@ export class CreditsService {
             ? `Máte dluh ${user.creditDebt.toLocaleString('cs-CZ')} Kč z neuhrazeného dobití kreditu.`
             : null;
 
+    const balances = this.wallet.serializeBalances(user);
     return {
-      creditBalance: user.creditBalance,
+      ...balances,
       creditDebt: user.creditDebt,
       accountLimited: user.accountLimited,
+      isCreditVerified: user.isCreditVerified,
+      firstTopUpUsed: user.firstTopUpUsed,
       warning,
       pendingTopUps: pending.map((p) => ({
         id: p.id,
@@ -162,6 +180,41 @@ export class CreditsService {
       );
     }
 
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { isCreditVerified: true, firstTopUpUsed: true },
+    });
+    if (!user) throw new NotFoundException('Uživatel nenalezen');
+
+    if (!user.isCreditVerified) {
+      if (!settings.allowUnverifiedFirstTopUp) {
+        throw new BadRequestException(
+          'Dobití kreditu je dostupné až po ověření účtu administrátorem.',
+        );
+      }
+      const existingTopUp = await this.prisma.creditTopUpTransaction.findFirst({
+        where: {
+          userId,
+          status: {
+            in: [
+              CreditTopUpStatus.PENDING,
+              CreditTopUpStatus.CONFIRMED,
+            ],
+          },
+        },
+      });
+      if (user.firstTopUpUsed || existingTopUp) {
+        throw new BadRequestException(
+          'Další dobití kreditu bude možné po ověření první platby administrátorem.',
+        );
+      }
+      if (amount > settings.maxUnverifiedFirstTopUpAmount) {
+        throw new BadRequestException(
+          `Maximální částka prvního dobití pro neověřeného uživatele je ${settings.maxUnverifiedFirstTopUpAmount.toLocaleString('cs-CZ')} Kč.`,
+        );
+      }
+    }
+
     const variableSymbol = await this.nextVariableSymbol();
     const invoiceNumber = this.nextInvoiceNumber();
     const qrPayload = buildSpdPayload({
@@ -189,25 +242,25 @@ export class CreditsService {
           invoiceNumber,
           status: CreditTopUpStatus.PENDING,
           qrPayload,
-          creditedImmediately: true,
+          creditedImmediately: false,
           expiresAt,
         },
       });
 
-      await db.user.update({
-        where: { id: userId },
-        data: { creditBalance: { increment: amount } },
-      });
+      await this.wallet.creditPendingTopUp(
+        db,
+        userId,
+        amount,
+        created.id,
+        `Dobití kreditu ${invoiceNumber} (čeká na potvrzení)`,
+      );
 
-      await db.creditLedger.create({
-        data: {
-          userId,
-          amount,
-          type: 'TOP_UP_PENDING',
-          referenceId: created.id,
-          description: `Dobití kreditu ${invoiceNumber} (čeká na potvrzení)`,
-        },
-      });
+      if (!user.isCreditVerified) {
+        await db.user.update({
+          where: { id: userId },
+          data: { firstTopUpUsed: true },
+        });
+      }
 
       return created;
     });
@@ -274,6 +327,24 @@ export class CreditsService {
         ...(dto.confirmDeadlineDays !== undefined
           ? { confirmDeadlineDays: dto.confirmDeadlineDays }
           : {}),
+        ...(dto.allowUnverifiedFirstTopUp !== undefined
+          ? { allowUnverifiedFirstTopUp: dto.allowUnverifiedFirstTopUp }
+          : {}),
+        ...(dto.maxUnverifiedFirstTopUpAmount !== undefined
+          ? { maxUnverifiedFirstTopUpAmount: dto.maxUnverifiedFirstTopUpAmount }
+          : {}),
+        ...(dto.allowPendingCreditSpending !== undefined
+          ? { allowPendingCreditSpending: dto.allowPendingCreditSpending }
+          : {}),
+        ...(dto.allowPendingForInternalServices !== undefined
+          ? { allowPendingForInternalServices: dto.allowPendingForInternalServices }
+          : {}),
+        ...(dto.allowBonusCreditOnListingContacts !== undefined
+          ? { allowBonusCreditOnListingContacts: dto.allowBonusCreditOnListingContacts }
+          : {}),
+        ...(dto.allowBonusCreditOnTipContacts !== undefined
+          ? { allowBonusCreditOnTipContacts: dto.allowBonusCreditOnTipContacts }
+          : {}),
       },
     });
     return this.serializeSettings(updated);
@@ -284,24 +355,54 @@ export class CreditsService {
     if (tx.status !== CreditTopUpStatus.PENDING) {
       throw new BadRequestException('Transakci lze potvrdit jen ve stavu PENDING.');
     }
-    const updated = await this.prisma.creditTopUpTransaction.update({
-      where: { id },
-      data: {
-        status: CreditTopUpStatus.CONFIRMED,
-        confirmedAt: new Date(),
-      },
-      include: { user: { select: { id: true, email: true, name: true } } },
-    });
-    await this.prisma.creditLedger.create({
-      data: {
-        userId: tx.userId,
-        amount: 0,
-        type: 'TOP_UP_CONFIRMED',
-        referenceId: id,
-        description: `Potvrzeno dobití ${tx.invoiceNumber}`,
-      },
+    const updated = await this.prisma.$transaction(async (db) => {
+      await this.wallet.confirmPendingTopUp(
+        db,
+        tx.userId,
+        tx.amount,
+        tx.id,
+        tx.invoiceNumber,
+      );
+      return db.creditTopUpTransaction.update({
+        where: { id },
+        data: {
+          status: CreditTopUpStatus.CONFIRMED,
+          confirmedAt: new Date(),
+        },
+        include: { user: { select: { id: true, email: true, name: true } } },
+      });
     });
     return this.serializeTransaction(updated);
+  }
+
+  async verifyUserCredit(userId: string) {
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: { isCreditVerified: true },
+      select: {
+        id: true,
+        isCreditVerified: true,
+        firstTopUpUsed: true,
+        realCreditBalance: true,
+        bonusCreditBalance: true,
+        pendingCreditBalance: true,
+      },
+    });
+    const total = this.wallet.totalBalance(user);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { creditBalance: total },
+    });
+    return { ok: true, user: { ...user, creditBalance: total } };
+  }
+
+  async unverifyUserCredit(userId: string) {
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: { isCreditVerified: false },
+      select: { id: true, isCreditVerified: true },
+    });
+    return { ok: true, user };
   }
 
   async rejectTopUp(id: string, blockAccount = false) {
@@ -343,39 +444,66 @@ export class CreditsService {
       throw new BadRequestException('Transakci nelze odečíst v aktuálním stavu.');
     }
 
+    const ledgerPurpose =
+      status === 'EXPIRED' ? 'TOP_UP_EXPIRED' : 'TOP_UP_REVERSED';
+
     const updated = await this.prisma.$transaction(async (db) => {
-      const user = await db.user.findUnique({
-        where: { id: tx.userId },
-        select: { creditBalance: true },
-      });
-      if (!user) throw new NotFoundException('Uživatel nenalezen');
-
-      const newBalance = user.creditBalance - tx.amount;
-      let creditDebt = 0;
-      let creditBalance = newBalance;
-      if (newBalance < 0) {
-        creditDebt = -newBalance;
-        creditBalance = 0;
+      if (tx.status === CreditTopUpStatus.PENDING) {
+        await this.wallet.reversePendingTopUp(
+          db,
+          tx.userId,
+          tx.amount,
+          tx.id,
+          tx.invoiceNumber,
+          ledgerPurpose,
+        );
+      } else {
+        const user = await db.user.findUnique({
+          where: { id: tx.userId },
+          select: {
+            realCreditBalance: true,
+            bonusCreditBalance: true,
+            pendingCreditBalance: true,
+            creditDebt: true,
+          },
+        });
+        if (!user) throw new NotFoundException('Uživatel nenalezen');
+        let newReal = user.realCreditBalance - tx.amount;
+        let creditDebt = user.creditDebt;
+        if (newReal < 0) {
+          creditDebt += -newReal;
+          newReal = 0;
+        }
+        const row = await db.user.update({
+          where: { id: tx.userId },
+          data: {
+            realCreditBalance: newReal,
+            creditDebt,
+            ...(opts.blockAccount || creditDebt > 0 ? { accountLimited: true } : {}),
+          },
+          select: {
+            realCreditBalance: true,
+            bonusCreditBalance: true,
+            pendingCreditBalance: true,
+          },
+        });
+        const total = this.wallet.totalBalance(row);
+        await db.user.update({
+          where: { id: tx.userId },
+          data: { creditBalance: total },
+        });
+        await db.creditLedger.create({
+          data: {
+            userId: tx.userId,
+            amount: -tx.amount,
+            type: ledgerPurpose,
+            creditType: 'REAL',
+            purpose: ledgerPurpose,
+            referenceId: tx.id,
+            description: `Odečtení potvrzeného kreditu ${tx.invoiceNumber} (${status})`,
+          },
+        });
       }
-
-      await db.user.update({
-        where: { id: tx.userId },
-        data: {
-          creditBalance,
-          creditDebt: { increment: creditDebt },
-          ...(opts.blockAccount || creditDebt > 0 ? { accountLimited: true } : {}),
-        },
-      });
-
-      await db.creditLedger.create({
-        data: {
-          userId: tx.userId,
-          amount: -tx.amount,
-          type: status === 'EXPIRED' ? 'TOP_UP_EXPIRED' : 'TOP_UP_REVERSED',
-          referenceId: tx.id,
-          description: `Odečtení dočasného kreditu ${tx.invoiceNumber} (${status})`,
-        },
-      });
 
       return db.creditTopUpTransaction.update({
         where: { id: tx.id },

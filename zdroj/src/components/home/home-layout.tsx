@@ -359,12 +359,13 @@ export function HomeLayout({
   const classicGridItems = useMemo(() => classicListingsOnly(items), [items]);
 
   useEffect(() => {
-    if (process.env.NODE_ENV === 'production') return;
-    if (classicGridItems.length > 0) {
-      // eslint-disable-next-line no-console
-      console.log('CLASSIC LISTING SAMPLE', classicGridItems[0]);
-    }
-  }, [classicGridItems]);
+    // eslint-disable-next-line no-console
+    console.log('CLASSIC LISTINGS RESPONSE', {
+      total: classicTotal,
+      grid: classicGridItems.length,
+      sample: classicGridItems[0]?.id ?? null,
+    });
+  }, [classicGridItems, classicTotal]);
 
   const filteredItems = useMemo(() => {
     const s = searchQuery.trim().toLowerCase();

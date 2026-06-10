@@ -23,11 +23,6 @@ export const publicShortPropertyWhere: Prisma.PropertyWhereInput = {
   ],
 };
 
-/** Klasik — bez videa (stejná logika jako dřív). */
-export const classicListingWhere: Prisma.PropertyWhereInput = {
-  NOT: { OR: videoListingDisjuncts },
-};
-
 /**
  * Staré / rozbité Reality.cz importy (bez fotky nebo s podezřelou cenou pod 1000 Kč)
  * nepatří na homepage — zůstanou v DB pro admina, ale veřejný feed je skryje.
@@ -58,11 +53,12 @@ const hideBrokenCentury21Imports: Prisma.PropertyWhereInput = {
 /** Klasické inzeráty veřejně viditelné (feed / GET /properties). */
 export const classicPublicListingWhere: Prisma.PropertyWhereInput = {
   AND: [
-    classicListingWhere,
     approvedAndVisible,
     importedListingPubliclyVisibleWhere,
     /** Klasik výpis = explicitně CLASSIC (SHORTS patří do shorts feedu). */
     { listingType: 'CLASSIC' },
+    /** Tip ve Shorts feedu — ne klasický katalog. */
+    { isTiparTip: false },
     hideBrokenRealityImports,
     hideBrokenCentury21Imports,
   ],

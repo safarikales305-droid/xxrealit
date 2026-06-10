@@ -58,4 +58,14 @@ export class CreditsAdminController {
   ) {
     return this.credits.updateSettings(dto);
   }
+
+  @Patch('users/:userId/verify')
+  verifyUserCredit(@Param('userId') userId: string) {
+    return this.credits.verifyUserCredit(userId);
+  }
+
+  @Patch('users/:userId/unverify')
+  unverifyUserCredit(@Param('userId') userId: string) {
+    return this.credits.unverifyUserCredit(userId);
+  }
 }

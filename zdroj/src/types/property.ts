@@ -121,6 +121,7 @@ export type PropertyFromApi = {
   shortsSourceType?: string | null;
   region?: string | null;
   district?: string | null;
+  listingType?: string | null;
   importSource?: string | null;
   importMethod?: string | null;
   sourceUrl?: string | null;
@@ -175,6 +176,7 @@ export type PropertyFeedItem = {
   shortsSourceType?: string | null;
   region?: string | null;
   district?: string | null;
+  listingType?: string | null;
   importSource?: string | null;
   importMethod?: string | null;
   sourceUrl?: string | null;
@@ -336,6 +338,8 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
         : undefined,
     region: p.region === null || typeof p.region === 'string' ? p.region : undefined,
     district: p.district === null || typeof p.district === 'string' ? p.district : undefined,
+    listingType:
+      p.listingType === null || typeof p.listingType === 'string' ? p.listingType : undefined,
     importSource:
       p.importSource === null || typeof p.importSource === 'string' ? p.importSource : undefined,
     importMethod:
@@ -480,6 +484,8 @@ export function safeNormalizePropertyFromApi(
           : undefined,
       region: o.region === null || typeof o.region === 'string' ? o.region : undefined,
       district: o.district === null || typeof o.district === 'string' ? o.district : undefined,
+      listingType:
+        o.listingType === null || typeof o.listingType === 'string' ? o.listingType : undefined,
       importSource:
         o.importSource === null || typeof o.importSource === 'string' ? o.importSource : undefined,
       importMethod:

@@ -257,6 +257,8 @@ export class PropertiesService {
       orderBy: { createdAt: 'desc' },
       include: socialInclude(viewerId),
     });
+    // eslint-disable-next-line no-console
+    console.log('PUBLIC CLASSIC LISTINGS COUNT', rows.length);
     const withVideoUrl = rows.filter((r) => (r.videoUrl ?? '').trim().length > 0).length;
     const withCoverImage = rows.filter(
       (r) =>

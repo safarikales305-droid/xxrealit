@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { CreditWalletService } from '../credits/credit-wallet.service';
 
 export type ContactMonetizationSettings = {
   tipPortalPercent: number;
@@ -16,7 +17,10 @@ const DEFAULT_SETTINGS: ContactMonetizationSettings = {
 
 @Injectable()
 export class ContactMonetizationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly wallet: CreditWalletService,
+  ) {}
 
   async getSettings(): Promise<ContactMonetizationSettings> {
     const row = await this.prisma.contactMonetizationSetting.findUnique({
@@ -76,43 +80,6 @@ export class ContactMonetizationService {
     referenceId: string,
     description: string,
   ): Promise<number> {
-    const charge = Math.max(0, Math.trunc(amount));
-    if (charge === 0) return 0;
-
-    const owner = await tx.user.findUnique({
-      where: { id: ownerUserId },
-      select: { creditBalance: true },
-    });
-    if (!owner) return charge;
-
-    const newBalance = owner.creditBalance - charge;
-    let creditBalance = newBalance;
-    let creditDebt = 0;
-    if (newBalance < 0) {
-      creditDebt = -newBalance;
-      creditBalance = 0;
-    }
-
-    await tx.user.update({
-      where: { id: ownerUserId },
-      data: {
-        creditBalance,
-        ...(creditDebt > 0
-          ? { creditDebt: { increment: creditDebt }, accountLimited: true }
-          : {}),
-      },
-    });
-
-    await tx.creditLedger.create({
-      data: {
-        userId: ownerUserId,
-        amount: -charge,
-        type: 'OWNER_CONTACT_LEAD',
-        referenceId,
-        description,
-      },
-    });
-
-    return charge;
+    return this.wallet.chargeOwnerReal(tx, ownerUserId, amount, referenceId, description);
   }
 }

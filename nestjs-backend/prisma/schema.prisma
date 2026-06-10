@@ -127,10 +127,20 @@ model User {
   /// Average rating 0–5 (manual / future reviews).
   rating       Float      @default(0)
   creditBalance Int       @default(0)
+  /// Běžný kredit (dobití po potvrzení, výplaty tipařům apod.).
+  realCreditBalance Int   @default(0)
+  /// Bonusový kredit — jen na kontakty klasických inzerátů.
+  bonusCreditBalance Int  @default(0)
+  /// Dočasný kredit z QR dobití před potvrzením adminem.
+  pendingCreditBalance Int @default(0)
   /// Dluh po neuhrazeném / zrušeném dobití kreditu (když uživatel kredit mezitím utratil).
   creditDebt    Int       @default(0)
   /// Omezený účet kvůli neuhrazenému dobití kreditu.
   accountLimited Boolean  @default(false)
+  /// Admin ověřil uživatele pro opakované dobití kreditu.
+  isCreditVerified Boolean @default(false)
+  /// Uživatel využil první QR dobití (neověřený limit).
+  firstTopUpUsed Boolean @default(false)
   /// Uživatel vložil první inzerát nebo tip (onboarding po registraci).
   firstContentCompleted Boolean @default(false)
   /// Aktivní role tipaře — může vytvářet tipy na nemovitosti.
@@ -1272,6 +1282,8 @@ model CreditLedger {
   userId      String
   amount      Int
   type        String
+  creditType  String?
+  purpose     String?
   referenceId String?
   description String?
   createdAt   DateTime @default(now())
@@ -1292,6 +1304,12 @@ model CreditTopUpSetting {
   maxAmount           Int      @default(100000)
   paymentMessage      String   @default("Dobiti kreditu XXRealit")
   confirmDeadlineDays Int      @default(2)
+  allowUnverifiedFirstTopUp Boolean @default(true)
+  maxUnverifiedFirstTopUpAmount Int @default(1000)
+  allowPendingCreditSpending Boolean @default(false)
+  allowPendingForInternalServices Boolean @default(false)
+  allowBonusCreditOnListingContacts Boolean @default(true)
+  allowBonusCreditOnTipContacts Boolean @default(false)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }

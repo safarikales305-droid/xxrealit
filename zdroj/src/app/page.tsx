@@ -33,15 +33,6 @@ function buildPropertiesQueryString(sp: SearchParamsInput): string {
   return out.toString();
 }
 
-function hasPropertyListFilters(sp: SearchParamsInput): boolean {
-  return Boolean(
-    firstQuery(sp, 'ptype')?.trim() ||
-      firstQuery(sp, 'cities')?.trim() ||
-      firstQuery(sp, 'priceMin')?.trim() ||
-      firstQuery(sp, 'priceMax')?.trim(),
-  );
-}
-
 async function loadHomeFeed(sp: SearchParamsInput): Promise<{
   items: PropertyFeedItem[];
   total: number;
@@ -59,26 +50,21 @@ async function loadHomeFeed(sp: SearchParamsInput): Promise<{
   const authorization = await getServerAuthorizationHeader();
   const query = buildPropertiesQueryString(sp);
 
-  /**
-   * Personalizovaný feed často obsahuje jen Shorts (videoUrl / video media).
-   * Pro tab Klasik potřebujeme aspoň jeden „klasický“ řádek — jinak sjet na veřejný katalog.
-   */
-  if (authorization && !hasPropertyListFilters(sp)) {
-    const personalized = await loadPropertyFeedItems(base, {
-      authorization,
-      path: '/feed/personalized',
-    });
-    const classicSubset = classicListingsOnly(personalized.items);
-    if (personalized.items.length > 0 && classicSubset.length > 0) {
-      return personalized;
-    }
-  }
-
-  return loadPropertyFeedItems(base, {
+  /** Tab Klasik vždy čerpá z veřejného katalogu GET /properties (nezávisle na personalizovaném feedu). */
+  const classicFeed = await loadPropertyFeedItems(base, {
     authorization,
     path: '/properties',
     query: query || undefined,
   });
+  if (process.env.NODE_ENV === 'development') {
+    // eslint-disable-next-line no-console
+    console.log('CLASSIC LISTINGS RESPONSE', {
+      total: classicFeed.total,
+      items: classicFeed.items.length,
+      sample: classicFeed.items[0]?.id ?? null,
+    });
+  }
+  return classicFeed;
 }
 
 type HomePageProps = {
@@ -90,6 +76,7 @@ export default async function Home({ searchParams }: HomePageProps) {
   const base = getServerSideApiBaseUrl();
   const feed = await loadHomeFeed(sp);
   const items = classicListingsOnly(feed.items);
+  const classicTotal = items.length;
   const apiConfigMissing =
     process.env.NODE_ENV === 'production' && base == null;
 
@@ -103,7 +90,7 @@ export default async function Home({ searchParams }: HomePageProps) {
     >
       <HomeLayout
         items={items}
-        classicTotal={feed.total}
+        classicTotal={classicTotal}
         ShortsFeed={ShortsFeed}
         apiConfigMissing={apiConfigMissing}
       />

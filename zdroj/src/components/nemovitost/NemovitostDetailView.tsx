@@ -275,6 +275,13 @@ export function NemovitostDetailView({
     const r = await nestListingUnlockContact(apiAccessToken, propertyId, lead);
     setContactLeadBusy(false);
     if (!r.ok || !r.data) {
+      if (r.code === 'BONUS_NOT_ALLOWED_FOR_TIP' || r.code === 'REAL_CREDIT_REQUIRED') {
+        setContactLeadError(
+          r.error ??
+            'Na tento kontakt potřebujete běžný kredit. Bonusový nebo čekající kredit nelze použít.',
+        );
+        return;
+      }
       setContactLeadError(r.error ?? 'Odemčení kontaktu se nezdařilo.');
       return;
     }

@@ -81,7 +81,12 @@ export async function loadPropertyFeedItems(
         mediaLen: p.media?.length ?? 0,
       });
     }
-    return { items: list, total: Math.max(total, list.length) };
+    const payload = { items: list, total: Math.max(total, list.length) };
+    if (path === '/properties' || path.endsWith('/properties')) {
+      // eslint-disable-next-line no-console
+      console.log('CLASSIC LISTINGS RESPONSE', payload);
+    }
+    return payload;
   } catch (err) {
     if (process.env.NODE_ENV === 'development') {
       console.warn('[Feed] GET error', url, err);

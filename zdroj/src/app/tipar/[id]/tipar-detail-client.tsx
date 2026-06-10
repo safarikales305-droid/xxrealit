@@ -81,6 +81,15 @@ export function TiparDetailClient({ id }: Props) {
         setShowCreditModal(true);
         return;
       }
+      if (r.code === 'BONUS_NOT_ALLOWED_FOR_TIP' || r.code === 'REAL_CREDIT_REQUIRED') {
+        setContactLeadError(
+          r.error ??
+            (r.code === 'BONUS_NOT_ALLOWED_FOR_TIP'
+              ? 'Bonusový kredit nelze použít na kontakty tipů. Dobijte si běžný kredit.'
+              : 'Na tento kontakt potřebujete běžný kredit. Bonusový nebo čekající kredit nelze použít.'),
+        );
+        return;
+      }
       setContactLeadError(r.error ?? 'Odemčení kontaktu selhalo');
       return;
     }

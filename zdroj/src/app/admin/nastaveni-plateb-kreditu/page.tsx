@@ -21,8 +21,14 @@ export default function AdminCreditPaymentSettingsPage() {
     recipientName: 'XXRealit',
     minAmount: '300',
     maxAmount: '100000',
+    maxUnverifiedFirstTopUpAmount: '1000',
     paymentMessage: 'Dobiti kreditu XXRealit',
     confirmDeadlineDays: '2',
+    allowUnverifiedFirstTopUp: true,
+    allowPendingCreditSpending: false,
+    allowPendingForInternalServices: false,
+    allowBonusCreditOnListingContacts: true,
+    allowBonusCreditOnTipContacts: false,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -38,6 +44,12 @@ export default function AdminCreditPaymentSettingsPage() {
       maxAmount: String(s.maxAmount),
       paymentMessage: s.paymentMessage,
       confirmDeadlineDays: String(s.confirmDeadlineDays),
+      maxUnverifiedFirstTopUpAmount: String(s.maxUnverifiedFirstTopUpAmount ?? 1000),
+      allowUnverifiedFirstTopUp: s.allowUnverifiedFirstTopUp !== false,
+      allowPendingCreditSpending: s.allowPendingCreditSpending === true,
+      allowPendingForInternalServices: s.allowPendingForInternalServices === true,
+      allowBonusCreditOnListingContacts: s.allowBonusCreditOnListingContacts !== false,
+      allowBonusCreditOnTipContacts: s.allowBonusCreditOnTipContacts === true,
     });
   }, []);
 
@@ -75,6 +87,12 @@ export default function AdminCreditPaymentSettingsPage() {
       maxAmount: Number(form.maxAmount),
       paymentMessage: form.paymentMessage.trim(),
       confirmDeadlineDays: Number(form.confirmDeadlineDays),
+      maxUnverifiedFirstTopUpAmount: Number(form.maxUnverifiedFirstTopUpAmount),
+      allowUnverifiedFirstTopUp: form.allowUnverifiedFirstTopUp,
+      allowPendingCreditSpending: form.allowPendingCreditSpending,
+      allowPendingForInternalServices: form.allowPendingForInternalServices,
+      allowBonusCreditOnListingContacts: form.allowBonusCreditOnListingContacts,
+      allowBonusCreditOnTipContacts: form.allowBonusCreditOnTipContacts,
     });
     setSaving(false);
     if (!r.ok) {
@@ -171,6 +189,49 @@ export default function AdminCreditPaymentSettingsPage() {
             onChange={(e) => setForm((f) => ({ ...f, confirmDeadlineDays: e.target.value }))}
             className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
           />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-semibold">Max. první dobití neověřeného (Kč)</label>
+          <input
+            type="number"
+            value={form.maxUnverifiedFirstTopUpAmount}
+            onChange={(e) => setForm((f) => ({ ...f, maxUnverifiedFirstTopUpAmount: e.target.value }))}
+            className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+          />
+        </div>
+        <div className="space-y-2 rounded-lg border border-zinc-100 bg-zinc-50 p-3 text-sm">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={form.allowUnverifiedFirstTopUp}
+              onChange={(e) => setForm((f) => ({ ...f, allowUnverifiedFirstTopUp: e.target.checked }))}
+            />
+            Povolit první dobití neověřeným uživatelům
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={form.allowPendingCreditSpending}
+              onChange={(e) => setForm((f) => ({ ...f, allowPendingCreditSpending: e.target.checked }))}
+            />
+            Povolit použití čekajícího kreditu (pending)
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={form.allowBonusCreditOnListingContacts}
+              onChange={(e) => setForm((f) => ({ ...f, allowBonusCreditOnListingContacts: e.target.checked }))}
+            />
+            Bonusový kredit na kontakty klasických inzerátů
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={form.allowBonusCreditOnTipContacts}
+              onChange={(e) => setForm((f) => ({ ...f, allowBonusCreditOnTipContacts: e.target.checked }))}
+            />
+            Bonusový kredit na kontakty tipů (nedoporučeno)
+          </label>
         </div>
         <button
           type="submit"

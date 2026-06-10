@@ -61,18 +61,11 @@ export function isImportedProperty(p: PropertyImportVisibilityFields): boolean {
 
 /**
  * Importovaný inzerát veřejně jen s platnou aktivní větve (ImportSource).
- * Ruční inzeráty nejsou omezeny větvemi.
+ * Ruční / lokální inzeráty (importSource = null) nejsou omezeny větvemi.
  */
 export const importedListingPubliclyVisibleWhere: Prisma.PropertyWhereInput = {
   OR: [
     { importSource: null },
-    {
-      AND: [
-        { importSource: { not: null } },
-        { importSourceId: null },
-        { importExternalId: null },
-      ],
-    },
     {
       AND: [
         { importSource: { not: null } },

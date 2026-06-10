@@ -6,6 +6,7 @@ import {
   type BonusCampaign,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { CreditWalletService } from '../credits/credit-wallet.service';
 import { CreateBonusCampaignDto } from './dto/create-bonus-campaign.dto';
 import { UpdateBonusCampaignDto } from './dto/update-bonus-campaign.dto';
 
@@ -43,7 +44,10 @@ function trimOrDefault(value: string | null | undefined, fallback: string): stri
 
 @Injectable()
 export class BonusCampaignService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly wallet: CreditWalletService,
+  ) {}
 
   private isWithinDates(campaign: BonusCampaign, now: Date): boolean {
     if (campaign.activeFrom && now < campaign.activeFrom) return false;
@@ -175,10 +179,13 @@ export class BonusCampaignService {
 
       try {
         await this.prisma.$transaction(async (tx) => {
-          await tx.user.update({
-            where: { id: userId },
-            data: { creditBalance: { increment: campaign.amount } },
-          });
+          await this.wallet.creditBonus(
+            tx,
+            userId,
+            campaign.amount,
+            campaign.id,
+            `Bonus: ${campaign.title}`,
+          );
           await tx.bonusClaim.create({
             data: {
               userId,
@@ -186,15 +193,6 @@ export class BonusCampaignService {
               amount: campaign.amount,
               sourceType,
               sourceId,
-            },
-          });
-          await tx.creditLedger.create({
-            data: {
-              userId,
-              amount: campaign.amount,
-              type: 'BONUS_CAMPAIGN',
-              referenceId: campaign.id,
-              description: `Bonus: ${campaign.title}`,
             },
           });
         });

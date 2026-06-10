@@ -622,6 +622,11 @@ export type AdminUserRow = {
   brokerPoints?: number;
   brokerFreeLeads?: number;
   creditBalance?: number;
+  realCreditBalance?: number;
+  bonusCreditBalance?: number;
+  pendingCreditBalance?: number;
+  isCreditVerified?: boolean;
+  firstTopUpUsed?: boolean;
 };
 
 export async function nestAdminStats(
@@ -5639,14 +5644,25 @@ export async function nestTiparUnlockContact(
   );
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
+    const nested =
+      data.message && typeof data.message === 'object' && !Array.isArray(data.message)
+        ? (data.message as Record<string, unknown>)
+        : null;
     const msg =
       typeof data.message === 'string'
         ? data.message
-        : nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`);
+        : typeof nested?.message === 'string'
+          ? nested.message
+          : nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`);
     return {
       ok: false,
       error: msg,
-      code: typeof data.code === 'string' ? data.code : undefined,
+      code:
+        typeof data.code === 'string'
+          ? data.code
+          : typeof nested?.code === 'string'
+            ? nested.code
+            : undefined,
     };
   }
   return {
@@ -5983,8 +5999,13 @@ export async function nestOgDebug(propertyId: string): Promise<OgDebugResponse |
 
 export type CreditBalanceDto = {
   creditBalance: number;
+  realCreditBalance: number;
+  bonusCreditBalance: number;
+  pendingCreditBalance: number;
   creditDebt: number;
   accountLimited: boolean;
+  isCreditVerified?: boolean;
+  firstTopUpUsed?: boolean;
   warning: string | null;
   pendingTopUps: Array<{
     id: string;
@@ -6051,6 +6072,12 @@ export type CreditTopUpSettingsDto = {
   maxAmount: number;
   paymentMessage: string;
   confirmDeadlineDays: number;
+  allowUnverifiedFirstTopUp: boolean;
+  maxUnverifiedFirstTopUpAmount: number;
+  allowPendingCreditSpending: boolean;
+  allowPendingForInternalServices: boolean;
+  allowBonusCreditOnListingContacts: boolean;
+  allowBonusCreditOnTipContacts: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -6199,6 +6226,38 @@ export async function nestAdminCreditSettingsUpdate(
     };
   }
   return { ok: true, settings: data };
+}
+
+export async function nestAdminVerifyUserCredit(
+  token: string | null,
+  userId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/credits/users/${encodeURIComponent(userId)}/verify`, {
+    method: 'PATCH',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { message?: string };
+    return { ok: false, error: typeof data.message === 'string' ? data.message : `HTTP ${res.status}` };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminUnverifyUserCredit(
+  token: string | null,
+  userId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/credits/users/${encodeURIComponent(userId)}/unverify`, {
+    method: 'PATCH',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { message?: string };
+    return { ok: false, error: typeof data.message === 'string' ? data.message : `HTTP ${res.status}` };
+  }
+  return { ok: true };
 }
 
 export type ContactMonetizationSettingsDto = {

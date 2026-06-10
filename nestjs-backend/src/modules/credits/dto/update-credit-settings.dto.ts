@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 export class UpdateCreditSettingsDto {
   @IsOptional()
@@ -38,4 +38,30 @@ export class UpdateCreditSettingsDto {
   @Min(1)
   @Max(30)
   confirmDeadlineDays?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  allowUnverifiedFirstTopUp?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1_000_000)
+  maxUnverifiedFirstTopUpAmount?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  allowPendingCreditSpending?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowPendingForInternalServices?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowBonusCreditOnListingContacts?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowBonusCreditOnTipContacts?: boolean;
 }

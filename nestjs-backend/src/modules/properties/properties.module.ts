@@ -20,11 +20,13 @@ import { FacebookShareImageService } from './facebook-share-image.service';
 import { VideoOgThumbnailService } from './video-og-thumbnail.service';
 import { ShareModule } from '../share/share.module';
 import { BonusCampaignModule } from '../bonus-campaign/bonus-campaign.module';
+import { CreditsModule } from '../credits/credits.module';
 import { RegistrationGateModule } from '../registration-gate/registration-gate.module';
 
 @Module({
   imports: [
     ShareModule,
+    CreditsModule,
     BonusCampaignModule,
     forwardRef(() => RegistrationGateModule),
     forwardRef(() => MessagesModule),
