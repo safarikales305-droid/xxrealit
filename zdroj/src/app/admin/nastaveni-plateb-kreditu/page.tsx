@@ -29,6 +29,8 @@ export default function AdminCreditPaymentSettingsPage() {
     allowPendingForInternalServices: false,
     allowBonusCreditOnListingContacts: true,
     allowBonusCreditOnTipContacts: false,
+    dailyTopUpLimit: '2000',
+    pendingTopUpLimit: '2000',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -50,6 +52,8 @@ export default function AdminCreditPaymentSettingsPage() {
       allowPendingForInternalServices: s.allowPendingForInternalServices === true,
       allowBonusCreditOnListingContacts: s.allowBonusCreditOnListingContacts !== false,
       allowBonusCreditOnTipContacts: s.allowBonusCreditOnTipContacts === true,
+      dailyTopUpLimit: String(s.dailyTopUpLimit ?? 2000),
+      pendingTopUpLimit: String(s.pendingTopUpLimit ?? 2000),
     });
   }, []);
 
@@ -93,6 +97,8 @@ export default function AdminCreditPaymentSettingsPage() {
       allowPendingForInternalServices: form.allowPendingForInternalServices,
       allowBonusCreditOnListingContacts: form.allowBonusCreditOnListingContacts,
       allowBonusCreditOnTipContacts: form.allowBonusCreditOnTipContacts,
+      dailyTopUpLimit: Number(form.dailyTopUpLimit),
+      pendingTopUpLimit: Number(form.pendingTopUpLimit),
     });
     setSaving(false);
     if (!r.ok) {
@@ -199,6 +205,32 @@ export default function AdminCreditPaymentSettingsPage() {
             className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
           />
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-sm font-semibold">Denní limit dobití (Kč)</label>
+            <input
+              type="number"
+              min={1}
+              value={form.dailyTopUpLimit}
+              onChange={(e) => setForm((f) => ({ ...f, dailyTopUpLimit: e.target.value }))}
+              className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-semibold">Limit nepotvrzených plateb (Kč)</label>
+            <input
+              type="number"
+              min={1}
+              value={form.pendingTopUpLimit}
+              onChange={(e) => setForm((f) => ({ ...f, pendingTopUpLimit: e.target.value }))}
+              className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+            />
+          </div>
+        </div>
+        <p className="text-xs text-zinc-500">
+          Uživatel nemůže vytvořit další dobití, pokud součet jeho dnešních nebo nepotvrzených
+          dobíjení překročí tento limit.
+        </p>
         <div className="space-y-2 rounded-lg border border-zinc-100 bg-zinc-50 p-3 text-sm">
           <label className="flex items-center gap-2">
             <input

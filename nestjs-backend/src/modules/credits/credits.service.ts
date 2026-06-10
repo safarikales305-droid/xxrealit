@@ -50,6 +50,8 @@ export class CreditsService {
       allowPendingForInternalServices: row.allowPendingForInternalServices,
       allowBonusCreditOnListingContacts: row.allowBonusCreditOnListingContacts,
       allowBonusCreditOnTipContacts: row.allowBonusCreditOnTipContacts,
+      dailyTopUpLimit: row.dailyTopUpLimit,
+      pendingTopUpLimit: row.pendingTopUpLimit,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
@@ -215,6 +217,8 @@ export class CreditsService {
       }
     }
 
+    await this.assertTopUpLimits(userId, amount, settings);
+
     const variableSymbol = await this.nextVariableSymbol();
     const invoiceNumber = this.nextInvoiceNumber();
     const qrPayload = buildSpdPayload({
@@ -345,9 +349,62 @@ export class CreditsService {
         ...(dto.allowBonusCreditOnTipContacts !== undefined
           ? { allowBonusCreditOnTipContacts: dto.allowBonusCreditOnTipContacts }
           : {}),
+        ...(dto.dailyTopUpLimit !== undefined ? { dailyTopUpLimit: dto.dailyTopUpLimit } : {}),
+        ...(dto.pendingTopUpLimit !== undefined
+          ? { pendingTopUpLimit: dto.pendingTopUpLimit }
+          : {}),
       },
     });
     return this.serializeSettings(updated);
+  }
+
+  private getTodayRange(): { start: Date; end: Date } {
+    const now = new Date();
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(now);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+
+  private async assertTopUpLimits(
+    userId: string,
+    amount: number,
+    settings: Awaited<ReturnType<typeof this.getSettingsRow>>,
+  ): Promise<void> {
+    const { start, end } = this.getTodayRange();
+    const [dailyAgg, pendingAgg] = await Promise.all([
+      this.prisma.creditTopUpTransaction.aggregate({
+        where: {
+          userId,
+          status: {
+            in: [CreditTopUpStatus.PENDING, CreditTopUpStatus.CONFIRMED],
+          },
+          createdAt: { gte: start, lte: end },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.creditTopUpTransaction.aggregate({
+        where: {
+          userId,
+          status: CreditTopUpStatus.PENDING,
+        },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const dailySum = dailyAgg._sum.amount ?? 0;
+    const pendingSum = pendingAgg._sum.amount ?? 0;
+
+    if (dailySum + amount > settings.dailyTopUpLimit) {
+      throw new BadRequestException('Překročili jste denní limit dobití kreditu.');
+    }
+
+    if (pendingSum + amount > settings.pendingTopUpLimit) {
+      throw new BadRequestException(
+        'Máte neuhrazenou nebo nepotvrzenou platbu. Další dobití je možné až po potvrzení administrátorem.',
+      );
+    }
   }
 
   async confirmTopUp(id: string) {

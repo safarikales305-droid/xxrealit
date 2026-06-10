@@ -6078,6 +6078,8 @@ export type CreditTopUpSettingsDto = {
   allowPendingForInternalServices: boolean;
   allowBonusCreditOnListingContacts: boolean;
   allowBonusCreditOnTipContacts: boolean;
+  dailyTopUpLimit: number;
+  pendingTopUpLimit: number;
   createdAt: string;
   updatedAt: string;
 };

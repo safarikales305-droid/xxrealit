@@ -64,4 +64,16 @@ export class UpdateCreditSettingsDto {
   @IsOptional()
   @IsBoolean()
   allowBonusCreditOnTipContacts?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10_000_000)
+  dailyTopUpLimit?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10_000_000)
+  pendingTopUpLimit?: number;
 }

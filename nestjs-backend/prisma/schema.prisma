@@ -1310,6 +1310,8 @@ model CreditTopUpSetting {
   allowPendingForInternalServices Boolean @default(false)
   allowBonusCreditOnListingContacts Boolean @default(true)
   allowBonusCreditOnTipContacts Boolean @default(false)
+  dailyTopUpLimit     Int      @default(2000)
+  pendingTopUpLimit   Int      @default(2000)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }
