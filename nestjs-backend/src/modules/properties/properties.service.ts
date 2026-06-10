@@ -53,6 +53,7 @@ export type PublicPropertyListFilters = {
   sourcePortalKey?: string;
   priceMin?: number;
   priceMax?: number;
+  tipsOnly?: boolean;
 };
 import {
   computeListingPublicStatus,
@@ -209,6 +210,9 @@ export class PropertiesService {
     filters?: PublicPropertyListFilters,
   ): Prisma.PropertyWhereInput {
     const parts: Prisma.PropertyWhereInput[] = [classicPublicListingWhere];
+    if (filters?.tipsOnly) {
+      parts.push({ isTiparTip: true });
+    }
     const citiesCsv = filters?.cities?.trim();
     if (citiesCsv) {
       const list = [...new Set(citiesCsv.split(',').map((s) => s.trim()).filter(Boolean))];

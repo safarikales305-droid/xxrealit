@@ -350,7 +350,9 @@ export class AdminService {
     }
 
     const lt = filters.listingType?.trim().toUpperCase();
-    if (lt === 'SHORTS' || lt === 'CLASSIC') {
+    if (lt === 'TIP') {
+      parts.push({ isTiparTip: true });
+    } else if (lt === 'SHORTS' || lt === 'CLASSIC') {
       parts.push({ listingType: lt });
     }
 

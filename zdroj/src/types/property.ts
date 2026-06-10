@@ -122,6 +122,9 @@ export type PropertyFromApi = {
   region?: string | null;
   district?: string | null;
   listingType?: string | null;
+  isTiparTip?: boolean;
+  isTip?: boolean;
+  tiparBadge?: string | null;
   importSource?: string | null;
   importMethod?: string | null;
   sourceUrl?: string | null;
@@ -177,6 +180,9 @@ export type PropertyFeedItem = {
   region?: string | null;
   district?: string | null;
   listingType?: string | null;
+  isTiparTip?: boolean;
+  isTip?: boolean;
+  tiparBadge?: string | null;
   importSource?: string | null;
   importMethod?: string | null;
   sourceUrl?: string | null;
@@ -340,6 +346,10 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
     district: p.district === null || typeof p.district === 'string' ? p.district : undefined,
     listingType:
       p.listingType === null || typeof p.listingType === 'string' ? p.listingType : undefined,
+    isTiparTip: p.isTiparTip === true || p.isTip === true,
+    isTip: p.isTip === true || p.isTiparTip === true,
+    tiparBadge:
+      p.tiparBadge === null || typeof p.tiparBadge === 'string' ? p.tiparBadge : undefined,
     importSource:
       p.importSource === null || typeof p.importSource === 'string' ? p.importSource : undefined,
     importMethod:
@@ -486,6 +496,10 @@ export function safeNormalizePropertyFromApi(
       district: o.district === null || typeof o.district === 'string' ? o.district : undefined,
       listingType:
         o.listingType === null || typeof o.listingType === 'string' ? o.listingType : undefined,
+      isTiparTip: o.isTiparTip === true || o.isTip === true,
+      isTip: o.isTip === true || o.isTiparTip === true,
+      tiparBadge:
+        o.tiparBadge === null || typeof o.tiparBadge === 'string' ? o.tiparBadge : undefined,
       importSource:
         o.importSource === null || typeof o.importSource === 'string' ? o.importSource : undefined,
       importMethod:

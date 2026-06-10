@@ -19,6 +19,8 @@ import {
 import { listingShareUrl } from '@/lib/public-share-url';
 import type { PropertyDetailAuthor } from '@/lib/property-detail';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
+import { TipDetailBadge } from '@/components/listing/TipBadges';
+import { isTipListing } from '@/lib/is-tip-listing';
 import { classicListingCoverUrl, type PropertyFeedItem } from '@/types/property';
 
 type MediaItem = {
@@ -237,6 +239,7 @@ export function NemovitostDetailView({
   const companyName =
     (p as PropertyFeedItem & { companyName?: string | null }).companyName?.trim() ?? '';
   const coverForMessage = classicListingCoverUrl(p);
+  const isTip = isTipListing(p);
 
   const summaryLine = useMemo(() => {
     const parts: string[] = [];
@@ -552,6 +555,11 @@ export function NemovitostDetailView({
               </div>
               {summaryLine ? (
                 <div className="text-sm text-zinc-700">{summaryLine}</div>
+              ) : null}
+              {isTip ? (
+                <div className="pt-1">
+                  <TipDetailBadge />
+                </div>
               ) : null}
 
               <div className="rounded-2xl border-2 border-orange-200/80 bg-gradient-to-br from-orange-50 via-white to-amber-50/40 p-4 shadow-[0_8px_30px_rgba(234,88,0,0.12)] sm:p-5">

@@ -18,7 +18,9 @@ import { toPublicApiUrl } from '@/lib/public-api';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
 import type { PropertyFeedItem } from '@/types/property';
+import { TipShortsSticker } from '@/components/listing/TipBadges';
 import { GuestShortsCta } from '@/components/shorts/GuestShortsCta';
+import { isTipListing } from '@/lib/is-tip-listing';
 import {
   ShortsFeedClipVideo,
   type ShortsClipSoundControl,
@@ -333,6 +335,8 @@ export function ShortsFeed({ items }: Props) {
         const ad = adsByClipId[c.id] ?? null;
         const adImageSrc = ad ? nestAbsoluteAssetUrl(ad.imageUrl).trim() : '';
         const isAdOpen = Boolean(ad && adPanelOpenByClipId[c.id]);
+        const showTipSticker = isTipListing(c);
+        const showGuestCta = !isLoading && !isAuthenticated;
 
         return (
           <section
@@ -360,7 +364,10 @@ export function ShortsFeed({ items }: Props) {
                 setSoundByClipId((prev) => ({ ...prev, [c.id]: control }));
               }}
             />
-            {!isLoading && !isAuthenticated ? <GuestShortsCta /> : null}
+            {showTipSticker ? (
+              <TipShortsSticker belowGuestCta={showGuestCta} />
+            ) : null}
+            {showGuestCta ? <GuestShortsCta /> : null}
             <div className="views-badge">
               <div className="rounded-xl bg-black/60 px-3 py-2 text-sm font-bold text-white shadow-lg sm:px-4 sm:py-2.5 sm:text-base">
                 {`👁 ${formatViewsCount(c.viewsCount)}`}

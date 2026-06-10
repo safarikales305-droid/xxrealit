@@ -43,12 +43,15 @@ export function SidebarFilters({ className = '', onFiltersApplied }: Props) {
     for (const c of CITY_OPTIONS) z[c] = false;
     return z;
   });
+  const [tipsOnly, setTipsOnly] = useState(false);
 
   useEffect(() => {
     setPropertyType(searchParams.get('ptype')?.trim() ?? '');
     setPriceMin(searchParams.get('priceMin')?.trim() ?? '');
     setPriceMax(searchParams.get('priceMax')?.trim() ?? '');
     setCities(parseCitiesCsv(searchParams.get('cities')));
+    const tipRaw = searchParams.get('tipsOnly')?.trim().toLowerCase();
+    setTipsOnly(tipRaw === '1' || tipRaw === 'true');
   }, [searchParams]);
 
   const toggleCity = useCallback((city: string) => {
@@ -57,7 +60,12 @@ export function SidebarFilters({ className = '', onFiltersApplied }: Props) {
 
   const applyFilters = useCallback(() => {
     const next = new URLSearchParams(searchParams.toString());
-    next.set('tab', 'classic');
+    const currentTab = searchParams.get('tab')?.trim();
+    if (currentTab === 'shorts' || currentTab === 'classic') {
+      next.set('tab', currentTab);
+    } else {
+      next.set('tab', 'classic');
+    }
 
     const pt = propertyType.trim();
     if (pt) next.set('ptype', pt);
@@ -74,6 +82,9 @@ export function SidebarFilters({ className = '', onFiltersApplied }: Props) {
     if (max) next.set('priceMax', max);
     else next.delete('priceMax');
 
+    if (tipsOnly) next.set('tipsOnly', '1');
+    else next.delete('tipsOnly');
+
     const qs = next.toString();
     router.push(qs ? `/?${qs}` : '/');
     router.refresh();
@@ -86,6 +97,7 @@ export function SidebarFilters({ className = '', onFiltersApplied }: Props) {
     propertyType,
     router,
     searchParams,
+    tipsOnly,
   ]);
 
   const clearFilters = useCallback(() => {
@@ -94,6 +106,7 @@ export function SidebarFilters({ className = '', onFiltersApplied }: Props) {
     next.delete('cities');
     next.delete('priceMin');
     next.delete('priceMax');
+    next.delete('tipsOnly');
     const qs = next.toString();
     router.push(qs ? `/?${qs}` : '/');
     router.refresh();
@@ -176,6 +189,18 @@ export function SidebarFilters({ className = '', onFiltersApplied }: Props) {
             </label>
           ))}
         </fieldset>
+
+        <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-transparent px-1 py-1 transition hover:border-zinc-100 hover:bg-zinc-50">
+          <input
+            type="checkbox"
+            checked={tipsOnly}
+            onChange={(e) => setTipsOnly(e.target.checked)}
+            className="size-4 rounded border-zinc-300 accent-[#ff5a00] focus:ring-2 focus:ring-[#ff5a00]/25"
+          />
+          <span className="text-[15px] font-medium tracking-tight text-zinc-800">
+            Pouze TIP nabídky
+          </span>
+        </label>
 
         <div className="flex flex-col gap-2">
           <button

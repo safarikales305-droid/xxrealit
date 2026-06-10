@@ -1,4 +1,6 @@
+import { isTipListing } from '@/lib/is-tip-listing';
 import type { PropertyFeedItem } from '@/types/property';
+import type { ShortVideo } from '@/lib/nest-client';
 
 export function propertyListingHasVideo(p: PropertyFeedItem): boolean {
   if (p.media?.some((m) => m.type === 'video')) return true;
@@ -20,4 +22,8 @@ export function classicListingsOnly(items: PropertyFeedItem[]): PropertyFeedItem
     if (lt === 'SHORTS') return false;
     return !propertyListingHasVideo(p);
   });
+}
+
+export function tipListingsOnly<T extends PropertyFeedItem | ShortVideo>(items: T[]): T[] {
+  return items.filter((p) => isTipListing(p));
 }

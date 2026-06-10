@@ -29,6 +29,8 @@ function buildPropertiesQueryString(sp: SearchParamsInput): string {
   if (priceMin) out.set('priceMin', priceMin);
   const priceMax = firstQuery(sp, 'priceMax')?.trim();
   if (priceMax) out.set('priceMax', priceMax);
+  const tipsOnly = firstQuery(sp, 'tipsOnly')?.trim().toLowerCase();
+  if (tipsOnly === '1' || tipsOnly === 'true') out.set('tipsOnly', '1');
   return out.toString();
 }
 

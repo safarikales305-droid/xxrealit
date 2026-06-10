@@ -23,7 +23,7 @@ import {
 import { CreateCommunityPostCard } from '@/components/community/CreateCommunityPostCard';
 import { CommunityPostCard } from '@/components/community/CommunityPostCard';
 import { PropertyGrid } from '@/components/property-grid';
-import { classicListingsOnly } from '@/lib/property-feed-filters';
+import { classicListingsOnly, tipListingsOnly } from '@/lib/property-feed-filters';
 import { parseApiListingPrice, type PropertyFeedItem } from '@/types/property';
 import { VideoFeed } from '@/components/video-feed/VideoFeed';
 import { Navbar, type ViewMode } from './navbar';
@@ -137,6 +137,9 @@ function feedShortsRowToShortVideo(row: Record<string, unknown>): ShortVideo | n
       ? (row.images as unknown[]).filter((x): x is string => typeof x === 'string' && x.length > 0)
       : undefined,
     imageUrl: typeof row.imageUrl === 'string' ? row.imageUrl : null,
+    isTiparTip: row.isTiparTip === true || row.isTip === true,
+    isTip: row.isTip === true || row.isTiparTip === true,
+    listingType: typeof row.listingType === 'string' ? row.listingType : null,
   };
 }
 
@@ -173,6 +176,10 @@ export function HomeLayout({
     () => searchParams.get('video')?.trim() || null,
     [searchParams],
   );
+  const tipsOnlyActive = useMemo(() => {
+    const raw = searchParams.get('tipsOnly')?.trim().toLowerCase();
+    return raw === '1' || raw === 'true';
+  }, [searchParams]);
 
   useEffect(() => {
     const tab = searchParams.get('tab');
@@ -370,14 +377,16 @@ export function HomeLayout({
   }, [classicGridItems, classicTotal]);
 
   const filteredItems = useMemo(() => {
+    let list = classicGridItems;
+    if (tipsOnlyActive) list = tipListingsOnly(list);
     const s = searchQuery.trim().toLowerCase();
-    if (!s) return classicGridItems;
-    return classicGridItems.filter(
+    if (!s) return list;
+    return list.filter(
       (p) =>
         p.title.toLowerCase().includes(s) ||
         p.location.toLowerCase().includes(s),
     );
-  }, [classicGridItems, searchQuery]);
+  }, [classicGridItems, searchQuery, tipsOnlyActive]);
 
   const classicShortsFallbackGrid = useMemo(
     () => classicListingsOnly(shortsFallbackItems),
@@ -385,14 +394,16 @@ export function HomeLayout({
   );
 
   const filteredShortsFallback = useMemo(() => {
+    let list = classicShortsFallbackGrid;
+    if (tipsOnlyActive) list = tipListingsOnly(list);
     const s = searchQuery.trim().toLowerCase();
-    if (!s) return classicShortsFallbackGrid;
-    return classicShortsFallbackGrid.filter(
+    if (!s) return list;
+    return list.filter(
       (p) =>
         p.title.toLowerCase().includes(s) ||
         p.location.toLowerCase().includes(s),
     );
-  }, [classicShortsFallbackGrid, searchQuery]);
+  }, [classicShortsFallbackGrid, searchQuery, tipsOnlyActive]);
 
   const videosForFeed = useMemo(() => {
     function sortKey(v: ShortVideo): number {
@@ -416,13 +427,16 @@ export function HomeLayout({
         seen.add(v.id);
       }
     }
-    if (!sharedVideoId) return sortByCreatedDesc(merged);
-    const idx = merged.findIndex((v) => v.id === sharedVideoId);
-    if (idx === -1) return sortByCreatedDesc(merged);
-    const picked = merged[idx];
-    const rest = merged.filter((_, i) => i !== idx);
-    return [picked, ...sortByCreatedDesc(rest)];
-  }, [videoFeed, sharedVideoId, shareExtraVideo]);
+    const sorted = (() => {
+      if (!sharedVideoId) return sortByCreatedDesc(merged);
+      const idx = merged.findIndex((v) => v.id === sharedVideoId);
+      if (idx === -1) return sortByCreatedDesc(merged);
+      const picked = merged[idx];
+      const rest = merged.filter((_, i) => i !== idx);
+      return [picked, ...sortByCreatedDesc(rest)];
+    })();
+    return tipsOnlyActive ? tipListingsOnly(sorted) : sorted;
+  }, [videoFeed, sharedVideoId, shareExtraVideo, tipsOnlyActive]);
 
   const shareMissingInFeed = Boolean(
     sharedVideoId && !videoFeed.some((v) => v.id === sharedVideoId),

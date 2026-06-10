@@ -39,8 +39,6 @@ export const classicPublicListingWhere: Prisma.PropertyWhereInput = {
     approvedAndVisible,
     importedListingPubliclyVisibleWhere,
     classicListingTypeWhere,
-    /** Tip ve Shorts feedu — ne klasický katalog. */
-    { isTiparTip: false },
   ],
 };
 

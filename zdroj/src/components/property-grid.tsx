@@ -8,6 +8,8 @@ import { listingShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { nestApiConfigured, nestToggleFavorite } from '@/lib/nest-client';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
+import { TipCardBadge } from '@/components/listing/TipBadges';
+import { isTipListing } from '@/lib/is-tip-listing';
 import { classicListingCoverUrl, type PropertyFeedItem } from '@/types/property';
 
 type Props = {
@@ -103,6 +105,11 @@ export function PropertyGrid({ properties }: Props) {
             >
               <Link href={`/nemovitost/${p.id}`} className="block flex flex-1 flex-col">
                 <div className="relative aspect-[4/3] bg-zinc-100">
+                  {isTipListing(p) ? (
+                    <div className="absolute left-2 top-2 z-10 sm:left-3 sm:top-3">
+                      <TipCardBadge />
+                    </div>
+                  ) : null}
                   {primaryImageSrc ? (
                     <img
                       src={primaryImageSrc}

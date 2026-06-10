@@ -13,6 +13,8 @@ import { ShareButtons } from '@/components/share/ShareButtons';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { nestToggleFavorite, type ShortVideo } from '@/lib/nest-client';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
+import { TipShortsSticker } from '@/components/listing/TipBadges';
+import { isTipListing } from '@/lib/is-tip-listing';
 import { parseApiListingPrice } from '@/types/property';
 
 type VideoCardProps = {
@@ -224,6 +226,8 @@ export default function VideoCard({
     (video.imageUrl ?? '').trim() ||
     null;
   const priceVal = parseApiListingPrice(video.price);
+  const showTipSticker = isTipListing(video);
+  const showGuestCta = !isLoading && !isAuthenticated;
 
   function redirectToLogin() {
     const path =
@@ -523,13 +527,20 @@ export default function VideoCard({
                 Video se nepodařilo načíst
               </div>
             )}
+            {showTipSticker ? (
+              <TipShortsSticker
+                belowGuestCta={showGuestCta}
+                belowMobileFilters={Boolean(onMobileFiltersOpen) && !showGuestCta}
+              />
+            ) : null}
+
             <div className="views-badge">
               <div className="rounded-xl bg-black/60 px-3 py-2 text-sm font-bold text-white shadow-lg sm:px-4 sm:py-2.5 sm:text-base">
                 {`👁 ${formatViewsCount(video.viewsCount)}`}
               </div>
             </div>
 
-            {!isLoading && !isAuthenticated ? <GuestShortsCta /> : null}
+            {showGuestCta ? <GuestShortsCta /> : null}
 
             {onMobileFiltersOpen ? (
               <button

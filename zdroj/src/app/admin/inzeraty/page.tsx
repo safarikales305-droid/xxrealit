@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { formatListingPrice } from '@/lib/price';
+import { AdminListingTypeBadge } from '@/components/listing/TipBadges';
+import { isTipListing } from '@/lib/is-tip-listing';
 import {
   nestAdminApproveProperty,
   nestAdminDeleteProperty,
@@ -28,6 +30,7 @@ const TYPE_OPTIONS = [
   { value: '', label: 'Všechny typy' },
   { value: 'SHORTS', label: 'Shorts' },
   { value: 'CLASSIC', label: 'Klasik' },
+  { value: 'TIP', label: 'TIP' },
 ] as const;
 
 function formatDt(iso: string | null | undefined): string {
@@ -428,7 +431,7 @@ export default function AdminListingsPage() {
             <thead className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
               <tr>
                 <th className="px-3 py-3">Název</th>
-                <th className="px-3 py-3">Typ</th>
+                <th className="px-3 py-3">TYP</th>
                 <th className="px-3 py-3">Autor</th>
                 <th className="px-3 py-3">Město</th>
                 <th className="px-3 py-3">Cena</th>
@@ -443,7 +446,7 @@ export default function AdminListingsPage() {
             <tbody className="divide-y divide-zinc-100">
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center text-zinc-500">
+                  <td colSpan={11} className="px-4 py-10 text-center text-zinc-500">
                     Žádné záznamy. Upravte filtry nebo zkuste znovu načíst.
                   </td>
                 </tr>
@@ -464,9 +467,10 @@ export default function AdminListingsPage() {
                         </Link>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
-                        <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-xs font-medium">
-                          {r.listingType === 'SHORTS' ? 'Shorts' : 'Klasik'}
-                        </span>
+                        <AdminListingTypeBadge
+                          listingType={r.listingType}
+                          isTip={isTipListing(r)}
+                        />
                       </td>
                       <td className="max-w-[160px] truncate px-3 py-2 text-xs text-zinc-600" title={r.authorEmail}>
                         {r.authorEmail ?? r.userId ?? '—'}

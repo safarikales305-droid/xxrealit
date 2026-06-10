@@ -88,6 +88,32 @@ body {
   pointer-events: none;
 }
 
+.tip-listing-sticker {
+  position: absolute;
+  left: max(12px, env(safe-area-inset-left, 0px));
+  top: max(12px, env(safe-area-inset-top, 0px));
+  z-index: 36;
+  background: #ff5a00;
+  opacity: 0.95;
+  box-shadow:
+    0 0 0 1px rgba(255, 120, 0, 0.45),
+    0 10px 28px rgba(255, 80, 0, 0.5);
+}
+
+.tip-listing-sticker--below-filters {
+  top: max(52px, calc(env(safe-area-inset-top, 0px) + 40px));
+}
+
+.tip-listing-sticker--below-cta {
+  top: max(100px, calc(env(safe-area-inset-top, 0px) + 88px));
+}
+
+@media (min-width: 1024px) {
+  .shorts-video-stage .tip-listing-sticker--below-cta {
+    top: 72px;
+  }
+}
+
 .guest-shorts-cta-wrap {
   position: absolute;
   top: max(52px, calc(env(safe-area-inset-top, 0px) + 40px));

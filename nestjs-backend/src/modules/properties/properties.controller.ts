@@ -190,6 +190,7 @@ export class PropertiesController {
     @Query('sourcePortalKey') sourcePortalKey?: string,
     @Query('priceMin') priceMinRaw?: string,
     @Query('priceMax') priceMaxRaw?: string,
+    @Query('tipsOnly') tipsOnlyRaw?: string,
   ) {
     const viewerId = parseBearerUserId(this.jwt, auth);
     const parsePrice = (raw?: string): number | undefined => {
@@ -205,6 +206,7 @@ export class PropertiesController {
       sourcePortalKey,
       priceMin: parsePrice(priceMinRaw),
       priceMax: parsePrice(priceMaxRaw),
+      tipsOnly: tipsOnlyRaw === '1' || tipsOnlyRaw === 'true',
     });
   }
 

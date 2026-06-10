@@ -2,7 +2,9 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { TipShortsSticker } from '@/components/listing/TipBadges';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
+import { isTipListing } from '@/lib/is-tip-listing';
 import { useAuth } from '@/hooks/use-auth';
 import type { PropertyFeedItem } from '@/types/property';
 import { propertyListingHasVideo } from '@/lib/property-feed-filters';
@@ -44,8 +46,11 @@ export function PropertyCard({
     if (wantsVideo && !videoSrc) onVideoBroken?.(p.id);
   }, [wantsVideo, videoSrc, p.id, onVideoBroken]);
 
+  const showTipSticker = isTipListing(p);
+
   return (
     <section className="relative isolate box-border h-[calc(100vh-56px)] max-h-[calc(100vh-56px)] w-full max-w-full shrink-0 snap-start snap-always overflow-hidden overflow-x-hidden bg-black md:h-[calc(100vh-64px)] md:max-h-[calc(100vh-64px)]">
+      {showTipSticker ? <TipShortsSticker /> : null}
       {videoSrc && !videoFailed ? (
         <div className="absolute inset-0 flex items-center justify-center">
           <video

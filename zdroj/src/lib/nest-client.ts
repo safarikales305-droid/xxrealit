@@ -752,6 +752,8 @@ export type AdminListingRow = {
   city?: string;
   location?: string;
   listingType?: string;
+  isTiparTip?: boolean;
+  isTip?: boolean;
   listingStatus?: string;
   authorEmail?: string;
   isActive?: boolean;
@@ -4226,6 +4228,9 @@ export type ShortVideo = {
   /** Z GET /feed/shorts (Property.publishedAt) — řazení náhledu. */
   publishedAt?: string | null;
   viewsCount?: number;
+  isTiparTip?: boolean;
+  isTip?: boolean;
+  listingType?: string | null;
   user?: {
     id: string;
     name?: string | null;
