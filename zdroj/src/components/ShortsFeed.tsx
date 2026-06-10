@@ -94,11 +94,15 @@ export function ShortsFeed({ items }: Props) {
       .filter((item): item is Clip => item.src.length > 0);
   }, [items]);
 
-  const { currentItem: c, containerRef } = useCyclicFeedNavigation(clips, {
-    debugLabel: 'SHORTS',
-    getId: (clip) => clip.id,
-  });
-  const activeId = c?.id ?? null;
+  const { currentItem, containerRef, slidesToRender, transition } = useCyclicFeedNavigation(
+    clips,
+    {
+      debugLabel: 'SHORTS',
+      getId: (clip) => clip.id,
+      switchLockMs: 400,
+    },
+  );
+  const activeId = currentItem?.id ?? null;
 
   const [liked, setLiked] = useState<Record<string, boolean>>({});
   const [likes, setLikes] = useState<Record<string, number>>({});
@@ -240,37 +244,16 @@ export function ShortsFeed({ items }: Props) {
     );
   }
 
-  if (!c) {
-    return null;
-  }
+  function renderClipSection(c: Clip, isActive: boolean) {
+    const showProfileLink = !!c.userId;
+    const ad = adsByClipId[c.id] ?? null;
+    const adImageSrc = ad ? nestAbsoluteAssetUrl(ad.imageUrl).trim() : '';
+    const isAdOpen = Boolean(ad && adPanelOpenByClipId[c.id]);
+    const showTipSticker = isTipListing(c);
+    const showGuestCta = !isLoading && !isAuthenticated;
 
-  const isActive = true;
-  const showProfileLink = !!c.userId;
-  const ad = adsByClipId[c.id] ?? null;
-  const adImageSrc = ad ? nestAbsoluteAssetUrl(ad.imageUrl).trim() : '';
-  const isAdOpen = Boolean(ad && adPanelOpenByClipId[c.id]);
-  const showTipSticker = isTipListing(c);
-  const showGuestCta = !isLoading && !isAuthenticated;
-
-  return (
-    <div
-      ref={containerRef}
-      tabIndex={-1}
-      className="relative h-full min-h-0 w-full overflow-hidden overscroll-none outline-none"
-      onClick={() => setAdInteractionTick((v) => v + 1)}
-    >
-      {sellerActionHint ? (
-        <div
-          className="pointer-events-none fixed bottom-28 left-1/2 z-[60] max-w-sm -translate-x-1/2 rounded-xl border border-white/20 bg-black/80 px-4 py-2 text-center text-xs font-semibold text-amber-100 shadow-lg backdrop-blur-md sm:bottom-32"
-          role="status"
-        >
-          {sellerActionHint}
-        </div>
-      ) : null}
-      <section
-        key={c.id + c.src}
-        className="shorts-video-stage relative isolate box-border h-screen w-full max-w-full overflow-hidden overflow-x-hidden bg-black"
-      >
+    return (
+      <section className="shorts-video-stage relative isolate box-border h-full w-full max-w-full overflow-hidden overflow-x-hidden bg-black">
             {showProfileLink ? (
               <div className="pointer-events-auto absolute left-3 top-20 z-20 md:left-4 md:top-24">
                 <Link
@@ -487,6 +470,44 @@ export function ShortsFeed({ items }: Props) {
               </>
             ) : null}
       </section>
+    );
+  }
+
+  return (
+    <div
+      className="relative h-full min-h-0 w-full"
+      onClick={() => setAdInteractionTick((v) => v + 1)}
+    >
+      {sellerActionHint ? (
+        <div
+          className="pointer-events-none fixed bottom-28 left-1/2 z-[60] max-w-sm -translate-x-1/2 rounded-xl border border-white/20 bg-black/80 px-4 py-2 text-center text-xs font-semibold text-amber-100 shadow-lg backdrop-blur-md sm:bottom-32"
+          role="status"
+        >
+          {sellerActionHint}
+        </div>
+      ) : null}
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        className="relative h-full min-h-0 w-full overflow-hidden overscroll-none outline-none"
+      >
+        <div className="feed-viewport h-full min-h-[100dvh]">
+          {slidesToRender.map((slide) => {
+            const isActive =
+              slide.role === 'incoming' ||
+              (slide.role === 'current' && !transition);
+            return (
+              <div
+                key={slide.key}
+                className={`feed-slide ${slide.className}`}
+                style={{ zIndex: slide.zIndex }}
+              >
+                {renderClipSection(slide.item, isActive)}
+              </div>
+            );
+          })}
+        </div>
+      </div>
       {sellerClip ? (
         <MessageSellerModal
           open={Boolean(sellerClip)}

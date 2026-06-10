@@ -2,9 +2,28 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-const DEFAULT_SWITCH_LOCK_MS = 350;
+const DEFAULT_SWITCH_LOCK_MS = 400;
+const ANIMATION_MS = 360;
 const SWIPE_THRESHOLD_PX = 48;
 const WHEEL_DELTA_THRESHOLD = 10;
+
+export type FeedDirection = 'next' | 'prev';
+export type FeedSlideRole = 'current' | 'outgoing' | 'incoming';
+
+export type FeedSlideRender<T> = {
+  item: T;
+  role: FeedSlideRole;
+  className: string;
+  key: string;
+  zIndex: number;
+};
+
+type TransitionState = {
+  direction: FeedDirection;
+  fromIndex: number;
+  toIndex: number;
+  animate: boolean;
+};
 
 type Options<T> = {
   debugLabel?: string;
@@ -12,6 +31,18 @@ type Options<T> = {
   switchLockMs?: number;
   enabled?: boolean;
 };
+
+function outgoingSlideClass(direction: FeedDirection, animate: boolean): string {
+  if (!animate) return 'feed-slide--idle-active';
+  return direction === 'next' ? 'feed-slide--exit-next' : 'feed-slide--exit-prev';
+}
+
+function incomingSlideClass(direction: FeedDirection, animate: boolean): string {
+  if (!animate) {
+    return direction === 'next' ? 'feed-slide--enter-next' : 'feed-slide--enter-prev';
+  }
+  return 'feed-slide--idle-active';
+}
 
 export function useCyclicFeedNavigation<T>(
   items: readonly T[],
@@ -31,12 +62,20 @@ export function useCyclicFeedNavigation<T>(
   );
 
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [transition, setTransition] = useState<TransitionState | null>(null);
+  const [direction, setDirection] = useState<FeedDirection | null>(null);
   const isSwitchingRef = useRef(false);
+  const currentIndexRef = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const touchStartYRef = useRef(0);
+  const rafRef = useRef<number | null>(null);
+
+  currentIndexRef.current = currentIndex;
 
   useEffect(() => {
     setCurrentIndex(0);
+    setTransition(null);
+    setDirection(null);
   }, [itemsKey]);
 
   useEffect(() => {
@@ -48,6 +87,8 @@ export function useCyclicFeedNavigation<T>(
   }, [total]);
 
   const currentItem = total > 0 ? items[currentIndex] : undefined;
+  const incomingItem =
+    transition && total > 0 ? items[transition.toIndex] : undefined;
 
   useEffect(() => {
     if (process.env.NODE_ENV !== 'development') return;
@@ -66,25 +107,95 @@ export function useCyclicFeedNavigation<T>(
     );
   }, [debugLabel, total, items, currentIndex, currentItem, getId]);
 
+  const slidesToRender = useMemo((): FeedSlideRender<T>[] => {
+    if (total === 0) return [];
+    const idOf = (item: T, index: number) =>
+      getId ? getId(item) : String(index);
+
+    if (!transition) {
+      const item = items[currentIndex];
+      if (!item) return [];
+      return [
+        {
+          item,
+          role: 'current',
+          className: 'feed-slide--idle-active',
+          key: `current-${idOf(item, currentIndex)}`,
+          zIndex: 1,
+        },
+      ];
+    }
+
+    const outgoing = items[transition.fromIndex];
+    const incoming = items[transition.toIndex];
+    if (!outgoing || !incoming) return [];
+
+    return [
+      {
+        item: outgoing,
+        role: 'outgoing',
+        className: outgoingSlideClass(transition.direction, transition.animate),
+        key: `out-${idOf(outgoing, transition.fromIndex)}`,
+        zIndex: 1,
+      },
+      {
+        item: incoming,
+        role: 'incoming',
+        className: incomingSlideClass(transition.direction, transition.animate),
+        key: `in-${idOf(incoming, transition.toIndex)}`,
+        zIndex: 2,
+      },
+    ];
+  }, [currentIndex, getId, items, total, transition]);
+
+  const startTransition = useCallback(
+    (nextDirection: FeedDirection) => {
+      if (!enabled || total <= 1) return;
+      if (isSwitchingRef.current) return;
+
+      const fromIndex = currentIndexRef.current;
+      const toIndex =
+        nextDirection === 'next'
+          ? (fromIndex + 1) % total
+          : (fromIndex - 1 + total) % total;
+
+      isSwitchingRef.current = true;
+      setDirection(nextDirection);
+      setTransition({ direction: nextDirection, fromIndex, toIndex, animate: false });
+
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+      }
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = requestAnimationFrame(() => {
+          setTransition((prev) => (prev ? { ...prev, animate: true } : null));
+          rafRef.current = null;
+        });
+      });
+
+      window.setTimeout(() => {
+        setCurrentIndex(toIndex);
+        setTransition(null);
+        setDirection(null);
+        isSwitchingRef.current = false;
+      }, Math.max(ANIMATION_MS, switchLockMs));
+    },
+    [enabled, switchLockMs, total],
+  );
+
   const goNext = useCallback(() => {
-    if (!enabled || total <= 1) return;
-    if (isSwitchingRef.current) return;
-    isSwitchingRef.current = true;
-    setCurrentIndex((prev) => (prev + 1) % total);
-    window.setTimeout(() => {
-      isSwitchingRef.current = false;
-    }, switchLockMs);
-  }, [enabled, total, switchLockMs]);
+    startTransition('next');
+  }, [startTransition]);
 
   const goPrev = useCallback(() => {
-    if (!enabled || total <= 1) return;
-    if (isSwitchingRef.current) return;
-    isSwitchingRef.current = true;
-    setCurrentIndex((prev) => (prev - 1 + total) % total);
-    window.setTimeout(() => {
-      isSwitchingRef.current = false;
-    }, switchLockMs);
-  }, [enabled, total, switchLockMs]);
+    startTransition('prev');
+  }, [startTransition]);
+
+  useEffect(() => {
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!enabled || total < 1) return;
@@ -140,10 +251,15 @@ export function useCyclicFeedNavigation<T>(
   return {
     currentIndex,
     currentItem,
+    incomingItem,
+    direction,
+    transition,
+    slidesToRender,
     goNext,
     goPrev,
     containerRef,
     total,
     isSwitchingRef,
+    isAnimating: transition != null,
   };
 }

@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CyclicFeedViewport } from '@/components/feed/CyclicFeedViewport';
 import { useAuth } from '@/hooks/use-auth';
-import { useCyclicFeedNavigation } from '@/hooks/use-cyclic-feed-navigation';
 import {
   incrementGuestShortsView,
   resetGuestShortsViews,
@@ -24,8 +24,7 @@ type VideoFeedProps = {
 };
 
 /**
- * Shorts feed — jeden slide, cyklická navigace modulo (dolů i nahoru).
- * Vyřadí jen inzeráty bez jakékoliv video URL.
+ * Shorts feed — TikTok/Reels slide animace, cyklická navigace modulo.
  */
 export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -36,11 +35,6 @@ export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
     () => videos.filter((v) => isShortVideoPlayable(v)),
     [videos],
   );
-
-  const { currentItem, containerRef } = useCyclicFeedNavigation(feedVideos, {
-    debugLabel: 'SHORTS',
-    getId: (v) => v.id,
-  });
 
   useEffect(() => {
     if (isLoading || isAuthenticated) {
@@ -82,25 +76,27 @@ export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col">
-      <div
-        ref={containerRef}
-        tabIndex={-1}
-        className="min-h-0 flex-1 overflow-hidden overscroll-none pb-[env(safe-area-inset-bottom)] pt-0 outline-none"
+      <CyclicFeedViewport
+        items={feedVideos}
+        getId={(v) => v.id}
+        debugLabel="SHORTS"
+        className="min-h-0 flex-1 overflow-hidden overscroll-none pb-[env(safe-area-inset-bottom)] pt-0"
+        viewportClassName="h-full min-h-0 max-md:min-h-[calc(100dvh-3.75rem)]"
+        slideClassName="overflow-hidden rounded-none bg-black md:rounded-xl lg:bg-white lg:shadow-sm"
       >
-        {currentItem ? (
+        {(video) => (
           <div
-            key={currentItem.id}
-            data-video-slide={currentItem.id}
-            className="h-full min-h-0 w-full overflow-hidden rounded-none bg-black max-md:min-h-[calc(100dvh-3.75rem)] md:rounded-xl lg:bg-white lg:shadow-sm"
+            data-video-slide={video.id}
+            className="h-full w-full"
           >
             <VideoCard
-              video={currentItem}
+              video={video}
               onMobileFiltersOpen={onMobileFiltersOpen}
               onGuestVideoViewed={onGuestVideoViewed}
             />
           </div>
-        ) : null}
-      </div>
+        )}
+      </CyclicFeedViewport>
       {gateOpen && gateSettings ? (
         <GuestShortsRegistrationGateModal settings={gateSettings} />
       ) : null}
