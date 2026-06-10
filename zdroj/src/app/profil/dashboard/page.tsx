@@ -27,6 +27,12 @@ import {
   type NestCompanyAdRow,
 } from '@/lib/nest-client';
 import { dashboardPathForRole } from '@/lib/roles';
+import {
+  collectVerificationBlockingIssues,
+  collectVerificationRecommendations,
+  isProfessionalVerificationRole,
+  professionalVerificationStatusLabel,
+} from '@/lib/professional-verification-eligibility';
 
 type Tab = 'settings' | 'listings' | 'ads' | 'messages' | 'notifications';
 
@@ -59,6 +65,7 @@ export default function ProfileDashboardPage() {
   const [ok, setOk] = useState<string | null>(null);
 
   const [bioDraft, setBioDraft] = useState('');
+  const [businessNameDraft, setBusinessNameDraft] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
@@ -74,9 +81,12 @@ export default function ProfileDashboardPage() {
   const [notifLoading, setNotifLoading] = useState(false);
   const [companyAds, setCompanyAds] = useState<NestCompanyAdRow[]>([]);
 
-  const isProfessional = ['AGENT', 'COMPANY', 'AGENCY', 'FINANCIAL_ADVISOR', 'INVESTOR'].includes(
-    user?.role ?? '',
+  const isProfessional = isProfessionalVerificationRole(user?.role);
+  const verificationStatusLabel = professionalVerificationStatusLabel(
+    me?.professionalVerificationStatus,
   );
+  const verificationBlockingIssues = me ? collectVerificationBlockingIssues(me) : [];
+  const verificationRecommendations = me ? collectVerificationRecommendations(me) : [];
   const adsDashboardPath = user?.role
     ? dashboardPathForRole(user.role as Parameters<typeof dashboardPathForRole>[0])
     : '/dashboard';
@@ -96,6 +106,7 @@ export default function ProfileDashboardPage() {
     if (!profile) return;
     setMe(profile);
     setBioDraft(profile.bio ?? '');
+    setBusinessNameDraft(profile.brokerOfficeName ?? '');
   }, [apiAccessToken]);
 
   const loadListings = useCallback(async () => {
@@ -177,6 +188,17 @@ export default function ProfileDashboardPage() {
             <div className="space-y-5">
               <h1 className="text-xl font-bold text-zinc-900">Nastavení profilu</h1>
               {loadingMe ? <p className="text-sm text-zinc-600">Načítám…</p> : null}
+              {user?.role === 'COMPANY' || user?.role === 'AGENCY' ? (
+                <label className="block text-sm font-semibold text-zinc-800">
+                  Název firmy / kanceláře
+                  <input
+                    value={businessNameDraft}
+                    onChange={(e) => setBusinessNameDraft(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                    placeholder="Název společnosti nebo kanceláře"
+                  />
+                </label>
+              ) : null}
               <label className="block text-sm font-semibold text-zinc-800">
                 Bio
                 <textarea
@@ -195,13 +217,16 @@ export default function ProfileDashboardPage() {
                   setSaving(true);
                   setError(null);
                   setOk(null);
-                  void nestPatchProfileBio(apiAccessToken, { bio: bioDraft }).then((res) => {
+                  void nestPatchProfileBio(apiAccessToken, {
+                    bio: bioDraft,
+                    brokerOfficeName: businessNameDraft.trim() || undefined,
+                  }).then((res) => {
                     setSaving(false);
                     if (!res.ok) {
                       setError(res.error ?? 'Uložení bio selhalo.');
                       return;
                     }
-                    setOk('Bio bylo uloženo.');
+                    setOk('Profil byl uložen.');
                     void loadMe();
                   });
                 }}
@@ -224,6 +249,24 @@ export default function ProfileDashboardPage() {
                 {isProfessional ? (
                   <div className="md:col-span-2 space-y-3 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
                     <p className="text-sm font-semibold text-zinc-900">Ověření profesionálního profilu</p>
+                    <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2.5">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        Stav ověření
+                      </p>
+                      <p
+                        className={`mt-1 text-sm font-semibold ${
+                          me?.professionalVerificationStatus === 'APPROVED'
+                            ? 'text-emerald-800'
+                            : me?.professionalVerificationStatus === 'PENDING'
+                              ? 'text-amber-900'
+                              : me?.professionalVerificationStatus === 'REJECTED'
+                                ? 'text-zinc-700'
+                                : 'text-zinc-600'
+                        }`}
+                      >
+                        {verificationStatusLabel}
+                      </p>
+                    </div>
                     {me?.professionalVerificationStatus === 'APPROVED' && me.professionalVerified ? (
                       <p className="text-sm text-emerald-800">
                         Profil je ověřen administrátorem
@@ -240,8 +283,27 @@ export default function ProfileDashboardPage() {
                     ) : (
                       <p className="text-sm text-zinc-600">
                         Profesní profil se v katalogu zobrazí až po schválení administrátorem.
+                        Vyplňte bio a nahrajte profilovou fotku v nastavení výše.
                       </p>
                     )}
+                    {verificationBlockingIssues.length > 0 &&
+                    me?.professionalVerificationStatus !== 'APPROVED' &&
+                    me?.professionalVerificationStatus !== 'PENDING' ? (
+                      <ul className="list-inside list-disc space-y-1 text-sm text-amber-900">
+                        {verificationBlockingIssues.map((issue) => (
+                          <li key={issue}>{issue}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {verificationRecommendations.length > 0 &&
+                    me?.professionalVerificationStatus !== 'APPROVED' &&
+                    me?.professionalVerificationStatus !== 'PENDING' ? (
+                      <ul className="list-inside list-disc space-y-1 text-sm text-zinc-600">
+                        {verificationRecommendations.map((tip) => (
+                          <li key={tip}>{tip} (doporučeno)</li>
+                        ))}
+                      </ul>
+                    ) : null}
                     {me?.professionalVerificationStatus !== 'APPROVED' ? (
                       <>
                         <label className="flex items-start gap-2 text-sm text-zinc-800">
@@ -267,7 +329,18 @@ export default function ProfileDashboardPage() {
                           disabled={!apiAccessToken || verificationSaving}
                           className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                           onClick={() => {
-                            if (!apiAccessToken) return;
+                            if (!apiAccessToken || !me) return;
+                            if (!wantVerification || !publishAfterApproval) {
+                              setError(
+                                'Zaškrtněte obě volby: ověření profilu a zveřejnění po schválení.',
+                              );
+                              return;
+                            }
+                            const issues = collectVerificationBlockingIssues(me);
+                            if (issues.length > 0) {
+                              setError(issues.join(' '));
+                              return;
+                            }
                             setVerificationSaving(true);
                             setError(null);
                             setOk(null);

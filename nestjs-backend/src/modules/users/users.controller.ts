@@ -129,6 +129,7 @@ export class UsersController {
       name: dto.name,
       phone: dto.phone,
       phonePublic: dto.phonePublic,
+      brokerOfficeName: dto.brokerOfficeName,
     });
     return {
       success: true,

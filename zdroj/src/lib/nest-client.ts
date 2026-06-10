@@ -4367,7 +4367,13 @@ export async function nestPatchCoverCrop(
 
 export async function nestPatchProfileBio(
   token: string | null,
-  body: { bio?: string | null; name?: string; phone?: string; phonePublic?: boolean },
+  body: {
+    bio?: string | null;
+    name?: string;
+    phone?: string;
+    phonePublic?: boolean;
+    brokerOfficeName?: string;
+  },
 ): Promise<{
   ok: boolean;
   bio?: string | null;

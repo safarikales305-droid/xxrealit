@@ -13,6 +13,10 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import type { RequestProfessionalVerificationDto } from './dto/request-professional-verification.dto';
 import {
+  collectVerificationBlockingIssues,
+  type VerificationEligibilityInput,
+} from './professional-verification-eligibility.util';
+import {
   isProfessionalRole,
   mapUserStatusToAgentStatus,
   professionalRoleLabel,
@@ -82,31 +86,39 @@ export class ProfessionalVerificationService {
       select: {
         id: true,
         role: true,
+        name: true,
+        email: true,
+        bio: true,
+        avatar: true,
+        brokerOfficeName: true,
         professionalVerificationStatus: true,
-        agentProfile: { select: { id: true } },
-        companyProfile: { select: { id: true } },
-        agencyProfile: { select: { id: true } },
-        financialAdvisorProfile: { select: { id: true } },
-        investorProfile: { select: { id: true } },
+        agentProfile: {
+          select: { companyName: true, ico: true, bio: true, avatarUrl: true },
+        },
+        companyProfile: {
+          select: { companyName: true, ico: true, description: true, logoUrl: true },
+        },
+        agencyProfile: {
+          select: { agencyName: true, ico: true, logoUrl: true },
+        },
+        financialAdvisorProfile: {
+          select: { ico: true, bio: true, avatarUrl: true },
+        },
+        investorProfile: { select: { bio: true, avatarUrl: true } },
       },
     });
     if (!user) throw new NotFoundException('Uživatel nenalezen');
     if (!isProfessionalRole(user.role)) {
       throw new ForbiddenException(
-        'Žádost o ověření mohou podat jen profesionální účty (makléř, firma, kancelář, poradce, investor).',
+        'Žádost o ověření mohou podat jen profesionální účty (makléř, firma, kancelář, řemeslník, poradce, investor).',
       );
     }
 
-    const hasProfile =
-      Boolean(user.agentProfile) ||
-      Boolean(user.companyProfile) ||
-      Boolean(user.agencyProfile) ||
-      Boolean(user.financialAdvisorProfile) ||
-      Boolean(user.investorProfile);
-    if (!hasProfile) {
-      throw new BadRequestException(
-        'Nejdřív vyplňte profesní profil v sekci Rozšířit účet nebo v nastavení.',
-      );
+    const blockingIssues = collectVerificationBlockingIssues(
+      user as VerificationEligibilityInput,
+    );
+    if (blockingIssues.length > 0) {
+      throw new BadRequestException(blockingIssues.join(' '));
     }
 
     if (user.professionalVerificationStatus === ProfessionalVerificationStatus.APPROVED) {
@@ -286,7 +298,7 @@ export class ProfessionalVerificationService {
     return { ok: true, userId };
   }
 
-  /** Po odeslání profesní žádosti z formuláře Rozšířit účet. */
+  /** Po odeslání profesní žádosti z legacy formuláře (pokud se ještě používá). */
   async markPendingFromProfileRequest(userId: string, role: UserRole) {
     const now = new Date();
     await this.prisma.user.update({

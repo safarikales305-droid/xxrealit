@@ -220,10 +220,22 @@ export class UsersService {
 
   async updateProfile(
     userId: string,
-    input: { bio?: string | null; name?: string; phone?: string; phonePublic?: boolean },
+    input: {
+      bio?: string | null;
+      name?: string;
+      phone?: string;
+      phonePublic?: boolean;
+      brokerOfficeName?: string;
+    },
   ) {
-    const { bio, name, phone, phonePublic } = input;
-    if (bio === undefined && name === undefined && phone === undefined && phonePublic === undefined) {
+    const { bio, name, phone, phonePublic, brokerOfficeName } = input;
+    if (
+      bio === undefined &&
+      name === undefined &&
+      phone === undefined &&
+      phonePublic === undefined &&
+      brokerOfficeName === undefined
+    ) {
       const u = await this.prisma.user.findUnique({
         where: { id: userId },
         select: {
@@ -255,6 +267,9 @@ export class UsersService {
       ...(name !== undefined ? { name: name.trim().slice(0, 120) } : {}),
       ...(phone !== undefined ? { phone: phone.trim().slice(0, 40) } : {}),
       ...(phonePublic !== undefined ? { phonePublic } : {}),
+      ...(brokerOfficeName !== undefined
+        ? { brokerOfficeName: brokerOfficeName.trim().slice(0, 200) }
+        : {}),
     };
     const updated = await this.prisma.user.update({
       where: { id: userId },

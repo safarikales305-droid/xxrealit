@@ -44,4 +44,12 @@ export class UpdateProfileDto {
     message: `Bio může mít maximálně ${BIO_MAX} znaků.`,
   })
   bio?: string | null;
+
+  /** Firemní / kancelářský název (makléř, firma, kancelář). */
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @ValidateIf((_, v) => v !== undefined)
+  @IsString()
+  @MaxLength(200)
+  brokerOfficeName?: string;
 }

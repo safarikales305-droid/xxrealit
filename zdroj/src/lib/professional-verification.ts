@@ -76,6 +76,13 @@ export function verifiedBadgeLabelForRole(role: string | null | undefined): stri
 /** Katalog /makleri — jen realitní role. */
 export const BROKER_CATALOG_ROLES = ['AGENT', 'AGENCY'] as const;
 
+export {
+  collectVerificationEligibilityIssues,
+  isProfessionalVerificationRole,
+  professionalVerificationStatusLabel,
+  PROFESSIONAL_VERIFICATION_ROLES,
+} from '@/lib/professional-verification-eligibility';
+
 export function isBrokerCatalogRole(role: string | null | undefined): boolean {
   const r = String(role ?? '').toUpperCase();
   return (BROKER_CATALOG_ROLES as readonly string[]).includes(r);

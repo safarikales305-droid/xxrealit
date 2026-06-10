@@ -8,6 +8,7 @@ export const PROFESSIONAL_ROLES: UserRole[] = [
   UserRole.AGENT,
   UserRole.COMPANY,
   UserRole.AGENCY,
+  UserRole.CRAFTSMAN,
   UserRole.FINANCIAL_ADVISOR,
   UserRole.INVESTOR,
 ];
@@ -61,6 +62,8 @@ export function professionalRoleLabel(role: UserRole): string {
       return 'Finanční poradce';
     case UserRole.INVESTOR:
       return 'Investor';
+    case UserRole.CRAFTSMAN:
+      return 'Řemeslník';
     default:
       return role;
   }
