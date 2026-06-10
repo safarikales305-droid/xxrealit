@@ -6,7 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, UserRole } from '@prisma/client';
+import { Prisma, ProfessionalVerificationStatus, UserRole } from '@prisma/client';
 import type { User } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
@@ -306,6 +306,12 @@ export class UsersService {
       brokerPoints: true,
       brokerFreeLeads: true,
       isPublicBrokerProfile: true,
+      professionalVerified: true,
+      professionalVerificationStatus: true,
+      publicProfessionalProfile: true,
+      professionalVerificationRequestedAt: true,
+      professionalVerifiedAt: true,
+      professionalRejectedAt: true,
       allowBrokerReviews: true,
       brokerProfileSlug: true,
       brokerOfficeName: true,
@@ -478,6 +484,13 @@ export class UsersService {
       brokerPoints: u.brokerPoints,
       brokerFreeLeads: u.brokerFreeLeads,
       isPublicBrokerProfile: u.isPublicBrokerProfile,
+      professionalVerified: Boolean(u.professionalVerified),
+      professionalVerificationStatus: u.professionalVerificationStatus,
+      publicProfessionalProfile: Boolean(u.publicProfessionalProfile),
+      professionalVerificationRequestedAt:
+        u.professionalVerificationRequestedAt?.toISOString() ?? null,
+      professionalVerifiedAt: u.professionalVerifiedAt?.toISOString() ?? null,
+      professionalRejectedAt: u.professionalRejectedAt?.toISOString() ?? null,
       allowBrokerReviews: u.allowBrokerReviews,
       brokerProfileSlug: u.brokerProfileSlug,
       brokerOfficeName: u.brokerOfficeName,
@@ -793,15 +806,30 @@ export class UsersService {
   async updateProfessionalProfileVisibility(userId: string, isPublic: boolean) {
     const u = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { role: true },
+      select: {
+        role: true,
+        professionalVerified: true,
+        professionalVerificationStatus: true,
+      },
     });
     if (!u) throw new NotFoundException('User not found');
+
+    if (isPublic) {
+      if (
+        !u.professionalVerified ||
+        u.professionalVerificationStatus !== ProfessionalVerificationStatus.APPROVED
+      ) {
+        throw new ForbiddenException(
+          'Profesní profil lze zveřejnit až po schválení administrátorem. Nejprve odešlete žádost o ověření.',
+        );
+      }
+    }
 
     if (u.role === UserRole.AGENT) {
       const [userUpdate, profileUpdate] = await Promise.all([
         this.prisma.user.update({
           where: { id: userId },
-          data: { isPublicBrokerProfile: isPublic },
+          data: { isPublicBrokerProfile: isPublic, publicProfessionalProfile: isPublic },
           select: { isPublicBrokerProfile: true },
         }),
         this.prisma.agentProfile.updateMany({

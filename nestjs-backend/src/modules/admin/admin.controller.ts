@@ -30,6 +30,7 @@ import { CreateImportSourceDto } from './dto/create-import-source.dto';
 import { BulkImportShortsDraftsDto } from './dto/bulk-import-shorts-drafts.dto';
 import { AdminGuard } from './guards/admin.guard';
 import { AgentProfileService } from '../agent-profile/agent-profile.service';
+import { ProfessionalVerificationService } from '../professional-verification/professional-verification.service';
 
 type ChangePasswordBody = {
   oldPassword?: string;
@@ -61,6 +62,7 @@ export class AdminController {
   constructor(
     private readonly adminService: AdminService,
     private readonly agentProfileService: AgentProfileService,
+    private readonly professionalVerification: ProfessionalVerificationService,
     private readonly importedBrokerContacts: ImportedBrokerContactService,
   ) {}
 
@@ -223,6 +225,21 @@ export class AdminController {
     @Param('id') id: string,
   ) {
     return this.agentProfileService.adminRejectProfessional(type, id);
+  }
+
+  @Get('professional-verification-requests')
+  listProfessionalVerificationRequests() {
+    return this.professionalVerification.adminListPending();
+  }
+
+  @Post('professional-verification-requests/:id/approve')
+  approveProfessionalVerificationRequest(@Param('id') id: string) {
+    return this.professionalVerification.adminApprove(id);
+  }
+
+  @Post('professional-verification-requests/:id/reject')
+  rejectProfessionalVerificationRequest(@Param('id') id: string) {
+    return this.professionalVerification.adminReject(id);
   }
 
   @Patch('users/:id/role')

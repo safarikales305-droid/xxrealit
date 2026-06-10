@@ -1,4 +1,8 @@
-import { AgentVerificationStatus, UserRole } from '@prisma/client';
+import {
+  AgentVerificationStatus,
+  ProfessionalVerificationStatus,
+  UserRole,
+} from '@prisma/client';
 
 type ProfileVerification = {
   verificationStatus: AgentVerificationStatus;
@@ -6,6 +10,9 @@ type ProfileVerification = {
 
 type UserWithProfiles = {
   role: UserRole;
+  professionalVerified?: boolean;
+  professionalVerificationStatus?: ProfessionalVerificationStatus;
+  publicProfessionalProfile?: boolean;
   agentProfile?: ProfileVerification;
   companyProfile?: ProfileVerification;
   agencyProfile?: ProfileVerification;
@@ -16,6 +23,18 @@ type UserWithProfiles = {
 export function professionalVerificationStatus(
   user: UserWithProfiles,
 ): AgentVerificationStatus | null {
+  if (user.professionalVerificationStatus) {
+    switch (user.professionalVerificationStatus) {
+      case ProfessionalVerificationStatus.APPROVED:
+        return AgentVerificationStatus.verified;
+      case ProfessionalVerificationStatus.PENDING:
+        return AgentVerificationStatus.pending;
+      case ProfessionalVerificationStatus.REJECTED:
+        return AgentVerificationStatus.rejected;
+      default:
+        break;
+    }
+  }
   switch (user.role) {
     case UserRole.AGENT:
       return user.agentProfile?.verificationStatus ?? null;
@@ -33,7 +52,22 @@ export function professionalVerificationStatus(
 }
 
 export function isProfessionalVerified(user: UserWithProfiles): boolean {
+  if (
+    user.professionalVerified === true &&
+    user.professionalVerificationStatus === ProfessionalVerificationStatus.APPROVED
+  ) {
+    return true;
+  }
   return professionalVerificationStatus(user) === AgentVerificationStatus.verified;
+}
+
+export function isCatalogEligibleProfessional(user: UserWithProfiles): boolean {
+  return (
+    user.publicProfessionalProfile === true &&
+    user.professionalVerified === true &&
+    user.professionalVerificationStatus === ProfessionalVerificationStatus.APPROVED &&
+    isProfessionalVerified(user)
+  );
 }
 
 /** Role zobrazené v katalogu /makleri (realitní makléř / kancelář). */
@@ -48,3 +82,9 @@ export function parseBrokerCatalogRoles(raw?: string): UserRole[] | undefined {
     .filter((x): x is UserRole => allowed.has(x as UserRole));
   return parsed.length > 0 ? parsed : undefined;
 }
+
+export const CATALOG_VERIFIED_USER_WHERE = {
+  professionalVerified: true,
+  professionalVerificationStatus: ProfessionalVerificationStatus.APPROVED,
+  publicProfessionalProfile: true,
+} as const;

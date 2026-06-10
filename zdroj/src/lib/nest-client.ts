@@ -238,6 +238,12 @@ export type NestMeProfile = {
   brokerFreeLeads?: number;
   brokerProgress?: NestBrokerProgress;
   isPublicBrokerProfile?: boolean;
+  professionalVerified?: boolean;
+  professionalVerificationStatus?: 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED';
+  publicProfessionalProfile?: boolean;
+  professionalVerificationRequestedAt?: string | null;
+  professionalVerifiedAt?: string | null;
+  professionalRejectedAt?: string | null;
   allowBrokerReviews?: boolean;
   brokerProfileSlug?: string | null;
   brokerOfficeName?: string;
@@ -521,6 +527,29 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     brokerProgress: brokerProgress ?? undefined,
     isPublicBrokerProfile:
       typeof o.isPublicBrokerProfile === 'boolean' ? o.isPublicBrokerProfile : undefined,
+    professionalVerified: o.professionalVerified === true,
+    professionalVerificationStatus:
+      o.professionalVerificationStatus === 'NONE' ||
+      o.professionalVerificationStatus === 'PENDING' ||
+      o.professionalVerificationStatus === 'APPROVED' ||
+      o.professionalVerificationStatus === 'REJECTED'
+        ? o.professionalVerificationStatus
+        : undefined,
+    publicProfessionalProfile:
+      typeof o.publicProfessionalProfile === 'boolean' ? o.publicProfessionalProfile : undefined,
+    professionalVerificationRequestedAt:
+      o.professionalVerificationRequestedAt === null ||
+      typeof o.professionalVerificationRequestedAt === 'string'
+        ? (o.professionalVerificationRequestedAt as string | null)
+        : undefined,
+    professionalVerifiedAt:
+      o.professionalVerifiedAt === null || typeof o.professionalVerifiedAt === 'string'
+        ? (o.professionalVerifiedAt as string | null)
+        : undefined,
+    professionalRejectedAt:
+      o.professionalRejectedAt === null || typeof o.professionalRejectedAt === 'string'
+        ? (o.professionalRejectedAt as string | null)
+        : undefined,
     allowBrokerReviews:
       typeof o.allowBrokerReviews === 'boolean' ? o.allowBrokerReviews : undefined,
     brokerProfileSlug:
@@ -3237,6 +3266,122 @@ export async function nestPatchProfessionalVisibility(
     role: typeof raw.role === 'string' ? raw.role : undefined,
     isPublic: typeof raw.isPublic === 'boolean' ? raw.isPublic : undefined,
   };
+}
+
+export type ProfessionalVerificationRequestRow = {
+  id: string;
+  userId: string;
+  email: string;
+  name: string | null;
+  role: string;
+  roleLabel: string;
+  bio: string;
+  avatarUrl: string | null;
+  companyOrBrand: string | null;
+  requestedAt: string | null;
+};
+
+/** POST /profile/request-verification */
+export async function nestRequestProfessionalVerification(
+  token: string | null,
+  body: { requestVerification: boolean; publishAfterApproval: boolean },
+): Promise<{ ok: boolean; error?: string; message?: string; professionalVerificationStatus?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/profile/request-verification`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  }
+  return {
+    ok: true,
+    message: typeof raw.message === 'string' ? raw.message : undefined,
+    professionalVerificationStatus:
+      typeof raw.professionalVerificationStatus === 'string'
+        ? raw.professionalVerificationStatus
+        : undefined,
+  };
+}
+
+export async function nestAdminProfessionalVerificationRequests(
+  token: string | null,
+): Promise<ProfessionalVerificationRequestRow[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/professional-verification-requests`, {
+    cache: 'no-store',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as unknown;
+  if (!Array.isArray(data)) return null;
+  return data
+    .map((row) => {
+      if (!row || typeof row !== 'object') return null;
+      const o = row as Record<string, unknown>;
+      if (typeof o.id !== 'string') return null;
+      return {
+        id: o.id,
+        userId: typeof o.userId === 'string' ? o.userId : o.id,
+        email: typeof o.email === 'string' ? o.email : '',
+        name: typeof o.name === 'string' ? o.name : null,
+        role: typeof o.role === 'string' ? o.role : '',
+        roleLabel: typeof o.roleLabel === 'string' ? o.roleLabel : '',
+        bio: typeof o.bio === 'string' ? o.bio : '',
+        avatarUrl:
+          o.avatarUrl === null || typeof o.avatarUrl === 'string'
+            ? (o.avatarUrl as string | null)
+            : null,
+        companyOrBrand:
+          o.companyOrBrand === null || typeof o.companyOrBrand === 'string'
+            ? (o.companyOrBrand as string | null)
+            : null,
+        requestedAt:
+          o.requestedAt === null || typeof o.requestedAt === 'string'
+            ? (o.requestedAt as string | null)
+            : null,
+      };
+    })
+    .filter((x): x is ProfessionalVerificationRequestRow => Boolean(x));
+}
+
+export async function nestAdminApproveProfessionalVerification(
+  token: string | null,
+  userId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(
+    `${API_BASE_URL}/admin/professional-verification-requests/${encodeURIComponent(userId)}/approve`,
+    { method: 'POST', headers: { ...nestAuthHeaders(token), Accept: 'application/json' } },
+  );
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminRejectProfessionalVerification(
+  token: string | null,
+  userId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(
+    `${API_BASE_URL}/admin/professional-verification-requests/${encodeURIComponent(userId)}/reject`,
+    { method: 'POST', headers: { ...nestAuthHeaders(token), Accept: 'application/json' } },
+  );
+  const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  }
+  return { ok: true };
 }
 
 export type NestCompanyAdRow = {

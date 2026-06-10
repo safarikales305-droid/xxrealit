@@ -1,0 +1,1 @@
+-- Placeholder: migrace byla nahrazena souborem 20260420120000_shorts_render_music_library_fields.

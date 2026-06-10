@@ -1,11 +1,13 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
+import { ProfessionalVerificationModule } from '../professional-verification/professional-verification.module';
 import { AgentProfileController } from './agent-profile.controller';
 import { AgentProfileService } from './agent-profile.service';
 
 @Module({
   imports: [
+    ProfessionalVerificationModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

@@ -19,6 +19,7 @@ import {
   nestPatchProfileBio,
   nestPatchProfileVisibility,
   nestPatchProfessionalVisibility,
+  nestRequestProfessionalVerification,
   nestTopMyProperty,
   type NestMeProfile,
   type NestMyListingRow,
@@ -61,6 +62,9 @@ export default function ProfileDashboardPage() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
+  const [wantVerification, setWantVerification] = useState(false);
+  const [publishAfterApproval, setPublishAfterApproval] = useState(false);
+  const [verificationSaving, setVerificationSaving] = useState(false);
 
   const [listings, setListings] = useState<NestMyListingRow[]>([]);
   const [listingsLoading, setListingsLoading] = useState(false);
@@ -218,27 +222,95 @@ export default function ProfileDashboardPage() {
                   Veřejný profil
                 </label>
                 {isProfessional ? (
-                  <label className="inline-flex items-center gap-2 text-sm text-zinc-800">
-                    <input
-                      type="checkbox"
-                      checked={
-                        user?.role === 'COMPANY'
-                          ? Boolean(me?.companyProfile?.isPublic)
-                          : user?.role === 'AGENCY'
-                            ? Boolean(me?.agencyProfile?.isPublic)
-                            : user?.role === 'FINANCIAL_ADVISOR'
-                              ? Boolean(me?.financialAdvisorProfile?.isPublic)
-                              : user?.role === 'INVESTOR'
-                                ? Boolean(me?.investorProfile?.isPublic)
-                                : Boolean(me?.isPublicBrokerProfile)
-                      }
-                      onChange={(e) => {
-                        if (!apiAccessToken) return;
-                        void nestPatchProfessionalVisibility(apiAccessToken, e.target.checked).then(() => void loadMe());
-                      }}
-                    />
-                    Veřejný profesní profil
-                  </label>
+                  <div className="md:col-span-2 space-y-3 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
+                    <p className="text-sm font-semibold text-zinc-900">Ověření profesionálního profilu</p>
+                    {me?.professionalVerificationStatus === 'APPROVED' && me.professionalVerified ? (
+                      <p className="text-sm text-emerald-800">
+                        Profil je ověřen administrátorem
+                        {me.publicProfessionalProfile ? ' a je zveřejněn v katalogu Profesionálové.' : '.'}
+                      </p>
+                    ) : me?.professionalVerificationStatus === 'PENDING' ? (
+                      <p className="text-sm text-amber-900">
+                        Žádost o ověření čeká na schválení administrátorem.
+                      </p>
+                    ) : me?.professionalVerificationStatus === 'REJECTED' ? (
+                      <p className="text-sm text-zinc-700">
+                        Předchozí žádost byla zamítnuta. Můžete odeslat novou žádost.
+                      </p>
+                    ) : (
+                      <p className="text-sm text-zinc-600">
+                        Profesní profil se v katalogu zobrazí až po schválení administrátorem.
+                      </p>
+                    )}
+                    {me?.professionalVerificationStatus !== 'APPROVED' ? (
+                      <>
+                        <label className="flex items-start gap-2 text-sm text-zinc-800">
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={wantVerification}
+                            onChange={(e) => setWantVerification(e.target.checked)}
+                          />
+                          Chci ověřit profesní profil
+                        </label>
+                        <label className="flex items-start gap-2 text-sm text-zinc-800">
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={publishAfterApproval}
+                            onChange={(e) => setPublishAfterApproval(e.target.checked)}
+                          />
+                          Zveřejnit po schválení administrátorem
+                        </label>
+                        <button
+                          type="button"
+                          disabled={!apiAccessToken || verificationSaving}
+                          className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                          onClick={() => {
+                            if (!apiAccessToken) return;
+                            setVerificationSaving(true);
+                            setError(null);
+                            setOk(null);
+                            void nestRequestProfessionalVerification(apiAccessToken, {
+                              requestVerification: wantVerification,
+                              publishAfterApproval,
+                            }).then((res) => {
+                              setVerificationSaving(false);
+                              if (!res.ok) {
+                                setError(res.error ?? 'Odeslání žádosti se nezdařilo.');
+                                return;
+                              }
+                              setOk(res.message ?? 'Žádost byla odeslána.');
+                              void loadMe();
+                            });
+                          }}
+                        >
+                          {verificationSaving ? 'Odesílám…' : 'Odeslat žádost o ověření'}
+                        </button>
+                      </>
+                    ) : null}
+                    {me?.professionalVerificationStatus === 'APPROVED' ? (
+                      <label className="inline-flex items-center gap-2 text-sm text-zinc-800">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(me.publicProfessionalProfile)}
+                          onChange={(e) => {
+                            if (!apiAccessToken) return;
+                            void nestPatchProfessionalVisibility(apiAccessToken, e.target.checked).then(
+                              (r) => {
+                                if (!r.ok) {
+                                  setError(r.error ?? 'Změna viditelnosti se nezdařila.');
+                                  return;
+                                }
+                                void loadMe();
+                              },
+                            );
+                          }}
+                        />
+                        Veřejný profesní profil v katalogu
+                      </label>
+                    ) : null}
+                  </div>
                 ) : null}
                 {user?.role === 'AGENT' ? (
                   <>

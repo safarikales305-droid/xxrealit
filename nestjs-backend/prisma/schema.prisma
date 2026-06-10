@@ -44,6 +44,13 @@ enum AgentVerificationStatus {
   rejected
 }
 
+enum ProfessionalVerificationStatus {
+  NONE
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum ReactionType {
   LIKE
   DISLIKE
@@ -179,6 +186,15 @@ model User {
   /// Odměnové leady z gamifikace (kontaktování vlastnických inzerátů bez premium).
   brokerFreeLeads                  Int      @default(0)
 
+  /// Admin schválil profesní profil (makléř / firma / poradce / investor).
+  professionalVerified                 Boolean                      @default(false)
+  professionalVerificationStatus       ProfessionalVerificationStatus @default(NONE)
+  /// Veřejný profesní profil v katalogu Profesionálové / Makléři (jen po schválení).
+  publicProfessionalProfile            Boolean                      @default(false)
+  professionalVerificationRequestedAt  DateTime?
+  professionalVerifiedAt               DateTime?
+  professionalRejectedAt               DateTime?
+
   /// Veřejná stránka makléře v katalogu /makleri.
   isPublicBrokerProfile Boolean  @default(false)
   /// Zobrazit sekci hodnocení a přijímat nové recenze.
@@ -221,6 +237,8 @@ model User {
   creditTopUpTransactions CreditTopUpTransaction[]
   bonusClaims         BonusClaim[]
   facebookConnection FacebookConnection?
+
+  @@index([professionalVerificationStatus, professionalVerificationRequestedAt])
 }
 
 model Story {

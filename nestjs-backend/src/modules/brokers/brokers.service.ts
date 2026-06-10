@@ -13,6 +13,7 @@ import {
 } from '../properties/properties.serializer';
 import { UpsertBrokerReviewDto } from './dto/upsert-broker-review.dto';
 import {
+  CATALOG_VERIFIED_USER_WHERE,
   isProfessionalVerified,
   parseBrokerCatalogRoles,
   professionalVerificationStatus,
@@ -76,36 +77,41 @@ export class BrokersService {
     const parts: object[] = [];
     if (roles.includes(UserRole.AGENT)) {
       parts.push({
+        ...CATALOG_VERIFIED_USER_WHERE,
         role: UserRole.AGENT,
         isPublicBrokerProfile: true,
         brokerProfileSlug: { not: null },
-        agentProfile: { is: { isPublic: true } },
+        agentProfile: { is: { isPublic: true, verificationStatus: 'verified' } },
       });
     }
     if (roles.includes(UserRole.AGENCY)) {
       parts.push({
+        ...CATALOG_VERIFIED_USER_WHERE,
         role: UserRole.AGENCY,
         isPublicBrokerProfile: true,
         brokerProfileSlug: { not: null },
-        agencyProfile: { is: { isPublic: true } },
+        agencyProfile: { is: { isPublic: true, verificationStatus: 'verified' } },
       });
     }
     if (roles.includes(UserRole.COMPANY)) {
       parts.push({
+        ...CATALOG_VERIFIED_USER_WHERE,
         role: UserRole.COMPANY,
-        companyProfile: { is: { isPublic: true } },
+        companyProfile: { is: { isPublic: true, verificationStatus: 'verified' } },
       });
     }
     if (roles.includes(UserRole.FINANCIAL_ADVISOR)) {
       parts.push({
+        ...CATALOG_VERIFIED_USER_WHERE,
         role: UserRole.FINANCIAL_ADVISOR,
-        financialAdvisorProfile: { is: { isPublic: true } },
+        financialAdvisorProfile: { is: { isPublic: true, verificationStatus: 'verified' } },
       });
     }
     if (roles.includes(UserRole.INVESTOR)) {
       parts.push({
+        ...CATALOG_VERIFIED_USER_WHERE,
         role: UserRole.INVESTOR,
-        investorProfile: { is: { isPublic: true } },
+        investorProfile: { is: { isPublic: true, verificationStatus: 'verified' } },
       });
     }
     return parts;
@@ -143,6 +149,9 @@ export class BrokersService {
         name: true,
         avatar: true,
         bio: true,
+        professionalVerified: true,
+        professionalVerificationStatus: true,
+        publicProfessionalProfile: true,
         brokerProfileSlug: true,
         brokerOfficeName: true,
         brokerRegionLabel: true,

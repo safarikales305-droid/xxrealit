@@ -8,8 +8,17 @@ import { ImportsModule } from '../imports/imports.module';
 import { PropertiesModule } from '../properties/properties.module';
 import { TiparModule } from '../tipar/tipar.module';
 import { ShareModule } from '../share/share.module';
+import { ProfessionalVerificationModule } from '../professional-verification/professional-verification.module';
 @Module({
-  imports: [AuthModule, AgentProfileModule, ImportsModule, PropertiesModule, TiparModule, ShareModule],
+  imports: [
+    AuthModule,
+    AgentProfileModule,
+    ProfessionalVerificationModule,
+    ImportsModule,
+    PropertiesModule,
+    TiparModule,
+    ShareModule,
+  ],
   controllers: [AdminController],
   providers: [AdminService, AdminSeedService],
 })

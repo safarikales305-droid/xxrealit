@@ -32,6 +32,7 @@ import { ShareGateVideoModule } from './modules/share-gate-video/share-gate-vide
 import { BonusCampaignModule } from './modules/bonus-campaign/bonus-campaign.module';
 import { RegistrationGateModule } from './modules/registration-gate/registration-gate.module';
 import { CreditsModule } from './modules/credits/credits.module';
+import { ProfessionalVerificationModule } from './modules/professional-verification/professional-verification.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { CreditsModule } from './modules/credits/credits.module';
     ShortsMusicModule,
     BrokersModule,
     AgentProfileModule,
+    ProfessionalVerificationModule,
     CompanyAdsModule,
     EmailsModule,
     StoriesModule,
