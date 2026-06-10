@@ -15,6 +15,31 @@ export function publiclyVisiblePropertyWhere(
   };
 }
 
+/**
+ * Stejné podmínky jako admin filtr status=ACTIVE (listingStatus ACTIVE v /admin/inzeraty).
+ * Podporuje approved=true i status APPROVED/ACTIVE (různé zápisy v DB).
+ */
+export function publiclyActiveListingWhere(
+  now: Date = new Date(),
+): Prisma.PropertyWhereInput {
+  return {
+    deletedAt: null,
+    isActive: true,
+    isVisible: true,
+    AND: [
+      {
+        OR: [
+          { approved: true },
+          { status: { equals: 'APPROVED', mode: 'insensitive' } },
+          { status: { equals: 'ACTIVE', mode: 'insensitive' } },
+        ],
+      },
+      { OR: [{ activeFrom: null }, { activeFrom: { lte: now } }] },
+      { OR: [{ activeUntil: null }, { activeUntil: { gte: now } }] },
+    ],
+  };
+}
+
 export type ListingLifecycleFields = {
   deletedAt: Date | null;
   isActive: boolean;

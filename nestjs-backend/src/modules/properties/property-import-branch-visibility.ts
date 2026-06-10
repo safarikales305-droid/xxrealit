@@ -60,7 +60,8 @@ export function isImportedProperty(p: PropertyImportVisibilityFields): boolean {
 }
 
 /**
- * Ruční / lokální inzerát — bez importní větve, zobrazit vždy při splnění schválení.
+ * Lokální / ruční inzerát — bez importní větve (admin: zdroj „Lokální“).
+ * importSourceId null stačí; importní větev se nekontroluje.
  */
 export const localOrManualListingWhere: Prisma.PropertyWhereInput = {
   OR: [

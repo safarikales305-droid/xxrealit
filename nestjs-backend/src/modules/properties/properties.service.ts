@@ -252,6 +252,33 @@ export class PropertiesService {
   async findAllPublic(viewerId?: string, filters?: PublicPropertyListFilters) {
     const access = await this.viewerAccess(viewerId);
     const where = this.buildClassicPublicWhere(filters);
+
+    const [rawCount, activeCount, firstListing] = await Promise.all([
+      this.prisma.property.count({ where: { deletedAt: null } }),
+      this.prisma.property.count({ where }),
+      this.prisma.property.findFirst({
+        where,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          approved: true,
+          listingType: true,
+          importSource: true,
+          importSourceId: true,
+          isActive: true,
+          isVisible: true,
+        },
+      }),
+    ]);
+    // eslint-disable-next-line no-console
+    console.log('PUBLIC CLASSIC QUERY RAW COUNT', rawCount);
+    // eslint-disable-next-line no-console
+    console.log('PUBLIC CLASSIC QUERY ACTIVE COUNT', activeCount);
+    // eslint-disable-next-line no-console
+    console.log('PUBLIC CLASSIC QUERY FIRST', firstListing);
+
     const rows = await this.prisma.property.findMany({
       where,
       orderBy: { createdAt: 'desc' },

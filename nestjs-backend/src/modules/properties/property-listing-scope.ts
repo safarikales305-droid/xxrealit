@@ -1,6 +1,9 @@
-import { ListingImportPortal, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { importedListingPubliclyVisibleWhere } from './property-import-branch-visibility';
-import { publiclyVisiblePropertyWhere } from './property-public-visibility';
+import {
+  publiclyActiveListingWhere,
+  publiclyVisiblePropertyWhere,
+} from './property-public-visibility';
 
 const videoListingDisjuncts: Prisma.PropertyWhereInput[] = [
   { media: { some: { type: 'video' } } },
@@ -9,9 +12,7 @@ const videoListingDisjuncts: Prisma.PropertyWhereInput[] = [
   },
 ];
 
-const approvedAndVisible: Prisma.PropertyWhereInput = {
-  AND: [{ approved: true }, publiclyVisiblePropertyWhere()],
-};
+const approvedAndVisible: Prisma.PropertyWhereInput = publiclyActiveListingWhere();
 
 /** Veřejné Shorts — jen typ SHORTS, schválené, živé, s videem. */
 export const publicShortPropertyWhere: Prisma.PropertyWhereInput = {
@@ -24,43 +25,12 @@ export const publicShortPropertyWhere: Prisma.PropertyWhereInput = {
 };
 
 /**
- * Staré / rozbité Reality.cz importy (bez fotky nebo s podezřelou cenou pod 1000 Kč)
- * nepatří na homepage — zůstanou v DB pro admina, ale veřejný feed je skryje.
+ * Klasik = stejně jako štítek v adminu („Klasik“ pro vše co není SHORTS).
+ * Podporuje CLASSIC, classic, Klasik i prázdný/legacy listingType.
  */
-const brokenImportPortalUrls: Prisma.PropertyWhereInput = {
-  OR: [
-    { images: { equals: [] } },
-    { AND: [{ price: { not: null } }, { price: { lt: 1000 } }] },
-    { importSourceUrl: null },
-    { importSourceUrl: '' },
-    { importSourceUrl: 'https://www.reality.cz/' },
-    { importSourceUrl: 'https://reality.cz/' },
-  ],
-};
-
-const hideBrokenRealityImports: Prisma.PropertyWhereInput = {
-  NOT: {
-    AND: [{ importSource: ListingImportPortal.reality_cz }, brokenImportPortalUrls],
-  },
-};
-
-const hideBrokenCentury21Imports: Prisma.PropertyWhereInput = {
-  NOT: {
-    AND: [{ importSource: ListingImportPortal.century21_cz }, brokenImportPortalUrls],
-  },
-};
-
-/** Klasik výpis — CLASSIC nebo legacy řádek bez videa (ne SHORTS). */
+/** Admin UI: „Klasik“ = vše kromě listingType SHORTS. */
 const classicListingTypeWhere: Prisma.PropertyWhereInput = {
-  OR: [
-    { listingType: 'CLASSIC' },
-    {
-      AND: [
-        { NOT: { listingType: 'SHORTS' } },
-        { NOT: { OR: videoListingDisjuncts } },
-      ],
-    },
-  ],
+  NOT: { listingType: { equals: 'SHORTS', mode: 'insensitive' } },
 };
 
 /** Klasické inzeráty veřejně viditelné (feed / GET /properties). */
@@ -71,8 +41,6 @@ export const classicPublicListingWhere: Prisma.PropertyWhereInput = {
     classicListingTypeWhere,
     /** Tip ve Shorts feedu — ne klasický katalog. */
     { isTiparTip: false },
-    hideBrokenRealityImports,
-    hideBrokenCentury21Imports,
   ],
 };
 
