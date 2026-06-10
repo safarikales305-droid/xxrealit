@@ -4,7 +4,6 @@ import {
   type MouseEvent,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -14,10 +13,6 @@ import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
 import type { PropertyFeedItem } from '@/types/property';
 import { useAuth } from '@/hooks/use-auth';
 import { propertyFeedPrimaryVideoSrc, propertyRowPassesVideoFeedGate } from '@/lib/feed/loop-feed';
-import {
-  attachShortsInfiniteScrollLoop,
-  clampShortsScrollToLastSlide,
-} from '@/lib/feed/shorts-infinite-scroll';
 import { propertyListingHasVideo } from '@/lib/property-feed-filters';
 
 function mockLikesForId(id: string): number {
@@ -66,18 +61,6 @@ export function PropertyReelsFeed({ items }: Props) {
       return next;
     });
   }, []);
-
-  useLayoutEffect(() => {
-    const root = containerRef.current;
-    if (!root) return;
-    clampShortsScrollToLastSlide(root);
-  }, [feedItems.length]);
-
-  useEffect(() => {
-    const root = containerRef.current;
-    if (!root || feedItems.length < 2) return;
-    return attachShortsInfiniteScrollLoop(root);
-  }, [feedItems.length]);
 
   useEffect(() => {
     if (feedItems.length === 0) return;

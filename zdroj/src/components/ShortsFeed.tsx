@@ -2,14 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Mail } from 'lucide-react';
 import { CommentsPlaceholder } from '@/components/feed/comments-placeholder';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
@@ -27,10 +20,7 @@ import {
 } from '@/components/shorts/ShortsFeedClipVideo';
 import { ShortsSoundToggle } from '@/components/shorts/ShortsSoundToggle';
 import { isPropertyFeedVideoPlayable, propertyFeedPrimaryVideoSrc } from '@/lib/feed/loop-feed';
-import {
-  attachShortsInfiniteScrollLoop,
-  clampShortsScrollToLastSlide,
-} from '@/lib/feed/shorts-infinite-scroll';
+import { useCyclicFeedNavigation } from '@/hooks/use-cyclic-feed-navigation';
 
 const glowBtnBase =
   'relative flex size-14 shrink-0 items-center justify-center rounded-full border border-white/20 bg-gradient-to-br from-[#ff6a00]/45 to-[#ff3c00]/40 text-xl text-white shadow-[0_0_24px_-2px_rgba(255,106,0,0.55),0_0_16px_-4px_rgba(255,60,0,0.35),inset_0_1px_0_0_rgba(255,255,255,0.2)] backdrop-blur-xl transition duration-300 ease-out hover:scale-110 hover:border-white/35 active:scale-95';
@@ -78,7 +68,6 @@ export function ShortsFeed({ items }: Props) {
   >({});
   const [sellerClip, setSellerClip] = useState<Clip | null>(null);
   const [sellerActionHint, setSellerActionHint] = useState<string | null>(null);
-  const [brokenClipIds, setBrokenClipIds] = useState<Set<string>>(() => new Set());
   const [adsByClipId, setAdsByClipId] = useState<Record<string, CompanyAd | null>>({});
   const [adPanelOpenByClipId, setAdPanelOpenByClipId] = useState<Record<string, boolean>>({});
   const [hasSeenAdClipIds, setHasSeenAdClipIds] = useState<Set<string>>(() => new Set());
@@ -89,10 +78,6 @@ export function ShortsFeed({ items }: Props) {
   const itemsIdsKey = useMemo(() => items.map((i) => i.id).join('\0'), [items]);
 
   useEffect(() => {
-    setBrokenClipIds(new Set());
-  }, [itemsIdsKey]);
-
-  useEffect(() => {
     setAdsByClipId({});
     setAdPanelOpenByClipId({});
     setHasSeenAdClipIds(new Set());
@@ -101,58 +86,24 @@ export function ShortsFeed({ items }: Props) {
 
   const clips = useMemo<Clip[]>(() => {
     return items
-      .filter((item) => !brokenClipIds.has(item.id))
       .filter((item) => isPropertyFeedVideoPlayable(item))
       .map((item) => ({
         ...item,
         src: propertyFeedPrimaryVideoSrc(item),
       }))
       .filter((item): item is Clip => item.src.length > 0);
-  }, [items, brokenClipIds]);
+  }, [items]);
 
-  const [activeId, setActiveId] = useState<string | null>(
-    clips[0]?.id ?? null,
-  );
+  const { currentItem: c, containerRef } = useCyclicFeedNavigation(clips, {
+    debugLabel: 'SHORTS',
+    getId: (clip) => clip.id,
+  });
+  const activeId = c?.id ?? null;
+
   const [liked, setLiked] = useState<Record<string, boolean>>({});
   const [likes, setLikes] = useState<Record<string, number>>({});
 
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  const markClipBroken = useCallback((id: string) => {
-    setBrokenClipIds((prev) => {
-      const next = new Set(prev);
-      next.add(id);
-      return next;
-    });
-  }, []);
-
-  useLayoutEffect(() => {
-    const root = containerRef.current;
-    if (!root) return;
-    clampShortsScrollToLastSlide(root);
-  }, [clips.length]);
-
   useEffect(() => {
-    const root = containerRef.current;
-    if (!root) return;
-
-    const onScroll = () => {
-      setAdInteractionTick((v) => v + 1);
-    };
-
-    root.addEventListener('scroll', onScroll, { passive: true });
-    return () => root.removeEventListener('scroll', onScroll);
-  }, [clips.length]);
-
-  useEffect(() => {
-    const root = containerRef.current;
-    if (!root || clips.length < 2) return;
-    return attachShortsInfiniteScrollLoop(root);
-  }, [clips.length]);
-
-  useEffect(() => {
-    setActiveId(clips[0]?.id ?? null);
-
     const likeInit: Record<string, number> = {};
     const likedInit: Record<string, boolean> = {};
     for (const c of clips) {
@@ -206,35 +157,6 @@ export function ShortsFeed({ items }: Props) {
 
     return () => window.clearTimeout(timer);
   }, [activeId, adsByClipId, hasSeenAdClipIds, adInteractionTick]);
-
-  useEffect(() => {
-    const root = containerRef.current;
-    if (!root) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          const vid = entry.target as HTMLVideoElement;
-          const id = vid.dataset.clipId;
-          if (!id) continue;
-
-          if (entry.isIntersecting && entry.intersectionRatio >= 0.55) {
-            setActiveId(id);
-            vid.play().catch(() => undefined);
-          } else {
-            vid.pause();
-          }
-        }
-      },
-      { root, threshold: [0, 0.25, 0.55, 0.85, 1] },
-    );
-
-    root
-      .querySelectorAll<HTMLVideoElement>('video[data-clip-id]')
-      .forEach((v) => observer.observe(v));
-
-    return () => observer.disconnect();
-  }, [clips]);
 
   const toggleLike = useCallback(async (propertyId: string) => {
     let previousLiked = false;
@@ -318,10 +240,24 @@ export function ShortsFeed({ items }: Props) {
     );
   }
 
+  if (!c) {
+    return null;
+  }
+
+  const isActive = true;
+  const showProfileLink = !!c.userId;
+  const ad = adsByClipId[c.id] ?? null;
+  const adImageSrc = ad ? nestAbsoluteAssetUrl(ad.imageUrl).trim() : '';
+  const isAdOpen = Boolean(ad && adPanelOpenByClipId[c.id]);
+  const showTipSticker = isTipListing(c);
+  const showGuestCta = !isLoading && !isAuthenticated;
+
   return (
     <div
       ref={containerRef}
-      className="relative h-full min-h-0 w-full snap-y snap-mandatory overflow-x-hidden overflow-y-scroll scroll-smooth overscroll-y-contain"
+      tabIndex={-1}
+      className="relative h-full min-h-0 w-full overflow-hidden overscroll-none outline-none"
+      onClick={() => setAdInteractionTick((v) => v + 1)}
     >
       {sellerActionHint ? (
         <div
@@ -331,21 +267,10 @@ export function ShortsFeed({ items }: Props) {
           {sellerActionHint}
         </div>
       ) : null}
-      {clips.map((c) => {
-        const isActive = activeId === c.id;
-        const showProfileLink = !!c.userId;
-        const ad = adsByClipId[c.id] ?? null;
-        const adImageSrc = ad ? nestAbsoluteAssetUrl(ad.imageUrl).trim() : '';
-        const isAdOpen = Boolean(ad && adPanelOpenByClipId[c.id]);
-        const showTipSticker = isTipListing(c);
-        const showGuestCta = !isLoading && !isAuthenticated;
-
-        return (
-          <section
-            key={c.id + c.src}
-            className="shorts-video-stage relative isolate box-border h-screen w-full max-w-full shrink-0 snap-start snap-always overflow-hidden overflow-x-hidden bg-black"
-            onClick={() => setAdInteractionTick((v) => v + 1)}
-          >
+      <section
+        key={c.id + c.src}
+        className="shorts-video-stage relative isolate box-border h-screen w-full max-w-full overflow-hidden overflow-x-hidden bg-black"
+      >
             {showProfileLink ? (
               <div className="pointer-events-auto absolute left-3 top-20 z-20 md:left-4 md:top-24">
                 <Link
@@ -357,15 +282,14 @@ export function ShortsFeed({ items }: Props) {
               </div>
             ) : null}
 
-            <ShortsFeedClipVideo
-              clipId={c.id}
-              src={c.src}
-              isActive={isActive}
-              onError={() => markClipBroken(c.id)}
-              onSoundReady={(control) => {
-                setSoundByClipId((prev) => ({ ...prev, [c.id]: control }));
-              }}
-            />
+        <ShortsFeedClipVideo
+          clipId={c.id}
+          src={c.src}
+          isActive={isActive}
+          onSoundReady={(control) => {
+            setSoundByClipId((prev) => ({ ...prev, [c.id]: control }));
+          }}
+        />
             {showTipSticker ? (
               <TipShortsSticker belowGuestCta={showGuestCta} />
             ) : null}
@@ -562,9 +486,7 @@ export function ShortsFeed({ items }: Props) {
                 </aside>
               </>
             ) : null}
-          </section>
-        );
-      })}
+      </section>
       {sellerClip ? (
         <MessageSellerModal
           open={Boolean(sellerClip)}

@@ -1,14 +1,8 @@
 'use client';
 
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
+import { useCyclicFeedNavigation } from '@/hooks/use-cyclic-feed-navigation';
 import {
   incrementGuestShortsView,
   resetGuestShortsViews,
@@ -19,10 +13,6 @@ import {
   type PublicRegistrationGateSettings,
 } from '@/lib/registration-gate';
 import { isShortVideoPlayable } from '@/lib/feed/loop-feed';
-import {
-  attachShortsInfiniteScrollLoop,
-  clampShortsScrollToLastSlide,
-} from '@/lib/feed/shorts-infinite-scroll';
 import { GuestShortsRegistrationGateModal } from '@/components/registration/GuestShortsRegistrationGateModal';
 import VideoCard from './VideoCard';
 
@@ -34,23 +24,23 @@ type VideoFeedProps = {
 };
 
 /**
- * Mobilní shorts: jeden slide = celá výška feedu.
- * Desktop: zaoblený rám.
- * — Odfiltruje neplatná URL, po chybě přehrávání záznam odebere.
- * — Po doscrollování na konec se feed vrátí na začátek (smyčka).
+ * Shorts feed — jeden slide, cyklická navigace modulo (dolů i nahoru).
+ * Vyřadí jen inzeráty bez jakékoliv video URL.
  */
 export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
   const { isAuthenticated, isLoading } = useAuth();
-  const [excludedIds, setExcludedIds] = useState<Set<string>>(() => new Set());
   const [gateSettings, setGateSettings] = useState<PublicRegistrationGateSettings | null>(null);
   const [gateOpen, setGateOpen] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const feedIdsKey = useMemo(() => videos.map((v) => v.id).join('\0'), [videos]);
+  const feedVideos = useMemo(
+    () => videos.filter((v) => isShortVideoPlayable(v)),
+    [videos],
+  );
 
-  useEffect(() => {
-    setExcludedIds(new Set());
-  }, [feedIdsKey]);
+  const { currentItem, containerRef } = useCyclicFeedNavigation(feedVideos, {
+    debugLabel: 'SHORTS',
+    getId: (v) => v.id,
+  });
 
   useEffect(() => {
     if (isLoading || isAuthenticated) {
@@ -77,32 +67,7 @@ export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
     [gateOpen, gateSettings, isAuthenticated, isLoading],
   );
 
-  const validVideos = useMemo(
-    () => videos.filter((v) => isShortVideoPlayable(v) && !excludedIds.has(v.id)),
-    [videos, excludedIds],
-  );
-
-  const onBroken = useCallback((id: string) => {
-    setExcludedIds((prev) => {
-      const next = new Set(prev);
-      next.add(id);
-      return next;
-    });
-  }, []);
-
-  useLayoutEffect(() => {
-    const root = scrollRef.current;
-    if (!root) return;
-    clampShortsScrollToLastSlide(root);
-  }, [validVideos.length]);
-
-  useEffect(() => {
-    const root = scrollRef.current;
-    if (!root || validVideos.length < 2) return;
-    return attachShortsInfiniteScrollLoop(root);
-  }, [validVideos.length]);
-
-  if (validVideos.length === 0) {
+  if (feedVideos.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-black px-4 text-center lg:bg-white">
         <p className="text-sm font-medium text-white/85 lg:text-zinc-800">
@@ -118,23 +83,23 @@ export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col">
       <div
-        ref={scrollRef}
-        className="min-h-0 flex-1 snap-y snap-mandatory overflow-y-auto overflow-x-hidden overscroll-y-contain pb-[env(safe-area-inset-bottom)] pt-0"
+        ref={containerRef}
+        tabIndex={-1}
+        className="min-h-0 flex-1 overflow-hidden overscroll-none pb-[env(safe-area-inset-bottom)] pt-0 outline-none"
       >
-        {validVideos.map((video) => (
+        {currentItem ? (
           <div
-            key={video.id}
-            data-video-slide={video.id}
-            className="h-full min-h-0 w-full shrink-0 snap-start snap-always overflow-hidden rounded-none bg-black max-md:min-h-[calc(100dvh-3.75rem)] md:rounded-xl lg:bg-white lg:shadow-sm"
+            key={currentItem.id}
+            data-video-slide={currentItem.id}
+            className="h-full min-h-0 w-full overflow-hidden rounded-none bg-black max-md:min-h-[calc(100dvh-3.75rem)] md:rounded-xl lg:bg-white lg:shadow-sm"
           >
             <VideoCard
-              video={video}
+              video={currentItem}
               onMobileFiltersOpen={onMobileFiltersOpen}
-              onVideoBroken={onBroken}
               onGuestVideoViewed={onGuestVideoViewed}
             />
           </div>
-        ))}
+        ) : null}
       </div>
       {gateOpen && gateSettings ? (
         <GuestShortsRegistrationGateModal settings={gateSettings} />

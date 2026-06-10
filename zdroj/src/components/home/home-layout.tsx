@@ -22,6 +22,7 @@ import {
 } from '@/lib/nest-client';
 import { CreateCommunityPostCard } from '@/components/community/CreateCommunityPostCard';
 import { CommunityPostCard } from '@/components/community/CommunityPostCard';
+import { MobileClassicSwipeFeed } from '@/components/home/MobileClassicSwipeFeed';
 import { PropertyGrid } from '@/components/property-grid';
 import { classicListingsOnly, tipListingsOnly } from '@/lib/property-feed-filters';
 import { parseApiListingPrice, type PropertyFeedItem } from '@/types/property';
@@ -1290,9 +1291,14 @@ export function HomeLayout({
                   </div>
                 </div>
               ) : (
-                <div className="mx-auto w-full max-w-xl px-1 pb-8 pt-1 md:px-3">
-                <PropertyGrid properties={filteredItems} />
-                </div>
+                <>
+                  <div className="flex min-h-0 flex-1 flex-col md:hidden">
+                    <MobileClassicSwipeFeed items={filteredItems} />
+                  </div>
+                  <div className="mx-auto hidden w-full max-w-xl px-1 pb-8 pt-1 md:block md:px-3">
+                    <PropertyGrid properties={filteredItems} />
+                  </div>
+                </>
               )}
             </div>
           )}
