@@ -12,6 +12,11 @@ import {
   type PropertyViewerAccess,
 } from '../properties/properties.serializer';
 import { UpsertBrokerReviewDto } from './dto/upsert-broker-review.dto';
+import {
+  isProfessionalVerified,
+  parseBrokerCatalogRoles,
+  professionalVerificationStatus,
+} from './professional-verification.util';
 
 function listingInclude(viewerId?: string) {
   return viewerId
@@ -67,33 +72,64 @@ export class BrokersService {
     });
   }
 
-  async listPublicDirectory() {
+  private directoryRoleConditions(roles: UserRole[]) {
+    const parts: object[] = [];
+    if (roles.includes(UserRole.AGENT)) {
+      parts.push({
+        role: UserRole.AGENT,
+        isPublicBrokerProfile: true,
+        brokerProfileSlug: { not: null },
+        agentProfile: { is: { isPublic: true } },
+      });
+    }
+    if (roles.includes(UserRole.AGENCY)) {
+      parts.push({
+        role: UserRole.AGENCY,
+        isPublicBrokerProfile: true,
+        brokerProfileSlug: { not: null },
+        agencyProfile: { is: { isPublic: true } },
+      });
+    }
+    if (roles.includes(UserRole.COMPANY)) {
+      parts.push({
+        role: UserRole.COMPANY,
+        companyProfile: { is: { isPublic: true } },
+      });
+    }
+    if (roles.includes(UserRole.FINANCIAL_ADVISOR)) {
+      parts.push({
+        role: UserRole.FINANCIAL_ADVISOR,
+        financialAdvisorProfile: { is: { isPublic: true } },
+      });
+    }
+    if (roles.includes(UserRole.INVESTOR)) {
+      parts.push({
+        role: UserRole.INVESTOR,
+        investorProfile: { is: { isPublic: true } },
+      });
+    }
+    return parts;
+  }
+
+  async listPublicDirectory(rolesRaw?: string) {
+    const rolesFilter = parseBrokerCatalogRoles(rolesRaw);
+    const roles =
+      rolesFilter ??
+      ([
+        UserRole.AGENT,
+        UserRole.COMPANY,
+        UserRole.AGENCY,
+        UserRole.FINANCIAL_ADVISOR,
+        UserRole.INVESTOR,
+      ] as UserRole[]);
+    const orConditions = this.directoryRoleConditions(roles);
+    if (orConditions.length === 0) {
+      return [];
+    }
+
     const rows = await this.prisma.user.findMany({
       where: {
-        OR: [
-          {
-            role: UserRole.AGENT,
-            isPublicBrokerProfile: true,
-            brokerProfileSlug: { not: null },
-            agentProfile: { is: { isPublic: true } },
-          },
-          {
-            role: UserRole.COMPANY,
-            companyProfile: { is: { isPublic: true } },
-          },
-          {
-            role: UserRole.AGENCY,
-            agencyProfile: { is: { isPublic: true } },
-          },
-          {
-            role: UserRole.FINANCIAL_ADVISOR,
-            financialAdvisorProfile: { is: { isPublic: true } },
-          },
-          {
-            role: UserRole.INVESTOR,
-            investorProfile: { is: { isPublic: true } },
-          },
-        ],
+        OR: orConditions,
       },
       orderBy: [
         { isPublicBrokerProfile: 'desc' },
@@ -119,30 +155,25 @@ export class BrokersService {
         financialAdvisorProfile: { select: { verificationStatus: true } },
         investorProfile: { select: { verificationStatus: true } },
       },
-      take: 12,
+      take: 200,
     });
-    return rows.map((b) => ({
-      id: b.id,
-      slug: b.brokerProfileSlug,
-      role: b.role,
-      name: b.name,
-      avatarUrl: b.avatar,
-      officeName: b.brokerOfficeName,
-      regionLabel: b.brokerRegionLabel,
-      bioExcerpt: (b.bio ?? '').trim().slice(0, 160),
-      ratingAverage: b.allowBrokerReviews ? b.brokerReviewAverage : null,
-      ratingCount: b.allowBrokerReviews ? b.brokerReviewCount : null,
-      isVerified:
-        b.role === UserRole.AGENT
-          ? b.agentProfile?.verificationStatus === 'verified'
-          : b.role === UserRole.COMPANY
-            ? b.companyProfile?.verificationStatus === 'verified'
-            : b.role === UserRole.AGENCY
-              ? b.agencyProfile?.verificationStatus === 'verified'
-              : b.role === UserRole.FINANCIAL_ADVISOR
-                ? b.financialAdvisorProfile?.verificationStatus === 'verified'
-                : b.investorProfile?.verificationStatus === 'verified',
-    }));
+    return rows.map((b) => {
+      const verificationStatus = professionalVerificationStatus(b);
+      return {
+        id: b.id,
+        slug: b.brokerProfileSlug,
+        role: b.role,
+        name: b.name,
+        avatarUrl: b.avatar,
+        officeName: b.brokerOfficeName,
+        regionLabel: b.brokerRegionLabel,
+        bioExcerpt: (b.bio ?? '').trim().slice(0, 160),
+        ratingAverage: b.allowBrokerReviews ? b.brokerReviewAverage : null,
+        ratingCount: b.allowBrokerReviews ? b.brokerReviewCount : null,
+        verificationStatus,
+        isVerified: isProfessionalVerified(b),
+      };
+    });
   }
 
   async getPublicBySlug(slug: string, viewerId?: string) {
@@ -176,11 +207,19 @@ export class BrokersService {
         allowBrokerReviews: true,
         brokerReviewAverage: true,
         brokerReviewCount: true,
+        role: true,
+        agentProfile: { select: { verificationStatus: true } },
+        companyProfile: { select: { verificationStatus: true } },
+        agencyProfile: { select: { verificationStatus: true } },
+        financialAdvisorProfile: { select: { verificationStatus: true } },
+        investorProfile: { select: { verificationStatus: true } },
       },
     });
     if (!broker) {
       throw new NotFoundException('Veřejný profesionální profil nebyl nalezen.');
     }
+    const verificationStatus = professionalVerificationStatus(broker);
+    const verified = isProfessionalVerified(broker);
 
     const access = await this.viewerAccess(viewerId);
     const listingRows = await this.prisma.property.findMany({
@@ -277,6 +316,9 @@ export class BrokersService {
         allowBrokerReviews: broker.allowBrokerReviews,
         ratingAverage: broker.allowBrokerReviews ? broker.brokerReviewAverage : null,
         ratingCount: broker.allowBrokerReviews ? broker.brokerReviewCount : null,
+        role: broker.role,
+        verificationStatus,
+        isVerified: verified,
       },
       listings,
       reviews,

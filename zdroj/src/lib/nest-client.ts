@@ -3254,21 +3254,58 @@ export type NestPublicBrokerCard = {
   bioExcerpt: string;
   ratingAverage: number | null;
   ratingCount: number | null;
+  verificationStatus: 'pending' | 'verified' | 'rejected' | null;
   isVerified: boolean;
 };
 
+function normalizeNestPublicBrokerCard(raw: unknown): NestPublicBrokerCard | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.id !== 'string') return null;
+  const role = String(o.role ?? 'AGENT').toUpperCase();
+  const allowed = ['AGENT', 'COMPANY', 'AGENCY', 'FINANCIAL_ADVISOR', 'INVESTOR'] as const;
+  if (!allowed.includes(role as (typeof allowed)[number])) return null;
+  const vsRaw = o.verificationStatus;
+  const verificationStatus =
+    vsRaw === 'pending' || vsRaw === 'verified' || vsRaw === 'rejected' ? vsRaw : null;
+  const isVerified = o.isVerified === true || verificationStatus === 'verified';
+  return {
+    id: o.id,
+    slug: typeof o.slug === 'string' ? o.slug : null,
+    role: role as NestPublicBrokerCard['role'],
+    name: typeof o.name === 'string' ? o.name : null,
+    avatarUrl: typeof o.avatarUrl === 'string' ? o.avatarUrl : null,
+    officeName: typeof o.officeName === 'string' ? o.officeName : '',
+    regionLabel: typeof o.regionLabel === 'string' ? o.regionLabel : '',
+    bioExcerpt: typeof o.bioExcerpt === 'string' ? o.bioExcerpt : '',
+    ratingAverage: typeof o.ratingAverage === 'number' ? o.ratingAverage : null,
+    ratingCount: typeof o.ratingCount === 'number' ? o.ratingCount : null,
+    verificationStatus,
+    isVerified,
+  };
+}
+
 /** GET /brokers/public */
-export async function nestListPublicBrokers(token: string | null): Promise<NestPublicBrokerCard[] | null> {
+export async function nestListPublicBrokers(
+  token: string | null,
+  options?: { roles?: string },
+): Promise<NestPublicBrokerCard[] | null> {
   if (!API_BASE_URL) return null;
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (token) Object.assign(headers, nestAuthHeaders(token));
-  const res = await fetch(`${API_BASE_URL}/brokers/public`, {
+  const qs = options?.roles?.trim()
+    ? `?roles=${encodeURIComponent(options.roles.trim())}`
+    : '';
+  const res = await fetch(`${API_BASE_URL}/brokers/public${qs}`, {
     cache: 'no-store',
     headers,
   });
   if (!res.ok) return null;
   const data = (await res.json()) as unknown;
-  return Array.isArray(data) ? (data as NestPublicBrokerCard[]) : null;
+  if (!Array.isArray(data)) return null;
+  return data
+    .map((row) => normalizeNestPublicBrokerCard(row))
+    .filter((row): row is NestPublicBrokerCard => Boolean(row));
 }
 
 export type NestStoryRow = {

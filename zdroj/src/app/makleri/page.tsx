@@ -6,6 +6,12 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { nestListPublicBrokers, type NestPublicBrokerCard } from '@/lib/nest-client';
+import {
+  BROKER_CATALOG_ROLES,
+  isBrokerCatalogRole,
+  isProfessionalVerifiedProfile,
+  verifiedBadgeLabelForRole,
+} from '@/lib/professional-verification';
 
 function Stars({ value, max = 5 }: { value: number; max?: number }) {
   const full = Math.round(value);
@@ -28,14 +34,23 @@ export default function MakleriPage() {
       router.replace('/login?redirect=%2Fmakleri');
       return;
     }
-    void nestListPublicBrokers(apiAccessToken).then((r) => {
+    void nestListPublicBrokers(apiAccessToken, {
+      roles: BROKER_CATALOG_ROLES.join(','),
+    }).then((r) => {
       if (!r) {
         setErr('Katalog makléřů se nepodařilo načíst. Zkontrolujte připojení k API.');
         setRows([]);
         return;
       }
       setErr(null);
-      setRows(r);
+      const seen = new Set<string>();
+      const unique = r.filter((row) => {
+        if (!isBrokerCatalogRole(row.role)) return false;
+        if (seen.has(row.id)) return false;
+        seen.add(row.id);
+        return true;
+      });
+      setRows(unique);
     });
   }, [apiAccessToken, isAuthenticated, isLoading, router]);
 
@@ -92,7 +107,14 @@ export default function MakleriPage() {
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-zinc-900">{b.name ?? 'Makléř'}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-zinc-900">{b.name ?? 'Makléř'}</p>
+                        {isProfessionalVerifiedProfile(b) ? (
+                          <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+                            {verifiedBadgeLabelForRole(b.role)}
+                          </span>
+                        ) : null}
+                      </div>
                       {b.officeName ? (
                         <p className="text-sm text-zinc-600">{b.officeName}</p>
                       ) : null}

@@ -1,4 +1,14 @@
-import { Body, Controller, Get, Headers, Param, Post, UseGuards, ValidationPipe } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+  ValidationPipe,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { parseBearerUserId } from '../auth/auth-token.util';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
@@ -15,8 +25,8 @@ export class BrokersController {
   ) {}
 
   @Get('public')
-  listPublic() {
-    return this.brokersService.listPublicDirectory();
+  listPublic(@Query('roles') roles?: string) {
+    return this.brokersService.listPublicDirectory(roles);
   }
 
   @Get('by-slug/:slug')
