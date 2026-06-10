@@ -19,6 +19,10 @@ import {
   type PublicRegistrationGateSettings,
 } from '@/lib/registration-gate';
 import { isShortVideoPlayable } from '@/lib/feed/loop-feed';
+import {
+  attachShortsInfiniteScrollLoop,
+  clampShortsScrollToLastSlide,
+} from '@/lib/feed/shorts-infinite-scroll';
 import { GuestShortsRegistrationGateModal } from '@/components/registration/GuestShortsRegistrationGateModal';
 import VideoCard from './VideoCard';
 
@@ -89,26 +93,13 @@ export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
   useLayoutEffect(() => {
     const root = scrollRef.current;
     if (!root) return;
-    const max = root.scrollHeight - root.clientHeight;
-    if (max > 0 && root.scrollTop > max) {
-      root.scrollTop = max;
-    }
+    clampShortsScrollToLastSlide(root);
   }, [validVideos.length]);
 
   useEffect(() => {
     const root = scrollRef.current;
-    if (!root) return;
-
-    const onScroll = () => {
-      const max = root.scrollHeight - root.clientHeight;
-      if (max <= 8) return;
-      if (root.scrollTop >= max - 4) {
-        root.scrollTo({ top: 0, behavior: 'auto' });
-      }
-    };
-
-    root.addEventListener('scroll', onScroll, { passive: true });
-    return () => root.removeEventListener('scroll', onScroll);
+    if (!root || validVideos.length < 2) return;
+    return attachShortsInfiniteScrollLoop(root);
   }, [validVideos.length]);
 
   if (validVideos.length === 0) {

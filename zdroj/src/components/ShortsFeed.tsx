@@ -27,6 +27,10 @@ import {
 } from '@/components/shorts/ShortsFeedClipVideo';
 import { ShortsSoundToggle } from '@/components/shorts/ShortsSoundToggle';
 import { isPropertyFeedVideoPlayable, propertyFeedPrimaryVideoSrc } from '@/lib/feed/loop-feed';
+import {
+  attachShortsInfiniteScrollLoop,
+  clampShortsScrollToLastSlide,
+} from '@/lib/feed/shorts-infinite-scroll';
 
 const glowBtnBase =
   'relative flex size-14 shrink-0 items-center justify-center rounded-full border border-white/20 bg-gradient-to-br from-[#ff6a00]/45 to-[#ff3c00]/40 text-xl text-white shadow-[0_0_24px_-2px_rgba(255,106,0,0.55),0_0_16px_-4px_rgba(255,60,0,0.35),inset_0_1px_0_0_rgba(255,255,255,0.2)] backdrop-blur-xl transition duration-300 ease-out hover:scale-110 hover:border-white/35 active:scale-95';
@@ -125,10 +129,7 @@ export function ShortsFeed({ items }: Props) {
   useLayoutEffect(() => {
     const root = containerRef.current;
     if (!root) return;
-    const max = root.scrollHeight - root.clientHeight;
-    if (max > 0 && root.scrollTop > max) {
-      root.scrollTop = max;
-    }
+    clampShortsScrollToLastSlide(root);
   }, [clips.length]);
 
   useEffect(() => {
@@ -137,15 +138,16 @@ export function ShortsFeed({ items }: Props) {
 
     const onScroll = () => {
       setAdInteractionTick((v) => v + 1);
-      const max = root.scrollHeight - root.clientHeight;
-      if (max <= 8) return;
-      if (root.scrollTop >= max - 4) {
-        root.scrollTo({ top: 0, behavior: 'auto' });
-      }
     };
 
     root.addEventListener('scroll', onScroll, { passive: true });
     return () => root.removeEventListener('scroll', onScroll);
+  }, [clips.length]);
+
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root || clips.length < 2) return;
+    return attachShortsInfiniteScrollLoop(root);
   }, [clips.length]);
 
   useEffect(() => {

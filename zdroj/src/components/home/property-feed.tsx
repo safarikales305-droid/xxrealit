@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PropertyFeedItem } from '@/types/property';
 import { propertyRowPassesVideoFeedGate } from '@/lib/feed/loop-feed';
+import {
+  attachShortsInfiniteScrollLoop,
+  clampShortsScrollToLastSlide,
+} from '@/lib/feed/shorts-infinite-scroll';
 import { PropertyCard } from './property-card';
 
 function mockLikesForId(id: string): number {
@@ -53,26 +57,13 @@ export function PropertyFeed({ items }: Props) {
   useLayoutEffect(() => {
     const root = containerRef.current;
     if (!root) return;
-    const max = root.scrollHeight - root.clientHeight;
-    if (max > 0 && root.scrollTop > max) {
-      root.scrollTop = max;
-    }
+    clampShortsScrollToLastSlide(root);
   }, [feedItems.length]);
 
   useEffect(() => {
     const root = containerRef.current;
-    if (!root) return;
-
-    const onScroll = () => {
-      const max = root.scrollHeight - root.clientHeight;
-      if (max <= 8) return;
-      if (root.scrollTop >= max - 4) {
-        root.scrollTo({ top: 0, behavior: 'auto' });
-      }
-    };
-
-    root.addEventListener('scroll', onScroll, { passive: true });
-    return () => root.removeEventListener('scroll', onScroll);
+    if (!root || feedItems.length < 2) return;
+    return attachShortsInfiniteScrollLoop(root);
   }, [feedItems.length]);
 
   useEffect(() => {
