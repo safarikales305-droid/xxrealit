@@ -6,6 +6,7 @@ import { TipShortsSticker } from '@/components/listing/TipBadges';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
 import { isTipListing } from '@/lib/is-tip-listing';
 import { useAuth } from '@/hooks/use-auth';
+import { listingDetailHref } from '@/lib/listing-detail-navigation';
 import type { PropertyFeedItem } from '@/types/property';
 import { propertyListingHasVideo } from '@/lib/property-feed-filters';
 import { propertyFeedPrimaryVideoSrc } from '@/lib/feed/loop-feed';
@@ -120,7 +121,7 @@ export function PropertyCard({
           blurredClassName="blurred-price select-none blur-[6px] opacity-90 text-orange-200"
         />
         <Link
-          href={`/nemovitost/${p.id}`}
+          href={listingDetailHref(p.id, 'shorts')}
           className="pointer-events-auto mt-4 inline-flex w-fit rounded-full border border-white/35 bg-white/10 px-4 py-2 text-[13px] font-semibold text-white backdrop-blur-sm transition hover:bg-white/20"
         >
           Detail inzerátu

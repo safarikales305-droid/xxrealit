@@ -648,7 +648,12 @@ export class PropertiesService {
     };
   }
 
-  async findOneForDetail(id: string, viewerId?: string) {
+  async findOneForDetail(
+    id: string,
+    viewerId?: string,
+    opts?: { includeOther?: boolean },
+  ) {
+    const includeOther = opts?.includeOther !== false;
     const property = await this.prisma.property.findUnique({
       where: { id },
       include: {
@@ -731,27 +736,29 @@ export class PropertiesService {
             ...classicPublicListingWhere,
           };
 
-    const otherRows = await this.prisma.property.findMany({
-      where: othersWhere,
-      orderBy: { createdAt: 'desc' },
-      take: 8,
-      include: {
-        media: {
-          orderBy: { sortOrder: 'asc' },
-        },
-        _count: { select: { likes: true } },
-        user: { select: { id: true, city: true } },
-        ...(viewerId
-          ? {
-              likes: {
-                where: { userId: viewerId },
-                select: { id: true },
-                take: 1,
-              },
-            }
-          : {}),
-      },
-    });
+    const otherRows = includeOther
+      ? await this.prisma.property.findMany({
+          where: othersWhere,
+          orderBy: { createdAt: 'desc' },
+          take: 8,
+          include: {
+            media: {
+              orderBy: { sortOrder: 'asc' },
+            },
+            _count: { select: { likes: true } },
+            user: { select: { id: true, city: true } },
+            ...(viewerId
+              ? {
+                  likes: {
+                    where: { userId: viewerId },
+                    select: { id: true },
+                    take: 1,
+                  },
+                }
+              : {}),
+          },
+        })
+      : [];
 
     const likesArr =
       'likes' in property && Array.isArray(property.likes) ? property.likes : [];

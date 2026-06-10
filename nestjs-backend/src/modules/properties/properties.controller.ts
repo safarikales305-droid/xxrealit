@@ -243,11 +243,13 @@ export class PropertiesController {
   @Get(':id')
   async findOne(
     @Param('id') id: string,
+    @Query('includeOther') includeOtherRaw?: string,
     @Headers('authorization') auth?: string,
   ) {
     try {
       const viewerId = parseBearerUserId(this.jwt, auth);
-      return await this.propertiesService.findOneForDetail(id, viewerId);
+      const includeOther = includeOtherRaw !== '0' && includeOtherRaw !== 'false';
+      return await this.propertiesService.findOneForDetail(id, viewerId, { includeOther });
     } catch (e) {
       if (e instanceof NotFoundException) throw e;
       // eslint-disable-next-line no-console

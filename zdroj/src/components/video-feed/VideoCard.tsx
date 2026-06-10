@@ -229,7 +229,7 @@ export default function VideoCard({
   });
   const city = (video.city ?? '').trim();
 
-  const listingPath = `/nemovitost/${encodeURIComponent(video.id)}?from=shorts`;
+  const listingPath = `/nemovitost/${encodeURIComponent(video.id)}?source=shorts`;
 
   const ownerId = (video.userId ?? video.user?.id ?? '').trim();
   const isOwner = Boolean(

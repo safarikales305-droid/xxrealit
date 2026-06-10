@@ -39,6 +39,12 @@ export function ShareGateShell({ type, listingId, children }: Props) {
     }
 
     let cancelled = false;
+    const timeoutId = window.setTimeout(() => {
+      if (cancelled) return;
+      setGatePassed(true);
+      setLoadingGate(false);
+    }, 6_000);
+
     void fetchShareGateVideo(type).then((v) => {
       if (cancelled) return;
       setVideo(v);
@@ -48,6 +54,7 @@ export function ShareGateShell({ type, listingId, children }: Props) {
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timeoutId);
     };
   }, [isLoading, isAuthenticated, type, listingId]);
 
@@ -57,7 +64,15 @@ export function ShareGateShell({ type, listingId, children }: Props) {
   }
 
   if (isLoading || loadingGate) {
-    return <div className="min-h-[100dvh] bg-black" aria-hidden />;
+    return (
+      <div className="mx-auto w-full max-w-7xl px-4 py-6" aria-busy="true" aria-label="Načítání">
+        <div className="h-[42vh] animate-pulse rounded-2xl bg-zinc-200/80" />
+        <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <div className="h-7 w-3/4 animate-pulse rounded bg-zinc-200/80" />
+          <div className="mt-3 h-5 w-1/3 animate-pulse rounded bg-zinc-200/80" />
+        </div>
+      </div>
+    );
   }
 
   if (!gatePassed && video) {

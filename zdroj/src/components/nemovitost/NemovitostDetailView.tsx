@@ -21,6 +21,8 @@ import type { PropertyDetailAuthor } from '@/lib/property-detail';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
 import { TipDetailBadge } from '@/components/listing/TipBadges';
 import { isTipListing } from '@/lib/is-tip-listing';
+import { listingDetailHref } from '@/lib/listing-detail-navigation';
+import { ListingDetailBackButton } from '@/components/nemovitost/ListingDetailBackButton';
 import { classicListingCoverUrl, type PropertyFeedItem } from '@/types/property';
 
 type MediaItem = {
@@ -431,13 +433,7 @@ export function NemovitostDetailView({
         </aside>
 
         <main className="min-w-0 xl:col-span-6">
-          <button
-            type="button"
-            onClick={() => router.push('/?tab=shorts')}
-            className="mb-4 inline-flex items-center rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-800 shadow-sm transition hover:bg-zinc-50"
-          >
-            ← Zpět na Shorts
-          </button>
+          <ListingDetailBackButton />
 
           {media.length > 0 && active != null ? (
             <div className="overflow-hidden rounded-2xl bg-black">
@@ -497,6 +493,8 @@ export function NemovitostDetailView({
                           <img
                             src={nestAbsoluteAssetUrl(item.url)}
                             alt=""
+                            loading="lazy"
+                            decoding="async"
                             className="h-full w-full object-cover"
                             onError={() =>
                               setBrokenMediaKeys((prev) => ({ ...prev, [item.key]: true }))
@@ -716,7 +714,7 @@ export function NemovitostDetailView({
                 {other.map((item) => (
                   <li key={item.id}>
                     <Link
-                      href={`/nemovitost/${item.id}`}
+                      href={listingDetailHref(item.id, 'classic')}
                       className="block rounded-xl border border-zinc-100 p-3 transition hover:border-orange-200 hover:bg-orange-50/40"
                     >
                       <p className="line-clamp-2 text-sm font-medium text-zinc-900">{item.title}</p>

@@ -103,7 +103,7 @@ export function PropertyGrid({ properties }: Props) {
               key={p.id + (p.videoUrl ?? '') + (p.imageUrl ?? '')}
               className="group relative flex flex-col overflow-hidden rounded-xl border border-zinc-200/90 bg-white shadow-sm transition duration-300 hover:border-zinc-300 hover:shadow-md"
             >
-              <Link href={`/nemovitost/${p.id}`} className="block flex flex-1 flex-col">
+              <Link href={`/nemovitost/${p.id}?source=classic`} className="block flex flex-1 flex-col">
                 <div className="relative aspect-[4/3] bg-zinc-100">
                   {isTipListing(p) ? (
                     <div className="absolute left-2 top-2 z-10 sm:left-3 sm:top-3">

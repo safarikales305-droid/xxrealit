@@ -60,7 +60,7 @@ function ClassicMobileCard({
           className="text-xl font-bold tabular-nums text-[#e85d00]"
         />
         <Link
-          href={`/nemovitost/${item.id}`}
+          href={`/nemovitost/${item.id}?source=classic`}
           className="mt-2 inline-flex w-full items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-3.5 text-[15px] font-semibold text-white shadow-[0_6px_24px_-6px_rgba(255,106,0,0.45)] transition active:scale-[0.98]"
         >
           Zobrazit inzerát

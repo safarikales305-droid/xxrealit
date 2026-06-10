@@ -43,7 +43,7 @@ export default async function ShortsListingPage({ params }: Props) {
   }
 
   const listing = parsePublicShortsListing(result.property, id);
-  const detailHref = `/nemovitost/${encodeURIComponent(id)}`;
+  const detailHref = `/nemovitost/${encodeURIComponent(id)}?source=shorts`;
 
   return (
     <ShareGateShell type="SHORTS_LISTING" listingId={id}>

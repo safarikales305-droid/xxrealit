@@ -6,7 +6,7 @@ import { getServerAccessToken } from '@/lib/server-bearer';
 export const runtime = 'nodejs';
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id } = await ctx.params;
@@ -18,8 +18,12 @@ export async function GET(
     );
   }
 
+  const includeOther = request.nextUrl.searchParams.get('includeOther');
+  const qs =
+    includeOther === 'false' || includeOther === '0' ? '?includeOther=false' : '';
+
   const token = await getServerAccessToken();
-  const res = await fetch(`${api}/properties/${encodeURIComponent(id)}`, {
+  const res = await fetch(`${api}/properties/${encodeURIComponent(id)}${qs}`, {
     cache: 'no-store',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });

@@ -3150,18 +3150,40 @@ export async function nestTopMyProperty(
   return { ok: true };
 }
 
+export type NestPropertyDetailFetchResult =
+  | { ok: true; data: unknown }
+  | { ok: false; status: number };
+
 /** GET /properties/:id — detail s JWT (vlastník vidí neschválené). */
+export async function nestFetchPropertyDetail(
+  propertyId: string,
+  token: string | null,
+  options?: { includeOther?: boolean; signal?: AbortSignal },
+): Promise<NestPropertyDetailFetchResult> {
+  if (!API_BASE_URL) return { ok: false, status: 0 };
+  const qs =
+    options?.includeOther === false ? '?includeOther=false' : '';
+  const res = await fetch(
+    `${API_BASE_URL}/properties/${encodeURIComponent(propertyId)}${qs}`,
+    {
+      cache: 'no-store',
+      signal: options?.signal,
+      headers: { Accept: 'application/json', ...nestAuthHeaders(token) },
+    },
+  );
+  if (!res.ok) return { ok: false, status: res.status };
+  const data = (await res.json().catch(() => null)) as unknown;
+  if (data == null) return { ok: false, status: 502 };
+  return { ok: true, data };
+}
+
+/** @deprecated Použijte nestFetchPropertyDetail. */
 export async function nestFetchPropertyDetailJson(
   propertyId: string,
   token: string | null,
 ): Promise<unknown | null> {
-  if (!API_BASE_URL) return null;
-  const res = await fetch(`${API_BASE_URL}/properties/${encodeURIComponent(propertyId)}`, {
-    cache: 'no-store',
-    headers: { Accept: 'application/json', ...nestAuthHeaders(token) },
-  });
-  if (!res.ok) return null;
-  return (await res.json()) as unknown;
+  const r = await nestFetchPropertyDetail(propertyId, token);
+  return r.ok ? r.data : null;
 }
 
 /** PATCH /users/me/broker-public-profile — jen AGENT. */
