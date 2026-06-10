@@ -12,7 +12,7 @@ type Props = {
   clipId: string;
   src: string;
   isActive: boolean;
-  onError: () => void;
+  onError?: (clipId: string, error?: unknown) => void;
   /** Zvuk se zobrazuje v pravém sloupci — rodič dostane stav pro rail tlačítko. */
   onSoundReady?: (control: ShortsClipSoundControl) => void;
 };
@@ -49,7 +49,7 @@ export function ShortsFeedClipVideo({
         controls
         preload="metadata"
         className="h-full w-full object-cover"
-        onError={onError}
+        onError={(event) => onError?.(clipId, event)}
       >
         <source src={src} type="video/mp4" />
       </video>
