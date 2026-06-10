@@ -1,7 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CyclicFeedViewport } from '@/components/feed/CyclicFeedViewport';
+import {
+  CyclicFeedViewport,
+  type CyclicFeedNav,
+} from '@/components/feed/CyclicFeedViewport';
+import {
+  ShortsFeedNavProvider,
+} from '@/components/shorts/shorts-feed-nav-context';
 import { useAuth } from '@/hooks/use-auth';
 import {
   incrementGuestShortsView,
@@ -12,29 +18,36 @@ import {
   fetchRegistrationGateSettings,
   type PublicRegistrationGateSettings,
 } from '@/lib/registration-gate';
-import { isShortVideoPlayable } from '@/lib/feed/loop-feed';
+import { isShortVideoPlayable, shortVideoPlayableSrc } from '@/lib/feed/loop-feed';
 import { GuestShortsRegistrationGateModal } from '@/components/registration/GuestShortsRegistrationGateModal';
 import VideoCard from './VideoCard';
 
 type VideoFeedProps = {
-  /** Pořadí z rodiče (např. sdílené video první); bez interního přerovnání. */
   videos: ShortVideo[];
-  /** Mobil shorts: otevře stejný panel filtrů jako v klasickém režimu (tlačítko ve videu). */
   onMobileFiltersOpen?: () => void;
 };
 
-/**
- * Shorts feed — TikTok/Reels slide animace, cyklická navigace modulo.
- */
+const noopNav: CyclicFeedNav = {
+  goNext: () => undefined,
+  goPrev: () => undefined,
+  total: 0,
+  currentIndex: 0,
+};
+
 export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
   const { isAuthenticated, isLoading } = useAuth();
   const [gateSettings, setGateSettings] = useState<PublicRegistrationGateSettings | null>(null);
   const [gateOpen, setGateOpen] = useState(false);
+  const [nav, setNav] = useState<CyclicFeedNav>(noopNav);
 
   const feedVideos = useMemo(
     () => videos.filter((v) => isShortVideoPlayable(v)),
     [videos],
   );
+
+  const handleNavigation = useCallback((api: CyclicFeedNav) => {
+    setNav(api);
+  }, []);
 
   useEffect(() => {
     if (isLoading || isAuthenticated) {
@@ -75,31 +88,33 @@ export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
   }
 
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col">
-      <CyclicFeedViewport
-        items={feedVideos}
-        getId={(v) => v.id}
-        debugLabel="SHORTS"
-        className="min-h-0 flex-1 overflow-hidden overscroll-none pb-[env(safe-area-inset-bottom)] pt-0"
-        viewportClassName="h-full min-h-0 max-md:min-h-[calc(100dvh-3.75rem)]"
-        slideClassName="overflow-hidden rounded-none bg-black md:rounded-xl lg:bg-white lg:shadow-sm"
-      >
-        {(video) => (
-          <div
-            data-video-slide={video.id}
-            className="h-full w-full"
-          >
-            <VideoCard
-              video={video}
-              onMobileFiltersOpen={onMobileFiltersOpen}
-              onGuestVideoViewed={onGuestVideoViewed}
-            />
-          </div>
-        )}
-      </CyclicFeedViewport>
-      {gateOpen && gateSettings ? (
-        <GuestShortsRegistrationGateModal settings={gateSettings} />
-      ) : null}
-    </div>
+    <ShortsFeedNavProvider value={{ goNext: nav.goNext, goPrev: nav.goPrev }}>
+      <div className="flex min-h-0 w-full flex-1 flex-col">
+        <CyclicFeedViewport
+          items={feedVideos}
+          getId={(v) => v.id}
+          debugLabel="SHORTS"
+          prefetchSrc={(v) => shortVideoPlayableSrc(v)}
+          onNavigation={handleNavigation}
+          className="min-h-0 flex-1 overflow-hidden overscroll-none pb-[env(safe-area-inset-bottom)] pt-0"
+          viewportClassName="h-full min-h-0 max-md:min-h-[calc(100dvh-3.75rem)]"
+          slideClassName="shorts-slide overflow-hidden rounded-none bg-[#111] md:rounded-xl lg:bg-white lg:shadow-sm"
+        >
+          {(video, { isActive }) => (
+            <div data-video-slide={video.id} className="h-full w-full">
+              <VideoCard
+                video={video}
+                isActive={isActive}
+                onMobileFiltersOpen={onMobileFiltersOpen}
+                onGuestVideoViewed={onGuestVideoViewed}
+              />
+            </div>
+          )}
+        </CyclicFeedViewport>
+        {gateOpen && gateSettings ? (
+          <GuestShortsRegistrationGateModal settings={gateSettings} />
+        ) : null}
+      </div>
+    </ShortsFeedNavProvider>
   );
 }

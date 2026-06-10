@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { resolveShortsPosterUrl } from '@/lib/feed/shorts-poster-url';
+import { ShortsSlideVideo } from '@/components/shorts/ShortsSlideVideo';
 import { useShortsVideoSound } from '@/hooks/use-shorts-video-sound';
 
 export type ShortsClipSoundControl = {
@@ -12,6 +14,9 @@ type Props = {
   clipId: string;
   src: string;
   isActive: boolean;
+  posterUrl?: string;
+  imageUrl?: string | null;
+  images?: string[] | null;
   onError?: (clipId: string, error?: unknown) => void;
   /** Zvuk se zobrazuje v pravém sloupci — rodič dostane stav pro rail tlačítko. */
   onSoundReady?: (control: ShortsClipSoundControl) => void;
@@ -21,6 +26,9 @@ export function ShortsFeedClipVideo({
   clipId,
   src,
   isActive,
+  posterUrl,
+  imageUrl,
+  images,
   onError,
   onSoundReady,
 }: Props) {
@@ -37,22 +45,21 @@ export function ShortsFeedClipVideo({
     onSoundReadyRef.current?.({ muted, toggleSound });
   }, [muted, toggleSound]);
 
+  const resolvedPoster =
+    posterUrl?.trim() ||
+    resolveShortsPosterUrl({ imageUrl, images, posterUrl, thumbnailUrl: imageUrl });
+
   return (
-    <div className="absolute inset-0 flex items-center justify-center">
-      <video
-        ref={videoRef}
-        data-clip-id={clipId}
-        muted={muted}
-        playsInline
-        autoPlay
-        loop
-        controls
-        preload="metadata"
-        className="h-full w-full object-cover"
-        onError={(event) => onError?.(clipId, event)}
-      >
-        <source src={src} type="video/mp4" />
-      </video>
-    </div>
+    <ShortsSlideVideo
+      clipId={clipId}
+      src={src}
+      posterUrl={resolvedPoster}
+      isActive={isActive}
+      muted={muted}
+      loop
+      controls
+      videoRef={videoRef}
+      onError={onError}
+    />
   );
 }

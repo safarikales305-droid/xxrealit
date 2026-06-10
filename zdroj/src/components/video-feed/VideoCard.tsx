@@ -14,11 +14,16 @@ import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { nestToggleFavorite, type ShortVideo } from '@/lib/nest-client';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
 import { TipShortsSticker } from '@/components/listing/TipBadges';
+import { ShortsSlideVideo } from '@/components/shorts/ShortsSlideVideo';
+import { DesktopShortsNavButtons } from '@/components/shorts/shorts-feed-nav-context';
 import { isTipListing } from '@/lib/is-tip-listing';
+import { resolveShortsPosterUrl } from '@/lib/feed/shorts-poster-url';
 import { parseApiListingPrice } from '@/types/property';
 
 type VideoCardProps = {
   video: ShortVideo;
+  /** Aktivní slide ve feedu (přehrávání / poster). */
+  isActive?: boolean;
   /** Mobil shorts: otevře panel filtrů (tlačítko v levém horním rohu videa). */
   onMobileFiltersOpen?: () => void;
   /** Selhání načtení / přehrávání — rodič záznam odfiltruje a případně posune scroll. */
@@ -55,6 +60,7 @@ function formatViewsCount(value: number | null | undefined): string {
 
 export default function VideoCard({
   video,
+  isActive = true,
   onMobileFiltersOpen,
   onVideoBroken,
   onGuestVideoViewed,
@@ -79,9 +85,17 @@ export default function VideoCard({
   );
 
   const src = nestAbsoluteAssetUrl(video.videoUrl ?? video.url ?? '').trim();
+  const posterUrl = useMemo(
+    () =>
+      resolveShortsPosterUrl({
+        imageUrl: video.imageUrl,
+        images: video.images,
+      }),
+    [video.imageUrl, video.images],
+  );
 
   const { muted, toggleSound } = useShortsVideoSound(videoRef, {
-    enabled: Boolean(src) && !error && !desktopPreviewUrl,
+    enabled: Boolean(src) && !error && !desktopPreviewUrl && isActive,
     videoKey: video.id,
   });
 
@@ -507,15 +521,16 @@ export default function VideoCard({
 
             {!error ? (
               <>
-                <video
-                  ref={videoRef}
+                <ShortsSlideVideo
+                  clipId={video.id}
                   src={src}
+                  posterUrl={posterUrl}
+                  isActive={isActive && !desktopPreviewUrl}
                   muted={muted}
-                  playsInline
                   loop
-                  autoPlay
-                  preload="metadata"
-                  className={`absolute inset-0 box-border h-full w-full object-cover ${desktopPreviewUrl ? 'lg:opacity-0 lg:pointer-events-none' : ''} lg:object-contain`}
+                  controls
+                  videoRef={videoRef}
+                  videoClassName={`box-border ${desktopPreviewUrl ? 'lg:opacity-0 lg:pointer-events-none' : ''} lg:object-contain`}
                   onError={() => {
                     setError(true);
                     onVideoBroken?.(video.id);
@@ -569,6 +584,8 @@ export default function VideoCard({
             </div>
           </div>
         </div>
+
+        <DesktopShortsNavButtons className="self-center" />
 
         {/* Desktop: akce vpravo vedle videa */}
         <div className="pointer-events-auto z-[35] hidden w-auto shrink-0 flex-col items-center justify-center gap-3 self-center lg:flex">

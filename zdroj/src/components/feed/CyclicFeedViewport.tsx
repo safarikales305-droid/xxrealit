@@ -1,10 +1,17 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import {
   useCyclicFeedNavigation,
   type FeedSlideRole,
 } from '@/hooks/use-cyclic-feed-navigation';
+
+export type CyclicFeedNav = {
+  goNext: () => void;
+  goPrev: () => void;
+  total: number;
+  currentIndex: number;
+};
 
 type SlideContext = {
   role: FeedSlideRole;
@@ -20,6 +27,8 @@ type Props<T> = {
   viewportClassName?: string;
   slideClassName?: string;
   emptyState?: ReactNode;
+  prefetchSrc?: (item: T) => string | null;
+  onNavigation?: (nav: CyclicFeedNav) => void;
   children: (item: T, ctx: SlideContext) => ReactNode;
 };
 
@@ -31,16 +40,29 @@ export function CyclicFeedViewport<T>({
   viewportClassName = '',
   slideClassName = '',
   emptyState = null,
+  prefetchSrc,
+  onNavigation,
   children,
 }: Props<T>) {
-  const { containerRef, slidesToRender, total, transition } = useCyclicFeedNavigation(
-    items,
-    {
-      getId,
-      debugLabel,
-      switchLockMs: 400,
-    },
-  );
+  const {
+    containerRef,
+    slidesToRender,
+    total,
+    transition,
+    goNext,
+    goPrev,
+    currentIndex,
+    prefetchUrls,
+  } = useCyclicFeedNavigation(items, {
+    getId,
+    debugLabel,
+    switchLockMs: 400,
+    prefetchSrc,
+  });
+
+  useEffect(() => {
+    onNavigation?.({ goNext, goPrev, total, currentIndex });
+  }, [onNavigation, goNext, goPrev, total, currentIndex]);
 
   if (total === 0) {
     return emptyState;
@@ -52,10 +74,23 @@ export function CyclicFeedViewport<T>({
       tabIndex={-1}
       className={`outline-none ${className}`}
     >
+      {prefetchUrls.map((url) => (
+        <video
+          key={`prefetch-${url}`}
+          src={url}
+          preload="auto"
+          muted
+          playsInline
+          className="pointer-events-none absolute size-0 overflow-hidden opacity-0"
+          aria-hidden
+          tabIndex={-1}
+        />
+      ))}
       <div className={`feed-viewport ${viewportClassName}`}>
         {slidesToRender.map((slide) => {
           const itemIndex = items.findIndex((x) => getId(x) === getId(slide.item));
           const isActive =
+            slide.role === 'outgoing' ||
             slide.role === 'incoming' ||
             (slide.role === 'current' && !transition);
           return (

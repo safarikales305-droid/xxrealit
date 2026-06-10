@@ -19,7 +19,10 @@ import {
   type ShortsClipSoundControl,
 } from '@/components/shorts/ShortsFeedClipVideo';
 import { ShortsSoundToggle } from '@/components/shorts/ShortsSoundToggle';
-import { isPropertyFeedVideoPlayable, propertyFeedPrimaryVideoSrc } from '@/lib/feed/loop-feed';
+import {
+  isPropertyFeedVideoPlayable,
+  propertyFeedPrimaryVideoSrc,
+} from '@/lib/feed/loop-feed';
 import { useCyclicFeedNavigation } from '@/hooks/use-cyclic-feed-navigation';
 
 const glowBtnBase =
@@ -94,14 +97,18 @@ export function ShortsFeed({ items }: Props) {
       .filter((item): item is Clip => item.src.length > 0);
   }, [items]);
 
-  const { currentItem, containerRef, slidesToRender, transition } = useCyclicFeedNavigation(
-    clips,
-    {
-      debugLabel: 'SHORTS',
-      getId: (clip) => clip.id,
-      switchLockMs: 400,
-    },
-  );
+  const {
+    currentItem,
+    containerRef,
+    slidesToRender,
+    transition,
+    prefetchUrls,
+  } = useCyclicFeedNavigation(clips, {
+    debugLabel: 'SHORTS',
+    getId: (clip) => clip.id,
+    switchLockMs: 400,
+    prefetchSrc: (clip) => clip.src,
+  });
   const activeId = currentItem?.id ?? null;
 
   const [liked, setLiked] = useState<Record<string, boolean>>({});
@@ -253,7 +260,7 @@ export function ShortsFeed({ items }: Props) {
     const showGuestCta = !isLoading && !isAuthenticated;
 
     return (
-      <section className="shorts-video-stage relative isolate box-border h-full w-full max-w-full overflow-hidden overflow-x-hidden bg-black">
+      <section className="shorts-video-stage shorts-slide relative isolate box-border h-full w-full max-w-full overflow-hidden overflow-x-hidden bg-[#111]">
             {showProfileLink ? (
               <div className="pointer-events-auto absolute left-3 top-20 z-20 md:left-4 md:top-24">
                 <Link
@@ -269,6 +276,8 @@ export function ShortsFeed({ items }: Props) {
           clipId={c.id}
           src={c.src}
           isActive={isActive}
+          imageUrl={c.imageUrl}
+          images={c.images}
           onSoundReady={(control) => {
             setSoundByClipId((prev) => ({ ...prev, [c.id]: control }));
           }}
@@ -491,9 +500,22 @@ export function ShortsFeed({ items }: Props) {
         tabIndex={-1}
         className="relative h-full min-h-0 w-full overflow-hidden overscroll-none outline-none"
       >
+        {prefetchUrls.map((url) => (
+          <video
+            key={`prefetch-${url}`}
+            src={url}
+            preload="auto"
+            muted
+            playsInline
+            className="pointer-events-none absolute size-0 overflow-hidden opacity-0"
+            aria-hidden
+            tabIndex={-1}
+          />
+        ))}
         <div className="feed-viewport h-full min-h-[100dvh]">
           {slidesToRender.map((slide) => {
             const isActive =
+              slide.role === 'outgoing' ||
               slide.role === 'incoming' ||
               (slide.role === 'current' && !transition);
             return (

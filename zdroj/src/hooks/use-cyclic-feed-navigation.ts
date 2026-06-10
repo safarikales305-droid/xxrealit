@@ -30,6 +30,8 @@ type Options<T> = {
   getId?: (item: T) => string;
   switchLockMs?: number;
   enabled?: boolean;
+  /** URL dalšího / předchozího prvku pro přednačtení videa. */
+  prefetchSrc?: (item: T) => string | null;
 };
 
 function outgoingSlideClass(direction: FeedDirection, animate: boolean): string {
@@ -53,6 +55,7 @@ export function useCyclicFeedNavigation<T>(
     getId,
     switchLockMs = DEFAULT_SWITCH_LOCK_MS,
     enabled = true,
+    prefetchSrc,
   } = options;
 
   const total = items.length;
@@ -89,6 +92,26 @@ export function useCyclicFeedNavigation<T>(
   const currentItem = total > 0 ? items[currentIndex] : undefined;
   const incomingItem =
     transition && total > 0 ? items[transition.toIndex] : undefined;
+
+  const prefetchUrls = useMemo(() => {
+    if (!prefetchSrc || total <= 1) return [] as string[];
+    const nextItem = items[(currentIndex + 1) % total];
+    const prevItem = items[(currentIndex - 1 + total) % total];
+    const urls = new Set<string>();
+    for (const item of [nextItem, prevItem]) {
+      if (!item) continue;
+      const url = prefetchSrc(item)?.trim();
+      if (url) urls.add(url);
+    }
+    if (transition && total > 0) {
+      const incoming = items[transition.toIndex];
+      if (incoming) {
+        const url = prefetchSrc(incoming)?.trim();
+        if (url) urls.add(url);
+      }
+    }
+    return [...urls];
+  }, [currentIndex, items, prefetchSrc, total, transition]);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== 'development') return;
@@ -261,5 +284,6 @@ export function useCyclicFeedNavigation<T>(
     total,
     isSwitchingRef,
     isAnimating: transition != null,
+    prefetchUrls,
   };
 }
