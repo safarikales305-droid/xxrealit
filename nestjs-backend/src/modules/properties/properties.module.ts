@@ -26,7 +26,7 @@ import { RegistrationGateModule } from '../registration-gate/registration-gate.m
 @Module({
   imports: [
     ShareModule,
-    CreditsModule,
+    forwardRef(() => CreditsModule),
     BonusCampaignModule,
     forwardRef(() => RegistrationGateModule),
     forwardRef(() => MessagesModule),
