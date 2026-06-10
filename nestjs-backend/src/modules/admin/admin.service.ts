@@ -673,7 +673,7 @@ export class AdminService {
     const wasPending = !p.approved;
     const updated = await this.prisma.property.update({
       where: { id: propertyId },
-      data: { approved: true, status: 'APPROVED', isActive: true },
+      data: { approved: true, status: 'APPROVED', isActive: true, isVisible: true },
     });
     void this.propertiesService
       .ensureFacebookShareImage(propertyId, true)

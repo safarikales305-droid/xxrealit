@@ -5,6 +5,25 @@ import {
 
 const FETCH_TIMEOUT_MS = 12_000;
 
+function extractFeedRawItems(data: unknown): unknown[] {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== 'object') return [];
+  const o = data as Record<string, unknown>;
+  for (const key of ['items', 'listings', 'properties', 'data'] as const) {
+    const candidate = o[key];
+    if (Array.isArray(candidate)) return candidate;
+  }
+  return [];
+}
+
+function extractFeedTotal(data: unknown, fallback: number): number {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return fallback;
+  const total = (data as Record<string, unknown>).total;
+  return typeof total === 'number' && Number.isFinite(total) && total >= 0
+    ? Math.trunc(total)
+    : fallback;
+}
+
 export async function loadPropertyFeedItems(
   base: string,
   options: {
@@ -33,9 +52,8 @@ export async function loadPropertyFeedItems(
     });
 
     if (!res.ok) {
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('[Feed] GET failed', url, res.status);
-      }
+      // eslint-disable-next-line no-console
+      console.warn('[Feed] GET failed', url, res.status);
       return { items: [], total: 0 };
     }
 
@@ -46,25 +64,15 @@ export async function loadPropertyFeedItems(
       return { items: [], total: 0 };
     }
 
-    let rawItems: unknown[] = [];
-    let total = 0;
-    if (Array.isArray(data)) {
-      rawItems = data;
-      total = data.length;
-    } else if (data && typeof data === 'object') {
-      const o = data as Record<string, unknown>;
-      rawItems = Array.isArray(o.items) ? o.items : [];
-      total =
-        typeof o.total === 'number' && Number.isFinite(o.total) && o.total >= 0
-          ? Math.trunc(o.total)
-          : rawItems.length;
-    } else {
+    const rawItems = extractFeedRawItems(data);
+    if (rawItems.length === 0 && data != null && typeof data === 'object' && !Array.isArray(data)) {
       return { items: [], total: 0 };
     }
 
     const list = rawItems
       .map(safeNormalizePropertyFromApi)
       .filter((x): x is PropertyFeedItem => x != null);
+    const total = extractFeedTotal(data, list.length);
     if (process.env.NEXT_PUBLIC_DEBUG_LISTINGS === '1' && list.length > 0) {
       const p = list[0];
       // eslint-disable-next-line no-console
@@ -85,6 +93,8 @@ export async function loadPropertyFeedItems(
     if (path === '/properties' || path.endsWith('/properties')) {
       // eslint-disable-next-line no-console
       console.log('CLASSIC LISTINGS RESPONSE', payload);
+      // eslint-disable-next-line no-console
+      console.log('CLASSIC LISTINGS NORMALIZED', list);
     }
     return payload;
   } catch (err) {

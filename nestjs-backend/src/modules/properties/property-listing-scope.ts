@@ -50,13 +50,25 @@ const hideBrokenCentury21Imports: Prisma.PropertyWhereInput = {
   },
 };
 
+/** Klasik výpis — CLASSIC nebo legacy řádek bez videa (ne SHORTS). */
+const classicListingTypeWhere: Prisma.PropertyWhereInput = {
+  OR: [
+    { listingType: 'CLASSIC' },
+    {
+      AND: [
+        { NOT: { listingType: 'SHORTS' } },
+        { NOT: { OR: videoListingDisjuncts } },
+      ],
+    },
+  ],
+};
+
 /** Klasické inzeráty veřejně viditelné (feed / GET /properties). */
 export const classicPublicListingWhere: Prisma.PropertyWhereInput = {
   AND: [
     approvedAndVisible,
     importedListingPubliclyVisibleWhere,
-    /** Klasik výpis = explicitně CLASSIC (SHORTS patří do shorts feedu). */
-    { listingType: 'CLASSIC' },
+    classicListingTypeWhere,
     /** Tip ve Shorts feedu — ne klasický katalog. */
     { isTiparTip: false },
     hideBrokenRealityImports,

@@ -60,16 +60,31 @@ export function isImportedProperty(p: PropertyImportVisibilityFields): boolean {
 }
 
 /**
- * Importovaný inzerát veřejně jen s platnou aktivní větve (ImportSource).
- * Ruční / lokální inzeráty (importSource = null) nejsou omezeny větvemi.
+ * Ruční / lokální inzerát — bez importní větve, zobrazit vždy při splnění schválení.
  */
-export const importedListingPubliclyVisibleWhere: Prisma.PropertyWhereInput = {
+export const localOrManualListingWhere: Prisma.PropertyWhereInput = {
   OR: [
     { importSource: null },
     {
       AND: [
+        { importSourceId: null },
+        { OR: [{ importExternalId: null }, { importExternalId: '' }] },
+        { OR: [{ importSourceUrl: null }, { importSourceUrl: '' }] },
+      ],
+    },
+  ],
+};
+
+/**
+ * Importovaný inzerát veřejně jen s platnou aktivní větve (ImportSource).
+ * Lokální inzeráty nejsou omezeny importní větví.
+ */
+export const importedListingPubliclyVisibleWhere: Prisma.PropertyWhereInput = {
+  OR: [
+    localOrManualListingWhere,
+    {
+      AND: [
         { importSource: { not: null } },
-        { OR: [{ importSourceId: { not: null } }, { importExternalId: { not: null } }] },
         { isVisible: true },
         { importDisabled: false },
         { hiddenByImportDisabled: false },
@@ -119,9 +134,18 @@ export function computeImportBranchAdminStatus(
   return 'active';
 }
 
+export function isLocalOrManualListing(p: PropertyImportVisibilityFields): boolean {
+  if (p.importSource == null) return true;
+  if (p.importSourceId?.trim()) return false;
+  if (p.importExternalId?.trim()) return false;
+  if (p.importSourceUrl?.trim()) return false;
+  return true;
+}
+
 export function isImportedListingPubliclyVisible(
   p: PropertyImportVisibilityFields,
 ): boolean {
+  if (isLocalOrManualListing(p)) return true;
   if (!isImportedProperty(p)) return true;
   if (!p.isVisible) return false;
   if (p.importDisabled) return false;

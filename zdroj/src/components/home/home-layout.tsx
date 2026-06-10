@@ -365,6 +365,8 @@ export function HomeLayout({
       grid: classicGridItems.length,
       sample: classicGridItems[0]?.id ?? null,
     });
+    // eslint-disable-next-line no-console
+    console.log('CLASSIC LISTINGS NORMALIZED', classicGridItems);
   }, [classicGridItems, classicTotal]);
 
   const filteredItems = useMemo(() => {

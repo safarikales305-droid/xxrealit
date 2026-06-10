@@ -179,6 +179,7 @@ export class PropertiesController {
     return this.propertiesService.getPublicFilterOptions();
   }
 
+  /** Veřejný katalog klasických inzerátů — bez JWT (nepřihlášení i přihlášení). */
   @Get()
   findAll(
     @Headers('authorization') auth?: string,

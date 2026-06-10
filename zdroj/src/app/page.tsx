@@ -4,7 +4,6 @@ import { ShortsFeed } from '@/components/ShortsFeed';
 import { getServerSideApiBaseUrl } from '@/lib/api';
 import { loadPropertyFeedItems } from '@/lib/load-feed';
 import { classicListingsOnly } from '@/lib/property-feed-filters';
-import { getServerAuthorizationHeader } from '@/lib/server-bearer';
 import type { PropertyFeedItem } from '@/types/property';
 
 /** Server-render on every request when an API URL is configured. */
@@ -47,12 +46,10 @@ async function loadHomeFeed(sp: SearchParamsInput): Promise<{
     return { items: [], total: 0 };
   }
 
-  const authorization = await getServerAuthorizationHeader();
   const query = buildPropertiesQueryString(sp);
 
-  /** Tab Klasik vždy čerpá z veřejného katalogu GET /properties (nezávisle na personalizovaném feedu). */
+  /** Tab Klasik — veřejný katalog GET /properties bez JWT (nepřihlášení i přihlášení). */
   const classicFeed = await loadPropertyFeedItems(base, {
-    authorization,
     path: '/properties',
     query: query || undefined,
   });
