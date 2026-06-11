@@ -31,6 +31,7 @@ import { BulkImportShortsDraftsDto } from './dto/bulk-import-shorts-drafts.dto';
 import { AdminGuard } from './guards/admin.guard';
 import { AgentProfileService } from '../agent-profile/agent-profile.service';
 import { ProfessionalVerificationService } from '../professional-verification/professional-verification.service';
+import { FacebookPageService } from '../social/facebook/facebook-page.service';
 
 type ChangePasswordBody = {
   oldPassword?: string;
@@ -64,7 +65,13 @@ export class AdminController {
     private readonly agentProfileService: AgentProfileService,
     private readonly professionalVerification: ProfessionalVerificationService,
     private readonly importedBrokerContacts: ImportedBrokerContactService,
+    private readonly facebookPage: FacebookPageService,
   ) {}
+
+  @Get('social-facebook-connections')
+  listSocialFacebookConnections() {
+    return this.facebookPage.adminListConnections();
+  }
 
   @Get()
   getAdmin() {

@@ -26,13 +26,15 @@ export class CreatePostDto {
     'REALITNI_KANCELARE',
     'FINANCNI_PORADCI',
     'INVESTORI',
+    'REMESLNICI',
   ])
   category?:
     | 'MAKLERI'
     | 'STAVEBNI_FIRMY'
     | 'REALITNI_KANCELARE'
     | 'FINANCNI_PORADCI'
-    | 'INVESTORI';
+    | 'INVESTORI'
+    | 'REMESLNICI';
 
   @IsOptional()
   @IsString()

@@ -446,6 +446,12 @@ export default function AdminPage() {
               Ověření profesionálů
             </Link>
             <Link
+              href="/admin/facebook-propojeni"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Facebook propojení
+            </Link>
+            <Link
               href="/admin/reklamni-videa-sdileni"
               className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >

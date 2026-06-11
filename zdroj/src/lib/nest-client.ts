@@ -6521,3 +6521,198 @@ export async function nestAdminContactMonetizationUpdate(
   return { ok: true, settings: data };
 }
 
+export type FacebookPageStatus = {
+  configured: boolean;
+  connected: boolean;
+  pageId: string | null;
+  pageName: string | null;
+  syncEnabled: boolean;
+  lastSyncAt: string | null;
+  lastSyncError: string | null;
+  tokenNeedsReauth: boolean;
+  pendingPageSelection: boolean;
+};
+
+export type FacebookPageOption = { id: string; name: string };
+
+export async function nestFacebookPageStatus(
+  token: string,
+): Promise<FacebookPageStatus | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook/page-status`, {
+      headers: nestAuthHeaders(token),
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as FacebookPageStatus;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestFacebookPageConnectUrl(token: string): Promise<string | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook/connect`, {
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { url?: string };
+    return typeof data.url === 'string' ? data.url : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestFacebookPageListPages(
+  token: string,
+): Promise<FacebookPageOption[] | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook/pages`, {
+      headers: nestAuthHeaders(token),
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return Array.isArray(data) ? (data as FacebookPageOption[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestFacebookPageSelectPage(
+  token: string,
+  pageId: string,
+): Promise<{ ok: true; message?: string } | { ok: false; error?: string }> {
+  if (!API_BASE_URL) return { ok: false, error: 'API chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook/select-page`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ pageId }),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return {
+      ok: true,
+      message: typeof data.message === 'string' ? data.message : undefined,
+    };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestFacebookPageDisconnect(
+  token: string,
+): Promise<{ ok: true } | { ok: false; error?: string }> {
+  if (!API_BASE_URL) return { ok: false, error: 'API chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook/disconnect`, {
+      method: 'POST',
+      headers: nestAuthHeaders(token),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestFacebookPageSetSyncEnabled(
+  token: string,
+  syncEnabled: boolean,
+): Promise<{ ok: true } | { ok: false; error?: string }> {
+  if (!API_BASE_URL) return { ok: false, error: 'API chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook/sync-enabled`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ syncEnabled }),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestFacebookPageSyncNow(
+  token: string,
+): Promise<{ ok: true; imported?: number } | { ok: false; error?: string }> {
+  if (!API_BASE_URL) return { ok: false, error: 'API chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook/sync-now`, {
+      method: 'POST',
+      headers: nestAuthHeaders(token),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return {
+      ok: true,
+      imported: typeof data.imported === 'number' ? data.imported : undefined,
+    };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export type AdminFacebookConnectionRow = {
+  userId: string;
+  userName: string | null;
+  email: string;
+  role: string;
+  pageId: string | null;
+  pageName: string | null;
+  syncEnabled: boolean;
+  lastSyncAt: string | null;
+  importedCount: number;
+  lastSyncError: string | null;
+  connected: boolean;
+};
+
+export async function nestAdminSocialFacebookConnections(
+  token: string,
+): Promise<AdminFacebookConnectionRow[] | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/social-facebook-connections`, {
+    headers: nestAuthHeaders(token),
+    cache: 'no-store',
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return Array.isArray(data) ? (data as AdminFacebookConnectionRow[]) : null;
+}
+

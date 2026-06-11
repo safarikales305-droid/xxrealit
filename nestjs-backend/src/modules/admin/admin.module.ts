@@ -9,11 +9,13 @@ import { PropertiesModule } from '../properties/properties.module';
 import { TiparModule } from '../tipar/tipar.module';
 import { ShareModule } from '../share/share.module';
 import { ProfessionalVerificationModule } from '../professional-verification/professional-verification.module';
+import { SocialModule } from '../social/social.module';
 @Module({
   imports: [
     AuthModule,
     AgentProfileModule,
     ProfessionalVerificationModule,
+    SocialModule,
     ImportsModule,
     PropertiesModule,
     TiparModule,

@@ -33,6 +33,7 @@ import {
   isProfessionalVerificationRole,
   professionalVerificationStatusLabel,
 } from '@/lib/professional-verification-eligibility';
+import { FacebookPageConnectionCard } from '@/components/profile/FacebookPageConnectionCard';
 
 type Tab = 'settings' | 'listings' | 'ads' | 'messages' | 'notifications';
 
@@ -233,6 +234,8 @@ export default function ProfileDashboardPage() {
               >
                 Uložit bio
               </button>
+
+              {isProfessional ? <FacebookPageConnectionCard token={apiAccessToken} /> : null}
 
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="inline-flex items-center gap-2 text-sm text-zinc-800">

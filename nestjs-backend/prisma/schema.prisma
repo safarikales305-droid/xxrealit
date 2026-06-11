@@ -236,7 +236,10 @@ model User {
   creditLedgerEntries CreditLedger[]
   creditTopUpTransactions CreditTopUpTransaction[]
   bonusClaims         BonusClaim[]
-  facebookConnection FacebookConnection?
+  facebookConnection           FacebookConnection?
+  socialConnections            SocialConnection[]
+  socialImportedPosts          SocialImportedPost[]
+  socialFacebookOAuthSessions  SocialFacebookOAuthSession[]
 
   @@index([professionalVerificationStatus, professionalVerificationRequestedAt])
 }
@@ -1179,6 +1182,70 @@ model ContactMonetizationSetting {
   ownerListingContactPrice Int      @default(50)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
+}
+
+enum SocialProvider {
+  FACEBOOK
+}
+
+/// Propojení Facebook stránky pro automatický import příspěvků.
+model SocialConnection {
+  id                   String         @id @default(cuid())
+  userId               String
+  provider             SocialProvider @default(FACEBOOK)
+  facebookUserId       String?
+  pageId               String?
+  pageName             String?
+  pageAccessToken      String?        @db.Text
+  tokenExpiresAt       DateTime?
+  syncEnabled          Boolean        @default(true)
+  lastSyncAt           DateTime?
+  lastSyncError        String?        @db.Text
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  importedPosts  SocialImportedPost[]
+
+  @@unique([userId, provider])
+  @@index([provider, syncEnabled])
+  @@index([pageId])
+}
+
+/// Dočasná OAuth session mezi callbackem a výběrem stránky.
+model SocialFacebookOAuthSession {
+  id                      String   @id
+  userId                  String
+  userAccessToken         String   @db.Text
+  expiresAt               DateTime
+  createdAt               DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Importovaný příspěvek z Facebook stránky (deduplikace).
+model SocialImportedPost {
+  id              String         @id @default(cuid())
+  userId          String
+  connectionId    String
+  provider        SocialProvider @default(FACEBOOK)
+  providerPostId  String
+  sourceUrl       String?
+  message         String?        @db.Text
+  imageUrl        String?
+  videoUrl        String?
+  importedPostId  String?
+  createdAt       DateTime       @default(now())
+
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connection SocialConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerPostId])
+  @@index([connectionId, createdAt])
+  @@index([userId])
 }
 
 /// Propojení uživatelského účtu s Facebookem (Graph API — nahrání videa).
