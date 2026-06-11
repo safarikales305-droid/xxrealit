@@ -6551,18 +6551,38 @@ export async function nestFacebookPageStatus(
   }
 }
 
-export async function nestFacebookPageConnectUrl(token: string): Promise<string | null> {
-  if (!API_BASE_URL) return null;
+export async function nestFacebookPageConnectUrl(
+  token: string,
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  if (!API_BASE_URL) {
+    return { ok: false, error: 'Facebook propojení zatím není nastavené.' };
+  }
   try {
     const res = await fetch(`${API_BASE_URL}/social/facebook/connect`, {
       headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
       cache: 'no-store',
     });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { url?: string };
-    return typeof data.url === 'string' ? data.url : null;
-  } catch {
-    return null;
+    const data = (await res.json().catch(() => ({}))) as {
+      url?: string;
+      message?: string | string[];
+    };
+    if (!res.ok) {
+      const msg = Array.isArray(data.message)
+        ? data.message.join(' ')
+        : typeof data.message === 'string'
+          ? data.message
+          : 'Nepodařilo se spustit přihlášení přes Facebook.';
+      console.error('[nestFacebookPageConnectUrl]', res.status, data);
+      return { ok: false, error: msg };
+    }
+    const url = typeof data.url === 'string' ? data.url.trim() : '';
+    if (!url) {
+      return { ok: false, error: 'Nepodařilo se získat OAuth URL.' };
+    }
+    return { ok: true, url };
+  } catch (err) {
+    console.error('[nestFacebookPageConnectUrl]', err);
+    return { ok: false, error: 'Síťová chyba při propojení Facebooku.' };
   }
 }
 

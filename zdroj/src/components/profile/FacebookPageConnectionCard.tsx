@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  nestFacebookPageConnectUrl,
   nestFacebookPageDisconnect,
   nestFacebookPageListPages,
   nestFacebookPageSelectPage,
@@ -13,6 +12,9 @@ import {
   type FacebookPageOption,
   type FacebookPageStatus,
 } from '@/lib/nest-client';
+
+const FACEBOOK_CONNECT_PATH = '/api/social/facebook/connect';
+const NOT_CONFIGURED_MSG = 'Facebook propojení zatím není nastavené.';
 
 type Props = {
   token: string | null;
@@ -65,23 +67,36 @@ export function FacebookPageConnectionCard({ token }: Props) {
   }, [params, token, status?.pendingPageSelection, loadPagePicker]);
 
   useEffect(() => {
-    if (params.get('facebook') === 'error') {
-      setError('Propojení Facebooku se nezdařilo. Zkuste to znovu.');
+    if (params.get('facebook') !== 'error') return;
+    const reason = params.get('reason');
+    if (reason === 'not_configured') {
+      setError(NOT_CONFIGURED_MSG);
+      return;
     }
+    setError('Propojení Facebooku se nezdařilo. Zkuste to znovu.');
   }, [params]);
 
-  async function handleConnect() {
-    if (!token) return;
+  function handleConnect() {
+    if (!token) {
+      setError('Pro propojení se přihlaste.');
+      return;
+    }
+    if (status && !status.configured) {
+      setError(NOT_CONFIGURED_MSG);
+      return;
+    }
+
     setBusy(true);
     setError(null);
     setOk(null);
-    const url = await nestFacebookPageConnectUrl(token);
-    setBusy(false);
-    if (!url) {
+
+    try {
+      window.location.assign(FACEBOOK_CONNECT_PATH);
+    } catch (err) {
+      console.error('[FacebookPageConnectionCard] connect redirect failed', err);
+      setBusy(false);
       setError('Nepodařilo se spustit přihlášení přes Facebook.');
-      return;
     }
-    window.location.href = url;
   }
 
   async function handleSelectPage(pageId: string) {
@@ -130,7 +145,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
   if (!token) return null;
 
   return (
-    <div className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
+    <div className="relative z-0 space-y-3 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
       <div>
         <p className="text-sm font-semibold text-zinc-900">Facebook propojení</p>
         <p className="mt-1 text-sm text-zinc-600">
@@ -140,6 +155,9 @@ export function FacebookPageConnectionCard({ token }: Props) {
       </div>
 
       {loading ? <p className="text-sm text-zinc-500">Načítám stav propojení…</p> : null}
+      {!loading && status && !status.configured ? (
+        <p className="text-sm text-amber-800">{NOT_CONFIGURED_MSG}</p>
+      ) : null}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
       {ok ? <p className="text-sm text-emerald-700">{ok}</p> : null}
       {status?.tokenNeedsReauth ? (
@@ -149,11 +167,11 @@ export function FacebookPageConnectionCard({ token }: Props) {
       {!loading && !status?.connected && !selectingPage ? (
         <button
           type="button"
-          disabled={busy || !status?.configured}
-          className="rounded-full bg-[#1877F2] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-          onClick={() => void handleConnect()}
+          disabled={busy}
+          className="relative z-10 rounded-full bg-[#1877F2] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#166fe0] disabled:cursor-wait disabled:opacity-70"
+          onClick={handleConnect}
         >
-          {busy ? 'Přesměrovávám…' : 'Propojit Facebook stránku'}
+          {busy ? 'Přesměrovávám na Facebook…' : 'Propojit Facebook stránku'}
         </button>
       ) : null}
 

@@ -51,7 +51,17 @@ export class FacebookPageService {
   }
 
   isConfigured(): boolean {
-    return Boolean(this.appId() && this.appSecret());
+    if (!this.appId() || !this.appSecret()) return false;
+    try {
+      this.oauthRedirectUri();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private configurationErrorMessage(): string {
+    return 'Facebook propojení zatím není nastavené.';
   }
 
   private frontendUrl(): string {
@@ -59,6 +69,10 @@ export class FacebookPageService {
       this.config.get<string>('FRONTEND_URL')?.trim().replace(/\/+$/, '') ||
       'http://localhost:3000'
     );
+  }
+
+  getFrontendSettingsUrl(): string {
+    return `${this.frontendUrl()}/profil/dashboard?tab=settings`;
   }
 
   private oauthRedirectUri(): string {
@@ -86,9 +100,7 @@ export class FacebookPageService {
 
   async buildConnectUrl(userId: string, role: UserRole): Promise<string> {
     if (!this.isConfigured()) {
-      throw new ServiceUnavailableException(
-        'Facebook propojení není na serveru nakonfigurováno (FACEBOOK_APP_ID / FACEBOOK_APP_SECRET).',
-      );
+      throw new ServiceUnavailableException(this.configurationErrorMessage());
     }
     this.assertProfessional(userId, role);
 

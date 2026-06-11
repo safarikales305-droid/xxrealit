@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpException,
   Post,
   Query,
   Req,
@@ -35,11 +36,25 @@ export class FacebookPageController {
     @Req() req: Request,
     @Res() res: Response,
   ) {
-    const url = await this.facebookPage.buildConnectUrl(user.id, user.role as UserRole);
-    if (req.headers.accept?.includes('application/json')) {
-      return res.json({ url });
+    const wantsJson = req.headers.accept?.includes('application/json');
+    try {
+      const url = await this.facebookPage.buildConnectUrl(user.id, user.role as UserRole);
+      if (wantsJson) {
+        return res.json({ url });
+      }
+      return res.redirect(url);
+    } catch (err) {
+      const message =
+        err instanceof HttpException
+          ? String(err.message)
+          : 'Facebook propojení zatím není nastavené.';
+      const status = err instanceof HttpException ? err.getStatus() : 503;
+      if (wantsJson) {
+        return res.status(status).json({ message, error: message });
+      }
+      const settingsUrl = `${this.facebookPage.getFrontendSettingsUrl()}&facebook=error&reason=connect_failed`;
+      return res.redirect(settingsUrl);
     }
-    return res.redirect(url);
   }
 
   @Get('callback')
