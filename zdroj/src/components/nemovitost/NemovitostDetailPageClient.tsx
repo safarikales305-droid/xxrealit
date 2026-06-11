@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { NemovitostDetailView } from '@/components/nemovitost/NemovitostDetailView';
 import { PropertyDetailFetchError } from '@/app/nemovitost/[id]/fetch-error';
 import { useAuth } from '@/hooks/use-auth';
+import { useGuestRegistrationGate } from '@/hooks/use-guest-registration-gate';
 import { nestFetchPropertyDetail } from '@/lib/nest-client';
 import {
   normalizePropertyDetailPayload,
@@ -39,6 +40,7 @@ type ReadyState = {
 export function NemovitostDetailPageClient({ propertyId }: { propertyId: string }) {
   const searchParams = useSearchParams();
   const { apiAccessToken } = useAuth();
+  const { reportGuestListingViewed } = useGuestRegistrationGate();
   const tokenRef = useRef(apiAccessToken);
   tokenRef.current = apiAccessToken;
 
@@ -122,6 +124,11 @@ export function NemovitostDetailPageClient({ propertyId }: { propertyId: string 
       cancelled = true;
     };
   }, [loadState, propertyId]);
+
+  useEffect(() => {
+    if (loadState !== 'ready') return;
+    reportGuestListingViewed(propertyId);
+  }, [loadState, propertyId, reportGuestListingViewed]);
 
   if (loadState === 'loading') {
     return (

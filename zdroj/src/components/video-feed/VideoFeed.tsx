@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   CyclicFeedViewport,
   type CyclicFeedNav,
@@ -8,18 +8,9 @@ import {
 import {
   ShortsFeedNavProvider,
 } from '@/components/shorts/shorts-feed-nav-context';
-import { useAuth } from '@/hooks/use-auth';
-import {
-  incrementGuestShortsView,
-  resetGuestShortsViews,
-} from '@/lib/guest-shorts-views';
+import { useGuestRegistrationGate } from '@/hooks/use-guest-registration-gate';
 import type { ShortVideo } from '@/lib/nest-client';
-import {
-  fetchRegistrationGateSettings,
-  type PublicRegistrationGateSettings,
-} from '@/lib/registration-gate';
 import { isShortVideoPlayable, shortVideoPlayableSrc } from '@/lib/feed/loop-feed';
-import { GuestShortsRegistrationGateModal } from '@/components/registration/GuestShortsRegistrationGateModal';
 import VideoCard from './VideoCard';
 
 type VideoFeedProps = {
@@ -35,9 +26,7 @@ const noopNav: CyclicFeedNav = {
 };
 
 export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
-  const { isAuthenticated, isLoading } = useAuth();
-  const [gateSettings, setGateSettings] = useState<PublicRegistrationGateSettings | null>(null);
-  const [gateOpen, setGateOpen] = useState(false);
+  const { reportGuestListingViewed } = useGuestRegistrationGate();
   const [nav, setNav] = useState<CyclicFeedNav>(noopNav);
 
   const feedVideos = useMemo(
@@ -49,29 +38,11 @@ export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
     setNav(api);
   }, []);
 
-  useEffect(() => {
-    if (isLoading || isAuthenticated) {
-      setGateSettings(null);
-      setGateOpen(false);
-      return;
-    }
-    void fetchRegistrationGateSettings().then((s) => setGateSettings(s));
-  }, [isAuthenticated, isLoading]);
-
   const onGuestVideoViewed = useCallback(
-    (_videoId: string) => {
-      if (isLoading || isAuthenticated || !gateSettings?.shortsGateEnabled) return;
-      if (gateOpen) return;
-
-      const gateEvery = gateSettings.shortsGateAfterViews || 4;
-      const views = incrementGuestShortsView();
-
-      if (views >= gateEvery) {
-        resetGuestShortsViews();
-        setGateOpen(true);
-      }
+    (videoId: string) => {
+      reportGuestListingViewed(videoId);
     },
-    [gateOpen, gateSettings, isAuthenticated, isLoading],
+    [reportGuestListingViewed],
   );
 
   if (feedVideos.length === 0) {
@@ -111,9 +82,6 @@ export function VideoFeed({ videos, onMobileFiltersOpen }: VideoFeedProps) {
             </div>
           )}
         </CyclicFeedViewport>
-        {gateOpen && gateSettings ? (
-          <GuestShortsRegistrationGateModal settings={gateSettings} />
-        ) : null}
       </div>
     </ShortsFeedNavProvider>
   );

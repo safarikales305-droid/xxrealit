@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useState } from 'react';
-import { CyclicFeedViewport } from '@/components/feed/CyclicFeedViewport';
+import { useCallback, useRef, useState } from 'react';
+import { CyclicFeedViewport, type CyclicFeedNav } from '@/components/feed/CyclicFeedViewport';
 import { TipCardBadge } from '@/components/listing/TipBadges';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
+import { useGuestRegistrationGate } from '@/hooks/use-guest-registration-gate';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { isTipListing } from '@/lib/is-tip-listing';
@@ -71,16 +72,30 @@ function ClassicMobileCard({
 }
 
 export function MobileClassicSwipeFeed({ items }: Props) {
+  const { reportGuestListingViewed } = useGuestRegistrationGate();
   const [brokenCoverIds, setBrokenCoverIds] = useState<Record<string, boolean>>({});
+  const lastReportedIdRef = useRef<string | null>(null);
+
   const markCoverBroken = useCallback((id: string) => {
     setBrokenCoverIds((m) => ({ ...m, [id]: true }));
   }, []);
+
+  const handleNavigation = useCallback(
+    (nav: CyclicFeedNav) => {
+      const item = items[nav.currentIndex];
+      if (!item || item.id === lastReportedIdRef.current) return;
+      lastReportedIdRef.current = item.id;
+      reportGuestListingViewed(item.id);
+    },
+    [items, reportGuestListingViewed],
+  );
 
   return (
     <CyclicFeedViewport
       items={items}
       getId={(p) => p.id}
       debugLabel="CLASSIC"
+      onNavigation={handleNavigation}
       className="flex min-h-[calc(100dvh-7.5rem)] w-full flex-1 touch-pan-y flex-col px-2 pb-4 pt-1"
       viewportClassName="min-h-[calc(100dvh-8rem)] flex-1"
       emptyState={
@@ -92,18 +107,13 @@ export function MobileClassicSwipeFeed({ items }: Props) {
         </div>
       }
     >
-      {(item, { index }) => (
+      {(item) => (
         <div className="flex h-full flex-col px-0.5 pb-1">
           <ClassicMobileCard
             item={item}
             coverBroken={Boolean(brokenCoverIds[item.id])}
             onCoverBroken={markCoverBroken}
           />
-          {items.length > 1 ? (
-            <p className="pt-2 text-center text-[11px] font-medium text-zinc-400">
-              {index + 1} / {items.length} · swipe nahoru = další, dolů = předchozí
-            </p>
-          ) : null}
         </div>
       )}
     </CyclicFeedViewport>
