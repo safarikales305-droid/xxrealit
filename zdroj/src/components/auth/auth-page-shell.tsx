@@ -1,9 +1,15 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { Play } from 'lucide-react';
 import Logo from '@/components/Logo';
+import { nestAbsoluteAssetUrl } from '@/lib/api';
+import {
+  AUTH_DECOR_MASKED_PRICE,
+  loadAuthDecorCards,
+  type AuthDecorCard,
+} from '@/lib/auth-decor-listings';
 
 export type AuthShellVariant = 'login' | 'register';
 
@@ -14,113 +20,18 @@ const SUBTITLES: Record<AuthShellVariant, string> = {
     'Vytvořte si účet a objevujte nabídky, videoprohlídky i nové příležitosti na jednom místě.',
 };
 
-type DecorCard = {
-  key: string;
-  title: string;
-  location: string;
-  price: string;
-  type: string;
-  kind: 'listing' | 'short';
-  positionClass: string;
-};
+function DecorCardVisual({
+  card,
+  coverBroken,
+  onCoverBroken,
+}: {
+  card: AuthDecorCard;
+  coverBroken: boolean;
+  onCoverBroken: () => void;
+}) {
+  const coverSrc =
+    !coverBroken && card.coverPath ? nestAbsoluteAssetUrl(card.coverPath).trim() : '';
 
-const DECOR_DESKTOP: DecorCard[] = [
-  {
-    key: 'd1',
-    title: 'Světlý byt 3+kk',
-    location: 'Praha — Vinohrady',
-    price: '8 490 000 Kč',
-    type: 'Byt',
-    kind: 'listing',
-    positionClass: 'left-[3%] top-[12%] hidden lg:block',
-  },
-  {
-    key: 'd2',
-    title: 'Rodinný dům s terasou',
-    location: 'Brno — Líšeň',
-    price: '12 900 000 Kč',
-    type: 'Dům',
-    kind: 'listing',
-    positionClass: 'right-[2%] top-[10%] hidden xl:block',
-  },
-  {
-    key: 'd3',
-    title: 'Videoprohlídka',
-    location: 'Ostrava',
-    price: 'Shorts',
-    type: 'Video',
-    kind: 'short',
-    positionClass: 'right-[4%] top-[36%] hidden lg:block',
-  },
-  {
-    key: 'd4',
-    title: 'Investiční apartmán',
-    location: 'Praha — Smíchov',
-    price: '6 200 000 Kč',
-    type: 'Byt',
-    kind: 'listing',
-    positionClass: 'left-[4%] bottom-[16%] hidden xl:block',
-  },
-  {
-    key: 'd5',
-    title: 'Stavební pozemek',
-    location: 'České Budějovice',
-    price: '3 150 000 Kč',
-    type: 'Pozemek',
-    kind: 'listing',
-    positionClass: 'left-[6%] top-[40%] hidden lg:block',
-  },
-  {
-    key: 'd6',
-    title: 'Luxusní vila',
-    location: 'Karlovy Vary',
-    price: '24 500 000 Kč',
-    type: 'Dům',
-    kind: 'listing',
-    positionClass: 'right-[3%] bottom-[12%] hidden lg:block',
-  },
-  {
-    key: 'd7',
-    title: 'Novostavba 4+kk',
-    location: 'Plzeň',
-    price: '9 780 000 Kč',
-    type: 'Byt',
-    kind: 'listing',
-    positionClass: 'left-[1%] bottom-[6%] hidden 2xl:block',
-  },
-  {
-    key: 'd8',
-    title: 'Loft k pronájmu',
-    location: 'Praha — Holešovice',
-    price: '28 500 Kč / měs.',
-    type: 'Pronájem',
-    kind: 'short',
-    positionClass: 'right-[8%] bottom-[30%] hidden 2xl:block',
-  },
-];
-
-const DECOR_MOBILE: DecorCard[] = [
-  {
-    key: 'm1',
-    title: 'Byt 2+kk',
-    location: 'Praha',
-    price: '5 900 000 Kč',
-    type: 'Byt',
-    kind: 'listing',
-    positionClass: 'left-[2%] top-[20%] scale-[0.88] opacity-40 lg:hidden',
-  },
-  {
-    key: 'm2',
-    title: 'Video',
-    location: 'Brno',
-    price: 'Shorts',
-    type: 'Video',
-    kind: 'short',
-    positionClass: 'right-[2%] top-[24%] scale-90 opacity-35 lg:hidden',
-  },
-];
-
-function DecorCardVisual({ card }: { card: DecorCard }) {
   if (card.kind === 'short') {
     return (
       <div
@@ -128,13 +39,22 @@ function DecorCardVisual({ card }: { card: DecorCard }) {
         aria-hidden
       >
         <div className="relative mx-auto aspect-[9/16] w-[4.5rem] sm:w-[5.5rem] md:w-[6.25rem]">
-          <div className="absolute inset-0 bg-gradient-to-br from-orange-500/25 via-transparent to-violet-900/30" />
-          <div className="absolute inset-0 flex items-center justify-center">
+          {coverSrc ? (
+            <img
+              src={coverSrc}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover"
+              onError={onCoverBroken}
+            />
+          ) : (
+            <div className="absolute inset-0 bg-gradient-to-br from-orange-500/25 via-transparent to-violet-900/30" />
+          )}
+          <div className="absolute inset-0 flex items-center justify-center bg-black/25">
             <Play className="size-7 text-white/90 drop-shadow-md md:size-8" strokeWidth={1.25} />
           </div>
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-1.5 pb-2 pt-6">
             <p className="truncate text-[10px] font-semibold text-white">{card.title}</p>
-            <p className="text-[9px] text-white/65">{card.location}</p>
+            <p className="truncate text-[9px] text-white/65">{card.location}</p>
           </div>
         </div>
       </div>
@@ -147,16 +67,30 @@ function DecorCardVisual({ card }: { card: DecorCard }) {
       aria-hidden
     >
       <div className="relative aspect-[4/3] w-full overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-amber-100/35 via-orange-400/25 to-slate-900/90" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_30%_20%,rgba(255,255,255,0.22),transparent_55%)]" />
+        {coverSrc ? (
+          <img
+            src={coverSrc}
+            alt=""
+            className="h-full w-full object-cover"
+            onError={onCoverBroken}
+          />
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-br from-amber-100/35 via-orange-400/25 to-slate-900/90" />
+        )}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_30%_20%,rgba(255,255,255,0.12),transparent_55%)]" />
         <span className="absolute left-2 top-2 rounded-full bg-black/35 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white/90 backdrop-blur-sm">
-          {card.type}
+          {card.propertyType}
         </span>
       </div>
       <div className="space-y-0.5 px-3 py-2.5">
         <p className="truncate text-xs font-semibold text-white">{card.title}</p>
         <p className="truncate text-[11px] text-white/65">{card.location}</p>
-        <p className="text-xs font-bold text-orange-300">{card.price}</p>
+        <p
+          className="select-none text-xs font-bold text-orange-300/80 blur-[5px]"
+          aria-hidden
+        >
+          {AUTH_DECOR_MASKED_PRICE}
+        </p>
       </div>
     </div>
   );
@@ -168,9 +102,22 @@ type AuthPageShellProps = {
 };
 
 /**
- * Sdílený marketingový layout pro přihlášení a registraci — logo xxrealit, nadpis, plovoucí demo karty.
+ * Sdílený layout pro přihlášení a registraci — logo, formulář a dekorativní karty z API.
  */
 export function AuthPageShell({ variant, children }: AuthPageShellProps) {
+  const [decorCards, setDecorCards] = useState<AuthDecorCard[]>([]);
+  const [brokenCoverIds, setBrokenCoverIds] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadAuthDecorCards().then((cards) => {
+      if (!cancelled) setDecorCards(cards);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="relative min-h-[100dvh] overflow-x-hidden bg-slate-950 text-zinc-900">
       <div
@@ -178,24 +125,26 @@ export function AuthPageShell({ variant, children }: AuthPageShellProps) {
         aria-hidden
       />
       <div
-        className="pointer-events-none absolute inset-0 bg-gradient-to-b from-slate-950/30 via-transparent to-slate-950"
+        className="pointer-events-none absolute inset-0 bg-gradient-to-b from-slate-950/40 via-slate-950/20 to-slate-950"
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_65%_55%_at_50%_48%,rgba(15,23,42,0.82),transparent_72%)]"
         aria-hidden
       />
 
-      {DECOR_MOBILE.map((card) => (
+      {decorCards.map((card) => (
         <div
           key={card.key}
           className={`pointer-events-none absolute z-[1] ${card.positionClass}`}
         >
-          <DecorCardVisual card={card} />
-        </div>
-      ))}
-      {DECOR_DESKTOP.map((card) => (
-        <div
-          key={card.key}
-          className={`pointer-events-none absolute z-[1] ${card.positionClass}`}
-        >
-          <DecorCardVisual card={card} />
+          <DecorCardVisual
+            card={card}
+            coverBroken={Boolean(brokenCoverIds[card.key])}
+            onCoverBroken={() =>
+              setBrokenCoverIds((prev) => ({ ...prev, [card.key]: true }))
+            }
+          />
         </div>
       ))}
 
