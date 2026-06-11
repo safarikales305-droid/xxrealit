@@ -23,6 +23,7 @@ import {
 import { CreateCommunityPostCard } from '@/components/community/CreateCommunityPostCard';
 import { CommunityPostCard } from '@/components/community/CommunityPostCard';
 import { MobileClassicSwipeFeed } from '@/components/home/MobileClassicSwipeFeed';
+import { MobileFiltersSheet } from '@/components/home/MobileFiltersSheet';
 import { PropertyGrid } from '@/components/property-grid';
 import { classicListingsOnly, tipListingsOnly } from '@/lib/property-feed-filters';
 import { parseApiListingPrice, type PropertyFeedItem } from '@/types/property';
@@ -854,42 +855,10 @@ export function HomeLayout({
         activePostsCategoryLabel={viewMode === 'posts' ? activeCategoryLabel : undefined}
       />
 
-      {mobileFiltersOpen ? (
-        <div
-          className="fixed inset-0 z-[60] flex md:hidden"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Filtry"
-        >
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/45 backdrop-blur-[2px]"
-            aria-label="Zavřít filtry"
-            onClick={() => setMobileFiltersOpen(false)}
-          />
-          <div className="relative ml-auto flex h-full w-[min(100%,20rem)] flex-col overflow-y-auto overscroll-contain bg-white shadow-2xl">
-            <div className="flex shrink-0 items-center justify-between border-b border-zinc-200 px-4 py-3">
-              <span className="text-[15px] font-semibold text-zinc-900">
-                Filtry
-              </span>
-              <button
-                type="button"
-                className="flex size-10 items-center justify-center rounded-xl text-lg text-zinc-600 transition hover:bg-zinc-100"
-                aria-label="Zavřít"
-                onClick={() => setMobileFiltersOpen(false)}
-              >
-                ✕
-              </button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              <SidebarFilters
-                className="rounded-xl border-0 shadow-none"
-                onFiltersApplied={() => setMobileFiltersOpen(false)}
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <MobileFiltersSheet
+        open={mobileFiltersOpen}
+        onClose={() => setMobileFiltersOpen(false)}
+      />
 
       <div
         className={

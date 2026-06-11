@@ -2,9 +2,14 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type MouseEvent, useEffect, useState } from 'react';
+import { type MouseEvent, useEffect, useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import Logo from '@/components/Logo';
+import {
+  AppMobileMenuPanel,
+  menuIcons,
+  type AppMobileMenuItem,
+} from '@/components/ui/AppMobileMenuPanel';
 import { useAuth } from '@/hooks/use-auth';
 import { useMessagesUnreadCount } from '@/hooks/use-messages-unread';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
@@ -21,8 +26,8 @@ type NavbarProps = {
   activePostsCategoryLabel?: string;
 };
 
-const navBtn =
-  'w-full rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-zinc-800 transition hover:bg-zinc-100 md:w-auto md:px-2 md:py-1.5 md:text-center';
+const mobileMenuBtn =
+  'flex size-9 shrink-0 items-center justify-center rounded-xl border border-zinc-200/90 bg-zinc-50 text-zinc-800 shadow-sm transition active:scale-95 hover:bg-white md:hidden';
 
 export function Navbar({
   searchQuery,
@@ -72,6 +77,71 @@ export function Navbar({
 
   const isShortsMobileCompact = viewMode === 'shorts';
 
+  const mobileMenuItems = useMemo(() => {
+    if (isLoading) return [];
+    if (isAuthenticated && user) {
+      const items: AppMobileMenuItem[] = [
+        {
+          key: 'profile',
+          label: 'Můj profil',
+          href: profilePath,
+          icon: menuIcons.profile,
+        },
+        {
+          key: 'messages',
+          label: 'Zprávy',
+          href: messagesPath,
+          icon: menuIcons.messages,
+          badge: unreadMessages,
+        },
+      ];
+      if (isAdmin) {
+        items.push({
+          key: 'admin',
+          label: 'Administrace',
+          href: '/admin',
+          icon: menuIcons.admin,
+        });
+      }
+      items.push({
+        key: 'add',
+        label: 'Přidat inzerát',
+        icon: menuIcons.add,
+        onClick: () => handleAddListingClick(),
+      });
+      items.push({
+        key: 'logout',
+        label: 'Odhlásit',
+        icon: menuIcons.logout,
+        variant: 'danger' as const,
+        onClick: () => handleLogout(),
+      });
+      return items;
+    }
+    return [
+      {
+        key: 'login',
+        label: 'Přihlásit',
+        href: '/login',
+        icon: menuIcons.login,
+      },
+      {
+        key: 'register',
+        label: 'Registrace',
+        href: '/registrace',
+        icon: menuIcons.register,
+      },
+    ] satisfies AppMobileMenuItem[];
+  }, [
+    isLoading,
+    isAuthenticated,
+    user,
+    profilePath,
+    messagesPath,
+    unreadMessages,
+    isAdmin,
+  ]);
+
   return (
     <header className="sticky top-0 z-50 w-full max-w-[100vw] shrink-0 border-b border-zinc-200 bg-white pt-[max(0.25rem,env(safe-area-inset-top))] shadow-[0_1px_0_rgba(0,0,0,0.04)]">
       {isShortsMobileCompact && viewMode != null && onViewModeChange != null ? (
@@ -118,7 +188,7 @@ export function Navbar({
             </div>
             <button
               type="button"
-              className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-800"
+              className={mobileMenuBtn}
               aria-expanded={menuOpen}
               aria-label={menuOpen ? 'Zavřít menu' : 'Otevřít menu'}
               onClick={() => setMenuOpen((o) => !o)}
@@ -201,9 +271,7 @@ export function Navbar({
         <div className="flex shrink-0 flex-nowrap items-center gap-2 md:flex-wrap md:gap-3">
           <button
             type="button"
-            className={`flex size-10 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-800 md:hidden ${
-              isShortsMobileCompact ? 'max-md:hidden' : ''
-            }`}
+            className={`${mobileMenuBtn} size-10 ${isShortsMobileCompact ? 'max-md:hidden' : ''}`}
             aria-expanded={menuOpen}
             aria-label={menuOpen ? 'Zavřít menu' : 'Otevřít menu'}
             onClick={() => setMenuOpen((o) => !o)}
@@ -400,65 +468,13 @@ export function Navbar({
         </div>
       </div>
 
-      {menuOpen ? (
-        <>
-          <button
-            type="button"
-            className="fixed inset-0 z-[90] bg-black/40 md:hidden"
-            aria-label="Zavřít menu"
-            onClick={() => setMenuOpen(false)}
-          />
-          <div className="fixed inset-x-0 top-[3.5rem] z-[95] max-h-[min(70vh,calc(100dvh-5rem))] overflow-y-auto border-b border-zinc-200 bg-white px-4 py-4 shadow-lg md:hidden">
-            {isLoading ? (
-              <p className="text-sm text-zinc-500">Načítání…</p>
-            ) : isAuthenticated && user ? (
-              <div className="flex flex-col gap-2">
-                <p className="truncate text-xs font-medium text-zinc-500">
-                  {user.name?.trim() || 'Uživatel'}
-                </p>
-                <Link href={profilePath} className={navBtn} onClick={() => setMenuOpen(false)}>
-                  Můj profil
-                </Link>
-                <Link href={messagesPath} className={navBtn} onClick={() => setMenuOpen(false)}>
-                  Zprávy
-                  {unreadMessages > 0 ? (
-                    <span className="ml-2 rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-bold text-white">
-                      {unreadMessages > 99 ? '99+' : unreadMessages}
-                    </span>
-                  ) : null}
-                </Link>
-                {isAdmin ? (
-                  <Link href="/admin" className={navBtn} onClick={() => setMenuOpen(false)}>
-                    ➡️ Administrace
-                  </Link>
-                ) : null}
-                <button
-                  type="button"
-                  className={navBtn}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    handleAddListingClick();
-                  }}
-                >
-                  Přidat inzerát
-                </button>
-                <button type="button" onClick={handleLogout} className={navBtn}>
-                  Odhlásit
-                </button>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                <Link href="/login" className={navBtn} onClick={() => setMenuOpen(false)}>
-                  Přihlásit
-                </Link>
-                <Link href="/registrace" className={navBtn} onClick={() => setMenuOpen(false)}>
-                  Registrace
-                </Link>
-              </div>
-            )}
-          </div>
-        </>
-      ) : null}
+      <AppMobileMenuPanel
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        userName={isAuthenticated && user ? user.name?.trim() || 'Uživatel' : null}
+        isLoading={isLoading}
+        items={mobileMenuItems}
+      />
     </header>
   );
 }
