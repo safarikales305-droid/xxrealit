@@ -60,7 +60,9 @@ export class WhatsAppWebhookService {
     verifyToken: string | undefined,
     challenge: string | undefined,
   ): { ok: true; challenge: string } | { ok: false } {
-    const expected = this.config.getWebhookVerifyToken();
+    const expected =
+      process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN?.trim() ||
+      this.config.getWebhookVerifyToken();
 
     if (!expected) {
       this.logger.error(

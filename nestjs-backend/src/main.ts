@@ -186,6 +186,9 @@ async function bootstrap() {
   await app.listen(port, '0.0.0.0');
 
   console.log(`🚀 Backend running on ${port}`);
+  console.log('[routes] GET  /api/health');
+  console.log('[routes] GET  /api/whatsapp/webhook (Meta verify)');
+  console.log('[routes] POST /api/whatsapp/webhook');
 }
 
 bootstrap();
