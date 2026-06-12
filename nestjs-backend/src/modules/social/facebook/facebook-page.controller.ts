@@ -23,6 +23,11 @@ import { FacebookPageService } from './facebook-page.service';
 export class FacebookPageController {
   constructor(private readonly facebookPage: FacebookPageService) {}
 
+  @Get('config-status')
+  configStatus() {
+    return this.facebookPage.getConfigStatus();
+  }
+
   @Get('page-status')
   @UseGuards(JwtAuthGuard)
   pageStatus(@CurrentUser() user: AuthUser) {
@@ -47,7 +52,7 @@ export class FacebookPageController {
       const message =
         err instanceof HttpException
           ? String(err.message)
-          : 'Facebook propojení zatím není nastavené.';
+          : 'Facebook propojení není nakonfigurováno administrátorem.';
       const status = err instanceof HttpException ? err.getStatus() : 503;
       if (wantsJson) {
         return res.status(status).json({ message, error: message });

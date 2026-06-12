@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { FollowButton } from '@/components/profile/follow-button';
+import { WhatsAppContactButton } from '@/components/whatsapp/WhatsAppContactButton';
 import { UserPropertiesList } from '@/components/profile/user-properties-list';
 import { ROLE_LABELS, isUserRole } from '@/lib/roles';
 import { getServerSideApiBaseUrl, nestAbsoluteAssetUrl } from '@/lib/api';
@@ -30,6 +31,7 @@ type PublicProfile = {
     followersCount?: number;
     followingCount?: number;
     isFollowedByViewer?: boolean | null;
+    whatsappEnabled?: boolean;
   };
   videos?: Array<{ id: string; url: string; description?: string | null; createdAt?: string }>;
   posts?: Array<{
@@ -51,6 +53,7 @@ type PublicProfile = {
   followersCount?: number;
   followingCount?: number;
   isFollowedByViewer?: boolean | null;
+  whatsappEnabled?: boolean;
 };
 
 async function fetchJson<T>(url: string, auth?: string): Promise<T | null> {
@@ -182,13 +185,21 @@ export default async function ProfilePage({
                   )}
                 </div>
                 {!isOwn ? (
-                  <FollowButton
-                    userId={profileUser.id}
-                    initialFollowing={
-                      auth ? (profileUser.isFollowedByViewer ?? false) : null
-                    }
-                    initialFollowersCount={profileUser.followersCount ?? 0}
-                  />
+                  <div className="flex flex-col items-center gap-2 sm:items-start">
+                    <FollowButton
+                      userId={profileUser.id}
+                      initialFollowing={
+                        auth ? (profileUser.isFollowedByViewer ?? false) : null
+                      }
+                      initialFollowersCount={profileUser.followersCount ?? 0}
+                    />
+                    {profileUser.whatsappEnabled ? (
+                      <WhatsAppContactButton
+                        targetUserId={profileUser.id}
+                        variant="primary"
+                      />
+                    ) : null}
+                  </div>
                 ) : (
                   <p className="text-center text-sm text-zinc-500 sm:text-left">Váš profil</p>
                 )}

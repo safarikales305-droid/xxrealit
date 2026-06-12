@@ -207,6 +207,10 @@ model User {
   brokerWeb             String   @default("")
   brokerPhonePublic     String   @default("")
   brokerEmailPublic     String   @default("")
+  /// WhatsApp číslo ve formátu E.164 (+420…); veřejně se nezobrazuje, jen přes tlačítko wa.me.
+  whatsappPhone         String   @default("")
+  /// Zobrazit tlačítko „Napsat na WhatsApp“ u profilu a inzerátů.
+  whatsappEnabled       Boolean  @default(false)
   /// Agregát z viditelných recenzí (přepočet při změně recenze).
   brokerReviewAverage   Float    @default(0)
   brokerReviewCount     Int      @default(0)
@@ -240,6 +244,7 @@ model User {
   socialConnections            SocialConnection[]
   socialImportedPosts          SocialImportedPost[]
   socialFacebookOAuthSessions  SocialFacebookOAuthSession[]
+  whatsappMessages             WhatsAppMessage[]
 
   @@index([professionalVerificationStatus, professionalVerificationRequestedAt])
 }
@@ -747,6 +752,7 @@ model Property {
   importedBrokerContactLinks ImportedBrokerContactListing[]
   listingContactUnlocks ListingContactUnlock[]
   contactLeads          ContactLead[] @relation("ContactLeadListing")
+  whatsappMessages      WhatsAppMessage[]
 
   @@index([userId])
   @@index([derivedFromPropertyId])
@@ -1276,6 +1282,43 @@ model BrokerPointsLedger {
 
   @@unique([userId, dedupeKey])
   @@index([userId, createdAt])
+}
+
+enum WhatsAppMessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum WhatsAppMessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  WA_ME_CLICK
+  RECEIVED
+}
+
+/// Zprávy a leady přes WhatsApp (wa.me kliknutí i Cloud API).
+model WhatsAppMessage {
+  id                String                   @id @default(uuid())
+  userId            String?
+  listingId         String?
+  direction         WhatsAppMessageDirection
+  fromPhone         String                   @default("")
+  toPhone           String                   @default("")
+  message           String                   @default("") @db.Text
+  status            WhatsAppMessageStatus    @default(PENDING)
+  providerMessageId String?
+  createdAt         DateTime                 @default(now())
+
+  user    User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  listing Property? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([listingId, createdAt])
+  @@index([status, createdAt])
+  @@index([providerMessageId])
 }
 
 /// První „lead“ makléře k vlastnickému inzerátu (statistiky, spotřeba free leadu).

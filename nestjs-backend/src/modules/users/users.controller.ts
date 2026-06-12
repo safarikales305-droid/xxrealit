@@ -26,6 +26,7 @@ import { UpdateBrokerLeadPrefsDto } from './dto/update-broker-lead-prefs.dto';
 import { UpdateBrokerPublicProfileDto } from './dto/update-broker-public-profile.dto';
 import { UpdateProfileVisibilityDto } from './dto/update-profile-visibility.dto';
 import { UpdateProfessionalVisibilityDto } from './dto/update-professional-visibility.dto';
+import { UpdateWhatsAppSettingsDto } from './dto/update-whatsapp-settings.dto';
 import { UsersService } from './users.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { UserRole } from '@prisma/client';
@@ -76,6 +77,16 @@ export class UsersController {
     dto: UpdateBrokerPublicProfileDto,
   ) {
     return this.usersService.updateBrokerPublicProfile(user.id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('me/whatsapp')
+  patchWhatsAppSettings(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: UpdateWhatsAppSettingsDto,
+  ) {
+    return this.usersService.updateWhatsAppSettings(user.id, dto);
   }
 
   @UseGuards(JwtAuthGuard)

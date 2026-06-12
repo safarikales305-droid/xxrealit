@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { WhatsAppContactButton } from '@/components/whatsapp/WhatsAppContactButton';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { PropertyGrid } from '@/components/property-grid';
@@ -173,6 +174,13 @@ export default function MaklerPublicPage() {
                     >
                       Zavolat
                     </a>
+                  ) : null}
+                  {b.whatsappEnabled ? (
+                    <WhatsAppContactButton
+                      targetUserId={b.id}
+                      variant="primary"
+                      className="w-full sm:w-auto"
+                    />
                   ) : null}
                   {b.emailPublic?.trim() ? (
                     <a

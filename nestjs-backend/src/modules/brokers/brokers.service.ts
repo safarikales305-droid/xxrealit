@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { isValidWhatsAppPhone } from '../whatsapp/whatsapp-phone.util';
 import { anyPublicListingWhere } from '../properties/property-listing-scope';
 import {
   serializeProperty,
@@ -212,6 +213,8 @@ export class BrokersService {
         brokerWeb: true,
         brokerPhonePublic: true,
         brokerEmailPublic: true,
+        whatsappPhone: true,
+        whatsappEnabled: true,
         brokerSpecialization: true,
         allowBrokerReviews: true,
         brokerReviewAverage: true,
@@ -322,6 +325,9 @@ export class BrokersService {
         web: broker.brokerWeb,
         phonePublic: broker.brokerPhonePublic,
         emailPublic: broker.brokerEmailPublic,
+        whatsappEnabled:
+          Boolean(broker.whatsappEnabled) &&
+          isValidWhatsAppPhone(broker.whatsappPhone ?? ''),
         allowBrokerReviews: broker.allowBrokerReviews,
         ratingAverage: broker.allowBrokerReviews ? broker.brokerReviewAverage : null,
         ratingCount: broker.allowBrokerReviews ? broker.brokerReviewCount : null,

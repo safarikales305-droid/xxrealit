@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, ShortsListingStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { isValidWhatsAppPhone } from '../whatsapp/whatsapp-phone.util';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { OwnerUpdatePropertyDto } from './dto/owner-update-property.dto';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
@@ -540,6 +541,8 @@ export class PropertiesService {
             name: true,
             phone: true,
             phonePublic: true,
+            whatsappPhone: true,
+            whatsappEnabled: true,
             city: true,
             role: true,
           },
@@ -639,6 +642,9 @@ export class PropertiesService {
         avatar: author.avatar ?? null,
         phone: author.phonePublic ? author.phone : null,
         phonePublic: Boolean(author.phonePublic),
+        whatsappEnabled:
+          Boolean(author.whatsappEnabled) &&
+          isValidWhatsAppPhone(author.whatsappPhone ?? ''),
         role: author.role,
       },
       shareAs: contentType,
@@ -670,6 +676,8 @@ export class PropertiesService {
             name: true,
             phone: true,
             phonePublic: true,
+            whatsappPhone: true,
+            whatsappEnabled: true,
             city: true,
             role: true,
           },
@@ -720,6 +728,9 @@ export class PropertiesService {
       avatar: author.avatar ?? null,
       phone: author.phonePublic ? author.phone : null,
       phonePublic: Boolean(author.phonePublic),
+      whatsappEnabled:
+        Boolean(author.whatsappEnabled) &&
+        isValidWhatsAppPhone(author.whatsappPhone ?? ''),
       role: author.role,
     };
 

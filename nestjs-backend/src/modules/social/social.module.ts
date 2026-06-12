@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module';
 import { PostsModule } from '../posts/posts.module';
 import { FacebookController } from './facebook/facebook.controller';
 import { FacebookPageController } from './facebook/facebook-page.controller';
+import { FacebookConfigService } from './facebook/facebook-config.service';
 import { FacebookPageService } from './facebook/facebook-page.service';
 import { FacebookPageSyncService } from './facebook/facebook-page-sync.service';
 import { FacebookWebhookController } from './facebook/facebook-webhook.controller';
@@ -24,12 +25,13 @@ import { YoutubeController } from './youtube/youtube.controller';
     InstagramController,
   ],
   providers: [
+    FacebookConfigService,
     FacebookService,
     FacebookPageService,
     FacebookPageSyncService,
     TokenEncryptionService,
     SocialPlatformStubService,
   ],
-  exports: [FacebookService, FacebookPageService, FacebookPageSyncService],
+  exports: [FacebookConfigService, FacebookService, FacebookPageService, FacebookPageSyncService],
 })
 export class SocialModule {}

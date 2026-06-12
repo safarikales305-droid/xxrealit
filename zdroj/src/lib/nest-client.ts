@@ -252,6 +252,8 @@ export type NestMeProfile = {
   brokerWeb?: string;
   brokerPhonePublic?: string;
   brokerEmailPublic?: string;
+  whatsappPhone?: string;
+  whatsappEnabled?: boolean;
   brokerReviewAverage?: number;
   brokerReviewCount?: number;
   creditBalance?: number;
@@ -563,6 +565,8 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     brokerWeb: typeof o.brokerWeb === 'string' ? o.brokerWeb : undefined,
     brokerPhonePublic: typeof o.brokerPhonePublic === 'string' ? o.brokerPhonePublic : undefined,
     brokerEmailPublic: typeof o.brokerEmailPublic === 'string' ? o.brokerEmailPublic : undefined,
+    whatsappPhone: typeof o.whatsappPhone === 'string' ? o.whatsappPhone : undefined,
+    whatsappEnabled: o.whatsappEnabled === true,
     brokerReviewAverage:
       typeof o.brokerReviewAverage === 'number' ? o.brokerReviewAverage : undefined,
     brokerReviewCount: typeof o.brokerReviewCount === 'number' ? o.brokerReviewCount : undefined,
@@ -3533,6 +3537,7 @@ export type NestBrokerPublicDetail = {
     web: string;
     phonePublic: string;
     emailPublic: string;
+    whatsappEnabled?: boolean;
     allowBrokerReviews: boolean;
     ratingAverage: number | null;
     ratingCount: number | null;
@@ -6521,6 +6526,27 @@ export async function nestAdminContactMonetizationUpdate(
   return { ok: true, settings: data };
 }
 
+export type FacebookConfigStatus = {
+  configured: boolean;
+  missing: string[];
+  oauthRedirectUri?: string | null;
+  webhookUri?: string | null;
+  recommendedMissing?: string[];
+};
+
+export async function nestFacebookConfigStatus(): Promise<FacebookConfigStatus | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook/config-status`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as FacebookConfigStatus;
+  } catch {
+    return null;
+  }
+}
+
 export type FacebookPageStatus = {
   configured: boolean;
   connected: boolean;
@@ -6555,7 +6581,7 @@ export async function nestFacebookPageConnectUrl(
   token: string,
 ): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   if (!API_BASE_URL) {
-    return { ok: false, error: 'Facebook propojení zatím není nastavené.' };
+    return { ok: false, error: 'Facebook propojení není nakonfigurováno administrátorem.' };
   }
   try {
     const res = await fetch(`${API_BASE_URL}/social/facebook/connect`, {
@@ -6734,5 +6760,119 @@ export async function nestAdminSocialFacebookConnections(
   if (!res.ok) return null;
   const data = await res.json();
   return Array.isArray(data) ? (data as AdminFacebookConnectionRow[]) : null;
+}
+
+export type WhatsAppConfigStatus = {
+  configured: boolean;
+  missing: string[];
+  webhookUri?: string | null;
+  apiVersion?: string;
+};
+
+export type WhatsAppAdminStats = WhatsAppConfigStatus & {
+  messageCount: number;
+  clickCount: number;
+  recentErrors: Array<{
+    id: string;
+    message: string;
+    toPhone: string;
+    providerMessageId: string | null;
+    createdAt: string;
+  }>;
+};
+
+export async function nestWhatsAppConfigStatus(): Promise<WhatsAppConfigStatus | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/whatsapp/config-status`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return (await res.json()) as WhatsAppConfigStatus;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestAdminWhatsAppStats(
+  token: string,
+): Promise<WhatsAppAdminStats | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/whatsapp/admin-stats`, {
+      headers: nestAuthHeaders(token),
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as WhatsAppAdminStats;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestPatchWhatsAppSettings(
+  token: string,
+  body: { whatsappPhone?: string; whatsappEnabled?: boolean },
+): Promise<
+  | { ok: true; whatsappPhone?: string; whatsappEnabled?: boolean }
+  | { ok: false; error: string }
+> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  try {
+    const res = await fetch(`${API_BASE_URL}/users/me/whatsapp`, {
+      method: 'PATCH',
+      headers: {
+        ...nestAuthHeaders(token),
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return {
+      ok: true,
+      whatsappPhone:
+        typeof data.whatsappPhone === 'string' ? data.whatsappPhone : undefined,
+      whatsappEnabled: data.whatsappEnabled === true,
+    };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestWhatsAppClick(body: {
+  targetUserId: string;
+  listingId?: string;
+  listingTitle?: string;
+  listingUrl?: string;
+}): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  if (!API_BASE_URL) {
+    return { ok: false, error: 'API není nakonfigurováno' };
+  }
+  try {
+    const res = await fetch(`${API_BASE_URL}/whatsapp/click`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    const url = typeof data.url === 'string' ? data.url.trim() : '';
+    if (!url) return { ok: false, error: 'Chybí WhatsApp odkaz.' };
+    return { ok: true, url };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
 }
 

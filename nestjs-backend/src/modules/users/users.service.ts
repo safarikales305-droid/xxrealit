@@ -17,6 +17,7 @@ import {
   type PropertyViewerAccess,
 } from '../properties/properties.serializer';
 import { UpdateBrokerPublicProfileDto } from './dto/update-broker-public-profile.dto';
+import { isValidWhatsAppPhone } from '../whatsapp/whatsapp-phone.util';
 import type { ImageCropDto } from './dto/image-crop.dto';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bcrypt = require('bcrypt');
@@ -335,6 +336,8 @@ export class UsersService {
       brokerWeb: true,
       brokerPhonePublic: true,
       brokerEmailPublic: true,
+      whatsappPhone: true,
+      whatsappEnabled: true,
       brokerReviewAverage: true,
       brokerReviewCount: true,
       agentProfile: {
@@ -514,6 +517,8 @@ export class UsersService {
       brokerWeb: u.brokerWeb,
       brokerPhonePublic: u.brokerPhonePublic,
       brokerEmailPublic: u.brokerEmailPublic,
+      whatsappPhone: u.whatsappPhone,
+      whatsappEnabled: Boolean(u.whatsappEnabled),
       brokerReviewAverage: u.brokerReviewAverage,
       brokerReviewCount: u.brokerReviewCount,
       creditBalance: u.creditBalance ?? 0,
@@ -591,6 +596,8 @@ export class UsersService {
       name: true,
       phone: true,
       phonePublic: true,
+      whatsappPhone: true,
+      whatsappEnabled: true,
       role: true,
       isPublicBrokerProfile: true,
       avatar: true,
@@ -740,12 +747,16 @@ export class UsersService {
       }),
     ]);
 
+    const whatsappAvailable =
+      Boolean(user.whatsappEnabled) && isValidWhatsAppPhone(user.whatsappPhone ?? '');
+
     return {
       user: {
       id: user.id,
       name: user.name,
       phone: user.phonePublic ? user.phone : null,
       phonePublic: Boolean(user.phonePublic),
+      whatsappEnabled: whatsappAvailable,
       role: ensureUserRole(user.role),
       avatar: upgradeHttpToHttpsForApi(user.avatar) ?? user.avatar,
       avatarCrop: hasCropColumns ? (user.avatarCrop ?? null) : null,
@@ -1077,5 +1088,51 @@ export class UsersService {
       });
     }
     return updated;
+  }
+
+  async updateWhatsAppSettings(
+    userId: string,
+    input: { whatsappPhone?: string; whatsappEnabled?: boolean },
+  ) {
+    const current = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { whatsappPhone: true, whatsappEnabled: true },
+    });
+    if (!current) {
+      throw new NotFoundException('User not found');
+    }
+
+    const phone =
+      input.whatsappPhone !== undefined
+        ? input.whatsappPhone.trim()
+        : current.whatsappPhone;
+    const enabled =
+      input.whatsappEnabled !== undefined
+        ? input.whatsappEnabled
+        : current.whatsappEnabled;
+
+    if (enabled && !isValidWhatsAppPhone(phone)) {
+      throw new BadRequestException(
+        'Pro zapnutí WhatsApp zadejte platné číslo ve formátu +420123456789.',
+      );
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(input.whatsappPhone !== undefined ? { whatsappPhone: phone } : {}),
+        ...(input.whatsappEnabled !== undefined ? { whatsappEnabled: enabled } : {}),
+      },
+      select: {
+        whatsappPhone: true,
+        whatsappEnabled: true,
+      },
+    });
+
+    return {
+      success: true,
+      whatsappPhone: updated.whatsappPhone,
+      whatsappEnabled: updated.whatsappEnabled,
+    };
   }
 }

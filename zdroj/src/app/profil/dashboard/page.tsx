@@ -34,6 +34,7 @@ import {
   professionalVerificationStatusLabel,
 } from '@/lib/professional-verification-eligibility';
 import { FacebookPageConnectionCard } from '@/components/profile/FacebookPageConnectionCard';
+import { WhatsAppConnectionCard } from '@/components/profile/WhatsAppConnectionCard';
 
 type Tab = 'settings' | 'listings' | 'ads' | 'messages' | 'notifications';
 
@@ -234,6 +235,8 @@ export default function ProfileDashboardPage() {
               >
                 Uložit bio
               </button>
+
+              <WhatsAppConnectionCard token={apiAccessToken} />
 
               {isProfessional ? <FacebookPageConnectionCard token={apiAccessToken} /> : null}
 

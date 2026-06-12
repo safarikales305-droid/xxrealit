@@ -23,6 +23,7 @@ import { TipDetailBadge } from '@/components/listing/TipBadges';
 import { isTipListing } from '@/lib/is-tip-listing';
 import { listingDetailHref } from '@/lib/listing-detail-navigation';
 import { ListingDetailBackButton } from '@/components/nemovitost/ListingDetailBackButton';
+import { WhatsAppContactButton } from '@/components/whatsapp/WhatsAppContactButton';
 import { classicListingCoverUrl, type PropertyFeedItem } from '@/types/property';
 
 type MediaItem = {
@@ -569,6 +570,16 @@ export function NemovitostDetailView({
                     <MessageCircle className="size-5 shrink-0" strokeWidth={2.25} aria-hidden />
                     Odeslat zprávu prodejci
                   </button>
+                  {!isOwner && author.whatsappEnabled ? (
+                    <WhatsAppContactButton
+                      targetUserId={author.id}
+                      listingId={propertyId}
+                      listingTitle={p.title}
+                      listingUrl={shareUrl}
+                      variant="secondary"
+                      className="w-full max-w-[360px]"
+                    />
+                  ) : null}
                   {!isOwner && contactUnlockAvailable ? (
                     <button
                       type="button"

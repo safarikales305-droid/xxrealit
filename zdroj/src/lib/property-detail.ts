@@ -10,6 +10,7 @@ export type PropertyDetailAuthor = {
   name?: string | null;
   phone?: string | null;
   phonePublic?: boolean;
+  whatsappEnabled?: boolean;
   avatar?: string | null;
   role?: string;
 };
@@ -51,6 +52,7 @@ function pickUserFromDetail(
         name: str(u.name),
         phone: str(u.phone),
         phonePublic: u.phonePublic === true,
+        whatsappEnabled: u.whatsappEnabled === true,
         avatar: u.avatar === null ? null : str(u.avatar),
         role: typeof u.role === 'string' ? u.role : undefined,
       };

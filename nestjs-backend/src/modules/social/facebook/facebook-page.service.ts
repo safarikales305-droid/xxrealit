@@ -11,6 +11,7 @@ import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../../database/prisma.service';
 import { TokenEncryptionService } from '../token-encryption.service';
 import { FACEBOOK_PAGE_SCOPES, GRAPH_API } from './facebook-page.constants';
+import { FacebookConfigService } from './facebook-config.service';
 import { FacebookPageSyncService } from './facebook-page-sync.service';
 
 const PROFESSIONAL_ROLES: UserRole[] = [
@@ -40,28 +41,15 @@ export class FacebookPageService {
     private readonly config: ConfigService,
     private readonly crypto: TokenEncryptionService,
     private readonly sync: FacebookPageSyncService,
+    private readonly facebookConfig: FacebookConfigService,
   ) {}
 
-  private appId(): string | null {
-    return this.config.get<string>('FACEBOOK_APP_ID')?.trim() || null;
-  }
-
-  private appSecret(): string | null {
-    return this.config.get<string>('FACEBOOK_APP_SECRET')?.trim() || null;
-  }
-
   isConfigured(): boolean {
-    if (!this.appId() || !this.appSecret()) return false;
-    try {
-      this.oauthRedirectUri();
-      return true;
-    } catch {
-      return false;
-    }
+    return this.facebookConfig.isConfigured();
   }
 
-  private configurationErrorMessage(): string {
-    return 'Facebook propojení zatím není nastavené.';
+  getConfigStatus() {
+    return this.facebookConfig.getConfigStatus();
   }
 
   private frontendUrl(): string {
@@ -76,18 +64,7 @@ export class FacebookPageService {
   }
 
   private oauthRedirectUri(): string {
-    const explicit = this.config.get<string>('FACEBOOK_OAUTH_REDIRECT_URI')?.trim();
-    if (explicit) return explicit.replace(/\/+$/, '');
-    const apiPublic =
-      this.config.get<string>('API_PUBLIC_URL')?.trim().replace(/\/+$/, '') ||
-      this.config.get<string>('NEXT_PUBLIC_API_URL')?.trim().replace(/\/+$/, '');
-    if (!apiPublic) {
-      throw new ServiceUnavailableException(
-        'Chybí FACEBOOK_OAUTH_REDIRECT_URI nebo API_PUBLIC_URL pro OAuth callback.',
-      );
-    }
-    const base = apiPublic.endsWith('/api') ? apiPublic : `${apiPublic}/api`;
-    return `${base}/social/facebook/callback`;
+    return this.facebookConfig.resolveOAuthRedirectUri();
   }
 
   private assertProfessional(userId: string, role: UserRole) {
@@ -100,7 +77,7 @@ export class FacebookPageService {
 
   async buildConnectUrl(userId: string, role: UserRole): Promise<string> {
     if (!this.isConfigured()) {
-      throw new ServiceUnavailableException(this.configurationErrorMessage());
+      throw new ServiceUnavailableException(this.facebookConfig.configurationErrorMessage());
     }
     this.assertProfessional(userId, role);
 
@@ -117,7 +94,7 @@ export class FacebookPageService {
     });
 
     const redirectUri = encodeURIComponent(this.oauthRedirectUri());
-    const appId = encodeURIComponent(this.appId()!);
+    const appId = encodeURIComponent(this.facebookConfig.getAppId()!);
     const scope = encodeURIComponent(FACEBOOK_PAGE_SCOPES);
     return (
       `https://www.facebook.com/v21.0/dialog/oauth?` +
@@ -363,8 +340,8 @@ export class FacebookPageService {
   }
 
   private async exchangeCodeForToken(code: string): Promise<string> {
-    const appId = this.appId()!;
-    const appSecret = this.appSecret()!;
+    const appId = this.facebookConfig.getAppId()!;
+    const appSecret = this.facebookConfig.getAppSecret()!;
     const redirectUri = encodeURIComponent(this.oauthRedirectUri());
     const url =
       `${GRAPH_API}/oauth/access_token?` +
@@ -379,8 +356,8 @@ export class FacebookPageService {
   }
 
   private async exchangeForLongLivedToken(shortToken: string): Promise<GraphTokenResponse> {
-    const appId = this.appId()!;
-    const appSecret = this.appSecret()!;
+    const appId = this.facebookConfig.getAppId()!;
+    const appSecret = this.facebookConfig.getAppSecret()!;
     const url =
       `${GRAPH_API}/oauth/access_token?` +
       `grant_type=fb_exchange_token&client_id=${encodeURIComponent(appId)}` +

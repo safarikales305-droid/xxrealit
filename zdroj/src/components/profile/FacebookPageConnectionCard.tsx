@@ -1,27 +1,33 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useAuth } from '@/hooks/use-auth';
 import {
+  nestFacebookConfigStatus,
   nestFacebookPageDisconnect,
   nestFacebookPageListPages,
   nestFacebookPageSelectPage,
   nestFacebookPageSetSyncEnabled,
   nestFacebookPageStatus,
   nestFacebookPageSyncNow,
+  type FacebookConfigStatus,
   type FacebookPageOption,
   type FacebookPageStatus,
 } from '@/lib/nest-client';
 
 const FACEBOOK_CONNECT_PATH = '/api/social/facebook/connect';
-const NOT_CONFIGURED_MSG = 'Facebook propojení zatím není nastavené.';
+const NOT_CONFIGURED_MSG = 'Facebook propojení není nakonfigurováno administrátorem.';
 
 type Props = {
   token: string | null;
 };
 
 export function FacebookPageConnectionCard({ token }: Props) {
+  const { user } = useAuth();
   const params = useSearchParams();
+  const [configStatus, setConfigStatus] = useState<FacebookConfigStatus | null>(null);
   const [status, setStatus] = useState<FacebookPageStatus | null>(null);
   const [pages, setPages] = useState<FacebookPageOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,7 +36,12 @@ export function FacebookPageConnectionCard({ token }: Props) {
   const [ok, setOk] = useState<string | null>(null);
   const [selectingPage, setSelectingPage] = useState(false);
 
+  const integrationConfigured = configStatus?.configured ?? false;
+
   const refresh = useCallback(async () => {
+    const cfg = await nestFacebookConfigStatus();
+    setConfigStatus(cfg);
+
     if (!token) {
       setStatus(null);
       setLoading(false);
@@ -60,11 +71,11 @@ export function FacebookPageConnectionCard({ token }: Props) {
   }, [token]);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || !integrationConfigured) return;
     if (params.get('facebook') === 'select' || status?.pendingPageSelection) {
       void loadPagePicker();
     }
-  }, [params, token, status?.pendingPageSelection, loadPagePicker]);
+  }, [params, token, status?.pendingPageSelection, loadPagePicker, integrationConfigured]);
 
   useEffect(() => {
     if (params.get('facebook') !== 'error') return;
@@ -81,7 +92,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
       setError('Pro propojení se přihlaste.');
       return;
     }
-    if (status && !status.configured) {
+    if (!integrationConfigured) {
       setError(NOT_CONFIGURED_MSG);
       return;
     }
@@ -155,8 +166,39 @@ export function FacebookPageConnectionCard({ token }: Props) {
       </div>
 
       {loading ? <p className="text-sm text-zinc-500">Načítám stav propojení…</p> : null}
-      {!loading && status && !status.configured ? (
-        <p className="text-sm text-amber-800">{NOT_CONFIGURED_MSG}</p>
+      {!loading && !integrationConfigured ? (
+        <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50/80 p-3">
+          <p className="text-sm text-amber-900">{NOT_CONFIGURED_MSG}</p>
+          {user?.role === 'ADMIN' ? (
+            <div className="text-sm text-amber-900">
+              <p className="font-medium">Instrukce pro administrátora:</p>
+              <ol className="mt-1 list-decimal space-y-1 pl-5">
+                <li>
+                  V Meta for Developers vytvořte aplikaci a získejte App ID a App Secret.
+                </li>
+                <li>
+                  Nastavte OAuth Redirect URI podle hodnoty v{' '}
+                  <Link
+                    href="/admin/integrace/facebook"
+                    className="font-semibold text-[#1877F2] underline"
+                  >
+                    Administrace → Integrace → Facebook
+                  </Link>
+                  .
+                </li>
+                <li>
+                  Doplňte proměnné v Railway (backend) — viz{' '}
+                  <code className="rounded bg-amber-100 px-1 text-xs">ADMIN_SETUP_FACEBOOK.md</code>.
+                </li>
+              </ol>
+              {configStatus?.missing?.length ? (
+                <p className="mt-2 text-xs">
+                  Chybí: {configStatus.missing.join(', ')}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       ) : null}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
       {ok ? <p className="text-sm text-emerald-700">{ok}</p> : null}
@@ -164,7 +206,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
         <p className="text-sm text-amber-800">Facebook propojení vyžaduje nové přihlášení.</p>
       ) : null}
 
-      {!loading && !status?.connected && !selectingPage ? (
+      {!loading && integrationConfigured && !status?.connected && !selectingPage ? (
         <button
           type="button"
           disabled={busy}

@@ -33,6 +33,7 @@ import { BonusCampaignModule } from './modules/bonus-campaign/bonus-campaign.mod
 import { RegistrationGateModule } from './modules/registration-gate/registration-gate.module';
 import { CreditsModule } from './modules/credits/credits.module';
 import { ProfessionalVerificationModule } from './modules/professional-verification/professional-verification.module';
+import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -72,6 +73,7 @@ import { ProfessionalVerificationModule } from './modules/professional-verificat
     BonusCampaignModule,
     RegistrationGateModule,
     CreditsModule,
+    WhatsAppModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })
