@@ -13,14 +13,14 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { WhatsAppClickDto } from './dto/whatsapp-click.dto';
 import { WhatsAppSendDto } from './dto/whatsapp-send.dto';
-import { WhatsAppConfigService } from './whatsapp-config.service';
 import { WhatsAppService } from './whatsapp.service';
+import { WhatsAppWebhookService } from './whatsapp-webhook.service';
 
 @Controller('whatsapp')
 export class WhatsAppController {
   constructor(
     private readonly whatsapp: WhatsAppService,
-    private readonly config: WhatsAppConfigService,
+    private readonly webhook: WhatsAppWebhookService,
   ) {}
 
   @Get('config-status')
@@ -46,6 +46,7 @@ export class WhatsAppController {
     return this.whatsapp.sendCloudMessage(dto);
   }
 
+  /** Meta WhatsApp webhook — ověření subscription (hub.challenge). */
   @Get('webhook')
   verifyWebhook(
     @Query('hub.mode') mode: string | undefined,
@@ -53,15 +54,17 @@ export class WhatsAppController {
     @Query('hub.challenge') challenge: string | undefined,
     @Res() res: Response,
   ) {
-    const expected = this.config.getWebhookVerifyToken();
-    if (mode === 'subscribe' && expected && verifyToken === expected && challenge) {
-      return res.status(200).send(challenge);
+    const result = this.webhook.verifySubscription(mode, verifyToken, challenge);
+    if (result.ok) {
+      return res.status(200).send(result.challenge);
     }
     return res.status(403).send('Forbidden');
   }
 
+  /** Meta WhatsApp webhook — příjem zpráv a stavů doručení. */
   @Post('webhook')
-  receiveWebhook(@Body() body: unknown) {
-    return this.whatsapp.handleWebhookPayload(body);
+  async receiveWebhook(@Body() body: unknown, @Res() res: Response) {
+    await this.webhook.receiveWebhookPayload(body);
+    return res.status(200).send('OK');
   }
 }
