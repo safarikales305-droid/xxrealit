@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpException,
   Post,
   Query,
@@ -24,6 +25,8 @@ export class FacebookPageController {
   constructor(private readonly facebookPage: FacebookPageService) {}
 
   @Get('config-status')
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
+  @Header('Pragma', 'no-cache')
   configStatus() {
     return this.facebookPage.getConfigStatus();
   }

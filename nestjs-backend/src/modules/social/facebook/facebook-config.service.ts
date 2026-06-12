@@ -1,12 +1,30 @@
 import { Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+const REQUIRED_ENV_KEYS = [
+  'FACEBOOK_APP_ID',
+  'FACEBOOK_APP_SECRET',
+  'FACEBOOK_OAUTH_REDIRECT_URI',
+] as const;
+
+const RECOMMENDED_ENV_KEYS = [
+  'FACEBOOK_WEBHOOK_VERIFY_TOKEN',
+  'SOCIAL_TOKEN_ENCRYPTION_KEY',
+] as const;
+
+export type FacebookEnvCheck = {
+  key: string;
+  present: boolean;
+  required: boolean;
+};
+
 export type FacebookConfigStatusDto = {
   configured: boolean;
   missing: string[];
   oauthRedirectUri: string | null;
   webhookUri: string | null;
   recommendedMissing: string[];
+  envChecks: FacebookEnvCheck[];
 };
 
 @Injectable()
@@ -16,6 +34,8 @@ export class FacebookConfigService implements OnModuleInit {
   constructor(private readonly config: ConfigService) {}
 
   onModuleInit() {
+    this.logEnvStatusAtStartup();
+
     const missing = this.getMissingRequired();
     if (missing.length > 0) {
       this.logger.error(
@@ -36,35 +56,76 @@ export class FacebookConfigService implements OnModuleInit {
     }
   }
 
+  /** Railway / runtime env má prioritu před ConfigService (kvůli .env souborům v deployi). */
+  private readEnv(name: string): string | null {
+    const fromProcess = process.env[name];
+    const fromConfig = this.config.get<string>(name);
+    const raw = fromProcess ?? fromConfig;
+    if (raw == null) return null;
+
+    let value = String(raw).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1).trim();
+    }
+    return value.length > 0 ? value : null;
+  }
+
+  private isEnvPresent(name: string): boolean {
+    return this.readEnv(name) != null;
+  }
+
+  private logEnvStatusAtStartup() {
+    const allKeys = [...REQUIRED_ENV_KEYS, ...RECOMMENDED_ENV_KEYS];
+    for (const key of allKeys) {
+      const ok = this.isEnvPresent(key);
+      this.logger.log(`[Facebook] ${key}: ${ok ? 'OK' : 'chybí'}`);
+    }
+  }
+
   getAppId(): string | null {
-    return this.config.get<string>('FACEBOOK_APP_ID')?.trim() || null;
+    return this.readEnv('FACEBOOK_APP_ID');
   }
 
   getAppSecret(): string | null {
-    return this.config.get<string>('FACEBOOK_APP_SECRET')?.trim() || null;
+    return this.readEnv('FACEBOOK_APP_SECRET');
   }
 
   getOAuthRedirectUriRaw(): string | null {
-    return this.config.get<string>('FACEBOOK_OAUTH_REDIRECT_URI')?.trim() || null;
+    return this.readEnv('FACEBOOK_OAUTH_REDIRECT_URI');
   }
 
   getMissingRequired(): string[] {
     const missing: string[] = [];
-    if (!this.getAppId()) missing.push('FACEBOOK_APP_ID');
-    if (!this.getAppSecret()) missing.push('FACEBOOK_APP_SECRET');
-    if (!this.getOAuthRedirectUriRaw()) missing.push('FACEBOOK_OAUTH_REDIRECT_URI');
+    for (const key of REQUIRED_ENV_KEYS) {
+      if (!this.isEnvPresent(key)) missing.push(key);
+    }
     return missing;
   }
 
   getRecommendedMissing(): string[] {
     const missing: string[] = [];
-    if (!this.config.get<string>('SOCIAL_TOKEN_ENCRYPTION_KEY')?.trim()) {
-      missing.push('SOCIAL_TOKEN_ENCRYPTION_KEY');
-    }
-    if (!this.config.get<string>('FACEBOOK_WEBHOOK_VERIFY_TOKEN')?.trim()) {
-      missing.push('FACEBOOK_WEBHOOK_VERIFY_TOKEN');
+    for (const key of RECOMMENDED_ENV_KEYS) {
+      if (!this.isEnvPresent(key)) missing.push(key);
     }
     return missing;
+  }
+
+  buildEnvChecks(): FacebookEnvCheck[] {
+    return [
+      ...REQUIRED_ENV_KEYS.map((key) => ({
+        key,
+        present: this.isEnvPresent(key),
+        required: true,
+      })),
+      ...RECOMMENDED_ENV_KEYS.map((key) => ({
+        key,
+        present: this.isEnvPresent(key),
+        required: false,
+      })),
+    ];
   }
 
   isConfigured(): boolean {
@@ -77,8 +138,8 @@ export class FacebookConfigService implements OnModuleInit {
 
   resolveApiPublicBase(): string | null {
     const raw =
-      this.config.get<string>('API_PUBLIC_URL')?.trim().replace(/\/+$/, '') ||
-      this.config.get<string>('NEXT_PUBLIC_API_URL')?.trim().replace(/\/+$/, '') ||
+      this.readEnv('API_PUBLIC_URL')?.replace(/\/+$/, '') ||
+      this.readEnv('NEXT_PUBLIC_API_URL')?.replace(/\/+$/, '') ||
       null;
     if (!raw) return null;
     return raw.endsWith('/api') ? raw : `${raw}/api`;
@@ -111,6 +172,7 @@ export class FacebookConfigService implements OnModuleInit {
       oauthRedirectUri,
       webhookUri: this.buildWebhookUri(),
       recommendedMissing: this.getRecommendedMissing(),
+      envChecks: this.buildEnvChecks(),
     };
   }
 }

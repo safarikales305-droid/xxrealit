@@ -6532,14 +6532,23 @@ export type FacebookConfigStatus = {
   oauthRedirectUri?: string | null;
   webhookUri?: string | null;
   recommendedMissing?: string[];
+  envChecks?: Array<{ key: string; present: boolean; required: boolean }>;
 };
 
 export async function nestFacebookConfigStatus(): Promise<FacebookConfigStatus | null> {
   if (!API_BASE_URL) return null;
   try {
-    const res = await fetch(`${API_BASE_URL}/social/facebook/config-status`, {
-      cache: 'no-store',
-    });
+    const res = await fetch(
+      `${API_BASE_URL}/social/facebook/config-status?_=${Date.now()}`,
+      {
+        cache: 'no-store',
+        headers: {
+          Accept: 'application/json',
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+        },
+      },
+    );
     if (!res.ok) return null;
     return (await res.json()) as FacebookConfigStatus;
   } catch {

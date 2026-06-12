@@ -14,10 +14,13 @@ export default function AdminFacebookIntegrationPage() {
   const { user, isLoading } = useAuth();
   const [config, setConfig] = useState<FacebookConfigStatus | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoadError(null);
+    setRefreshing(true);
     const data = await nestFacebookConfigStatus();
+    setRefreshing(false);
     if (!data) {
       setLoadError('Nepodařilo se načíst stav Facebook integrace.');
       setConfig(null);
@@ -87,6 +90,30 @@ export default function AdminFacebookIntegrationPage() {
                 </ul>
               </div>
             ) : null}
+            {config?.envChecks?.length ? (
+              <div className="mt-4">
+                <p className="text-sm font-medium text-zinc-800">Kontrola env proměnných (runtime):</p>
+                <ul className="mt-2 space-y-1 text-sm">
+                  {config.envChecks.map((row) => (
+                    <li key={row.key} className="flex flex-wrap items-center gap-2">
+                      <code className="rounded bg-zinc-100 px-1 text-xs">{row.key}</code>
+                      <span
+                        className={
+                          row.present
+                            ? 'font-semibold text-emerald-700'
+                            : 'font-semibold text-amber-800'
+                        }
+                      >
+                        {row.present ? 'OK' : 'chybí'}
+                      </span>
+                      {!row.required ? (
+                        <span className="text-xs text-zinc-500">(doporučeno)</span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {config?.recommendedMissing?.length ? (
               <div className="mt-3">
                 <p className="text-sm font-medium text-zinc-800">Doporučené proměnné:</p>
@@ -135,10 +162,11 @@ export default function AdminFacebookIntegrationPage() {
               </Link>
               <button
                 type="button"
+                disabled={refreshing}
                 onClick={() => void refresh()}
-                className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
               >
-                Obnovit stav
+                {refreshing ? 'Obnovuji…' : 'Obnovit stav'}
               </button>
             </div>
           </div>
