@@ -34,7 +34,6 @@ import { RegistrationGateModule } from './modules/registration-gate/registration
 import { CreditsModule } from './modules/credits/credits.module';
 import { ProfessionalVerificationModule } from './modules/professional-verification/professional-verification.module';
 import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
-import { WhatsAppWebhookController } from './modules/whatsapp/whatsapp-webhook.controller';
 
 @Module({
   imports: [
@@ -76,11 +75,6 @@ import { WhatsAppWebhookController } from './modules/whatsapp/whatsapp-webhook.c
     CreditsModule,
     WhatsAppModule,
   ],
-  controllers: [
-    HealthController,
-    WhatsAppWebhookController,
-    RegisterApiController,
-    LoginApiController,
-  ],
+  controllers: [HealthController, RegisterApiController, LoginApiController],
 })
 export class AppModule {}
