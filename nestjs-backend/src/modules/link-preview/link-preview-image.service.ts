@@ -41,7 +41,7 @@ export class LinkPreviewImageService {
       .jpeg({ quality: 80 })
       .toBuffer();
     await writeFile(filePath, jpeg);
-    const base = resolveAssetBaseUrl() ?? 'http://localhost:8080';
+    const base = resolveAssetBaseUrl() ?? 'http://localhost:3000';
     this.placeholderUrl = `${base.replace(/\/+$/, '')}/uploads/link-previews/${filename}`;
     return this.placeholderUrl;
   }
@@ -95,7 +95,7 @@ export class LinkPreviewImageService {
         .jpeg({ quality: 82 })
         .toBuffer();
       await writeFile(join(dir, filename), normalized);
-      const base = resolveAssetBaseUrl() ?? 'http://localhost:8080';
+      const base = resolveAssetBaseUrl() ?? 'http://localhost:3000';
       return `${base.replace(/\/+$/, '')}/uploads/link-previews/${filename}`;
     } catch (e) {
       this.log.warn(

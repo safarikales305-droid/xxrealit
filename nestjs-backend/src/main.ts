@@ -181,14 +181,11 @@ async function bootstrap() {
     maxAge: 86_400,
   });
 
-  const port = process.env.PORT || 3000;
+  const port = Number(process.env.PORT) || 3000;
 
   await app.listen(port, '0.0.0.0');
 
-  console.log(`🚀 Backend running on ${port} (PORT env=${process.env.PORT ?? 'unset'})`);
-  console.log('[routes] GET  /api/health');
-  console.log('[routes] GET  /api/whatsapp/webhook (Meta verify)');
-  console.log('[routes] POST /api/whatsapp/webhook');
+  console.log(`Backend running on ${port}`);
 }
 
 bootstrap();
