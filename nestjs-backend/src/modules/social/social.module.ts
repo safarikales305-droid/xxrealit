@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { PostsModule } from '../posts/posts.module';
+import { FacebookAuthService } from './facebook/facebook-auth.service';
 import { FacebookController } from './facebook/facebook.controller';
 import { FacebookPageController } from './facebook/facebook-page.controller';
 import { FacebookConfigService } from './facebook/facebook-config.service';
@@ -26,6 +27,7 @@ import { YoutubeController } from './youtube/youtube.controller';
   ],
   providers: [
     FacebookConfigService,
+    FacebookAuthService,
     FacebookService,
     FacebookPageService,
     FacebookPageSyncService,

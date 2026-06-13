@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AuthPageShell } from '@/components/auth/auth-page-shell';
+import { FacebookAuthButton } from '@/components/auth/FacebookAuthButton';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL } from '@/lib/api';
 import { clearPwaInstallDismissed } from '@/lib/pwa-install-storage';
@@ -18,6 +19,13 @@ export function LoginForm() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const fb = searchParams.get('facebook');
+    if (fb === 'error') {
+      setError('Přihlášení přes Facebook se nezdařilo.');
+    }
+  }, [searchParams]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -194,6 +202,17 @@ export function LoginForm() {
           {loading ? 'Přihlašuji…' : 'Přihlásit se'}
         </button>
       </form>
+
+      <div className="relative my-6">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-zinc-200" />
+        </div>
+        <div className="relative flex justify-center text-xs font-medium uppercase tracking-wide">
+          <span className="bg-white px-3 text-zinc-500">nebo</span>
+        </div>
+      </div>
+
+      <FacebookAuthButton label="Pokračovat přes Facebook" event="facebook_login_click" />
 
       <p className="mt-8 border-t border-zinc-100 pt-6 text-center text-sm text-zinc-600">
         Ještě nemáte účet?{' '}

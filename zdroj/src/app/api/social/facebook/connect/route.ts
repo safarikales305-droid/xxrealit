@@ -29,7 +29,7 @@ export async function GET() {
   }
 
   try {
-    const res = await fetch(`${nestBase}/social/facebook/connect`, {
+    const res = await fetch(`${nestBase}/social/facebook/connect-page`, {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/json',

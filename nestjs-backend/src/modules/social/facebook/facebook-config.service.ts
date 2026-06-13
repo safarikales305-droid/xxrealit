@@ -10,6 +10,7 @@ const REQUIRED_ENV_KEYS = [
 const RECOMMENDED_ENV_KEYS = [
   'FACEBOOK_WEBHOOK_VERIFY_TOKEN',
   'SOCIAL_TOKEN_ENCRYPTION_KEY',
+  'FACEBOOK_PAGE_CONNECT_REDIRECT_URI',
 ] as const;
 
 export type FacebookEnvCheck = {
@@ -22,6 +23,7 @@ export type FacebookConfigStatusDto = {
   configured: boolean;
   missing: string[];
   oauthRedirectUri: string | null;
+  pageConnectRedirectUri: string | null;
   webhookUri: string | null;
   recommendedMissing: string[];
   envChecks: FacebookEnvCheck[];
@@ -158,6 +160,14 @@ export class FacebookConfigService implements OnModuleInit {
     return explicit.replace(/\/+$/, '');
   }
 
+  resolvePageConnectRedirectUri(): string {
+    const explicit = this.readEnv('FACEBOOK_PAGE_CONNECT_REDIRECT_URI');
+    if (explicit) return explicit.replace(/\/+$/, '');
+    const base = this.resolveApiPublicBase();
+    if (base) return `${base}/social/facebook/page-callback`;
+    throw new ServiceUnavailableException(this.configurationErrorMessage());
+  }
+
   getConfigStatus(): FacebookConfigStatusDto {
     const missing = this.getMissingRequired();
     const oauthRedirectUri =
@@ -165,11 +175,17 @@ export class FacebookConfigService implements OnModuleInit {
       (this.resolveApiPublicBase()
         ? `${this.resolveApiPublicBase()}/social/facebook/callback`
         : null);
+    const pageConnectRedirectUri =
+      this.readEnv('FACEBOOK_PAGE_CONNECT_REDIRECT_URI')?.replace(/\/+$/, '') ??
+      (this.resolveApiPublicBase()
+        ? `${this.resolveApiPublicBase()}/social/facebook/page-callback`
+        : null);
 
     return {
       configured: missing.length === 0,
       missing,
       oauthRedirectUri,
+      pageConnectRedirectUri,
       webhookUri: this.buildWebhookUri(),
       recommendedMissing: this.getRecommendedMissing(),
       envChecks: this.buildEnvChecks(),

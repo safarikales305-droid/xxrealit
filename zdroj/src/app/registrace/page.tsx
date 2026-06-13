@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { AuthPageShell } from '@/components/auth/auth-page-shell';
+import { FacebookAuthButton } from '@/components/auth/FacebookAuthButton';
 import {
   REGISTRATION_ACCOUNT_TYPES,
   type RegistrationAccountType,
@@ -260,6 +261,17 @@ export default function RegistracePage() {
           {loading ? 'Vytvářím účet…' : 'Vytvořit účet'}
         </button>
       </form>
+
+      <div className="relative my-6">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-zinc-200" />
+        </div>
+        <div className="relative flex justify-center text-xs font-medium uppercase tracking-wide">
+          <span className="bg-white px-3 text-zinc-500">nebo</span>
+        </div>
+      </div>
+
+      <FacebookAuthButton label="Registrovat přes Facebook" event="facebook_register_click" />
 
       <p className="mt-8 border-t border-zinc-100 pt-6 text-center text-sm text-zinc-600">
         Už máte účet?{' '}

@@ -33,13 +33,15 @@ import {
   isProfessionalVerificationRole,
   professionalVerificationStatusLabel,
 } from '@/lib/professional-verification-eligibility';
+import { trackFacebookAnalytics } from '@/lib/facebook-analytics';
 import { FacebookPageConnectionCard } from '@/components/profile/FacebookPageConnectionCard';
 import { WhatsAppConnectionCard } from '@/components/profile/WhatsAppConnectionCard';
 
-type Tab = 'settings' | 'listings' | 'ads' | 'messages' | 'notifications';
+type Tab = 'settings' | 'social-integrations' | 'listings' | 'ads' | 'messages' | 'notifications';
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'settings', label: 'Nastavení profilu' },
+  { id: 'social-integrations', label: 'Sociální sítě' },
   { id: 'listings', label: 'Správa inzerátů' },
   { id: 'ads', label: 'Nastavení reklam' },
   { id: 'messages', label: 'Zprávy' },
@@ -47,8 +49,14 @@ const TABS: Array<{ id: Tab; label: string }> = [
 ];
 
 function parseTab(raw: string | null, facebook: string | null): Tab {
-  if (facebook) return 'settings';
-  if (raw === 'listings' || raw === 'ads' || raw === 'messages' || raw === 'notifications') {
+  if (facebook) return 'social-integrations';
+  if (
+    raw === 'social-integrations' ||
+    raw === 'listings' ||
+    raw === 'ads' ||
+    raw === 'messages' ||
+    raw === 'notifications'
+  ) {
     return raw;
   }
   return 'settings';
@@ -60,6 +68,19 @@ export default function ProfileDashboardPage() {
   const { isAuthenticated, isLoading, apiAccessToken, user } = useAuth();
   const unreadMessages = useMessagesUnreadCount(apiAccessToken);
   const tab = parseTab(params.get('tab'), params.get('facebook'));
+
+  useEffect(() => {
+    const fb = params.get('facebook');
+    if (fb === 'connected' || fb === 'page_connected') {
+      setOk('Přihlášení přes Facebook bylo úspěšné.');
+      trackFacebookAnalytics('facebook_login_success');
+    } else if (fb === 'error') {
+      setError('Přihlášení přes Facebook se nezdařilo.');
+      trackFacebookAnalytics('facebook_login_error', {
+        reason: params.get('reason') ?? undefined,
+      });
+    }
+  }, [params]);
 
   const [me, setMe] = useState<NestMeProfile | null>(null);
   const [loadingMe, setLoadingMe] = useState(false);
@@ -238,8 +259,6 @@ export default function ProfileDashboardPage() {
               </button>
 
               <WhatsAppConnectionCard token={apiAccessToken} />
-
-              {isProfessional ? <FacebookPageConnectionCard token={apiAccessToken} /> : null}
 
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="inline-flex items-center gap-2 text-sm text-zinc-800">
@@ -465,6 +484,23 @@ export default function ProfileDashboardPage() {
               >
                 Změnit heslo
               </button>
+            </div>
+          ) : null}
+
+          {tab === 'social-integrations' ? (
+            <div className="space-y-5">
+              <h1 className="text-xl font-bold text-zinc-900">Sociální sítě</h1>
+              <p className="text-sm text-zinc-600">
+                Propojte Facebook stránku a synchronizujte příspěvky na svůj profil a do feedu
+                portálu.
+              </p>
+              {isProfessional ? (
+                <FacebookPageConnectionCard token={apiAccessToken} />
+              ) : (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  Propojení Facebook stránky je dostupné pro profesionální účty.
+                </p>
+              )}
             </div>
           ) : null}
 

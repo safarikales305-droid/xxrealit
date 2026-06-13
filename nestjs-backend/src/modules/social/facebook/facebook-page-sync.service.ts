@@ -3,7 +3,7 @@ import { PostCategory, SocialProvider } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { PostsService } from '../../posts/posts.service';
 import { TokenEncryptionService } from '../token-encryption.service';
-import { FACEBOOK_IMPORT_TAG, GRAPH_API } from './facebook-page.constants';
+import { FACEBOOK_IMPORT_TAG, FACEBOOK_PAGE_BADGE, GRAPH_API } from './facebook-page.constants';
 
 type GraphFeedAttachment = {
   media_type?: string;
@@ -14,7 +14,9 @@ type GraphFeedAttachment = {
 type GraphFeedItem = {
   id?: string;
   message?: string;
+  story?: string;
   permalink_url?: string;
+  full_picture?: string;
   created_time?: string;
   attachments?: { data?: GraphFeedAttachment[] };
 };
@@ -47,7 +49,14 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
   }
 
   async syncAllActive() {
-    const connections = await this.prisma.socialConnection.findMany({
+    const connections = await this.prisma.facebookPageConnection.findMany({
+      where: { isActive: true },
+      select: { id: true },
+    });
+    for (const c of connections) {
+      await this.syncPageConnection(c.id);
+    }
+    const legacy = await this.prisma.socialConnection.findMany({
       where: {
         provider: SocialProvider.FACEBOOK,
         syncEnabled: true,
@@ -56,10 +65,149 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
       },
       select: { id: true },
     });
-    for (const c of connections) {
+    for (const c of legacy) {
       await this.syncConnection(c.id);
     }
-    return { processed: connections.length };
+    return { processed: connections.length + legacy.length };
+  }
+
+  async syncPageConnection(pageConnectionId: string) {
+    const connection = await this.prisma.facebookPageConnection.findUnique({
+      where: { id: pageConnectionId },
+      include: { user: { select: { id: true, role: true } } },
+    });
+    if (!connection?.isActive) {
+      return { imported: 0, skipped: true };
+    }
+
+    let pageToken: string;
+    try {
+      pageToken = this.crypto.decrypt(connection.pageAccessTokenEncrypted);
+    } catch {
+      await this.markPageSyncError(pageConnectionId, 'Vyžaduje nové propojení.');
+      return { imported: 0, error: 'decrypt_failed' };
+    }
+
+    try {
+      const feedUrl =
+        `${GRAPH_API}/${encodeURIComponent(connection.pageId)}/posts?` +
+        `fields=id,message,story,created_time,permalink_url,full_picture&limit=25` +
+        `&access_token=${encodeURIComponent(pageToken)}`;
+      const res = await fetch(feedUrl);
+      const payload = (await res.json().catch(() => ({}))) as {
+        data?: GraphFeedItem[];
+        error?: { message?: string };
+      };
+      if (!res.ok || payload.error) {
+        throw new Error(payload.error?.message ?? `Facebook posts HTTP ${res.status}`);
+      }
+
+      let imported = 0;
+      for (const item of payload.data ?? []) {
+        if (!item.id) continue;
+        const created = await this.importPagePost(connection, item);
+        if (created) imported += 1;
+      }
+
+      await this.prisma.facebookPageConnection.update({
+        where: { id: pageConnectionId },
+        data: { lastSyncAt: new Date(), lastSyncError: null },
+      });
+      return { imported };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Synchronizace selhala';
+      await this.markPageSyncError(pageConnectionId, message);
+      return { imported: 0, error: message };
+    }
+  }
+
+  private async markPageSyncError(pageConnectionId: string, message: string) {
+    await this.prisma.facebookPageConnection.update({
+      where: { id: pageConnectionId },
+      data: { lastSyncError: message.slice(0, 2000) },
+    });
+  }
+
+  private async importPagePost(
+    connection: {
+      id: string;
+      userId: string;
+      pageId: string;
+      user: { role: import('@prisma/client').UserRole };
+    },
+    item: GraphFeedItem,
+  ): Promise<boolean> {
+    const facebookPostId = item.id!.trim();
+    const existing = await this.prisma.facebookSyncedPost.findUnique({
+      where: { facebookPostId },
+    });
+    if (existing) return false;
+
+    const media = this.extractMedia(item);
+    const message = (item.message ?? item.story ?? '').trim();
+    const permalink = item.permalink_url?.trim() || null;
+    const fullPicture = item.full_picture?.trim() || media.imageUrl || null;
+    const description = this.formatImportedDescription(message);
+    const createdTime = item.created_time ? new Date(item.created_time) : null;
+
+    let importedPostId: string;
+    if (media.videoUrl) {
+      const post = await this.posts.createMediaPost(connection.userId, {
+        kind: 'video',
+        url: media.videoUrl,
+        description,
+      });
+      importedPostId = post.id;
+    } else if (fullPicture) {
+      const post = await this.posts.createMediaPost(connection.userId, {
+        kind: 'image',
+        url: fullPicture,
+        description,
+      });
+      importedPostId = post.id;
+    } else if (permalink) {
+      const post = await this.posts.create(connection.userId, {
+        text: description,
+        externalUrl: permalink,
+        previewSiteName: FACEBOOK_PAGE_BADGE,
+        category: this.categoryForRole(connection.user.role),
+      });
+      importedPostId = post.id;
+    } else if (message) {
+      const post = await this.posts.create(connection.userId, {
+        text: description,
+        category: this.categoryForRole(connection.user.role),
+      });
+      importedPostId = post.id;
+    } else {
+      return false;
+    }
+
+    await this.prisma.post.update({
+      where: { id: importedPostId },
+      data: {
+        isFacebookPagePost: true,
+        facebookPermalink: permalink,
+        previewSiteName: FACEBOOK_PAGE_BADGE,
+      },
+    });
+
+    await this.prisma.facebookSyncedPost.create({
+      data: {
+        userId: connection.userId,
+        pageConnectionId: connection.id,
+        facebookPostId,
+        message: message || null,
+        story: item.story ?? null,
+        permalinkUrl: permalink,
+        fullPictureUrl: fullPicture,
+        createdTime,
+        rawJson: item as object,
+        importedPostId,
+      },
+    });
+
+    return true;
   }
 
   async syncConnection(connectionId: string) {

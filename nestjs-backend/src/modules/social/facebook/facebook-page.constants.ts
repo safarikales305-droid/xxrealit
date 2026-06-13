@@ -1,17 +1,20 @@
 export const GRAPH_API = 'https://graph.facebook.com/v21.0';
 
-/** Základní OAuth scope před Meta App Review (bez email — vyžaduje schválení). */
-export const FACEBOOK_BASIC_SCOPES = 'public_profile';
+/** Facebook Login / registrace — pouze public_profile. */
+export const FACEBOOK_LOGIN_SCOPES = 'public_profile';
 
-/**
- * Rozšířené pages scope — povolit až po schválení v Meta App Review.
- * Použijte buildConnectUrl(..., { advanced: true }).
- */
-export const FACEBOOK_ADVANCED_PAGE_SCOPES = [
+/** Propojení Facebook stránky — vyžaduje Meta App Review. */
+export const FACEBOOK_PAGE_CONNECT_SCOPES = [
   'pages_show_list',
   'pages_read_engagement',
   'pages_read_user_content',
-  'pages_manage_metadata',
 ].join(',');
 
+/** @deprecated Použijte FACEBOOK_PAGE_CONNECT_SCOPES */
+export const FACEBOOK_ADVANCED_PAGE_SCOPES = FACEBOOK_PAGE_CONNECT_SCOPES;
+
+/** @deprecated Použijte FACEBOOK_LOGIN_SCOPES */
+export const FACEBOOK_BASIC_SCOPES = FACEBOOK_LOGIN_SCOPES;
+
 export const FACEBOOK_IMPORT_TAG = 'Importováno z Facebooku';
+export const FACEBOOK_PAGE_BADGE = 'Facebook stránka';

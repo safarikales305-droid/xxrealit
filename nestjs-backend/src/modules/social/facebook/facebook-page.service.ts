@@ -9,9 +9,8 @@ import { ConfigService } from '@nestjs/config';
 import { SocialProvider, UserRole } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../../database/prisma.service';
-import { AuthService } from '../../auth/auth.service';
 import { TokenEncryptionService } from '../token-encryption.service';
-import { FACEBOOK_ADVANCED_PAGE_SCOPES, FACEBOOK_BASIC_SCOPES, GRAPH_API } from './facebook-page.constants';
+import { FACEBOOK_LOGIN_SCOPES, FACEBOOK_PAGE_CONNECT_SCOPES, GRAPH_API } from './facebook-page.constants';
 import { FacebookConfigService } from './facebook-config.service';
 import { FacebookPageSyncService } from './facebook-page-sync.service';
 
@@ -44,6 +43,7 @@ export type FacebookOAuthCallbackResult = {
   ok: boolean;
   redirectUrl: string;
   accessToken?: string;
+  isNewUser?: boolean;
 };
 
 @Injectable()
@@ -54,7 +54,6 @@ export class FacebookPageService {
     private readonly crypto: TokenEncryptionService,
     private readonly sync: FacebookPageSyncService,
     private readonly facebookConfig: FacebookConfigService,
-    private readonly auth: AuthService,
   ) {}
 
   isConfigured(): boolean {
@@ -98,36 +97,35 @@ export class FacebookPageService {
     }
   }
 
-  async buildConnectUrl(
-    userId: string,
-    role: UserRole,
-    options?: { advanced?: boolean },
-  ): Promise<string> {
+  private pageConnectRedirectUri(): string {
+    return this.facebookConfig.resolvePageConnectRedirectUri();
+  }
+
+  async buildPageConnectUrl(userId: string, role: UserRole): Promise<string> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException(this.facebookConfig.configurationErrorMessage());
     }
     this.assertProfessional(userId, role);
 
-    const advanced = options?.advanced === true;
-    const statePrefix = advanced ? 'a' : 'b';
-    const state = `${statePrefix}${randomBytes(23).toString('hex')}`;
+    const state = `p${randomBytes(23).toString('hex')}`;
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
-    await this.prisma.socialFacebookOAuthSession.deleteMany({ where: { userId } });
+    await this.prisma.socialFacebookOAuthSession.deleteMany({
+      where: { userId, mode: 'page' },
+    });
     await this.prisma.socialFacebookOAuthSession.create({
       data: {
         id: state,
         userId,
+        mode: 'page',
         userAccessToken: this.crypto.encrypt('pending'),
         expiresAt,
       },
     });
 
-    const redirectUri = encodeURIComponent(this.oauthRedirectUri());
+    const redirectUri = encodeURIComponent(this.pageConnectRedirectUri());
     const appId = encodeURIComponent(this.facebookConfig.getAppId()!);
     const scope = encodeURIComponent(
-      advanced
-        ? `${FACEBOOK_BASIC_SCOPES},${FACEBOOK_ADVANCED_PAGE_SCOPES}`
-        : FACEBOOK_BASIC_SCOPES,
+      `${FACEBOOK_LOGIN_SCOPES},${FACEBOOK_PAGE_CONNECT_SCOPES}`,
     );
     return (
       `https://www.facebook.com/v21.0/dialog/oauth?` +
@@ -135,144 +133,163 @@ export class FacebookPageService {
     );
   }
 
+  /** @deprecated Použijte buildPageConnectUrl */
+  async buildConnectUrl(
+    userId: string,
+    role: UserRole,
+    options?: { advanced?: boolean },
+  ): Promise<string> {
+    if (options?.advanced === true) {
+      return this.buildPageConnectUrl(userId, role);
+    }
+    return this.buildPageConnectUrl(userId, role);
+  }
+
+  async handlePageCallback(
+    code: string | undefined,
+    state: string | undefined,
+  ): Promise<FacebookOAuthCallbackResult> {
+    const settingsUrl = `${this.frontendUrl()}/profil/dashboard?tab=social-integrations`;
+    if (!code?.trim()) {
+      return { ok: false, redirectUrl: `${settingsUrl}&facebook=error&reason=missing_code` };
+    }
+    if (!state?.trim() || !state.trim().startsWith('p')) {
+      return { ok: false, redirectUrl: `${settingsUrl}&facebook=error&reason=missing_state` };
+    }
+
+    const session = await this.prisma.socialFacebookOAuthSession.findUnique({
+      where: { id: state.trim() },
+    });
+    if (!session?.userId || session.mode !== 'page' || session.expiresAt.getTime() < Date.now()) {
+      return { ok: false, redirectUrl: `${settingsUrl}&facebook=error&reason=session_expired` };
+    }
+
+    try {
+      const shortToken = await this.exchangeCodeForToken(
+        code.trim(),
+        this.pageConnectRedirectUri(),
+      );
+      const longLived = await this.exchangeForLongLivedToken(shortToken);
+      const userToken = longLived.access_token?.trim() || shortToken;
+
+      await this.prisma.socialFacebookOAuthSession.update({
+        where: { id: session.id },
+        data: { userAccessToken: this.crypto.encrypt(userToken) },
+      });
+
+      const pages = await this.listManagedPages(session.userId);
+      if (!pages.length) {
+        return { ok: false, redirectUrl: `${settingsUrl}&facebook=error&reason=no_pages` };
+      }
+
+      if (pages.length === 1) {
+        const user = await this.prisma.user.findUnique({ where: { id: session.userId } });
+        await this.selectPage(session.userId, (user?.role ?? UserRole.AGENT) as UserRole, pages[0].id);
+        await this.prisma.socialFacebookOAuthSession.deleteMany({ where: { userId: session.userId } });
+        return { ok: true, redirectUrl: `${settingsUrl}&facebook=page_connected` };
+      }
+
+      return { ok: true, redirectUrl: `${settingsUrl}&facebook=select` };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message.slice(0, 120) : 'oauth_failed';
+      return {
+        ok: false,
+        redirectUrl: `${settingsUrl}&facebook=error&reason=${encodeURIComponent(reason)}`,
+      };
+    }
+  }
+
   async handleOAuthCallback(
     code: string | undefined,
     state: string | undefined,
   ): Promise<FacebookOAuthCallbackResult> {
-    if (!code?.trim()) {
-      return { ok: false, redirectUrl: this.getErrorRedirectUrl('missing_code') };
+    if (state?.trim().startsWith('p')) {
+      return this.handlePageCallback(code, state);
     }
-    if (!state?.trim()) {
-      return { ok: false, redirectUrl: this.getErrorRedirectUrl('missing_state') };
-    }
+    return { ok: false, redirectUrl: this.getErrorRedirectUrl('invalid_oauth_flow') };
+  }
 
-    const stateValue = state.trim();
-    const advanced = stateValue.startsWith('a');
-
-    const session = await this.prisma.socialFacebookOAuthSession.findUnique({
-      where: { id: stateValue },
-    });
-    if (!session || session.expiresAt.getTime() < Date.now()) {
-      return { ok: false, redirectUrl: this.getErrorRedirectUrl('session_expired') };
-    }
-
-    try {
-      const shortToken = await this.exchangeCodeForToken(code.trim());
-      const longLived = await this.exchangeForLongLivedToken(shortToken);
-      const userToken = longLived.access_token?.trim() || shortToken;
-      const me = await this.fetchGraphJson<GraphMeResponse>(
-        `${GRAPH_API}/me?fields=id,name,picture&access_token=${encodeURIComponent(userToken)}`,
-      );
-      if (!me.id) throw new BadRequestException('Neplatný Facebook token.');
-
-      const facebookName = me.name?.trim() || null;
-      const facebookPicture = me.picture?.data?.url?.trim() || null;
-
-      await this.prisma.socialConnection.upsert({
-        where: {
-          userId_provider: { userId: session.userId, provider: SocialProvider.FACEBOOK },
-        },
-        create: {
-          userId: session.userId,
-          provider: SocialProvider.FACEBOOK,
-          facebookUserId: me.id,
-          facebookName,
-          facebookEmail: null,
-          facebookPicture,
-          syncEnabled: false,
-        },
-        update: {
-          facebookUserId: me.id,
-          facebookName,
-          facebookEmail: null,
-          facebookPicture,
-          lastSyncError: null,
-        },
-      });
-
-      const user = await this.prisma.user.findUnique({
-        where: { id: session.userId },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          role: true,
-          avatar: true,
-          coverImage: true,
-          bio: true,
-          city: true,
-          createdAt: true,
-        },
-      });
-      const accessToken = user ? this.auth.issueTokens(user).accessToken : undefined;
-
-      if (advanced) {
-        await this.prisma.socialFacebookOAuthSession.update({
-          where: { id: session.id },
-          data: { userAccessToken: this.crypto.encrypt(userToken) },
-        });
-        return {
-          ok: true,
-          redirectUrl: `${this.getFrontendSettingsUrl()}&facebook=select`,
-          accessToken,
-        };
-      }
-
-      await this.prisma.socialFacebookOAuthSession.deleteMany({ where: { userId: session.userId } });
-      return {
-        ok: true,
-        redirectUrl: this.getSuccessRedirectUrl(),
-        accessToken,
-      };
-    } catch (err) {
-      const reason =
-        err instanceof Error ? err.message.slice(0, 120) : 'oauth_failed';
-      return { ok: false, redirectUrl: this.getErrorRedirectUrl(reason) };
-    }
+  async getAdminStats() {
+    const [accounts, pages, syncedPosts, lastSync, lastError] = await Promise.all([
+      this.prisma.facebookConnection.count(),
+      this.prisma.facebookPageConnection.count({ where: { isActive: true } }),
+      this.prisma.facebookSyncedPost.count(),
+      this.prisma.facebookPageConnection.findFirst({
+        where: { lastSyncAt: { not: null } },
+        orderBy: { lastSyncAt: 'desc' },
+        select: { lastSyncAt: true },
+      }),
+      this.prisma.facebookPageConnection.findFirst({
+        where: { lastSyncError: { not: null } },
+        orderBy: { updatedAt: 'desc' },
+        select: { lastSyncError: true, pageName: true, updatedAt: true },
+      }),
+    ]);
+    return {
+      connectedAccounts: accounts,
+      connectedPages: pages,
+      syncedPosts,
+      lastSyncAt: lastSync?.lastSyncAt?.toISOString() ?? null,
+      lastError: lastError
+        ? { message: lastError.lastSyncError, pageName: lastError.pageName, at: lastError.updatedAt.toISOString() }
+        : null,
+    };
   }
 
   async getConnectionStatus(userId: string) {
-    const row = await this.prisma.socialConnection.findUnique({
-      where: { userId_provider: { userId, provider: SocialProvider.FACEBOOK } },
+    const fbLogin = await this.prisma.facebookConnection.findUnique({ where: { userId } });
+    const activePage = await this.prisma.facebookPageConnection.findFirst({
+      where: { userId, isActive: true },
+      orderBy: { updatedAt: 'desc' },
+    });
+    const allPages = await this.prisma.facebookPageConnection.findMany({
+      where: { userId },
+      orderBy: { pageName: 'asc' },
       select: {
-        facebookUserId: true,
-        facebookName: true,
-        facebookEmail: true,
-        facebookPicture: true,
+        id: true,
         pageId: true,
         pageName: true,
-        syncEnabled: true,
+        pagePictureUrl: true,
+        isActive: true,
         lastSyncAt: true,
         lastSyncError: true,
-        tokenExpiresAt: true,
-        updatedAt: true,
       },
     });
 
-    const tokenInvalid = this.isTokenError(row?.lastSyncError);
-    const accountConnected = Boolean(row?.facebookUserId);
+    const tokenInvalid = this.isTokenError(activePage?.lastSyncError);
+    const accountConnected = Boolean(fbLogin?.facebookUserId);
     return {
       configured: this.isConfigured(),
       accountConnected,
-      connected: Boolean(row?.pageId),
-      facebookUserId: row?.facebookUserId ?? null,
-      facebookName: row?.facebookName ?? null,
-      facebookEmail: row?.facebookEmail ?? null,
-      facebookPicture: row?.facebookPicture ?? null,
-      pageId: row?.pageId ?? null,
-      pageName: row?.pageName ?? null,
-      syncEnabled: row?.syncEnabled ?? false,
-      lastSyncAt: row?.lastSyncAt?.toISOString() ?? null,
-      lastSyncError: row?.lastSyncError ?? null,
+      connected: Boolean(activePage?.pageId),
+      facebookUserId: fbLogin?.facebookUserId ?? null,
+      facebookName: null,
+      facebookEmail: null,
+      facebookPicture: null,
+      pageId: activePage?.pageId ?? null,
+      pageName: activePage?.pageName ?? null,
+      pagePictureUrl: activePage?.pagePictureUrl ?? null,
+      pages: allPages.map((p) => ({
+        id: p.id,
+        pageId: p.pageId,
+        pageName: p.pageName,
+        pagePictureUrl: p.pagePictureUrl,
+        isActive: p.isActive,
+        lastSyncAt: p.lastSyncAt?.toISOString() ?? null,
+        lastSyncError: p.lastSyncError,
+      })),
+      syncEnabled: activePage?.isActive ?? false,
+      lastSyncAt: activePage?.lastSyncAt?.toISOString() ?? null,
+      lastSyncError: activePage?.lastSyncError ?? null,
       tokenNeedsReauth: tokenInvalid,
       pendingPageSelection:
-        !row?.pageId && accountConnected && (await this.hasPendingOAuthSession(userId)),
+        !activePage?.pageId && (await this.hasPendingOAuthSession(userId)),
     };
   }
 
   private async hasPendingOAuthSession(userId: string): Promise<boolean> {
     const session = await this.prisma.socialFacebookOAuthSession.findFirst({
-      where: { userId, expiresAt: { gt: new Date() } },
+      where: { userId, mode: 'page', expiresAt: { gt: new Date() } },
       select: { userAccessToken: true },
     });
     if (!session?.userAccessToken) return false;
@@ -347,7 +364,29 @@ export class FacebookPageService {
       throw new BadRequestException('Nepodařilo se získat přístupový token pro vybranou stránku.');
     }
 
-    const connection = await this.prisma.socialConnection.upsert({
+    await this.prisma.facebookPageConnection.updateMany({
+      where: { userId },
+      data: { isActive: false },
+    });
+
+    const pageConnection = await this.prisma.facebookPageConnection.upsert({
+      where: { userId_pageId: { userId, pageId: selected.id } },
+      create: {
+        userId,
+        pageId: selected.id,
+        pageName: selected.name,
+        pageAccessTokenEncrypted: this.crypto.encrypt(pageToken),
+        isActive: true,
+      },
+      update: {
+        pageName: selected.name,
+        pageAccessTokenEncrypted: this.crypto.encrypt(pageToken),
+        isActive: true,
+        lastSyncError: null,
+      },
+    });
+
+    await this.prisma.socialConnection.upsert({
       where: { userId_provider: { userId, provider: SocialProvider.FACEBOOK } },
       create: {
         userId,
@@ -368,7 +407,7 @@ export class FacebookPageService {
 
     await this.prisma.socialFacebookOAuthSession.deleteMany({ where: { userId } });
 
-    void this.sync.syncConnection(connection.id).catch(() => undefined);
+    void this.sync.syncPageConnection(pageConnection.id).catch(() => undefined);
 
     return {
       ok: true,
@@ -381,18 +420,24 @@ export class FacebookPageService {
   }
 
   async setSyncEnabled(userId: string, syncEnabled: boolean) {
-    const row = await this.prisma.socialConnection.findUnique({
-      where: { userId_provider: { userId, provider: SocialProvider.FACEBOOK } },
+    const row = await this.prisma.facebookPageConnection.findFirst({
+      where: { userId, isActive: true },
     });
-    if (!row?.pageId) throw new NotFoundException('Facebook stránka není propojena.');
-    await this.prisma.socialConnection.update({
+    if (!row) throw new NotFoundException('Facebook stránka není propojena.');
+    await this.prisma.facebookPageConnection.update({
       where: { id: row.id },
+      data: { isActive: syncEnabled },
+    });
+    await this.prisma.socialConnection.updateMany({
+      where: { userId, provider: SocialProvider.FACEBOOK },
       data: { syncEnabled },
     });
     return { ok: true, syncEnabled };
   }
 
   async disconnect(userId: string) {
+    await this.prisma.facebookSyncedPost.deleteMany({ where: { userId } });
+    await this.prisma.facebookPageConnection.deleteMany({ where: { userId } });
     await this.prisma.socialImportedPost.deleteMany({ where: { userId } });
     await this.prisma.socialConnection.deleteMany({
       where: { userId, provider: SocialProvider.FACEBOOK },
@@ -401,14 +446,32 @@ export class FacebookPageService {
     return { ok: true };
   }
 
-  async syncNow(userId: string) {
-    const row = await this.prisma.socialConnection.findUnique({
-      where: { userId_provider: { userId, provider: SocialProvider.FACEBOOK } },
+  async disconnectPage(userId: string, pageId: string) {
+    const row = await this.prisma.facebookPageConnection.findFirst({
+      where: { userId, pageId },
     });
-    if (!row?.pageId || !row.pageAccessToken) {
+    if (!row) throw new NotFoundException('Facebook stránka není propojena.');
+    await this.prisma.facebookSyncedPost.deleteMany({ where: { pageConnectionId: row.id } });
+    await this.prisma.facebookPageConnection.delete({ where: { id: row.id } });
+    return { ok: true };
+  }
+
+  async syncNow(userId: string) {
+    const row = await this.prisma.facebookPageConnection.findFirst({
+      where: { userId, isActive: true },
+    });
+    if (!row) {
       throw new BadRequestException('Nejprve propojte Facebook stránku.');
     }
-    return this.sync.syncConnection(row.id);
+    return this.sync.syncPageConnection(row.id);
+  }
+
+  async syncPageById(userId: string, pageId: string) {
+    const row = await this.prisma.facebookPageConnection.findFirst({
+      where: { userId, pageId },
+    });
+    if (!row) throw new NotFoundException('Facebook stránka není propojena.');
+    return this.sync.syncPageConnection(row.id);
   }
 
   decryptPageToken(encrypted: string): string {
@@ -429,10 +492,10 @@ export class FacebookPageService {
     );
   }
 
-  private async exchangeCodeForToken(code: string): Promise<string> {
+  private async exchangeCodeForToken(code: string, redirectUriRaw?: string): Promise<string> {
     const appId = this.facebookConfig.getAppId()!;
     const appSecret = this.facebookConfig.getAppSecret()!;
-    const redirectUri = encodeURIComponent(this.oauthRedirectUri());
+    const redirectUri = encodeURIComponent(redirectUriRaw ?? this.oauthRedirectUri());
     const url =
       `${GRAPH_API}/oauth/access_token?` +
       `client_id=${encodeURIComponent(appId)}` +

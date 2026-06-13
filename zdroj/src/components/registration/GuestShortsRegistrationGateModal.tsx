@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
+import { FacebookAuthButton } from '@/components/auth/FacebookAuthButton';
 import type { PublicRegistrationGateSettings } from '@/lib/registration-gate';
 import { LoopingVideoWithSound } from './LoopingVideoWithSound';
 
@@ -78,6 +79,11 @@ export function GuestShortsRegistrationGateModal({ settings }: Props) {
           >
             {registerLabel}
           </Link>
+          <FacebookAuthButton
+            label="Registrovat přes Facebook"
+            event="facebook_register_click"
+            className="[&_button]:rounded-full [&_button]:py-3 min-[769px]:[&_button]:py-3.5"
+          />
 
           <Link
             href="/login"

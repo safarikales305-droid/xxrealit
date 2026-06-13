@@ -155,6 +155,8 @@ model User {
   createdAt    DateTime   @default(now())
   resetToken   String?
   resetExpires DateTime?
+  /// Facebook user id pro přihlášení / registraci přes Facebook.
+  facebookId   String?    @unique
 
   properties   Property[]
   videos       Video[]
@@ -241,6 +243,8 @@ model User {
   creditTopUpTransactions CreditTopUpTransaction[]
   bonusClaims         BonusClaim[]
   facebookConnection           FacebookConnection?
+  facebookPageConnections      FacebookPageConnection[]
+  facebookSyncedPosts          FacebookSyncedPost[]
   socialConnections            SocialConnection[]
   socialImportedPosts          SocialImportedPost[]
   socialFacebookOAuthSessions  SocialFacebookOAuthSession[]
@@ -523,6 +527,9 @@ model Post {
   previewDescription  String?  @db.Text
   previewImage        String?
   previewSiteName     String?
+  /// Příspěvek importovaný z propojené Facebook stránky.
+  isFacebookPagePost  Boolean  @default(false)
+  facebookPermalink   String?
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   media       Media[]
@@ -1221,18 +1228,21 @@ model SocialConnection {
   @@index([pageId])
 }
 
-/// Dočasná OAuth session mezi callbackem a výběrem stránky.
+/// Dočasná OAuth session mezi callbackem a výběrem stránky / loginem.
 model SocialFacebookOAuthSession {
-  id                      String   @id
-  userId                  String
-  userAccessToken         String   @db.Text
-  expiresAt               DateTime
-  createdAt               DateTime @default(now())
+  id              String   @id
+  userId          String?
+  /// login | page | account
+  mode            String   @default("account")
+  userAccessToken String   @db.Text
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
+  @@index([mode])
 }
 
 /// Importovaný příspěvek z Facebook stránky (deduplikace).
@@ -1257,18 +1267,67 @@ model SocialImportedPost {
   @@index([userId])
 }
 
-/// Propojení uživatelského účtu s Facebookem (Graph API — nahrání videa).
+/// Propojení uživatelského účtu s Facebookem (login + Graph API).
 model FacebookConnection {
-  id             String    @id @default(cuid())
-  userId         String    @unique
-  facebookUserId String
-  accessToken    String    @db.Text
-  tokenExpiresAt DateTime?
-  scopes         String[]  @default([])
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                     String    @id @default(cuid())
+  userId                 String    @unique
+  facebookUserId         String
+  accessToken            String    @db.Text
+  accessTokenEncrypted   String?   @db.Text
+  tokenExpiresAt         DateTime?
+  scopes                 String[]  @default([])
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([facebookUserId])
+}
+
+/// Propojení Facebook stránky profesionála (správa + sync příspěvků).
+model FacebookPageConnection {
+  id                       String    @id @default(cuid())
+  userId                   String
+  pageId                   String
+  pageName                 String
+  pageAccessTokenEncrypted String    @db.Text
+  pagePictureUrl           String?
+  isActive                 Boolean   @default(true)
+  lastSyncAt               DateTime?
+  lastSyncError            String?   @db.Text
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  syncedPosts   FacebookSyncedPost[]
+
+  @@unique([userId, pageId])
+  @@index([userId])
+  @@index([pageId])
+  @@index([isActive])
+}
+
+/// Synchronizovaný příspěvek z Facebook stránky.
+model FacebookSyncedPost {
+  id               String    @id @default(cuid())
+  userId           String
+  pageConnectionId String
+  facebookPostId   String    @unique
+  message          String?   @db.Text
+  story            String?
+  permalinkUrl     String?
+  fullPictureUrl   String?
+  createdTime      DateTime?
+  rawJson          Json?
+  importedPostId   String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pageConnection FacebookPageConnection @relation(fields: [pageConnectionId], references: [id], onDelete: Cascade)
+
+  @@index([pageConnectionId, createdAt])
+  @@index([userId])
 }
 
 /// Historie bodů + idempotence (dedupeKey).

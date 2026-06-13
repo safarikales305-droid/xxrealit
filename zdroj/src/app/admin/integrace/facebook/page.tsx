@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import {
+  nestFacebookAdminStats,
   nestFacebookConfigStatus,
+  type FacebookAdminStats,
   type FacebookConfigStatus,
 } from '@/lib/nest-client';
 
@@ -13,6 +15,7 @@ export default function AdminFacebookIntegrationPage() {
   const router = useRouter();
   const { user, isLoading } = useAuth();
   const [config, setConfig] = useState<FacebookConfigStatus | null>(null);
+  const [stats, setStats] = useState<FacebookAdminStats | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -20,6 +23,7 @@ export default function AdminFacebookIntegrationPage() {
     setLoadError(null);
     setRefreshing(true);
     const data = await nestFacebookConfigStatus();
+    const adminStats = await nestFacebookAdminStats();
     setRefreshing(false);
     if (!data) {
       setLoadError('Nepodařilo se načíst stav Facebook integrace.');
@@ -27,6 +31,7 @@ export default function AdminFacebookIntegrationPage() {
       return;
     }
     setConfig(data);
+    setStats(adminStats);
   }, []);
 
   useEffect(() => {
@@ -129,12 +134,52 @@ export default function AdminFacebookIntegrationPage() {
           </div>
 
           <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              Statistiky integrace
+            </p>
+            <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-zinc-500">Propojené účty</dt>
+                <dd className="text-lg font-bold text-zinc-900">{stats?.connectedAccounts ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500">Propojené stránky</dt>
+                <dd className="text-lg font-bold text-zinc-900">{stats?.connectedPages ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500">Synchronizované příspěvky</dt>
+                <dd className="text-lg font-bold text-zinc-900">{stats?.syncedPosts ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500">Poslední synchronizace</dt>
+                <dd className="font-medium text-zinc-800">
+                  {stats?.lastSyncAt
+                    ? new Date(stats.lastSyncAt).toLocaleString('cs-CZ')
+                    : '—'}
+                </dd>
+              </div>
+            </dl>
+            {stats?.lastError?.message ? (
+              <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                Poslední chyba ({stats.lastError.pageName ?? 'stránka'}): {stats.lastError.message}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">URI</p>
             <dl className="mt-3 space-y-3 text-sm">
               <div>
-                <dt className="font-medium text-zinc-800">OAuth Redirect URI</dt>
+                <dt className="font-medium text-zinc-800">OAuth Redirect URI (login)</dt>
                 <dd className="mt-1 break-all font-mono text-xs text-zinc-600">
                   {config?.oauthRedirectUri ?? '— nastavte FACEBOOK_OAUTH_REDIRECT_URI —'}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-medium text-zinc-800">Page Connect Redirect URI</dt>
+                <dd className="mt-1 break-all font-mono text-xs text-zinc-600">
+                  {config?.pageConnectRedirectUri ??
+                    '— nastavte FACEBOOK_PAGE_CONNECT_REDIRECT_URI —'}
                 </dd>
               </div>
               <div>

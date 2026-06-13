@@ -109,6 +109,11 @@ export function CommunityPostCard({
     }, 400);
   }
 
+  const isFacebookImport =
+    Boolean(p.isFacebookPagePost) ||
+    String(p.previewSiteName ?? '').toLowerCase().includes('facebook');
+  const facebookLink = String(p.facebookPermalink ?? p.externalUrl ?? '').trim();
+
   return (
     <article className="relative w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:rounded-3xl">
       {isOwner && !interactionsLocked ? (
@@ -136,7 +141,24 @@ export function CommunityPostCard({
 
       <p className="px-3 pt-3 text-xs font-medium text-zinc-500 md:px-4 md:pt-4">
         {author}
+        {isFacebookImport ? (
+          <span className="ml-2 inline-flex items-center rounded-full bg-[#1877F2]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#1877F2]">
+            Facebook stránka
+          </span>
+        ) : null}
       </p>
+      {isFacebookImport && facebookLink ? (
+        <p className="px-3 pt-1 md:px-4">
+          <a
+            href={facebookLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-semibold text-[#1877F2] hover:underline"
+          >
+            Zobrazit na Facebooku
+          </a>
+        </p>
+      ) : null}
       {Number.isFinite(p.distanceKm) ? (
         <p className="px-3 pt-1 text-[11px] font-medium text-zinc-500 md:px-4">
           {Number(p.distanceKm).toFixed(1)} km od vás

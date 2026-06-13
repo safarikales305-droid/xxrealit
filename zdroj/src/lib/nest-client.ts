@@ -4921,6 +4921,8 @@ export type ListingPost = {
   previewDescription?: string | null;
   previewImage?: string | null;
   previewSiteName?: string | null;
+  isFacebookPagePost?: boolean;
+  facebookPermalink?: string | null;
 };
 
 export type LinkPreviewResponse = {
@@ -6530,10 +6532,30 @@ export type FacebookConfigStatus = {
   configured: boolean;
   missing: string[];
   oauthRedirectUri?: string | null;
+  pageConnectRedirectUri?: string | null;
   webhookUri?: string | null;
   recommendedMissing?: string[];
   envChecks?: Array<{ key: string; present: boolean; required: boolean }>;
 };
+
+export type FacebookAdminStats = {
+  connectedAccounts: number;
+  connectedPages: number;
+  syncedPosts: number;
+  lastSyncAt: string | null;
+  lastError: { message: string | null; pageName: string | null; at: string } | null;
+};
+
+export async function nestFacebookAdminStats(): Promise<FacebookAdminStats | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook/admin-stats`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return (await res.json()) as FacebookAdminStats;
+  } catch {
+    return null;
+  }
+}
 
 export async function nestFacebookConfigStatus(): Promise<FacebookConfigStatus | null> {
   if (!API_BASE_URL) return null;
