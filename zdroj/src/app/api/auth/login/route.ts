@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { verifyPassword } from '@/lib/auth-password';
 import { signAuthJwt } from '@/lib/auth-token';
-import { getAuthCookieSetOptions, ACCESS_TOKEN_COOKIE } from '@/lib/auth-cookie';
+import { setAuthCookies } from '@/lib/auth-cookie';
 import { prisma } from '@/lib/db';
 import { getOptionalInternalApiBaseUrl } from '@/lib/server-api';
 
@@ -84,15 +84,7 @@ export async function POST(request: Request) {
               access_token: nestData.accessToken,
               session: { user: sessionUser },
             });
-            res.cookies.set(ACCESS_TOKEN_COOKIE, nestData.accessToken, getAuthCookieSetOptions());
-            // Client actions (listing/post/reactions) read token from JS-accessible cookie.
-            res.cookies.set('token', nestData.accessToken, {
-              httpOnly: false,
-              sameSite: 'lax',
-              path: '/',
-              maxAge: 60 * 60 * 24 * 7,
-              secure: process.env.NODE_ENV === 'production',
-            });
+            setAuthCookies(res, nestData.accessToken);
             return res;
           }
         }
@@ -149,14 +141,7 @@ export async function POST(request: Request) {
       session: { user: sessionUser },
     });
 
-    res.cookies.set(ACCESS_TOKEN_COOKIE, token, getAuthCookieSetOptions());
-    res.cookies.set('token', token, {
-      httpOnly: false,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 7,
-      secure: process.env.NODE_ENV === 'production',
-    });
+    setAuthCookies(res, token);
     return res;
   } catch (err) {
     console.error('[login]', err);

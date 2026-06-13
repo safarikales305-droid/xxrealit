@@ -34,8 +34,9 @@ export class FacebookPageController implements OnModuleInit {
     private readonly facebookAuth: FacebookAuthService,
   ) {}
 
-  onModuleInit() {
+    onModuleInit() {
     this.logger.log('Registered GET /api/social/facebook/callback');
+    this.logger.log('Registered GET /api/social/facebook/finish-login');
     this.logger.log('Registered GET /api/social/facebook/page-callback');
   }
 
@@ -81,8 +82,24 @@ export class FacebookPageController implements OnModuleInit {
       return res.redirect(302, this.facebookAuth.getErrorRedirectUrl(errorReason?.trim() || oauthError.trim()));
     }
 
-    const result = await this.facebookAuth.handleLoginCallback(code, state);
+    const result = await this.facebookAuth.handleLoginCallback(code, state, {
+      returnTokenInBody: wantsJson(req),
+    });
     return this.respondOAuth(res, req, result);
+  }
+
+  @Get('finish-login')
+  async finishLogin(
+    @Query('state') state: string | undefined,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    const result = await this.facebookAuth.consumeLoginSession(state);
+    return this.respondOAuth(res, req, result);
+  }
+
+  private wantsJson(req: Request): boolean {
+    return req.query.format === 'json' || req.headers.accept?.includes('application/json');
   }
 
   @Get('page-callback')

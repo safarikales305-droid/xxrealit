@@ -65,7 +65,7 @@ function parseTab(raw: string | null, facebook: string | null): Tab {
 export default function ProfileDashboardPage() {
   const router = useRouter();
   const params = useSearchParams();
-  const { isAuthenticated, isLoading, apiAccessToken, user } = useAuth();
+  const { isAuthenticated, isLoading, apiAccessToken, user, refresh } = useAuth();
   const unreadMessages = useMessagesUnreadCount(apiAccessToken);
   const tab = parseTab(params.get('tab'), params.get('facebook'));
 
@@ -74,13 +74,14 @@ export default function ProfileDashboardPage() {
     if (fb === 'connected' || fb === 'page_connected') {
       setOk('Přihlášení přes Facebook bylo úspěšné.');
       trackFacebookAnalytics('facebook_login_success');
+      void refresh();
     } else if (fb === 'error') {
       setError('Přihlášení přes Facebook se nezdařilo.');
       trackFacebookAnalytics('facebook_login_error', {
         reason: params.get('reason') ?? undefined,
       });
     }
-  }, [params]);
+  }, [params, refresh]);
 
   const [me, setMe] = useState<NestMeProfile | null>(null);
   const [loadingMe, setLoadingMe] = useState(false);

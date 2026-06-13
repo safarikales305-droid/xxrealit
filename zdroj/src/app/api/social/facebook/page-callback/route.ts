@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { getAuthCookieSetOptions, ACCESS_TOKEN_COOKIE } from '@/lib/auth-cookie';
+import { setAuthCookies } from '@/lib/auth-cookie';
 import { isFacebookPageScopeError } from '@/lib/facebook-page-scope';
 import { getOptionalInternalApiBaseUrl } from '@/lib/server-api';
 
@@ -45,11 +45,7 @@ export async function GET(request: NextRequest) {
           : `${settingsUrl}&facebook=error`;
     const response = NextResponse.redirect(redirectUrl);
     if (typeof data.accessToken === 'string' && data.accessToken.trim()) {
-      response.cookies.set(
-        ACCESS_TOKEN_COOKIE,
-        data.accessToken.trim(),
-        getAuthCookieSetOptions(),
-      );
+      setAuthCookies(response, data.accessToken.trim());
     }
     return response;
   } catch {

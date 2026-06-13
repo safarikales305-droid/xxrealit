@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -26,6 +27,8 @@ type GraphMeResponse = {
 
 @Injectable()
 export class FacebookAuthService {
+  private readonly logger = new Logger(FacebookAuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
@@ -42,7 +45,11 @@ export class FacebookAuthService {
   }
 
   getSuccessRedirectUrl(): string {
-    return `${this.frontendUrl()}/profil/dashboard?facebook=connected`;
+    return `${this.frontendUrl()}/profil/dashboard`;
+  }
+
+  getFinishLoginRedirectUrl(state: string): string {
+    return `${this.frontendUrl()}/api/social/facebook/finish-login?state=${encodeURIComponent(state)}`;
   }
 
   getErrorRedirectUrl(reason?: string): string {
@@ -83,6 +90,7 @@ export class FacebookAuthService {
   async handleLoginCallback(
     code: string | undefined,
     state: string | undefined,
+    options?: { returnTokenInBody?: boolean },
   ): Promise<FacebookOAuthCallbackResult> {
     if (!code?.trim()) {
       return { ok: false, redirectUrl: this.getErrorRedirectUrl('missing_code') };
@@ -91,8 +99,9 @@ export class FacebookAuthService {
       return { ok: false, redirectUrl: this.getErrorRedirectUrl('missing_state') };
     }
 
+    const sessionId = state.trim();
     const session = await this.prisma.socialFacebookOAuthSession.findUnique({
-      where: { id: state.trim() },
+      where: { id: sessionId },
     });
     if (!session || session.mode !== 'login' || session.expiresAt.getTime() < Date.now()) {
       return { ok: false, redirectUrl: this.getErrorRedirectUrl('session_expired') };
@@ -113,7 +122,7 @@ export class FacebookAuthService {
       );
       if (!me.id) throw new BadRequestException('Neplatný Facebook token.');
 
-      const user = await this.findOrCreateUserFromFacebook(me);
+      const { user, wasCreated } = await this.findOrCreateUserFromFacebook(me);
 
       const encryptedToken = this.crypto.encrypt(userToken);
       await this.prisma.facebookConnection.upsert({
@@ -134,17 +143,75 @@ export class FacebookAuthService {
         },
       });
 
-      await this.prisma.socialFacebookOAuthSession.delete({ where: { id: session.id } });
-
       const tokens = this.auth.issueTokens(user);
+      this.logger.log(`FACEBOOK_JWT_CREATED userId=${user.id}`);
+      this.logger.log(`FACEBOOK_LOGIN_SUCCESS userId=${user.id} newUser=${wasCreated}`);
+
+      const returnTokenInBody = options?.returnTokenInBody === true;
+      if (returnTokenInBody) {
+        await this.prisma.socialFacebookOAuthSession.delete({ where: { id: session.id } });
+        const redirectUrl = `${this.getSuccessRedirectUrl()}?facebook=connected`;
+        this.logger.log(`FACEBOOK_REDIRECT_SUCCESS userId=${user.id} via=json`);
+        return {
+          ok: true,
+          redirectUrl,
+          accessToken: tokens.accessToken,
+          isNewUser: wasCreated,
+        };
+      }
+
+      await this.prisma.socialFacebookOAuthSession.update({
+        where: { id: session.id },
+        data: {
+          userId: user.id,
+          mode: 'login_complete',
+          userAccessToken: this.crypto.encrypt(tokens.accessToken),
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+        },
+      });
+
+      const redirectUrl = this.getFinishLoginRedirectUrl(sessionId);
+      this.logger.log(`FACEBOOK_REDIRECT_SUCCESS userId=${user.id} via=finish_login`);
       return {
         ok: true,
-        redirectUrl: this.getSuccessRedirectUrl(),
-        accessToken: tokens.accessToken,
-        isNewUser: user.wasCreated,
+        redirectUrl,
+        isNewUser: wasCreated,
       };
     } catch (err) {
       const reason = err instanceof Error ? err.message.slice(0, 120) : 'oauth_failed';
+      this.logger.warn(`Facebook login callback failed: ${reason}`);
+      return { ok: false, redirectUrl: this.getErrorRedirectUrl(reason) };
+    }
+  }
+
+  async consumeLoginSession(state: string | undefined): Promise<FacebookOAuthCallbackResult> {
+    if (!state?.trim() || !state.trim().startsWith('l')) {
+      return { ok: false, redirectUrl: this.getErrorRedirectUrl('missing_state') };
+    }
+
+    const session = await this.prisma.socialFacebookOAuthSession.findUnique({
+      where: { id: state.trim() },
+    });
+    if (
+      !session ||
+      session.mode !== 'login_complete' ||
+      session.expiresAt.getTime() < Date.now()
+    ) {
+      return { ok: false, redirectUrl: this.getErrorRedirectUrl('session_expired') };
+    }
+
+    try {
+      const accessToken = this.crypto.decrypt(session.userAccessToken);
+      await this.prisma.socialFacebookOAuthSession.delete({ where: { id: session.id } });
+      const redirectUrl = `${this.getSuccessRedirectUrl()}?facebook=connected`;
+      this.logger.log(`FACEBOOK_REDIRECT_SUCCESS userId=${session.userId ?? 'unknown'} via=consume`);
+      return {
+        ok: true,
+        redirectUrl,
+        accessToken,
+      };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message.slice(0, 120) : 'session_invalid';
       return { ok: false, redirectUrl: this.getErrorRedirectUrl(reason) };
     }
   }
@@ -153,7 +220,8 @@ export class FacebookAuthService {
     const facebookId = me.id!.trim();
     const byFacebook = await this.prisma.user.findFirst({ where: { facebookId } });
     if (byFacebook) {
-      return { ...byFacebook, wasCreated: false };
+      this.logger.log(`FACEBOOK_USER_FOUND userId=${byFacebook.id} facebookId=${facebookId}`);
+      return { user: byFacebook, wasCreated: false };
     }
 
     const byFbConnection = await this.prisma.facebookConnection.findFirst({
@@ -165,7 +233,8 @@ export class FacebookAuthService {
         where: { id: byFbConnection.user.id },
         data: { facebookId },
       });
-      return { ...updated, wasCreated: false };
+      this.logger.log(`FACEBOOK_USER_FOUND userId=${updated.id} facebookId=${facebookId}`);
+      return { user: updated, wasCreated: false };
     }
 
     const emailFromFb = me.email?.trim().toLowerCase();
@@ -179,7 +248,8 @@ export class FacebookAuthService {
             avatar: byEmail.avatar ?? me.picture?.data?.url ?? null,
           },
         });
-        return { ...updated, wasCreated: false };
+        this.logger.log(`FACEBOOK_USER_FOUND userId=${updated.id} facebookId=${facebookId}`);
+        return { user: updated, wasCreated: false };
       }
     }
 
@@ -201,7 +271,8 @@ export class FacebookAuthService {
         phone: '',
       },
     });
-    return { ...created, wasCreated: true };
+    this.logger.log(`FACEBOOK_USER_CREATED userId=${created.id} facebookId=${facebookId}`);
+    return { user: created, wasCreated: true };
   }
 
   private async exchangeCodeForToken(code: string): Promise<string> {
