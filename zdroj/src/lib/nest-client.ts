@@ -6559,6 +6559,10 @@ export type FacebookPageStatus = {
   configured: boolean;
   accountConnected: boolean;
   connected: boolean;
+  facebookUserId: string | null;
+  facebookName: string | null;
+  facebookEmail: string | null;
+  facebookPicture: string | null;
   pageId: string | null;
   pageName: string | null;
   syncEnabled: boolean;

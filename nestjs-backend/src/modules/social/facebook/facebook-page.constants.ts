@@ -1,7 +1,7 @@
 export const GRAPH_API = 'https://graph.facebook.com/v21.0';
 
-/** Základní OAuth scope před Meta App Review (login + identita uživatele). */
-export const FACEBOOK_BASIC_SCOPES = 'public_profile,email';
+/** Základní OAuth scope před Meta App Review (bez email — vyžaduje schválení). */
+export const FACEBOOK_BASIC_SCOPES = 'public_profile';
 
 /**
  * Rozšířené pages scope — povolit až po schválení v Meta App Review.

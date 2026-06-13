@@ -224,10 +224,28 @@ export function FacebookPageConnectionCard({ token }: Props) {
 
       {!loading && status?.accountConnected && !status?.connected ? (
         <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/80 p-3">
-          <p className="text-sm text-emerald-900">
-            Facebook účet je propojen. Propojení Facebook stránky a automatická synchronizace
-            příspěvků bude dostupná po schválení oprávnění v Meta App Review.
-          </p>
+          <div className="flex items-center gap-3">
+            {status.facebookPicture ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={status.facebookPicture}
+                alt=""
+                className="h-10 w-10 rounded-full border border-emerald-200"
+              />
+            ) : null}
+            <p className="text-sm text-emerald-900">
+              {status.facebookName ? (
+                <>
+                  Facebook účet <span className="font-semibold">{status.facebookName}</span> je
+                  propojen.
+                </>
+              ) : (
+                'Facebook účet je propojen.'
+              )}{' '}
+              Propojení Facebook stránky a automatická synchronizace příspěvků bude dostupná po
+              schválení oprávnění v Meta App Review.
+            </p>
+          </div>
           <button
             type="button"
             disabled={busy}

@@ -1200,6 +1200,9 @@ model SocialConnection {
   userId               String
   provider             SocialProvider @default(FACEBOOK)
   facebookUserId       String?
+  facebookName         String?
+  facebookEmail        String?
+  facebookPicture      String?
   pageId               String?
   pageName             String?
   pageAccessToken      String?        @db.Text

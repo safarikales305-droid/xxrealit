@@ -23,7 +23,12 @@ const PROFESSIONAL_ROLES: UserRole[] = [
 ];
 
 type GraphTokenResponse = { access_token?: string; expires_in?: number };
-type GraphMeResponse = { id?: string; name?: string };
+type GraphMeResponse = {
+  id?: string;
+  name?: string;
+  email?: string;
+  picture?: { data?: { url?: string } };
+};
 type GraphPageAccount = {
   id?: string;
   name?: string;
@@ -133,9 +138,12 @@ export class FacebookPageService {
       const longLived = await this.exchangeForLongLivedToken(shortToken);
       const userToken = longLived.access_token?.trim() || shortToken;
       const me = await this.fetchGraphJson<GraphMeResponse>(
-        `${GRAPH_API}/me?fields=id,name,email&access_token=${encodeURIComponent(userToken)}`,
+        `${GRAPH_API}/me?fields=id,name,picture&access_token=${encodeURIComponent(userToken)}`,
       );
       if (!me.id) throw new BadRequestException('Neplatný Facebook token.');
+
+      const facebookName = me.name?.trim() || null;
+      const facebookPicture = me.picture?.data?.url?.trim() || null;
 
       await this.prisma.socialConnection.upsert({
         where: {
@@ -145,10 +153,16 @@ export class FacebookPageService {
           userId: session.userId,
           provider: SocialProvider.FACEBOOK,
           facebookUserId: me.id,
+          facebookName,
+          facebookEmail: null,
+          facebookPicture,
           syncEnabled: false,
         },
         update: {
           facebookUserId: me.id,
+          facebookName,
+          facebookEmail: null,
+          facebookPicture,
           lastSyncError: null,
         },
       });
@@ -174,6 +188,9 @@ export class FacebookPageService {
       where: { userId_provider: { userId, provider: SocialProvider.FACEBOOK } },
       select: {
         facebookUserId: true,
+        facebookName: true,
+        facebookEmail: true,
+        facebookPicture: true,
         pageId: true,
         pageName: true,
         syncEnabled: true,
@@ -190,6 +207,10 @@ export class FacebookPageService {
       configured: this.isConfigured(),
       accountConnected,
       connected: Boolean(row?.pageId),
+      facebookUserId: row?.facebookUserId ?? null,
+      facebookName: row?.facebookName ?? null,
+      facebookEmail: row?.facebookEmail ?? null,
+      facebookPicture: row?.facebookPicture ?? null,
       pageId: row?.pageId ?? null,
       pageName: row?.pageName ?? null,
       syncEnabled: row?.syncEnabled ?? false,
