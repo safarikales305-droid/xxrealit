@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { ACCESS_TOKEN_COOKIE } from '@/lib/auth-cookie';
+import { isFacebookPageScopeError } from '@/lib/facebook-page-scope';
 import { getOptionalInternalApiBaseUrl } from '@/lib/server-api';
 
 export const runtime = 'nodejs';
@@ -52,8 +53,12 @@ export async function GET() {
         res.status === 403 &&
         (data.reviewRequired ||
           msg.includes('Meta Review') ||
-          msg.includes('Admin/Tester'))
+          msg.includes('Admin/Tester') ||
+          msg.includes('testovací účet'))
       ) {
+        return socialIntegrationsRedirect('facebookPage=review_required');
+      }
+      if (isFacebookPageScopeError(msg)) {
         return socialIntegrationsRedirect('facebookPage=review_required');
       }
       if (

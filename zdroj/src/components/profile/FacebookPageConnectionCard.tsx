@@ -5,6 +5,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import {
+  FACEBOOK_PAGE_REVIEW_REQUIRED_MSG,
+  isFacebookPageScopeError,
+} from '@/lib/facebook-page-scope';
+import {
   nestFacebookConfigStatus,
   nestFacebookPageDisconnect,
   nestFacebookPageListPages,
@@ -19,8 +23,6 @@ import {
 
 const FACEBOOK_CONNECT_PATH = '/api/social/facebook/connect';
 const NOT_CONFIGURED_MSG = 'Facebook propojení není nakonfigurováno administrátorem.';
-const FACEBOOK_PAGE_REVIEW_REQUIRED_MSG =
-  'Propojení Facebook stránky vyžaduje schválení oprávnění v Meta Review. Pro testování musí být účet přidaný jako Admin/Tester v Meta aplikaci.';
 
 type Props = {
   token: string | null;
@@ -98,6 +100,10 @@ export function FacebookPageConnectionCard({ token }: Props) {
     const reason = params.get('reason');
     if (reason === 'not_configured') {
       setError(NOT_CONFIGURED_MSG);
+      return;
+    }
+    if (isFacebookPageScopeError(reason)) {
+      setError(FACEBOOK_PAGE_REVIEW_REQUIRED_MSG);
       return;
     }
     setError('Propojení Facebooku se nezdařilo. Zkuste to znovu.');
@@ -256,10 +262,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
             </p>
           </div>
           {configStatus?.pageConnectRequiresReview !== false ? (
-            <p className="text-sm text-amber-900">
-              Propojení Facebook stránky vyžaduje schválení oprávnění v Meta App Review. Pro
-              testování musí být váš účet přidaný jako Admin nebo Tester v Meta aplikaci.
-            </p>
+            <p className="text-sm text-amber-900">{FACEBOOK_PAGE_REVIEW_REQUIRED_MSG}</p>
           ) : null}
           <button
             type="button"

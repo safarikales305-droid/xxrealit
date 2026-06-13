@@ -142,7 +142,9 @@ export class FacebookPageController implements OnModuleInit {
       const status = err instanceof HttpException ? err.getStatus() : 503;
       const reviewRequired =
         status === 403 &&
-        (message.includes('Meta Review') || message.includes('Admin/Tester'));
+        (message.includes('Meta Review') ||
+          message.includes('Admin/Tester') ||
+          message.includes('testovací účet'));
       if (wantsJson) {
         return res.status(status).json({
           message,
