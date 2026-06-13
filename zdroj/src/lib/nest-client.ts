@@ -6557,6 +6557,7 @@ export async function nestFacebookConfigStatus(): Promise<FacebookConfigStatus |
 
 export type FacebookPageStatus = {
   configured: boolean;
+  accountConnected: boolean;
   connected: boolean;
   pageId: string | null;
   pageName: string | null;

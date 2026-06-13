@@ -78,6 +78,11 @@ export function FacebookPageConnectionCard({ token }: Props) {
   }, [params, token, status?.pendingPageSelection, loadPagePicker, integrationConfigured]);
 
   useEffect(() => {
+    if (params.get('facebook') === 'connected') {
+      setOk('Facebook účet byl úspěšně propojen.');
+      void refresh();
+      return;
+    }
     if (params.get('facebook') !== 'error') return;
     const reason = params.get('reason');
     if (reason === 'not_configured') {
@@ -85,7 +90,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
       return;
     }
     setError('Propojení Facebooku se nezdařilo. Zkuste to znovu.');
-  }, [params]);
+  }, [params, refresh]);
 
   function handleConnect() {
     if (!token) {
@@ -206,15 +211,32 @@ export function FacebookPageConnectionCard({ token }: Props) {
         <p className="text-sm text-amber-800">Facebook propojení vyžaduje nové přihlášení.</p>
       ) : null}
 
-      {!loading && integrationConfigured && !status?.connected && !selectingPage ? (
+      {!loading && integrationConfigured && !status?.connected && !status?.accountConnected && !selectingPage ? (
         <button
           type="button"
           disabled={busy}
           className="relative z-10 rounded-full bg-[#1877F2] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#166fe0] disabled:cursor-wait disabled:opacity-70"
           onClick={handleConnect}
         >
-          {busy ? 'Přesměrovávám na Facebook…' : 'Propojit Facebook stránku'}
+          {busy ? 'Přesměrovávám na Facebook…' : 'Propojit Facebook účet'}
         </button>
+      ) : null}
+
+      {!loading && status?.accountConnected && !status?.connected ? (
+        <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/80 p-3">
+          <p className="text-sm text-emerald-900">
+            Facebook účet je propojen. Propojení Facebook stránky a automatická synchronizace
+            příspěvků bude dostupná po schválení oprávnění v Meta App Review.
+          </p>
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded-full border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 disabled:opacity-50"
+            onClick={() => void handleDisconnect()}
+          >
+            Odpojit Facebook
+          </button>
+        </div>
       ) : null}
 
       {selectingPage && pages.length > 0 ? (

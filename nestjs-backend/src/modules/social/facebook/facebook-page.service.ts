@@ -10,7 +10,7 @@ import { SocialProvider, UserRole } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../../database/prisma.service';
 import { TokenEncryptionService } from '../token-encryption.service';
-import { FACEBOOK_PAGE_SCOPES, GRAPH_API } from './facebook-page.constants';
+import { FACEBOOK_ADVANCED_PAGE_SCOPES, FACEBOOK_BASIC_SCOPES, GRAPH_API } from './facebook-page.constants';
 import { FacebookConfigService } from './facebook-config.service';
 import { FacebookPageSyncService } from './facebook-page-sync.service';
 
@@ -75,13 +75,19 @@ export class FacebookPageService {
     }
   }
 
-  async buildConnectUrl(userId: string, role: UserRole): Promise<string> {
+  async buildConnectUrl(
+    userId: string,
+    role: UserRole,
+    options?: { advanced?: boolean },
+  ): Promise<string> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException(this.facebookConfig.configurationErrorMessage());
     }
     this.assertProfessional(userId, role);
 
-    const state = randomBytes(24).toString('hex');
+    const advanced = options?.advanced === true;
+    const statePrefix = advanced ? 'a' : 'b';
+    const state = `${statePrefix}${randomBytes(23).toString('hex')}`;
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
     await this.prisma.socialFacebookOAuthSession.deleteMany({ where: { userId } });
     await this.prisma.socialFacebookOAuthSession.create({
@@ -95,7 +101,11 @@ export class FacebookPageService {
 
     const redirectUri = encodeURIComponent(this.oauthRedirectUri());
     const appId = encodeURIComponent(this.facebookConfig.getAppId()!);
-    const scope = encodeURIComponent(FACEBOOK_PAGE_SCOPES);
+    const scope = encodeURIComponent(
+      advanced
+        ? `${FACEBOOK_BASIC_SCOPES},${FACEBOOK_ADVANCED_PAGE_SCOPES}`
+        : FACEBOOK_BASIC_SCOPES,
+    );
     return (
       `https://www.facebook.com/v21.0/dialog/oauth?` +
       `client_id=${appId}&redirect_uri=${redirectUri}&state=${state}&scope=${scope}&response_type=code`
@@ -108,8 +118,11 @@ export class FacebookPageService {
       return `${settingsUrl}&facebook=error&reason=missing_code`;
     }
 
+    const stateValue = state.trim();
+    const advanced = stateValue.startsWith('a');
+
     const session = await this.prisma.socialFacebookOAuthSession.findUnique({
-      where: { id: state.trim() },
+      where: { id: stateValue },
     });
     if (!session || session.expiresAt.getTime() < Date.now()) {
       return `${settingsUrl}&facebook=error&reason=session_expired`;
@@ -120,14 +133,9 @@ export class FacebookPageService {
       const longLived = await this.exchangeForLongLivedToken(shortToken);
       const userToken = longLived.access_token?.trim() || shortToken;
       const me = await this.fetchGraphJson<GraphMeResponse>(
-        `${GRAPH_API}/me?fields=id,name&access_token=${encodeURIComponent(userToken)}`,
+        `${GRAPH_API}/me?fields=id,name,email&access_token=${encodeURIComponent(userToken)}`,
       );
       if (!me.id) throw new BadRequestException('Neplatný Facebook token.');
-
-      await this.prisma.socialFacebookOAuthSession.update({
-        where: { id: session.id },
-        data: { userAccessToken: this.crypto.encrypt(userToken) },
-      });
 
       await this.prisma.socialConnection.upsert({
         where: {
@@ -145,7 +153,16 @@ export class FacebookPageService {
         },
       });
 
-      return `${settingsUrl}&facebook=select`;
+      if (advanced) {
+        await this.prisma.socialFacebookOAuthSession.update({
+          where: { id: session.id },
+          data: { userAccessToken: this.crypto.encrypt(userToken) },
+        });
+        return `${settingsUrl}&facebook=select`;
+      }
+
+      await this.prisma.socialFacebookOAuthSession.deleteMany({ where: { userId: session.userId } });
+      return `${settingsUrl}&facebook=connected`;
     } catch (err) {
       const reason = err instanceof Error ? encodeURIComponent(err.message.slice(0, 120)) : 'oauth_failed';
       return `${settingsUrl}&facebook=error&reason=${reason}`;
@@ -156,6 +173,7 @@ export class FacebookPageService {
     const row = await this.prisma.socialConnection.findUnique({
       where: { userId_provider: { userId, provider: SocialProvider.FACEBOOK } },
       select: {
+        facebookUserId: true,
         pageId: true,
         pageName: true,
         syncEnabled: true,
@@ -167,8 +185,10 @@ export class FacebookPageService {
     });
 
     const tokenInvalid = this.isTokenError(row?.lastSyncError);
+    const accountConnected = Boolean(row?.facebookUserId);
     return {
       configured: this.isConfigured(),
+      accountConnected,
       connected: Boolean(row?.pageId),
       pageId: row?.pageId ?? null,
       pageName: row?.pageName ?? null,
@@ -176,7 +196,8 @@ export class FacebookPageService {
       lastSyncAt: row?.lastSyncAt?.toISOString() ?? null,
       lastSyncError: row?.lastSyncError ?? null,
       tokenNeedsReauth: tokenInvalid,
-      pendingPageSelection: await this.hasPendingOAuthSession(userId),
+      pendingPageSelection:
+        !row?.pageId && accountConnected && (await this.hasPendingOAuthSession(userId)),
     };
   }
 

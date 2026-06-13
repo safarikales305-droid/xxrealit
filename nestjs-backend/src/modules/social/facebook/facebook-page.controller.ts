@@ -46,7 +46,14 @@ export class FacebookPageController {
   ) {
     const wantsJson = req.headers.accept?.includes('application/json');
     try {
-      const url = await this.facebookPage.buildConnectUrl(user.id, user.role as UserRole);
+      const advanced =
+        req.query.advanced === '1' ||
+        req.query.advanced === 'true';
+      const url = await this.facebookPage.buildConnectUrl(
+        user.id,
+        user.role as UserRole,
+        { advanced },
+      );
       if (wantsJson) {
         return res.json({ url });
       }
