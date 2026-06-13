@@ -46,7 +46,8 @@ const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'notifications', label: 'Notifikace' },
 ];
 
-function parseTab(raw: string | null): Tab {
+function parseTab(raw: string | null, facebook: string | null): Tab {
+  if (facebook) return 'settings';
   if (raw === 'listings' || raw === 'ads' || raw === 'messages' || raw === 'notifications') {
     return raw;
   }
@@ -58,7 +59,7 @@ export default function ProfileDashboardPage() {
   const params = useSearchParams();
   const { isAuthenticated, isLoading, apiAccessToken, user } = useAuth();
   const unreadMessages = useMessagesUnreadCount(apiAccessToken);
-  const tab = parseTab(params.get('tab'));
+  const tab = parseTab(params.get('tab'), params.get('facebook'));
 
   const [me, setMe] = useState<NestMeProfile | null>(null);
   const [loadingMe, setLoadingMe] = useState(false);

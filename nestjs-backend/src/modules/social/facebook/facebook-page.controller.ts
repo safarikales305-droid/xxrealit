@@ -4,6 +4,8 @@ import {
   Get,
   Header,
   HttpException,
+  Logger,
+  OnModuleInit,
   Post,
   Query,
   Req,
@@ -21,8 +23,14 @@ import { FacebookSyncToggleDto } from '../dto/facebook-sync-toggle.dto';
 import { FacebookPageService } from './facebook-page.service';
 
 @Controller('social/facebook')
-export class FacebookPageController {
+export class FacebookPageController implements OnModuleInit {
+  private readonly logger = new Logger(FacebookPageController.name);
+
   constructor(private readonly facebookPage: FacebookPageService) {}
+
+  onModuleInit() {
+    this.logger.log('Registered GET /api/social/facebook/callback');
+  }
 
   @Get('config-status')
   @Header('Cache-Control', 'no-store')
@@ -76,10 +84,28 @@ export class FacebookPageController {
   async callback(
     @Query('code') code: string | undefined,
     @Query('state') state: string | undefined,
+    @Query('error') oauthError: string | undefined,
+    @Query('error_reason') errorReason: string | undefined,
+    @Req() req: Request,
     @Res() res: Response,
   ) {
-    const redirect = await this.facebookPage.handleOAuthCallback(code, state);
-    return res.redirect(redirect);
+    if (oauthError?.trim()) {
+      const redirect = this.facebookPage.getErrorRedirectUrl(
+        errorReason?.trim() || oauthError.trim(),
+      );
+      return res.redirect(302, redirect);
+    }
+
+    const result = await this.facebookPage.handleOAuthCallback(code, state);
+    const wantsJson =
+      req.query.format === 'json' ||
+      req.headers.accept?.includes('application/json');
+
+    if (wantsJson) {
+      return res.status(result.ok ? 200 : 400).json(result);
+    }
+
+    return res.redirect(302, result.redirectUrl);
   }
 
   @Get('pages')

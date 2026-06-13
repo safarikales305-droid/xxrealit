@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { SocialProvider, UserRole } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../../database/prisma.service';
+import { AuthService } from '../../auth/auth.service';
 import { TokenEncryptionService } from '../token-encryption.service';
 import { FACEBOOK_ADVANCED_PAGE_SCOPES, FACEBOOK_BASIC_SCOPES, GRAPH_API } from './facebook-page.constants';
 import { FacebookConfigService } from './facebook-config.service';
@@ -39,6 +40,12 @@ type GraphAccountsResponse = { data?: GraphPageAccount[] };
 
 export type FacebookPageOption = { id: string; name: string };
 
+export type FacebookOAuthCallbackResult = {
+  ok: boolean;
+  redirectUrl: string;
+  accessToken?: string;
+};
+
 @Injectable()
 export class FacebookPageService {
   constructor(
@@ -47,6 +54,7 @@ export class FacebookPageService {
     private readonly crypto: TokenEncryptionService,
     private readonly sync: FacebookPageSyncService,
     private readonly facebookConfig: FacebookConfigService,
+    private readonly auth: AuthService,
   ) {}
 
   isConfigured(): boolean {
@@ -60,8 +68,18 @@ export class FacebookPageService {
   private frontendUrl(): string {
     return (
       this.config.get<string>('FRONTEND_URL')?.trim().replace(/\/+$/, '') ||
-      'http://localhost:3000'
+      'https://www.xxrealit.cz'
     );
+  }
+
+  getSuccessRedirectUrl(): string {
+    return `${this.frontendUrl()}/profil/dashboard?facebook=connected`;
+  }
+
+  getErrorRedirectUrl(reason?: string): string {
+    const base = `${this.frontendUrl()}/login?facebook=error`;
+    if (!reason?.trim()) return base;
+    return `${base}&reason=${encodeURIComponent(reason.trim().slice(0, 120))}`;
   }
 
   getFrontendSettingsUrl(): string {
@@ -117,10 +135,15 @@ export class FacebookPageService {
     );
   }
 
-  async handleOAuthCallback(code: string | undefined, state: string | undefined): Promise<string> {
-    const settingsUrl = `${this.frontendUrl()}/profil/dashboard?tab=settings`;
-    if (!code?.trim() || !state?.trim()) {
-      return `${settingsUrl}&facebook=error&reason=missing_code`;
+  async handleOAuthCallback(
+    code: string | undefined,
+    state: string | undefined,
+  ): Promise<FacebookOAuthCallbackResult> {
+    if (!code?.trim()) {
+      return { ok: false, redirectUrl: this.getErrorRedirectUrl('missing_code') };
+    }
+    if (!state?.trim()) {
+      return { ok: false, redirectUrl: this.getErrorRedirectUrl('missing_state') };
     }
 
     const stateValue = state.trim();
@@ -130,7 +153,7 @@ export class FacebookPageService {
       where: { id: stateValue },
     });
     if (!session || session.expiresAt.getTime() < Date.now()) {
-      return `${settingsUrl}&facebook=error&reason=session_expired`;
+      return { ok: false, redirectUrl: this.getErrorRedirectUrl('session_expired') };
     }
 
     try {
@@ -167,19 +190,44 @@ export class FacebookPageService {
         },
       });
 
+      const user = await this.prisma.user.findUnique({
+        where: { id: session.userId },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          avatar: true,
+          coverImage: true,
+          bio: true,
+          city: true,
+          createdAt: true,
+        },
+      });
+      const accessToken = user ? this.auth.issueTokens(user).accessToken : undefined;
+
       if (advanced) {
         await this.prisma.socialFacebookOAuthSession.update({
           where: { id: session.id },
           data: { userAccessToken: this.crypto.encrypt(userToken) },
         });
-        return `${settingsUrl}&facebook=select`;
+        return {
+          ok: true,
+          redirectUrl: `${this.getFrontendSettingsUrl()}&facebook=select`,
+          accessToken,
+        };
       }
 
       await this.prisma.socialFacebookOAuthSession.deleteMany({ where: { userId: session.userId } });
-      return `${settingsUrl}&facebook=connected`;
+      return {
+        ok: true,
+        redirectUrl: this.getSuccessRedirectUrl(),
+        accessToken,
+      };
     } catch (err) {
-      const reason = err instanceof Error ? encodeURIComponent(err.message.slice(0, 120)) : 'oauth_failed';
-      return `${settingsUrl}&facebook=error&reason=${reason}`;
+      const reason =
+        err instanceof Error ? err.message.slice(0, 120) : 'oauth_failed';
+      return { ok: false, redirectUrl: this.getErrorRedirectUrl(reason) };
     }
   }
 
