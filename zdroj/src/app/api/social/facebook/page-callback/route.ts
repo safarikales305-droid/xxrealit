@@ -14,19 +14,26 @@ export async function GET(request: NextRequest) {
   }
 
   const query = request.nextUrl.searchParams.toString();
+  const reviewFallback = `${settingsUrl}&facebookPage=review_required`;
   try {
-    const res = await fetch(`${nestBase}/social/facebook/page-callback?${query}`, {
-      headers: { Accept: 'application/json' },
-      cache: 'no-store',
-    });
+    const res = await fetch(
+      `${nestBase}/social/facebook/page-callback?${query}${query ? '&' : ''}format=json`,
+      {
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+      },
+    );
     const data = (await res.json().catch(() => ({}))) as {
       redirectUrl?: string;
       accessToken?: string;
+      pageReviewRequired?: boolean;
     };
     const redirectUrl =
       typeof data.redirectUrl === 'string' && data.redirectUrl.trim()
         ? data.redirectUrl.trim()
-        : `${settingsUrl}&facebook=error`;
+        : data.pageReviewRequired
+          ? reviewFallback
+          : `${settingsUrl}&facebook=error`;
     const response = NextResponse.redirect(redirectUrl);
     if (typeof data.accessToken === 'string' && data.accessToken.trim()) {
       response.cookies.set(
@@ -37,6 +44,6 @@ export async function GET(request: NextRequest) {
     }
     return response;
   } catch {
-    return NextResponse.redirect(`${settingsUrl}&facebook=error&reason=network`);
+    return NextResponse.redirect(reviewFallback);
   }
 }

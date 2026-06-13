@@ -24,6 +24,7 @@ export type FacebookConfigStatusDto = {
   missing: string[];
   oauthRedirectUri: string | null;
   pageConnectRedirectUri: string | null;
+  pageConnectRequiresReview: boolean;
   webhookUri: string | null;
   recommendedMissing: string[];
   envChecks: FacebookEnvCheck[];
@@ -168,6 +169,22 @@ export class FacebookConfigService implements OnModuleInit {
     throw new ServiceUnavailableException(this.configurationErrorMessage());
   }
 
+  /** Dokud není Meta Review, pages scope fungují jen pro Admin/Tester v Meta konzoli. */
+  isPageConnectReviewPending(): boolean {
+    const raw = this.readEnv('FACEBOOK_PAGE_CONNECT_REQUIRES_REVIEW');
+    if (raw === 'false' || raw === '0') return false;
+    return true;
+  }
+
+  getAppTesterFacebookUserIds(): string[] {
+    const raw = this.readEnv('FACEBOOK_APP_TESTER_FACEBOOK_IDS');
+    if (!raw?.trim()) return [];
+    return raw
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean);
+  }
+
   getConfigStatus(): FacebookConfigStatusDto {
     const missing = this.getMissingRequired();
     const oauthRedirectUri =
@@ -186,6 +203,7 @@ export class FacebookConfigService implements OnModuleInit {
       missing,
       oauthRedirectUri,
       pageConnectRedirectUri,
+      pageConnectRequiresReview: this.isPageConnectReviewPending(),
       webhookUri: this.buildWebhookUri(),
       recommendedMissing: this.getRecommendedMissing(),
       envChecks: this.buildEnvChecks(),

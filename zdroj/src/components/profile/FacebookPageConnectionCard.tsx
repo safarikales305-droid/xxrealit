@@ -19,6 +19,8 @@ import {
 
 const FACEBOOK_CONNECT_PATH = '/api/social/facebook/connect';
 const NOT_CONFIGURED_MSG = 'Facebook propojení není nakonfigurováno administrátorem.';
+const FACEBOOK_PAGE_REVIEW_REQUIRED_MSG =
+  'Propojení Facebook stránky vyžaduje schválení oprávnění v Meta Review. Pro testování musí být účet přidaný jako Admin/Tester v Meta aplikaci.';
 
 type Props = {
   token: string | null;
@@ -78,6 +80,15 @@ export function FacebookPageConnectionCard({ token }: Props) {
   }, [params, token, status?.pendingPageSelection, loadPagePicker, integrationConfigured]);
 
   useEffect(() => {
+    if (params.get('facebookPage') === 'review_required') {
+      setError(FACEBOOK_PAGE_REVIEW_REQUIRED_MSG);
+      return;
+    }
+    if (params.get('facebook') === 'page_connected') {
+      setOk('Facebook stránka byla úspěšně propojena.');
+      void refresh();
+      return;
+    }
     if (params.get('facebook') === 'connected') {
       setOk('Facebook účet byl úspěšně propojen.');
       void refresh();
@@ -222,7 +233,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
         </button>
       ) : null}
 
-      {!loading && status?.accountConnected && !status?.connected ? (
+      {!loading && status?.accountConnected && !status?.connected && !selectingPage ? (
         <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/80 p-3">
           <div className="flex items-center gap-3">
             {status.facebookPicture ? (
@@ -241,11 +252,23 @@ export function FacebookPageConnectionCard({ token }: Props) {
                 </>
               ) : (
                 'Facebook účet je propojen.'
-              )}{' '}
-              Propojení Facebook stránky a automatická synchronizace příspěvků bude dostupná po
-              schválení oprávnění v Meta App Review.
+              )}
             </p>
           </div>
+          {configStatus?.pageConnectRequiresReview !== false ? (
+            <p className="text-sm text-amber-900">
+              Propojení Facebook stránky vyžaduje schválení oprávnění v Meta App Review. Pro
+              testování musí být váš účet přidaný jako Admin nebo Tester v Meta aplikaci.
+            </p>
+          ) : null}
+          <button
+            type="button"
+            disabled={busy}
+            className="relative z-10 rounded-full bg-[#1877F2] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#166fe0] disabled:cursor-wait disabled:opacity-70"
+            onClick={handleConnect}
+          >
+            {busy ? 'Přesměrovávám na Facebook…' : 'Propojit Facebook stránku'}
+          </button>
           <button
             type="button"
             disabled={busy}

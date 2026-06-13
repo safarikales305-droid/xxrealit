@@ -91,15 +91,17 @@ export class FacebookPageController implements OnModuleInit {
     @Query('state') state: string | undefined,
     @Query('error') oauthError: string | undefined,
     @Query('error_reason') errorReason: string | undefined,
+    @Query('error_description') errorDescription: string | undefined,
     @Req() req: Request,
     @Res() res: Response,
   ) {
-    if (oauthError?.trim()) {
-      const url = `${this.facebookPage.getFrontendSettingsUrl().replace('tab=settings', 'tab=social-integrations')}&facebook=error`;
-      return res.redirect(302, url);
-    }
-
-    const result = await this.facebookPage.handlePageCallback(code, state);
+    const result = await this.facebookPage.handlePageCallback(
+      code,
+      state,
+      oauthError,
+      errorReason,
+      errorDescription,
+    );
     return this.respondOAuth(res, req, result);
   }
 
@@ -138,9 +140,23 @@ export class FacebookPageController implements OnModuleInit {
           ? String(err.message)
           : 'Facebook propojení není nakonfigurováno administrátorem.';
       const status = err instanceof HttpException ? err.getStatus() : 503;
-      if (wantsJson) return res.status(status).json({ message, error: message });
-      const settingsUrl = `${this.facebookPage.getFrontendSettingsUrl()}&tab=social-integrations&facebook=error&reason=connect_failed`;
-      return res.redirect(302, settingsUrl);
+      const reviewRequired =
+        status === 403 &&
+        (message.includes('Meta Review') || message.includes('Admin/Tester'));
+      if (wantsJson) {
+        return res.status(status).json({
+          message,
+          error: message,
+          ...(reviewRequired ? { reviewRequired: true } : {}),
+        });
+      }
+      if (reviewRequired) {
+        return res.redirect(302, this.facebookPage.getPageReviewRequiredRedirectUrl());
+      }
+      return res.redirect(
+        302,
+        `${this.facebookPage.getSocialIntegrationsUrl()}&facebook=error&reason=connect_failed`,
+      );
     }
   }
 
@@ -208,7 +224,13 @@ export class FacebookPageController implements OnModuleInit {
   private respondOAuth(
     res: Response,
     req: Request,
-    result: { ok: boolean; redirectUrl: string; accessToken?: string },
+    result: {
+      ok: boolean;
+      redirectUrl: string;
+      accessToken?: string;
+      pageReviewRequired?: boolean;
+      message?: string;
+    },
   ) {
     const wantsJson =
       req.query.format === 'json' || req.headers.accept?.includes('application/json');

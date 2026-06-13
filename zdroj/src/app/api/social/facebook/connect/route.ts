@@ -5,26 +5,24 @@ import { getOptionalInternalApiBaseUrl } from '@/lib/server-api';
 
 export const runtime = 'nodejs';
 
-const SETTINGS_PATH = '/profil/dashboard?tab=settings';
+const SOCIAL_INTEGRATIONS_PATH = '/profil/dashboard?tab=social-integrations';
 
-function settingsErrorRedirect(reason: string): NextResponse {
-  return NextResponse.redirect(
-    `${SETTINGS_PATH}&facebook=error&reason=${encodeURIComponent(reason)}`,
-  );
+function socialIntegrationsRedirect(query: string): NextResponse {
+  return NextResponse.redirect(`${SOCIAL_INTEGRATIONS_PATH}&${query}`);
 }
 
-/** GET — proxy na Nest OAuth connect s JWT z httpOnly cookie, pak redirect na Facebook. */
+/** GET — proxy na Nest OAuth connect-page s JWT z httpOnly cookie, pak redirect na Facebook. */
 export async function GET() {
   const nestBase = getOptionalInternalApiBaseUrl();
   if (!nestBase) {
     console.error('[api/social/facebook/connect] Nest API URL není nakonfigurováno');
-    return settingsErrorRedirect('not_configured');
+    return socialIntegrationsRedirect('facebook=error&reason=not_configured');
   }
 
   const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value ?? null;
   if (!token) {
     return NextResponse.redirect(
-      `/prihlaseni?redirect=${encodeURIComponent(SETTINGS_PATH)}`,
+      `/prihlaseni?redirect=${encodeURIComponent(SOCIAL_INTEGRATIONS_PATH)}`,
     );
   }
 
@@ -40,6 +38,7 @@ export async function GET() {
     const data = (await res.json().catch(() => ({}))) as {
       url?: string;
       message?: string | string[];
+      reviewRequired?: boolean;
     };
 
     if (!res.ok) {
@@ -50,24 +49,32 @@ export async function GET() {
           : '';
       console.error('[api/social/facebook/connect] Nest error', res.status, data);
       if (
+        res.status === 403 &&
+        (data.reviewRequired ||
+          msg.includes('Meta Review') ||
+          msg.includes('Admin/Tester'))
+      ) {
+        return socialIntegrationsRedirect('facebookPage=review_required');
+      }
+      if (
         res.status === 503 ||
         msg.toLowerCase().includes('není nastaven') ||
         msg.toLowerCase().includes('nakonfigurováno')
       ) {
-        return settingsErrorRedirect('not_configured');
+        return socialIntegrationsRedirect('facebook=error&reason=not_configured');
       }
-      return settingsErrorRedirect('connect_failed');
+      return socialIntegrationsRedirect('facebook=error&reason=connect_failed');
     }
 
     const url = typeof data.url === 'string' ? data.url.trim() : '';
     if (!url) {
       console.error('[api/social/facebook/connect] missing url in response', data);
-      return settingsErrorRedirect('missing_url');
+      return socialIntegrationsRedirect('facebook=error&reason=missing_url');
     }
 
     return NextResponse.redirect(url);
   } catch (err) {
     console.error('[api/social/facebook/connect]', err);
-    return settingsErrorRedirect('network');
+    return socialIntegrationsRedirect('facebook=error&reason=network');
   }
 }

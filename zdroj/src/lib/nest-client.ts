@@ -6533,6 +6533,7 @@ export type FacebookConfigStatus = {
   missing: string[];
   oauthRedirectUri?: string | null;
   pageConnectRedirectUri?: string | null;
+  pageConnectRequiresReview?: boolean;
   webhookUri?: string | null;
   recommendedMissing?: string[];
   envChecks?: Array<{ key: string; present: boolean; required: boolean }>;

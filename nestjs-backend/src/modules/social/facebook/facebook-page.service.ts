@@ -13,6 +13,10 @@ import { TokenEncryptionService } from '../token-encryption.service';
 import { FACEBOOK_LOGIN_SCOPES, FACEBOOK_PAGE_CONNECT_SCOPES, GRAPH_API } from './facebook-page.constants';
 import { FacebookConfigService } from './facebook-config.service';
 import { FacebookPageSyncService } from './facebook-page-sync.service';
+import {
+  FACEBOOK_PAGE_REVIEW_REQUIRED_MESSAGE,
+  isFacebookPageScopeError,
+} from './facebook-page-scope.util';
 
 const PROFESSIONAL_ROLES: UserRole[] = [
   UserRole.AGENT,
@@ -44,6 +48,8 @@ export type FacebookOAuthCallbackResult = {
   redirectUrl: string;
   accessToken?: string;
   isNewUser?: boolean;
+  pageReviewRequired?: boolean;
+  message?: string;
 };
 
 @Injectable()
@@ -85,6 +91,68 @@ export class FacebookPageService {
     return `${this.frontendUrl()}/profil/dashboard?tab=settings`;
   }
 
+  getSocialIntegrationsUrl(): string {
+    return `${this.frontendUrl()}/profil/dashboard?tab=social-integrations`;
+  }
+
+  getPageReviewRequiredRedirectUrl(): string {
+    return `${this.getSocialIntegrationsUrl()}&facebookPage=review_required`;
+  }
+
+  private async cleanupPageOAuthSession(userId: string) {
+    await this.prisma.socialFacebookOAuthSession.deleteMany({
+      where: { userId, mode: 'page' },
+    });
+  }
+
+  private pageReviewRequiredResult(): FacebookOAuthCallbackResult {
+    return {
+      ok: false,
+      redirectUrl: this.getPageReviewRequiredRedirectUrl(),
+      pageReviewRequired: true,
+      message: FACEBOOK_PAGE_REVIEW_REQUIRED_MESSAGE,
+    };
+  }
+
+  handlePageOAuthDenied(
+    oauthError?: string,
+    errorReason?: string,
+    errorDescription?: string,
+  ): FacebookOAuthCallbackResult | null {
+    if (!oauthError?.trim() && !errorReason?.trim() && !errorDescription?.trim()) {
+      return null;
+    }
+    if (isFacebookPageScopeError(oauthError, errorReason, errorDescription)) {
+      return this.pageReviewRequiredResult();
+    }
+    return {
+      ok: false,
+      redirectUrl: `${this.getSocialIntegrationsUrl()}&facebook=error&reason=${encodeURIComponent(
+        (errorDescription ?? errorReason ?? oauthError ?? 'oauth_denied').slice(0, 120),
+      )}`,
+    };
+  }
+
+  private async assertPageConnectAllowed(userId: string, role: UserRole) {
+    if (!this.facebookConfig.isPageConnectReviewPending()) return;
+
+    const testerIds = this.facebookConfig.getAppTesterFacebookUserIds();
+    if (role === UserRole.ADMIN) return;
+
+    if (testerIds.length === 0) {
+      // Bez allowlistu necháme OAuth zkusit — ne-tester dostane fallback v callbacku.
+      return;
+    }
+
+    const fb = await this.prisma.facebookConnection.findUnique({
+      where: { userId },
+      select: { facebookUserId: true },
+    });
+    if (!fb?.facebookUserId || !testerIds.includes(fb.facebookUserId)) {
+      throw new ForbiddenException(FACEBOOK_PAGE_REVIEW_REQUIRED_MESSAGE);
+    }
+  }
+
   private oauthRedirectUri(): string {
     return this.facebookConfig.resolveOAuthRedirectUri();
   }
@@ -106,6 +174,7 @@ export class FacebookPageService {
       throw new ServiceUnavailableException(this.facebookConfig.configurationErrorMessage());
     }
     this.assertProfessional(userId, role);
+    await this.assertPageConnectAllowed(userId, role);
 
     const state = `p${randomBytes(23).toString('hex')}`;
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
@@ -148,8 +217,22 @@ export class FacebookPageService {
   async handlePageCallback(
     code: string | undefined,
     state: string | undefined,
+    oauthError?: string,
+    errorReason?: string,
+    errorDescription?: string,
   ): Promise<FacebookOAuthCallbackResult> {
-    const settingsUrl = `${this.frontendUrl()}/profil/dashboard?tab=social-integrations`;
+    const denied = this.handlePageOAuthDenied(oauthError, errorReason, errorDescription);
+    if (denied) {
+      if (denied.pageReviewRequired && state?.trim().startsWith('p')) {
+        const session = await this.prisma.socialFacebookOAuthSession.findUnique({
+          where: { id: state.trim() },
+        });
+        if (session?.userId) await this.cleanupPageOAuthSession(session.userId);
+      }
+      return denied;
+    }
+
+    const settingsUrl = this.getSocialIntegrationsUrl();
     if (!code?.trim()) {
       return { ok: false, redirectUrl: `${settingsUrl}&facebook=error&reason=missing_code` };
     }
@@ -179,22 +262,27 @@ export class FacebookPageService {
 
       const pages = await this.listManagedPages(session.userId);
       if (!pages.length) {
+        await this.cleanupPageOAuthSession(session.userId);
         return { ok: false, redirectUrl: `${settingsUrl}&facebook=error&reason=no_pages` };
       }
 
       if (pages.length === 1) {
         const user = await this.prisma.user.findUnique({ where: { id: session.userId } });
         await this.selectPage(session.userId, (user?.role ?? UserRole.AGENT) as UserRole, pages[0].id);
-        await this.prisma.socialFacebookOAuthSession.deleteMany({ where: { userId: session.userId } });
+        await this.cleanupPageOAuthSession(session.userId);
         return { ok: true, redirectUrl: `${settingsUrl}&facebook=page_connected` };
       }
 
       return { ok: true, redirectUrl: `${settingsUrl}&facebook=select` };
     } catch (err) {
-      const reason = err instanceof Error ? err.message.slice(0, 120) : 'oauth_failed';
+      await this.cleanupPageOAuthSession(session.userId);
+      const reason = err instanceof Error ? err.message : 'oauth_failed';
+      if (isFacebookPageScopeError(reason)) {
+        return this.pageReviewRequiredResult();
+      }
       return {
         ok: false,
-        redirectUrl: `${settingsUrl}&facebook=error&reason=${encodeURIComponent(reason)}`,
+        redirectUrl: `${settingsUrl}&facebook=error&reason=${encodeURIComponent(reason.slice(0, 120))}`,
       };
     }
   }

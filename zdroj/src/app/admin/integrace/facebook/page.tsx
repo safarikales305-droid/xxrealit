@@ -166,6 +166,37 @@ export default function AdminFacebookIntegrationPage() {
             ) : null}
           </div>
 
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/90 p-5 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wide text-amber-800">
+              Meta App Review
+            </p>
+            <p className="mt-2 text-sm text-amber-950">
+              Facebook Page sync vyžaduje Meta Review pro{' '}
+              <code className="rounded bg-amber-100 px-1 text-xs">pages_show_list</code>,{' '}
+              <code className="rounded bg-amber-100 px-1 text-xs">pages_read_engagement</code> a{' '}
+              <code className="rounded bg-amber-100 px-1 text-xs">pages_read_user_content</code>.
+            </p>
+            <p className="mt-2 text-sm text-amber-900">
+              Dokud oprávnění nejsou schválena, propojení stránky funguje jen pro účty přidané jako
+              Admin nebo Tester v Meta for Developers. Základní Facebook Login uživatelů běží bez
+              pages scope (<code className="rounded bg-amber-100 px-1 text-xs">public_profile</code>
+              ).
+            </p>
+            {config?.pageConnectRequiresReview !== false ? (
+              <p className="mt-2 text-xs font-medium text-amber-900">
+                Režim čekání na review je aktivní (výchozí). Po schválení nastavte{' '}
+                <code className="rounded bg-amber-100 px-1">
+                  FACEBOOK_PAGE_CONNECT_REQUIRES_REVIEW=false
+                </code>{' '}
+                v Railway.
+              </p>
+            ) : (
+              <p className="mt-2 text-xs text-amber-800">
+                Režim review je vypnutý — pages scope jsou povoleny pro všechny uživatele.
+              </p>
+            )}
+          </div>
+
           <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">URI</p>
             <dl className="mt-3 space-y-3 text-sm">
