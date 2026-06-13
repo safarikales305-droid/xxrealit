@@ -76,6 +76,7 @@ function buildCorsOriginAllowlist(): string[] {
   const defaults = [
     'https://www.xxrealit.cz',
     'https://xxrealit.cz',
+    'https://surprising-wisdom-production-679.up.railway.app',
     'https://xxrealit-production.up.railway.app',
     'http://localhost:3000',
     'http://localhost:3001',
@@ -164,14 +165,17 @@ async function bootstrap() {
       callback(null, false);
     },
     credentials: true,
-    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
-      'Content-Type',
       'Authorization',
+      'Content-Type',
+      'Cache-Control',
+      'Pragma',
+      'Expires',
+      'X-Requested-With',
       'Accept',
       'Accept-Language',
       'Origin',
-      'X-Requested-With',
       'baggage',
       'sentry-trace',
       ...parseCommaSeparatedHeaders(process.env.CORS_EXTRA_HEADERS),
@@ -179,6 +183,14 @@ async function bootstrap() {
     exposedHeaders: ['Content-Length'],
     optionsSuccessStatus: 204,
     maxAge: 86_400,
+  });
+
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
+    next();
   });
 
   const port = Number(process.env.PORT) || 3000;

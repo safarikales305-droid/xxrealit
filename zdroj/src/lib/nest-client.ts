@@ -6541,11 +6541,10 @@ export async function nestFacebookConfigStatus(): Promise<FacebookConfigStatus |
     const res = await fetch(
       `${API_BASE_URL}/social/facebook/config-status?_=${Date.now()}`,
       {
+        credentials: 'include',
         cache: 'no-store',
         headers: {
           Accept: 'application/json',
-          'Cache-Control': 'no-cache',
-          Pragma: 'no-cache',
         },
       },
     );

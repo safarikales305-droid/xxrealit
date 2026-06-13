@@ -25,7 +25,7 @@ export class FacebookPageController {
   constructor(private readonly facebookPage: FacebookPageService) {}
 
   @Get('config-status')
-  @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
+  @Header('Cache-Control', 'no-store')
   @Header('Pragma', 'no-cache')
   configStatus() {
     return this.facebookPage.getConfigStatus();
