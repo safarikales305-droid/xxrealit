@@ -1339,10 +1339,17 @@ model FacebookUrlImportLog {
   id        String   @id @default(cuid())
   userId    String
   status    String
-  found     Int      @default(0)
-  imported  Int      @default(0)
-  skipped   Int      @default(0)
-  error     String?  @db.Text
+  found            Int      @default(0)
+  imported         Int      @default(0)
+  skipped          Int      @default(0)
+  importedCount    Int      @default(0)
+  skippedDuplicates Int     @default(0)
+  fetchUrl         String?
+  httpStatus       Int?
+  contentLength    Int?
+  detectedReason   String?
+  rawSnippet       String?  @db.Text
+  error            String?  @db.Text
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

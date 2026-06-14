@@ -271,19 +271,30 @@ export default function AdminFacebookIntegrationPage() {
             {urlImports?.recentLogs?.length ? (
               <div className="mt-4">
                 <p className="text-sm font-semibold text-zinc-800">Poslední logy</p>
-                <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto text-xs text-zinc-700">
+                <ul className="mt-2 max-h-64 space-y-2 overflow-y-auto text-xs text-zinc-700">
                   {urlImports.recentLogs.slice(0, 20).map((log) => (
                     <li key={log.id} className="rounded border border-zinc-100 bg-zinc-50 px-2 py-1.5">
                       <span className="font-medium">
                         {log.user?.name ?? log.user?.email ?? log.userId}
                       </span>
                       {' — '}
-                      {log.status}; nalezeno {log.found ?? 0}, importováno {log.imported ?? 0},
-                      přeskočeno {log.skipped ?? 0}
-                      {log.error ? ` — ${log.error}` : ''}
-                      <span className="text-zinc-500">
-                        {' '}
-                        ({new Date(log.createdAt).toLocaleString('cs-CZ')})
+                      {log.status}; důvod {log.detectedReason ?? '—'}; nalezeno{' '}
+                      {log.found ?? 0}, importováno {log.importedCount ?? log.imported ?? 0},
+                      přeskočeno {log.skippedDuplicates ?? log.skipped ?? 0}
+                      {log.fetchUrl ? (
+                        <span className="mt-1 block break-all text-zinc-500">
+                          fetch: {log.fetchUrl} (HTTP {log.httpStatus ?? '—'},{' '}
+                          {log.contentLength ?? 0} B)
+                        </span>
+                      ) : null}
+                      {log.error ? <span className="mt-1 block text-red-700">{log.error}</span> : null}
+                      {log.rawSnippet ? (
+                        <span className="mt-1 block break-all font-mono text-[10px] text-zinc-400">
+                          {log.rawSnippet.slice(0, 200)}…
+                        </span>
+                      ) : null}
+                      <span className="mt-1 block text-zinc-500">
+                        {new Date(log.createdAt).toLocaleString('cs-CZ')}
                       </span>
                     </li>
                   ))}

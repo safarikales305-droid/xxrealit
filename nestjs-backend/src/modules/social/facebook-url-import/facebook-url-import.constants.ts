@@ -7,10 +7,13 @@ export const FACEBOOK_URL_IMPORT_CRON_MS = 6 * 60 * 60 * 1000;
 export const FACEBOOK_URL_IMPORT_USER_ERROR =
   'Facebook obsah se nepodařilo automaticky načíst. Zkontrolujte, že stránka je veřejná.';
 
+export { FACEBOOK_BLOCKED_CODE, FACEBOOK_BLOCKED_USER_MSG } from './facebook-import-reason';
+
 export const FACEBOOK_URL_ALLOWED_HOSTS = new Set([
   'facebook.com',
   'www.facebook.com',
   'm.facebook.com',
+  'mbasic.facebook.com',
 ]);
 
 export const FACEBOOK_IMPORT_TAG = 'Importováno z Facebooku';

@@ -1,0 +1,7 @@
+ALTER TABLE "FacebookUrlImportLog" ADD COLUMN IF NOT EXISTS "importedCount" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "FacebookUrlImportLog" ADD COLUMN IF NOT EXISTS "skippedDuplicates" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "FacebookUrlImportLog" ADD COLUMN IF NOT EXISTS "fetchUrl" TEXT;
+ALTER TABLE "FacebookUrlImportLog" ADD COLUMN IF NOT EXISTS "httpStatus" INTEGER;
+ALTER TABLE "FacebookUrlImportLog" ADD COLUMN IF NOT EXISTS "contentLength" INTEGER;
+ALTER TABLE "FacebookUrlImportLog" ADD COLUMN IF NOT EXISTS "detectedReason" TEXT;
+ALTER TABLE "FacebookUrlImportLog" ADD COLUMN IF NOT EXISTS "rawSnippet" TEXT;

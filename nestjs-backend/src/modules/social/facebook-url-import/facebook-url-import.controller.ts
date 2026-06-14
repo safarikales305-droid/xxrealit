@@ -12,6 +12,7 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../auth/decorators/current-user.decorator';
 import { UpdateFacebookUrlImportDto } from './dto/update-facebook-url-import.dto';
+import { CreateFacebookManualPostDto } from './dto/create-facebook-manual-post.dto';
 import { FacebookUrlImportService } from './facebook-url-import.service';
 
 @Controller('social/facebook-url-import')
@@ -37,5 +38,14 @@ export class FacebookUrlImportController {
   @UseGuards(JwtAuthGuard)
   syncNow(@CurrentUser() user: AuthUser) {
     return this.imports.syncUser(user.id, { triggeredBy: 'user' });
+  }
+
+  @Post('manual-post')
+  @UseGuards(JwtAuthGuard)
+  importManualPost(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: CreateFacebookManualPostDto,
+  ) {
+    return this.imports.importManualPost(user.id, user.role as UserRole, dto);
   }
 }

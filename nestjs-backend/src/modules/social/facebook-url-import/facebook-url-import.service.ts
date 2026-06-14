@@ -10,11 +10,19 @@ import { PrismaService } from '../../../database/prisma.service';
 import type { FacebookContentProvider } from './facebook-content-provider.interface';
 import { FacebookUrlScraperProvider } from './facebook-url.scraper.provider';
 import {
+  FACEBOOK_BLOCKED_CODE,
   FACEBOOK_URL_IMPORT_MANUAL_LIMIT,
   FACEBOOK_URL_IMPORT_MAX_NEW,
-  FACEBOOK_URL_IMPORT_USER_ERROR,
 } from './facebook-url-import.constants';
-import { normalizeFacebookPageUrl } from './facebook-url.validation';
+import {
+  type FacebookImportDetectedReason,
+  userMessageForImportReason,
+} from './facebook-import-reason';
+import {
+  externalIdForFacebookPostUrl,
+  normalizeFacebookPageUrl,
+  normalizeFacebookPostUrl,
+} from './facebook-url.validation';
 
 const PROFESSIONAL_ROLES: UserRole[] = [
   UserRole.AGENT,
@@ -115,6 +123,30 @@ export class FacebookUrlImportService {
     };
   }
 
+  async importManualPost(
+    userId: string,
+    role: UserRole,
+    input: { postUrl: string; text?: string; imageUrl?: string },
+  ) {
+    this.assertProfessional(role);
+    const permalink = normalizeFacebookPostUrl(input.postUrl);
+    const externalId = externalIdForFacebookPostUrl(permalink);
+    const result = await this.importScrapedPost(userId, role, {
+      externalId,
+      permalink,
+      message: input.text?.trim() ?? '',
+      imageUrl: input.imageUrl?.trim() || null,
+      videoUrl: null,
+      publishedAt: null,
+    });
+
+    if (result === 'skipped') {
+      throw new BadRequestException('Tento Facebook příspěvek už byl importován dříve.');
+    }
+
+    return { ok: true, permalink };
+  }
+
   async syncUser(userId: string, options?: { triggeredBy?: 'user' | 'cron' | 'admin' }) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -146,13 +178,24 @@ export class FacebookUrlImportService {
     let imported = 0;
     let skipped = 0;
     let found = 0;
-    let errorMessage: string | null = null;
+    let detectedReason: FacebookImportDetectedReason = 'NO_PUBLIC_POSTS';
+    let fetchUrl: string | null = null;
+    let httpStatus: number | null = null;
+    let contentLength: number | null = null;
+    let rawSnippet: string | null = null;
+    let userMessage: string | null = null;
+    let status: 'OK' | 'ERROR' = 'OK';
 
     try {
-      const scraped = await this.provider.fetchPublicPosts(user.facebookUrl, limit);
-      found = scraped.length;
+      const scrape = await this.provider.fetchPublicPosts(user.facebookUrl, limit);
+      found = scrape.posts.length;
+      detectedReason = scrape.detectedReason;
+      fetchUrl = scrape.fetchUrl;
+      httpStatus = scrape.httpStatus;
+      contentLength = scrape.contentLength;
+      rawSnippet = scrape.rawSnippet;
 
-      for (const item of scraped) {
+      for (const item of scrape.posts) {
         const result = await this.importScrapedPost(user.id, user.role, item);
         if (result === 'imported') {
           imported += 1;
@@ -162,32 +205,43 @@ export class FacebookUrlImportService {
         }
       }
 
-      const infoMessage =
-        imported === 0 && found === 0
-          ? 'Nebyl nalezen žádný veřejný příspěvek.'
-          : imported === 0 && found > 0
-            ? 'Všechny nalezené příspěvky už byly importovány dříve.'
-            : null;
+      if (imported > 0) {
+        detectedReason = 'OK';
+        userMessage = null;
+      } else if (found > 0) {
+        detectedReason = 'OK';
+        userMessage = userMessageForImportReason('OK', { allDuplicates: true });
+      } else {
+        userMessage = userMessageForImportReason(detectedReason);
+      }
+
+      const importStatus =
+        detectedReason === 'FACEBOOK_BLOCKED' ? FacebookImportStatus.ERROR : FacebookImportStatus.OK;
+      if (detectedReason === 'FACEBOOK_BLOCKED') {
+        status = 'ERROR';
+      }
 
       await this.prisma.user.update({
         where: { id: userId },
         data: {
-          facebookImportStatus: FacebookImportStatus.OK,
+          facebookImportStatus: importStatus,
           facebookLastSyncAt: new Date(),
-          facebookImportError: infoMessage,
+          facebookImportError: userMessage,
         },
       });
 
       this.logger.log(
-        `FACEBOOK_URL_IMPORT_OK userId=${userId} found=${found} imported=${imported} skipped=${skipped} trigger=${options?.triggeredBy ?? 'user'}`,
+        `FACEBOOK_URL_IMPORT_OK userId=${userId} reason=${detectedReason} found=${found} imported=${imported} skipped=${skipped} trigger=${options?.triggeredBy ?? 'user'}`,
       );
     } catch (err) {
-      errorMessage = FACEBOOK_URL_IMPORT_USER_ERROR;
+      status = 'ERROR';
+      detectedReason = 'URL_NOT_AVAILABLE';
+      userMessage = userMessageForImportReason('URL_NOT_AVAILABLE');
       await this.prisma.user.update({
         where: { id: userId },
         data: {
           facebookImportStatus: FacebookImportStatus.ERROR,
-          facebookImportError: errorMessage,
+          facebookImportError: userMessage,
         },
       });
       this.logger.warn(
@@ -195,14 +249,28 @@ export class FacebookUrlImportService {
       );
     }
 
+    const logError =
+      status === 'ERROR'
+        ? detectedReason === 'FACEBOOK_BLOCKED'
+          ? FACEBOOK_BLOCKED_CODE
+          : userMessage
+        : userMessage;
+
     await this.prisma.facebookUrlImportLog.create({
       data: {
         userId,
-        status: errorMessage ? 'ERROR' : 'OK',
+        status,
         found,
         imported,
         skipped,
-        error: errorMessage,
+        importedCount: imported,
+        skippedDuplicates: skipped,
+        fetchUrl,
+        httpStatus,
+        contentLength,
+        detectedReason,
+        rawSnippet,
+        error: logError,
       },
     });
 
@@ -210,8 +278,10 @@ export class FacebookUrlImportService {
       imported,
       found,
       skipped,
-      error: errorMessage,
-      facebookImportStatus: errorMessage ? FacebookImportStatus.ERROR : FacebookImportStatus.OK,
+      detectedReason,
+      error: userMessage,
+      facebookImportStatus:
+        status === 'ERROR' ? FacebookImportStatus.ERROR : FacebookImportStatus.OK,
     };
   }
 

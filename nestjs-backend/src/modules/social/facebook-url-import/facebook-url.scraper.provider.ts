@@ -1,77 +1,210 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import type { FacebookImportDetectedReason } from './facebook-import-reason';
 import type {
   FacebookContentProvider,
+  FacebookScrapeAttempt,
+  FacebookScrapeResult,
   FacebookScrapedPost,
 } from './facebook-content-provider.interface';
 
 const MOBILE_UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 
+const DESKTOP_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+
 const POST_PATH_RE =
-  /(?:\/posts\/|\/photos\/|\/photo\.php|\/videos\/|\/video\.php|\/reel\/|\/watch\/?\?|story\.php|permalink\.php|multi_permalinks)/i;
+  /(?:\/posts\/|\/permalink\/|\/photos\/|\/photo\.php|\/videos\/|\/video\.php|\/reel\/|\/watch\/?\?|story\.php|permalink\.php|story_fbid|multi_permalinks)/i;
+
+type FetchTarget = { url: string; ua: 'desktop' | 'mobile' };
+
+type FetchAttemptResult = FacebookScrapeAttempt & { posts: FacebookScrapedPost[] };
 
 @Injectable()
 export class FacebookUrlScraperProvider implements FacebookContentProvider {
   private readonly logger = new Logger(FacebookUrlScraperProvider.name);
 
-  async fetchPublicPosts(pageUrl: string, limit: number): Promise<FacebookScrapedPost[]> {
+  async fetchPublicPosts(pageUrl: string, limit: number): Promise<FacebookScrapeResult> {
     const targets = this.buildFetchTargets(pageUrl);
-    let lastError: Error | null = null;
+    const attempts: FacebookScrapeAttempt[] = [];
+    let sawBlocked = false;
+    let sawHttpError = false;
+    let sawHtmlWithNoPosts = false;
+    let lastAttempt: FacebookScrapeAttempt | null = null;
 
     for (const target of targets) {
-      try {
-        const html = await this.fetchHtml(target);
-        const posts = this.parseHtml(html, pageUrl, limit);
-        if (posts.length > 0) {
-          this.logger.log(`FACEBOOK_URL_SCRAPE_OK url=${pageUrl} count=${posts.length}`);
-          return posts.slice(0, limit);
-        }
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-        this.logger.warn(`FACEBOOK_URL_SCRAPE_TRY_FAIL target=${target} reason=${lastError.message}`);
+      const result = await this.tryFetchTarget(target, pageUrl, limit);
+      const { posts, ...attempt } = result;
+      attempts.push(attempt);
+      lastAttempt = attempt;
+
+      if (attempt.blocked) {
+        sawBlocked = true;
+        continue;
+      }
+      if (attempt.httpStatus >= 400 || attempt.httpStatus === 0) {
+        sawHttpError = true;
+        continue;
+      }
+      if (posts.length > 0) {
+        this.logger.log(
+          `FACEBOOK_URL_SCRAPE_OK url=${pageUrl} fetch=${target.url} count=${posts.length}`,
+        );
+        return {
+          posts: posts.slice(0, limit),
+          detectedReason: 'OK',
+          fetchUrl: target.url,
+          httpStatus: attempt.httpStatus,
+          contentLength: attempt.contentLength,
+          rawSnippet: attempt.rawSnippet,
+          attempts,
+        };
+      }
+      if (attempt.contentLength > 800) {
+        sawHtmlWithNoPosts = true;
       }
     }
 
-    if (lastError) throw lastError;
-    return [];
+    const detectedReason = this.resolveFailureReason({
+      sawBlocked,
+      sawHttpError,
+      sawHtmlWithNoPosts,
+    });
+
+    return {
+      posts: [],
+      detectedReason,
+      fetchUrl: lastAttempt?.fetchUrl ?? null,
+      httpStatus: lastAttempt?.httpStatus ?? null,
+      contentLength: lastAttempt?.contentLength ?? null,
+      rawSnippet: lastAttempt?.rawSnippet ?? null,
+      attempts,
+    };
   }
 
-  private buildFetchTargets(pageUrl: string): string[] {
-    const url = new URL(pageUrl);
-    const path = url.pathname + url.search;
-    const mUrl = `https://m.facebook.com${path}`;
-    const mbasic = `https://mbasic.facebook.com${path}`;
-    return [mbasic, mUrl, pageUrl];
+  private resolveFailureReason(flags: {
+    sawBlocked: boolean;
+    sawHttpError: boolean;
+    sawHtmlWithNoPosts: boolean;
+  }): FacebookImportDetectedReason {
+    if (flags.sawBlocked) return 'FACEBOOK_BLOCKED';
+    if (flags.sawHttpError && !flags.sawHtmlWithNoPosts) return 'URL_NOT_AVAILABLE';
+    if (flags.sawHtmlWithNoPosts) return 'PARSER_NO_SUPPORTED_POSTS';
+    return 'NO_PUBLIC_POSTS';
   }
 
-  private async fetchHtml(url: string): Promise<string> {
+  private buildFetchTargets(pageUrl: string): FetchTarget[] {
+    const slug = this.extractPageSlug(pageUrl);
+    const bases = [
+      `https://www.facebook.com${slug}`,
+      `https://m.facebook.com${slug}`,
+      `https://mbasic.facebook.com${slug}`,
+    ];
+    const suffixes = ['', '/posts', '/videos'];
+    const out: FetchTarget[] = [];
+
+    for (const base of bases) {
+      for (const suffix of suffixes) {
+        const url = `${base}${suffix}`.replace(/([^:]\/)\/+/g, '$1');
+        const ua = url.includes('www.facebook.com') && !suffix ? 'desktop' : 'mobile';
+        out.push({ url, ua });
+      }
+    }
+    return out;
+  }
+
+  private extractPageSlug(pageUrl: string): string {
+    try {
+      const url = new URL(pageUrl.startsWith('http') ? pageUrl : `https://${pageUrl}`);
+      let path = url.pathname.replace(/\/+$/, '');
+      if (!path || path === '/') {
+        return '';
+      }
+      return path.startsWith('/') ? path : `/${path}`;
+    } catch {
+      return '';
+    }
+  }
+
+  private async tryFetchTarget(
+    target: FetchTarget,
+    pageUrl: string,
+    limit: number,
+  ): Promise<FetchAttemptResult> {
+    try {
+      const { html, httpStatus } = await this.fetchHtmlRaw(target.url, target.ua);
+      const blocked = this.looksLikeBlocked(html, httpStatus);
+      const posts = blocked ? [] : this.parseHtml(html, pageUrl, limit);
+      return {
+        fetchUrl: target.url,
+        httpStatus,
+        contentLength: html.length,
+        rawSnippet: html.slice(0, 500),
+        blocked,
+        postsFound: posts.length,
+        posts,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`FACEBOOK_URL_SCRAPE_TRY_FAIL target=${target.url} reason=${message}`);
+      return {
+        fetchUrl: target.url,
+        httpStatus: 0,
+        contentLength: 0,
+        rawSnippet: message.slice(0, 500),
+        blocked: false,
+        postsFound: 0,
+        posts: [],
+      };
+    }
+  }
+
+  private async fetchHtmlRaw(
+    url: string,
+    ua: 'desktop' | 'mobile',
+  ): Promise<{ html: string; httpStatus: number }> {
     const res = await fetch(url, {
       headers: {
-        'User-Agent': MOBILE_UA,
+        'User-Agent': ua === 'desktop' ? DESKTOP_UA : MOBILE_UA,
         Accept: 'text/html,application/xhtml+xml',
         'Accept-Language': 'cs-CZ,cs;q=0.9,en;q=0.8',
       },
       redirect: 'follow',
     });
-    if (!res.ok) {
-      throw new Error(`Facebook HTTP ${res.status}`);
-    }
     const html = await res.text();
-    if (this.looksLikeLoginWall(html)) {
-      throw new Error('Facebook vyžaduje přihlášení — stránka není veřejně dostupná pro import.');
-    }
-    return html;
+    return { html, httpStatus: res.status };
   }
 
-  private looksLikeLoginWall(html: string): boolean {
+  private looksLikeBlocked(html: string, httpStatus: number): boolean {
+    if (httpStatus === 401 || httpStatus === 403) return true;
+    if (!html || html.length < 200) return true;
+
     const lower = html.toLowerCase();
-    if (html.length > 80_000) return false;
-    return (
-      lower.includes('you must log in') ||
-      lower.includes('musíte se přihlásit') ||
-      (lower.includes('/login') && lower.includes('password') && html.length < 25_000)
-    );
+    const loginSignals = [
+      'you must log in',
+      'musíte se přihlásit',
+      'you\'re temporarily blocked',
+      'dočasně zablokován',
+      'checkpoint',
+      '/login.php',
+      'name="pass"',
+      'id="loginform"',
+    ];
+    const cookieSignals = [
+      'cookie consent',
+      'cookie-policy',
+      'cookies on facebook',
+      'souhlas s cookies',
+      'allow the use of cookies',
+      'data-policy',
+    ];
+
+    if (loginSignals.some((s) => lower.includes(s))) return true;
+    if (cookieSignals.some((s) => lower.includes(s)) && html.length < 120_000) return true;
+    if (lower.includes('/login') && lower.includes('password') && html.length < 30_000) return true;
+
+    return false;
   }
 
   private isPostPermalink(url: string): boolean {
@@ -79,8 +212,10 @@ export class FacebookUrlScraperProvider implements FacebookContentProvider {
     try {
       const parsed = new URL(url);
       const path = parsed.pathname.toLowerCase();
+      const qs = parsed.search.toLowerCase();
       if (path === '/' || path === '/profile.php') return false;
-      return true;
+      if (qs.includes('story_fbid=')) return true;
+      return POST_PATH_RE.test(`${path}${qs}`);
     } catch {
       return false;
     }
@@ -91,7 +226,7 @@ export class FacebookUrlScraperProvider implements FacebookContentProvider {
     const seen = new Set<string>();
 
     const add = (item: Omit<FacebookScrapedPost, 'externalId'> & { externalId?: string }) => {
-      const permalink = item.permalink.trim();
+      const permalink = this.normalizePermalink(item.permalink.trim());
       if (!permalink || !this.isPostPermalink(permalink) || seen.has(permalink)) return;
       const externalId =
         item.externalId?.trim() ||
@@ -109,23 +244,20 @@ export class FacebookUrlScraperProvider implements FacebookContentProvider {
       });
     };
 
-    const storyBlocks = html.split(/<article|<div[^>]*data-ft=/i);
+    const storyBlocks = html.split(/<article|<div[^>]*data-ft=|<div[^>]*role="article"/i);
     for (const block of storyBlocks) {
       if (posts.length >= limit) break;
-      const storyLink =
-        this.firstMatch(block, /href="([^"]*story\.php[^"]+)"/i) ||
-        this.firstMatch(block, /href="([^"]*permalink\.php[^"]+)"/i) ||
-        this.firstMatch(block, /href="([^"]*\/posts\/[^"]+)"/i) ||
-        this.firstMatch(block, /href="([^"]*\/photos\/[^"]+)"/i) ||
-        this.firstMatch(block, /href="([^"]*\/videos\/[^"]+)"/i) ||
-        this.firstMatch(block, /href="([^"]*\/reel\/[^"]+)"/i);
+      const storyLink = this.extractPostLinkFromBlock(block);
       const resolved = storyLink ? this.resolveHref(storyLink, baseUrl) : null;
       if (!resolved) continue;
 
       const image =
         this.firstMatch(block, /<img[^>]+src="(https:\/\/[^"]+fbcdn[^"]+)"/i) ||
-        this.firstMatch(block, /data-src="(https:\/\/[^"]+fbcdn[^"]+)"/i);
-      const video = this.firstMatch(block, /href="(https:\/\/[^"]+\.mp4[^"]*)"/i);
+        this.firstMatch(block, /data-src="(https:\/\/[^"]+fbcdn[^"]+)"/i) ||
+        this.firstMatch(block, /"image"\s*:\s*"(https:\/\/[^"]+)"/i);
+      const video =
+        this.firstMatch(block, /href="(https:\/\/[^"]+\.mp4[^"]*)"/i) ||
+        this.firstMatch(block, /"playable_url"\s*:\s*"(https:\/\/[^"]+)"/i);
       const abbrTitle = this.firstMatch(block, /<abbr[^>]+title="([^"]+)"/i);
       const publishedAt = abbrTitle ? this.parseFbDate(abbrTitle) : null;
       const text = this.extractPostText(block);
@@ -139,24 +271,50 @@ export class FacebookUrlScraperProvider implements FacebookContentProvider {
       });
     }
 
-    const hrefRe =
-      /href="([^"]*(?:story\.php|permalink\.php|\/posts\/|\/photos\/|\/videos\/|\/reel\/|watch\/\?v=)[^"]*)"/gi;
-    let match: RegExpExecArray | null;
-    while ((match = hrefRe.exec(html)) !== null && posts.length < limit) {
-      const href = this.resolveHref(match[1], baseUrl);
+    const hrefPatterns = [
+      /href="([^"]*\/posts\/[^"]+)"/gi,
+      /href="([^"]*\/permalink\/[^"]+)"/gi,
+      /href="([^"]*\/reel\/[^"]+)"/gi,
+      /href="([^"]*\/videos\/[^"]+)"/gi,
+      /href="([^"]*story\.php[^"]+)"/gi,
+      /href="([^"]*photo\.php[^"]+)"/gi,
+      /href="([^"]*permalink\.php[^"]+)"/gi,
+      /href="([^"]*watch\/\?v=[^"]+)"/gi,
+    ];
+
+    for (const re of hrefPatterns) {
+      let match: RegExpExecArray | null;
+      while ((match = re.exec(html)) !== null && posts.length < limit) {
+        const href = this.resolveHref(match[1], baseUrl);
+        if (!href) continue;
+        add({ permalink: href, message: '', imageUrl: null, videoUrl: null });
+      }
+    }
+
+    const jsonPermalinkRe = /"(?:permalink_url|wwwURL|share_url)"\s*:\s*"([^"]+)"/gi;
+    let jsonMatch: RegExpExecArray | null;
+    while ((jsonMatch = jsonPermalinkRe.exec(html)) !== null && posts.length < limit) {
+      const raw = jsonMatch[1].replace(/\\\//g, '/');
+      const href = this.resolveHref(raw, baseUrl);
       if (!href) continue;
-      add({
-        permalink: href,
-        message: '',
-        imageUrl: null,
-        videoUrl: null,
-      });
+      add({ permalink: href, message: '', imageUrl: null, videoUrl: null });
+    }
+
+    const storyFbidRe = /story_fbid=(\d+)/gi;
+    while ((jsonMatch = storyFbidRe.exec(html)) !== null && posts.length < limit) {
+      const pageId = this.firstMatch(html, /"page_id"\s*:\s*"(\d+)"/i) ||
+        this.firstMatch(html, /"entity_id"\s*:\s*"(\d+)"/i);
+      const fbid = jsonMatch[1];
+      const permalink = pageId
+        ? `https://www.facebook.com/permalink.php?story_fbid=${fbid}&id=${pageId}`
+        : `https://www.facebook.com/story.php?story_fbid=${fbid}`;
+      add({ permalink, message: '', imageUrl: null, videoUrl: null, externalId: `fb_story_${fbid}` });
     }
 
     const jsonLdRe = /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi;
-    while ((match = jsonLdRe.exec(html)) !== null && posts.length < limit) {
+    while ((jsonMatch = jsonLdRe.exec(html)) !== null && posts.length < limit) {
       try {
-        const data = JSON.parse(match[1]) as Record<string, unknown>;
+        const data = JSON.parse(jsonMatch[1]) as Record<string, unknown>;
         const url = typeof data.url === 'string' ? data.url : null;
         const headline = typeof data.headline === 'string' ? data.headline : '';
         const image =
@@ -181,6 +339,30 @@ export class FacebookUrlScraperProvider implements FacebookContentProvider {
     }
 
     return posts.slice(0, limit);
+  }
+
+  private extractPostLinkFromBlock(block: string): string | null {
+    return (
+      this.firstMatch(block, /href="([^"]*story\.php[^"]+)"/i) ||
+      this.firstMatch(block, /href="([^"]*permalink\.php[^"]+)"/i) ||
+      this.firstMatch(block, /href="([^"]*\/posts\/[^"]+)"/i) ||
+      this.firstMatch(block, /href="([^"]*\/permalink\/[^"]+)"/i) ||
+      this.firstMatch(block, /href="([^"]*\/photos\/[^"]+)"/i) ||
+      this.firstMatch(block, /href="([^"]*\/videos\/[^"]+)"/i) ||
+      this.firstMatch(block, /href="([^"]*\/reel\/[^"]+)"/i) ||
+      this.firstMatch(block, /href="([^"]*photo\.php[^"]+)"/i) ||
+      this.firstMatch(block, /href="([^"]*watch\/\?v=[^"]+)"/i)
+    );
+  }
+
+  private normalizePermalink(url: string): string {
+    try {
+      const u = new URL(url);
+      u.hash = '';
+      return u.toString();
+    } catch {
+      return url;
+    }
   }
 
   private parseFbDate(raw: string): Date | null {
@@ -214,7 +396,7 @@ export class FacebookUrlScraperProvider implements FacebookContentProvider {
   }
 
   private resolveHref(href: string, baseUrl: string): string | null {
-    const raw = href.replace(/&amp;/g, '&').trim();
+    const raw = href.replace(/\\u0026/g, '&').replace(/&amp;/g, '&').trim();
     if (!raw || raw.startsWith('#') || raw.startsWith('javascript:')) return null;
     try {
       const url = new URL(raw, baseUrl);

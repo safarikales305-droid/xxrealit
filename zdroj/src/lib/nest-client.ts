@@ -6903,6 +6903,7 @@ export async function nestFacebookUrlImportSync(
       imported?: number;
       found?: number;
       skipped?: number;
+      detectedReason?: string;
       error?: string | null;
     }
   | { ok: false; error?: string }
@@ -6925,10 +6926,42 @@ export async function nestFacebookUrlImportSync(
       imported: typeof data.imported === 'number' ? data.imported : undefined,
       found: typeof data.found === 'number' ? data.found : undefined,
       skipped: typeof data.skipped === 'number' ? data.skipped : undefined,
+      detectedReason:
+        typeof data.detectedReason === 'string' ? data.detectedReason : undefined,
       error:
         data.error === null || typeof data.error === 'string'
           ? (data.error as string | null)
           : undefined,
+    };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestFacebookUrlImportManualPost(
+  token: string,
+  body: { postUrl: string; text?: string; imageUrl?: string },
+): Promise<{ ok: true; permalink?: string } | { ok: false; error?: string }> {
+  if (!API_BASE_URL) return { ok: false, error: 'API chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook-url-import/manual-post`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return {
+      ok: true,
+      permalink: typeof data.permalink === 'string' ? data.permalink : undefined,
     };
   } catch {
     return { ok: false, error: 'Síťová chyba' };
@@ -6954,6 +6987,13 @@ export type AdminFacebookUrlImportLog = {
   found: number;
   imported: number;
   skipped: number;
+  importedCount?: number;
+  skippedDuplicates?: number;
+  fetchUrl?: string | null;
+  httpStatus?: number | null;
+  contentLength?: number | null;
+  detectedReason?: string | null;
+  rawSnippet?: string | null;
   error: string | null;
   createdAt: string;
   user?: { id: string; name: string | null; email: string };
