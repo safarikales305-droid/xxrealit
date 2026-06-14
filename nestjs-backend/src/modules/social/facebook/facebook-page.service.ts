@@ -11,7 +11,12 @@ import { SocialProvider, UserRole } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../../database/prisma.service';
 import { TokenEncryptionService } from '../token-encryption.service';
-import { FACEBOOK_LOGIN_SCOPES, FACEBOOK_PAGE_CONNECT_SCOPES, GRAPH_API } from './facebook-page.constants';
+import {
+  FACEBOOK_FULL_SCOPES,
+  FACEBOOK_LOGIN_SCOPES,
+  FACEBOOK_OAUTH_DIALOG,
+  GRAPH_API,
+} from './facebook-page.constants';
 import { FacebookConfigService } from './facebook-config.service';
 import { FacebookPageSyncService } from './facebook-page-sync.service';
 import {
@@ -133,20 +138,6 @@ export class FacebookPageService {
     };
   }
 
-  private async assertPageConnectScopesAvailable(userId: string, role: UserRole) {
-    const fb = await this.prisma.facebookConnection.findUnique({
-      where: { userId },
-      select: { facebookUserId: true },
-    });
-    if (this.facebookConfig.arePageConnectScopesAvailable(role, fb?.facebookUserId)) {
-      return;
-    }
-    this.logger.warn(
-      `${FACEBOOK_PAGE_SCOPES_NOT_AVAILABLE_LOG} userId=${userId} role=${role}`,
-    );
-    throw new ForbiddenException(FACEBOOK_PAGE_SCOPES_NOT_AVAILABLE_MESSAGE);
-  }
-
   handlePageOAuthDenied(
     oauthError?: string,
     errorReason?: string,
@@ -182,7 +173,7 @@ export class FacebookPageService {
     return this.facebookConfig.resolvePageConnectRedirectUri();
   }
 
-  async buildAccountConnectUrl(userId: string, role: UserRole): Promise<string> {
+  async buildConnectUrl(userId: string, role: UserRole): Promise<string> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException(this.facebookConfig.configurationErrorMessage());
     }
@@ -191,6 +182,7 @@ export class FacebookPageService {
     const state = `a${randomBytes(23).toString('hex')}`;
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
     await this.cleanupAccountOAuthSession(userId);
+    await this.cleanupPageOAuthSession(userId);
     await this.prisma.socialFacebookOAuthSession.create({
       data: {
         id: state,
@@ -203,54 +195,21 @@ export class FacebookPageService {
 
     const redirectUri = encodeURIComponent(this.pageConnectRedirectUri());
     const appId = encodeURIComponent(this.facebookConfig.getAppId()!);
-    const scope = encodeURIComponent(FACEBOOK_LOGIN_SCOPES);
+    const scope = encodeURIComponent(FACEBOOK_FULL_SCOPES);
     return (
-      `https://www.facebook.com/v21.0/dialog/oauth?` +
+      `${FACEBOOK_OAUTH_DIALOG}?` +
       `client_id=${appId}&redirect_uri=${redirectUri}&state=${state}&scope=${scope}&response_type=code`
     );
   }
 
+  /** @deprecated Použijte buildConnectUrl */
+  async buildAccountConnectUrl(userId: string, role: UserRole): Promise<string> {
+    return this.buildConnectUrl(userId, role);
+  }
+
+  /** @deprecated Použijte buildConnectUrl */
   async buildPageConnectUrl(userId: string, role: UserRole): Promise<string> {
-    if (!this.isConfigured()) {
-      throw new ServiceUnavailableException(this.facebookConfig.configurationErrorMessage());
-    }
-    this.assertProfessional(userId, role);
-    await this.assertPageConnectScopesAvailable(userId, role);
-
-    const state = `p${randomBytes(23).toString('hex')}`;
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
-    await this.prisma.socialFacebookOAuthSession.deleteMany({
-      where: { userId, mode: 'page' },
-    });
-    await this.prisma.socialFacebookOAuthSession.create({
-      data: {
-        id: state,
-        userId,
-        mode: 'page',
-        userAccessToken: this.crypto.encrypt('pending'),
-        expiresAt,
-      },
-    });
-
-    const redirectUri = encodeURIComponent(this.pageConnectRedirectUri());
-    const appId = encodeURIComponent(this.facebookConfig.getAppId()!);
-    const scope = encodeURIComponent(FACEBOOK_PAGE_CONNECT_SCOPES);
-    return (
-      `https://www.facebook.com/v21.0/dialog/oauth?` +
-      `client_id=${appId}&redirect_uri=${redirectUri}&state=${state}&scope=${scope}&response_type=code`
-    );
-  }
-
-  /** @deprecated Použijte buildPageConnectUrl */
-  async buildConnectUrl(
-    userId: string,
-    role: UserRole,
-    options?: { advanced?: boolean },
-  ): Promise<string> {
-    if (options?.advanced === true) {
-      return this.buildPageConnectUrl(userId, role);
-    }
-    return this.buildPageConnectUrl(userId, role);
+    return this.buildConnectUrl(userId, role);
   }
 
   async handlePageCallback(
@@ -379,7 +338,7 @@ export class FacebookPageService {
           ? new Date(Date.now() + expiresIn * 1000)
           : null;
 
-      const me = await this.persistUserFacebookToken(session.userId, userToken, tokenExpiresAt, false);
+      await this.persistUserFacebookToken(session.userId, userToken, tokenExpiresAt, true);
 
       await this.cleanupAccountOAuthSession(session.userId);
 
@@ -388,22 +347,36 @@ export class FacebookPageService {
         select: { role: true },
       });
       const role = (user?.role ?? UserRole.AGENT) as UserRole;
-      if (this.facebookConfig.arePageConnectScopesAvailable(role, me.id)) {
-        try {
-          const pageOAuthUrl = await this.buildPageConnectUrl(session.userId, role);
-          this.logger.log(
-            `FACEBOOK_ACCOUNT_CONNECTED userId=${session.userId} chaining=page_oauth`,
-          );
-          return { ok: true, redirectUrl: pageOAuthUrl };
-        } catch (chainErr) {
-          const reason = chainErr instanceof Error ? chainErr.message : String(chainErr);
-          this.logger.warn(
-            `FACEBOOK_ACCOUNT_CONNECTED userId=${session.userId} page_oauth_chain_failed reason=${reason}`,
-          );
-        }
-      }
 
-      return { ok: true, redirectUrl: `${settingsUrl}&facebook=connected` };
+      try {
+        const pages = await this.listManagedPages(session.userId);
+        if (pages.length === 1) {
+          await this.selectPage(session.userId, role, pages[0].id);
+          return {
+            ok: true,
+            redirectUrl: `${settingsUrl}&facebook=page_connected&pageName=${encodeURIComponent(pages[0].name)}`,
+          };
+        }
+        if (pages.length > 1) {
+          return { ok: true, redirectUrl: `${settingsUrl}&facebook=select` };
+        }
+        return {
+          ok: true,
+          redirectUrl: `${settingsUrl}&facebook=connected&reason=no_pages`,
+        };
+      } catch (pagesErr) {
+        const reason = pagesErr instanceof Error ? pagesErr.message : 'pages_failed';
+        if (isFacebookPageScopeError(reason)) {
+          this.logger.warn(
+            `${FACEBOOK_PAGE_SCOPES_NOT_AVAILABLE_LOG} userId=${session.userId} reason=${reason}`,
+          );
+          return this.pageScopesNotAvailableResult();
+        }
+        this.logger.warn(
+          `FACEBOOK_PAGES_LOAD_FAILED userId=${session.userId} reason=${reason}`,
+        );
+        return { ok: true, redirectUrl: `${settingsUrl}&facebook=connected` };
+      }
     } catch (err) {
       await this.cleanupAccountOAuthSession(session.userId);
       const reason = err instanceof Error ? err.message : 'oauth_failed';
@@ -562,14 +535,10 @@ export class FacebookPageService {
     );
   }
 
-  async listAvailablePages(userId: string, role: UserRole): Promise<FacebookPageOption[]> {
+  async listAvailablePages(userId: string, _role: UserRole): Promise<FacebookPageOption[]> {
     const status = await this.getConnectionStatus(userId);
     if (!status.accountConnected) {
       throw new BadRequestException('Nejprve propojte Facebook účet.');
-    }
-    if (!this.facebookConfig.arePageConnectScopesAvailable(role, status.facebookUserId)) {
-      this.logger.warn(`${FACEBOOK_PAGE_SCOPES_NOT_AVAILABLE_LOG} userId=${userId} role=${role}`);
-      throw new ForbiddenException(FACEBOOK_PAGES_LIST_PERMISSION_MESSAGE);
     }
     return this.listManagedPages(userId);
   }
@@ -683,8 +652,7 @@ export class FacebookPageService {
       pagePictureUrl,
       syncEnabled: true,
       imported: syncResult.imported ?? 0,
-      message:
-        'Hotovo. Nové příspěvky z vaší Facebook stránky budeme automaticky přidávat i na xxrealit.',
+      message: `Synchronizována stránka: ${pageRow.name}`,
     };
   }
 
@@ -764,9 +732,7 @@ export class FacebookPageService {
     );
     if (!me.id) throw new BadRequestException('Neplatný Facebook token.');
 
-    const scopes = includePageScopes
-      ? [...FACEBOOK_LOGIN_SCOPES.split(','), ...FACEBOOK_PAGE_CONNECT_SCOPES.split(',')]
-      : FACEBOOK_LOGIN_SCOPES.split(',');
+    const scopes = includePageScopes ? FACEBOOK_FULL_SCOPES.split(',') : FACEBOOK_LOGIN_SCOPES.split(',');
 
     const encryptedToken = this.crypto.encrypt(userToken);
     await this.prisma.facebookConnection.upsert({

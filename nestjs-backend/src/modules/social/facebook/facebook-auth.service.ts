@@ -11,7 +11,7 @@ import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../../database/prisma.service';
 import { AuthService } from '../../auth/auth.service';
 import { TokenEncryptionService } from '../token-encryption.service';
-import { FACEBOOK_LOGIN_SCOPES, GRAPH_API } from './facebook-page.constants';
+import { FACEBOOK_LOGIN_SCOPES, FACEBOOK_OAUTH_DIALOG, GRAPH_API } from './facebook-page.constants';
 import { FacebookConfigService } from './facebook-config.service';
 import type { FacebookOAuthCallbackResult } from './facebook-page.service';
 
@@ -82,7 +82,7 @@ export class FacebookAuthService {
     const appId = encodeURIComponent(this.facebookConfig.getAppId()!);
     const scope = encodeURIComponent(FACEBOOK_LOGIN_SCOPES);
     return (
-      `https://www.facebook.com/v21.0/dialog/oauth?` +
+      `${FACEBOOK_OAUTH_DIALOG}?` +
       `client_id=${appId}&redirect_uri=${redirectUri}&state=${state}&scope=${scope}&response_type=code`
     );
   }

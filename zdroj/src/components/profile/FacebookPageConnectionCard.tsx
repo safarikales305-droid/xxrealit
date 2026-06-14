@@ -87,12 +87,12 @@ export function FacebookPageConnectionCard({ token }: Props) {
       return;
     }
     setPages(result.pages);
+    setError(null);
   }, [token]);
 
   useEffect(() => {
     if (!token || !integrationConfigured || !status) return;
     if (status.connected && !changingPage) return;
-    if (status.pageConnectScopesAvailable === false) return;
     const shouldLoad =
       params.get('facebook') === 'select' ||
       params.get('facebook') === 'connected' ||
@@ -118,7 +118,14 @@ export function FacebookPageConnectionCard({ token }: Props) {
       return;
     }
     if (params.get('facebook') === 'page_connected') {
-      setOk('Facebook stránka byla úspěšně propojena.');
+      const pageName = params.get('pageName');
+      setOk(
+        pageName
+          ? `Synchronizována stránka: ${decodeURIComponent(pageName)}`
+          : status?.pageName
+            ? `Synchronizována stránka: ${status.pageName}`
+            : 'Facebook stránka byla úspěšně propojena.',
+      );
       setChangingPage(false);
       void refresh();
       return;
@@ -142,34 +149,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
       return;
     }
     setError('Propojení Facebooku se nezdařilo. Zkuste to znovu.');
-  }, [params, refresh]);
-
-  function handleConnectPage() {
-    if (!token) {
-      setError('Pro propojení se přihlaste.');
-      return;
-    }
-    if (!integrationConfigured) {
-      setError(NOT_CONFIGURED_MSG);
-      return;
-    }
-    if (status?.pageConnectScopesAvailable === false) {
-      setError(FACEBOOK_PAGE_SCOPES_NOT_AVAILABLE_MSG);
-      return;
-    }
-
-    setBusy(true);
-    setError(null);
-    setOk(null);
-
-    try {
-      window.location.assign(FACEBOOK_CONNECT_PATH);
-    } catch (err) {
-      console.error('[FacebookPageConnectionCard] connect redirect failed', err);
-      setBusy(false);
-      setError('Nepodařilo se spustit přihlášení přes Facebook.');
-    }
-  }
+  }, [params, refresh, status?.pageName]);
 
   function handleConnectAccount() {
     if (!token) {
@@ -207,7 +187,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
     setSelectingPage(false);
     setChangingPage(false);
     setPages([]);
-    setOk(res.message ?? 'Facebook stránka byla propojena.');
+    setOk(res.message ?? `Synchronizována stránka: ${status?.pageName ?? 'Facebook stránka'}`);
     void refresh();
   }
 
@@ -316,7 +296,9 @@ export function FacebookPageConnectionCard({ token }: Props) {
           ) : null}
         </div>
       ) : null}
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      {error && !showPagePicker && !(status?.accountConnected && !status?.connected) ? (
+        <p className="text-sm text-red-600">{error}</p>
+      ) : null}
       {ok ? <p className="text-sm text-emerald-700">{ok}</p> : null}
       {status?.tokenNeedsReauth ? (
         <p className="text-sm text-amber-800">Facebook propojení vyžaduje nové přihlášení.</p>
@@ -339,11 +321,10 @@ export function FacebookPageConnectionCard({ token }: Props) {
           {pagesLoading ? (
             <p className="text-sm text-zinc-600">Načítám vaše Facebook stránky…</p>
           ) : null}
-          {configStatus?.pageConnectScopesAvailable === false ||
-          status?.pageConnectScopesAvailable === false ? (
-            <p className="text-sm text-amber-900">{FACEBOOK_PAGE_SCOPES_NOT_AVAILABLE_MSG}</p>
+          {!pagesLoading && pages.length === 0 && error ? (
+            <p className="text-sm text-amber-900">{error}</p>
           ) : null}
-          {status?.pageConnectScopesAvailable !== false && !pagesLoading ? (
+          {!pagesLoading && pages.length === 0 && !error ? (
             <button
               type="button"
               disabled={busy}
@@ -414,7 +395,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
               />
             ) : null}
             <p className="text-sm text-zinc-800">
-              Propojená stránka: <span className="font-semibold">{status.pageName}</span>
+              Synchronizována stránka: <span className="font-semibold">{status.pageName}</span>
             </p>
           </div>
           <p className="text-sm text-emerald-800">

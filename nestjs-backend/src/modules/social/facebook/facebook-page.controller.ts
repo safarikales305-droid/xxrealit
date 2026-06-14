@@ -155,10 +155,7 @@ export class FacebookPageController implements OnModuleInit {
   ) {
     const wantsJson = this.wantsJsonResponse(req);
     try {
-      const status = await this.facebookPage.getConnectionStatus(user.id);
-      const url = status.accountConnected
-        ? await this.facebookPage.buildPageConnectUrl(user.id, user.role as UserRole)
-        : await this.facebookPage.buildAccountConnectUrl(user.id, user.role as UserRole);
+      const url = await this.facebookPage.buildConnectUrl(user.id, user.role as UserRole);
       if (wantsJson) return res.json({ url });
       return res.redirect(url);
     } catch (err) {
