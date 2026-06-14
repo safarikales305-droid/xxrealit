@@ -1,6 +1,9 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { setAuthCookies } from '@/lib/auth-cookie';
+import {
+  getSocialIntegrationsUrl,
+} from '@/lib/facebook-oauth-urls';
 import { isFacebookPageScopeError } from '@/lib/facebook-page-scope';
 import { getOptionalInternalApiBaseUrl } from '@/lib/server-api';
 
@@ -9,7 +12,7 @@ export const runtime = 'nodejs';
 /** GET — Facebook page OAuth callback proxy. */
 export async function GET(request: NextRequest) {
   const nestBase = getOptionalInternalApiBaseUrl();
-  const settingsUrl = 'https://www.xxrealit.cz/profil/dashboard?tab=social-integrations';
+  const settingsUrl = getSocialIntegrationsUrl();
   const reviewFallback = `${settingsUrl}&facebookPage=scopes_unavailable`;
 
   const oauthError = request.nextUrl.searchParams.get('error');

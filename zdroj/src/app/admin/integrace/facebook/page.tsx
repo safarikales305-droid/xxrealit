@@ -369,14 +369,21 @@ export default function AdminFacebookIntegrationPage() {
               <div>
                 <dt className="font-medium text-zinc-800">OAuth Redirect URI (login)</dt>
                 <dd className="mt-1 break-all font-mono text-xs text-zinc-600">
-                  {config?.oauthRedirectUri ?? '— nastavte FACEBOOK_OAUTH_REDIRECT_URI —'}
+                  {config?.oauthRedirectUri ?? '— nastavte FRONTEND_URL —'}
+                </dd>
+                <dd className="mt-1 text-xs text-zinc-500">
+                  Odvozeno z <code className="rounded bg-zinc-100 px-1">FRONTEND_URL</code> +{' '}
+                  <code className="rounded bg-zinc-100 px-1">/api/social/facebook/callback</code>
                 </dd>
               </div>
               <div>
                 <dt className="font-medium text-zinc-800">Page Connect Redirect URI</dt>
                 <dd className="mt-1 break-all font-mono text-xs text-zinc-600">
-                  {config?.pageConnectRedirectUri ??
-                    '— nastavte FACEBOOK_PAGE_CONNECT_REDIRECT_URI —'}
+                  {config?.pageConnectRedirectUri ?? '— nastavte FRONTEND_URL —'}
+                </dd>
+                <dd className="mt-1 text-xs text-zinc-500">
+                  Odvozeno z <code className="rounded bg-zinc-100 px-1">FRONTEND_URL</code> +{' '}
+                  <code className="rounded bg-zinc-100 px-1">/api/social/facebook/page-callback</code>
                 </dd>
               </div>
               <div>

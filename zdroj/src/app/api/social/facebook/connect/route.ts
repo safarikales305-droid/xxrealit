@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { ACCESS_TOKEN_COOKIE } from '@/lib/auth-cookie';
+import { getSocialIntegrationsUrl } from '@/lib/facebook-oauth-urls';
 import { isFacebookPageScopeError } from '@/lib/facebook-page-scope';
 import { getOptionalInternalApiBaseUrl } from '@/lib/server-api';
 
@@ -9,7 +10,8 @@ export const runtime = 'nodejs';
 const SOCIAL_INTEGRATIONS_PATH = '/profil/dashboard?tab=social-integrations';
 
 function socialIntegrationsRedirect(query: string): NextResponse {
-  return NextResponse.redirect(`${SOCIAL_INTEGRATIONS_PATH}&${query}`);
+  const base = getSocialIntegrationsUrl();
+  return NextResponse.redirect(`${base}&${query}`);
 }
 
 /** GET — proxy na Nest OAuth connect-page s JWT z httpOnly cookie, pak redirect na Facebook. */

@@ -1,12 +1,13 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { setAuthCookies } from '@/lib/auth-cookie';
+import {
+  getFacebookConnectedDashboardUrl,
+  getFacebookLoginErrorUrl,
+} from '@/lib/facebook-oauth-urls';
 import { getOptionalInternalApiBaseUrl } from '@/lib/server-api';
 
 export const runtime = 'nodejs';
-
-const DEFAULT_ERROR_REDIRECT = 'https://www.xxrealit.cz/login?facebook=error';
-const DASHBOARD_URL = 'https://www.xxrealit.cz/profil/dashboard?facebook=connected';
 
 type NestCallbackResult = {
   ok?: boolean;
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
 
   if (!nestBase) {
     console.error('[facebook/callback] FACEBOOK_LOGIN_FAIL Nest API URL missing');
-    return NextResponse.redirect(`${DEFAULT_ERROR_REDIRECT}&reason=not_configured`);
+    return NextResponse.redirect(getFacebookLoginErrorUrl('not_configured'));
   }
 
   const query = searchParams.toString();
@@ -48,14 +49,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(
         typeof data.redirectUrl === 'string' && data.redirectUrl.trim()
           ? data.redirectUrl.trim()
-          : DEFAULT_ERROR_REDIRECT,
+          : getFacebookLoginErrorUrl(),
       );
     }
 
     const redirectUrl =
       typeof data.redirectUrl === 'string' && data.redirectUrl.trim()
         ? data.redirectUrl.trim()
-        : DASHBOARD_URL;
+        : getFacebookConnectedDashboardUrl();
 
     console.log(
       `[facebook/callback] FACEBOOK_LOGIN_SUCCESS redirect=${redirectUrl} tokenPresent=${Boolean(accessToken)}`,
@@ -68,6 +69,6 @@ export async function GET(request: NextRequest) {
     return response;
   } catch (err) {
     console.error('[facebook/callback] FACEBOOK_LOGIN_FAIL', err);
-    return NextResponse.redirect(`${DEFAULT_ERROR_REDIRECT}&reason=network`);
+    return NextResponse.redirect(getFacebookLoginErrorUrl('network'));
   }
 }

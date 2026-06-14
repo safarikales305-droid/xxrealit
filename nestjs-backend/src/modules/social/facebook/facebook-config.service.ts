@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { UserRole } from '@prisma/client';
+import { resolveFrontendUrl } from '../../../common/resolve-frontend-url';
 
 const LOGIN_REQUIRED_ENV_KEYS = ['FACEBOOK_APP_ID', 'FACEBOOK_APP_SECRET'] as const;
 
@@ -12,7 +13,6 @@ const PAGES_REQUIRED_ENV_KEYS = [
 const RECOMMENDED_ENV_KEYS = [
   'FACEBOOK_WEBHOOK_VERIFY_TOKEN',
   'SOCIAL_TOKEN_ENCRYPTION_KEY',
-  'FACEBOOK_PAGE_CONNECT_REDIRECT_URI',
   'FACEBOOK_GRAPH_API_VERSION',
 ] as const;
 
@@ -101,6 +101,7 @@ export class FacebookConfigService implements OnModuleInit {
 
   private logEnvStatusAtStartup() {
     const allKeys = [
+      'FRONTEND_URL',
       ...LOGIN_REQUIRED_ENV_KEYS,
       ...PAGES_REQUIRED_ENV_KEYS,
       ...RECOMMENDED_ENV_KEYS,
@@ -109,8 +110,12 @@ export class FacebookConfigService implements OnModuleInit {
       const ok = this.isEnvPresent(key);
       this.logger.log(`[Facebook] ${key}: ${ok ? 'OK' : 'chybí'}`);
     }
-    const callbackOk = this.getOAuthRedirectUriRaw() != null;
-    this.logger.log(`[Facebook] FACEBOOK_CALLBACK_URL: ${callbackOk ? 'OK' : 'chybí'}`);
+    this.logger.log(
+      `[Facebook] OAuth redirect (login): ${this.resolveOAuthRedirectUriOptional() ?? 'nelze odvodit'}`,
+    );
+    this.logger.log(
+      `[Facebook] OAuth redirect (pages): ${this.resolvePageConnectRedirectUriOptional() ?? 'nelze odvodit'}`,
+    );
   }
 
   getAppId(): string | null {
@@ -129,6 +134,7 @@ export class FacebookConfigService implements OnModuleInit {
     return this.readEnv('FACEBOOK_PAGES_APP_SECRET');
   }
 
+  /** Volitelný explicitní override; výchozí je FRONTEND_URL + /api/social/facebook/callback */
   getOAuthRedirectUriRaw(): string | null {
     return (
       this.readEnv('FACEBOOK_OAUTH_REDIRECT_URI') ?? this.readEnv('FACEBOOK_CALLBACK_URL')
@@ -140,13 +146,15 @@ export class FacebookConfigService implements OnModuleInit {
     return raw.startsWith('v') ? raw : `v${raw}`;
   }
 
+  /** Veřejná API base na frontend doméně — OAuth redirecty jdou přes Next.js proxy. */
+  resolveFrontendApiBase(): string {
+    return `${resolveFrontendUrl(this.config, this.logger)}/api`;
+  }
+
   getLoginMissingRequired(): string[] {
     const missing: string[] = [];
     for (const key of LOGIN_REQUIRED_ENV_KEYS) {
       if (!this.isEnvPresent(key)) missing.push(key);
-    }
-    if (!this.getOAuthRedirectUriRaw()) {
-      missing.push('FACEBOOK_CALLBACK_URL');
     }
     return missing;
   }
@@ -155,9 +163,6 @@ export class FacebookConfigService implements OnModuleInit {
     const missing: string[] = [];
     for (const key of PAGES_REQUIRED_ENV_KEYS) {
       if (!this.isEnvPresent(key)) missing.push(key);
-    }
-    if (!this.resolvePageConnectRedirectUriOptional()) {
-      missing.push('FACEBOOK_PAGE_CONNECT_REDIRECT_URI');
     }
     return missing;
   }
@@ -177,26 +182,21 @@ export class FacebookConfigService implements OnModuleInit {
 
   buildEnvChecks(): FacebookEnvCheck[] {
     return [
+      {
+        key: 'FRONTEND_URL',
+        present: this.isEnvPresent('FRONTEND_URL'),
+        required: true,
+      },
       ...LOGIN_REQUIRED_ENV_KEYS.map((key) => ({
         key,
         present: this.isEnvPresent(key),
         required: true,
       })),
-      {
-        key: 'FACEBOOK_CALLBACK_URL',
-        present: this.getOAuthRedirectUriRaw() != null,
-        required: true,
-      },
       ...PAGES_REQUIRED_ENV_KEYS.map((key) => ({
         key,
         present: this.isEnvPresent(key),
         required: true,
       })),
-      {
-        key: 'FACEBOOK_PAGE_CONNECT_REDIRECT_URI',
-        present: this.resolvePageConnectRedirectUriOptional() != null,
-        required: true,
-      },
       ...RECOMMENDED_ENV_KEYS.map((key) => ({
         key,
         present: this.isEnvPresent(key),
@@ -240,20 +240,24 @@ export class FacebookConfigService implements OnModuleInit {
     return base ? `${base}/social/facebook/webhook` : null;
   }
 
-  resolveOAuthRedirectUri(): string {
+  resolveOAuthRedirectUriOptional(): string | null {
     const explicit = this.getOAuthRedirectUriRaw();
-    if (!explicit) {
-      throw new ServiceUnavailableException(this.configurationErrorMessage());
-    }
-    return explicit.replace(/\/+$/, '');
+    if (explicit) return explicit.replace(/\/+$/, '');
+    return `${this.resolveFrontendApiBase()}/social/facebook/callback`;
   }
 
-  private resolvePageConnectRedirectUriOptional(): string | null {
+  resolveOAuthRedirectUri(): string {
+    const uri = this.resolveOAuthRedirectUriOptional();
+    if (!uri) {
+      throw new ServiceUnavailableException(this.configurationErrorMessage());
+    }
+    return uri;
+  }
+
+  resolvePageConnectRedirectUriOptional(): string | null {
     const explicit = this.readEnv('FACEBOOK_PAGE_CONNECT_REDIRECT_URI');
     if (explicit) return explicit.replace(/\/+$/, '');
-    const base = this.resolveApiPublicBase();
-    if (base) return `${base}/social/facebook/page-callback`;
-    return null;
+    return `${this.resolveFrontendApiBase()}/social/facebook/page-callback`;
   }
 
   resolvePageConnectRedirectUri(): string {
@@ -289,12 +293,6 @@ export class FacebookConfigService implements OnModuleInit {
   getConfigStatus(): FacebookConfigStatusDto {
     const missing = this.getLoginMissingRequired();
     const pagesMissing = this.getPagesMissingRequired();
-    const oauthRedirectUri =
-      this.getOAuthRedirectUriRaw()?.replace(/\/+$/, '') ??
-      (this.resolveApiPublicBase()
-        ? `${this.resolveApiPublicBase()}/social/facebook/callback`
-        : null);
-    const pageConnectRedirectUri = this.resolvePageConnectRedirectUriOptional();
 
     return {
       configured: missing.length === 0,
@@ -302,8 +300,8 @@ export class FacebookConfigService implements OnModuleInit {
       pagesConfigured: pagesMissing.length === 0,
       pagesMissing,
       pagesAppId: this.getPagesAppId(),
-      oauthRedirectUri,
-      pageConnectRedirectUri,
+      oauthRedirectUri: this.resolveOAuthRedirectUriOptional(),
+      pageConnectRedirectUri: this.resolvePageConnectRedirectUriOptional(),
       pageConnectRequiresReview: this.isPageConnectReviewPending(),
       pageConnectScopesAvailable: this.arePageConnectScopesAvailable(),
       webhookUri: this.buildWebhookUri(),
