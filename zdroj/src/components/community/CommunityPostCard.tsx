@@ -72,8 +72,8 @@ export function CommunityPostCard({
 
   const firstVideo = media.find((m) => m.type === 'video');
   const firstImage = media.find((m) => m.type === 'image');
-  const videoRaw = String(firstVideo?.url ?? '').trim();
-  const imageRaw = String(firstImage?.url ?? '').trim();
+  const videoRaw = String(firstVideo?.url ?? p.videoUrl ?? '').trim();
+  const imageRaw = String(firstImage?.url ?? p.imageUrl ?? p.previewImage ?? '').trim();
   const showFeedVideo = Boolean(videoRaw);
   const showFeedImage = !showFeedVideo && Boolean(imageRaw);
   const isPostType = p.type === 'post' || !p.type;

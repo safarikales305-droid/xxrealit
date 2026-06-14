@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { SEED_DEMO_VIDEO_MP4 } from '../../database/seed.constants';
 import { PrismaService } from '../../database/prisma.service';
+import { PostsService } from '../posts/posts.service';
 import { ShortsViewsAutopilotService } from './shorts-views-autopilot.service';
 import {
   classicPublicListingWhere,
@@ -15,20 +16,6 @@ import {
 
 function normCity(c: string | null | undefined): string {
   return (c ?? '').trim().toLowerCase();
-}
-
-function isPublicMediaUrl(url: string | null | undefined): boolean {
-  const v = (url ?? '').trim();
-  return /^https?:\/\//i.test(v);
-}
-
-function postHasFeedVisibility(p: {
-  media: Array<{ url: string }>;
-  externalUrl?: string | null;
-  previewImage?: string | null;
-}): boolean {
-  if (p.media.length > 0) return true;
-  return Boolean(p.externalUrl?.trim() || p.previewImage?.trim());
 }
 
 function scoreProperty(
@@ -62,6 +49,7 @@ export class FeedService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly posts: PostsService,
     private readonly _autoViewsAutopilot: ShortsViewsAutopilotService,
   ) {}
 
@@ -267,44 +255,7 @@ export class FeedService {
 
   /** Social feed posts (Facebook-style), not listing shorts. */
   async listPosts() {
-    const rows = await this.prisma.post.findMany({
-      where: {
-        OR: [
-          { media: { some: { type: 'image' } } },
-          { media: { none: { type: 'video' } } },
-        ],
-      },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        media: {
-          orderBy: { order: 'asc' },
-        },
-        _count: {
-          select: {
-            favorites: true,
-            comments: true,
-          },
-        },
-        user: {
-          select: {
-            id: true,
-            name: true,
-            avatar: true,
-            role: true,
-          },
-        },
-      },
-    });
-    return rows
-      .map((p) => ({
-        ...p,
-        media: p.media.filter((m) => isPublicMediaUrl(m.url)),
-      }))
-      .filter((p) => postHasFeedVisibility(p))
-      .map((p) => {
-        console.log('[feed/posts]', p.id, p.media);
-        return p;
-      });
+    return this.posts.listCommunityPosts();
   }
 
   async listProperties() {

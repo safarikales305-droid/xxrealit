@@ -248,10 +248,12 @@ export function HomeLayout({
 
   async function refreshPostsFeed() {
     if (!API_BASE_URL) return;
-    const res = await fetch(`${API_BASE_URL}/feed/posts`, { cache: 'no-store' });
-    const data = (await res.json().catch(() => [])) as unknown;
-    const list = Array.isArray(data) ? (data as Array<Record<string, unknown>>) : [];
-    setPostFeed(list);
+    const list = await nestFetchCommunityPosts(activeCategory, {
+      radiusKm,
+      lat: userCoords?.lat,
+      lng: userCoords?.lng,
+    });
+    setPostFeed(list as Array<Record<string, unknown>>);
     setLikeCountByPostId((prev) => {
       const next = { ...prev };
       for (const p of list) {

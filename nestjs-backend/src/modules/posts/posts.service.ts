@@ -1,28 +1,16 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { PostCategory, ReactionType, UserRole } from '@prisma/client';
+import { PostCategory, ReactionType } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
+import {
+  buildCommunityPostsWhere,
+  dedupeCommunityPosts,
+  isPublicMediaUrl,
+  postHasFeedVisibility,
+  sortCommunityPostsByDate,
+} from './community-posts.util';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
-
-function isPublicMediaUrl(url: string | null | undefined): boolean {
-  const v = (url ?? '').trim();
-  return /^https?:\/\//i.test(v);
-}
-
-function postHasFeedVisibility(row: {
-  media: Array<{ url: string }>;
-  externalUrl?: string | null;
-  previewImage?: string | null;
-  imageUrl?: string | null;
-  videoUrl?: string | null;
-  facebookEmbedUrl?: string | null;
-}): boolean {
-  if (row.facebookEmbedUrl?.trim()) return true;
-  if (row.media.length > 0) return true;
-  if (row.imageUrl?.trim() || row.videoUrl?.trim()) return true;
-  return Boolean(row.externalUrl?.trim() || row.previewImage?.trim());
-}
 
 function linkPreviewDataFromDto(dto: {
   externalUrl?: string;
@@ -88,14 +76,6 @@ function toNumberOrNull(value: unknown): number | null {
   }
   return null;
 }
-
-const PROFESSIONAL_POST_ROLES: UserRole[] = [
-  UserRole.AGENT,
-  UserRole.COMPANY,
-  UserRole.AGENCY,
-  UserRole.FINANCIAL_ADVISOR,
-  UserRole.INVESTOR,
-];
 
 @Injectable()
 export class PostsService {
@@ -374,14 +354,8 @@ export class PostsService {
     lng?: number,
   ) {
     const rows = await this.prisma.post.findMany({
-      where: {
-        type: 'post',
-        ...(category ? { category } : {}),
-        user: {
-          role: { in: PROFESSIONAL_POST_ROLES },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
+      where: buildCommunityPostsWhere(category),
+      orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
       include: {
         media: { orderBy: { order: 'asc' } },
         reactions: true,
@@ -396,16 +370,16 @@ export class PostsService {
         },
       },
     });
-    const publicRows = rows
-      .map((row) => ({
-        ...row,
-        media: row.media.filter((m) => isPublicMediaUrl(m.url)),
-      }))
-      .filter((row) => postHasFeedVisibility(row))
-      .sort(
-        (a, b) =>
-          (b.publishedAt ?? b.createdAt).getTime() - (a.publishedAt ?? a.createdAt).getTime(),
-      );
+    const publicRows = sortCommunityPostsByDate(
+      dedupeCommunityPosts(
+        rows
+          .map((row) => ({
+            ...row,
+            media: row.media.filter((m) => isPublicMediaUrl(m.url)),
+          }))
+          .filter((row) => postHasFeedVisibility(row)),
+      ),
+    );
     const userLat = toNumberOrNull(lat);
     const userLng = toNumberOrNull(lng);
     const radiusNum = toNumberOrNull(radiusKm);
