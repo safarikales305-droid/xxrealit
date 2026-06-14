@@ -626,6 +626,13 @@ export class FacebookPageService {
       },
     });
 
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        facebookUrl: `https://www.facebook.com/${pageRow.id}`,
+      },
+    });
+
     await this.prisma.socialFacebookOAuthSession.deleteMany({ where: { userId } });
 
     this.logger.log(

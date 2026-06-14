@@ -2,16 +2,13 @@ import { Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@
 import { ConfigService } from '@nestjs/config';
 import { UserRole } from '@prisma/client';
 
-const REQUIRED_ENV_KEYS = [
-  'FACEBOOK_APP_ID',
-  'FACEBOOK_APP_SECRET',
-  'FACEBOOK_OAUTH_REDIRECT_URI',
-] as const;
+const REQUIRED_ENV_KEYS = ['FACEBOOK_APP_ID', 'FACEBOOK_APP_SECRET'] as const;
 
 const RECOMMENDED_ENV_KEYS = [
   'FACEBOOK_WEBHOOK_VERIFY_TOKEN',
   'SOCIAL_TOKEN_ENCRYPTION_KEY',
   'FACEBOOK_PAGE_CONNECT_REDIRECT_URI',
+  'FACEBOOK_GRAPH_API_VERSION',
 ] as const;
 
 export type FacebookEnvCheck = {
@@ -99,13 +96,23 @@ export class FacebookConfigService implements OnModuleInit {
   }
 
   getOAuthRedirectUriRaw(): string | null {
-    return this.readEnv('FACEBOOK_OAUTH_REDIRECT_URI');
+    return (
+      this.readEnv('FACEBOOK_OAUTH_REDIRECT_URI') ?? this.readEnv('FACEBOOK_CALLBACK_URL')
+    );
+  }
+
+  getGraphApiVersion(): string {
+    const raw = this.readEnv('FACEBOOK_GRAPH_API_VERSION') ?? 'v25.0';
+    return raw.startsWith('v') ? raw : `v${raw}`;
   }
 
   getMissingRequired(): string[] {
     const missing: string[] = [];
     for (const key of REQUIRED_ENV_KEYS) {
       if (!this.isEnvPresent(key)) missing.push(key);
+    }
+    if (!this.getOAuthRedirectUriRaw()) {
+      missing.push('FACEBOOK_CALLBACK_URL');
     }
     return missing;
   }
@@ -125,6 +132,11 @@ export class FacebookConfigService implements OnModuleInit {
         present: this.isEnvPresent(key),
         required: true,
       })),
+      {
+        key: 'FACEBOOK_CALLBACK_URL',
+        present: this.getOAuthRedirectUriRaw() != null,
+        required: true,
+      },
       ...RECOMMENDED_ENV_KEYS.map((key) => ({
         key,
         present: this.isEnvPresent(key),

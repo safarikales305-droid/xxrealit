@@ -7,9 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../database/prisma.service';
 import type { FacebookConnectDto } from '../dto/facebook-connect.dto';
 import type { FacebookUploadVideoDto } from '../dto/facebook-upload-video.dto';
-
-const GRAPH_API = 'https://graph.facebook.com/v21.0';
-const GRAPH_VIDEO_API = 'https://graph-video.facebook.com/v21.0';
+import { GRAPH_API, GRAPH_VIDEO_API } from './facebook-page.constants';
 
 type GraphMeResponse = { id?: string; name?: string };
 type GraphTokenExchange = { access_token?: string; expires_in?: number };
