@@ -91,9 +91,9 @@ export async function POST(req: Request) {
       },
     });
 
-    const resetUrl = `${getAppOrigin()}/reset-hesla?token=${encodeURIComponent(plainToken)}`;
+    const resetUrl = `${getAppOrigin()}/reset-password?token=${encodeURIComponent(plainToken)}`;
 
-    console.log('RESET LINK:', resetUrl);
+    console.log('PASSWORD_RESET_LINK_CREATED baseUrl=', getAppOrigin());
     console.log('SENDING TO:', user.email);
 
     const emailResult = await sendPasswordResetFlowWithDebug(user.email, resetUrl);

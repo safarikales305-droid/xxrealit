@@ -105,6 +105,7 @@ export default function AdminPage() {
   const [watermarkBusy, setWatermarkBusy] = useState(false);
   const [shareTexts, setShareTexts] = useState<AdminShareTextsSettings | null>(null);
   const [shareTextsBusy, setShareTextsBusy] = useState(false);
+  const [roleChangeMessage, setRoleChangeMessage] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -261,10 +262,13 @@ export default function AdminPage() {
   async function onUserRoleChange(userId: string, newRole: string) {
     if (!token) return;
     setBusyUserId(userId);
+    setRoleChangeMessage(null);
     const r = await nestAdminUpdateUserRole(token, userId, newRole);
     setBusyUserId(null);
-    if (r.ok) await refresh();
-    else setLoadError(r.error ?? 'Změna role selhala');
+    if (r.ok) {
+      setRoleChangeMessage(r.message ?? 'Role uživatele byla změněna.');
+      await refresh();
+    } else setLoadError(r.error ?? 'Změna role selhala');
   }
 
   async function onApproveAgent(id: string) {
@@ -800,6 +804,11 @@ export default function AdminPage() {
 
         <section>
           <h2 className="mb-4 text-lg font-semibold tracking-tight">Uživatelé</h2>
+          {roleChangeMessage ? (
+            <p className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              {roleChangeMessage}
+            </p>
+          ) : null}
           <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
             <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">

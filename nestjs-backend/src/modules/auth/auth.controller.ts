@@ -130,6 +130,7 @@ export class AuthController {
     if (!profile) {
       return {
         ...req.user,
+        role: req.user.role,
         firstContentCompleted,
         requireFirstContent,
       };

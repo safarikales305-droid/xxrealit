@@ -1411,7 +1411,7 @@ export async function nestAdminUpdateUserRole(
   token: string | null,
   userId: string,
   role: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; message?: string }> {
   if (!API_BASE_URL || !token) {
     return { ok: false, error: 'API nebo token chybí' };
   }
@@ -1442,7 +1442,11 @@ export async function nestAdminUpdateUserRole(
             : `HTTP ${res.status}`;
     return { ok: false, error: msg };
   }
-  return { ok: true };
+  const successMessage =
+    typeof data.message === 'string' && data.message.trim()
+      ? data.message.trim()
+      : 'Role uživatele byla změněna.';
+  return { ok: true, message: successMessage };
 }
 
 export async function nestAdminPatchPremiumBroker(

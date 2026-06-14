@@ -123,6 +123,39 @@ async function fetchMe(token: string | null): Promise<AuthUser | null> {
   return normalizeMeUser(data);
 }
 
+function persistAuthUserToStorage(user: AuthUser | null) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (!user) {
+      localStorage.removeItem('user');
+      return;
+    }
+    localStorage.setItem(
+      'user',
+      JSON.stringify({
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        name: user.name ?? null,
+        createdAt: user.createdAt,
+        avatar: user.avatar ?? null,
+        coverImage: user.coverImage ?? null,
+        bio: user.bio ?? null,
+      }),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function applyAuthUser(
+  user: AuthUser | null,
+  setUser: React.Dispatch<React.SetStateAction<AuthUser | null>>,
+) {
+  setUser(user);
+  persistAuthUserToStorage(user);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -132,9 +165,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const token = getClientTokenFromCookie();
     try {
       const u = await fetchMe(token);
-      setUser(u);
+      applyAuthUser(u, setUser);
     } catch {
-      setUser(null);
+      applyAuthUser(null, setUser);
     }
   }, []);
 
@@ -145,9 +178,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const token = getClientTokenFromCookie();
       try {
         const u = await fetchMe(token);
-        if (!cancelled) setUser(u);
+        if (!cancelled) applyAuthUser(u, setUser);
       } catch {
-        if (!cancelled) setUser(null);
+        if (!cancelled) applyAuthUser(null, setUser);
       } finally {
         if (!cancelled) setLoading(false);
       }

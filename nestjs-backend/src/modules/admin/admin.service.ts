@@ -1643,10 +1643,22 @@ export class AdminService {
     });
   }
 
-  async updateUserRole(_actorId: string, targetId: string, newRole: UserRole) {
+  async updateUserRole(actorId: string, targetId: string, newRole: UserRole) {
     const target = await this.prisma.user.findUnique({ where: { id: targetId } });
     if (!target) {
       throw new NotFoundException('Uživatel nenalezen');
+    }
+    const oldRole = target.role;
+    if (oldRole === newRole) {
+      return {
+        id: target.id,
+        email: target.email,
+        name: target.name,
+        role: target.role,
+        avatarUrl: target.avatar,
+        createdAt: target.createdAt,
+        message: 'Role uživatele byla změněna.',
+      };
     }
     if (target.role === UserRole.ADMIN && newRole !== UserRole.ADMIN) {
       const adminCount = await this.prisma.user.count({
@@ -1668,6 +1680,9 @@ export class AdminService {
         name: true,
       },
     });
+    this.logger.log(
+      `ADMIN_USER_ROLE_CHANGED adminId=${actorId} targetUserId=${targetId} oldRole=${oldRole} newRole=${newRole}`,
+    );
     return {
       id: updated.id,
       email: updated.email,
@@ -1675,6 +1690,7 @@ export class AdminService {
       role: updated.role,
       avatarUrl: updated.avatar,
       createdAt: updated.createdAt,
+      message: 'Role uživatele byla změněna.',
     };
   }
 

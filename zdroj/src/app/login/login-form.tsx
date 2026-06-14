@@ -89,33 +89,12 @@ export function LoginForm() {
         '';
       if (token.length > 0) {
         const encoded = encodeURIComponent(token);
-        document.cookie = `token=${encoded}; path=/; SameSite=Lax`;
-        document.cookie = `access_token=${encoded}; path=/; SameSite=Lax`;
-      }
-
-      const userPayload = data.user ?? data.session?.user;
-      if (userPayload) {
-        try {
-          localStorage.setItem(
-            'user',
-            JSON.stringify({
-              id: userPayload.id,
-              email: userPayload.email,
-              role: userPayload.role,
-              createdAt: userPayload.createdAt ?? new Date().toISOString(),
-              avatar: userPayload.avatar ?? null,
-              coverImage: userPayload.coverImage ?? null,
-              bio: userPayload.bio ?? null,
-            }),
-          );
-        } catch {
-          /* ignore */
-        }
+        document.cookie = `token=${encoded}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`;
+        document.cookie = `access_token=${encoded}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`;
       }
 
       await refresh();
 
-      /** Další přihlášení může znovu zobrazit PWA install panel po „Nechci instalovat“. */
       clearPwaInstallDismissed();
 
       const redirectParam =

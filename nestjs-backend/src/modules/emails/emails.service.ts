@@ -3,6 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { EmailCampaignStatus, EmailLogStatus, Prisma } from '@prisma/client';
 import { Resend } from 'resend';
 import { PrismaService } from '../../database/prisma.service';
+import {
+  normalizePublicEmailUrl,
+  resolveFrontendUrl,
+} from '../../common/resolve-frontend-url';
 
 type TemplateInput = {
   key: string;
@@ -81,45 +85,11 @@ export class EmailsService implements OnModuleInit {
   }
 
   private appUrl(): string {
-    const appUrl = this.config.get<string>('APP_URL')?.trim() ?? '';
-    const frontendUrl = this.config.get<string>('NEXT_PUBLIC_APP_URL')?.trim() ?? '';
-    const candidate = (appUrl || frontendUrl).replace(/\/+$/, '');
-    const nodeEnv = (this.config.get<string>('NODE_ENV') ?? process.env.NODE_ENV ?? '').trim();
-    const isProduction = nodeEnv.toLowerCase() === 'production';
-    const productionFallback = 'https://www.xxrealit.cz';
-    const localhostLike = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
-
-    if (isProduction) {
-      if (!candidate) {
-        this.logger.error(
-          `APP_URL is missing in production email flow. Falling back to ${productionFallback}.`,
-        );
-        return productionFallback;
-      }
-      if (localhostLike.test(candidate)) {
-        this.logger.error(
-          `APP_URL resolves to localhost in production email flow (${candidate}). Falling back to ${productionFallback}.`,
-        );
-        return productionFallback;
-      }
-      return candidate;
-    }
-
-    return candidate || 'http://localhost:3000';
+    return resolveFrontendUrl(this.config, this.logger);
   }
 
   private normalizePublicUrl(url: string): string {
-    const value = String(url ?? '').trim();
-    if (!value) return this.appUrl();
-    const nodeEnv = (this.config.get<string>('NODE_ENV') ?? process.env.NODE_ENV ?? '').trim();
-    const isProduction = nodeEnv.toLowerCase() === 'production';
-    const localhostLike = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i;
-    if (isProduction && localhostLike.test(value)) {
-      const fixed = value.replace(localhostLike, this.appUrl());
-      this.logger.error(`Localhost URL detected in production email payload. Replaced with ${fixed}`);
-      return fixed;
-    }
-    return value;
+    return normalizePublicEmailUrl(url, this.config, this.logger);
   }
 
   private senderAddress(): string {
