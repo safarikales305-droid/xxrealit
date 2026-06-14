@@ -110,6 +110,7 @@ export function CommunityPostCard({
   }
 
   const isFacebookImport =
+    p.source === 'FACEBOOK' ||
     Boolean(p.isFacebookPagePost) ||
     String(p.previewSiteName ?? '').toLowerCase().includes('facebook');
   const facebookLink = String(p.facebookPermalink ?? p.externalUrl ?? '').trim();
@@ -143,7 +144,7 @@ export function CommunityPostCard({
         {author}
         {isFacebookImport ? (
           <span className="ml-2 inline-flex items-center rounded-full bg-[#1877F2]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#1877F2]">
-            Facebook stránka
+            Facebook
           </span>
         ) : null}
       </p>
@@ -155,7 +156,7 @@ export function CommunityPostCard({
             rel="noopener noreferrer"
             className="text-xs font-semibold text-[#1877F2] hover:underline"
           >
-            Zobrazit na Facebooku
+            Otevřít na Facebooku
           </a>
         </p>
       ) : null}

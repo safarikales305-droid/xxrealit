@@ -338,6 +338,11 @@ export class UsersService {
       brokerEmailPublic: true,
       whatsappPhone: true,
       whatsappEnabled: true,
+      facebookUrl: true,
+      facebookImportEnabled: true,
+      facebookLastSyncAt: true,
+      facebookImportStatus: true,
+      facebookImportError: true,
       brokerReviewAverage: true,
       brokerReviewCount: true,
       agentProfile: {
@@ -515,6 +520,11 @@ export class UsersService {
       brokerSpecialization: u.brokerSpecialization,
       brokerRegionLabel: u.brokerRegionLabel,
       brokerWeb: u.brokerWeb,
+      facebookUrl: u.facebookUrl ?? null,
+      facebookImportEnabled: Boolean(u.facebookImportEnabled),
+      facebookLastSyncAt: u.facebookLastSyncAt?.toISOString() ?? null,
+      facebookImportStatus: u.facebookImportStatus ?? 'IDLE',
+      facebookImportError: u.facebookImportError ?? null,
       brokerPhonePublic: u.brokerPhonePublic,
       brokerEmailPublic: u.brokerEmailPublic,
       whatsappPhone: u.whatsappPhone,
@@ -598,6 +608,7 @@ export class UsersService {
       phonePublic: true,
       whatsappPhone: true,
       whatsappEnabled: true,
+      facebookUrl: true,
       role: true,
       isPublicBrokerProfile: true,
       avatar: true,
@@ -757,6 +768,7 @@ export class UsersService {
       phone: user.phonePublic ? user.phone : null,
       phonePublic: Boolean(user.phonePublic),
       whatsappEnabled: whatsappAvailable,
+      facebookUrl: user.facebookUrl ?? null,
       role: ensureUserRole(user.role),
       avatar: upgradeHttpToHttpsForApi(user.avatar) ?? user.avatar,
       avatarCrop: hasCropColumns ? (user.avatarCrop ?? null) : null,
@@ -777,13 +789,18 @@ export class UsersService {
         ...v,
         url: upgradeHttpToHttpsForApi(v.url) ?? v.url,
       })),
-      posts: posts.map((p) => ({
-        ...p,
-        media: (p.media ?? []).map((m) => ({
-          ...m,
-          url: upgradeHttpToHttpsForApi(m.url) ?? m.url,
-        })),
-      })),
+      posts: posts
+        .map((p) => ({
+          ...p,
+          media: (p.media ?? []).map((m) => ({
+            ...m,
+            url: upgradeHttpToHttpsForApi(m.url) ?? m.url,
+          })),
+        }))
+        .sort(
+          (a, b) =>
+            (b.publishedAt ?? b.createdAt).getTime() - (a.publishedAt ?? a.createdAt).getTime(),
+        ),
       properties: properties.map((p) =>
         serializeProperty({ ...p, likes: [] }, viewerId, propertyViewerAccess),
       ),

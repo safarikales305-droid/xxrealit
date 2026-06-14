@@ -56,6 +56,18 @@ enum ReactionType {
   DISLIKE
 }
 
+enum PostSource {
+  INTERNAL
+  FACEBOOK
+}
+
+enum FacebookImportStatus {
+  IDLE
+  RUNNING
+  OK
+  ERROR
+}
+
 enum StoryType {
   IMAGE
   VIDEO
@@ -217,6 +229,13 @@ model User {
   brokerReviewAverage   Float    @default(0)
   brokerReviewCount     Int      @default(0)
 
+  /// Veřejná URL Facebook stránky/profilu pro import bez Meta API.
+  facebookUrl            String?
+  facebookImportEnabled  Boolean              @default(false)
+  facebookLastSyncAt     DateTime?
+  facebookImportStatus   FacebookImportStatus @default(IDLE)
+  facebookImportError    String?              @db.Text
+
   notifications        UserNotification[]
   brokerPointsLedger   BrokerPointsLedger[]
   brokerLeadOffers     BrokerLeadOffer[] @relation("UserBrokerLeads")
@@ -245,6 +264,7 @@ model User {
   facebookConnection           FacebookConnection?
   facebookPageConnections      FacebookPageConnection[]
   facebookSyncedPosts          FacebookSyncedPost[]
+  facebookUrlImportLogs        FacebookUrlImportLog[]
   socialConnections            SocialConnection[]
   socialImportedPosts          SocialImportedPost[]
   socialFacebookOAuthSessions  SocialFacebookOAuthSession[]
@@ -528,8 +548,12 @@ model Post {
   previewImage        String?
   previewSiteName     String?
   /// Příspěvek importovaný z propojené Facebook stránky.
-  isFacebookPagePost  Boolean  @default(false)
+  isFacebookPagePost  Boolean    @default(false)
   facebookPermalink   String?
+  /// INTERNAL = ručně vytvořený; FACEBOOK = import ze scraperu / budoucí Meta API.
+  source              PostSource @default(INTERNAL)
+  facebookExternalId  String?    @unique
+  publishedAt         DateTime?
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   media       Media[]
@@ -540,6 +564,7 @@ model Post {
 
   @@index([userId])
   @@index([createdAt])
+  @@index([source, createdAt])
   @@index([latitude, longitude])
 }
 
@@ -1305,6 +1330,20 @@ model FacebookPageConnection {
   @@index([userId])
   @@index([pageId])
   @@index([isActive])
+}
+
+/// Log běhu importu Facebook URL (admin + diagnostika).
+model FacebookUrlImportLog {
+  id        String   @id @default(cuid())
+  userId    String
+  status    String
+  imported  Int      @default(0)
+  error     String?  @db.Text
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 /// Synchronizovaný příspěvek z Facebook stránky.

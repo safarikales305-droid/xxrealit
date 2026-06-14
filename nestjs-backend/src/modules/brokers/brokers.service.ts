@@ -211,6 +211,7 @@ export class BrokersService {
         brokerOfficeName: true,
         brokerRegionLabel: true,
         brokerWeb: true,
+        facebookUrl: true,
         brokerPhonePublic: true,
         brokerEmailPublic: true,
         whatsappPhone: true,
@@ -323,6 +324,7 @@ export class BrokersService {
         regionLabel: broker.brokerRegionLabel,
         specialization: broker.brokerSpecialization,
         web: broker.brokerWeb,
+        facebookUrl: broker.facebookUrl ?? null,
         phonePublic: broker.brokerPhonePublic,
         emailPublic: broker.brokerEmailPublic,
         whatsappEnabled:

@@ -258,6 +258,11 @@ export type NestMeProfile = {
   brokerReviewCount?: number;
   creditBalance?: number;
   isTipar?: boolean;
+  facebookUrl?: string | null;
+  facebookImportEnabled?: boolean;
+  facebookLastSyncAt?: string | null;
+  facebookImportStatus?: 'IDLE' | 'RUNNING' | 'OK' | 'ERROR';
+  facebookImportError?: string | null;
   agentProfile?: NestAgentProfileMe | null;
   companyProfile?: NestCompanyProfileMe | null;
   agencyProfile?: NestAgencyProfileMe | null;
@@ -572,6 +577,27 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     brokerReviewCount: typeof o.brokerReviewCount === 'number' ? o.brokerReviewCount : undefined,
     creditBalance: typeof o.creditBalance === 'number' ? o.creditBalance : undefined,
     isTipar: typeof o.isTipar === 'boolean' ? o.isTipar : undefined,
+    facebookUrl:
+      o.facebookUrl === null || typeof o.facebookUrl === 'string'
+        ? (o.facebookUrl as string | null)
+        : undefined,
+    facebookImportEnabled:
+      typeof o.facebookImportEnabled === 'boolean' ? o.facebookImportEnabled : undefined,
+    facebookLastSyncAt:
+      o.facebookLastSyncAt === null || typeof o.facebookLastSyncAt === 'string'
+        ? (o.facebookLastSyncAt as string | null)
+        : undefined,
+    facebookImportStatus:
+      o.facebookImportStatus === 'IDLE' ||
+      o.facebookImportStatus === 'RUNNING' ||
+      o.facebookImportStatus === 'OK' ||
+      o.facebookImportStatus === 'ERROR'
+        ? o.facebookImportStatus
+        : undefined,
+    facebookImportError:
+      o.facebookImportError === null || typeof o.facebookImportError === 'string'
+        ? (o.facebookImportError as string | null)
+        : undefined,
     agentProfile,
     companyProfile,
     agencyProfile,
@@ -4927,6 +4953,8 @@ export type ListingPost = {
   previewSiteName?: string | null;
   isFacebookPagePost?: boolean;
   facebookPermalink?: string | null;
+  source?: 'INTERNAL' | 'FACEBOOK' | string;
+  publishedAt?: string | null;
 };
 
 export type LinkPreviewResponse = {
@@ -6808,6 +6836,192 @@ export async function nestFacebookPageSyncNow(
       ok: true,
       imported: typeof data.imported === 'number' ? data.imported : undefined,
     };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export type FacebookUrlImportStatus = {
+  facebookUrl: string | null;
+  facebookImportEnabled: boolean;
+  facebookLastSyncAt: string | null;
+  facebookImportStatus: 'IDLE' | 'RUNNING' | 'OK' | 'ERROR';
+  facebookImportError: string | null;
+};
+
+export async function nestFacebookUrlImportStatus(
+  token: string,
+): Promise<FacebookUrlImportStatus | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook-url-import/status`, {
+      headers: nestAuthHeaders(token),
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as FacebookUrlImportStatus;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestFacebookUrlImportUpdateSettings(
+  token: string,
+  body: { facebookUrl?: string | null; facebookImportEnabled?: boolean },
+): Promise<
+  | { ok: true; status?: FacebookUrlImportStatus }
+  | { ok: false; error?: string }
+> {
+  if (!API_BASE_URL) return { ok: false, error: 'API chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook-url-import/settings`, {
+      method: 'PATCH',
+      headers: {
+        ...nestAuthHeaders(token),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return { ok: true, status: data as FacebookUrlImportStatus };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestFacebookUrlImportSync(
+  token: string,
+): Promise<
+  | {
+      ok: true;
+      imported?: number;
+      error?: string | null;
+    }
+  | { ok: false; error?: string }
+> {
+  if (!API_BASE_URL) return { ok: false, error: 'API chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook-url-import/sync`, {
+      method: 'POST',
+      headers: nestAuthHeaders(token),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return {
+      ok: true,
+      imported: typeof data.imported === 'number' ? data.imported : undefined,
+      error:
+        data.error === null || typeof data.error === 'string'
+          ? (data.error as string | null)
+          : undefined,
+    };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export type AdminFacebookUrlImportProfile = {
+  id: string;
+  name: string | null;
+  email: string;
+  role: string;
+  facebookUrl: string | null;
+  facebookImportEnabled: boolean;
+  facebookLastSyncAt: string | null;
+  facebookImportStatus: string;
+  facebookImportError: string | null;
+};
+
+export type AdminFacebookUrlImportLog = {
+  id: string;
+  userId: string;
+  status: string;
+  imported: number;
+  error: string | null;
+  createdAt: string;
+  user?: { id: string; name: string | null; email: string };
+};
+
+export type AdminFacebookUrlImportsResponse = {
+  profiles: AdminFacebookUrlImportProfile[];
+  recentLogs: AdminFacebookUrlImportLog[];
+};
+
+export async function nestAdminFacebookUrlImports(
+  token: string,
+): Promise<AdminFacebookUrlImportsResponse | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/facebook-url-imports`, {
+    headers: nestAuthHeaders(token),
+    cache: 'no-store',
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as AdminFacebookUrlImportsResponse;
+}
+
+export async function nestAdminFacebookUrlImportSync(
+  token: string,
+  userId: string,
+): Promise<{ ok: true; imported?: number } | { ok: false; error?: string }> {
+  if (!API_BASE_URL) return { ok: false, error: 'API chybí' };
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/admin/facebook-url-imports/${encodeURIComponent(userId)}/sync`,
+      { method: 'POST', headers: nestAuthHeaders(token) },
+    );
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return {
+      ok: true,
+      imported: typeof data.imported === 'number' ? data.imported : undefined,
+    };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestAdminFacebookUrlImportSetEnabled(
+  token: string,
+  userId: string,
+  enabled: boolean,
+): Promise<{ ok: true } | { ok: false; error?: string }> {
+  if (!API_BASE_URL) return { ok: false, error: 'API chybí' };
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/admin/facebook-url-imports/${encodeURIComponent(userId)}/enabled`,
+      {
+        method: 'PATCH',
+        headers: {
+          ...nestAuthHeaders(token),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ enabled }),
+      },
+    );
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return { ok: true };
   } catch {
     return { ok: false, error: 'Síťová chyba' };
   }

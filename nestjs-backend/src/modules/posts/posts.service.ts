@@ -396,7 +396,11 @@ export class PostsService {
         ...row,
         media: row.media.filter((m) => isPublicMediaUrl(m.url)),
       }))
-      .filter((row) => postHasFeedVisibility(row));
+      .filter((row) => postHasFeedVisibility(row))
+      .sort(
+        (a, b) =>
+          (b.publishedAt ?? b.createdAt).getTime() - (a.publishedAt ?? a.createdAt).getTime(),
+      );
     const userLat = toNumberOrNull(lat);
     const userLng = toNumberOrNull(lng);
     const radiusNum = toNumberOrNull(radiusKm);

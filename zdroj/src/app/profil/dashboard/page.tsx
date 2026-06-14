@@ -35,6 +35,7 @@ import {
 } from '@/lib/professional-verification-eligibility';
 import { trackFacebookAnalytics } from '@/lib/facebook-analytics';
 import { FacebookPageConnectionCard } from '@/components/profile/FacebookPageConnectionCard';
+import { FacebookUrlImportCard } from '@/components/profile/FacebookUrlImportCard';
 import { WhatsAppConnectionCard } from '@/components/profile/WhatsAppConnectionCard';
 
 type Tab = 'settings' | 'social-integrations' | 'listings' | 'ads' | 'messages' | 'notifications';
@@ -505,7 +506,17 @@ export default function ProfileDashboardPage() {
                 portálu.
               </p>
               {isProfessional ? (
-                <FacebookPageConnectionCard token={apiAccessToken} />
+                <>
+                  <FacebookUrlImportCard token={apiAccessToken} />
+                  <details className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
+                    <summary className="cursor-pointer text-sm font-semibold text-zinc-800">
+                      Pokročilé: propojení přes Meta OAuth (vyžaduje Pages API)
+                    </summary>
+                    <div className="mt-4">
+                      <FacebookPageConnectionCard token={apiAccessToken} />
+                    </div>
+                  </details>
+                </>
               ) : (
                 <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                   Propojení Facebook stránky je dostupné pro profesionální účty.

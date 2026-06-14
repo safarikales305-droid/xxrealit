@@ -32,6 +32,7 @@ type PublicProfile = {
     followingCount?: number;
     isFollowedByViewer?: boolean | null;
     whatsappEnabled?: boolean;
+    facebookUrl?: string | null;
   };
   videos?: Array<{ id: string; url: string; description?: string | null; createdAt?: string }>;
   posts?: Array<{
@@ -54,6 +55,7 @@ type PublicProfile = {
   followingCount?: number;
   isFollowedByViewer?: boolean | null;
   whatsappEnabled?: boolean;
+  facebookUrl?: string | null;
 };
 
 async function fetchJson<T>(url: string, auth?: string): Promise<T | null> {
@@ -222,6 +224,18 @@ export default async function ProfilePage({
                 {profileUser.bio ? (
                   <p className="mt-4 whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-700">
                     {profileUser.bio}
+                  </p>
+                ) : null}
+                {profileUser.facebookUrl ? (
+                  <p className="mt-4">
+                    <a
+                      href={profileUser.facebookUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 rounded-full border border-[#1877F2]/30 bg-[#1877F2]/5 px-4 py-2 text-sm font-semibold text-[#1877F2] hover:bg-[#1877F2]/10"
+                    >
+                      Facebook stránka
+                    </a>
                   </p>
                 ) : null}
                 <p className="mt-4 text-xs text-zinc-400">

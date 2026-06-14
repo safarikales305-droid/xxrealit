@@ -32,6 +32,7 @@ import { AdminGuard } from './guards/admin.guard';
 import { AgentProfileService } from '../agent-profile/agent-profile.service';
 import { ProfessionalVerificationService } from '../professional-verification/professional-verification.service';
 import { FacebookPageService } from '../social/facebook/facebook-page.service';
+import { FacebookUrlImportService } from '../social/facebook-url-import/facebook-url-import.service';
 
 type ChangePasswordBody = {
   oldPassword?: string;
@@ -66,11 +67,30 @@ export class AdminController {
     private readonly professionalVerification: ProfessionalVerificationService,
     private readonly importedBrokerContacts: ImportedBrokerContactService,
     private readonly facebookPage: FacebookPageService,
+    private readonly facebookUrlImport: FacebookUrlImportService,
   ) {}
 
   @Get('social-facebook-connections')
   listSocialFacebookConnections() {
     return this.facebookPage.adminListConnections();
+  }
+
+  @Get('facebook-url-imports')
+  listFacebookUrlImports() {
+    return this.facebookUrlImport.adminList();
+  }
+
+  @Post('facebook-url-imports/:userId/sync')
+  syncFacebookUrlImport(@Param('userId') userId: string) {
+    return this.facebookUrlImport.syncUser(userId, { triggeredBy: 'admin' });
+  }
+
+  @Patch('facebook-url-imports/:userId/enabled')
+  setFacebookUrlImportEnabled(
+    @Param('userId') userId: string,
+    @Body('enabled') enabled: boolean,
+  ) {
+    return this.facebookUrlImport.adminSetEnabled(userId, Boolean(enabled));
   }
 
   @Get()

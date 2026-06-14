@@ -8,6 +8,10 @@ import { FacebookConfigService } from './facebook/facebook-config.service';
 import { FacebookPageService } from './facebook/facebook-page.service';
 import { FacebookPageSyncService } from './facebook/facebook-page-sync.service';
 import { FacebookWebhookController } from './facebook/facebook-webhook.controller';
+import { FacebookUrlImportController } from './facebook-url-import/facebook-url-import.controller';
+import { FacebookUrlImportCronService } from './facebook-url-import/facebook-url-import.cron.service';
+import { FacebookUrlImportService } from './facebook-url-import/facebook-url-import.service';
+import { FacebookUrlScraperProvider } from './facebook-url-import/facebook-url.scraper.provider';
 import { FacebookService } from './facebook/facebook.service';
 import { InstagramController } from './instagram/instagram.controller';
 import { SocialPlatformStubService } from './social-platform.stub';
@@ -21,6 +25,7 @@ import { YoutubeController } from './youtube/youtube.controller';
     FacebookController,
     FacebookPageController,
     FacebookWebhookController,
+    FacebookUrlImportController,
     TiktokController,
     YoutubeController,
     InstagramController,
@@ -31,9 +36,18 @@ import { YoutubeController } from './youtube/youtube.controller';
     FacebookService,
     FacebookPageService,
     FacebookPageSyncService,
+    FacebookUrlImportService,
+    FacebookUrlScraperProvider,
+    FacebookUrlImportCronService,
     TokenEncryptionService,
     SocialPlatformStubService,
   ],
-  exports: [FacebookConfigService, FacebookService, FacebookPageService, FacebookPageSyncService],
+  exports: [
+    FacebookConfigService,
+    FacebookService,
+    FacebookPageService,
+    FacebookPageSyncService,
+    FacebookUrlImportService,
+  ],
 })
 export class SocialModule {}

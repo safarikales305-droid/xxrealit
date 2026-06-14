@@ -7,23 +7,33 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   nestFacebookAdminStats,
   nestFacebookConfigStatus,
+  nestAdminFacebookUrlImports,
+  nestAdminFacebookUrlImportSetEnabled,
+  nestAdminFacebookUrlImportSync,
+  type AdminFacebookUrlImportsResponse,
   type FacebookAdminStats,
   type FacebookConfigStatus,
 } from '@/lib/nest-client';
 
 export default function AdminFacebookIntegrationPage() {
   const router = useRouter();
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, apiAccessToken } = useAuth();
   const [config, setConfig] = useState<FacebookConfigStatus | null>(null);
   const [stats, setStats] = useState<FacebookAdminStats | null>(null);
+  const [urlImports, setUrlImports] = useState<AdminFacebookUrlImportsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [busyUserId, setBusyUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoadError(null);
     setRefreshing(true);
     const data = await nestFacebookConfigStatus();
     const adminStats = await nestFacebookAdminStats();
+    const imports =
+      user?.role === 'ADMIN' && apiAccessToken
+        ? await nestAdminFacebookUrlImports(apiAccessToken)
+        : null;
     setRefreshing(false);
     if (!data) {
       setLoadError('Nepodařilo se načíst stav Facebook integrace.');
@@ -32,7 +42,8 @@ export default function AdminFacebookIntegrationPage() {
     }
     setConfig(data);
     setStats(adminStats);
-  }, []);
+    setUrlImports(imports);
+  }, [user?.role, apiAccessToken]);
 
   useEffect(() => {
     if (!isLoading && (!user || user.role !== 'ADMIN')) {
@@ -163,6 +174,120 @@ export default function AdminFacebookIntegrationPage() {
               <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                 Poslední chyba ({stats.lastError.pageName ?? 'stránka'}): {stats.lastError.message}
               </p>
+            ) : null}
+          </div>
+
+          <div className="rounded-2xl border border-[#1877F2]/30 bg-white p-5 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              Import z Facebook URL (bez Meta API)
+            </p>
+            <p className="mt-2 text-sm text-zinc-600">
+              Profesionálové vkládají veřejnou URL stránky; systém každých 6 hodin importuje až 20
+              nových příspěvků.
+            </p>
+            {urlImports?.profiles?.length ? (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full min-w-[640px] text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500">
+                      <th className="py-2 pr-3">Uživatel</th>
+                      <th className="py-2 pr-3">URL</th>
+                      <th className="py-2 pr-3">Import</th>
+                      <th className="py-2 pr-3">Stav</th>
+                      <th className="py-2">Akce</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {urlImports.profiles.map((row) => (
+                      <tr key={row.id} className="border-b border-zinc-100 align-top">
+                        <td className="py-2 pr-3">
+                          <p className="font-medium text-zinc-900">{row.name ?? row.email}</p>
+                          <p className="text-xs text-zinc-500">{row.email}</p>
+                        </td>
+                        <td className="max-w-[200px] truncate py-2 pr-3 text-xs text-zinc-600">
+                          {row.facebookUrl ?? '—'}
+                        </td>
+                        <td className="py-2 pr-3">
+                          {row.facebookImportEnabled ? (
+                            <span className="text-emerald-700">Zapnuto</span>
+                          ) : (
+                            <span className="text-zinc-500">Vypnuto</span>
+                          )}
+                        </td>
+                        <td className="py-2 pr-3 text-xs">
+                          <p>{row.facebookImportStatus}</p>
+                          {row.facebookImportError ? (
+                            <p className="mt-1 text-red-700">{row.facebookImportError}</p>
+                          ) : null}
+                        </td>
+                        <td className="py-2">
+                          <div className="flex flex-col gap-1">
+                            <button
+                              type="button"
+                              disabled={!apiAccessToken || busyUserId === row.id}
+                              onClick={() => {
+                                if (!apiAccessToken) return;
+                                setBusyUserId(row.id);
+                                void nestAdminFacebookUrlImportSync(apiAccessToken, row.id).then(
+                                  () => {
+                                    setBusyUserId(null);
+                                    void refresh();
+                                  },
+                                );
+                              }}
+                              className="rounded border border-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-800"
+                            >
+                              Spustit import
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!apiAccessToken || busyUserId === row.id}
+                              onClick={() => {
+                                if (!apiAccessToken) return;
+                                setBusyUserId(row.id);
+                                void nestAdminFacebookUrlImportSetEnabled(
+                                  apiAccessToken,
+                                  row.id,
+                                  !row.facebookImportEnabled,
+                                ).then(() => {
+                                  setBusyUserId(null);
+                                  void refresh();
+                                });
+                              }}
+                              className="rounded border border-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-800"
+                            >
+                              {row.facebookImportEnabled ? 'Vypnout' : 'Zapnout'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-zinc-500">Zatím žádné URL importy.</p>
+            )}
+            {urlImports?.recentLogs?.length ? (
+              <div className="mt-4">
+                <p className="text-sm font-semibold text-zinc-800">Poslední logy</p>
+                <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto text-xs text-zinc-700">
+                  {urlImports.recentLogs.slice(0, 20).map((log) => (
+                    <li key={log.id} className="rounded border border-zinc-100 bg-zinc-50 px-2 py-1.5">
+                      <span className="font-medium">
+                        {log.user?.name ?? log.user?.email ?? log.userId}
+                      </span>
+                      {' — '}
+                      {log.status}, importováno {log.imported}
+                      {log.error ? ` — ${log.error}` : ''}
+                      <span className="text-zinc-500">
+                        {' '}
+                        ({new Date(log.createdAt).toLocaleString('cs-CZ')})
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ) : null}
           </div>
 
