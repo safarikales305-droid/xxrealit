@@ -6567,6 +6567,9 @@ export async function nestAdminContactMonetizationUpdate(
 export type FacebookConfigStatus = {
   configured: boolean;
   missing: string[];
+  pagesConfigured?: boolean;
+  pagesMissing?: string[];
+  pagesAppId?: string | null;
   oauthRedirectUri?: string | null;
   pageConnectRedirectUri?: string | null;
   pageConnectRequiresReview?: boolean;
@@ -6578,6 +6581,7 @@ export type FacebookConfigStatus = {
 
 export type FacebookAdminStats = {
   connectedAccounts: number;
+  connectedLoginAccounts?: number;
   connectedPages: number;
   syncedPosts: number;
   lastSyncAt: string | null;

@@ -59,7 +59,8 @@ export default function AdminFacebookIntegrationPage() {
     return <div className="min-h-[40vh] bg-zinc-50" />;
   }
 
-  const configured = config?.configured ?? false;
+  const loginConfigured = config?.configured ?? false;
+  const pagesConfigured = config?.pagesConfigured ?? false;
 
   return (
     <div className="min-h-screen bg-zinc-50 px-4 py-6">
@@ -87,14 +88,42 @@ export default function AdminFacebookIntegrationPage() {
         <div className="space-y-4">
           <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-              Stav konfigurace
+              Facebook Pages API (propojení stránek)
             </p>
             <p
-              className={`mt-2 text-lg font-bold ${configured ? 'text-emerald-700' : 'text-amber-700'}`}
+              className={`mt-2 text-lg font-bold ${pagesConfigured ? 'text-emerald-700' : 'text-amber-700'}`}
             >
-              {configured ? 'Nakonfigurováno' : 'Není nakonfigurováno'}
+              {pagesConfigured ? 'Nakonfigurováno' : 'Není nakonfigurováno'}
             </p>
-            {!configured && config?.missing?.length ? (
+            {!pagesConfigured && config?.pagesMissing?.length ? (
+              <div className="mt-3">
+                <p className="text-sm font-medium text-zinc-800">Chybějící povinné proměnné:</p>
+                <ul className="mt-1 list-disc pl-5 text-sm text-zinc-700">
+                  {config.pagesMissing.map((key) => (
+                    <li key={key}>
+                      <code className="rounded bg-zinc-100 px-1 text-xs">{key}</code>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {config?.pagesAppId ? (
+              <p className="mt-2 text-sm text-zinc-600">
+                Pages App ID: <code className="rounded bg-zinc-100 px-1 text-xs">{config.pagesAppId}</code>
+              </p>
+            ) : null}
+          </div>
+
+          <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              Facebook Login (registrace / přihlášení)
+            </p>
+            <p
+              className={`mt-2 text-lg font-bold ${loginConfigured ? 'text-emerald-700' : 'text-amber-700'}`}
+            >
+              {loginConfigured ? 'Nakonfigurováno' : 'Není nakonfigurováno'}
+            </p>
+            {!loginConfigured && config?.missing?.length ? (
               <div className="mt-3">
                 <p className="text-sm font-medium text-zinc-800">Chybějící povinné proměnné:</p>
                 <ul className="mt-1 list-disc pl-5 text-sm text-zinc-700">

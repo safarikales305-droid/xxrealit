@@ -24,7 +24,7 @@ import {
 } from '@/lib/nest-client';
 
 const FACEBOOK_CONNECT_PATH = '/api/social/facebook/connect';
-const NOT_CONFIGURED_MSG = 'Facebook propojení není nakonfigurováno administrátorem.';
+const NOT_CONFIGURED_MSG = 'Propojení Facebook stránky není nakonfigurováno administrátorem.';
 
 type Props = {
   token: string | null;
@@ -44,7 +44,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
   const [selectingPage, setSelectingPage] = useState(false);
   const [changingPage, setChangingPage] = useState(false);
 
-  const integrationConfigured = configStatus?.configured ?? false;
+  const integrationConfigured = configStatus?.pagesConfigured ?? false;
 
   const refresh = useCallback(async () => {
     const cfg = await nestFacebookConfigStatus();
@@ -287,9 +287,13 @@ export function FacebookPageConnectionCard({ token }: Props) {
                   <code className="rounded bg-amber-100 px-1 text-xs">ADMIN_SETUP_FACEBOOK.md</code>.
                 </li>
               </ol>
-              {configStatus?.missing?.length ? (
+              {configStatus?.pagesMissing?.length ? (
                 <p className="mt-2 text-xs">
-                  Chybí: {configStatus.missing.join(', ')}
+                  Chybí: {configStatus.pagesMissing.join(', ')}
+                </p>
+              ) : configStatus?.missing?.length ? (
+                <p className="mt-2 text-xs">
+                  Chybí (login): {configStatus.missing.join(', ')}
                 </p>
               ) : null}
             </div>
@@ -311,7 +315,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
           className="relative z-10 rounded-full bg-[#1877F2] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#166fe0] disabled:cursor-wait disabled:opacity-70"
           onClick={handleConnectAccount}
         >
-          {busy ? 'Přesměrovávám na Facebook…' : 'Propojit Facebook účet'}
+          {busy ? 'Přesměrovávám na Facebook…' : 'Propojit Facebook stránku'}
         </button>
       ) : null}
 

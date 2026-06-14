@@ -12,9 +12,8 @@ import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../../database/prisma.service';
 import { TokenEncryptionService } from '../token-encryption.service';
 import {
-  FACEBOOK_FULL_SCOPES,
-  FACEBOOK_LOGIN_SCOPES,
   FACEBOOK_OAUTH_DIALOG,
+  FACEBOOK_PAGE_API_SCOPES,
   GRAPH_API,
 } from './facebook-page.constants';
 import { FacebookConfigService } from './facebook-config.service';
@@ -75,7 +74,7 @@ export class FacebookPageService {
   ) {}
 
   isConfigured(): boolean {
-    return this.facebookConfig.isConfigured();
+    return this.facebookConfig.isPagesConfigured();
   }
 
   getConfigStatus() {
@@ -157,8 +156,8 @@ export class FacebookPageService {
     };
   }
 
-  private oauthRedirectUri(): string {
-    return this.facebookConfig.resolveOAuthRedirectUri();
+  private pageConnectRedirectUri(): string {
+    return this.facebookConfig.resolvePageConnectRedirectUri();
   }
 
   private assertProfessional(userId: string, role: UserRole) {
@@ -169,13 +168,9 @@ export class FacebookPageService {
     }
   }
 
-  private pageConnectRedirectUri(): string {
-    return this.facebookConfig.resolvePageConnectRedirectUri();
-  }
-
   async buildConnectUrl(userId: string, role: UserRole): Promise<string> {
     if (!this.isConfigured()) {
-      throw new ServiceUnavailableException(this.facebookConfig.configurationErrorMessage());
+      throw new ServiceUnavailableException(this.facebookConfig.pagesConfigurationErrorMessage());
     }
     this.assertProfessional(userId, role);
 
@@ -194,8 +189,8 @@ export class FacebookPageService {
     });
 
     const redirectUri = encodeURIComponent(this.pageConnectRedirectUri());
-    const appId = encodeURIComponent(this.facebookConfig.getAppId()!);
-    const scope = encodeURIComponent(FACEBOOK_FULL_SCOPES);
+    const appId = encodeURIComponent(this.facebookConfig.getPagesAppId()!);
+    const scope = encodeURIComponent(FACEBOOK_PAGE_API_SCOPES);
     return (
       `${FACEBOOK_OAUTH_DIALOG}?` +
       `client_id=${appId}&redirect_uri=${redirectUri}&state=${state}&scope=${scope}&response_type=code`
@@ -266,7 +261,7 @@ export class FacebookPageService {
         where: { id: session.id },
         data: { userAccessToken: this.crypto.encrypt(userToken) },
       });
-      await this.persistUserFacebookToken(session.userId, userToken, tokenExpiresAt, true);
+      await this.persistPagesUserToken(session.userId, userToken, tokenExpiresAt);
 
       const pages = await this.listManagedPages(session.userId);
       if (!pages.length) {
@@ -338,7 +333,7 @@ export class FacebookPageService {
           ? new Date(Date.now() + expiresIn * 1000)
           : null;
 
-      await this.persistUserFacebookToken(session.userId, userToken, tokenExpiresAt, true);
+      await this.persistPagesUserToken(session.userId, userToken, tokenExpiresAt);
 
       await this.cleanupAccountOAuthSession(session.userId);
 
@@ -398,8 +393,10 @@ export class FacebookPageService {
   }
 
   async getAdminStats() {
-    const [accounts, pages, syncedPosts, lastSync, lastError] = await Promise.all([
+    const [loginAccounts, pagesAccounts, pages, syncedPosts, lastSync, lastError] =
+      await Promise.all([
       this.prisma.facebookConnection.count(),
+      this.prisma.facebookPagesUserAuth.count(),
       this.prisma.facebookPageConnection.count({ where: { isActive: true } }),
       this.prisma.facebookSyncedPost.count(),
       this.prisma.facebookPageConnection.findFirst({
@@ -414,7 +411,8 @@ export class FacebookPageService {
       }),
     ]);
     return {
-      connectedAccounts: accounts,
+      connectedAccounts: pagesAccounts,
+      connectedLoginAccounts: loginAccounts,
       connectedPages: pages,
       syncedPosts,
       lastSyncAt: lastSync?.lastSyncAt?.toISOString() ?? null,
@@ -425,7 +423,7 @@ export class FacebookPageService {
   }
 
   async getConnectionStatus(userId: string) {
-    const fbLogin = await this.prisma.facebookConnection.findUnique({ where: { userId } });
+    const pagesAuth = await this.prisma.facebookPagesUserAuth.findUnique({ where: { userId } });
     const activePage = await this.prisma.facebookPageConnection.findFirst({
       where: { userId, isActive: true },
       orderBy: { updatedAt: 'desc' },
@@ -445,21 +443,21 @@ export class FacebookPageService {
     });
 
     const tokenInvalid = this.isTokenError(activePage?.lastSyncError);
-    const accountConnected = Boolean(fbLogin?.facebookUserId);
+    const accountConnected = Boolean(pagesAuth?.facebookUserId);
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { role: true },
     });
     const pageConnectScopesAvailable = this.facebookConfig.arePageConnectScopesAvailable(
       user?.role,
-      fbLogin?.facebookUserId,
+      pagesAuth?.facebookUserId,
     );
     return {
       configured: this.isConfigured(),
       accountConnected,
       pageConnectScopesAvailable,
       connected: Boolean(activePage?.pageId),
-      facebookUserId: fbLogin?.facebookUserId ?? null,
+      facebookUserId: pagesAuth?.facebookUserId ?? null,
       facebookName: null,
       facebookEmail: null,
       facebookPicture: null,
@@ -538,7 +536,7 @@ export class FacebookPageService {
   async listAvailablePages(userId: string, _role: UserRole): Promise<FacebookPageOption[]> {
     const status = await this.getConnectionStatus(userId);
     if (!status.accountConnected) {
-      throw new BadRequestException('Nejprve propojte Facebook účet.');
+      throw new BadRequestException('Nejprve propojte Facebook stránku přes OAuth.');
     }
     return this.listManagedPages(userId);
   }
@@ -681,7 +679,7 @@ export class FacebookPageService {
 
   async disconnect(userId: string) {
     await this.disconnectActivePage(userId);
-    await this.prisma.facebookConnection.deleteMany({ where: { userId } });
+    await this.prisma.facebookPagesUserAuth.deleteMany({ where: { userId } });
     await this.prisma.socialFacebookOAuthSession.deleteMany({ where: { userId } });
     return { ok: true };
   }
@@ -728,33 +726,29 @@ export class FacebookPageService {
     return this.crypto.decrypt(encrypted);
   }
 
-  private async persistUserFacebookToken(
+  private async persistPagesUserToken(
     userId: string,
     userToken: string,
     tokenExpiresAt: Date | null,
-    includePageScopes: boolean,
   ) {
     const me = await this.fetchGraphJson<GraphMeResponse>(
       `${GRAPH_API}/me?fields=id,name,email,picture&access_token=${encodeURIComponent(userToken)}`,
     );
     if (!me.id) throw new BadRequestException('Neplatný Facebook token.');
 
-    const scopes = includePageScopes ? FACEBOOK_FULL_SCOPES.split(',') : FACEBOOK_LOGIN_SCOPES.split(',');
-
+    const scopes = FACEBOOK_PAGE_API_SCOPES.split(',');
     const encryptedToken = this.crypto.encrypt(userToken);
-    await this.prisma.facebookConnection.upsert({
+    await this.prisma.facebookPagesUserAuth.upsert({
       where: { userId },
       create: {
         userId,
         facebookUserId: me.id,
-        accessToken: '',
         accessTokenEncrypted: encryptedToken,
         tokenExpiresAt,
         scopes,
       },
       update: {
         facebookUserId: me.id,
-        accessToken: '',
         accessTokenEncrypted: encryptedToken,
         tokenExpiresAt,
         scopes,
@@ -773,30 +767,37 @@ export class FacebookPageService {
       if (token !== 'pending') return token;
     }
 
-    const connection = await this.prisma.facebookConnection.findUnique({
+    const pagesAuth = await this.prisma.facebookPagesUserAuth.findUnique({
       where: { userId },
-      select: { accessTokenEncrypted: true, accessToken: true },
+      select: { accessTokenEncrypted: true, tokenExpiresAt: true },
     });
-    if (connection?.accessTokenEncrypted) {
+    if (pagesAuth?.accessTokenEncrypted) {
       try {
-        return this.crypto.decrypt(connection.accessTokenEncrypted);
-      } catch {
+        const token = this.crypto.decrypt(pagesAuth.accessTokenEncrypted);
+        if (
+          pagesAuth.tokenExpiresAt &&
+          pagesAuth.tokenExpiresAt.getTime() < Date.now()
+        ) {
+          throw new BadRequestException(
+            'Facebook Pages propojení vypršelo. Klikněte na „Propojit Facebook stránku“.',
+          );
+        }
+        return token;
+      } catch (err) {
+        if (err instanceof BadRequestException) throw err;
         // fall through
       }
     }
-    if (connection?.accessToken?.trim()) {
-      return connection.accessToken.trim();
-    }
 
     throw new BadRequestException(
-      'Facebook propojení vyžaduje nové přihlášení. Klikněte na „Propojit Facebook stránku“.',
+      'Facebook stránka není propojena. Klikněte na „Propojit Facebook stránku“.',
     );
   }
 
   private async exchangeCodeForToken(code: string, redirectUriRaw?: string): Promise<string> {
-    const appId = this.facebookConfig.getAppId()!;
-    const appSecret = this.facebookConfig.getAppSecret()!;
-    const redirectUri = encodeURIComponent(redirectUriRaw ?? this.oauthRedirectUri());
+    const appId = this.facebookConfig.getPagesAppId()!;
+    const appSecret = this.facebookConfig.getPagesAppSecret()!;
+    const redirectUri = encodeURIComponent(redirectUriRaw ?? this.pageConnectRedirectUri());
     const url =
       `${GRAPH_API}/oauth/access_token?` +
       `client_id=${encodeURIComponent(appId)}` +
@@ -810,8 +811,8 @@ export class FacebookPageService {
   }
 
   private async exchangeForLongLivedToken(shortToken: string): Promise<GraphTokenResponse> {
-    const appId = this.facebookConfig.getAppId()!;
-    const appSecret = this.facebookConfig.getAppSecret()!;
+    const appId = this.facebookConfig.getPagesAppId()!;
+    const appSecret = this.facebookConfig.getPagesAppSecret()!;
     const url =
       `${GRAPH_API}/oauth/access_token?` +
       `grant_type=fb_exchange_token&client_id=${encodeURIComponent(appId)}` +
