@@ -91,7 +91,7 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
     try {
       const feedUrl =
         `${GRAPH_API}/${encodeURIComponent(connection.pageId)}/posts?` +
-        `fields=id,message,story,created_time,permalink_url,full_picture&limit=25` +
+        `fields=id,message,story,created_time,permalink_url,full_picture,attachments{media_type,media,url,subattachments}&limit=25` +
         `&access_token=${encodeURIComponent(pageToken)}`;
       const res = await fetch(feedUrl);
       const payload = (await res.json().catch(() => ({}))) as {
@@ -113,9 +113,15 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
         where: { id: pageConnectionId },
         data: { lastSyncAt: new Date(), lastSyncError: null },
       });
+      this.logger.log(
+        `FACEBOOK_PAGE_POSTS_SYNCED pageConnectionId=${pageConnectionId} pageId=${connection.pageId} imported=${imported}`,
+      );
       return { imported };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Synchronizace selhala';
+      this.logger.warn(
+        `FACEBOOK_PAGE_SYNC_FAILED pageConnectionId=${pageConnectionId} pageId=${connection.pageId} error=${message}`,
+      );
       await this.markPageSyncError(pageConnectionId, message);
       return { imported: 0, error: message };
     }

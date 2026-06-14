@@ -17,6 +17,9 @@ export function isFacebookPageScopeError(...parts: (string | undefined | null)[]
   );
 }
 
+export const FACEBOOK_PAGES_LIST_PERMISSION_MESSAGE =
+  'Pro výběr Facebook stránky je potřeba schválení oprávnění pages_show_list a pages_read_engagement v Meta aplikaci.';
+
 export const FACEBOOK_PAGE_SCOPES_NOT_AVAILABLE_MESSAGE =
   'Propojení Facebook stránky vyžaduje povolení Pages oprávnění v Meta aplikaci.';
 

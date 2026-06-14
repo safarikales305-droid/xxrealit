@@ -191,11 +191,7 @@ export class FacebookPageController implements OnModuleInit {
   @Get('pages')
   @UseGuards(JwtAuthGuard)
   async listPages(@CurrentUser() user: AuthUser) {
-    const status = await this.facebookPage.getConnectionStatus(user.id);
-    if (status.pendingPageSelection) {
-      return this.facebookPage.listManagedPages(user.id);
-    }
-    return status.pages;
+    return this.facebookPage.listAvailablePages(user.id, user.role as UserRole);
   }
 
   @Post('pages/:pageId/select')
@@ -226,6 +222,12 @@ export class FacebookPageController implements OnModuleInit {
     @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: FacebookSelectPageDto,
   ) {
     return this.facebookPage.selectPage(user.id, user.role as UserRole, dto.pageId);
+  }
+
+  @Post('disconnect-page')
+  @UseGuards(JwtAuthGuard)
+  disconnectPageOnly(@CurrentUser() user: AuthUser) {
+    return this.facebookPage.disconnectActivePage(user.id);
   }
 
   @Post('disconnect')

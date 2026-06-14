@@ -6594,14 +6594,16 @@ export type FacebookPageStatus = {
   facebookPicture: string | null;
   pageId: string | null;
   pageName: string | null;
+  pagePictureUrl?: string | null;
   syncEnabled: boolean;
   lastSyncAt: string | null;
   lastSyncError: string | null;
   tokenNeedsReauth: boolean;
   pendingPageSelection: boolean;
+  needsPageSelection?: boolean;
 };
 
-export type FacebookPageOption = { id: string; name: string };
+export type FacebookPageOption = { id: string; name: string; picture?: string | null };
 
 export async function nestFacebookPageStatus(
   token: string,
@@ -6656,18 +6658,52 @@ export async function nestFacebookPageConnectUrl(
 
 export async function nestFacebookPageListPages(
   token: string,
-): Promise<FacebookPageOption[] | null> {
-  if (!API_BASE_URL) return null;
+): Promise<
+  { ok: true; pages: FacebookPageOption[] } | { ok: false; error: string; permissionDenied?: boolean }
+> {
+  if (!API_BASE_URL) {
+    return { ok: false, error: 'Facebook propojení není nakonfigurováno administrátorem.' };
+  }
   try {
     const res = await fetch(`${API_BASE_URL}/social/facebook/pages`, {
       headers: nestAuthHeaders(token),
       cache: 'no-store',
     });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return Array.isArray(data) ? (data as FacebookPageOption[]) : null;
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      const msg = nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`);
+      return {
+        ok: false,
+        error: msg,
+        permissionDenied: res.status === 403,
+      };
+    }
+    const pages = Array.isArray(data) ? (data as FacebookPageOption[]) : [];
+    return { ok: true, pages };
   } catch {
-    return null;
+    return { ok: false, error: 'Síťová chyba při načítání Facebook stránek.' };
+  }
+}
+
+export async function nestFacebookPageDisconnectPage(
+  token: string,
+): Promise<{ ok: true } | { ok: false; error?: string }> {
+  if (!API_BASE_URL) return { ok: false, error: 'API chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/social/facebook/disconnect-page`, {
+      method: 'POST',
+      headers: nestAuthHeaders(token),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
   }
 }
 
