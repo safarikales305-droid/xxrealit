@@ -29,6 +29,8 @@ export function isPathAllowedForFirstContent(pathname: string): boolean {
     '/prihlaseni',
     '/registrace',
     '/privacy',
+    '/privacy-policy',
+    '/terms',
     '/data-deletion',
   ];
   return allowedPrefixes.some((prefix) => p === prefix || p.startsWith(`${prefix}/`));
