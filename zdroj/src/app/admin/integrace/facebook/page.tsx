@@ -340,7 +340,7 @@ export default function AdminFacebookIntegrationPage() {
               Facebook Page sync vyžaduje Meta Review pro{' '}
               <code className="rounded bg-amber-100 px-1 text-xs">pages_show_list</code>,{' '}
               <code className="rounded bg-amber-100 px-1 text-xs">pages_read_engagement</code> a{' '}
-              <code className="rounded bg-amber-100 px-1 text-xs">pages_read_user_content</code>.
+              <code className="rounded bg-amber-100 px-1 text-xs">pages_manage_metadata</code>.
             </p>
             <p className="mt-2 text-sm text-amber-900">
               Dokud oprávnění nejsou schválena, propojení stránky funguje jen pro účty přidané jako

@@ -10,6 +10,8 @@ export function isFacebookPageScopeError(...parts: (string | undefined | null)[]
     text.includes('invalid_scopes') ||
     text.includes('pages_show_list') ||
     text.includes('pages_read_engagement') ||
+    text.includes('pages_manage_metadata') ||
+    text.includes('pages_manage_posts') ||
     text.includes('pages_read_user_content') ||
     text.includes('feature unavailable') ||
     text.includes('app not active') ||
@@ -18,7 +20,7 @@ export function isFacebookPageScopeError(...parts: (string | undefined | null)[]
 }
 
 export const FACEBOOK_PAGES_LIST_PERMISSION_MSG =
-  'Pro výběr Facebook stránky je potřeba schválení oprávnění pages_show_list a pages_read_engagement v Meta aplikaci.';
+  'Pro výběr Facebook stránky je potřeba schválení oprávnění pages_show_list, pages_read_engagement a pages_manage_metadata v Meta aplikaci.';
 
 export const FACEBOOK_PAGE_SCOPES_NOT_AVAILABLE_MSG =
   'Propojení Facebook stránky vyžaduje povolení Pages oprávnění v Meta aplikaci.';
