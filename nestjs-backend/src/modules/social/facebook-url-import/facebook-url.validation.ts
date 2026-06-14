@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { FACEBOOK_URL_ALLOWED_HOSTS } from './facebook-url-import.constants';
 
 const POST_PATH_RE =
-  /(?:\/posts\/|\/permalink\/|\/photos\/|\/photo\.php|\/videos\/|\/video\.php|\/reel\/|\/watch\/?\?|story\.php|permalink\.php|story_fbid)/i;
+  /(?:\/posts\/|\/permalink\/|\/share\/|\/photos\/|\/photo\/|\/photo\.php|\/videos\/|\/video\.php|\/reel\/|\/watch\/?|story\.php|permalink\.php|story_fbid)/i;
 
 function parseFacebookUrl(raw: string): URL {
   const trimmed = raw.trim();
@@ -46,10 +46,10 @@ export function normalizeFacebookPageUrl(raw: string): string {
 export function normalizeFacebookPostUrl(raw: string): string {
   const url = parseFacebookUrl(raw);
   assertAllowedHost(url);
-  const full = url.toString();
-  if (!POST_PATH_RE.test(`${url.pathname}${url.search}`)) {
+  const pathAndQuery = `${url.pathname}${url.search}`;
+  if (!POST_PATH_RE.test(pathAndQuery)) {
     throw new BadRequestException(
-      'URL musí odkazovat na konkrétní Facebook příspěvek (posts, permalink, reel, video, photo, story_fbid).',
+      'URL musí odkazovat na konkrétní Facebook příspěvek nebo video (posts, share, watch, reel, videos, photo, story_fbid).',
     );
   }
   url.protocol = 'https:';

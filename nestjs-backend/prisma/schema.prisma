@@ -68,6 +68,12 @@ enum FacebookImportStatus {
   ERROR
 }
 
+enum FacebookPostType {
+  FACEBOOK_POST
+  FACEBOOK_VIDEO
+  FACEBOOK_REEL
+}
+
 enum StoryType {
   IMAGE
   VIDEO
@@ -555,6 +561,8 @@ model Post {
   facebookExternalId  String?    @unique
   /// ID role-specifického profesionálního profilu (AgentProfile, CompanyProfile, …).
   professionalProfileId String?
+  facebookPostType    FacebookPostType?
+  facebookEmbedUrl    String?          @db.Text
   publishedAt         DateTime?
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)

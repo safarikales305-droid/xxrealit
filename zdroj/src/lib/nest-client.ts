@@ -4951,8 +4951,12 @@ export type ListingPost = {
   previewDescription?: string | null;
   previewImage?: string | null;
   previewSiteName?: string | null;
+  imageUrl?: string | null;
+  videoUrl?: string | null;
   isFacebookPagePost?: boolean;
   facebookPermalink?: string | null;
+  facebookEmbedUrl?: string | null;
+  facebookPostType?: 'FACEBOOK_POST' | 'FACEBOOK_VIDEO' | 'FACEBOOK_REEL' | string | null;
   source?: 'INTERNAL' | 'FACEBOOK' | string;
   publishedAt?: string | null;
 };

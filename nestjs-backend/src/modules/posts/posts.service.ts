@@ -16,7 +16,9 @@ function postHasFeedVisibility(row: {
   previewImage?: string | null;
   imageUrl?: string | null;
   videoUrl?: string | null;
+  facebookEmbedUrl?: string | null;
 }): boolean {
+  if (row.facebookEmbedUrl?.trim()) return true;
   if (row.media.length > 0) return true;
   if (row.imageUrl?.trim() || row.videoUrl?.trim()) return true;
   return Boolean(row.externalUrl?.trim() || row.previewImage?.trim());

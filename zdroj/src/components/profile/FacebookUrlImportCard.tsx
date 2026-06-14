@@ -12,7 +12,7 @@ import {
 const IMPORTING_MSG = 'Importuji poslední 3 příspěvky…';
 
 const BLOCKED_MSG =
-  'Facebook blokuje automatické načtení. Zkuste vložit odkaz na konkrétní veřejný příspěvek, nebo příspěvek vytvořte přímo na xxrealit.';
+  'Facebook blokuje automatický import. Vložte konkrétní odkaz na příspěvek nebo video ručně.';
 
 type Props = {
   token: string | null;
@@ -271,12 +271,17 @@ export function FacebookUrlImportCard({ token }: Props) {
           </div>
 
           <div className="border-t border-zinc-100 pt-4">
+            <p className="text-sm font-semibold text-zinc-900">Ruční přidání příspěvku / videa</p>
+            <p className="mt-1 text-xs text-zinc-600">
+              Doporučený způsob — vložte přímý odkaz na Facebook příspěvek, Reels nebo video. Ve feedu
+              se zobrazí Facebook embed nebo velký náhled s tlačítkem přehrání.
+            </p>
             <button
               type="button"
               onClick={() => setManualOpen((v) => !v)}
-              className="text-sm font-semibold text-[#1877F2] hover:underline"
+              className="mt-2 text-sm font-semibold text-[#1877F2] hover:underline"
             >
-              {manualOpen ? 'Skrýt ruční přidání' : 'Přidat Facebook příspěvek ručně'}
+              {manualOpen ? 'Skrýt formulář' : 'Přidat Facebook příspěvek ručně'}
             </button>
             {manualOpen ? (
               <div className="mt-3 space-y-3 rounded-lg border border-zinc-100 bg-zinc-50/80 p-3">

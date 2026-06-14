@@ -19,6 +19,10 @@ import {
   userMessageForImportReason,
 } from './facebook-import-reason';
 import {
+  buildFacebookEmbedUrl,
+  detectFacebookPostType,
+} from './facebook-embed.util';
+import {
   externalIdForFacebookPostUrl,
   normalizeFacebookPageUrl,
   normalizeFacebookPostUrl,
@@ -144,7 +148,13 @@ export class FacebookUrlImportService {
       throw new BadRequestException('Tento Facebook příspěvek už byl importován dříve.');
     }
 
-    return { ok: true, permalink };
+    const facebookPostType = detectFacebookPostType(permalink);
+    return {
+      ok: true,
+      permalink,
+      facebookPostType,
+      facebookEmbedUrl: buildFacebookEmbedUrl(permalink, facebookPostType),
+    };
   }
 
   async syncUser(userId: string, options?: { triggeredBy?: 'user' | 'cron' | 'admin' }) {
@@ -434,12 +444,13 @@ export class FacebookUrlImportService {
     const category = this.categoryForRole(role);
     const professionalProfileId = await this.resolveProfessionalProfileId(userId, role);
     const importedAt = new Date();
+    const facebookPostType = detectFacebookPostType(permalink);
+    const facebookEmbedUrl = buildFacebookEmbedUrl(permalink, facebookPostType);
+    const imageUrl = item.imageUrl?.trim() || null;
 
     const mediaCreate: Array<{ url: string; type: string; order: number }> = [];
-    if (item.videoUrl?.trim()) {
-      mediaCreate.push({ url: item.videoUrl.trim(), type: 'video', order: 0 });
-    } else if (item.imageUrl?.trim()) {
-      mediaCreate.push({ url: item.imageUrl.trim(), type: 'image', order: 1 });
+    if (imageUrl) {
+      mediaCreate.push({ url: imageUrl, type: 'image', order: 1 });
     }
 
     try {
@@ -454,12 +465,16 @@ export class FacebookUrlImportService {
           city: '',
           description: text,
           content: text || null,
-          imageUrl: item.imageUrl?.trim() || null,
-          videoUrl: item.videoUrl?.trim() || null,
+          imageUrl,
+          videoUrl: null,
           externalUrl: permalink,
           facebookPermalink: permalink,
           facebookExternalId: externalId,
-          previewImage: item.imageUrl?.trim() || null,
+          facebookPostType,
+          facebookEmbedUrl,
+          previewTitle: text.slice(0, 200) || 'Facebook příspěvek',
+          previewDescription: text.slice(0, 500) || null,
+          previewImage: imageUrl,
           previewSiteName: 'Facebook',
           source: PostSource.FACEBOOK,
           isFacebookPagePost: true,

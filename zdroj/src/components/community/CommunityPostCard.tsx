@@ -9,6 +9,7 @@ import { ShareButtons } from '@/components/share/ShareButtons';
 import type { ListingPost, PostComment } from '@/lib/nest-client';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
 import { LinkPreviewCard, type LinkPreviewData } from '@/components/community/LinkPreviewCard';
+import { FacebookEmbedCard } from '@/components/community/FacebookEmbedCard';
 
 export type CommunityPostCardProps = {
   post: ListingPost;
@@ -114,6 +115,11 @@ export function CommunityPostCard({
     Boolean(p.isFacebookPagePost) ||
     String(p.previewSiteName ?? '').toLowerCase().includes('facebook');
   const facebookLink = String(p.facebookPermalink ?? p.externalUrl ?? '').trim();
+  const facebookEmbedUrl = String(p.facebookEmbedUrl ?? '').trim();
+  const showFacebookEmbed = isFacebookImport && Boolean(facebookEmbedUrl);
+  const fallbackImage =
+    String(p.previewImage ?? p.imageUrl ?? '').trim() ||
+    (firstImage ? imageRaw : '');
 
   return (
     <article className="relative w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:rounded-3xl">
@@ -197,7 +203,19 @@ export function CommunityPostCard({
         </div>
       ) : null}
 
-      {showFeedImage ? (
+      {showFacebookEmbed ? (
+        <div className="mt-3 px-3 md:px-4">
+          <FacebookEmbedCard
+            embedUrl={facebookEmbedUrl}
+            fallbackUrl={facebookLink || facebookEmbedUrl}
+            fallbackImage={fallbackImage || null}
+            postType={p.facebookPostType ?? null}
+            compact
+          />
+        </div>
+      ) : null}
+
+      {showFeedImage && !showFacebookEmbed ? (
         <button
           type="button"
           className="mt-3 block w-full text-left"
@@ -214,7 +232,7 @@ export function CommunityPostCard({
         </button>
       ) : null}
 
-      {showFeedVideo ? (
+      {showFeedVideo && !showFacebookEmbed ? (
         <button
           type="button"
           className="mt-3 block w-full text-left"
@@ -252,7 +270,7 @@ export function CommunityPostCard({
           <p className={`whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 ${interactionsLocked ? 'blur-[3px]' : ''}`}>
             {String(p.description ?? '')}
           </p>
-          {linkPreview && !showFeedImage && !showFeedVideo ? (
+          {linkPreview && !showFeedImage && !showFeedVideo && !showFacebookEmbed ? (
             <div className={interactionsLocked ? 'pointer-events-none blur-sm' : ''}>
               <LinkPreviewCard preview={linkPreview} compact />
             </div>

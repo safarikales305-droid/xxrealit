@@ -15,7 +15,7 @@ const DESKTOP_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
 const POST_PATH_RE =
-  /(?:\/posts\/|\/permalink\/|\/photos\/|\/photo\.php|\/videos\/|\/video\.php|\/reel\/|\/watch\/?\?|story\.php|permalink\.php|story_fbid|multi_permalinks)/i;
+  /(?:\/posts\/|\/permalink\/|\/share\/|\/photos\/|\/photo\/|\/photo\.php|\/videos\/|\/video\.php|\/reel\/|\/watch\/?\?|story\.php|permalink\.php|story_fbid|multi_permalinks)/i;
 
 type FetchTarget = { url: string; ua: 'desktop' | 'mobile' };
 

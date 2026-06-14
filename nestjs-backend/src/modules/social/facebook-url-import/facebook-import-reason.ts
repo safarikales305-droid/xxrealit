@@ -8,7 +8,7 @@ export type FacebookImportDetectedReason =
 export const FACEBOOK_BLOCKED_CODE = 'FACEBOOK_BLOCKED';
 
 export const FACEBOOK_BLOCKED_USER_MSG =
-  'Facebook blokuje automatické načtení. Zkuste vložit odkaz na konkrétní veřejný příspěvek, nebo příspěvek vytvořte přímo na xxrealit.';
+  'Facebook blokuje automatický import. Vložte konkrétní odkaz na příspěvek nebo video ručně.';
 
 export function userMessageForImportReason(
   reason: FacebookImportDetectedReason,

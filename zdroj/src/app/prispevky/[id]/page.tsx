@@ -8,6 +8,7 @@ import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { LinkPreviewCard } from '@/components/community/LinkPreviewCard';
+import { FacebookEmbedCard } from '@/components/community/FacebookEmbedCard';
 import { nestFetchPostDetail, type ListingPost } from '@/lib/nest-client';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
 
@@ -151,7 +152,18 @@ export default function PrispevekDetailPage() {
             <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-800">
               {post.description}
             </p>
-            {post.externalUrl?.trim() ? (
+            {post.facebookEmbedUrl?.trim() ? (
+              <div className="mt-4">
+                <FacebookEmbedCard
+                  embedUrl={post.facebookEmbedUrl.trim()}
+                  fallbackUrl={
+                    (post.facebookPermalink ?? post.externalUrl ?? post.facebookEmbedUrl).trim()
+                  }
+                  fallbackImage={post.previewImage ?? post.imageUrl ?? null}
+                  postType={post.facebookPostType ?? null}
+                />
+              </div>
+            ) : post.externalUrl?.trim() ? (
               <LinkPreviewCard
                 preview={{
                   url: post.externalUrl.trim(),
