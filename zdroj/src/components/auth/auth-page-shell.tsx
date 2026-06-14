@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { Play } from 'lucide-react';
 import Logo from '@/components/Logo';
+import { SiteFooter } from '@/components/legal/SiteFooter';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import {
   AUTH_DECOR_MASKED_PRICE,
@@ -119,7 +120,7 @@ export function AuthPageShell({ variant, children }: AuthPageShellProps) {
   }, []);
 
   return (
-    <div className="relative min-h-[100dvh] overflow-x-hidden bg-slate-950 text-zinc-900">
+    <div className="relative flex min-h-[100dvh] flex-col overflow-x-hidden bg-slate-950 text-zinc-900">
       <div
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_120%_80%_at_50%_-20%,rgba(234,88,12,0.22),transparent_50%),radial-gradient(ellipse_80%_50%_at_100%_50%,rgba(249,115,22,0.08),transparent_45%),radial-gradient(ellipse_60%_40%_at_0%_80%,rgba(251,146,60,0.07),transparent_40%)]"
         aria-hidden
@@ -188,6 +189,8 @@ export function AuthPageShell({ variant, children }: AuthPageShellProps) {
           </div>
         </div>
       </div>
+
+      <SiteFooter />
     </div>
   );
 }
