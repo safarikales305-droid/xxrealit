@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import {
-  FACEBOOK_PAGE_REVIEW_REQUIRED_MSG,
+  FACEBOOK_PAGE_SCOPES_NOT_AVAILABLE_MSG,
   isFacebookPageScopeError,
 } from '@/lib/facebook-page-scope';
 import {
@@ -82,8 +82,9 @@ export function FacebookPageConnectionCard({ token }: Props) {
   }, [params, token, status?.pendingPageSelection, loadPagePicker, integrationConfigured]);
 
   useEffect(() => {
-    if (params.get('facebookPage') === 'review_required') {
-      setError(FACEBOOK_PAGE_REVIEW_REQUIRED_MSG);
+    const pageParam = params.get('facebookPage');
+    if (pageParam === 'scopes_unavailable' || pageParam === 'review_required') {
+      setError(FACEBOOK_PAGE_SCOPES_NOT_AVAILABLE_MSG);
       return;
     }
     if (params.get('facebook') === 'page_connected') {
@@ -103,13 +104,40 @@ export function FacebookPageConnectionCard({ token }: Props) {
       return;
     }
     if (isFacebookPageScopeError(reason)) {
-      setError(FACEBOOK_PAGE_REVIEW_REQUIRED_MSG);
+      setError(FACEBOOK_PAGE_SCOPES_NOT_AVAILABLE_MSG);
       return;
     }
     setError('Propojení Facebooku se nezdařilo. Zkuste to znovu.');
   }, [params, refresh]);
 
-  function handleConnect() {
+  function handleConnectPage() {
+    if (!token) {
+      setError('Pro propojení se přihlaste.');
+      return;
+    }
+    if (!integrationConfigured) {
+      setError(NOT_CONFIGURED_MSG);
+      return;
+    }
+    if (status?.pageConnectScopesAvailable === false) {
+      setError(FACEBOOK_PAGE_SCOPES_NOT_AVAILABLE_MSG);
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    setOk(null);
+
+    try {
+      window.location.assign(FACEBOOK_CONNECT_PATH);
+    } catch (err) {
+      console.error('[FacebookPageConnectionCard] connect redirect failed', err);
+      setBusy(false);
+      setError('Nepodařilo se spustit přihlášení přes Facebook.');
+    }
+  }
+
+  function handleConnectAccount() {
     if (!token) {
       setError('Pro propojení se přihlaste.');
       return;
@@ -233,7 +261,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
           type="button"
           disabled={busy}
           className="relative z-10 rounded-full bg-[#1877F2] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#166fe0] disabled:cursor-wait disabled:opacity-70"
-          onClick={handleConnect}
+          onClick={handleConnectAccount}
         >
           {busy ? 'Přesměrovávám na Facebook…' : 'Propojit Facebook účet'}
         </button>
@@ -261,17 +289,20 @@ export function FacebookPageConnectionCard({ token }: Props) {
               )}
             </p>
           </div>
-          {configStatus?.pageConnectRequiresReview !== false ? (
-            <p className="text-sm text-amber-900">{FACEBOOK_PAGE_REVIEW_REQUIRED_MSG}</p>
+          {configStatus?.pageConnectScopesAvailable === false ||
+          status?.pageConnectScopesAvailable === false ? (
+            <p className="text-sm text-amber-900">{FACEBOOK_PAGE_SCOPES_NOT_AVAILABLE_MSG}</p>
           ) : null}
-          <button
-            type="button"
-            disabled={busy}
-            className="relative z-10 rounded-full bg-[#1877F2] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#166fe0] disabled:cursor-wait disabled:opacity-70"
-            onClick={handleConnect}
-          >
-            {busy ? 'Přesměrovávám na Facebook…' : 'Propojit Facebook stránku'}
-          </button>
+          {status?.pageConnectScopesAvailable !== false ? (
+            <button
+              type="button"
+              disabled={busy}
+              className="relative z-10 rounded-full bg-[#1877F2] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#166fe0] disabled:cursor-wait disabled:opacity-70"
+              onClick={handleConnectPage}
+            >
+              {busy ? 'Přesměrovávám na Facebook…' : 'Propojit Facebook stránku'}
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={busy}

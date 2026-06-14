@@ -6538,6 +6538,7 @@ export type FacebookConfigStatus = {
   oauthRedirectUri?: string | null;
   pageConnectRedirectUri?: string | null;
   pageConnectRequiresReview?: boolean;
+  pageConnectScopesAvailable?: boolean;
   webhookUri?: string | null;
   recommendedMissing?: string[];
   envChecks?: Array<{ key: string; present: boolean; required: boolean }>;
@@ -6585,6 +6586,7 @@ export async function nestFacebookConfigStatus(): Promise<FacebookConfigStatus |
 export type FacebookPageStatus = {
   configured: boolean;
   accountConnected: boolean;
+  pageConnectScopesAvailable?: boolean;
   connected: boolean;
   facebookUserId: string | null;
   facebookName: string | null;

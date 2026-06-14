@@ -40,6 +40,7 @@ export async function GET() {
       url?: string;
       message?: string | string[];
       reviewRequired?: boolean;
+      pageScopesNotAvailable?: boolean;
     };
 
     if (!res.ok) {
@@ -51,15 +52,12 @@ export async function GET() {
       console.error('[api/social/facebook/connect] Nest error', res.status, data);
       if (
         res.status === 403 &&
-        (data.reviewRequired ||
-          msg.includes('Meta Review') ||
-          msg.includes('Admin/Tester') ||
-          msg.includes('testovací účet'))
+        (data.pageScopesNotAvailable ||
+          data.reviewRequired ||
+          msg.includes('Pages oprávnění') ||
+          isFacebookPageScopeError(msg))
       ) {
-        return socialIntegrationsRedirect('facebookPage=review_required');
-      }
-      if (isFacebookPageScopeError(msg)) {
-        return socialIntegrationsRedirect('facebookPage=review_required');
+        return socialIntegrationsRedirect('facebookPage=scopes_unavailable');
       }
       if (
         res.status === 503 ||

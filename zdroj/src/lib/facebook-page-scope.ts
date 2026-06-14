@@ -17,5 +17,8 @@ export function isFacebookPageScopeError(...parts: (string | undefined | null)[]
   );
 }
 
-export const FACEBOOK_PAGE_REVIEW_REQUIRED_MSG =
-  'Propojení Facebook stránky vyžaduje schválení oprávnění v Meta Review nebo testovací účet v roli Admin/Tester.';
+export const FACEBOOK_PAGE_SCOPES_NOT_AVAILABLE_MSG =
+  'Propojení Facebook stránky vyžaduje povolení Pages oprávnění v Meta aplikaci.';
+
+/** @deprecated Použijte FACEBOOK_PAGE_SCOPES_NOT_AVAILABLE_MSG */
+export const FACEBOOK_PAGE_REVIEW_REQUIRED_MSG = FACEBOOK_PAGE_SCOPES_NOT_AVAILABLE_MSG;

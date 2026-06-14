@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { UserRole } from '@prisma/client';
 
 const REQUIRED_ENV_KEYS = [
   'FACEBOOK_APP_ID',
@@ -25,6 +26,7 @@ export type FacebookConfigStatusDto = {
   oauthRedirectUri: string | null;
   pageConnectRedirectUri: string | null;
   pageConnectRequiresReview: boolean;
+  pageConnectScopesAvailable: boolean;
   webhookUri: string | null;
   recommendedMissing: string[];
   envChecks: FacebookEnvCheck[];
@@ -176,6 +178,18 @@ export class FacebookConfigService implements OnModuleInit {
     return true;
   }
 
+  /** Pages scope jsou dostupné až po schválení v Meta nebo pro Admin/Tester. */
+  arePageConnectScopesAvailable(
+    role?: UserRole | null,
+    facebookUserId?: string | null,
+  ): boolean {
+    if (!this.isPageConnectReviewPending()) return true;
+    if (role === UserRole.ADMIN) return true;
+    const testers = this.getAppTesterFacebookUserIds();
+    if (facebookUserId && testers.includes(facebookUserId)) return true;
+    return false;
+  }
+
   getAppTesterFacebookUserIds(): string[] {
     const raw = this.readEnv('FACEBOOK_APP_TESTER_FACEBOOK_IDS');
     if (!raw?.trim()) return [];
@@ -204,6 +218,7 @@ export class FacebookConfigService implements OnModuleInit {
       oauthRedirectUri,
       pageConnectRedirectUri,
       pageConnectRequiresReview: this.isPageConnectReviewPending(),
+      pageConnectScopesAvailable: this.arePageConnectScopesAvailable(),
       webhookUri: this.buildWebhookUri(),
       recommendedMissing: this.getRecommendedMissing(),
       envChecks: this.buildEnvChecks(),

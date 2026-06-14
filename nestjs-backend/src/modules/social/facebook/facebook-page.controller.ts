@@ -155,7 +155,10 @@ export class FacebookPageController implements OnModuleInit {
   ) {
     const wantsJson = this.wantsJsonResponse(req);
     try {
-      const url = await this.facebookPage.buildPageConnectUrl(user.id, user.role as UserRole);
+      const status = await this.facebookPage.getConnectionStatus(user.id);
+      const url = status.accountConnected
+        ? await this.facebookPage.buildPageConnectUrl(user.id, user.role as UserRole)
+        : await this.facebookPage.buildAccountConnectUrl(user.id, user.role as UserRole);
       if (wantsJson) return res.json({ url });
       return res.redirect(url);
     } catch (err) {
@@ -164,20 +167,19 @@ export class FacebookPageController implements OnModuleInit {
           ? String(err.message)
           : 'Facebook propojení není nakonfigurováno administrátorem.';
       const status = err instanceof HttpException ? err.getStatus() : 503;
-      const reviewRequired =
-        status === 403 &&
-        (message.includes('Meta Review') ||
-          message.includes('Admin/Tester') ||
-          message.includes('testovací účet'));
+      const scopesNotAvailable =
+        status === 403 && message.includes('Pages oprávnění');
       if (wantsJson) {
         return res.status(status).json({
           message,
           error: message,
-          ...(reviewRequired ? { reviewRequired: true } : {}),
+          ...(scopesNotAvailable
+            ? { pageScopesNotAvailable: true, reviewRequired: true }
+            : {}),
         });
       }
-      if (reviewRequired) {
-        return res.redirect(302, this.facebookPage.getPageReviewRequiredRedirectUrl());
+      if (scopesNotAvailable) {
+        return res.redirect(302, this.facebookPage.getPageScopesNotAvailableRedirectUrl());
       }
       return res.redirect(
         302,
@@ -260,6 +262,7 @@ export class FacebookPageController implements OnModuleInit {
       redirectUrl: string;
       accessToken?: string;
       pageReviewRequired?: boolean;
+      pageScopesNotAvailable?: boolean;
       message?: string;
     },
   ) {

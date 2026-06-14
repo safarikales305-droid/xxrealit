@@ -10,7 +10,7 @@ export const runtime = 'nodejs';
 export async function GET(request: NextRequest) {
   const nestBase = getOptionalInternalApiBaseUrl();
   const settingsUrl = 'https://www.xxrealit.cz/profil/dashboard?tab=social-integrations';
-  const reviewFallback = `${settingsUrl}&facebookPage=review_required`;
+  const reviewFallback = `${settingsUrl}&facebookPage=scopes_unavailable`;
 
   const oauthError = request.nextUrl.searchParams.get('error');
   const errorReason = request.nextUrl.searchParams.get('error_reason');
