@@ -61,6 +61,11 @@ import {
   dashboardPathForRole,
 } from '@/lib/roles';
 import { ProfessionalOnlyDialog } from '@/components/auth/ProfessionalListingRestriction';
+import { FacebookPostMediaBlock } from '@/components/community/FacebookPostMediaBlock';
+import {
+  filterPostMediaForDisplay,
+  resolveFacebookPostMedia,
+} from '@/lib/facebook-post-media';
 
 const BIO_MAX = 500;
 const ACCEPT_IMAGES = 'image/jpeg,image/jpg,image/png,image/webp';
@@ -1669,9 +1674,12 @@ export default function ProfilPage() {
           ) : (
             <div className="mt-4 space-y-4">
               {wallPosts.map((post) => {
-                const medias = Array.isArray(post.media)
-                  ? post.media.filter((m) => typeof m?.url === 'string' && m.url.trim())
-                  : [];
+                const medias = filterPostMediaForDisplay(post).filter(
+                  (m) => typeof m?.url === 'string' && m.url.trim(),
+                );
+                const resolvedMedia = resolveFacebookPostMedia(post);
+                const showPrimaryMediaBlock =
+                  resolvedMedia.mode !== 'none' && medias.length === 0;
                 return (
                   <article
                     key={`post-${post.id}`}
@@ -1755,8 +1763,18 @@ export default function ProfilPage() {
                               <video
                                 key={`${post.id}-video-${idx}`}
                                 src={mediaUrl}
+                                poster={
+                                  post.facebookVideoThumbnail || post.previewImage
+                                    ? nestAbsoluteAssetUrl(
+                                        String(
+                                          post.facebookVideoThumbnail ?? post.previewImage,
+                                        ),
+                                      )
+                                    : undefined
+                                }
                                 className="h-auto w-full rounded-2xl bg-black object-contain"
                                 controls
+                                playsInline
                                 preload="metadata"
                               />
                             );
@@ -1771,6 +1789,12 @@ export default function ProfilPage() {
                           );
                         })}
                       </div>
+                    ) : showPrimaryMediaBlock ? (
+                      <FacebookPostMediaBlock
+                        media={resolvedMedia}
+                        facebookPostType={post.facebookPostType ?? null}
+                        className="mt-3"
+                      />
                     ) : null}
                   </article>
                 );

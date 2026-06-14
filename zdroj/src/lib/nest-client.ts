@@ -2658,7 +2658,18 @@ export type NestProfileWallPost = {
   content?: string | null;
   description?: string | null;
   createdAt?: string;
-  media?: Array<{ url?: string; type?: string }>;
+  media?: Array<{ url?: string; type?: string; order?: number }>;
+  source?: 'INTERNAL' | 'FACEBOOK' | string;
+  isFacebookPagePost?: boolean;
+  facebookPostType?: 'FACEBOOK_POST' | 'FACEBOOK_VIDEO' | 'FACEBOOK_REEL' | string | null;
+  facebookEmbedUrl?: string | null;
+  facebookPermalink?: string | null;
+  externalUrl?: string | null;
+  videoUrl?: string | null;
+  imageUrl?: string | null;
+  previewImage?: string | null;
+  previewSiteName?: string | null;
+  facebookVideoThumbnail?: string | null;
 };
 
 export type NestProfileWallVideo = {
@@ -4957,6 +4968,9 @@ export type ListingPost = {
   facebookPermalink?: string | null;
   facebookEmbedUrl?: string | null;
   facebookPostType?: 'FACEBOOK_POST' | 'FACEBOOK_VIDEO' | 'FACEBOOK_REEL' | string | null;
+  facebookVideoThumbnail?: string | null;
+  facebookVideoDurationSec?: number | null;
+  facebookVideoSourceUrl?: string | null;
   source?: 'INTERNAL' | 'FACEBOOK' | string;
   publishedAt?: string | null;
 };

@@ -7,6 +7,7 @@ import { FacebookPageController } from './facebook/facebook-page.controller';
 import { FacebookConfigService } from './facebook/facebook-config.service';
 import { FacebookPageService } from './facebook/facebook-page.service';
 import { FacebookPageSyncService } from './facebook/facebook-page-sync.service';
+import { FacebookVideoMigrationService } from './facebook/facebook-video-migration.service';
 import { FacebookWebhookController } from './facebook/facebook-webhook.controller';
 import { FacebookUrlImportController } from './facebook-url-import/facebook-url-import.controller';
 import { FacebookUrlImportCronService } from './facebook-url-import/facebook-url-import.cron.service';
@@ -36,6 +37,7 @@ import { YoutubeController } from './youtube/youtube.controller';
     FacebookService,
     FacebookPageService,
     FacebookPageSyncService,
+    FacebookVideoMigrationService,
     FacebookUrlImportService,
     FacebookUrlScraperProvider,
     FacebookUrlImportCronService,

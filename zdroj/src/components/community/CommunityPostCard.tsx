@@ -3,13 +3,15 @@
 import { useState } from 'react';
 import { Heart, MessageCircle, Pencil, ThumbsDown, Trash2, Volume2, VolumeX } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import type { ListingPost, PostComment } from '@/lib/nest-client';
-import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
 import { LinkPreviewCard, type LinkPreviewData } from '@/components/community/LinkPreviewCard';
-import { FacebookEmbedCard } from '@/components/community/FacebookEmbedCard';
+import { FacebookPostMediaBlock } from '@/components/community/FacebookPostMediaBlock';
+import {
+  isFacebookImportPost,
+  resolveFacebookPostMedia,
+} from '@/lib/facebook-post-media';
 
 export type CommunityPostCardProps = {
   post: ListingPost;
@@ -68,15 +70,7 @@ export function CommunityPostCard({
 }: CommunityPostCardProps) {
   const router = useRouter();
   const id = String(p.id ?? '');
-  const media = (p.media ?? []).slice().sort((a, b) => a.order - b.order);
-
-  const firstVideo = media.find((m) => m.type === 'video');
-  const firstImage = media.find((m) => m.type === 'image');
-  const videoRaw = String(firstVideo?.url ?? p.videoUrl ?? '').trim();
-  const imageRaw = String(firstImage?.url ?? p.imageUrl ?? p.previewImage ?? '').trim();
-  const showFeedVideo = Boolean(videoRaw);
-  const showFeedImage = !showFeedVideo && Boolean(imageRaw);
-  const isPostType = p.type === 'post' || !p.type;
+  const resolvedMedia = resolveFacebookPostMedia(p);
   const shareTitle =
     (p.title ?? '').trim().slice(0, 120) ||
     (p.description ?? '').trim().slice(0, 80) ||
@@ -110,16 +104,12 @@ export function CommunityPostCard({
     }, 400);
   }
 
-  const isFacebookImport =
-    p.source === 'FACEBOOK' ||
-    Boolean(p.isFacebookPagePost) ||
-    String(p.previewSiteName ?? '').toLowerCase().includes('facebook');
+  const isFacebookImport = isFacebookImportPost(p);
   const facebookLink = String(p.facebookPermalink ?? p.externalUrl ?? '').trim();
-  const facebookEmbedUrl = String(p.facebookEmbedUrl ?? '').trim();
-  const showFacebookEmbed = isFacebookImport && Boolean(facebookEmbedUrl);
-  const fallbackImage =
-    String(p.previewImage ?? p.imageUrl ?? '').trim() ||
-    (firstImage ? imageRaw : '');
+  const hasFeedMedia = resolvedMedia.mode !== 'none';
+  const showNativeFeedVideo =
+    resolvedMedia.mode === 'video' && !resolvedMedia.isFacebookVideo;
+  const showMuteForVideo = showNativeFeedVideo;
 
   return (
     <article className="relative w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:rounded-3xl">
@@ -203,66 +193,16 @@ export function CommunityPostCard({
         </div>
       ) : null}
 
-      {showFacebookEmbed ? (
-        <div className="mt-3 px-3 md:px-4">
-          <FacebookEmbedCard
-            embedUrl={facebookEmbedUrl}
-            fallbackUrl={facebookLink || facebookEmbedUrl}
-            fallbackImage={fallbackImage || null}
-            postType={p.facebookPostType ?? null}
-            compact
-          />
-        </div>
-      ) : null}
-
-      {showFeedImage && !showFacebookEmbed ? (
-        <button
-          type="button"
-          className="mt-3 block w-full text-left"
-          onClick={interactionsLocked ? undefined : onOpenDetail}
-          disabled={interactionsLocked}
-        >
-          <div className="relative w-full overflow-hidden rounded-2xl bg-black">
-            <img
-              src={nestAbsoluteAssetUrl(imageRaw)}
-              alt=""
-              className={`h-auto w-full object-contain ${interactionsLocked ? 'blur-sm' : ''}`}
-            />
-          </div>
-        </button>
-      ) : null}
-
-      {showFeedVideo && !showFacebookEmbed ? (
-        <button
-          type="button"
-          className="mt-3 block w-full text-left"
-          onClick={interactionsLocked ? undefined : onOpenDetail}
-          disabled={interactionsLocked}
-        >
-          <div className="relative w-full overflow-hidden rounded-2xl bg-black">
-            <video
-              src={nestAbsoluteAssetUrl(videoRaw)}
-              playsInline
-              muted={muted}
-              controls
-              preload="metadata"
-              className={`h-auto w-full object-contain ${interactionsLocked ? 'blur-sm' : ''}`}
-            />
-            {!isPostType ? (
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 text-white">
-                <p className="text-sm">{String(p.title ?? '')}</p>
-                <ListingPriceDisplay
-                  as="p"
-                  price={p.price}
-                  isAuthenticated={isAuthenticated}
-                  className="text-lg font-bold"
-                  blurredClassName="blurred-price select-none blur-sm"
-                />
-                <p className="text-xs">{String(p.city ?? '')}</p>
-              </div>
-            ) : null}
-          </div>
-        </button>
+      {hasFeedMedia ? (
+        <FacebookPostMediaBlock
+          media={resolvedMedia}
+          facebookPostType={p.facebookPostType ?? null}
+          compact
+          blurred={interactionsLocked}
+          muted={muted}
+          showMuteToggle={showMuteForVideo}
+          onOpenDetail={interactionsLocked ? undefined : onOpenDetail}
+        />
       ) : null}
 
       {editingPostId !== id ? (
@@ -270,7 +210,7 @@ export function CommunityPostCard({
           <p className={`whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 ${interactionsLocked ? 'blur-[3px]' : ''}`}>
             {String(p.description ?? '')}
           </p>
-          {linkPreview && !showFeedImage && !showFeedVideo && !showFacebookEmbed ? (
+          {linkPreview && !hasFeedMedia ? (
             <div className={interactionsLocked ? 'pointer-events-none blur-sm' : ''}>
               <LinkPreviewCard preview={linkPreview} compact />
             </div>
@@ -278,7 +218,7 @@ export function CommunityPostCard({
         </div>
       ) : null}
 
-      {showFeedVideo && !interactionsLocked ? (
+      {showMuteForVideo && !interactionsLocked ? (
         <div className="px-3">
           <button
             type="button"

@@ -8,9 +8,13 @@ import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { LinkPreviewCard } from '@/components/community/LinkPreviewCard';
-import { FacebookEmbedCard } from '@/components/community/FacebookEmbedCard';
+import { FacebookPostMediaBlock } from '@/components/community/FacebookPostMediaBlock';
 import { nestFetchPostDetail, type ListingPost } from '@/lib/nest-client';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
+import {
+  filterPostMediaForDisplay,
+  resolveFacebookPostMedia,
+} from '@/lib/facebook-post-media';
 
 export default function PrispevekDetailPage() {
   const router = useRouter();
@@ -31,9 +35,14 @@ export default function PrispevekDetailPage() {
   }, [postId]);
 
   const orderedMedia = useMemo(
-    () => (post?.media ?? []).slice().sort((a, b) => a.order - b.order),
+    () => filterPostMediaForDisplay(post ?? ({} as ListingPost)),
     [post],
   );
+  const resolvedMedia = useMemo(
+    () => (post ? resolveFacebookPostMedia(post) : { mode: 'none' as const, videoUrl: null, imageUrl: null, posterUrl: null, embedUrl: null, permalink: null, isFacebookVideo: false }),
+    [post],
+  );
+  const showPrimaryMediaBlock = resolvedMedia.mode !== 'none' && orderedMedia.length === 0;
 
   const isCommunityPost = post?.type === 'post' || !post?.type;
 
@@ -90,7 +99,7 @@ export default function PrispevekDetailPage() {
                 className="flex w-full snap-x snap-mandatory overflow-x-auto scroll-smooth"
               >
                 {orderedMedia.map((m) => (
-                  <div key={m.id} className="w-full shrink-0 snap-center bg-black">
+                  <div key={m.id ?? m.url} className="w-full shrink-0 snap-center bg-black">
                     {m.type === 'image' ? (
                       <img
                         src={nestAbsoluteAssetUrl(m.url)}
@@ -100,8 +109,16 @@ export default function PrispevekDetailPage() {
                     ) : (
                       <video
                         src={nestAbsoluteAssetUrl(m.url)}
+                        poster={
+                          post.facebookVideoThumbnail || post.previewImage
+                            ? nestAbsoluteAssetUrl(
+                                String(post.facebookVideoThumbnail ?? post.previewImage),
+                              )
+                            : undefined
+                        }
                         controls
                         playsInline
+                        preload="metadata"
                         className="h-auto w-full object-contain"
                       />
                     )}
@@ -129,6 +146,12 @@ export default function PrispevekDetailPage() {
                 </>
               ) : null}
             </div>
+          ) : showPrimaryMediaBlock ? (
+            <FacebookPostMediaBlock
+              media={resolvedMedia}
+              facebookPostType={post.facebookPostType ?? null}
+              className="mt-0"
+            />
           ) : null}
 
           <div className="px-3 py-3">
@@ -152,18 +175,7 @@ export default function PrispevekDetailPage() {
             <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-800">
               {post.description}
             </p>
-            {post.facebookEmbedUrl?.trim() ? (
-              <div className="mt-4">
-                <FacebookEmbedCard
-                  embedUrl={post.facebookEmbedUrl.trim()}
-                  fallbackUrl={
-                    (post.facebookPermalink ?? post.externalUrl ?? post.facebookEmbedUrl).trim()
-                  }
-                  fallbackImage={post.previewImage ?? post.imageUrl ?? null}
-                  postType={post.facebookPostType ?? null}
-                />
-              </div>
-            ) : post.externalUrl?.trim() ? (
+            {!showPrimaryMediaBlock && resolvedMedia.mode === 'none' && post.externalUrl?.trim() ? (
               <LinkPreviewCard
                 preview={{
                   url: post.externalUrl.trim(),

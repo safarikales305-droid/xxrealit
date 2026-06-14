@@ -5,8 +5,14 @@ import { TokenEncryptionService } from '../token-encryption.service';
 import { FacebookUrlImportService } from '../facebook-url-import/facebook-url-import.service';
 import {
   buildFacebookEmbedUrl,
-  detectFacebookPostType,
 } from '../facebook-url-import/facebook-embed.util';
+import {
+  FACEBOOK_GRAPH_POST_FIELDS,
+  buildFacebookImportMediaPlan,
+  extractMediaFromGraphItem,
+  resolveFacebookVideoFromGraph,
+  type GraphFeedItem,
+} from './facebook-video-media.util';
 import {
   FACEBOOK_IMPORT_TAG,
   FACEBOOK_PAGE_BADGE,
@@ -14,22 +20,6 @@ import {
   FACEBOOK_PAGE_SYNC_INTERVAL_MS,
   GRAPH_API,
 } from './facebook-page.constants';
-
-type GraphFeedAttachment = {
-  media_type?: string;
-  media?: { image?: { src?: string }; source?: string };
-  url?: string;
-  subattachments?: { data?: GraphFeedAttachment[] };
-};
-type GraphFeedItem = {
-  id?: string;
-  message?: string;
-  story?: string;
-  permalink_url?: string;
-  full_picture?: string;
-  created_time?: string;
-  attachments?: { data?: GraphFeedAttachment[] };
-};
 
 @Injectable()
 export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
@@ -101,7 +91,7 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
     try {
       const feedUrl =
         `${GRAPH_API}/${encodeURIComponent(connection.pageId)}/posts?` +
-        `fields=id,message,story,created_time,permalink_url,full_picture,attachments{media_type,media,url,subattachments}` +
+        `fields=${FACEBOOK_GRAPH_POST_FIELDS}` +
         `&limit=${FACEBOOK_PAGE_POSTS_LIMIT}` +
         `&access_token=${encodeURIComponent(pageToken)}`;
       const res = await fetch(feedUrl);
@@ -116,7 +106,7 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
       let imported = 0;
       for (const item of payload.data ?? []) {
         if (!item.id) continue;
-        const created = await this.importPagePost(connection, item);
+        const created = await this.importPagePost(connection, item, pageToken);
         if (created) imported += 1;
       }
 
@@ -238,6 +228,7 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
       user: { role: UserRole };
     },
     item: GraphFeedItem,
+    pageToken?: string,
   ): Promise<boolean> {
     const facebookPostId = item.id!.trim();
     const existing = await this.prisma.facebookSyncedPost.findUnique({
@@ -245,10 +236,9 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
     });
     if (existing) return false;
 
-    const media = this.extractMedia(item);
+    const extracted = extractMediaFromGraphItem(item);
     const message = (item.message ?? item.story ?? '').trim();
-    const permalink = this.normalizePermalink(item.permalink_url) ?? media.linkUrl;
-    const fullPicture = item.full_picture?.trim() || media.imageUrl || null;
+    const permalink = this.normalizePermalink(item.permalink_url) ?? extracted.linkUrl;
     const publishedAt =
       item.created_time && !Number.isNaN(new Date(item.created_time).getTime())
         ? new Date(item.created_time)
@@ -268,28 +258,36 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
       if (dup) return false;
     }
 
+    let resolvedVideo = null;
+    if (pageToken && extracted.videoId && !extracted.videoUrl) {
+      resolvedVideo = await resolveFacebookVideoFromGraph(extracted.videoId, pageToken);
+      if (resolvedVideo.failureReason) {
+        this.logger.warn(
+          `FACEBOOK_VIDEO_SOURCE_MISSING postId=${facebookPostId} reason=${resolvedVideo.failureReason}`,
+        );
+      }
+    } else if (pageToken && extracted.videoId && extracted.videoUrl) {
+      resolvedVideo = await resolveFacebookVideoFromGraph(extracted.videoId, pageToken);
+    }
+
+    const mediaPlan = buildFacebookImportMediaPlan({
+      permalink,
+      extracted,
+      fullPicture: item.full_picture,
+      resolvedVideo,
+    });
+
     const text = this.formatImportedDescription(message);
     const category = this.categoryForRole(connection.user.role);
     const professionalProfileId = await this.resolveProfessionalProfileId(
       connection.userId,
       connection.user.role,
     );
-    const facebookPostType = permalink ? detectFacebookPostType(permalink) : 'FACEBOOK_POST';
     const facebookEmbedUrl = permalink
-      ? buildFacebookEmbedUrl(permalink, facebookPostType)
+      ? buildFacebookEmbedUrl(permalink, mediaPlan.facebookPostType)
       : null;
-    const videoUrl = media.videoUrl?.trim() || null;
-    const imageUrl = fullPicture?.trim() || null;
 
-    const mediaCreate: Array<{ url: string; type: string; order: number }> = [];
-    if (imageUrl) {
-      mediaCreate.push({ url: imageUrl, type: 'image', order: 1 });
-    }
-    if (videoUrl) {
-      mediaCreate.push({ url: videoUrl, type: 'video', order: mediaCreate.length + 1 });
-    }
-
-    if (!text && !imageUrl && !videoUrl && !permalink) {
+    if (!text && !mediaPlan.thumbnailUrl && !mediaPlan.videoUrl && !permalink) {
       return false;
     }
 
@@ -297,7 +295,7 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
     try {
       const post = await this.prisma.post.create({
         data: {
-          type: videoUrl ? 'video' : 'post',
+          type: mediaPlan.videoUrl ? 'video' : 'post',
           category,
           userId: connection.userId,
           professionalProfileId,
@@ -306,22 +304,25 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
           city: '',
           description: text,
           content: message || null,
-          imageUrl,
-          videoUrl,
+          imageUrl: mediaPlan.imageUrl,
+          videoUrl: mediaPlan.videoUrl,
           externalUrl: permalink,
           facebookPermalink: permalink,
           facebookExternalId: facebookPostId,
-          facebookPostType: permalink ? facebookPostType : null,
+          facebookPostType: permalink ? mediaPlan.facebookPostType : null,
           facebookEmbedUrl,
+          facebookVideoThumbnail: mediaPlan.thumbnailUrl,
+          facebookVideoDurationSec: mediaPlan.durationSec,
+          facebookVideoSourceUrl: mediaPlan.videoUrl,
           previewTitle: message.slice(0, 200) || FACEBOOK_PAGE_BADGE,
           previewDescription: message.slice(0, 500) || null,
-          previewImage: imageUrl,
+          previewImage: mediaPlan.thumbnailUrl,
           previewSiteName: FACEBOOK_PAGE_BADGE,
           source: PostSource.FACEBOOK,
           isFacebookPagePost: true,
           publishedAt,
           createdAt: publishedAt ?? new Date(),
-          media: mediaCreate.length ? { create: mediaCreate } : undefined,
+          media: mediaPlan.mediaCreate.length ? { create: mediaPlan.mediaCreate } : undefined,
         },
         select: { id: true },
       });
@@ -343,7 +344,9 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
         message: message || null,
         story: item.story ?? null,
         permalinkUrl: permalink,
-        fullPictureUrl: imageUrl,
+        fullPictureUrl: mediaPlan.thumbnailUrl,
+        videoSourceUrl: mediaPlan.videoUrl,
+        videoUrlFailureReason: mediaPlan.videoUrlFailureReason,
         createdTime: publishedAt,
         rawJson: item as object,
         importedPostId,
@@ -375,7 +378,7 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
     try {
       const feedUrl =
         `${GRAPH_API}/${encodeURIComponent(connection.pageId)}/posts?` +
-        `fields=id,message,story,created_time,permalink_url,full_picture,attachments{media_type,media,url,subattachments}` +
+        `fields=${FACEBOOK_GRAPH_POST_FIELDS}` +
         `&limit=${FACEBOOK_PAGE_POSTS_LIMIT}` +
         `&access_token=${encodeURIComponent(pageToken)}`;
       const res = await fetch(feedUrl);
@@ -462,9 +465,9 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    const media = this.extractMedia(item);
+    const extracted = extractMediaFromGraphItem(item);
     const message = (item.message ?? item.story ?? '').trim();
-    const permalink = this.normalizePermalink(item.permalink_url) ?? media.linkUrl;
+    const permalink = this.normalizePermalink(item.permalink_url) ?? extracted.linkUrl;
     const publishedAt =
       item.created_time && !Number.isNaN(new Date(item.created_time).getTime())
         ? new Date(item.created_time)
@@ -484,30 +487,29 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
       if (dup) return false;
     }
 
+    const mediaPlan = buildFacebookImportMediaPlan({
+      permalink,
+      extracted,
+      fullPicture: item.full_picture,
+    });
+
     const text = this.formatImportedDescription(message);
     const category = this.categoryForRole(connection.user.role);
     const professionalProfileId = await this.resolveProfessionalProfileId(
       connection.userId,
       connection.user.role,
     );
-    const facebookPostType = permalink ? detectFacebookPostType(permalink) : 'FACEBOOK_POST';
     const facebookEmbedUrl = permalink
-      ? buildFacebookEmbedUrl(permalink, facebookPostType)
+      ? buildFacebookEmbedUrl(permalink, mediaPlan.facebookPostType)
       : null;
-    const videoUrl = media.videoUrl?.trim() || null;
-    const imageUrl = item.full_picture?.trim() || media.imageUrl || null;
 
-    const mediaCreate: Array<{ url: string; type: string; order: number }> = [];
-    if (imageUrl) mediaCreate.push({ url: imageUrl, type: 'image', order: 1 });
-    if (videoUrl) mediaCreate.push({ url: videoUrl, type: 'video', order: mediaCreate.length + 1 });
-
-    if (!text && !imageUrl && !videoUrl && !permalink) return false;
+    if (!text && !mediaPlan.thumbnailUrl && !mediaPlan.videoUrl && !permalink) return false;
 
     let importedPostId: string;
     try {
       const post = await this.prisma.post.create({
         data: {
-          type: videoUrl ? 'video' : 'post',
+          type: mediaPlan.videoUrl ? 'video' : 'post',
           category,
           userId: connection.userId,
           professionalProfileId,
@@ -516,22 +518,25 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
           city: '',
           description: text,
           content: message || null,
-          imageUrl,
-          videoUrl,
+          imageUrl: mediaPlan.imageUrl,
+          videoUrl: mediaPlan.videoUrl,
           externalUrl: permalink,
           facebookPermalink: permalink,
           facebookExternalId: providerPostId,
-          facebookPostType: permalink ? facebookPostType : null,
+          facebookPostType: permalink ? mediaPlan.facebookPostType : null,
           facebookEmbedUrl,
+          facebookVideoThumbnail: mediaPlan.thumbnailUrl,
+          facebookVideoDurationSec: mediaPlan.durationSec,
+          facebookVideoSourceUrl: mediaPlan.videoUrl,
           previewTitle: message.slice(0, 200) || 'Facebook',
           previewDescription: message.slice(0, 500) || null,
-          previewImage: imageUrl,
+          previewImage: mediaPlan.thumbnailUrl,
           previewSiteName: 'Facebook',
           source: PostSource.FACEBOOK,
           isFacebookPagePost: true,
           publishedAt,
           createdAt: publishedAt ?? new Date(),
-          media: mediaCreate.length ? { create: mediaCreate } : undefined,
+          media: mediaPlan.mediaCreate.length ? { create: mediaPlan.mediaCreate } : undefined,
         },
         select: { id: true },
       });
@@ -553,38 +558,12 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
         providerPostId,
         sourceUrl: permalink,
         message: message || null,
-        imageUrl,
-        videoUrl,
+        imageUrl: mediaPlan.thumbnailUrl,
+        videoUrl: mediaPlan.videoUrl,
         importedPostId,
       },
     });
     return true;
-  }
-
-  private extractMedia(item: GraphFeedItem): {
-    imageUrl: string | null;
-    videoUrl: string | null;
-    linkUrl: string | null;
-  } {
-    let imageUrl: string | null = null;
-    let videoUrl: string | null = null;
-    let linkUrl: string | null = null;
-
-    const walk = (attachments?: GraphFeedAttachment[]) => {
-      for (const att of attachments ?? []) {
-        const type = (att.media_type ?? '').toLowerCase();
-        if (type === 'photo' && att.media?.image?.src) {
-          imageUrl = imageUrl ?? att.media.image.src;
-        }
-        if (type === 'video' && att.media?.source) {
-          videoUrl = videoUrl ?? att.media.source;
-        }
-        if (att.url && !linkUrl) linkUrl = att.url;
-        walk(att.subattachments?.data);
-      }
-    };
-    walk(item.attachments?.data);
-    return { imageUrl, videoUrl, linkUrl };
   }
 
   private formatImportedDescription(message: string): string {

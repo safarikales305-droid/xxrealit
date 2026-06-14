@@ -22,6 +22,7 @@ import {
 } from '@/lib/nest-client';
 import { CreateCommunityPostCard } from '@/components/community/CreateCommunityPostCard';
 import { CommunityPostCard } from '@/components/community/CommunityPostCard';
+import { resolveFacebookPostMedia } from '@/lib/facebook-post-media';
 import { MobileClassicSwipeFeed } from '@/components/home/MobileClassicSwipeFeed';
 import { MobileFiltersSheet } from '@/components/home/MobileFiltersSheet';
 import { PropertyGrid } from '@/components/property-grid';
@@ -1194,6 +1195,9 @@ export function HomeLayout({
                       communityFeedPosts.map((row) => {
                         const p = row as ListingPost;
                         const pid = String(p.id ?? '');
+                        const fbMedia = resolveFacebookPostMedia(p);
+                        const defaultMuted =
+                          fbMedia.isFacebookVideo ? false : (mutedByPostId[pid] ?? true);
                         return (
                           <CommunityPostCard
                             key={pid || Math.random().toString(36)}
@@ -1208,7 +1212,7 @@ export function HomeLayout({
                               Number((p.reactions ?? []).filter((r) => r.type === 'LIKE').length)
                             }
                             dislikeCount={dislikeCountByPostId[pid] ?? 0}
-                            muted={mutedByPostId[pid] ?? true}
+                            muted={defaultMuted}
                             editingPostId={editingPostId}
                             editingText={editingText}
                             commentsOpen={Boolean(commentsOpenByPostId[pid])}
@@ -1241,7 +1245,7 @@ export function HomeLayout({
                             onToggleMute={() =>
                               setMutedByPostId((prev) => ({
                                 ...prev,
-                                [pid]: !(prev[pid] ?? true),
+                                [pid]: !(prev[pid] ?? (fbMedia.isFacebookVideo ? false : true)),
                               }))
                             }
                             onOpenDetail={() => router.push(`/prispevky/${encodeURIComponent(pid)}`)}

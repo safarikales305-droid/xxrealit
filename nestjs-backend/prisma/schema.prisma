@@ -564,6 +564,12 @@ model Post {
   professionalProfileId String?
   facebookPostType    FacebookPostType?
   facebookEmbedUrl    String?          @db.Text
+  /// Náhled videa z Facebook Graph API (poster u HTML5 přehrávače).
+  facebookVideoThumbnail   String?
+  /// Délka videa v sekundách z Graph API.
+  facebookVideoDurationSec Float?
+  /// Přímé video URL z Graph API (source) — může se lišit od videoUrl po expiraci.
+  facebookVideoSourceUrl   String?
   publishedAt         DateTime?
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1392,6 +1398,8 @@ model FacebookSyncedPost {
   story            String?
   permalinkUrl     String?
   fullPictureUrl   String?
+  videoSourceUrl   String?
+  videoUrlFailureReason String? @db.Text
   createdTime      DateTime?
   rawJson          Json?
   importedPostId   String?

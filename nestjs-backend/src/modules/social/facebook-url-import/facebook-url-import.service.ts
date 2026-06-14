@@ -446,17 +446,23 @@ export class FacebookUrlImportService {
     const importedAt = new Date();
     const facebookPostType = detectFacebookPostType(permalink);
     const facebookEmbedUrl = buildFacebookEmbedUrl(permalink, facebookPostType);
-    const imageUrl = item.imageUrl?.trim() || null;
+    const isVideoPost =
+      facebookPostType === 'FACEBOOK_VIDEO' || facebookPostType === 'FACEBOOK_REEL';
+    const thumbnail = item.imageUrl?.trim() || null;
+    const directVideoUrl = item.videoUrl?.trim() || null;
+    const imageUrl = isVideoPost ? null : thumbnail;
 
     const mediaCreate: Array<{ url: string; type: string; order: number }> = [];
-    if (imageUrl) {
-      mediaCreate.push({ url: imageUrl, type: 'image', order: 1 });
+    if (isVideoPost && directVideoUrl) {
+      mediaCreate.push({ url: directVideoUrl, type: 'video', order: 1 });
+    } else if (!isVideoPost && thumbnail) {
+      mediaCreate.push({ url: thumbnail, type: 'image', order: 1 });
     }
 
     try {
       await this.prisma.post.create({
         data: {
-          type: 'post',
+          type: isVideoPost && directVideoUrl ? 'video' : 'post',
           category,
           userId,
           professionalProfileId,
@@ -466,15 +472,17 @@ export class FacebookUrlImportService {
           description: text,
           content: text || null,
           imageUrl,
-          videoUrl: null,
+          videoUrl: directVideoUrl,
           externalUrl: permalink,
           facebookPermalink: permalink,
           facebookExternalId: externalId,
           facebookPostType,
           facebookEmbedUrl,
+          facebookVideoThumbnail: isVideoPost ? thumbnail : null,
+          facebookVideoSourceUrl: directVideoUrl,
           previewTitle: text.slice(0, 200) || 'Facebook příspěvek',
           previewDescription: text.slice(0, 500) || null,
-          previewImage: imageUrl,
+          previewImage: thumbnail,
           previewSiteName: 'Facebook',
           source: PostSource.FACEBOOK,
           isFacebookPagePost: true,

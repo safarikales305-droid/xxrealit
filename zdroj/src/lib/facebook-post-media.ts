@@ -1,0 +1,205 @@
+import type { ListingPost } from '@/lib/nest-client';
+
+export type FacebookPostMediaMode =
+  | 'none'
+  | 'image'
+  | 'video'
+  | 'facebook-embed'
+  | 'facebook-external';
+
+export type ResolvedFacebookPostMedia = {
+  mode: FacebookPostMediaMode;
+  videoUrl: string | null;
+  imageUrl: string | null;
+  posterUrl: string | null;
+  embedUrl: string | null;
+  permalink: string | null;
+  isFacebookVideo: boolean;
+};
+
+type PostLike = {
+  source?: ListingPost['source'];
+  isFacebookPagePost?: ListingPost['isFacebookPagePost'];
+  facebookPostType?: ListingPost['facebookPostType'];
+  facebookEmbedUrl?: ListingPost['facebookEmbedUrl'];
+  facebookPermalink?: ListingPost['facebookPermalink'];
+  externalUrl?: ListingPost['externalUrl'];
+  videoUrl?: ListingPost['videoUrl'];
+  imageUrl?: ListingPost['imageUrl'];
+  previewImage?: ListingPost['previewImage'];
+  previewSiteName?: ListingPost['previewSiteName'];
+  facebookVideoThumbnail?: string | null;
+  media?: Array<{ id?: string; url?: string; type?: string; order?: number }>;
+};
+
+export function isFacebookImportPost(post: PostLike): boolean {
+  return (
+    post.source === 'FACEBOOK' ||
+    Boolean(post.isFacebookPagePost) ||
+    String(post.previewSiteName ?? '').toLowerCase().includes('facebook')
+  );
+}
+
+export function isFacebookVideoPost(post: PostLike): boolean {
+  const type = String(post.facebookPostType ?? '').toUpperCase();
+  if (type === 'FACEBOOK_VIDEO' || type === 'FACEBOOK_REEL') return true;
+  if (!isFacebookImportPost(post)) return false;
+  const hasVideo =
+    Boolean(String(post.videoUrl ?? '').trim()) ||
+    (post.media ?? []).some((m) => m.type === 'video');
+  return hasVideo;
+}
+
+function firstMediaUrl(post: PostLike, mediaType: 'video' | 'image'): string | null {
+  const sorted = (post.media ?? [])
+    .slice()
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const row = sorted.find((m) => m.type === mediaType);
+  return row?.url?.trim() || null;
+}
+
+export function resolveFacebookPostMedia(post: PostLike): ResolvedFacebookPostMedia {
+  const isFb = isFacebookImportPost(post);
+  const isFbVideo = isFacebookVideoPost(post);
+  const permalink = String(post.facebookPermalink ?? post.externalUrl ?? '').trim() || null;
+  const embedUrl = String(post.facebookEmbedUrl ?? '').trim() || null;
+  const posterUrl =
+    String(post.facebookVideoThumbnail ?? post.previewImage ?? '').trim() ||
+    (isFbVideo ? null : String(post.imageUrl ?? '').trim() || null);
+
+  const videoUrl =
+    String(post.videoUrl ?? firstMediaUrl(post, 'video') ?? '').trim() || null;
+
+  if (isFbVideo) {
+    if (videoUrl) {
+      return {
+        mode: 'video',
+        videoUrl,
+        imageUrl: null,
+        posterUrl,
+        embedUrl: null,
+        permalink,
+        isFacebookVideo: true,
+      };
+    }
+    if (embedUrl) {
+      return {
+        mode: 'facebook-embed',
+        videoUrl: null,
+        imageUrl: null,
+        posterUrl,
+        embedUrl,
+        permalink,
+        isFacebookVideo: true,
+      };
+    }
+    if (permalink) {
+      return {
+        mode: 'facebook-external',
+        videoUrl: null,
+        imageUrl: null,
+        posterUrl,
+        embedUrl: null,
+        permalink,
+        isFacebookVideo: true,
+      };
+    }
+    return {
+      mode: 'none',
+      videoUrl: null,
+      imageUrl: null,
+      posterUrl,
+      embedUrl: null,
+      permalink,
+      isFacebookVideo: true,
+    };
+  }
+
+  if (videoUrl) {
+    return {
+      mode: 'video',
+      videoUrl,
+      imageUrl: null,
+      posterUrl,
+      embedUrl: null,
+      permalink,
+      isFacebookVideo: false,
+    };
+  }
+
+  const imageUrl =
+    firstMediaUrl(post, 'image') ||
+    String(post.imageUrl ?? post.previewImage ?? '').trim() ||
+    null;
+
+  if (imageUrl) {
+    return {
+      mode: 'image',
+      videoUrl: null,
+      imageUrl,
+      posterUrl: null,
+      embedUrl: null,
+      permalink,
+      isFacebookVideo: false,
+    };
+  }
+
+  if (isFb && embedUrl && !isFbVideo) {
+    return {
+      mode: 'facebook-embed',
+      videoUrl: null,
+      imageUrl: null,
+      posterUrl,
+      embedUrl,
+      permalink,
+      isFacebookVideo: false,
+    };
+  }
+
+  return {
+    mode: 'none',
+    videoUrl: null,
+    imageUrl: null,
+    posterUrl,
+    embedUrl,
+    permalink,
+    isFacebookVideo: false,
+  };
+}
+
+export function filterPostMediaForDisplay(
+  post: PostLike,
+): Array<{ id?: string; url: string; type: string; order: number }> {
+  const resolved = resolveFacebookPostMedia(post);
+  const sorted = (post.media ?? [])
+    .slice()
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .filter((m): m is { id?: string; url: string; type: string; order: number } =>
+      Boolean(m.url?.trim() && m.type),
+    )
+    .map((m, index) => ({
+      id: m.id,
+      url: m.url!.trim(),
+      type: m.type!,
+      order: m.order ?? index + 1,
+    }));
+
+  if (resolved.mode === 'video') {
+    const videos = sorted.filter((m) => m.type === 'video');
+    if (videos.length) return videos;
+    if (resolved.videoUrl) {
+      return [{ url: resolved.videoUrl, type: 'video', order: 1 }];
+    }
+    return [];
+  }
+
+  if (resolved.mode === 'image') {
+    return sorted.filter((m) => m.type === 'image');
+  }
+
+  if (resolved.isFacebookVideo) {
+    return [];
+  }
+
+  return sorted;
+}
