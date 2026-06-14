@@ -14,8 +14,11 @@ function postHasFeedVisibility(row: {
   media: Array<{ url: string }>;
   externalUrl?: string | null;
   previewImage?: string | null;
+  imageUrl?: string | null;
+  videoUrl?: string | null;
 }): boolean {
   if (row.media.length > 0) return true;
+  if (row.imageUrl?.trim() || row.videoUrl?.trim()) return true;
   return Boolean(row.externalUrl?.trim() || row.previewImage?.trim());
 }
 

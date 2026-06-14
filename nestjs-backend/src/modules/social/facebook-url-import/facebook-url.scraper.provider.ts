@@ -8,6 +8,9 @@ import type {
 const MOBILE_UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 
+const POST_PATH_RE =
+  /(?:\/posts\/|\/photos\/|\/photo\.php|\/videos\/|\/video\.php|\/reel\/|\/watch\/?\?|story\.php|permalink\.php|multi_permalinks)/i;
+
 @Injectable()
 export class FacebookUrlScraperProvider implements FacebookContentProvider {
   private readonly logger = new Logger(FacebookUrlScraperProvider.name);
@@ -39,7 +42,7 @@ export class FacebookUrlScraperProvider implements FacebookContentProvider {
     const path = url.pathname + url.search;
     const mUrl = `https://m.facebook.com${path}`;
     const mbasic = `https://mbasic.facebook.com${path}`;
-    return [mUrl, mbasic, pageUrl];
+    return [mbasic, mUrl, pageUrl];
   }
 
   private async fetchHtml(url: string): Promise<string> {
@@ -71,13 +74,25 @@ export class FacebookUrlScraperProvider implements FacebookContentProvider {
     );
   }
 
+  private isPostPermalink(url: string): boolean {
+    if (!POST_PATH_RE.test(url)) return false;
+    try {
+      const parsed = new URL(url);
+      const path = parsed.pathname.toLowerCase();
+      if (path === '/' || path === '/profile.php') return false;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private parseHtml(html: string, baseUrl: string, limit: number): FacebookScrapedPost[] {
     const posts: FacebookScrapedPost[] = [];
     const seen = new Set<string>();
 
     const add = (item: Omit<FacebookScrapedPost, 'externalId'> & { externalId?: string }) => {
       const permalink = item.permalink.trim();
-      if (!permalink || seen.has(permalink)) return;
+      if (!permalink || !this.isPostPermalink(permalink) || seen.has(permalink)) return;
       const externalId =
         item.externalId?.trim() ||
         createHash('sha256').update(permalink).digest('hex').slice(0, 40);
@@ -94,10 +109,40 @@ export class FacebookUrlScraperProvider implements FacebookContentProvider {
       });
     };
 
+    const storyBlocks = html.split(/<article|<div[^>]*data-ft=/i);
+    for (const block of storyBlocks) {
+      if (posts.length >= limit) break;
+      const storyLink =
+        this.firstMatch(block, /href="([^"]*story\.php[^"]+)"/i) ||
+        this.firstMatch(block, /href="([^"]*permalink\.php[^"]+)"/i) ||
+        this.firstMatch(block, /href="([^"]*\/posts\/[^"]+)"/i) ||
+        this.firstMatch(block, /href="([^"]*\/photos\/[^"]+)"/i) ||
+        this.firstMatch(block, /href="([^"]*\/videos\/[^"]+)"/i) ||
+        this.firstMatch(block, /href="([^"]*\/reel\/[^"]+)"/i);
+      const resolved = storyLink ? this.resolveHref(storyLink, baseUrl) : null;
+      if (!resolved) continue;
+
+      const image =
+        this.firstMatch(block, /<img[^>]+src="(https:\/\/[^"]+fbcdn[^"]+)"/i) ||
+        this.firstMatch(block, /data-src="(https:\/\/[^"]+fbcdn[^"]+)"/i);
+      const video = this.firstMatch(block, /href="(https:\/\/[^"]+\.mp4[^"]*)"/i);
+      const abbrTitle = this.firstMatch(block, /<abbr[^>]+title="([^"]+)"/i);
+      const publishedAt = abbrTitle ? this.parseFbDate(abbrTitle) : null;
+      const text = this.extractPostText(block);
+
+      add({
+        permalink: resolved,
+        message: text,
+        imageUrl: image,
+        videoUrl: video,
+        publishedAt,
+      });
+    }
+
     const hrefRe =
-      /href="([^"]*(?:facebook\.com\/[^"]*(?:posts|photo|photos|videos|reel|watch|permalink)[^"]*)|\/[^"]*(?:posts|photo|videos|reel)[^"]*)"/gi;
+      /href="([^"]*(?:story\.php|permalink\.php|\/posts\/|\/photos\/|\/videos\/|\/reel\/|watch\/\?v=)[^"]*)"/gi;
     let match: RegExpExecArray | null;
-    while ((match = hrefRe.exec(html)) !== null && posts.length < limit * 3) {
+    while ((match = hrefRe.exec(html)) !== null && posts.length < limit) {
       const href = this.resolveHref(match[1], baseUrl);
       if (!href) continue;
       add({
@@ -108,26 +153,8 @@ export class FacebookUrlScraperProvider implements FacebookContentProvider {
       });
     }
 
-    const ogBlocks = html.split(/<article|<div[^>]*role="article"/i);
-    for (const block of ogBlocks.slice(0, limit * 2)) {
-      const permalink = this.firstMatch(block, /href="([^"]+)"/i);
-      const image = this.firstMatch(
-        block,
-        /<img[^>]+src="(https:\/\/[^"]+fbcdn[^"]+)"/i,
-      );
-      const text = this.extractVisibleText(block).slice(0, 2000);
-      const resolved = permalink ? this.resolveHref(permalink, baseUrl) : null;
-      if (!resolved) continue;
-      add({
-        permalink: resolved,
-        message: text,
-        imageUrl: image,
-        videoUrl: this.firstMatch(block, /href="(https:\/\/[^"]+\.mp4[^"]*)"/i),
-      });
-    }
-
     const jsonLdRe = /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi;
-    while ((match = jsonLdRe.exec(html)) !== null && posts.length < limit * 2) {
+    while ((match = jsonLdRe.exec(html)) !== null && posts.length < limit) {
       try {
         const data = JSON.parse(match[1]) as Record<string, unknown>;
         const url = typeof data.url === 'string' ? data.url : null;
@@ -154,6 +181,22 @@ export class FacebookUrlScraperProvider implements FacebookContentProvider {
     }
 
     return posts.slice(0, limit);
+  }
+
+  private parseFbDate(raw: string): Date | null {
+    const d = new Date(raw);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  private extractPostText(html: string): string {
+    const stripped = html
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ');
+    const paragraphs = [...stripped.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)]
+      .map((m) => this.extractVisibleText(m[1]))
+      .filter((t) => t.length > 8);
+    if (paragraphs.length) return paragraphs.join('\n\n').slice(0, 4000);
+    return this.extractVisibleText(stripped).slice(0, 2000);
   }
 
   private firstMatch(text: string, re: RegExp): string | null {

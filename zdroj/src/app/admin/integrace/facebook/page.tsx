@@ -278,7 +278,8 @@ export default function AdminFacebookIntegrationPage() {
                         {log.user?.name ?? log.user?.email ?? log.userId}
                       </span>
                       {' — '}
-                      {log.status}, importováno {log.imported}
+                      {log.status}; nalezeno {log.found ?? 0}, importováno {log.imported ?? 0},
+                      přeskočeno {log.skipped ?? 0}
                       {log.error ? ` — ${log.error}` : ''}
                       <span className="text-zinc-500">
                         {' '}

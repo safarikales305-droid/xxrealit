@@ -11,6 +11,8 @@ import {
 const USER_ERROR_FALLBACK =
   'Facebook obsah se nepodařilo automaticky načíst. Zkontrolujte, že stránka je veřejná.';
 
+const IMPORTING_MSG = 'Importuji poslední 3 příspěvky…';
+
 type Props = {
   token: string | null;
 };
@@ -28,11 +30,17 @@ function statusLabel(status: FacebookUrlImportStatus['facebookImportStatus']): s
   }
 }
 
+function formatImportResult(imported: number): string {
+  if (imported === 0) return 'Nebyl nalezen žádný veřejný příspěvek.';
+  return `Import dokončen – importováno ${imported} příspěvků.`;
+}
+
 export function FacebookUrlImportCard({ token }: Props) {
   const [urlInput, setUrlInput] = useState('');
   const [status, setStatus] = useState<FacebookUrlImportStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
 
@@ -52,6 +60,28 @@ export function FacebookUrlImportCard({ token }: Props) {
     void refresh();
   }, [refresh]);
 
+  async function runImportAfterSettings() {
+    setImporting(true);
+    setOk(IMPORTING_MSG);
+    const syncRes = await nestFacebookUrlImportSync(token!);
+    setImporting(false);
+    setBusy(false);
+    if (!syncRes.ok) {
+      setOk(null);
+      setError(syncRes.error ?? USER_ERROR_FALLBACK);
+      void refresh();
+      return;
+    }
+    if (syncRes.error) {
+      setOk(null);
+      setError(syncRes.error);
+    } else {
+      setError(null);
+      setOk(formatImportResult(syncRes.imported ?? 0));
+    }
+    void refresh();
+  }
+
   async function handleAddPage() {
     if (!token) return;
     const trimmed = urlInput.trim();
@@ -66,36 +96,36 @@ export function FacebookUrlImportCard({ token }: Props) {
       facebookUrl: trimmed,
       facebookImportEnabled: true,
     });
-    setBusy(false);
     if (!res.ok) {
+      setBusy(false);
       setError(res.error ?? 'Uložení URL selhalo.');
       return;
     }
     setStatus(res.status ?? null);
-    setOk('Facebook stránka byla uložena a automatický import zapnut.');
-    void refresh();
+    await runImportAfterSettings();
   }
 
   async function handleSyncNow() {
     if (!token) return;
     setBusy(true);
     setError(null);
-    setOk(null);
+    setOk(IMPORTING_MSG);
+    setImporting(true);
     const res = await nestFacebookUrlImportSync(token);
+    setImporting(false);
     setBusy(false);
     if (!res.ok) {
+      setOk(null);
       setError(res.error ?? USER_ERROR_FALLBACK);
       void refresh();
       return;
     }
     if (res.error) {
+      setOk(null);
       setError(res.error);
     } else {
-      setOk(
-        res.imported && res.imported > 0
-          ? `Importováno ${res.imported} nových příspěvků.`
-          : 'Import dokončen — žádné nové příspěvky.',
-      );
+      setError(null);
+      setOk(formatImportResult(res.imported ?? 0));
     }
     void refresh();
   }
@@ -122,14 +152,15 @@ export function FacebookUrlImportCard({ token }: Props) {
 
   const importEnabled = Boolean(status?.facebookImportEnabled);
   const hasUrl = Boolean(status?.facebookUrl?.trim());
+  const isWorking = busy || importing;
 
   return (
     <div className="space-y-4 rounded-xl border border-[#1877F2]/25 bg-white p-4 shadow-sm">
       <div>
         <p className="text-sm font-semibold text-zinc-900">Import z Facebook URL</p>
         <p className="mt-1 text-sm text-zinc-600">
-          Vložte odkaz na veřejnou Facebook stránku nebo profil. Systém pravidelně načte veřejné
-          příspěvky, fotky a videa do feedu xxrealit — bez Meta Pages API.
+          Vložte odkaz na veřejnou Facebook stránku nebo profil. Po přidání se automaticky
+          importují poslední 3 veřejné příspěvky do feedu xxrealit — bez Meta Pages API.
         </p>
       </div>
 
@@ -156,7 +187,7 @@ export function FacebookUrlImportCard({ token }: Props) {
             <div className="rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2 text-xs text-zinc-700">
               <p>
                 <span className="font-semibold">Stav:</span>{' '}
-                {statusLabel(status?.facebookImportStatus ?? 'IDLE')}
+                {importing ? 'Probíhá import…' : statusLabel(status?.facebookImportStatus ?? 'IDLE')}
               </p>
               {status?.facebookLastSyncAt ? (
                 <p className="mt-1">
@@ -171,12 +202,18 @@ export function FacebookUrlImportCard({ token }: Props) {
           ) : null}
 
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
-          {ok ? <p className="text-sm text-emerald-700">{ok}</p> : null}
+          {ok ? (
+            <p
+              className={`text-sm ${importing ? 'text-[#1877F2]' : 'text-emerald-700'}`}
+            >
+              {ok}
+            </p>
+          ) : null}
 
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={busy}
+              disabled={isWorking}
               onClick={() => void handleAddPage()}
               className="rounded-full bg-[#1877F2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#166fe0] disabled:opacity-60"
             >
@@ -184,7 +221,7 @@ export function FacebookUrlImportCard({ token }: Props) {
             </button>
             <button
               type="button"
-              disabled={busy || !hasUrl}
+              disabled={isWorking || !hasUrl}
               onClick={() => void handleSyncNow()}
               className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
             >
@@ -193,7 +230,7 @@ export function FacebookUrlImportCard({ token }: Props) {
             {importEnabled ? (
               <button
                 type="button"
-                disabled={busy}
+                disabled={isWorking}
                 onClick={() => void handleDisable()}
                 className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60"
               >

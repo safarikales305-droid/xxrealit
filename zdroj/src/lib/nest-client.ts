@@ -6901,6 +6901,8 @@ export async function nestFacebookUrlImportSync(
   | {
       ok: true;
       imported?: number;
+      found?: number;
+      skipped?: number;
       error?: string | null;
     }
   | { ok: false; error?: string }
@@ -6921,6 +6923,8 @@ export async function nestFacebookUrlImportSync(
     return {
       ok: true,
       imported: typeof data.imported === 'number' ? data.imported : undefined,
+      found: typeof data.found === 'number' ? data.found : undefined,
+      skipped: typeof data.skipped === 'number' ? data.skipped : undefined,
       error:
         data.error === null || typeof data.error === 'string'
           ? (data.error as string | null)
@@ -6947,7 +6951,9 @@ export type AdminFacebookUrlImportLog = {
   id: string;
   userId: string;
   status: string;
+  found: number;
   imported: number;
+  skipped: number;
   error: string | null;
   createdAt: string;
   user?: { id: string; name: string | null; email: string };

@@ -7,11 +7,10 @@ import {
 } from '@nestjs/common';
 import { FacebookImportStatus, PostCategory, PostSource, UserRole } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
-import { PostsService } from '../../posts/posts.service';
 import type { FacebookContentProvider } from './facebook-content-provider.interface';
 import { FacebookUrlScraperProvider } from './facebook-url.scraper.provider';
 import {
-  FACEBOOK_IMPORT_TAG,
+  FACEBOOK_URL_IMPORT_MANUAL_LIMIT,
   FACEBOOK_URL_IMPORT_MAX_NEW,
   FACEBOOK_URL_IMPORT_USER_ERROR,
 } from './facebook-url-import.constants';
@@ -25,6 +24,8 @@ const PROFESSIONAL_ROLES: UserRole[] = [
   UserRole.INVESTOR,
 ];
 
+type ImportResult = 'imported' | 'skipped';
+
 @Injectable()
 export class FacebookUrlImportService {
   private readonly logger = new Logger(FacebookUrlImportService.name);
@@ -32,7 +33,6 @@ export class FacebookUrlImportService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly posts: PostsService,
     scraper: FacebookUrlScraperProvider,
   ) {
     this.provider = scraper;
@@ -42,6 +42,11 @@ export class FacebookUrlImportService {
     if (!PROFESSIONAL_ROLES.includes(role)) {
       throw new ForbiddenException('Import Facebook je dostupný jen pro profesionální účty.');
     }
+  }
+
+  private importLimit(triggeredBy?: 'user' | 'cron' | 'admin'): number {
+    if (triggeredBy === 'cron') return FACEBOOK_URL_IMPORT_MAX_NEW;
+    return FACEBOOK_URL_IMPORT_MANUAL_LIMIT;
   }
 
   async getStatus(userId: string) {
@@ -125,8 +130,10 @@ export class FacebookUrlImportService {
       throw new BadRequestException('Nejprve zadejte URL Facebook stránky.');
     }
     if (!user.facebookImportEnabled && options?.triggeredBy === 'cron') {
-      return { imported: 0, skipped: true };
+      return { imported: 0, found: 0, skipped: 0, skippedRun: true };
     }
+
+    const limit = this.importLimit(options?.triggeredBy);
 
     await this.prisma.user.update({
       where: { id: userId },
@@ -137,36 +144,45 @@ export class FacebookUrlImportService {
     });
 
     let imported = 0;
+    let skipped = 0;
+    let found = 0;
     let errorMessage: string | null = null;
 
     try {
-      const scraped = await this.provider.fetchPublicPosts(
-        user.facebookUrl,
-        FACEBOOK_URL_IMPORT_MAX_NEW,
-      );
+      const scraped = await this.provider.fetchPublicPosts(user.facebookUrl, limit);
+      found = scraped.length;
+
       for (const item of scraped) {
-        const created = await this.importScrapedPost(user.id, user.role, item);
-        if (created) imported += 1;
-        if (imported >= FACEBOOK_URL_IMPORT_MAX_NEW) break;
+        const result = await this.importScrapedPost(user.id, user.role, item);
+        if (result === 'imported') {
+          imported += 1;
+          if (options?.triggeredBy === 'cron' && imported >= FACEBOOK_URL_IMPORT_MAX_NEW) break;
+        } else {
+          skipped += 1;
+        }
       }
+
+      const infoMessage =
+        imported === 0 && found === 0
+          ? 'Nebyl nalezen žádný veřejný příspěvek.'
+          : imported === 0 && found > 0
+            ? 'Všechny nalezené příspěvky už byly importovány dříve.'
+            : null;
 
       await this.prisma.user.update({
         where: { id: userId },
         data: {
           facebookImportStatus: FacebookImportStatus.OK,
           facebookLastSyncAt: new Date(),
-          facebookImportError: imported === 0 ? 'Nebyly nalezeny nové veřejné příspěvky.' : null,
+          facebookImportError: infoMessage,
         },
       });
 
       this.logger.log(
-        `FACEBOOK_URL_IMPORT_OK userId=${userId} imported=${imported} trigger=${options?.triggeredBy ?? 'user'}`,
+        `FACEBOOK_URL_IMPORT_OK userId=${userId} found=${found} imported=${imported} skipped=${skipped} trigger=${options?.triggeredBy ?? 'user'}`,
       );
     } catch (err) {
-      errorMessage =
-        err instanceof Error && err.message.includes('veřejně')
-          ? FACEBOOK_URL_IMPORT_USER_ERROR
-          : FACEBOOK_URL_IMPORT_USER_ERROR;
+      errorMessage = FACEBOOK_URL_IMPORT_USER_ERROR;
       await this.prisma.user.update({
         where: { id: userId },
         data: {
@@ -183,13 +199,17 @@ export class FacebookUrlImportService {
       data: {
         userId,
         status: errorMessage ? 'ERROR' : 'OK',
+        found,
         imported,
+        skipped,
         error: errorMessage,
       },
     });
 
     return {
       imported,
+      found,
+      skipped,
       error: errorMessage,
       facebookImportStatus: errorMessage ? FacebookImportStatus.ERROR : FacebookImportStatus.OK,
     };
@@ -266,6 +286,51 @@ export class FacebookUrlImportService {
     });
   }
 
+  private async resolveProfessionalProfileId(
+    userId: string,
+    role: UserRole,
+  ): Promise<string | null> {
+    switch (role) {
+      case UserRole.AGENT: {
+        const row = await this.prisma.agentProfile.findUnique({
+          where: { userId },
+          select: { id: true },
+        });
+        return row?.id ?? null;
+      }
+      case UserRole.COMPANY: {
+        const row = await this.prisma.companyProfile.findUnique({
+          where: { userId },
+          select: { id: true },
+        });
+        return row?.id ?? null;
+      }
+      case UserRole.AGENCY: {
+        const row = await this.prisma.agencyProfile.findUnique({
+          where: { userId },
+          select: { id: true },
+        });
+        return row?.id ?? null;
+      }
+      case UserRole.FINANCIAL_ADVISOR: {
+        const row = await this.prisma.financialAdvisorProfile.findUnique({
+          where: { userId },
+          select: { id: true },
+        });
+        return row?.id ?? null;
+      }
+      case UserRole.INVESTOR: {
+        const row = await this.prisma.investorProfile.findUnique({
+          where: { userId },
+          select: { id: true },
+        });
+        return row?.id ?? null;
+      }
+      default:
+        return null;
+    }
+  }
+
   private async importScrapedPost(
     userId: string,
     role: UserRole,
@@ -277,70 +342,71 @@ export class FacebookUrlImportService {
       videoUrl?: string | null;
       publishedAt?: Date | null;
     },
-  ): Promise<boolean> {
+  ): Promise<ImportResult> {
+    const permalink = item.permalink.trim();
+    const externalId = item.externalId.trim();
+
     const existing = await this.prisma.post.findFirst({
       where: {
         OR: [
-          { facebookExternalId: item.externalId },
-          { facebookPermalink: item.permalink },
+          { facebookExternalId: externalId },
+          { facebookPermalink: permalink },
+          { externalUrl: permalink },
         ],
       },
       select: { id: true },
     });
-    if (existing) return false;
+    if (existing) return 'skipped';
 
-    const description = this.formatDescription(item.message);
-    const publishedAt = item.publishedAt && !Number.isNaN(item.publishedAt.getTime())
-      ? item.publishedAt
-      : new Date();
+    const text = item.message.trim();
+    const publishedAt =
+      item.publishedAt && !Number.isNaN(item.publishedAt.getTime()) ? item.publishedAt : null;
     const category = this.categoryForRole(role);
+    const professionalProfileId = await this.resolveProfessionalProfileId(userId, role);
+    const importedAt = new Date();
 
-    let postId: string;
-    if (item.videoUrl) {
-      const post = await this.posts.createMediaPost(userId, {
-        kind: 'video',
-        url: item.videoUrl,
-        description,
-      });
-      postId = post.id;
-    } else if (item.imageUrl) {
-      const post = await this.posts.createMediaPost(userId, {
-        kind: 'image',
-        url: item.imageUrl,
-        description,
-      });
-      postId = post.id;
-    } else {
-      const post = await this.posts.create(userId, {
-        text: description || FACEBOOK_IMPORT_TAG,
-        externalUrl: item.permalink,
-        previewSiteName: 'Facebook',
-        category,
-      });
-      postId = post.id;
+    const mediaCreate: Array<{ url: string; type: string; order: number }> = [];
+    if (item.videoUrl?.trim()) {
+      mediaCreate.push({ url: item.videoUrl.trim(), type: 'video', order: 0 });
+    } else if (item.imageUrl?.trim()) {
+      mediaCreate.push({ url: item.imageUrl.trim(), type: 'image', order: 1 });
     }
 
-    await this.prisma.post.update({
-      where: { id: postId },
-      data: {
-        source: PostSource.FACEBOOK,
-        isFacebookPagePost: true,
-        facebookPermalink: item.permalink,
-        facebookExternalId: item.externalId,
-        publishedAt,
-        createdAt: publishedAt,
-        previewSiteName: 'Facebook',
-      },
-    });
-
-    return true;
-  }
-
-  private formatDescription(message: string): string {
-    const text = message.trim();
-    if (!text) return FACEBOOK_IMPORT_TAG;
-    if (text.includes(FACEBOOK_IMPORT_TAG)) return text;
-    return `${FACEBOOK_IMPORT_TAG}\n\n${text}`;
+    try {
+      await this.prisma.post.create({
+        data: {
+          type: 'post',
+          category,
+          userId,
+          professionalProfileId,
+          title: '',
+          price: 0,
+          city: '',
+          description: text,
+          content: text || null,
+          imageUrl: item.imageUrl?.trim() || null,
+          videoUrl: item.videoUrl?.trim() || null,
+          externalUrl: permalink,
+          facebookPermalink: permalink,
+          facebookExternalId: externalId,
+          previewImage: item.imageUrl?.trim() || null,
+          previewSiteName: 'Facebook',
+          source: PostSource.FACEBOOK,
+          isFacebookPagePost: true,
+          publishedAt,
+          createdAt: importedAt,
+          media: mediaCreate.length ? { create: mediaCreate } : undefined,
+        },
+      });
+      return 'imported';
+    } catch (err) {
+      const code =
+        err && typeof err === 'object' && 'code' in err
+          ? String((err as { code?: string }).code)
+          : '';
+      if (code === 'P2002') return 'skipped';
+      throw err;
+    }
   }
 
   private categoryForRole(role: UserRole): PostCategory {

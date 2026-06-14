@@ -1,3 +1,5 @@
+export const FACEBOOK_URL_IMPORT_MANUAL_LIMIT = 3;
+
 export const FACEBOOK_URL_IMPORT_MAX_NEW = 20;
 
 export const FACEBOOK_URL_IMPORT_CRON_MS = 6 * 60 * 60 * 1000;

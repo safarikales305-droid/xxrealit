@@ -553,6 +553,8 @@ model Post {
   /// INTERNAL = ručně vytvořený; FACEBOOK = import ze scraperu / budoucí Meta API.
   source              PostSource @default(INTERNAL)
   facebookExternalId  String?    @unique
+  /// ID role-specifického profesionálního profilu (AgentProfile, CompanyProfile, …).
+  professionalProfileId String?
   publishedAt         DateTime?
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1337,7 +1339,9 @@ model FacebookUrlImportLog {
   id        String   @id @default(cuid())
   userId    String
   status    String
+  found     Int      @default(0)
   imported  Int      @default(0)
+  skipped   Int      @default(0)
   error     String?  @db.Text
   createdAt DateTime @default(now())
 
