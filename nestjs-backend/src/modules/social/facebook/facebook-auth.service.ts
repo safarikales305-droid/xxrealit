@@ -133,7 +133,7 @@ export class FacebookAuthService {
           accessToken: '',
           accessTokenEncrypted: encryptedToken,
           tokenExpiresAt,
-          scopes: [FACEBOOK_LOGIN_SCOPES],
+          scopes: FACEBOOK_LOGIN_SCOPES.split(','),
         },
         update: {
           facebookUserId: me.id,
@@ -151,7 +151,7 @@ export class FacebookAuthService {
       if (returnTokenInBody) {
         await this.prisma.socialFacebookOAuthSession.delete({ where: { id: session.id } });
         const redirectUrl = `${this.getSuccessRedirectUrl()}?facebook=connected`;
-        this.logger.log(`FACEBOOK_REDIRECT_SUCCESS userId=${user.id} via=json`);
+        this.logger.log(`FACEBOOK_LOGIN_SUCCESS userId=${user.id} via=json`);
         return {
           ok: true,
           redirectUrl,
@@ -179,7 +179,7 @@ export class FacebookAuthService {
       };
     } catch (err) {
       const reason = err instanceof Error ? err.message.slice(0, 120) : 'oauth_failed';
-      this.logger.warn(`Facebook login callback failed: ${reason}`);
+      this.logger.warn(`FACEBOOK_LOGIN_FAIL reason=${reason}`);
       return { ok: false, redirectUrl: this.getErrorRedirectUrl(reason) };
     }
   }
@@ -204,7 +204,9 @@ export class FacebookAuthService {
       const accessToken = this.crypto.decrypt(session.userAccessToken);
       await this.prisma.socialFacebookOAuthSession.delete({ where: { id: session.id } });
       const redirectUrl = `${this.getSuccessRedirectUrl()}?facebook=connected`;
-      this.logger.log(`FACEBOOK_REDIRECT_SUCCESS userId=${session.userId ?? 'unknown'} via=consume`);
+      this.logger.log(
+        `FACEBOOK_LOGIN_SUCCESS userId=${session.userId ?? 'unknown'} via=consume cookies=pending`,
+      );
       return {
         ok: true,
         redirectUrl,
@@ -218,10 +220,44 @@ export class FacebookAuthService {
 
   private async findOrCreateUserFromFacebook(me: GraphMeResponse) {
     const facebookId = me.id!.trim();
+    const emailFromFb = me.email?.trim().toLowerCase() || null;
+    const displayName =
+      me.name?.trim() ||
+      [me.first_name, me.last_name].filter(Boolean).join(' ') ||
+      'Facebook uživatel';
+    const avatarUrl = me.picture?.data?.url ?? null;
+
     const byFacebook = await this.prisma.user.findFirst({ where: { facebookId } });
     if (byFacebook) {
-      this.logger.log(`FACEBOOK_USER_FOUND userId=${byFacebook.id} facebookId=${facebookId}`);
-      return { user: byFacebook, wasCreated: false };
+      const updated = await this.prisma.user.update({
+        where: { id: byFacebook.id },
+        data: {
+          name: byFacebook.name?.trim() ? byFacebook.name : displayName,
+          avatar: avatarUrl ?? byFacebook.avatar,
+        },
+      });
+      this.logger.log(
+        `FACEBOOK_USER_FOUND match=facebookId userId=${updated.id} email=${updated.email}`,
+      );
+      return { user: updated, wasCreated: false };
+    }
+
+    if (emailFromFb) {
+      const byEmail = await this.prisma.user.findUnique({ where: { email: emailFromFb } });
+      if (byEmail) {
+        const updated = await this.prisma.user.update({
+          where: { id: byEmail.id },
+          data: {
+            facebookId,
+            name: byEmail.name?.trim() ? byEmail.name : displayName,
+            avatar: avatarUrl ?? byEmail.avatar,
+          },
+        });
+        this.logger.log(
+          `FACEBOOK_USER_FOUND match=email userId=${updated.id} email=${updated.email}`,
+        );
+        return { user: updated, wasCreated: false };
+      }
     }
 
     const byFbConnection = await this.prisma.facebookConnection.findFirst({
@@ -231,32 +267,18 @@ export class FacebookAuthService {
     if (byFbConnection?.user) {
       const updated = await this.prisma.user.update({
         where: { id: byFbConnection.user.id },
-        data: { facebookId },
+        data: {
+          facebookId,
+          name: byFbConnection.user.name?.trim() ? byFbConnection.user.name : displayName,
+          avatar: avatarUrl ?? byFbConnection.user.avatar,
+        },
       });
-      this.logger.log(`FACEBOOK_USER_FOUND userId=${updated.id} facebookId=${facebookId}`);
+      this.logger.log(
+        `FACEBOOK_USER_FOUND match=connection userId=${updated.id} email=${updated.email}`,
+      );
       return { user: updated, wasCreated: false };
     }
 
-    const emailFromFb = me.email?.trim().toLowerCase();
-    if (emailFromFb) {
-      const byEmail = await this.prisma.user.findUnique({ where: { email: emailFromFb } });
-      if (byEmail) {
-        const updated = await this.prisma.user.update({
-          where: { id: byEmail.id },
-          data: {
-            facebookId,
-            avatar: byEmail.avatar ?? me.picture?.data?.url ?? null,
-          },
-        });
-        this.logger.log(`FACEBOOK_USER_FOUND userId=${updated.id} facebookId=${facebookId}`);
-        return { user: updated, wasCreated: false };
-      }
-    }
-
-    const displayName =
-      me.name?.trim() ||
-      [me.first_name, me.last_name].filter(Boolean).join(' ') ||
-      'Facebook uživatel';
     const email = emailFromFb || `facebook+${facebookId}@users.xxrealit.cz`;
     const passwordHash = await bcrypt.hash(randomBytes(32).toString('hex'), 10);
 
@@ -267,11 +289,13 @@ export class FacebookAuthService {
         password: passwordHash,
         role: UserRole.USER,
         facebookId,
-        avatar: me.picture?.data?.url ?? null,
+        avatar: avatarUrl,
         phone: '',
       },
     });
-    this.logger.log(`FACEBOOK_USER_CREATED userId=${created.id} facebookId=${facebookId}`);
+    this.logger.log(
+      `FACEBOOK_USER_CREATED userId=${created.id} email=${created.email} facebookId=${facebookId}`,
+    );
     return { user: created, wasCreated: true };
   }
 

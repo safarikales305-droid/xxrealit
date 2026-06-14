@@ -6,6 +6,7 @@ import { getOptionalInternalApiBaseUrl } from '@/lib/server-api';
 export const runtime = 'nodejs';
 
 const DEFAULT_ERROR_REDIRECT = 'https://www.xxrealit.cz/login?facebook=error';
+const DASHBOARD_URL = 'https://www.xxrealit.cz/profil/dashboard?facebook=connected';
 
 type NestCallbackResult = {
   ok?: boolean;
@@ -18,11 +19,11 @@ export async function GET(request: NextRequest) {
   const nestBase = getOptionalInternalApiBaseUrl();
   const { searchParams } = request.nextUrl;
 
+  console.log('[facebook/callback] FACEBOOK_CALLBACK_START');
+
   if (!nestBase) {
-    console.error('[api/social/facebook/callback] Nest API URL není nakonfigurováno');
-    return NextResponse.redirect(
-      `${DEFAULT_ERROR_REDIRECT}&reason=not_configured`,
-    );
+    console.error('[facebook/callback] FACEBOOK_LOGIN_FAIL Nest API URL missing');
+    return NextResponse.redirect(`${DEFAULT_ERROR_REDIRECT}&reason=not_configured`);
   }
 
   const query = searchParams.toString();
@@ -36,18 +37,37 @@ export async function GET(request: NextRequest) {
     );
 
     const data = (await res.json().catch(() => ({}))) as NestCallbackResult;
+    const ok = data.ok !== false;
+    const accessToken =
+      typeof data.accessToken === 'string' && data.accessToken.trim()
+        ? data.accessToken.trim()
+        : '';
+
+    if (!res.ok || !ok) {
+      console.error(`[facebook/callback] FACEBOOK_LOGIN_FAIL http=${res.status}`);
+      return NextResponse.redirect(
+        typeof data.redirectUrl === 'string' && data.redirectUrl.trim()
+          ? data.redirectUrl.trim()
+          : DEFAULT_ERROR_REDIRECT,
+      );
+    }
+
     const redirectUrl =
       typeof data.redirectUrl === 'string' && data.redirectUrl.trim()
         ? data.redirectUrl.trim()
-        : DEFAULT_ERROR_REDIRECT;
+        : DASHBOARD_URL;
+
+    console.log(
+      `[facebook/callback] FACEBOOK_LOGIN_SUCCESS redirect=${redirectUrl} tokenPresent=${Boolean(accessToken)}`,
+    );
 
     const response = NextResponse.redirect(redirectUrl);
-    if (typeof data.accessToken === 'string' && data.accessToken.trim()) {
-      setAuthCookies(response, data.accessToken.trim());
+    if (accessToken) {
+      setAuthCookies(response, accessToken);
     }
     return response;
   } catch (err) {
-    console.error('[api/social/facebook/callback]', err);
+    console.error('[facebook/callback] FACEBOOK_LOGIN_FAIL', err);
     return NextResponse.redirect(`${DEFAULT_ERROR_REDIRECT}&reason=network`);
   }
 }

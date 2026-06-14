@@ -114,13 +114,20 @@ async function fetchMe(token: string | null): Promise<AuthUser | null> {
     headers: Object.keys(headers).length ? headers : undefined,
   });
   if (!res.ok) {
+    console.warn('[auth/me] ROLE_LOAD_FAIL status=', res.status);
     return null;
   }
   const data = (await res.json()) as { user?: unknown } | Record<string, unknown> | null;
+  let user: AuthUser | null = null;
   if (data && typeof data === 'object' && 'user' in data && data.user) {
-    return normalizeMeUser(data.user);
+    user = normalizeMeUser(data.user);
+  } else {
+    user = normalizeMeUser(data);
   }
-  return normalizeMeUser(data);
+  if (user) {
+    console.log(`[auth/me] ROLE_LOADED userId=${user.id} role=${user.role}`);
+  }
+  return user;
 }
 
 function persistAuthUserToStorage(user: AuthUser | null) {

@@ -1,7 +1,7 @@
 export const GRAPH_API = 'https://graph.facebook.com/v21.0';
 
-/** Facebook Login / registrace — pouze public_profile. */
-export const FACEBOOK_LOGIN_SCOPES = 'public_profile';
+/** Facebook Login / registrace — public_profile + email (Meta App Review). */
+export const FACEBOOK_LOGIN_SCOPES = 'public_profile,email';
 
 /** Propojení Facebook stránky — vyžaduje Meta App Review. */
 export const FACEBOOK_PAGE_CONNECT_SCOPES = [

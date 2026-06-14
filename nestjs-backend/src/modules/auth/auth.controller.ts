@@ -128,6 +128,7 @@ export class AuthController {
     }
 
     if (!profile) {
+      console.log(`[auth/me] ROLE_LOADED userId=${req.user.id} role=${req.user.role} source=jwt`);
       return {
         ...req.user,
         role: req.user.role,
@@ -135,6 +136,9 @@ export class AuthController {
         requireFirstContent,
       };
     }
+    console.log(
+      `[auth/me] ROLE_LOADED userId=${profile.id} role=${profile.role} jwtRole=${req.user.role}`,
+    );
     return {
       id: profile.id,
       email: profile.email,

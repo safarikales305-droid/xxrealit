@@ -36,9 +36,8 @@ export async function middleware(request: NextRequest) {
       throw new Error('invalid role');
     }
 
-    if (pathname.startsWith('/admin') && role !== 'ADMIN') {
-      return NextResponse.redirect(new URL('/', request.url));
-    }
+    // Přístup na /admin ověřuje klient přes /auth/me (aktuální role z DB).
+    // JWT role může být zastaralá po změně role administrátorem.
   } catch {
     const login = new URL('/login', request.url);
     login.searchParams.set('callbackUrl', pathname);

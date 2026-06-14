@@ -6,6 +6,7 @@ import { getOptionalInternalApiBaseUrl } from '@/lib/server-api';
 export const runtime = 'nodejs';
 
 const DEFAULT_ERROR_REDIRECT = 'https://www.xxrealit.cz/login?facebook=error';
+const DASHBOARD_URL = 'https://www.xxrealit.cz/profil/dashboard?facebook=connected';
 
 type NestFinishResult = {
   ok?: boolean;
@@ -18,8 +19,10 @@ export async function GET(request: NextRequest) {
   const nestBase = getOptionalInternalApiBaseUrl();
   const state = request.nextUrl.searchParams.get('state')?.trim() ?? '';
 
+  console.log(`[facebook/finish-login] FACEBOOK_CALLBACK statePresent=${Boolean(state)}`);
+
   if (!nestBase || !state) {
-    console.error('[api/social/facebook/finish-login] missing nest base or state');
+    console.error('[facebook/finish-login] FACEBOOK_LOGIN_FAIL missing nest base or state');
     return NextResponse.redirect(`${DEFAULT_ERROR_REDIRECT}&reason=missing_state`);
   }
 
@@ -32,18 +35,30 @@ export async function GET(request: NextRequest) {
       },
     );
     const data = (await res.json().catch(() => ({}))) as NestFinishResult;
+    const ok = data.ok !== false;
+    const accessToken =
+      typeof data.accessToken === 'string' && data.accessToken.trim()
+        ? data.accessToken.trim()
+        : '';
+
+    if (!res.ok || !ok || !accessToken) {
+      console.error(
+        `[facebook/finish-login] FACEBOOK_LOGIN_FAIL http=${res.status} ok=${String(data.ok)} tokenPresent=${Boolean(accessToken)}`,
+      );
+      return NextResponse.redirect(`${DEFAULT_ERROR_REDIRECT}&reason=finish_failed`);
+    }
+
     const redirectUrl =
       typeof data.redirectUrl === 'string' && data.redirectUrl.trim()
         ? data.redirectUrl.trim()
-        : `${DEFAULT_ERROR_REDIRECT}&reason=finish_failed`;
+        : DASHBOARD_URL;
 
+    console.log(`[facebook/finish-login] FACEBOOK_LOGIN_SUCCESS redirect=${redirectUrl}`);
     const response = NextResponse.redirect(redirectUrl);
-    if (typeof data.accessToken === 'string' && data.accessToken.trim()) {
-      setAuthCookies(response, data.accessToken.trim());
-    }
+    setAuthCookies(response, accessToken);
     return response;
   } catch (err) {
-    console.error('[api/social/facebook/finish-login]', err);
+    console.error('[facebook/finish-login] FACEBOOK_LOGIN_FAIL', err);
     return NextResponse.redirect(`${DEFAULT_ERROR_REDIRECT}&reason=network`);
   }
 }

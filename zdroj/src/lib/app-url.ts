@@ -26,17 +26,18 @@ export function getAppOrigin(): string {
 
   const productionFallback = 'https://www.xxrealit.cz';
   const localhostLike = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
+  const onRailway = Boolean(process.env.RAILWAY_ENVIRONMENT?.trim());
 
   let raw =
     candidates[0] ??
-    (!isNodeProduction()
+    (!isNodeProduction() && !onRailway
       ? 'http://localhost:3000'
       : productionFallback);
 
   raw = upgradeHttpToHttps(raw);
   raw = raw.replace(/\/+$/, '');
 
-  if (isNodeProduction() && localhostLike.test(raw)) {
+  if ((isNodeProduction() || onRailway) && localhostLike.test(raw)) {
     raw = productionFallback;
   }
 

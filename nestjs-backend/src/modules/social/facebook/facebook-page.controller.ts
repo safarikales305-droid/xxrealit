@@ -54,8 +54,7 @@ export class FacebookPageController implements OnModuleInit {
 
   @Get('login')
   async login(@Req() req: Request, @Res() res: Response) {
-    const acceptHeader = req.headers.accept ?? '';
-    const wantsJson = acceptHeader.includes('application/json');
+    const wantsJson = this.wantsJsonResponse(req);
     try {
       const url = await this.facebookAuth.buildLoginUrl();
       if (wantsJson) return res.json({ url });
@@ -80,16 +79,23 @@ export class FacebookPageController implements OnModuleInit {
     @Res() res: Response,
   ) {
     if (oauthError?.trim()) {
+      this.logger.warn(
+        `FACEBOOK_CALLBACK_DENIED reason=${errorReason?.trim() || oauthError.trim()}`,
+      );
       return res.redirect(302, this.facebookAuth.getErrorRedirectUrl(errorReason?.trim() || oauthError.trim()));
     }
 
-    const acceptHeader = req.headers.accept ?? '';
-    const wantsJson =
-      req.query.format === 'json' || acceptHeader.includes('application/json');
+    const wantsJson = this.wantsJsonResponse(req);
+    this.logger.log(`FACEBOOK_CALLBACK_START wantsJson=${wantsJson}`);
 
     const result = await this.facebookAuth.handleLoginCallback(code, state, {
       returnTokenInBody: wantsJson,
     });
+    if (!result.ok) {
+      this.logger.warn(`FACEBOOK_LOGIN_FAIL redirect=${result.redirectUrl}`);
+    } else {
+      this.logger.log(`FACEBOOK_LOGIN_SUCCESS redirect=${result.redirectUrl}`);
+    }
     return this.respondOAuth(res, req, result);
   }
 
@@ -147,8 +153,7 @@ export class FacebookPageController implements OnModuleInit {
     @Req() req: Request,
     @Res() res: Response,
   ) {
-    const acceptHeader = req.headers.accept ?? '';
-    const wantsJson = acceptHeader.includes('application/json');
+    const wantsJson = this.wantsJsonResponse(req);
     try {
       const url = await this.facebookPage.buildPageConnectUrl(user.id, user.role as UserRole);
       if (wantsJson) return res.json({ url });
@@ -242,6 +247,11 @@ export class FacebookPageController implements OnModuleInit {
     return this.facebookPage.syncNow(user.id);
   }
 
+  private wantsJsonResponse(req: Request): boolean {
+    const acceptHeader = req.headers.accept ?? '';
+    return req.query.format === 'json' || acceptHeader.includes('application/json');
+  }
+
   private respondOAuth(
     res: Response,
     req: Request,
@@ -253,9 +263,7 @@ export class FacebookPageController implements OnModuleInit {
       message?: string;
     },
   ) {
-    const acceptHeader = req.headers.accept ?? '';
-    const wantsJson =
-      req.query.format === 'json' || acceptHeader.includes('application/json');
+    const wantsJson = this.wantsJsonResponse(req);
     if (wantsJson) {
       return res.status(result.ok ? 200 : 400).json(result);
     }

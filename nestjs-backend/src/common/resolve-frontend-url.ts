@@ -15,7 +15,9 @@ function readFrontendUrlRaw(config?: ConfigService): string {
 
 function isProduction(config?: ConfigService): boolean {
   const nodeEnv = (config?.get<string>('NODE_ENV') ?? process.env.NODE_ENV ?? '').trim();
-  return nodeEnv.toLowerCase() === 'production';
+  if (nodeEnv.toLowerCase() === 'production') return true;
+  if (process.env.RAILWAY_ENVIRONMENT?.trim()) return true;
+  return false;
 }
 
 /** Veřejná URL frontendu pro odkazy v e-mailech a OAuth redirectech. */

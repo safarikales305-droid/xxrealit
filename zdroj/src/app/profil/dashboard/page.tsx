@@ -49,7 +49,7 @@ const TABS: Array<{ id: Tab; label: string }> = [
 ];
 
 function parseTab(raw: string | null, facebook: string | null): Tab {
-  if (facebook) return 'social-integrations';
+  if (facebook === 'select' || facebook === 'error') return 'social-integrations';
   if (
     raw === 'social-integrations' ||
     raw === 'listings' ||
@@ -68,6 +68,7 @@ export default function ProfileDashboardPage() {
   const { isAuthenticated, isLoading, apiAccessToken, user, refresh } = useAuth();
   const unreadMessages = useMessagesUnreadCount(apiAccessToken);
   const tab = parseTab(params.get('tab'), params.get('facebook'));
+  const facebookJustConnected = params.get('facebook') === 'connected';
 
   useEffect(() => {
     const fb = params.get('facebook');
@@ -173,7 +174,15 @@ export default function ProfileDashboardPage() {
     });
   }, [apiAccessToken, user?.role]);
 
-  if (!isLoading && !isAuthenticated) {
+  if (isLoading || (facebookJustConnected && !isAuthenticated)) {
+    return (
+      <main className="mx-auto max-w-3xl px-4 py-10">
+        <p className="text-sm text-zinc-500">Načítám váš účet…</p>
+      </main>
+    );
+  }
+
+  if (!isAuthenticated) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-10">
         <p className="text-sm text-zinc-700">Pro správu účtu se přihlaste.</p>
