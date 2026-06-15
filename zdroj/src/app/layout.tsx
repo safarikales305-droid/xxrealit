@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import { AuthProvider } from "@/context/AuthContext";
+import { FacebookOAuthReturnRedirect } from "@/components/auth/FacebookOAuthReturnRedirect";
 import { FirstContentGuard } from "@/components/registration/FirstContentGuard";
 import { GuestRegistrationGateHost } from "@/components/registration/GuestRegistrationGateHost";
 import { PwaInstallPrompt } from "@/components/pwa/PwaInstallPrompt";
@@ -34,11 +36,14 @@ export default function RootLayout({
     <html lang="cs">
       <body>
         <AuthProvider>
+          <FacebookOAuthReturnRedirect />
           <FirstContentGuard>
             <div className="w-full min-h-screen">{children}</div>
           </FirstContentGuard>
           <PwaInstallPrompt />
-          <GuestRegistrationGateHost />
+          <Suspense fallback={null}>
+            <GuestRegistrationGateHost />
+          </Suspense>
         </AuthProvider>
       </body>
     </html>

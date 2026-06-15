@@ -73,9 +73,19 @@ export function isCatalogEligibleProfessional(user: UserWithProfiles): boolean {
 /** Role zobrazené v katalogu /makleri (realitní makléř / kancelář). */
 export const BROKER_CATALOG_ROLES: UserRole[] = [UserRole.AGENT, UserRole.AGENCY];
 
+/** Role v sidebaru Profesionálové na homepage. */
+export const PROFESSIONAL_SIDEBAR_ROLES: UserRole[] = [
+  UserRole.AGENT,
+  UserRole.AGENCY,
+  UserRole.COMPANY,
+  UserRole.CRAFTSMAN,
+  UserRole.FINANCIAL_ADVISOR,
+  UserRole.INVESTOR,
+];
+
 export function parseBrokerCatalogRoles(raw?: string): UserRole[] | undefined {
   if (!raw?.trim()) return undefined;
-  const allowed = new Set<UserRole>(BROKER_CATALOG_ROLES);
+  const allowed = new Set<UserRole>(PROFESSIONAL_SIDEBAR_ROLES);
   const parsed = raw
     .split(',')
     .map((x) => x.trim().toUpperCase())

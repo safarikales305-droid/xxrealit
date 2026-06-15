@@ -243,7 +243,7 @@ export class FacebookConfigService implements OnModuleInit {
   resolveOAuthRedirectUriOptional(): string | null {
     const explicit = this.getOAuthRedirectUriRaw();
     if (explicit) return explicit.replace(/\/+$/, '');
-    return `${this.resolveFrontendApiBase()}/social/facebook/callback`;
+    return `${this.resolveFrontendApiBase()}/auth/facebook/callback`;
   }
 
   resolveOAuthRedirectUri(): string {

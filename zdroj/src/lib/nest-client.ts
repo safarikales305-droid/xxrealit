@@ -3458,7 +3458,7 @@ export async function nestListMyCompanyAds(
 export type NestPublicBrokerCard = {
   id: string;
   slug: string | null;
-  role: 'AGENT' | 'COMPANY' | 'AGENCY' | 'FINANCIAL_ADVISOR' | 'INVESTOR';
+  role: 'AGENT' | 'COMPANY' | 'AGENCY' | 'CRAFTSMAN' | 'FINANCIAL_ADVISOR' | 'INVESTOR';
   name: string | null;
   avatarUrl: string | null;
   officeName: string;
@@ -3475,7 +3475,14 @@ function normalizeNestPublicBrokerCard(raw: unknown): NestPublicBrokerCard | nul
   const o = raw as Record<string, unknown>;
   if (typeof o.id !== 'string') return null;
   const role = String(o.role ?? 'AGENT').toUpperCase();
-  const allowed = ['AGENT', 'COMPANY', 'AGENCY', 'FINANCIAL_ADVISOR', 'INVESTOR'] as const;
+  const allowed = [
+    'AGENT',
+    'COMPANY',
+    'AGENCY',
+    'CRAFTSMAN',
+    'FINANCIAL_ADVISOR',
+    'INVESTOR',
+  ] as const;
   if (!allowed.includes(role as (typeof allowed)[number])) return null;
   const vsRaw = o.verificationStatus;
   const verificationStatus =

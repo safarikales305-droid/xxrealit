@@ -115,6 +115,13 @@ export class BrokersService {
         investorProfile: { is: { isPublic: true, verificationStatus: 'verified' } },
       });
     }
+    if (roles.includes(UserRole.CRAFTSMAN)) {
+      parts.push({
+        ...CATALOG_VERIFIED_USER_WHERE,
+        role: UserRole.CRAFTSMAN,
+        isPublicBrokerProfile: true,
+      });
+    }
     return parts;
   }
 
@@ -167,23 +174,25 @@ export class BrokersService {
       },
       take: 200,
     });
-    return rows.map((b) => {
-      const verificationStatus = professionalVerificationStatus(b);
-      return {
-        id: b.id,
-        slug: b.brokerProfileSlug,
-        role: b.role,
-        name: b.name,
-        avatarUrl: b.avatar,
-        officeName: b.brokerOfficeName,
-        regionLabel: b.brokerRegionLabel,
-        bioExcerpt: (b.bio ?? '').trim().slice(0, 160),
-        ratingAverage: b.allowBrokerReviews ? b.brokerReviewAverage : null,
-        ratingCount: b.allowBrokerReviews ? b.brokerReviewCount : null,
-        verificationStatus,
-        isVerified: isProfessionalVerified(b),
-      };
-    });
+    return rows
+      .map((b) => {
+        const verificationStatus = professionalVerificationStatus(b);
+        return {
+          id: b.id,
+          slug: b.brokerProfileSlug,
+          role: b.role,
+          name: b.name,
+          avatarUrl: b.avatar,
+          officeName: b.brokerOfficeName,
+          regionLabel: b.brokerRegionLabel,
+          bioExcerpt: (b.bio ?? '').trim().slice(0, 160),
+          ratingAverage: b.allowBrokerReviews ? b.brokerReviewAverage : null,
+          ratingCount: b.allowBrokerReviews ? b.brokerReviewCount : null,
+          verificationStatus,
+          isVerified: isProfessionalVerified(b),
+        };
+      })
+      .filter((row) => row.isVerified);
   }
 
   async getPublicBySlug(slug: string, viewerId?: string) {

@@ -68,6 +68,8 @@ export function verifiedBadgeLabelForRole(role: string | null | undefined): stri
       return 'Ověřený finanční poradce';
     case 'INVESTOR':
       return 'Ověřený investor';
+    case 'CRAFTSMAN':
+      return 'Ověřený řemeslník';
     default:
       return 'Ověřený profesionál';
   }

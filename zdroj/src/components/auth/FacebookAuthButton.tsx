@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { API_BASE_URL } from '@/lib/api';
 import { trackFacebookAnalytics } from '@/lib/facebook-analytics';
+import { isPwaStandalone } from '@/lib/pwa-standalone';
 
 type Props = {
   label: string;
@@ -21,29 +21,51 @@ function FacebookIcon() {
   );
 }
 
+function storeOAuthReturnPath() {
+  if (typeof window === 'undefined') return;
+  try {
+    const path = `${window.location.pathname}${window.location.search}`;
+    sessionStorage.setItem('facebook_oauth_return', path);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function FacebookAuthButton({ label, event, className }: Props) {
   const [loading, setLoading] = useState(false);
 
   async function handleClick() {
     setLoading(true);
     trackFacebookAnalytics(event);
+    storeOAuthReturnPath();
+
+    const loginPath = '/api/auth/facebook/login';
+    const standalone = isPwaStandalone();
+
     try {
-      const loginUrl = API_BASE_URL
-        ? `${API_BASE_URL}/social/facebook/login`
-        : '/api/social/facebook/login';
-      const res = await fetch(loginUrl, {
+      const res = await fetch(loginPath, {
         headers: { Accept: 'application/json' },
         cache: 'no-store',
+        credentials: 'same-origin',
       });
       const data = (await res.json().catch(() => ({}))) as { url?: string };
       const url = typeof data.url === 'string' ? data.url.trim() : '';
       if (url) {
-        window.location.assign(url);
+        if (standalone) {
+          window.location.href = url;
+        } else {
+          window.location.assign(url);
+        }
         return;
       }
-      window.location.assign(loginUrl);
     } catch {
-      setLoading(false);
+      /* fallback below */
+    }
+
+    if (standalone) {
+      window.location.href = loginPath;
+    } else {
+      window.location.assign(loginPath);
     }
   }
 
