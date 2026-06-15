@@ -293,6 +293,7 @@ export class CreditWalletService {
     amount: number,
     referenceId: string | null,
     description: string,
+    purpose: CreditLedgerPurpose = 'BONUS_GRANTED',
   ): Promise<UserCreditBalances> {
     const amt = Math.max(0, Math.trunc(amount));
     const updated = await tx.user.update({
@@ -307,13 +308,64 @@ export class CreditWalletService {
     });
     const total = this.totalBalance(updated);
     await tx.user.update({ where: { id: userId }, data: { creditBalance: total } });
+    const ledgerPurpose =
+      purpose === 'BONUS_GRANTED' || purpose.startsWith('BONUS')
+        ? purpose
+        : purpose;
     await tx.creditLedger.create({
       data: {
         userId,
         amount: amt,
-        type: 'BONUS_GRANTED',
+        type: 'BONUS',
         creditType: 'BONUS',
-        purpose: 'BONUS_GRANTED',
+        purpose: ledgerPurpose,
+        referenceId,
+        description,
+      },
+    });
+    return this.serializeBalances({ ...updated, creditBalance: total });
+  }
+
+  async debitBonus(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    amount: number,
+    referenceId: string | null,
+    description: string,
+    purpose: CreditLedgerPurpose = 'ADMIN_ADJUSTMENT',
+  ): Promise<UserCreditBalances> {
+    const amt = Math.max(0, Math.trunc(amount));
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: { bonusCreditBalance: true, realCreditBalance: true, pendingCreditBalance: true },
+    });
+    if (!user) throw new Error('User not found');
+    const deduct = Math.min(amt, Math.max(0, user.bonusCreditBalance));
+    if (deduct <= 0) {
+      return this.serializeBalances({
+        ...user,
+        creditBalance: this.totalBalance(user),
+      });
+    }
+    const updated = await tx.user.update({
+      where: { id: userId },
+      data: { bonusCreditBalance: { decrement: deduct } },
+      select: {
+        realCreditBalance: true,
+        bonusCreditBalance: true,
+        pendingCreditBalance: true,
+        creditBalance: true,
+      },
+    });
+    const total = this.totalBalance(updated);
+    await tx.user.update({ where: { id: userId }, data: { creditBalance: total } });
+    await tx.creditLedger.create({
+      data: {
+        userId,
+        amount: -deduct,
+        type: 'BONUS',
+        creditType: 'BONUS',
+        purpose,
         referenceId,
         description,
       },

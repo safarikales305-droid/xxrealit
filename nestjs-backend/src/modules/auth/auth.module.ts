@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { BonusCampaignModule } from '../bonus-campaign/bonus-campaign.module';
 import { UsersModule } from '../users/users.module';
 import { RegistrationGateModule } from '../registration-gate/registration-gate.module';
 import { EmailsModule } from '../emails/emails.module';
@@ -15,6 +16,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     ConfigModule,
     forwardRef(() => UsersModule),
     forwardRef(() => RegistrationGateModule),
+    forwardRef(() => BonusCampaignModule),
     EmailsModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({

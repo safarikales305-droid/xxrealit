@@ -168,6 +168,16 @@ model User {
   firstTopUpUsed Boolean @default(false)
   /// Uživatel vložil první inzerát nebo tip (onboarding po registraci).
   firstContentCompleted Boolean @default(false)
+  /// Ověřený e-mail (povinný krok registrace).
+  emailVerified Boolean @default(false)
+  /// Ověřený telefon (povinný krok registrace).
+  phoneVerified Boolean @default(false)
+  /// Unikátní referral kód pro pozvánky přátel.
+  referralCode String? @unique
+  /// Kdo uživatele pozval (referral).
+  referredByUserId String?
+  referredBy User? @relation("UserReferrals", fields: [referredByUserId], references: [id], onDelete: SetNull)
+  referrals User[] @relation("UserReferrals")
   /// Aktivní role tipaře — může vytvářet tipy na nemovitosti.
   isTipar       Boolean   @default(false)
   createdAt    DateTime   @default(now())
@@ -267,6 +277,7 @@ model User {
   creditLedgerEntries CreditLedger[]
   creditTopUpTransactions CreditTopUpTransaction[]
   bonusClaims         BonusClaim[]
+  referralInvitesSent ReferralInvite[] @relation("ReferralInvitesSent")
   facebookConnection           FacebookConnection?
   facebookPagesUserAuth        FacebookPagesUserAuth?
   facebookPageConnections      FacebookPageConnection[]
@@ -1515,34 +1526,58 @@ enum BonusSourceType {
   TIP
 }
 
-/// Bonusová akce pro nové inzeráty / tipy.
+/// Typ marketingové bonusové akce.
+enum MarketingBonusActionType {
+  FACEBOOK_CONNECT
+  INVITE_EMAIL
+  INVITE_WHATSAPP
+  REFERRAL_REGISTRATION
+  FIRST_AD
+  FIRST_VIDEO_AD
+  FIRST_POST
+  PROFILE_COMPLETE
+  PROFILE_VERIFIED
+  CUSTOM
+  LEGACY_LISTING_TIP
+}
+
+/// Bonusová akce — marketing / motivační kredity.
 model BonusCampaign {
   id          String         @id @default(cuid())
   title       String
+  description String         @default("")
   ctaText     String         @default("Založ účet, inzeruj a vydělávej")
   bonusText   String         @default("Bonus 1 000 Kč kreditu při vložení inzerátu nebo tipu")
   amount      Int
   appliesTo   BonusAppliesTo @default(BOTH)
+  actionType  MarketingBonusActionType @default(LEGACY_LISTING_TIP)
+  roles       UserRole[]     @default([])
   isActive    Boolean        @default(false)
   activeFrom  DateTime?
   activeTo    DateTime?
   oncePerUser Boolean        @default(true)
+  maxTotalClaims Int?
+  maxClaimsPerUser Int       @default(1)
+  conditionMinCount Int      @default(1)
+  customConditionText String  @default("")
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
   claims BonusClaim[]
 
   @@index([isActive, activeFrom, activeTo])
+  @@index([actionType, isActive])
 }
 
-/// Připsaný bonus uživateli (1× podle kampaně).
+/// Připsaný bonus uživateli.
 model BonusClaim {
   id         String          @id @default(cuid())
   userId     String
   campaignId String
   amount     Int
-  sourceType BonusSourceType
-  sourceId   String
+  sourceType BonusSourceType?
+  sourceId   String?
+  reason     String?
   createdAt  DateTime        @default(now())
 
   user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1551,6 +1586,7 @@ model BonusClaim {
   @@unique([userId, campaignId])
   @@index([userId, createdAt])
   @@index([campaignId])
+  @@index([reason])
 }
 
 /// Historie pohybů kreditu (bonusy, budoucí typy).
@@ -1632,4 +1668,30 @@ model RegistrationGateSetting {
   skipAfterSeconds    Int      @default(5)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
+}
+
+/// Povinné kroky po registraci podle role.
+model RegistrationRequirementSetting {
+  role                   UserRole @id
+  requireFirstListing    Boolean  @default(false)
+  requireFirstPost       Boolean  @default(false)
+  requireFacebookPage    Boolean  @default(false)
+  requireProfileComplete Boolean  @default(false)
+  requirePhoneVerified   Boolean  @default(false)
+  requireEmailVerified   Boolean  @default(false)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+/// Odeslaná pozvánka přes referral (email / WhatsApp).
+model ReferralInvite {
+  id            String   @id @default(cuid())
+  inviterUserId String
+  channel       String
+  target        String?
+  createdAt     DateTime @default(now())
+
+  inviter User @relation("ReferralInvitesSent", fields: [inviterUserId], references: [id], onDelete: Cascade)
+
+  @@index([inviterUserId, channel, createdAt])
 }

@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { AuthProvider } from "@/context/AuthContext";
 import { FacebookOAuthReturnRedirect } from "@/components/auth/FacebookOAuthReturnRedirect";
 import { FirstContentGuard } from "@/components/registration/FirstContentGuard";
+import { RegistrationRequirementsGuard } from "@/components/registration/RegistrationRequirementsGuard";
 import { GuestRegistrationGateHost } from "@/components/registration/GuestRegistrationGateHost";
 import { PwaInstallPrompt } from "@/components/pwa/PwaInstallPrompt";
 import { getSiteMetadataBase } from "@/lib/app-url";
@@ -40,7 +41,9 @@ export default function RootLayout({
             <FacebookOAuthReturnRedirect />
           </Suspense>
           <FirstContentGuard>
-            <div className="w-full min-h-screen">{children}</div>
+            <RegistrationRequirementsGuard>
+              <div className="w-full min-h-screen">{children}</div>
+            </RegistrationRequirementsGuard>
           </FirstContentGuard>
           <PwaInstallPrompt />
           <Suspense fallback={null}>

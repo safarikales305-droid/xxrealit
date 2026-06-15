@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
   ValidationPipe,
 } from '@nestjs/common';
@@ -14,6 +15,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { BonusCampaignService } from './bonus-campaign.service';
 import { CreateBonusCampaignDto } from './dto/create-bonus-campaign.dto';
 import { UpdateBonusCampaignDto } from './dto/update-bonus-campaign.dto';
+import { ManualBonusGrantDto, ManualBonusRevokeDto } from './dto/manual-bonus.dto';
 
 @Controller('admin/bonus-campaigns')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -23,6 +25,28 @@ export class BonusCampaignAdminController {
   @Get()
   list() {
     return this.bonusCampaigns.listForAdmin();
+  }
+
+  @Get('claims')
+  listClaims(@Query('limit') limit?: string) {
+    const n = limit ? Number.parseInt(limit, 10) : 200;
+    return this.bonusCampaigns.listClaimsForAdmin(Number.isFinite(n) ? n : 200);
+  }
+
+  @Post('manual-grant')
+  manualGrant(
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: ManualBonusGrantDto,
+  ) {
+    return this.bonusCampaigns.manualGrant(dto);
+  }
+
+  @Post('manual-revoke')
+  manualRevoke(
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: ManualBonusRevokeDto,
+  ) {
+    return this.bonusCampaigns.manualRevoke(dto.claimId);
   }
 
   @Post()

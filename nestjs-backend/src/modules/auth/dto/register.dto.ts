@@ -34,4 +34,9 @@ export class RegisterDto {
   @IsString()
   @MaxLength(64)
   role?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  referralCode?: string;
 }

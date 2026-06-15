@@ -28,6 +28,7 @@ const bodySchema = z
       .trim()
       .regex(/^\+[1-9]\d{7,14}$/, 'Telefon musí být ve formátu +420123456789'),
     role: z.enum(ALLOWED_ROLES, { message: 'Vyberte platnou roli' }),
+    referralCode: z.string().max(32).optional(),
   })
   .refine((d) => d.password === d.confirmPassword, {
     message: 'Hesla se neshodují',
@@ -61,7 +62,14 @@ export async function POST(req: Request) {
     const upstream = await fetch(`${API_BASE_URL}/auth/register`, {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify(parsed.data),
+      body: JSON.stringify({
+        name: parsed.data.name,
+        email: parsed.data.email,
+        password: parsed.data.password,
+        phone: parsed.data.phone,
+        role: parsed.data.role,
+        referralCode: parsed.data.referralCode,
+      }),
     });
     const raw = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;
     if (!upstream.ok) {

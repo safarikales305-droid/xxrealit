@@ -3971,14 +3971,22 @@ export async function nestAdminShareGateVideoDelete(
 export type BonusCampaignAdminDto = {
   id: string;
   title: string;
+  description: string;
   ctaText: string;
   bonusText: string;
   amount: number;
   appliesTo: 'LISTING' | 'TIP' | 'BOTH';
+  actionType: string;
+  roles: string[];
   isActive: boolean;
   activeFrom: string | null;
   activeTo: string | null;
   oncePerUser: boolean;
+  maxTotalClaims: number | null;
+  maxClaimsPerUser: number;
+  conditionMinCount: number;
+  customConditionText: string;
+  claimsCount?: number;
   createdAt: string;
   updatedAt: string;
 };

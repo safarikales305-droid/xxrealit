@@ -276,6 +276,18 @@ export class UsersController {
     return this.usersService.unfollowUser(user.id, id);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Post('me/verify-email')
+  verifyEmail(@CurrentUser() user: AuthUser) {
+    return this.usersService.verifyEmail(user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('me/verify-phone')
+  verifyPhone(@CurrentUser() user: AuthUser) {
+    return this.usersService.verifyPhone(user.id);
+  }
+
   @Get(':id')
   async getProfile(
     @Param('id') id: string,

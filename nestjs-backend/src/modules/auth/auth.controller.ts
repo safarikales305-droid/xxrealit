@@ -10,7 +10,9 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { UserRole } from '@prisma/client';
 import { RegistrationGateService } from '../registration-gate/registration-gate.service';
+import { RegistrationRequirementsService } from '../registration-gate/registration-requirements.service';
 import { UsersService } from '../users/users.service';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -24,6 +26,7 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly usersService: UsersService,
     private readonly registrationGate: RegistrationGateService,
+    private readonly registrationRequirements: RegistrationRequirementsService,
     private readonly config: ConfigService,
   ) {}
 
@@ -119,12 +122,19 @@ export class AuthController {
 
     let firstContentCompleted = true;
     let requireFirstContent = false;
+    let registrationRequirements: Awaited<
+      ReturnType<RegistrationRequirementsService['getStatusForUser']>
+    > | null = null;
 
     if (!isAdmin) {
       firstContentCompleted = await this.registrationGate.syncFirstContentStatus(
         req.user.id,
       );
       requireFirstContent = await this.registrationGate.getRequireFirstContent();
+      registrationRequirements = await this.registrationRequirements.getStatusForUser(
+        req.user.id,
+        (profile?.role ?? req.user.role) as UserRole,
+      );
     }
 
     if (!profile) {
@@ -134,6 +144,7 @@ export class AuthController {
         role: req.user.role,
         firstContentCompleted,
         requireFirstContent,
+        registrationRequirements,
       };
     }
     console.log(
@@ -154,6 +165,7 @@ export class AuthController {
       createdAt: profile.createdAt.toISOString(),
       firstContentCompleted,
       requireFirstContent,
+      registrationRequirements,
     };
   }
 }

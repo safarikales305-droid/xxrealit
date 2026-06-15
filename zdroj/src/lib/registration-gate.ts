@@ -36,6 +36,23 @@ export function isPathAllowedForFirstContent(pathname: string): boolean {
   return allowedPrefixes.some((prefix) => p === prefix || p.startsWith(`${prefix}/`));
 }
 
+export function isPathAllowedForRegistrationRequirements(pathname: string): boolean {
+  const p = pathname.toLowerCase();
+  const allowedPrefixes = [
+    '/onboarding',
+    '/inzerat',
+    '/profil',
+    '/login',
+    '/prihlaseni',
+    '/registrace',
+    '/privacy',
+    '/privacy-policy',
+    '/terms',
+    '/data-deletion',
+  ];
+  return allowedPrefixes.some((prefix) => p === prefix || p.startsWith(`${prefix}/`));
+}
+
 export async function fetchRegistrationGateSettings(): Promise<PublicRegistrationGateSettings | null> {
   const data = await fetchRegistrationGateSettingsRaw();
   if (!data?.shortsGateEnabled) return null;

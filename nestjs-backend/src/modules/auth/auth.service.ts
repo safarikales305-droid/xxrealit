@@ -15,6 +15,9 @@ import { buildPasswordResetUrl, resolveFrontendUrl } from '../../common/resolve-
 import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 import { EmailsService } from '../emails/emails.service';
 import { UsersService } from '../users/users.service';
+import { ReferralService } from '../bonus-campaign/referral.service';
+import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
+import { MarketingBonusActionType } from '@prisma/client';
 type TokenUserShape = {
   id: string;
   email: string;
@@ -175,6 +178,8 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly emailsService: EmailsService,
+    private readonly referral: ReferralService,
+    private readonly bonusCampaigns: BonusCampaignService,
   ) {}
 
   private resendFromAddress(): string {
@@ -493,6 +498,7 @@ export class AuthService {
     console.log('HASHED PASSWORD:', hashedPassword);
 
     try {
+      const referredByUserId = await this.referral.resolveReferrerByCode(dto.referralCode);
       const user = await this.users.create({
         email,
         password: hashedPassword,
@@ -501,7 +507,19 @@ export class AuthService {
         phonePublic: false,
         role: mappedRole,
         isTipar: mappedRole === UserRole.TIPSTER,
+        referredByUserId,
+        emailVerified: false,
+        phoneVerified: false,
       });
+      void this.referral.ensureReferralCode(user.id).catch(() => {});
+      if (referredByUserId) {
+        void this.bonusCampaigns
+          .evaluateMarketingBonuses(
+            referredByUserId,
+            MarketingBonusActionType.REFERRAL_REGISTRATION,
+          )
+          .catch(() => {});
+      }
       void this.emailsService
         .sendWelcomeEmail({ email: user.email, name: user.name ?? undefined })
         .catch((error: unknown) => {

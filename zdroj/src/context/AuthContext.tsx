@@ -28,6 +28,7 @@ export type AuthUser = {
   bio?: string | null;
   firstContentCompleted?: boolean;
   requireFirstContent?: boolean;
+  registrationRequirements?: import('@/lib/marketing-bonus').RegistrationRequirementsStatus | null;
 };
 
 type AuthContextValue = {
@@ -100,6 +101,10 @@ function normalizeMeUser(raw: unknown): AuthUser | null {
     bio,
     firstContentCompleted: o.firstContentCompleted === true,
     requireFirstContent: o.requireFirstContent === true,
+    registrationRequirements:
+      o.registrationRequirements && typeof o.registrationRequirements === 'object'
+        ? (o.registrationRequirements as AuthUser['registrationRequirements'])
+        : null,
   };
 }
 

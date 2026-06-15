@@ -112,8 +112,27 @@ export class UsersService {
     phonePublic?: boolean;
     role: UserRole;
     isTipar?: boolean;
+    referredByUserId?: string | null;
+    emailVerified?: boolean;
+    phoneVerified?: boolean;
   }): Promise<User> {
     return this.prisma.user.create({ data });
+  }
+
+  async verifyEmail(userId: string) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { emailVerified: true },
+    });
+    return { ok: true };
+  }
+
+  async verifyPhone(userId: string) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { phoneVerified: true },
+    });
+    return { ok: true };
   }
 
   setPasswordResetToken(

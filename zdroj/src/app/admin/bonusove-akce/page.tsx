@@ -11,6 +11,14 @@ import {
   nestAdminBonusCampaignUpdate,
   type BonusCampaignAdminDto,
 } from '@/lib/nest-client';
+import {
+  BONUS_ACTION_LABELS,
+  nestAdminBonusClaimsList,
+  nestAdminManualBonusGrant,
+  nestAdminManualBonusRevoke,
+  type BonusClaimAdminRow,
+  type MarketingBonusActionType,
+} from '@/lib/marketing-bonus';
 
 const APPLIES_TO = [
   { value: 'BOTH', label: 'Inzerát i tip' },
@@ -30,16 +38,27 @@ function appliesLabel(value: string): string {
   return APPLIES_TO.find((x) => x.value === value)?.label ?? value;
 }
 
+const ACTION_TYPES = Object.entries(BONUS_ACTION_LABELS) as Array<
+  [MarketingBonusActionType, string]
+>;
+
 const emptyForm = {
   title: 'Bonus za první inzerát',
+  description: '',
   ctaText: 'Založ účet, inzeruj a vydělávej',
   bonusText: 'Bonus 1 000 Kč kreditu při vložení inzerátu nebo tipu',
   amount: '1000',
   appliesTo: 'BOTH' as BonusCampaignAdminDto['appliesTo'],
+  actionType: 'FIRST_AD' as MarketingBonusActionType,
+  roles: [] as string[],
   isActive: true,
   activeFrom: '',
   activeTo: '',
   oncePerUser: true,
+  maxTotalClaims: '',
+  maxClaimsPerUser: '1',
+  conditionMinCount: '1',
+  customConditionText: '',
 };
 
 export default function AdminBonusCampaignsPage() {
@@ -58,6 +77,10 @@ export default function AdminBonusCampaignsPage() {
   const [editForm, setEditForm] = useState(emptyForm);
   const [editSaving, setEditSaving] = useState(false);
   const [editMsg, setEditMsg] = useState<string | null>(null);
+  const [claims, setClaims] = useState<BonusClaimAdminRow[]>([]);
+  const [claimsSummary, setClaimsSummary] = useState({ totalClaims: 0, totalCreditsGranted: 0 });
+  const [manualUserId, setManualUserId] = useState('');
+  const [manualAmount, setManualAmount] = useState('500');
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -69,6 +92,11 @@ export default function AdminBonusCampaignsPage() {
       return;
     }
     setRows(list);
+    const claimsData = await nestAdminBonusClaimsList(token);
+    if (claimsData) {
+      setClaims(claimsData.claims);
+      setClaimsSummary(claimsData.summary);
+    }
   }, [token]);
 
   useEffect(() => {
@@ -85,14 +113,21 @@ export default function AdminBonusCampaignsPage() {
     setEditing(row);
     setEditForm({
       title: row.title,
+      description: row.description ?? '',
       ctaText: row.ctaText,
       bonusText: row.bonusText,
       amount: String(row.amount),
       appliesTo: row.appliesTo,
+      actionType: (row.actionType as MarketingBonusActionType) || 'LEGACY_LISTING_TIP',
+      roles: row.roles ?? [],
       isActive: row.isActive,
       activeFrom: toDatetimeLocal(row.activeFrom),
       activeTo: toDatetimeLocal(row.activeTo),
       oncePerUser: row.oncePerUser,
+      maxTotalClaims: row.maxTotalClaims != null ? String(row.maxTotalClaims) : '',
+      maxClaimsPerUser: String(row.maxClaimsPerUser ?? 1),
+      conditionMinCount: String(row.conditionMinCount ?? 1),
+      customConditionText: row.customConditionText ?? '',
     });
     setEditMsg(null);
   }
@@ -110,14 +145,21 @@ export default function AdminBonusCampaignsPage() {
     }
     const r = await nestAdminBonusCampaignCreate(token, {
       title: form.title.trim(),
+      description: form.description.trim(),
       ctaText: form.ctaText.trim(),
       bonusText: form.bonusText.trim(),
       amount,
       appliesTo: form.appliesTo,
+      actionType: form.actionType,
+      roles: form.roles,
       isActive: form.isActive,
       activeFrom: form.activeFrom ? new Date(form.activeFrom).toISOString() : null,
       activeTo: form.activeTo ? new Date(form.activeTo).toISOString() : null,
       oncePerUser: form.oncePerUser,
+      maxTotalClaims: form.maxTotalClaims ? Number.parseInt(form.maxTotalClaims, 10) : null,
+      maxClaimsPerUser: Number.parseInt(form.maxClaimsPerUser, 10) || 1,
+      conditionMinCount: Number.parseInt(form.conditionMinCount, 10) || 1,
+      customConditionText: form.customConditionText.trim(),
     });
     setCreating(false);
     if (!r.ok) {
@@ -141,14 +183,21 @@ export default function AdminBonusCampaignsPage() {
     }
     const r = await nestAdminBonusCampaignUpdate(token, editing.id, {
       title: editForm.title.trim(),
+      description: editForm.description.trim(),
       ctaText: editForm.ctaText.trim(),
       bonusText: editForm.bonusText.trim(),
       amount,
       appliesTo: editForm.appliesTo,
+      actionType: editForm.actionType,
+      roles: editForm.roles,
       isActive: editForm.isActive,
       activeFrom: editForm.activeFrom ? new Date(editForm.activeFrom).toISOString() : null,
       activeTo: editForm.activeTo ? new Date(editForm.activeTo).toISOString() : null,
       oncePerUser: editForm.oncePerUser,
+      maxTotalClaims: editForm.maxTotalClaims ? Number.parseInt(editForm.maxTotalClaims, 10) : null,
+      maxClaimsPerUser: Number.parseInt(editForm.maxClaimsPerUser, 10) || 1,
+      conditionMinCount: Number.parseInt(editForm.conditionMinCount, 10) || 1,
+      customConditionText: editForm.customConditionText.trim(),
     });
     setEditSaving(false);
     if (!r.ok) {
@@ -221,8 +270,42 @@ export default function AdminBonusCampaignsPage() {
             onChange={(e) => onChange({ bonusText: e.target.value })}
           />
         </label>
+        <label className="sm:col-span-2 block text-sm">
+          <span className="mb-1 block font-medium text-zinc-700">Popis</span>
+          <textarea
+            className="w-full rounded-xl border border-zinc-200 px-3 py-2"
+            rows={2}
+            value={values.description}
+            onChange={(e) => onChange({ description: e.target.value })}
+          />
+        </label>
         <label className="block text-sm">
-          <span className="mb-1 block font-medium text-zinc-700">Typ akce</span>
+          <span className="mb-1 block font-medium text-zinc-700">Marketingový typ akce</span>
+          <select
+            className="w-full rounded-xl border border-zinc-200 px-3 py-2"
+            value={values.actionType}
+            onChange={(e) =>
+              onChange({ actionType: e.target.value as MarketingBonusActionType })
+            }
+          >
+            {ACTION_TYPES.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium text-zinc-700">Min. počet (pozvánky apod.)</span>
+          <input
+            className="w-full rounded-xl border border-zinc-200 px-3 py-2"
+            inputMode="numeric"
+            value={values.conditionMinCount}
+            onChange={(e) => onChange({ conditionMinCount: e.target.value })}
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium text-zinc-700">Typ akce (legacy)</span>
           <select
             className="w-full rounded-xl border border-zinc-200 px-3 py-2"
             value={values.appliesTo}
@@ -376,6 +459,66 @@ export default function AdminBonusCampaignsPage() {
               ))}
             </ul>
           )}
+        </section>
+
+        <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-zinc-900">Přehled bonusů</h2>
+          <p className="mt-1 text-sm text-zinc-600">
+            Celkem {claimsSummary.totalClaims} bonusů ·{' '}
+            {claimsSummary.totalCreditsGranted.toLocaleString('cs-CZ')} Kč rozdáno
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <input
+              className="rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+              placeholder="User ID pro manuální bonus"
+              value={manualUserId}
+              onChange={(e) => setManualUserId(e.target.value)}
+            />
+            <input
+              className="w-28 rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+              placeholder="Kč"
+              value={manualAmount}
+              onChange={(e) => setManualAmount(e.target.value)}
+            />
+            <button
+              type="button"
+              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"
+              onClick={() => {
+                if (!token || !manualUserId.trim()) return;
+                const amount = Number.parseInt(manualAmount, 10);
+                if (!Number.isFinite(amount)) return;
+                void nestAdminManualBonusGrant(token, {
+                  userId: manualUserId.trim(),
+                  amount,
+                  reason: 'CUSTOM',
+                }).then(() => void refresh());
+              }}
+            >
+              Připsat bonus
+            </button>
+          </div>
+          <ul className="mt-4 max-h-80 space-y-2 overflow-y-auto">
+            {claims.map((c) => (
+              <li key={c.id} className="rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    {c.userName || c.userEmail} · {c.amount.toLocaleString('cs-CZ')} Kč ·{' '}
+                    {c.campaignTitle}
+                  </span>
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-red-700"
+                    onClick={() => {
+                      if (!token) return;
+                      void nestAdminManualBonusRevoke(token, c.id).then(() => void refresh());
+                    }}
+                  >
+                    Odebrat
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
         </section>
       </main>
 

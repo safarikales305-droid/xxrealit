@@ -43,6 +43,7 @@ export default function RegistracePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = searchParams.get('redirect');
+  const referralCode = searchParams.get('ref');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -62,7 +63,15 @@ export default function RegistracePage() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, phone, password, confirmPassword, role }),
+        body: JSON.stringify({
+          name,
+          email,
+          phone,
+          password,
+          confirmPassword,
+          role,
+          referralCode: referralCode?.trim() || undefined,
+        }),
       });
       const data = (await res.json().catch(() => ({}))) as RegisterJson;
 

@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { PostCategory, ReactionType } from '@prisma/client';
+import { MarketingBonusActionType, PostCategory, ReactionType } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import {
   buildCommunityPostsWhere,
@@ -82,6 +83,7 @@ export class PostsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly brokerPoints: BrokerPointsService,
+    private readonly bonusCampaigns: BonusCampaignService,
   ) {}
 
   async deletePost(id: string) {
@@ -261,6 +263,9 @@ export class PostsService {
     if (isVideo) {
       await this.brokerPoints.onVideoPostCreated(userId, created.id);
     }
+    void this.bonusCampaigns
+      .evaluateMarketingBonuses(userId, MarketingBonusActionType.FIRST_POST)
+      .catch(() => {});
     return created;
   }
 

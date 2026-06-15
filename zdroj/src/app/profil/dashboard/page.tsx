@@ -34,15 +34,18 @@ import {
   professionalVerificationStatusLabel,
 } from '@/lib/professional-verification-eligibility';
 import { trackFacebookAnalytics } from '@/lib/facebook-analytics';
+import { ActiveBonusCampaigns } from '@/components/dashboard/ActiveBonusCampaigns';
+import { InviteFriendsPanel } from '@/components/referral/InviteFriendsPanel';
 import { FacebookPageConnectionCard } from '@/components/profile/FacebookPageConnectionCard';
 import { FacebookUrlImportCard } from '@/components/profile/FacebookUrlImportCard';
 import { WhatsAppConnectionCard } from '@/components/profile/WhatsAppConnectionCard';
 
-type Tab = 'settings' | 'social-integrations' | 'listings' | 'ads' | 'messages' | 'notifications';
+type Tab = 'settings' | 'social-integrations' | 'referral' | 'listings' | 'ads' | 'messages' | 'notifications';
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'settings', label: 'Nastavení profilu' },
   { id: 'social-integrations', label: 'Sociální sítě' },
+  { id: 'referral', label: 'Pozvat přátele' },
   { id: 'listings', label: 'Správa inzerátů' },
   { id: 'ads', label: 'Nastavení reklam' },
   { id: 'messages', label: 'Zprávy' },
@@ -53,6 +56,7 @@ function parseTab(raw: string | null, facebook: string | null): Tab {
   if (facebook === 'select' || facebook === 'error') return 'social-integrations';
   if (
     raw === 'social-integrations' ||
+    raw === 'referral' ||
     raw === 'listings' ||
     raw === 'ads' ||
     raw === 'messages' ||
@@ -215,9 +219,18 @@ export default function ProfileDashboardPage() {
           </nav>
         </aside>
 
-        <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <section className="space-y-4">
+          <ActiveBonusCampaigns />
+          <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
           {ok ? <p className="mb-3 text-sm text-emerald-700">{ok}</p> : null}
+
+          {tab === 'referral' ? (
+            <div className="space-y-4">
+              <h1 className="text-xl font-bold text-zinc-900">Pozvat přátele</h1>
+              <InviteFriendsPanel />
+            </div>
+          ) : null}
 
           {tab === 'settings' ? (
             <div className="space-y-5">
@@ -640,6 +653,7 @@ export default function ProfileDashboardPage() {
               </ul>
             </div>
           ) : null}
+          </div>
         </section>
       </section>
     </main>
