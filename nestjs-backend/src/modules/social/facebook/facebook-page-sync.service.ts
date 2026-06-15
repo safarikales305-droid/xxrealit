@@ -260,15 +260,13 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
     }
 
     let resolvedVideo = null;
-    if (pageToken && extracted.videoId && !extracted.videoUrl) {
+    if (pageToken && extracted.videoId) {
       resolvedVideo = await resolveFacebookVideoFromGraph(extracted.videoId, pageToken);
       if (resolvedVideo.failureReason) {
         this.logger.warn(
           `FACEBOOK_VIDEO_SOURCE_MISSING postId=${facebookPostId} reason=${resolvedVideo.failureReason}`,
         );
       }
-    } else if (pageToken && extracted.videoId && extracted.videoUrl) {
-      resolvedVideo = await resolveFacebookVideoFromGraph(extracted.videoId, pageToken);
     }
 
     const mediaPlan = buildFacebookImportMediaPlan({
@@ -338,6 +336,8 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
             hasAudio: mediaPlan.hasAudio,
             mimeType: mediaPlan.mimeType,
             durationSec: mediaPlan.durationSec,
+            sizeBytes: mediaPlan.sizeBytes,
+            importSource: mediaPlan.importSource,
             failureReason: mediaPlan.videoUrlFailureReason,
           })}`,
         );
@@ -504,10 +504,25 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
       if (dup) return false;
     }
 
+    let resolvedVideo = null;
+    const fbAuth = await this.prisma.facebookConnection.findFirst({
+      where: { userId: connection.userId },
+      select: { accessTokenEncrypted: true },
+    });
+    if (extracted.videoId && fbAuth?.accessTokenEncrypted) {
+      try {
+        const userToken = this.crypto.decrypt(fbAuth.accessTokenEncrypted);
+        resolvedVideo = await resolveFacebookVideoFromGraph(extracted.videoId, userToken);
+      } catch {
+        /* token decrypt failed */
+      }
+    }
+
     const mediaPlan = buildFacebookImportMediaPlan({
       permalink,
       extracted,
       fullPicture: item.full_picture,
+      resolvedVideo,
     });
 
     const text = this.formatImportedDescription(message);
@@ -560,6 +575,20 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
         select: { id: true },
       });
       importedPostId = post.id;
+      if (mediaPlan.isVideoPost) {
+        this.logger.log(
+          `FACEBOOK_VIDEO_IMPORT ${logFacebookVideoImportDiagnostics({
+            postId: importedPostId,
+            videoUrl: mediaPlan.videoUrl,
+            hasAudio: mediaPlan.hasAudio,
+            mimeType: mediaPlan.mimeType,
+            durationSec: mediaPlan.durationSec,
+            sizeBytes: mediaPlan.sizeBytes,
+            importSource: mediaPlan.importSource,
+            failureReason: mediaPlan.videoUrlFailureReason,
+          })}`,
+        );
+      }
     } catch (err) {
       const code =
         err && typeof err === 'object' && 'code' in err

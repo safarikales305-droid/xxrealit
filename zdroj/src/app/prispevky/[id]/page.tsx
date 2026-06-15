@@ -13,6 +13,7 @@ import { nestFetchPostDetail, type ListingPost } from '@/lib/nest-client';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
 import {
   filterPostMediaForDisplay,
+  isFacebookImportPost,
   resolveFacebookPostMedia,
 } from '@/lib/facebook-post-media';
 
@@ -42,7 +43,10 @@ export default function PrispevekDetailPage() {
     () => (post ? resolveFacebookPostMedia(post) : { mode: 'none' as const, videoUrl: null, imageUrl: null, posterUrl: null, embedUrl: null, permalink: null, isFacebookVideo: false }),
     [post],
   );
-  const showPrimaryMediaBlock = resolvedMedia.mode !== 'none' && orderedMedia.length === 0;
+  const isFbImport = post ? isFacebookImportPost(post) : false;
+  const useFbMediaRenderer = isFbImport && resolvedMedia.mode !== 'none';
+  const showPrimaryMediaBlock =
+    !useFbMediaRenderer && resolvedMedia.mode !== 'none' && orderedMedia.length === 0;
 
   const isCommunityPost = post?.type === 'post' || !post?.type;
 
@@ -91,7 +95,13 @@ export default function PrispevekDetailPage() {
 
       {post ? (
         <article className="mt-4 rounded-2xl border border-zinc-200 bg-white shadow-sm">
-          {orderedMedia.length > 0 ? (
+          {useFbMediaRenderer || showPrimaryMediaBlock ? (
+            <FacebookPostMediaBlock
+              media={resolvedMedia}
+              facebookPostType={post.facebookPostType ?? null}
+              className="mt-0"
+            />
+          ) : orderedMedia.length > 0 ? (
             <div className="relative w-full">
               <div
                 ref={carouselRef}
@@ -146,12 +156,6 @@ export default function PrispevekDetailPage() {
                 </>
               ) : null}
             </div>
-          ) : showPrimaryMediaBlock ? (
-            <FacebookPostMediaBlock
-              media={resolvedMedia}
-              facebookPostType={post.facebookPostType ?? null}
-              className="mt-0"
-            />
           ) : null}
 
           <div className="px-3 py-3">
@@ -175,7 +179,7 @@ export default function PrispevekDetailPage() {
             <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-800">
               {post.description}
             </p>
-            {!showPrimaryMediaBlock && resolvedMedia.mode === 'none' && post.externalUrl?.trim() ? (
+            {!useFbMediaRenderer && !showPrimaryMediaBlock && resolvedMedia.mode === 'none' && post.externalUrl?.trim() ? (
               <LinkPreviewCard
                 preview={{
                   url: post.externalUrl.trim(),

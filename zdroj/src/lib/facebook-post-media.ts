@@ -34,6 +34,20 @@ type PostLike = {
 };
 
 const MUTED_URL_HINT_RE = /(?:mute|muted|silent|sf=mo|without_audio)/i;
+const THUMB_URL_HINT_RE = /(?:thumbnail|thumb|poster|preview|story_pic|\/p\d+x\d+)/i;
+const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif)(\?|$)/i;
+
+function isThumbnailVideoUrl(videoUrl: string | null, posterUrl: string | null): boolean {
+  const v = String(videoUrl ?? '').trim();
+  if (!v) return true;
+  const poster = String(posterUrl ?? '').trim();
+  if (poster && v === poster) return true;
+  if (IMAGE_EXT_RE.test(v)) return true;
+  if (THUMB_URL_HINT_RE.test(v) && !/^https?:\/\/(?:video|scontent)\..*\.fbcdn\.net\//i.test(v)) {
+    return true;
+  }
+  return false;
+}
 
 function videoUrlLikelyHasAudio(url: string | null | undefined): boolean {
   const v = String(url ?? '').trim();
@@ -96,7 +110,11 @@ export function resolveFacebookPostMedia(post: PostLike): ResolvedFacebookPostMe
     String(post.videoUrl ?? firstMediaUrl(post, 'video') ?? '').trim() || null;
 
   if (isFbVideo) {
-    if (videoUrl && facebookVideoHasPlayableAudio(post, videoUrl)) {
+    if (
+      videoUrl &&
+      !isThumbnailVideoUrl(videoUrl, posterUrl) &&
+      facebookVideoHasPlayableAudio(post, videoUrl)
+    ) {
       return {
         mode: 'video',
         videoUrl,

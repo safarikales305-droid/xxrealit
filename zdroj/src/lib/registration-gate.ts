@@ -37,6 +37,13 @@ export function isPathAllowedForFirstContent(pathname: string): boolean {
 }
 
 export async function fetchRegistrationGateSettings(): Promise<PublicRegistrationGateSettings | null> {
+  const data = await fetchRegistrationGateSettingsRaw();
+  if (!data?.shortsGateEnabled) return null;
+  return data;
+}
+
+/** Veřejná nastavení výzvy — bez kontroly shortsGateEnabled (login/registrace). */
+export async function fetchRegistrationGateSettingsRaw(): Promise<PublicRegistrationGateSettings | null> {
   if (!API_BASE_URL) return null;
   const base = API_BASE_URL.endsWith('/api') ? API_BASE_URL : `${API_BASE_URL}/api`;
   try {
@@ -45,10 +52,32 @@ export async function fetchRegistrationGateSettings(): Promise<PublicRegistratio
       headers: { Accept: 'application/json' },
     });
     if (!res.ok) return null;
-    const data = (await res.json().catch(() => null)) as PublicRegistrationGateSettings | null;
-    if (!data?.shortsGateEnabled) return null;
-    return data;
+    return (await res.json().catch(() => null)) as PublicRegistrationGateSettings | null;
   } catch {
     return null;
   }
+}
+
+export const AUTH_PORTAL_GATE_COPY = {
+  title: 'Registrujte se na portálu XXRealit',
+  description:
+    'Sledujte příspěvky, videa, inzeráty a profesionály. Přihlaste se nebo si vytvořte účet zdarma.',
+  buttonText: 'Registrovat',
+} as const;
+
+export function buildAuthPortalGateSettings(
+  base: PublicRegistrationGateSettings | null,
+): PublicRegistrationGateSettings {
+  const videoUrl = base?.videoUrl ?? null;
+  return {
+    shortsGateEnabled: true,
+    shortsGateAfterViews: base?.shortsGateAfterViews ?? 4,
+    gateType: videoUrl ? 'VIDEO' : (base?.gateType ?? 'BANNER'),
+    title: AUTH_PORTAL_GATE_COPY.title,
+    description: AUTH_PORTAL_GATE_COPY.description,
+    buttonText: AUTH_PORTAL_GATE_COPY.buttonText,
+    videoUrl,
+    bannerImageUrl: base?.bannerImageUrl ?? null,
+    skipAfterSeconds: base?.skipAfterSeconds ?? 5,
+  };
 }

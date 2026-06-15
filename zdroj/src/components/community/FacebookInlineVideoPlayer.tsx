@@ -46,6 +46,11 @@ export function FacebookInlineVideoPlayer({
         muted={showMuteToggle ? muted : false}
         onLoadedMetadata={(e) => {
           const el = e.currentTarget;
+          el.muted = false;
+          el.volume = 1;
+        }}
+        onPlay={(e) => {
+          const el = e.currentTarget;
           if (!showMuteToggle || !muted) {
             el.muted = false;
             el.volume = 1;

@@ -64,6 +64,7 @@ import { ProfessionalOnlyDialog } from '@/components/auth/ProfessionalListingRes
 import { FacebookPostMediaBlock } from '@/components/community/FacebookPostMediaBlock';
 import {
   filterPostMediaForDisplay,
+  isFacebookImportPost,
   resolveFacebookPostMedia,
 } from '@/lib/facebook-post-media';
 
@@ -1678,8 +1679,10 @@ export default function ProfilPage() {
                   (m) => typeof m?.url === 'string' && m.url.trim(),
                 );
                 const resolvedMedia = resolveFacebookPostMedia(post);
+                const isFbImport = isFacebookImportPost(post);
+                const useFbMediaRenderer = isFbImport && resolvedMedia.mode !== 'none';
                 const showPrimaryMediaBlock =
-                  resolvedMedia.mode !== 'none' && medias.length === 0;
+                  !useFbMediaRenderer && resolvedMedia.mode !== 'none' && medias.length === 0;
                 return (
                   <article
                     key={`post-${post.id}`}
@@ -1749,7 +1752,13 @@ export default function ProfilPage() {
                         {post.content || post.description}
                       </p>
                     )}
-                    {medias.length > 0 ? (
+                    {useFbMediaRenderer || showPrimaryMediaBlock ? (
+                      <FacebookPostMediaBlock
+                        media={resolvedMedia}
+                        facebookPostType={post.facebookPostType ?? null}
+                        className="mt-3"
+                      />
+                    ) : medias.length > 0 ? (
                       <div className="mt-3 space-y-2">
                         {medias.map((media, idx) => {
                           const mediaUrl =
@@ -1789,12 +1798,6 @@ export default function ProfilPage() {
                           );
                         })}
                       </div>
-                    ) : showPrimaryMediaBlock ? (
-                      <FacebookPostMediaBlock
-                        media={resolvedMedia}
-                        facebookPostType={post.facebookPostType ?? null}
-                        className="mt-3"
-                      />
                     ) : null}
                   </article>
                 );

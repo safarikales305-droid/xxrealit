@@ -111,7 +111,7 @@ export function CommunityPostCard({
     resolvedMedia.mode === 'video' && !resolvedMedia.isFacebookVideo;
   const showFacebookFeedVideo =
     resolvedMedia.mode === 'video' && resolvedMedia.isFacebookVideo;
-  const showMuteForVideo = showNativeFeedVideo || showFacebookFeedVideo;
+  const showMuteForVideo = showNativeFeedVideo;
 
   return (
     <article className="relative mx-auto w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:rounded-3xl">
