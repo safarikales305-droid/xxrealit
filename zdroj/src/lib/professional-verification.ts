@@ -75,8 +75,15 @@ export function verifiedBadgeLabelForRole(role: string | null | undefined): stri
   }
 }
 
-/** Katalog /makleri — jen realitní role. */
-export const BROKER_CATALOG_ROLES = ['AGENT', 'AGENCY'] as const;
+/** Katalog /makleri — všechny profesionální role. */
+export const BROKER_CATALOG_ROLES = [
+  'AGENT',
+  'AGENCY',
+  'COMPANY',
+  'CRAFTSMAN',
+  'FINANCIAL_ADVISOR',
+  'INVESTOR',
+] as const;
 
 export {
   collectVerificationEligibilityIssues,

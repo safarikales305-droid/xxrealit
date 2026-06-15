@@ -14,11 +14,15 @@ import {
 } from '../properties/properties.serializer';
 import { UpsertBrokerReviewDto } from './dto/upsert-broker-review.dto';
 import {
-  CATALOG_VERIFIED_USER_WHERE,
   isProfessionalVerified,
-  parseBrokerCatalogRoles,
   professionalVerificationStatus,
 } from './professional-verification.util';
+import {
+  parseProfessionalDirectoryRoles,
+  professionalDirectoryFilterReasons,
+  serializeProfessionalDirectoryCard,
+  type ProfessionalDirectoryUser,
+} from './professional-directory.util';
 
 function listingInclude(viewerId?: string) {
   return viewerId
@@ -74,125 +78,115 @@ export class BrokersService {
     });
   }
 
-  private directoryRoleConditions(roles: UserRole[]) {
-    const parts: object[] = [];
-    if (roles.includes(UserRole.AGENT)) {
-      parts.push({
-        ...CATALOG_VERIFIED_USER_WHERE,
-        role: UserRole.AGENT,
-        isPublicBrokerProfile: true,
-        brokerProfileSlug: { not: null },
-        agentProfile: { is: { isPublic: true, verificationStatus: 'verified' } },
-      });
-    }
-    if (roles.includes(UserRole.AGENCY)) {
-      parts.push({
-        ...CATALOG_VERIFIED_USER_WHERE,
-        role: UserRole.AGENCY,
-        isPublicBrokerProfile: true,
-        brokerProfileSlug: { not: null },
-        agencyProfile: { is: { isPublic: true, verificationStatus: 'verified' } },
-      });
-    }
-    if (roles.includes(UserRole.COMPANY)) {
-      parts.push({
-        ...CATALOG_VERIFIED_USER_WHERE,
-        role: UserRole.COMPANY,
-        companyProfile: { is: { isPublic: true, verificationStatus: 'verified' } },
-      });
-    }
-    if (roles.includes(UserRole.FINANCIAL_ADVISOR)) {
-      parts.push({
-        ...CATALOG_VERIFIED_USER_WHERE,
-        role: UserRole.FINANCIAL_ADVISOR,
-        financialAdvisorProfile: { is: { isPublic: true, verificationStatus: 'verified' } },
-      });
-    }
-    if (roles.includes(UserRole.INVESTOR)) {
-      parts.push({
-        ...CATALOG_VERIFIED_USER_WHERE,
-        role: UserRole.INVESTOR,
-        investorProfile: { is: { isPublic: true, verificationStatus: 'verified' } },
-      });
-    }
-    if (roles.includes(UserRole.CRAFTSMAN)) {
-      parts.push({
-        ...CATALOG_VERIFIED_USER_WHERE,
-        role: UserRole.CRAFTSMAN,
-        isPublicBrokerProfile: true,
-      });
-    }
-    return parts;
-  }
-
-  async listPublicDirectory(rolesRaw?: string) {
-    const rolesFilter = parseBrokerCatalogRoles(rolesRaw);
-    const roles =
-      rolesFilter ??
-      ([
-        UserRole.AGENT,
-        UserRole.COMPANY,
-        UserRole.AGENCY,
-        UserRole.FINANCIAL_ADVISOR,
-        UserRole.INVESTOR,
-      ] as UserRole[]);
-    const orConditions = this.directoryRoleConditions(roles);
-    if (orConditions.length === 0) {
-      return [];
-    }
-
-    const rows = await this.prisma.user.findMany({
-      where: {
-        OR: orConditions,
+  private readonly professionalDirectorySelect = {
+    id: true,
+    role: true,
+    name: true,
+    avatar: true,
+    bio: true,
+    professionalVerified: true,
+    professionalVerificationStatus: true,
+    publicProfessionalProfile: true,
+    brokerProfileSlug: true,
+    isPublicBrokerProfile: true,
+    brokerOfficeName: true,
+    brokerRegionLabel: true,
+    brokerReviewAverage: true,
+    brokerReviewCount: true,
+    allowBrokerReviews: true,
+    brokerPhonePublic: true,
+    brokerEmailPublic: true,
+    agentProfile: {
+      select: {
+        isPublic: true,
+        verificationStatus: true,
+        city: true,
+        phone: true,
       },
+    },
+    companyProfile: {
+      select: {
+        isPublic: true,
+        verificationStatus: true,
+        city: true,
+        phone: true,
+        email: true,
+      },
+    },
+    agencyProfile: {
+      select: {
+        isPublic: true,
+        verificationStatus: true,
+        city: true,
+        phone: true,
+        email: true,
+      },
+    },
+    financialAdvisorProfile: {
+      select: {
+        isPublic: true,
+        verificationStatus: true,
+        city: true,
+        phone: true,
+        email: true,
+      },
+    },
+    investorProfile: {
+      select: {
+        isPublic: true,
+        verificationStatus: true,
+        city: true,
+        phone: true,
+        email: true,
+      },
+    },
+  } as const;
+
+  async listPublicProfessionals(rolesRaw?: string) {
+    const roles = parseProfessionalDirectoryRoles(rolesRaw);
+    const allowedRoles = new Set(roles);
+
+    const candidates = await this.prisma.user.findMany({
+      where: { role: { in: roles } },
       orderBy: [
+        { professionalVerified: 'desc' },
+        { publicProfessionalProfile: 'desc' },
         { isPublicBrokerProfile: 'desc' },
         { brokerReviewCount: 'desc' },
         { name: 'asc' },
         { id: 'asc' },
       ],
-      select: {
-        id: true,
-        role: true,
-        name: true,
-        avatar: true,
-        bio: true,
-        professionalVerified: true,
-        professionalVerificationStatus: true,
-        publicProfessionalProfile: true,
-        brokerProfileSlug: true,
-        brokerOfficeName: true,
-        brokerRegionLabel: true,
-        brokerReviewAverage: true,
-        brokerReviewCount: true,
-        allowBrokerReviews: true,
-        agentProfile: { select: { verificationStatus: true } },
-        companyProfile: { select: { verificationStatus: true } },
-        agencyProfile: { select: { verificationStatus: true } },
-        financialAdvisorProfile: { select: { verificationStatus: true } },
-        investorProfile: { select: { verificationStatus: true } },
-      },
-      take: 200,
+      select: this.professionalDirectorySelect,
+      take: 500,
     });
-    return rows
-      .map((b) => {
-        const verificationStatus = professionalVerificationStatus(b);
-        return {
-          id: b.id,
-          slug: b.brokerProfileSlug,
-          role: b.role,
-          name: b.name,
-          avatarUrl: b.avatar,
-          officeName: b.brokerOfficeName,
-          regionLabel: b.brokerRegionLabel,
-          bioExcerpt: (b.bio ?? '').trim().slice(0, 160),
-          ratingAverage: b.allowBrokerReviews ? b.brokerReviewAverage : null,
-          ratingCount: b.allowBrokerReviews ? b.brokerReviewCount : null,
-          verificationStatus,
-          isVerified: isProfessionalVerified(b),
-        };
-      })
-      .filter((row) => row.isVerified);
+
+    const included: ReturnType<typeof serializeProfessionalDirectoryCard>[] = [];
+    const filteredSamples: Array<{ id: string; role: string; reasons: string[] }> = [];
+
+    for (const row of candidates) {
+      const user = row as ProfessionalDirectoryUser;
+      const reasons = professionalDirectoryFilterReasons(user, allowedRoles);
+      if (reasons.length > 0) {
+        if (filteredSamples.length < 25) {
+          filteredSamples.push({ id: user.id, role: user.role, reasons });
+        }
+        continue;
+      }
+      included.push(serializeProfessionalDirectoryCard(user));
+    }
+
+    console.log(
+      `[professionals] listPublicProfessionals roles=${roles.join(',')} candidates=${candidates.length} included=${included.length} filtered=${candidates.length - included.length}`,
+    );
+    if (filteredSamples.length > 0) {
+      console.log('[professionals] filtered_samples', JSON.stringify(filteredSamples));
+    }
+
+    return included;
+  }
+
+  async listPublicDirectory(rolesRaw?: string) {
+    return this.listPublicProfessionals(rolesRaw);
   }
 
   async getPublicBySlug(slug: string, viewerId?: string) {

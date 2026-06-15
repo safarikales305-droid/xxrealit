@@ -8,7 +8,7 @@ type ProfileVerification = {
   verificationStatus: AgentVerificationStatus;
 } | null;
 
-type UserWithProfiles = {
+export type UserWithProfiles = {
   role: UserRole;
   professionalVerified?: boolean;
   professionalVerificationStatus?: ProfessionalVerificationStatus;

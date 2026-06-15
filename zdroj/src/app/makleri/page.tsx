@@ -2,16 +2,17 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/hooks/use-auth';
+import { UserRound } from 'lucide-react';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
-import { nestListPublicBrokers, type NestPublicBrokerCard } from '@/lib/nest-client';
+import { nestListPublicProfessionals, type NestPublicBrokerCard } from '@/lib/nest-client';
 import {
-  BROKER_CATALOG_ROLES,
-  isBrokerCatalogRole,
   isProfessionalVerifiedProfile,
   verifiedBadgeLabelForRole,
 } from '@/lib/professional-verification';
+import {
+  professionalRoleLabel,
+  professionalSidebarRolesQuery,
+} from '@/lib/professional-sidebar-roles';
 
 function Stars({ value, max = 5 }: { value: number; max?: number }) {
   const full = Math.round(value);
@@ -22,41 +23,47 @@ function Stars({ value, max = 5 }: { value: number; max?: number }) {
   );
 }
 
+function profileHref(b: NestPublicBrokerCard) {
+  return b.slug ? `/makler/${encodeURIComponent(b.slug)}` : `/profile/${b.id}`;
+}
+
+function cityLabel(b: NestPublicBrokerCard) {
+  return b.city?.trim() || b.regionLabel?.trim() || b.officeName?.trim() || '';
+}
+
+function avatarSrc(b: NestPublicBrokerCard) {
+  if (!b.avatarUrl?.trim()) return null;
+  return /^https?:\/\//i.test(b.avatarUrl)
+    ? b.avatarUrl
+    : nestAbsoluteAssetUrl(b.avatarUrl) || b.avatarUrl;
+}
+
 export default function MakleriPage() {
-  const router = useRouter();
-  const { isAuthenticated, isLoading, apiAccessToken } = useAuth();
   const [rows, setRows] = useState<NestPublicBrokerCard[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isLoading) return;
-    if (!isAuthenticated) {
-      router.replace('/login?redirect=%2Fmakleri');
-      return;
-    }
-    void nestListPublicBrokers(apiAccessToken, {
-      roles: BROKER_CATALOG_ROLES.join(','),
-    }).then((r) => {
+    void nestListPublicProfessionals({ roles: professionalSidebarRolesQuery() }).then((r) => {
       if (!r) {
-        setErr('Katalog makléřů se nepodařilo načíst. Zkontrolujte připojení k API.');
+        setErr('Katalog profesionálů se nepodařilo načíst. Zkontrolujte připojení k API.');
         setRows([]);
         return;
       }
       setErr(null);
       const seen = new Set<string>();
       const unique = r.filter((row) => {
-        if (!isBrokerCatalogRole(row.role)) return false;
+        if (!row.isVerified) return false;
         if (seen.has(row.id)) return false;
         seen.add(row.id);
         return true;
       });
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.info('[professionals] /makleri listed', unique.length);
+      }
       setRows(unique);
     });
-  }, [apiAccessToken, isAuthenticated, isLoading, router]);
-
-  if (isLoading || !isAuthenticated) {
-    return <div className="flex min-h-[60vh] items-center justify-center text-sm text-zinc-600">Načítání…</div>;
-  }
+  }, []);
 
   return (
     <div className="min-h-[100dvh] bg-[#fafafa] pb-16 text-zinc-900">
@@ -64,9 +71,9 @@ export default function MakleriPage() {
         <Link href="/" className="text-sm font-semibold text-[#e85d00] hover:underline">
           ← Domů
         </Link>
-        <h1 className="mt-4 text-2xl font-bold tracking-tight text-zinc-900">Makléři</h1>
+        <h1 className="mt-4 text-2xl font-bold tracking-tight text-zinc-900">Profesionálové</h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-600">
-          Veřejné profily makléřů, kteří se rozhodli být v katalogu vidět.
+          Veřejné profily ověřených makléřů, firem, poradců a dalších profesionálů.
         </p>
       </div>
 
@@ -76,50 +83,54 @@ export default function MakleriPage() {
           <p className="text-sm text-zinc-500">Načítám…</p>
         ) : rows.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-zinc-200 bg-white p-10 text-center text-sm text-zinc-600">
-            Zatím tu není žádný veřejný profil makléře.
+            Zatím tu není žádný veřejný profesionální profil.
           </div>
         ) : (
           <ul className="space-y-4">
             {rows.map((b) => {
-              const img =
-                b.avatarUrl && b.avatarUrl.trim()
-                  ? /^https?:\/\//i.test(b.avatarUrl)
-                    ? b.avatarUrl
-                    : nestAbsoluteAssetUrl(b.avatarUrl) || b.avatarUrl
-                  : null;
-              const profileHref = b.slug
-                ? `/makler/${encodeURIComponent(b.slug)}`
-                : `/profile/${b.id}`;
+              const img = avatarSrc(b);
               return (
                 <li key={b.id}>
-                  <Link
-                    href={profileHref}
-                    className="flex gap-4 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:shadow-md"
-                  >
-                    <div className="size-16 shrink-0 overflow-hidden rounded-full bg-zinc-100">
+                  <article className="flex gap-4 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+                    <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100">
                       {img ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={img} alt="" className="size-full object-cover" />
                       ) : (
-                        <div className="flex size-full items-center justify-center text-lg font-semibold text-zinc-400">
-                          {(b.name ?? '?').charAt(0).toUpperCase()}
-                        </div>
+                        <UserRound className="h-7 w-7 text-zinc-400" aria-hidden />
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-semibold text-zinc-900">{b.name ?? 'Makléř'}</p>
+                        <p className="font-semibold text-zinc-900">{b.name ?? 'Profesionál'}</p>
                         {isProfessionalVerifiedProfile(b) ? (
                           <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
                             {verifiedBadgeLabelForRole(b.role)}
                           </span>
                         ) : null}
                       </div>
-                      {b.officeName ? (
-                        <p className="text-sm text-zinc-600">{b.officeName}</p>
+                      <p className="text-sm text-zinc-600">{professionalRoleLabel(b.role)}</p>
+                      {cityLabel(b) ? (
+                        <p className="mt-1 text-xs text-zinc-500">{cityLabel(b)}</p>
                       ) : null}
-                      {b.regionLabel ? (
-                        <p className="mt-1 text-xs text-zinc-500">{b.regionLabel}</p>
+                      {b.phonePublic ? (
+                        <p className="mt-1 text-xs text-zinc-600">
+                          Tel.:{' '}
+                          <a href={`tel:${b.phonePublic}`} className="font-medium text-orange-700 hover:underline">
+                            {b.phonePublic}
+                          </a>
+                        </p>
+                      ) : null}
+                      {b.emailPublic ? (
+                        <p className="mt-0.5 text-xs text-zinc-600">
+                          E-mail:{' '}
+                          <a
+                            href={`mailto:${b.emailPublic}`}
+                            className="font-medium text-orange-700 hover:underline"
+                          >
+                            {b.emailPublic}
+                          </a>
+                        </p>
                       ) : null}
                       {b.ratingAverage != null && b.ratingCount != null ? (
                         <p className="mt-2 text-sm text-zinc-700">
@@ -134,8 +145,14 @@ export default function MakleriPage() {
                           {(b.bioExcerpt?.length ?? 0) >= 160 ? '…' : ''}
                         </p>
                       ) : null}
+                      <Link
+                        href={profileHref(b)}
+                        className="mt-3 inline-flex rounded-full border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-800 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
+                      >
+                        Zobrazit detail
+                      </Link>
                     </div>
-                  </Link>
+                  </article>
                 </li>
               );
             })}

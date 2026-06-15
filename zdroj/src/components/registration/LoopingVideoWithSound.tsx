@@ -7,6 +7,7 @@ type Props = {
   className?: string;
   videoClassName?: string;
   showNativeControls?: boolean;
+  muteButtonClassName?: string;
 };
 
 export function LoopingVideoWithSound({
@@ -14,6 +15,7 @@ export function LoopingVideoWithSound({
   className = '',
   videoClassName = 'h-full w-full object-cover',
   showNativeControls = false,
+  muteButtonClassName = '',
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [muted, setMuted] = useState(true);
@@ -68,7 +70,7 @@ export function LoopingVideoWithSound({
       <button
         type="button"
         onClick={toggleMute}
-        className="absolute right-3 top-3 z-10 rounded-full border border-white/25 bg-black/55 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur transition hover:bg-black/75"
+        className={`absolute right-3 top-3 z-10 rounded-full border border-white/25 bg-black/55 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur transition hover:bg-black/75 ${muteButtonClassName}`.trim()}
         aria-label={muted ? 'Zapnout zvuk' : 'Vypnout zvuk'}
       >
         {muted ? '🔇 Zvuk vypnutý' : '🔊 Zvuk zapnutý'}

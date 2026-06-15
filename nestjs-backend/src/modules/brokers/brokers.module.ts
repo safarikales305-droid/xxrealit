@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { BrokersController } from './brokers.controller';
 import { BrokersService } from './brokers.service';
+import { ProfessionalsController } from './professionals.controller';
 
 @Module({
   imports: [
@@ -14,7 +15,7 @@ import { BrokersService } from './brokers.service';
       }),
     }),
   ],
-  controllers: [BrokersController],
+  controllers: [BrokersController, ProfessionalsController],
   providers: [BrokersService],
   exports: [BrokersService],
 })

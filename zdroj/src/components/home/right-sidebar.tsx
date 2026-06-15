@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { ShieldCheck, Star } from 'lucide-react';
+import { ShieldCheck, Star, UserRound } from 'lucide-react';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
-import { nestListPublicBrokers, type NestPublicBrokerCard } from '@/lib/nest-client';
+import { nestListPublicProfessionals, type NestPublicBrokerCard } from '@/lib/nest-client';
 import {
   professionalRoleLabel,
   professionalSidebarRolesQuery,
@@ -17,6 +17,21 @@ type Props = {
 const lightCard =
   'border border-zinc-200/90 bg-white shadow-[0_2px_16px_-4px_rgba(0,0,0,0.08),0_8px_24px_-12px_rgba(0,0,0,0.06)]';
 
+function profileHref(p: NestPublicBrokerCard) {
+  return p.slug ? `/makler/${p.slug}` : `/profile/${p.id}`;
+}
+
+function cityLabel(p: NestPublicBrokerCard) {
+  return p.city?.trim() || p.regionLabel?.trim() || p.officeName?.trim() || '';
+}
+
+function avatarSrc(p: NestPublicBrokerCard) {
+  if (!p.avatarUrl?.trim()) return null;
+  return /^https?:\/\//i.test(p.avatarUrl)
+    ? p.avatarUrl
+    : nestAbsoluteAssetUrl(p.avatarUrl) || p.avatarUrl;
+}
+
 export function RightSidebar({ className = '' }: Props) {
   const [professionals, setProfessionals] = useState<NestPublicBrokerCard[]>([]);
   const [loadingProfessionals, setLoadingProfessionals] = useState(true);
@@ -24,23 +39,19 @@ export function RightSidebar({ className = '' }: Props) {
   useEffect(() => {
     let active = true;
     setLoadingProfessionals(true);
-    void nestListPublicBrokers(null, { roles: professionalSidebarRolesQuery() })
+    void nestListPublicProfessionals({ roles: professionalSidebarRolesQuery() })
       .then((rows) => {
         if (!active) return;
-        if (!Array.isArray(rows)) {
-          setProfessionals([]);
-          return;
-        }
-        const verified = rows.filter((row) => row.isVerified);
-        const ranked = [...verified].sort((a, b) => {
+        const list = Array.isArray(rows) ? rows.filter((row) => row.isVerified) : [];
+        const ranked = [...list].sort((a, b) => {
           const aScore =
             (a.ratingCount ?? 0) * 10 +
             (a.avatarUrl ? 5 : 0) +
-            (a.regionLabel.trim().length > 0 ? 1 : 0);
+            (cityLabel(a).length > 0 ? 1 : 0);
           const bScore =
             (b.ratingCount ?? 0) * 10 +
             (b.avatarUrl ? 5 : 0) +
-            (b.regionLabel.trim().length > 0 ? 1 : 0);
+            (cityLabel(b).length > 0 ? 1 : 0);
           return bScore - aScore;
         });
         setProfessionals(ranked);
@@ -58,11 +69,6 @@ export function RightSidebar({ className = '' }: Props) {
   }, []);
 
   const preview = useMemo(() => professionals.slice(0, 3), [professionals]);
-  const profileHref = (p: NestPublicBrokerCard) =>
-    p.slug ? `/makler/${p.slug}` : `/profile/${p.id}`;
-
-  const cityLabel = (p: NestPublicBrokerCard) =>
-    p.regionLabel?.trim() || p.officeName?.trim() || '';
 
   return (
     <aside className={`flex flex-col gap-6 rounded-2xl p-6 ${lightCard} ${className}`}>
@@ -87,59 +93,64 @@ export function RightSidebar({ className = '' }: Props) {
               ))
             : null}
           {!loadingProfessionals
-            ? preview.map((p) => (
-                <article
-                  key={p.id}
-                  className="rounded-xl border border-zinc-200 bg-white p-2.5"
-                >
-                  <div className="flex items-start gap-3">
-                    <img
-                      src={
-                        p.avatarUrl
-                          ? nestAbsoluteAssetUrl(p.avatarUrl)
-                          : '/images/default-avatar.svg'
-                      }
-                      alt={p.name ?? 'Profilová fotka'}
-                      className="h-11 w-11 shrink-0 rounded-full object-cover"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <p className="truncate text-[13px] font-semibold text-zinc-900">
-                          {p.name ?? 'Profesionální profil'}
-                        </p>
-                        {p.isVerified ? (
-                          <span className="inline-flex items-center gap-0.5 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700">
-                            <ShieldCheck className="h-3 w-3" />
-                            Ověřeno
-                          </span>
-                        ) : null}
+            ? preview.map((p) => {
+                const img = avatarSrc(p);
+                return (
+                  <article
+                    key={p.id}
+                    className="rounded-xl border border-zinc-200 bg-white p-2.5"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100">
+                        {img ? (
+                          <img
+                            src={img}
+                            alt={p.name ?? 'Profilová fotka'}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <UserRound className="h-5 w-5 text-zinc-400" aria-hidden />
+                        )}
                       </div>
-                      <p className="truncate text-[12px] text-zinc-500">
-                        {professionalRoleLabel(p.role)}
-                      </p>
-                      {cityLabel(p) ? (
-                        <p className="truncate text-[11px] text-zinc-500">{cityLabel(p)}</p>
-                      ) : null}
-                      <div className="mt-0.5 flex items-center gap-1 text-[11px] text-zinc-500">
-                        <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-                        <span>
-                          {typeof p.ratingAverage === 'number'
-                            ? p.ratingAverage.toFixed(1)
-                            : '0.0'}
-                        </span>
-                        <span>({p.ratingCount ?? 0})</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="truncate text-[13px] font-semibold text-zinc-900">
+                            {p.name ?? 'Profesionální profil'}
+                          </p>
+                          {p.isVerified ? (
+                            <span className="inline-flex items-center gap-0.5 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700">
+                              <ShieldCheck className="h-3 w-3" />
+                              Ověřeno
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="truncate text-[12px] text-zinc-500">
+                          {professionalRoleLabel(p.role)}
+                        </p>
+                        {cityLabel(p) ? (
+                          <p className="truncate text-[11px] text-zinc-500">{cityLabel(p)}</p>
+                        ) : null}
+                        <div className="mt-0.5 flex items-center gap-1 text-[11px] text-zinc-500">
+                          <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                          <span>
+                            {typeof p.ratingAverage === 'number'
+                              ? p.ratingAverage.toFixed(1)
+                              : '0.0'}
+                          </span>
+                          <span>({p.ratingCount ?? 0})</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <Link
-                    href={profileHref(p)}
-                    prefetch={false}
-                    className="mt-2.5 inline-flex w-full items-center justify-center rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
-                  >
-                    Zobrazit profil
-                  </Link>
-                </article>
-              ))
+                    <Link
+                      href={profileHref(p)}
+                      prefetch={false}
+                      className="mt-2.5 inline-flex w-full items-center justify-center rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
+                    >
+                      Zobrazit profil
+                    </Link>
+                  </article>
+                );
+              })
             : null}
           {!loadingProfessionals && preview.length === 0 ? (
             <div className="rounded-xl border border-zinc-200 bg-white p-3 text-xs text-zinc-600">
