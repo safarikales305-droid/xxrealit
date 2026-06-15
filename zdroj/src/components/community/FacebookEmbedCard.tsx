@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
+import { getFacebookVideoContainerClass } from '@/lib/facebook-post-media';
 
 type Props = {
   embedUrl: string;
@@ -9,6 +10,7 @@ type Props = {
   fallbackImage?: string | null;
   postType?: string | null;
   compact?: boolean;
+  fillContainer?: boolean;
 };
 
 export function FacebookEmbedCard({
@@ -16,12 +18,15 @@ export function FacebookEmbedCard({
   fallbackUrl,
   fallbackImage,
   postType,
-  compact = false,
+  fillContainer = false,
 }: Props) {
   const [failed, setFailed] = useState(false);
   const timerRef = useRef<number | null>(null);
   const isVideo = postType === 'FACEBOOK_VIDEO' || postType === 'FACEBOOK_REEL';
   const imageSrc = fallbackImage ? nestAbsoluteAssetUrl(fallbackImage) : null;
+  const containerClass = fillContainer
+    ? 'relative h-full w-full'
+    : getFacebookVideoContainerClass(postType);
 
   useEffect(() => {
     setFailed(false);
@@ -40,15 +45,13 @@ export function FacebookEmbedCard({
   if (failed) {
     return (
       <div
-        className={`relative w-full overflow-hidden rounded-2xl border border-[#1877F2]/25 bg-zinc-900 ${
-          compact ? 'min-h-[200px]' : 'min-h-[260px]'
-        }`}
+        className={`${containerClass} relative overflow-hidden rounded-2xl border border-[#1877F2]/25 bg-zinc-900`}
       >
         {imageSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={imageSrc} alt="" className="h-full min-h-[220px] w-full object-cover opacity-80" />
+          <img src={imageSrc} alt="" className="h-full w-full object-cover opacity-80" />
         ) : (
-          <div className="flex min-h-[220px] items-center justify-center bg-gradient-to-br from-[#1877F2]/40 via-[#1877F2]/20 to-zinc-900">
+          <div className="flex h-full min-h-[200px] items-center justify-center bg-gradient-to-br from-[#1877F2]/40 via-[#1877F2]/20 to-zinc-900">
             <span className="text-5xl text-white/90">f</span>
           </div>
         )}
@@ -69,15 +72,14 @@ export function FacebookEmbedCard({
     );
   }
 
-  const minHeight = isVideo ? (compact ? 320 : 420) : compact ? 380 : 500;
-
   return (
-    <div className="w-full overflow-hidden rounded-2xl border border-[#1877F2]/15 bg-zinc-50">
+    <div
+      className={`${containerClass} overflow-hidden rounded-2xl border border-[#1877F2]/15 bg-zinc-50`}
+    >
       <iframe
         src={embedUrl}
         title="Facebook příspěvek"
-        className="w-full border-0"
-        style={{ minHeight }}
+        className="absolute inset-0 h-full w-full border-0"
         scrolling="no"
         allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
         allowFullScreen

@@ -570,6 +570,8 @@ model Post {
   facebookVideoDurationSec Float?
   /// Přímé video URL z Graph API (source) — může se lišit od videoUrl po expiraci.
   facebookVideoSourceUrl   String?
+  facebookVideoHasAudio    Boolean?
+  facebookVideoMimeType    String?
   publishedAt         DateTime?
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1400,6 +1402,8 @@ model FacebookSyncedPost {
   fullPictureUrl   String?
   videoSourceUrl   String?
   videoUrlFailureReason String? @db.Text
+  videoHasAudio    Boolean?
+  videoMimeType    String?
   createdTime      DateTime?
   rawJson          Json?
   importedPostId   String?

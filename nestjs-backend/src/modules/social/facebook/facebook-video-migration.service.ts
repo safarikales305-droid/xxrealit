@@ -13,7 +13,6 @@ import {
 @Injectable()
 export class FacebookVideoMigrationService implements OnModuleInit {
   private readonly logger = new Logger(FacebookVideoMigrationService.name);
-  private ran = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -27,15 +26,17 @@ export class FacebookVideoMigrationService implements OnModuleInit {
   }
 
   async repairImportedFacebookVideos(): Promise<{ repaired: number; skipped: boolean }> {
-    if (this.ran) return { repaired: 0, skipped: true };
-    this.ran = true;
-
     const posts = await this.prisma.post.findMany({
       where: {
         source: PostSource.FACEBOOK,
         OR: [
           { facebookPostType: { in: ['FACEBOOK_VIDEO', 'FACEBOOK_REEL'] } },
           { videoUrl: { not: null } },
+          {
+            media: {
+              some: { type: 'image' },
+            },
+          },
         ],
       },
       include: {
@@ -65,9 +66,11 @@ export class FacebookVideoMigrationService implements OnModuleInit {
       let nextVideoUrl = post.videoUrl?.trim() || videoMedia?.url?.trim() || null;
       let nextSourceUrl = post.facebookVideoSourceUrl?.trim() || null;
       let durationSec = post.facebookVideoDurationSec ?? null;
+      let hasAudio = post.facebookVideoHasAudio ?? null;
+      let mimeType = post.facebookVideoMimeType ?? null;
       let failureReason: string | null = null;
 
-      if (needsVideoUrl) {
+      if (needsVideoUrl || hasImageMedia) {
         const synced = await this.prisma.facebookSyncedPost.findFirst({
           where: { importedPostId: post.id },
           include: {
@@ -85,7 +88,9 @@ export class FacebookVideoMigrationService implements OnModuleInit {
                 nextVideoUrl = resolved.source;
                 nextSourceUrl = resolved.source;
                 durationSec = resolved.durationSec;
-                failureReason = null;
+                hasAudio = resolved.hasAudio;
+                mimeType = resolved.mimeType;
+                failureReason = resolved.failureReason;
               } else {
                 failureReason = resolved.failureReason;
               }
@@ -103,7 +108,8 @@ export class FacebookVideoMigrationService implements OnModuleInit {
       const shouldUpdate =
         hasImageMedia ||
         Boolean(post.imageUrl?.trim()) ||
-        (needsVideoUrl && nextVideoUrl && nextVideoUrl !== post.videoUrl);
+        (needsVideoUrl && nextVideoUrl && nextVideoUrl !== post.videoUrl) ||
+        post.facebookVideoHasAudio == null;
 
       if (!shouldUpdate && !imageIds.length) continue;
 
@@ -120,6 +126,8 @@ export class FacebookVideoMigrationService implements OnModuleInit {
             videoUrl: nextVideoUrl,
             facebookVideoSourceUrl: nextSourceUrl,
             facebookVideoDurationSec: durationSec,
+            facebookVideoHasAudio: hasAudio,
+            facebookVideoMimeType: mimeType,
             type: nextVideoUrl ? 'video' : post.type,
           },
         });
@@ -145,6 +153,8 @@ export class FacebookVideoMigrationService implements OnModuleInit {
             data: {
               videoSourceUrl: nextSourceUrl,
               videoUrlFailureReason: failureReason,
+              videoHasAudio: hasAudio,
+              videoMimeType: mimeType,
               fullPictureUrl: thumbnail,
             },
           });

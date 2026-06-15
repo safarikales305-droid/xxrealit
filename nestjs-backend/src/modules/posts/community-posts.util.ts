@@ -39,6 +39,7 @@ export function postHasFeedVisibility(row: CommunityPostRow): boolean {
   if (row.externalUrl?.trim() || row.previewImage?.trim()) return true;
   const text = (row.description ?? row.content ?? '').trim();
   if (text && (row.source === PostSource.FACEBOOK || row.isFacebookPagePost)) return true;
+  if (row.source === PostSource.FACEBOOK || row.isFacebookPagePost) return true;
   return false;
 }
 

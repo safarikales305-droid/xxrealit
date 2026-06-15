@@ -2,6 +2,7 @@
 
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import type { ResolvedFacebookPostMedia } from '@/lib/facebook-post-media';
+import { getFacebookVideoContainerClass } from '@/lib/facebook-post-media';
 import { FacebookEmbedCard } from '@/components/community/FacebookEmbedCard';
 
 type Props = {
@@ -27,40 +28,35 @@ export function FacebookPostMediaBlock({
 }: Props) {
   if (media.mode === 'none') return null;
 
+  const containerClass = getFacebookVideoContainerClass(facebookPostType);
+  const paddedClass = `${className} w-full min-w-0 px-3 md:px-4`;
+
   if (media.mode === 'facebook-embed' && media.embedUrl) {
     return (
-      <div className={`${className} px-3 md:px-4`}>
-        <FacebookEmbedCard
-          embedUrl={media.embedUrl}
-          fallbackUrl={media.permalink || media.embedUrl}
-          fallbackImage={media.posterUrl}
-          postType={facebookPostType ?? null}
-          compact={compact}
-        />
+      <div className={paddedClass}>
+        <div className={`${containerClass} overflow-hidden rounded-2xl bg-black`}>
+          <FacebookEmbedCard
+            embedUrl={media.embedUrl}
+            fallbackUrl={media.permalink || media.embedUrl}
+            fallbackImage={null}
+            postType={facebookPostType ?? null}
+            compact={compact}
+            fillContainer
+          />
+        </div>
       </div>
     );
   }
 
   if (media.mode === 'facebook-external' && media.permalink) {
     return (
-      <div className={`${className} px-3 md:px-4`}>
+      <div className={paddedClass}>
         <div
-          className={`relative w-full overflow-hidden rounded-2xl border border-[#1877F2]/25 bg-zinc-900 ${
-            compact ? 'min-h-[200px]' : 'min-h-[260px]'
-          }`}
+          className={`${containerClass} relative overflow-hidden rounded-2xl border border-[#1877F2]/25 bg-zinc-900`}
         >
-          {media.posterUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={nestAbsoluteAssetUrl(media.posterUrl)}
-              alt=""
-              className="h-full min-h-[220px] w-full object-cover opacity-80"
-            />
-          ) : (
-            <div className="flex min-h-[220px] items-center justify-center bg-gradient-to-br from-[#1877F2]/40 via-[#1877F2]/20 to-zinc-900">
-              <span className="text-5xl text-white/90">f</span>
-            </div>
-          )}
+          <div className="flex h-full min-h-[200px] items-center justify-center bg-gradient-to-br from-[#1877F2]/40 via-[#1877F2]/20 to-zinc-900">
+            <span className="text-5xl text-white/90">f</span>
+          </div>
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/45 p-4 text-center">
             <p className="text-sm font-medium text-white">Video z Facebooku</p>
             <a
@@ -83,23 +79,23 @@ export function FacebookPostMediaBlock({
         <img
           src={nestAbsoluteAssetUrl(media.imageUrl)}
           alt=""
-          className={`h-auto w-full object-contain ${blurred ? 'blur-sm' : ''}`}
+          className={`h-auto max-h-[70vh] w-full object-contain ${blurred ? 'blur-sm' : ''}`}
         />
       </div>
     );
     if (onOpenDetail) {
       return (
-        <button type="button" className={`${className} block w-full text-left`} onClick={onOpenDetail}>
+        <button type="button" className={`${paddedClass} block text-left`} onClick={onOpenDetail}>
           {body}
         </button>
       );
     }
-    return <div className={className}>{body}</div>;
+    return <div className={paddedClass}>{body}</div>;
   }
 
   if (media.mode === 'video' && media.videoUrl) {
     const video = (
-      <div className="relative w-full overflow-hidden rounded-2xl bg-black">
+      <div className={`${containerClass} overflow-hidden rounded-2xl bg-black`}>
         <video
           src={nestAbsoluteAssetUrl(media.videoUrl)}
           poster={media.posterUrl ? nestAbsoluteAssetUrl(media.posterUrl) : undefined}
@@ -107,18 +103,18 @@ export function FacebookPostMediaBlock({
           controls
           preload="metadata"
           muted={showMuteToggle ? muted : undefined}
-          className={`h-auto w-full object-contain ${blurred ? 'blur-sm' : ''}`}
+          className={`h-full w-full object-contain ${blurred ? 'blur-sm' : ''}`}
         />
       </div>
     );
     if (onOpenDetail) {
       return (
-        <button type="button" className={`${className} block w-full text-left`} onClick={onOpenDetail}>
+        <button type="button" className={`${paddedClass} block text-left`} onClick={onOpenDetail}>
           {video}
         </button>
       );
     }
-    return <div className={className}>{video}</div>;
+    return <div className={paddedClass}>{video}</div>;
   }
 
   return null;

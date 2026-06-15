@@ -32,6 +32,18 @@ type PostLike = {
   media?: Array<{ id?: string; url?: string; type?: string; order?: number }>;
 };
 
+export function isFacebookReelPost(post: PostLike): boolean {
+  return String(post.facebookPostType ?? '').toUpperCase() === 'FACEBOOK_REEL';
+}
+
+export function getFacebookVideoContainerClass(postType?: string | null): string {
+  const isReel = String(postType ?? '').toUpperCase() === 'FACEBOOK_REEL';
+  if (isReel) {
+    return 'relative mx-auto aspect-[9/16] w-full max-w-[360px] max-h-[75vh] md:max-h-[720px]';
+  }
+  return 'relative aspect-video w-full max-h-[70vh]';
+}
+
 export function isFacebookImportPost(post: PostLike): boolean {
   return (
     post.source === 'FACEBOOK' ||
@@ -43,11 +55,9 @@ export function isFacebookImportPost(post: PostLike): boolean {
 export function isFacebookVideoPost(post: PostLike): boolean {
   const type = String(post.facebookPostType ?? '').toUpperCase();
   if (type === 'FACEBOOK_VIDEO' || type === 'FACEBOOK_REEL') return true;
-  if (!isFacebookImportPost(post)) return false;
-  const hasVideo =
-    Boolean(String(post.videoUrl ?? '').trim()) ||
-    (post.media ?? []).some((m) => m.type === 'video');
-  return hasVideo;
+  const hasVideoMedia = (post.media ?? []).some((m) => m.type === 'video');
+  const hasVideoUrl = Boolean(String(post.videoUrl ?? '').trim());
+  return hasVideoUrl || hasVideoMedia;
 }
 
 function firstMediaUrl(post: PostLike, mediaType: 'video' | 'image'): string | null {
@@ -123,16 +133,18 @@ export function resolveFacebookPostMedia(post: PostLike): ResolvedFacebookPostMe
       posterUrl,
       embedUrl: null,
       permalink,
-      isFacebookVideo: false,
+      isFacebookVideo: isFbVideo || isFb,
     };
   }
 
   const imageUrl =
-    firstMediaUrl(post, 'image') ||
-    String(post.imageUrl ?? post.previewImage ?? '').trim() ||
-    null;
+    !isFbVideo
+      ? firstMediaUrl(post, 'image') ||
+        String(post.imageUrl ?? post.previewImage ?? '').trim() ||
+        null
+      : null;
 
-  if (imageUrl) {
+  if (imageUrl && !isFbVideo) {
     return {
       mode: 'image',
       videoUrl: null,

@@ -10,6 +10,7 @@ import {
   FACEBOOK_GRAPH_POST_FIELDS,
   buildFacebookImportMediaPlan,
   extractMediaFromGraphItem,
+  logFacebookVideoImportDiagnostics,
   resolveFacebookVideoFromGraph,
   type GraphFeedItem,
 } from './facebook-video-media.util';
@@ -314,6 +315,8 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
           facebookVideoThumbnail: mediaPlan.thumbnailUrl,
           facebookVideoDurationSec: mediaPlan.durationSec,
           facebookVideoSourceUrl: mediaPlan.videoUrl,
+          facebookVideoHasAudio: mediaPlan.hasAudio,
+          facebookVideoMimeType: mediaPlan.mimeType,
           previewTitle: message.slice(0, 200) || FACEBOOK_PAGE_BADGE,
           previewDescription: message.slice(0, 500) || null,
           previewImage: mediaPlan.thumbnailUrl,
@@ -327,6 +330,18 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
         select: { id: true },
       });
       importedPostId = post.id;
+      if (mediaPlan.isVideoPost) {
+        this.logger.log(
+          `FACEBOOK_VIDEO_IMPORT ${logFacebookVideoImportDiagnostics({
+            postId: importedPostId,
+            videoUrl: mediaPlan.videoUrl,
+            hasAudio: mediaPlan.hasAudio,
+            mimeType: mediaPlan.mimeType,
+            durationSec: mediaPlan.durationSec,
+            failureReason: mediaPlan.videoUrlFailureReason,
+          })}`,
+        );
+      }
     } catch (err) {
       const code =
         err && typeof err === 'object' && 'code' in err
@@ -347,6 +362,8 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
         fullPictureUrl: mediaPlan.thumbnailUrl,
         videoSourceUrl: mediaPlan.videoUrl,
         videoUrlFailureReason: mediaPlan.videoUrlFailureReason,
+        videoHasAudio: mediaPlan.hasAudio,
+        videoMimeType: mediaPlan.mimeType,
         createdTime: publishedAt,
         rawJson: item as object,
         importedPostId,
@@ -528,6 +545,8 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
           facebookVideoThumbnail: mediaPlan.thumbnailUrl,
           facebookVideoDurationSec: mediaPlan.durationSec,
           facebookVideoSourceUrl: mediaPlan.videoUrl,
+          facebookVideoHasAudio: mediaPlan.hasAudio,
+          facebookVideoMimeType: mediaPlan.mimeType,
           previewTitle: message.slice(0, 200) || 'Facebook',
           previewDescription: message.slice(0, 500) || null,
           previewImage: mediaPlan.thumbnailUrl,

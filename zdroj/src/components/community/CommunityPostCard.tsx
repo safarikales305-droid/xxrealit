@@ -112,7 +112,7 @@ export function CommunityPostCard({
   const showMuteForVideo = showNativeFeedVideo;
 
   return (
-    <article className="relative w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:rounded-3xl">
+    <article className="relative mx-auto w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:rounded-3xl">
       {isOwner && !interactionsLocked ? (
         <div className="absolute right-3 top-3 z-10 flex gap-1.5">
           <button
@@ -210,7 +210,7 @@ export function CommunityPostCard({
           <p className={`whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 ${interactionsLocked ? 'blur-[3px]' : ''}`}>
             {String(p.description ?? '')}
           </p>
-          {linkPreview && !hasFeedMedia ? (
+          {linkPreview && !hasFeedMedia && !isFacebookImport ? (
             <div className={interactionsLocked ? 'pointer-events-none blur-sm' : ''}>
               <LinkPreviewCard preview={linkPreview} compact />
             </div>

@@ -4971,6 +4971,8 @@ export type ListingPost = {
   facebookVideoThumbnail?: string | null;
   facebookVideoDurationSec?: number | null;
   facebookVideoSourceUrl?: string | null;
+  facebookVideoHasAudio?: boolean | null;
+  facebookVideoMimeType?: string | null;
   source?: 'INTERNAL' | 'FACEBOOK' | string;
   publishedAt?: string | null;
 };

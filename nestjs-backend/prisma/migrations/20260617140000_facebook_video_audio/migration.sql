@@ -1,0 +1,5 @@
+ALTER TABLE "Post" ADD COLUMN IF NOT EXISTS "facebookVideoHasAudio" BOOLEAN;
+ALTER TABLE "Post" ADD COLUMN IF NOT EXISTS "facebookVideoMimeType" TEXT;
+
+ALTER TABLE "FacebookSyncedPost" ADD COLUMN IF NOT EXISTS "videoHasAudio" BOOLEAN;
+ALTER TABLE "FacebookSyncedPost" ADD COLUMN IF NOT EXISTS "videoMimeType" TEXT;

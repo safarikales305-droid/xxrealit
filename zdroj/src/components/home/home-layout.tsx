@@ -1005,21 +1005,40 @@ export function HomeLayout({
                 )
               ) : viewMode === 'posts' ? (
                 <div className="w-full min-w-0 overflow-x-hidden pb-8 pt-3">
-                  <div className="mx-auto w-full max-w-7xl px-1 py-3 sm:px-3 md:px-4">
+                  <div className="mx-auto w-full max-w-7xl overflow-x-hidden px-3 py-3 sm:px-4 md:px-6">
                     <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-                      <aside className="hidden xl:col-span-3 xl:block">
+                      <aside className="hidden min-w-0 xl:col-span-3 xl:block">
                         <div className="space-y-4 lg:sticky lg:top-20">
                           <div className="w-full rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                            <p className="text-sm font-semibold text-zinc-800">Přehled</p>
-                            <p className="mt-2 text-sm text-zinc-600">
-                              Komunitní příspěvky podle oboru. Na mobilu použijte horní lištu v hlavním
-                              sloupci.
-                            </p>
+                            <p className="text-sm font-semibold text-zinc-800">Kategorie</p>
+                            <ul className="mt-3 space-y-1">
+                              {COMMUNITY_CATEGORIES.map((cat) => {
+                                const Icon = cat.icon;
+                                const active = activeCategory === cat.key;
+                                return (
+                                  <li key={cat.key}>
+                                    <button
+                                      type="button"
+                                      onClick={() => onSelectPostsCategory(cat.key)}
+                                      className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition ${
+                                        active
+                                          ? 'bg-orange-500 text-white'
+                                          : 'text-zinc-700 hover:bg-zinc-100'
+                                      }`}
+                                    >
+                                      <Icon size={16} />
+                                      {cat.label}
+                                    </button>
+                                  </li>
+                                );
+                              })}
+                            </ul>
                           </div>
                         </div>
                       </aside>
 
                       <main className="min-w-0 xl:col-span-6">
+                        <div className="mx-auto w-full max-w-[650px]">
                         <div className="sticky top-0 z-20 w-full rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur md:p-3">
                           <div className="flex w-full min-w-0 items-center justify-between gap-2 md:gap-3">
                             <div className="relative min-w-0 flex-1">
@@ -1254,9 +1273,10 @@ export function HomeLayout({
                       })
                     )}
                         </div>
+                        </div>
                       </main>
 
-                      <aside className="hidden xl:block xl:col-span-3">
+                      <aside className="hidden min-w-0 xl:col-span-3 xl:block">
                         <div className="relative z-0 space-y-4 xl:sticky xl:top-20">
                           {renderDesktopSidebarAd()}
                           <RightSidebar className="w-full max-w-full flex-col" />
