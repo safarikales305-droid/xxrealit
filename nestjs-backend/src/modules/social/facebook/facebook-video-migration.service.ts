@@ -7,6 +7,7 @@ import {
   extractMediaFromGraphItem,
   isPlayableDirectVideoUrl,
   resolveFacebookVideoFromGraph,
+  urlLikelyHasAudio,
   type GraphFeedItem,
 } from './facebook-video-media.util';
 
@@ -85,23 +86,47 @@ export class FacebookVideoMigrationService implements OnModuleInit {
             if (extracted.videoId) {
               const resolved = await resolveFacebookVideoFromGraph(extracted.videoId, token);
               if (resolved.source) {
-                nextVideoUrl = resolved.source;
-                nextSourceUrl = resolved.source;
-                durationSec = resolved.durationSec;
-                hasAudio = resolved.hasAudio;
-                mimeType = resolved.mimeType;
-                failureReason = resolved.failureReason;
+                const currentPlayable =
+                  Boolean(post.videoUrl?.trim()) &&
+                  isPlayableDirectVideoUrl(post.videoUrl) &&
+                  post.facebookVideoHasAudio === true;
+                const resolvedHasAudio = resolved.hasAudio === true;
+                if (!currentPlayable || resolvedHasAudio) {
+                  nextVideoUrl = resolved.source;
+                  nextSourceUrl = resolved.source;
+                  durationSec = resolved.durationSec;
+                  hasAudio = resolved.hasAudio;
+                  mimeType = resolved.mimeType;
+                  failureReason = resolved.failureReason;
+                }
               } else {
                 failureReason = resolved.failureReason;
               }
-            } else if (extracted.videoUrl) {
-              nextVideoUrl = extracted.videoUrl;
-              nextSourceUrl = extracted.videoUrl;
+            } else if (extracted.videoUrl && urlLikelyHasAudio(extracted.videoUrl)) {
+              if (!(post.facebookVideoHasAudio === true && isPlayableDirectVideoUrl(post.videoUrl))) {
+                nextVideoUrl = extracted.videoUrl;
+                nextSourceUrl = extracted.videoUrl;
+                hasAudio = true;
+              }
             }
           } catch (err) {
             failureReason = `repair_decrypt_failed: ${err instanceof Error ? err.message : String(err)}`;
           }
         }
+      }
+
+      const wouldDowngradeAudio =
+        post.facebookVideoHasAudio === true &&
+        isPlayableDirectVideoUrl(post.videoUrl) &&
+        nextVideoUrl &&
+        nextVideoUrl !== post.videoUrl &&
+        hasAudio === false;
+
+      if (wouldDowngradeAudio) {
+        nextVideoUrl = post.videoUrl?.trim() || nextVideoUrl;
+        nextSourceUrl = post.facebookVideoSourceUrl?.trim() || nextSourceUrl;
+        hasAudio = post.facebookVideoHasAudio;
+        mimeType = post.facebookVideoMimeType;
       }
 
       const imageIds = post.media.filter((m) => m.type === 'image').map((m) => m.id);

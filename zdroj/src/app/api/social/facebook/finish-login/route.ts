@@ -1,12 +1,13 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { setAuthCookies } from '@/lib/auth-cookie';
+import {
+  getFacebookConnectedDashboardUrl,
+  getFacebookLoginErrorUrl,
+} from '@/lib/facebook-oauth-urls';
 import { getOptionalInternalApiBaseUrl } from '@/lib/server-api';
 
 export const runtime = 'nodejs';
-
-const DEFAULT_ERROR_REDIRECT = 'https://www.xxrealit.cz/login?facebook=error';
-const DASHBOARD_URL = 'https://www.xxrealit.cz/profil/dashboard?facebook=connected';
 
 type NestFinishResult = {
   ok?: boolean;
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
 
   if (!nestBase || !state) {
     console.error('[facebook/finish-login] FACEBOOK_LOGIN_FAIL missing nest base or state');
-    return NextResponse.redirect(`${DEFAULT_ERROR_REDIRECT}&reason=missing_state`);
+    return NextResponse.redirect(getFacebookLoginErrorUrl('missing_state'));
   }
 
   try {
@@ -45,20 +46,21 @@ export async function GET(request: NextRequest) {
       console.error(
         `[facebook/finish-login] FACEBOOK_LOGIN_FAIL http=${res.status} ok=${String(data.ok)} tokenPresent=${Boolean(accessToken)}`,
       );
-      return NextResponse.redirect(`${DEFAULT_ERROR_REDIRECT}&reason=finish_failed`);
+      return NextResponse.redirect(getFacebookLoginErrorUrl('finish_failed'));
     }
 
     const redirectUrl =
       typeof data.redirectUrl === 'string' && data.redirectUrl.trim()
         ? data.redirectUrl.trim()
-        : DASHBOARD_URL;
+        : getFacebookConnectedDashboardUrl();
 
     console.log(`[facebook/finish-login] FACEBOOK_LOGIN_SUCCESS redirect=${redirectUrl}`);
     const response = NextResponse.redirect(redirectUrl);
     setAuthCookies(response, accessToken);
     return response;
   } catch (err) {
-    console.error('[facebook/finish-login] FACEBOOK_LOGIN_FAIL', err);
-    return NextResponse.redirect(`${DEFAULT_ERROR_REDIRECT}&reason=network`);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[facebook/finish-login] FACEBOOK_LOGIN_FAIL err=${msg}`);
+    return NextResponse.redirect(getFacebookLoginErrorUrl('network'));
   }
 }

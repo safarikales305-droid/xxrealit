@@ -19,6 +19,10 @@ export function getFacebookLoginErrorUrl(reason?: string): string {
   return `${base}&reason=${encodeURIComponent(reason.trim().slice(0, 120))}`;
 }
 
+export function getFacebookLoginSuccessUrl(): string {
+  return `${getAppOrigin()}/login?facebook=success`;
+}
+
 export function getFacebookConnectedDashboardUrl(): string {
-  return `${getAppOrigin()}/profil/dashboard?facebook=connected`;
+  return getFacebookLoginSuccessUrl();
 }

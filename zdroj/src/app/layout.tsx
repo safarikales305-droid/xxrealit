@@ -36,7 +36,9 @@ export default function RootLayout({
     <html lang="cs">
       <body>
         <AuthProvider>
-          <FacebookOAuthReturnRedirect />
+          <Suspense fallback={null}>
+            <FacebookOAuthReturnRedirect />
+          </Suspense>
           <FirstContentGuard>
             <div className="w-full min-h-screen">{children}</div>
           </FirstContentGuard>

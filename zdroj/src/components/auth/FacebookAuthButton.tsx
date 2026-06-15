@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { trackFacebookAnalytics } from '@/lib/facebook-analytics';
+import { storeFacebookOAuthReturnPath } from '@/lib/facebook-oauth-return';
 import { isPwaStandalone } from '@/lib/pwa-standalone';
 
 type Props = {
@@ -21,14 +22,8 @@ function FacebookIcon() {
   );
 }
 
-function storeOAuthReturnPath() {
-  if (typeof window === 'undefined') return;
-  try {
-    const path = `${window.location.pathname}${window.location.search}`;
-    sessionStorage.setItem('facebook_oauth_return', path);
-  } catch {
-    /* ignore */
-  }
+function redirectTo(url: string) {
+  window.location.href = url;
 }
 
 export function FacebookAuthButton({ label, event, className }: Props) {
@@ -37,7 +32,7 @@ export function FacebookAuthButton({ label, event, className }: Props) {
   async function handleClick() {
     setLoading(true);
     trackFacebookAnalytics(event);
-    storeOAuthReturnPath();
+    storeFacebookOAuthReturnPath();
 
     const loginPath = '/api/auth/facebook/login';
     const standalone = isPwaStandalone();
@@ -52,21 +47,17 @@ export function FacebookAuthButton({ label, event, className }: Props) {
       const url = typeof data.url === 'string' ? data.url.trim() : '';
       if (url) {
         if (standalone) {
-          window.location.href = url;
-        } else {
-          window.location.assign(url);
+          console.info('[facebook-auth] PWA standalone redirect to Facebook OAuth');
         }
+        redirectTo(url);
         return;
       }
-    } catch {
-      /* fallback below */
+      console.warn('[facebook-auth] missing OAuth URL from login endpoint');
+    } catch (err) {
+      console.error('[facebook-auth] login endpoint fetch failed', err);
     }
 
-    if (standalone) {
-      window.location.href = loginPath;
-    } else {
-      window.location.assign(loginPath);
-    }
+    redirectTo(loginPath);
   }
 
   return (

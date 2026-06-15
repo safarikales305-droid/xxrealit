@@ -22,8 +22,14 @@ export function LoginForm() {
 
   useEffect(() => {
     const fb = searchParams.get('facebook');
+    if (fb === 'success') return;
     if (fb === 'error') {
-      setError('Přihlášení přes Facebook se nezdařilo.');
+      const reason = searchParams.get('reason')?.trim();
+      const detail = reason ? ` (${reason})` : '';
+      setError(`Přihlášení přes Facebook se nezdařilo.${detail}`);
+      if (reason) {
+        console.error('[facebook-auth] login error reason=', reason);
+      }
     }
   }, [searchParams]);
 

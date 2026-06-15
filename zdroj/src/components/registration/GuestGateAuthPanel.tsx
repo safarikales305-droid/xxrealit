@@ -5,6 +5,7 @@ import { FacebookAuthButton } from '@/components/auth/FacebookAuthButton';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL } from '@/lib/api';
 import { closeGuestRegistrationGate } from '@/lib/guest-registration-gate-store';
+import { storeFacebookOAuthReturnPath } from '@/lib/facebook-oauth-return';
 import { clearPwaInstallDismissed } from '@/lib/pwa-install-storage';
 import {
   REGISTRATION_ACCOUNT_TYPES,
@@ -36,6 +37,7 @@ export function GuestGateAuthPanel({ mode, returnTo, onClose, onSwitchMode }: Pr
   const [role, setRole] = useState<RegistrationAccountType>('USER');
 
   async function finishAuth() {
+    storeFacebookOAuthReturnPath(returnTo);
     await refresh();
     clearPwaInstallDismissed();
     closeGuestRegistrationGate();

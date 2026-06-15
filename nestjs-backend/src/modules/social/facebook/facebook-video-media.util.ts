@@ -171,7 +171,7 @@ export async function resolveFacebookVideoFromGraph(
 
     if (!hasAudio) {
       return {
-        source,
+        source: null,
         permalinkUrl,
         thumbnail,
         durationSec,
@@ -247,6 +247,79 @@ export type FacebookImportMediaPlan = {
   mediaCreate: Array<{ url: string; type: string; order: number }>;
 };
 
+function pickImportVideoUrl(input: {
+  extracted: ExtractedFacebookMedia;
+  resolved?: ResolvedFacebookVideo | null;
+}): {
+  videoUrl: string | null;
+  hasAudio: boolean | null;
+  mimeType: string | null;
+  durationSec: number | null;
+  failureReason: string | null;
+} {
+  const resolved = input.resolved ?? null;
+  const attachmentUrl = input.extracted.videoUrl?.trim() || null;
+  const graphUrl = resolved?.source?.trim() || null;
+
+  if (graphUrl && resolved?.hasAudio === true) {
+    return {
+      videoUrl: graphUrl,
+      hasAudio: true,
+      mimeType: resolved?.mimeType ?? null,
+      durationSec: resolved?.durationSec ?? null,
+      failureReason: null,
+    };
+  }
+
+  if (attachmentUrl && urlLikelyHasAudio(attachmentUrl)) {
+    return {
+      videoUrl: attachmentUrl,
+      hasAudio: true,
+      mimeType: resolved?.mimeType ?? null,
+      durationSec: resolved?.durationSec ?? null,
+      failureReason: null,
+    };
+  }
+
+  if (graphUrl && urlLikelyHasAudio(graphUrl)) {
+    return {
+      videoUrl: graphUrl,
+      hasAudio: resolved?.hasAudio ?? true,
+      mimeType: resolved?.mimeType ?? null,
+      durationSec: resolved?.durationSec ?? null,
+      failureReason: null,
+    };
+  }
+
+  if (graphUrl && resolved?.hasAudio === false) {
+    return {
+      videoUrl: null,
+      hasAudio: false,
+      mimeType: resolved?.mimeType ?? null,
+      durationSec: resolved?.durationSec ?? null,
+      failureReason: resolved?.failureReason ?? 'FACEBOOK_VIDEO_WITHOUT_AUDIO',
+    };
+  }
+
+  if (attachmentUrl && !urlLikelyHasAudio(attachmentUrl)) {
+    return {
+      videoUrl: null,
+      hasAudio: false,
+      mimeType: resolved?.mimeType ?? null,
+      durationSec: resolved?.durationSec ?? null,
+      failureReason: 'FACEBOOK_VIDEO_WITHOUT_AUDIO',
+    };
+  }
+
+  return {
+    videoUrl: graphUrl || attachmentUrl,
+    hasAudio: graphUrl || attachmentUrl ? urlLikelyHasAudio(graphUrl || attachmentUrl) : null,
+    mimeType: resolved?.mimeType ?? null,
+    durationSec: resolved?.durationSec ?? null,
+    failureReason: resolved?.failureReason ?? null,
+  };
+}
+
 export function buildFacebookImportMediaPlan(input: {
   permalink: string | null;
   extracted: ExtractedFacebookMedia;
@@ -269,11 +342,12 @@ export function buildFacebookImportMediaPlan(input: {
     Boolean(resolved?.source) ||
     Boolean(input.extracted.videoId);
 
-  let videoUrl =
-    input.extracted.videoUrl?.trim() ||
-    resolved?.source?.trim() ||
-    null;
-  let videoUrlFailureReason = resolved?.failureReason ?? null;
+  const picked = pickImportVideoUrl({
+    extracted: input.extracted,
+    resolved,
+  });
+  let videoUrl = picked.videoUrl;
+  let videoUrlFailureReason = picked.failureReason ?? resolved?.failureReason ?? null;
 
   if (isVideoPost && !videoUrl) {
     videoUrlFailureReason =
@@ -296,9 +370,9 @@ export function buildFacebookImportMediaPlan(input: {
     videoUrl,
     imageUrl,
     thumbnailUrl: thumbnail,
-    durationSec: resolved?.durationSec ?? null,
-    hasAudio: resolved?.hasAudio ?? (videoUrl ? urlLikelyHasAudio(videoUrl) : null),
-    mimeType: resolved?.mimeType ?? null,
+    durationSec: picked.durationSec ?? resolved?.durationSec ?? null,
+    hasAudio: picked.hasAudio,
+    mimeType: picked.mimeType ?? resolved?.mimeType ?? null,
     videoUrlFailureReason,
     mediaCreate,
   };

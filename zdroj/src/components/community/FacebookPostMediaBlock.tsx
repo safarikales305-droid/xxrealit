@@ -4,6 +4,7 @@ import { nestAbsoluteAssetUrl } from '@/lib/api';
 import type { ResolvedFacebookPostMedia } from '@/lib/facebook-post-media';
 import { getFacebookVideoContainerClass } from '@/lib/facebook-post-media';
 import { FacebookEmbedCard } from '@/components/community/FacebookEmbedCard';
+import { FacebookInlineVideoPlayer } from '@/components/community/FacebookInlineVideoPlayer';
 
 type Props = {
   media: ResolvedFacebookPostMedia;
@@ -12,6 +13,7 @@ type Props = {
   blurred?: boolean;
   muted?: boolean;
   showMuteToggle?: boolean;
+  onToggleMute?: () => void;
   onOpenDetail?: () => void;
   className?: string;
 };
@@ -23,6 +25,7 @@ export function FacebookPostMediaBlock({
   blurred = false,
   muted = false,
   showMuteToggle = false,
+  onToggleMute,
   onOpenDetail,
   className = 'mt-3',
 }: Props) {
@@ -96,14 +99,13 @@ export function FacebookPostMediaBlock({
   if (media.mode === 'video' && media.videoUrl) {
     const video = (
       <div className={`${containerClass} overflow-hidden rounded-2xl bg-black`}>
-        <video
-          src={nestAbsoluteAssetUrl(media.videoUrl)}
-          poster={media.posterUrl ? nestAbsoluteAssetUrl(media.posterUrl) : undefined}
-          playsInline
-          controls
-          preload="metadata"
-          muted={showMuteToggle ? muted : undefined}
-          className={`h-full w-full object-contain ${blurred ? 'blur-sm' : ''}`}
+        <FacebookInlineVideoPlayer
+          src={media.videoUrl}
+          poster={media.posterUrl}
+          blurred={blurred}
+          muted={muted}
+          showMuteToggle={showMuteToggle}
+          onToggleMute={onToggleMute}
         />
       </div>
     );

@@ -45,7 +45,7 @@ export class FacebookAuthService {
   }
 
   getSuccessRedirectUrl(): string {
-    return `${this.frontendUrl()}/profil/dashboard`;
+    return `${this.frontendUrl()}/login?facebook=success`;
   }
 
   getFinishLoginRedirectUrl(state: string): string {
@@ -150,7 +150,7 @@ export class FacebookAuthService {
       const returnTokenInBody = options?.returnTokenInBody === true;
       if (returnTokenInBody) {
         await this.prisma.socialFacebookOAuthSession.delete({ where: { id: session.id } });
-        const redirectUrl = `${this.getSuccessRedirectUrl()}?facebook=connected`;
+        const redirectUrl = this.getSuccessRedirectUrl();
         this.logger.log(`FACEBOOK_LOGIN_SUCCESS userId=${user.id} via=json`);
         return {
           ok: true,

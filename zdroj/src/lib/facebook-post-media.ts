@@ -29,8 +29,23 @@ type PostLike = {
   previewImage?: ListingPost['previewImage'];
   previewSiteName?: ListingPost['previewSiteName'];
   facebookVideoThumbnail?: string | null;
+  facebookVideoHasAudio?: boolean | null;
   media?: Array<{ id?: string; url?: string; type?: string; order?: number }>;
 };
+
+const MUTED_URL_HINT_RE = /(?:mute|muted|silent|sf=mo|without_audio)/i;
+
+function videoUrlLikelyHasAudio(url: string | null | undefined): boolean {
+  const v = String(url ?? '').trim();
+  if (!v) return false;
+  return !MUTED_URL_HINT_RE.test(v);
+}
+
+function facebookVideoHasPlayableAudio(post: PostLike, videoUrl: string | null): boolean {
+  if (post.facebookVideoHasAudio === true) return true;
+  if (post.facebookVideoHasAudio === false) return false;
+  return videoUrlLikelyHasAudio(videoUrl);
+}
 
 export function isFacebookReelPost(post: PostLike): boolean {
   return String(post.facebookPostType ?? '').toUpperCase() === 'FACEBOOK_REEL';
@@ -81,7 +96,7 @@ export function resolveFacebookPostMedia(post: PostLike): ResolvedFacebookPostMe
     String(post.videoUrl ?? firstMediaUrl(post, 'video') ?? '').trim() || null;
 
   if (isFbVideo) {
-    if (videoUrl) {
+    if (videoUrl && facebookVideoHasPlayableAudio(post, videoUrl)) {
       return {
         mode: 'video',
         videoUrl,

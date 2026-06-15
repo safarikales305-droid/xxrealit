@@ -1,33 +1,48 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
-
-const STORAGE_KEY = 'facebook_oauth_return';
+import {
+  clearFacebookOAuthReturnPath,
+  readFacebookOAuthReturnPath,
+} from '@/lib/facebook-oauth-return';
 
 /** Po úspěšném Facebook OAuth vrátí uživatele na stránku, odkud přihlášení začalo (PWA i prohlížeč). */
 export function FacebookOAuthReturnRedirect() {
   const router = useRouter();
-  const { isAuthenticated, isLoading } = useAuth();
+  const searchParams = useSearchParams();
+  const { isAuthenticated, isLoading, refresh } = useAuth();
   const handled = useRef(false);
 
   useEffect(() => {
-    if (isLoading || !isAuthenticated || handled.current) return;
-    try {
-      const stored = sessionStorage.getItem(STORAGE_KEY)?.trim();
-      if (!stored || !stored.startsWith('/')) return;
-      const current = `${window.location.pathname}${window.location.search}`;
-      if (stored === current) {
-        sessionStorage.removeItem(STORAGE_KEY);
-        return;
-      }
+    const fb = searchParams.get('facebook');
+    if (fb === 'success' && !handled.current) {
       handled.current = true;
-      sessionStorage.removeItem(STORAGE_KEY);
-      router.replace(stored);
-    } catch {
-      /* ignore */
+      void refresh().then(() => {
+        const stored = readFacebookOAuthReturnPath();
+        clearFacebookOAuthReturnPath();
+        if (stored && stored !== `${window.location.pathname}${window.location.search}`) {
+          router.replace(stored);
+        } else {
+          router.replace('/');
+        }
+      });
     }
+  }, [refresh, router, searchParams]);
+
+  useEffect(() => {
+    if (isLoading || !isAuthenticated || handled.current) return;
+    const stored = readFacebookOAuthReturnPath();
+    if (!stored) return;
+    const current = `${window.location.pathname}${window.location.search}`;
+    if (stored === current) {
+      clearFacebookOAuthReturnPath();
+      return;
+    }
+    handled.current = true;
+    clearFacebookOAuthReturnPath();
+    router.replace(stored);
   }, [isAuthenticated, isLoading, router]);
 
   return null;

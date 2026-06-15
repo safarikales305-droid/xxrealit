@@ -109,7 +109,9 @@ export function CommunityPostCard({
   const hasFeedMedia = resolvedMedia.mode !== 'none';
   const showNativeFeedVideo =
     resolvedMedia.mode === 'video' && !resolvedMedia.isFacebookVideo;
-  const showMuteForVideo = showNativeFeedVideo;
+  const showFacebookFeedVideo =
+    resolvedMedia.mode === 'video' && resolvedMedia.isFacebookVideo;
+  const showMuteForVideo = showNativeFeedVideo || showFacebookFeedVideo;
 
   return (
     <article className="relative mx-auto w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:rounded-3xl">
@@ -199,8 +201,9 @@ export function CommunityPostCard({
           facebookPostType={p.facebookPostType ?? null}
           compact
           blurred={interactionsLocked}
-          muted={muted}
+          muted={showMuteForVideo ? muted : false}
           showMuteToggle={showMuteForVideo}
+          onToggleMute={onToggleMute}
           onOpenDetail={interactionsLocked ? undefined : onOpenDetail}
         />
       ) : null}
