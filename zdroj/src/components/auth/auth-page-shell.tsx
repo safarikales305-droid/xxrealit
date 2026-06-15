@@ -26,7 +26,7 @@ type AuthPageShellProps = {
 };
 
 /**
- * Sdílený layout pro přihlášení a registraci — logo, formulář a živý náhled portálu.
+ * Sdílený layout pro přihlášení a registraci — logo, carousel, kompaktní formulář.
  */
 export function AuthPageShell({ variant, children }: AuthPageShellProps) {
   const [previewItems, setPreviewItems] = useState<AuthPortalPreviewItem[]>([]);
@@ -59,50 +59,51 @@ export function AuthPageShell({ variant, children }: AuthPageShellProps) {
         aria-hidden
       />
 
-      <div className="relative z-10 mx-auto flex min-h-[100dvh] max-w-6xl flex-col justify-center px-4 py-10 sm:px-6 sm:py-14 md:py-16">
+      <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:justify-center sm:px-6 sm:py-10 md:py-14">
         <Link
           href="/"
-          className="mb-6 inline-flex w-fit items-center gap-1.5 text-sm font-medium text-white/70 transition hover:text-white"
+          className="mb-2 inline-flex w-fit shrink-0 items-center gap-1.5 text-sm font-medium text-white/70 transition hover:text-white sm:mb-6"
         >
           <span aria-hidden>←</span> Zpět na úvod
         </Link>
 
-        <div className="mx-auto w-full max-w-lg">
-          <div className="rounded-[1.75rem] border border-white/15 bg-white/[0.97] p-7 shadow-[0_32px_64px_-24px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:p-9 md:p-10 md:rounded-[2rem]">
-            <div className="flex flex-col items-center text-center">
-              <div className="flex flex-col items-center gap-3">
-                <div className="rounded-2xl bg-gradient-to-br from-[#ff6a00]/12 to-[#ff3c00]/5 px-5 py-3.5 ring-1 ring-orange-500/15">
-                  <Logo className="h-11 w-auto sm:h-12 md:h-14" />
+        <div className="mx-auto w-full max-w-lg flex-1 sm:flex-none">
+          <div className="rounded-[1.35rem] border border-white/15 bg-white/[0.97] p-4 shadow-[0_32px_64px_-24px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:rounded-[1.75rem] sm:p-7 md:p-9 md:rounded-[2rem]">
+            <header className="flex flex-col items-center text-center">
+              <div className="flex items-center gap-2.5 sm:flex-col sm:gap-3">
+                <div className="rounded-xl bg-gradient-to-br from-[#ff6a00]/12 to-[#ff3c00]/5 px-3 py-2 ring-1 ring-orange-500/15 sm:rounded-2xl sm:px-5 sm:py-3.5">
+                  <Logo className="h-8 w-auto sm:h-11 md:h-12" />
                 </div>
-                <span className="text-lg font-bold tracking-tight text-zinc-900 md:text-xl">
+                <span className="text-base font-bold tracking-tight text-zinc-900 sm:text-lg md:text-xl">
                   xxrealit
                 </span>
               </div>
-              <h1 className="mt-6 max-w-md text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl md:text-4xl md:leading-tight">
+
+              <h1 className="mt-3 max-w-md text-xl font-bold tracking-tight text-zinc-900 sm:mt-6 sm:text-3xl md:text-4xl">
                 Vítejte ve světě realit
               </h1>
+
               {variant === 'register' ? (
-                <p className="mt-4 max-w-md text-pretty text-base font-extrabold leading-snug tracking-tight text-zinc-900 sm:mt-5 sm:text-lg md:text-xl">
+                <p className="mt-2 max-w-md text-pretty text-sm font-extrabold leading-snug tracking-tight text-zinc-900 sm:mt-4 sm:text-lg md:text-xl">
                   Prohlížení inzerátů je plně zdarma
                 </p>
               ) : null}
-              <p
-                className={`max-w-md text-pretty text-sm leading-relaxed text-zinc-600 sm:text-[15px] ${
-                  variant === 'register' ? 'mt-3 sm:mt-4' : 'mt-3'
-                }`}
-              >
+
+              <p className="mt-2 hidden max-w-md text-pretty text-sm leading-relaxed text-zinc-600 sm:mt-3 sm:block sm:text-[15px]">
                 {SUBTITLES[variant]}
               </p>
+            </header>
 
-              <AuthMobileStoriesPreview items={previewItems} />
-            </div>
+            <AuthMobileStoriesPreview items={previewItems} variant={variant} />
 
-            <div className="mt-8">{children}</div>
+            <div className="mt-3 min-w-0 sm:mt-6">{children}</div>
           </div>
         </div>
       </div>
 
-      <SiteFooter />
+      <div className="hidden sm:block">
+        <SiteFooter />
+      </div>
     </div>
   );
 }

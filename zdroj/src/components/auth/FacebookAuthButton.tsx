@@ -75,7 +75,7 @@ export function FacebookAuthButton({ label, event, className }: Props) {
         )}
         {loading ? 'Přesměrovávám na Facebook…' : label}
       </button>
-      <p className="mt-3 text-center text-xs leading-relaxed text-zinc-500">
+      <p className="mt-2 text-center text-[10px] leading-snug text-zinc-500 sm:mt-3 sm:text-xs">
         Přihlášením přes Facebook souhlasíte se zpracováním údajů podle zásad ochrany osobních
         údajů.
       </p>

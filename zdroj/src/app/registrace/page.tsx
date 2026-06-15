@@ -11,10 +11,10 @@ import {
 } from '@/lib/registration-account-types';
 
 const inputClass =
-  'w-full rounded-xl border border-zinc-200/90 bg-zinc-50/80 px-4 py-3.5 text-[15px] text-zinc-900 shadow-inner shadow-zinc-100/80 outline-none transition placeholder:text-zinc-400 focus:border-orange-400/80 focus:bg-white focus:ring-2 focus:ring-orange-500/20';
+  'w-full rounded-xl border border-zinc-200/90 bg-zinc-50/80 px-3.5 py-2.5 text-sm text-zinc-900 shadow-inner shadow-zinc-100/80 outline-none transition placeholder:text-zinc-400 focus:border-orange-400/80 focus:bg-white focus:ring-2 focus:ring-orange-500/20 sm:px-4 sm:py-3.5 sm:text-[15px]';
 
 const selectClass =
-  'w-full rounded-xl border border-zinc-200/90 bg-zinc-50/80 px-4 py-3.5 text-[15px] text-zinc-900 shadow-inner shadow-zinc-100/80 outline-none transition focus:border-orange-400/80 focus:bg-white focus:ring-2 focus:ring-orange-500/20';
+  'w-full rounded-xl border border-zinc-200/90 bg-zinc-50/80 px-3.5 py-2.5 text-sm text-zinc-900 shadow-inner shadow-zinc-100/80 outline-none transition focus:border-orange-400/80 focus:bg-white focus:ring-2 focus:ring-orange-500/20 sm:px-4 sm:py-3.5 sm:text-[15px]';
 
 type FieldErrors = Partial<
   Record<'name' | 'email' | 'phone' | 'password' | 'confirmPassword' | 'role', string>
@@ -113,14 +113,16 @@ export default function RegistracePage() {
 
   return (
     <AuthPageShell variant="register">
-      <p className="mb-6 text-center text-sm font-medium text-zinc-500">Nový účet</p>
-      <p className="mb-6 text-center text-sm leading-relaxed text-zinc-600">
+      <p className="mb-2 hidden text-center text-sm font-medium text-zinc-500 sm:mb-4 sm:block">
+        Nový účet
+      </p>
+      <p className="mb-3 hidden text-center text-sm leading-relaxed text-zinc-600 sm:mb-5 sm:block">
         Heslo alespoň 6 znaků. Vyberte typ účtu, který nejlépe vystihuje vaši roli na trhu.
       </p>
 
-      <form onSubmit={onSubmit} className="space-y-5">
+      <form onSubmit={onSubmit} className="space-y-3 sm:space-y-4">
         <div>
-          <label htmlFor="name" className="mb-1.5 block text-left text-sm font-semibold text-zinc-800">
+          <label htmlFor="name" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:mb-1.5 sm:text-sm">
             Jméno
           </label>
           <input
@@ -140,7 +142,7 @@ export default function RegistracePage() {
         </div>
 
         <div>
-          <label htmlFor="email" className="mb-1.5 block text-left text-sm font-semibold text-zinc-800">
+          <label htmlFor="email" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:mb-1.5 sm:text-sm">
             E-mail
           </label>
           <input
@@ -160,7 +162,7 @@ export default function RegistracePage() {
         </div>
 
         <div>
-          <label htmlFor="phone" className="mb-1.5 block text-left text-sm font-semibold text-zinc-800">
+          <label htmlFor="phone" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:mb-1.5 sm:text-sm">
             Telefon
           </label>
           <input
@@ -180,7 +182,7 @@ export default function RegistracePage() {
         </div>
 
         <div>
-          <label htmlFor="role" className="mb-1.5 block text-left text-sm font-semibold text-zinc-800">
+          <label htmlFor="role" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:mb-1.5 sm:text-sm">
             Typ účtu
           </label>
           <select
@@ -203,7 +205,7 @@ export default function RegistracePage() {
         </div>
 
         <div>
-          <label htmlFor="password" className="mb-1.5 block text-left text-sm font-semibold text-zinc-800">
+          <label htmlFor="password" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:mb-1.5 sm:text-sm">
             Heslo
           </label>
           <input
@@ -224,7 +226,7 @@ export default function RegistracePage() {
         </div>
 
         <div>
-          <label htmlFor="confirm" className="mb-1.5 block text-left text-sm font-semibold text-zinc-800">
+          <label htmlFor="confirm" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:mb-1.5 sm:text-sm">
             Potvrzení hesla
           </label>
           <input
@@ -256,13 +258,13 @@ export default function RegistracePage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-3.5 text-[15px] font-semibold text-white shadow-lg shadow-orange-900/25 transition hover:opacity-[0.97] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55"
+          className="w-full rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-3 text-sm font-semibold text-white shadow-lg shadow-orange-900/25 transition hover:opacity-[0.97] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55 sm:py-3.5 sm:text-[15px]"
         >
-          {loading ? 'Vytvářím účet…' : 'Vytvořit účet'}
+          {loading ? 'Vytvářím účet…' : 'Registrovat'}
         </button>
       </form>
 
-      <div className="relative my-6">
+      <div className="relative my-4 sm:my-6">
         <div className="absolute inset-0 flex items-center">
           <div className="w-full border-t border-zinc-200" />
         </div>
@@ -273,7 +275,7 @@ export default function RegistracePage() {
 
       <FacebookAuthButton label="Registrovat přes Facebook" event="facebook_register_click" />
 
-      <p className="mt-8 border-t border-zinc-100 pt-6 text-center text-sm text-zinc-600">
+      <p className="mt-4 border-t border-zinc-100 pt-4 text-center text-xs text-zinc-600 sm:mt-6 sm:pt-5 sm:text-sm">
         Už máte účet?{' '}
         <Link href={loginHref} className="font-semibold text-orange-600 hover:text-orange-700 hover:underline">
           Přihlásit se

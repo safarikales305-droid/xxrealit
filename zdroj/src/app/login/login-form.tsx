@@ -10,7 +10,7 @@ import { API_BASE_URL } from '@/lib/api';
 import { clearPwaInstallDismissed } from '@/lib/pwa-install-storage';
 
 const inputClass =
-  'w-full rounded-xl border border-zinc-200/90 bg-zinc-50/80 px-4 py-3.5 text-[15px] text-zinc-900 shadow-inner shadow-zinc-100/80 outline-none transition placeholder:text-zinc-400 focus:border-orange-400/80 focus:bg-white focus:ring-2 focus:ring-orange-500/20';
+  'w-full rounded-xl border border-zinc-200/90 bg-zinc-50/80 px-3.5 py-2.5 text-sm text-zinc-900 shadow-inner shadow-zinc-100/80 outline-none transition placeholder:text-zinc-400 focus:border-orange-400/80 focus:bg-white focus:ring-2 focus:ring-orange-500/20 sm:px-4 sm:py-3.5 sm:text-[15px]';
 
 export function LoginForm() {
   const searchParams = useSearchParams();
@@ -128,11 +128,13 @@ export function LoginForm() {
 
   return (
     <AuthPageShell variant="login">
-      <p className="mb-6 text-center text-sm font-medium text-zinc-500">Přihlášení</p>
+      <p className="mb-3 hidden text-center text-sm font-medium text-zinc-500 sm:mb-5 sm:block">
+        Přihlášení
+      </p>
 
-      <form onSubmit={handleLogin} className="space-y-5">
+      <form onSubmit={handleLogin} className="space-y-3.5 sm:space-y-5">
         <div>
-          <label htmlFor="email" className="mb-1.5 block text-left text-sm font-semibold text-zinc-800">
+          <label htmlFor="email" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:mb-1.5 sm:text-sm">
             E-mail
           </label>
           <input
@@ -148,13 +150,13 @@ export function LoginForm() {
           />
         </div>
         <div>
-          <div className="mb-1.5 flex items-center justify-between gap-2">
-            <label htmlFor="password" className="block text-left text-sm font-semibold text-zinc-800">
+          <div className="mb-1 flex items-center justify-between gap-2 sm:mb-1.5">
+            <label htmlFor="password" className="block text-left text-xs font-semibold text-zinc-800 sm:text-sm">
               Heslo
             </label>
             <Link
               href="/reset-hesla"
-              className="shrink-0 text-sm font-semibold text-orange-600 transition hover:text-orange-700 hover:underline"
+              className="shrink-0 text-xs font-semibold text-orange-600 transition hover:text-orange-700 hover:underline sm:text-sm"
             >
               Zapomenuté heslo?
             </Link>
@@ -182,13 +184,13 @@ export function LoginForm() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-3.5 text-[15px] font-semibold text-white shadow-lg shadow-orange-900/25 transition hover:opacity-[0.97] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55"
+          className="w-full rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-3 text-sm font-semibold text-white shadow-lg shadow-orange-900/25 transition hover:opacity-[0.97] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55 sm:py-3.5 sm:text-[15px]"
         >
-          {loading ? 'Přihlašuji…' : 'Přihlásit se'}
+          {loading ? 'Přihlašuji…' : 'Přihlásit'}
         </button>
       </form>
 
-      <div className="relative my-6">
+      <div className="relative my-4 sm:my-6">
         <div className="absolute inset-0 flex items-center">
           <div className="w-full border-t border-zinc-200" />
         </div>
@@ -197,9 +199,9 @@ export function LoginForm() {
         </div>
       </div>
 
-      <FacebookAuthButton label="Pokračovat přes Facebook" event="facebook_login_click" />
+      <FacebookAuthButton label="Přihlásit přes Facebook" event="facebook_login_click" />
 
-      <p className="mt-8 border-t border-zinc-100 pt-6 text-center text-sm text-zinc-600">
+      <p className="mt-4 border-t border-zinc-100 pt-4 text-center text-xs text-zinc-600 sm:mt-8 sm:pt-6 sm:text-sm">
         Ještě nemáte účet?{' '}
         <Link href={registerHref} className="font-semibold text-orange-600 hover:text-orange-700 hover:underline">
           Založit registraci
