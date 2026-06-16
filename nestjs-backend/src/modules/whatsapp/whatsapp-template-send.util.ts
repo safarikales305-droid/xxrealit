@@ -20,12 +20,37 @@ export function normalizeTemplateLanguageCode(raw?: string): string {
   return trimmed;
 }
 
+/** Jazyk šablony přesně jak vrací Meta (bez přemapování cs → cs_CZ). */
+export function metaTemplateLanguageCode(raw?: string): string {
+  const trimmed = (raw ?? '').trim();
+  return trimmed || 'cs';
+}
+
+const DEFAULT_VARIABLE_SLOTS = ['{jmeno}', '{odkaz}', '{role}', '{kredit}'];
+
+export function buildTemplateBodyParameters(
+  variableTemplates: string[],
+  variablesCount: number,
+  renderValue: (template: string) => string,
+): string[] {
+  const configured = variableTemplates.map((v) => v.trim()).filter(Boolean);
+  const count = Math.max(variablesCount, configured.length);
+  if (count <= 0) return [];
+
+  const parameters: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const slot = configured[i] || DEFAULT_VARIABLE_SLOTS[i] || `hodnota${i + 1}`;
+    parameters.push(renderValue(slot));
+  }
+  return parameters;
+}
+
 export function buildTemplateMessageRequest(
   toDigits: string,
   config: WhatsAppTemplateSendConfig,
 ): MetaMessagesRequestBody {
   const templateName = config.templateName.trim();
-  const languageCode = normalizeTemplateLanguageCode(config.languageCode);
+  const languageCode = metaTemplateLanguageCode(config.languageCode);
 
   const template: Record<string, unknown> = {
     name: templateName,
@@ -65,5 +90,5 @@ export function formatTemplateLogLabel(
     bodyParameters.length > 0
       ? ` vars=[${bodyParameters.map((v) => JSON.stringify(v)).join(', ')}]`
       : '';
-  return `template:${templateName}@${normalizeTemplateLanguageCode(languageCode)}${vars}`;
+  return `template:${templateName}@${metaTemplateLanguageCode(languageCode)}${vars}`;
 }

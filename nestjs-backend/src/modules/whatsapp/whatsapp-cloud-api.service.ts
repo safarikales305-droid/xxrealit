@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -61,10 +60,13 @@ export class WhatsAppCloudApiService {
       campaignId?: string;
       campaignType?: WhatsAppMarketingCampaignType | null;
       isWelcome?: boolean;
+      templateName?: string;
+      templateLanguage?: string;
     },
   ): Promise<{
     providerMessageId: string | null;
     attempt: MetaSendAttempt;
+    error?: MetaWhatsAppErrorBody & { httpStatus?: number };
   }> {
     await this.settings.reload();
 
@@ -126,11 +128,17 @@ export class WhatsAppCloudApiService {
     if (res.status !== 200 && res.status !== 201) {
       const err = responseBody.error;
       const errorDetail = {
+        recipient: logMeta?.recipientPhone ?? String(requestBody.to ?? ''),
+        template_name: logMeta?.templateName ?? (requestBody.template as { name?: string })?.name,
+        template_language:
+          logMeta?.templateLanguage ??
+          (requestBody.template as { language?: { code?: string } })?.language?.code,
         message: err?.message?.trim() || `Meta API vrátilo HTTP ${res.status}`,
         code: err?.code ?? res.status,
         type: err?.type ?? 'http_error',
         error_subcode: err?.error_subcode,
         fbtrace_id: err?.fbtrace_id,
+        message_id: null,
         metaResponse: responseBody,
         attempt,
       };
@@ -148,8 +156,26 @@ export class WhatsAppCloudApiService {
         providerMessageId: null,
       });
 
-      throw new BadRequestException(errorDetail);
+      return {
+        providerMessageId: null,
+        attempt,
+        error: {
+          ...(err ?? {}),
+          httpStatus: res.status,
+        },
+      };
     }
+
+    const successDetail = {
+      recipient: logMeta?.recipientPhone ?? String(requestBody.to ?? ''),
+      template_name: logMeta?.templateName ?? (requestBody.template as { name?: string })?.name,
+      template_language:
+        logMeta?.templateLanguage ??
+        (requestBody.template as { language?: { code?: string } })?.language?.code,
+      message_id: providerMessageId,
+      metaResponse: responseBody,
+      attempt,
+    };
 
     await this.persistAdminLog({
       recipientPhone: logMeta?.recipientPhone ?? String(requestBody.to ?? ''),
@@ -160,29 +186,44 @@ export class WhatsAppCloudApiService {
       isWelcome: logMeta?.isWelcome,
       message: logMessage,
       status: WhatsAppMessageStatus.SENT,
-      errorMessage: JSON.stringify({ success: true, attempt }),
+      errorMessage: JSON.stringify({ success: true, ...successDetail }),
       providerMessageId,
     });
 
     return { providerMessageId, attempt };
   }
 
-  async getLastAdminLog() {
+  async getLastCampaignError(campaignId: string) {
     const row = await this.prisma.whatsAppMarketingCampaignLog.findFirst({
+      where: { campaignId, status: WhatsAppMessageStatus.FAILED },
       orderBy: { createdAt: 'desc' },
-      include: {
-        recipient: { select: { name: true, email: true } },
-        campaign: { select: { name: true } },
-      },
     });
     if (!row) return null;
+    return this.formatLogRow(row);
+  }
 
-    let metaDebug: unknown = null;
+  private formatLogRow(row: {
+    id: string;
+    createdAt: Date;
+    recipientPhone: string;
+    recipientName: string | null;
+    message: string;
+    status: WhatsAppMessageStatus;
+    errorMessage: string | null;
+    providerMessageId: string | null;
+  }) {
+    let metaDebug: Record<string, unknown> | null = null;
+    let metaErrorCode: number | null = null;
+    let metaErrorMessage: string | null = null;
+
     if (row.errorMessage) {
       try {
-        metaDebug = JSON.parse(row.errorMessage);
+        metaDebug = JSON.parse(row.errorMessage) as Record<string, unknown>;
+        if (typeof metaDebug.code === 'number') metaErrorCode = metaDebug.code;
+        if (typeof metaDebug.message === 'string') metaErrorMessage = metaDebug.message;
       } catch {
         metaDebug = { raw: row.errorMessage };
+        metaErrorMessage = row.errorMessage;
       }
     }
 
@@ -196,6 +237,25 @@ export class WhatsAppCloudApiService {
       errorMessage: row.errorMessage,
       providerMessageId: row.providerMessageId,
       metaDebug,
+      metaErrorCode,
+      metaErrorMessage,
+    };
+  }
+
+  async getLastAdminLog() {
+    const row = await this.prisma.whatsAppMarketingCampaignLog.findFirst({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        recipient: { select: { name: true, email: true } },
+        campaign: { select: { name: true } },
+      },
+    });
+    if (!row) return null;
+
+    const formatted = this.formatLogRow(row);
+
+    return {
+      ...formatted,
       isWelcome: row.isWelcome,
       campaignName: row.campaign?.name ?? null,
       campaignId: row.campaignId,
@@ -208,27 +268,7 @@ export class WhatsAppCloudApiService {
       orderBy: { createdAt: 'desc' },
       take: Math.min(500, limit),
     });
-    return rows.map((row) => {
-      let metaDebug: unknown = null;
-      if (row.errorMessage) {
-        try {
-          metaDebug = JSON.parse(row.errorMessage);
-        } catch {
-          metaDebug = { raw: row.errorMessage };
-        }
-      }
-      return {
-        id: row.id,
-        createdAt: row.createdAt.toISOString(),
-        recipientPhone: row.recipientPhone,
-        recipientName: row.recipientName,
-        message: row.message,
-        status: row.status,
-        errorMessage: row.errorMessage,
-        providerMessageId: row.providerMessageId,
-        metaDebug,
-      };
-    });
+    return rows.map((row) => this.formatLogRow(row));
   }
 
   private async persistAdminLog(input: {

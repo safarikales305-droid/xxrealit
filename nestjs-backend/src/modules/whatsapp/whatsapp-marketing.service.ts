@@ -21,7 +21,9 @@ import { WhatsAppMetaTemplatesService } from './whatsapp-meta-templates.service'
 import { WhatsAppDiagnosticService } from './whatsapp-diagnostic.service';
 import {
   buildTemplateMessageRequest,
+  buildTemplateBodyParameters,
   formatTemplateLogLabel,
+  metaTemplateLanguageCode,
   normalizeTemplateLanguageCode,
   WHATSAPP_MARKETING_TEMPLATE_REQUIRED_MSG,
 } from './whatsapp-template-send.util';
@@ -98,7 +100,11 @@ export class WhatsAppMarketingService {
       isWelcome?: boolean;
       previewText?: string;
     },
-  ): Promise<{ providerMessageId: string | null; phoneNumberId: string }> {
+  ): Promise<{
+    providerMessageId: string | null;
+    phoneNumberId: string;
+    metaError?: { message?: string; code?: number; type?: string };
+  }> {
     await this.settings.reload();
     await this.diagnostic.assertPhoneBelongsToConfiguredWaba();
 
@@ -117,7 +123,11 @@ export class WhatsAppMarketingService {
         template.bodyParameters,
       );
 
-    const { providerMessageId, attempt } = await this.cloudApi.sendMessages(requestBody, {
+    this.logger.log(
+      `[WhatsApp Template] send to=${toDigits} template=${template.templateName} lang=${template.languageCode} params=${template.bodyParameters.length}`,
+    );
+
+    const { providerMessageId, attempt, error } = await this.cloudApi.sendMessages(requestBody, {
       recipientPhone: phone,
       recipientName: logMeta.recipientName,
       recipientUserId: logMeta.recipientUserId,
@@ -125,7 +135,21 @@ export class WhatsAppMarketingService {
       campaignType: logMeta.campaignType ?? null,
       isWelcome: logMeta.isWelcome,
       logLabel,
+      templateName: template.templateName,
+      templateLanguage: template.languageCode,
     });
+
+    if (error) {
+      return {
+        providerMessageId: null,
+        phoneNumberId: attempt.phoneNumberId,
+        metaError: {
+          message: error.message,
+          code: error.code,
+          type: error.type,
+        },
+      };
+    }
 
     return { providerMessageId, phoneNumberId: attempt.phoneNumberId };
   }
@@ -195,9 +219,12 @@ export class WhatsAppMarketingService {
 
   private renderTemplateBodyParameters(
     variableTemplates: string[],
+    variablesCount: number,
     vars: WhatsAppTemplateVars,
   ): string[] {
-    return variableTemplates.map((v) => renderWhatsAppTemplate(v, vars));
+    return buildTemplateBodyParameters(variableTemplates, variablesCount, (slot) =>
+      renderWhatsAppTemplate(slot, vars),
+    );
   }
 
   private varsForRecipient(r: Recipient): WhatsAppTemplateVars {
@@ -223,12 +250,16 @@ export class WhatsAppMarketingService {
     waTemplateVariables: string[];
     messageTemplate: string;
   }) {
+    let variablesCount = 0;
+
     if (campaign.waMetaTemplateId) {
       const t = await this.metaTemplates.requireApprovedTemplate(campaign.waMetaTemplateId);
+      variablesCount = t.variablesCount;
       return {
         templateName: t.templateName,
-        languageCode: normalizeTemplateLanguageCode(t.language),
+        languageCode: metaTemplateLanguageCode(t.language),
         variableTemplates: campaign.waTemplateVariables ?? [],
+        variablesCount,
       };
     }
 
@@ -238,10 +269,16 @@ export class WhatsAppMarketingService {
       messageTemplate: campaign.messageTemplate,
     });
 
+    const metaTemplate = await this.metaTemplates.getById(resolved.waMetaTemplateId);
+    variablesCount = metaTemplate?.variablesCount ?? campaign.waTemplateVariables.length;
+
     return {
       templateName: resolved.waTemplateName,
-      languageCode: normalizeTemplateLanguageCode(resolved.waTemplateLanguage),
+      languageCode: metaTemplateLanguageCode(
+        metaTemplate?.language ?? resolved.waTemplateLanguage,
+      ),
       variableTemplates: campaign.waTemplateVariables ?? [],
+      variablesCount,
     };
   }
 
@@ -289,6 +326,7 @@ export class WhatsAppMarketingService {
     try {
       const bodyParameters = this.renderTemplateBodyParameters(
         meta?.waTemplateVariables ?? [],
+        (meta?.waTemplateVariables ?? []).length,
         {
           jmeno: meta?.recipientName || 'uživateli',
           role: '',
@@ -297,7 +335,7 @@ export class WhatsAppMarketingService {
         },
       );
 
-      const { providerMessageId } = await this.sendTemplateMessage(
+      const { providerMessageId, metaError } = await this.sendTemplateMessage(
         toPhone,
         {
           templateName,
@@ -328,7 +366,11 @@ export class WhatsAppMarketingService {
         });
       }
 
-      return { ok: Boolean(providerMessageId), providerMessageId: providerMessageId ?? undefined };
+      if (!providerMessageId) {
+        return { ok: false, error: metaError?.message ?? 'Meta nevrátilo ID zprávy.' };
+      }
+
+      return { ok: true, providerMessageId };
     } catch (err: unknown) {
       const detail = this.extractMetaError(err);
       return { ok: false, error: detail.message };
@@ -378,7 +420,7 @@ export class WhatsAppMarketingService {
       throw new BadRequestException('Zadejte platné testovací telefonní číslo (+420…).');
     }
 
-    const { providerMessageId, phoneNumberId } = await this.sendTemplateMessage(
+    const { providerMessageId, phoneNumberId, metaError } = await this.sendTemplateMessage(
       phone,
       {
         templateName: 'hello_world',
@@ -387,6 +429,12 @@ export class WhatsAppMarketingService {
       },
       { previewText: 'test:hello_world' },
     );
+
+    if (!providerMessageId) {
+      throw new BadRequestException(
+        metaError?.message ?? 'Meta nevrátilo ID zprávy — test selhal.',
+      );
+    }
 
     if (providerMessageId) {
       await this.prisma.whatsAppMessage.create({
@@ -418,6 +466,16 @@ export class WhatsAppMarketingService {
     if (!campaign) throw new NotFoundException('Kampaň nenalezena.');
     const logs = await this.cloudApi.getCampaignLogs(campaignId);
     return { campaign, logs };
+  }
+
+  async getLastCampaignError(campaignId: string) {
+    const campaign = await this.prisma.whatsAppMarketingCampaign.findUnique({
+      where: { id: campaignId },
+      select: { id: true, name: true },
+    });
+    if (!campaign) throw new NotFoundException('Kampaň nenalezena.');
+    const error = await this.cloudApi.getLastCampaignError(campaignId);
+    return { campaign, error };
   }
 
   async getLastLog() {
@@ -601,15 +659,21 @@ export class WhatsAppMarketingService {
       waTemplateLanguage: dto.waTemplateLanguage,
       messageTemplate: dto.messageTemplate,
     });
-    const bodyParams = this.renderTemplateBodyParameters(dto.waTemplateVariables ?? [], vars);
+    const metaTemplate = await this.metaTemplates.getById(resolved.waMetaTemplateId);
+    const bodyParams = this.renderTemplateBodyParameters(
+      dto.waTemplateVariables ?? [],
+      metaTemplate?.variablesCount ?? (dto.waTemplateVariables ?? []).length,
+      vars,
+    );
     const textPreview = dto.messageTemplate?.trim()
       ? renderWhatsAppTemplate(dto.messageTemplate, vars)
       : null;
-    const metaTemplate = await this.metaTemplates.getById(resolved.waMetaTemplateId);
     return {
       preview: textPreview ?? metaTemplate?.bodyText ?? null,
       templateName: resolved.waTemplateName,
-      templateLanguage: normalizeTemplateLanguageCode(resolved.waTemplateLanguage),
+      templateLanguage: metaTemplateLanguageCode(
+        metaTemplate?.language ?? resolved.waTemplateLanguage,
+      ),
       templateVariablesRendered: bodyParams,
       templateBody: metaTemplate?.bodyText ?? null,
       templateCategory: metaTemplate?.category ?? null,
@@ -636,12 +700,16 @@ export class WhatsAppMarketingService {
       realCreditBalance: 1000,
       bonusCreditBalance: 500,
     });
-    const bodyParameters = this.renderTemplateBodyParameters(tpl.variableTemplates, vars);
+    const bodyParameters = this.renderTemplateBodyParameters(
+      tpl.variableTemplates,
+      tpl.variablesCount,
+      vars,
+    );
     const previewText = campaign.messageTemplate?.trim()
       ? renderWhatsAppTemplate(campaign.messageTemplate, vars)
       : formatTemplateLogLabel(tpl.templateName, tpl.languageCode, bodyParameters);
 
-    const { providerMessageId } = await this.sendTemplateMessage(
+    const { providerMessageId, metaError } = await this.sendTemplateMessage(
       phone,
       {
         templateName: tpl.templateName,
@@ -657,7 +725,9 @@ export class WhatsAppMarketingService {
     );
 
     if (!providerMessageId) {
-      throw new BadRequestException('Meta nevrátilo ID zprávy — odeslání selhalo.');
+      throw new BadRequestException(
+        metaError?.message ?? 'Meta nevrátilo ID zprávy — odeslání selhalo.',
+      );
     }
 
     return {
@@ -841,7 +911,11 @@ export class WhatsAppMarketingService {
     for (let i = 0; i < recipients.length; i++) {
       const r = recipients[i]!;
       const vars = this.varsForRecipient(r);
-      const bodyParameters = this.renderTemplateBodyParameters(tpl.variableTemplates, vars);
+      const bodyParameters = this.renderTemplateBodyParameters(
+        tpl.variableTemplates,
+        tpl.variablesCount,
+        vars,
+      );
       const previewText = campaign.messageTemplate?.trim()
         ? renderWhatsAppTemplate(campaign.messageTemplate, vars)
         : formatTemplateLogLabel(tpl.templateName, tpl.languageCode, bodyParameters);
@@ -863,7 +937,7 @@ export class WhatsAppMarketingService {
       }
 
       try {
-        const { providerMessageId } = await this.sendTemplateMessage(
+        const { providerMessageId, metaError } = await this.sendTemplateMessage(
           r.phone,
           {
             templateName: tpl.templateName,
@@ -881,7 +955,11 @@ export class WhatsAppMarketingService {
 
         if (!providerMessageId) {
           failed += 1;
-          sendErrors.push(`${r.phone}: Meta nevrátilo ID zprávy.`);
+          const errText = `${r.phone}: ${metaError?.message ?? 'Meta nevrátilo ID zprávy.'}${metaError?.code != null ? ` (code ${metaError.code})` : ''}${metaError?.type ? ` [${metaError.type}]` : ''}`;
+          sendErrors.push(errText);
+          this.logger.error(
+            `[Campaign Run] failed campaignId=${campaignId} phone=${r.phone} template=${tpl.templateName} lang=${tpl.languageCode} error=${metaError?.message ?? '—'} code=${metaError?.code ?? '—'}`,
+          );
           continue;
         }
 
@@ -966,20 +1044,35 @@ export class WhatsAppMarketingService {
       },
     });
 
-    return rows.map((r) => ({
-      id: r.id,
-      createdAt: r.createdAt.toISOString(),
-      recipientName: r.recipientName || r.recipient?.name || null,
-      recipientPhone: r.recipientPhone,
-      campaignType: r.campaignType,
-      campaignName: r.campaign?.name ?? (r.isWelcome ? 'Uvítací zpráva' : null),
-      status: r.status,
-      errorMessage: r.errorMessage,
-      providerMessageId: r.providerMessageId,
-      message: r.message,
-      isWelcome: r.isWelcome,
-      campaignId: r.campaignId,
-    }));
+    return rows.map((r) => {
+      let metaErrorCode: number | null = null;
+      let metaErrorMessage: string | null = null;
+      if (r.errorMessage) {
+        try {
+          const parsed = JSON.parse(r.errorMessage) as { code?: number; message?: string };
+          if (typeof parsed.code === 'number') metaErrorCode = parsed.code;
+          if (typeof parsed.message === 'string') metaErrorMessage = parsed.message;
+        } catch {
+          metaErrorMessage = r.errorMessage;
+        }
+      }
+      return {
+        id: r.id,
+        createdAt: r.createdAt.toISOString(),
+        recipientName: r.recipientName || r.recipient?.name || null,
+        recipientPhone: r.recipientPhone,
+        campaignType: r.campaignType,
+        campaignName: r.campaign?.name ?? (r.isWelcome ? 'Uvítací zpráva' : null),
+        status: r.status,
+        errorMessage: r.errorMessage,
+        metaErrorCode,
+        metaErrorMessage,
+        providerMessageId: r.providerMessageId,
+        message: r.message,
+        isWelcome: r.isWelcome,
+        campaignId: r.campaignId,
+      };
+    });
   }
 
   private campaignRow(r: {

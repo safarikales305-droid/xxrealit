@@ -10,6 +10,7 @@ import {
   nestAdminWhatsAppCampaignCreate,
   nestAdminWhatsAppCampaignDelete,
   nestAdminWhatsAppCampaignLogs,
+  nestAdminWhatsAppCampaignLastError,
   nestAdminWhatsAppCampaignPreview,
   nestAdminWhatsAppCampaignRun,
   nestAdminWhatsAppCampaignsList,
@@ -70,6 +71,11 @@ export default function AdminWhatsAppCampaignsPage() {
   const [campaignLogs, setCampaignLogs] = useState<WhatsAppCampaignLogRow[] | null>(null);
   const [campaignLogsTitle, setCampaignLogsTitle] = useState<string | null>(null);
   const [loadingLogsId, setLoadingLogsId] = useState<string | null>(null);
+  const [loadingLastErrorId, setLoadingLastErrorId] = useState<string | null>(null);
+  const [lastMetaError, setLastMetaError] = useState<{
+    campaignName: string;
+    error: WhatsAppCampaignLogRow;
+  } | null>(null);
   const [allTemplates, setAllTemplates] = useState<WhatsAppMetaTemplateRow[]>([]);
   const [approvedTemplates, setApprovedTemplates] = useState<WhatsAppMetaTemplateRow[]>([]);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
@@ -396,6 +402,19 @@ export default function AdminWhatsAppCampaignsPage() {
     void refresh();
   }
 
+  async function onShowLastMetaError(campaign: WhatsAppCampaignRow) {
+    if (!token) return;
+    setLoadingLastErrorId(campaign.id);
+    const data = await nestAdminWhatsAppCampaignLastError(token, campaign.id);
+    setLoadingLastErrorId(null);
+    if (!data?.error) {
+      setStatusIsError(true);
+      setStatusMsg('Pro tuto kampaň není uložena žádná Meta chyba.');
+      return;
+    }
+    setLastMetaError({ campaignName: campaign.name, error: data.error });
+  }
+
   async function onShowCampaignLog(campaign: WhatsAppCampaignRow) {
     if (!token) return;
     setLoadingLogsId(campaign.id);
@@ -463,6 +482,26 @@ export default function AdminWhatsAppCampaignsPage() {
           >
             {statusMsg}
           </p>
+        ) : null}
+
+        {lastMetaError ? (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-red-900">
+                Poslední Meta chyba: {lastMetaError.campaignName}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setLastMetaError(null)}
+                className="text-xs font-semibold text-red-700 hover:text-red-900"
+              >
+                Zavřít
+              </button>
+            </div>
+            <pre className="mt-3 max-h-80 overflow-auto rounded-lg bg-white p-3 text-xs text-zinc-800">
+              {JSON.stringify(lastMetaError.error, null, 2)}
+            </pre>
+          </div>
         ) : null}
 
         {campaignLogs ? (
@@ -862,6 +901,14 @@ export default function AdminWhatsAppCampaignsPage() {
                           </button>
                           <button
                             type="button"
+                            disabled={loadingLastErrorId === c.id}
+                            onClick={() => void onShowLastMetaError(c)}
+                            className="rounded border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-800"
+                          >
+                            {loadingLastErrorId === c.id ? '…' : 'Zobrazit poslední Meta chybu'}
+                          </button>
+                          <button
+                            type="button"
                             disabled={busyId === c.id || c.status === 'SENDING'}
                             onClick={() => void onRun(c)}
                             className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800"
@@ -925,8 +972,10 @@ export default function AdminWhatsAppCampaignsPage() {
                       </td>
                       <td className="px-2 py-2">{h.status}</td>
                       <td className="px-2 py-2 font-mono text-xs">{h.providerMessageId || '—'}</td>
-                      <td className="max-w-[120px] truncate px-2 py-2 text-xs text-red-600">
-                        {h.errorMessage || '—'}
+                      <td className="max-w-[180px] px-2 py-2 text-xs text-red-600">
+                        {h.metaErrorMessage
+                          ? `${h.metaErrorCode != null ? `[${h.metaErrorCode}] ` : ''}${h.metaErrorMessage}`
+                          : h.errorMessage || '—'}
                       </td>
                       <td className="max-w-xs truncate px-2 py-2 text-xs text-zinc-600">
                         {h.message}

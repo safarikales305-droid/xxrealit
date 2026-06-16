@@ -185,6 +185,8 @@ export type WhatsAppHistoryRow = {
   campaignName: string | null;
   status: string;
   errorMessage: string | null;
+  metaErrorCode: number | null;
+  metaErrorMessage: string | null;
   providerMessageId: string | null;
   message: string;
   isWelcome: boolean;
@@ -200,6 +202,8 @@ export type WhatsAppCampaignLogRow = {
   status: string;
   errorMessage: string | null;
   providerMessageId: string | null;
+  metaErrorCode: number | null;
+  metaErrorMessage: string | null;
   metaDebug: unknown;
 };
 
@@ -654,6 +658,19 @@ export async function nestAdminWhatsAppCampaignLogs(
     token,
     `/campaigns/${campaignId}/logs`,
   );
+}
+
+export async function nestAdminWhatsAppCampaignLastError(
+  token: string,
+  campaignId: string,
+): Promise<{
+  campaign: { id: string; name: string };
+  error: WhatsAppCampaignLogRow | null;
+} | null> {
+  return adminFetch<{
+    campaign: { id: string; name: string };
+    error: WhatsAppCampaignLogRow | null;
+  }>(token, `/campaigns/${campaignId}/last-error`);
 }
 
 export async function nestAdminWhatsAppCampaignDelete(

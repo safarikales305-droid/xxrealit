@@ -115,6 +115,11 @@ export class WhatsAppAdminController {
     return this.marketing.getCampaignLogs(id);
   }
 
+  @Get('campaigns/:id/last-error')
+  campaignLastError(@Param('id') id: string) {
+    return this.marketing.getLastCampaignError(id);
+  }
+
   @Get('campaigns/:id')
   getCampaign(@Param('id') id: string) {
     return this.marketing.getCampaign(id);
