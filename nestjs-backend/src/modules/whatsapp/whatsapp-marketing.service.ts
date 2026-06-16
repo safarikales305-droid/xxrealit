@@ -91,6 +91,7 @@ export class WhatsAppMarketingService {
       templateName: string;
       languageCode: string;
       bodyParameters: string[];
+      variablesCount: number;
     },
     logMeta: {
       campaignId?: string;
@@ -113,6 +114,7 @@ export class WhatsAppMarketingService {
       templateName: template.templateName,
       languageCode: template.languageCode,
       bodyParameters: template.bodyParameters,
+      variablesCount: template.variablesCount,
     });
 
     const logLabel =
@@ -126,6 +128,7 @@ export class WhatsAppMarketingService {
     this.logger.log(
       `[WhatsApp Template] send to=${toDigits} template=${template.templateName} lang=${template.languageCode} params=${template.bodyParameters.length}`,
     );
+    this.logger.log(`[WhatsApp Template] Meta payload: ${JSON.stringify(requestBody)}`);
 
     const { providerMessageId, attempt, error } = await this.cloudApi.sendMessages(requestBody, {
       recipientPhone: phone,
@@ -227,6 +230,18 @@ export class WhatsAppMarketingService {
     );
   }
 
+  private async sanitizeStoredTemplateVariables(
+    metaTemplateId: string,
+    variables: string[],
+  ): Promise<string[]> {
+    const meta = await this.metaTemplates.getById(metaTemplateId);
+    if (!meta || meta.variablesCount <= 0) return [];
+    return variables
+      .map((v) => v.trim())
+      .filter(Boolean)
+      .slice(0, meta.variablesCount);
+  }
+
   private varsForRecipient(r: Recipient): WhatsAppTemplateVars {
     if (r.userId) {
       return this.templateVarsForUser({
@@ -270,7 +285,7 @@ export class WhatsAppMarketingService {
     });
 
     const metaTemplate = await this.metaTemplates.getById(resolved.waMetaTemplateId);
-    variablesCount = metaTemplate?.variablesCount ?? campaign.waTemplateVariables.length;
+    variablesCount = metaTemplate?.variablesCount ?? 0;
 
     return {
       templateName: resolved.waTemplateName,
@@ -341,6 +356,7 @@ export class WhatsAppMarketingService {
           templateName,
           languageCode: meta?.waTemplateLanguage ?? 'cs',
           bodyParameters,
+          variablesCount: bodyParameters.length,
         },
         {
           campaignId: meta?.campaignId,
@@ -426,6 +442,7 @@ export class WhatsAppMarketingService {
         templateName: 'hello_world',
         languageCode: 'en_US',
         bodyParameters: [],
+        variablesCount: 0,
       },
       { previewText: 'test:hello_world' },
     );
@@ -539,9 +556,10 @@ export class WhatsAppMarketingService {
         waMetaTemplateId: resolved.waMetaTemplateId,
         waTemplateName: resolved.waTemplateName,
         waTemplateLanguage: normalizeTemplateLanguageCode(resolved.waTemplateLanguage),
-        waTemplateVariables: (dto.waTemplateVariables ?? [])
-          .map((v) => v.trim())
-          .filter(Boolean),
+        waTemplateVariables: await this.sanitizeStoredTemplateVariables(
+          resolved.waMetaTemplateId,
+          dto.waTemplateVariables ?? [],
+        ),
         targetRoles: dto.targetRoles ?? [],
         targetRegions: (dto.targetRegions ?? []).map((s) => s.trim()).filter(Boolean),
         targetCities: (dto.targetCities ?? []).map((s) => s.trim()).filter(Boolean),
@@ -582,6 +600,16 @@ export class WhatsAppMarketingService {
       });
     }
 
+    const effectiveMetaId =
+      resolvedTemplate?.waMetaTemplateId ?? existing.waMetaTemplateId ?? null;
+    let sanitizedVariables: string[] | undefined;
+    if (effectiveMetaId && (resolvedTemplate || dto.waTemplateVariables !== undefined)) {
+      sanitizedVariables = await this.sanitizeStoredTemplateVariables(
+        effectiveMetaId,
+        dto.waTemplateVariables ?? existing.waTemplateVariables,
+      );
+    }
+
     const row = await this.prisma.whatsAppMarketingCampaign.update({
       where: { id },
       data: {
@@ -607,12 +635,8 @@ export class WhatsAppMarketingService {
               waTemplateLanguage: normalizeTemplateLanguageCode(dto.waTemplateLanguage),
             }
           : {}),
-        ...(dto.waTemplateVariables !== undefined
-          ? {
-              waTemplateVariables: dto.waTemplateVariables
-                .map((v) => v.trim())
-                .filter(Boolean),
-            }
+        ...(sanitizedVariables !== undefined
+          ? { waTemplateVariables: sanitizedVariables }
           : {}),
         ...(dto.targetRoles !== undefined ? { targetRoles: dto.targetRoles } : {}),
         ...(dto.targetRegions !== undefined
@@ -660,9 +684,10 @@ export class WhatsAppMarketingService {
       messageTemplate: dto.messageTemplate,
     });
     const metaTemplate = await this.metaTemplates.getById(resolved.waMetaTemplateId);
+    const variablesCount = metaTemplate?.variablesCount ?? 0;
     const bodyParams = this.renderTemplateBodyParameters(
       dto.waTemplateVariables ?? [],
-      metaTemplate?.variablesCount ?? (dto.waTemplateVariables ?? []).length,
+      variablesCount,
       vars,
     );
     const textPreview = dto.messageTemplate?.trim()
@@ -715,6 +740,7 @@ export class WhatsAppMarketingService {
         templateName: tpl.templateName,
         languageCode: tpl.languageCode,
         bodyParameters,
+        variablesCount: tpl.variablesCount,
       },
       {
         campaignId: campaign.id,
@@ -943,6 +969,7 @@ export class WhatsAppMarketingService {
             templateName: tpl.templateName,
             languageCode: tpl.languageCode,
             bodyParameters,
+            variablesCount: tpl.variablesCount,
           },
           {
             campaignId: campaign.id,

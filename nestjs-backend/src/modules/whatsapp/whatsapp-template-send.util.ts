@@ -4,6 +4,8 @@ export type WhatsAppTemplateSendConfig = {
   templateName: string;
   languageCode: string;
   bodyParameters?: string[];
+  /** Když 0, do Meta se neposílají components ani parameters. */
+  variablesCount?: number;
 };
 
 export const WHATSAPP_MARKETING_TEMPLATE_REQUIRED_MSG =
@@ -33,6 +35,8 @@ export function buildTemplateBodyParameters(
   variablesCount: number,
   renderValue: (template: string) => string,
 ): string[] {
+  if (variablesCount <= 0) return [];
+
   const configured = variableTemplates.map((v) => v.trim()).filter(Boolean);
   const count = Math.max(variablesCount, configured.length);
   if (count <= 0) return [];
@@ -57,9 +61,13 @@ export function buildTemplateMessageRequest(
     language: { code: languageCode },
   };
 
-  const bodyParameters = (config.bodyParameters ?? [])
-    .map((v) => String(v).trim())
-    .filter((v) => v.length > 0);
+  const variablesCount = config.variablesCount ?? (config.bodyParameters ?? []).length;
+  const bodyParameters =
+    variablesCount <= 0
+      ? []
+      : (config.bodyParameters ?? [])
+          .map((v) => String(v).trim())
+          .filter((v) => v.length > 0);
 
   if (bodyParameters.length > 0) {
     template.components = [

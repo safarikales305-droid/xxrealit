@@ -269,6 +269,7 @@ export default function AdminWhatsAppCampaignsPage() {
   }
 
   function parseTemplateVariables(): string[] {
+    if (selectedTemplate && selectedTemplate.variablesCount <= 0) return [];
     return form.waTemplateVariables
       .split(/\r?\n/)
       .map((v) => v.trim())
@@ -676,9 +677,16 @@ export default function AdminWhatsAppCampaignsPage() {
                 ) : (
                   <select
                     value={form.waMetaTemplateId}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, waMetaTemplateId: e.target.value }))
-                    }
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      const tpl = approvedTemplates.find((t) => t.id === id);
+                      setForm((f) => ({
+                        ...f,
+                        waMetaTemplateId: id,
+                        waTemplateVariables:
+                          tpl && tpl.variablesCount > 0 ? f.waTemplateVariables : '',
+                      }));
+                    }}
                     className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                     required
                   >
@@ -705,25 +713,29 @@ export default function AdminWhatsAppCampaignsPage() {
                   <p className="mt-2 whitespace-pre-wrap text-zinc-800">{selectedTemplate.bodyText}</p>
                 </div>
               ) : null}
-              <div>
-                <label className="text-xs font-semibold uppercase text-zinc-500">
-                  Template variables (jedna proměnná na řádek, pořadí {'{{1}}'}, {'{{2}}'}…)
-                </label>
-                <textarea
-                  rows={4}
-                  value={form.waTemplateVariables}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, waTemplateVariables: e.target.value }))
-                  }
-                  placeholder={'{jmeno}\n{odkaz}'}
-                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 font-mono text-sm"
-                />
-                {selectedTemplate && selectedTemplate.variablesCount > 0 ? (
+              {selectedTemplate && selectedTemplate.variablesCount > 0 ? (
+                <div>
+                  <label className="text-xs font-semibold uppercase text-zinc-500">
+                    Template variables (jedna proměnná na řádek, pořadí {'{{1}}'}, {'{{2}}'}…)
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={form.waTemplateVariables}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, waTemplateVariables: e.target.value }))
+                    }
+                    placeholder={'{jmeno}\n{odkaz}'}
+                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 font-mono text-sm"
+                  />
                   <p className="mt-1 text-xs text-zinc-500">
                     Šablona vyžaduje {selectedTemplate.variablesCount} proměnných.
                   </p>
-                ) : null}
-              </div>
+                </div>
+              ) : selectedTemplate ? (
+                <p className="text-sm text-zinc-600">
+                  Tato šablona nemá proměnné — do Meta se odešle pouze název a jazyk šablony.
+                </p>
+              ) : null}
               <div>
                 <label className="text-xs font-semibold uppercase text-zinc-500">
                   Vlastní text (jen náhled / interní poznámka — neodesílá se jako text)

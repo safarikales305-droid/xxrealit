@@ -133,6 +133,7 @@ export class WhatsAppCloudApiService {
         template_language:
           logMeta?.templateLanguage ??
           (requestBody.template as { language?: { code?: string } })?.language?.code,
+        metaRequestPayload: requestBody,
         message: err?.message?.trim() || `Meta API vrátilo HTTP ${res.status}`,
         code: err?.code ?? res.status,
         type: err?.type ?? 'http_error',
@@ -172,6 +173,7 @@ export class WhatsAppCloudApiService {
       template_language:
         logMeta?.templateLanguage ??
         (requestBody.template as { language?: { code?: string } })?.language?.code,
+      metaRequestPayload: requestBody,
       message_id: providerMessageId,
       metaResponse: responseBody,
       attempt,
