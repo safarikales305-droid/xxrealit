@@ -139,11 +139,12 @@ export class FacebookPageController implements OnModuleInit {
   @UseGuards(JwtAuthGuard)
   async connectPage(
     @CurrentUser() user: AuthUser,
+    @Query('mode') mode: string | undefined,
     @Query('reselect') reselect: string | undefined,
     @Req() req: Request,
     @Res() res: Response,
   ) {
-    return this.connect(user, reselect, req, res);
+    return this.connect(user, mode, reselect, req, res);
   }
 
   /** @deprecated Použijte connect-page */
@@ -151,15 +152,17 @@ export class FacebookPageController implements OnModuleInit {
   @UseGuards(JwtAuthGuard)
   async connect(
     @CurrentUser() user: AuthUser,
+    @Query('mode') mode: string | undefined,
     @Query('reselect') reselect: string | undefined,
     @Req() req: Request,
     @Res() res: Response,
   ) {
     const wantsJson = this.wantsJsonResponse(req);
-    const isReselect = reselect === '1' || reselect === 'true';
+    const isChangePage =
+      mode === 'change_page' || reselect === '1' || reselect === 'true';
     try {
       const url = await this.facebookPage.buildConnectUrl(user.id, user.role as UserRole, {
-        reselect: isReselect,
+        mode: isChangePage ? 'change_page' : 'connect',
       });
       if (wantsJson) return res.json({ url });
       return res.redirect(url);

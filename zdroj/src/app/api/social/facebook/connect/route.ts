@@ -17,9 +17,13 @@ function socialIntegrationsRedirect(query: string): NextResponse {
 
 /** GET — proxy na Nest OAuth connect-page s JWT z httpOnly cookie, pak redirect na Facebook. */
 export async function GET(request: NextRequest) {
+  const modeParam = request.nextUrl.searchParams.get('mode');
   const reselect = request.nextUrl.searchParams.get('reselect');
-  const isReselect = reselect === '1' || reselect === 'true';
-  console.log('[api/social/facebook/connect] OAuth start', { reselect: isReselect });
+  const isChangePage =
+    modeParam === 'change_page' || reselect === '1' || reselect === 'true';
+  console.log('[api/social/facebook/connect] OAuth start', {
+    oauthMode: isChangePage ? 'change_page' : 'connect',
+  });
 
   const nestBase = getOptionalInternalApiBaseUrl();
   if (!nestBase) {
@@ -34,8 +38,8 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const connectUrl = isReselect
-    ? `${nestBase}/social/facebook/connect-page?reselect=1`
+  const connectUrl = isChangePage
+    ? `${nestBase}/social/facebook/connect-page?mode=change_page`
     : `${nestBase}/social/facebook/connect-page`;
 
   try {
@@ -86,7 +90,9 @@ export async function GET(request: NextRequest) {
       return socialIntegrationsRedirect('facebook=error&reason=missing_url');
     }
 
-    console.log('[api/social/facebook/connect] redirecting to Facebook OAuth');
+    console.log('[api/social/facebook/connect] redirecting to Facebook OAuth', {
+      oauthMode: isChangePage ? 'change_page' : 'connect',
+    });
     return NextResponse.redirect(url);
   } catch (err) {
     console.error('[api/social/facebook/connect]', err);

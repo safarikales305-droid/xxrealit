@@ -27,6 +27,9 @@ const FACEBOOK_CONNECT_PATH = '/api/social/facebook/connect';
 const SOCIAL_TAB_PATH = '/profil/dashboard?tab=social-integrations';
 const PAGE_PICKER_MSG = 'Vyberte Facebook stránku, kterou chcete propojit s XXRealit.';
 const NOT_CONFIGURED_MSG = 'Propojení Facebook stránky není nakonfigurováno administrátorem.';
+const FACEBOOK_BUSINESS_TOOLS_URL = 'https://www.facebook.com/settings?tab=business_tools';
+
+type PickerMode = 'select' | 'confirm' | 'only_previous' | null;
 
 type Props = {
   token: string | null;
@@ -45,8 +48,19 @@ export function FacebookPageConnectionCard({ token }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [showPagePicker, setShowPagePicker] = useState(false);
+  const [pickerMode, setPickerMode] = useState<PickerMode>(null);
+  const [previousPageId, setPreviousPageId] = useState<string | null>(null);
+  const [confirmPage, setConfirmPage] = useState<FacebookPageOption | null>(null);
 
   const integrationConfigured = configStatus?.pagesConfigured ?? false;
+
+  const resetPickerState = useCallback(() => {
+    setShowPagePicker(false);
+    setPickerMode(null);
+    setPages([]);
+    setConfirmPage(null);
+    setPreviousPageId(null);
+  }, []);
 
   const refresh = useCallback(async () => {
     const cfg = await nestFacebookConfigStatus();
@@ -68,48 +82,112 @@ export function FacebookPageConnectionCard({ token }: Props) {
     void refresh();
   }, [refresh]);
 
-  const loadPagePicker = useCallback(async () => {
-    if (!token) return false;
-    console.log('[FacebookPageConnectionCard] loading page picker');
-    setPagesLoading(true);
-    setError(null);
-    const result = await nestFacebookPageListPages(token);
-    setPagesLoading(false);
-    if (!result.ok) {
-      console.warn('[FacebookPageConnectionCard] page picker failed', result.error);
-      if (result.permissionDenied || isFacebookPageScopeError(result.error)) {
-        setError(FACEBOOK_PAGES_LIST_PERMISSION_MSG);
-      } else {
-        setError(result.error || 'Nepodařilo se načíst Facebook stránky.');
+  const loadPagePicker = useCallback(
+    async (prevPageId: string | null = null) => {
+      if (!token) return false;
+      console.log('[FacebookPageConnectionCard] loading page picker', { previousPageId: prevPageId });
+      setPagesLoading(true);
+      setError(null);
+      const result = await nestFacebookPageListPages(token);
+      setPagesLoading(false);
+      if (!result.ok) {
+        console.warn('[FacebookPageConnectionCard] page picker failed', result.error);
+        if (result.permissionDenied || isFacebookPageScopeError(result.error)) {
+          setError(FACEBOOK_PAGES_LIST_PERMISSION_MSG);
+        } else {
+          setError(result.error || 'Nepodařilo se načíst Facebook stránky.');
+        }
+        resetPickerState();
+        return false;
       }
-      setShowPagePicker(false);
-      return false;
-    }
-    console.log(
-      '[FacebookPageConnectionCard] pages found',
-      result.pages.length,
-      result.pages.map((p) => p.id),
-    );
-    if (!result.pages.length) {
-      setError('Nenašli jsme žádnou Facebook stránku, kterou spravujete.');
-      setShowPagePicker(false);
-      return false;
-    }
-    setPages(result.pages);
+      console.log(
+        '[FacebookPageConnectionCard] pages found',
+        result.pages.length,
+        result.pages.map((p) => p.id),
+      );
+      if (!result.pages.length) {
+        setError('Nenašli jsme žádnou Facebook stránku, kterou spravujete.');
+        resetPickerState();
+        return false;
+      }
+
+      if (
+        prevPageId &&
+        result.pages.length === 1 &&
+        result.pages[0].id === prevPageId
+      ) {
+        setConfirmPage(result.pages[0]);
+        setPreviousPageId(prevPageId);
+        setPickerMode('only_previous');
+        setShowPagePicker(true);
+        setError(null);
+        return true;
+      }
+
+      setPages(result.pages);
+      setPreviousPageId(prevPageId);
+      setPickerMode('select');
+      setShowPagePicker(true);
+      setError(null);
+      return true;
+    },
+    [token, resetPickerState],
+  );
+
+  const openConfirmPicker = useCallback((page: FacebookPageOption, mode: PickerMode) => {
+    setConfirmPage(page);
+    setPickerMode(mode);
     setShowPagePicker(true);
     setError(null);
-    return true;
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     if (!token || !integrationConfigured || loading) return;
 
     const facebookParam = params.get('facebook');
+    const prevId = params.get('previousPageId');
 
     if (facebookParam === 'select') {
       console.log('[FacebookPageConnectionCard] OAuth callback: page selection required');
       setOk(PAGE_PICKER_MSG);
-      void loadPagePicker();
+      void loadPagePicker(prevId);
+      return;
+    }
+
+    if (facebookParam === 'confirm') {
+      const pageId = params.get('pageId');
+      const pageName = params.get('pageName');
+      if (pageId && pageName) {
+        console.log('[FacebookPageConnectionCard] OAuth callback: single page confirm', { pageId });
+        openConfirmPicker(
+          { id: pageId, name: decodeURIComponent(pageName) },
+          'confirm',
+        );
+        setOk('Chcete propojit tuto stránku?');
+        router.replace(SOCIAL_TAB_PATH);
+      }
+      return;
+    }
+
+    if (facebookParam === 'only_previous') {
+      const pageId = params.get('pageId');
+      const pageName = params.get('pageName');
+      const previous = params.get('previousPageId');
+      if (pageId && pageName) {
+        console.log('[FacebookPageConnectionCard] OAuth callback: only previous page', {
+          pageId,
+          previousPageId: previous,
+        });
+        setPreviousPageId(previous);
+        openConfirmPicker(
+          { id: pageId, name: decodeURIComponent(pageName) },
+          'only_previous',
+        );
+        setError(
+          'Facebook vrátil pouze původní stránku. Pro výběr jiné stránky odeberte aplikaci v nastavení Facebooku a propojte znovu.',
+        );
+        router.replace(SOCIAL_TAB_PATH);
+      }
       return;
     }
 
@@ -119,9 +197,18 @@ export function FacebookPageConnectionCard({ token }: Props) {
       status?.needsPageSelection;
 
     if (shouldPick && !status?.connected) {
-      void loadPagePicker();
+      void loadPagePicker(null);
     }
-  }, [params, token, status, loadPagePicker, integrationConfigured, loading]);
+  }, [
+    params,
+    token,
+    status,
+    loadPagePicker,
+    integrationConfigured,
+    loading,
+    openConfirmPicker,
+    router,
+  ]);
 
   useEffect(() => {
     const pageParam = params.get('facebookPage');
@@ -134,8 +221,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
       console.log('[FacebookPageConnectionCard] OAuth callback: page connected', {
         pageName: pageName ? decodeURIComponent(pageName) : null,
       });
-      setShowPagePicker(false);
-      setPages([]);
+      resetPickerState();
       setOk(
         pageName
           ? `Propojena stránka: ${decodeURIComponent(pageName)}`
@@ -157,9 +243,9 @@ export function FacebookPageConnectionCard({ token }: Props) {
       return;
     }
     setError('Propojení Facebooku se nezdařilo. Zkuste to znovu.');
-  }, [params, refresh, router]);
+  }, [params, refresh, router, resetPickerState]);
 
-  function startOAuth(reselect: boolean) {
+  function startOAuth(oauthMode: 'connect' | 'change_page') {
     if (!token) {
       setError('Pro propojení se přihlaste.');
       return;
@@ -172,15 +258,17 @@ export function FacebookPageConnectionCard({ token }: Props) {
     setBusy(true);
     setError(null);
     setOk(null);
+    resetPickerState();
 
-    if (reselect) {
+    if (oauthMode === 'change_page') {
       setStatus(null);
-      setPages([]);
-      setShowPagePicker(false);
     }
 
-    const url = reselect ? `${FACEBOOK_CONNECT_PATH}?reselect=1` : FACEBOOK_CONNECT_PATH;
-    console.log('[FacebookPageConnectionCard] OAuth start', { reselect, url });
+    const url =
+      oauthMode === 'change_page'
+        ? `${FACEBOOK_CONNECT_PATH}?mode=change_page`
+        : FACEBOOK_CONNECT_PATH;
+    console.log('[FacebookPageConnectionCard] OAuth start', { oauthMode, url });
 
     try {
       window.location.assign(url);
@@ -192,12 +280,19 @@ export function FacebookPageConnectionCard({ token }: Props) {
   }
 
   function handleConnectAccount() {
-    startOAuth(false);
+    startOAuth('connect');
+  }
+
+  function closePicker() {
+    resetPickerState();
+    setOk(null);
+    router.replace(SOCIAL_TAB_PATH);
+    void refresh();
   }
 
   async function handleSelectPage(pageId: string) {
     if (!token) return;
-    const selected = pages.find((p) => p.id === pageId);
+    const selected = pages.find((p) => p.id === pageId) ?? confirmPage;
     console.log('[FacebookPageConnectionCard] page selected', {
       pageId,
       pageName: selected?.name ?? null,
@@ -210,8 +305,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
       setError(res.error ?? 'Výběr stránky selhal.');
       return;
     }
-    setShowPagePicker(false);
-    setPages([]);
+    resetPickerState();
     setOk(res.message ?? 'Facebook stránka byla propojena.');
     router.replace(SOCIAL_TAB_PATH);
     void refresh();
@@ -243,20 +337,19 @@ export function FacebookPageConnectionCard({ token }: Props) {
       return;
     }
     setStatus(null);
-    setPages([]);
-    setShowPagePicker(false);
+    resetPickerState();
     router.replace(SOCIAL_TAB_PATH);
     await refresh();
-    setOk('Facebook stránka byla odpojena. Můžete propojit jinou stránku.');
   }
 
   function handleChangePage() {
-    startOAuth(true);
+    startOAuth('change_page');
   }
 
   if (!token) return null;
 
   const connected = Boolean(status?.connected) && !showPagePicker;
+  const showOnlyPreviousHelp = pickerMode === 'only_previous';
 
   return (
     <div className="relative z-0 space-y-4 rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
@@ -311,7 +404,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
         </button>
       ) : null}
 
-      {showPagePicker && pages.length > 0 ? (
+      {showPagePicker && (pickerMode === 'select' ? pages.length > 0 : confirmPage) ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
           role="dialog"
@@ -320,56 +413,100 @@ export function FacebookPageConnectionCard({ token }: Props) {
         >
           <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl">
             <p id="facebook-page-picker-title" className="text-base font-semibold text-zinc-900">
-              {PAGE_PICKER_MSG}
+              {pickerMode === 'confirm'
+                ? 'Chcete propojit tuto stránku?'
+                : showOnlyPreviousHelp
+                  ? 'Facebook vrátil pouze původní stránku'
+                  : PAGE_PICKER_MSG}
             </p>
+            {showOnlyPreviousHelp ? (
+              <p className="mt-2 text-sm text-amber-800">
+                Pro výběr jiné stránky odeberte aplikaci XXRealit v nastavení Facebooku a propojte
+                účet znovu.
+              </p>
+            ) : null}
             {pagesLoading ? (
               <p className="mt-3 text-sm text-zinc-600">Načítám vaše Facebook stránky…</p>
             ) : null}
-            <div className="mt-4 flex flex-col gap-2">
-              {pages.map((p) => (
-                <div
-                  key={p.id}
-                  className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3"
-                >
-                  {p.picture ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={p.picture}
-                      alt=""
-                      className="h-12 w-12 shrink-0 rounded-full border border-zinc-200 object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#1877F2]/10 text-sm font-bold text-[#1877F2]">
-                      {p.name.slice(0, 1).toUpperCase()}
+
+            {pickerMode === 'select' ? (
+              <div className="mt-4 flex flex-col gap-2">
+                {pages.map((p) => (
+                  <div
+                    key={p.id}
+                    className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3"
+                  >
+                    {p.picture ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={p.picture}
+                        alt=""
+                        className="h-12 w-12 shrink-0 rounded-full border border-zinc-200 object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#1877F2]/10 text-sm font-bold text-[#1877F2]">
+                        {p.name.slice(0, 1).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-zinc-900">{p.name}</p>
                     </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-zinc-900">{p.name}</p>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="shrink-0 rounded-full bg-[#1877F2] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#166fe0] disabled:opacity-50"
+                      onClick={() => void handleSelectPage(p.id)}
+                    >
+                      Propojit
+                    </button>
                   </div>
+                ))}
+              </div>
+            ) : confirmPage ? (
+              <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+                <p className="text-sm font-semibold text-zinc-900">{confirmPage.name}</p>
+                <div className="mt-4 flex flex-wrap gap-2">
                   <button
                     type="button"
                     disabled={busy}
-                    className="shrink-0 rounded-full bg-[#1877F2] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#166fe0] disabled:opacity-50"
-                    onClick={() => void handleSelectPage(p.id)}
+                    className="rounded-full bg-[#1877F2] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#166fe0] disabled:opacity-50"
+                    onClick={() => void handleSelectPage(confirmPage.id)}
                   >
-                    Propojit
+                    Ano, propojit
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
+                    onClick={closePicker}
+                  >
+                    Zrušit
                   </button>
                 </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              disabled={busy}
-              className="mt-4 w-full rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 disabled:opacity-50"
-              onClick={() => {
-                setShowPagePicker(false);
-                setPages([]);
-                router.replace(SOCIAL_TAB_PATH);
-                void refresh();
-              }}
-            >
-              Zrušit
-            </button>
+              </div>
+            ) : null}
+
+            {showOnlyPreviousHelp ? (
+              <a
+                href={FACEBOOK_BUSINESS_TOOLS_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-4 inline-flex w-full items-center justify-center rounded-full border border-[#1877F2] bg-white px-4 py-2.5 text-sm font-semibold text-[#1877F2] transition hover:bg-[#1877F2]/5"
+              >
+                Změnit oprávnění ve Facebooku
+              </a>
+            ) : null}
+
+            {pickerMode === 'select' ? (
+              <button
+                type="button"
+                disabled={busy}
+                className="mt-4 w-full rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 disabled:opacity-50"
+                onClick={closePicker}
+              >
+                Zrušit
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}
