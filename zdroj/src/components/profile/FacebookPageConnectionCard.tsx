@@ -25,6 +25,7 @@ import {
 
 const FACEBOOK_CONNECT_PATH = '/api/social/facebook/connect';
 const SOCIAL_TAB_PATH = '/profil/dashboard?tab=social-integrations';
+const PAGE_PICKER_MSG = 'Vyberte Facebook stránku, kterou chcete propojit s XXRealit.';
 const NOT_CONFIGURED_MSG = 'Propojení Facebook stránky není nakonfigurováno administrátorem.';
 
 type Props = {
@@ -54,7 +55,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
     if (!token) {
       setStatus(null);
       setLoading(false);
-      return;
+      return null;
     }
     setLoading(true);
     const s = await nestFacebookPageStatus(token);
@@ -69,11 +70,13 @@ export function FacebookPageConnectionCard({ token }: Props) {
 
   const loadPagePicker = useCallback(async () => {
     if (!token) return false;
+    console.log('[FacebookPageConnectionCard] loading page picker');
     setPagesLoading(true);
     setError(null);
     const result = await nestFacebookPageListPages(token);
     setPagesLoading(false);
     if (!result.ok) {
+      console.warn('[FacebookPageConnectionCard] page picker failed', result.error);
       if (result.permissionDenied || isFacebookPageScopeError(result.error)) {
         setError(FACEBOOK_PAGES_LIST_PERMISSION_MSG);
       } else {
@@ -82,6 +85,11 @@ export function FacebookPageConnectionCard({ token }: Props) {
       setShowPagePicker(false);
       return false;
     }
+    console.log(
+      '[FacebookPageConnectionCard] pages found',
+      result.pages.length,
+      result.pages.map((p) => p.id),
+    );
     if (!result.pages.length) {
       setError('Nenašli jsme žádnou Facebook stránku, kterou spravujete.');
       setShowPagePicker(false);
@@ -97,8 +105,15 @@ export function FacebookPageConnectionCard({ token }: Props) {
     if (!token || !integrationConfigured || loading) return;
 
     const facebookParam = params.get('facebook');
+
+    if (facebookParam === 'select') {
+      console.log('[FacebookPageConnectionCard] OAuth callback: page selection required');
+      setOk(PAGE_PICKER_MSG);
+      void loadPagePicker();
+      return;
+    }
+
     const shouldPick =
-      facebookParam === 'select' ||
       facebookParam === 'connected' ||
       status?.pendingPageSelection ||
       status?.needsPageSelection;
@@ -106,14 +121,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
     if (shouldPick && !status?.connected) {
       void loadPagePicker();
     }
-  }, [
-    params,
-    token,
-    status,
-    loadPagePicker,
-    integrationConfigured,
-    loading,
-  ]);
+  }, [params, token, status, loadPagePicker, integrationConfigured, loading]);
 
   useEffect(() => {
     const pageParam = params.get('facebookPage');
@@ -123,6 +131,9 @@ export function FacebookPageConnectionCard({ token }: Props) {
     }
     if (params.get('facebook') === 'page_connected') {
       const pageName = params.get('pageName');
+      console.log('[FacebookPageConnectionCard] OAuth callback: page connected', {
+        pageName: pageName ? decodeURIComponent(pageName) : null,
+      });
       setShowPagePicker(false);
       setPages([]);
       setOk(
@@ -134,12 +145,9 @@ export function FacebookPageConnectionCard({ token }: Props) {
       router.replace(SOCIAL_TAB_PATH);
       return;
     }
-    if (params.get('facebook') === 'select') {
-      setOk('Vyberte Facebook stránku, kterou chcete propojit.');
-      return;
-    }
     if (params.get('facebook') !== 'error') return;
     const reason = params.get('reason');
+    console.warn('[FacebookPageConnectionCard] OAuth callback error', reason);
     if (reason === 'not_configured') {
       setError(NOT_CONFIGURED_MSG);
       return;
@@ -151,7 +159,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
     setError('Propojení Facebooku se nezdařilo. Zkuste to znovu.');
   }, [params, refresh, router]);
 
-  function handleConnectAccount() {
+  function startOAuth(reselect: boolean) {
     if (!token) {
       setError('Pro propojení se přihlaste.');
       return;
@@ -165,8 +173,17 @@ export function FacebookPageConnectionCard({ token }: Props) {
     setError(null);
     setOk(null);
 
+    if (reselect) {
+      setStatus(null);
+      setPages([]);
+      setShowPagePicker(false);
+    }
+
+    const url = reselect ? `${FACEBOOK_CONNECT_PATH}?reselect=1` : FACEBOOK_CONNECT_PATH;
+    console.log('[FacebookPageConnectionCard] OAuth start', { reselect, url });
+
     try {
-      window.location.assign(FACEBOOK_CONNECT_PATH);
+      window.location.assign(url);
     } catch (err) {
       console.error('[FacebookPageConnectionCard] connect redirect failed', err);
       setBusy(false);
@@ -174,8 +191,17 @@ export function FacebookPageConnectionCard({ token }: Props) {
     }
   }
 
+  function handleConnectAccount() {
+    startOAuth(false);
+  }
+
   async function handleSelectPage(pageId: string) {
     if (!token) return;
+    const selected = pages.find((p) => p.id === pageId);
+    console.log('[FacebookPageConnectionCard] page selected', {
+      pageId,
+      pageName: selected?.name ?? null,
+    });
     setBusy(true);
     setError(null);
     const res = await nestFacebookPageSelectPage(token, pageId);
@@ -225,16 +251,12 @@ export function FacebookPageConnectionCard({ token }: Props) {
   }
 
   function handleChangePage() {
-    setError(null);
-    setOk(null);
-    setPages([]);
-    setShowPagePicker(false);
-    handleConnectAccount();
+    startOAuth(true);
   }
 
   if (!token) return null;
 
-  const connected = Boolean(status?.connected);
+  const connected = Boolean(status?.connected) && !showPagePicker;
 
   return (
     <div className="relative z-0 space-y-4 rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
@@ -289,43 +311,65 @@ export function FacebookPageConnectionCard({ token }: Props) {
         </button>
       ) : null}
 
-      {showPagePicker && pages.length > 0 && !connected ? (
-        <div className="space-y-3 rounded-lg border border-blue-200 bg-blue-50/50 p-4">
-          <p className="text-sm font-semibold text-zinc-900">Vyberte Facebook stránku</p>
-          {pagesLoading ? (
-            <p className="text-sm text-zinc-600">Načítám vaše Facebook stránky…</p>
-          ) : null}
-          <div className="flex flex-col gap-2">
-            {pages.map((p) => (
-              <div
-                key={p.id}
-                className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-white p-3"
-              >
-                {p.picture ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={p.picture}
-                    alt=""
-                    className="h-12 w-12 shrink-0 rounded-full border border-zinc-200 object-cover"
-                  />
-                ) : (
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#1877F2]/10 text-sm font-bold text-[#1877F2]">
-                    {p.name.slice(0, 1).toUpperCase()}
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-zinc-900">{p.name}</p>
-                </div>
-                <button
-                  type="button"
-                  disabled={busy}
-                  className="shrink-0 rounded-full bg-[#1877F2] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#166fe0] disabled:opacity-50"
-                  onClick={() => void handleSelectPage(p.id)}
+      {showPagePicker && pages.length > 0 ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="facebook-page-picker-title"
+        >
+          <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl">
+            <p id="facebook-page-picker-title" className="text-base font-semibold text-zinc-900">
+              {PAGE_PICKER_MSG}
+            </p>
+            {pagesLoading ? (
+              <p className="mt-3 text-sm text-zinc-600">Načítám vaše Facebook stránky…</p>
+            ) : null}
+            <div className="mt-4 flex flex-col gap-2">
+              {pages.map((p) => (
+                <div
+                  key={p.id}
+                  className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3"
                 >
-                  Propojit
-                </button>
-              </div>
-            ))}
+                  {p.picture ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={p.picture}
+                      alt=""
+                      className="h-12 w-12 shrink-0 rounded-full border border-zinc-200 object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#1877F2]/10 text-sm font-bold text-[#1877F2]">
+                      {p.name.slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-zinc-900">{p.name}</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className="shrink-0 rounded-full bg-[#1877F2] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#166fe0] disabled:opacity-50"
+                    onClick={() => void handleSelectPage(p.id)}
+                  >
+                    Propojit
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              disabled={busy}
+              className="mt-4 w-full rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 disabled:opacity-50"
+              onClick={() => {
+                setShowPagePicker(false);
+                setPages([]);
+                router.replace(SOCIAL_TAB_PATH);
+                void refresh();
+              }}
+            >
+              Zrušit
+            </button>
           </div>
         </div>
       ) : null}

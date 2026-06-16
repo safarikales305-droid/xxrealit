@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { ACCESS_TOKEN_COOKIE } from '@/lib/auth-cookie';
 import { getSocialIntegrationsUrl } from '@/lib/facebook-oauth-urls';
@@ -15,7 +16,11 @@ function socialIntegrationsRedirect(query: string): NextResponse {
 }
 
 /** GET — proxy na Nest OAuth connect-page s JWT z httpOnly cookie, pak redirect na Facebook. */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const reselect = request.nextUrl.searchParams.get('reselect');
+  const isReselect = reselect === '1' || reselect === 'true';
+  console.log('[api/social/facebook/connect] OAuth start', { reselect: isReselect });
+
   const nestBase = getOptionalInternalApiBaseUrl();
   if (!nestBase) {
     console.error('[api/social/facebook/connect] Nest API URL není nakonfigurováno');
@@ -29,8 +34,12 @@ export async function GET() {
     );
   }
 
+  const connectUrl = isReselect
+    ? `${nestBase}/social/facebook/connect-page?reselect=1`
+    : `${nestBase}/social/facebook/connect-page`;
+
   try {
-    const res = await fetch(`${nestBase}/social/facebook/connect-page`, {
+    const res = await fetch(connectUrl, {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/json',
@@ -77,6 +86,7 @@ export async function GET() {
       return socialIntegrationsRedirect('facebook=error&reason=missing_url');
     }
 
+    console.log('[api/social/facebook/connect] redirecting to Facebook OAuth');
     return NextResponse.redirect(url);
   } catch (err) {
     console.error('[api/social/facebook/connect]', err);

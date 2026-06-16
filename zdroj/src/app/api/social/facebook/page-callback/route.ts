@@ -27,6 +27,11 @@ export async function GET(request: NextRequest) {
   }
 
   const query = request.nextUrl.searchParams.toString();
+  console.log('[api/social/facebook/page-callback] OAuth callback', {
+    hasCode: Boolean(request.nextUrl.searchParams.get('code')),
+    state: request.nextUrl.searchParams.get('state')?.slice(0, 8) ?? null,
+    error: oauthError,
+  });
   try {
     const res = await fetch(
       `${nestBase}/social/facebook/page-callback?${query}${query ? '&' : ''}format=json`,
@@ -46,6 +51,10 @@ export async function GET(request: NextRequest) {
         : data.pageReviewRequired
           ? reviewFallback
           : `${settingsUrl}&facebook=error`;
+    console.log('[api/social/facebook/page-callback] redirect', {
+      ok: res.ok,
+      redirectUrl,
+    });
     const response = NextResponse.redirect(redirectUrl);
     if (typeof data.accessToken === 'string' && data.accessToken.trim()) {
       setAuthCookies(response, data.accessToken.trim());

@@ -168,11 +168,28 @@ export class FacebookPageService {
     }
   }
 
-  async buildConnectUrl(userId: string, role: UserRole): Promise<string> {
+  async preparePageReselect(userId: string): Promise<void> {
+    this.logger.log(`FACEBOOK_PAGE_RESELECT_PREPARE userId=${userId}`);
+    await this.disconnectActivePage(userId);
+    await this.prisma.facebookPagesUserAuth.deleteMany({ where: { userId } });
+    await this.cleanupPageOAuthSession(userId);
+    await this.cleanupAccountOAuthSession(userId);
+  }
+
+  async buildConnectUrl(
+    userId: string,
+    role: UserRole,
+    options?: { reselect?: boolean },
+  ): Promise<string> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException(this.facebookConfig.pagesConfigurationErrorMessage());
     }
     this.assertProfessional(userId, role);
+
+    const reselect = Boolean(options?.reselect);
+    if (reselect) {
+      await this.preparePageReselect(userId);
+    }
 
     const state = `a${randomBytes(23).toString('hex')}`;
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
@@ -188,12 +205,17 @@ export class FacebookPageService {
       },
     });
 
+    this.logger.log(
+      `FACEBOOK_OAUTH_START userId=${userId} mode=${reselect ? 'reselect' : 'connect'} state=${state}`,
+    );
+
     const redirectUri = encodeURIComponent(this.pageConnectRedirectUri());
     const appId = encodeURIComponent(this.facebookConfig.getPagesAppId()!);
     const scope = encodeURIComponent(FACEBOOK_PAGE_API_SCOPES);
+    const authType = reselect ? '&auth_type=rerequest' : '';
     return (
       `${FACEBOOK_OAUTH_DIALOG}?` +
-      `client_id=${appId}&redirect_uri=${redirectUri}&state=${state}&scope=${scope}&response_type=code`
+      `client_id=${appId}&redirect_uri=${redirectUri}&state=${state}&scope=${scope}&response_type=code${authType}`
     );
   }
 
@@ -214,6 +236,9 @@ export class FacebookPageService {
     errorReason?: string,
     errorDescription?: string,
   ): Promise<FacebookOAuthCallbackResult> {
+    this.logger.log(
+      `FACEBOOK_OAUTH_CALLBACK mode=page state=${state?.trim() ?? 'missing'} error=${oauthError ?? 'none'}`,
+    );
     if (state?.trim().startsWith('a')) {
       return this.handleAccountCallback(code, state, oauthError, errorReason, errorDescription);
     }
@@ -264,6 +289,9 @@ export class FacebookPageService {
       await this.persistPagesUserToken(session.userId, userToken, tokenExpiresAt);
 
       const pages = await this.listManagedPages(session.userId);
+      this.logger.log(
+        `FACEBOOK_OAUTH_PAGES userId=${session.userId} count=${pages.length} pageIds=${pages.map((p) => p.id).join(',') || 'none'}`,
+      );
       if (!pages.length) {
         await this.cleanupPageOAuthSession(session.userId);
         return { ok: false, redirectUrl: `${settingsUrl}&facebook=error&reason=no_pages` };
@@ -271,9 +299,15 @@ export class FacebookPageService {
 
       if (pages.length === 1) {
         const user = await this.prisma.user.findUnique({ where: { id: session.userId } });
+        this.logger.log(
+          `FACEBOOK_OAUTH_AUTO_SELECT userId=${session.userId} pageId=${pages[0].id} pageName=${pages[0].name}`,
+        );
         await this.selectPage(session.userId, (user?.role ?? UserRole.AGENT) as UserRole, pages[0].id);
         await this.cleanupPageOAuthSession(session.userId);
-        return { ok: true, redirectUrl: `${settingsUrl}&facebook=page_connected` };
+        return {
+          ok: true,
+          redirectUrl: `${settingsUrl}&facebook=page_connected&pageName=${encodeURIComponent(pages[0].name)}`,
+        };
       }
 
       return { ok: true, redirectUrl: `${settingsUrl}&facebook=select` };
@@ -320,6 +354,10 @@ export class FacebookPageService {
       return { ok: false, redirectUrl: `${settingsUrl}&facebook=error&reason=session_expired` };
     }
 
+    this.logger.log(
+      `FACEBOOK_OAUTH_CALLBACK userId=${session.userId} mode=account state=${state.trim()}`,
+    );
+
     try {
       const shortToken = await this.exchangeCodeForToken(
         code.trim(),
@@ -345,7 +383,13 @@ export class FacebookPageService {
 
       try {
         const pages = await this.listManagedPages(session.userId);
+        this.logger.log(
+          `FACEBOOK_OAUTH_PAGES userId=${session.userId} count=${pages.length} pageIds=${pages.map((p) => p.id).join(',') || 'none'}`,
+        );
         if (pages.length === 1) {
+          this.logger.log(
+            `FACEBOOK_OAUTH_AUTO_SELECT userId=${session.userId} pageId=${pages[0].id} pageName=${pages[0].name}`,
+          );
           await this.selectPage(session.userId, role, pages[0].id);
           return {
             ok: true,
@@ -554,7 +598,9 @@ export class FacebookPageService {
           name: p.name!,
           picture: p.picture?.data?.url ?? null,
         }));
-      this.logger.log(`FACEBOOK_PAGES_LOADED userId=${userId} count=${pages.length}`);
+      this.logger.log(
+        `FACEBOOK_PAGES_LOADED userId=${userId} count=${pages.length} pageIds=${pages.map((p) => p.id).join(',') || 'none'}`,
+      );
       return pages;
     } catch (err) {
       const reason = err instanceof Error ? err.message : 'unknown';
