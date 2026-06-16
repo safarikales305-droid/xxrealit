@@ -16,6 +16,7 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { WhatsAppConfigService } from './whatsapp-config.service';
 import { WhatsAppSettingsService } from './whatsapp-settings.service';
+import { WhatsAppCloudApiService } from './whatsapp-cloud-api.service';
 import {
   portalBaseUrl,
   renderWhatsAppTemplate,
@@ -26,8 +27,6 @@ import type {
   CreateWhatsAppMarketingCampaignDto,
   PreviewWhatsAppCampaignDto,
 } from './dto/whatsapp-admin.dto';
-
-const GRAPH_BASE = 'https://graph.facebook.com';
 
 type Recipient = {
   phone: string;
@@ -45,6 +44,7 @@ export class WhatsAppMarketingService {
     private readonly prisma: PrismaService,
     private readonly config: WhatsAppConfigService,
     private readonly settings: WhatsAppSettingsService,
+    private readonly cloudApi: WhatsAppCloudApiService,
   ) {}
 
   private sleep(ms: number) {
@@ -99,105 +99,122 @@ export class WhatsAppMarketingService {
       isWelcome?: boolean;
     },
   ): Promise<{ ok: boolean; error?: string }> {
-    if (!this.config.isCloudApiConfigured()) {
-      throw new ServiceUnavailableException(
-        'WhatsApp Cloud API není zapnuto nebo není nakonfigurováno.',
-      );
-    }
-
-    const token = this.config.getAccessToken()!;
-    const phoneNumberId = this.config.getPhoneNumberId()!;
-    const apiVersion = this.config.getApiVersion();
     const toDigits = whatsAppDigits(toPhone);
-
-    let status: WhatsAppMessageStatus = WhatsAppMessageStatus.PENDING;
-    let errorMessage: string | null = null;
-    let providerMessageId: string | null = null;
+    const requestBody = {
+      messaging_product: 'whatsapp',
+      to: toDigits,
+      type: 'text',
+      text: { body: message },
+    };
 
     try {
-      const res = await fetch(
-        `${GRAPH_BASE}/${apiVersion}/${phoneNumberId}/messages`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            to: toDigits,
-            type: 'text',
-            text: { body: message },
-          }),
-        },
-      );
-
-      const data = (await res.json().catch(() => ({}))) as {
-        messages?: Array<{ id?: string }>;
-        error?: { message?: string };
-      };
-
-      providerMessageId = data.messages?.[0]?.id?.trim() || null;
-      if (res.ok) {
-        status = WhatsAppMessageStatus.SENT;
-      } else {
-        status = WhatsAppMessageStatus.FAILED;
-        errorMessage = data.error?.message?.trim() || `HTTP ${res.status}`;
-      }
-    } catch (err: unknown) {
-      status = WhatsAppMessageStatus.FAILED;
-      errorMessage = err instanceof Error ? err.message : 'Neznámá chyba';
-    }
-
-    await this.prisma.whatsAppMarketingCampaignLog.create({
-      data: {
-        campaignId: meta?.campaignId ?? null,
-        recipientUserId: meta?.recipientUserId ?? null,
-        recipientName: meta?.recipientName ?? null,
+      const { providerMessageId } = await this.cloudApi.sendMessages(requestBody, {
         recipientPhone: toPhone,
+        recipientName: meta?.recipientName,
+        campaignId: meta?.campaignId,
         campaignType: meta?.campaignType ?? null,
-        message,
-        status,
-        errorMessage,
-        isWelcome: meta?.isWelcome ?? false,
-      },
-    });
+        isWelcome: meta?.isWelcome,
+        logLabel: message.slice(0, 500),
+      });
 
-    if (status === WhatsAppMessageStatus.FAILED) {
-      return { ok: false, error: errorMessage ?? 'Odeslání selhalo' };
+      if (providerMessageId) {
+        await this.prisma.whatsAppMessage.create({
+          data: {
+            userId: meta?.recipientUserId ?? null,
+            direction: WhatsAppMessageDirection.OUTBOUND,
+            fromPhone: '',
+            toPhone,
+            message,
+            status: WhatsAppMessageStatus.SENT,
+            providerMessageId,
+          },
+        });
+      }
+
+      return { ok: true };
+    } catch (err: unknown) {
+      const detail = this.extractMetaError(err);
+      return { ok: false, error: detail.message };
     }
+  }
+
+  private extractMetaError(err: unknown): { message: string; code?: number; type?: string } {
+    if (err && typeof err === 'object' && 'response' in err) {
+      const response = (err as { response?: { message?: unknown } }).response;
+      const msg = response?.message;
+      if (msg && typeof msg === 'object') {
+        const o = msg as { message?: string; code?: number; type?: string };
+        return {
+          message: o.message || 'Meta API chyba',
+          code: o.code,
+          type: o.type,
+        };
+      }
+    }
+    if (err && typeof err === 'object' && 'message' in err) {
+      const m = (err as { message?: unknown }).message;
+      if (m && typeof m === 'object') {
+        const o = m as { message?: string; code?: number; type?: string };
+        return {
+          message: o.message || 'Meta API chyba',
+          code: o.code,
+          type: o.type,
+        };
+      }
+      if (typeof m === 'string') return { message: m };
+    }
+    return { message: err instanceof Error ? err.message : 'Neznámá chyba' };
+  }
+
+  async sendTestMessage(toPhone?: string) {
+    await this.settings.reload();
+
+    const phone = this.normalizePhone(toPhone?.trim() || this.config.getTestPhone() || '');
+    if (!phone) {
+      throw new BadRequestException('Zadejte platné testovací telefonní číslo (+420…).');
+    }
+
+    const toDigits = whatsAppDigits(phone);
+    const requestBody = {
+      messaging_product: 'whatsapp',
+      to: toDigits,
+      type: 'template',
+      template: {
+        name: 'hello_world',
+        language: { code: 'en_US' },
+      },
+    };
+
+    const { providerMessageId, attempt } = await this.cloudApi.sendMessages(requestBody, {
+      recipientPhone: phone,
+      recipientName: 'Test',
+      logLabel: 'test:hello_world',
+    });
 
     if (providerMessageId) {
       await this.prisma.whatsAppMessage.create({
         data: {
-          userId: meta?.recipientUserId ?? null,
           direction: WhatsAppMessageDirection.OUTBOUND,
           fromPhone: '',
-          toPhone,
-          message,
+          toPhone: phone,
+          message: 'template:hello_world',
           status: WhatsAppMessageStatus.SENT,
           providerMessageId,
         },
       });
     }
 
-    return { ok: true };
+    return {
+      ok: true,
+      toPhone: phone,
+      toDigits,
+      phoneNumberId: attempt.phoneNumberId,
+      providerMessageId,
+    };
   }
 
-  async sendTestMessage(toPhone?: string) {
-    const phone = this.normalizePhone(toPhone?.trim() || this.config.getTestPhone() || '');
-    if (!phone) {
-      throw new BadRequestException('Zadejte platné testovací telefonní číslo (+420…).');
-    }
-    const message =
-      'Testovací zpráva z administrace XXrealit — WhatsApp marketing centrum funguje.';
-    const result = await this.sendCloudToPhone(phone, message, {
-      campaignType: WhatsAppMarketingCampaignType.CUSTOM,
-    });
-    if (!result.ok) {
-      throw new BadRequestException(result.error || 'Testovací zpráva se nepodařila odeslat.');
-    }
-    return { ok: true, toPhone: phone };
+  async getLastLog() {
+    return this.cloudApi.getLastAdminLog();
   }
 
   async sendWelcomeOnRegister(user: Pick<User, 'id' | 'name' | 'phone' | 'role'>) {

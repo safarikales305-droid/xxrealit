@@ -54,6 +54,11 @@ export class WhatsAppAdminController {
     return this.marketing.sendTestMessage(dto.toPhone);
   }
 
+  @Get('last-log')
+  lastLog() {
+    return this.marketing.getLastLog();
+  }
+
   @Get('stats')
   stats() {
     return this.whatsapp.getAdminStats();

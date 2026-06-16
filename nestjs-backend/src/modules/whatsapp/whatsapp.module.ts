@@ -6,6 +6,7 @@ import { WhatsAppController } from './whatsapp.controller';
 import { WhatsAppMarketingService } from './whatsapp-marketing.service';
 import { WhatsAppService } from './whatsapp.service';
 import { WhatsAppSettingsService } from './whatsapp-settings.service';
+import { WhatsAppCloudApiService } from './whatsapp-cloud-api.service';
 import { WhatsAppWebhookService } from './whatsapp-webhook.service';
 
 @Module({
@@ -17,6 +18,7 @@ import { WhatsAppWebhookService } from './whatsapp-webhook.service';
     WhatsAppService,
     WhatsAppWebhookService,
     WhatsAppMarketingService,
+    WhatsAppCloudApiService,
   ],
   exports: [
     WhatsAppSettingsService,
@@ -24,6 +26,7 @@ import { WhatsAppWebhookService } from './whatsapp-webhook.service';
     WhatsAppService,
     WhatsAppWebhookService,
     WhatsAppMarketingService,
+    WhatsAppCloudApiService,
   ],
 })
 export class WhatsAppModule {}

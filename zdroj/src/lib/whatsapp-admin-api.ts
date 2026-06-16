@@ -116,6 +116,56 @@ export const WELCOME_ROLE_LABELS: Record<string, string> = {
   AGENCY: 'Realitní kancelář',
 };
 
+export type WhatsAppMetaError = {
+  message: string;
+  code?: number;
+  type?: string;
+};
+
+export type WhatsAppLastLog = {
+  id: string;
+  createdAt: string;
+  recipientPhone: string;
+  recipientName: string | null;
+  message: string;
+  status: string;
+  errorMessage: string | null;
+  metaDebug: unknown;
+  isWelcome: boolean;
+  campaignName: string | null;
+};
+
+function parseNestWhatsAppError(
+  data: unknown,
+  status: number,
+): WhatsAppMetaError {
+  if (!data || typeof data !== 'object') {
+    return { message: `HTTP ${status}` };
+  }
+  const root = data as Record<string, unknown>;
+  const msg = root.message;
+
+  if (msg && typeof msg === 'object' && !Array.isArray(msg)) {
+    const o = msg as Record<string, unknown>;
+    return {
+      message: typeof o.message === 'string' ? o.message : `HTTP ${status}`,
+      code: typeof o.code === 'number' ? o.code : undefined,
+      type: typeof o.type === 'string' ? o.type : undefined,
+    };
+  }
+  if (typeof msg === 'string') return { message: msg };
+  if (Array.isArray(msg)) return { message: msg.map(String).join(', ') };
+  if (typeof root.error === 'string') return { message: root.error };
+  return { message: `HTTP ${status}` };
+}
+
+export function formatWhatsAppMetaError(err: WhatsAppMetaError): string {
+  const parts = [err.message];
+  if (err.code != null) parts.push(`code: ${err.code}`);
+  if (err.type) parts.push(`type: ${err.type}`);
+  return parts.join(' | ');
+}
+
 export { WELCOME_ROLES };
 
 async function adminFetch<T>(
@@ -180,7 +230,10 @@ export async function nestAdminWhatsAppSettingsPatch(
 export async function nestAdminWhatsAppTestSend(
   token: string,
   toPhone?: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; toPhone?: string; phoneNumberId?: string }
+  | { ok: false; error: WhatsAppMetaError }
+> {
   try {
     const res = await fetch(`${API_BASE_URL}/whatsapp/admin/test`, {
       method: 'POST',
@@ -191,12 +244,27 @@ export async function nestAdminWhatsAppTestSend(
       body: JSON.stringify({ toPhone: toPhone?.trim() || undefined }),
       cache: 'no-store',
     });
-    const data = (await res.json().catch(() => ({}))) as { message?: string };
-    if (!res.ok) return { ok: false, error: data.message || `HTTP ${res.status}` };
-    return { ok: true };
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return { ok: false, error: parseNestWhatsAppError(data, res.status) };
+    }
+    return {
+      ok: true,
+      toPhone: typeof data.toPhone === 'string' ? data.toPhone : undefined,
+      phoneNumberId: typeof data.phoneNumberId === 'string' ? data.phoneNumberId : undefined,
+    };
   } catch (e: unknown) {
-    return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
+    return {
+      ok: false,
+      error: { message: e instanceof Error ? e.message : 'Chyba sítě' },
+    };
   }
+}
+
+export async function nestAdminWhatsAppLastLog(
+  token: string,
+): Promise<WhatsAppLastLog | null> {
+  return adminFetch<WhatsAppLastLog | null>(token, '/last-log');
 }
 
 export async function nestAdminWhatsAppMarketingStats(

@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import {
+  formatWhatsAppMetaError,
+  nestAdminWhatsAppLastLog,
   nestAdminWhatsAppMarketingStats,
   nestAdminWhatsAppSettingsGet,
   nestAdminWhatsAppSettingsPatch,
@@ -13,6 +15,7 @@ import {
   WELCOME_ROLES,
   type WhatsAppAdminStats,
   type WhatsAppIntegrationSettings,
+  type WhatsAppLastLog,
 } from '@/lib/whatsapp-admin-api';
 
 const emptySettings: WhatsAppIntegrationSettings = {
@@ -39,8 +42,12 @@ export default function AdminWhatsAppIntegrationPage() {
   const [webhookVerifyToken, setWebhookVerifyToken] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [statusIsError, setStatusIsError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [lastLog, setLastLog] = useState<WhatsAppLastLog | null>(null);
+  const [showLastLog, setShowLastLog] = useState(false);
+  const [loadingLastLog, setLoadingLastLog] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -102,9 +109,26 @@ export default function AdminWhatsAppIntegrationPage() {
     if (!token) return;
     setTesting(true);
     setStatusMsg(null);
+    setStatusIsError(false);
     const r = await nestAdminWhatsAppTestSend(token, settings.testPhone);
     setTesting(false);
-    setStatusMsg(r.ok ? 'Testovací zpráva odeslána.' : r.error);
+    if (!r.ok) {
+      setStatusIsError(true);
+      setStatusMsg(formatWhatsAppMetaError(r.error));
+      return;
+    }
+    setStatusIsError(false);
+    const idNote = r.phoneNumberId ? ` (phoneNumberId: ${r.phoneNumberId})` : '';
+    setStatusMsg(`Testovací zpráva odeslána na ${r.toPhone ?? settings.testPhone}${idNote}.`);
+  }
+
+  async function onShowLastLog() {
+    if (!token) return;
+    setLoadingLastLog(true);
+    const log = await nestAdminWhatsAppLastLog(token);
+    setLastLog(log);
+    setShowLastLog(true);
+    setLoadingLastLog(false);
   }
 
   if (isLoading) {
@@ -144,9 +168,37 @@ export default function AdminWhatsAppIntegrationPage() {
 
         {loadError ? <p className="text-sm text-red-600">{loadError}</p> : null}
         {statusMsg ? (
-          <p className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
+          <p
+            className={`rounded-xl border px-4 py-3 text-sm ${
+              statusIsError
+                ? 'border-red-200 bg-red-50 text-red-800'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-900'
+            }`}
+          >
             {statusMsg}
           </p>
+        ) : null}
+
+        {showLastLog ? (
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-zinc-900">Poslední WhatsApp log</h2>
+              <button
+                type="button"
+                onClick={() => setShowLastLog(false)}
+                className="text-xs font-semibold text-zinc-500 hover:text-zinc-800"
+              >
+                Zavřít
+              </button>
+            </div>
+            {!lastLog ? (
+              <p className="mt-2 text-sm text-zinc-500">Žádný záznam.</p>
+            ) : (
+              <pre className="mt-3 max-h-80 overflow-auto rounded-lg bg-zinc-50 p-3 text-xs text-zinc-700">
+                {JSON.stringify(lastLog, null, 2)}
+              </pre>
+            )}
+          </div>
         ) : null}
 
         <form onSubmit={(e) => void onSave(e)} className="space-y-4">
@@ -266,6 +318,14 @@ export default function AdminWhatsAppIntegrationPage() {
                 className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-50"
               >
                 {testing ? 'Odesílám…' : 'Odeslat testovací zprávu'}
+              </button>
+              <button
+                type="button"
+                disabled={loadingLastLog}
+                onClick={() => void onShowLastLog()}
+                className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
+              >
+                {loadingLastLog ? 'Načítám…' : 'Zobrazit poslední WhatsApp log'}
               </button>
             </div>
           </div>
