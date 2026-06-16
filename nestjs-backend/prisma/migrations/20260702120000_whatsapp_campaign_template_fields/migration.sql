@@ -1,0 +1,4 @@
+ALTER TABLE "WhatsAppMarketingCampaign"
+  ADD COLUMN IF NOT EXISTS "waTemplateName" TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS "waTemplateLanguage" TEXT NOT NULL DEFAULT 'cs',
+  ADD COLUMN IF NOT EXISTS "waTemplateVariables" TEXT[] DEFAULT ARRAY[]::TEXT[];

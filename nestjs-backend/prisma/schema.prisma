@@ -1521,6 +1521,12 @@ model WhatsAppMarketingCampaign {
   name            String
   campaignType    WhatsAppMarketingCampaignType
   messageTemplate String                          @db.Text
+  /// Schválený název šablony v Meta Business Manageru (povinné pro odeslání).
+  waTemplateName      String                      @default("")
+  /// Jazyk šablony (cs, cs_CZ, en_US, …).
+  waTemplateLanguage  String                      @default("cs")
+  /// Hodnoty proměnných šablony v pořadí {{1}}, {{2}}, … — podporují {jmeno}, {role}, {odkaz}, {kredit}.
+  waTemplateVariables String[]                    @default([])
   targetRoles     UserRole[]                      @default([])
   targetRegions   String[]                        @default([])
   targetCities    String[]                        @default([])

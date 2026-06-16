@@ -43,6 +43,9 @@ export type WhatsAppCampaignRow = {
   name: string;
   campaignType: WhatsAppCampaignType;
   messageTemplate: string;
+  waTemplateName: string;
+  waTemplateLanguage: string;
+  waTemplateVariables: string[];
   targetRoles: string[];
   targetRegions: string[];
   targetCities: string[];
@@ -55,6 +58,12 @@ export type WhatsAppCampaignRow = {
   createdAt: string;
   sentAt: string | null;
 };
+
+export const WHATSAPP_TEMPLATE_REQUIRED_MSG =
+  'WhatsApp nepovoluje první marketingovou zprávu jako vlastní text. Vyberte schválenou šablonu zprávy.';
+
+export const WHATSAPP_CAMPAIGN_TEMPLATE_HELP =
+  'Vlastní text lze poslat jen jako odpověď do 24 hodin od poslední zprávy zákazníka. Kampaně musí používat schválené WhatsApp šablony.';
 
 export type WhatsAppHistoryRow = {
   id: string;
@@ -311,7 +320,10 @@ export async function nestAdminWhatsAppCampaignCreate(
   body: {
     name: string;
     campaignType: WhatsAppCampaignType;
-    messageTemplate: string;
+    messageTemplate?: string;
+    waTemplateName: string;
+    waTemplateLanguage?: string;
+    waTemplateVariables?: string[];
     targetRoles?: string[];
     targetRegions?: string[];
     targetCities?: string[];
@@ -328,38 +340,47 @@ export async function nestAdminWhatsAppCampaignCreate(
       body: JSON.stringify(body),
       cache: 'no-store',
     });
-    const data = (await res.json().catch(() => ({}))) as WhatsAppCampaignRow & {
-      message?: string;
-    };
-    if (!res.ok) return { ok: false, error: data.message || `HTTP ${res.status}` };
-    return { ok: true, data };
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return { ok: false, error: formatWhatsAppMetaError(parseNestWhatsAppError(data, res.status)) };
+    }
+    return { ok: true, data: data as WhatsAppCampaignRow };
   } catch (e: unknown) {
     return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
   }
 }
+
+export type WhatsAppCampaignPreviewResult = {
+  preview: string | null;
+  templateName: string | null;
+  templateLanguage: string;
+  templateVariablesRendered: string[];
+};
 
 export async function nestAdminWhatsAppCampaignPreview(
   token: string,
   body: {
     name: string;
     campaignType: WhatsAppCampaignType;
-    messageTemplate: string;
+    messageTemplate?: string;
+    waTemplateName?: string;
+    waTemplateLanguage?: string;
+    waTemplateVariables?: string[];
     sampleName?: string;
     sampleRole?: string;
   },
-): Promise<string | null> {
-  const data = await adminFetch<{ preview: string }>(token, '/campaigns/preview', {
+): Promise<WhatsAppCampaignPreviewResult | null> {
+  return adminFetch<WhatsAppCampaignPreviewResult>(token, '/campaigns/preview', {
     method: 'POST',
     body: JSON.stringify(body),
   });
-  return data?.preview ?? null;
 }
 
 export async function nestAdminWhatsAppCampaignTest(
   token: string,
   campaignId: string,
   toPhone?: string,
-): Promise<{ ok: true; preview?: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; preview?: string } | { ok: false; error: WhatsAppMetaError }> {
   try {
     const res = await fetch(`${API_BASE_URL}/whatsapp/admin/campaigns/${campaignId}/test`, {
       method: 'POST',
@@ -370,11 +391,19 @@ export async function nestAdminWhatsAppCampaignTest(
       body: JSON.stringify({ toPhone: toPhone?.trim() || undefined }),
       cache: 'no-store',
     });
-    const data = (await res.json().catch(() => ({}))) as { preview?: string; message?: string };
-    if (!res.ok) return { ok: false, error: data.message || `HTTP ${res.status}` };
-    return { ok: true, preview: data.preview };
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return { ok: false, error: parseNestWhatsAppError(data, res.status) };
+    }
+    return {
+      ok: true,
+      preview: typeof data.preview === 'string' ? data.preview : undefined,
+    };
   } catch (e: unknown) {
-    return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
+    return {
+      ok: false,
+      error: { message: e instanceof Error ? e.message : 'Chyba sítě' },
+    };
   }
 }
 

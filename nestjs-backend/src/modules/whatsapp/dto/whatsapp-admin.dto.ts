@@ -84,10 +84,26 @@ export class CreateWhatsAppMarketingCampaignDto {
   @IsEnum(WhatsAppMarketingCampaignType)
   campaignType!: WhatsAppMarketingCampaignType;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  messageTemplate?: string;
+
   @IsString()
   @MinLength(1)
-  @MaxLength(4000)
-  messageTemplate!: string;
+  @MaxLength(120)
+  waTemplateName!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  waTemplateLanguage?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  waTemplateVariables?: string[];
 
   @IsOptional()
   @IsArray()

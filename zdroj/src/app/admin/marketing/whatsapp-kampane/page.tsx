@@ -17,7 +17,9 @@ import {
   nestAdminWhatsAppHistory,
   parsePhonesFromCsv,
   WHATSAPP_CAMPAIGN_TYPE_LABELS,
+  WHATSAPP_CAMPAIGN_TEMPLATE_HELP,
   WHATSAPP_TARGET_ROLES,
+  WHATSAPP_TEMPLATE_REQUIRED_MSG,
   type WhatsAppCampaignLogRow,
   type WhatsAppCampaignRow,
   type WhatsAppCampaignType,
@@ -27,8 +29,11 @@ import {
 const emptyForm = {
   name: '',
   campaignType: 'CUSTOM' as WhatsAppCampaignType,
+  waTemplateName: 'hello_world',
+  waTemplateLanguage: 'cs',
+  waTemplateVariables: '{jmeno}\n{odkaz}',
   messageTemplate:
-    'Ahoj {jmeno}! Máme pro vás novinku na XXrealit. Váš kredit: {kredit} Kč. {odkaz}',
+    'Náhled: Ahoj {jmeno}! Máme pro vás novinku na XXrealit. Váš kredit: {kredit} Kč. {odkaz}',
   targetRoles: [] as string[],
   targetRegions: [] as string[],
   targetCities: '',
@@ -111,6 +116,13 @@ export default function AdminWhatsAppCampaignsPage() {
     return [...new Set([...manual, ...fromCsv])];
   }
 
+  function parseTemplateVariables(): string[] {
+    return form.waTemplateVariables
+      .split(/\r?\n/)
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }
+
   function buildPayload() {
     const cities = form.targetCities
       .split(/[\n,;]+/)
@@ -119,6 +131,9 @@ export default function AdminWhatsAppCampaignsPage() {
     return {
       name: form.name.trim(),
       campaignType: form.campaignType,
+      waTemplateName: form.waTemplateName.trim(),
+      waTemplateLanguage: form.waTemplateLanguage.trim() || 'cs',
+      waTemplateVariables: parseTemplateVariables(),
       messageTemplate: form.messageTemplate.trim(),
       targetRoles: form.targetRoles,
       targetRegions: form.targetRegions,
@@ -130,23 +145,52 @@ export default function AdminWhatsAppCampaignsPage() {
   async function onPreview() {
     if (!token) return;
     setStatusMsg(null);
+    setStatusIsError(false);
+    if (!form.waTemplateName.trim()) {
+      setStatusIsError(true);
+      setStatusMsg(WHATSAPP_TEMPLATE_REQUIRED_MSG);
+      return;
+    }
     const p = await nestAdminWhatsAppCampaignPreview(token, buildPayload());
-    setPreview(p);
-    if (!p) setStatusMsg('Náhled se nepodařil vygenerovat.');
+    if (!p) {
+      setStatusIsError(true);
+      setStatusMsg('Náhled se nepodařil vygenerovat.');
+      return;
+    }
+    const lines = [
+      p.preview ? `Textový náhled:\n${p.preview}` : null,
+      `Šablona: ${p.templateName ?? '—'} (${p.templateLanguage})`,
+      p.templateVariablesRendered.length
+        ? `Proměnné šablony: ${p.templateVariablesRendered.join(' | ')}`
+        : 'Bez proměnných šablony (např. hello_world)',
+    ].filter(Boolean);
+    setPreview(lines.join('\n\n'));
   }
 
   async function onCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!token) return;
-    if (!form.name.trim() || !form.messageTemplate.trim()) {
-      setStatusMsg('Vyplňte název a text zprávy.');
+    if (!form.name.trim()) {
+      setStatusIsError(true);
+      setStatusMsg('Vyplňte název kampaně.');
+      return;
+    }
+    if (!form.waTemplateName.trim()) {
+      setStatusIsError(true);
+      setStatusMsg(
+        form.messageTemplate.trim()
+          ? WHATSAPP_TEMPLATE_REQUIRED_MSG
+          : 'Vyplňte název schválené WhatsApp šablony.',
+      );
       return;
     }
     setCreating(true);
     setStatusMsg(null);
+    setStatusIsError(false);
     const r = await nestAdminWhatsAppCampaignCreate(token, buildPayload());
     setCreating(false);
     if (!r.ok) {
+      setStatusIsError(true);
       setStatusMsg(r.error);
       return;
     }
@@ -160,9 +204,15 @@ export default function AdminWhatsAppCampaignsPage() {
     if (!token) return;
     setBusyId(campaign.id);
     setStatusMsg(null);
+    setStatusIsError(false);
     const r = await nestAdminWhatsAppCampaignTest(token, campaign.id);
     setBusyId(null);
-    setStatusMsg(r.ok ? 'Test kampaně odeslán.' : r.error);
+    if (!r.ok) {
+      setStatusIsError(true);
+      setStatusMsg(formatWhatsAppMetaError(r.error));
+    } else {
+      setStatusMsg('Test kampaně odeslán přes WhatsApp šablonu.');
+    }
     void refresh();
   }
 
@@ -293,6 +343,9 @@ export default function AdminWhatsAppCampaignsPage() {
           className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"
         >
           <h2 className="text-lg font-semibold text-zinc-900">Nová kampaň</h2>
+          <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            {WHATSAPP_CAMPAIGN_TEMPLATE_HELP}
+          </p>
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
             <div className="space-y-3">
               <input
@@ -321,13 +374,60 @@ export default function AdminWhatsAppCampaignsPage() {
                   </option>
                 ))}
               </select>
-              <textarea
-                rows={6}
-                value={form.messageTemplate}
-                onChange={(e) => setForm((f) => ({ ...f, messageTemplate: e.target.value }))}
-                placeholder="Text zprávy…"
-                className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-              />
+              <div>
+                <label className="text-xs font-semibold uppercase text-zinc-500">
+                  Template name (schválená šablona v Meta) *
+                </label>
+                <input
+                  value={form.waTemplateName}
+                  onChange={(e) => setForm((f) => ({ ...f, waTemplateName: e.target.value }))}
+                  placeholder="např. hello_world nebo vaše_marketingova_sablona"
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold uppercase text-zinc-500">
+                  Template language code
+                </label>
+                <input
+                  value={form.waTemplateLanguage}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, waTemplateLanguage: e.target.value }))
+                  }
+                  placeholder="cs, cs_CZ nebo en_US"
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                />
+                <p className="mt-1 text-xs text-zinc-500">
+                  Výchozí cs — pokud Meta šablonu v češtině nemá, použijte en_US.
+                </p>
+              </div>
+              <div>
+                <label className="text-xs font-semibold uppercase text-zinc-500">
+                  Template variables (jedna proměnná na řádek, pořadí {'{{1}}'}, {'{{2}}'}…)
+                </label>
+                <textarea
+                  rows={4}
+                  value={form.waTemplateVariables}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, waTemplateVariables: e.target.value }))
+                  }
+                  placeholder={'{jmeno}\n{odkaz}'}
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 font-mono text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold uppercase text-zinc-500">
+                  Vlastní text (jen náhled / interní poznámka — neodesílá se jako text)
+                </label>
+                <textarea
+                  rows={4}
+                  value={form.messageTemplate}
+                  onChange={(e) => setForm((f) => ({ ...f, messageTemplate: e.target.value }))}
+                  placeholder="Volitelný textový náhled s {jmeno}, {kredit}…"
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                />
+              </div>
               {preview ? (
                 <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3 text-sm text-zinc-800">
                   <p className="text-xs font-semibold text-emerald-800">Náhled</p>
@@ -451,6 +551,7 @@ export default function AdminWhatsAppCampaignsPage() {
                   <tr className="border-b border-zinc-100 text-xs uppercase text-zinc-500">
                     <th className="px-2 py-2">Název</th>
                     <th className="px-2 py-2">Typ</th>
+                    <th className="px-2 py-2">Šablona</th>
                     <th className="px-2 py-2">Stav</th>
                     <th className="px-2 py-2">Odesláno</th>
                     <th className="px-2 py-2">Akce</th>
@@ -462,6 +563,10 @@ export default function AdminWhatsAppCampaignsPage() {
                       <td className="px-2 py-3 font-medium">{c.name}</td>
                       <td className="px-2 py-3">
                         {WHATSAPP_CAMPAIGN_TYPE_LABELS[c.campaignType] ?? c.campaignType}
+                      </td>
+                      <td className="px-2 py-3 text-xs">
+                        {c.waTemplateName || '—'}
+                        {c.waTemplateLanguage ? ` (${c.waTemplateLanguage})` : ''}
                       </td>
                       <td className="px-2 py-3">{statusLabel(c.status)}</td>
                       <td className="px-2 py-3">
