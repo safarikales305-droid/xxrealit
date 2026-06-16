@@ -76,6 +76,11 @@ export class WhatsAppAdminController {
     return this.marketing.listCampaigns();
   }
 
+  @Get('campaigns/:id/logs')
+  campaignLogs(@Param('id') id: string) {
+    return this.marketing.getCampaignLogs(id);
+  }
+
   @Get('campaigns/:id')
   getCampaign(@Param('id') id: string) {
     return this.marketing.getCampaign(id);

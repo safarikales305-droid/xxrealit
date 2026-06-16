@@ -56,6 +56,7 @@ export class WhatsAppCloudApiService {
     logMeta?: {
       recipientPhone: string;
       recipientName?: string;
+      recipientUserId?: string;
       logLabel?: string;
       campaignId?: string;
       campaignType?: WhatsAppMarketingCampaignType | null;
@@ -137,12 +138,14 @@ export class WhatsAppCloudApiService {
       await this.persistAdminLog({
         recipientPhone: logMeta?.recipientPhone ?? String(requestBody.to ?? ''),
         recipientName: logMeta?.recipientName,
+        recipientUserId: logMeta?.recipientUserId,
         campaignId: logMeta?.campaignId,
         campaignType: logMeta?.campaignType ?? null,
         isWelcome: logMeta?.isWelcome,
         message: logMessage,
         status: WhatsAppMessageStatus.FAILED,
         errorMessage: JSON.stringify(errorDetail),
+        providerMessageId: null,
       });
 
       throw new BadRequestException(errorDetail);
@@ -151,12 +154,14 @@ export class WhatsAppCloudApiService {
     await this.persistAdminLog({
       recipientPhone: logMeta?.recipientPhone ?? String(requestBody.to ?? ''),
       recipientName: logMeta?.recipientName,
+      recipientUserId: logMeta?.recipientUserId,
       campaignId: logMeta?.campaignId,
       campaignType: logMeta?.campaignType ?? null,
       isWelcome: logMeta?.isWelcome,
       message: logMessage,
       status: WhatsAppMessageStatus.SENT,
       errorMessage: JSON.stringify({ success: true, attempt }),
+      providerMessageId,
     });
 
     return { providerMessageId, attempt };
@@ -189,31 +194,66 @@ export class WhatsAppCloudApiService {
       message: row.message,
       status: row.status,
       errorMessage: row.errorMessage,
+      providerMessageId: row.providerMessageId,
       metaDebug,
       isWelcome: row.isWelcome,
       campaignName: row.campaign?.name ?? null,
+      campaignId: row.campaignId,
     };
+  }
+
+  async getCampaignLogs(campaignId: string, limit = 200) {
+    const rows = await this.prisma.whatsAppMarketingCampaignLog.findMany({
+      where: { campaignId },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(500, limit),
+    });
+    return rows.map((row) => {
+      let metaDebug: unknown = null;
+      if (row.errorMessage) {
+        try {
+          metaDebug = JSON.parse(row.errorMessage);
+        } catch {
+          metaDebug = { raw: row.errorMessage };
+        }
+      }
+      return {
+        id: row.id,
+        createdAt: row.createdAt.toISOString(),
+        recipientPhone: row.recipientPhone,
+        recipientName: row.recipientName,
+        message: row.message,
+        status: row.status,
+        errorMessage: row.errorMessage,
+        providerMessageId: row.providerMessageId,
+        metaDebug,
+      };
+    });
   }
 
   private async persistAdminLog(input: {
     recipientPhone: string;
     recipientName?: string;
+    recipientUserId?: string;
     campaignId?: string;
     campaignType?: WhatsAppMarketingCampaignType | null;
     isWelcome?: boolean;
     message: string;
     status: WhatsAppMessageStatus;
     errorMessage: string | null;
+    providerMessageId?: string | null;
   }) {
     await this.prisma.whatsAppMarketingCampaignLog.create({
       data: {
         campaignId: input.campaignId ?? null,
+        recipientUserId: input.recipientUserId ?? null,
         recipientName: input.recipientName ?? null,
         recipientPhone: input.recipientPhone,
         campaignType: input.campaignType ?? null,
         message: input.message,
         status: input.status,
         errorMessage: input.errorMessage,
+        providerMessageId: input.providerMessageId ?? null,
         isWelcome: input.isWelcome ?? false,
       },
     });

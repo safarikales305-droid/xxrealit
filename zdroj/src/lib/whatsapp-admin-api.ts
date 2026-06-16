@@ -65,9 +65,29 @@ export type WhatsAppHistoryRow = {
   campaignName: string | null;
   status: string;
   errorMessage: string | null;
+  providerMessageId: string | null;
   message: string;
   isWelcome: boolean;
   campaignId: string | null;
+};
+
+export type WhatsAppCampaignLogRow = {
+  id: string;
+  createdAt: string;
+  recipientPhone: string;
+  recipientName: string | null;
+  message: string;
+  status: string;
+  errorMessage: string | null;
+  providerMessageId: string | null;
+  metaDebug: unknown;
+};
+
+export type WhatsAppCampaignRunResult = WhatsAppCampaignRow & {
+  recipientPhones?: string[];
+  phoneNumberId?: string;
+  tokenSource?: string;
+  errors?: string[];
 };
 
 export const WHATSAPP_CAMPAIGN_TYPE_LABELS: Record<WhatsAppCampaignType, string> = {
@@ -361,7 +381,10 @@ export async function nestAdminWhatsAppCampaignTest(
 export async function nestAdminWhatsAppCampaignRun(
   token: string,
   campaignId: string,
-): Promise<{ ok: true; data: WhatsAppCampaignRow } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; data: WhatsAppCampaignRunResult }
+  | { ok: false; error: WhatsAppMetaError }
+> {
   try {
     const res = await fetch(`${API_BASE_URL}/whatsapp/admin/campaigns/${campaignId}/run`, {
       method: 'POST',
@@ -371,14 +394,27 @@ export async function nestAdminWhatsAppCampaignRun(
       },
       cache: 'no-store',
     });
-    const data = (await res.json().catch(() => ({}))) as WhatsAppCampaignRow & {
-      message?: string;
-    };
-    if (!res.ok) return { ok: false, error: data.message || `HTTP ${res.status}` };
-    return { ok: true, data };
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return { ok: false, error: parseNestWhatsAppError(data, res.status) };
+    }
+    return { ok: true, data: data as WhatsAppCampaignRunResult };
   } catch (e: unknown) {
-    return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
+    return {
+      ok: false,
+      error: { message: e instanceof Error ? e.message : 'Chyba sítě' },
+    };
   }
+}
+
+export async function nestAdminWhatsAppCampaignLogs(
+  token: string,
+  campaignId: string,
+): Promise<{ campaign: { id: string; name: string; status: string }; logs: WhatsAppCampaignLogRow[] } | null> {
+  return adminFetch<{ campaign: { id: string; name: string; status: string }; logs: WhatsAppCampaignLogRow[] }>(
+    token,
+    `/campaigns/${campaignId}/logs`,
+  );
 }
 
 export async function nestAdminWhatsAppCampaignDelete(

@@ -1553,6 +1553,7 @@ model WhatsAppMarketingCampaignLog {
   message         String                           @db.Text
   status          WhatsAppMessageStatus
   errorMessage    String?                          @db.Text
+  providerMessageId String?
   isWelcome       Boolean                          @default(false)
   createdAt       DateTime                         @default(now())
 

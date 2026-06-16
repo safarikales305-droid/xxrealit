@@ -6,8 +6,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import {
   CZECH_REGIONS,
+  formatWhatsAppMetaError,
   nestAdminWhatsAppCampaignCreate,
   nestAdminWhatsAppCampaignDelete,
+  nestAdminWhatsAppCampaignLogs,
   nestAdminWhatsAppCampaignPreview,
   nestAdminWhatsAppCampaignRun,
   nestAdminWhatsAppCampaignsList,
@@ -16,6 +18,7 @@ import {
   parsePhonesFromCsv,
   WHATSAPP_CAMPAIGN_TYPE_LABELS,
   WHATSAPP_TARGET_ROLES,
+  type WhatsAppCampaignLogRow,
   type WhatsAppCampaignRow,
   type WhatsAppCampaignType,
   type WhatsAppHistoryRow,
@@ -44,8 +47,17 @@ export default function AdminWhatsAppCampaignsPage() {
   const [preview, setPreview] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [statusIsError, setStatusIsError] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [campaignLogs, setCampaignLogs] = useState<WhatsAppCampaignLogRow[] | null>(null);
+  const [campaignLogsTitle, setCampaignLogsTitle] = useState<string | null>(null);
+  const [loadingLogsId, setLoadingLogsId] = useState<string | null>(null);
+
+  function statusLabel(status: string): string {
+    if (status === 'SENDING') return 'RUNNING';
+    return status;
+  }
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -159,14 +171,39 @@ export default function AdminWhatsAppCampaignsPage() {
     if (!window.confirm(`Opravdu spustit kampaň „${campaign.name}"?`)) return;
     setBusyId(campaign.id);
     setStatusMsg(null);
+    setStatusIsError(false);
     const r = await nestAdminWhatsAppCampaignRun(token, campaign.id);
     setBusyId(null);
+    if (!r.ok) {
+      setStatusIsError(true);
+      setStatusMsg(formatWhatsAppMetaError(r.error));
+      void refresh();
+      return;
+    }
+    const d = r.data;
+    const failedNote = d.failedCount > 0 ? `, chyb ${d.failedCount}` : '';
+    const skippedNote = d.skippedCount > 0 ? `, přeskočeno ${d.skippedCount}` : '';
+    const phoneNote =
+      d.recipientPhones?.length ? ` Příjemci: ${d.recipientPhones.join(', ')}.` : '';
+    setStatusIsError(d.sentCount === 0);
     setStatusMsg(
-      r.ok
-        ? `Kampaň dokončena: odesláno ${r.data.sentCount}, chyb ${r.data.failedCount}, přeskočeno ${r.data.skippedCount}.`
-        : r.error,
+      `Kampaň ${d.status === 'FAILED' ? 'selhala' : 'dokončena'}: odesláno ${d.sentCount}/${d.recipientCount}${failedNote}${skippedNote}.${phoneNote}`,
     );
     void refresh();
+  }
+
+  async function onShowCampaignLog(campaign: WhatsAppCampaignRow) {
+    if (!token) return;
+    setLoadingLogsId(campaign.id);
+    const data = await nestAdminWhatsAppCampaignLogs(token, campaign.id);
+    setLoadingLogsId(null);
+    if (!data) {
+      setStatusIsError(true);
+      setStatusMsg('Log kampaně se nepodařilo načíst.');
+      return;
+    }
+    setCampaignLogsTitle(campaign.name);
+    setCampaignLogs(data.logs);
   }
 
   async function onDelete(campaign: WhatsAppCampaignRow) {
@@ -213,9 +250,42 @@ export default function AdminWhatsAppCampaignsPage() {
 
         {loadError ? <p className="text-sm text-red-600">{loadError}</p> : null}
         {statusMsg ? (
-          <p className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
+          <p
+            className={`rounded-xl border px-4 py-3 text-sm ${
+              statusIsError
+                ? 'border-red-200 bg-red-50 text-red-800'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-900'
+            }`}
+          >
             {statusMsg}
           </p>
+        ) : null}
+
+        {campaignLogs ? (
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-zinc-900">
+                Log kampaně: {campaignLogsTitle}
+              </h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setCampaignLogs(null);
+                  setCampaignLogsTitle(null);
+                }}
+                className="text-xs font-semibold text-zinc-500 hover:text-zinc-800"
+              >
+                Zavřít
+              </button>
+            </div>
+            {!campaignLogs.length ? (
+              <p className="mt-2 text-sm text-zinc-500">Žádné záznamy odeslání.</p>
+            ) : (
+              <pre className="mt-3 max-h-96 overflow-auto rounded-lg bg-zinc-50 p-3 text-xs text-zinc-700">
+                {JSON.stringify(campaignLogs, null, 2)}
+              </pre>
+            )}
+          </div>
         ) : null}
 
         <form
@@ -393,7 +463,7 @@ export default function AdminWhatsAppCampaignsPage() {
                       <td className="px-2 py-3">
                         {WHATSAPP_CAMPAIGN_TYPE_LABELS[c.campaignType] ?? c.campaignType}
                       </td>
-                      <td className="px-2 py-3">{c.status}</td>
+                      <td className="px-2 py-3">{statusLabel(c.status)}</td>
                       <td className="px-2 py-3">
                         {c.sentCount}/{c.recipientCount}
                         {c.failedCount > 0 ? ` (${c.failedCount} chyb)` : ''}
@@ -407,6 +477,14 @@ export default function AdminWhatsAppCampaignsPage() {
                             className="rounded border border-zinc-200 px-2 py-1 text-xs font-semibold"
                           >
                             Test
+                          </button>
+                          <button
+                            type="button"
+                            disabled={loadingLogsId === c.id}
+                            onClick={() => void onShowCampaignLog(c)}
+                            className="rounded border border-zinc-200 px-2 py-1 text-xs font-semibold"
+                          >
+                            {loadingLogsId === c.id ? '…' : 'Log kampaně'}
                           </button>
                           <button
                             type="button"
@@ -451,6 +529,7 @@ export default function AdminWhatsAppCampaignsPage() {
                     <th className="px-2 py-2">Telefon</th>
                     <th className="px-2 py-2">Typ</th>
                     <th className="px-2 py-2">Stav</th>
+                    <th className="px-2 py-2">Message ID</th>
                     <th className="px-2 py-2">Chyba</th>
                     <th className="px-2 py-2">Text</th>
                   </tr>
@@ -471,6 +550,7 @@ export default function AdminWhatsAppCampaignsPage() {
                             : (h.campaignName ?? '—')}
                       </td>
                       <td className="px-2 py-2">{h.status}</td>
+                      <td className="px-2 py-2 font-mono text-xs">{h.providerMessageId || '—'}</td>
                       <td className="max-w-[120px] truncate px-2 py-2 text-xs text-red-600">
                         {h.errorMessage || '—'}
                       </td>
