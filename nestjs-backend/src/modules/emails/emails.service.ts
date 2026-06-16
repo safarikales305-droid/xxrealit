@@ -186,6 +186,74 @@ export class EmailsService implements OnModuleInit {
     return this.prisma.emailCampaign.findMany({ orderBy: { createdAt: 'desc' } });
   }
 
+  async sendRawEmail(input: {
+    type: string;
+    to: string;
+    subject: string;
+    html: string;
+    text: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    const payloadJson =
+      input.metadata == null
+        ? Prisma.JsonNull
+        : (JSON.parse(JSON.stringify(input.metadata)) as Prisma.InputJsonValue);
+
+    const log = await this.prisma.emailLog.create({
+      data: {
+        type: input.type,
+        subject: input.subject,
+        recipientEmail: input.to,
+        status: EmailLogStatus.queued,
+        provider: 'resend',
+        payloadJson,
+      },
+    });
+
+    const apiKey = this.config.get<string>('RESEND_API_KEY')?.trim();
+    if (!apiKey) {
+      await this.prisma.emailLog.update({
+        where: { id: log.id },
+        data: { status: EmailLogStatus.failed, errorMessage: 'Missing RESEND_API_KEY' },
+      });
+      throw new Error('Missing RESEND_API_KEY');
+    }
+    const resend = new Resend(apiKey);
+    try {
+      const response = await resend.emails.send({
+        from: this.senderAddress(),
+        to: input.to,
+        subject: input.subject,
+        html: this.buildLayout(input.html, ''),
+        text: input.text,
+      });
+      if (response.error) {
+        const msg = response.error.message || 'Unknown resend error';
+        await this.prisma.emailLog.update({
+          where: { id: log.id },
+          data: { status: EmailLogStatus.failed, errorMessage: msg },
+        });
+        throw new Error(msg);
+      }
+      await this.prisma.emailLog.update({
+        where: { id: log.id },
+        data: {
+          status: EmailLogStatus.sent,
+          sentAt: new Date(),
+          providerMessageId: response.data?.id ?? null,
+        },
+      });
+      return { ok: true, logId: log.id };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      await this.prisma.emailLog.update({
+        where: { id: log.id },
+        data: { status: EmailLogStatus.failed, errorMessage: msg },
+      });
+      throw error;
+    }
+  }
+
   async sendTemplatedEmail(input: SendTemplatedEmailInput) {
     const template = await this.prisma.emailTemplate.findUnique({
       where: { key: input.templateKey },

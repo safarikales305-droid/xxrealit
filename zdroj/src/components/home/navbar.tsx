@@ -14,6 +14,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useMessagesUnreadCount } from '@/hooks/use-messages-unread';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { imageCropToStyle } from '@/components/profile/image-crop-editor-modal';
+import { canAccessCommunication } from '@/lib/communication-roles';
 
 export type ViewMode = 'shorts' | 'classic' | 'posts';
 
@@ -95,6 +96,14 @@ export function Navbar({
           badge: unreadMessages,
         },
       ];
+      if (canAccessCommunication(user.role)) {
+        items.push({
+          key: 'communication',
+          label: 'Komunikace',
+          href: '/profil/komunikace',
+          icon: menuIcons.messages,
+        });
+      }
       if (isAdmin) {
         items.push({
           key: 'admin',

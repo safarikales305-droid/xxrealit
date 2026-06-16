@@ -62,12 +62,12 @@ export class WhatsAppService {
   }
 
   buildPrefillMessage(listingTitle?: string, listingUrl?: string): string {
-    const title = listingTitle?.trim() || 'inzerát na xxrealit';
     const url = listingUrl?.trim();
     if (url) {
-      return `Dobrý den, mám zájem o inzerát: ${title} ${url}`;
+      return `Dobrý den, mám zájem o tento inzerát:\n${url}`;
     }
-    return `Dobrý den, mám zájem o inzerát: ${title}`;
+    const title = listingTitle?.trim() || 'inzerát na xxrealit';
+    return `Dobrý den, mám zájem o tento inzerát:\n${title}`;
   }
 
   async logWaMeClick(dto: WhatsAppClickDto, visitorPhone?: string) {

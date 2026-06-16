@@ -34,6 +34,7 @@ import { RegistrationGateModule } from './modules/registration-gate/registration
 import { CreditsModule } from './modules/credits/credits.module';
 import { ProfessionalVerificationModule } from './modules/professional-verification/professional-verification.module';
 import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
+import { CommunicationModule } from './modules/communication/communication.module';
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
     RegistrationGateModule,
     CreditsModule,
     WhatsAppModule,
+    CommunicationModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

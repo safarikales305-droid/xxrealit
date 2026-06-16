@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { BonusCampaignModule } from '../bonus-campaign/bonus-campaign.module';
 import { PostsModule } from '../posts/posts.module';
 import { FacebookAuthService } from './facebook/facebook-auth.service';
 import { FacebookController } from './facebook/facebook.controller';
@@ -21,7 +22,7 @@ import { TokenEncryptionService } from './token-encryption.service';
 import { YoutubeController } from './youtube/youtube.controller';
 
 @Module({
-  imports: [AuthModule, PostsModule],
+  imports: [AuthModule, PostsModule, BonusCampaignModule],
   controllers: [
     FacebookController,
     FacebookPageController,

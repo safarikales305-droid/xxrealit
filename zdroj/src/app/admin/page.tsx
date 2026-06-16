@@ -492,6 +492,12 @@ export default function AdminPage() {
               E-maily
             </Link>
             <Link
+              href="/admin/logy"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Logy systému
+            </Link>
+            <Link
               href="/"
               className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >
@@ -632,6 +638,12 @@ export default function AdminPage() {
             <StatCard title="Odeslané leady" value={stats?.brokerLeadsSent ?? '—'} />
             <StatCard title="Součet bodů makléřů" value={stats?.brokerPointsTotal ?? '—'} />
             <StatCard title="Nerozdané free leady" value={stats?.brokerFreeLeadsOutstanding ?? '—'} />
+            <StatCard title="WhatsApp zprávy" value={stats?.whatsappMessages ?? '—'} />
+            <StatCard title="E-maily" value={stats?.emailLogs ?? '—'} />
+            <StatCard title="Kampaně" value={stats?.marketingCampaigns ?? '—'} />
+            <StatCard title="CRM kontakty" value={stats?.crmContacts ?? '—'} />
+            <StatCard title="Bonusy připsané" value={stats?.bonusClaims ?? '—'} />
+            <StatCard title="Kreditní pohyby" value={stats?.creditLedgerEntries ?? '—'} />
           </div>
         </section>
 

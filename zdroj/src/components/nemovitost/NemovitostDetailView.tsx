@@ -566,9 +566,14 @@ export function NemovitostDetailView({
                   Rychlé akce
                 </p>
                 <div className="mt-3 flex flex-col items-center gap-3">
+                  {!isOwner && phone ? (
+                    <a href={`tel:${phone}`} className={secondaryActionClass}>
+                      📞 Zavolat
+                    </a>
+                  ) : null}
                   <button type="button" onClick={handleWriteSeller} className={primaryMessageClass}>
                     <MessageCircle className="size-5 shrink-0" strokeWidth={2.25} aria-hidden />
-                    Odeslat zprávu prodejci
+                    ✉️ Napsat zprávu
                   </button>
                   {!isOwner && author.whatsappEnabled ? (
                     <WhatsAppContactButton
@@ -577,6 +582,7 @@ export function NemovitostDetailView({
                       listingTitle={p.title}
                       listingUrl={shareUrl}
                       variant="secondary"
+                      label="💬 WhatsApp"
                       className="w-full max-w-[360px]"
                     />
                   ) : null}

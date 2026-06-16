@@ -252,6 +252,12 @@ export class AdminService {
       brokerLeadsSent,
       brokerPointsAgg,
       brokerFreeLeadsAgg,
+      whatsappMessages,
+      emailLogs,
+      marketingCampaigns,
+      crmContacts,
+      bonusClaims,
+      creditLedgerEntries,
     ] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.user.count({ where: { role: UserRole.ADMIN } }),
@@ -267,6 +273,12 @@ export class AdminService {
       this.prisma.brokerLeadOffer.count(),
       this.prisma.user.aggregate({ _sum: { brokerPoints: true } }),
       this.prisma.user.aggregate({ _sum: { brokerFreeLeads: true } }),
+      this.prisma.whatsAppMessage.count(),
+      this.prisma.emailLog.count(),
+      this.prisma.marketingCampaign.count(),
+      this.prisma.crmContact.count(),
+      this.prisma.bonusClaim.count(),
+      this.prisma.creditLedger.count(),
     ]);
     return {
       users: totalUsers - adminUsers,
@@ -280,6 +292,12 @@ export class AdminService {
       brokerLeadsSent,
       brokerPointsTotal: brokerPointsAgg._sum.brokerPoints ?? 0,
       brokerFreeLeadsOutstanding: brokerFreeLeadsAgg._sum.brokerFreeLeads ?? 0,
+      whatsappMessages,
+      emailLogs,
+      marketingCampaigns,
+      crmContacts,
+      bonusClaims,
+      creditLedgerEntries,
     };
   }
 

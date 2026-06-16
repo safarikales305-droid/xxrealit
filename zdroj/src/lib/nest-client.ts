@@ -660,6 +660,12 @@ export type AdminStats = {
   brokerLeadsSent?: number;
   brokerPointsTotal?: number;
   brokerFreeLeadsOutstanding?: number;
+  whatsappMessages?: number;
+  emailLogs?: number;
+  marketingCampaigns?: number;
+  crmContacts?: number;
+  bonusClaims?: number;
+  creditLedgerEntries?: number;
 };
 
 export type AdminListingPhotoWatermarkSettings = {

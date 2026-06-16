@@ -287,6 +287,11 @@ model User {
   socialImportedPosts          SocialImportedPost[]
   socialFacebookOAuthSessions  SocialFacebookOAuthSession[]
   whatsappMessages             WhatsAppMessage[]
+  whatsappMessagesSent         WhatsAppMessage[] @relation("WhatsAppSentBy")
+  crmContacts                  CrmContact[]
+  marketingCampaigns           MarketingCampaign[]
+  activityLogs                 ActivityLog[] @relation("ActivityLogActor")
+  activityLogsTargeted         ActivityLog[] @relation("ActivityLogTarget")
 
   @@index([professionalVerificationStatus, professionalVerificationRequestedAt])
 }
@@ -815,6 +820,7 @@ model Property {
   listingContactUnlocks ListingContactUnlock[]
   contactLeads          ContactLead[] @relation("ContactLeadListing")
   whatsappMessages      WhatsAppMessage[]
+  crmContacts           CrmContact[]
 
   @@index([userId])
   @@index([derivedFromPropertyId])
@@ -1463,7 +1469,9 @@ enum WhatsAppMessageStatus {
 model WhatsAppMessage {
   id                String                   @id @default(uuid())
   userId            String?
+  sentByUserId      String?
   listingId         String?
+  recipientName     String?
   direction         WhatsAppMessageDirection
   fromPhone         String                   @default("")
   toPhone           String                   @default("")
@@ -1472,10 +1480,12 @@ model WhatsAppMessage {
   providerMessageId String?
   createdAt         DateTime                 @default(now())
 
-  user    User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
-  listing Property? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sentByUser User?     @relation("WhatsAppSentBy", fields: [sentByUserId], references: [id], onDelete: SetNull)
+  listing    Property? @relation(fields: [listingId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
+  @@index([sentByUserId, createdAt])
   @@index([listingId, createdAt])
   @@index([status, createdAt])
   @@index([providerMessageId])
@@ -1694,4 +1704,109 @@ model ReferralInvite {
   inviter User @relation("ReferralInvitesSent", fields: [inviterUserId], references: [id], onDelete: Cascade)
 
   @@index([inviterUserId, channel, createdAt])
+}
+
+enum MarketingCampaignChannel {
+  WHATSAPP
+  EMAIL
+  INTERNAL_MESSAGE
+}
+
+enum MarketingCampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  FAILED
+}
+
+enum MarketingCampaignAudience {
+  ALL_USERS
+  AGENTS
+  INVESTORS
+  FINANCIAL_ADVISORS
+  CONSTRUCTION_COMPANIES
+  CRAFTSMEN
+  BY_REGION
+  BY_CITY
+}
+
+enum ActivityLogCategory {
+  WHATSAPP
+  EMAIL
+  FACEBOOK_IMPORT
+  BONUS
+  CREDITS
+  REGISTRATION
+  INVITE
+  MARKETING_CAMPAIGN
+}
+
+/// CRM kontakt profesionála (zájemce, partner, ruční záznam).
+model CrmContact {
+  id            String    @id @default(cuid())
+  ownerUserId   String
+  name          String
+  phone         String    @default("")
+  email         String    @default("")
+  source        String    @default("manual")
+  listingId     String?
+  contactLeadId String?
+  notes         String?   @db.Text
+  tags          String[]  @default([])
+  reminderAt    DateTime?
+  lastContactAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  owner   User      @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  listing Property? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+
+  @@index([ownerUserId, createdAt])
+  @@index([listingId])
+  @@index([ownerUserId, lastContactAt])
+}
+
+/// Hromadná marketingová kampaň (WhatsApp / e-mail / interní zpráva).
+model MarketingCampaign {
+  id               String                    @id @default(cuid())
+  createdByUserId  String
+  title            String
+  body             String                    @db.Text
+  channel          MarketingCampaignChannel
+  audience         MarketingCampaignAudience
+  audienceRegion   String?
+  audienceCity     String?
+  status           MarketingCampaignStatus   @default(DRAFT)
+  scheduledAt      DateTime?
+  sentAt           DateTime?
+  recipientCount   Int                       @default(0)
+  deliveredCount   Int                       @default(0)
+  failedCount      Int                       @default(0)
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+
+  createdBy User @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+
+  @@index([createdByUserId, createdAt])
+  @@index([status, scheduledAt])
+}
+
+/// Centrální log aktivit pro administraci.
+model ActivityLog {
+  id           String              @id @default(cuid())
+  category     ActivityLogCategory
+  userId       String?
+  targetUserId String?
+  listingId    String?
+  message      String              @db.Text
+  metadata     Json?
+  createdAt    DateTime            @default(now())
+
+  user       User? @relation("ActivityLogActor", fields: [userId], references: [id], onDelete: SetNull)
+  targetUser User? @relation("ActivityLogTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([category, createdAt])
+  @@index([userId, createdAt])
+  @@index([listingId, createdAt])
 }

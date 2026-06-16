@@ -7,7 +7,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { SocialProvider, UserRole } from '@prisma/client';
+import { SocialProvider, UserRole, MarketingBonusActionType } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../../database/prisma.service';
 import { TokenEncryptionService } from '../token-encryption.service';
@@ -18,6 +18,7 @@ import {
 } from './facebook-page.constants';
 import { FacebookConfigService } from './facebook-config.service';
 import { FacebookPageSyncService } from './facebook-page-sync.service';
+import { BonusCampaignService } from '../../bonus-campaign/bonus-campaign.service';
 import {
   FACEBOOK_PAGES_LIST_PERMISSION_MESSAGE,
   FACEBOOK_PAGE_SCOPES_NOT_AVAILABLE_LOG,
@@ -78,6 +79,7 @@ export class FacebookPageService {
     private readonly crypto: TokenEncryptionService,
     private readonly sync: FacebookPageSyncService,
     private readonly facebookConfig: FacebookConfigService,
+    private readonly bonusCampaigns: BonusCampaignService,
   ) {}
 
   isConfigured(): boolean {
@@ -769,6 +771,10 @@ export class FacebookPageService {
         `FACEBOOK_PAGE_POSTS_SYNCED userId=${userId} pageId=${pageRow.id} imported=${syncResult.imported ?? 0}`,
       );
     }
+
+    void this.bonusCampaigns
+      .evaluateMarketingBonuses(userId, MarketingBonusActionType.FACEBOOK_CONNECT)
+      .catch(() => undefined);
 
     return {
       ok: true,
