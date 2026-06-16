@@ -75,8 +75,18 @@ export function extractTemplateBodyText(components?: MetaTemplateComponent[]): s
 
 export function countTemplateBodyVariables(bodyText: string): number {
   if (!bodyText) return 0;
-  const matches = bodyText.match(/\{\{[^}]+\}\}/g);
-  return matches?.length ?? 0;
+
+  let maxPositional = 0;
+  for (const match of bodyText.matchAll(/\{\{(\d+)\}\}/g)) {
+    const index = Number.parseInt(match[1] ?? '', 10);
+    if (Number.isFinite(index) && index > maxPositional) {
+      maxPositional = index;
+    }
+  }
+  if (maxPositional > 0) return maxPositional;
+
+  const named = bodyText.match(/\{\{[^}]+\}\}/g);
+  return named?.length ?? 0;
 }
 
 @Injectable()

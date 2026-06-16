@@ -7,6 +7,7 @@ import { WhatsAppMessageStatus, WhatsAppMarketingCampaignType } from '@prisma/cl
 import { PrismaService } from '../../database/prisma.service';
 import { WhatsAppConfigService } from './whatsapp-config.service';
 import { WhatsAppSettingsService } from './whatsapp-settings.service';
+import { assertZeroVariableTemplatePayload } from './whatsapp-template-send.util';
 
 const GRAPH_BASE = 'https://graph.facebook.com';
 
@@ -62,6 +63,7 @@ export class WhatsAppCloudApiService {
       isWelcome?: boolean;
       templateName?: string;
       templateLanguage?: string;
+      variablesCount?: number;
     },
   ): Promise<{
     providerMessageId: string | null;
@@ -86,11 +88,15 @@ export class WhatsAppCloudApiService {
     const requestUrl = `${GRAPH_BASE}/${apiVersion}/${phoneNumberId}/messages`;
     const tokenSource = this.accessTokenSource();
 
+    if (logMeta?.variablesCount != null) {
+      assertZeroVariableTemplatePayload(requestBody, logMeta.variablesCount);
+    }
+
     this.logger.log(`[WhatsApp Meta] POST ${requestUrl}`);
     this.logger.log(
       `[WhatsApp Meta] phoneNumberId=${phoneNumberId} tokenSource=${tokenSource} tokenLen=${token.length}`,
     );
-    this.logger.log(`[WhatsApp Meta] request body: ${JSON.stringify(requestBody)}`);
+    this.logger.log(`[WhatsApp Meta] final payload: ${JSON.stringify(requestBody)}`);
 
     const res = await fetch(requestUrl, {
       method: 'POST',

@@ -1,12 +1,19 @@
+import { BadRequestException } from '@nestjs/common';
 import type { MetaMessagesRequestBody } from './whatsapp-cloud-api.service';
 
 export type WhatsAppTemplateSendConfig = {
   templateName: string;
   languageCode: string;
   bodyParameters?: string[];
-  /** Když 0, do Meta se neposílají components ani parameters. */
-  variablesCount?: number;
+  /** Počet proměnných šablony z Meta — při 0 se neposílají components ani parameters. */
+  variablesCount: number;
 };
+
+export class WhatsAppTemplatePayloadError extends BadRequestException {
+  constructor(message: string) {
+    super(message);
+  }
+}
 
 export const WHATSAPP_MARKETING_TEMPLATE_REQUIRED_MSG =
   'WhatsApp nepovoluje první marketingovou zprávu jako vlastní text. Vyberte schválenou šablonu zprávy.';
@@ -49,25 +56,73 @@ export function buildTemplateBodyParameters(
   return parameters;
 }
 
+/** Ověří, že payload pro šablonu bez proměnných neobsahuje parametry ani components. */
+export function assertZeroVariableTemplatePayload(
+  requestBody: MetaMessagesRequestBody,
+  variablesCount: number,
+): void {
+  if (variablesCount > 0) return;
+
+  const topForbidden = ['components', 'parameters', 'body', 'text', 'message', 'previewMessage'];
+  for (const key of topForbidden) {
+    if (key in requestBody && requestBody[key] != null) {
+      throw new WhatsAppTemplatePayloadError(
+        `Šablona bez proměnných: Meta payload nesmí obsahovat pole „${key}“.`,
+      );
+    }
+  }
+
+  const template = requestBody.template;
+  if (!template || typeof template !== 'object') {
+    throw new WhatsAppTemplatePayloadError('Meta payload musí obsahovat objekt template.');
+  }
+
+  const templateObj = template as Record<string, unknown>;
+  const templateForbidden = ['components', 'parameters', 'body', 'text'];
+  for (const key of templateForbidden) {
+    if (key in templateObj && templateObj[key] != null) {
+      throw new WhatsAppTemplatePayloadError(
+        `Šablona bez proměnných: template nesmí obsahovat „${key}“. Aktuální payload: ${JSON.stringify(requestBody)}`,
+      );
+    }
+  }
+
+  const components = templateObj.components;
+  if (Array.isArray(components) && components.length > 0) {
+    throw new WhatsAppTemplatePayloadError(
+      `Šablona bez proměnných: template.components musí být prázdné nebo chybět. Aktuální payload: ${JSON.stringify(requestBody)}`,
+    );
+  }
+}
+
 export function buildTemplateMessageRequest(
   toDigits: string,
   config: WhatsAppTemplateSendConfig,
 ): MetaMessagesRequestBody {
   const templateName = config.templateName.trim();
   const languageCode = metaTemplateLanguageCode(config.languageCode);
+  const to = toDigits.replace(/\D/g, '');
+
+  if (config.variablesCount <= 0) {
+    return {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'template',
+      template: {
+        name: templateName,
+        language: { code: languageCode },
+      },
+    };
+  }
+
+  const bodyParameters = (config.bodyParameters ?? [])
+    .map((v) => String(v).trim())
+    .filter((v) => v.length > 0);
 
   const template: Record<string, unknown> = {
     name: templateName,
     language: { code: languageCode },
   };
-
-  const variablesCount = config.variablesCount ?? (config.bodyParameters ?? []).length;
-  const bodyParameters =
-    variablesCount <= 0
-      ? []
-      : (config.bodyParameters ?? [])
-          .map((v) => String(v).trim())
-          .filter((v) => v.length > 0);
 
   if (bodyParameters.length > 0) {
     template.components = [
@@ -81,12 +136,14 @@ export function buildTemplateMessageRequest(
     ];
   }
 
-  return {
+  const requestBody: MetaMessagesRequestBody = {
     messaging_product: 'whatsapp',
-    to: toDigits,
+    to,
     type: 'template',
     template,
   };
+
+  return requestBody;
 }
 
 export function formatTemplateLogLabel(
