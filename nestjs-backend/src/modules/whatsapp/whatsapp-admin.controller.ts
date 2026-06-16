@@ -16,6 +16,7 @@ import { CurrentUser, type AuthUser } from '../auth/decorators/current-user.deco
 import { WhatsAppSettingsService } from './whatsapp-settings.service';
 import { WhatsAppMarketingService } from './whatsapp-marketing.service';
 import { WhatsAppService } from './whatsapp.service';
+import { WhatsAppMetaTemplatesService } from './whatsapp-meta-templates.service';
 import {
   CreateWhatsAppMarketingCampaignDto,
   PreviewWhatsAppCampaignDto,
@@ -32,6 +33,7 @@ export class WhatsAppAdminController {
     private readonly settings: WhatsAppSettingsService,
     private readonly marketing: WhatsAppMarketingService,
     private readonly whatsapp: WhatsAppService,
+    private readonly metaTemplates: WhatsAppMetaTemplatesService,
   ) {}
 
   @Get('settings')
@@ -69,6 +71,16 @@ export class WhatsAppAdminController {
     @Query(new ValidationPipe({ whitelist: true, transform: true })) query: WhatsAppHistoryQueryDto,
   ) {
     return this.marketing.listHistory(query.limit ?? 100, query.campaignId);
+  }
+
+  @Get('templates')
+  listTemplates(@Query('approvedOnly') approvedOnly?: string) {
+    return this.metaTemplates.listTemplates(approvedOnly === 'true');
+  }
+
+  @Post('templates/sync')
+  syncTemplates() {
+    return this.metaTemplates.syncTemplates();
   }
 
   @Get('campaigns')

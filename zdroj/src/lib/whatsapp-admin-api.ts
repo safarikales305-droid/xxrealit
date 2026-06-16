@@ -44,6 +44,7 @@ export type WhatsAppCampaignRow = {
   campaignType: WhatsAppCampaignType;
   messageTemplate: string;
   waTemplateName: string;
+  waMetaTemplateId: string | null;
   waTemplateLanguage: string;
   waTemplateVariables: string[];
   targetRoles: string[];
@@ -64,6 +65,34 @@ export const WHATSAPP_TEMPLATE_REQUIRED_MSG =
 
 export const WHATSAPP_CAMPAIGN_TEMPLATE_HELP =
   'Vlastní text lze poslat jen jako odpověď do 24 hodin od poslední zprávy zákazníka. Kampaně musí používat schválené WhatsApp šablony.';
+
+export type WhatsAppMetaTemplateRow = {
+  id: string;
+  metaTemplateId: string;
+  templateName: string;
+  category: string;
+  language: string;
+  status: string;
+  bodyText: string;
+  variablesCount: number;
+  syncedAt: string;
+};
+
+export type WhatsAppTemplatesListResult = {
+  templates: WhatsAppMetaTemplateRow[];
+  lastSyncedAt: string | null;
+};
+
+export type WhatsAppTemplatesSyncResult = {
+  ok: boolean;
+  syncedCount: number;
+  approvedCount: number;
+  syncedAt: string;
+  error?: string;
+};
+
+export const WHATSAPP_NO_APPROVED_TEMPLATES_MSG =
+  'V Meta zatím není schválena žádná WhatsApp šablona.';
 
 export type WhatsAppHistoryRow = {
   id: string;
@@ -309,6 +338,44 @@ export async function nestAdminWhatsAppHistory(
   return adminFetch<WhatsAppHistoryRow[]>(token, `/history?limit=${limit}`);
 }
 
+export async function nestAdminWhatsAppTemplatesList(
+  token: string,
+  approvedOnly = false,
+): Promise<WhatsAppTemplatesListResult | null> {
+  const q = approvedOnly ? '?approvedOnly=true' : '';
+  return adminFetch<WhatsAppTemplatesListResult>(token, `/templates${q}`);
+}
+
+export async function nestAdminWhatsAppTemplatesSync(
+  token: string,
+): Promise<
+  | { ok: true; data: WhatsAppTemplatesSyncResult }
+  | { ok: false; error: string }
+> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/whatsapp/admin/templates/sync`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+    });
+    const data = (await res.json().catch(() => ({}))) as WhatsAppTemplatesSyncResult & {
+      message?: string;
+    };
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: data.error || data.message || `HTTP ${res.status}`,
+      };
+    }
+    return { ok: true, data };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
+  }
+}
+
 export async function nestAdminWhatsAppCampaignsList(
   token: string,
 ): Promise<WhatsAppCampaignRow[] | null> {
@@ -321,7 +388,8 @@ export async function nestAdminWhatsAppCampaignCreate(
     name: string;
     campaignType: WhatsAppCampaignType;
     messageTemplate?: string;
-    waTemplateName: string;
+    waMetaTemplateId?: string;
+    waTemplateName?: string;
     waTemplateLanguage?: string;
     waTemplateVariables?: string[];
     targetRoles?: string[];
@@ -355,6 +423,8 @@ export type WhatsAppCampaignPreviewResult = {
   templateName: string | null;
   templateLanguage: string;
   templateVariablesRendered: string[];
+  templateBody?: string | null;
+  templateCategory?: string | null;
 };
 
 export async function nestAdminWhatsAppCampaignPreview(
@@ -363,6 +433,7 @@ export async function nestAdminWhatsAppCampaignPreview(
     name: string;
     campaignType: WhatsAppCampaignType;
     messageTemplate?: string;
+    waMetaTemplateId?: string;
     waTemplateName?: string;
     waTemplateLanguage?: string;
     waTemplateVariables?: string[];

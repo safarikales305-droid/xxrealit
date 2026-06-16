@@ -15,22 +15,25 @@ import {
   nestAdminWhatsAppCampaignsList,
   nestAdminWhatsAppCampaignTest,
   nestAdminWhatsAppHistory,
+  nestAdminWhatsAppTemplatesList,
+  nestAdminWhatsAppTemplatesSync,
   parsePhonesFromCsv,
   WHATSAPP_CAMPAIGN_TYPE_LABELS,
   WHATSAPP_CAMPAIGN_TEMPLATE_HELP,
+  WHATSAPP_NO_APPROVED_TEMPLATES_MSG,
   WHATSAPP_TARGET_ROLES,
   WHATSAPP_TEMPLATE_REQUIRED_MSG,
   type WhatsAppCampaignLogRow,
   type WhatsAppCampaignRow,
   type WhatsAppCampaignType,
   type WhatsAppHistoryRow,
+  type WhatsAppMetaTemplateRow,
 } from '@/lib/whatsapp-admin-api';
 
 const emptyForm = {
   name: '',
   campaignType: 'CUSTOM' as WhatsAppCampaignType,
-  waTemplateName: 'hello_world',
-  waTemplateLanguage: 'cs',
+  waMetaTemplateId: '',
   waTemplateVariables: '{jmeno}\n{odkaz}',
   messageTemplate:
     'Náhled: Ahoj {jmeno}! Máme pro vás novinku na XXrealit. Váš kredit: {kredit} Kč. {odkaz}',
@@ -40,6 +43,13 @@ const emptyForm = {
   manualPhones: '',
   csvText: '',
 };
+
+function templateStatusClass(status: string): string {
+  if (status === 'APPROVED') return 'text-emerald-700 bg-emerald-50';
+  if (status === 'PENDING') return 'text-amber-700 bg-amber-50';
+  if (status === 'REJECTED' || status === 'PAUSED') return 'text-red-700 bg-red-50';
+  return 'text-zinc-600 bg-zinc-50';
+}
 
 export default function AdminWhatsAppCampaignsPage() {
   const router = useRouter();
@@ -58,6 +68,12 @@ export default function AdminWhatsAppCampaignsPage() {
   const [campaignLogs, setCampaignLogs] = useState<WhatsAppCampaignLogRow[] | null>(null);
   const [campaignLogsTitle, setCampaignLogsTitle] = useState<string | null>(null);
   const [loadingLogsId, setLoadingLogsId] = useState<string | null>(null);
+  const [allTemplates, setAllTemplates] = useState<WhatsAppMetaTemplateRow[]>([]);
+  const [approvedTemplates, setApprovedTemplates] = useState<WhatsAppMetaTemplateRow[]>([]);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [syncingTemplates, setSyncingTemplates] = useState(false);
+
+  const selectedTemplate = approvedTemplates.find((t) => t.id === form.waMetaTemplateId) ?? null;
 
   function statusLabel(status: string): string {
     if (status === 'SENDING') return 'RUNNING';
@@ -79,6 +95,51 @@ export default function AdminWhatsAppCampaignsPage() {
     setHistory(hist ?? []);
   }, [token]);
 
+  const syncTemplates = useCallback(
+    async (silent = false) => {
+      if (!token) return;
+      setSyncingTemplates(true);
+      if (!silent) {
+        setStatusMsg(null);
+        setStatusIsError(false);
+      }
+      const r = await nestAdminWhatsAppTemplatesSync(token);
+      const [all, approved] = await Promise.all([
+        nestAdminWhatsAppTemplatesList(token, false),
+        nestAdminWhatsAppTemplatesList(token, true),
+      ]);
+      if (all) {
+        setAllTemplates(all.templates);
+        setLastSyncedAt(all.lastSyncedAt);
+      }
+      if (approved) {
+        setApprovedTemplates(approved.templates);
+        setForm((f) => {
+          if (f.waMetaTemplateId && approved.templates.some((t) => t.id === f.waMetaTemplateId)) {
+            return f;
+          }
+          const pick = approved.templates[0]?.id ?? '';
+          return { ...f, waMetaTemplateId: pick };
+        });
+      }
+      setSyncingTemplates(false);
+      if (!r.ok) {
+        if (!silent) {
+          setStatusIsError(true);
+          setStatusMsg(r.error);
+        }
+        return;
+      }
+      if (!silent) {
+        setStatusIsError(false);
+        setStatusMsg(
+          `Synchronizováno ${r.data.syncedCount} šablon (${r.data.approvedCount} schválených).`,
+        );
+      }
+    },
+    [token],
+  );
+
   useEffect(() => {
     if (!isLoading && (!user || user.role !== 'ADMIN')) {
       router.replace('/');
@@ -88,6 +149,56 @@ export default function AdminWhatsAppCampaignsPage() {
   useEffect(() => {
     if (token && user?.role === 'ADMIN') void refresh();
   }, [token, user?.role, refresh]);
+
+  useEffect(() => {
+    if (!token || user?.role !== 'ADMIN') return;
+    let cancelled = false;
+    void (async () => {
+      const [all, approved] = await Promise.all([
+        nestAdminWhatsAppTemplatesList(token, false),
+        nestAdminWhatsAppTemplatesList(token, true),
+      ]);
+      if (cancelled) return;
+      if (all) {
+        setAllTemplates(all.templates);
+        setLastSyncedAt(all.lastSyncedAt);
+      }
+      if (approved) {
+        setApprovedTemplates(approved.templates);
+        if (approved.templates[0]) {
+          setForm((f) =>
+            f.waMetaTemplateId ? f : { ...f, waMetaTemplateId: approved.templates[0]!.id },
+          );
+        }
+      }
+      setSyncingTemplates(true);
+      const sync = await nestAdminWhatsAppTemplatesSync(token);
+      if (cancelled) return;
+      const [allAfter, approvedAfter] = await Promise.all([
+        nestAdminWhatsAppTemplatesList(token, false),
+        nestAdminWhatsAppTemplatesList(token, true),
+      ]);
+      if (allAfter) {
+        setAllTemplates(allAfter.templates);
+        setLastSyncedAt(
+          allAfter.lastSyncedAt ?? (sync.ok ? sync.data.syncedAt : null),
+        );
+      }
+      if (approvedAfter) {
+        setApprovedTemplates(approvedAfter.templates);
+        setForm((f) => {
+          if (f.waMetaTemplateId && approvedAfter.templates.some((t) => t.id === f.waMetaTemplateId)) {
+            return f;
+          }
+          return { ...f, waMetaTemplateId: approvedAfter.templates[0]?.id ?? '' };
+        });
+      }
+      setSyncingTemplates(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, user?.role]);
 
   function toggleRole(role: string) {
     setForm((f) => ({
@@ -131,8 +242,7 @@ export default function AdminWhatsAppCampaignsPage() {
     return {
       name: form.name.trim(),
       campaignType: form.campaignType,
-      waTemplateName: form.waTemplateName.trim(),
-      waTemplateLanguage: form.waTemplateLanguage.trim() || 'cs',
+      waMetaTemplateId: form.waMetaTemplateId.trim(),
       waTemplateVariables: parseTemplateVariables(),
       messageTemplate: form.messageTemplate.trim(),
       targetRoles: form.targetRoles,
@@ -146,9 +256,15 @@ export default function AdminWhatsAppCampaignsPage() {
     if (!token) return;
     setStatusMsg(null);
     setStatusIsError(false);
-    if (!form.waTemplateName.trim()) {
+    if (!form.waMetaTemplateId.trim()) {
       setStatusIsError(true);
-      setStatusMsg(WHATSAPP_TEMPLATE_REQUIRED_MSG);
+      setStatusMsg(
+        form.messageTemplate.trim()
+          ? WHATSAPP_TEMPLATE_REQUIRED_MSG
+          : approvedTemplates.length === 0
+            ? WHATSAPP_NO_APPROVED_TEMPLATES_MSG
+            : 'Vyberte schválenou WhatsApp šablonu.',
+      );
       return;
     }
     const p = await nestAdminWhatsAppCampaignPreview(token, buildPayload());
@@ -158,11 +274,12 @@ export default function AdminWhatsAppCampaignsPage() {
       return;
     }
     const lines = [
-      p.preview ? `Textový náhled:\n${p.preview}` : null,
+      p.preview ? `Text šablony / náhled:\n${p.preview}` : null,
       `Šablona: ${p.templateName ?? '—'} (${p.templateLanguage})`,
+      p.templateCategory ? `Kategorie: ${p.templateCategory}` : null,
       p.templateVariablesRendered.length
         ? `Proměnné šablony: ${p.templateVariablesRendered.join(' | ')}`
-        : 'Bez proměnných šablony (např. hello_world)',
+        : 'Bez proměnných šablony',
     ].filter(Boolean);
     setPreview(lines.join('\n\n'));
   }
@@ -175,12 +292,14 @@ export default function AdminWhatsAppCampaignsPage() {
       setStatusMsg('Vyplňte název kampaně.');
       return;
     }
-    if (!form.waTemplateName.trim()) {
+    if (!form.waMetaTemplateId.trim()) {
       setStatusIsError(true);
       setStatusMsg(
         form.messageTemplate.trim()
           ? WHATSAPP_TEMPLATE_REQUIRED_MSG
-          : 'Vyplňte název schválené WhatsApp šablony.',
+          : approvedTemplates.length === 0
+            ? WHATSAPP_NO_APPROVED_TEMPLATES_MSG
+            : 'Vyberte schválenou WhatsApp šablonu.',
       );
       return;
     }
@@ -338,6 +457,88 @@ export default function AdminWhatsAppCampaignsPage() {
           </div>
         ) : null}
 
+        <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-zinc-900">WhatsApp šablony</h2>
+              <p className="mt-1 text-sm text-zinc-600">
+                Schválené šablony z Meta Business Manageru. Pouze stav APPROVED lze použít v kampani.
+              </p>
+              {lastSyncedAt ? (
+                <p className="mt-1 text-xs text-zinc-500">
+                  Poslední synchronizace: {new Date(lastSyncedAt).toLocaleString('cs-CZ')}
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-zinc-500">Zatím nebyla provedena synchronizace.</p>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={syncingTemplates}
+                onClick={() => void syncTemplates(false)}
+                className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
+              >
+                {syncingTemplates ? 'Synchronizuji…' : 'Načíst šablony z Meta'}
+              </button>
+              <button
+                type="button"
+                disabled={syncingTemplates}
+                onClick={() => void syncTemplates(false)}
+                className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900 disabled:opacity-50"
+              >
+                Synchronizovat šablony
+              </button>
+            </div>
+          </div>
+          {!allTemplates.length ? (
+            <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {approvedTemplates.length === 0
+                ? WHATSAPP_NO_APPROVED_TEMPLATES_MSG
+                : 'Žádné šablony v databázi — načtěte je z Meta.'}
+            </p>
+          ) : (
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-100 text-xs uppercase text-zinc-500">
+                    <th className="px-2 py-2">Název</th>
+                    <th className="px-2 py-2">Jazyk</th>
+                    <th className="px-2 py-2">Kategorie</th>
+                    <th className="px-2 py-2">Stav</th>
+                    <th className="px-2 py-2">Proměnné</th>
+                    <th className="px-2 py-2">Text</th>
+                    <th className="px-2 py-2">Sync</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allTemplates.map((t) => (
+                    <tr key={t.id} className="border-b border-zinc-50">
+                      <td className="px-2 py-3 font-medium">{t.templateName}</td>
+                      <td className="px-2 py-3">{t.language}</td>
+                      <td className="px-2 py-3">{t.category}</td>
+                      <td className="px-2 py-3">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${templateStatusClass(t.status)}`}
+                        >
+                          {t.status}
+                        </span>
+                      </td>
+                      <td className="px-2 py-3">{t.variablesCount}</td>
+                      <td className="max-w-xs truncate px-2 py-3 text-xs text-zinc-600" title={t.bodyText}>
+                        {t.bodyText || '—'}
+                      </td>
+                      <td className="px-2 py-3 text-xs text-zinc-500">
+                        {new Date(t.syncedAt).toLocaleString('cs-CZ')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
         <form
           onSubmit={(e) => void onCreate(e)}
           className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"
@@ -376,32 +577,44 @@ export default function AdminWhatsAppCampaignsPage() {
               </select>
               <div>
                 <label className="text-xs font-semibold uppercase text-zinc-500">
-                  Template name (schválená šablona v Meta) *
+                  WhatsApp šablona (schválená v Meta) *
                 </label>
-                <input
-                  value={form.waTemplateName}
-                  onChange={(e) => setForm((f) => ({ ...f, waTemplateName: e.target.value }))}
-                  placeholder="např. hello_world nebo vaše_marketingova_sablona"
-                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  required
-                />
+                {approvedTemplates.length === 0 ? (
+                  <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    {WHATSAPP_NO_APPROVED_TEMPLATES_MSG}
+                  </p>
+                ) : (
+                  <select
+                    value={form.waMetaTemplateId}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, waMetaTemplateId: e.target.value }))
+                    }
+                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    required
+                  >
+                    <option value="">— vyberte šablonu —</option>
+                    {approvedTemplates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.templateName} ({t.language})
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
-              <div>
-                <label className="text-xs font-semibold uppercase text-zinc-500">
-                  Template language code
-                </label>
-                <input
-                  value={form.waTemplateLanguage}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, waTemplateLanguage: e.target.value }))
-                  }
-                  placeholder="cs, cs_CZ nebo en_US"
-                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                />
-                <p className="mt-1 text-xs text-zinc-500">
-                  Výchozí cs — pokud Meta šablonu v češtině nemá, použijte en_US.
-                </p>
-              </div>
+              {selectedTemplate ? (
+                <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm">
+                  <p className="text-xs font-semibold uppercase text-zinc-500">Vybraná šablona</p>
+                  <p className="mt-1 font-medium text-zinc-900">
+                    {selectedTemplate.templateName}{' '}
+                    <span className="font-normal text-zinc-500">({selectedTemplate.language})</span>
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-600">
+                    Kategorie: {selectedTemplate.category} · Proměnných:{' '}
+                    {selectedTemplate.variablesCount}
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap text-zinc-800">{selectedTemplate.bodyText}</p>
+                </div>
+              ) : null}
               <div>
                 <label className="text-xs font-semibold uppercase text-zinc-500">
                   Template variables (jedna proměnná na řádek, pořadí {'{{1}}'}, {'{{2}}'}…)
@@ -415,6 +628,11 @@ export default function AdminWhatsAppCampaignsPage() {
                   placeholder={'{jmeno}\n{odkaz}'}
                   className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 font-mono text-sm"
                 />
+                {selectedTemplate && selectedTemplate.variablesCount > 0 ? (
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Šablona vyžaduje {selectedTemplate.variablesCount} proměnných.
+                  </p>
+                ) : null}
               </div>
               <div>
                 <label className="text-xs font-semibold uppercase text-zinc-500">

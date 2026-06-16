@@ -89,10 +89,15 @@ export class CreateWhatsAppMarketingCampaignDto {
   @MaxLength(4000)
   messageTemplate?: string;
 
+  @IsOptional()
   @IsString()
-  @MinLength(1)
+  @MaxLength(30)
+  waMetaTemplateId?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(120)
-  waTemplateName!: string;
+  waTemplateName?: string;
 
   @IsOptional()
   @IsString()

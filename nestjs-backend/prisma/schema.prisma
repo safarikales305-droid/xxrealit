@@ -1523,6 +1523,8 @@ model WhatsAppMarketingCampaign {
   messageTemplate String                          @db.Text
   /// Schválený název šablony v Meta Business Manageru (povinné pro odeslání).
   waTemplateName      String                      @default("")
+  /// ID synchronizované šablony z Meta (WhatsAppMetaTemplate.id).
+  waMetaTemplateId    String?
   /// Jazyk šablony (cs, cs_CZ, en_US, …).
   waTemplateLanguage  String                      @default("cs")
   /// Hodnoty proměnných šablony v pořadí {{1}}, {{2}}, … — podporují {jmeno}, {role}, {odkaz}, {kredit}.
@@ -1546,6 +1548,24 @@ model WhatsAppMarketingCampaign {
 
   @@index([status, createdAt])
   @@index([createdByUserId])
+}
+
+/// Schválené WhatsApp šablony synchronizované z Meta Graph API.
+model WhatsAppMetaTemplate {
+  id             String   @id @default(cuid())
+  metaTemplateId String   @unique
+  templateName   String
+  category       String
+  language       String
+  status         String
+  bodyText       String   @db.Text
+  variablesCount Int      @default(0)
+  syncedAt       DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status])
+  @@index([templateName, language])
 }
 
 /// Historie odeslání WhatsApp marketingu (kampaně i uvítací zprávy).

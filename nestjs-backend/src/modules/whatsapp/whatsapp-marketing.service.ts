@@ -17,6 +17,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { WhatsAppConfigService } from './whatsapp-config.service';
 import { WhatsAppSettingsService } from './whatsapp-settings.service';
 import { WhatsAppCloudApiService } from './whatsapp-cloud-api.service';
+import { WhatsAppMetaTemplatesService } from './whatsapp-meta-templates.service';
 import {
   buildTemplateMessageRequest,
   formatTemplateLogLabel,
@@ -52,6 +53,7 @@ export class WhatsAppMarketingService {
     private readonly config: WhatsAppConfigService,
     private readonly settings: WhatsAppSettingsService,
     private readonly cloudApi: WhatsAppCloudApiService,
+    private readonly metaTemplates: WhatsAppMetaTemplatesService,
   ) {}
 
   private sleep(ms: number) {
@@ -125,18 +127,66 @@ export class WhatsAppMarketingService {
     return { providerMessageId, phoneNumberId: attempt.phoneNumberId };
   }
 
-  private assertCampaignHasTemplate(campaign: {
+  private async resolveTemplateFields(input: {
+    waMetaTemplateId?: string | null;
+    waTemplateName?: string;
+    waTemplateLanguage?: string;
+    messageTemplate?: string;
+  }): Promise<{
+    waMetaTemplateId: string;
     waTemplateName: string;
-    messageTemplate: string;
-  }) {
-    const templateName = campaign.waTemplateName?.trim();
-    if (templateName) return templateName;
+    waTemplateLanguage: string;
+  }> {
+    const metaId = input.waMetaTemplateId?.trim();
+    if (metaId) {
+      const t = await this.metaTemplates.requireApprovedTemplate(metaId);
+      return {
+        waMetaTemplateId: metaId,
+        waTemplateName: t.templateName,
+        waTemplateLanguage: t.language,
+      };
+    }
 
-    const hasCustomText = campaign.messageTemplate?.trim();
+    const templateName = input.waTemplateName?.trim();
+    if (!templateName) {
+      const hasCustomText = input.messageTemplate?.trim();
+      throw new BadRequestException(
+        hasCustomText
+          ? WHATSAPP_MARKETING_TEMPLATE_REQUIRED_MSG
+          : 'Vyberte schválenou WhatsApp šablonu z Meta.',
+      );
+    }
+
+    const lang = normalizeTemplateLanguageCode(input.waTemplateLanguage);
+    const match = await this.prisma.whatsAppMetaTemplate.findFirst({
+      where: {
+        templateName,
+        language: lang,
+        status: 'APPROVED',
+      },
+    });
+    if (match) {
+      return {
+        waMetaTemplateId: match.id,
+        waTemplateName: match.templateName,
+        waTemplateLanguage: match.language,
+      };
+    }
+
+    const fallback = await this.prisma.whatsAppMetaTemplate.findFirst({
+      where: { templateName, status: 'APPROVED' },
+      orderBy: { syncedAt: 'desc' },
+    });
+    if (fallback) {
+      return {
+        waMetaTemplateId: fallback.id,
+        waTemplateName: fallback.templateName,
+        waTemplateLanguage: fallback.language,
+      };
+    }
+
     throw new BadRequestException(
-      hasCustomText
-        ? WHATSAPP_MARKETING_TEMPLATE_REQUIRED_MSG
-        : 'Vyplňte název schválené WhatsApp šablony (template name).',
+      `Šablona „${templateName}“ není v synchronizovaném seznamu Meta — načtěte šablony.`,
     );
   }
 
@@ -163,15 +213,31 @@ export class WhatsAppMarketingService {
     };
   }
 
-  private campaignTemplateConfig(campaign: {
+  private async campaignTemplateConfig(campaign: {
+    waMetaTemplateId: string | null;
     waTemplateName: string;
     waTemplateLanguage: string;
     waTemplateVariables: string[];
     messageTemplate: string;
   }) {
+    if (campaign.waMetaTemplateId) {
+      const t = await this.metaTemplates.requireApprovedTemplate(campaign.waMetaTemplateId);
+      return {
+        templateName: t.templateName,
+        languageCode: normalizeTemplateLanguageCode(t.language),
+        variableTemplates: campaign.waTemplateVariables ?? [],
+      };
+    }
+
+    const resolved = await this.resolveTemplateFields({
+      waTemplateName: campaign.waTemplateName,
+      waTemplateLanguage: campaign.waTemplateLanguage,
+      messageTemplate: campaign.messageTemplate,
+    });
+
     return {
-      templateName: this.assertCampaignHasTemplate(campaign),
-      languageCode: normalizeTemplateLanguageCode(campaign.waTemplateLanguage),
+      templateName: resolved.waTemplateName,
+      languageCode: normalizeTemplateLanguageCode(resolved.waTemplateLanguage),
       variableTemplates: campaign.waTemplateVariables ?? [],
     };
   }
@@ -397,23 +463,21 @@ export class WhatsAppMarketingService {
   }
 
   async createCampaign(adminUserId: string, dto: CreateWhatsAppMarketingCampaignDto) {
-    const templateName = dto.waTemplateName?.trim();
-    if (!templateName) {
-      const hasText = dto.messageTemplate?.trim();
-      throw new BadRequestException(
-        hasText
-          ? WHATSAPP_MARKETING_TEMPLATE_REQUIRED_MSG
-          : 'Vyplňte název schválené WhatsApp šablony.',
-      );
-    }
+    const resolved = await this.resolveTemplateFields({
+      waMetaTemplateId: dto.waMetaTemplateId,
+      waTemplateName: dto.waTemplateName,
+      waTemplateLanguage: dto.waTemplateLanguage,
+      messageTemplate: dto.messageTemplate,
+    });
 
     const row = await this.prisma.whatsAppMarketingCampaign.create({
       data: {
         name: dto.name.trim(),
         campaignType: dto.campaignType,
         messageTemplate: dto.messageTemplate?.trim() ?? '',
-        waTemplateName: templateName,
-        waTemplateLanguage: normalizeTemplateLanguageCode(dto.waTemplateLanguage),
+        waMetaTemplateId: resolved.waMetaTemplateId,
+        waTemplateName: resolved.waTemplateName,
+        waTemplateLanguage: normalizeTemplateLanguageCode(resolved.waTemplateLanguage),
         waTemplateVariables: (dto.waTemplateVariables ?? [])
           .map((v) => v.trim())
           .filter(Boolean),
@@ -436,6 +500,27 @@ export class WhatsAppMarketingService {
       throw new BadRequestException('Kampaň právě odesílá — nelze upravit.');
     }
 
+    let resolvedTemplate:
+      | {
+          waMetaTemplateId: string;
+          waTemplateName: string;
+          waTemplateLanguage: string;
+        }
+      | undefined;
+
+    if (
+      dto.waMetaTemplateId !== undefined ||
+      dto.waTemplateName !== undefined ||
+      dto.waTemplateLanguage !== undefined
+    ) {
+      resolvedTemplate = await this.resolveTemplateFields({
+        waMetaTemplateId: dto.waMetaTemplateId ?? existing.waMetaTemplateId,
+        waTemplateName: dto.waTemplateName ?? existing.waTemplateName,
+        waTemplateLanguage: dto.waTemplateLanguage ?? existing.waTemplateLanguage,
+        messageTemplate: dto.messageTemplate ?? existing.messageTemplate,
+      });
+    }
+
     const row = await this.prisma.whatsAppMarketingCampaign.update({
       where: { id },
       data: {
@@ -444,10 +529,19 @@ export class WhatsAppMarketingService {
         ...(dto.messageTemplate !== undefined
           ? { messageTemplate: dto.messageTemplate.trim() }
           : {}),
-        ...(dto.waTemplateName !== undefined
+        ...(resolvedTemplate
+          ? {
+              waMetaTemplateId: resolvedTemplate.waMetaTemplateId,
+              waTemplateName: resolvedTemplate.waTemplateName,
+              waTemplateLanguage: normalizeTemplateLanguageCode(
+                resolvedTemplate.waTemplateLanguage,
+              ),
+            }
+          : {}),
+        ...(dto.waTemplateName !== undefined && !resolvedTemplate
           ? { waTemplateName: dto.waTemplateName.trim() }
           : {}),
-        ...(dto.waTemplateLanguage !== undefined
+        ...(dto.waTemplateLanguage !== undefined && !resolvedTemplate
           ? {
               waTemplateLanguage: normalizeTemplateLanguageCode(dto.waTemplateLanguage),
             }
@@ -490,7 +584,7 @@ export class WhatsAppMarketingService {
     return { ok: true };
   }
 
-  previewMessage(dto: PreviewWhatsAppCampaignDto) {
+  async previewMessage(dto: PreviewWhatsAppCampaignDto) {
     const sampleRole = dto.sampleRole ?? UserRole.USER;
     const vars = {
       jmeno: dto.sampleName?.trim() || 'Jan Novák',
@@ -498,15 +592,24 @@ export class WhatsAppMarketingService {
       odkaz: portalBaseUrl(),
       kredit: '1500',
     };
+    const resolved = await this.resolveTemplateFields({
+      waMetaTemplateId: dto.waMetaTemplateId,
+      waTemplateName: dto.waTemplateName,
+      waTemplateLanguage: dto.waTemplateLanguage,
+      messageTemplate: dto.messageTemplate,
+    });
     const bodyParams = this.renderTemplateBodyParameters(dto.waTemplateVariables ?? [], vars);
     const textPreview = dto.messageTemplate?.trim()
       ? renderWhatsAppTemplate(dto.messageTemplate, vars)
       : null;
+    const metaTemplate = await this.metaTemplates.getById(resolved.waMetaTemplateId);
     return {
-      preview: textPreview,
-      templateName: dto.waTemplateName?.trim() || null,
-      templateLanguage: normalizeTemplateLanguageCode(dto.waTemplateLanguage),
+      preview: textPreview ?? metaTemplate?.bodyText ?? null,
+      templateName: resolved.waTemplateName,
+      templateLanguage: normalizeTemplateLanguageCode(resolved.waTemplateLanguage),
       templateVariablesRendered: bodyParams,
+      templateBody: metaTemplate?.bodyText ?? null,
+      templateCategory: metaTemplate?.category ?? null,
     };
   }
 
@@ -516,7 +619,7 @@ export class WhatsAppMarketingService {
     });
     if (!campaign) throw new NotFoundException('Kampaň nenalezena.');
 
-    const tpl = this.campaignTemplateConfig(campaign);
+    const tpl = await this.campaignTemplateConfig(campaign);
 
     const phone = this.normalizePhone(toPhone?.trim() || this.config.getTestPhone() || '');
     if (!phone) {
@@ -696,7 +799,7 @@ export class WhatsAppMarketingService {
       throw new ServiceUnavailableException('WhatsApp Cloud API není připraveno.');
     }
 
-    const tpl = this.campaignTemplateConfig(campaign);
+    const tpl = await this.campaignTemplateConfig(campaign);
 
     const phoneNumberId = this.config.getPhoneNumberId();
     const tokenSource = this.settings.getStoredSettings().accessToken.trim()
@@ -882,6 +985,7 @@ export class WhatsAppMarketingService {
     campaignType: WhatsAppMarketingCampaignType;
     messageTemplate: string;
     waTemplateName: string;
+    waMetaTemplateId: string | null;
     waTemplateLanguage: string;
     waTemplateVariables: string[];
     targetRoles: UserRole[];
@@ -903,6 +1007,7 @@ export class WhatsAppMarketingService {
       campaignType: r.campaignType,
       messageTemplate: r.messageTemplate,
       waTemplateName: r.waTemplateName,
+      waMetaTemplateId: r.waMetaTemplateId,
       waTemplateLanguage: r.waTemplateLanguage,
       waTemplateVariables: r.waTemplateVariables,
       targetRoles: r.targetRoles,

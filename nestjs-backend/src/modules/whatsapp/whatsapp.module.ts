@@ -8,6 +8,8 @@ import { WhatsAppService } from './whatsapp.service';
 import { WhatsAppSettingsService } from './whatsapp-settings.service';
 import { WhatsAppCloudApiService } from './whatsapp-cloud-api.service';
 import { WhatsAppWebhookService } from './whatsapp-webhook.service';
+import { WhatsAppMetaTemplatesService } from './whatsapp-meta-templates.service';
+import { WhatsAppTemplatesSyncCronService } from './whatsapp-templates-sync.cron.service';
 
 @Module({
   imports: [forwardRef(() => AuthModule)],
@@ -19,6 +21,8 @@ import { WhatsAppWebhookService } from './whatsapp-webhook.service';
     WhatsAppWebhookService,
     WhatsAppMarketingService,
     WhatsAppCloudApiService,
+    WhatsAppMetaTemplatesService,
+    WhatsAppTemplatesSyncCronService,
   ],
   exports: [
     WhatsAppSettingsService,
@@ -27,6 +31,7 @@ import { WhatsAppWebhookService } from './whatsapp-webhook.service';
     WhatsAppWebhookService,
     WhatsAppMarketingService,
     WhatsAppCloudApiService,
+    WhatsAppMetaTemplatesService,
   ],
 })
 export class WhatsAppModule {}
