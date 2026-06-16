@@ -14,10 +14,14 @@ import { AdminGuard } from '../admin/guards/admin.guard';
 import { WhatsAppClickDto } from './dto/whatsapp-click.dto';
 import { WhatsAppSendDto } from './dto/whatsapp-send.dto';
 import { WhatsAppService } from './whatsapp.service';
+import { WhatsAppWebhookService } from './whatsapp-webhook.service';
 
 @Controller('whatsapp')
 export class WhatsAppController {
-  constructor(private readonly whatsapp: WhatsAppService) {}
+  constructor(
+    private readonly whatsapp: WhatsAppService,
+    private readonly webhook: WhatsAppWebhookService,
+  ) {}
 
   @Get('webhook')
   verifyWebhook(
@@ -26,18 +30,16 @@ export class WhatsAppController {
     @Query('hub.challenge') challenge: string | undefined,
     @Res() res: Response,
   ) {
-    if (
-      mode === 'subscribe' &&
-      token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
-    ) {
-      return res.status(200).send(challenge);
+    const result = this.webhook.verifySubscription(mode, token, challenge);
+    if (result.ok) {
+      return res.status(200).send(result.challenge);
     }
     return res.status(403).send('Forbidden');
   }
 
   @Post('webhook')
-  receiveWebhook(@Body() body: unknown) {
-    console.log('WhatsApp webhook payload', JSON.stringify(body));
+  async receiveWebhook(@Body() body: unknown) {
+    await this.webhook.receiveWebhookPayload(body);
     return { success: true };
   }
 

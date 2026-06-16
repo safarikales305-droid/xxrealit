@@ -14,6 +14,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { buildPasswordResetUrl, resolveFrontendUrl } from '../../common/resolve-frontend-url';
 import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 import { EmailsService } from '../emails/emails.service';
+import { WhatsAppMarketingService } from '../whatsapp/whatsapp-marketing.service';
 import { UsersService } from '../users/users.service';
 import { ReferralService } from '../bonus-campaign/referral.service';
 import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
@@ -180,6 +181,7 @@ export class AuthService {
     private readonly emailsService: EmailsService,
     private readonly referral: ReferralService,
     private readonly bonusCampaigns: BonusCampaignService,
+    private readonly whatsAppMarketing: WhatsAppMarketingService,
   ) {}
 
   private resendFromAddress(): string {
@@ -525,6 +527,18 @@ export class AuthService {
         .catch((error: unknown) => {
           this.logger.warn(
             `Welcome email failed for userId=${user.id}: ${this.resendErrorMessage(error)}`,
+          );
+        });
+      void this.whatsAppMarketing
+        .sendWelcomeOnRegister({
+          id: user.id,
+          name: user.name,
+          phone: user.phone,
+          role: user.role,
+        })
+        .catch((error: unknown) => {
+          this.logger.warn(
+            `Welcome WhatsApp failed for userId=${user.id}: ${error instanceof Error ? error.message : 'unknown'}`,
           );
         });
 

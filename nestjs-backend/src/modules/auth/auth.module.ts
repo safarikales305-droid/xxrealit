@@ -6,6 +6,7 @@ import { BonusCampaignModule } from '../bonus-campaign/bonus-campaign.module';
 import { UsersModule } from '../users/users.module';
 import { RegistrationGateModule } from '../registration-gate/registration-gate.module';
 import { EmailsModule } from '../emails/emails.module';
+import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -18,6 +19,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     forwardRef(() => RegistrationGateModule),
     forwardRef(() => BonusCampaignModule),
     EmailsModule,
+    forwardRef(() => WhatsAppModule),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],

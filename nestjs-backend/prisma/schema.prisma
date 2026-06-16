@@ -241,6 +241,10 @@ model User {
   whatsappPhone         String   @default("")
   /// Zobrazit tlačítko „Napsat na WhatsApp“ u profilu a inzerátů.
   whatsappEnabled       Boolean  @default(false)
+  /// Uživatel odmítl marketing přes WhatsApp.
+  whatsappMarketingOptOut    Boolean  @default(false)
+  /// Čas udělení souhlasu s WhatsApp komunikací (registrace / explicitní souhlas).
+  whatsappMarketingConsentAt DateTime?
   /// Agregát z viditelných recenzí (přepočet při změně recenze).
   brokerReviewAverage   Float    @default(0)
   brokerReviewCount     Int      @default(0)
@@ -288,6 +292,8 @@ model User {
   socialFacebookOAuthSessions  SocialFacebookOAuthSession[]
   whatsappMessages             WhatsAppMessage[]
   whatsappMessagesSent         WhatsAppMessage[] @relation("WhatsAppSentBy")
+  whatsappMarketingCampaignsCreated WhatsAppMarketingCampaign[]
+  whatsappMarketingCampaignLogs    WhatsAppMarketingCampaignLog[]
   crmContacts                  CrmContact[]
   marketingCampaigns           MarketingCampaign[]
   activityLogs                 ActivityLog[] @relation("ActivityLogActor")
@@ -1450,6 +1456,24 @@ model BrokerPointsLedger {
   @@index([userId, createdAt])
 }
 
+enum WhatsAppMarketingCampaignType {
+  NEW_LISTINGS
+  BONUS_CREDITS
+  INTERESTING_TIPS
+  PORTAL_INVITE
+  AGENT_AD
+  INVESTOR_PROMO
+  CUSTOM
+}
+
+enum WhatsAppMarketingCampaignStatus {
+  DRAFT
+  SENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
 enum WhatsAppMessageDirection {
   INBOUND
   OUTBOUND
@@ -1489,6 +1513,55 @@ model WhatsAppMessage {
   @@index([listingId, createdAt])
   @@index([status, createdAt])
   @@index([providerMessageId])
+}
+
+/// Admin WhatsApp marketingová kampaň.
+model WhatsAppMarketingCampaign {
+  id              String                          @id @default(cuid())
+  name            String
+  campaignType    WhatsAppMarketingCampaignType
+  messageTemplate String                          @db.Text
+  targetRoles     UserRole[]                      @default([])
+  targetRegions   String[]                        @default([])
+  targetCities    String[]                        @default([])
+  manualPhones    String[]                        @default([])
+  status          WhatsAppMarketingCampaignStatus @default(DRAFT)
+  createdByUserId String?
+  recipientCount  Int                             @default(0)
+  sentCount       Int                             @default(0)
+  failedCount     Int                             @default(0)
+  skippedCount    Int                             @default(0)
+  createdAt       DateTime                        @default(now())
+  updatedAt       DateTime                        @updatedAt
+  sentAt          DateTime?
+
+  createdBy User?                          @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  logs      WhatsAppMarketingCampaignLog[]
+
+  @@index([status, createdAt])
+  @@index([createdByUserId])
+}
+
+/// Historie odeslání WhatsApp marketingu (kampaně i uvítací zprávy).
+model WhatsAppMarketingCampaignLog {
+  id              String                           @id @default(cuid())
+  campaignId      String?
+  recipientUserId String?
+  recipientName   String?
+  recipientPhone  String
+  campaignType    WhatsAppMarketingCampaignType?
+  message         String                           @db.Text
+  status          WhatsAppMessageStatus
+  errorMessage    String?                          @db.Text
+  isWelcome       Boolean                          @default(false)
+  createdAt       DateTime                         @default(now())
+
+  campaign  WhatsAppMarketingCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  recipient User?                      @relation(fields: [recipientUserId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId, createdAt])
+  @@index([recipientPhone, createdAt])
+  @@index([createdAt])
 }
 
 /// První „lead“ makléře k vlastnickému inzerátu (statistiky, spotřeba free leadu).

@@ -1128,11 +1128,19 @@ export class UsersService {
 
   async updateWhatsAppSettings(
     userId: string,
-    input: { whatsappPhone?: string; whatsappEnabled?: boolean },
+    input: {
+      whatsappPhone?: string;
+      whatsappEnabled?: boolean;
+      whatsappMarketingOptOut?: boolean;
+    },
   ) {
     const current = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { whatsappPhone: true, whatsappEnabled: true },
+      select: {
+        whatsappPhone: true,
+        whatsappEnabled: true,
+        whatsappMarketingOptOut: true,
+      },
     });
     if (!current) {
       throw new NotFoundException('User not found');
@@ -1158,10 +1166,19 @@ export class UsersService {
       data: {
         ...(input.whatsappPhone !== undefined ? { whatsappPhone: phone } : {}),
         ...(input.whatsappEnabled !== undefined ? { whatsappEnabled: enabled } : {}),
+        ...(input.whatsappMarketingOptOut !== undefined
+          ? {
+              whatsappMarketingOptOut: input.whatsappMarketingOptOut,
+              ...(input.whatsappMarketingOptOut === false
+                ? { whatsappMarketingConsentAt: new Date() }
+                : {}),
+            }
+          : {}),
       },
       select: {
         whatsappPhone: true,
         whatsappEnabled: true,
+        whatsappMarketingOptOut: true,
       },
     });
 
@@ -1169,6 +1186,7 @@ export class UsersService {
       success: true,
       whatsappPhone: updated.whatsappPhone,
       whatsappEnabled: updated.whatsappEnabled,
+      whatsappMarketingOptOut: updated.whatsappMarketingOptOut,
     };
   }
 }

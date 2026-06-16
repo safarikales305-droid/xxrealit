@@ -1,45 +1,54 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { WhatsAppSettingsService } from './whatsapp-settings.service';
 
 export type WhatsAppConfigStatusDto = {
   configured: boolean;
+  enabled: boolean;
   missing: string[];
   webhookUri: string | null;
   apiVersion: string;
 };
 
 @Injectable()
-export class WhatsAppConfigService implements OnModuleInit {
+export class WhatsAppConfigService {
   private readonly logger = new Logger(WhatsAppConfigService.name);
 
-  constructor(private readonly config: ConfigService) {}
-
-  onModuleInit() {
-    const missing = this.getMissingRequired();
-    if (missing.length > 0) {
-      this.logger.warn(
-        `[WhatsApp Cloud API] Není plně nakonfigurováno (chybí: ${missing.join(', ')}). ` +
-          'wa.me tlačítka fungují bez API — Cloud API je volitelné.',
-      );
-      return;
-    }
-    this.logger.log('[WhatsApp Cloud API] Integrace připravena.');
-  }
+  constructor(
+    private readonly config: ConfigService,
+    private readonly settings: WhatsAppSettingsService,
+  ) {}
 
   getAccessToken(): string | null {
-    return this.config.get<string>('WHATSAPP_ACCESS_TOKEN')?.trim() || null;
+    return this.settings.getEffectiveConfig().accessToken;
   }
 
   getPhoneNumberId(): string | null {
-    return this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID')?.trim() || null;
+    return this.settings.getEffectiveConfig().phoneNumberId;
   }
 
   getBusinessAccountId(): string | null {
-    return this.config.get<string>('WHATSAPP_BUSINESS_ACCOUNT_ID')?.trim() || null;
+    return this.settings.getEffectiveConfig().businessAccountId;
   }
 
   getWebhookVerifyToken(): string | null {
-    return this.config.get<string>('WHATSAPP_WEBHOOK_VERIFY_TOKEN')?.trim() || null;
+    return this.settings.getEffectiveConfig().webhookVerifyToken;
+  }
+
+  isEnabled(): boolean {
+    return this.settings.getEffectiveConfig().enabled;
+  }
+
+  getBatchSize(): number {
+    return this.settings.getEffectiveConfig().batchSize;
+  }
+
+  getBatchDelayMs(): number {
+    return this.settings.getEffectiveConfig().batchDelayMs;
+  }
+
+  getTestPhone(): string | null {
+    return this.settings.getEffectiveConfig().testPhone;
   }
 
   getApiVersion(): string {
@@ -56,7 +65,7 @@ export class WhatsAppConfigService implements OnModuleInit {
   }
 
   isCloudApiConfigured(): boolean {
-    return this.getMissingRequired().length === 0;
+    return this.isEnabled() && this.getMissingRequired().length === 0;
   }
 
   resolveApiPublicBase(): string | null {
@@ -77,9 +86,27 @@ export class WhatsAppConfigService implements OnModuleInit {
     const missing = this.getMissingRequired();
     return {
       configured: missing.length === 0,
+      enabled: this.isEnabled(),
       missing,
       webhookUri: this.buildWebhookUri(),
       apiVersion: this.getApiVersion(),
     };
+  }
+
+  logStartupStatus() {
+    const missing = this.getMissingRequired();
+    if (!this.isEnabled()) {
+      this.logger.warn(
+        '[WhatsApp Cloud API] Integrace je v administraci vypnutá — wa.me tlačítka fungují bez API.',
+      );
+      return;
+    }
+    if (missing.length > 0) {
+      this.logger.warn(
+        `[WhatsApp Cloud API] Není plně nakonfigurováno (chybí: ${missing.join(', ')}).`,
+      );
+      return;
+    }
+    this.logger.log('[WhatsApp Cloud API] Integrace připravena.');
   }
 }

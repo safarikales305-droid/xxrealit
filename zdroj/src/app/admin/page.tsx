@@ -426,6 +426,12 @@ export default function AdminPage() {
               Marketing → Bonusové akce
             </Link>
             <Link
+              href="/admin/marketing/whatsapp-kampane"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Marketing → WhatsApp kampaně
+            </Link>
+            <Link
               href="/admin/dobiti-kreditu"
               className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >
