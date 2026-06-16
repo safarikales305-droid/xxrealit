@@ -6,16 +6,26 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import {
   formatWhatsAppMetaError,
+  nestAdminWhatsAppDiagnostics,
   nestAdminWhatsAppLastLog,
   nestAdminWhatsAppMarketingStats,
   nestAdminWhatsAppSettingsGet,
   nestAdminWhatsAppSettingsPatch,
   nestAdminWhatsAppTestSend,
+  nestAdminWhatsAppVerifyPhone,
+  nestAdminWhatsAppVerifyWaba,
+  nestAdminWhatsAppWabaPhoneNumbers,
   WELCOME_ROLE_LABELS,
   WELCOME_ROLES,
+  WHATSAPP_PHONE_WABA_MISMATCH_MSG,
+  WHATSAPP_WABA_ID_HELP,
   type WhatsAppAdminStats,
+  type WhatsAppDiagnosticsResult,
   type WhatsAppIntegrationSettings,
   type WhatsAppLastLog,
+  type WhatsAppPhoneVerifyResult,
+  type WhatsAppWabaPhoneNumberRow,
+  type WhatsAppWabaVerifyResult,
 } from '@/lib/whatsapp-admin-api';
 
 const emptySettings: WhatsAppIntegrationSettings = {
@@ -29,6 +39,10 @@ const emptySettings: WhatsAppIntegrationSettings = {
   batchDelayMs: 1000,
   accessTokenSet: false,
   webhookVerifyTokenSet: false,
+  metaAppId: '',
+  metaBusinessId: '',
+  effectivePhoneNumberId: '',
+  effectiveWabaId: '',
 };
 
 export default function AdminWhatsAppIntegrationPage() {
@@ -48,6 +62,15 @@ export default function AdminWhatsAppIntegrationPage() {
   const [lastLog, setLastLog] = useState<WhatsAppLastLog | null>(null);
   const [showLastLog, setShowLastLog] = useState(false);
   const [loadingLastLog, setLoadingLastLog] = useState(false);
+  const [verifyingWaba, setVerifyingWaba] = useState(false);
+  const [verifyingPhone, setVerifyingPhone] = useState(false);
+  const [wabaVerify, setWabaVerify] = useState<WhatsAppWabaVerifyResult | null>(null);
+  const [phoneVerify, setPhoneVerify] = useState<WhatsAppPhoneVerifyResult | null>(null);
+  const [diagnostics, setDiagnostics] = useState<WhatsAppDiagnosticsResult | null>(null);
+  const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
+  const [loadingWabaPhones, setLoadingWabaPhones] = useState(false);
+  const [wabaPhones, setWabaPhones] = useState<WhatsAppWabaPhoneNumberRow[]>([]);
+  const [selectedWabaPhoneId, setSelectedWabaPhoneId] = useState('');
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -64,6 +87,20 @@ export default function AdminWhatsAppIntegrationPage() {
     setSettings(settingsData);
   }, [token]);
 
+  const loadDiagnostics = useCallback(async () => {
+    if (!token) return;
+    setLoadingDiagnostics(true);
+    const d = await nestAdminWhatsAppDiagnostics(token);
+    setDiagnostics(d);
+    if (d?.wabaPhoneNumbers?.length) {
+      setWabaPhones(d.wabaPhoneNumbers);
+      const current = d.configuredPhoneNumberId;
+      const match = d.wabaPhoneNumbers.find((p) => p.id === current);
+      setSelectedWabaPhoneId(match?.id ?? d.wabaPhoneNumbers[0]?.id ?? '');
+    }
+    setLoadingDiagnostics(false);
+  }, [token]);
+
   useEffect(() => {
     if (!isLoading && (!user || user.role !== 'ADMIN')) {
       router.replace('/');
@@ -73,6 +110,48 @@ export default function AdminWhatsAppIntegrationPage() {
   useEffect(() => {
     if (token && user?.role === 'ADMIN') void refresh();
   }, [token, user?.role, refresh]);
+
+  useEffect(() => {
+    if (token && user?.role === 'ADMIN') void loadDiagnostics();
+  }, [token, user?.role, loadDiagnostics]);
+
+  async function onLoadWabaPhones() {
+    if (!token) return;
+    setLoadingWabaPhones(true);
+    setStatusMsg(null);
+    setStatusIsError(false);
+    const r = await nestAdminWhatsAppWabaPhoneNumbers(token, settings.businessAccountId);
+    setLoadingWabaPhones(false);
+    if (!r) {
+      setStatusIsError(true);
+      setStatusMsg('Nepodařilo se načíst telefonní čísla z Meta.');
+      return;
+    }
+    if (!r.ok) {
+      setStatusIsError(true);
+      setStatusMsg(r.error ?? 'Meta API vrátilo chybu.');
+      return;
+    }
+    setWabaPhones(r.phoneNumbers);
+    const current = settings.phoneNumberId;
+    const match = r.phoneNumbers.find((p) => p.id === current);
+    setSelectedWabaPhoneId(match?.id ?? r.phoneNumbers[0]?.id ?? '');
+    setStatusIsError(false);
+    setStatusMsg(`Načteno ${r.phoneNumbers.length} čísel z WABA ${r.wabaId}.`);
+    void loadDiagnostics();
+  }
+
+  function onApplyWabaPhone() {
+    if (!selectedWabaPhoneId) return;
+    const picked = wabaPhones.find((p) => p.id === selectedWabaPhoneId);
+    setSettings((s) => ({ ...s, phoneNumberId: selectedWabaPhoneId }));
+    setStatusIsError(false);
+    setStatusMsg(
+      picked
+        ? `Phone Number ID nastaveno na ${picked.display_phone_number} (${picked.id}). Uložte nastavení.`
+        : `Phone Number ID nastaveno. Uložte nastavení.`,
+    );
+  }
 
   async function onSave(e: React.FormEvent) {
     e.preventDefault();
@@ -103,6 +182,7 @@ export default function AdminWhatsAppIntegrationPage() {
     setWebhookVerifyToken('');
     setStatusMsg('Nastavení uloženo.');
     void refresh();
+    void loadDiagnostics();
   }
 
   async function onTestSend() {
@@ -120,6 +200,54 @@ export default function AdminWhatsAppIntegrationPage() {
     setStatusIsError(false);
     const idNote = r.phoneNumberId ? ` (phoneNumberId: ${r.phoneNumberId})` : '';
     setStatusMsg(`Testovací zpráva odeslána na ${r.toPhone ?? settings.testPhone}${idNote}.`);
+  }
+
+  async function onVerifyWaba() {
+    if (!token) return;
+    setVerifyingWaba(true);
+    setStatusMsg(null);
+    setStatusIsError(false);
+    const r = await nestAdminWhatsAppVerifyWaba(token);
+    setVerifyingWaba(false);
+    if (!r.ok) {
+      setStatusIsError(true);
+      setStatusMsg(r.error);
+      setWabaVerify(null);
+      return;
+    }
+    setWabaVerify(r.data);
+    if (!r.data.ok) {
+      setStatusIsError(true);
+      setStatusMsg(r.data.error ?? 'Ověření WABA selhalo.');
+      return;
+    }
+    setStatusIsError(false);
+    setStatusMsg(`WABA ověřeno: ${r.data.name ?? r.data.id}`);
+  }
+
+  async function onVerifyPhone() {
+    if (!token) return;
+    setVerifyingPhone(true);
+    setStatusMsg(null);
+    setStatusIsError(false);
+    const r = await nestAdminWhatsAppVerifyPhone(token);
+    setVerifyingPhone(false);
+    if (!r.ok) {
+      setStatusIsError(true);
+      setStatusMsg(r.error);
+      setPhoneVerify(null);
+      return;
+    }
+    setPhoneVerify(r.data);
+    if (!r.data.ok) {
+      setStatusIsError(true);
+      setStatusMsg(r.data.error ?? 'Ověření telefonu selhalo.');
+      return;
+    }
+    setStatusIsError(false);
+    setStatusMsg(
+      `Telefon ověřen: ${r.data.display_phone_number ?? r.data.id} (${r.data.verified_name ?? '—'})`,
+    );
   }
 
   async function onShowLastLog() {
@@ -201,6 +329,58 @@ export default function AdminWhatsAppIntegrationPage() {
           </div>
         ) : null}
 
+        <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-zinc-900">Diagnostika WhatsApp účtu</h2>
+            <button
+              type="button"
+              disabled={loadingDiagnostics}
+              onClick={() => void loadDiagnostics()}
+              className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-semibold text-zinc-800 disabled:opacity-50"
+            >
+              {loadingDiagnostics ? 'Načítám…' : 'Obnovit diagnostiku'}
+            </button>
+          </div>
+          {!diagnostics ? (
+            <p className="mt-3 text-sm text-zinc-500">Diagnostika se načítá…</p>
+          ) : (
+            <div className="mt-4 space-y-3 text-sm">
+              {diagnostics.mismatchMessage ? (
+                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-800">
+                  {diagnostics.mismatchMessage === WHATSAPP_PHONE_WABA_MISMATCH_MSG
+                    ? WHATSAPP_PHONE_WABA_MISMATCH_MSG
+                    : diagnostics.mismatchMessage}
+                </p>
+              ) : diagnostics.phoneBelongsToWaba === true ? (
+                <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-900">
+                  Phone Number ID a WABA ID patří ke stejnému WhatsApp účtu.
+                </p>
+              ) : null}
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-zinc-100 bg-zinc-50 p-3">
+                  <p className="text-xs font-semibold uppercase text-zinc-500">Telefonní číslo</p>
+                  <ul className="mt-2 space-y-1 font-mono text-xs text-zinc-800">
+                    <li>Phone Number ID: {diagnostics.configuredPhoneNumberId || '—'}</li>
+                    <li>
+                      Display: {diagnostics.phone.display_phone_number ?? diagnostics.phone.error ?? '—'}
+                    </li>
+                    <li>Verified name: {diagnostics.phone.verified_name ?? '—'}</li>
+                  </ul>
+                </div>
+                <div className="rounded-lg border border-zinc-100 bg-zinc-50 p-3">
+                  <p className="text-xs font-semibold uppercase text-zinc-500">WABA účet</p>
+                  <ul className="mt-2 space-y-1 font-mono text-xs text-zinc-800">
+                    <li>WABA ID: {diagnostics.configuredWabaId || '—'}</li>
+                    <li>Name: {diagnostics.waba.name ?? diagnostics.waba.error ?? '—'}</li>
+                    <li>Review: {diagnostics.waba.account_review_status ?? '—'}</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+
         <form onSubmit={(e) => void onSave(e)} className="space-y-4">
           <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-semibold text-zinc-900">WhatsApp nastavení</h2>
@@ -214,6 +394,158 @@ export default function AdminWhatsAppIntegrationPage() {
             </label>
 
             <div className="mt-4 space-y-3">
+              <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-sm text-blue-950">
+                <p className="font-semibold">Identifikátory Meta / WhatsApp</p>
+                <p className="mt-1 text-xs text-blue-900">{WHATSAPP_WABA_ID_HELP}</p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="text-xs font-medium text-zinc-500">Meta App ID</label>
+                  <input
+                    readOnly
+                    value={settings.metaAppId || '— (env FACEBOOK_APP_ID)'}
+                    className="mt-1 w-full rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2 text-sm text-zinc-600"
+                  />
+                  <p className="mt-1 text-xs text-zinc-400">Nepoužívat jako WABA ID.</p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-zinc-500">Meta Business ID</label>
+                  <input
+                    readOnly
+                    value={settings.metaBusinessId || '— (env META_BUSINESS_ID)'}
+                    className="mt-1 w-full rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2 text-sm text-zinc-600"
+                  />
+                  <p className="mt-1 text-xs text-zinc-400">Nepoužívat jako WABA ID.</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-zinc-500">
+                  WhatsApp Phone Number ID
+                </label>
+                <input
+                  value={settings.phoneNumberId}
+                  onChange={(e) =>
+                    setSettings((s) => ({ ...s, phoneNumberId: e.target.value }))
+                  }
+                  placeholder="např. 1216523268204671"
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm font-mono"
+                />
+                {settings.effectivePhoneNumberId &&
+                settings.effectivePhoneNumberId !== settings.phoneNumberId ? (
+                  <p className="mt-1 text-xs text-amber-700">
+                    Efektivně použito z env: {settings.effectivePhoneNumberId}
+                  </p>
+                ) : null}
+              </div>
+              <div>
+                <label className="text-xs font-medium text-zinc-500">
+                  WhatsApp Business Account ID (WABA ID)
+                </label>
+                <input
+                  value={settings.businessAccountId}
+                  onChange={(e) =>
+                    setSettings((s) => ({ ...s, businessAccountId: e.target.value }))
+                  }
+                  placeholder="např. 1999053167383871 (produkční XXrealit)"
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm font-mono"
+                />
+                {settings.effectiveWabaId &&
+                settings.effectiveWabaId !== settings.businessAccountId ? (
+                  <p className="mt-1 text-xs text-amber-700">
+                    Efektivně použito z env: {settings.effectiveWabaId}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-semibold uppercase text-zinc-600">
+                    Čísla ve WABA účtu
+                  </p>
+                  <button
+                    type="button"
+                    disabled={loadingWabaPhones}
+                    onClick={() => void onLoadWabaPhones()}
+                    className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 disabled:opacity-50"
+                  >
+                    {loadingWabaPhones ? 'Načítám…' : 'Načíst telefonní čísla z Meta'}
+                  </button>
+                </div>
+                {wabaPhones.length === 0 ? (
+                  <p className="mt-2 text-xs text-zinc-500">
+                    Po vyplnění WABA ID načtěte čísla z Meta a vyberte produkční Phone Number ID
+                    (+420774655469).
+                  </p>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    <select
+                      value={selectedWabaPhoneId}
+                      onChange={(e) => setSelectedWabaPhoneId(e.target.value)}
+                      className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-mono"
+                    >
+                      {wabaPhones.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.display_phone_number} — {p.verified_name || '—'} ({p.id})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={!selectedWabaPhoneId}
+                      onClick={onApplyWabaPhone}
+                      className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 disabled:opacity-50"
+                    >
+                      Použít vybrané Phone Number ID
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={verifyingWaba}
+                  onClick={() => void onVerifyWaba()}
+                  className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
+                >
+                  {verifyingWaba ? 'Ověřuji…' : 'Ověřit WhatsApp účet'}
+                </button>
+                <button
+                  type="button"
+                  disabled={verifyingPhone}
+                  onClick={() => void onVerifyPhone()}
+                  className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
+                >
+                  {verifyingPhone ? 'Ověřuji…' : 'Ověřit telefonní číslo'}
+                </button>
+              </div>
+
+              {wabaVerify?.ok ? (
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3 text-sm">
+                  <p className="text-xs font-semibold uppercase text-emerald-800">WABA účet</p>
+                  <ul className="mt-2 space-y-1 font-mono text-xs text-zinc-800">
+                    <li>id: {wabaVerify.id}</li>
+                    <li>name: {wabaVerify.name}</li>
+                    <li>account_review_status: {wabaVerify.account_review_status}</li>
+                    <li>message_template_namespace: {wabaVerify.message_template_namespace}</li>
+                  </ul>
+                </div>
+              ) : null}
+
+              {phoneVerify?.ok ? (
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3 text-sm">
+                  <p className="text-xs font-semibold uppercase text-emerald-800">Telefonní číslo</p>
+                  <ul className="mt-2 space-y-1 font-mono text-xs text-zinc-800">
+                    <li>id: {phoneVerify.id}</li>
+                    <li>display_phone_number: {phoneVerify.display_phone_number}</li>
+                    <li>verified_name: {phoneVerify.verified_name}</li>
+                    <li>quality_rating: {phoneVerify.quality_rating}</li>
+                  </ul>
+                </div>
+              ) : null}
+
               <div>
                 <label className="text-xs font-medium text-zinc-500">Access token</label>
                 <input
@@ -221,26 +553,6 @@ export default function AdminWhatsAppIntegrationPage() {
                   value={accessToken}
                   onChange={(e) => setAccessToken(e.target.value)}
                   placeholder={settings.accessTokenSet ? '•••••••• (nastaveno — zadejte pro změnu)' : 'WHATSAPP_ACCESS_TOKEN'}
-                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-zinc-500">Phone Number ID</label>
-                <input
-                  value={settings.phoneNumberId}
-                  onChange={(e) =>
-                    setSettings((s) => ({ ...s, phoneNumberId: e.target.value }))
-                  }
-                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-zinc-500">Business Account ID</label>
-                <input
-                  value={settings.businessAccountId}
-                  onChange={(e) =>
-                    setSettings((s) => ({ ...s, businessAccountId: e.target.value }))
-                  }
                   className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                 />
               </div>

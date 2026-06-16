@@ -1560,11 +1560,13 @@ model WhatsAppMetaTemplate {
   status         String
   bodyText       String   @db.Text
   variablesCount Int      @default(0)
+  isStale        Boolean  @default(false)
   syncedAt       DateTime @default(now())
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@index([status])
+  @@index([isStale])
   @@index([templateName, language])
 }
 

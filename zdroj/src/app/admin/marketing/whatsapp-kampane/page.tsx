@@ -23,6 +23,8 @@ import {
   WHATSAPP_NO_APPROVED_TEMPLATES_MSG,
   WHATSAPP_TARGET_ROLES,
   WHATSAPP_TEMPLATE_REQUIRED_MSG,
+  WHATSAPP_WABA_ID_HELP,
+  WHATSAPP_WRONG_WABA_WARNING,
   type WhatsAppCampaignLogRow,
   type WhatsAppCampaignRow,
   type WhatsAppCampaignType,
@@ -71,6 +73,9 @@ export default function AdminWhatsAppCampaignsPage() {
   const [allTemplates, setAllTemplates] = useState<WhatsAppMetaTemplateRow[]>([]);
   const [approvedTemplates, setApprovedTemplates] = useState<WhatsAppMetaTemplateRow[]>([]);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [effectiveWabaId, setEffectiveWabaId] = useState('');
+  const [syncWarning, setSyncWarning] = useState<string | null>(null);
+  const [lastSyncInfo, setLastSyncInfo] = useState<string | null>(null);
   const [syncingTemplates, setSyncingTemplates] = useState(false);
 
   const selectedTemplate = approvedTemplates.find((t) => t.id === form.waMetaTemplateId) ?? null;
@@ -111,6 +116,7 @@ export default function AdminWhatsAppCampaignsPage() {
       if (all) {
         setAllTemplates(all.templates);
         setLastSyncedAt(all.lastSyncedAt);
+        setEffectiveWabaId(all.effectiveWabaId);
       }
       if (approved) {
         setApprovedTemplates(approved.templates);
@@ -130,10 +136,25 @@ export default function AdminWhatsAppCampaignsPage() {
         }
         return;
       }
+      const d = r.data;
+      if (d.warning) {
+        setSyncWarning(d.warning);
+      } else {
+        setSyncWarning(null);
+      }
+      const info = [
+        d.wabaId ? `WABA ID: ${d.wabaId}` : null,
+        d.wabaName ? `účet: ${d.wabaName}` : null,
+        d.templateNames?.length ? `šablony: ${d.templateNames.join(', ')}` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      setLastSyncInfo(info || null);
       if (!silent) {
-        setStatusIsError(false);
+        setStatusIsError(Boolean(d.warning));
+        const warn = d.warning ? ` ${d.warning}` : '';
         setStatusMsg(
-          `Synchronizováno ${r.data.syncedCount} šablon (${r.data.approvedCount} schválených).`,
+          `Synchronizováno ${d.syncedCount} šablon (${d.approvedCount} schválených).${warn}`,
         );
       }
     },
@@ -162,6 +183,7 @@ export default function AdminWhatsAppCampaignsPage() {
       if (all) {
         setAllTemplates(all.templates);
         setLastSyncedAt(all.lastSyncedAt);
+        setEffectiveWabaId(all.effectiveWabaId);
       }
       if (approved) {
         setApprovedTemplates(approved.templates);
@@ -183,6 +205,7 @@ export default function AdminWhatsAppCampaignsPage() {
         setLastSyncedAt(
           allAfter.lastSyncedAt ?? (sync.ok ? sync.data.syncedAt : null),
         );
+        setEffectiveWabaId(allAfter.effectiveWabaId);
       }
       if (approvedAfter) {
         setApprovedTemplates(approvedAfter.templates);
@@ -192,6 +215,18 @@ export default function AdminWhatsAppCampaignsPage() {
           }
           return { ...f, waMetaTemplateId: approvedAfter.templates[0]?.id ?? '' };
         });
+      }
+      if (sync.ok) {
+        const d = sync.data;
+        setSyncWarning(d.warning ?? null);
+        const info = [
+          d.wabaId ? `WABA ID: ${d.wabaId}` : null,
+          d.wabaName ? `účet: ${d.wabaName}` : null,
+          d.templateNames?.length ? `šablony: ${d.templateNames.join(', ')}` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ');
+        setLastSyncInfo(info || null);
       }
       setSyncingTemplates(false);
     })();
@@ -464,6 +499,12 @@ export default function AdminWhatsAppCampaignsPage() {
               <p className="mt-1 text-sm text-zinc-600">
                 Schválené šablony z Meta Business Manageru. Pouze stav APPROVED lze použít v kampani.
               </p>
+              <p className="mt-1 text-xs text-zinc-500">{WHATSAPP_WABA_ID_HELP}</p>
+              {effectiveWabaId ? (
+                <p className="mt-1 font-mono text-xs text-zinc-700">
+                  Aktuální WABA ID pro sync: {effectiveWabaId}
+                </p>
+              ) : null}
               {lastSyncedAt ? (
                 <p className="mt-1 text-xs text-zinc-500">
                   Poslední synchronizace: {new Date(lastSyncedAt).toLocaleString('cs-CZ')}
@@ -471,6 +512,9 @@ export default function AdminWhatsAppCampaignsPage() {
               ) : (
                 <p className="mt-1 text-xs text-zinc-500">Zatím nebyla provedena synchronizace.</p>
               )}
+              {lastSyncInfo ? (
+                <p className="mt-1 text-xs text-zinc-600">{lastSyncInfo}</p>
+              ) : null}
             </div>
             <div className="flex flex-wrap gap-2">
               <button
@@ -491,6 +535,13 @@ export default function AdminWhatsAppCampaignsPage() {
               </button>
             </div>
           </div>
+          {syncWarning ? (
+            <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              {syncWarning === WHATSAPP_WRONG_WABA_WARNING
+                ? WHATSAPP_WRONG_WABA_WARNING
+                : syncWarning}
+            </p>
+          ) : null}
           {!allTemplates.length ? (
             <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               {approvedTemplates.length === 0

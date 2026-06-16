@@ -52,7 +52,21 @@ export class WhatsAppConfigService {
   }
 
   getApiVersion(): string {
-    return this.config.get<string>('WHATSAPP_API_VERSION')?.trim() || 'v20.0';
+    return this.config.get<string>('WHATSAPP_API_VERSION')?.trim() || 'v23.0';
+  }
+
+  /** Meta App ID — pouze pro zobrazení, není WABA ID. */
+  getMetaAppId(): string | null {
+    return this.config.get<string>('FACEBOOK_APP_ID')?.trim() || null;
+  }
+
+  /** Meta Business ID — pouze pro zobrazení, není WABA ID. */
+  getMetaBusinessId(): string | null {
+    return (
+      this.config.get<string>('META_BUSINESS_ID')?.trim() ||
+      this.config.get<string>('FACEBOOK_BUSINESS_ID')?.trim() ||
+      null
+    );
   }
 
   getMissingRequired(): string[] {

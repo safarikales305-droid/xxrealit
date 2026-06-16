@@ -10,6 +10,7 @@ import { WhatsAppCloudApiService } from './whatsapp-cloud-api.service';
 import { WhatsAppWebhookService } from './whatsapp-webhook.service';
 import { WhatsAppMetaTemplatesService } from './whatsapp-meta-templates.service';
 import { WhatsAppTemplatesSyncCronService } from './whatsapp-templates-sync.cron.service';
+import { WhatsAppDiagnosticService } from './whatsapp-diagnostic.service';
 
 @Module({
   imports: [forwardRef(() => AuthModule)],
@@ -23,6 +24,7 @@ import { WhatsAppTemplatesSyncCronService } from './whatsapp-templates-sync.cron
     WhatsAppCloudApiService,
     WhatsAppMetaTemplatesService,
     WhatsAppTemplatesSyncCronService,
+    WhatsAppDiagnosticService,
   ],
   exports: [
     WhatsAppSettingsService,
@@ -32,6 +34,7 @@ import { WhatsAppTemplatesSyncCronService } from './whatsapp-templates-sync.cron
     WhatsAppMarketingService,
     WhatsAppCloudApiService,
     WhatsAppMetaTemplatesService,
+    WhatsAppDiagnosticService,
   ],
 })
 export class WhatsAppModule {}

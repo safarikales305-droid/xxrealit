@@ -17,6 +17,7 @@ import { WhatsAppSettingsService } from './whatsapp-settings.service';
 import { WhatsAppMarketingService } from './whatsapp-marketing.service';
 import { WhatsAppService } from './whatsapp.service';
 import { WhatsAppMetaTemplatesService } from './whatsapp-meta-templates.service';
+import { WhatsAppDiagnosticService } from './whatsapp-diagnostic.service';
 import {
   CreateWhatsAppMarketingCampaignDto,
   PreviewWhatsAppCampaignDto,
@@ -34,6 +35,7 @@ export class WhatsAppAdminController {
     private readonly marketing: WhatsAppMarketingService,
     private readonly whatsapp: WhatsAppService,
     private readonly metaTemplates: WhatsAppMetaTemplatesService,
+    private readonly diagnostic: WhatsAppDiagnosticService,
   ) {}
 
   @Get('settings')
@@ -81,6 +83,26 @@ export class WhatsAppAdminController {
   @Post('templates/sync')
   syncTemplates() {
     return this.metaTemplates.syncTemplates();
+  }
+
+  @Get('diagnostics')
+  diagnostics() {
+    return this.diagnostic.getDiagnostics();
+  }
+
+  @Get('waba/phone-numbers')
+  listWabaPhoneNumbers(@Query('wabaId') wabaId?: string) {
+    return this.diagnostic.listWabaPhoneNumbers(wabaId);
+  }
+
+  @Post('verify/waba')
+  verifyWaba() {
+    return this.diagnostic.verifyWabaAccount();
+  }
+
+  @Post('verify/phone')
+  verifyPhone() {
+    return this.diagnostic.verifyPhoneNumber();
   }
 
   @Get('campaigns')

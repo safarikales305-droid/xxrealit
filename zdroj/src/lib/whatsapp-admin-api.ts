@@ -11,6 +11,10 @@ export type WhatsAppIntegrationSettings = {
   batchDelayMs: number;
   accessTokenSet: boolean;
   webhookVerifyTokenSet: boolean;
+  metaAppId: string;
+  metaBusinessId: string;
+  effectivePhoneNumberId: string;
+  effectiveWabaId: string;
 };
 
 export type WhatsAppAdminStats = {
@@ -75,12 +79,14 @@ export type WhatsAppMetaTemplateRow = {
   status: string;
   bodyText: string;
   variablesCount: number;
+  isStale: boolean;
   syncedAt: string;
 };
 
 export type WhatsAppTemplatesListResult = {
   templates: WhatsAppMetaTemplateRow[];
   lastSyncedAt: string | null;
+  effectiveWabaId: string;
 };
 
 export type WhatsAppTemplatesSyncResult = {
@@ -88,6 +94,82 @@ export type WhatsAppTemplatesSyncResult = {
   syncedCount: number;
   approvedCount: number;
   syncedAt: string;
+  wabaId?: string;
+  wabaName?: string;
+  messageTemplateNamespace?: string;
+  templateNames?: string[];
+  warning?: string;
+  error?: string;
+};
+
+export type WhatsAppWabaVerifyResult = {
+  ok: boolean;
+  wabaId: string;
+  id?: string;
+  name?: string;
+  account_review_status?: string;
+  message_template_namespace?: string;
+  error?: string;
+};
+
+export type WhatsAppPhoneVerifyResult = {
+  ok: boolean;
+  phoneNumberId: string;
+  id?: string;
+  display_phone_number?: string;
+  verified_name?: string;
+  quality_rating?: string;
+  error?: string;
+};
+
+export const WHATSAPP_WABA_ID_HELP =
+  'Správné WABA ID najdete ve WhatsApp Manageru → Nástroje pro účet → Telefonní čísla / Přehled účtu. Nepoužívejte Meta App ID ani Meta Business ID.';
+
+export const WHATSAPP_WRONG_WABA_WARNING =
+  'Načítáte šablony z jiného WhatsApp Business účtu než XXrealit.';
+
+export const WHATSAPP_PHONE_WABA_MISMATCH_MSG =
+  'Phone Number ID a WABA ID patří k různým WhatsApp účtům.';
+
+export type WhatsAppWabaPhoneNumberRow = {
+  id: string;
+  display_phone_number: string;
+  verified_name: string;
+  quality_rating: string;
+};
+
+export type WhatsAppDiagnosticsResult = {
+  ok: boolean;
+  configuredPhoneNumberId: string;
+  configuredWabaId: string;
+  phone: {
+    ok: boolean;
+    phoneNumberId: string;
+    id?: string;
+    display_phone_number?: string;
+    verified_name?: string;
+    quality_rating?: string;
+    error?: string;
+  };
+  waba: {
+    ok: boolean;
+    wabaId: string;
+    id?: string;
+    name?: string;
+    account_review_status?: string;
+    message_template_namespace?: string;
+    error?: string;
+  };
+  phoneBelongsToWaba: boolean | null;
+  mismatchMessage: string | null;
+  wabaPhoneNumbers: WhatsAppWabaPhoneNumberRow[];
+  wabaPhoneNumbersError?: string;
+};
+
+export type WhatsAppWabaPhoneNumbersResult = {
+  ok: boolean;
+  wabaId: string;
+  phoneNumbers: WhatsAppWabaPhoneNumberRow[];
   error?: string;
 };
 
@@ -374,6 +456,63 @@ export async function nestAdminWhatsAppTemplatesSync(
   } catch (e: unknown) {
     return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
   }
+}
+
+async function verifyPost<T>(
+  token: string,
+  path: string,
+): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/whatsapp/admin${path}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+    });
+    const data = (await res.json().catch(() => ({}))) as T & { error?: string; message?: string };
+    if (!res.ok) {
+      const err =
+        (typeof data === 'object' && data && 'error' in data && typeof data.error === 'string'
+          ? data.error
+          : null) ||
+        (typeof data === 'object' && data && 'message' in data && typeof data.message === 'string'
+          ? data.message
+          : null) ||
+        `HTTP ${res.status}`;
+      return { ok: false, error: err };
+    }
+    return { ok: true, data: data as T };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
+  }
+}
+
+export async function nestAdminWhatsAppVerifyWaba(
+  token: string,
+): Promise<{ ok: true; data: WhatsAppWabaVerifyResult } | { ok: false; error: string }> {
+  return verifyPost<WhatsAppWabaVerifyResult>(token, '/verify/waba');
+}
+
+export async function nestAdminWhatsAppVerifyPhone(
+  token: string,
+): Promise<{ ok: true; data: WhatsAppPhoneVerifyResult } | { ok: false; error: string }> {
+  return verifyPost<WhatsAppPhoneVerifyResult>(token, '/verify/phone');
+}
+
+export async function nestAdminWhatsAppDiagnostics(
+  token: string,
+): Promise<WhatsAppDiagnosticsResult | null> {
+  return adminFetch<WhatsAppDiagnosticsResult>(token, '/diagnostics');
+}
+
+export async function nestAdminWhatsAppWabaPhoneNumbers(
+  token: string,
+  wabaId?: string,
+): Promise<WhatsAppWabaPhoneNumbersResult | null> {
+  const q = wabaId?.trim() ? `?wabaId=${encodeURIComponent(wabaId.trim())}` : '';
+  return adminFetch<WhatsAppWabaPhoneNumbersResult>(token, `/waba/phone-numbers${q}`);
 }
 
 export async function nestAdminWhatsAppCampaignsList(

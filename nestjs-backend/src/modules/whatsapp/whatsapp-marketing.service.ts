@@ -18,6 +18,7 @@ import { WhatsAppConfigService } from './whatsapp-config.service';
 import { WhatsAppSettingsService } from './whatsapp-settings.service';
 import { WhatsAppCloudApiService } from './whatsapp-cloud-api.service';
 import { WhatsAppMetaTemplatesService } from './whatsapp-meta-templates.service';
+import { WhatsAppDiagnosticService } from './whatsapp-diagnostic.service';
 import {
   buildTemplateMessageRequest,
   formatTemplateLogLabel,
@@ -54,6 +55,7 @@ export class WhatsAppMarketingService {
     private readonly settings: WhatsAppSettingsService,
     private readonly cloudApi: WhatsAppCloudApiService,
     private readonly metaTemplates: WhatsAppMetaTemplatesService,
+    private readonly diagnostic: WhatsAppDiagnosticService,
   ) {}
 
   private sleep(ms: number) {
@@ -98,6 +100,7 @@ export class WhatsAppMarketingService {
     },
   ): Promise<{ providerMessageId: string | null; phoneNumberId: string }> {
     await this.settings.reload();
+    await this.diagnostic.assertPhoneBelongsToConfiguredWaba();
 
     const toDigits = whatsAppDigits(phone);
     const requestBody = buildTemplateMessageRequest(toDigits, {

@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
@@ -22,6 +22,14 @@ export type WhatsAppIntegrationSettingsPublic = Omit<
 > & {
   accessTokenSet: boolean;
   webhookVerifyTokenSet: boolean;
+  /** Meta App ID z env — není WABA ID. */
+  metaAppId: string;
+  /** Meta Business ID z env — není WABA ID. */
+  metaBusinessId: string;
+  /** Efektivní Phone Number ID (DB nebo env). */
+  effectivePhoneNumberId: string;
+  /** Efektivní WABA ID (DB nebo env). */
+  effectiveWabaId: string;
 };
 
 export type EffectiveWhatsAppConfig = {
@@ -109,12 +117,46 @@ export class WhatsAppSettingsService implements OnModuleInit {
     };
   }
 
+  private envMetaAppId(): string {
+    return this.config.get<string>('FACEBOOK_APP_ID')?.trim() || '';
+  }
+
+  private envMetaBusinessId(): string {
+    return (
+      this.config.get<string>('META_BUSINESS_ID')?.trim() ||
+      this.config.get<string>('FACEBOOK_BUSINESS_ID')?.trim() ||
+      ''
+    );
+  }
+
+  private assertWabaIdNotConfused(wabaId: string) {
+    const trimmed = wabaId.trim();
+    if (!trimmed) return;
+    const appId = this.envMetaAppId();
+    const businessId = this.envMetaBusinessId();
+    if (appId && trimmed === appId) {
+      throw new BadRequestException(
+        'WhatsApp Business Account ID nesmí být stejné jako Meta App ID. Použijte WABA ID z WhatsApp Manageru.',
+      );
+    }
+    if (businessId && trimmed === businessId) {
+      throw new BadRequestException(
+        'WhatsApp Business Account ID nesmí být stejné jako Meta Business ID. Použijte WABA ID z WhatsApp Manageru.',
+      );
+    }
+  }
+
   toPublic(settings: WhatsAppIntegrationSettings): WhatsAppIntegrationSettingsPublic {
     const { accessToken, webhookVerifyToken, ...rest } = settings;
+    const effective = this.buildEffective(settings);
     return {
       ...rest,
       accessTokenSet: Boolean(accessToken.trim()),
       webhookVerifyTokenSet: Boolean(webhookVerifyToken.trim()),
+      metaAppId: this.envMetaAppId(),
+      metaBusinessId: this.envMetaBusinessId(),
+      effectivePhoneNumberId: effective.phoneNumberId ?? '',
+      effectiveWabaId: effective.businessAccountId ?? '',
     };
   }
 
@@ -182,6 +224,8 @@ export class WhatsAppSettingsService implements OnModuleInit {
           ? patch.webhookVerifyToken
           : current.webhookVerifyToken,
     });
+
+    this.assertWabaIdNotConfused(merged.businessAccountId);
 
     await this.prisma.appSetting.upsert({
       where: { key: SETTINGS_KEY },
