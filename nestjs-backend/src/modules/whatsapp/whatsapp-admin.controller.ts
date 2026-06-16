@@ -85,6 +85,11 @@ export class WhatsAppAdminController {
     return this.metaTemplates.syncTemplates();
   }
 
+  @Post('templates/cleanup')
+  cleanupTemplates() {
+    return this.metaTemplates.cleanupOldTemplates();
+  }
+
   @Get('diagnostics')
   diagnostics() {
     return this.diagnostic.getDiagnostics();

@@ -114,10 +114,26 @@ export class WhatsAppMarketingService {
     const toDigits = whatsAppDigits(phone);
 
     let variablesCount = template.variablesCount;
+    let wabaId = '';
+    let resolvedTemplateName = template.templateName;
+    let resolvedLanguageCode = template.languageCode;
+
     if (template.waMetaTemplateId) {
-      const metaRow = await this.metaTemplates.getById(template.waMetaTemplateId);
-      if (metaRow) {
-        variablesCount = metaRow.variablesCount;
+      const metaRow = await this.metaTemplates.requireApprovedTemplate(template.waMetaTemplateId);
+      variablesCount = metaRow.variablesCount;
+      wabaId = metaRow.wabaId;
+      resolvedTemplateName = metaRow.templateName;
+      resolvedLanguageCode = metaTemplateLanguageCode(metaRow.language);
+
+      if (metaRow.templateName !== template.templateName.trim()) {
+        throw new BadRequestException(
+          `Nesoulad názvu šablony: kampaň má „${template.templateName}“, databáze „${metaRow.templateName}“.`,
+        );
+      }
+      if (resolvedLanguageCode !== metaTemplateLanguageCode(template.languageCode)) {
+        throw new BadRequestException(
+          `Nesoulad jazyka šablony: kampaň má „${template.languageCode}“, databáze „${metaRow.language}“.`,
+        );
       }
     }
 
@@ -129,8 +145,8 @@ export class WhatsAppMarketingService {
         : [];
 
     const requestBody = buildTemplateMessageRequest(toDigits, {
-      templateName: template.templateName,
-      languageCode: template.languageCode,
+      templateName: resolvedTemplateName,
+      languageCode: resolvedLanguageCode,
       bodyParameters,
       variablesCount,
     });
@@ -140,14 +156,10 @@ export class WhatsAppMarketingService {
     const logLabel =
       variablesCount > 0 && logMeta.previewText?.trim()
         ? logMeta.previewText.trim()
-        : formatTemplateLogLabel(
-            template.templateName,
-            template.languageCode,
-            bodyParameters,
-          );
+        : formatTemplateLogLabel(resolvedTemplateName, resolvedLanguageCode, bodyParameters);
 
     this.logger.log(
-      `[WhatsApp Template] send to=${toDigits} template=${template.templateName} lang=${template.languageCode} variablesCount=${variablesCount} params=${bodyParameters.length}`,
+      `[WhatsApp Template] send to=${toDigits} template=${resolvedTemplateName} lang=${resolvedLanguageCode} wabaId=${wabaId || '—'} variablesCount=${variablesCount} params=${bodyParameters.length}`,
     );
     this.logger.log(
       `[WhatsApp Template] Meta payload (final): ${JSON.stringify(requestBody)}`,
@@ -161,9 +173,10 @@ export class WhatsAppMarketingService {
       campaignType: logMeta.campaignType ?? null,
       isWelcome: logMeta.isWelcome,
       logLabel,
-      templateName: template.templateName,
-      templateLanguage: template.languageCode,
+      templateName: resolvedTemplateName,
+      templateLanguage: resolvedLanguageCode,
       variablesCount,
+      wabaId: wabaId || undefined,
     });
 
     if (error) {
@@ -211,12 +224,15 @@ export class WhatsAppMarketingService {
       );
     }
 
+    const configuredWabaId = this.config.getBusinessAccountId()?.trim() ?? '';
     const lang = normalizeTemplateLanguageCode(input.waTemplateLanguage);
     const match = await this.prisma.whatsAppMetaTemplate.findFirst({
       where: {
         templateName,
         language: lang,
         status: 'APPROVED',
+        isStale: false,
+        ...(configuredWabaId ? { wabaId: configuredWabaId } : {}),
       },
     });
     if (match) {
@@ -228,7 +244,12 @@ export class WhatsAppMarketingService {
     }
 
     const fallback = await this.prisma.whatsAppMetaTemplate.findFirst({
-      where: { templateName, status: 'APPROVED' },
+      where: {
+        templateName,
+        status: 'APPROVED',
+        isStale: false,
+        ...(configuredWabaId ? { wabaId: configuredWabaId } : {}),
+      },
       orderBy: { syncedAt: 'desc' },
     });
     if (fallback) {
@@ -296,6 +317,7 @@ export class WhatsAppMarketingService {
       variablesCount = t.variablesCount;
       return {
         waMetaTemplateId: campaign.waMetaTemplateId,
+        wabaId: t.wabaId,
         templateName: t.templateName,
         languageCode: metaTemplateLanguageCode(t.language),
         variableTemplates:
@@ -310,15 +332,14 @@ export class WhatsAppMarketingService {
       messageTemplate: campaign.messageTemplate,
     });
 
-    const metaTemplate = await this.metaTemplates.getById(resolved.waMetaTemplateId);
-    variablesCount = metaTemplate?.variablesCount ?? 0;
+    const metaTemplate = await this.metaTemplates.requireApprovedTemplate(resolved.waMetaTemplateId);
+    variablesCount = metaTemplate.variablesCount;
 
     return {
       waMetaTemplateId: resolved.waMetaTemplateId,
-      templateName: resolved.waTemplateName,
-      languageCode: metaTemplateLanguageCode(
-        metaTemplate?.language ?? resolved.waTemplateLanguage,
-      ),
+      wabaId: metaTemplate.wabaId,
+      templateName: metaTemplate.templateName,
+      languageCode: metaTemplateLanguageCode(metaTemplate.language),
       variableTemplates:
         variablesCount > 0 ? (campaign.waTemplateVariables ?? []) : [],
       variablesCount,
@@ -590,12 +611,25 @@ export class WhatsAppMarketingService {
   }
 
   async createCampaign(adminUserId: string, dto: CreateWhatsAppMarketingCampaignDto) {
+    if (!dto.waMetaTemplateId?.trim()) {
+      throw new BadRequestException('Vyberte schválenou WhatsApp šablonu z aktuálního WABA.');
+    }
+
+    const metaTemplate = await this.metaTemplates.requireApprovedTemplate(dto.waMetaTemplateId.trim());
+
     const resolved = await this.resolveTemplateFields({
       waMetaTemplateId: dto.waMetaTemplateId,
       waTemplateName: dto.waTemplateName,
       waTemplateLanguage: dto.waTemplateLanguage,
       messageTemplate: dto.messageTemplate,
     });
+
+    if (resolved.waTemplateName !== metaTemplate.templateName) {
+      throw new BadRequestException('Nesoulad názvu šablony při vytváření kampaně.');
+    }
+    if (resolved.waTemplateLanguage !== metaTemplate.language) {
+      throw new BadRequestException('Nesoulad jazyka šablony při vytváření kampaně.');
+    }
 
     const row = await this.prisma.whatsAppMarketingCampaign.create({
       data: {

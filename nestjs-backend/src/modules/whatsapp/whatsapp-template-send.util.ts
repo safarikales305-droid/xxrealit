@@ -63,7 +63,7 @@ export function assertZeroVariableTemplatePayload(
 ): void {
   if (variablesCount > 0) return;
 
-  const topForbidden = ['components', 'parameters', 'body', 'text', 'message', 'previewMessage'];
+  const topForbidden = ['components', 'parameters', 'body', 'text', 'message', 'previewMessage', 'preview', 'campaignMessage'];
   for (const key of topForbidden) {
     if (key in requestBody && requestBody[key] != null) {
       throw new WhatsAppTemplatePayloadError(

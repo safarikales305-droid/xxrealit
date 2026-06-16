@@ -18,6 +18,7 @@ import {
   nestAdminWhatsAppHistory,
   nestAdminWhatsAppTemplatesList,
   nestAdminWhatsAppTemplatesSync,
+  nestAdminWhatsAppTemplatesCleanup,
   parsePhonesFromCsv,
   WHATSAPP_CAMPAIGN_TYPE_LABELS,
   WHATSAPP_CAMPAIGN_TEMPLATE_HELP,
@@ -83,6 +84,7 @@ export default function AdminWhatsAppCampaignsPage() {
   const [syncWarning, setSyncWarning] = useState<string | null>(null);
   const [lastSyncInfo, setLastSyncInfo] = useState<string | null>(null);
   const [syncingTemplates, setSyncingTemplates] = useState(false);
+  const [cleaningTemplates, setCleaningTemplates] = useState(false);
 
   const selectedTemplate = approvedTemplates.find((t) => t.id === form.waMetaTemplateId) ?? null;
 
@@ -149,9 +151,10 @@ export default function AdminWhatsAppCampaignsPage() {
         setSyncWarning(null);
       }
       const info = [
-        d.wabaId ? `WABA ID: ${d.wabaId}` : null,
+        d.wabaId ? `Aktivní WABA: ${d.wabaId}` : null,
         d.wabaName ? `účet: ${d.wabaName}` : null,
-        d.templateNames?.length ? `šablony: ${d.templateNames.join(', ')}` : null,
+        `nalezeno šablon: ${d.syncedCount}`,
+        d.approvedCount != null ? `schválených pro kampaň: ${d.approvedCount}` : null,
       ]
         .filter(Boolean)
         .join(' · ');
@@ -160,12 +163,32 @@ export default function AdminWhatsAppCampaignsPage() {
         setStatusIsError(Boolean(d.warning));
         const warn = d.warning ? ` ${d.warning}` : '';
         setStatusMsg(
-          `Synchronizováno ${d.syncedCount} šablon (${d.approvedCount} schválených).${warn}`,
+          `Synchronizováno ${d.syncedCount} šablon z WABA ${d.wabaId ?? effectiveWabaId}.${warn}`,
         );
       }
     },
     [token],
   );
+
+  const cleanupOldTemplates = useCallback(async () => {
+    if (!token) return;
+    if (!window.confirm('Smazat staré/demo šablony z jiných WABA a zastaralé záznamy?')) return;
+    setCleaningTemplates(true);
+    setStatusMsg(null);
+    setStatusIsError(false);
+    const r = await nestAdminWhatsAppTemplatesCleanup(token);
+    if (!r.ok) {
+      setCleaningTemplates(false);
+      setStatusIsError(true);
+      setStatusMsg(r.error);
+      return;
+    }
+    await syncTemplates(true);
+    setCleaningTemplates(false);
+    setStatusMsg(
+      `Vyčištěno ${r.data.deletedCount} starých šablon. Aktivní WABA: ${r.data.activeWabaId}.`,
+    );
+  }, [token, syncTemplates]);
 
   useEffect(() => {
     if (!isLoading && (!user || user.role !== 'ADMIN')) {
@@ -226,9 +249,10 @@ export default function AdminWhatsAppCampaignsPage() {
         const d = sync.data;
         setSyncWarning(d.warning ?? null);
         const info = [
-          d.wabaId ? `WABA ID: ${d.wabaId}` : null,
+          d.wabaId ? `Aktivní WABA: ${d.wabaId}` : null,
           d.wabaName ? `účet: ${d.wabaName}` : null,
-          d.templateNames?.length ? `šablony: ${d.templateNames.join(', ')}` : null,
+          `nalezeno šablon: ${d.syncedCount}`,
+          d.approvedCount != null ? `schválených pro kampaň: ${d.approvedCount}` : null,
         ]
           .filter(Boolean)
           .join(' · ');
@@ -542,7 +566,7 @@ export default function AdminWhatsAppCampaignsPage() {
               <p className="mt-1 text-xs text-zinc-500">{WHATSAPP_WABA_ID_HELP}</p>
               {effectiveWabaId ? (
                 <p className="mt-1 font-mono text-xs text-zinc-700">
-                  Aktuální WABA ID pro sync: {effectiveWabaId}
+                  Aktivní WABA: {effectiveWabaId}
                 </p>
               ) : null}
               {lastSyncedAt ? (
@@ -559,19 +583,19 @@ export default function AdminWhatsAppCampaignsPage() {
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                disabled={syncingTemplates}
-                onClick={() => void syncTemplates(false)}
-                className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
-              >
-                {syncingTemplates ? 'Synchronizuji…' : 'Načíst šablony z Meta'}
-              </button>
-              <button
-                type="button"
-                disabled={syncingTemplates}
+                disabled={syncingTemplates || cleaningTemplates}
                 onClick={() => void syncTemplates(false)}
                 className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900 disabled:opacity-50"
               >
-                Synchronizovat šablony
+                {syncingTemplates ? 'Synchronizuji…' : 'Synchronizovat šablony'}
+              </button>
+              <button
+                type="button"
+                disabled={syncingTemplates || cleaningTemplates}
+                onClick={() => void cleanupOldTemplates()}
+                className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800 disabled:opacity-50"
+              >
+                {cleaningTemplates ? 'Čistím…' : 'Vyčistit staré šablony'}
               </button>
             </div>
           </div>
@@ -594,6 +618,7 @@ export default function AdminWhatsAppCampaignsPage() {
                 <thead>
                   <tr className="border-b border-zinc-100 text-xs uppercase text-zinc-500">
                     <th className="px-2 py-2">Název</th>
+                    <th className="px-2 py-2">WABA</th>
                     <th className="px-2 py-2">Jazyk</th>
                     <th className="px-2 py-2">Kategorie</th>
                     <th className="px-2 py-2">Stav</th>
@@ -606,6 +631,7 @@ export default function AdminWhatsAppCampaignsPage() {
                   {allTemplates.map((t) => (
                     <tr key={t.id} className="border-b border-zinc-50">
                       <td className="px-2 py-3 font-medium">{t.templateName}</td>
+                      <td className="px-2 py-3 font-mono text-xs">{t.wabaId || '—'}</td>
                       <td className="px-2 py-3">{t.language}</td>
                       <td className="px-2 py-3">{t.category}</td>
                       <td className="px-2 py-3">

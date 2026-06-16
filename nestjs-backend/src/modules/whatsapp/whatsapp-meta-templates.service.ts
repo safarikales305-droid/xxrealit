@@ -4,10 +4,12 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { WhatsAppConfigService } from './whatsapp-config.service';
 import { WhatsAppSettingsService } from './whatsapp-settings.service';
 import {
+  isExcludedCampaignTemplate,
   isJaspersMarketDemo,
   WHATSAPP_WRONG_WABA_WARNING,
   WhatsAppDiagnosticService,
@@ -37,6 +39,7 @@ type MetaTemplatesPage = {
 
 export type WhatsAppMetaTemplateRow = {
   id: string;
+  wabaId: string;
   metaTemplateId: string;
   templateName: string;
   category: string;
@@ -65,6 +68,12 @@ export type WhatsAppTemplatesListResult = {
   templates: WhatsAppMetaTemplateRow[];
   lastSyncedAt: string | null;
   effectiveWabaId: string;
+};
+
+export type WhatsAppTemplatesCleanupResult = {
+  ok: boolean;
+  deletedCount: number;
+  activeWabaId: string;
 };
 
 export function extractTemplateBodyText(components?: MetaTemplateComponent[]): string {
@@ -100,8 +109,13 @@ export class WhatsAppMetaTemplatesService {
     private readonly diagnostic: WhatsAppDiagnosticService,
   ) {}
 
+  private effectiveWabaId(): string {
+    return this.config.getBusinessAccountId()?.trim() ?? '';
+  }
+
   private rowToDto(row: {
     id: string;
+    wabaId: string;
     metaTemplateId: string;
     templateName: string;
     category: string;
@@ -114,6 +128,7 @@ export class WhatsAppMetaTemplatesService {
   }): WhatsAppMetaTemplateRow {
     return {
       id: row.id,
+      wabaId: row.wabaId,
       metaTemplateId: row.metaTemplateId,
       templateName: row.templateName,
       category: row.category,
@@ -126,26 +141,54 @@ export class WhatsAppMetaTemplatesService {
     };
   }
 
+  private campaignListWhere(approvedOnly: boolean): Prisma.WhatsAppMetaTemplateWhereInput {
+    const wabaId = this.effectiveWabaId();
+    const base: Prisma.WhatsAppMetaTemplateWhereInput = wabaId ? { wabaId } : {};
+
+    if (!approvedOnly) return base;
+
+    return {
+      ...base,
+      status: 'APPROVED',
+      isStale: false,
+      NOT: {
+        OR: [
+          { templateName: { startsWith: 'jaspers_market', mode: 'insensitive' } },
+          { templateName: { equals: 'hello_world', mode: 'insensitive' } },
+        ],
+      },
+    };
+  }
+
+  private assertTemplateBelongsToConfiguredWaba(row: { wabaId: string; templateName: string }) {
+    const configuredWabaId = this.effectiveWabaId();
+    if (!configuredWabaId) return;
+
+    if (!row.wabaId || row.wabaId !== configuredWabaId) {
+      throw new BadRequestException(
+        `Šablona „${row.templateName}“ patří jinému WABA (${row.wabaId || 'neznámé'}). Aktuální WABA: ${configuredWabaId}. Synchronizujte šablony nebo vyčistěte staré záznamy.`,
+      );
+    }
+  }
+
   async listTemplates(approvedOnly = false): Promise<WhatsAppTemplatesListResult> {
     await this.settings.reload();
 
-    const where = approvedOnly
-      ? { status: 'APPROVED', isStale: false }
-      : undefined;
-
     const templates = await this.prisma.whatsAppMetaTemplate.findMany({
-      where,
+      where: this.campaignListWhere(approvedOnly),
       orderBy: [{ isStale: 'asc' }, { templateName: 'asc' }, { language: 'asc' }],
     });
 
+    const wabaId = this.effectiveWabaId();
     const last = await this.prisma.whatsAppMetaTemplate.aggregate({
+      where: wabaId ? { wabaId } : undefined,
       _max: { syncedAt: true },
     });
 
     return {
       templates: templates.map((t) => this.rowToDto(t)),
       lastSyncedAt: last._max.syncedAt?.toISOString() ?? null,
-      effectiveWabaId: this.config.getBusinessAccountId() ?? '',
+      effectiveWabaId: wabaId,
     };
   }
 
@@ -171,13 +214,45 @@ export class WhatsAppMetaTemplatesService {
         `Šablona „${row.templateName}“ (${row.language}) není schválena — stav: ${row.status}.`,
       );
     }
+    this.assertTemplateBelongsToConfiguredWaba(row);
+    if (isExcludedCampaignTemplate(row.templateName)) {
+      throw new BadRequestException(
+        `Demo šablona „${row.templateName}“ nelze použít v kampani.`,
+      );
+    }
     return this.rowToDto(row);
+  }
+
+  async cleanupOldTemplates(): Promise<WhatsAppTemplatesCleanupResult> {
+    await this.settings.reload();
+    const activeWabaId = this.effectiveWabaId();
+    if (!activeWabaId) {
+      throw new BadRequestException('Není nastaveno WABA ID — nelze vyčistit šablony.');
+    }
+
+    const result = await this.prisma.whatsAppMetaTemplate.deleteMany({
+      where: {
+        OR: [
+          { wabaId: { not: activeWabaId } },
+          { wabaId: '' },
+          { isStale: true },
+          { templateName: { startsWith: 'jaspers_market', mode: 'insensitive' } },
+          { templateName: { equals: 'hello_world', mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    this.logger.log(
+      `[WhatsApp Templates] cleanup activeWabaId=${activeWabaId} deleted=${result.count}`,
+    );
+
+    return { ok: true, deletedCount: result.count, activeWabaId };
   }
 
   async syncTemplates(): Promise<WhatsAppTemplatesSyncResult> {
     await this.settings.reload();
 
-    const wabaId = this.config.getBusinessAccountId();
+    const wabaId = this.effectiveWabaId();
     const token = this.config.getAccessToken();
     if (!wabaId || !token) {
       throw new ServiceUnavailableException(
@@ -243,25 +318,33 @@ export class WhatsAppMetaTemplatesService {
           templateNames.push(templateName);
           const bodyText = extractTemplateBodyText(item.components);
           const variablesCount = countTemplateBodyVariables(bodyText);
+          const category = item.category?.trim() || 'UNKNOWN';
+          const status = item.status?.trim() || 'UNKNOWN';
 
           await this.prisma.whatsAppMetaTemplate.upsert({
-            where: { metaTemplateId },
+            where: {
+              wabaId_templateName_language: {
+                wabaId,
+                templateName,
+                language,
+              },
+            },
             create: {
+              wabaId,
               metaTemplateId,
               templateName,
-              category: item.category?.trim() || 'UNKNOWN',
+              category,
               language,
-              status: item.status?.trim() || 'UNKNOWN',
+              status,
               bodyText,
               variablesCount,
               isStale: false,
               syncedAt,
             },
             update: {
-              templateName,
-              category: item.category?.trim() || 'UNKNOWN',
-              language,
-              status: item.status?.trim() || 'UNKNOWN',
+              metaTemplateId,
+              category,
+              status,
               bodyText,
               variablesCount,
               isStale: false,
@@ -284,18 +367,21 @@ export class WhatsAppMetaTemplatesService {
         );
       } else {
         const staleResult = await this.prisma.whatsAppMetaTemplate.updateMany({
-          where: { metaTemplateId: { notIn: fetchedMetaIds } },
+          where: {
+            wabaId,
+            metaTemplateId: { notIn: fetchedMetaIds },
+          },
           data: { isStale: true },
         });
         if (staleResult.count > 0) {
           this.logger.log(
-            `[WhatsApp Templates] marked ${staleResult.count} template(s) as stale`,
+            `[WhatsApp Templates] marked ${staleResult.count} template(s) as stale for wabaId=${wabaId}`,
           );
         }
       }
 
       const approvedCount = await this.prisma.whatsAppMetaTemplate.count({
-        where: { status: 'APPROVED', isStale: false },
+        where: this.campaignListWhere(true),
       });
 
       const warning = isJaspersMarketDemo(templateNames, messageTemplateNamespace)

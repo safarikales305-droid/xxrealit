@@ -64,6 +64,7 @@ export class WhatsAppCloudApiService {
       templateName?: string;
       templateLanguage?: string;
       variablesCount?: number;
+      wabaId?: string;
     },
   ): Promise<{
     providerMessageId: string | null;
@@ -135,11 +136,14 @@ export class WhatsAppCloudApiService {
       const err = responseBody.error;
       const errorDetail = {
         recipient: logMeta?.recipientPhone ?? String(requestBody.to ?? ''),
+        templateName: logMeta?.templateName ?? (requestBody.template as { name?: string })?.name,
         template_name: logMeta?.templateName ?? (requestBody.template as { name?: string })?.name,
         template_language:
           logMeta?.templateLanguage ??
           (requestBody.template as { language?: { code?: string } })?.language?.code,
-        metaRequestPayload: requestBody,
+        variablesCount: logMeta?.variablesCount ?? null,
+        wabaId: logMeta?.wabaId ?? null,
+        finalPayload: requestBody,
         message: err?.message?.trim() || `Meta API vrátilo HTTP ${res.status}`,
         code: err?.code ?? res.status,
         type: err?.type ?? 'http_error',
@@ -175,11 +179,14 @@ export class WhatsAppCloudApiService {
 
     const successDetail = {
       recipient: logMeta?.recipientPhone ?? String(requestBody.to ?? ''),
+      templateName: logMeta?.templateName ?? (requestBody.template as { name?: string })?.name,
       template_name: logMeta?.templateName ?? (requestBody.template as { name?: string })?.name,
       template_language:
         logMeta?.templateLanguage ??
         (requestBody.template as { language?: { code?: string } })?.language?.code,
-      metaRequestPayload: requestBody,
+      variablesCount: logMeta?.variablesCount ?? null,
+      wabaId: logMeta?.wabaId ?? null,
+      finalPayload: requestBody,
       message_id: providerMessageId,
       metaResponse: responseBody,
       attempt,

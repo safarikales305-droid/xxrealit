@@ -72,6 +72,7 @@ export const WHATSAPP_CAMPAIGN_TEMPLATE_HELP =
 
 export type WhatsAppMetaTemplateRow = {
   id: string;
+  wabaId: string;
   metaTemplateId: string;
   templateName: string;
   category: string;
@@ -81,6 +82,12 @@ export type WhatsAppMetaTemplateRow = {
   variablesCount: number;
   isStale: boolean;
   syncedAt: string;
+};
+
+export type WhatsAppTemplatesCleanupResult = {
+  ok: boolean;
+  deletedCount: number;
+  activeWabaId: string;
 };
 
 export type WhatsAppTemplatesListResult = {
@@ -454,6 +461,36 @@ export async function nestAdminWhatsAppTemplatesSync(
       return {
         ok: false,
         error: data.error || data.message || `HTTP ${res.status}`,
+      };
+    }
+    return { ok: true, data };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
+  }
+}
+
+export async function nestAdminWhatsAppTemplatesCleanup(
+  token: string,
+): Promise<
+  | { ok: true; data: WhatsAppTemplatesCleanupResult }
+  | { ok: false; error: string }
+> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/whatsapp/admin/templates/cleanup`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+    });
+    const data = (await res.json().catch(() => ({}))) as WhatsAppTemplatesCleanupResult & {
+      message?: string;
+    };
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: data.message || `HTTP ${res.status}`,
       };
     }
     return { ok: true, data };

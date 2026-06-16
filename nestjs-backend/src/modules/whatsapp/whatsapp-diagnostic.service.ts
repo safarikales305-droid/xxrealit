@@ -386,6 +386,14 @@ export class WhatsAppDiagnosticService {
 
 export const JASPERS_MARKET_DEMO_PREFIX = 'jaspers_market';
 
+/** Demo šablony Meta — nesmí být v marketingových kampaních. */
+export function isExcludedCampaignTemplate(templateName: string): boolean {
+  const lower = templateName.trim().toLowerCase();
+  if (lower.startsWith(JASPERS_MARKET_DEMO_PREFIX)) return true;
+  if (lower === 'hello_world') return true;
+  return false;
+}
+
 export function isJaspersMarketDemo(
   templateNames: string[],
   messageTemplateNamespace?: string,
