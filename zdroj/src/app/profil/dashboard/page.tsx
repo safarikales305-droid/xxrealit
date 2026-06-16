@@ -37,7 +37,6 @@ import { trackFacebookAnalytics } from '@/lib/facebook-analytics';
 import { ActiveBonusCampaigns } from '@/components/dashboard/ActiveBonusCampaigns';
 import { InviteFriendsPanel } from '@/components/referral/InviteFriendsPanel';
 import { FacebookPageConnectionCard } from '@/components/profile/FacebookPageConnectionCard';
-import { FacebookUrlImportCard } from '@/components/profile/FacebookUrlImportCard';
 import { WhatsAppConnectionCard } from '@/components/profile/WhatsAppConnectionCard';
 
 type Tab = 'settings' | 'social-integrations' | 'referral' | 'listings' | 'ads' | 'messages' | 'notifications';
@@ -514,22 +513,8 @@ export default function ProfileDashboardPage() {
           {tab === 'social-integrations' ? (
             <div className="space-y-5">
               <h1 className="text-xl font-bold text-zinc-900">Sociální sítě</h1>
-              <p className="text-sm text-zinc-600">
-                Propojte Facebook stránku a synchronizujte příspěvky na svůj profil a do feedu
-                portálu.
-              </p>
               {isProfessional ? (
-                <>
-                  <FacebookUrlImportCard token={apiAccessToken} />
-                  <details className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
-                    <summary className="cursor-pointer text-sm font-semibold text-zinc-800">
-                      Pokročilé: propojení přes Meta OAuth (vyžaduje Pages API)
-                    </summary>
-                    <div className="mt-4">
-                      <FacebookPageConnectionCard token={apiAccessToken} />
-                    </div>
-                  </details>
-                </>
+                <FacebookPageConnectionCard token={apiAccessToken} />
               ) : (
                 <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                   Propojení Facebook stránky je dostupné pro profesionální účty.

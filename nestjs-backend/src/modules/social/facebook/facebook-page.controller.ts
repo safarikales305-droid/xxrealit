@@ -224,7 +224,7 @@ export class FacebookPageController implements OnModuleInit {
   @Post('disconnect-page')
   @UseGuards(JwtAuthGuard)
   disconnectPageOnly(@CurrentUser() user: AuthUser) {
-    return this.facebookPage.disconnectActivePage(user.id);
+    return this.facebookPage.disconnect(user.id);
   }
 
   @Post('disconnect')

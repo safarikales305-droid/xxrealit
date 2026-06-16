@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
@@ -11,7 +12,6 @@ import {
 } from '@/lib/facebook-page-scope';
 import {
   nestFacebookConfigStatus,
-  nestFacebookPageDisconnect,
   nestFacebookPageDisconnectPage,
   nestFacebookPageListPages,
   nestFacebookPageSelectPage,
@@ -24,6 +24,7 @@ import {
 } from '@/lib/nest-client';
 
 const FACEBOOK_CONNECT_PATH = '/api/social/facebook/connect';
+const SOCIAL_TAB_PATH = '/profil/dashboard?tab=social-integrations';
 const NOT_CONFIGURED_MSG = 'Propojení Facebook stránky není nakonfigurováno administrátorem.';
 
 type Props = {
@@ -31,6 +32,7 @@ type Props = {
 };
 
 export function FacebookPageConnectionCard({ token }: Props) {
+  const router = useRouter();
   const { user } = useAuth();
   const params = useSearchParams();
   const [configStatus, setConfigStatus] = useState<FacebookConfigStatus | null>(null);
@@ -41,8 +43,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
-  const [selectingPage, setSelectingPage] = useState(false);
-  const [changingPage, setChangingPage] = useState(false);
+  const [showPagePicker, setShowPagePicker] = useState(false);
 
   const integrationConfigured = configStatus?.pagesConfigured ?? false;
 
@@ -59,6 +60,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
     const s = await nestFacebookPageStatus(token);
     setStatus(s);
     setLoading(false);
+    return s;
   }, [token]);
 
   useEffect(() => {
@@ -66,40 +68,42 @@ export function FacebookPageConnectionCard({ token }: Props) {
   }, [refresh]);
 
   const loadPagePicker = useCallback(async () => {
-    if (!token) return;
+    if (!token) return false;
     setPagesLoading(true);
-    setSelectingPage(true);
     setError(null);
     const result = await nestFacebookPageListPages(token);
     setPagesLoading(false);
     if (!result.ok) {
-      setSelectingPage(false);
       if (result.permissionDenied || isFacebookPageScopeError(result.error)) {
         setError(FACEBOOK_PAGES_LIST_PERMISSION_MSG);
-        return;
+      } else {
+        setError(result.error || 'Nepodařilo se načíst Facebook stránky.');
       }
-      setError(result.error || 'Nepodařilo se načíst Facebook stránky.');
-      return;
+      setShowPagePicker(false);
+      return false;
     }
     if (!result.pages.length) {
-      setSelectingPage(false);
       setError('Nenašli jsme žádnou Facebook stránku, kterou spravujete.');
-      return;
+      setShowPagePicker(false);
+      return false;
     }
     setPages(result.pages);
+    setShowPagePicker(true);
     setError(null);
+    return true;
   }, [token]);
 
   useEffect(() => {
-    if (!token || !integrationConfigured || !status) return;
-    if (status.connected && !changingPage) return;
-    const shouldLoad =
-      params.get('facebook') === 'select' ||
-      params.get('facebook') === 'connected' ||
-      status.pendingPageSelection ||
-      status.needsPageSelection ||
-      changingPage;
-    if (shouldLoad && status.accountConnected) {
+    if (!token || !integrationConfigured || loading) return;
+
+    const facebookParam = params.get('facebook');
+    const shouldPick =
+      facebookParam === 'select' ||
+      facebookParam === 'connected' ||
+      status?.pendingPageSelection ||
+      status?.needsPageSelection;
+
+    if (shouldPick && !status?.connected) {
       void loadPagePicker();
     }
   }, [
@@ -108,7 +112,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
     status,
     loadPagePicker,
     integrationConfigured,
-    changingPage,
+    loading,
   ]);
 
   useEffect(() => {
@@ -119,19 +123,15 @@ export function FacebookPageConnectionCard({ token }: Props) {
     }
     if (params.get('facebook') === 'page_connected') {
       const pageName = params.get('pageName');
+      setShowPagePicker(false);
+      setPages([]);
       setOk(
         pageName
-          ? `Synchronizována stránka: ${decodeURIComponent(pageName)}`
-          : status?.pageName
-            ? `Synchronizována stránka: ${status.pageName}`
-            : 'Facebook stránka byla úspěšně propojena.',
+          ? `Propojena stránka: ${decodeURIComponent(pageName)}`
+          : 'Facebook stránka byla úspěšně propojena.',
       );
-      setChangingPage(false);
       void refresh();
-      return;
-    }
-    if (params.get('facebook') === 'connected') {
-      setOk('Facebook účet byl úspěšně propojen. Vyberte stránku pro synchronizaci příspěvků.');
+      router.replace(SOCIAL_TAB_PATH);
       return;
     }
     if (params.get('facebook') === 'select') {
@@ -149,7 +149,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
       return;
     }
     setError('Propojení Facebooku se nezdařilo. Zkuste to znovu.');
-  }, [params, refresh, status?.pageName]);
+  }, [params, refresh, router]);
 
   function handleConnectAccount() {
     if (!token) {
@@ -184,10 +184,10 @@ export function FacebookPageConnectionCard({ token }: Props) {
       setError(res.error ?? 'Výběr stránky selhal.');
       return;
     }
-    setSelectingPage(false);
-    setChangingPage(false);
+    setShowPagePicker(false);
     setPages([]);
-    setOk(res.message ?? `Synchronizována stránka: ${status?.pageName ?? 'Facebook stránka'}`);
+    setOk(res.message ?? 'Facebook stránka byla propojena.');
+    router.replace(SOCIAL_TAB_PATH);
     void refresh();
   }
 
@@ -208,60 +208,46 @@ export function FacebookPageConnectionCard({ token }: Props) {
   async function handleDisconnectPage() {
     if (!token || !window.confirm('Odpojit Facebook stránku?')) return;
     setBusy(true);
+    setError(null);
+    setOk(null);
     const res = await nestFacebookPageDisconnectPage(token);
     setBusy(false);
     if (!res.ok) {
       setError(res.error ?? 'Odpojení stránky selhalo.');
       return;
     }
-    setOk('Facebook stránka byla odpojena.');
-    setSelectingPage(false);
-    setChangingPage(false);
+    setStatus(null);
     setPages([]);
-    void refresh();
-  }
-
-  async function handleDisconnectAccount() {
-    if (!token || !window.confirm('Odpojit Facebook účet i stránku?')) return;
-    setBusy(true);
-    const res = await nestFacebookPageDisconnect(token);
-    setBusy(false);
-    if (!res.ok) {
-      setError(res.error ?? 'Odpojení selhalo.');
-      return;
-    }
-    setOk('Facebook účet byl odpojen.');
-    setSelectingPage(false);
-    setChangingPage(false);
-    setPages([]);
-    void refresh();
+    setShowPagePicker(false);
+    router.replace(SOCIAL_TAB_PATH);
+    await refresh();
+    setOk('Facebook stránka byla odpojena. Můžete propojit jinou stránku.');
   }
 
   function handleChangePage() {
-    setChangingPage(true);
-    setOk('Vyberte jinou Facebook stránku.');
     setError(null);
-    void loadPagePicker();
+    setOk(null);
+    setPages([]);
+    setShowPagePicker(false);
+    handleConnectAccount();
   }
 
   if (!token) return null;
 
-  const showPagePicker =
-    selectingPage &&
-    pages.length > 0 &&
-    (changingPage || !status?.connected || status?.needsPageSelection);
+  const connected = Boolean(status?.connected);
 
   return (
-    <div className="relative z-0 space-y-3 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
+    <div className="relative z-0 space-y-4 rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
       <div>
-        <p className="text-sm font-semibold text-zinc-900">Facebook propojení</p>
-        <p className="mt-1 text-sm text-zinc-600">
-          Propojte svou Facebook stránku a nové příspěvky se budou automaticky zobrazovat i na
-          xxrealit.
+        <p className="text-base font-semibold text-zinc-900">Facebook stránka</p>
+        <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+          Propojte svou Facebook stránku přes bezpečné Meta API. Nové příspěvky se budou automaticky
+          zobrazovat na vašem profilu i ve veřejném feedu XXRealit.
         </p>
       </div>
 
       {loading ? <p className="text-sm text-zinc-500">Načítám stav propojení…</p> : null}
+
       {!loading && !integrationConfigured ? (
         <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50/80 p-3">
           <p className="text-sm text-amber-900">{NOT_CONFIGURED_MSG}</p>
@@ -269,11 +255,9 @@ export function FacebookPageConnectionCard({ token }: Props) {
             <div className="text-sm text-amber-900">
               <p className="font-medium">Instrukce pro administrátora:</p>
               <ol className="mt-1 list-decimal space-y-1 pl-5">
+                <li>V Meta for Developers vytvořte aplikaci a získejte App ID a App Secret.</li>
                 <li>
-                  V Meta for Developers vytvořte aplikaci a získejte App ID a App Secret.
-                </li>
-                <li>
-                  Nastavte OAuth Redirect URI podle hodnoty v{' '}
+                  Nastavte OAuth Redirect URI v{' '}
                   <Link
                     href="/admin/integrace/facebook"
                     className="font-semibold text-[#1877F2] underline"
@@ -282,76 +266,35 @@ export function FacebookPageConnectionCard({ token }: Props) {
                   </Link>
                   .
                 </li>
-                <li>
-                  Doplňte proměnné v Railway (backend) — viz{' '}
-                  <code className="rounded bg-amber-100 px-1 text-xs">ADMIN_SETUP_FACEBOOK.md</code>.
-                </li>
               </ol>
-              {configStatus?.pagesMissing?.length ? (
-                <p className="mt-2 text-xs">
-                  Chybí: {configStatus.pagesMissing.join(', ')}
-                </p>
-              ) : configStatus?.missing?.length ? (
-                <p className="mt-2 text-xs">
-                  Chybí (login): {configStatus.missing.join(', ')}
-                </p>
-              ) : null}
             </div>
           ) : null}
         </div>
       ) : null}
-      {error && !showPagePicker && !(status?.accountConnected && !status?.connected) ? (
-        <p className="text-sm text-red-600">{error}</p>
-      ) : null}
+
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
       {ok ? <p className="text-sm text-emerald-700">{ok}</p> : null}
       {status?.tokenNeedsReauth ? (
         <p className="text-sm text-amber-800">Facebook propojení vyžaduje nové přihlášení.</p>
       ) : null}
 
-      {!loading && integrationConfigured && !status?.connected && !status?.accountConnected && !selectingPage ? (
+      {!loading && integrationConfigured && !connected && !showPagePicker ? (
         <button
           type="button"
           disabled={busy}
-          className="relative z-10 rounded-full bg-[#1877F2] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#166fe0] disabled:cursor-wait disabled:opacity-70"
+          className="relative z-10 w-full rounded-xl bg-[#1877F2] px-6 py-3.5 text-base font-semibold text-white transition hover:bg-[#166fe0] disabled:cursor-wait disabled:opacity-70 sm:w-auto"
           onClick={handleConnectAccount}
         >
           {busy ? 'Přesměrovávám na Facebook…' : 'Propojit Facebook stránku'}
         </button>
       ) : null}
 
-      {!loading && status?.accountConnected && !status?.connected && !showPagePicker ? (
-        <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/80 p-3">
-          <p className="text-sm text-emerald-900">Facebook účet je propojen.</p>
+      {showPagePicker && pages.length > 0 && !connected ? (
+        <div className="space-y-3 rounded-lg border border-blue-200 bg-blue-50/50 p-4">
+          <p className="text-sm font-semibold text-zinc-900">Vyberte Facebook stránku</p>
           {pagesLoading ? (
             <p className="text-sm text-zinc-600">Načítám vaše Facebook stránky…</p>
           ) : null}
-          {!pagesLoading && pages.length === 0 && error ? (
-            <p className="text-sm text-amber-900">{error}</p>
-          ) : null}
-          {!pagesLoading && pages.length === 0 && !error ? (
-            <button
-              type="button"
-              disabled={busy}
-              className="relative z-10 rounded-full bg-[#1877F2] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#166fe0] disabled:cursor-wait disabled:opacity-70"
-              onClick={() => void loadPagePicker()}
-            >
-              Načíst Facebook stránky
-            </button>
-          ) : null}
-          <button
-            type="button"
-            disabled={busy}
-            className="rounded-full border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 disabled:opacity-50"
-            onClick={() => void handleDisconnectAccount()}
-          >
-            Odpojit Facebook účet
-          </button>
-        </div>
-      ) : null}
-
-      {showPagePicker ? (
-        <div className="space-y-3 rounded-lg border border-blue-200 bg-blue-50/50 p-3">
-          <p className="text-sm font-semibold text-zinc-900">Vyberte Facebook stránku</p>
           <div className="flex flex-col gap-2">
             {pages.map((p) => (
               <div
@@ -379,7 +322,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
                   className="shrink-0 rounded-full bg-[#1877F2] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#166fe0] disabled:opacity-50"
                   onClick={() => void handleSelectPage(p.id)}
                 >
-                  Propojit tuto stránku
+                  Propojit
                 </button>
               </div>
             ))}
@@ -387,10 +330,10 @@ export function FacebookPageConnectionCard({ token }: Props) {
         </div>
       ) : null}
 
-      {!loading && status?.connected && !showPagePicker ? (
-        <div className="space-y-3">
+      {!loading && connected ? (
+        <div className="space-y-4">
           <div className="flex items-center gap-3">
-            {status.pagePictureUrl ? (
+            {status?.pagePictureUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={status.pagePictureUrl}
@@ -398,18 +341,23 @@ export function FacebookPageConnectionCard({ token }: Props) {
                 className="h-12 w-12 rounded-full border border-zinc-200 object-cover"
               />
             ) : null}
-            <p className="text-sm text-zinc-800">
-              Synchronizována stránka: <span className="font-semibold">{status.pageName}</span>
-            </p>
+            <div>
+              <p className="text-sm font-semibold text-zinc-900">{status?.pageName}</p>
+              {status?.lastSyncAt ? (
+                <p className="text-xs text-zinc-500">
+                  Poslední synchronizace:{' '}
+                  {new Date(status.lastSyncAt).toLocaleString('cs-CZ')}
+                </p>
+              ) : (
+                <p className="text-xs text-zinc-500">Zatím neproběhla synchronizace</p>
+              )}
+            </div>
           </div>
-          <p className="text-sm text-emerald-800">
-            Hotovo. Nové příspěvky z vaší Facebook stránky budeme automaticky přidávat i na
-            xxrealit.
-          </p>
+
           <label className="inline-flex items-center gap-2 text-sm text-zinc-800">
             <input
               type="checkbox"
-              checked={Boolean(status.syncEnabled)}
+              checked={Boolean(status?.syncEnabled)}
               disabled={busy}
               onChange={(e) => {
                 if (!token) return;
@@ -424,13 +372,9 @@ export function FacebookPageConnectionCard({ token }: Props) {
                 });
               }}
             />
-            Automaticky přidávat nové FB příspěvky
+            Automatická synchronizace nových příspěvků
           </label>
-          {status.lastSyncAt ? (
-            <p className="text-xs text-zinc-500">
-              Poslední synchronizace: {new Date(status.lastSyncAt).toLocaleString('cs-CZ')}
-            </p>
-          ) : null}
+
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
