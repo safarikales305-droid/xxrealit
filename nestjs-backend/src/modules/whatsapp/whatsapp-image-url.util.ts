@@ -56,10 +56,9 @@ export function resolvePublicHttpsImageUrl(raw: string): string {
 }
 
 export function hasCampaignHeaderImageSource(input: {
-  headerImageUrl?: string | null;
   headerImageMediaId?: string | null;
 }): boolean {
-  return Boolean(input.headerImageUrl?.trim() || input.headerImageMediaId?.trim());
+  return Boolean(input.headerImageMediaId?.trim());
 }
 
 /** Ověří, že obrázek je veřejně dostupný (HTTPS, HTTP 200, image/jpeg|png). */

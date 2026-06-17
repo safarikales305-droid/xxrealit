@@ -219,10 +219,10 @@ export type WhatsAppWabaPhoneNumbersResult = {
 };
 
 export const WHATSAPP_HEADER_IMAGE_HELP =
-  'Obrázek ve schválené Meta šabloně je pouze ukázkový. Pro každou kampaň je nutné vložit obrázek znovu nebo použít Meta media_id.';
+  'Obrázek ve schválené Meta šabloně je pouze ukázka. Pro každou kampaň nahrajte obrázek nebo použijte media_id.';
 
 export const WHATSAPP_HEADER_IMAGE_REQUIRED_MSG =
-  'Tato šablona má HEADER IMAGE — nahrajte obrázek kampaně, vložte veřejnou HTTPS URL nebo zadejte Meta media_id.';
+  'Tato šablona má HEADER IMAGE — nahrajte obrázek kampaně (nahrá se do Meta) nebo zadejte Meta media_id.';
 
 export const WHATSAPP_NO_APPROVED_TEMPLATES_MSG =
   'V Meta zatím není schválena žádná WhatsApp šablona.';
@@ -705,7 +705,9 @@ export type WhatsAppCampaignPreviewResult = {
 export async function nestAdminWhatsAppCampaignUploadImage(
   token: string,
   file: File,
-): Promise<{ ok: true; url: string; publicUrl: string } | { ok: false; error: string }> {
+): Promise<
+  { ok: true; url: string; publicUrl: string; mediaId: string } | { ok: false; error: string }
+> {
   try {
     const form = new FormData();
     form.append('file', file);
@@ -718,12 +720,13 @@ export async function nestAdminWhatsAppCampaignUploadImage(
     const data = (await res.json().catch(() => ({}))) as {
       url?: string;
       publicUrl?: string;
+      mediaId?: string;
       message?: string;
     };
-    if (!res.ok || !data.url || !data.publicUrl) {
+    if (!res.ok || !data.url || !data.publicUrl || !data.mediaId) {
       return { ok: false, error: data.message || `HTTP ${res.status}` };
     }
-    return { ok: true, url: data.url, publicUrl: data.publicUrl };
+    return { ok: true, url: data.url, publicUrl: data.publicUrl, mediaId: data.mediaId };
   } catch (e: unknown) {
     return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
   }

@@ -221,6 +221,75 @@ export class WhatsAppCloudApiService {
     return { providerMessageId, attempt };
   }
 
+  /**
+   * Nahraje obrázek přes Meta Graph API POST /{phoneNumberId}/media.
+   * Vrací WhatsApp media_id pro template header image.id.
+   */
+  async uploadMediaImage(
+    buffer: Buffer,
+    mimeType: 'image/jpeg' | 'image/png',
+    filename: string,
+  ): Promise<string> {
+    await this.settings.reload();
+
+    if (!this.config.isCloudApiConfigured()) {
+      throw new ServiceUnavailableException(
+        'WhatsApp Cloud API není zapnuto nebo není nakonfigurováno.',
+      );
+    }
+
+    const token = this.config.getAccessToken();
+    const phoneNumberId = this.config.getPhoneNumberId();
+    if (!token || !phoneNumberId) {
+      throw new ServiceUnavailableException('Chybí access token nebo phone number ID.');
+    }
+
+    const apiVersion = this.config.getApiVersion();
+    const requestUrl = `${GRAPH_BASE}/${apiVersion}/${phoneNumberId}/media`;
+    const tokenSource = this.accessTokenSource();
+
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', mimeType);
+    form.append('file', new Blob([new Uint8Array(buffer)], { type: mimeType }), filename);
+
+    this.logger.log(`[WhatsApp Meta] POST ${requestUrl} (media upload)`);
+    this.logger.log(
+      `[WhatsApp Meta] phoneNumberId=${phoneNumberId} tokenSource=${tokenSource} file=${filename} type=${mimeType} size=${buffer.length}`,
+    );
+
+    const res = await fetch(requestUrl, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+
+    const responseBody = (await res.json().catch(() => ({}))) as {
+      id?: string;
+      error?: MetaWhatsAppErrorBody;
+    };
+
+    this.logger.log(`[WhatsApp Meta] media upload response status: ${res.status}`);
+    this.logger.log(`[WhatsApp Meta] media upload response body: ${JSON.stringify(responseBody)}`);
+
+    if (res.status !== 200 && res.status !== 201) {
+      const err = responseBody.error;
+      const parts = [
+        err?.message?.trim() || `Meta Media API vrátilo HTTP ${res.status}`,
+      ];
+      if (err?.code != null) parts.push(`code: ${err.code}`);
+      if (err?.fbtrace_id) parts.push(`fbtrace_id: ${err.fbtrace_id}`);
+      throw new BadRequestException(parts.join(' | '));
+    }
+
+    const mediaId = responseBody.id?.trim();
+    if (!mediaId) {
+      throw new BadRequestException('Meta Media API nevrátilo media_id.');
+    }
+
+    return mediaId;
+  }
+
   async getLastCampaignError(campaignId: string) {
     const row = await this.prisma.whatsAppMarketingCampaignLog.findFirst({
       where: { campaignId, status: WhatsAppMessageStatus.FAILED },

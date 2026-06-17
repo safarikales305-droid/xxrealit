@@ -106,7 +106,7 @@ export default function AdminWhatsAppCampaignsPage() {
   const requiresHeaderImage = selectedTemplate?.headerType === 'IMAGE';
 
   function hasHeaderImageInput(): boolean {
-    return Boolean(form.waHeaderImageUrl.trim() || form.waHeaderImageMediaId.trim());
+    return Boolean(form.waHeaderImageMediaId.trim());
   }
 
   function showHeaderImageRequiredMsg() {
@@ -115,7 +115,7 @@ export default function AdminWhatsAppCampaignsPage() {
   }
 
   function campaignHasHeaderImage(c: WhatsAppCampaignRow): boolean {
-    return Boolean(c.waHeaderImageUrl?.trim() || c.waHeaderImageMediaId?.trim());
+    return Boolean(c.waHeaderImageMediaId?.trim());
   }
 
   function campaignNeedsHeaderImage(c: WhatsAppCampaignRow): boolean {
@@ -418,8 +418,12 @@ export default function AdminWhatsAppCampaignsPage() {
       setStatusMsg(r.error);
       return;
     }
-    setForm((f) => ({ ...f, waHeaderImageUrl: r.publicUrl }));
-    setStatusMsg('Obrázek kampaně nahrán.');
+    setForm((f) => ({
+      ...f,
+      waHeaderImageMediaId: r.mediaId,
+      waHeaderImageUrl: r.publicUrl,
+    }));
+    setStatusMsg(`Obrázek nahrán do Meta (media_id: ${r.mediaId}).`);
   }
 
   async function onCreate(e: React.FormEvent) {
@@ -925,8 +929,8 @@ export default function AdminWhatsAppCampaignsPage() {
                     {WHATSAPP_HEADER_IMAGE_HELP}
                   </p>
                   <p className="text-xs text-blue-900">
-                    Vyberte jednu z možností: nahrajte soubor (uloží se jako veřejná HTTPS URL pro
-                    Meta), vložte vlastní HTTPS odkaz, nebo zadejte Meta media_id.
+                    Nahrajte soubor (automaticky se nahraje do Meta a uloží media_id) nebo zadejte
+                    existující Meta media_id.
                   </p>
                   <div>
                     <label className="text-xs font-semibold uppercase text-zinc-500">
@@ -940,26 +944,17 @@ export default function AdminWhatsAppCampaignsPage() {
                       className="mt-1 block w-full text-sm"
                     />
                     {uploadingImage ? (
-                      <p className="mt-1 text-xs text-zinc-500">Nahrávám…</p>
+                      <p className="mt-1 text-xs text-zinc-500">Nahrávám do Meta…</p>
+                    ) : null}
+                    {form.waHeaderImageMediaId.trim() ? (
+                      <p className="mt-1 font-mono text-xs text-emerald-800">
+                        media_id: {form.waHeaderImageMediaId}
+                      </p>
                     ) : null}
                   </div>
                   <div>
                     <label className="text-xs font-semibold uppercase text-zinc-500">
-                      2. Veřejná HTTPS URL
-                    </label>
-                    <input
-                      type="url"
-                      value={form.waHeaderImageUrl}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, waHeaderImageUrl: e.target.value }))
-                      }
-                      placeholder="https://www.xxrealit.cz/uploads/whatsapp/kampan-obrazek.jpg"
-                      className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold uppercase text-zinc-500">
-                      3. Meta media_id
+                      2. Meta media_id
                     </label>
                     <input
                       type="text"
@@ -971,7 +966,7 @@ export default function AdminWhatsAppCampaignsPage() {
                       className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 font-mono text-sm"
                     />
                     <p className="mt-1 text-xs text-zinc-500">
-                      Při vyplnění media_id se do Meta pošle image.id místo image.link.
+                      Při odeslání se do Meta pošle výhradně image.id (media_id).
                     </p>
                   </div>
                   {!hasHeaderImageInput() ? (
@@ -1205,9 +1200,7 @@ export default function AdminWhatsAppCampaignsPage() {
                         {campaignNeedsHeaderImage(c) ? (
                           campaignHasHeaderImage(c) ? (
                             <span className="text-emerald-700">
-                              {c.waHeaderImageMediaId?.trim()
-                                ? `media_id: ${c.waHeaderImageMediaId}`
-                                : 'HTTPS URL ✓'}
+                              media_id: {c.waHeaderImageMediaId}
                             </span>
                           ) : (
                             <span className="font-medium text-amber-800">chybí obrázek</span>

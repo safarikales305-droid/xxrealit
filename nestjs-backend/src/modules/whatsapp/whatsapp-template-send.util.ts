@@ -9,8 +9,6 @@ export type WhatsAppTemplateSendConfig = {
   /** Počet proměnných šablony z Meta — při 0 se neposílají body parameters. */
   variablesCount: number;
   headerType?: WhatsAppTemplateHeaderType;
-  /** Veřejná HTTPS URL — fallback image.link, pokud není media_id. */
-  headerImageUrl?: string;
   headerImageMediaId?: string;
 };
 
@@ -22,6 +20,9 @@ export class WhatsAppTemplatePayloadError extends BadRequestException {
 
 export const WHATSAPP_MARKETING_TEMPLATE_REQUIRED_MSG =
   'WhatsApp nepovoluje první marketingovou zprávu jako vlastní text. Vyberte schválenou šablonu zprávy.';
+
+export const WHATSAPP_IMAGE_HEADER_REQUIRES_MEDIA_ID_MSG =
+  'Obrázkové kampaně musí používat Meta media_id.';
 
 /** Normalizuje jazyk šablony — výchozí cs, podpora cs_CZ a en_US. */
 export function normalizeTemplateLanguageCode(raw?: string): string {
@@ -68,16 +69,10 @@ function templateComponents(
 
   if (config.headerType === 'IMAGE') {
     const mediaId = config.headerImageMediaId?.trim();
-    const imageUrl = config.headerImageUrl?.trim();
     if (mediaId) {
       components.push({
         type: 'header',
         parameters: [{ type: 'image', image: { id: mediaId } }],
-      });
-    } else if (imageUrl) {
-      components.push({
-        type: 'header',
-        parameters: [{ type: 'image', image: { link: imageUrl } }],
       });
     }
   }
@@ -154,11 +149,8 @@ export function assertTemplatePayload(
   }
 }
 
-/** Ověří, že Meta payload obsahuje header image v template.components. */
-export function assertImageHeaderInPayload(
-  requestBody: MetaMessagesRequestBody,
-  expectedLink?: string,
-): void {
+/** Ověří, že Meta payload obsahuje header image.id (bez image.link). */
+export function assertImageHeaderInPayload(requestBody: MetaMessagesRequestBody): void {
   const template = requestBody.template as Record<string, unknown> | undefined;
   const components = Array.isArray(template?.components)
     ? (template.components as Array<Record<string, unknown>>)
@@ -178,20 +170,18 @@ export function assertImageHeaderInPayload(
   const link = image?.link?.trim();
   const id = image?.id?.trim();
 
-  if (!link && !id) {
-    throw new WhatsAppTemplatePayloadError(
-      'HEADER IMAGE musí mít image.link nebo image.id uvnitř template.components.',
-    );
+  if (link) {
+    throw new WhatsAppTemplatePayloadError(WHATSAPP_IMAGE_HEADER_REQUIRES_MEDIA_ID_MSG);
   }
 
-  if (expectedLink && link && link !== expectedLink) {
+  if (!id) {
     throw new WhatsAppTemplatePayloadError(
-      `image.link v payloadu (${link}) neodpovídá ověřené URL (${expectedLink}).`,
+      'HEADER IMAGE musí mít image.id (WhatsApp media_id) uvnitř template.components.',
     );
   }
 }
 
-export function extractHeaderImageLinkFromPayload(
+export function extractHeaderImageMediaIdFromPayload(
   requestBody: MetaMessagesRequestBody,
 ): string | null {
   const template = requestBody.template as Record<string, unknown> | undefined;
@@ -203,8 +193,22 @@ export function extractHeaderImageLinkFromPayload(
     ? (header.parameters as Array<Record<string, unknown>>)
     : [];
   const imageParam = parameters.find((p) => String(p.type ?? '').toLowerCase() === 'image');
+  const image = imageParam?.image as { id?: string } | undefined;
+  return image?.id?.trim() || null;
+}
+
+export function payloadUsesHeaderImageLink(requestBody: MetaMessagesRequestBody): boolean {
+  const template = requestBody.template as Record<string, unknown> | undefined;
+  const components = Array.isArray(template?.components)
+    ? (template.components as Array<Record<string, unknown>>)
+    : [];
+  const header = components.find((c) => String(c.type ?? '').toLowerCase() === 'header');
+  const parameters = Array.isArray(header?.parameters)
+    ? (header.parameters as Array<Record<string, unknown>>)
+    : [];
+  const imageParam = parameters.find((p) => String(p.type ?? '').toLowerCase() === 'image');
   const image = imageParam?.image as { link?: string } | undefined;
-  return image?.link?.trim() || null;
+  return Boolean(image?.link?.trim());
 }
 
 /** @deprecated použij assertTemplatePayload */
@@ -246,7 +250,7 @@ export function formatTemplateLogLabel(
   languageCode: string,
   bodyParameters: string[],
   headerType?: WhatsAppTemplateHeaderType,
-  imageUrl?: string | null,
+  imageMediaId?: string | null,
 ): string {
   const vars =
     bodyParameters.length > 0
@@ -254,7 +258,7 @@ export function formatTemplateLogLabel(
       : '';
   const header =
     headerType === 'IMAGE'
-      ? ` header=IMAGE${imageUrl ? ` url=${imageUrl}` : ''}`
+      ? ` header=IMAGE${imageMediaId ? ` media_id=${imageMediaId}` : ''}`
       : '';
   return `template:${templateName}@${metaTemplateLanguageCode(languageCode)}${header}${vars}`;
 }

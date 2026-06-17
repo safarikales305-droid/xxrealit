@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import * as fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { extname, join } from 'node:path';
+import { extname, join, basename } from 'node:path';
 import {
   UserRole,
   WhatsAppMarketingCampaignStatus,
@@ -28,11 +28,13 @@ import {
   buildTemplateBodyParameters,
   assertTemplatePayload,
   assertImageHeaderInPayload,
-  extractHeaderImageLinkFromPayload,
+  extractHeaderImageMediaIdFromPayload,
+  payloadUsesHeaderImageLink,
   formatTemplateLogLabel,
   metaTemplateLanguageCode,
   normalizeTemplateLanguageCode,
   WHATSAPP_MARKETING_TEMPLATE_REQUIRED_MSG,
+  WHATSAPP_IMAGE_HEADER_REQUIRES_MEDIA_ID_MSG,
 } from './whatsapp-template-send.util';
 import {
   extractTemplatePartsFromRaw,
@@ -126,17 +128,62 @@ export class WhatsAppMarketingService {
 
   private assertCampaignHeaderImageReady(ctx: Pick<
     CampaignTemplateSendContext,
-    'headerType' | 'headerImageUrl' | 'headerImageMediaId'
+    'headerType' | 'headerImageMediaId' | 'headerImageUrl'
   >) {
     if (ctx.headerType !== 'IMAGE') return;
-    if (
-      !hasCampaignHeaderImageSource({
-        headerImageUrl: ctx.headerImageUrl,
-        headerImageMediaId: ctx.headerImageMediaId,
-      })
-    ) {
+    if (!ctx.headerImageMediaId?.trim() && !ctx.headerImageUrl?.trim()) {
       throw new BadRequestException(WHATSAPP_HEADER_IMAGE_REQUIRED_MSG);
     }
+  }
+
+  private imageMimeFromExtension(ext: string): 'image/jpeg' | 'image/png' {
+    return ext === '.png' ? 'image/png' : 'image/jpeg';
+  }
+
+  /** Získá media_id — z kampaně, nebo nahraje uložený soubor/URL do Meta Media API. */
+  private async resolveHeaderImageMediaId(input: {
+    headerImageMediaId?: string | null;
+    headerImageUrl?: string | null;
+  }): Promise<string> {
+    const storedMediaId = input.headerImageMediaId?.trim();
+    if (storedMediaId) return storedMediaId;
+
+    const rawUrl = input.headerImageUrl?.trim();
+    if (!rawUrl) {
+      throw new BadRequestException(WHATSAPP_HEADER_IMAGE_REQUIRED_MSG);
+    }
+
+    let buffer: Buffer;
+    let mimeType: 'image/jpeg' | 'image/png';
+    let filename: string;
+
+    if (rawUrl.startsWith('/uploads/whatsapp/')) {
+      const localPath = join(getUploadsPath(), 'whatsapp', basename(rawUrl));
+      if (!fs.existsSync(localPath)) {
+        throw new BadRequestException(
+          'Obrázek kampaně nebyl nalezen — nahrajte ho znovu přes administraci.',
+        );
+      }
+      buffer = fs.readFileSync(localPath);
+      const ext = extname(localPath).toLowerCase();
+      mimeType = this.imageMimeFromExtension(ext);
+      filename = basename(localPath);
+    } else {
+      const verifiedUrl = await verifyPublicCampaignImageUrl(rawUrl);
+      const res = await fetch(verifiedUrl);
+      if (!res.ok) {
+        throw new BadRequestException('Obrázek kampaně není dostupný pro nahrání do Meta.');
+      }
+      buffer = Buffer.from(await res.arrayBuffer());
+      const contentType = (res.headers.get('content-type') || '')
+        .split(';')[0]
+        .trim()
+        .toLowerCase();
+      mimeType = contentType === 'image/png' ? 'image/png' : 'image/jpeg';
+      filename = `kampan-${randomUUID()}${mimeType === 'image/png' ? '.png' : '.jpg'}`;
+    }
+
+    return this.cloudApi.uploadMediaImage(buffer, mimeType, filename);
   }
 
   private formatMetaSendError(metaError?: {
@@ -157,7 +204,7 @@ export class WhatsAppMarketingService {
     bodyParameters: string[],
   ): Promise<{
     requestBody: MetaMessagesRequestBody;
-    publicImageUrl: string | null;
+    headerImageMediaId: string | null;
     headerType: WhatsAppTemplateHeaderType;
     variablesCount: number;
     templateName: string;
@@ -185,22 +232,13 @@ export class WhatsAppMarketingService {
         ? bodyParameters.map((v) => String(v).trim()).filter((v) => v.length > 0)
         : [];
 
-    let headerImageUrl: string | undefined;
     let headerImageMediaId: string | undefined;
-    let publicImageUrl: string | null = null;
 
     if (headerType === 'IMAGE') {
-      const mediaId = template.headerImageMediaId?.trim();
-      if (mediaId) {
-        headerImageMediaId = mediaId;
-      } else {
-        const rawUrl = template.headerImageUrl?.trim();
-        if (!rawUrl) {
-          throw new BadRequestException(WHATSAPP_HEADER_IMAGE_REQUIRED_MSG);
-        }
-        publicImageUrl = await verifyPublicCampaignImageUrl(rawUrl);
-        headerImageUrl = publicImageUrl;
-      }
+      headerImageMediaId = await this.resolveHeaderImageMediaId({
+        headerImageMediaId: template.headerImageMediaId,
+        headerImageUrl: template.headerImageUrl,
+      });
     }
 
     const requestBody = buildTemplateMessageRequest(whatsAppDigits(phone), {
@@ -209,25 +247,26 @@ export class WhatsAppMarketingService {
       bodyParameters: normalizedBodyParameters,
       variablesCount,
       headerType,
-      headerImageUrl,
       headerImageMediaId,
     });
 
-    assertTemplatePayload(requestBody, { variablesCount, headerType });
-    if (headerType === 'IMAGE') {
-      assertImageHeaderInPayload(requestBody, publicImageUrl ?? undefined);
+    if (headerType === 'IMAGE' && payloadUsesHeaderImageLink(requestBody)) {
+      throw new BadRequestException(WHATSAPP_IMAGE_HEADER_REQUIRES_MEDIA_ID_MSG);
     }
 
-    const payloadLink = extractHeaderImageLinkFromPayload(requestBody);
-    if (publicImageUrl && payloadLink && payloadLink !== publicImageUrl) {
-      throw new BadRequestException(
-        `image.link v Meta payloadu neodpovídá ověřené URL obrázku.`,
-      );
+    assertTemplatePayload(requestBody, { variablesCount, headerType });
+    if (headerType === 'IMAGE') {
+      assertImageHeaderInPayload(requestBody);
+    }
+
+    const payloadMediaId = extractHeaderImageMediaIdFromPayload(requestBody);
+    if (headerType === 'IMAGE' && !payloadMediaId) {
+      throw new BadRequestException(WHATSAPP_IMAGE_HEADER_REQUIRES_MEDIA_ID_MSG);
     }
 
     return {
       requestBody,
-      publicImageUrl: payloadLink ?? publicImageUrl,
+      headerImageMediaId: payloadMediaId,
       headerType,
       variablesCount,
       templateName: resolvedTemplateName,
@@ -263,7 +302,7 @@ export class WhatsAppMarketingService {
 
     const {
       requestBody,
-      publicImageUrl,
+      headerImageMediaId,
       headerType,
       variablesCount,
       templateName: resolvedTemplateName,
@@ -284,11 +323,11 @@ export class WhatsAppMarketingService {
             resolvedLanguageCode,
             normalizedBodyParameters,
             headerType,
-            publicImageUrl,
+            headerImageMediaId,
           );
 
     this.logger.log(
-      `[WhatsApp Template] send to=${requestBody.to} template=${resolvedTemplateName} lang=${resolvedLanguageCode} wabaId=${wabaId || '—'} headerType=${headerType} variablesCount=${variablesCount} imageLink=${publicImageUrl ?? '—'}`,
+      `[WhatsApp Template] send to=${requestBody.to} template=${resolvedTemplateName} lang=${resolvedLanguageCode} wabaId=${wabaId || '—'} headerType=${headerType} variablesCount=${variablesCount} media_id=${headerImageMediaId ?? '—'}`,
     );
     this.logger.log(
       `[WhatsApp Template] Meta finalPayload: ${JSON.stringify(requestBody)}`,
@@ -306,7 +345,7 @@ export class WhatsAppMarketingService {
       templateLanguage: resolvedLanguageCode,
       variablesCount,
       headerType,
-      imageUrl: publicImageUrl,
+      imageUrl: headerImageMediaId ? `media_id:${headerImageMediaId}` : null,
       wabaId: wabaId || undefined,
     });
 
@@ -823,7 +862,6 @@ export class WhatsAppMarketingService {
     if (headerType === 'IMAGE') {
       if (
         !hasCampaignHeaderImageSource({
-          headerImageUrl: dto.waHeaderImageUrl,
           headerImageMediaId: dto.waHeaderImageMediaId,
         })
       ) {
@@ -1088,7 +1126,7 @@ export class WhatsAppMarketingService {
             tpl.languageCode,
             bodyParameters,
             tpl.headerType,
-            tpl.headerImageUrl,
+            tpl.headerImageMediaId,
           );
 
     const { providerMessageId, metaError } = await this.sendTemplateMessage(
@@ -1301,7 +1339,7 @@ export class WhatsAppMarketingService {
               tpl.languageCode,
               bodyParameters,
               tpl.headerType,
-              tpl.headerImageUrl,
+              tpl.headerImageMediaId,
             );
 
       const dup = await this.prisma.whatsAppMarketingCampaignLog.findFirst({
@@ -1471,13 +1509,18 @@ export class WhatsAppMarketingService {
     if (!['.jpg', '.jpeg', '.png'].includes(ext)) {
       throw new BadRequestException('Povolené formáty obrázku: JPG, PNG.');
     }
+    const mimeType = this.imageMimeFromExtension(ext);
     const dir = join(getUploadsPath(), 'whatsapp');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     const name = `kampan-${randomUUID()}${ext}`;
     fs.writeFileSync(join(dir, name), file.buffer);
     const relative = `/uploads/whatsapp/${name}`;
     const publicUrl = resolvePublicHttpsImageUrl(relative);
-    return { url: relative, publicUrl };
+    const mediaId = await this.cloudApi.uploadMediaImage(file.buffer, mimeType, name);
+    this.logger.log(
+      `[WhatsApp Campaign] header image uploaded to Meta media_id=${mediaId} preview=${publicUrl}`,
+    );
+    return { url: relative, publicUrl, mediaId };
   }
 
   private campaignRow(r: {
