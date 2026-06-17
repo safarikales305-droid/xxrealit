@@ -1529,6 +1529,10 @@ model WhatsAppMarketingCampaign {
   waTemplateLanguage  String                      @default("cs")
   /// Hodnoty proměnných šablony v pořadí {{1}}, {{2}}, … — podporují {jmeno}, {role}, {odkaz}, {kredit}.
   waTemplateVariables String[]                    @default([])
+  /// Veřejná HTTPS URL obrázku pro HEADER IMAGE šablony.
+  waHeaderImageUrl      String?
+  /// Meta media_id (alternativa k URL) pro HEADER IMAGE.
+  waHeaderImageMediaId  String?
   targetRoles     UserRole[]                      @default([])
   targetRegions   String[]                        @default([])
   targetCities    String[]                        @default([])
@@ -1563,6 +1567,7 @@ model WhatsAppMetaTemplate {
   normalizedStatus String?
   rawTemplate      Json?
   usable           Boolean   @default(false)
+  headerType       String    @default("NONE")
   bodyText         String    @db.Text
   variablesCount   Int       @default(0)
   isStale          Boolean   @default(false)

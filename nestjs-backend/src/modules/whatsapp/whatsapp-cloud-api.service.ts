@@ -7,7 +7,7 @@ import { WhatsAppMessageStatus, WhatsAppMarketingCampaignType } from '@prisma/cl
 import { PrismaService } from '../../database/prisma.service';
 import { WhatsAppConfigService } from './whatsapp-config.service';
 import { WhatsAppSettingsService } from './whatsapp-settings.service';
-import { assertZeroVariableTemplatePayload } from './whatsapp-template-send.util';
+import { assertTemplatePayload } from './whatsapp-template-send.util';
 
 const GRAPH_BASE = 'https://graph.facebook.com';
 
@@ -64,6 +64,8 @@ export class WhatsAppCloudApiService {
       templateName?: string;
       templateLanguage?: string;
       variablesCount?: number;
+      headerType?: string;
+      imageUrl?: string | null;
       wabaId?: string;
     },
   ): Promise<{
@@ -90,7 +92,13 @@ export class WhatsAppCloudApiService {
     const tokenSource = this.accessTokenSource();
 
     if (logMeta?.variablesCount != null) {
-      assertZeroVariableTemplatePayload(requestBody, logMeta.variablesCount);
+      assertTemplatePayload(requestBody, {
+        variablesCount: logMeta.variablesCount,
+        headerType:
+          logMeta.headerType === 'IMAGE' || logMeta.headerType === 'TEXT'
+            ? logMeta.headerType
+            : 'NONE',
+      });
     }
 
     this.logger.log(`[WhatsApp Meta] POST ${requestUrl}`);
@@ -142,6 +150,8 @@ export class WhatsAppCloudApiService {
           logMeta?.templateLanguage ??
           (requestBody.template as { language?: { code?: string } })?.language?.code,
         variablesCount: logMeta?.variablesCount ?? null,
+        headerType: logMeta?.headerType ?? null,
+        imageUrl: logMeta?.imageUrl ?? null,
         wabaId: logMeta?.wabaId ?? null,
         finalPayload: requestBody,
         message: err?.message?.trim() || `Meta API vrátilo HTTP ${res.status}`,
@@ -185,6 +195,8 @@ export class WhatsAppCloudApiService {
         logMeta?.templateLanguage ??
         (requestBody.template as { language?: { code?: string } })?.language?.code,
       variablesCount: logMeta?.variablesCount ?? null,
+      headerType: logMeta?.headerType ?? null,
+      imageUrl: logMeta?.imageUrl ?? null,
       wabaId: logMeta?.wabaId ?? null,
       finalPayload: requestBody,
       message_id: providerMessageId,

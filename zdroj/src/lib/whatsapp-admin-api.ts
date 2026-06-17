@@ -51,6 +51,8 @@ export type WhatsAppCampaignRow = {
   waMetaTemplateId: string | null;
   waTemplateLanguage: string;
   waTemplateVariables: string[];
+  waHeaderImageUrl?: string | null;
+  waHeaderImageMediaId?: string | null;
   targetRoles: string[];
   targetRegions: string[];
   targetCities: string[];
@@ -81,6 +83,7 @@ export type WhatsAppMetaTemplateRow = {
   rawStatus: string;
   normalizedStatus: string;
   isUsable: boolean;
+  headerType: string;
   bodyText: string;
   variablesCount: number;
   isStale: boolean;
@@ -213,6 +216,9 @@ export type WhatsAppWabaPhoneNumbersResult = {
   phoneNumbers: WhatsAppWabaPhoneNumberRow[];
   error?: string;
 };
+
+export const WHATSAPP_HEADER_IMAGE_REQUIRED_MSG =
+  'Tato WhatsApp šablona vyžaduje obrázek v hlavičce. Nahrajte obrázek kampaně nebo vložte veřejnou HTTPS URL.';
 
 export const WHATSAPP_NO_APPROVED_TEMPLATES_MSG =
   'V Meta zatím není schválena žádná WhatsApp šablona.';
@@ -648,6 +654,8 @@ export async function nestAdminWhatsAppCampaignCreate(
     waTemplateName?: string;
     waTemplateLanguage?: string;
     waTemplateVariables?: string[];
+    waHeaderImageUrl?: string;
+    waHeaderImageMediaId?: string;
     targetRoles?: string[];
     targetRegions?: string[];
     targetCities?: string[];
@@ -678,10 +686,42 @@ export type WhatsAppCampaignPreviewResult = {
   preview: string | null;
   templateName: string | null;
   templateLanguage: string;
+  headerType?: string;
+  imageUrl?: string | null;
+  imageMediaId?: string | null;
   templateVariablesRendered: string[];
   templateBody?: string | null;
   templateCategory?: string | null;
+  buttons?: string[];
+  recipientSample?: { name: string; phone: string };
 };
+
+export async function nestAdminWhatsAppCampaignUploadImage(
+  token: string,
+  file: File,
+): Promise<{ ok: true; url: string; publicUrl: string } | { ok: false; error: string }> {
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`${API_BASE_URL}/whatsapp/admin/campaigns/upload-image`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+      cache: 'no-store',
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      url?: string;
+      publicUrl?: string;
+      message?: string;
+    };
+    if (!res.ok || !data.url || !data.publicUrl) {
+      return { ok: false, error: data.message || `HTTP ${res.status}` };
+    }
+    return { ok: true, url: data.url, publicUrl: data.publicUrl };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
+  }
+}
 
 export async function nestAdminWhatsAppCampaignPreview(
   token: string,
@@ -693,6 +733,8 @@ export async function nestAdminWhatsAppCampaignPreview(
     waTemplateName?: string;
     waTemplateLanguage?: string;
     waTemplateVariables?: string[];
+    waHeaderImageUrl?: string;
+    waHeaderImageMediaId?: string;
     sampleName?: string;
     sampleRole?: string;
   },

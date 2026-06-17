@@ -3,7 +3,7 @@ export type MetaTemplateComponent = {
   format?: string;
   text?: string;
   example?: unknown;
-  buttons?: unknown[];
+  buttons?: Array<{ type?: string; text?: string; url?: string; phone_number?: string }>;
 };
 
 export type MetaMessageTemplate = {
@@ -21,6 +21,8 @@ export type MetaTemplatesPage = {
   paging?: { cursors?: { after?: string }; next?: string };
   error?: { message?: string; code?: number; type?: string };
 };
+
+export type WhatsAppTemplateHeaderType = 'IMAGE' | 'TEXT' | 'NONE';
 
 export type WhatsAppTemplateSkipReason = {
   name: string;
@@ -43,16 +45,39 @@ export function extractTemplateBodyText(components?: MetaTemplateComponent[]): s
   return body?.text?.trim() ?? '';
 }
 
-export function hasHeaderImageComponent(components?: MetaTemplateComponent[]): boolean {
-  if (!components?.length) return false;
-  return components.some(
-    (c) =>
-      c.type?.toUpperCase() === 'HEADER' &&
-      (c.format?.toUpperCase() === 'IMAGE' || c.format?.toUpperCase() === 'VIDEO' || c.format?.toUpperCase() === 'DOCUMENT'),
-  );
+export function detectTemplateHeaderType(
+  components?: MetaTemplateComponent[],
+): WhatsAppTemplateHeaderType {
+  if (!components?.length) return 'NONE';
+  const header = components.find((c) => c.type?.toUpperCase() === 'HEADER');
+  if (!header) return 'NONE';
+  const format = header.format?.toUpperCase();
+  if (format === 'IMAGE') return 'IMAGE';
+  if (format === 'TEXT') return 'TEXT';
+  return 'NONE';
 }
 
-/** Počítá proměnné jen z BODY textu — HEADER/IMAGE a parameter_format NAMED neovlivní počet, pokud BODY nemá placeholdery. */
+export function extractTemplateHeaderText(components?: MetaTemplateComponent[]): string {
+  if (!components?.length) return '';
+  const header = components.find((c) => c.type?.toUpperCase() === 'HEADER');
+  if (header?.format?.toUpperCase() === 'TEXT') return header.text?.trim() ?? '';
+  return '';
+}
+
+export function extractTemplateButtonLabels(components?: MetaTemplateComponent[]): string[] {
+  if (!components?.length) return [];
+  const buttonsComp = components.find((c) => c.type?.toUpperCase() === 'BUTTONS');
+  if (!buttonsComp?.buttons?.length) return [];
+  return buttonsComp.buttons
+    .map((b) => b.text?.trim() || '')
+    .filter(Boolean);
+}
+
+export function hasHeaderImageComponent(components?: MetaTemplateComponent[]): boolean {
+  return detectTemplateHeaderType(components) === 'IMAGE';
+}
+
+/** Počítá proměnné jen z BODY textu. */
 export function countTemplateBodyVariables(
   components?: MetaTemplateComponent[],
   _parameterFormat?: string,
@@ -81,6 +106,9 @@ export function parseMetaTemplateItem(item: MetaMessageTemplate): {
   language: string;
   rawStatus: string;
   bodyText: string;
+  headerType: WhatsAppTemplateHeaderType;
+  headerText: string;
+  buttonLabels: string[];
   variablesCount: number;
   category: string;
   hasHeaderImage: boolean;
@@ -95,6 +123,7 @@ export function parseMetaTemplateItem(item: MetaMessageTemplate): {
   const rawStatus = item.status?.trim() || 'UNKNOWN';
   const bodyText = extractTemplateBodyText(item.components);
   const parameterFormat = item.parameter_format?.trim() || 'POSITIONAL';
+  const headerType = detectTemplateHeaderType(item.components);
 
   return {
     metaTemplateId,
@@ -102,10 +131,33 @@ export function parseMetaTemplateItem(item: MetaMessageTemplate): {
     language,
     rawStatus,
     bodyText,
+    headerType,
+    headerText: extractTemplateHeaderText(item.components),
+    buttonLabels: extractTemplateButtonLabels(item.components),
     variablesCount: countTemplateBodyVariables(item.components, parameterFormat),
     category: item.category?.trim() || 'UNKNOWN',
-    hasHeaderImage: hasHeaderImageComponent(item.components),
+    hasHeaderImage: headerType === 'IMAGE',
     parameterFormat,
     rawTemplateJson: JSON.stringify(item),
+  };
+}
+
+export function extractTemplatePartsFromRaw(
+  rawTemplate: unknown,
+): {
+  headerType: WhatsAppTemplateHeaderType;
+  headerText: string;
+  bodyText: string;
+  buttonLabels: string[];
+} {
+  if (!rawTemplate || typeof rawTemplate !== 'object') {
+    return { headerType: 'NONE', headerText: '', bodyText: '', buttonLabels: [] };
+  }
+  const components = (rawTemplate as MetaMessageTemplate).components;
+  return {
+    headerType: detectTemplateHeaderType(components),
+    headerText: extractTemplateHeaderText(components),
+    bodyText: extractTemplateBodyText(components),
+    buttonLabels: extractTemplateButtonLabels(components),
   };
 }

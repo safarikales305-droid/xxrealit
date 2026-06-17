@@ -1,12 +1,16 @@
 import { BadRequestException } from '@nestjs/common';
 import type { MetaMessagesRequestBody } from './whatsapp-cloud-api.service';
+import type { WhatsAppTemplateHeaderType } from './whatsapp-template-sync.util';
 
 export type WhatsAppTemplateSendConfig = {
   templateName: string;
   languageCode: string;
   bodyParameters?: string[];
-  /** Počet proměnných šablony z Meta — při 0 se neposílají components ani parameters. */
+  /** Počet proměnných šablony z Meta — při 0 se neposílají body parameters. */
   variablesCount: number;
+  headerType?: WhatsAppTemplateHeaderType;
+  headerImageUrl?: string;
+  headerImageMediaId?: string;
 };
 
 export class WhatsAppTemplatePayloadError extends BadRequestException {
@@ -56,18 +60,63 @@ export function buildTemplateBodyParameters(
   return parameters;
 }
 
-/** Ověří, že payload pro šablonu bez proměnných neobsahuje parametry ani components. */
-export function assertZeroVariableTemplatePayload(
-  requestBody: MetaMessagesRequestBody,
-  variablesCount: number,
-): void {
-  if (variablesCount > 0) return;
+function templateComponents(
+  config: WhatsAppTemplateSendConfig,
+): Array<Record<string, unknown>> {
+  const components: Array<Record<string, unknown>> = [];
 
-  const topForbidden = ['components', 'parameters', 'body', 'text', 'message', 'previewMessage', 'preview', 'campaignMessage'];
+  if (config.headerType === 'IMAGE') {
+    const mediaId = config.headerImageMediaId?.trim();
+    const imageUrl = config.headerImageUrl?.trim();
+    if (mediaId) {
+      components.push({
+        type: 'header',
+        parameters: [{ type: 'image', image: { id: mediaId } }],
+      });
+    } else if (imageUrl) {
+      components.push({
+        type: 'header',
+        parameters: [{ type: 'image', image: { link: imageUrl } }],
+      });
+    }
+  }
+
+  if (config.variablesCount > 0) {
+    const bodyParameters = (config.bodyParameters ?? [])
+      .map((v) => String(v).trim())
+      .filter((v) => v.length > 0);
+    if (bodyParameters.length > 0) {
+      components.push({
+        type: 'body',
+        parameters: bodyParameters.map((text) => ({
+          type: 'text',
+          text: text.slice(0, 1024),
+        })),
+      });
+    }
+  }
+
+  return components;
+}
+
+/** Ověří payload — šablona bez proměnných nesmí mít body components. */
+export function assertTemplatePayload(
+  requestBody: MetaMessagesRequestBody,
+  config: Pick<WhatsAppTemplateSendConfig, 'variablesCount' | 'headerType'>,
+): void {
+  const topForbidden = [
+    'parameters',
+    'body',
+    'text',
+    'message',
+    'previewMessage',
+    'preview',
+    'campaignMessage',
+  ];
   for (const key of topForbidden) {
     if (key in requestBody && requestBody[key] != null) {
       throw new WhatsAppTemplatePayloadError(
-        `Šablona bez proměnných: Meta payload nesmí obsahovat pole „${key}“.`,
+        `Meta payload nesmí obsahovat pole „${key}“.`,
       );
     }
   }
@@ -78,21 +127,32 @@ export function assertZeroVariableTemplatePayload(
   }
 
   const templateObj = template as Record<string, unknown>;
-  const templateForbidden = ['components', 'parameters', 'body', 'text'];
+  const templateForbidden = ['parameters', 'body', 'text'];
   for (const key of templateForbidden) {
     if (key in templateObj && templateObj[key] != null) {
-      throw new WhatsAppTemplatePayloadError(
-        `Šablona bez proměnných: template nesmí obsahovat „${key}“. Aktuální payload: ${JSON.stringify(requestBody)}`,
-      );
+      throw new WhatsAppTemplatePayloadError(`template nesmí obsahovat „${key}“.`);
     }
   }
 
-  const components = templateObj.components;
-  if (Array.isArray(components) && components.length > 0) {
-    throw new WhatsAppTemplatePayloadError(
-      `Šablona bez proměnných: template.components musí být prázdné nebo chybět. Aktuální payload: ${JSON.stringify(requestBody)}`,
-    );
+  const components = Array.isArray(templateObj.components) ? templateObj.components : [];
+  if (config.variablesCount <= 0) {
+    for (const comp of components) {
+      const type = String((comp as { type?: string }).type ?? '').toLowerCase();
+      if (type === 'body') {
+        throw new WhatsAppTemplatePayloadError(
+          'Šablona bez proměnných: template nesmí obsahovat body components.',
+        );
+      }
+    }
   }
+}
+
+/** @deprecated použij assertTemplatePayload */
+export function assertZeroVariableTemplatePayload(
+  requestBody: MetaMessagesRequestBody,
+  variablesCount: number,
+): void {
+  assertTemplatePayload(requestBody, { variablesCount, headerType: 'NONE' });
 }
 
 export function buildTemplateMessageRequest(
@@ -103,57 +163,38 @@ export function buildTemplateMessageRequest(
   const languageCode = metaTemplateLanguageCode(config.languageCode);
   const to = toDigits.replace(/\D/g, '');
 
-  if (config.variablesCount <= 0) {
-    return {
-      messaging_product: 'whatsapp',
-      to,
-      type: 'template',
-      template: {
-        name: templateName,
-        language: { code: languageCode },
-      },
-    };
-  }
-
-  const bodyParameters = (config.bodyParameters ?? [])
-    .map((v) => String(v).trim())
-    .filter((v) => v.length > 0);
-
+  const components = templateComponents(config);
   const template: Record<string, unknown> = {
     name: templateName,
     language: { code: languageCode },
   };
 
-  if (bodyParameters.length > 0) {
-    template.components = [
-      {
-        type: 'body',
-        parameters: bodyParameters.map((text) => ({
-          type: 'text',
-          text: text.slice(0, 1024),
-        })),
-      },
-    ];
+  if (components.length > 0) {
+    template.components = components;
   }
 
-  const requestBody: MetaMessagesRequestBody = {
+  return {
     messaging_product: 'whatsapp',
     to,
     type: 'template',
     template,
   };
-
-  return requestBody;
 }
 
 export function formatTemplateLogLabel(
   templateName: string,
   languageCode: string,
   bodyParameters: string[],
+  headerType?: WhatsAppTemplateHeaderType,
+  imageUrl?: string | null,
 ): string {
   const vars =
     bodyParameters.length > 0
       ? ` vars=[${bodyParameters.map((v) => JSON.stringify(v)).join(', ')}]`
       : '';
-  return `template:${templateName}@${metaTemplateLanguageCode(languageCode)}${vars}`;
+  const header =
+    headerType === 'IMAGE'
+      ? ` header=IMAGE${imageUrl ? ` url=${imageUrl}` : ''}`
+      : '';
+  return `template:${templateName}@${metaTemplateLanguageCode(languageCode)}${header}${vars}`;
 }

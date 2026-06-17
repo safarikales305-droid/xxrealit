@@ -5,6 +5,9 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import * as fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { extname, join } from 'node:path';
 import {
   UserRole,
   WhatsAppMarketingCampaignStatus,
@@ -14,6 +17,7 @@ import {
   type User,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { getUploadsPath } from '../../lib/uploads-path';
 import { WhatsAppConfigService } from './whatsapp-config.service';
 import { WhatsAppSettingsService } from './whatsapp-settings.service';
 import { WhatsAppCloudApiService } from './whatsapp-cloud-api.service';
@@ -22,12 +26,21 @@ import { WhatsAppDiagnosticService } from './whatsapp-diagnostic.service';
 import {
   buildTemplateMessageRequest,
   buildTemplateBodyParameters,
-  assertZeroVariableTemplatePayload,
+  assertTemplatePayload,
   formatTemplateLogLabel,
   metaTemplateLanguageCode,
   normalizeTemplateLanguageCode,
   WHATSAPP_MARKETING_TEMPLATE_REQUIRED_MSG,
 } from './whatsapp-template-send.util';
+import {
+  extractTemplatePartsFromRaw,
+  type WhatsAppTemplateHeaderType,
+} from './whatsapp-template-sync.util';
+import {
+  hasCampaignHeaderImageSource,
+  resolvePublicHttpsImageUrl,
+  WHATSAPP_HEADER_IMAGE_REQUIRED_MSG,
+} from './whatsapp-image-url.util';
 import {
   portalBaseUrl,
   renderWhatsAppTemplate,
@@ -46,6 +59,20 @@ type Recipient = {
   name?: string;
   role?: UserRole;
   credit?: number;
+};
+
+type CampaignTemplateSendContext = {
+  waMetaTemplateId: string;
+  wabaId: string;
+  templateName: string;
+  languageCode: string;
+  variableTemplates: string[];
+  variablesCount: number;
+  headerType: WhatsAppTemplateHeaderType;
+  headerImageUrl: string | null;
+  headerImageMediaId: string | null;
+  bodyText: string;
+  buttonLabels: string[];
 };
 
 @Injectable()
@@ -83,18 +110,50 @@ export class WhatsAppMarketingService {
     return normalizeToE164(phone);
   }
 
+  private renderBodyPreview(bodyText: string, bodyParameters: string[]): string {
+    if (!bodyText.trim()) return '';
+    if (bodyParameters.length === 0) return bodyText;
+    let out = bodyText;
+    bodyParameters.forEach((value, index) => {
+      out = out.replace(new RegExp(`\\{\\{${index + 1}\\}\\}`, 'g'), value);
+    });
+    return out;
+  }
+
+  private assertCampaignHeaderImageReady(ctx: Pick<
+    CampaignTemplateSendContext,
+    'headerType' | 'headerImageUrl' | 'headerImageMediaId'
+  >) {
+    if (ctx.headerType !== 'IMAGE') return;
+    if (
+      !hasCampaignHeaderImageSource({
+        headerImageUrl: ctx.headerImageUrl,
+        headerImageMediaId: ctx.headerImageMediaId,
+      })
+    ) {
+      throw new BadRequestException(WHATSAPP_HEADER_IMAGE_REQUIRED_MSG);
+    }
+  }
+
+  private resolveHeaderImageForSend(ctx: Pick<
+    CampaignTemplateSendContext,
+    'headerType' | 'headerImageUrl' | 'headerImageMediaId'
+  >): { headerImageUrl?: string; headerImageMediaId?: string } {
+    if (ctx.headerType !== 'IMAGE') return {};
+    const mediaId = ctx.headerImageMediaId?.trim();
+    if (mediaId) return { headerImageMediaId: mediaId };
+    const url = ctx.headerImageUrl?.trim();
+    if (url) return { headerImageUrl: resolvePublicHttpsImageUrl(url) };
+    return {};
+  }
+
   /**
    * Odeslání schválené WhatsApp šablony přes Cloud API (stejná cesta jako test).
    */
   private async sendTemplateMessage(
     phone: string,
-    template: {
-      templateName: string;
-      languageCode: string;
-      bodyParameters: string[];
-      variablesCount: number;
-      waMetaTemplateId?: string | null;
-    },
+    template: CampaignTemplateSendContext,
+    bodyParameters: string[],
     logMeta: {
       campaignId?: string;
       campaignType?: WhatsAppMarketingCampaignType | null;
@@ -111,12 +170,15 @@ export class WhatsAppMarketingService {
     await this.settings.reload();
     await this.diagnostic.assertPhoneBelongsToConfiguredWaba();
 
+    this.assertCampaignHeaderImageReady(template);
+
     const toDigits = whatsAppDigits(phone);
 
     let variablesCount = template.variablesCount;
-    let wabaId = '';
+    let wabaId = template.wabaId;
     let resolvedTemplateName = template.templateName;
     let resolvedLanguageCode = template.languageCode;
+    let headerType = template.headerType;
 
     if (template.waMetaTemplateId) {
       const metaRow = await this.metaTemplates.requireApprovedTemplate(template.waMetaTemplateId);
@@ -124,42 +186,46 @@ export class WhatsAppMarketingService {
       wabaId = metaRow.wabaId;
       resolvedTemplateName = metaRow.templateName;
       resolvedLanguageCode = metaTemplateLanguageCode(metaRow.language);
-
-      if (metaRow.templateName !== template.templateName.trim()) {
-        throw new BadRequestException(
-          `Nesoulad názvu šablony: kampaň má „${template.templateName}“, databáze „${metaRow.templateName}“.`,
-        );
-      }
-      if (resolvedLanguageCode !== metaTemplateLanguageCode(template.languageCode)) {
-        throw new BadRequestException(
-          `Nesoulad jazyka šablony: kampaň má „${template.languageCode}“, databáze „${metaRow.language}“.`,
-        );
-      }
+      headerType = (metaRow.headerType || 'NONE') as WhatsAppTemplateHeaderType;
     }
 
-    const bodyParameters =
+    const normalizedBodyParameters =
       variablesCount > 0
-        ? template.bodyParameters
-            .map((v) => String(v).trim())
-            .filter((v) => v.length > 0)
+        ? bodyParameters.map((v) => String(v).trim()).filter((v) => v.length > 0)
         : [];
+
+    const headerImage = this.resolveHeaderImageForSend({
+      headerType,
+      headerImageUrl: template.headerImageUrl,
+      headerImageMediaId: template.headerImageMediaId,
+    });
 
     const requestBody = buildTemplateMessageRequest(toDigits, {
       templateName: resolvedTemplateName,
       languageCode: resolvedLanguageCode,
-      bodyParameters,
+      bodyParameters: normalizedBodyParameters,
       variablesCount,
+      headerType,
+      ...headerImage,
     });
 
-    assertZeroVariableTemplatePayload(requestBody, variablesCount);
+    assertTemplatePayload(requestBody, { variablesCount, headerType });
+
+    const resolvedImageUrl = headerImage.headerImageUrl ?? null;
 
     const logLabel =
       variablesCount > 0 && logMeta.previewText?.trim()
         ? logMeta.previewText.trim()
-        : formatTemplateLogLabel(resolvedTemplateName, resolvedLanguageCode, bodyParameters);
+        : formatTemplateLogLabel(
+            resolvedTemplateName,
+            resolvedLanguageCode,
+            normalizedBodyParameters,
+            headerType,
+            resolvedImageUrl,
+          );
 
     this.logger.log(
-      `[WhatsApp Template] send to=${toDigits} template=${resolvedTemplateName} lang=${resolvedLanguageCode} wabaId=${wabaId || '—'} variablesCount=${variablesCount} params=${bodyParameters.length}`,
+      `[WhatsApp Template] send to=${toDigits} template=${resolvedTemplateName} lang=${resolvedLanguageCode} wabaId=${wabaId || '—'} headerType=${headerType} variablesCount=${variablesCount} params=${normalizedBodyParameters.length}`,
     );
     this.logger.log(
       `[WhatsApp Template] Meta payload (final): ${JSON.stringify(requestBody)}`,
@@ -176,6 +242,8 @@ export class WhatsAppMarketingService {
       templateName: resolvedTemplateName,
       templateLanguage: resolvedLanguageCode,
       variablesCount,
+      headerType,
+      imageUrl: resolvedImageUrl,
       wabaId: wabaId || undefined,
     });
 
@@ -308,13 +376,16 @@ export class WhatsAppMarketingService {
     waTemplateName: string;
     waTemplateLanguage: string;
     waTemplateVariables: string[];
+    waHeaderImageUrl?: string | null;
+    waHeaderImageMediaId?: string | null;
     messageTemplate: string;
-  }) {
+  }): Promise<CampaignTemplateSendContext> {
     let variablesCount = 0;
 
     if (campaign.waMetaTemplateId) {
       const t = await this.metaTemplates.requireApprovedTemplate(campaign.waMetaTemplateId);
       variablesCount = t.variablesCount;
+      const parts = extractTemplatePartsFromRaw(t.rawTemplate);
       return {
         waMetaTemplateId: campaign.waMetaTemplateId,
         wabaId: t.wabaId,
@@ -323,6 +394,11 @@ export class WhatsAppMarketingService {
         variableTemplates:
           variablesCount > 0 ? (campaign.waTemplateVariables ?? []) : [],
         variablesCount,
+        headerType: (t.headerType || parts.headerType || 'NONE') as WhatsAppTemplateHeaderType,
+        headerImageUrl: campaign.waHeaderImageUrl ?? null,
+        headerImageMediaId: campaign.waHeaderImageMediaId ?? null,
+        bodyText: t.bodyText || parts.bodyText,
+        buttonLabels: parts.buttonLabels,
       };
     }
 
@@ -334,6 +410,7 @@ export class WhatsAppMarketingService {
 
     const metaTemplate = await this.metaTemplates.requireApprovedTemplate(resolved.waMetaTemplateId);
     variablesCount = metaTemplate.variablesCount;
+    const parts = extractTemplatePartsFromRaw(metaTemplate.rawTemplate);
 
     return {
       waMetaTemplateId: resolved.waMetaTemplateId,
@@ -343,6 +420,11 @@ export class WhatsAppMarketingService {
       variableTemplates:
         variablesCount > 0 ? (campaign.waTemplateVariables ?? []) : [],
       variablesCount,
+      headerType: (metaTemplate.headerType || parts.headerType || 'NONE') as WhatsAppTemplateHeaderType,
+      headerImageUrl: campaign.waHeaderImageUrl ?? null,
+      headerImageMediaId: campaign.waHeaderImageMediaId ?? null,
+      bodyText: metaTemplate.bodyText || parts.bodyText,
+      buttonLabels: parts.buttonLabels,
     };
   }
 
@@ -394,6 +476,22 @@ export class WhatsAppMarketingService {
       });
       const metaTemplate = await this.metaTemplates.getById(resolved.waMetaTemplateId);
       const variablesCount = metaTemplate?.variablesCount ?? 0;
+      const parts = extractTemplatePartsFromRaw(metaTemplate?.rawTemplate);
+      const tpl: CampaignTemplateSendContext = {
+        waMetaTemplateId: resolved.waMetaTemplateId,
+        wabaId: metaTemplate?.wabaId ?? '',
+        templateName,
+        languageCode: metaTemplateLanguageCode(
+          metaTemplate?.language ?? meta?.waTemplateLanguage,
+        ),
+        variableTemplates: meta?.waTemplateVariables ?? [],
+        variablesCount,
+        headerType: (metaTemplate?.headerType || parts.headerType || 'NONE') as WhatsAppTemplateHeaderType,
+        headerImageUrl: null,
+        headerImageMediaId: null,
+        bodyText: metaTemplate?.bodyText || parts.bodyText,
+        buttonLabels: parts.buttonLabels,
+      };
       const bodyParameters =
         variablesCount > 0
           ? this.renderTemplateBodyParameters(
@@ -410,15 +508,8 @@ export class WhatsAppMarketingService {
 
       const { providerMessageId, metaError } = await this.sendTemplateMessage(
         toPhone,
-        {
-          templateName,
-          languageCode: metaTemplateLanguageCode(
-            metaTemplate?.language ?? meta?.waTemplateLanguage,
-          ),
-          bodyParameters,
-          variablesCount,
-          waMetaTemplateId: resolved.waMetaTemplateId,
-        },
+        tpl,
+        bodyParameters,
         {
           campaignId: meta?.campaignId,
           campaignType: meta?.campaignType ?? null,
@@ -430,10 +521,9 @@ export class WhatsAppMarketingService {
               ? message.slice(0, 500)
               : formatTemplateLogLabel(
                   templateName,
-                  metaTemplateLanguageCode(
-                    metaTemplate?.language ?? meta?.waTemplateLanguage,
-                  ),
+                  tpl.languageCode,
                   bodyParameters,
+                  tpl.headerType,
                 ),
         },
       );
@@ -509,11 +599,19 @@ export class WhatsAppMarketingService {
     const { providerMessageId, phoneNumberId, metaError } = await this.sendTemplateMessage(
       phone,
       {
+        waMetaTemplateId: '',
+        wabaId: '',
         templateName: 'hello_world',
         languageCode: 'en_US',
-        bodyParameters: [],
+        variableTemplates: [],
         variablesCount: 0,
+        headerType: 'NONE',
+        headerImageUrl: null,
+        headerImageMediaId: null,
+        bodyText: '',
+        buttonLabels: [],
       },
+      [],
       { previewText: 'test:hello_world' },
     );
 
@@ -631,6 +729,17 @@ export class WhatsAppMarketingService {
       throw new BadRequestException('Nesoulad jazyka šablony při vytváření kampaně.');
     }
 
+    if (metaTemplate.headerType === 'IMAGE') {
+      if (
+        !hasCampaignHeaderImageSource({
+          headerImageUrl: dto.waHeaderImageUrl,
+          headerImageMediaId: dto.waHeaderImageMediaId,
+        })
+      ) {
+        throw new BadRequestException(WHATSAPP_HEADER_IMAGE_REQUIRED_MSG);
+      }
+    }
+
     const row = await this.prisma.whatsAppMarketingCampaign.create({
       data: {
         name: dto.name.trim(),
@@ -643,6 +752,8 @@ export class WhatsAppMarketingService {
           resolved.waMetaTemplateId,
           dto.waTemplateVariables ?? [],
         ),
+        waHeaderImageUrl: dto.waHeaderImageUrl?.trim() || null,
+        waHeaderImageMediaId: dto.waHeaderImageMediaId?.trim() || null,
         targetRoles: dto.targetRoles ?? [],
         targetRegions: (dto.targetRegions ?? []).map((s) => s.trim()).filter(Boolean),
         targetCities: (dto.targetCities ?? []).map((s) => s.trim()).filter(Boolean),
@@ -721,6 +832,12 @@ export class WhatsAppMarketingService {
         ...(sanitizedVariables !== undefined
           ? { waTemplateVariables: sanitizedVariables }
           : {}),
+        ...(dto.waHeaderImageUrl !== undefined
+          ? { waHeaderImageUrl: dto.waHeaderImageUrl.trim() || null }
+          : {}),
+        ...(dto.waHeaderImageMediaId !== undefined
+          ? { waHeaderImageMediaId: dto.waHeaderImageMediaId.trim() || null }
+          : {}),
         ...(dto.targetRoles !== undefined ? { targetRoles: dto.targetRoles } : {}),
         ...(dto.targetRegions !== undefined
           ? {
@@ -754,37 +871,61 @@ export class WhatsAppMarketingService {
 
   async previewMessage(dto: PreviewWhatsAppCampaignDto) {
     const sampleRole = dto.sampleRole ?? UserRole.USER;
+    const sampleName = dto.sampleName?.trim() || 'Jan Novák';
     const vars = {
-      jmeno: dto.sampleName?.trim() || 'Jan Novák',
+      jmeno: sampleName,
       role: roleLabel(sampleRole),
       odkaz: portalBaseUrl(),
       kredit: '1500',
     };
-    const resolved = await this.resolveTemplateFields({
-      waMetaTemplateId: dto.waMetaTemplateId,
-      waTemplateName: dto.waTemplateName,
-      waTemplateLanguage: dto.waTemplateLanguage,
-      messageTemplate: dto.messageTemplate,
+    const tpl = await this.campaignTemplateConfig({
+      waMetaTemplateId: dto.waMetaTemplateId ?? null,
+      waTemplateName: dto.waTemplateName ?? '',
+      waTemplateLanguage: dto.waTemplateLanguage ?? 'cs',
+      waTemplateVariables: dto.waTemplateVariables ?? [],
+      waHeaderImageUrl: dto.waHeaderImageUrl ?? null,
+      waHeaderImageMediaId: dto.waHeaderImageMediaId ?? null,
+      messageTemplate: dto.messageTemplate ?? '',
     });
-    const metaTemplate = await this.metaTemplates.getById(resolved.waMetaTemplateId);
-    const variablesCount = metaTemplate?.variablesCount ?? 0;
     const bodyParams = this.renderTemplateBodyParameters(
-      dto.waTemplateVariables ?? [],
-      variablesCount,
+      tpl.variableTemplates,
+      tpl.variablesCount,
       vars,
     );
     const textPreview = dto.messageTemplate?.trim()
       ? renderWhatsAppTemplate(dto.messageTemplate, vars)
-      : null;
+      : this.renderBodyPreview(tpl.bodyText, bodyParams);
+
+    let previewImageUrl: string | null = null;
+    if (tpl.headerType === 'IMAGE') {
+      if (tpl.headerImageMediaId?.trim()) {
+        previewImageUrl = null;
+      } else if (tpl.headerImageUrl?.trim()) {
+        try {
+          previewImageUrl = resolvePublicHttpsImageUrl(tpl.headerImageUrl);
+        } catch {
+          previewImageUrl = tpl.headerImageUrl.trim();
+        }
+      }
+    }
+
+    const metaTemplate = await this.metaTemplates.getById(tpl.waMetaTemplateId);
+
     return {
-      preview: textPreview ?? metaTemplate?.bodyText ?? null,
-      templateName: resolved.waTemplateName,
-      templateLanguage: metaTemplateLanguageCode(
-        metaTemplate?.language ?? resolved.waTemplateLanguage,
-      ),
+      preview: textPreview,
+      templateName: tpl.templateName,
+      templateLanguage: tpl.languageCode,
+      headerType: tpl.headerType,
+      imageUrl: previewImageUrl,
+      imageMediaId: tpl.headerImageMediaId,
       templateVariablesRendered: bodyParams,
-      templateBody: metaTemplate?.bodyText ?? null,
+      templateBody: tpl.bodyText,
       templateCategory: metaTemplate?.category ?? null,
+      buttons: tpl.buttonLabels,
+      recipientSample: {
+        name: sampleName,
+        phone: this.config.getTestPhone() || '+420…',
+      },
     };
   }
 
@@ -809,6 +950,8 @@ export class WhatsAppMarketingService {
           waMetaTemplateId: tpl.waMetaTemplateId,
           templateName: tpl.templateName,
           languageCode: tpl.languageCode,
+          headerType: tpl.headerType,
+          imageUrl: tpl.headerImageUrl,
         },
         variablesCount: tpl.variablesCount,
         wabaId: tpl.wabaId,
@@ -828,6 +971,7 @@ export class WhatsAppMarketingService {
     if (!campaign) throw new NotFoundException('Kampaň nenalezena.');
 
     const tpl = await this.campaignTemplateConfig(campaign);
+    this.assertCampaignHeaderImageReady(tpl);
 
     const phone = this.normalizePhone(toPhone?.trim() || this.config.getTestPhone() || '');
     if (!phone) {
@@ -848,17 +992,18 @@ export class WhatsAppMarketingService {
     const previewText =
       tpl.variablesCount > 0 && campaign.messageTemplate?.trim()
         ? renderWhatsAppTemplate(campaign.messageTemplate, vars)
-        : formatTemplateLogLabel(tpl.templateName, tpl.languageCode, bodyParameters);
+        : formatTemplateLogLabel(
+            tpl.templateName,
+            tpl.languageCode,
+            bodyParameters,
+            tpl.headerType,
+            tpl.headerImageUrl,
+          );
 
     const { providerMessageId, metaError } = await this.sendTemplateMessage(
       phone,
-      {
-        templateName: tpl.templateName,
-        languageCode: tpl.languageCode,
-        bodyParameters,
-        variablesCount: tpl.variablesCount,
-        waMetaTemplateId: tpl.waMetaTemplateId,
-      },
+      tpl,
+      bodyParameters,
       {
         campaignId: campaign.id,
         recipientName: 'Test',
@@ -1016,6 +1161,7 @@ export class WhatsAppMarketingService {
     }
 
     const tpl = await this.campaignTemplateConfig(campaign);
+    this.assertCampaignHeaderImageReady(tpl);
 
     const phoneNumberId = this.config.getPhoneNumberId();
     const tokenSource = this.settings.getStoredSettings().accessToken.trim()
@@ -1061,7 +1207,13 @@ export class WhatsAppMarketingService {
       const previewText =
         tpl.variablesCount > 0 && campaign.messageTemplate?.trim()
           ? renderWhatsAppTemplate(campaign.messageTemplate, vars)
-          : formatTemplateLogLabel(tpl.templateName, tpl.languageCode, bodyParameters);
+          : formatTemplateLogLabel(
+              tpl.templateName,
+              tpl.languageCode,
+              bodyParameters,
+              tpl.headerType,
+              tpl.headerImageUrl,
+            );
 
       const dup = await this.prisma.whatsAppMarketingCampaignLog.findFirst({
         where: {
@@ -1082,13 +1234,8 @@ export class WhatsAppMarketingService {
       try {
         const { providerMessageId, metaError } = await this.sendTemplateMessage(
           r.phone,
-          {
-            templateName: tpl.templateName,
-            languageCode: tpl.languageCode,
-            bodyParameters,
-            variablesCount: tpl.variablesCount,
-            waMetaTemplateId: tpl.waMetaTemplateId,
-          },
+          tpl,
+          bodyParameters,
           {
             campaignId: campaign.id,
             campaignType: campaign.campaignType,
@@ -1220,6 +1367,23 @@ export class WhatsAppMarketingService {
     });
   }
 
+  async uploadCampaignHeaderImage(file: Express.Multer.File) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Chybí soubor obrázku kampaně.');
+    }
+    const ext = extname(file.originalname || '').toLowerCase();
+    if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
+      throw new BadRequestException('Povolené formáty obrázku: JPG, PNG, WEBP.');
+    }
+    const dir = join(getUploadsPath(), 'whatsapp');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const name = `kampan-${randomUUID()}${ext}`;
+    fs.writeFileSync(join(dir, name), file.buffer);
+    const relative = `/uploads/whatsapp/${name}`;
+    const publicUrl = resolvePublicHttpsImageUrl(relative);
+    return { url: relative, publicUrl };
+  }
+
   private campaignRow(r: {
     id: string;
     name: string;
@@ -1229,6 +1393,8 @@ export class WhatsAppMarketingService {
     waMetaTemplateId: string | null;
     waTemplateLanguage: string;
     waTemplateVariables: string[];
+    waHeaderImageUrl: string | null;
+    waHeaderImageMediaId: string | null;
     targetRoles: UserRole[];
     targetRegions: string[];
     targetCities: string[];
@@ -1251,6 +1417,8 @@ export class WhatsAppMarketingService {
       waMetaTemplateId: r.waMetaTemplateId,
       waTemplateLanguage: r.waTemplateLanguage,
       waTemplateVariables: r.waTemplateVariables,
+      waHeaderImageUrl: r.waHeaderImageUrl,
+      waHeaderImageMediaId: r.waHeaderImageMediaId,
       targetRoles: r.targetRoles,
       targetRegions: r.targetRegions,
       targetCities: r.targetCities,

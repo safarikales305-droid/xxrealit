@@ -7,9 +7,13 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
   ValidationPipe,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { CurrentUser, type AuthUser } from '../auth/decorators/current-user.decorator';
@@ -171,6 +175,17 @@ export class WhatsAppAdminController {
     dto: PreviewWhatsAppCampaignDto,
   ) {
     return this.marketing.previewMessage(dto);
+  }
+
+  @Post('campaigns/upload-image')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 },
+    }),
+  )
+  uploadCampaignImage(@UploadedFile() file: Express.Multer.File) {
+    return this.marketing.uploadCampaignHeaderImage(file);
   }
 
   @Post('campaigns/:id/test')

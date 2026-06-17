@@ -39,6 +39,7 @@ export type WhatsAppMetaTemplateRow = {
   rawStatus: string;
   normalizedStatus: string;
   isUsable: boolean;
+  headerType: string;
   bodyText: string;
   variablesCount: number;
   isStale: boolean;
@@ -114,6 +115,7 @@ export class WhatsAppMetaTemplatesService {
     normalizedStatus: string | null;
     rawTemplate: Prisma.JsonValue | null;
     usable: boolean;
+    headerType: string;
     bodyText: string;
     variablesCount: number;
     isStale: boolean;
@@ -132,6 +134,7 @@ export class WhatsAppMetaTemplatesService {
       rawStatus: row.rawStatus || row.status,
       normalizedStatus,
       isUsable: row.usable || isUsableTemplateStatus(normalizedStatus),
+      headerType: row.headerType || 'NONE',
       bodyText: row.bodyText,
       variablesCount: row.variablesCount,
       isStale: row.isStale,
@@ -216,6 +219,7 @@ export class WhatsAppMetaTemplatesService {
       normalizedStatus,
       rawTemplate: item as Prisma.InputJsonValue,
       usable,
+      headerType: parsed.headerType,
       bodyText: parsed.bodyText,
       variablesCount: parsed.variablesCount,
       isStale: false,
@@ -461,7 +465,7 @@ export class WhatsAppMetaTemplatesService {
           this.logger.log(
             `[WhatsApp Templates] template name=${parsed.templateName} lang=${parsed.language} ` +
               `rawStatus=${parsed.rawStatus} normalized=${normalizedStatus} usable=${isUsable} ` +
-              `variablesCount=${parsed.variablesCount} headerImage=${parsed.hasHeaderImage} ` +
+              `headerType=${parsed.headerType} variablesCount=${parsed.variablesCount} ` +
               `parameterFormat=${parsed.parameterFormat}`,
           );
 

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
+import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { useAuth } from '@/hooks/use-auth';
 import {
   CZECH_REGIONS,
@@ -13,6 +14,7 @@ import {
   nestAdminWhatsAppCampaignLastError,
   nestAdminWhatsAppCampaignPreview,
   nestAdminWhatsAppCampaignRun,
+  nestAdminWhatsAppCampaignUploadImage,
   nestAdminWhatsAppCampaignsList,
   nestAdminWhatsAppCampaignTest,
   nestAdminWhatsAppCampaignDebugLastError,
@@ -26,6 +28,7 @@ import {
   parsePhonesFromCsv,
   WHATSAPP_CAMPAIGN_TYPE_LABELS,
   WHATSAPP_CAMPAIGN_TEMPLATE_HELP,
+  WHATSAPP_HEADER_IMAGE_REQUIRED_MSG,
   WHATSAPP_NO_APPROVED_TEMPLATES_MSG,
   WHATSAPP_TARGET_ROLES,
   WHATSAPP_TEMPLATE_REQUIRED_MSG,
@@ -33,6 +36,7 @@ import {
   WHATSAPP_WRONG_WABA_WARNING,
   type WhatsAppCampaignLogRow,
   type WhatsAppCampaignRow,
+  type WhatsAppCampaignPreviewResult,
   type WhatsAppCampaignType,
   type WhatsAppHistoryRow,
   type WhatsAppMetaTemplateRow,
@@ -43,6 +47,8 @@ const emptyForm = {
   campaignType: 'CUSTOM' as WhatsAppCampaignType,
   waMetaTemplateId: '',
   waTemplateVariables: '{jmeno}\n{odkaz}',
+  waHeaderImageUrl: '',
+  waHeaderImageMediaId: '',
   messageTemplate:
     'Náhled: Ahoj {jmeno}! Máme pro vás novinku na XXrealit. Váš kredit: {kredit} Kč. {odkaz}',
   targetRoles: [] as string[],
@@ -67,7 +73,8 @@ export default function AdminWhatsAppCampaignsPage() {
   const [campaigns, setCampaigns] = useState<WhatsAppCampaignRow[]>([]);
   const [history, setHistory] = useState<WhatsAppHistoryRow[]>([]);
   const [form, setForm] = useState(emptyForm);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [previewDetail, setPreviewDetail] = useState<WhatsAppCampaignPreviewResult | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [statusIsError, setStatusIsError] = useState(false);
@@ -95,6 +102,18 @@ export default function AdminWhatsAppCampaignsPage() {
   const [loadingRawMeta, setLoadingRawMeta] = useState(false);
 
   const selectedTemplate = approvedTemplates.find((t) => t.id === form.waMetaTemplateId) ?? null;
+  const requiresHeaderImage = selectedTemplate?.headerType === 'IMAGE';
+
+  function hasHeaderImageInput(): boolean {
+    return Boolean(form.waHeaderImageUrl.trim() || form.waHeaderImageMediaId.trim());
+  }
+
+  function campaignImagePreviewSrc(): string | null {
+    const url = form.waHeaderImageUrl.trim();
+    if (!url) return null;
+    if (/^https?:\/\//i.test(url)) return url;
+    return nestAbsoluteAssetUrl(url);
+  }
 
   function statusLabel(status: string): string {
     if (status === 'SENDING') return 'RUNNING';
@@ -335,6 +354,8 @@ export default function AdminWhatsAppCampaignsPage() {
       campaignType: form.campaignType,
       waMetaTemplateId: form.waMetaTemplateId.trim(),
       waTemplateVariables: parseTemplateVariables(),
+      waHeaderImageUrl: form.waHeaderImageUrl.trim() || undefined,
+      waHeaderImageMediaId: form.waHeaderImageMediaId.trim() || undefined,
       messageTemplate: form.messageTemplate.trim(),
       targetRoles: form.targetRoles,
       targetRegions: form.targetRegions,
@@ -358,21 +379,34 @@ export default function AdminWhatsAppCampaignsPage() {
       );
       return;
     }
+    if (requiresHeaderImage && !hasHeaderImageInput()) {
+      setStatusIsError(true);
+      setStatusMsg(WHATSAPP_HEADER_IMAGE_REQUIRED_MSG);
+      return;
+    }
     const p = await nestAdminWhatsAppCampaignPreview(token, buildPayload());
     if (!p) {
       setStatusIsError(true);
       setStatusMsg('Náhled se nepodařil vygenerovat.');
       return;
     }
-    const lines = [
-      p.preview ? `Text šablony / náhled:\n${p.preview}` : null,
-      `Šablona: ${p.templateName ?? '—'} (${p.templateLanguage})`,
-      p.templateCategory ? `Kategorie: ${p.templateCategory}` : null,
-      p.templateVariablesRendered.length
-        ? `Proměnné šablony: ${p.templateVariablesRendered.join(' | ')}`
-        : 'Bez proměnných šablony',
-    ].filter(Boolean);
-    setPreview(lines.join('\n\n'));
+    setPreviewDetail(p);
+  }
+
+  async function onUploadCampaignImage(file: File | null) {
+    if (!token || !file) return;
+    setUploadingImage(true);
+    setStatusMsg(null);
+    setStatusIsError(false);
+    const r = await nestAdminWhatsAppCampaignUploadImage(token, file);
+    setUploadingImage(false);
+    if (!r.ok) {
+      setStatusIsError(true);
+      setStatusMsg(r.error);
+      return;
+    }
+    setForm((f) => ({ ...f, waHeaderImageUrl: r.publicUrl }));
+    setStatusMsg('Obrázek kampaně nahrán.');
   }
 
   async function onCreate(e: React.FormEvent) {
@@ -394,6 +428,11 @@ export default function AdminWhatsAppCampaignsPage() {
       );
       return;
     }
+    if (requiresHeaderImage && !hasHeaderImageInput()) {
+      setStatusIsError(true);
+      setStatusMsg(WHATSAPP_HEADER_IMAGE_REQUIRED_MSG);
+      return;
+    }
     setCreating(true);
     setStatusMsg(null);
     setStatusIsError(false);
@@ -405,7 +444,7 @@ export default function AdminWhatsAppCampaignsPage() {
       return;
     }
     setForm(emptyForm);
-    setPreview(null);
+    setPreviewDetail(null);
     setStatusMsg('Kampaň vytvořena.');
     void refresh();
   }
@@ -720,6 +759,7 @@ export default function AdminWhatsAppCampaignsPage() {
                     <th className="px-2 py-2">Kategorie</th>
                     <th className="px-2 py-2">Raw stav</th>
                     <th className="px-2 py-2">Normalized</th>
+                    <th className="px-2 py-2">Header</th>
                     <th className="px-2 py-2">Kampaň</th>
                     <th className="px-2 py-2">Proměnné</th>
                     <th className="px-2 py-2">Text</th>
@@ -735,6 +775,7 @@ export default function AdminWhatsAppCampaignsPage() {
                       <td className="px-2 py-3">{t.category}</td>
                       <td className="px-2 py-3 font-mono text-xs">{t.rawStatus || t.status}</td>
                       <td className="px-2 py-3 font-mono text-xs">{t.normalizedStatus || '—'}</td>
+                      <td className="px-2 py-3 font-mono text-xs">{t.headerType || 'NONE'}</td>
                       <td className="px-2 py-3">
                         <span
                           className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
@@ -823,6 +864,9 @@ export default function AdminWhatsAppCampaignsPage() {
                         waMetaTemplateId: id,
                         waTemplateVariables:
                           tpl && tpl.variablesCount > 0 ? f.waTemplateVariables : '',
+                        waHeaderImageUrl: tpl?.headerType === 'IMAGE' ? f.waHeaderImageUrl : '',
+                        waHeaderImageMediaId:
+                          tpl?.headerType === 'IMAGE' ? f.waHeaderImageMediaId : '',
                       }));
                     }}
                     className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
@@ -845,10 +889,68 @@ export default function AdminWhatsAppCampaignsPage() {
                     <span className="font-normal text-zinc-500">({selectedTemplate.language})</span>
                   </p>
                   <p className="mt-1 text-xs text-zinc-600">
-                    Kategorie: {selectedTemplate.category} · Proměnných:{' '}
-                    {selectedTemplate.variablesCount}
+                    Kategorie: {selectedTemplate.category} · Header: {selectedTemplate.headerType} ·
+                    Proměnných: {selectedTemplate.variablesCount}
                   </p>
                   <p className="mt-2 whitespace-pre-wrap text-zinc-800">{selectedTemplate.bodyText}</p>
+                </div>
+              ) : null}
+              {requiresHeaderImage ? (
+                <div className="space-y-3 rounded-lg border border-blue-200 bg-blue-50/60 p-3">
+                  <p className="text-xs font-semibold uppercase text-blue-800">
+                    Obrázek kampaně (HEADER IMAGE) *
+                  </p>
+                  <p className="text-xs text-blue-900">
+                    Obrázek musí být veřejně dostupný přes HTTPS. Můžete nahrát soubor, vložit URL
+                    nebo použít Meta media_id.
+                  </p>
+                  <div>
+                    <label className="text-xs font-semibold uppercase text-zinc-500">
+                      Nahrát obrázek
+                    </label>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      disabled={uploadingImage}
+                      onChange={(e) => void onUploadCampaignImage(e.target.files?.[0] ?? null)}
+                      className="mt-1 block w-full text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold uppercase text-zinc-500">
+                      URL obrázku (HTTPS)
+                    </label>
+                    <input
+                      type="url"
+                      value={form.waHeaderImageUrl}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, waHeaderImageUrl: e.target.value }))
+                      }
+                      placeholder="https://www.xxrealit.cz/uploads/whatsapp/kampan-obrazek.jpg"
+                      className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold uppercase text-zinc-500">
+                      Meta media_id (volitelně místo URL)
+                    </label>
+                    <input
+                      type="text"
+                      value={form.waHeaderImageMediaId}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, waHeaderImageMediaId: e.target.value }))
+                      }
+                      placeholder="1234567890"
+                      className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 font-mono text-sm"
+                    />
+                  </div>
+                  {campaignImagePreviewSrc() ? (
+                    <img
+                      src={campaignImagePreviewSrc()!}
+                      alt="Náhled obrázku kampaně"
+                      className="max-h-48 rounded-lg border border-zinc-200 object-contain"
+                    />
+                  ) : null}
                 </div>
               ) : null}
               {selectedTemplate && selectedTemplate.variablesCount > 0 ? (
@@ -886,10 +988,45 @@ export default function AdminWhatsAppCampaignsPage() {
                   className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                 />
               </div>
-              {preview ? (
+              {previewDetail ? (
                 <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3 text-sm text-zinc-800">
-                  <p className="text-xs font-semibold text-emerald-800">Náhled</p>
-                  <p className="mt-1 whitespace-pre-wrap">{preview}</p>
+                  <p className="text-xs font-semibold text-emerald-800">Náhled kampaně</p>
+                  <p className="mt-1 text-xs text-zinc-600">
+                    Šablona: {previewDetail.templateName ?? '—'} ({previewDetail.templateLanguage})
+                    {previewDetail.headerType ? ` · Header: ${previewDetail.headerType}` : ''}
+                  </p>
+                  {previewDetail.recipientSample ? (
+                    <p className="mt-1 text-xs text-zinc-600">
+                      Příjemce: {previewDetail.recipientSample.name} (
+                      {previewDetail.recipientSample.phone})
+                    </p>
+                  ) : null}
+                  {previewDetail.imageUrl ? (
+                    <img
+                      src={previewDetail.imageUrl}
+                      alt="Náhled hlavičky"
+                      className="mt-3 max-h-48 rounded-lg border border-zinc-200 object-contain"
+                    />
+                  ) : previewDetail.imageMediaId ? (
+                    <p className="mt-2 text-xs text-zinc-600">
+                      Obrázek přes media_id: {previewDetail.imageMediaId}
+                    </p>
+                  ) : null}
+                  {previewDetail.preview ? (
+                    <p className="mt-3 whitespace-pre-wrap">{previewDetail.preview}</p>
+                  ) : null}
+                  {previewDetail.buttons && previewDetail.buttons.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {previewDetail.buttons.map((label) => (
+                        <span
+                          key={label}
+                          className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-medium"
+                        >
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
