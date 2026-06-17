@@ -234,6 +234,7 @@ export type WhatsAppHistoryRow = {
   errorMessage: string | null;
   metaErrorCode: number | null;
   metaErrorMessage: string | null;
+  metaFbtraceId?: string | null;
   providerMessageId: string | null;
   message: string;
   isWelcome: boolean;
@@ -251,6 +252,7 @@ export type WhatsAppCampaignLogRow = {
   providerMessageId: string | null;
   metaErrorCode: number | null;
   metaErrorMessage: string | null;
+  metaFbtraceId?: string | null;
   metaDebug: unknown;
 };
 

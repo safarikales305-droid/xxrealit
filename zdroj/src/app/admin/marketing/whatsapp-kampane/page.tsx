@@ -1261,7 +1261,13 @@ export default function AdminWhatsAppCampaignsPage() {
                       <td className="px-2 py-2 font-mono text-xs">{h.providerMessageId || '—'}</td>
                       <td className="max-w-[180px] px-2 py-2 text-xs text-red-600">
                         {h.metaErrorMessage
-                          ? `${h.metaErrorCode != null ? `[${h.metaErrorCode}] ` : ''}${h.metaErrorMessage}`
+                          ? [
+                              h.metaErrorCode != null ? `[${h.metaErrorCode}]` : null,
+                              h.metaErrorMessage,
+                              h.metaFbtraceId ? `fbtrace_id: ${h.metaFbtraceId}` : null,
+                            ]
+                              .filter(Boolean)
+                              .join(' ')
                           : h.errorMessage || '—'}
                       </td>
                       <td className="max-w-xs truncate px-2 py-2 text-xs text-zinc-600">

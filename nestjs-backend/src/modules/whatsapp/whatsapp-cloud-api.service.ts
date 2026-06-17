@@ -242,12 +242,14 @@ export class WhatsAppCloudApiService {
     let metaDebug: Record<string, unknown> | null = null;
     let metaErrorCode: number | null = null;
     let metaErrorMessage: string | null = null;
+    let metaFbtraceId: string | null = null;
 
     if (row.errorMessage) {
       try {
         metaDebug = JSON.parse(row.errorMessage) as Record<string, unknown>;
         if (typeof metaDebug.code === 'number') metaErrorCode = metaDebug.code;
         if (typeof metaDebug.message === 'string') metaErrorMessage = metaDebug.message;
+        if (typeof metaDebug.fbtrace_id === 'string') metaFbtraceId = metaDebug.fbtrace_id;
       } catch {
         metaDebug = { raw: row.errorMessage };
         metaErrorMessage = row.errorMessage;
@@ -266,6 +268,7 @@ export class WhatsAppCloudApiService {
       metaDebug,
       metaErrorCode,
       metaErrorMessage,
+      metaFbtraceId,
     };
   }
 

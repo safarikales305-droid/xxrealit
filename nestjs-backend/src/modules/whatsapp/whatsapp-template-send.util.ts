@@ -112,6 +112,8 @@ export function assertTemplatePayload(
     'previewMessage',
     'preview',
     'campaignMessage',
+    'imageUrl',
+    'headerType',
   ];
   for (const key of topForbidden) {
     if (key in requestBody && requestBody[key] != null) {
@@ -145,6 +147,63 @@ export function assertTemplatePayload(
       }
     }
   }
+
+  if (config.headerType === 'IMAGE') {
+    assertImageHeaderInPayload(requestBody);
+  }
+}
+
+/** Ověří, že Meta payload obsahuje header image v template.components. */
+export function assertImageHeaderInPayload(
+  requestBody: MetaMessagesRequestBody,
+  expectedLink?: string,
+): void {
+  const template = requestBody.template as Record<string, unknown> | undefined;
+  const components = Array.isArray(template?.components)
+    ? (template.components as Array<Record<string, unknown>>)
+    : [];
+  const header = components.find((c) => String(c.type ?? '').toLowerCase() === 'header');
+  if (!header) {
+    throw new WhatsAppTemplatePayloadError(
+      'Šablona s HEADER IMAGE musí obsahovat template.components[type=header].',
+    );
+  }
+
+  const parameters = Array.isArray(header.parameters)
+    ? (header.parameters as Array<Record<string, unknown>>)
+    : [];
+  const imageParam = parameters.find((p) => String(p.type ?? '').toLowerCase() === 'image');
+  const image = imageParam?.image as { link?: string; id?: string } | undefined;
+  const link = image?.link?.trim();
+  const id = image?.id?.trim();
+
+  if (!link && !id) {
+    throw new WhatsAppTemplatePayloadError(
+      'HEADER IMAGE musí mít image.link nebo image.id uvnitř template.components.',
+    );
+  }
+
+  if (expectedLink && link && link !== expectedLink) {
+    throw new WhatsAppTemplatePayloadError(
+      `image.link v payloadu (${link}) neodpovídá ověřené URL (${expectedLink}).`,
+    );
+  }
+}
+
+export function extractHeaderImageLinkFromPayload(
+  requestBody: MetaMessagesRequestBody,
+): string | null {
+  const template = requestBody.template as Record<string, unknown> | undefined;
+  const components = Array.isArray(template?.components)
+    ? (template.components as Array<Record<string, unknown>>)
+    : [];
+  const header = components.find((c) => String(c.type ?? '').toLowerCase() === 'header');
+  const parameters = Array.isArray(header?.parameters)
+    ? (header.parameters as Array<Record<string, unknown>>)
+    : [];
+  const imageParam = parameters.find((p) => String(p.type ?? '').toLowerCase() === 'image');
+  const image = imageParam?.image as { link?: string } | undefined;
+  return image?.link?.trim() || null;
 }
 
 /** @deprecated použij assertTemplatePayload */

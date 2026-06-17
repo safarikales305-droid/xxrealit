@@ -27,6 +27,8 @@ import {
   buildTemplateMessageRequest,
   buildTemplateBodyParameters,
   assertTemplatePayload,
+  assertImageHeaderInPayload,
+  extractHeaderImageLinkFromPayload,
   formatTemplateLogLabel,
   metaTemplateLanguageCode,
   normalizeTemplateLanguageCode,
@@ -39,8 +41,10 @@ import {
 import {
   hasCampaignHeaderImageSource,
   resolvePublicHttpsImageUrl,
+  verifyPublicCampaignImageUrl,
   WHATSAPP_HEADER_IMAGE_REQUIRED_MSG,
 } from './whatsapp-image-url.util';
+import type { MetaMessagesRequestBody } from './whatsapp-cloud-api.service';
 import {
   portalBaseUrl,
   renderWhatsAppTemplate,
@@ -135,16 +139,101 @@ export class WhatsAppMarketingService {
     }
   }
 
-  private resolveHeaderImageForSend(ctx: Pick<
-    CampaignTemplateSendContext,
-    'headerType' | 'headerImageUrl' | 'headerImageMediaId'
-  >): { headerImageUrl?: string; headerImageMediaId?: string } {
-    if (ctx.headerType !== 'IMAGE') return {};
-    const mediaId = ctx.headerImageMediaId?.trim();
-    if (mediaId) return { headerImageMediaId: mediaId };
-    const url = ctx.headerImageUrl?.trim();
-    if (url) return { headerImageUrl: resolvePublicHttpsImageUrl(url) };
-    return {};
+  private formatMetaSendError(metaError?: {
+    message?: string;
+    code?: number;
+    type?: string;
+    fbtrace_id?: string;
+  }): string {
+    const parts = [metaError?.message?.trim() || 'Meta nevrátilo ID zprávy.'];
+    if (metaError?.code != null) parts.push(`code: ${metaError.code}`);
+    if (metaError?.fbtrace_id) parts.push(`fbtrace_id: ${metaError.fbtrace_id}`);
+    return parts.join(' | ');
+  }
+
+  private async buildValidatedCampaignPayload(
+    phone: string,
+    template: CampaignTemplateSendContext,
+    bodyParameters: string[],
+  ): Promise<{
+    requestBody: MetaMessagesRequestBody;
+    publicImageUrl: string | null;
+    headerType: WhatsAppTemplateHeaderType;
+    variablesCount: number;
+    templateName: string;
+    languageCode: string;
+    wabaId: string;
+  }> {
+    let variablesCount = template.variablesCount;
+    let wabaId = template.wabaId;
+    let resolvedTemplateName = template.templateName;
+    let resolvedLanguageCode = template.languageCode;
+    let headerType = template.headerType;
+
+    if (template.waMetaTemplateId) {
+      const metaRow = await this.metaTemplates.requireApprovedTemplate(template.waMetaTemplateId);
+      variablesCount = metaRow.variablesCount;
+      wabaId = metaRow.wabaId;
+      resolvedTemplateName = metaRow.templateName;
+      resolvedLanguageCode = metaTemplateLanguageCode(metaRow.language);
+      const parts = extractTemplatePartsFromRaw(metaRow.rawTemplate);
+      headerType = (metaRow.headerType || parts.headerType || 'NONE') as WhatsAppTemplateHeaderType;
+    }
+
+    const normalizedBodyParameters =
+      variablesCount > 0
+        ? bodyParameters.map((v) => String(v).trim()).filter((v) => v.length > 0)
+        : [];
+
+    let headerImageUrl: string | undefined;
+    let headerImageMediaId: string | undefined;
+    let publicImageUrl: string | null = null;
+
+    if (headerType === 'IMAGE') {
+      const mediaId = template.headerImageMediaId?.trim();
+      if (mediaId) {
+        headerImageMediaId = mediaId;
+      } else {
+        const rawUrl = template.headerImageUrl?.trim();
+        if (!rawUrl) {
+          throw new BadRequestException(WHATSAPP_HEADER_IMAGE_REQUIRED_MSG);
+        }
+        publicImageUrl = await verifyPublicCampaignImageUrl(rawUrl);
+        headerImageUrl = publicImageUrl;
+      }
+    }
+
+    const requestBody = buildTemplateMessageRequest(whatsAppDigits(phone), {
+      templateName: resolvedTemplateName,
+      languageCode: resolvedLanguageCode,
+      bodyParameters: normalizedBodyParameters,
+      variablesCount,
+      headerType,
+      headerImageUrl,
+      headerImageMediaId,
+    });
+
+    assertTemplatePayload(requestBody, { variablesCount, headerType });
+    if (headerType === 'IMAGE') {
+      assertImageHeaderInPayload(requestBody, publicImageUrl ?? undefined);
+    }
+
+    const payloadLink = extractHeaderImageLinkFromPayload(requestBody);
+    if (publicImageUrl && payloadLink && payloadLink !== publicImageUrl) {
+      throw new BadRequestException(
+        `image.link v Meta payloadu neodpovídá ověřené URL obrázku.`,
+      );
+    }
+
+    return {
+      requestBody,
+      publicImageUrl: payloadLink ?? publicImageUrl,
+      headerType,
+      variablesCount,
+      templateName: resolvedTemplateName,
+      languageCode: resolvedLanguageCode,
+      wabaId,
+    };
   }
 
   /**
@@ -165,53 +254,27 @@ export class WhatsAppMarketingService {
   ): Promise<{
     providerMessageId: string | null;
     phoneNumberId: string;
-    metaError?: { message?: string; code?: number; type?: string };
+    metaError?: { message?: string; code?: number; type?: string; fbtrace_id?: string };
   }> {
     await this.settings.reload();
     await this.diagnostic.assertPhoneBelongsToConfiguredWaba();
 
     this.assertCampaignHeaderImageReady(template);
 
-    const toDigits = whatsAppDigits(phone);
-
-    let variablesCount = template.variablesCount;
-    let wabaId = template.wabaId;
-    let resolvedTemplateName = template.templateName;
-    let resolvedLanguageCode = template.languageCode;
-    let headerType = template.headerType;
-
-    if (template.waMetaTemplateId) {
-      const metaRow = await this.metaTemplates.requireApprovedTemplate(template.waMetaTemplateId);
-      variablesCount = metaRow.variablesCount;
-      wabaId = metaRow.wabaId;
-      resolvedTemplateName = metaRow.templateName;
-      resolvedLanguageCode = metaTemplateLanguageCode(metaRow.language);
-      headerType = (metaRow.headerType || 'NONE') as WhatsAppTemplateHeaderType;
-    }
+    const {
+      requestBody,
+      publicImageUrl,
+      headerType,
+      variablesCount,
+      templateName: resolvedTemplateName,
+      languageCode: resolvedLanguageCode,
+      wabaId,
+    } = await this.buildValidatedCampaignPayload(phone, template, bodyParameters);
 
     const normalizedBodyParameters =
       variablesCount > 0
         ? bodyParameters.map((v) => String(v).trim()).filter((v) => v.length > 0)
         : [];
-
-    const headerImage = this.resolveHeaderImageForSend({
-      headerType,
-      headerImageUrl: template.headerImageUrl,
-      headerImageMediaId: template.headerImageMediaId,
-    });
-
-    const requestBody = buildTemplateMessageRequest(toDigits, {
-      templateName: resolvedTemplateName,
-      languageCode: resolvedLanguageCode,
-      bodyParameters: normalizedBodyParameters,
-      variablesCount,
-      headerType,
-      ...headerImage,
-    });
-
-    assertTemplatePayload(requestBody, { variablesCount, headerType });
-
-    const resolvedImageUrl = headerImage.headerImageUrl ?? null;
 
     const logLabel =
       variablesCount > 0 && logMeta.previewText?.trim()
@@ -221,14 +284,14 @@ export class WhatsAppMarketingService {
             resolvedLanguageCode,
             normalizedBodyParameters,
             headerType,
-            resolvedImageUrl,
+            publicImageUrl,
           );
 
     this.logger.log(
-      `[WhatsApp Template] send to=${toDigits} template=${resolvedTemplateName} lang=${resolvedLanguageCode} wabaId=${wabaId || '—'} headerType=${headerType} variablesCount=${variablesCount} params=${normalizedBodyParameters.length}`,
+      `[WhatsApp Template] send to=${requestBody.to} template=${resolvedTemplateName} lang=${resolvedLanguageCode} wabaId=${wabaId || '—'} headerType=${headerType} variablesCount=${variablesCount} imageLink=${publicImageUrl ?? '—'}`,
     );
     this.logger.log(
-      `[WhatsApp Template] Meta payload (final): ${JSON.stringify(requestBody)}`,
+      `[WhatsApp Template] Meta finalPayload: ${JSON.stringify(requestBody)}`,
     );
 
     const { providerMessageId, attempt, error } = await this.cloudApi.sendMessages(requestBody, {
@@ -243,7 +306,7 @@ export class WhatsAppMarketingService {
       templateLanguage: resolvedLanguageCode,
       variablesCount,
       headerType,
-      imageUrl: resolvedImageUrl,
+      imageUrl: publicImageUrl,
       wabaId: wabaId || undefined,
     });
 
@@ -255,6 +318,7 @@ export class WhatsAppMarketingService {
           message: error.message,
           code: error.code,
           type: error.type,
+          fbtrace_id: error.fbtrace_id,
         },
       };
     }
@@ -1013,9 +1077,7 @@ export class WhatsAppMarketingService {
     );
 
     if (!providerMessageId) {
-      throw new BadRequestException(
-        metaError?.message ?? 'Meta nevrátilo ID zprávy — odeslání selhalo.',
-      );
+      throw new BadRequestException(this.formatMetaSendError(metaError));
     }
 
     return {
@@ -1247,7 +1309,7 @@ export class WhatsAppMarketingService {
 
         if (!providerMessageId) {
           failed += 1;
-          const errText = `${r.phone}: ${metaError?.message ?? 'Meta nevrátilo ID zprávy.'}${metaError?.code != null ? ` (code ${metaError.code})` : ''}${metaError?.type ? ` [${metaError.type}]` : ''}`;
+          const errText = `${r.phone}: ${this.formatMetaSendError(metaError)}`;
           sendErrors.push(errText);
           this.logger.error(
             `[Campaign Run] failed campaignId=${campaignId} phone=${r.phone} template=${tpl.templateName} lang=${tpl.languageCode} error=${metaError?.message ?? '—'} code=${metaError?.code ?? '—'}`,
@@ -1339,11 +1401,17 @@ export class WhatsAppMarketingService {
     return rows.map((r) => {
       let metaErrorCode: number | null = null;
       let metaErrorMessage: string | null = null;
+      let metaFbtraceId: string | null = null;
       if (r.errorMessage) {
         try {
-          const parsed = JSON.parse(r.errorMessage) as { code?: number; message?: string };
+          const parsed = JSON.parse(r.errorMessage) as {
+            code?: number;
+            message?: string;
+            fbtrace_id?: string;
+          };
           if (typeof parsed.code === 'number') metaErrorCode = parsed.code;
           if (typeof parsed.message === 'string') metaErrorMessage = parsed.message;
+          if (typeof parsed.fbtrace_id === 'string') metaFbtraceId = parsed.fbtrace_id;
         } catch {
           metaErrorMessage = r.errorMessage;
         }
@@ -1359,6 +1427,7 @@ export class WhatsAppMarketingService {
         errorMessage: r.errorMessage,
         metaErrorCode,
         metaErrorMessage,
+        metaFbtraceId,
         providerMessageId: r.providerMessageId,
         message: r.message,
         isWelcome: r.isWelcome,
