@@ -78,10 +78,22 @@ export type WhatsAppMetaTemplateRow = {
   category: string;
   language: string;
   status: string;
+  rawStatus: string;
+  normalizedStatus: string;
+  isUsable: boolean;
   bodyText: string;
   variablesCount: number;
   isStale: boolean;
   syncedAt: string;
+  rawTemplate?: unknown;
+};
+
+export type WhatsAppTemplateSyncSummaryRow = {
+  name: string;
+  language: string;
+  rawStatus: string;
+  normalizedStatus: string;
+  isUsable: boolean;
 };
 
 export type WhatsAppTemplatesCleanupResult = {
@@ -94,17 +106,21 @@ export type WhatsAppTemplatesListResult = {
   templates: WhatsAppMetaTemplateRow[];
   lastSyncedAt: string | null;
   effectiveWabaId: string;
+  totalCount: number;
+  usableCount: number;
 };
 
 export type WhatsAppTemplatesSyncResult = {
   ok: boolean;
   syncedCount: number;
   approvedCount: number;
+  usableCount: number;
   syncedAt: string;
   wabaId?: string;
   wabaName?: string;
   messageTemplateNamespace?: string;
   templateNames?: string[];
+  templatesSummary?: WhatsAppTemplateSyncSummaryRow[];
   warning?: string;
   error?: string;
 };
@@ -503,6 +519,12 @@ export async function nestAdminWhatsAppTemplatesSync(
   } catch (e: unknown) {
     return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
   }
+}
+
+export async function nestAdminWhatsAppTemplatesSyncLastRaw(
+  token: string,
+): Promise<{ raw: unknown } | null> {
+  return adminFetch<{ raw: unknown }>(token, '/templates/sync/last-raw');
 }
 
 export async function nestAdminWhatsAppTemplatesCleanup(

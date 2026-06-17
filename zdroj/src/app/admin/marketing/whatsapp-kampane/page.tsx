@@ -19,7 +19,9 @@ import {
   nestAdminWhatsAppHistory,
   nestAdminWhatsAppTemplatesList,
   nestAdminWhatsAppTemplatesSync,
+  nestAdminWhatsAppTemplatesSyncLastRaw,
   nestAdminWhatsAppTemplatesCleanup,
+  type WhatsAppTemplateSyncSummaryRow,
   parsePhonesFromCsv,
   WHATSAPP_CAMPAIGN_TYPE_LABELS,
   WHATSAPP_CAMPAIGN_TEMPLATE_HELP,
@@ -86,6 +88,9 @@ export default function AdminWhatsAppCampaignsPage() {
   const [lastSyncInfo, setLastSyncInfo] = useState<string | null>(null);
   const [syncingTemplates, setSyncingTemplates] = useState(false);
   const [cleaningTemplates, setCleaningTemplates] = useState(false);
+  const [syncSummary, setSyncSummary] = useState<WhatsAppTemplateSyncSummaryRow[]>([]);
+  const [rawMetaResponse, setRawMetaResponse] = useState<unknown>(null);
+  const [loadingRawMeta, setLoadingRawMeta] = useState(false);
 
   const selectedTemplate = approvedTemplates.find((t) => t.id === form.waMetaTemplateId) ?? null;
 
@@ -153,18 +158,21 @@ export default function AdminWhatsAppCampaignsPage() {
       }
       const info = [
         d.wabaId ? `Aktivní WABA: ${d.wabaId}` : null,
-        d.wabaName ? `účet: ${d.wabaName}` : null,
-        `nalezeno šablon: ${d.syncedCount}`,
-        d.approvedCount != null ? `schválených pro kampaň: ${d.approvedCount}` : null,
+        `načteno šablon: ${d.syncedCount}`,
+        `použitelných: ${d.usableCount ?? d.approvedCount ?? 0}`,
+        d.templatesSummary?.length
+          ? `stavy: ${d.templatesSummary.map((t) => `${t.name}=${t.rawStatus}`).join(', ')}`
+          : null,
       ]
         .filter(Boolean)
         .join(' · ');
       setLastSyncInfo(info || null);
+      setSyncSummary(d.templatesSummary ?? []);
       if (!silent) {
         setStatusIsError(Boolean(d.warning));
         const warn = d.warning ? ` ${d.warning}` : '';
         setStatusMsg(
-          `Synchronizováno ${d.syncedCount} šablon z WABA ${d.wabaId ?? effectiveWabaId}.${warn}`,
+          `Synchronizováno ${d.syncedCount} šablon, použitelných ${d.usableCount ?? 0} z WABA ${d.wabaId ?? effectiveWabaId}.${warn}`,
         );
       }
     },
@@ -190,6 +198,14 @@ export default function AdminWhatsAppCampaignsPage() {
       `Vyčištěno ${r.data.deletedCount} starých šablon. Aktivní WABA: ${r.data.activeWabaId}.`,
     );
   }, [token, syncTemplates]);
+
+  async function showRawMetaResponse() {
+    if (!token) return;
+    setLoadingRawMeta(true);
+    const data = await nestAdminWhatsAppTemplatesSyncLastRaw(token);
+    setLoadingRawMeta(false);
+    setRawMetaResponse(data?.raw ?? null);
+  }
 
   useEffect(() => {
     if (!isLoading && (!user || user.role !== 'ADMIN')) {
@@ -251,13 +267,16 @@ export default function AdminWhatsAppCampaignsPage() {
         setSyncWarning(d.warning ?? null);
         const info = [
           d.wabaId ? `Aktivní WABA: ${d.wabaId}` : null,
-          d.wabaName ? `účet: ${d.wabaName}` : null,
-          `nalezeno šablon: ${d.syncedCount}`,
-          d.approvedCount != null ? `schválených pro kampaň: ${d.approvedCount}` : null,
+          `načteno šablon: ${d.syncedCount}`,
+          `použitelných: ${d.usableCount ?? d.approvedCount ?? 0}`,
+          d.templatesSummary?.length
+            ? `stavy: ${d.templatesSummary.map((t) => `${t.name}=${t.rawStatus}`).join(', ')}`
+            : null,
         ]
           .filter(Boolean)
           .join(' · ');
         setLastSyncInfo(info || null);
+        setSyncSummary(d.templatesSummary ?? []);
       }
       setSyncingTemplates(false);
     })();
@@ -581,7 +600,8 @@ export default function AdminWhatsAppCampaignsPage() {
             <div>
               <h2 className="text-lg font-semibold text-zinc-900">WhatsApp šablony</h2>
               <p className="mt-1 text-sm text-zinc-600">
-                Schválené šablony z Meta Business Manageru. Pouze stav APPROVED lze použít v kampani.
+                Šablony z Meta Business Manageru. V kampani lze použít šablony se stavem APPROVED nebo
+                ACTIVE (včetně „Aktivní“ z WhatsApp Manageru).
               </p>
               <p className="mt-1 text-xs text-zinc-500">{WHATSAPP_WABA_ID_HELP}</p>
               {effectiveWabaId ? (
@@ -617,8 +637,46 @@ export default function AdminWhatsAppCampaignsPage() {
               >
                 {cleaningTemplates ? 'Čistím…' : 'Vyčistit staré šablony'}
               </button>
+              <button
+                type="button"
+                disabled={syncingTemplates || cleaningTemplates || loadingRawMeta}
+                onClick={() => void showRawMetaResponse()}
+                className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
+              >
+                {loadingRawMeta ? 'Načítám…' : 'Zobrazit raw Meta odpověď'}
+              </button>
             </div>
           </div>
+          {syncSummary.length ? (
+            <div className="mt-3 rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2 text-xs text-zinc-700">
+              <p className="font-semibold text-zinc-800">Poslední sync — stavy šablon:</p>
+              <ul className="mt-1 list-inside list-disc">
+                {syncSummary.map((t) => (
+                  <li key={`${t.name}-${t.language}`}>
+                    {t.name} ({t.language}): raw={t.rawStatus}, normalized={t.normalizedStatus},{' '}
+                    {t.isUsable ? 'usable' : 'not usable'}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {rawMetaResponse != null ? (
+            <div className="mt-3 rounded-lg border border-zinc-200 bg-white p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-zinc-800">Raw Meta API odpověď</p>
+                <button
+                  type="button"
+                  onClick={() => setRawMetaResponse(null)}
+                  className="text-xs font-semibold text-zinc-500 hover:text-zinc-800"
+                >
+                  Zavřít
+                </button>
+              </div>
+              <pre className="mt-2 max-h-80 overflow-auto text-xs text-zinc-700">
+                {JSON.stringify(rawMetaResponse, null, 2)}
+              </pre>
+            </div>
+          ) : null}
           {syncWarning ? (
             <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
               {syncWarning === WHATSAPP_WRONG_WABA_WARNING
@@ -641,7 +699,9 @@ export default function AdminWhatsAppCampaignsPage() {
                     <th className="px-2 py-2">WABA</th>
                     <th className="px-2 py-2">Jazyk</th>
                     <th className="px-2 py-2">Kategorie</th>
-                    <th className="px-2 py-2">Stav</th>
+                    <th className="px-2 py-2">Raw stav</th>
+                    <th className="px-2 py-2">Normalized</th>
+                    <th className="px-2 py-2">Kampaň</th>
                     <th className="px-2 py-2">Proměnné</th>
                     <th className="px-2 py-2">Text</th>
                     <th className="px-2 py-2">Sync</th>
@@ -654,12 +714,23 @@ export default function AdminWhatsAppCampaignsPage() {
                       <td className="px-2 py-3 font-mono text-xs">{t.wabaId || '—'}</td>
                       <td className="px-2 py-3">{t.language}</td>
                       <td className="px-2 py-3">{t.category}</td>
+                      <td className="px-2 py-3 font-mono text-xs">{t.rawStatus || t.status}</td>
+                      <td className="px-2 py-3 font-mono text-xs">{t.normalizedStatus || '—'}</td>
                       <td className="px-2 py-3">
                         <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${templateStatusClass(t.status)}`}
+                          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                            t.isUsable
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : 'bg-red-50 text-red-700'
+                          }`}
                         >
-                          {t.status}
+                          {t.isUsable ? 'usable' : 'not usable'}
                         </span>
+                        {t.isStale ? (
+                          <span className="ml-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
+                            stale
+                          </span>
+                        ) : null}
                       </td>
                       <td className="px-2 py-3">{t.variablesCount}</td>
                       <td className="max-w-xs truncate px-2 py-3 text-xs text-zinc-600" title={t.bodyText}>

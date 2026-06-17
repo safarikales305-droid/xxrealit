@@ -92,6 +92,11 @@ export class WhatsAppAdminController {
     return this.metaTemplates.cleanupOldTemplates();
   }
 
+  @Get('templates/sync/last-raw')
+  templatesSyncLastRaw() {
+    return { raw: this.metaTemplates.getLastSyncRawResponse() };
+  }
+
   @Get('diagnostics')
   diagnostics() {
     return this.diagnostic.getDiagnostics();

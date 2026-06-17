@@ -1559,6 +1559,9 @@ model WhatsAppMetaTemplate {
   category       String
   language       String
   status         String
+  rawStatus      String   @default("")
+  normalizedStatus String @default("")
+  rawTemplate    String?  @db.Text
   bodyText       String   @db.Text
   variablesCount Int      @default(0)
   isStale        Boolean  @default(false)
@@ -1568,6 +1571,7 @@ model WhatsAppMetaTemplate {
 
   @@unique([wabaId, templateName, language])
   @@index([status])
+  @@index([normalizedStatus])
   @@index([isStale])
   @@index([wabaId])
   @@index([templateName, language])
