@@ -250,7 +250,7 @@ export class WhatsAppMarketingService {
         isStale: false,
         ...(configuredWabaId ? { wabaId: configuredWabaId } : {}),
       },
-      orderBy: { syncedAt: 'desc' },
+      orderBy: { lastSyncedAt: 'desc' },
     });
     if (fallback) {
       return {

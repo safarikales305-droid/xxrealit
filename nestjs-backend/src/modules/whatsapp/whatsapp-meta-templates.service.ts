@@ -42,7 +42,7 @@ export type WhatsAppMetaTemplateRow = {
   bodyText: string;
   variablesCount: number;
   isStale: boolean;
-  syncedAt: string;
+  lastSyncedAt: string | null;
   rawTemplate?: unknown;
 };
 
@@ -104,25 +104,26 @@ export class WhatsAppMetaTemplatesService {
 
   private rowToDto(row: {
     id: string;
-    wabaId: string;
+    wabaId: string | null;
     metaTemplateId: string;
     templateName: string;
     category: string;
     language: string;
     status: string;
-    rawStatus: string;
-    normalizedStatus: string;
-    rawTemplate: string | null;
+    rawStatus: string | null;
+    normalizedStatus: string | null;
+    rawTemplate: Prisma.JsonValue | null;
+    usable: boolean;
     bodyText: string;
     variablesCount: number;
     isStale: boolean;
-    syncedAt: Date;
+    lastSyncedAt: Date | null;
   }): WhatsAppMetaTemplateRow {
     const normalizedStatus =
       row.normalizedStatus?.trim() || normalizeTemplateStatus(row.rawStatus || row.status);
     return {
       id: row.id,
-      wabaId: row.wabaId,
+      wabaId: row.wabaId ?? '',
       metaTemplateId: row.metaTemplateId,
       templateName: row.templateName,
       category: row.category,
@@ -130,21 +131,13 @@ export class WhatsAppMetaTemplatesService {
       status: row.status,
       rawStatus: row.rawStatus || row.status,
       normalizedStatus,
-      isUsable: isUsableTemplateStatus(normalizedStatus),
+      isUsable: row.usable || isUsableTemplateStatus(normalizedStatus),
       bodyText: row.bodyText,
       variablesCount: row.variablesCount,
       isStale: row.isStale,
-      syncedAt: row.syncedAt.toISOString(),
-      rawTemplate: row.rawTemplate ? this.parseRawTemplate(row.rawTemplate) : undefined,
+      lastSyncedAt: row.lastSyncedAt?.toISOString() ?? null,
+      rawTemplate: row.rawTemplate ?? undefined,
     };
-  }
-
-  private parseRawTemplate(raw: string): unknown {
-    try {
-      return JSON.parse(raw) as unknown;
-    } catch {
-      return raw;
-    }
   }
 
   private activeWabaWhere(): Prisma.WhatsAppMetaTemplateWhereInput {
@@ -174,11 +167,14 @@ export class WhatsAppMetaTemplatesService {
     return {
       ...base,
       isStale: false,
-      normalizedStatus: { in: ['APPROVED', 'ACTIVE'] },
+      usable: true,
     };
   }
 
-  private assertTemplateBelongsToConfiguredWaba(row: { wabaId: string; templateName: string }) {
+  private assertTemplateBelongsToConfiguredWaba(row: {
+    wabaId: string | null;
+    templateName: string;
+  }) {
     const configuredWabaId = this.effectiveWabaId();
     if (!configuredWabaId) return;
 
@@ -200,7 +196,7 @@ export class WhatsAppMetaTemplatesService {
   private async saveSyncedTemplate(
     wabaId: string,
     item: MetaMessageTemplate,
-    syncedAt: Date,
+    lastSyncedAt: Date,
   ): Promise<void> {
     const parsed = parseMetaTemplateItem(item);
     if (!parsed) {
@@ -208,6 +204,7 @@ export class WhatsAppMetaTemplatesService {
     }
 
     const normalizedStatus = normalizeTemplateStatus(parsed.rawStatus);
+    const usable = isUsableTemplateStatus(normalizedStatus);
     const data = {
       wabaId,
       metaTemplateId: parsed.metaTemplateId,
@@ -217,11 +214,12 @@ export class WhatsAppMetaTemplatesService {
       status: normalizedStatus,
       rawStatus: parsed.rawStatus,
       normalizedStatus,
-      rawTemplate: parsed.rawTemplateJson,
+      rawTemplate: item as Prisma.InputJsonValue,
+      usable,
       bodyText: parsed.bodyText,
       variablesCount: parsed.variablesCount,
       isStale: false,
-      syncedAt,
+      lastSyncedAt,
     };
 
     const byMetaId = await this.prisma.whatsAppMetaTemplate.findUnique({
@@ -279,7 +277,7 @@ export class WhatsAppMetaTemplatesService {
     const scope = this.activeWabaWhere();
     const last = await this.prisma.whatsAppMetaTemplate.aggregate({
       where: Object.keys(scope).length ? scope : undefined,
-      _max: { syncedAt: true },
+      _max: { lastSyncedAt: true },
     });
 
     const allForWaba = templates.map((t) => this.rowToDto(t));
@@ -287,7 +285,7 @@ export class WhatsAppMetaTemplatesService {
 
     return {
       templates: allForWaba,
-      lastSyncedAt: last._max.syncedAt?.toISOString() ?? null,
+      lastSyncedAt: last._max.lastSyncedAt?.toISOString() ?? null,
       effectiveWabaId: wabaId,
       totalCount: allForWaba.length,
       usableCount,
@@ -339,6 +337,7 @@ export class WhatsAppMetaTemplatesService {
       where: {
         OR: [
           { wabaId: { not: activeWabaId } },
+          { wabaId: null },
           { wabaId: '' },
           { isStale: true },
           { templateName: { startsWith: 'jaspers_market', mode: 'insensitive' } },
@@ -377,7 +376,7 @@ export class WhatsAppMetaTemplatesService {
     );
 
     const apiVersion = this.config.getApiVersion();
-    const syncedAt = new Date();
+    const lastSyncedAt = new Date();
     const fetchedMetaIds: string[] = [];
     const templateNames: string[] = [];
     const templatesSummary: WhatsAppTemplateSyncSummaryRow[] = [];
@@ -414,7 +413,7 @@ export class WhatsAppMetaTemplatesService {
             syncedCount: 0,
             approvedCount: 0,
             usableCount: 0,
-            syncedAt: syncedAt.toISOString(),
+            syncedAt: lastSyncedAt.toISOString(),
             wabaId,
             wabaName,
             messageTemplateNamespace,
@@ -470,7 +469,7 @@ export class WhatsAppMetaTemplatesService {
           templateNames.push(parsed.templateName);
 
           try {
-            await this.saveSyncedTemplate(wabaId, item, syncedAt);
+            await this.saveSyncedTemplate(wabaId, item, lastSyncedAt);
             savedCount += 1;
             templatesSummary.push({
               name: parsed.templateName,
@@ -540,7 +539,7 @@ export class WhatsAppMetaTemplatesService {
 
       this.lastSyncRawResponse = {
         wabaId,
-        syncedAt: syncedAt.toISOString(),
+        syncedAt: lastSyncedAt.toISOString(),
         pages: rawPages,
         templatesSummary,
         syncDebug,
@@ -566,7 +565,7 @@ export class WhatsAppMetaTemplatesService {
         syncedCount: savedCount,
         approvedCount,
         usableCount,
-        syncedAt: syncedAt.toISOString(),
+        syncedAt: lastSyncedAt.toISOString(),
         wabaId,
         wabaName,
         messageTemplateNamespace,
@@ -584,7 +583,7 @@ export class WhatsAppMetaTemplatesService {
         syncedCount: savedCount,
         approvedCount: 0,
         usableCount: 0,
-        syncedAt: syncedAt.toISOString(),
+        syncedAt: lastSyncedAt.toISOString(),
         wabaId,
         wabaName,
         messageTemplateNamespace,

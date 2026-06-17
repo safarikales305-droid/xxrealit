@@ -84,7 +84,7 @@ export type WhatsAppMetaTemplateRow = {
   bodyText: string;
   variablesCount: number;
   isStale: boolean;
-  syncedAt: string;
+  lastSyncedAt: string | null;
   rawTemplate?: unknown;
 };
 

@@ -1552,26 +1552,28 @@ model WhatsAppMarketingCampaign {
 
 /// Schválené WhatsApp šablony synchronizované z Meta Graph API.
 model WhatsAppMetaTemplate {
-  id             String   @id @default(cuid())
-  wabaId         String
-  metaTemplateId String   @unique
-  templateName   String
-  category       String
-  language       String
-  status         String
-  rawStatus      String   @default("")
-  normalizedStatus String @default("")
-  rawTemplate    String?  @db.Text
-  bodyText       String   @db.Text
-  variablesCount Int      @default(0)
-  isStale        Boolean  @default(false)
-  syncedAt       DateTime @default(now())
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id               String    @id @default(cuid())
+  wabaId           String?
+  metaTemplateId   String    @unique
+  templateName     String
+  category         String
+  language         String
+  status           String
+  rawStatus        String?
+  normalizedStatus String?
+  rawTemplate      Json?
+  usable           Boolean   @default(false)
+  bodyText         String    @db.Text
+  variablesCount   Int       @default(0)
+  isStale          Boolean   @default(false)
+  lastSyncedAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@unique([wabaId, templateName, language])
   @@index([status])
   @@index([normalizedStatus])
+  @@index([usable])
   @@index([isStale])
   @@index([wabaId])
   @@index([templateName, language])

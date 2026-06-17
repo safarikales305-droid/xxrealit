@@ -756,7 +756,9 @@ export default function AdminWhatsAppCampaignsPage() {
                         {t.bodyText || '—'}
                       </td>
                       <td className="px-2 py-3 text-xs text-zinc-500">
-                        {new Date(t.syncedAt).toLocaleString('cs-CZ')}
+                        {t.lastSyncedAt
+                          ? new Date(t.lastSyncedAt).toLocaleString('cs-CZ')
+                          : '—'}
                       </td>
                     </tr>
                   ))}
