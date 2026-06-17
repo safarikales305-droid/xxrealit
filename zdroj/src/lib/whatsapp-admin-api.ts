@@ -317,6 +317,8 @@ export type WhatsAppMetaError = {
   message: string;
   code?: number;
   type?: string;
+  fbtrace_id?: string;
+  error_data?: unknown;
 };
 
 export type WhatsAppLastLog = {
@@ -395,6 +397,8 @@ export function formatWhatsAppMetaError(err: WhatsAppMetaError): string {
   const text = err.message?.trim() || 'Neznámá chyba';
   const parts = [text];
   if (err.code != null) parts.push(`code: ${err.code}`);
+  if (err.error_data != null) parts.push(`error_data: ${JSON.stringify(err.error_data)}`);
+  if (err.fbtrace_id) parts.push(`fbtrace_id: ${err.fbtrace_id}`);
   if (err.type) parts.push(`type: ${err.type}`);
   return parts.join(' | ');
 }

@@ -35,6 +35,7 @@ import {
   normalizeTemplateLanguageCode,
   WHATSAPP_MARKETING_TEMPLATE_REQUIRED_MSG,
   WHATSAPP_IMAGE_HEADER_REQUIRES_MEDIA_ID_MSG,
+  formatMetaApiError,
 } from './whatsapp-template-send.util';
 import {
   extractTemplatePartsFromRaw,
@@ -191,11 +192,9 @@ export class WhatsAppMarketingService {
     code?: number;
     type?: string;
     fbtrace_id?: string;
+    error_data?: unknown;
   }): string {
-    const parts = [metaError?.message?.trim() || 'Meta nevrátilo ID zprávy.'];
-    if (metaError?.code != null) parts.push(`code: ${metaError.code}`);
-    if (metaError?.fbtrace_id) parts.push(`fbtrace_id: ${metaError.fbtrace_id}`);
-    return parts.join(' | ');
+    return formatMetaApiError(metaError);
   }
 
   private async buildValidatedCampaignPayload(
@@ -293,7 +292,13 @@ export class WhatsAppMarketingService {
   ): Promise<{
     providerMessageId: string | null;
     phoneNumberId: string;
-    metaError?: { message?: string; code?: number; type?: string; fbtrace_id?: string };
+    metaError?: {
+      message?: string;
+      code?: number;
+      type?: string;
+      fbtrace_id?: string;
+      error_data?: unknown;
+    };
   }> {
     await this.settings.reload();
     await this.diagnostic.assertPhoneBelongsToConfiguredWaba();
@@ -330,7 +335,7 @@ export class WhatsAppMarketingService {
       `[WhatsApp Template] send to=${requestBody.to} template=${resolvedTemplateName} lang=${resolvedLanguageCode} wabaId=${wabaId || '—'} headerType=${headerType} variablesCount=${variablesCount} media_id=${headerImageMediaId ?? '—'}`,
     );
     this.logger.log(
-      `[WhatsApp Template] Meta finalPayload: ${JSON.stringify(requestBody)}`,
+      `[WhatsApp Template] finalPayload: ${JSON.stringify(requestBody)}`,
     );
 
     const { providerMessageId, attempt, error } = await this.cloudApi.sendMessages(requestBody, {
@@ -345,7 +350,7 @@ export class WhatsAppMarketingService {
       templateLanguage: resolvedLanguageCode,
       variablesCount,
       headerType,
-      imageUrl: headerImageMediaId ? `media_id:${headerImageMediaId}` : null,
+      headerImageMediaId,
       wabaId: wabaId || undefined,
     });
 
@@ -358,6 +363,7 @@ export class WhatsAppMarketingService {
           code: error.code,
           type: error.type,
           fbtrace_id: error.fbtrace_id,
+          error_data: error.error_data,
         },
       };
     }
@@ -719,9 +725,7 @@ export class WhatsAppMarketingService {
     );
 
     if (!providerMessageId) {
-      throw new BadRequestException(
-        metaError?.message ?? 'Meta nevrátilo ID zprávy — test selhal.',
-      );
+      throw new BadRequestException(this.formatMetaSendError(metaError));
     }
 
     if (providerMessageId) {

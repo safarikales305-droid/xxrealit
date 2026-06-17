@@ -24,6 +24,23 @@ export const WHATSAPP_MARKETING_TEMPLATE_REQUIRED_MSG =
 export const WHATSAPP_IMAGE_HEADER_REQUIRES_MEDIA_ID_MSG =
   'Obrázkové kampaně musí používat Meta media_id.';
 
+export function formatMetaApiError(metaError?: {
+  message?: string;
+  code?: number;
+  type?: string;
+  fbtrace_id?: string;
+  error_data?: unknown;
+} | null): string {
+  if (!metaError) return 'Meta nevrátilo ID zprávy.';
+  const parts = [metaError.message?.trim() || 'Meta API chyba'];
+  if (metaError.code != null) parts.push(`code: ${metaError.code}`);
+  if (metaError.error_data != null) {
+    parts.push(`error_data: ${JSON.stringify(metaError.error_data)}`);
+  }
+  if (metaError.fbtrace_id) parts.push(`fbtrace_id: ${metaError.fbtrace_id}`);
+  return parts.join(' | ');
+}
+
 /** Normalizuje jazyk šablony — výchozí cs, podpora cs_CZ a en_US. */
 export function normalizeTemplateLanguageCode(raw?: string): string {
   const trimmed = (raw ?? '').trim();
@@ -110,6 +127,8 @@ export function assertTemplatePayload(
     'campaignMessage',
     'imageUrl',
     'headerType',
+    'media_id',
+    'mediaId',
   ];
   for (const key of topForbidden) {
     if (key in requestBody && requestBody[key] != null) {
@@ -133,6 +152,9 @@ export function assertTemplatePayload(
   }
 
   const components = Array.isArray(templateObj.components) ? templateObj.components : [];
+  if ('components' in templateObj && Array.isArray(templateObj.components) && templateObj.components.length === 0) {
+    throw new WhatsAppTemplatePayloadError('template.components nesmí být prázdné pole.');
+  }
   if (config.variablesCount <= 0) {
     for (const comp of components) {
       const type = String((comp as { type?: string }).type ?? '').toLowerCase();
@@ -211,6 +233,77 @@ export function payloadUsesHeaderImageLink(requestBody: MetaMessagesRequestBody)
   return Boolean(image?.link?.trim());
 }
 
+export function finalizeMetaTemplateRequestBody(
+  input: MetaMessagesRequestBody,
+): MetaMessagesRequestBody {
+  const to = String(input.to ?? '').replace(/\D/g, '');
+  const rawTemplate = input.template as Record<string, unknown> | undefined;
+  if (!rawTemplate || typeof rawTemplate !== 'object') {
+    throw new WhatsAppTemplatePayloadError('Meta payload musí obsahovat objekt template.');
+  }
+
+  const name = String(rawTemplate.name ?? '').trim();
+  const langRaw = rawTemplate.language as { code?: string } | undefined;
+  const languageCode = String(langRaw?.code ?? 'cs').trim() || 'cs';
+
+  const template: Record<string, unknown> = {
+    name,
+    language: { code: languageCode },
+  };
+
+  const rawComponents = Array.isArray(rawTemplate.components)
+    ? (rawTemplate.components as Array<Record<string, unknown>>)
+    : [];
+
+  const components: Array<Record<string, unknown>> = [];
+
+  for (const comp of rawComponents) {
+    const type = String(comp.type ?? '').toLowerCase();
+    if (type === 'header') {
+      const parameters = Array.isArray(comp.parameters)
+        ? (comp.parameters as Array<Record<string, unknown>>)
+        : [];
+      const imageParam = parameters.find((p) => String(p.type ?? '').toLowerCase() === 'image');
+      const image = imageParam?.image as { id?: string; link?: string } | undefined;
+      if (image?.link?.trim()) {
+        throw new WhatsAppTemplatePayloadError(WHATSAPP_IMAGE_HEADER_REQUIRES_MEDIA_ID_MSG);
+      }
+      const mediaId = image?.id?.trim();
+      if (mediaId) {
+        components.push({
+          type: 'header',
+          parameters: [{ type: 'image', image: { id: mediaId } }],
+        });
+      }
+    } else if (type === 'body') {
+      const parameters = Array.isArray(comp.parameters)
+        ? (comp.parameters as Array<Record<string, unknown>>)
+        : [];
+      const textParams = parameters
+        .filter((p) => String(p.type ?? '').toLowerCase() === 'text')
+        .map((p) => ({
+          type: 'text',
+          text: String((p as { text?: string }).text ?? '').slice(0, 1024),
+        }))
+        .filter((p) => p.text.length > 0);
+      if (textParams.length > 0) {
+        components.push({ type: 'body', parameters: textParams });
+      }
+    }
+  }
+
+  if (components.length > 0) {
+    template.components = components;
+  }
+
+  return {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'template',
+    template,
+  };
+}
+
 /** @deprecated použij assertTemplatePayload */
 export function assertZeroVariableTemplatePayload(
   requestBody: MetaMessagesRequestBody,
@@ -228,21 +321,18 @@ export function buildTemplateMessageRequest(
   const to = toDigits.replace(/\D/g, '');
 
   const components = templateComponents(config);
-  const template: Record<string, unknown> = {
-    name: templateName,
-    language: { code: languageCode },
-  };
-
-  if (components.length > 0) {
-    template.components = components;
-  }
-
-  return {
+  const draft: MetaMessagesRequestBody = {
     messaging_product: 'whatsapp',
     to,
     type: 'template',
-    template,
+    template: {
+      name: templateName,
+      language: { code: languageCode },
+      ...(components.length > 0 ? { components } : {}),
+    },
   };
+
+  return finalizeMetaTemplateRequestBody(draft);
 }
 
 export function formatTemplateLogLabel(

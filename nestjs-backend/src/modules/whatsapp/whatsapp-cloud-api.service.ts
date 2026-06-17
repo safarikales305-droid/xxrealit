@@ -8,7 +8,7 @@ import { WhatsAppMessageStatus, WhatsAppMarketingCampaignType } from '@prisma/cl
 import { PrismaService } from '../../database/prisma.service';
 import { WhatsAppConfigService } from './whatsapp-config.service';
 import { WhatsAppSettingsService } from './whatsapp-settings.service';
-import { assertTemplatePayload } from './whatsapp-template-send.util';
+import { assertTemplatePayload, finalizeMetaTemplateRequestBody } from './whatsapp-template-send.util';
 
 const GRAPH_BASE = 'https://graph.facebook.com';
 
@@ -18,6 +18,7 @@ export type MetaWhatsAppErrorBody = {
   code?: number;
   error_subcode?: number;
   fbtrace_id?: string;
+  error_data?: unknown;
 };
 
 export type MetaMessagesRequestBody = Record<string, unknown>;
@@ -66,7 +67,7 @@ export class WhatsAppCloudApiService {
       templateLanguage?: string;
       variablesCount?: number;
       headerType?: string;
-      imageUrl?: string | null;
+      headerImageMediaId?: string | null;
       wabaId?: string;
     },
   ): Promise<{
@@ -102,11 +103,14 @@ export class WhatsAppCloudApiService {
       });
     }
 
+    const finalPayload = finalizeMetaTemplateRequestBody(requestBody);
+    const finalPayloadJson = JSON.stringify(finalPayload);
+
     this.logger.log(`[WhatsApp Meta] POST ${requestUrl}`);
     this.logger.log(
       `[WhatsApp Meta] phoneNumberId=${phoneNumberId} tokenSource=${tokenSource} tokenLen=${token.length}`,
     );
-    this.logger.log(`[WhatsApp Meta] final payload: ${JSON.stringify(requestBody)}`);
+    this.logger.log(`[WhatsApp Meta] finalPayload: ${finalPayloadJson}`);
 
     const res = await fetch(requestUrl, {
       method: 'POST',
@@ -114,7 +118,7 @@ export class WhatsAppCloudApiService {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(requestBody),
+      body: finalPayloadJson,
     });
 
     const responseBody = (await res.json().catch(() => ({}))) as {
@@ -127,7 +131,7 @@ export class WhatsAppCloudApiService {
 
     const attempt: MetaSendAttempt = {
       requestUrl,
-      requestBody,
+      requestBody: finalPayload,
       responseStatus: res.status,
       responseBody,
       phoneNumberId,
@@ -152,13 +156,14 @@ export class WhatsAppCloudApiService {
           (requestBody.template as { language?: { code?: string } })?.language?.code,
         variablesCount: logMeta?.variablesCount ?? null,
         headerType: logMeta?.headerType ?? null,
-        imageUrl: logMeta?.imageUrl ?? null,
+        headerImageMediaId: logMeta?.headerImageMediaId ?? null,
         wabaId: logMeta?.wabaId ?? null,
-        finalPayload: requestBody,
+        finalPayload,
         message: err?.message?.trim() || `Meta API vrátilo HTTP ${res.status}`,
         code: err?.code ?? res.status,
         type: err?.type ?? 'http_error',
         error_subcode: err?.error_subcode,
+        error_data: err?.error_data ?? null,
         fbtrace_id: err?.fbtrace_id,
         message_id: null,
         metaResponse: responseBody,
@@ -197,9 +202,9 @@ export class WhatsAppCloudApiService {
         (requestBody.template as { language?: { code?: string } })?.language?.code,
       variablesCount: logMeta?.variablesCount ?? null,
       headerType: logMeta?.headerType ?? null,
-      imageUrl: logMeta?.imageUrl ?? null,
+      headerImageMediaId: logMeta?.headerImageMediaId ?? null,
       wabaId: logMeta?.wabaId ?? null,
-      finalPayload: requestBody,
+      finalPayload,
       message_id: providerMessageId,
       metaResponse: responseBody,
       attempt,
