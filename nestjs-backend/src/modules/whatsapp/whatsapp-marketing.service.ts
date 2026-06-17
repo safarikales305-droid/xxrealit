@@ -763,13 +763,38 @@ export class WhatsAppMarketingService {
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
-    return rows.map((r) => this.campaignRow(r));
+    const metaIds = [
+      ...new Set(rows.map((r) => r.waMetaTemplateId).filter((id): id is string => Boolean(id))),
+    ];
+    const templates =
+      metaIds.length > 0
+        ? await this.prisma.whatsAppMetaTemplate.findMany({
+            where: { id: { in: metaIds } },
+            select: { id: true, headerType: true },
+          })
+        : [];
+    const headerTypeByMetaId = new Map(templates.map((t) => [t.id, t.headerType]));
+
+    return rows.map((r) => ({
+      ...this.campaignRow(r),
+      waTemplateHeaderType: r.waMetaTemplateId
+        ? (headerTypeByMetaId.get(r.waMetaTemplateId) ?? null)
+        : null,
+    }));
   }
 
   async getCampaign(id: string) {
     const row = await this.prisma.whatsAppMarketingCampaign.findUnique({ where: { id } });
     if (!row) throw new NotFoundException('Kampaň nenalezena.');
-    return this.campaignRow(row);
+    let waTemplateHeaderType: string | null = null;
+    if (row.waMetaTemplateId) {
+      const tpl = await this.prisma.whatsAppMetaTemplate.findUnique({
+        where: { id: row.waMetaTemplateId },
+        select: { headerType: true },
+      });
+      waTemplateHeaderType = tpl?.headerType ?? null;
+    }
+    return { ...this.campaignRow(row), waTemplateHeaderType };
   }
 
   async createCampaign(adminUserId: string, dto: CreateWhatsAppMarketingCampaignDto) {
@@ -793,7 +818,9 @@ export class WhatsAppMarketingService {
       throw new BadRequestException('Nesoulad jazyka šablony při vytváření kampaně.');
     }
 
-    if (metaTemplate.headerType === 'IMAGE') {
+    const templateParts = extractTemplatePartsFromRaw(metaTemplate.rawTemplate);
+    const headerType = metaTemplate.headerType || templateParts.headerType;
+    if (headerType === 'IMAGE') {
       if (
         !hasCampaignHeaderImageSource({
           headerImageUrl: dto.waHeaderImageUrl,
@@ -1441,8 +1468,8 @@ export class WhatsAppMarketingService {
       throw new BadRequestException('Chybí soubor obrázku kampaně.');
     }
     const ext = extname(file.originalname || '').toLowerCase();
-    if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
-      throw new BadRequestException('Povolené formáty obrázku: JPG, PNG, WEBP.');
+    if (!['.jpg', '.jpeg', '.png'].includes(ext)) {
+      throw new BadRequestException('Povolené formáty obrázku: JPG, PNG.');
     }
     const dir = join(getUploadsPath(), 'whatsapp');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });

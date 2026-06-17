@@ -28,6 +28,7 @@ import {
   parsePhonesFromCsv,
   WHATSAPP_CAMPAIGN_TYPE_LABELS,
   WHATSAPP_CAMPAIGN_TEMPLATE_HELP,
+  WHATSAPP_HEADER_IMAGE_HELP,
   WHATSAPP_HEADER_IMAGE_REQUIRED_MSG,
   WHATSAPP_NO_APPROVED_TEMPLATES_MSG,
   WHATSAPP_TARGET_ROLES,
@@ -106,6 +107,19 @@ export default function AdminWhatsAppCampaignsPage() {
 
   function hasHeaderImageInput(): boolean {
     return Boolean(form.waHeaderImageUrl.trim() || form.waHeaderImageMediaId.trim());
+  }
+
+  function showHeaderImageRequiredMsg() {
+    setStatusIsError(true);
+    setStatusMsg(WHATSAPP_HEADER_IMAGE_REQUIRED_MSG);
+  }
+
+  function campaignHasHeaderImage(c: WhatsAppCampaignRow): boolean {
+    return Boolean(c.waHeaderImageUrl?.trim() || c.waHeaderImageMediaId?.trim());
+  }
+
+  function campaignNeedsHeaderImage(c: WhatsAppCampaignRow): boolean {
+    return c.waTemplateHeaderType === 'IMAGE';
   }
 
   function campaignImagePreviewSrc(): string | null {
@@ -380,8 +394,7 @@ export default function AdminWhatsAppCampaignsPage() {
       return;
     }
     if (requiresHeaderImage && !hasHeaderImageInput()) {
-      setStatusIsError(true);
-      setStatusMsg(WHATSAPP_HEADER_IMAGE_REQUIRED_MSG);
+      showHeaderImageRequiredMsg();
       return;
     }
     const p = await nestAdminWhatsAppCampaignPreview(token, buildPayload());
@@ -429,8 +442,7 @@ export default function AdminWhatsAppCampaignsPage() {
       return;
     }
     if (requiresHeaderImage && !hasHeaderImageInput()) {
-      setStatusIsError(true);
-      setStatusMsg(WHATSAPP_HEADER_IMAGE_REQUIRED_MSG);
+      showHeaderImageRequiredMsg();
       return;
     }
     setCreating(true);
@@ -472,6 +484,10 @@ export default function AdminWhatsAppCampaignsPage() {
 
   async function onTest(campaign: WhatsAppCampaignRow) {
     if (!token) return;
+    if (campaignNeedsHeaderImage(campaign) && !campaignHasHeaderImage(campaign)) {
+      showHeaderImageRequiredMsg();
+      return;
+    }
     setBusyId(campaign.id);
     setStatusMsg(null);
     setStatusIsError(false);
@@ -487,6 +503,10 @@ export default function AdminWhatsAppCampaignsPage() {
 
   async function onRun(campaign: WhatsAppCampaignRow) {
     if (!token) return;
+    if (campaignNeedsHeaderImage(campaign) && !campaignHasHeaderImage(campaign)) {
+      showHeaderImageRequiredMsg();
+      return;
+    }
     if (!window.confirm(`Opravdu spustit kampaň „${campaign.name}"?`)) return;
     setBusyId(campaign.id);
     setStatusMsg(null);
@@ -876,6 +896,7 @@ export default function AdminWhatsAppCampaignsPage() {
                     {approvedTemplates.map((t) => (
                       <option key={t.id} value={t.id}>
                         {t.templateName} ({t.language})
+                        {t.headerType === 'IMAGE' ? ' · HEADER IMAGE' : ''}
                       </option>
                     ))}
                   </select>
@@ -898,27 +919,33 @@ export default function AdminWhatsAppCampaignsPage() {
               {requiresHeaderImage ? (
                 <div className="space-y-3 rounded-lg border border-blue-200 bg-blue-50/60 p-3">
                   <p className="text-xs font-semibold uppercase text-blue-800">
-                    Obrázek kampaně (HEADER IMAGE) *
+                    Obrázek kampaně (HEADER IMAGE) — povinné *
+                  </p>
+                  <p className="rounded-md border border-blue-200 bg-white/80 px-3 py-2 text-xs text-blue-950">
+                    {WHATSAPP_HEADER_IMAGE_HELP}
                   </p>
                   <p className="text-xs text-blue-900">
-                    Obrázek musí být veřejně dostupný přes HTTPS. Můžete nahrát soubor, vložit URL
-                    nebo použít Meta media_id.
+                    Vyberte jednu z možností: nahrajte soubor (uloží se jako veřejná HTTPS URL pro
+                    Meta), vložte vlastní HTTPS odkaz, nebo zadejte Meta media_id.
                   </p>
                   <div>
                     <label className="text-xs font-semibold uppercase text-zinc-500">
-                      Nahrát obrázek
+                      1. Nahrát obrázek kampaně
                     </label>
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/webp"
+                      accept="image/jpeg,image/png"
                       disabled={uploadingImage}
                       onChange={(e) => void onUploadCampaignImage(e.target.files?.[0] ?? null)}
                       className="mt-1 block w-full text-sm"
                     />
+                    {uploadingImage ? (
+                      <p className="mt-1 text-xs text-zinc-500">Nahrávám…</p>
+                    ) : null}
                   </div>
                   <div>
                     <label className="text-xs font-semibold uppercase text-zinc-500">
-                      URL obrázku (HTTPS)
+                      2. Veřejná HTTPS URL
                     </label>
                     <input
                       type="url"
@@ -932,7 +959,7 @@ export default function AdminWhatsAppCampaignsPage() {
                   </div>
                   <div>
                     <label className="text-xs font-semibold uppercase text-zinc-500">
-                      Meta media_id (volitelně místo URL)
+                      3. Meta media_id
                     </label>
                     <input
                       type="text"
@@ -943,7 +970,15 @@ export default function AdminWhatsAppCampaignsPage() {
                       placeholder="1234567890"
                       className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 font-mono text-sm"
                     />
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Při vyplnění media_id se do Meta pošle image.id místo image.link.
+                    </p>
                   </div>
+                  {!hasHeaderImageInput() ? (
+                    <p className="text-xs font-medium text-amber-800">
+                      {WHATSAPP_HEADER_IMAGE_REQUIRED_MSG}
+                    </p>
+                  ) : null}
                   {campaignImagePreviewSrc() ? (
                     <img
                       src={campaignImagePreviewSrc()!}
@@ -1121,13 +1156,14 @@ export default function AdminWhatsAppCampaignsPage() {
             <button
               type="button"
               onClick={() => void onPreview()}
-              className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-800"
+              disabled={requiresHeaderImage && !hasHeaderImageInput()}
+              className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
             >
               Náhled
             </button>
             <button
               type="submit"
-              disabled={creating}
+              disabled={creating || (requiresHeaderImage && !hasHeaderImageInput())}
               className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
               {creating ? 'Ukládám…' : 'Vytvořit kampaň'}
@@ -1147,6 +1183,7 @@ export default function AdminWhatsAppCampaignsPage() {
                     <th className="px-2 py-2">Název</th>
                     <th className="px-2 py-2">Typ</th>
                     <th className="px-2 py-2">Šablona</th>
+                    <th className="px-2 py-2">Obrázek</th>
                     <th className="px-2 py-2">Stav</th>
                     <th className="px-2 py-2">Odesláno</th>
                     <th className="px-2 py-2">Akce</th>
@@ -1162,6 +1199,22 @@ export default function AdminWhatsAppCampaignsPage() {
                       <td className="px-2 py-3 text-xs">
                         {c.waTemplateName || '—'}
                         {c.waTemplateLanguage ? ` (${c.waTemplateLanguage})` : ''}
+                        {c.waTemplateHeaderType === 'IMAGE' ? ' · HEADER IMAGE' : ''}
+                      </td>
+                      <td className="px-2 py-3 text-xs">
+                        {campaignNeedsHeaderImage(c) ? (
+                          campaignHasHeaderImage(c) ? (
+                            <span className="text-emerald-700">
+                              {c.waHeaderImageMediaId?.trim()
+                                ? `media_id: ${c.waHeaderImageMediaId}`
+                                : 'HTTPS URL ✓'}
+                            </span>
+                          ) : (
+                            <span className="font-medium text-amber-800">chybí obrázek</span>
+                          )
+                        ) : (
+                          '—'
+                        )}
                       </td>
                       <td className="px-2 py-3">{statusLabel(c.status)}</td>
                       <td className="px-2 py-3">

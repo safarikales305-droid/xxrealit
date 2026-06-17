@@ -53,6 +53,7 @@ export type WhatsAppCampaignRow = {
   waTemplateVariables: string[];
   waHeaderImageUrl?: string | null;
   waHeaderImageMediaId?: string | null;
+  waTemplateHeaderType?: string | null;
   targetRoles: string[];
   targetRegions: string[];
   targetCities: string[];
@@ -217,8 +218,11 @@ export type WhatsAppWabaPhoneNumbersResult = {
   error?: string;
 };
 
+export const WHATSAPP_HEADER_IMAGE_HELP =
+  'Obrázek ve schválené Meta šabloně je pouze ukázkový. Pro každou kampaň je nutné vložit obrázek znovu nebo použít Meta media_id.';
+
 export const WHATSAPP_HEADER_IMAGE_REQUIRED_MSG =
-  'Tato WhatsApp šablona vyžaduje obrázek v hlavičce. Nahrajte obrázek kampaně nebo vložte veřejnou HTTPS URL.';
+  'Tato šablona má HEADER IMAGE — nahrajte obrázek kampaně, vložte veřejnou HTTPS URL nebo zadejte Meta media_id.';
 
 export const WHATSAPP_NO_APPROVED_TEMPLATES_MSG =
   'V Meta zatím není schválena žádná WhatsApp šablona.';
