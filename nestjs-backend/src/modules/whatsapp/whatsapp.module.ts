@@ -11,6 +11,7 @@ import { WhatsAppWebhookService } from './whatsapp-webhook.service';
 import { WhatsAppMetaTemplatesService } from './whatsapp-meta-templates.service';
 import { WhatsAppTemplatesSyncCronService } from './whatsapp-templates-sync.cron.service';
 import { WhatsAppDiagnosticService } from './whatsapp-diagnostic.service';
+import { WhatsAppCampaignDebugService } from './whatsapp-campaign-debug.service';
 
 @Module({
   imports: [forwardRef(() => AuthModule)],
@@ -25,6 +26,7 @@ import { WhatsAppDiagnosticService } from './whatsapp-diagnostic.service';
     WhatsAppMetaTemplatesService,
     WhatsAppTemplatesSyncCronService,
     WhatsAppDiagnosticService,
+    WhatsAppCampaignDebugService,
   ],
   exports: [
     WhatsAppSettingsService,

@@ -294,24 +294,60 @@ function parseNestWhatsAppError(
     return { message: `HTTP ${status}` };
   }
   const root = data as Record<string, unknown>;
+
+  if (root.success === false && typeof root.error === 'string' && root.error.trim()) {
+    return { message: root.error };
+  }
+
+  if (typeof root.error === 'string' && root.error.trim() && root.error !== 'Internal Server Error') {
+    return { message: root.error };
+  }
+
   const msg = root.message;
 
   if (msg && typeof msg === 'object' && !Array.isArray(msg)) {
     const o = msg as Record<string, unknown>;
+    if (typeof o.error === 'string' && o.error.trim()) {
+      return { message: o.error };
+    }
     return {
       message: typeof o.message === 'string' ? o.message : `HTTP ${status}`,
       code: typeof o.code === 'number' ? o.code : undefined,
       type: typeof o.type === 'string' ? o.type : undefined,
     };
   }
-  if (typeof msg === 'string') return { message: msg };
+  if (typeof msg === 'string' && msg.trim() && msg !== 'Internal Server Error') {
+    return { message: msg };
+  }
   if (Array.isArray(msg)) return { message: msg.map(String).join(', ') };
-  if (typeof root.error === 'string') return { message: root.error };
   return { message: `HTTP ${status}` };
 }
 
+export type WhatsAppCampaignDebugLastError = {
+  at: string;
+  action: 'test' | 'run';
+  campaignId: string;
+  name: string;
+  message: string;
+  stack?: string;
+  payload?: Record<string, unknown>;
+  selectedTemplate?: Record<string, unknown> | null;
+  variablesCount?: number | null;
+  wabaId?: string | null;
+};
+
+export async function nestAdminWhatsAppCampaignDebugLastError(
+  token: string,
+): Promise<{ error: WhatsAppCampaignDebugLastError | null } | null> {
+  return adminFetch<{ error: WhatsAppCampaignDebugLastError | null }>(
+    token,
+    '/debug/last-error',
+  );
+}
+
 export function formatWhatsAppMetaError(err: WhatsAppMetaError): string {
-  const parts = [err.message];
+  const text = err.message?.trim() || 'Neznámá chyba';
+  const parts = [text];
   if (err.code != null) parts.push(`code: ${err.code}`);
   if (err.type) parts.push(`type: ${err.type}`);
   return parts.join(' | ');

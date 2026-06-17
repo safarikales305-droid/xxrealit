@@ -18,6 +18,7 @@ import { WhatsAppMarketingService } from './whatsapp-marketing.service';
 import { WhatsAppService } from './whatsapp.service';
 import { WhatsAppMetaTemplatesService } from './whatsapp-meta-templates.service';
 import { WhatsAppDiagnosticService } from './whatsapp-diagnostic.service';
+import { WhatsAppCampaignDebugService } from './whatsapp-campaign-debug.service';
 import {
   CreateWhatsAppMarketingCampaignDto,
   PreviewWhatsAppCampaignDto,
@@ -36,6 +37,7 @@ export class WhatsAppAdminController {
     private readonly whatsapp: WhatsAppService,
     private readonly metaTemplates: WhatsAppMetaTemplatesService,
     private readonly diagnostic: WhatsAppDiagnosticService,
+    private readonly campaignDebug: WhatsAppCampaignDebugService,
   ) {}
 
   @Get('settings')
@@ -110,6 +112,11 @@ export class WhatsAppAdminController {
     return this.diagnostic.verifyPhoneNumber();
   }
 
+  @Get('debug/last-error')
+  campaignDebugLastError() {
+    return { error: this.campaignDebug.getLastError() };
+  }
+
   @Get('campaigns')
   listCampaigns() {
     return this.marketing.listCampaigns();
@@ -162,15 +169,41 @@ export class WhatsAppAdminController {
   }
 
   @Post('campaigns/:id/test')
-  testCampaign(
+  async testCampaign(
     @Param('id') id: string,
     @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: WhatsAppCampaignTestDto,
   ) {
-    return this.marketing.testCampaign(id, dto.toPhone);
+    const payload = { campaignId: id, toPhone: dto.toPhone };
+    try {
+      return await this.marketing.testCampaign(id, dto.toPhone);
+    } catch (error) {
+      const ctx = await this.marketing.getCampaignDebugContext(id);
+      this.campaignDebug.recordFailure(error, {
+        action: 'test',
+        campaignId: id,
+        payload,
+        selectedTemplate: ctx.selectedTemplate ?? null,
+        variablesCount: ctx.variablesCount ?? null,
+        wabaId: ctx.wabaId ?? null,
+      });
+    }
   }
 
   @Post('campaigns/:id/run')
-  runCampaign(@Param('id') id: string) {
-    return this.marketing.runCampaign(id);
+  async runCampaign(@Param('id') id: string) {
+    const payload = { campaignId: id };
+    try {
+      return await this.marketing.runCampaign(id);
+    } catch (error) {
+      const ctx = await this.marketing.getCampaignDebugContext(id);
+      this.campaignDebug.recordFailure(error, {
+        action: 'run',
+        campaignId: id,
+        payload,
+        selectedTemplate: ctx.selectedTemplate ?? null,
+        variablesCount: ctx.variablesCount ?? null,
+        wabaId: ctx.wabaId ?? null,
+      });
+    }
   }
 }

@@ -788,6 +788,39 @@ export class WhatsAppMarketingService {
     };
   }
 
+  async getCampaignDebugContext(campaignId: string): Promise<{
+    selectedTemplate?: Record<string, unknown>;
+    variablesCount?: number;
+    wabaId?: string;
+  }> {
+    try {
+      const campaign = await this.prisma.whatsAppMarketingCampaign.findUnique({
+        where: { id: campaignId },
+      });
+      if (!campaign) {
+        return {
+          selectedTemplate: { error: 'Kampaň nenalezena v databázi' },
+        };
+      }
+
+      const tpl = await this.campaignTemplateConfig(campaign);
+      return {
+        selectedTemplate: {
+          waMetaTemplateId: tpl.waMetaTemplateId,
+          templateName: tpl.templateName,
+          languageCode: tpl.languageCode,
+        },
+        variablesCount: tpl.variablesCount,
+        wabaId: tpl.wabaId,
+      };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        selectedTemplate: { lookupError: message },
+      };
+    }
+  }
+
   async testCampaign(campaignId: string, toPhone?: string) {
     const campaign = await this.prisma.whatsAppMarketingCampaign.findUnique({
       where: { id: campaignId },

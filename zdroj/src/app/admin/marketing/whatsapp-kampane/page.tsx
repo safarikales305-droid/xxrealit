@@ -15,6 +15,7 @@ import {
   nestAdminWhatsAppCampaignRun,
   nestAdminWhatsAppCampaignsList,
   nestAdminWhatsAppCampaignTest,
+  nestAdminWhatsAppCampaignDebugLastError,
   nestAdminWhatsAppHistory,
   nestAdminWhatsAppTemplatesList,
   nestAdminWhatsAppTemplatesSync,
@@ -385,6 +386,27 @@ export default function AdminWhatsAppCampaignsPage() {
     void refresh();
   }
 
+  async function showCampaignActionError(
+    action: 'test' | 'run',
+    error: { message?: string },
+  ) {
+    setStatusIsError(true);
+    const primary = error.message?.trim();
+    if (primary && primary !== 'Internal Server Error') {
+      setStatusMsg(primary);
+      return;
+    }
+    if (token) {
+      const debug = await nestAdminWhatsAppCampaignDebugLastError(token);
+      const last = debug?.error;
+      if (last?.message && last.action === action) {
+        setStatusMsg(last.message);
+        return;
+      }
+    }
+    setStatusMsg(primary || 'Operace selhala.');
+  }
+
   async function onTest(campaign: WhatsAppCampaignRow) {
     if (!token) return;
     setBusyId(campaign.id);
@@ -393,8 +415,7 @@ export default function AdminWhatsAppCampaignsPage() {
     const r = await nestAdminWhatsAppCampaignTest(token, campaign.id);
     setBusyId(null);
     if (!r.ok) {
-      setStatusIsError(true);
-      setStatusMsg(formatWhatsAppMetaError(r.error));
+      await showCampaignActionError('test', r.error);
     } else {
       setStatusMsg('Test kampaně odeslán přes WhatsApp šablonu.');
     }
@@ -410,8 +431,7 @@ export default function AdminWhatsAppCampaignsPage() {
     const r = await nestAdminWhatsAppCampaignRun(token, campaign.id);
     setBusyId(null);
     if (!r.ok) {
-      setStatusIsError(true);
-      setStatusMsg(formatWhatsAppMetaError(r.error));
+      await showCampaignActionError('run', r.error);
       void refresh();
       return;
     }
