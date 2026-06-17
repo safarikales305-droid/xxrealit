@@ -230,7 +230,7 @@ export class WhatsAppMarketingService {
       where: {
         templateName,
         language: lang,
-        status: 'APPROVED',
+        normalizedStatus: { in: ['APPROVED', 'ACTIVE'] },
         isStale: false,
         ...(configuredWabaId ? { wabaId: configuredWabaId } : {}),
       },
@@ -246,7 +246,7 @@ export class WhatsAppMarketingService {
     const fallback = await this.prisma.whatsAppMetaTemplate.findFirst({
       where: {
         templateName,
-        status: 'APPROVED',
+        normalizedStatus: { in: ['APPROVED', 'ACTIVE'] },
         isStale: false,
         ...(configuredWabaId ? { wabaId: configuredWabaId } : {}),
       },

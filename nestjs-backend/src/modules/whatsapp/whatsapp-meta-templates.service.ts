@@ -18,28 +18,15 @@ import {
   isUsableTemplateStatus,
   normalizeTemplateStatus,
 } from './whatsapp-template-status.util';
+import {
+  type MetaMessageTemplate,
+  type MetaTemplatesPage,
+  type WhatsAppTemplateSkipReason,
+  type WhatsAppTemplateSyncDebug,
+  parseMetaTemplateItem,
+} from './whatsapp-template-sync.util';
 
 const GRAPH_BASE = 'https://graph.facebook.com';
-
-type MetaTemplateComponent = {
-  type?: string;
-  text?: string;
-};
-
-type MetaMessageTemplate = {
-  id?: string;
-  name?: string;
-  language?: string;
-  status?: string;
-  category?: string;
-  components?: MetaTemplateComponent[];
-};
-
-type MetaTemplatesPage = {
-  data?: MetaMessageTemplate[];
-  paging?: { cursors?: { after?: string }; next?: string };
-  error?: { message?: string; code?: number; type?: string };
-};
 
 export type WhatsAppMetaTemplateRow = {
   id: string;
@@ -65,6 +52,8 @@ export type WhatsAppTemplateSyncSummaryRow = {
   rawStatus: string;
   normalizedStatus: string;
   isUsable: boolean;
+  saved?: boolean;
+  skipReason?: string;
 };
 
 export type WhatsAppTemplatesSyncResult = {
@@ -78,6 +67,7 @@ export type WhatsAppTemplatesSyncResult = {
   messageTemplateNamespace?: string;
   templateNames?: string[];
   templatesSummary?: WhatsAppTemplateSyncSummaryRow[];
+  syncDebug?: WhatsAppTemplateSyncDebug;
   warning?: string;
   error?: string;
 };
@@ -95,28 +85,6 @@ export type WhatsAppTemplatesCleanupResult = {
   deletedCount: number;
   activeWabaId: string;
 };
-
-export function extractTemplateBodyText(components?: MetaTemplateComponent[]): string {
-  if (!components?.length) return '';
-  const body = components.find((c) => c.type?.toUpperCase() === 'BODY');
-  return body?.text?.trim() ?? '';
-}
-
-export function countTemplateBodyVariables(bodyText: string): number {
-  if (!bodyText) return 0;
-
-  let maxPositional = 0;
-  for (const match of bodyText.matchAll(/\{\{(\d+)\}\}/g)) {
-    const index = Number.parseInt(match[1] ?? '', 10);
-    if (Number.isFinite(index) && index > maxPositional) {
-      maxPositional = index;
-    }
-  }
-  if (maxPositional > 0) return maxPositional;
-
-  const named = bodyText.match(/\{\{[^}]+\}\}/g);
-  return named?.length ?? 0;
-}
 
 @Injectable()
 export class WhatsAppMetaTemplatesService {
@@ -179,13 +147,9 @@ export class WhatsAppMetaTemplatesService {
     }
   }
 
-  private wabaScopeWhere(): Prisma.WhatsAppMetaTemplateWhereInput {
+  private activeWabaWhere(): Prisma.WhatsAppMetaTemplateWhereInput {
     const wabaId = this.effectiveWabaId();
-    if (!wabaId) return {};
-
-    return {
-      OR: [{ wabaId }, { wabaId: '' }],
-    };
+    return wabaId ? { wabaId } : {};
   }
 
   private demoExcludeWhere(): Prisma.WhatsAppMetaTemplateWhereInput {
@@ -201,7 +165,7 @@ export class WhatsAppMetaTemplatesService {
 
   private campaignListWhere(usableOnly: boolean): Prisma.WhatsAppMetaTemplateWhereInput {
     const base: Prisma.WhatsAppMetaTemplateWhereInput = {
-      ...this.wabaScopeWhere(),
+      ...this.activeWabaWhere(),
       ...this.demoExcludeWhere(),
     };
 
@@ -218,11 +182,84 @@ export class WhatsAppMetaTemplatesService {
     const configuredWabaId = this.effectiveWabaId();
     if (!configuredWabaId) return;
 
-    if (row.wabaId && row.wabaId !== configuredWabaId) {
+    if (row.wabaId !== configuredWabaId) {
       throw new BadRequestException(
-        `Šablona „${row.templateName}“ patří jinému WABA (${row.wabaId}). Aktuální WABA: ${configuredWabaId}. Synchronizujte šablony nebo vyčistěte staré záznamy.`,
+        `Šablona „${row.templateName}“ patří jinému WABA (${row.wabaId || 'neznámé'}). Aktuální WABA: ${configuredWabaId}. Synchronizujte šablony nebo vyčistěte staré záznamy.`,
       );
     }
+  }
+
+  private formatPrismaError(error: unknown): string {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return `DB ${error.code}: ${error.message}`;
+    }
+    if (error instanceof Error) return error.message;
+    return String(error);
+  }
+
+  private async saveSyncedTemplate(
+    wabaId: string,
+    item: MetaMessageTemplate,
+    syncedAt: Date,
+  ): Promise<void> {
+    const parsed = parseMetaTemplateItem(item);
+    if (!parsed) {
+      throw new Error('Chybí id, name nebo language v Meta šabloně.');
+    }
+
+    const normalizedStatus = normalizeTemplateStatus(parsed.rawStatus);
+    const data = {
+      wabaId,
+      metaTemplateId: parsed.metaTemplateId,
+      templateName: parsed.templateName,
+      category: parsed.category,
+      language: parsed.language,
+      status: normalizedStatus,
+      rawStatus: parsed.rawStatus,
+      normalizedStatus,
+      rawTemplate: parsed.rawTemplateJson,
+      bodyText: parsed.bodyText,
+      variablesCount: parsed.variablesCount,
+      isStale: false,
+      syncedAt,
+    };
+
+    const byMetaId = await this.prisma.whatsAppMetaTemplate.findUnique({
+      where: { metaTemplateId: parsed.metaTemplateId },
+    });
+
+    if (byMetaId) {
+      await this.prisma.whatsAppMetaTemplate.update({
+        where: { metaTemplateId: parsed.metaTemplateId },
+        data,
+      });
+      return;
+    }
+
+    const byComposite = await this.prisma.whatsAppMetaTemplate.findUnique({
+      where: {
+        wabaId_templateName_language: {
+          wabaId,
+          templateName: parsed.templateName,
+          language: parsed.language,
+        },
+      },
+    });
+
+    if (byComposite) {
+      if (byComposite.metaTemplateId !== parsed.metaTemplateId) {
+        await this.prisma.whatsAppMetaTemplate.delete({ where: { id: byComposite.id } });
+        await this.prisma.whatsAppMetaTemplate.create({ data });
+      } else {
+        await this.prisma.whatsAppMetaTemplate.update({
+          where: { id: byComposite.id },
+          data,
+        });
+      }
+      return;
+    }
+
+    await this.prisma.whatsAppMetaTemplate.create({ data });
   }
 
   getLastSyncRawResponse(): unknown {
@@ -239,14 +276,14 @@ export class WhatsAppMetaTemplatesService {
     });
 
     const wabaId = this.effectiveWabaId();
-    const scope = this.wabaScopeWhere();
+    const scope = this.activeWabaWhere();
     const last = await this.prisma.whatsAppMetaTemplate.aggregate({
       where: Object.keys(scope).length ? scope : undefined,
       _max: { syncedAt: true },
     });
 
     const allForWaba = templates.map((t) => this.rowToDto(t));
-    const usableCount = allForWaba.filter((t) => t.isUsable).length;
+    const usableCount = allForWaba.filter((t) => t.isUsable && !t.isStale).length;
 
     return {
       templates: allForWaba,
@@ -301,9 +338,8 @@ export class WhatsAppMetaTemplatesService {
     const result = await this.prisma.whatsAppMetaTemplate.deleteMany({
       where: {
         OR: [
-          {
-            AND: [{ wabaId: { not: '' } }, { wabaId: { not: activeWabaId } }],
-          },
+          { wabaId: { not: activeWabaId } },
+          { wabaId: '' },
           { isStale: true },
           { templateName: { startsWith: 'jaspers_market', mode: 'insensitive' } },
           { templateName: { equals: 'hello_world', mode: 'insensitive' } },
@@ -345,7 +381,11 @@ export class WhatsAppMetaTemplatesService {
     const fetchedMetaIds: string[] = [];
     const templateNames: string[] = [];
     const templatesSummary: WhatsAppTemplateSyncSummaryRow[] = [];
+    const reasonSkipped: WhatsAppTemplateSkipReason[] = [];
     const rawPages: MetaTemplatesPage[] = [];
+    let rawCount = 0;
+    let normalizedCount = 0;
+    let savedCount = 0;
     let after: string | undefined;
 
     try {
@@ -380,97 +420,94 @@ export class WhatsAppMetaTemplatesService {
             messageTemplateNamespace,
             templateNames: [],
             templatesSummary: [],
+            syncDebug: {
+              rawCount,
+              normalizedCount,
+              savedCount,
+              visibleCount: 0,
+              reasonSkipped,
+            },
             error: msg,
           };
         }
 
         for (const item of body.data ?? []) {
-          const metaTemplateId = item.id?.trim();
-          const templateName = item.name?.trim();
-          const language = item.language?.trim();
-          if (!metaTemplateId || !templateName || !language) continue;
+          rawCount += 1;
 
-          const rawStatus = item.status?.trim() || 'UNKNOWN';
-          const normalizedStatus = normalizeTemplateStatus(rawStatus);
-          const rawTemplateJson = JSON.stringify(item);
+          const parsed = parseMetaTemplateItem(item);
+          if (!parsed) {
+            const reason = 'Chybí id, name nebo language v Meta odpovědi.';
+            reasonSkipped.push({
+              name: item.name?.trim() || '?',
+              language: item.language?.trim(),
+              metaTemplateId: item.id?.trim(),
+              reason,
+            });
+            templatesSummary.push({
+              name: item.name?.trim() || '?',
+              language: item.language?.trim() || '?',
+              rawStatus: item.status?.trim() || 'UNKNOWN',
+              normalizedStatus: 'UNKNOWN',
+              isUsable: false,
+              saved: false,
+              skipReason: reason,
+            });
+            continue;
+          }
+
+          const normalizedStatus = normalizeTemplateStatus(parsed.rawStatus);
+          const isUsable = isUsableTemplateStatus(normalizedStatus);
+          if (isUsable) normalizedCount += 1;
 
           this.logger.log(
-            `[WhatsApp Templates] template name=${templateName} lang=${language} rawStatus=${rawStatus} normalizedStatus=${normalizedStatus}`,
+            `[WhatsApp Templates] template name=${parsed.templateName} lang=${parsed.language} ` +
+              `rawStatus=${parsed.rawStatus} normalized=${normalizedStatus} usable=${isUsable} ` +
+              `variablesCount=${parsed.variablesCount} headerImage=${parsed.hasHeaderImage} ` +
+              `parameterFormat=${parsed.parameterFormat}`,
           );
 
-          fetchedMetaIds.push(metaTemplateId);
-          templateNames.push(templateName);
-          const bodyText = extractTemplateBodyText(item.components);
-          const variablesCount = countTemplateBodyVariables(bodyText);
-          const category = item.category?.trim() || 'UNKNOWN';
-          const isUsable = isUsableTemplateStatus(normalizedStatus);
+          fetchedMetaIds.push(parsed.metaTemplateId);
+          templateNames.push(parsed.templateName);
 
-          templatesSummary.push({
-            name: templateName,
-            language,
-            rawStatus,
-            normalizedStatus,
-            isUsable,
-          });
-
-          await this.prisma.whatsAppMetaTemplate.upsert({
-            where: {
-              wabaId_templateName_language: {
-                wabaId,
-                templateName,
-                language,
-              },
-            },
-            create: {
-              wabaId,
-              metaTemplateId,
-              templateName,
-              category,
-              language,
-              status: normalizedStatus,
-              rawStatus,
+          try {
+            await this.saveSyncedTemplate(wabaId, item, syncedAt);
+            savedCount += 1;
+            templatesSummary.push({
+              name: parsed.templateName,
+              language: parsed.language,
+              rawStatus: parsed.rawStatus,
               normalizedStatus,
-              rawTemplate: rawTemplateJson,
-              bodyText,
-              variablesCount,
-              isStale: false,
-              syncedAt,
-            },
-            update: {
-              metaTemplateId,
-              category,
-              status: normalizedStatus,
-              rawStatus,
+              isUsable,
+              saved: true,
+            });
+          } catch (saveError: unknown) {
+            const reason = this.formatPrismaError(saveError);
+            reasonSkipped.push({
+              name: parsed.templateName,
+              language: parsed.language,
+              metaTemplateId: parsed.metaTemplateId,
+              reason,
+            });
+            templatesSummary.push({
+              name: parsed.templateName,
+              language: parsed.language,
+              rawStatus: parsed.rawStatus,
               normalizedStatus,
-              rawTemplate: rawTemplateJson,
-              bodyText,
-              variablesCount,
-              isStale: false,
-              syncedAt,
-            },
-          });
+              isUsable,
+              saved: false,
+              skipReason: reason,
+            });
+            this.logger.error(
+              `[WhatsApp Templates] save failed name=${parsed.templateName} lang=${parsed.language}: ${reason}`,
+            );
+          }
         }
 
         after = body.paging?.cursors?.after;
         if (!body.paging?.next) break;
       } while (after);
 
-      this.lastSyncRawResponse = {
-        wabaId,
-        syncedAt: syncedAt.toISOString(),
-        pages: rawPages,
-        templatesSummary,
-      };
-
-      this.logger.log(
-        `[WhatsApp Templates] wabaId=${wabaId} wabaName=${wabaName} count=${fetchedMetaIds.length} names=[${templateNames.join(', ')}] summary=${JSON.stringify(templatesSummary)}`,
-      );
-
-      if (fetchedMetaIds.length === 0) {
-        this.logger.warn(
-          `[WhatsApp Templates] sync returned 0 templates for wabaId=${wabaId} — existing templates kept (not marked stale)`,
-        );
-      } else {
+      if (fetchedMetaIds.length > 0) {
         const staleResult = await this.prisma.whatsAppMetaTemplate.updateMany({
           where: {
             wabaId,
@@ -483,12 +520,38 @@ export class WhatsAppMetaTemplatesService {
             `[WhatsApp Templates] marked ${staleResult.count} template(s) as stale for wabaId=${wabaId}`,
           );
         }
+      } else {
+        this.logger.warn(
+          `[WhatsApp Templates] sync returned 0 templates for wabaId=${wabaId} — existing templates kept (not marked stale)`,
+        );
       }
 
-      const usableCount = templatesSummary.filter((t) => t.isUsable).length;
-      const approvedCount = await this.prisma.whatsAppMetaTemplate.count({
+      const visibleCount = await this.prisma.whatsAppMetaTemplate.count({
         where: this.campaignListWhere(true),
       });
+
+      const syncDebug: WhatsAppTemplateSyncDebug = {
+        rawCount,
+        normalizedCount,
+        savedCount,
+        visibleCount,
+        reasonSkipped,
+      };
+
+      this.lastSyncRawResponse = {
+        wabaId,
+        syncedAt: syncedAt.toISOString(),
+        pages: rawPages,
+        templatesSummary,
+        syncDebug,
+      };
+
+      this.logger.log(
+        `[WhatsApp Templates] wabaId=${wabaId} syncDebug=${JSON.stringify(syncDebug)}`,
+      );
+
+      const usableCount = templatesSummary.filter((t) => t.isUsable && t.saved).length;
+      const approvedCount = visibleCount;
 
       const warning = isJaspersMarketDemo(templateNames, messageTemplateNamespace)
         ? WHATSAPP_WRONG_WABA_WARNING
@@ -500,7 +563,7 @@ export class WhatsAppMetaTemplatesService {
 
       return {
         ok: true,
-        syncedCount: fetchedMetaIds.length,
+        syncedCount: savedCount,
         approvedCount,
         usableCount,
         syncedAt: syncedAt.toISOString(),
@@ -509,15 +572,16 @@ export class WhatsAppMetaTemplatesService {
         messageTemplateNamespace,
         templateNames,
         templatesSummary,
+        syncDebug,
         warning,
       };
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Synchronizace šablon selhala.';
       this.logger.error(`[WhatsApp Templates] sync error wabaId=${wabaId}: ${msg}`);
-      this.lastSyncRawResponse = { pages: rawPages, error: msg };
+      this.lastSyncRawResponse = { pages: rawPages, error: msg, syncDebug: { rawCount, normalizedCount, savedCount, visibleCount: 0, reasonSkipped } };
       return {
         ok: false,
-        syncedCount: 0,
+        syncedCount: savedCount,
         approvedCount: 0,
         usableCount: 0,
         syncedAt: syncedAt.toISOString(),
@@ -526,6 +590,13 @@ export class WhatsAppMetaTemplatesService {
         messageTemplateNamespace,
         templateNames,
         templatesSummary,
+        syncDebug: {
+          rawCount,
+          normalizedCount,
+          savedCount,
+          visibleCount: 0,
+          reasonSkipped: [...reasonSkipped, { name: '—', reason: msg }],
+        },
         error: msg,
       };
     }

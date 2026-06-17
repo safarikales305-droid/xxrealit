@@ -94,6 +94,23 @@ export type WhatsAppTemplateSyncSummaryRow = {
   rawStatus: string;
   normalizedStatus: string;
   isUsable: boolean;
+  saved?: boolean;
+  skipReason?: string;
+};
+
+export type WhatsAppTemplateSkipReason = {
+  name: string;
+  language?: string;
+  metaTemplateId?: string;
+  reason: string;
+};
+
+export type WhatsAppTemplateSyncDebug = {
+  rawCount: number;
+  normalizedCount: number;
+  savedCount: number;
+  visibleCount: number;
+  reasonSkipped: WhatsAppTemplateSkipReason[];
 };
 
 export type WhatsAppTemplatesCleanupResult = {
@@ -121,6 +138,7 @@ export type WhatsAppTemplatesSyncResult = {
   messageTemplateNamespace?: string;
   templateNames?: string[];
   templatesSummary?: WhatsAppTemplateSyncSummaryRow[];
+  syncDebug?: WhatsAppTemplateSyncDebug;
   warning?: string;
   error?: string;
 };

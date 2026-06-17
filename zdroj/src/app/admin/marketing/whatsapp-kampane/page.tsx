@@ -22,6 +22,7 @@ import {
   nestAdminWhatsAppTemplatesSyncLastRaw,
   nestAdminWhatsAppTemplatesCleanup,
   type WhatsAppTemplateSyncSummaryRow,
+  type WhatsAppTemplateSyncDebug,
   parsePhonesFromCsv,
   WHATSAPP_CAMPAIGN_TYPE_LABELS,
   WHATSAPP_CAMPAIGN_TEMPLATE_HELP,
@@ -89,6 +90,7 @@ export default function AdminWhatsAppCampaignsPage() {
   const [syncingTemplates, setSyncingTemplates] = useState(false);
   const [cleaningTemplates, setCleaningTemplates] = useState(false);
   const [syncSummary, setSyncSummary] = useState<WhatsAppTemplateSyncSummaryRow[]>([]);
+  const [syncDebug, setSyncDebug] = useState<WhatsAppTemplateSyncDebug | null>(null);
   const [rawMetaResponse, setRawMetaResponse] = useState<unknown>(null);
   const [loadingRawMeta, setLoadingRawMeta] = useState(false);
 
@@ -158,16 +160,18 @@ export default function AdminWhatsAppCampaignsPage() {
       }
       const info = [
         d.wabaId ? `Aktivní WABA: ${d.wabaId}` : null,
-        `načteno šablon: ${d.syncedCount}`,
-        `použitelných: ${d.usableCount ?? d.approvedCount ?? 0}`,
+        d.syncDebug
+          ? `raw=${d.syncDebug.rawCount} normalized=${d.syncDebug.normalizedCount} saved=${d.syncDebug.savedCount} visible=${d.syncDebug.visibleCount}`
+          : `načteno=${d.syncedCount} použitelných=${d.usableCount ?? 0}`,
         d.templatesSummary?.length
-          ? `stavy: ${d.templatesSummary.map((t) => `${t.name}=${t.rawStatus}`).join(', ')}`
+          ? `stavy: ${d.templatesSummary.map((t) => `${t.name}=${t.rawStatus}${t.saved === false ? ' (NEULOŽENO)' : ''}`).join(', ')}`
           : null,
       ]
         .filter(Boolean)
         .join(' · ');
       setLastSyncInfo(info || null);
       setSyncSummary(d.templatesSummary ?? []);
+      setSyncDebug(d.syncDebug ?? null);
       if (!silent) {
         setStatusIsError(Boolean(d.warning));
         const warn = d.warning ? ` ${d.warning}` : '';
@@ -277,6 +281,7 @@ export default function AdminWhatsAppCampaignsPage() {
           .join(' · ');
         setLastSyncInfo(info || null);
         setSyncSummary(d.templatesSummary ?? []);
+        setSyncDebug(d.syncDebug ?? null);
       }
       setSyncingTemplates(false);
     })();
@@ -655,6 +660,20 @@ export default function AdminWhatsAppCampaignsPage() {
                   <li key={`${t.name}-${t.language}`}>
                     {t.name} ({t.language}): raw={t.rawStatus}, normalized={t.normalizedStatus},{' '}
                     {t.isUsable ? 'usable' : 'not usable'}
+                    {t.saved === false ? ` — NEULOŽENO: ${t.skipReason ?? '?'}` : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {syncDebug?.reasonSkipped?.length ? (
+            <div className="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-800">
+              <p className="font-semibold">Přeskočené / neuložené šablony:</p>
+              <ul className="mt-1 list-inside list-disc">
+                {syncDebug.reasonSkipped.map((s, i) => (
+                  <li key={`${s.name}-${s.language ?? i}`}>
+                    {s.name}
+                    {s.language ? ` (${s.language})` : ''}: {s.reason}
                   </li>
                 ))}
               </ul>
