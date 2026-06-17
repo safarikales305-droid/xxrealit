@@ -9,7 +9,6 @@ export type WhatsAppTemplateSendConfig = {
   /** Počet proměnných šablony z Meta — při 0 se neposílají body parameters. */
   variablesCount: number;
   headerType?: WhatsAppTemplateHeaderType;
-  headerImageUrl?: string;
   headerImageMediaId?: string;
 };
 

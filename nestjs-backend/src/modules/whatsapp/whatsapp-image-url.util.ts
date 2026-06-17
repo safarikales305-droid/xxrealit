@@ -2,10 +2,10 @@ import { BadRequestException } from '@nestjs/common';
 import { portalBaseUrl } from './whatsapp-message-template.util';
 
 export const WHATSAPP_HEADER_IMAGE_HELP =
-  'Obrázek ve schválené Meta šabloně je pouze ukázkový. Pro každou kampaň je nutné vložit obrázek znovu nebo použít Meta media_id.';
+  'Obrázek ve schválené Meta šabloně je pouze ukázka. Pro každou kampaň nahrajte obrázek nebo použijte media_id.';
 
 export const WHATSAPP_HEADER_IMAGE_REQUIRED_MSG =
-  'Tato šablona má HEADER IMAGE — nahrajte obrázek kampaně, vložte veřejnou HTTPS URL nebo zadejte Meta media_id.';
+  'Tato šablona má HEADER IMAGE — nahrajte obrázek kampaně nebo zadejte Meta media_id.';
 
 export const WHATSAPP_IMAGE_NOT_PUBLIC_MSG =
   'Obrázek kampaně není veřejně dostupný přes HTTPS.';
