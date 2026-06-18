@@ -256,7 +256,10 @@ export type WhatsAppCampaignLogRow = {
   providerMessageId: string | null;
   metaErrorCode: number | null;
   metaErrorMessage: string | null;
+  metaErrorData?: unknown;
   metaFbtraceId?: string | null;
+  finalPayload?: unknown;
+  metaFullError?: unknown;
   metaDebug: unknown;
 };
 

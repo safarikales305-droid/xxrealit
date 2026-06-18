@@ -147,7 +147,7 @@ export class WhatsAppMarketingService {
     headerImageUrl?: string | null;
   }): Promise<string> {
     const storedMediaId = input.headerImageMediaId?.trim();
-    if (storedMediaId) return storedMediaId;
+    if (storedMediaId) return String(storedMediaId);
 
     const rawUrl = input.headerImageUrl?.trim();
     if (!rawUrl) {
@@ -184,7 +184,7 @@ export class WhatsAppMarketingService {
       filename = `kampan-${randomUUID()}${mimeType === 'image/png' ? '.png' : '.jpg'}`;
     }
 
-    return this.cloudApi.uploadMediaImage(buffer, mimeType, filename);
+    return String(await this.cloudApi.uploadMediaImage(buffer, mimeType, filename));
   }
 
   private formatMetaSendError(metaError?: {

@@ -630,9 +630,54 @@ export default function AdminWhatsAppCampaignsPage() {
                 Zavřít
               </button>
             </div>
-            <pre className="mt-3 max-h-80 overflow-auto rounded-lg bg-white p-3 text-xs text-zinc-800">
-              {JSON.stringify(lastMetaError.error, null, 2)}
-            </pre>
+            <div className="mt-3 space-y-3 text-xs">
+              <div>
+                <p className="font-semibold uppercase text-red-800">finalPayload</p>
+                <pre className="mt-1 max-h-64 overflow-auto rounded-lg bg-white p-3 text-zinc-800">
+                  {JSON.stringify(
+                    lastMetaError.error.finalPayload ??
+                      (lastMetaError.error.metaDebug as { finalPayload?: unknown } | null)
+                        ?.finalPayload ??
+                      null,
+                    null,
+                    2,
+                  )}
+                </pre>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <p className="rounded-lg bg-white p-2 text-zinc-800">
+                  <span className="font-semibold">error.message:</span>{' '}
+                  {lastMetaError.error.metaErrorMessage ?? '—'}
+                </p>
+                <p className="rounded-lg bg-white p-2 text-zinc-800">
+                  <span className="font-semibold">error.code:</span>{' '}
+                  {lastMetaError.error.metaErrorCode ?? '—'}
+                </p>
+                <p className="rounded-lg bg-white p-2 text-zinc-800 sm:col-span-2">
+                  <span className="font-semibold">error.error_data:</span>{' '}
+                  {lastMetaError.error.metaErrorData != null
+                    ? JSON.stringify(lastMetaError.error.metaErrorData)
+                    : '—'}
+                </p>
+                <p className="rounded-lg bg-white p-2 font-mono text-zinc-800 sm:col-span-2">
+                  <span className="font-semibold font-sans">error.fbtrace_id:</span>{' '}
+                  {lastMetaError.error.metaFbtraceId ?? '—'}
+                </p>
+              </div>
+              <div>
+                <p className="font-semibold uppercase text-red-800">metaFullError</p>
+                <pre className="mt-1 max-h-64 overflow-auto rounded-lg bg-white p-3 text-zinc-800">
+                  {JSON.stringify(
+                    lastMetaError.error.metaFullError ??
+                      (lastMetaError.error.metaDebug as { metaFullError?: unknown } | null)
+                        ?.metaFullError ??
+                      null,
+                    null,
+                    2,
+                  )}
+                </pre>
+              </div>
+            </div>
           </div>
         ) : null}
 

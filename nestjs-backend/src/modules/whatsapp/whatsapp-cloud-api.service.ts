@@ -106,25 +106,83 @@ export class WhatsAppCloudApiService {
     const finalPayload = finalizeMetaTemplateRequestBody(requestBody);
     const finalPayloadJson = JSON.stringify(finalPayload);
 
+    console.log('WHATSAPP FINAL PAYLOAD', JSON.stringify(finalPayload, null, 2));
+
     this.logger.log(`[WhatsApp Meta] POST ${requestUrl}`);
     this.logger.log(
       `[WhatsApp Meta] phoneNumberId=${phoneNumberId} tokenSource=${tokenSource} tokenLen=${token.length}`,
     );
     this.logger.log(`[WhatsApp Meta] finalPayload: ${finalPayloadJson}`);
 
-    const res = await fetch(requestUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: finalPayloadJson,
-    });
+    let res: Response;
+    let responseBody: { messages?: Array<{ id?: string }>; error?: MetaWhatsAppErrorBody };
 
-    const responseBody = (await res.json().catch(() => ({}))) as {
-      messages?: Array<{ id?: string }>;
-      error?: MetaWhatsAppErrorBody;
-    };
+    try {
+      res = await fetch(requestUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: finalPayloadJson,
+      });
+
+      responseBody = (await res.json().catch(() => ({}))) as {
+        messages?: Array<{ id?: string }>;
+        error?: MetaWhatsAppErrorBody;
+      };
+    } catch (fetchError: unknown) {
+      const networkMetaError = {
+        error: {
+          message:
+            fetchError instanceof Error
+              ? fetchError.message
+              : 'Síťová chyba při volání Meta API',
+          type: 'network_error',
+        },
+      };
+      console.error('META FULL ERROR', JSON.stringify(networkMetaError, null, 2));
+
+      const errorDetail = {
+        recipient: logMeta?.recipientPhone ?? String(finalPayload.to ?? ''),
+        finalPayload,
+        metaFullError: networkMetaError,
+        message: networkMetaError.error.message,
+        code: null,
+        error_data: null,
+        fbtrace_id: null,
+        message_id: null,
+      };
+
+      await this.persistAdminLog({
+        recipientPhone: logMeta?.recipientPhone ?? String(finalPayload.to ?? ''),
+        recipientName: logMeta?.recipientName,
+        recipientUserId: logMeta?.recipientUserId,
+        campaignId: logMeta?.campaignId,
+        campaignType: logMeta?.campaignType ?? null,
+        isWelcome: logMeta?.isWelcome,
+        message: logMeta?.logLabel || 'template',
+        status: WhatsAppMessageStatus.FAILED,
+        errorMessage: JSON.stringify(errorDetail),
+        providerMessageId: null,
+      });
+
+      return {
+        providerMessageId: null,
+        attempt: {
+          requestUrl,
+          requestBody: finalPayload,
+          responseStatus: 0,
+          responseBody: networkMetaError,
+          phoneNumberId,
+          accessTokenSource: tokenSource,
+        },
+        error: {
+          message: networkMetaError.error.message,
+          type: 'network_error',
+        },
+      };
+    }
 
     this.logger.log(`[WhatsApp Meta] response status: ${res.status}`);
     this.logger.log(`[WhatsApp Meta] response body: ${JSON.stringify(responseBody)}`);
@@ -147,18 +205,22 @@ export class WhatsAppCloudApiService {
 
     if (res.status !== 200 && res.status !== 201) {
       const err = responseBody.error;
+      const metaFullError = { error: err ?? responseBody };
+      console.error('META FULL ERROR', JSON.stringify(metaFullError, null, 2));
+
       const errorDetail = {
-        recipient: logMeta?.recipientPhone ?? String(requestBody.to ?? ''),
-        templateName: logMeta?.templateName ?? (requestBody.template as { name?: string })?.name,
-        template_name: logMeta?.templateName ?? (requestBody.template as { name?: string })?.name,
+        recipient: logMeta?.recipientPhone ?? String(finalPayload.to ?? ''),
+        templateName: logMeta?.templateName ?? (finalPayload.template as { name?: string })?.name,
+        template_name: logMeta?.templateName ?? (finalPayload.template as { name?: string })?.name,
         template_language:
           logMeta?.templateLanguage ??
-          (requestBody.template as { language?: { code?: string } })?.language?.code,
+          (finalPayload.template as { language?: { code?: string } })?.language?.code,
         variablesCount: logMeta?.variablesCount ?? null,
         headerType: logMeta?.headerType ?? null,
         headerImageMediaId: logMeta?.headerImageMediaId ?? null,
         wabaId: logMeta?.wabaId ?? null,
         finalPayload,
+        metaFullError,
         message: err?.message?.trim() || `Meta API vrátilo HTTP ${res.status}`,
         code: err?.code ?? res.status,
         type: err?.type ?? 'http_error',
@@ -287,7 +349,7 @@ export class WhatsAppCloudApiService {
       throw new BadRequestException(parts.join(' | '));
     }
 
-    const mediaId = responseBody.id?.trim();
+    const mediaId = String(responseBody.id ?? '').trim();
     if (!mediaId) {
       throw new BadRequestException('Meta Media API nevrátilo media_id.');
     }
@@ -317,7 +379,10 @@ export class WhatsAppCloudApiService {
     let metaDebug: Record<string, unknown> | null = null;
     let metaErrorCode: number | null = null;
     let metaErrorMessage: string | null = null;
+    let metaErrorData: unknown = null;
     let metaFbtraceId: string | null = null;
+    let finalPayload: unknown = null;
+    let metaFullError: unknown = null;
 
     if (row.errorMessage) {
       try {
@@ -325,6 +390,13 @@ export class WhatsAppCloudApiService {
         if (typeof metaDebug.code === 'number') metaErrorCode = metaDebug.code;
         if (typeof metaDebug.message === 'string') metaErrorMessage = metaDebug.message;
         if (typeof metaDebug.fbtrace_id === 'string') metaFbtraceId = metaDebug.fbtrace_id;
+        if ('error_data' in metaDebug) metaErrorData = metaDebug.error_data;
+        if ('finalPayload' in metaDebug) finalPayload = metaDebug.finalPayload;
+        if ('metaFullError' in metaDebug) {
+          metaFullError = metaDebug.metaFullError;
+        } else if ('metaResponse' in metaDebug) {
+          metaFullError = { error: (metaDebug.metaResponse as { error?: unknown })?.error };
+        }
       } catch {
         metaDebug = { raw: row.errorMessage };
         metaErrorMessage = row.errorMessage;
@@ -343,7 +415,10 @@ export class WhatsAppCloudApiService {
       metaDebug,
       metaErrorCode,
       metaErrorMessage,
+      metaErrorData,
       metaFbtraceId,
+      finalPayload,
+      metaFullError,
     };
   }
 

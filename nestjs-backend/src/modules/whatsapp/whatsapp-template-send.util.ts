@@ -60,6 +60,21 @@ export function metaTemplateLanguageCode(raw?: string): string {
 
 const DEFAULT_VARIABLE_SLOTS = ['{jmeno}', '{odkaz}', '{role}', '{kredit}'];
 
+/** WhatsApp media_id musí být vždy string v image.id. */
+export function normalizeHeaderImageMediaId(raw: unknown): string {
+  if (raw == null) return '';
+  return String(raw).trim();
+}
+
+function buildHeaderImageComponent(mediaIdRaw: unknown): Record<string, unknown> | null {
+  const mediaId = normalizeHeaderImageMediaId(mediaIdRaw);
+  if (!mediaId) return null;
+  return {
+    type: 'header',
+    parameters: [{ type: 'image', image: { id: mediaId } }],
+  };
+}
+
 export function buildTemplateBodyParameters(
   variableTemplates: string[],
   variablesCount: number,
@@ -85,13 +100,8 @@ function templateComponents(
   const components: Array<Record<string, unknown>> = [];
 
   if (config.headerType === 'IMAGE') {
-    const mediaId = config.headerImageMediaId?.trim();
-    if (mediaId) {
-      components.push({
-        type: 'header',
-        parameters: [{ type: 'image', image: { id: mediaId } }],
-      });
-    }
+    const header = buildHeaderImageComponent(config.headerImageMediaId);
+    if (header) components.push(header);
   }
 
   if (config.variablesCount > 0) {
@@ -264,17 +274,17 @@ export function finalizeMetaTemplateRequestBody(
         ? (comp.parameters as Array<Record<string, unknown>>)
         : [];
       const imageParam = parameters.find((p) => String(p.type ?? '').toLowerCase() === 'image');
-      const image = imageParam?.image as { id?: string; link?: string } | undefined;
-      if (image?.link?.trim()) {
+      const image = imageParam?.image as Record<string, unknown> | undefined;
+      if (image?.link != null && String(image.link).trim()) {
         throw new WhatsAppTemplatePayloadError(WHATSAPP_IMAGE_HEADER_REQUIRES_MEDIA_ID_MSG);
       }
-      const mediaId = image?.id?.trim();
-      if (mediaId) {
-        components.push({
-          type: 'header',
-          parameters: [{ type: 'image', image: { id: mediaId } }],
-        });
+      if (image?.media_id != null && String(image.media_id).trim()) {
+        throw new WhatsAppTemplatePayloadError(
+          'HEADER IMAGE nesmí používat image.media_id — pouze image.id jako string.',
+        );
       }
+      const header = buildHeaderImageComponent(image?.id);
+      if (header) components.push(header);
     } else if (type === 'body') {
       const parameters = Array.isArray(comp.parameters)
         ? (comp.parameters as Array<Record<string, unknown>>)
