@@ -141,6 +141,19 @@ export class WhatsAppAdminController {
     return this.marketing.getLastCampaignError(id);
   }
 
+  @Get('campaigns/:id/final-payload')
+  campaignFinalPayload(
+    @Param('id') id: string,
+    @Query('toPhone') toPhone?: string,
+  ) {
+    return this.marketing.getCampaignFinalPayload(id, toPhone);
+  }
+
+  @Get('campaigns/:id/last-log')
+  campaignLastLog(@Param('id') id: string) {
+    return this.marketing.getLastCampaignLog(id);
+  }
+
   @Get('campaigns/:id')
   getCampaign(@Param('id') id: string) {
     return this.marketing.getCampaign(id);

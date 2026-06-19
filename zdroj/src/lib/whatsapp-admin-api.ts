@@ -256,11 +256,22 @@ export type WhatsAppCampaignLogRow = {
   providerMessageId: string | null;
   metaErrorCode: number | null;
   metaErrorMessage: string | null;
+  metaErrorType?: string | null;
   metaErrorData?: unknown;
   metaFbtraceId?: string | null;
   finalPayload?: unknown;
   metaFullError?: unknown;
   metaDebug: unknown;
+};
+
+export type WhatsAppCampaignFinalPayloadResult = {
+  campaignId: string;
+  campaignName: string;
+  to: string;
+  templateName: string;
+  templateLanguage: string;
+  headerImageMediaId: string | null;
+  finalPayload: unknown;
 };
 
 export type WhatsAppCampaignRunResult = WhatsAppCampaignRow & {
@@ -322,6 +333,8 @@ export type WhatsAppMetaError = {
   type?: string;
   fbtrace_id?: string;
   error_data?: unknown;
+  metaFullError?: unknown;
+  finalPayload?: unknown;
 };
 
 export type WhatsAppLastLog = {
@@ -347,7 +360,32 @@ function parseNestWhatsAppError(
   const root = data as Record<string, unknown>;
 
   if (root.success === false && typeof root.error === 'string' && root.error.trim()) {
-    return { message: root.error };
+    const metaError = root.metaError as Record<string, unknown> | undefined;
+    return {
+      message: root.error,
+      code: typeof metaError?.code === 'number' ? metaError.code : undefined,
+      type: typeof metaError?.type === 'string' ? metaError.type : undefined,
+      fbtrace_id: typeof metaError?.fbtrace_id === 'string' ? metaError.fbtrace_id : undefined,
+      error_data: metaError?.error_data,
+      metaFullError: metaError ? { error: metaError } : undefined,
+    };
+  }
+
+  if (root.metaError && typeof root.metaError === 'object') {
+    const metaError = root.metaError as Record<string, unknown>;
+    return {
+      message:
+        typeof root.error === 'string' && root.error.trim()
+          ? root.error
+          : typeof metaError.message === 'string'
+            ? metaError.message
+            : `HTTP ${status}`,
+      code: typeof metaError.code === 'number' ? metaError.code : undefined,
+      type: typeof metaError.type === 'string' ? metaError.type : undefined,
+      fbtrace_id: typeof metaError.fbtrace_id === 'string' ? metaError.fbtrace_id : undefined,
+      error_data: metaError.error_data,
+      metaFullError: { error: metaError },
+    };
   }
 
   if (typeof root.error === 'string' && root.error.trim() && root.error !== 'Internal Server Error') {
@@ -828,6 +866,26 @@ export async function nestAdminWhatsAppCampaignLogs(
   return adminFetch<{ campaign: { id: string; name: string; status: string }; logs: WhatsAppCampaignLogRow[] }>(
     token,
     `/campaigns/${campaignId}/logs`,
+  );
+}
+
+export async function nestAdminWhatsAppCampaignFinalPayload(
+  token: string,
+  campaignId: string,
+): Promise<WhatsAppCampaignFinalPayloadResult | null> {
+  return adminFetch<WhatsAppCampaignFinalPayloadResult>(
+    token,
+    `/campaigns/${campaignId}/final-payload`,
+  );
+}
+
+export async function nestAdminWhatsAppCampaignLastLog(
+  token: string,
+  campaignId: string,
+): Promise<{ campaign: { id: string; name: string }; log: WhatsAppCampaignLogRow | null } | null> {
+  return adminFetch<{ campaign: { id: string; name: string }; log: WhatsAppCampaignLogRow | null }>(
+    token,
+    `/campaigns/${campaignId}/last-log`,
   );
 }
 

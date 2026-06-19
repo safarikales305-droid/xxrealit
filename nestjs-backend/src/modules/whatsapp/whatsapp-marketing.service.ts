@@ -770,6 +770,55 @@ export class WhatsAppMarketingService {
     return { campaign, error };
   }
 
+  async getCampaignFinalPayload(campaignId: string, toPhone?: string) {
+    const campaign = await this.prisma.whatsAppMarketingCampaign.findUnique({
+      where: { id: campaignId },
+    });
+    if (!campaign) throw new NotFoundException('Kampaň nenalezena.');
+
+    const tpl = await this.campaignTemplateConfig(campaign);
+    this.assertCampaignHeaderImageReady(tpl);
+
+    const phone = this.normalizePhone(toPhone?.trim() || this.config.getTestPhone() || '');
+    if (!phone) {
+      throw new BadRequestException('Zadejte platné testovací telefonní číslo.');
+    }
+
+    const vars = this.templateVarsForUser({
+      name: 'Test Uživatel',
+      role: campaign.targetRoles[0] ?? UserRole.USER,
+      creditBalance: 1500,
+      realCreditBalance: 1000,
+      bonusCreditBalance: 500,
+    });
+    const bodyParameters =
+      tpl.variablesCount > 0
+        ? this.renderTemplateBodyParameters(tpl.variableTemplates, tpl.variablesCount, vars)
+        : [];
+
+    const built = await this.buildValidatedCampaignPayload(phone, tpl, bodyParameters);
+
+    return {
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      to: phone,
+      templateName: built.templateName,
+      templateLanguage: built.languageCode,
+      headerImageMediaId: built.headerImageMediaId,
+      finalPayload: built.requestBody,
+    };
+  }
+
+  async getLastCampaignLog(campaignId: string) {
+    const campaign = await this.prisma.whatsAppMarketingCampaign.findUnique({
+      where: { id: campaignId },
+      select: { id: true, name: true },
+    });
+    if (!campaign) throw new NotFoundException('Kampaň nenalezena.');
+    const log = await this.cloudApi.getLastCampaignLog(campaignId);
+    return { campaign, log };
+  }
+
   async getLastLog() {
     return this.cloudApi.getLastAdminLog();
   }
@@ -1146,7 +1195,11 @@ export class WhatsAppMarketingService {
     );
 
     if (!providerMessageId) {
-      throw new BadRequestException(this.formatMetaSendError(metaError));
+      throw new BadRequestException({
+        success: false,
+        error: this.formatMetaSendError(metaError),
+        metaError,
+      });
     }
 
     return {

@@ -12,6 +12,8 @@ import {
   nestAdminWhatsAppCampaignDelete,
   nestAdminWhatsAppCampaignLogs,
   nestAdminWhatsAppCampaignLastError,
+  nestAdminWhatsAppCampaignFinalPayload,
+  nestAdminWhatsAppCampaignLastLog,
   nestAdminWhatsAppCampaignPreview,
   nestAdminWhatsAppCampaignRun,
   nestAdminWhatsAppCampaignUploadImage,
@@ -36,6 +38,7 @@ import {
   WHATSAPP_WABA_ID_HELP,
   WHATSAPP_WRONG_WABA_WARNING,
   type WhatsAppCampaignLogRow,
+  type WhatsAppCampaignFinalPayloadResult,
   type WhatsAppCampaignRow,
   type WhatsAppCampaignPreviewResult,
   type WhatsAppCampaignType,
@@ -85,9 +88,15 @@ export default function AdminWhatsAppCampaignsPage() {
   const [campaignLogsTitle, setCampaignLogsTitle] = useState<string | null>(null);
   const [loadingLogsId, setLoadingLogsId] = useState<string | null>(null);
   const [loadingLastErrorId, setLoadingLastErrorId] = useState<string | null>(null);
+  const [loadingFinalPayloadId, setLoadingFinalPayloadId] = useState<string | null>(null);
   const [lastMetaError, setLastMetaError] = useState<{
     campaignName: string;
     error: WhatsAppCampaignLogRow;
+  } | null>(null);
+  const [finalPayloadPreview, setFinalPayloadPreview] = useState<{
+    campaignName: string;
+    data: WhatsAppCampaignFinalPayloadResult;
+    source: 'preview' | 'last-log';
   } | null>(null);
   const [allTemplates, setAllTemplates] = useState<WhatsAppMetaTemplateRow[]>([]);
   const [approvedTemplates, setApprovedTemplates] = useState<WhatsAppMetaTemplateRow[]>([]);
@@ -467,23 +476,36 @@ export default function AdminWhatsAppCampaignsPage() {
 
   async function showCampaignActionError(
     action: 'test' | 'run',
-    error: { message?: string },
+    error: { message?: string; code?: number; type?: string; fbtrace_id?: string; error_data?: unknown },
+    campaign?: WhatsAppCampaignRow,
   ) {
     setStatusIsError(true);
-    const primary = error.message?.trim();
-    if (primary && primary !== 'Internal Server Error') {
-      setStatusMsg(primary);
-      return;
-    }
-    if (token) {
+    const formatted = formatWhatsAppMetaError({
+      message: error.message || 'Operace selhala',
+      code: error.code,
+      type: error.type,
+      fbtrace_id: error.fbtrace_id,
+      error_data: error.error_data,
+    });
+    if (formatted && !formatted.includes('Internal Server Error')) {
+      setStatusMsg(formatted);
+    } else if (token) {
       const debug = await nestAdminWhatsAppCampaignDebugLastError(token);
       const last = debug?.error;
       if (last?.message && last.action === action) {
         setStatusMsg(last.message);
-        return;
+      } else {
+        setStatusMsg(formatted || 'Operace selhala.');
+      }
+    } else {
+      setStatusMsg(formatted || 'Operace selhala.');
+    }
+    if (campaign && token) {
+      const data = await nestAdminWhatsAppCampaignLastError(token, campaign.id);
+      if (data?.error) {
+        setLastMetaError({ campaignName: campaign.name, error: data.error });
       }
     }
-    setStatusMsg(primary || 'Operace selhala.');
   }
 
   async function onTest(campaign: WhatsAppCampaignRow) {
@@ -498,7 +520,7 @@ export default function AdminWhatsAppCampaignsPage() {
     const r = await nestAdminWhatsAppCampaignTest(token, campaign.id);
     setBusyId(null);
     if (!r.ok) {
-      await showCampaignActionError('test', r.error);
+      await showCampaignActionError('test', r.error, campaign);
     } else {
       setStatusMsg('Test kampaně odeslán přes WhatsApp šablonu.');
     }
@@ -518,7 +540,7 @@ export default function AdminWhatsAppCampaignsPage() {
     const r = await nestAdminWhatsAppCampaignRun(token, campaign.id);
     setBusyId(null);
     if (!r.ok) {
-      await showCampaignActionError('run', r.error);
+      await showCampaignActionError('run', r.error, campaign);
       void refresh();
       return;
     }
@@ -528,9 +550,20 @@ export default function AdminWhatsAppCampaignsPage() {
     const phoneNote =
       d.recipientPhones?.length ? ` Příjemci: ${d.recipientPhones.join(', ')}.` : '';
     setStatusIsError(d.sentCount === 0);
-    setStatusMsg(
-      `Kampaň ${d.status === 'FAILED' ? 'selhala' : 'dokončena'}: odesláno ${d.sentCount}/${d.recipientCount}${failedNote}${skippedNote}.${phoneNote}`,
-    );
+    if (d.sentCount === 0) {
+      const firstErr = d.errors?.[0]?.trim();
+      setStatusMsg(
+        firstErr ||
+          `Kampaň selhala: odesláno 0/${d.recipientCount}${failedNote}${skippedNote}.${phoneNote}`,
+      );
+      void onShowLastMetaError(campaign);
+    } else {
+      const errNote =
+        d.errors?.length ? ` Chyby: ${d.errors.slice(0, 3).join(' | ')}` : '';
+      setStatusMsg(
+        `Kampaň dokončena: odesláno ${d.sentCount}/${d.recipientCount}${failedNote}${skippedNote}.${phoneNote}${errNote}`,
+      );
+    }
     void refresh();
   }
 
@@ -545,6 +578,46 @@ export default function AdminWhatsAppCampaignsPage() {
       return;
     }
     setLastMetaError({ campaignName: campaign.name, error: data.error });
+    setFinalPayloadPreview(null);
+  }
+
+  async function onShowFinalPayload(campaign: WhatsAppCampaignRow) {
+    if (!token) return;
+    setLoadingFinalPayloadId(campaign.id);
+    setStatusMsg(null);
+    const [preview, lastLog] = await Promise.all([
+      nestAdminWhatsAppCampaignFinalPayload(token, campaign.id),
+      nestAdminWhatsAppCampaignLastLog(token, campaign.id),
+    ]);
+    setLoadingFinalPayloadId(null);
+    if (lastLog?.log?.finalPayload) {
+      setFinalPayloadPreview({
+        campaignName: campaign.name,
+        data: {
+          campaignId: campaign.id,
+          campaignName: campaign.name,
+          to: lastLog.log.recipientPhone,
+          templateName: campaign.waTemplateName,
+          templateLanguage: campaign.waTemplateLanguage,
+          headerImageMediaId: campaign.waHeaderImageMediaId ?? null,
+          finalPayload: lastLog.log.finalPayload,
+        },
+        source: 'last-log',
+      });
+      setLastMetaError(null);
+      return;
+    }
+    if (!preview) {
+      setStatusIsError(true);
+      setStatusMsg('Nepodařilo se sestavit finalPayload kampaně.');
+      return;
+    }
+    setFinalPayloadPreview({
+      campaignName: campaign.name,
+      data: preview,
+      source: 'preview',
+    });
+    setLastMetaError(null);
   }
 
   async function onShowCampaignLog(campaign: WhatsAppCampaignRow) {
@@ -653,6 +726,10 @@ export default function AdminWhatsAppCampaignsPage() {
                   <span className="font-semibold">error.code:</span>{' '}
                   {lastMetaError.error.metaErrorCode ?? '—'}
                 </p>
+                <p className="rounded-lg bg-white p-2 text-zinc-800">
+                  <span className="font-semibold">error.type:</span>{' '}
+                  {lastMetaError.error.metaErrorType ?? '—'}
+                </p>
                 <p className="rounded-lg bg-white p-2 text-zinc-800 sm:col-span-2">
                   <span className="font-semibold">error.error_data:</span>{' '}
                   {lastMetaError.error.metaErrorData != null
@@ -678,6 +755,36 @@ export default function AdminWhatsAppCampaignsPage() {
                 </pre>
               </div>
             </div>
+          </div>
+        ) : null}
+
+        {finalPayloadPreview ? (
+          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-blue-900">
+                finalPayload: {finalPayloadPreview.campaignName}
+                <span className="ml-2 font-normal text-blue-700">
+                  ({finalPayloadPreview.source === 'last-log' ? 'poslední odeslání' : 'náhled'})
+                </span>
+              </h2>
+              <button
+                type="button"
+                onClick={() => setFinalPayloadPreview(null)}
+                className="text-xs font-semibold text-blue-700 hover:text-blue-900"
+              >
+                Zavřít
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-blue-900">
+              to: {finalPayloadPreview.data.to} · šablona: {finalPayloadPreview.data.templateName} ·
+              jazyk: {finalPayloadPreview.data.templateLanguage}
+              {finalPayloadPreview.data.headerImageMediaId
+                ? ` · media_id: ${finalPayloadPreview.data.headerImageMediaId}`
+                : ''}
+            </p>
+            <pre className="mt-3 max-h-96 overflow-auto rounded-lg bg-white p-3 text-xs text-zinc-800">
+              {JSON.stringify(finalPayloadPreview.data.finalPayload, null, 2)}
+            </pre>
           </div>
         ) : null}
 
@@ -1276,6 +1383,14 @@ export default function AdminWhatsAppCampaignsPage() {
                             className="rounded border border-zinc-200 px-2 py-1 text-xs font-semibold"
                           >
                             {loadingLogsId === c.id ? '…' : 'Log kampaně'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={loadingFinalPayloadId === c.id}
+                            onClick={() => void onShowFinalPayload(c)}
+                            className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800"
+                          >
+                            {loadingFinalPayloadId === c.id ? '…' : 'Zobrazit celý finalPayload'}
                           </button>
                           <button
                             type="button"

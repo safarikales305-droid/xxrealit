@@ -87,9 +87,12 @@ export class WhatsAppCampaignDebugService {
         body.error = response;
       } else if (response && typeof response === 'object') {
         const r = response as Record<string, unknown>;
-        if (typeof r.message === 'string') body.error = r.message;
+        if (typeof r.error === 'string') body.error = r.error;
+        else if (typeof r.message === 'string') body.error = r.message;
         else if (Array.isArray(r.message)) body.error = r.message.map(String).join(', ');
-        else if (typeof r.error === 'string') body.error = r.error;
+        if (r.metaError && typeof r.metaError === 'object') {
+          (body as Record<string, unknown>).metaError = r.metaError;
+        }
       }
       throw new HttpException(body, error.getStatus());
     }

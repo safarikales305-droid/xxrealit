@@ -233,7 +233,7 @@ export class WhatsAppCloudApiService {
       };
 
       await this.persistAdminLog({
-        recipientPhone: logMeta?.recipientPhone ?? String(requestBody.to ?? ''),
+        recipientPhone: logMeta?.recipientPhone ?? String(finalPayload.to ?? ''),
         recipientName: logMeta?.recipientName,
         recipientUserId: logMeta?.recipientUserId,
         campaignId: logMeta?.campaignId,
@@ -381,6 +381,7 @@ export class WhatsAppCloudApiService {
     let metaErrorMessage: string | null = null;
     let metaErrorData: unknown = null;
     let metaFbtraceId: string | null = null;
+    let metaErrorType: string | null = null;
     let finalPayload: unknown = null;
     let metaFullError: unknown = null;
 
@@ -389,6 +390,7 @@ export class WhatsAppCloudApiService {
         metaDebug = JSON.parse(row.errorMessage) as Record<string, unknown>;
         if (typeof metaDebug.code === 'number') metaErrorCode = metaDebug.code;
         if (typeof metaDebug.message === 'string') metaErrorMessage = metaDebug.message;
+        if (typeof metaDebug.type === 'string') metaErrorType = metaDebug.type;
         if (typeof metaDebug.fbtrace_id === 'string') metaFbtraceId = metaDebug.fbtrace_id;
         if ('error_data' in metaDebug) metaErrorData = metaDebug.error_data;
         if ('finalPayload' in metaDebug) finalPayload = metaDebug.finalPayload;
@@ -415,11 +417,21 @@ export class WhatsAppCloudApiService {
       metaDebug,
       metaErrorCode,
       metaErrorMessage,
+      metaErrorType,
       metaErrorData,
       metaFbtraceId,
       finalPayload,
       metaFullError,
     };
+  }
+
+  async getLastCampaignLog(campaignId: string) {
+    const row = await this.prisma.whatsAppMarketingCampaignLog.findFirst({
+      where: { campaignId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!row) return null;
+    return this.formatLogRow(row);
   }
 
   async getLastAdminLog() {
