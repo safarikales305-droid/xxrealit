@@ -177,6 +177,11 @@ export class WhatsAppAdminController {
     return this.marketing.updateCampaign(id, dto);
   }
 
+  @Post('campaigns/:id/duplicate')
+  duplicateCampaign(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.marketing.duplicateCampaign(user.id, id);
+  }
+
   @Delete('campaigns/:id')
   deleteCampaign(@Param('id') id: string) {
     return this.marketing.deleteCampaign(id);

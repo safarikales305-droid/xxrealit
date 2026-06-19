@@ -233,6 +233,9 @@ export const WHATSAPP_URL_BUTTON_PARAMETER_HELP =
 export const WHATSAPP_URL_BUTTON_PARAMETER_REQUIRED_MSG =
   'Šablona má URL tlačítko s proměnnou — vyplňte parametr odkazu (např. registrace nebo makleri).';
 
+export const WHATSAPP_CAMPAIGN_EDIT_SENT_WARNING =
+  'Úprava ovlivní pouze další spuštění kampaně.';
+
 export const WHATSAPP_NO_APPROVED_TEMPLATES_MSG =
   'V Meta zatím není schválena žádná WhatsApp šablona.';
 
@@ -731,6 +734,66 @@ export async function nestAdminWhatsAppCampaignCreate(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
+      cache: 'no-store',
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return { ok: false, error: formatWhatsAppMetaError(parseNestWhatsAppError(data, res.status)) };
+    }
+    return { ok: true, data: data as WhatsAppCampaignRow };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
+  }
+}
+
+export async function nestAdminWhatsAppCampaignUpdate(
+  token: string,
+  campaignId: string,
+  body: {
+    name: string;
+    campaignType: WhatsAppCampaignType;
+    messageTemplate?: string;
+    waMetaTemplateId?: string;
+    waTemplateName?: string;
+    waTemplateLanguage?: string;
+    waTemplateVariables?: string[];
+    waHeaderImageUrl?: string;
+    waHeaderImageMediaId?: string;
+    waUrlButtonParameter?: string;
+    targetRoles?: string[];
+    targetRegions?: string[];
+    targetCities?: string[];
+    manualPhones?: string[];
+  },
+): Promise<{ ok: true; data: WhatsAppCampaignRow } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/whatsapp/admin/campaigns/${campaignId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return { ok: false, error: formatWhatsAppMetaError(parseNestWhatsAppError(data, res.status)) };
+    }
+    return { ok: true, data: data as WhatsAppCampaignRow };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
+  }
+}
+
+export async function nestAdminWhatsAppCampaignDuplicate(
+  token: string,
+  campaignId: string,
+): Promise<{ ok: true; data: WhatsAppCampaignRow } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/whatsapp/admin/campaigns/${campaignId}/duplicate`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
       cache: 'no-store',
     });
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;

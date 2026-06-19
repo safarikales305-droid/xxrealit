@@ -1152,6 +1152,36 @@ export class WhatsAppMarketingService {
     return this.campaignRow(row);
   }
 
+  async duplicateCampaign(adminUserId: string, id: string) {
+    const existing = await this.prisma.whatsAppMarketingCampaign.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Kampaň nenalezena.');
+    if (existing.status === WhatsAppMarketingCampaignStatus.SENDING) {
+      throw new BadRequestException('Kampaň právě odesílá — nelze duplikovat.');
+    }
+
+    const row = await this.prisma.whatsAppMarketingCampaign.create({
+      data: {
+        name: `${existing.name.trim()} (kopie)`,
+        campaignType: existing.campaignType,
+        messageTemplate: existing.messageTemplate,
+        waMetaTemplateId: existing.waMetaTemplateId,
+        waTemplateName: existing.waTemplateName,
+        waTemplateLanguage: existing.waTemplateLanguage,
+        waTemplateVariables: existing.waTemplateVariables,
+        waHeaderImageUrl: existing.waHeaderImageUrl,
+        waHeaderImageMediaId: existing.waHeaderImageMediaId,
+        waUrlButtonParameter: existing.waUrlButtonParameter,
+        targetRoles: existing.targetRoles,
+        targetRegions: existing.targetRegions,
+        targetCities: existing.targetCities,
+        manualPhones: existing.manualPhones,
+        createdByUserId: adminUserId,
+        status: WhatsAppMarketingCampaignStatus.DRAFT,
+      },
+    });
+    return this.campaignRow(row);
+  }
+
   async deleteCampaign(id: string) {
     const existing = await this.prisma.whatsAppMarketingCampaign.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Kampaň nenalezena.');

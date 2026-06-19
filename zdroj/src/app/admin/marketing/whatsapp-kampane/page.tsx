@@ -2,13 +2,15 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { useAuth } from '@/hooks/use-auth';
 import {
   CZECH_REGIONS,
   formatWhatsAppMetaError,
   nestAdminWhatsAppCampaignCreate,
+  nestAdminWhatsAppCampaignUpdate,
+  nestAdminWhatsAppCampaignDuplicate,
   nestAdminWhatsAppCampaignDelete,
   nestAdminWhatsAppCampaignLogs,
   nestAdminWhatsAppCampaignLastError,
@@ -34,6 +36,7 @@ import {
   WHATSAPP_HEADER_IMAGE_REQUIRED_MSG,
   WHATSAPP_URL_BUTTON_PARAMETER_HELP,
   WHATSAPP_URL_BUTTON_PARAMETER_REQUIRED_MSG,
+  WHATSAPP_CAMPAIGN_EDIT_SENT_WARNING,
   WHATSAPP_NO_APPROVED_TEMPLATES_MSG,
   WHATSAPP_TARGET_ROLES,
   WHATSAPP_TEMPLATE_REQUIRED_MSG,
@@ -65,6 +68,24 @@ const emptyForm = {
   csvText: '',
 };
 
+function campaignToForm(c: WhatsAppCampaignRow): typeof emptyForm {
+  return {
+    name: c.name,
+    campaignType: c.campaignType,
+    waMetaTemplateId: c.waMetaTemplateId ?? '',
+    waTemplateVariables: c.waTemplateVariables.join('\n'),
+    waHeaderImageUrl: c.waHeaderImageUrl ?? '',
+    waHeaderImageMediaId: c.waHeaderImageMediaId ?? '',
+    waUrlButtonParameter: c.waUrlButtonParameter ?? '',
+    messageTemplate: c.messageTemplate,
+    targetRoles: [...c.targetRoles],
+    targetRegions: [...c.targetRegions],
+    targetCities: c.targetCities.join('\n'),
+    manualPhones: c.manualPhones.join('\n'),
+    csvText: '',
+  };
+}
+
 function templateStatusClass(status: string): string {
   if (status === 'APPROVED') return 'text-emerald-700 bg-emerald-50';
   if (status === 'PENDING') return 'text-amber-700 bg-amber-50';
@@ -87,6 +108,9 @@ export default function AdminWhatsAppCampaignsPage() {
   const [statusIsError, setStatusIsError] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [editingCampaignId, setEditingCampaignId] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const formSectionRef = useRef<HTMLFormElement>(null);
   const [campaignLogs, setCampaignLogs] = useState<WhatsAppCampaignLogRow[] | null>(null);
   const [campaignLogsTitle, setCampaignLogsTitle] = useState<string | null>(null);
   const [loadingLogsId, setLoadingLogsId] = useState<string | null>(null);
@@ -115,6 +139,9 @@ export default function AdminWhatsAppCampaignsPage() {
   const [loadingRawMeta, setLoadingRawMeta] = useState(false);
 
   const selectedTemplate = approvedTemplates.find((t) => t.id === form.waMetaTemplateId) ?? null;
+  const editingCampaign = editingCampaignId
+    ? (campaigns.find((c) => c.id === editingCampaignId) ?? null)
+    : null;
   const requiresHeaderImage = selectedTemplate?.headerType === 'IMAGE';
   const requiresUrlButtonParam = (selectedTemplate?.urlButtonParamCount ?? 0) > 0;
 
@@ -162,6 +189,14 @@ export default function AdminWhatsAppCampaignsPage() {
     if (campaignNeedsHeaderImage(c) && !campaignHasHeaderImage(c)) return false;
     if (campaignNeedsUrlButtonParam(c) && !campaignHasUrlButtonParam(c)) return false;
     return true;
+  }
+
+  function campaignWasSent(c: WhatsAppCampaignRow): boolean {
+    return c.sentCount > 0 || c.status === 'SENT';
+  }
+
+  function scrollToCampaignForm() {
+    formSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   function campaignImagePreviewSrc(): string | null {
@@ -476,30 +511,7 @@ export default function AdminWhatsAppCampaignsPage() {
   async function onCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!token) return;
-    if (!form.name.trim()) {
-      setStatusIsError(true);
-      setStatusMsg('Vyplňte název kampaně.');
-      return;
-    }
-    if (!form.waMetaTemplateId.trim()) {
-      setStatusIsError(true);
-      setStatusMsg(
-        form.messageTemplate.trim()
-          ? WHATSAPP_TEMPLATE_REQUIRED_MSG
-          : approvedTemplates.length === 0
-            ? WHATSAPP_NO_APPROVED_TEMPLATES_MSG
-            : 'Vyberte schválenou WhatsApp šablonu.',
-      );
-      return;
-    }
-    if (requiresHeaderImage && !hasHeaderImageInput()) {
-      showHeaderImageRequiredMsg();
-      return;
-    }
-    if (requiresUrlButtonParam && !hasUrlButtonParameterInput()) {
-      showUrlButtonParameterRequiredMsg();
-      return;
-    }
+    if (!validateCampaignForm()) return;
     setCreating(true);
     setStatusMsg(null);
     setStatusIsError(false);
@@ -513,6 +525,90 @@ export default function AdminWhatsAppCampaignsPage() {
     setForm(emptyForm);
     setPreviewDetail(null);
     setStatusMsg('Kampaň vytvořena.');
+    void refresh();
+  }
+
+  function validateCampaignForm(): boolean {
+    if (!form.name.trim()) {
+      setStatusIsError(true);
+      setStatusMsg('Vyplňte název kampaně.');
+      return false;
+    }
+    if (!form.waMetaTemplateId.trim()) {
+      setStatusIsError(true);
+      setStatusMsg(
+        form.messageTemplate.trim()
+          ? WHATSAPP_TEMPLATE_REQUIRED_MSG
+          : approvedTemplates.length === 0
+            ? WHATSAPP_NO_APPROVED_TEMPLATES_MSG
+            : 'Vyberte schválenou WhatsApp šablonu.',
+      );
+      return false;
+    }
+    if (requiresHeaderImage && !hasHeaderImageInput()) {
+      showHeaderImageRequiredMsg();
+      return false;
+    }
+    if (requiresUrlButtonParam && !hasUrlButtonParameterInput()) {
+      showUrlButtonParameterRequiredMsg();
+      return false;
+    }
+    return true;
+  }
+
+  function onEdit(campaign: WhatsAppCampaignRow) {
+    if (campaign.status === 'SENDING') return;
+    setEditingCampaignId(campaign.id);
+    setForm(campaignToForm(campaign));
+    setPreviewDetail(null);
+    setStatusMsg(null);
+    setStatusIsError(false);
+    scrollToCampaignForm();
+  }
+
+  function onCancelEdit() {
+    setEditingCampaignId(null);
+    setForm(emptyForm);
+    setPreviewDetail(null);
+    setStatusMsg(null);
+    setStatusIsError(false);
+  }
+
+  async function onSaveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!token || !editingCampaignId) return;
+    if (!validateCampaignForm()) return;
+    setSavingEdit(true);
+    setStatusMsg(null);
+    setStatusIsError(false);
+    const r = await nestAdminWhatsAppCampaignUpdate(token, editingCampaignId, buildPayload());
+    setSavingEdit(false);
+    if (!r.ok) {
+      setStatusIsError(true);
+      setStatusMsg(r.error);
+      return;
+    }
+    setEditingCampaignId(null);
+    setForm(emptyForm);
+    setPreviewDetail(null);
+    setStatusMsg('Kampaň byla upravena.');
+    void refresh();
+  }
+
+  async function onDuplicate(campaign: WhatsAppCampaignRow) {
+    if (!token) return;
+    if (campaign.status === 'SENDING') return;
+    setBusyId(campaign.id);
+    setStatusMsg(null);
+    setStatusIsError(false);
+    const r = await nestAdminWhatsAppCampaignDuplicate(token, campaign.id);
+    setBusyId(null);
+    if (!r.ok) {
+      setStatusIsError(true);
+      setStatusMsg(r.error);
+      return;
+    }
+    setStatusMsg(`Kampaň „${campaign.name}" byla zduplikována jako „${r.data.name}".`);
     void refresh();
   }
 
@@ -1036,10 +1132,18 @@ export default function AdminWhatsAppCampaignsPage() {
         </section>
 
         <form
-          onSubmit={(e) => void onCreate(e)}
+          ref={formSectionRef}
+          onSubmit={(e) => void (editingCampaignId ? onSaveEdit(e) : onCreate(e))}
           className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"
         >
-          <h2 className="text-lg font-semibold text-zinc-900">Nová kampaň</h2>
+          <h2 className="text-lg font-semibold text-zinc-900">
+            {editingCampaignId ? 'Upravit kampaň' : 'Nová kampaň'}
+          </h2>
+          {editingCampaign && campaignWasSent(editingCampaign) ? (
+            <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {WHATSAPP_CAMPAIGN_EDIT_SENT_WARNING}
+            </p>
+          ) : null}
           <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             {WHATSAPP_CAMPAIGN_TEMPLATE_HELP}
           </p>
@@ -1397,13 +1501,33 @@ export default function AdminWhatsAppCampaignsPage() {
             >
               Náhled
             </button>
-            <button
-              type="submit"
-              disabled={creating || !campaignFormReady()}
-              className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              {creating ? 'Ukládám…' : 'Vytvořit kampaň'}
-            </button>
+            {editingCampaignId ? (
+              <>
+                <button
+                  type="submit"
+                  disabled={savingEdit || !campaignFormReady()}
+                  className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {savingEdit ? 'Ukládám…' : 'Uložit změny'}
+                </button>
+                <button
+                  type="button"
+                  onClick={onCancelEdit}
+                  disabled={savingEdit}
+                  className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
+                >
+                  Zrušit
+                </button>
+              </>
+            ) : (
+              <button
+                type="submit"
+                disabled={creating || !campaignFormReady()}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {creating ? 'Ukládám…' : 'Vytvořit kampaň'}
+              </button>
+            )}
           </div>
         </form>
 
@@ -1458,6 +1582,22 @@ export default function AdminWhatsAppCampaignsPage() {
                       </td>
                       <td className="px-2 py-3">
                         <div className="flex flex-wrap gap-1">
+                          <button
+                            type="button"
+                            disabled={busyId === c.id || c.status === 'SENDING'}
+                            onClick={() => onEdit(c)}
+                            className="rounded border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-800 disabled:opacity-50"
+                          >
+                            Upravit
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busyId === c.id || c.status === 'SENDING'}
+                            onClick={() => void onDuplicate(c)}
+                            className="rounded border border-zinc-200 px-2 py-1 text-xs font-semibold disabled:opacity-50"
+                          >
+                            Duplikovat
+                          </button>
                           <button
                             type="button"
                             disabled={
