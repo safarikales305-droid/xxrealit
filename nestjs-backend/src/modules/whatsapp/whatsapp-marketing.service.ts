@@ -36,10 +36,12 @@ import {
   WHATSAPP_MARKETING_TEMPLATE_REQUIRED_MSG,
   WHATSAPP_IMAGE_HEADER_REQUIRES_MEDIA_ID_MSG,
   formatMetaApiError,
+  WHATSAPP_URL_BUTTON_PARAMETER_REQUIRED_MSG,
 } from './whatsapp-template-send.util';
 import {
   extractTemplatePartsFromRaw,
   type WhatsAppTemplateHeaderType,
+  type WhatsAppTemplateUrlButton,
 } from './whatsapp-template-sync.util';
 import {
   hasCampaignHeaderImageSource,
@@ -80,6 +82,8 @@ type CampaignTemplateSendContext = {
   headerImageMediaId: string | null;
   bodyText: string;
   buttonLabels: string[];
+  urlButtonParamCount: number;
+  urlButtonParameters: Array<{ index: number; text: string }>;
 };
 
 @Injectable()
@@ -135,6 +139,27 @@ export class WhatsAppMarketingService {
     if (!ctx.headerImageMediaId?.trim() && !ctx.headerImageUrl?.trim()) {
       throw new BadRequestException(WHATSAPP_HEADER_IMAGE_REQUIRED_MSG);
     }
+  }
+
+  private assertCampaignUrlButtonReady(ctx: Pick<
+    CampaignTemplateSendContext,
+    'urlButtonParamCount' | 'urlButtonParameters'
+  >) {
+    if (ctx.urlButtonParamCount <= 0) return;
+    const hasParam = ctx.urlButtonParameters.some((p) => p.text.trim());
+    if (!hasParam) {
+      throw new BadRequestException(WHATSAPP_URL_BUTTON_PARAMETER_REQUIRED_MSG);
+    }
+  }
+
+  private resolveUrlButtonParameters(
+    urlButtons: WhatsAppTemplateUrlButton[],
+    waUrlButtonParameter?: string | null,
+  ): Array<{ index: number; text: string }> {
+    if (urlButtons.length === 0) return [];
+    const param = waUrlButtonParameter?.trim();
+    if (!param) return [];
+    return urlButtons.map((btn) => ({ index: btn.index, text: param }));
   }
 
   private imageMimeFromExtension(ext: string): 'image/jpeg' | 'image/png' {
@@ -215,6 +240,7 @@ export class WhatsAppMarketingService {
     let resolvedTemplateName = template.templateName;
     let resolvedLanguageCode = template.languageCode;
     let headerType = template.headerType;
+    let urlButtonParamCount = template.urlButtonParamCount;
 
     if (template.waMetaTemplateId) {
       const metaRow = await this.metaTemplates.requireApprovedTemplate(template.waMetaTemplateId);
@@ -224,7 +250,16 @@ export class WhatsAppMarketingService {
       resolvedLanguageCode = metaTemplateLanguageCode(metaRow.language);
       const parts = extractTemplatePartsFromRaw(metaRow.rawTemplate);
       headerType = (metaRow.headerType || parts.headerType || 'NONE') as WhatsAppTemplateHeaderType;
+      urlButtonParamCount = Math.max(
+        metaRow.urlButtonParamCount ?? 0,
+        parts.urlButtons.length,
+      );
     }
+
+    const urlButtonParameters =
+      urlButtonParamCount > 0
+        ? template.urlButtonParameters.filter((p) => p.text.trim())
+        : [];
 
     const normalizedBodyParameters =
       variablesCount > 0
@@ -247,13 +282,15 @@ export class WhatsAppMarketingService {
       variablesCount,
       headerType,
       headerImageMediaId,
+      urlButtonParameters,
+      urlButtonParamCount,
     });
 
     if (headerType === 'IMAGE' && payloadUsesHeaderImageLink(requestBody)) {
       throw new BadRequestException(WHATSAPP_IMAGE_HEADER_REQUIRES_MEDIA_ID_MSG);
     }
 
-    assertTemplatePayload(requestBody, { variablesCount, headerType });
+    assertTemplatePayload(requestBody, { variablesCount, headerType, urlButtonParamCount });
     if (headerType === 'IMAGE') {
       assertImageHeaderInPayload(requestBody);
     }
@@ -304,6 +341,7 @@ export class WhatsAppMarketingService {
     await this.diagnostic.assertPhoneBelongsToConfiguredWaba();
 
     this.assertCampaignHeaderImageReady(template);
+    this.assertCampaignUrlButtonReady(template);
 
     const {
       requestBody,
@@ -351,6 +389,7 @@ export class WhatsAppMarketingService {
       variablesCount,
       headerType,
       headerImageMediaId,
+      urlButtonParamCount: template.urlButtonParamCount,
       wabaId: wabaId || undefined,
     });
 
@@ -487,6 +526,7 @@ export class WhatsAppMarketingService {
     waTemplateVariables: string[];
     waHeaderImageUrl?: string | null;
     waHeaderImageMediaId?: string | null;
+    waUrlButtonParameter?: string | null;
     messageTemplate: string;
   }): Promise<CampaignTemplateSendContext> {
     let variablesCount = 0;
@@ -495,6 +535,7 @@ export class WhatsAppMarketingService {
       const t = await this.metaTemplates.requireApprovedTemplate(campaign.waMetaTemplateId);
       variablesCount = t.variablesCount;
       const parts = extractTemplatePartsFromRaw(t.rawTemplate);
+      const urlButtonParamCount = Math.max(t.urlButtonParamCount ?? 0, parts.urlButtons.length);
       return {
         waMetaTemplateId: campaign.waMetaTemplateId,
         wabaId: t.wabaId,
@@ -508,6 +549,11 @@ export class WhatsAppMarketingService {
         headerImageMediaId: campaign.waHeaderImageMediaId ?? null,
         bodyText: t.bodyText || parts.bodyText,
         buttonLabels: parts.buttonLabels,
+        urlButtonParamCount,
+        urlButtonParameters: this.resolveUrlButtonParameters(
+          parts.urlButtons,
+          campaign.waUrlButtonParameter,
+        ),
       };
     }
 
@@ -520,6 +566,10 @@ export class WhatsAppMarketingService {
     const metaTemplate = await this.metaTemplates.requireApprovedTemplate(resolved.waMetaTemplateId);
     variablesCount = metaTemplate.variablesCount;
     const parts = extractTemplatePartsFromRaw(metaTemplate.rawTemplate);
+    const urlButtonParamCount = Math.max(
+      metaTemplate.urlButtonParamCount ?? 0,
+      parts.urlButtons.length,
+    );
 
     return {
       waMetaTemplateId: resolved.waMetaTemplateId,
@@ -534,6 +584,11 @@ export class WhatsAppMarketingService {
       headerImageMediaId: campaign.waHeaderImageMediaId ?? null,
       bodyText: metaTemplate.bodyText || parts.bodyText,
       buttonLabels: parts.buttonLabels,
+      urlButtonParamCount,
+      urlButtonParameters: this.resolveUrlButtonParameters(
+        parts.urlButtons,
+        campaign.waUrlButtonParameter,
+      ),
     };
   }
 
@@ -600,6 +655,11 @@ export class WhatsAppMarketingService {
         headerImageMediaId: null,
         bodyText: metaTemplate?.bodyText || parts.bodyText,
         buttonLabels: parts.buttonLabels,
+        urlButtonParamCount: Math.max(
+          metaTemplate?.urlButtonParamCount ?? 0,
+          parts.urlButtons.length,
+        ),
+        urlButtonParameters: [],
       };
       const bodyParameters =
         variablesCount > 0
@@ -719,6 +779,8 @@ export class WhatsAppMarketingService {
         headerImageMediaId: null,
         bodyText: '',
         buttonLabels: [],
+        urlButtonParamCount: 0,
+        urlButtonParameters: [],
       },
       [],
       { previewText: 'test:hello_world' },
@@ -778,6 +840,7 @@ export class WhatsAppMarketingService {
 
     const tpl = await this.campaignTemplateConfig(campaign);
     this.assertCampaignHeaderImageReady(tpl);
+    this.assertCampaignUrlButtonReady(tpl);
 
     const phone = this.normalizePhone(toPhone?.trim() || this.config.getTestPhone() || '');
     if (!phone) {
@@ -862,16 +925,22 @@ export class WhatsAppMarketingService {
       metaIds.length > 0
         ? await this.prisma.whatsAppMetaTemplate.findMany({
             where: { id: { in: metaIds } },
-            select: { id: true, headerType: true },
+            select: { id: true, headerType: true, urlButtonParamCount: true },
           })
         : [];
     const headerTypeByMetaId = new Map(templates.map((t) => [t.id, t.headerType]));
+    const urlButtonParamCountByMetaId = new Map(
+      templates.map((t) => [t.id, t.urlButtonParamCount]),
+    );
 
     return rows.map((r) => ({
       ...this.campaignRow(r),
       waTemplateHeaderType: r.waMetaTemplateId
         ? (headerTypeByMetaId.get(r.waMetaTemplateId) ?? null)
         : null,
+      waTemplateUrlButtonParamCount: r.waMetaTemplateId
+        ? (urlButtonParamCountByMetaId.get(r.waMetaTemplateId) ?? 0)
+        : 0,
     }));
   }
 
@@ -879,14 +948,20 @@ export class WhatsAppMarketingService {
     const row = await this.prisma.whatsAppMarketingCampaign.findUnique({ where: { id } });
     if (!row) throw new NotFoundException('Kampaň nenalezena.');
     let waTemplateHeaderType: string | null = null;
+    let waTemplateUrlButtonParamCount = 0;
     if (row.waMetaTemplateId) {
       const tpl = await this.prisma.whatsAppMetaTemplate.findUnique({
         where: { id: row.waMetaTemplateId },
-        select: { headerType: true },
+        select: { headerType: true, urlButtonParamCount: true },
       });
       waTemplateHeaderType = tpl?.headerType ?? null;
+      waTemplateUrlButtonParamCount = tpl?.urlButtonParamCount ?? 0;
     }
-    return { ...this.campaignRow(row), waTemplateHeaderType };
+    return {
+      ...this.campaignRow(row),
+      waTemplateHeaderType,
+      waTemplateUrlButtonParamCount,
+    };
   }
 
   async createCampaign(adminUserId: string, dto: CreateWhatsAppMarketingCampaignDto) {
@@ -922,6 +997,14 @@ export class WhatsAppMarketingService {
       }
     }
 
+    const urlButtonParamCount = Math.max(
+      metaTemplate.urlButtonParamCount ?? 0,
+      templateParts.urlButtons.length,
+    );
+    if (urlButtonParamCount > 0 && !dto.waUrlButtonParameter?.trim()) {
+      throw new BadRequestException(WHATSAPP_URL_BUTTON_PARAMETER_REQUIRED_MSG);
+    }
+
     const row = await this.prisma.whatsAppMarketingCampaign.create({
       data: {
         name: dto.name.trim(),
@@ -936,6 +1019,7 @@ export class WhatsAppMarketingService {
         ),
         waHeaderImageUrl: dto.waHeaderImageUrl?.trim() || null,
         waHeaderImageMediaId: dto.waHeaderImageMediaId?.trim() || null,
+        waUrlButtonParameter: dto.waUrlButtonParameter?.trim() || null,
         targetRoles: dto.targetRoles ?? [],
         targetRegions: (dto.targetRegions ?? []).map((s) => s.trim()).filter(Boolean),
         targetCities: (dto.targetCities ?? []).map((s) => s.trim()).filter(Boolean),
@@ -986,6 +1070,30 @@ export class WhatsAppMarketingService {
       );
     }
 
+    if (effectiveMetaId) {
+      const metaTemplate = await this.metaTemplates.requireApprovedTemplate(effectiveMetaId);
+      const templateParts = extractTemplatePartsFromRaw(metaTemplate.rawTemplate);
+      const headerType = metaTemplate.headerType || templateParts.headerType;
+      const effectiveHeaderMediaId =
+        dto.waHeaderImageMediaId !== undefined
+          ? dto.waHeaderImageMediaId
+          : existing.waHeaderImageMediaId;
+      if (headerType === 'IMAGE' && !hasCampaignHeaderImageSource({ headerImageMediaId: effectiveHeaderMediaId })) {
+        throw new BadRequestException(WHATSAPP_HEADER_IMAGE_REQUIRED_MSG);
+      }
+      const urlButtonParamCount = Math.max(
+        metaTemplate.urlButtonParamCount ?? 0,
+        templateParts.urlButtons.length,
+      );
+      const effectiveUrlButtonParam =
+        dto.waUrlButtonParameter !== undefined
+          ? dto.waUrlButtonParameter
+          : existing.waUrlButtonParameter;
+      if (urlButtonParamCount > 0 && !effectiveUrlButtonParam?.trim()) {
+        throw new BadRequestException(WHATSAPP_URL_BUTTON_PARAMETER_REQUIRED_MSG);
+      }
+    }
+
     const row = await this.prisma.whatsAppMarketingCampaign.update({
       where: { id },
       data: {
@@ -1019,6 +1127,9 @@ export class WhatsAppMarketingService {
           : {}),
         ...(dto.waHeaderImageMediaId !== undefined
           ? { waHeaderImageMediaId: dto.waHeaderImageMediaId.trim() || null }
+          : {}),
+        ...(dto.waUrlButtonParameter !== undefined
+          ? { waUrlButtonParameter: dto.waUrlButtonParameter.trim() || null }
           : {}),
         ...(dto.targetRoles !== undefined ? { targetRoles: dto.targetRoles } : {}),
         ...(dto.targetRegions !== undefined
@@ -1067,6 +1178,7 @@ export class WhatsAppMarketingService {
       waTemplateVariables: dto.waTemplateVariables ?? [],
       waHeaderImageUrl: dto.waHeaderImageUrl ?? null,
       waHeaderImageMediaId: dto.waHeaderImageMediaId ?? null,
+      waUrlButtonParameter: dto.waUrlButtonParameter ?? null,
       messageTemplate: dto.messageTemplate ?? '',
     });
     const bodyParams = this.renderTemplateBodyParameters(
@@ -1154,6 +1266,7 @@ export class WhatsAppMarketingService {
 
     const tpl = await this.campaignTemplateConfig(campaign);
     this.assertCampaignHeaderImageReady(tpl);
+    this.assertCampaignUrlButtonReady(tpl);
 
     const phone = this.normalizePhone(toPhone?.trim() || this.config.getTestPhone() || '');
     if (!phone) {
@@ -1346,6 +1459,7 @@ export class WhatsAppMarketingService {
 
     const tpl = await this.campaignTemplateConfig(campaign);
     this.assertCampaignHeaderImageReady(tpl);
+    this.assertCampaignUrlButtonReady(tpl);
 
     const phoneNumberId = this.config.getPhoneNumberId();
     const tokenSource = this.settings.getStoredSettings().accessToken.trim()
@@ -1591,6 +1705,7 @@ export class WhatsAppMarketingService {
     waTemplateVariables: string[];
     waHeaderImageUrl: string | null;
     waHeaderImageMediaId: string | null;
+    waUrlButtonParameter: string | null;
     targetRoles: UserRole[];
     targetRegions: string[];
     targetCities: string[];
@@ -1615,6 +1730,7 @@ export class WhatsAppMarketingService {
       waTemplateVariables: r.waTemplateVariables,
       waHeaderImageUrl: r.waHeaderImageUrl,
       waHeaderImageMediaId: r.waHeaderImageMediaId,
+      waUrlButtonParameter: r.waUrlButtonParameter,
       targetRoles: r.targetRoles,
       targetRegions: r.targetRegions,
       targetCities: r.targetCities,

@@ -53,7 +53,9 @@ export type WhatsAppCampaignRow = {
   waTemplateVariables: string[];
   waHeaderImageUrl?: string | null;
   waHeaderImageMediaId?: string | null;
+  waUrlButtonParameter?: string | null;
   waTemplateHeaderType?: string | null;
+  waTemplateUrlButtonParamCount?: number;
   targetRoles: string[];
   targetRegions: string[];
   targetCities: string[];
@@ -87,6 +89,7 @@ export type WhatsAppMetaTemplateRow = {
   headerType: string;
   bodyText: string;
   variablesCount: number;
+  urlButtonParamCount: number;
   isStale: boolean;
   lastSyncedAt: string | null;
   rawTemplate?: unknown;
@@ -223,6 +226,12 @@ export const WHATSAPP_HEADER_IMAGE_HELP =
 
 export const WHATSAPP_HEADER_IMAGE_REQUIRED_MSG =
   'Tato šablona má HEADER IMAGE — nahrajte obrázek kampaně (nahrá se do Meta) nebo zadejte Meta media_id.';
+
+export const WHATSAPP_URL_BUTTON_PARAMETER_HELP =
+  'Pokud šablona obsahuje URL tlačítko s proměnnou, je nutné vyplnit koncovou část odkazu.';
+
+export const WHATSAPP_URL_BUTTON_PARAMETER_REQUIRED_MSG =
+  'Šablona má URL tlačítko s proměnnou — vyplňte parametr odkazu (např. registrace nebo makleri).';
 
 export const WHATSAPP_NO_APPROVED_TEMPLATES_MSG =
   'V Meta zatím není schválena žádná WhatsApp šablona.';
@@ -707,6 +716,7 @@ export async function nestAdminWhatsAppCampaignCreate(
     waTemplateVariables?: string[];
     waHeaderImageUrl?: string;
     waHeaderImageMediaId?: string;
+    waUrlButtonParameter?: string;
     targetRoles?: string[];
     targetRegions?: string[];
     targetCities?: string[];
@@ -789,6 +799,7 @@ export async function nestAdminWhatsAppCampaignPreview(
     waTemplateVariables?: string[];
     waHeaderImageUrl?: string;
     waHeaderImageMediaId?: string;
+    waUrlButtonParameter?: string;
     sampleName?: string;
     sampleRole?: string;
   },

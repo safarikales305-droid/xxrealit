@@ -1533,6 +1533,8 @@ model WhatsAppMarketingCampaign {
   waHeaderImageUrl      String?
   /// Meta media_id (alternativa k URL) pro HEADER IMAGE.
   waHeaderImageMediaId  String?
+  /// Dynamický parametr URL tlačítka šablony (koncová část odkazu).
+  waUrlButtonParameter  String?
   targetRoles     UserRole[]                      @default([])
   targetRegions   String[]                        @default([])
   targetCities    String[]                        @default([])
@@ -1568,6 +1570,8 @@ model WhatsAppMetaTemplate {
   rawTemplate      Json?
   usable           Boolean   @default(false)
   headerType       String    @default("NONE")
+  /// Počet URL tlačítek s dynamickým parametrem v šabloně.
+  urlButtonParamCount Int    @default(0)
   bodyText         String    @db.Text
   variablesCount   Int       @default(0)
   isStale          Boolean   @default(false)

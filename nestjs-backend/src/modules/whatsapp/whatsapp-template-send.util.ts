@@ -10,7 +10,15 @@ export type WhatsAppTemplateSendConfig = {
   variablesCount: number;
   headerType?: WhatsAppTemplateHeaderType;
   headerImageMediaId?: string;
+  urlButtonParameters?: Array<{ index: number; text: string }>;
+  urlButtonParamCount?: number;
 };
+
+export const WHATSAPP_URL_BUTTON_PARAMETER_HELP =
+  'Pokud šablona obsahuje URL tlačítko s proměnnou, je nutné vyplnit koncovou část odkazu.';
+
+export const WHATSAPP_URL_BUTTON_PARAMETER_REQUIRED_MSG =
+  'Šablona má URL tlačítko s proměnnou — vyplňte parametr odkazu (např. registrace nebo makleri).';
 
 export class WhatsAppTemplatePayloadError extends BadRequestException {
   constructor(message: string) {
@@ -94,6 +102,15 @@ export function buildTemplateBodyParameters(
   return parameters;
 }
 
+function buildUrlButtonComponent(index: number, text: string): Record<string, unknown> {
+  return {
+    type: 'button',
+    sub_type: 'url',
+    index: String(index),
+    parameters: [{ type: 'text', text: String(text).trim().slice(0, 1024) }],
+  };
+}
+
 function templateComponents(
   config: WhatsAppTemplateSendConfig,
 ): Array<Record<string, unknown>> {
@@ -119,13 +136,23 @@ function templateComponents(
     }
   }
 
+  for (const btn of config.urlButtonParameters ?? []) {
+    const text = String(btn.text ?? '').trim();
+    if (text) {
+      components.push(buildUrlButtonComponent(btn.index, text));
+    }
+  }
+
   return components;
 }
 
 /** Ověří payload — šablona bez proměnných nesmí mít body components. */
 export function assertTemplatePayload(
   requestBody: MetaMessagesRequestBody,
-  config: Pick<WhatsAppTemplateSendConfig, 'variablesCount' | 'headerType'>,
+  config: Pick<
+    WhatsAppTemplateSendConfig,
+    'variablesCount' | 'headerType' | 'urlButtonParamCount'
+  >,
 ): void {
   const topForbidden = [
     'parameters',
@@ -178,6 +205,36 @@ export function assertTemplatePayload(
 
   if (config.headerType === 'IMAGE') {
     assertImageHeaderInPayload(requestBody);
+  }
+
+  if ((config.urlButtonParamCount ?? 0) > 0) {
+    assertUrlButtonInPayload(requestBody, config.urlButtonParamCount ?? 0);
+  }
+}
+
+export function assertUrlButtonInPayload(
+  requestBody: MetaMessagesRequestBody,
+  expectedCount: number,
+): void {
+  const template = requestBody.template as Record<string, unknown> | undefined;
+  const components = Array.isArray(template?.components)
+    ? (template.components as Array<Record<string, unknown>>)
+    : [];
+  const buttons = components.filter((c) => String(c.type ?? '').toLowerCase() === 'button');
+  if (buttons.length < expectedCount) {
+    throw new WhatsAppTemplatePayloadError(WHATSAPP_URL_BUTTON_PARAMETER_REQUIRED_MSG);
+  }
+  for (const btn of buttons) {
+    const subType = String((btn as { sub_type?: string }).sub_type ?? '').toLowerCase();
+    if (subType !== 'url') continue;
+    const parameters = Array.isArray(btn.parameters)
+      ? (btn.parameters as Array<Record<string, unknown>>)
+      : [];
+    const textParam = parameters.find((p) => String(p.type ?? '').toLowerCase() === 'text');
+    const text = String((textParam as { text?: string })?.text ?? '').trim();
+    if (!text) {
+      throw new WhatsAppTemplatePayloadError(WHATSAPP_URL_BUTTON_PARAMETER_REQUIRED_MSG);
+    }
   }
 }
 
@@ -298,6 +355,18 @@ export function finalizeMetaTemplateRequestBody(
         .filter((p) => p.text.length > 0);
       if (textParams.length > 0) {
         components.push({ type: 'body', parameters: textParams });
+      }
+    } else if (type === 'button') {
+      const subType = String(comp.sub_type ?? '').toLowerCase();
+      if (subType !== 'url') continue;
+      const index = Number.parseInt(String(comp.index ?? '0'), 10);
+      const parameters = Array.isArray(comp.parameters)
+        ? (comp.parameters as Array<Record<string, unknown>>)
+        : [];
+      const textParam = parameters.find((p) => String(p.type ?? '').toLowerCase() === 'text');
+      const text = String((textParam as { text?: string })?.text ?? '').trim();
+      if (text) {
+        components.push(buildUrlButtonComponent(Number.isFinite(index) ? index : 0, text));
       }
     }
   }

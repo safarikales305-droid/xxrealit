@@ -64,6 +64,39 @@ export function extractTemplateHeaderText(components?: MetaTemplateComponent[]):
   return '';
 }
 
+export type WhatsAppTemplateUrlButton = {
+  index: number;
+  buttonText: string;
+  urlTemplate: string;
+};
+
+export function extractUrlButtonsWithParameters(
+  components?: MetaTemplateComponent[],
+): WhatsAppTemplateUrlButton[] {
+  if (!components?.length) return [];
+  const buttonsComp = components.find((c) => c.type?.toUpperCase() === 'BUTTONS');
+  if (!buttonsComp?.buttons?.length) return [];
+
+  const result: WhatsAppTemplateUrlButton[] = [];
+  buttonsComp.buttons.forEach((btn, index) => {
+    const btnType = btn.type?.toUpperCase();
+    if (btnType !== 'URL') return;
+    const url = btn.url?.trim() || '';
+    if (/\{\{[^}]+\}\}/.test(url)) {
+      result.push({
+        index,
+        buttonText: btn.text?.trim() || '',
+        urlTemplate: url,
+      });
+    }
+  });
+  return result;
+}
+
+export function hasUrlButtonParameter(components?: MetaTemplateComponent[]): boolean {
+  return extractUrlButtonsWithParameters(components).length > 0;
+}
+
 export function extractTemplateButtonLabels(components?: MetaTemplateComponent[]): string[] {
   if (!components?.length) return [];
   const buttonsComp = components.find((c) => c.type?.toUpperCase() === 'BUTTONS');
@@ -109,6 +142,7 @@ export function parseMetaTemplateItem(item: MetaMessageTemplate): {
   headerType: WhatsAppTemplateHeaderType;
   headerText: string;
   buttonLabels: string[];
+  urlButtonParamCount: number;
   variablesCount: number;
   category: string;
   hasHeaderImage: boolean;
@@ -124,6 +158,7 @@ export function parseMetaTemplateItem(item: MetaMessageTemplate): {
   const bodyText = extractTemplateBodyText(item.components);
   const parameterFormat = item.parameter_format?.trim() || 'POSITIONAL';
   const headerType = detectTemplateHeaderType(item.components);
+  const urlButtons = extractUrlButtonsWithParameters(item.components);
 
   return {
     metaTemplateId,
@@ -134,6 +169,7 @@ export function parseMetaTemplateItem(item: MetaMessageTemplate): {
     headerType,
     headerText: extractTemplateHeaderText(item.components),
     buttonLabels: extractTemplateButtonLabels(item.components),
+    urlButtonParamCount: urlButtons.length,
     variablesCount: countTemplateBodyVariables(item.components, parameterFormat),
     category: item.category?.trim() || 'UNKNOWN',
     hasHeaderImage: headerType === 'IMAGE',
@@ -149,9 +185,10 @@ export function extractTemplatePartsFromRaw(
   headerText: string;
   bodyText: string;
   buttonLabels: string[];
+  urlButtons: WhatsAppTemplateUrlButton[];
 } {
   if (!rawTemplate || typeof rawTemplate !== 'object') {
-    return { headerType: 'NONE', headerText: '', bodyText: '', buttonLabels: [] };
+    return { headerType: 'NONE', headerText: '', bodyText: '', buttonLabels: [], urlButtons: [] };
   }
   const components = (rawTemplate as MetaMessageTemplate).components;
   return {
@@ -159,5 +196,6 @@ export function extractTemplatePartsFromRaw(
     headerText: extractTemplateHeaderText(components),
     bodyText: extractTemplateBodyText(components),
     buttonLabels: extractTemplateButtonLabels(components),
+    urlButtons: extractUrlButtonsWithParameters(components),
   };
 }

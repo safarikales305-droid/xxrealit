@@ -121,6 +121,11 @@ export class CreateWhatsAppMarketingCampaignDto {
   waHeaderImageMediaId?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  waUrlButtonParameter?: string;
+
+  @IsOptional()
   @IsArray()
   @ArrayUnique()
   @IsEnum(UserRole, { each: true })

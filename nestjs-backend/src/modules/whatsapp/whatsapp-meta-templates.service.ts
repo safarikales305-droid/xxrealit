@@ -42,6 +42,7 @@ export type WhatsAppMetaTemplateRow = {
   headerType: string;
   bodyText: string;
   variablesCount: number;
+  urlButtonParamCount: number;
   isStale: boolean;
   lastSyncedAt: string | null;
   rawTemplate?: unknown;
@@ -118,6 +119,7 @@ export class WhatsAppMetaTemplatesService {
     headerType: string;
     bodyText: string;
     variablesCount: number;
+    urlButtonParamCount: number;
     isStale: boolean;
     lastSyncedAt: Date | null;
   }): WhatsAppMetaTemplateRow {
@@ -137,6 +139,7 @@ export class WhatsAppMetaTemplatesService {
       headerType: row.headerType || 'NONE',
       bodyText: row.bodyText,
       variablesCount: row.variablesCount,
+      urlButtonParamCount: row.urlButtonParamCount,
       isStale: row.isStale,
       lastSyncedAt: row.lastSyncedAt?.toISOString() ?? null,
       rawTemplate: row.rawTemplate ?? undefined,
@@ -222,6 +225,7 @@ export class WhatsAppMetaTemplatesService {
       headerType: parsed.headerType,
       bodyText: parsed.bodyText,
       variablesCount: parsed.variablesCount,
+      urlButtonParamCount: parsed.urlButtonParamCount,
       isStale: false,
       lastSyncedAt,
     };
@@ -466,6 +470,7 @@ export class WhatsAppMetaTemplatesService {
             `[WhatsApp Templates] template name=${parsed.templateName} lang=${parsed.language} ` +
               `rawStatus=${parsed.rawStatus} normalized=${normalizedStatus} usable=${isUsable} ` +
               `headerType=${parsed.headerType} variablesCount=${parsed.variablesCount} ` +
+              `urlButtonParamCount=${parsed.urlButtonParamCount} ` +
               `parameterFormat=${parsed.parameterFormat}`,
           );
 

@@ -32,6 +32,8 @@ import {
   WHATSAPP_CAMPAIGN_TEMPLATE_HELP,
   WHATSAPP_HEADER_IMAGE_HELP,
   WHATSAPP_HEADER_IMAGE_REQUIRED_MSG,
+  WHATSAPP_URL_BUTTON_PARAMETER_HELP,
+  WHATSAPP_URL_BUTTON_PARAMETER_REQUIRED_MSG,
   WHATSAPP_NO_APPROVED_TEMPLATES_MSG,
   WHATSAPP_TARGET_ROLES,
   WHATSAPP_TEMPLATE_REQUIRED_MSG,
@@ -53,6 +55,7 @@ const emptyForm = {
   waTemplateVariables: '{jmeno}\n{odkaz}',
   waHeaderImageUrl: '',
   waHeaderImageMediaId: '',
+  waUrlButtonParameter: '',
   messageTemplate:
     'Náhled: Ahoj {jmeno}! Máme pro vás novinku na XXrealit. Váš kredit: {kredit} Kč. {odkaz}',
   targetRoles: [] as string[],
@@ -113,14 +116,24 @@ export default function AdminWhatsAppCampaignsPage() {
 
   const selectedTemplate = approvedTemplates.find((t) => t.id === form.waMetaTemplateId) ?? null;
   const requiresHeaderImage = selectedTemplate?.headerType === 'IMAGE';
+  const requiresUrlButtonParam = (selectedTemplate?.urlButtonParamCount ?? 0) > 0;
 
   function hasHeaderImageInput(): boolean {
     return Boolean(form.waHeaderImageMediaId.trim());
   }
 
+  function hasUrlButtonParameterInput(): boolean {
+    return Boolean(form.waUrlButtonParameter.trim());
+  }
+
   function showHeaderImageRequiredMsg() {
     setStatusIsError(true);
     setStatusMsg(WHATSAPP_HEADER_IMAGE_REQUIRED_MSG);
+  }
+
+  function showUrlButtonParameterRequiredMsg() {
+    setStatusIsError(true);
+    setStatusMsg(WHATSAPP_URL_BUTTON_PARAMETER_REQUIRED_MSG);
   }
 
   function campaignHasHeaderImage(c: WhatsAppCampaignRow): boolean {
@@ -129,6 +142,26 @@ export default function AdminWhatsAppCampaignsPage() {
 
   function campaignNeedsHeaderImage(c: WhatsAppCampaignRow): boolean {
     return c.waTemplateHeaderType === 'IMAGE';
+  }
+
+  function campaignNeedsUrlButtonParam(c: WhatsAppCampaignRow): boolean {
+    return (c.waTemplateUrlButtonParamCount ?? 0) > 0;
+  }
+
+  function campaignHasUrlButtonParam(c: WhatsAppCampaignRow): boolean {
+    return Boolean(c.waUrlButtonParameter?.trim());
+  }
+
+  function campaignFormReady(): boolean {
+    if (requiresHeaderImage && !hasHeaderImageInput()) return false;
+    if (requiresUrlButtonParam && !hasUrlButtonParameterInput()) return false;
+    return true;
+  }
+
+  function campaignActionReady(c: WhatsAppCampaignRow): boolean {
+    if (campaignNeedsHeaderImage(c) && !campaignHasHeaderImage(c)) return false;
+    if (campaignNeedsUrlButtonParam(c) && !campaignHasUrlButtonParam(c)) return false;
+    return true;
   }
 
   function campaignImagePreviewSrc(): string | null {
@@ -379,6 +412,7 @@ export default function AdminWhatsAppCampaignsPage() {
       waTemplateVariables: parseTemplateVariables(),
       waHeaderImageUrl: form.waHeaderImageUrl.trim() || undefined,
       waHeaderImageMediaId: form.waHeaderImageMediaId.trim() || undefined,
+      waUrlButtonParameter: form.waUrlButtonParameter.trim() || undefined,
       messageTemplate: form.messageTemplate.trim(),
       targetRoles: form.targetRoles,
       targetRegions: form.targetRegions,
@@ -404,6 +438,10 @@ export default function AdminWhatsAppCampaignsPage() {
     }
     if (requiresHeaderImage && !hasHeaderImageInput()) {
       showHeaderImageRequiredMsg();
+      return;
+    }
+    if (requiresUrlButtonParam && !hasUrlButtonParameterInput()) {
+      showUrlButtonParameterRequiredMsg();
       return;
     }
     const p = await nestAdminWhatsAppCampaignPreview(token, buildPayload());
@@ -456,6 +494,10 @@ export default function AdminWhatsAppCampaignsPage() {
     }
     if (requiresHeaderImage && !hasHeaderImageInput()) {
       showHeaderImageRequiredMsg();
+      return;
+    }
+    if (requiresUrlButtonParam && !hasUrlButtonParameterInput()) {
+      showUrlButtonParameterRequiredMsg();
       return;
     }
     setCreating(true);
@@ -514,6 +556,10 @@ export default function AdminWhatsAppCampaignsPage() {
       showHeaderImageRequiredMsg();
       return;
     }
+    if (campaignNeedsUrlButtonParam(campaign) && !campaignHasUrlButtonParam(campaign)) {
+      showUrlButtonParameterRequiredMsg();
+      return;
+    }
     setBusyId(campaign.id);
     setStatusMsg(null);
     setStatusIsError(false);
@@ -531,6 +577,10 @@ export default function AdminWhatsAppCampaignsPage() {
     if (!token) return;
     if (campaignNeedsHeaderImage(campaign) && !campaignHasHeaderImage(campaign)) {
       showHeaderImageRequiredMsg();
+      return;
+    }
+    if (campaignNeedsUrlButtonParam(campaign) && !campaignHasUrlButtonParam(campaign)) {
+      showUrlButtonParameterRequiredMsg();
       return;
     }
     if (!window.confirm(`Opravdu spustit kampaň „${campaign.name}"?`)) return;
@@ -1043,6 +1093,8 @@ export default function AdminWhatsAppCampaignsPage() {
                         waHeaderImageUrl: tpl?.headerType === 'IMAGE' ? f.waHeaderImageUrl : '',
                         waHeaderImageMediaId:
                           tpl?.headerType === 'IMAGE' ? f.waHeaderImageMediaId : '',
+                        waUrlButtonParameter:
+                          tpl && tpl.urlButtonParamCount > 0 ? f.waUrlButtonParameter : '',
                       }));
                     }}
                     className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
@@ -1053,6 +1105,7 @@ export default function AdminWhatsAppCampaignsPage() {
                       <option key={t.id} value={t.id}>
                         {t.templateName} ({t.language})
                         {t.headerType === 'IMAGE' ? ' · HEADER IMAGE' : ''}
+                        {t.urlButtonParamCount > 0 ? ' · URL BUTTON' : ''}
                       </option>
                     ))}
                   </select>
@@ -1068,6 +1121,9 @@ export default function AdminWhatsAppCampaignsPage() {
                   <p className="mt-1 text-xs text-zinc-600">
                     Kategorie: {selectedTemplate.category} · Header: {selectedTemplate.headerType} ·
                     Proměnných: {selectedTemplate.variablesCount}
+                    {selectedTemplate.urlButtonParamCount > 0
+                      ? ` · URL tlačítek s parametrem: ${selectedTemplate.urlButtonParamCount}`
+                      : ''}
                   </p>
                   <p className="mt-2 whitespace-pre-wrap text-zinc-800">{selectedTemplate.bodyText}</p>
                 </div>
@@ -1132,6 +1188,39 @@ export default function AdminWhatsAppCampaignsPage() {
                       alt="Náhled obrázku kampaně"
                       className="max-h-48 rounded-lg border border-zinc-200 object-contain"
                     />
+                  ) : null}
+                </div>
+              ) : null}
+              {requiresUrlButtonParam ? (
+                <div className="space-y-3 rounded-lg border border-violet-200 bg-violet-50/60 p-3">
+                  <p className="text-xs font-semibold uppercase text-violet-800">
+                    URL button parameter — povinné *
+                  </p>
+                  <p className="rounded-md border border-violet-200 bg-white/80 px-3 py-2 text-xs text-violet-950">
+                    {WHATSAPP_URL_BUTTON_PARAMETER_HELP}
+                  </p>
+                  <div>
+                    <label className="text-xs font-semibold uppercase text-zinc-500">
+                      Koncová část odkazu
+                    </label>
+                    <input
+                      type="text"
+                      value={form.waUrlButtonParameter}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, waUrlButtonParameter: e.target.value }))
+                      }
+                      placeholder="registrace nebo makleri"
+                      className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    />
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Např. pro odkaz https://example.com/registrace zadejte{' '}
+                      <span className="font-mono">registrace</span>.
+                    </p>
+                  </div>
+                  {!hasUrlButtonParameterInput() ? (
+                    <p className="text-xs font-medium text-amber-800">
+                      {WHATSAPP_URL_BUTTON_PARAMETER_REQUIRED_MSG}
+                    </p>
                   ) : null}
                 </div>
               ) : null}
@@ -1303,14 +1392,14 @@ export default function AdminWhatsAppCampaignsPage() {
             <button
               type="button"
               onClick={() => void onPreview()}
-              disabled={requiresHeaderImage && !hasHeaderImageInput()}
+              disabled={!campaignFormReady()}
               className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
             >
               Náhled
             </button>
             <button
               type="submit"
-              disabled={creating || (requiresHeaderImage && !hasHeaderImageInput())}
+              disabled={creating || !campaignFormReady()}
               className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
               {creating ? 'Ukládám…' : 'Vytvořit kampaň'}
@@ -1347,6 +1436,7 @@ export default function AdminWhatsAppCampaignsPage() {
                         {c.waTemplateName || '—'}
                         {c.waTemplateLanguage ? ` (${c.waTemplateLanguage})` : ''}
                         {c.waTemplateHeaderType === 'IMAGE' ? ' · HEADER IMAGE' : ''}
+                        {(c.waTemplateUrlButtonParamCount ?? 0) > 0 ? ' · URL BUTTON' : ''}
                       </td>
                       <td className="px-2 py-3 text-xs">
                         {campaignNeedsHeaderImage(c) ? (
@@ -1370,9 +1460,13 @@ export default function AdminWhatsAppCampaignsPage() {
                         <div className="flex flex-wrap gap-1">
                           <button
                             type="button"
-                            disabled={busyId === c.id || c.status === 'SENDING'}
+                            disabled={
+                              busyId === c.id ||
+                              c.status === 'SENDING' ||
+                              !campaignActionReady(c)
+                            }
                             onClick={() => void onTest(c)}
-                            className="rounded border border-zinc-200 px-2 py-1 text-xs font-semibold"
+                            className="rounded border border-zinc-200 px-2 py-1 text-xs font-semibold disabled:opacity-50"
                           >
                             Test
                           </button>
@@ -1402,9 +1496,13 @@ export default function AdminWhatsAppCampaignsPage() {
                           </button>
                           <button
                             type="button"
-                            disabled={busyId === c.id || c.status === 'SENDING'}
+                            disabled={
+                              busyId === c.id ||
+                              c.status === 'SENDING' ||
+                              !campaignActionReady(c)
+                            }
                             onClick={() => void onRun(c)}
-                            className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800"
+                            className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800 disabled:opacity-50"
                           >
                             Spustit
                           </button>
