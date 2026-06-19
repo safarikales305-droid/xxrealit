@@ -61,6 +61,11 @@ import {
   type WhatsAppTemplateVars,
 } from './whatsapp-message-template.util';
 import { normalizeToE164, whatsAppDigits } from './whatsapp-phone.util';
+import {
+  formatInvalidManualPhonesMessage,
+  parseManualPhoneInputs,
+  phoneDigitsToE164,
+} from './whatsapp-manual-phones.util';
 import type {
   CreateWhatsAppMarketingCampaignDto,
   PreviewWhatsAppCampaignDto,
@@ -110,7 +115,15 @@ export class WhatsAppMarketingService {
   }
 
   private normalizePhone(raw: string): string | null {
-    return normalizeToE164(raw);
+    return phoneDigitsToE164(raw) ?? normalizeToE164(raw);
+  }
+
+  private parseManualPhonesForStorage(inputs: string[] | undefined | null): string[] {
+    const parsed = parseManualPhoneInputs(inputs);
+    if (parsed.invalid.length > 0) {
+      throw new BadRequestException(formatInvalidManualPhonesMessage(parsed.invalid));
+    }
+    return parsed.phones;
   }
 
   private userPhone(u: {
@@ -884,7 +897,12 @@ export class WhatsAppMarketingService {
     this.assertCampaignHeaderImageReady(tpl);
     this.assertCampaignUrlButtonReady(tpl);
 
-    const phone = this.normalizePhone(toPhone?.trim() || this.config.getTestPhone() || '');
+    const phone = this.normalizePhone(
+      toPhone?.trim() ||
+        this.config.getTestPhone() ||
+        campaign.manualPhones[0] ||
+        '',
+    );
     if (!phone) {
       throw new BadRequestException('Zadejte platné testovací telefonní číslo.');
     }
@@ -1073,9 +1091,7 @@ export class WhatsAppMarketingService {
         targetRoles: dto.targetRoles ?? [],
         targetRegions: (dto.targetRegions ?? []).map((s) => s.trim()).filter(Boolean),
         targetCities: (dto.targetCities ?? []).map((s) => s.trim()).filter(Boolean),
-        manualPhones: (dto.manualPhones ?? [])
-          .map((p) => this.normalizePhone(p))
-          .filter((p): p is string => Boolean(p)),
+        manualPhones: this.parseManualPhonesForStorage(dto.manualPhones),
         createdByUserId: adminUserId,
       },
     });
@@ -1217,11 +1233,7 @@ export class WhatsAppMarketingService {
           ? { targetCities: dto.targetCities.map((s) => s.trim()).filter(Boolean) }
           : {}),
         ...(dto.manualPhones !== undefined
-          ? {
-              manualPhones: dto.manualPhones
-                .map((p) => this.normalizePhone(p))
-                .filter((p): p is string => Boolean(p)),
-            }
+          ? { manualPhones: this.parseManualPhonesForStorage(dto.manualPhones) }
           : {}),
       },
     });
@@ -1364,6 +1376,25 @@ export class WhatsAppMarketingService {
     }
   }
 
+  async getCampaignRecipientPreview(campaignId: string) {
+    const campaign = await this.prisma.whatsAppMarketingCampaign.findUnique({
+      where: { id: campaignId },
+    });
+    if (!campaign) throw new NotFoundException('Kampaň nenalezena.');
+
+    const manualParsed = parseManualPhoneInputs(campaign.manualPhones);
+    const recipients = await this.resolveRecipients(campaign);
+
+    return {
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      recipientCount: recipients.length,
+      manualPhoneCount: manualParsed.phones.length,
+      invalidManualPhones: manualParsed.invalid,
+      recipientPhones: recipients.map((r) => whatsAppDigits(r.phone)),
+    };
+  }
+
   async testCampaign(campaignId: string, toPhone?: string) {
     const campaign = await this.prisma.whatsAppMarketingCampaign.findUnique({
       where: { id: campaignId },
@@ -1374,7 +1405,12 @@ export class WhatsAppMarketingService {
     this.assertCampaignHeaderImageReady(tpl);
     this.assertCampaignUrlButtonReady(tpl);
 
-    const phone = this.normalizePhone(toPhone?.trim() || this.config.getTestPhone() || '');
+    const phone = this.normalizePhone(
+      toPhone?.trim() ||
+        this.config.getTestPhone() ||
+        campaign.manualPhones[0] ||
+        '',
+    );
     if (!phone) {
       throw new BadRequestException('Zadejte platné testovací telefonní číslo.');
     }
@@ -1536,7 +1572,7 @@ export class WhatsAppMarketingService {
     for (const raw of campaign.manualPhones) {
       const phone = this.normalizePhone(raw);
       if (!phone) {
-        this.logger.warn(`[Campaign Recipients] invalid manual phone skipped: ${raw}`);
+        this.logger.warn(`[Campaign Recipients] invalid stored manual phone skipped: ${raw}`);
         continue;
       }
       addRecipient({ phone });

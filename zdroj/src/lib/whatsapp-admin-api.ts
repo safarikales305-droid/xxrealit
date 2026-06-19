@@ -987,6 +987,20 @@ export async function nestAdminWhatsAppCampaignLastError(
   }>(token, `/campaigns/${campaignId}/last-error`);
 }
 
+export async function nestAdminWhatsAppCampaignRecipientPreview(
+  token: string,
+  campaignId: string,
+): Promise<{
+  campaignId: string;
+  campaignName: string;
+  recipientCount: number;
+  manualPhoneCount: number;
+  invalidManualPhones: string[];
+  recipientPhones: string[];
+} | null> {
+  return adminFetch(token, `/campaigns/${campaignId}/recipient-preview`);
+}
+
 export async function nestAdminWhatsAppCampaignDelete(
   token: string,
   campaignId: string,
@@ -997,14 +1011,19 @@ export async function nestAdminWhatsAppCampaignDelete(
   return data?.ok === true;
 }
 
+export function parseManualPhoneTokens(text: string): string[] {
+  return text
+    .split(/[\n,;\s]+/)
+    .map((part) => part.trim().replace(/^["']|["']$/g, ''))
+    .filter(Boolean);
+}
+
 export function parsePhonesFromCsv(text: string): string[] {
   const lines = text.split(/\r?\n/);
   const phones: string[] = [];
   for (const line of lines) {
-    const parts = line.split(/[;,]/);
-    for (const part of parts) {
-      const p = part.trim().replace(/^["']|["']$/g, '');
-      if (p && /\+?\d{9,}/.test(p)) phones.push(p);
+    for (const part of parseManualPhoneTokens(line)) {
+      if (/\+?\d{9,}/.test(part)) phones.push(part);
     }
   }
   return [...new Set(phones)];

@@ -30,6 +30,8 @@ import {
   type WhatsAppTemplateSyncSummaryRow,
   type WhatsAppTemplateSyncDebug,
   parsePhonesFromCsv,
+  parseManualPhoneTokens,
+  nestAdminWhatsAppCampaignRecipientPreview,
   WHATSAPP_CAMPAIGN_TYPE_LABELS,
   WHATSAPP_CAMPAIGN_TEMPLATE_HELP,
   WHATSAPP_HEADER_IMAGE_HELP,
@@ -81,7 +83,7 @@ function campaignToForm(c: WhatsAppCampaignRow): typeof emptyForm {
     targetRoles: [...c.targetRoles],
     targetRegions: [...c.targetRegions],
     targetCities: c.targetCities.join('\n'),
-    manualPhones: c.manualPhones.join('\n'),
+    manualPhones: c.manualPhones.map((p) => (p.startsWith('+') ? p : `+${p}`)).join(', '),
     csvText: '',
   };
 }
@@ -437,12 +439,13 @@ export default function AdminWhatsAppCampaignsPage() {
   }
 
   function buildPhones(): string[] {
-    const manual = form.manualPhones
-      .split(/[\n,;]+/)
-      .map((p) => p.trim())
-      .filter(Boolean);
+    const manual = parseManualPhoneTokens(form.manualPhones);
     const fromCsv = parsePhonesFromCsv(form.csvText);
     return [...new Set([...manual, ...fromCsv])];
+  }
+
+  function manualPhonesPreviewCount(): number {
+    return buildPhones().length;
   }
 
   function parseTemplateVariables(): string[] {
@@ -697,7 +700,29 @@ export default function AdminWhatsAppCampaignsPage() {
       showUrlButtonParameterRequiredMsg();
       return;
     }
-    if (!window.confirm(`Opravdu spustit kampaň „${campaign.name}"?`)) return;
+    const preview = await nestAdminWhatsAppCampaignRecipientPreview(token, campaign.id);
+    if (!preview) {
+      setStatusIsError(true);
+      setStatusMsg('Nepodařilo se spočítat příjemce kampaně.');
+      return;
+    }
+    if (preview.invalidManualPhones.length > 0) {
+      setStatusIsError(true);
+      setStatusMsg(`Neplatná čísla: ${preview.invalidManualPhones.join(', ')}`);
+      return;
+    }
+    if (preview.recipientCount === 0) {
+      setStatusIsError(true);
+      setStatusMsg('Kampaň nemá žádné příjemce — zkontrolujte ruční čísla nebo filtry.');
+      return;
+    }
+    if (
+      !window.confirm(
+        `Opravdu spustit kampaň „${campaign.name}"?\nPříjemci: ${preview.recipientCount}`,
+      )
+    ) {
+      return;
+    }
     setBusyId(campaign.id);
     setStatusMsg(null);
     setStatusIsError(false);
@@ -1497,8 +1522,13 @@ export default function AdminWhatsAppCampaignsPage() {
                   value={form.manualPhones}
                   onChange={(e) => setForm((f) => ({ ...f, manualPhones: e.target.value }))}
                   className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  placeholder="+420123456789"
+                  placeholder="+420602882100, +420735776795 nebo jedno číslo na řádek"
                 />
+                {manualPhonesPreviewCount() > 0 ? (
+                  <p className="mt-1 text-xs text-zinc-600">
+                    Ruční příjemci: {manualPhonesPreviewCount()}
+                  </p>
+                ) : null}
               </div>
 
               <div>

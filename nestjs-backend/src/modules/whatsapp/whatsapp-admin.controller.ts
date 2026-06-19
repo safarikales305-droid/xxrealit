@@ -154,6 +154,11 @@ export class WhatsAppAdminController {
     return this.marketing.getLastCampaignLog(id);
   }
 
+  @Get('campaigns/:id/recipient-preview')
+  campaignRecipientPreview(@Param('id') id: string) {
+    return this.marketing.getCampaignRecipientPreview(id);
+  }
+
   @Get('campaigns/:id')
   getCampaign(@Param('id') id: string) {
     return this.marketing.getCampaign(id);
