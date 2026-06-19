@@ -21,9 +21,11 @@ import {
 import {
   type MetaMessageTemplate,
   type MetaTemplatesPage,
+  type WhatsAppTemplateComponentSummary,
   type WhatsAppTemplateSkipReason,
   type WhatsAppTemplateSyncDebug,
   parseMetaTemplateItem,
+  resolveTemplateRequirementsFromRaw,
 } from './whatsapp-template-sync.util';
 
 const GRAPH_BASE = 'https://graph.facebook.com';
@@ -43,6 +45,9 @@ export type WhatsAppMetaTemplateRow = {
   bodyText: string;
   variablesCount: number;
   urlButtonParamCount: number;
+  needsHeaderImage: boolean;
+  needsUrlButtonParameter: boolean;
+  componentsSummary: WhatsAppTemplateComponentSummary;
   isStale: boolean;
   lastSyncedAt: string | null;
   rawTemplate?: unknown;
@@ -125,6 +130,7 @@ export class WhatsAppMetaTemplatesService {
   }): WhatsAppMetaTemplateRow {
     const normalizedStatus =
       row.normalizedStatus?.trim() || normalizeTemplateStatus(row.rawStatus || row.status);
+    const requirements = resolveTemplateRequirementsFromRaw(row.rawTemplate);
     return {
       id: row.id,
       wabaId: row.wabaId ?? '',
@@ -136,10 +142,13 @@ export class WhatsAppMetaTemplatesService {
       rawStatus: row.rawStatus || row.status,
       normalizedStatus,
       isUsable: row.usable || isUsableTemplateStatus(normalizedStatus),
-      headerType: row.headerType || 'NONE',
-      bodyText: row.bodyText,
-      variablesCount: row.variablesCount,
-      urlButtonParamCount: row.urlButtonParamCount,
+      headerType: requirements.headerFormat ?? requirements.headerType,
+      bodyText: requirements.componentsSummary.bodyText || row.bodyText,
+      variablesCount: requirements.variablesCount,
+      urlButtonParamCount: requirements.urlButtonParamCount,
+      needsHeaderImage: requirements.needsHeaderImage,
+      needsUrlButtonParameter: requirements.needsUrlButtonParameter,
+      componentsSummary: requirements.componentsSummary,
       isStale: row.isStale,
       lastSyncedAt: row.lastSyncedAt?.toISOString() ?? null,
       rawTemplate: row.rawTemplate ?? undefined,

@@ -69,6 +69,8 @@ export class WhatsAppCloudApiService {
       headerType?: string;
       headerImageMediaId?: string | null;
       urlButtonParamCount?: number;
+      needsHeaderImage?: boolean;
+      needsUrlButtonParameter?: boolean;
       wabaId?: string;
     },
   ): Promise<{
@@ -102,6 +104,9 @@ export class WhatsAppCloudApiService {
             ? logMeta.headerType
             : 'NONE',
         urlButtonParamCount: logMeta.urlButtonParamCount ?? 0,
+        needsHeaderImage: logMeta.needsHeaderImage ?? logMeta.headerType === 'IMAGE',
+        needsUrlButtonParameter:
+          logMeta.needsUrlButtonParameter ?? (logMeta.urlButtonParamCount ?? 0) > 0,
       });
     }
 

@@ -22,7 +22,11 @@ export type MetaTemplatesPage = {
   error?: { message?: string; code?: number; type?: string };
 };
 
+export type WhatsAppTemplateHeaderFormat = 'IMAGE' | 'VIDEO' | 'DOCUMENT' | 'TEXT';
+
 export type WhatsAppTemplateHeaderType = 'IMAGE' | 'TEXT' | 'NONE';
+
+export type WhatsAppTemplateComponentKind = 'HEADER' | 'BODY' | 'FOOTER' | 'BUTTONS';
 
 export type WhatsAppTemplateSkipReason = {
   name: string;
@@ -39,19 +43,63 @@ export type WhatsAppTemplateSyncDebug = {
   reasonSkipped: WhatsAppTemplateSkipReason[];
 };
 
+export type WhatsAppTemplateUrlButton = {
+  index: number;
+  buttonText: string;
+  urlTemplate: string;
+};
+
+export type WhatsAppTemplateComponentSummary = {
+  componentTypes: WhatsAppTemplateComponentKind[];
+  headerFormat: WhatsAppTemplateHeaderFormat | null;
+  headerText: string;
+  bodyText: string;
+  footerText: string;
+  buttonLabels: string[];
+  bodyVariablesCount: number;
+  urlButtonsWithVariable: WhatsAppTemplateUrlButton[];
+  needsHeaderImage: boolean;
+  needsUrlButtonParameter: boolean;
+};
+
+export function metaTemplateComponents(
+  rawTemplate: unknown,
+): MetaTemplateComponent[] | undefined {
+  if (!rawTemplate || typeof rawTemplate !== 'object') return undefined;
+  const components = (rawTemplate as MetaMessageTemplate).components;
+  return Array.isArray(components) ? components : undefined;
+}
+
 export function extractTemplateBodyText(components?: MetaTemplateComponent[]): string {
   if (!components?.length) return '';
   const body = components.find((c) => c.type?.toUpperCase() === 'BODY');
   return body?.text?.trim() ?? '';
 }
 
+export function extractTemplateFooterText(components?: MetaTemplateComponent[]): string {
+  if (!components?.length) return '';
+  const footer = components.find((c) => c.type?.toUpperCase() === 'FOOTER');
+  return footer?.text?.trim() ?? '';
+}
+
+export function detectTemplateHeaderFormat(
+  components?: MetaTemplateComponent[],
+): WhatsAppTemplateHeaderFormat | null {
+  if (!components?.length) return null;
+  const header = components.find((c) => c.type?.toUpperCase() === 'HEADER');
+  if (!header) return null;
+  const format = header.format?.toUpperCase();
+  if (format === 'IMAGE') return 'IMAGE';
+  if (format === 'VIDEO') return 'VIDEO';
+  if (format === 'DOCUMENT') return 'DOCUMENT';
+  if (format === 'TEXT') return 'TEXT';
+  return null;
+}
+
 export function detectTemplateHeaderType(
   components?: MetaTemplateComponent[],
 ): WhatsAppTemplateHeaderType {
-  if (!components?.length) return 'NONE';
-  const header = components.find((c) => c.type?.toUpperCase() === 'HEADER');
-  if (!header) return 'NONE';
-  const format = header.format?.toUpperCase();
+  const format = detectTemplateHeaderFormat(components);
   if (format === 'IMAGE') return 'IMAGE';
   if (format === 'TEXT') return 'TEXT';
   return 'NONE';
@@ -64,11 +112,11 @@ export function extractTemplateHeaderText(components?: MetaTemplateComponent[]):
   return '';
 }
 
-export type WhatsAppTemplateUrlButton = {
-  index: number;
-  buttonText: string;
-  urlTemplate: string;
-};
+const URL_BUTTON_VARIABLE_RE = /\{\{[^}]+\}\}/;
+
+export function urlButtonHasVariable(url: string): boolean {
+  return URL_BUTTON_VARIABLE_RE.test(url.trim());
+}
 
 export function extractUrlButtonsWithParameters(
   components?: MetaTemplateComponent[],
@@ -82,7 +130,7 @@ export function extractUrlButtonsWithParameters(
     const btnType = btn.type?.toUpperCase();
     if (btnType !== 'URL') return;
     const url = btn.url?.trim() || '';
-    if (/\{\{[^}]+\}\}/.test(url)) {
+    if (urlButtonHasVariable(url)) {
       result.push({
         index,
         buttonText: btn.text?.trim() || '',
@@ -107,7 +155,7 @@ export function extractTemplateButtonLabels(components?: MetaTemplateComponent[]
 }
 
 export function hasHeaderImageComponent(components?: MetaTemplateComponent[]): boolean {
-  return detectTemplateHeaderType(components) === 'IMAGE';
+  return detectTemplateHeaderFormat(components) === 'IMAGE';
 }
 
 /** Počítá proměnné jen z BODY textu. */
@@ -133,6 +181,93 @@ export function countTemplateBodyVariables(
   return named?.length ?? 0;
 }
 
+export function parseTemplateComponentSummary(
+  rawTemplate: unknown,
+): WhatsAppTemplateComponentSummary {
+  const components = metaTemplateComponents(rawTemplate);
+  const componentTypes: WhatsAppTemplateComponentKind[] = [];
+  if (components?.length) {
+    for (const comp of components) {
+      const type = comp.type?.toUpperCase();
+      if (type === 'HEADER' || type === 'BODY' || type === 'FOOTER' || type === 'BUTTONS') {
+        if (!componentTypes.includes(type)) {
+          componentTypes.push(type);
+        }
+      }
+    }
+  }
+
+  const headerFormat = detectTemplateHeaderFormat(components);
+  const bodyText = extractTemplateBodyText(components);
+  const footerText = extractTemplateFooterText(components);
+  const urlButtonsWithVariable = extractUrlButtonsWithParameters(components);
+  const bodyVariablesCount = countTemplateBodyVariables(components);
+
+  return {
+    componentTypes,
+    headerFormat,
+    headerText: extractTemplateHeaderText(components),
+    bodyText,
+    footerText,
+    buttonLabels: extractTemplateButtonLabels(components),
+    bodyVariablesCount,
+    urlButtonsWithVariable,
+    needsHeaderImage: headerFormat === 'IMAGE',
+    needsUrlButtonParameter: urlButtonsWithVariable.length > 0,
+  };
+}
+
+export type WhatsAppTemplateRequirements = {
+  headerType: WhatsAppTemplateHeaderType;
+  headerFormat: WhatsAppTemplateHeaderFormat | null;
+  variablesCount: number;
+  urlButtonParamCount: number;
+  needsHeaderImage: boolean;
+  needsUrlButtonParameter: boolean;
+  urlButtons: WhatsAppTemplateUrlButton[];
+  componentsSummary: WhatsAppTemplateComponentSummary;
+};
+
+/** Požadavky šablony vždy z raw Meta JSON (ne ze zastaralých DB sloupců). */
+export function resolveTemplateRequirementsFromRaw(
+  rawTemplate: unknown,
+): WhatsAppTemplateRequirements {
+  const componentsSummary = parseTemplateComponentSummary(rawTemplate);
+  const headerType = detectTemplateHeaderType(metaTemplateComponents(rawTemplate));
+  return {
+    headerType,
+    headerFormat: componentsSummary.headerFormat,
+    variablesCount: componentsSummary.bodyVariablesCount,
+    urlButtonParamCount: componentsSummary.urlButtonsWithVariable.length,
+    needsHeaderImage: componentsSummary.needsHeaderImage,
+    needsUrlButtonParameter: componentsSummary.needsUrlButtonParameter,
+    urlButtons: componentsSummary.urlButtonsWithVariable,
+    componentsSummary,
+  };
+}
+
+export function normalizeUrlButtonParameterInput(
+  input: string,
+  urlTemplate?: string,
+): string {
+  let value = input.trim();
+  if (!value) return '';
+
+  if (urlTemplate && value.includes('://')) {
+    const staticPrefix = urlTemplate.replace(URL_BUTTON_VARIABLE_RE, '').replace(/\/$/, '');
+    const normalized = value.replace(/\/$/, '');
+    if (staticPrefix && normalized.startsWith(staticPrefix)) {
+      value = normalized.slice(staticPrefix.length).replace(/^\//, '');
+    } else {
+      value = value.replace(/^https?:\/\/[^/]+\//, '').replace(/^\//, '');
+    }
+  } else if (value.includes('://')) {
+    value = value.replace(/^https?:\/\/[^/]+\//, '').replace(/^\//, '');
+  }
+
+  return value.trim();
+}
+
 export function parseMetaTemplateItem(item: MetaMessageTemplate): {
   metaTemplateId: string;
   templateName: string;
@@ -148,6 +283,7 @@ export function parseMetaTemplateItem(item: MetaMessageTemplate): {
   hasHeaderImage: boolean;
   parameterFormat: string;
   rawTemplateJson: string;
+  componentsSummary: WhatsAppTemplateComponentSummary;
 } | null {
   const metaTemplateId = item.id?.trim();
   const templateName = item.name?.trim();
@@ -155,26 +291,27 @@ export function parseMetaTemplateItem(item: MetaMessageTemplate): {
   if (!metaTemplateId || !templateName || !language) return null;
 
   const rawStatus = item.status?.trim() || 'UNKNOWN';
-  const bodyText = extractTemplateBodyText(item.components);
   const parameterFormat = item.parameter_format?.trim() || 'POSITIONAL';
+  const componentsSummary = parseTemplateComponentSummary(item);
   const headerType = detectTemplateHeaderType(item.components);
-  const urlButtons = extractUrlButtonsWithParameters(item.components);
+  const urlButtons = componentsSummary.urlButtonsWithVariable;
 
   return {
     metaTemplateId,
     templateName,
     language,
     rawStatus,
-    bodyText,
+    bodyText: componentsSummary.bodyText,
     headerType,
-    headerText: extractTemplateHeaderText(item.components),
-    buttonLabels: extractTemplateButtonLabels(item.components),
+    headerText: componentsSummary.headerText,
+    buttonLabels: componentsSummary.buttonLabels,
     urlButtonParamCount: urlButtons.length,
-    variablesCount: countTemplateBodyVariables(item.components, parameterFormat),
+    variablesCount: componentsSummary.bodyVariablesCount,
     category: item.category?.trim() || 'UNKNOWN',
-    hasHeaderImage: headerType === 'IMAGE',
+    hasHeaderImage: componentsSummary.needsHeaderImage,
     parameterFormat,
     rawTemplateJson: JSON.stringify(item),
+    componentsSummary,
   };
 }
 
@@ -184,18 +321,34 @@ export function extractTemplatePartsFromRaw(
   headerType: WhatsAppTemplateHeaderType;
   headerText: string;
   bodyText: string;
+  footerText: string;
   buttonLabels: string[];
   urlButtons: WhatsAppTemplateUrlButton[];
+  componentsSummary: WhatsAppTemplateComponentSummary;
 } {
-  if (!rawTemplate || typeof rawTemplate !== 'object') {
-    return { headerType: 'NONE', headerText: '', bodyText: '', buttonLabels: [], urlButtons: [] };
-  }
-  const components = (rawTemplate as MetaMessageTemplate).components;
+  const componentsSummary = parseTemplateComponentSummary(rawTemplate);
   return {
-    headerType: detectTemplateHeaderType(components),
-    headerText: extractTemplateHeaderText(components),
-    bodyText: extractTemplateBodyText(components),
-    buttonLabels: extractTemplateButtonLabels(components),
-    urlButtons: extractUrlButtonsWithParameters(components),
+    headerType: detectTemplateHeaderType(metaTemplateComponents(rawTemplate)),
+    headerText: componentsSummary.headerText,
+    bodyText: componentsSummary.bodyText,
+    footerText: componentsSummary.footerText,
+    buttonLabels: componentsSummary.buttonLabels,
+    urlButtons: componentsSummary.urlButtonsWithVariable,
+    componentsSummary,
+  };
+}
+
+export function describeTemplateComponentsForLog(rawTemplate: unknown): Record<string, unknown> {
+  const summary = parseTemplateComponentSummary(rawTemplate);
+  return {
+    componentTypes: summary.componentTypes,
+    headerFormat: summary.headerFormat,
+    bodyVariablesCount: summary.bodyVariablesCount,
+    urlButtonsWithVariable: summary.urlButtonsWithVariable.map((b) => ({
+      index: b.index,
+      urlTemplate: b.urlTemplate,
+    })),
+    needsHeaderImage: summary.needsHeaderImage,
+    needsUrlButtonParameter: summary.needsUrlButtonParameter,
   };
 }

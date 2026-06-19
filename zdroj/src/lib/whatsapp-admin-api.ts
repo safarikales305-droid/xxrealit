@@ -56,6 +56,8 @@ export type WhatsAppCampaignRow = {
   waUrlButtonParameter?: string | null;
   waTemplateHeaderType?: string | null;
   waTemplateUrlButtonParamCount?: number;
+  waTemplateNeedsHeaderImage?: boolean;
+  waTemplateNeedsUrlButtonParameter?: boolean;
   targetRoles: string[];
   targetRegions: string[];
   targetCities: string[];
@@ -90,6 +92,15 @@ export type WhatsAppMetaTemplateRow = {
   bodyText: string;
   variablesCount: number;
   urlButtonParamCount: number;
+  needsHeaderImage: boolean;
+  needsUrlButtonParameter: boolean;
+  componentsSummary?: {
+    componentTypes: string[];
+    headerFormat: string | null;
+    bodyVariablesCount: number;
+    needsHeaderImage: boolean;
+    needsUrlButtonParameter: boolean;
+  };
   isStale: boolean;
   lastSyncedAt: string | null;
   rawTemplate?: unknown;

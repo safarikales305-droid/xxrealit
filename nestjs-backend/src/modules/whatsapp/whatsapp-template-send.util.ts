@@ -12,6 +12,8 @@ export type WhatsAppTemplateSendConfig = {
   headerImageMediaId?: string;
   urlButtonParameters?: Array<{ index: number; text: string }>;
   urlButtonParamCount?: number;
+  needsHeaderImage?: boolean;
+  needsUrlButtonParameter?: boolean;
 };
 
 export const WHATSAPP_URL_BUTTON_PARAMETER_HELP =
@@ -19,6 +21,9 @@ export const WHATSAPP_URL_BUTTON_PARAMETER_HELP =
 
 export const WHATSAPP_URL_BUTTON_PARAMETER_REQUIRED_MSG =
   'Šablona má URL tlačítko s proměnnou — vyplňte parametr odkazu (např. registrace nebo makleri).';
+
+export const WHATSAPP_BODY_VARIABLES_COUNT_MSG =
+  'Počet hodnot proměnných šablony neodpovídá schválené Meta šabloně.';
 
 export class WhatsAppTemplatePayloadError extends BadRequestException {
   constructor(message: string) {
@@ -115,8 +120,11 @@ function templateComponents(
   config: WhatsAppTemplateSendConfig,
 ): Array<Record<string, unknown>> {
   const components: Array<Record<string, unknown>> = [];
+  const needsHeaderImage = config.needsHeaderImage ?? config.headerType === 'IMAGE';
+  const needsUrlButton =
+    config.needsUrlButtonParameter ?? (config.urlButtonParamCount ?? 0) > 0;
 
-  if (config.headerType === 'IMAGE') {
+  if (needsHeaderImage) {
     const header = buildHeaderImageComponent(config.headerImageMediaId);
     if (header) components.push(header);
   }
@@ -136,10 +144,12 @@ function templateComponents(
     }
   }
 
-  for (const btn of config.urlButtonParameters ?? []) {
-    const text = String(btn.text ?? '').trim();
-    if (text) {
-      components.push(buildUrlButtonComponent(btn.index, text));
+  if (needsUrlButton) {
+    for (const btn of config.urlButtonParameters ?? []) {
+      const text = String(btn.text ?? '').trim();
+      if (text) {
+        components.push(buildUrlButtonComponent(btn.index, text));
+      }
     }
   }
 
@@ -151,7 +161,11 @@ export function assertTemplatePayload(
   requestBody: MetaMessagesRequestBody,
   config: Pick<
     WhatsAppTemplateSendConfig,
-    'variablesCount' | 'headerType' | 'urlButtonParamCount'
+    | 'variablesCount'
+    | 'headerType'
+    | 'urlButtonParamCount'
+    | 'needsHeaderImage'
+    | 'needsUrlButtonParameter'
   >,
 ): void {
   const topForbidden = [
@@ -203,11 +217,15 @@ export function assertTemplatePayload(
     }
   }
 
-  if (config.headerType === 'IMAGE') {
+  const needsHeaderImage = config.needsHeaderImage ?? config.headerType === 'IMAGE';
+  const needsUrlButton =
+    config.needsUrlButtonParameter ?? (config.urlButtonParamCount ?? 0) > 0;
+
+  if (needsHeaderImage) {
     assertImageHeaderInPayload(requestBody);
   }
 
-  if ((config.urlButtonParamCount ?? 0) > 0) {
+  if (needsUrlButton) {
     assertUrlButtonInPayload(requestBody, config.urlButtonParamCount ?? 0);
   }
 }
@@ -389,6 +407,19 @@ export function assertZeroVariableTemplatePayload(
   variablesCount: number,
 ): void {
   assertTemplatePayload(requestBody, { variablesCount, headerType: 'NONE' });
+}
+
+export function assertBodyParametersCount(
+  variablesCount: number,
+  bodyParameters: string[],
+): void {
+  if (variablesCount <= 0) return;
+  const normalized = bodyParameters.map((v) => String(v).trim()).filter((v) => v.length > 0);
+  if (normalized.length !== variablesCount) {
+    throw new WhatsAppTemplatePayloadError(
+      `${WHATSAPP_BODY_VARIABLES_COUNT_MSG} Očekáváno: ${variablesCount}, zadáno: ${normalized.length}.`,
+    );
+  }
 }
 
 export function buildTemplateMessageRequest(

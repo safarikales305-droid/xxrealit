@@ -142,8 +142,26 @@ export default function AdminWhatsAppCampaignsPage() {
   const editingCampaign = editingCampaignId
     ? (campaigns.find((c) => c.id === editingCampaignId) ?? null)
     : null;
-  const requiresHeaderImage = selectedTemplate?.headerType === 'IMAGE';
-  const requiresUrlButtonParam = (selectedTemplate?.urlButtonParamCount ?? 0) > 0;
+  const requiresHeaderImage = Boolean(selectedTemplate?.needsHeaderImage);
+  const requiresUrlButtonParam = Boolean(selectedTemplate?.needsUrlButtonParameter);
+
+  function templateForCampaign(c: WhatsAppCampaignRow): WhatsAppMetaTemplateRow | null {
+    return approvedTemplates.find((t) => t.id === c.waMetaTemplateId) ?? null;
+  }
+
+  function campaignTemplateNeedsHeaderImage(c: WhatsAppCampaignRow): boolean {
+    const tpl = templateForCampaign(c);
+    if (tpl) return Boolean(tpl.needsHeaderImage);
+    return Boolean(c.waTemplateNeedsHeaderImage ?? c.waTemplateHeaderType === 'IMAGE');
+  }
+
+  function campaignTemplateNeedsUrlButtonParam(c: WhatsAppCampaignRow): boolean {
+    const tpl = templateForCampaign(c);
+    if (tpl) return Boolean(tpl.needsUrlButtonParameter);
+    return Boolean(
+      c.waTemplateNeedsUrlButtonParameter ?? (c.waTemplateUrlButtonParamCount ?? 0) > 0,
+    );
+  }
 
   function hasHeaderImageInput(): boolean {
     return Boolean(form.waHeaderImageMediaId.trim());
@@ -168,11 +186,11 @@ export default function AdminWhatsAppCampaignsPage() {
   }
 
   function campaignNeedsHeaderImage(c: WhatsAppCampaignRow): boolean {
-    return c.waTemplateHeaderType === 'IMAGE';
+    return campaignTemplateNeedsHeaderImage(c);
   }
 
   function campaignNeedsUrlButtonParam(c: WhatsAppCampaignRow): boolean {
-    return (c.waTemplateUrlButtonParamCount ?? 0) > 0;
+    return campaignTemplateNeedsUrlButtonParam(c);
   }
 
   function campaignHasUrlButtonParam(c: WhatsAppCampaignRow): boolean {
@@ -1194,11 +1212,13 @@ export default function AdminWhatsAppCampaignsPage() {
                         waMetaTemplateId: id,
                         waTemplateVariables:
                           tpl && tpl.variablesCount > 0 ? f.waTemplateVariables : '',
-                        waHeaderImageUrl: tpl?.headerType === 'IMAGE' ? f.waHeaderImageUrl : '',
-                        waHeaderImageMediaId:
-                          tpl?.headerType === 'IMAGE' ? f.waHeaderImageMediaId : '',
-                        waUrlButtonParameter:
-                          tpl && tpl.urlButtonParamCount > 0 ? f.waUrlButtonParameter : '',
+                        waHeaderImageUrl: selectedTemplate?.needsHeaderImage ? f.waHeaderImageUrl : '',
+                        waHeaderImageMediaId: selectedTemplate?.needsHeaderImage
+                          ? f.waHeaderImageMediaId
+                          : '',
+                        waUrlButtonParameter: selectedTemplate?.needsUrlButtonParameter
+                          ? f.waUrlButtonParameter
+                          : '',
                       }));
                     }}
                     className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
@@ -1208,8 +1228,8 @@ export default function AdminWhatsAppCampaignsPage() {
                     {approvedTemplates.map((t) => (
                       <option key={t.id} value={t.id}>
                         {t.templateName} ({t.language})
-                        {t.headerType === 'IMAGE' ? ' · HEADER IMAGE' : ''}
-                        {t.urlButtonParamCount > 0 ? ' · URL BUTTON' : ''}
+                        {t.needsHeaderImage ? ' · HEADER IMAGE' : ''}
+                        {t.needsUrlButtonParameter ? ' · URL BUTTON' : ''}
                       </option>
                     ))}
                   </select>
@@ -1223,9 +1243,13 @@ export default function AdminWhatsAppCampaignsPage() {
                     <span className="font-normal text-zinc-500">({selectedTemplate.language})</span>
                   </p>
                   <p className="mt-1 text-xs text-zinc-600">
-                    Kategorie: {selectedTemplate.category} · Header: {selectedTemplate.headerType} ·
+                    Kategorie: {selectedTemplate.category} · Header:{' '}
+                    {selectedTemplate.componentsSummary?.headerFormat ??
+                      selectedTemplate.headerType}{' '}
+                    · Komponenty:{' '}
+                    {selectedTemplate.componentsSummary?.componentTypes.join(', ') || '—'} ·
                     Proměnných: {selectedTemplate.variablesCount}
-                    {selectedTemplate.urlButtonParamCount > 0
+                    {selectedTemplate.needsUrlButtonParameter
                       ? ` · URL tlačítek s parametrem: ${selectedTemplate.urlButtonParamCount}`
                       : ''}
                   </p>
@@ -1559,8 +1583,8 @@ export default function AdminWhatsAppCampaignsPage() {
                       <td className="px-2 py-3 text-xs">
                         {c.waTemplateName || '—'}
                         {c.waTemplateLanguage ? ` (${c.waTemplateLanguage})` : ''}
-                        {c.waTemplateHeaderType === 'IMAGE' ? ' · HEADER IMAGE' : ''}
-                        {(c.waTemplateUrlButtonParamCount ?? 0) > 0 ? ' · URL BUTTON' : ''}
+                        {campaignTemplateNeedsHeaderImage(c) ? ' · HEADER IMAGE' : ''}
+                        {campaignTemplateNeedsUrlButtonParam(c) ? ' · URL BUTTON' : ''}
                       </td>
                       <td className="px-2 py-3 text-xs">
                         {campaignNeedsHeaderImage(c) ? (
