@@ -35,6 +35,7 @@ import { CreditsModule } from './modules/credits/credits.module';
 import { ProfessionalVerificationModule } from './modules/professional-verification/professional-verification.module';
 import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
 import { CommunicationModule } from './modules/communication/communication.module';
+import { PromoProfilesModule } from './modules/promo-profiles/promo-profiles.module';
 
 @Module({
   imports: [
@@ -76,6 +77,7 @@ import { CommunicationModule } from './modules/communication/communication.modul
     CreditsModule,
     WhatsAppModule,
     CommunicationModule,
+    PromoProfilesModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

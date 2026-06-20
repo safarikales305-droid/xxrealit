@@ -630,6 +630,8 @@ export class UsersService {
       facebookUrl: true,
       role: true,
       isPublicBrokerProfile: true,
+      isPromoProfile: true,
+      promoProfileActive: true,
       avatar: true,
       coverImage: true,
       bio: true,
@@ -702,11 +704,18 @@ export class UsersService {
 
     const isOwnerViewer = Boolean(viewerId && viewerId === userId);
     const canSeePrivate = isOwnerViewer || viewerIsAdmin;
+    const isActivePublicPromo =
+      Boolean(user.isPromoProfile) &&
+      Boolean(user.promoProfileActive) &&
+      Boolean(user.isPublicBrokerProfile);
     if (!canSeePrivate) {
-      if (!user.isPublicBrokerProfile) {
+      if (user.isPromoProfile) {
+        if (!isActivePublicPromo) {
+          throw new NotFoundException('User not found');
+        }
+      } else if (!user.isPublicBrokerProfile) {
         throw new NotFoundException('User not found');
-      }
-      if (user.role === UserRole.AGENT) {
+      } else if (user.role === UserRole.AGENT) {
         const ap = await this.prisma.agentProfile.findUnique({
           where: { userId },
           select: { isPublic: true },

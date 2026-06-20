@@ -32,6 +32,7 @@ import { VideoFeed } from '@/components/video-feed/VideoFeed';
 import { Navbar, type ViewMode } from './navbar';
 import { RightSidebar } from './right-sidebar';
 import { SidebarFilters } from './sidebar-filters';
+import { PortalProfilesCarousel } from './PortalProfilesCarousel';
 
 type Props = {
   items: PropertyFeedItem[];
@@ -1039,6 +1040,7 @@ export function HomeLayout({
 
                       <main className="min-w-0 xl:col-span-6">
                         <div className="mx-auto w-full max-w-[650px]">
+                        <PortalProfilesCarousel />
                         <div className="sticky top-0 z-20 w-full rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur md:p-3">
                           <div className="flex w-full min-w-0 items-center justify-between gap-2 md:gap-3">
                             <div className="relative min-w-0 flex-1">

@@ -24,6 +24,31 @@ function StoryPreviewCard({
 }) {
   const media = item.videoUrl || item.coverUrl;
 
+  if (item.kind === 'promo') {
+    return (
+      <button
+        type="button"
+        onClick={onOpenGate}
+        aria-label={item.subtitle}
+        className="flex h-full w-auto shrink-0 flex-col items-center justify-center gap-1 px-1"
+      >
+        <div className="aspect-square h-[min(72%,5.5rem)] max-h-[5.5rem] overflow-hidden rounded-full border-2 border-orange-200 bg-zinc-100 shadow-sm">
+          {media ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={media} alt="" className="size-full object-cover" />
+          ) : (
+            <span className="flex size-full items-center justify-center text-xs font-bold text-orange-600">
+              ?
+            </span>
+          )}
+        </div>
+        <span className="max-w-[4.5rem] truncate text-[9px] font-semibold text-zinc-700">
+          {item.subtitle}
+        </span>
+      </button>
+    );
+  }
+
   return (
     <button
       type="button"

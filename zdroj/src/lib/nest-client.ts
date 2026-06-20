@@ -684,6 +684,9 @@ export type AdminUserRow = {
   avatarUrl?: string | null;
   createdAt: string;
   isPremiumBroker?: boolean;
+  isPromoProfile?: boolean;
+  promoProfileActive?: boolean;
+  isPublicBrokerProfile?: boolean;
   brokerPoints?: number;
   brokerFreeLeads?: number;
   creditBalance?: number;
@@ -7288,5 +7291,106 @@ export async function nestWhatsAppClick(body: {
   } catch {
     return { ok: false, error: 'Síťová chyba' };
   }
+}
+
+export type PublicPromoProfileRow = {
+  id: string;
+  role: string;
+  roleLabel: string;
+  avatarUrl: string | null;
+  profileHref: string;
+};
+
+export type AdminPromoProfileRow = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  name: string;
+  role: string;
+  roleLabel: string;
+  avatarUrl: string | null;
+  isPublic: boolean;
+  active: boolean;
+  isPromoProfile: boolean;
+  createdAt: string;
+};
+
+export async function nestFetchPublicPromoProfiles(
+  limit = 48,
+): Promise<PublicPromoProfileRow[]> {
+  if (!API_BASE_URL) return [];
+  try {
+    const res = await fetch(`${API_BASE_URL}/promo-profiles/public?limit=${limit}`, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as unknown;
+    return Array.isArray(data) ? (data as PublicPromoProfileRow[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function nestAdminPromoProfilesList(
+  token: string | null,
+): Promise<AdminPromoProfileRow[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/promo-profiles`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as unknown;
+  return Array.isArray(data) ? (data as AdminPromoProfileRow[]) : null;
+}
+
+export async function nestAdminPromoProfileGenerateName(
+  token: string | null,
+): Promise<{ firstName: string; lastName: string } | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/promo-profiles/generate-name`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as { firstName: string; lastName: string };
+}
+
+export async function nestAdminPromoProfileCreate(
+  token: string | null,
+  form: FormData,
+): Promise<{ ok: boolean; profile?: AdminPromoProfileRow; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/promo-profiles`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    body: form,
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true, profile: data as AdminPromoProfileRow };
+}
+
+export async function nestAdminPromoProfilesBulk(
+  token: string | null,
+  ids: string[],
+  action: 'publish' | 'hide' | 'deactivate' | 'delete',
+): Promise<{ ok: boolean; affected?: number; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/promo-profiles/bulk`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ ids, action }),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true, affected: typeof data.affected === 'number' ? data.affected : 0 };
 }
 

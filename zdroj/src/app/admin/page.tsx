@@ -420,6 +420,12 @@ export default function AdminPage() {
               Nastavení registrace
             </Link>
             <Link
+              href="/admin/promo-profily"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Promo profily
+            </Link>
+            <Link
               href="/admin/bonusove-akce"
               className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >
@@ -848,7 +854,34 @@ export default function AdminPage() {
               <tbody className="divide-y divide-zinc-100">
                 {usersList.map((u) => (
                   <tr key={u.id} className="hover:bg-zinc-50/80">
-                    <td className="px-4 py-3 font-medium text-zinc-900">{u.email}</td>
+                    <td className="px-4 py-3 font-medium text-zinc-900">
+                      <div>{u.email}</div>
+                      {u.isPromoProfile ? (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-800">
+                            Promo profil
+                          </span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              u.isPublicBrokerProfile
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-zinc-200 text-zinc-700'
+                            }`}
+                          >
+                            {u.isPublicBrokerProfile ? 'Veřejný' : 'Neveřejný'}
+                          </span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              u.promoProfileActive !== false
+                                ? 'bg-sky-100 text-sky-800'
+                                : 'bg-amber-100 text-amber-900'
+                            }`}
+                          >
+                            {u.promoProfileActive !== false ? 'Aktivní' : 'Vypnutý'}
+                          </span>
+                        </div>
+                      ) : null}
+                    </td>
                     <td className="px-4 py-3">
                       <select
                         value={u.role}

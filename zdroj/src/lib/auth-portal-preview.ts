@@ -5,7 +5,7 @@ import {
   mapPropertyToDecorCard,
   type AuthDecorCard,
 } from '@/lib/auth-decor-listings';
-import { nestFetchCommunityPosts, nestListPublicStories, type ListingPost } from '@/lib/nest-client';
+import { nestFetchCommunityPosts, nestListPublicStories, nestFetchPublicPromoProfiles, type ListingPost } from '@/lib/nest-client';
 import { propertyListingHasVideo } from '@/lib/property-feed-filters';
 import { classicListingCoverUrl, type PropertyFeedItem } from '@/types/property';
 import { isFacebookVideoPost } from '@/lib/facebook-post-media';
@@ -14,7 +14,7 @@ export type AuthPortalPreviewItem = {
   id: string;
   title: string;
   subtitle: string;
-  kind: 'listing' | 'short' | 'post' | 'story' | 'facebook';
+  kind: 'listing' | 'short' | 'post' | 'story' | 'facebook' | 'promo';
   coverUrl: string | null;
   videoUrl: string | null;
   href: string;
@@ -121,22 +121,53 @@ function mapStoryPreview(story: {
   };
 }
 
+function mapPromoPreview(
+  profile: {
+    id: string;
+    roleLabel: string;
+    avatarUrl: string | null;
+    profileHref: string;
+  },
+  index: number,
+): AuthPortalPreviewItem {
+  const cover = profile.avatarUrl?.trim()
+    ? nestAbsoluteAssetUrl(profile.avatarUrl.trim())
+    : null;
+  return {
+    id: `promo-${profile.id}`,
+    title: profile.roleLabel,
+    subtitle: profile.roleLabel,
+    kind: 'promo',
+    coverUrl: cover,
+    videoUrl: null,
+    href: profile.profileHref,
+    hasLiveMedia: false,
+    positionClass: DESKTOP_POSITIONS[index % DESKTOP_POSITIONS.length],
+  };
+}
+
 /** Náhodně smíchaný živý náhled portálu pro login/registraci. */
 export async function loadAuthPortalPreviewItems(max = 14): Promise<AuthPortalPreviewItem[]> {
-  const [propertiesResult, postsResult, storiesResult] = await Promise.allSettled([
+  const [propertiesResult, postsResult, storiesResult, promoResult] = await Promise.allSettled([
     API_BASE_URL
       ? loadPropertyFeedItems(API_BASE_URL, { path: '/properties' })
       : Promise.resolve({ items: [] as PropertyFeedItem[] }),
     nestFetchCommunityPosts(),
     nestListPublicStories(),
+    nestFetchPublicPromoProfiles(24),
   ]);
 
   const properties =
     propertiesResult.status === 'fulfilled' ? propertiesResult.value.items : [];
   const posts = postsResult.status === 'fulfilled' ? postsResult.value : [];
   const stories = storiesResult.status === 'fulfilled' ? (storiesResult.value ?? []) : [];
+  const promoProfiles =
+    promoResult.status === 'fulfilled' ? promoResult.value : [];
 
   const mapped: AuthPortalPreviewItem[] = [];
+  for (const profile of promoProfiles.slice(0, 10)) {
+    mapped.push(mapPromoPreview(profile, mapped.length));
+  }
   for (const p of properties.slice(0, 8)) {
     mapped.push(mapPropertyPreview(p, mapped.length));
   }

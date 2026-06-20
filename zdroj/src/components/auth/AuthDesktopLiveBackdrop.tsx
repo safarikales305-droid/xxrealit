@@ -9,6 +9,31 @@ type Props = {
 function DesktopPreviewCard({ item }: { item: AuthPortalPreviewItem }) {
   const media = item.videoUrl || item.coverUrl;
 
+  if (item.kind === 'promo') {
+    return (
+      <div
+        className={`pointer-events-none absolute z-[1] ${item.positionClass ?? 'hidden lg:block'}`}
+        aria-hidden
+      >
+        <div className="flex w-[4.75rem] flex-col items-center gap-1.5 sm:w-[5.5rem]">
+          <div className="size-[4.25rem] overflow-hidden rounded-full border-2 border-white/20 bg-zinc-800 shadow-lg ring-2 ring-orange-400/40 sm:size-[4.75rem]">
+            {media ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={media} alt="" className="size-full object-cover opacity-90" />
+            ) : (
+              <div className="flex size-full items-center justify-center bg-gradient-to-br from-orange-500/40 to-violet-900/50 text-white">
+                ?
+              </div>
+            )}
+          </div>
+          <p className="max-w-[5.5rem] truncate text-center text-[9px] font-semibold text-white/85">
+            {item.subtitle}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`pointer-events-none absolute z-[1] ${item.positionClass ?? 'hidden lg:block'}`}
