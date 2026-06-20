@@ -2,6 +2,10 @@ import { Injectable, OnModuleInit, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import {
+  validateSystemTemplateForSlot,
+  type SystemTemplateSlot,
+} from './whatsapp-system-templates.util';
 
 export type WhatsAppIntegrationSettings = {
   enabled: boolean;
@@ -20,8 +24,20 @@ export type WhatsAppIntegrationSettings = {
   postNotifyFollowersEnabled: boolean;
   /** DB id schválené šablony post_uploaded_author. */
   postUploadedAuthorMetaTemplateId: string;
+  postUploadedTemplateName: string;
+  postUploadedTemplateLanguage: string;
   /** DB id schválené šablony new_post_notification. */
   newPostNotificationMetaTemplateId: string;
+  newPostTemplateName: string;
+  newPostTemplateLanguage: string;
+  /** DB id šablony whatsapp_verify_code. */
+  whatsappVerifyMetaTemplateId: string;
+  whatsappVerifyTemplateName: string;
+  whatsappVerifyTemplateLanguage: string;
+  /** DB id uvítací Meta šablony (má prioritu před textovými šablonami). */
+  welcomeMetaTemplateId: string;
+  welcomeTemplateName: string;
+  welcomeTemplateLanguage: string;
 };
 
 export type WhatsAppIntegrationSettingsPublic = Omit<
@@ -75,7 +91,17 @@ export const DEFAULT_WHATSAPP_INTEGRATION_SETTINGS: WhatsAppIntegrationSettings 
   postNotifyAuthorEnabled: false,
   postNotifyFollowersEnabled: false,
   postUploadedAuthorMetaTemplateId: '',
+  postUploadedTemplateName: '',
+  postUploadedTemplateLanguage: '',
   newPostNotificationMetaTemplateId: '',
+  newPostTemplateName: '',
+  newPostTemplateLanguage: '',
+  whatsappVerifyMetaTemplateId: '',
+  whatsappVerifyTemplateName: '',
+  whatsappVerifyTemplateLanguage: '',
+  welcomeMetaTemplateId: '',
+  welcomeTemplateName: '',
+  welcomeTemplateLanguage: '',
 };
 
 @Injectable()
@@ -129,8 +155,155 @@ export class WhatsAppSettingsService implements OnModuleInit {
       postNotifyAuthorEnabled: o.postNotifyAuthorEnabled === true,
       postNotifyFollowersEnabled: o.postNotifyFollowersEnabled === true,
       postUploadedAuthorMetaTemplateId: this.str(o.postUploadedAuthorMetaTemplateId),
+      postUploadedTemplateName: this.str(o.postUploadedTemplateName),
+      postUploadedTemplateLanguage: this.str(o.postUploadedTemplateLanguage),
       newPostNotificationMetaTemplateId: this.str(o.newPostNotificationMetaTemplateId),
+      newPostTemplateName: this.str(o.newPostTemplateName),
+      newPostTemplateLanguage: this.str(o.newPostTemplateLanguage),
+      whatsappVerifyMetaTemplateId: this.str(o.whatsappVerifyMetaTemplateId),
+      whatsappVerifyTemplateName: this.str(o.whatsappVerifyTemplateName),
+      whatsappVerifyTemplateLanguage: this.str(o.whatsappVerifyTemplateLanguage),
+      welcomeMetaTemplateId: this.str(o.welcomeMetaTemplateId),
+      welcomeTemplateName: this.str(o.welcomeTemplateName),
+      welcomeTemplateLanguage: this.str(o.welcomeTemplateLanguage),
     };
+  }
+
+  private systemTemplateSlotByMetaIdKey(
+    key: keyof WhatsAppIntegrationSettings,
+  ): SystemTemplateSlot | null {
+    switch (key) {
+      case 'whatsappVerifyMetaTemplateId':
+        return 'verify';
+      case 'postUploadedAuthorMetaTemplateId':
+        return 'postUploaded';
+      case 'newPostNotificationMetaTemplateId':
+        return 'newPost';
+      case 'welcomeMetaTemplateId':
+        return 'welcome';
+      default:
+        return null;
+    }
+  }
+
+  private nameKeyForMetaId(key: keyof WhatsAppIntegrationSettings): keyof WhatsAppIntegrationSettings | null {
+    switch (key) {
+      case 'whatsappVerifyMetaTemplateId':
+        return 'whatsappVerifyTemplateName';
+      case 'postUploadedAuthorMetaTemplateId':
+        return 'postUploadedTemplateName';
+      case 'newPostNotificationMetaTemplateId':
+        return 'newPostTemplateName';
+      case 'welcomeMetaTemplateId':
+        return 'welcomeTemplateName';
+      default:
+        return null;
+    }
+  }
+
+  private languageKeyForMetaId(
+    key: keyof WhatsAppIntegrationSettings,
+  ): keyof WhatsAppIntegrationSettings | null {
+    switch (key) {
+      case 'whatsappVerifyMetaTemplateId':
+        return 'whatsappVerifyTemplateLanguage';
+      case 'postUploadedAuthorMetaTemplateId':
+        return 'postUploadedTemplateLanguage';
+      case 'newPostNotificationMetaTemplateId':
+        return 'newPostTemplateLanguage';
+      case 'welcomeMetaTemplateId':
+        return 'welcomeTemplateLanguage';
+      default:
+        return null;
+    }
+  }
+
+  private async resolveSystemTemplateFields(
+    settings: WhatsAppIntegrationSettings,
+  ): Promise<WhatsAppIntegrationSettings> {
+    const next = { ...settings };
+    const metaKeys: Array<keyof WhatsAppIntegrationSettings> = [
+      'whatsappVerifyMetaTemplateId',
+      'postUploadedAuthorMetaTemplateId',
+      'newPostNotificationMetaTemplateId',
+      'welcomeMetaTemplateId',
+    ];
+
+    for (const metaKey of metaKeys) {
+      const slot = this.systemTemplateSlotByMetaIdKey(metaKey);
+      const nameKey = this.nameKeyForMetaId(metaKey);
+      const langKey = this.languageKeyForMetaId(metaKey);
+      if (!slot || !nameKey || !langKey) continue;
+
+      const metaId = String(next[metaKey] ?? '').trim();
+      if (!metaId) {
+        if (metaKey === 'whatsappVerifyMetaTemplateId') {
+          next.whatsappVerifyMetaTemplateId = '';
+          next.whatsappVerifyTemplateName = '';
+          next.whatsappVerifyTemplateLanguage = '';
+        } else if (metaKey === 'postUploadedAuthorMetaTemplateId') {
+          next.postUploadedAuthorMetaTemplateId = '';
+          next.postUploadedTemplateName = '';
+          next.postUploadedTemplateLanguage = '';
+        } else if (metaKey === 'newPostNotificationMetaTemplateId') {
+          next.newPostNotificationMetaTemplateId = '';
+          next.newPostTemplateName = '';
+          next.newPostTemplateLanguage = '';
+        } else if (metaKey === 'welcomeMetaTemplateId') {
+          next.welcomeMetaTemplateId = '';
+          next.welcomeTemplateName = '';
+          next.welcomeTemplateLanguage = '';
+        }
+        continue;
+      }
+
+      const row = await this.prisma.whatsAppMetaTemplate.findUnique({
+        where: { id: metaId },
+        select: {
+          templateName: true,
+          language: true,
+          variablesCount: true,
+          usable: true,
+          isStale: true,
+        },
+      });
+      if (!row) {
+        throw new BadRequestException(
+          `Vybraná systémová šablona (${metaKey}) není v databázi — synchronizujte šablony z Meta.`,
+        );
+      }
+
+      const validationError = validateSystemTemplateForSlot(slot, {
+        templateName: row.templateName,
+        language: row.language,
+        variablesCount: row.variablesCount,
+        usable: row.usable,
+        isStale: row.isStale,
+      });
+      if (validationError) {
+        throw new BadRequestException(validationError);
+      }
+
+      if (metaKey === 'whatsappVerifyMetaTemplateId') {
+        next.whatsappVerifyMetaTemplateId = metaId;
+        next.whatsappVerifyTemplateName = row.templateName;
+        next.whatsappVerifyTemplateLanguage = row.language;
+      } else if (metaKey === 'postUploadedAuthorMetaTemplateId') {
+        next.postUploadedAuthorMetaTemplateId = metaId;
+        next.postUploadedTemplateName = row.templateName;
+        next.postUploadedTemplateLanguage = row.language;
+      } else if (metaKey === 'newPostNotificationMetaTemplateId') {
+        next.newPostNotificationMetaTemplateId = metaId;
+        next.newPostTemplateName = row.templateName;
+        next.newPostTemplateLanguage = row.language;
+      } else if (metaKey === 'welcomeMetaTemplateId') {
+        next.welcomeMetaTemplateId = metaId;
+        next.welcomeTemplateName = row.templateName;
+        next.welcomeTemplateLanguage = row.language;
+      }
+    }
+
+    return next;
   }
 
   private envMetaAppId(): string {
@@ -243,17 +416,19 @@ export class WhatsAppSettingsService implements OnModuleInit {
 
     this.assertWabaIdNotConfused(merged.businessAccountId);
 
+    const validated = await this.resolveSystemTemplateFields(merged);
+
     await this.prisma.appSetting.upsert({
       where: { key: SETTINGS_KEY },
       create: {
         key: SETTINGS_KEY,
-        valueJson: merged as unknown as Prisma.InputJsonValue,
+        valueJson: validated as unknown as Prisma.InputJsonValue,
       },
-      update: { valueJson: merged as unknown as Prisma.InputJsonValue },
+      update: { valueJson: validated as unknown as Prisma.InputJsonValue },
     });
 
-    this.stored = merged;
-    this.effective = this.buildEffective(merged);
-    return this.toPublic(merged);
+    this.stored = validated;
+    this.effective = this.buildEffective(validated);
+    return this.toPublic(validated);
   }
 }

@@ -23,8 +23,9 @@ import {
 } from './whatsapp-template-send.util';
 import { resolveTemplateRequirementsFromRaw } from './whatsapp-template-sync.util';
 import { normalizeToE164, whatsAppDigits } from './whatsapp-phone.util';
-
-export const WHATSAPP_VERIFY_TEMPLATE_NAME = 'whatsapp_verify_code';
+import {
+  WHATSAPP_VERIFY_TEMPLATE_ADMIN_MSG,
+} from './whatsapp-system-templates.util';
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 60 * 1000;
@@ -126,6 +127,13 @@ export class WhatsAppPhoneVerificationService {
       throw new BadRequestException(
         'Odeslání ověřovacího kódu přes WhatsApp není nakonfigurováno.',
       );
+    }
+
+    await this.settings.reload();
+    const verifyTemplateId =
+      this.settings.getStoredSettings().whatsappVerifyMetaTemplateId?.trim() || '';
+    if (!verifyTemplateId) {
+      throw new BadRequestException(WHATSAPP_VERIFY_TEMPLATE_ADMIN_MSG);
     }
 
     const code = String(randomInt(100000, 1000000));
@@ -323,17 +331,39 @@ export class WhatsAppPhoneVerificationService {
     return { ok: true, ...this.serializeStatus(updated) };
   }
 
+  async testVerificationTemplate(toPhone?: string): Promise<{ ok: boolean; error?: string }> {
+    await this.settings.reload();
+    const verifyTemplateId =
+      this.settings.getStoredSettings().whatsappVerifyMetaTemplateId?.trim() || '';
+    if (!verifyTemplateId) {
+      return { ok: false, error: WHATSAPP_VERIFY_TEMPLATE_ADMIN_MSG };
+    }
+    const phone =
+      normalizeToE164(toPhone?.trim() || this.config.getTestPhone() || '') ??
+      normalizeToE164(this.settings.getStoredSettings().testPhone);
+    if (!phone) {
+      return { ok: false, error: 'Zadejte platné testovací telefonní číslo (+420…).' };
+    }
+    return this.sendVerifyTemplate(phone, '123456', null, verifyTemplateId);
+  }
+
   private async sendVerifyTemplate(
     phoneE164: string,
     code: string,
-    userId: string,
+    userId: string | null,
+    metaTemplateId?: string,
   ): Promise<{ ok: boolean; error?: string }> {
     try {
       await this.settings.reload();
       await this.diagnostic.assertPhoneBelongsToConfiguredWaba();
-      const tplRow = await this.metaTemplates.requireApprovedTemplateByName(
-        WHATSAPP_VERIFY_TEMPLATE_NAME,
-      );
+      const tplId =
+        metaTemplateId?.trim() ||
+        this.settings.getStoredSettings().whatsappVerifyMetaTemplateId?.trim() ||
+        '';
+      if (!tplId) {
+        return { ok: false, error: WHATSAPP_VERIFY_TEMPLATE_ADMIN_MSG };
+      }
+      const tplRow = await this.metaTemplates.requireApprovedTemplate(tplId);
       const reqs = resolveTemplateRequirementsFromRaw(tplRow.rawTemplate);
       const variablesCount = reqs.variablesCount ?? 1;
       const bodyParameters = [code];
@@ -370,7 +400,7 @@ export class WhatsAppPhoneVerificationService {
 
       const { providerMessageId, error } = await this.cloudApi.sendMessages(requestBody, {
         recipientPhone: phoneE164,
-        recipientUserId: userId,
+        recipientUserId: userId ?? undefined,
         logLabel,
         templateName: tplRow.templateName,
         templateLanguage: tplRow.language,
@@ -388,7 +418,7 @@ export class WhatsAppPhoneVerificationService {
 
       await this.prisma.whatsAppMessage.create({
         data: {
-          userId,
+          userId: userId ?? null,
           notificationType: NOTIFICATION_TYPE,
           direction: WhatsAppMessageDirection.OUTBOUND,
           fromPhone: '',

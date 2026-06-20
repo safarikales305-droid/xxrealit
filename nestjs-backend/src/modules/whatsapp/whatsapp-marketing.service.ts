@@ -1067,6 +1067,50 @@ export class WhatsAppMarketingService {
     const phone = this.normalizePhone(user.phone);
     if (!phone) return;
 
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { whatsappMarketingConsentAt: new Date() },
+    });
+
+    const welcomeMetaId = stored.welcomeMetaTemplateId?.trim();
+    if (welcomeMetaId) {
+      const metaTemplate = await this.metaTemplates.requireApprovedTemplate(welcomeMetaId);
+      const reqs = resolveTemplateRequirementsFromRaw(metaTemplate.rawTemplate);
+      const vars = this.templateVarsForUser(user);
+      const pool = [vars.jmeno, vars.role, vars.odkaz, vars.kredit];
+      const bodyParameters: string[] = [];
+      for (let i = 0; i < reqs.variablesCount; i += 1) {
+        bodyParameters.push(String(pool[i] ?? pool[pool.length - 1] ?? 'uživateli'));
+      }
+
+      const tpl: CampaignTemplateSendContext = {
+        waMetaTemplateId: welcomeMetaId,
+        wabaId: metaTemplate.wabaId,
+        templateName: metaTemplate.templateName,
+        languageCode: metaTemplateLanguageCode(metaTemplate.language),
+        variableTemplates: [],
+        variablesCount: reqs.variablesCount,
+        headerType: reqs.headerType,
+        headerImageUrl: null,
+        headerImageMediaId: null,
+        bodyText: reqs.componentsSummary.bodyText || metaTemplate.bodyText,
+        buttonLabels: reqs.componentsSummary.buttonLabels,
+        urlButtonParamCount: reqs.urlButtonParamCount,
+        needsHeaderImage: reqs.needsHeaderImage,
+        needsUrlButtonParameter: reqs.needsUrlButtonParameter,
+        urlButtonParameters: [],
+      };
+
+      await this.sendTemplateMessage(phone, tpl, bodyParameters, {
+        recipientUserId: user.id,
+        recipientName: user.name ?? undefined,
+        campaignType: WhatsAppMarketingCampaignType.PORTAL_INVITE,
+        isWelcome: true,
+        previewText: `welcome:${metaTemplate.templateName}`,
+      });
+      return;
+    }
+
     const template =
       stored.welcomeTemplates[user.role] ||
       stored.welcomeTemplates.USER ||
@@ -1074,17 +1118,70 @@ export class WhatsAppMarketingService {
 
     const message = renderWhatsAppTemplate(template, this.templateVarsForUser(user));
 
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { whatsappMarketingConsentAt: new Date() },
-    });
-
     await this.sendCloudToPhone(phone, message, {
       recipientUserId: user.id,
       recipientName: user.name ?? undefined,
       campaignType: WhatsAppMarketingCampaignType.PORTAL_INVITE,
       isWelcome: true,
     });
+  }
+
+  async testWelcomeTemplate(toPhone?: string): Promise<{ ok: boolean; error?: string }> {
+    const stored = this.settings.getStoredSettings();
+    const welcomeMetaId = stored.welcomeMetaTemplateId?.trim();
+    if (!welcomeMetaId) {
+      return { ok: false, error: 'Vyberte uvítací Meta šablonu v systémových nastaveních.' };
+    }
+    const phone = this.normalizePhone(
+      toPhone?.trim() || stored.testPhone || this.config.getTestPhone() || '',
+    );
+    if (!phone) {
+      return { ok: false, error: 'Zadejte platné testovací telefonní číslo (+420…).' };
+    }
+
+    try {
+      const metaTemplate = await this.metaTemplates.requireApprovedTemplate(welcomeMetaId);
+      const reqs = resolveTemplateRequirementsFromRaw(metaTemplate.rawTemplate);
+      const pool = ['Test Uživatel', 'makléř', portalBaseUrl(), '0'];
+      const bodyParameters: string[] = [];
+      for (let i = 0; i < reqs.variablesCount; i += 1) {
+        bodyParameters.push(String(pool[i] ?? pool[pool.length - 1] ?? 'Test'));
+      }
+
+      const tpl: CampaignTemplateSendContext = {
+        waMetaTemplateId: welcomeMetaId,
+        wabaId: metaTemplate.wabaId,
+        templateName: metaTemplate.templateName,
+        languageCode: metaTemplateLanguageCode(metaTemplate.language),
+        variableTemplates: [],
+        variablesCount: reqs.variablesCount,
+        headerType: reqs.headerType,
+        headerImageUrl: null,
+        headerImageMediaId: null,
+        bodyText: reqs.componentsSummary.bodyText || metaTemplate.bodyText,
+        buttonLabels: reqs.componentsSummary.buttonLabels,
+        urlButtonParamCount: reqs.urlButtonParamCount,
+        needsHeaderImage: reqs.needsHeaderImage,
+        needsUrlButtonParameter: reqs.needsUrlButtonParameter,
+        urlButtonParameters: [],
+      };
+
+      const { providerMessageId, metaError } = await this.sendTemplateMessage(phone, tpl, bodyParameters, {
+        recipientName: 'Test',
+        campaignType: WhatsAppMarketingCampaignType.PORTAL_INVITE,
+        isWelcome: true,
+        previewText: `test welcome:${metaTemplate.templateName}`,
+      });
+      if (!providerMessageId) {
+        return { ok: false, error: this.formatMetaSendError(metaError) };
+      }
+      return { ok: true };
+    } catch (err: unknown) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : 'Test uvítací šablony selhal.',
+      };
+    }
   }
 
   async listCampaigns() {

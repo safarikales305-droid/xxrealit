@@ -82,7 +82,57 @@ export class UpdateWhatsAppIntegrationSettingsDto {
   @IsOptional()
   @IsString()
   @MaxLength(120)
+  postUploadedTemplateName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  postUploadedTemplateLanguage?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
   newPostNotificationMetaTemplateId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  newPostTemplateName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  newPostTemplateLanguage?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  whatsappVerifyMetaTemplateId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  whatsappVerifyTemplateName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  whatsappVerifyTemplateLanguage?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  welcomeMetaTemplateId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  welcomeTemplateName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  welcomeTemplateLanguage?: string;
 }
 
 export class WhatsAppTestSendDto {

@@ -12,7 +12,17 @@ export type WhatsAppIntegrationSettings = {
   postNotifyAuthorEnabled: boolean;
   postNotifyFollowersEnabled: boolean;
   postUploadedAuthorMetaTemplateId: string;
+  postUploadedTemplateName: string;
+  postUploadedTemplateLanguage: string;
   newPostNotificationMetaTemplateId: string;
+  newPostTemplateName: string;
+  newPostTemplateLanguage: string;
+  whatsappVerifyMetaTemplateId: string;
+  whatsappVerifyTemplateName: string;
+  whatsappVerifyTemplateLanguage: string;
+  welcomeMetaTemplateId: string;
+  welcomeTemplateName: string;
+  welcomeTemplateLanguage: string;
   accessTokenSet: boolean;
   webhookVerifyTokenSet: boolean;
   metaAppId: string;
@@ -658,6 +668,58 @@ export async function nestAdminWhatsAppTestNewPostNotification(
   } catch (e: unknown) {
     return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
   }
+}
+
+export async function nestAdminWhatsAppTestVerifySystemTemplate(
+  token: string,
+  toPhone?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/whatsapp/admin/system-templates/test-verify`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ toPhone }),
+      cache: 'no-store',
+    });
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; message?: string };
+    if (!res.ok) {
+      return { ok: false, error: data.error || data.message || `HTTP ${res.status}` };
+    }
+    return { ok: data.ok !== false, error: data.error };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
+  }
+}
+
+export async function nestAdminWhatsAppTestWelcomeSystemTemplate(
+  token: string,
+  toPhone?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/whatsapp/admin/system-templates/test-welcome`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ toPhone }),
+      cache: 'no-store',
+    });
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; message?: string };
+    if (!res.ok) {
+      return { ok: false, error: data.error || data.message || `HTTP ${res.status}` };
+    }
+    return { ok: data.ok !== false, error: data.error };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
+  }
+}
+
+export function formatSystemTemplateOptionLabel(template: WhatsAppMetaTemplateRow): string {
+  return `${template.templateName} · ${template.language} · ${template.category} · ${template.variablesCount} prom.`;
 }
 
 export async function nestAdminWhatsAppLastLog(

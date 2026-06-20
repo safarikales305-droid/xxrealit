@@ -24,6 +24,7 @@ import { WhatsAppMetaTemplatesService } from './whatsapp-meta-templates.service'
 import { WhatsAppDiagnosticService } from './whatsapp-diagnostic.service';
 import { WhatsAppCampaignDebugService } from './whatsapp-campaign-debug.service';
 import { PostWhatsAppNotifyService } from './post-whatsapp-notify.service';
+import { WhatsAppPhoneVerificationService } from './whatsapp-phone-verification.service';
 import {
   CreateWhatsAppMarketingCampaignDto,
   PreviewWhatsAppCampaignDto,
@@ -44,6 +45,7 @@ export class WhatsAppAdminController {
     private readonly diagnostic: WhatsAppDiagnosticService,
     private readonly campaignDebug: WhatsAppCampaignDebugService,
     private readonly postNotify: PostWhatsAppNotifyService,
+    private readonly phoneVerification: WhatsAppPhoneVerificationService,
   ) {}
 
   @Get('settings')
@@ -78,6 +80,20 @@ export class WhatsAppAdminController {
     @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: WhatsAppTestSendDto,
   ) {
     return this.postNotify.testNewPostNotification(dto.toPhone);
+  }
+
+  @Post('system-templates/test-verify')
+  testVerifySystemTemplate(
+    @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: WhatsAppTestSendDto,
+  ) {
+    return this.phoneVerification.testVerificationTemplate(dto.toPhone);
+  }
+
+  @Post('system-templates/test-welcome')
+  testWelcomeSystemTemplate(
+    @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: WhatsAppTestSendDto,
+  ) {
+    return this.marketing.testWelcomeTemplate(dto.toPhone);
   }
 
   @Get('last-log')

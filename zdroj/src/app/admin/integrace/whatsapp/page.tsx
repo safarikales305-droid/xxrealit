@@ -14,6 +14,10 @@ import {
   nestAdminWhatsAppTestSend,
   nestAdminWhatsAppTestPostAuthorNotification,
   nestAdminWhatsAppTestNewPostNotification,
+  nestAdminWhatsAppTestVerifySystemTemplate,
+  nestAdminWhatsAppTestWelcomeSystemTemplate,
+  nestAdminWhatsAppTemplatesSync,
+  formatSystemTemplateOptionLabel,
   nestAdminWhatsAppTemplatesList,
   nestAdminWhatsAppVerifyPhone,
   nestAdminWhatsAppVerifyWaba,
@@ -44,7 +48,17 @@ const emptySettings: WhatsAppIntegrationSettings = {
   postNotifyAuthorEnabled: false,
   postNotifyFollowersEnabled: false,
   postUploadedAuthorMetaTemplateId: '',
+  postUploadedTemplateName: '',
+  postUploadedTemplateLanguage: '',
   newPostNotificationMetaTemplateId: '',
+  newPostTemplateName: '',
+  newPostTemplateLanguage: '',
+  whatsappVerifyMetaTemplateId: '',
+  whatsappVerifyTemplateName: '',
+  whatsappVerifyTemplateLanguage: '',
+  welcomeMetaTemplateId: '',
+  welcomeTemplateName: '',
+  welcomeTemplateLanguage: '',
   accessTokenSet: false,
   webhookVerifyTokenSet: false,
   metaAppId: '',
@@ -82,6 +96,24 @@ export default function AdminWhatsAppIntegrationPage() {
   const [waTemplates, setWaTemplates] = useState<WhatsAppMetaTemplateRow[]>([]);
   const [testingPostAuthor, setTestingPostAuthor] = useState(false);
   const [testingPostFollower, setTestingPostFollower] = useState(false);
+  const [testingVerify, setTestingVerify] = useState(false);
+  const [testingWelcome, setTestingWelcome] = useState(false);
+  const [syncingTemplates, setSyncingTemplates] = useState(false);
+
+  function pickSystemTemplate(
+    metaIdKey: keyof WhatsAppIntegrationSettings,
+    nameKey: keyof WhatsAppIntegrationSettings,
+    langKey: keyof WhatsAppIntegrationSettings,
+    templateId: string,
+  ) {
+    const t = waTemplates.find((row) => row.id === templateId);
+    setSettings((s) => ({
+      ...s,
+      [metaIdKey]: templateId,
+      [nameKey]: t?.templateName ?? '',
+      [langKey]: t?.language ?? '',
+    }));
+  }
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -183,7 +215,17 @@ export default function AdminWhatsAppIntegrationPage() {
       postNotifyAuthorEnabled: settings.postNotifyAuthorEnabled,
       postNotifyFollowersEnabled: settings.postNotifyFollowersEnabled,
       postUploadedAuthorMetaTemplateId: settings.postUploadedAuthorMetaTemplateId,
+      postUploadedTemplateName: settings.postUploadedTemplateName,
+      postUploadedTemplateLanguage: settings.postUploadedTemplateLanguage,
       newPostNotificationMetaTemplateId: settings.newPostNotificationMetaTemplateId,
+      newPostTemplateName: settings.newPostTemplateName,
+      newPostTemplateLanguage: settings.newPostTemplateLanguage,
+      whatsappVerifyMetaTemplateId: settings.whatsappVerifyMetaTemplateId,
+      whatsappVerifyTemplateName: settings.whatsappVerifyTemplateName,
+      whatsappVerifyTemplateLanguage: settings.whatsappVerifyTemplateLanguage,
+      welcomeMetaTemplateId: settings.welcomeMetaTemplateId,
+      welcomeTemplateName: settings.welcomeTemplateName,
+      welcomeTemplateLanguage: settings.welcomeTemplateLanguage,
     };
     if (accessToken.trim()) patch.accessToken = accessToken.trim();
     if (webhookVerifyToken.trim()) patch.webhookVerifyToken = webhookVerifyToken.trim();
@@ -191,9 +233,11 @@ export default function AdminWhatsAppIntegrationPage() {
     const r = await nestAdminWhatsAppSettingsPatch(token, patch);
     setSaving(false);
     if (!r.ok) {
+      setStatusIsError(true);
       setStatusMsg(r.error);
       return;
     }
+    setStatusIsError(false);
     setSettings(r.data);
     setAccessToken('');
     setWebhookVerifyToken('');
@@ -660,163 +704,305 @@ export default function AdminWhatsAppIntegrationPage() {
           </div>
 
           <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-zinc-900">Automatická uvítací zpráva</h2>
-            <p className="mt-1 text-xs text-zinc-500">
-              Po registraci s telefonem. Proměnné: {'{jmeno}'}, {'{role}'}, {'{odkaz}'}, {'{kredit}'}
-            </p>
-            <label className="mt-3 flex items-center gap-2 text-sm text-zinc-700">
-              <input
-                type="checkbox"
-                checked={settings.welcomeEnabled}
-                onChange={(e) =>
-                  setSettings((s) => ({ ...s, welcomeEnabled: e.target.checked }))
-                }
-              />
-              Automaticky poslat uvítací zprávu
-            </label>
-            <div className="mt-4 space-y-3">
-              {WELCOME_ROLES.map((role) => (
-                <div key={role}>
-                  <label className="text-xs font-medium text-zinc-500">
-                    {WELCOME_ROLE_LABELS[role] ?? role}
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={settings.welcomeTemplates[role] ?? ''}
-                    onChange={(e) =>
-                      setSettings((s) => ({
-                        ...s,
-                        welcomeTemplates: {
-                          ...s.welcomeTemplates,
-                          [role]: e.target.value,
-                        },
-                      }))
-                    }
-                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-zinc-900">Upozornění na příspěvky</h2>
-            <p className="mt-1 text-xs text-zinc-500">
-              Pouze schválené Meta šablony: <code>post_uploaded_author</code>,{' '}
-              <code>new_post_notification</code>. Respektuje opt-in uživatele v profilu.
-            </p>
-
-            <label className="mt-3 flex items-center gap-2 text-sm text-zinc-700">
-              <input
-                type="checkbox"
-                checked={settings.postNotifyAuthorEnabled}
-                onChange={(e) =>
-                  setSettings((s) => ({ ...s, postNotifyAuthorEnabled: e.target.checked }))
-                }
-              />
-              Upozornění autorovi po nahrání příspěvku
-            </label>
-            <label className="mt-2 flex items-center gap-2 text-sm text-zinc-700">
-              <input
-                type="checkbox"
-                checked={settings.postNotifyFollowersEnabled}
-                onChange={(e) =>
-                  setSettings((s) => ({ ...s, postNotifyFollowersEnabled: e.target.checked }))
-                }
-              />
-              Upozornění sledujícím při novém příspěvku
-            </label>
-
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <label className="text-xs font-medium text-zinc-500">
-                  Šablona post_uploaded_author
+                <h2 className="text-sm font-semibold text-zinc-900">Systémové WhatsApp šablony</h2>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Schválené šablony z aktivního WABA. Ověření telefonu vyžaduje šablonu{' '}
+                  <code>whatsapp_verify_code</code> s 1 proměnnou.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={syncingTemplates || !token}
+                onClick={() => {
+                  void (async () => {
+                    if (!token) return;
+                    setSyncingTemplates(true);
+                    setStatusMsg(null);
+                    setStatusIsError(false);
+                    const r = await nestAdminWhatsAppTemplatesSync(token);
+                    setSyncingTemplates(false);
+                    if (!r.ok) {
+                      setStatusIsError(true);
+                      setStatusMsg(r.error ?? 'Synchronizace selhala.');
+                      return;
+                    }
+                    setStatusIsError(false);
+                    setStatusMsg(
+                      `Synchronizováno ${r.data.syncedCount} šablon (${r.data.usableCount} použitelných).`,
+                    );
+                    void refresh();
+                  })();
+                }}
+                className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900 disabled:opacity-50"
+              >
+                {syncingTemplates ? 'Synchronizuji…' : 'Synchronizovat šablony z Meta'}
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-5 md:grid-cols-2">
+              <div>
+                <label className="text-xs font-medium text-zinc-700">
+                  Ověření telefonního čísla
+                </label>
+                <select
+                  value={settings.whatsappVerifyMetaTemplateId}
+                  onChange={(e) =>
+                    pickSystemTemplate(
+                      'whatsappVerifyMetaTemplateId',
+                      'whatsappVerifyTemplateName',
+                      'whatsappVerifyTemplateLanguage',
+                      e.target.value,
+                    )
+                  }
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                >
+                  <option value="">— vyberte šablonu —</option>
+                  {waTemplates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {formatSystemTemplateOptionLabel(t)}
+                    </option>
+                  ))}
+                </select>
+                {settings.whatsappVerifyTemplateName ? (
+                  <p className="mt-1 text-[11px] text-zinc-500">
+                    Uloženo: {settings.whatsappVerifyTemplateName} ({settings.whatsappVerifyTemplateLanguage})
+                  </p>
+                ) : null}
+                <button
+                  type="button"
+                  disabled={testingVerify}
+                  onClick={() => {
+                    void (async () => {
+                      if (!token) return;
+                      setTestingVerify(true);
+                      setStatusMsg(null);
+                      const r = await nestAdminWhatsAppTestVerifySystemTemplate(
+                        token,
+                        settings.testPhone,
+                      );
+                      setTestingVerify(false);
+                      setStatusIsError(!r.ok);
+                      setStatusMsg(
+                        r.ok ? 'Test ověření telefonu odeslán.' : (r.error ?? 'Test selhal.'),
+                      );
+                    })();
+                  }}
+                  className="mt-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 disabled:opacity-50"
+                >
+                  {testingVerify ? 'Odesílám…' : 'Test systémové šablony'}
+                </button>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-zinc-700">
+                  Uvítací zpráva po registraci
+                </label>
+                <select
+                  value={settings.welcomeMetaTemplateId}
+                  onChange={(e) =>
+                    pickSystemTemplate(
+                      'welcomeMetaTemplateId',
+                      'welcomeTemplateName',
+                      'welcomeTemplateLanguage',
+                      e.target.value,
+                    )
+                  }
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                >
+                  <option value="">— vyberte šablonu —</option>
+                  {waTemplates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {formatSystemTemplateOptionLabel(t)}
+                    </option>
+                  ))}
+                </select>
+                <label className="mt-2 flex items-center gap-2 text-xs text-zinc-700">
+                  <input
+                    type="checkbox"
+                    checked={settings.welcomeEnabled}
+                    onChange={(e) =>
+                      setSettings((s) => ({ ...s, welcomeEnabled: e.target.checked }))
+                    }
+                  />
+                  Automaticky poslat po registraci
+                </label>
+                <button
+                  type="button"
+                  disabled={testingWelcome}
+                  onClick={() => {
+                    void (async () => {
+                      if (!token) return;
+                      setTestingWelcome(true);
+                      setStatusMsg(null);
+                      const r = await nestAdminWhatsAppTestWelcomeSystemTemplate(
+                        token,
+                        settings.testPhone,
+                      );
+                      setTestingWelcome(false);
+                      setStatusIsError(!r.ok);
+                      setStatusMsg(
+                        r.ok ? 'Test uvítací šablony odeslán.' : (r.error ?? 'Test selhal.'),
+                      );
+                    })();
+                  }}
+                  className="mt-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 disabled:opacity-50"
+                >
+                  {testingWelcome ? 'Odesílám…' : 'Test systémové šablony'}
+                </button>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-zinc-700">
+                  Potvrzení nahrání příspěvku autorovi
                 </label>
                 <select
                   value={settings.postUploadedAuthorMetaTemplateId}
                   onChange={(e) =>
-                    setSettings((s) => ({
-                      ...s,
-                      postUploadedAuthorMetaTemplateId: e.target.value,
-                    }))
+                    pickSystemTemplate(
+                      'postUploadedAuthorMetaTemplateId',
+                      'postUploadedTemplateName',
+                      'postUploadedTemplateLanguage',
+                      e.target.value,
+                    )
                   }
                   className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                 >
                   <option value="">— vyberte šablonu —</option>
                   {waTemplates.map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.templateName} ({t.language})
+                      {formatSystemTemplateOptionLabel(t)}
                     </option>
                   ))}
                 </select>
+                <label className="mt-2 flex items-center gap-2 text-xs text-zinc-700">
+                  <input
+                    type="checkbox"
+                    checked={settings.postNotifyAuthorEnabled}
+                    onChange={(e) =>
+                      setSettings((s) => ({ ...s, postNotifyAuthorEnabled: e.target.checked }))
+                    }
+                  />
+                  Zapnout upozornění autorovi
+                </label>
                 <button
                   type="button"
                   disabled={testingPostAuthor}
-                  onClick={async () => {
-                    if (!token) return;
-                    setTestingPostAuthor(true);
-                    setStatusMsg(null);
-                    const r = await nestAdminWhatsAppTestPostAuthorNotification(
-                      token,
-                      settings.testPhone,
-                    );
-                    setTestingPostAuthor(false);
-                    setStatusIsError(!r.ok);
-                    setStatusMsg(
-                      r.ok ? 'Test upozornění autorovi odeslán.' : (r.error ?? 'Test selhal.'),
-                    );
+                  onClick={() => {
+                    void (async () => {
+                      if (!token) return;
+                      setTestingPostAuthor(true);
+                      setStatusMsg(null);
+                      const r = await nestAdminWhatsAppTestPostAuthorNotification(
+                        token,
+                        settings.testPhone,
+                      );
+                      setTestingPostAuthor(false);
+                      setStatusIsError(!r.ok);
+                      setStatusMsg(
+                        r.ok ? 'Test upozornění autorovi odeslán.' : (r.error ?? 'Test selhal.'),
+                      );
+                    })();
                   }}
                   className="mt-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 disabled:opacity-50"
                 >
-                  {testingPostAuthor ? 'Odesílám…' : 'Test autor'}
+                  {testingPostAuthor ? 'Odesílám…' : 'Test systémové šablony'}
                 </button>
               </div>
+
               <div>
-                <label className="text-xs font-medium text-zinc-500">
-                  Šablona new_post_notification
+                <label className="text-xs font-medium text-zinc-700">
+                  Upozornění na nový příspěvek
                 </label>
                 <select
                   value={settings.newPostNotificationMetaTemplateId}
                   onChange={(e) =>
-                    setSettings((s) => ({
-                      ...s,
-                      newPostNotificationMetaTemplateId: e.target.value,
-                    }))
+                    pickSystemTemplate(
+                      'newPostNotificationMetaTemplateId',
+                      'newPostTemplateName',
+                      'newPostTemplateLanguage',
+                      e.target.value,
+                    )
                   }
                   className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                 >
                   <option value="">— vyberte šablonu —</option>
                   {waTemplates.map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.templateName} ({t.language})
+                      {formatSystemTemplateOptionLabel(t)}
                     </option>
                   ))}
                 </select>
+                <label className="mt-2 flex items-center gap-2 text-xs text-zinc-700">
+                  <input
+                    type="checkbox"
+                    checked={settings.postNotifyFollowersEnabled}
+                    onChange={(e) =>
+                      setSettings((s) => ({
+                        ...s,
+                        postNotifyFollowersEnabled: e.target.checked,
+                      }))
+                    }
+                  />
+                  Zapnout upozornění sledujícím
+                </label>
                 <button
                   type="button"
                   disabled={testingPostFollower}
-                  onClick={async () => {
-                    if (!token) return;
-                    setTestingPostFollower(true);
-                    setStatusMsg(null);
-                    const r = await nestAdminWhatsAppTestNewPostNotification(
-                      token,
-                      settings.testPhone,
-                    );
-                    setTestingPostFollower(false);
-                    setStatusIsError(!r.ok);
-                    setStatusMsg(
-                      r.ok
-                        ? 'Test upozornění na nový příspěvek odeslán.'
-                        : (r.error ?? 'Test selhal.'),
-                    );
+                  onClick={() => {
+                    void (async () => {
+                      if (!token) return;
+                      setTestingPostFollower(true);
+                      setStatusMsg(null);
+                      const r = await nestAdminWhatsAppTestNewPostNotification(
+                        token,
+                        settings.testPhone,
+                      );
+                      setTestingPostFollower(false);
+                      setStatusIsError(!r.ok);
+                      setStatusMsg(
+                        r.ok
+                          ? 'Test upozornění na nový příspěvek odeslán.'
+                          : (r.error ?? 'Test selhal.'),
+                      );
+                    })();
                   }}
                   className="mt-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 disabled:opacity-50"
                 >
-                  {testingPostFollower ? 'Odesílám…' : 'Test sledující'}
+                  {testingPostFollower ? 'Odesílám…' : 'Test systémové šablony'}
                 </button>
               </div>
             </div>
+
+            <details className="mt-5 rounded-lg border border-zinc-100 bg-zinc-50/80 p-3">
+              <summary className="cursor-pointer text-xs font-semibold text-zinc-700">
+                Záložní textové uvítací šablony (použijí se, pokud není vybrána Meta šablona)
+              </summary>
+              <div className="mt-3 space-y-3">
+                {WELCOME_ROLES.map((role) => (
+                  <div key={role}>
+                    <label className="text-xs font-medium text-zinc-500">
+                      {WELCOME_ROLE_LABELS[role] ?? role}
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={settings.welcomeTemplates[role] ?? ''}
+                      onChange={(e) =>
+                        setSettings((s) => ({
+                          ...s,
+                          welcomeTemplates: {
+                            ...s.welcomeTemplates,
+                            [role]: e.target.value,
+                          },
+                        }))
+                      }
+                      className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    />
+                  </div>
+                ))}
+              </div>
+            </details>
           </div>
         </form>
 
