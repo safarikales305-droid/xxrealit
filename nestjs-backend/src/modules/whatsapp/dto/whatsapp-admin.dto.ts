@@ -148,6 +148,18 @@ export class CreateWhatsAppMarketingCampaignDto {
   @ArrayMaxSize(5000)
   @IsString({ each: true })
   manualPhones?: string[];
+
+  /** immediate = uložit jako koncept, scheduled = naplánovat odeslání */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  sendMode?: 'immediate' | 'scheduled';
+
+  /** Lokální datum/čas v Europe/Prague (YYYY-MM-DDTHH:mm) nebo ISO s offsetem */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  scheduledAt?: string;
 }
 
 export class PreviewWhatsAppCampaignDto extends CreateWhatsAppMarketingCampaignDto {

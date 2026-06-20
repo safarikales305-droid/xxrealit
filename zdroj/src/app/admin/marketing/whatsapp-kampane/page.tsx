@@ -18,6 +18,7 @@ import {
   nestAdminWhatsAppCampaignLastLog,
   nestAdminWhatsAppCampaignPreview,
   nestAdminWhatsAppCampaignRun,
+  nestAdminWhatsAppCampaignCancelSchedule,
   nestAdminWhatsAppCampaignUploadImage,
   nestAdminWhatsAppCampaignsList,
   nestAdminWhatsAppCampaignTest,
@@ -39,6 +40,10 @@ import {
   WHATSAPP_URL_BUTTON_PARAMETER_HELP,
   WHATSAPP_URL_BUTTON_PARAMETER_REQUIRED_MSG,
   WHATSAPP_CAMPAIGN_EDIT_SENT_WARNING,
+  WHATSAPP_CAMPAIGN_STATUS_LABELS,
+  WHATSAPP_CAMPAIGN_SCHEDULE_TIMEZONE,
+  formatPragueDateTime,
+  utcIsoToPragueDatetimeLocal,
   WHATSAPP_NO_APPROVED_TEMPLATES_MSG,
   WHATSAPP_TARGET_ROLES,
   WHATSAPP_TEMPLATE_REQUIRED_MSG,
@@ -68,6 +73,8 @@ const emptyForm = {
   targetCities: '',
   manualPhones: '',
   csvText: '',
+  sendMode: 'immediate' as 'immediate' | 'scheduled',
+  scheduledAtLocal: '',
 };
 
 function campaignToForm(c: WhatsAppCampaignRow): typeof emptyForm {
@@ -85,6 +92,8 @@ function campaignToForm(c: WhatsAppCampaignRow): typeof emptyForm {
     targetCities: c.targetCities.join('\n'),
     manualPhones: c.manualPhones.map((p) => (p.startsWith('+') ? p : `+${p}`)).join(', '),
     csvText: '',
+    sendMode: c.status === 'SCHEDULED' ? 'scheduled' : 'immediate',
+    scheduledAtLocal: c.scheduledAt ? utcIsoToPragueDatetimeLocal(c.scheduledAt) : '',
   };
 }
 
@@ -227,8 +236,24 @@ export default function AdminWhatsAppCampaignsPage() {
   }
 
   function statusLabel(status: string): string {
-    if (status === 'SENDING') return 'RUNNING';
-    return status;
+    if (status === 'SENDING') return WHATSAPP_CAMPAIGN_STATUS_LABELS.SENDING ?? 'Odesílá se';
+    return WHATSAPP_CAMPAIGN_STATUS_LABELS[status] ?? status;
+  }
+
+  function campaignScheduleEditable(c: WhatsAppCampaignRow): boolean {
+    if (c.status === 'SENDING') return false;
+    if (c.status === 'SCHEDULED' && c.scheduledAt) {
+      return new Date(c.scheduledAt).getTime() > Date.now();
+    }
+    return true;
+  }
+
+  function campaignCanRunNow(c: WhatsAppCampaignRow): boolean {
+    return c.status !== 'SCHEDULED' && c.status !== 'SENDING';
+  }
+
+  function scheduledAtDisplay(c: WhatsAppCampaignRow): string {
+    return c.scheduledAtPrague ?? formatPragueDateTime(c.scheduledAt);
   }
 
   const refresh = useCallback(async () => {
@@ -474,6 +499,8 @@ export default function AdminWhatsAppCampaignsPage() {
       targetRegions: form.targetRegions,
       targetCities: cities,
       manualPhones: buildPhones(),
+      sendMode: form.sendMode,
+      scheduledAt: form.sendMode === 'scheduled' ? form.scheduledAtLocal.trim() : undefined,
     };
   }
 
@@ -545,7 +572,11 @@ export default function AdminWhatsAppCampaignsPage() {
     }
     setForm(emptyForm);
     setPreviewDetail(null);
-    setStatusMsg('Kampaň vytvořena.');
+    setStatusMsg(
+      r.data.status === 'SCHEDULED'
+        ? `Kampaň naplánována na ${scheduledAtDisplay(r.data)} (${WHATSAPP_CAMPAIGN_SCHEDULE_TIMEZONE}).`
+        : 'Kampaň vytvořena.',
+    );
     void refresh();
   }
 
@@ -574,11 +605,20 @@ export default function AdminWhatsAppCampaignsPage() {
       showUrlButtonParameterRequiredMsg();
       return false;
     }
+    if (form.sendMode === 'scheduled' && !form.scheduledAtLocal.trim()) {
+      setStatusIsError(true);
+      setStatusMsg('Zadejte datum a čas odeslání (Europe/Prague).');
+      return false;
+    }
     return true;
   }
 
   function onEdit(campaign: WhatsAppCampaignRow) {
-    if (campaign.status === 'SENDING') return;
+    if (!campaignScheduleEditable(campaign)) {
+      setStatusIsError(true);
+      setStatusMsg('Kampaň nelze upravit — odesílání již probíhá nebo začalo.');
+      return;
+    }
     setEditingCampaignId(campaign.id);
     setForm(campaignToForm(campaign));
     setPreviewDetail(null);
@@ -612,7 +652,11 @@ export default function AdminWhatsAppCampaignsPage() {
     setEditingCampaignId(null);
     setForm(emptyForm);
     setPreviewDetail(null);
-    setStatusMsg('Kampaň byla upravena.');
+    setStatusMsg(
+      r.data.status === 'SCHEDULED'
+        ? `Kampaň naplánována na ${scheduledAtDisplay(r.data)}.`
+        : 'Kampaň byla upravena.',
+    );
     void refresh();
   }
 
@@ -687,6 +731,72 @@ export default function AdminWhatsAppCampaignsPage() {
     } else {
       setStatusMsg('Test kampaně odeslán přes WhatsApp šablonu.');
     }
+    void refresh();
+  }
+
+  async function onCancelSchedule(campaign: WhatsAppCampaignRow) {
+    if (!token) return;
+    if (campaign.status !== 'SCHEDULED') return;
+    if (
+      !window.confirm(
+        `Zrušit plánování kampaně „${campaign.name}"?\nNaplánováno: ${scheduledAtDisplay(campaign)}`,
+      )
+    ) {
+      return;
+    }
+    setBusyId(campaign.id);
+    setStatusMsg(null);
+    setStatusIsError(false);
+    const r = await nestAdminWhatsAppCampaignCancelSchedule(token, campaign.id);
+    setBusyId(null);
+    if (!r.ok) {
+      setStatusIsError(true);
+      setStatusMsg(r.error);
+      return;
+    }
+    setStatusMsg('Plánování kampaně bylo zrušeno.');
+    void refresh();
+  }
+
+  async function onSendNow(campaign: WhatsAppCampaignRow) {
+    if (!token) return;
+    if (campaign.status !== 'SCHEDULED') return;
+    if (campaignNeedsHeaderImage(campaign) && !campaignHasHeaderImage(campaign)) {
+      showHeaderImageRequiredMsg();
+      return;
+    }
+    if (campaignNeedsUrlButtonParam(campaign) && !campaignHasUrlButtonParam(campaign)) {
+      showUrlButtonParameterRequiredMsg();
+      return;
+    }
+    const preview = await nestAdminWhatsAppCampaignRecipientPreview(token, campaign.id);
+    if (!preview) {
+      setStatusIsError(true);
+      setStatusMsg('Nepodařilo se spočítat příjemce kampaně.');
+      return;
+    }
+    if (
+      !window.confirm(
+        `Odeslat kampaň „${campaign.name}" ihned?\nPříjemci: ${preview.recipientCount}\nPůvodní plán: ${scheduledAtDisplay(campaign)}`,
+      )
+    ) {
+      return;
+    }
+    setBusyId(campaign.id);
+    const r = await nestAdminWhatsAppCampaignRun(token, campaign.id);
+    setBusyId(null);
+    if (!r.ok) {
+      await showCampaignActionError('run', r.error, campaign);
+      void refresh();
+      return;
+    }
+    const d = r.data;
+    setStatusIsError(d.sentCount === 0);
+    setStatusMsg(
+      d.sentCount === 0
+        ? `Odeslání selhalo: 0/${d.recipientCount}`
+        : `Kampaň odeslána: ${d.sentCount}/${d.recipientCount}${d.failedCount > 0 ? `, chyb ${d.failedCount}` : ''}`,
+    );
     void refresh();
   }
 
@@ -1546,6 +1656,49 @@ export default function AdminWhatsAppCampaignsPage() {
             </div>
           </div>
 
+          <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+            <p className="text-xs font-semibold uppercase text-zinc-500">Odeslání kampaně</p>
+            <p className="mt-1 text-xs text-zinc-600">
+              Časové pásmo: {WHATSAPP_CAMPAIGN_SCHEDULE_TIMEZONE} (český datum a čas)
+            </p>
+            <div className="mt-3 flex flex-wrap gap-4">
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="sendMode"
+                  checked={form.sendMode === 'immediate'}
+                  onChange={() => setForm((f) => ({ ...f, sendMode: 'immediate' }))}
+                />
+                Odeslat ihned (uložit jako koncept, spustit ručně)
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="sendMode"
+                  checked={form.sendMode === 'scheduled'}
+                  onChange={() => setForm((f) => ({ ...f, sendMode: 'scheduled' }))}
+                />
+                Naplánovat odeslání
+              </label>
+            </div>
+            {form.sendMode === 'scheduled' ? (
+              <div className="mt-3">
+                <label className="text-xs font-semibold uppercase text-zinc-500">
+                  Datum a čas odeslání
+                </label>
+                <input
+                  type="datetime-local"
+                  value={form.scheduledAtLocal}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, scheduledAtLocal: e.target.value }))
+                  }
+                  className="mt-1 block rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  required
+                />
+              </div>
+            ) : null}
+          </div>
+
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               type="button"
@@ -1562,7 +1715,7 @@ export default function AdminWhatsAppCampaignsPage() {
                   disabled={savingEdit || !campaignFormReady()}
                   className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 >
-                  {savingEdit ? 'Ukládám…' : 'Uložit změny'}
+                  {savingEdit ? 'Ukládám…' : form.sendMode === 'scheduled' ? 'Uložit plán' : 'Uložit změny'}
                 </button>
                 <button
                   type="button"
@@ -1579,7 +1732,7 @@ export default function AdminWhatsAppCampaignsPage() {
                 disabled={creating || !campaignFormReady()}
                 className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >
-                {creating ? 'Ukládám…' : 'Vytvořit kampaň'}
+                {creating ? 'Ukládám…' : form.sendMode === 'scheduled' ? 'Naplánovat kampaň' : 'Vytvořit kampaň'}
               </button>
             )}
           </div>
@@ -1599,7 +1752,10 @@ export default function AdminWhatsAppCampaignsPage() {
                     <th className="px-2 py-2">Šablona</th>
                     <th className="px-2 py-2">Obrázek</th>
                     <th className="px-2 py-2">Stav</th>
+                    <th className="px-2 py-2">Naplánováno</th>
+                    <th className="px-2 py-2">Příjemci</th>
                     <th className="px-2 py-2">Odesláno</th>
+                    <th className="px-2 py-2">Chyby</th>
                     <th className="px-2 py-2">Akce</th>
                   </tr>
                 </thead>
@@ -1630,15 +1786,32 @@ export default function AdminWhatsAppCampaignsPage() {
                         )}
                       </td>
                       <td className="px-2 py-3">{statusLabel(c.status)}</td>
+                      <td className="px-2 py-3 text-xs">
+                        {c.status === 'SCHEDULED' || c.scheduledAt
+                          ? scheduledAtDisplay(c)
+                          : '—'}
+                      </td>
+                      <td className="px-2 py-3">{c.recipientCount}</td>
                       <td className="px-2 py-3">
-                        {c.sentCount}/{c.recipientCount}
-                        {c.failedCount > 0 ? ` (${c.failedCount} chyb)` : ''}
+                        {c.sentCount}/{c.recipientCount || '—'}
+                        {c.sentAtPrague || c.sentAt ? (
+                          <span className="block text-xs text-zinc-500">
+                            {c.sentAtPrague ?? formatPragueDateTime(c.sentAt)}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="px-2 py-3">
+                        {c.failedCount > 0 ? (
+                          <span className="font-medium text-red-700">{c.failedCount}</span>
+                        ) : (
+                          '0'
+                        )}
                       </td>
                       <td className="px-2 py-3">
                         <div className="flex flex-wrap gap-1">
                           <button
                             type="button"
-                            disabled={busyId === c.id || c.status === 'SENDING'}
+                            disabled={busyId === c.id || !campaignScheduleEditable(c)}
                             onClick={() => onEdit(c)}
                             className="rounded border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-800 disabled:opacity-50"
                           >
@@ -1688,11 +1861,40 @@ export default function AdminWhatsAppCampaignsPage() {
                           >
                             {loadingLastErrorId === c.id ? '…' : 'Zobrazit poslední Meta chybu'}
                           </button>
+                          {c.status === 'SCHEDULED' ? (
+                            <>
+                              <button
+                                type="button"
+                                disabled={
+                                  busyId === c.id ||
+                                  !campaignScheduleEditable(c) ||
+                                  !campaignActionReady(c)
+                                }
+                                onClick={() => void onCancelSchedule(c)}
+                                className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900 disabled:opacity-50"
+                              >
+                                Zrušit plánování
+                              </button>
+                              <button
+                                type="button"
+                                disabled={
+                                  busyId === c.id ||
+                                  c.status !== 'SCHEDULED' ||
+                                  !campaignActionReady(c)
+                                }
+                                onClick={() => void onSendNow(c)}
+                                className="rounded border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-900 disabled:opacity-50"
+                              >
+                                Odeslat hned
+                              </button>
+                            </>
+                          ) : null}
                           <button
                             type="button"
                             disabled={
                               busyId === c.id ||
                               c.status === 'SENDING' ||
+                              !campaignCanRunNow(c) ||
                               !campaignActionReady(c)
                             }
                             onClick={() => void onRun(c)}

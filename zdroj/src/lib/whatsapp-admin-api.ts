@@ -63,12 +63,16 @@ export type WhatsAppCampaignRow = {
   targetCities: string[];
   manualPhones: string[];
   status: string;
+  scheduledAt?: string | null;
+  scheduledAtPrague?: string | null;
+  lastError?: string | null;
   recipientCount: number;
   sentCount: number;
   failedCount: number;
   skippedCount: number;
   createdAt: string;
   sentAt: string | null;
+  sentAtPrague?: string | null;
 };
 
 export const WHATSAPP_TEMPLATE_REQUIRED_MSG =
@@ -246,6 +250,48 @@ export const WHATSAPP_URL_BUTTON_PARAMETER_REQUIRED_MSG =
 
 export const WHATSAPP_CAMPAIGN_EDIT_SENT_WARNING =
   'Úprava ovlivní pouze další spuštění kampaně.';
+
+export const WHATSAPP_CAMPAIGN_SCHEDULE_TIMEZONE = 'Europe/Prague';
+
+export function formatPragueDateTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const value = new Date(iso);
+  if (Number.isNaN(value.getTime())) return '—';
+  return new Intl.DateTimeFormat('cs-CZ', {
+    timeZone: WHATSAPP_CAMPAIGN_SCHEDULE_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(value);
+}
+
+export function utcIsoToPragueDatetimeLocal(iso: string): string {
+  const value = new Date(iso);
+  if (Number.isNaN(value.getTime())) return '';
+  const formatted = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: WHATSAPP_CAMPAIGN_SCHEDULE_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(value);
+  return formatted.replace(' ', 'T').slice(0, 16);
+}
+
+export const WHATSAPP_CAMPAIGN_STATUS_LABELS: Record<string, string> = {
+  DRAFT: 'Koncept',
+  SCHEDULED: 'Naplánováno',
+  SENDING: 'Odesílá se',
+  SENT: 'Odesláno',
+  FAILED: 'Selhalo',
+  PARTIAL_FAILED: 'Částečně selhalo',
+  CANCELLED: 'Zrušeno',
+};
 
 export const WHATSAPP_NO_APPROVED_TEMPLATES_MSG =
   'V Meta zatím není schválena žádná WhatsApp šablona.';
@@ -735,6 +781,8 @@ export async function nestAdminWhatsAppCampaignCreate(
     targetRegions?: string[];
     targetCities?: string[];
     manualPhones?: string[];
+    sendMode?: 'immediate' | 'scheduled';
+    scheduledAt?: string;
   },
 ): Promise<{ ok: true; data: WhatsAppCampaignRow } | { ok: false; error: string }> {
   try {
@@ -775,6 +823,8 @@ export async function nestAdminWhatsAppCampaignUpdate(
     targetRegions?: string[];
     targetCities?: string[];
     manualPhones?: string[];
+    sendMode?: 'immediate' | 'scheduled';
+    scheduledAt?: string;
   },
 ): Promise<{ ok: true; data: WhatsAppCampaignRow } | { ok: false; error: string }> {
   try {
@@ -912,6 +962,29 @@ export async function nestAdminWhatsAppCampaignTest(
       ok: false,
       error: { message: e instanceof Error ? e.message : 'Chyba sítě' },
     };
+  }
+}
+
+export async function nestAdminWhatsAppCampaignCancelSchedule(
+  token: string,
+  campaignId: string,
+): Promise<{ ok: true; data: WhatsAppCampaignRow } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/whatsapp/admin/campaigns/${campaignId}/cancel-schedule`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      },
+    );
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return { ok: false, error: formatWhatsAppMetaError(parseNestWhatsAppError(data, res.status)) };
+    }
+    return { ok: true, data: data as WhatsAppCampaignRow };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
   }
 }
 

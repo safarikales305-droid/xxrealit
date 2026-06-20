@@ -66,6 +66,10 @@ import {
   parseManualPhoneInputs,
   phoneDigitsToE164,
 } from './whatsapp-manual-phones.util';
+import {
+  formatPragueDateTime,
+  parseScheduledAtInput,
+} from './whatsapp-prague-time.util';
 import type {
   CreateWhatsAppMarketingCampaignDto,
   PreviewWhatsAppCampaignDto,
@@ -112,6 +116,109 @@ export class WhatsAppMarketingService {
 
   private sleep(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private assertCampaignEditable(campaign: {
+    status: WhatsAppMarketingCampaignStatus;
+    scheduledAt: Date | null;
+  }) {
+    if (campaign.status === WhatsAppMarketingCampaignStatus.SENDING) {
+      throw new BadRequestException('Kampaň právě odesílá — nelze upravit.');
+    }
+    if (
+      campaign.status === WhatsAppMarketingCampaignStatus.SCHEDULED &&
+      campaign.scheduledAt &&
+      campaign.scheduledAt.getTime() <= Date.now()
+    ) {
+      throw new BadRequestException(
+        'Naplánované odeslání již začalo — kampaň nelze upravit.',
+      );
+    }
+  }
+
+  private resolveCampaignScheduleForCreate(dto: CreateWhatsAppMarketingCampaignDto): {
+    status: WhatsAppMarketingCampaignStatus;
+    scheduledAt: Date | null;
+  } {
+    const sendMode = dto.sendMode ?? 'immediate';
+    if (sendMode === 'scheduled') {
+      if (!dto.scheduledAt?.trim()) {
+        throw new BadRequestException('Zadejte datum a čas odeslání.');
+      }
+      const scheduledAt = parseScheduledAtInput(dto.scheduledAt);
+      if (scheduledAt.getTime() <= Date.now()) {
+        throw new BadRequestException('Datum odeslání musí být v budoucnosti (Europe/Prague).');
+      }
+      return {
+        status: WhatsAppMarketingCampaignStatus.SCHEDULED,
+        scheduledAt,
+      };
+    }
+    return {
+      status: WhatsAppMarketingCampaignStatus.DRAFT,
+      scheduledAt: null,
+    };
+  }
+
+  private resolveCampaignScheduleForUpdate(
+    dto: Partial<CreateWhatsAppMarketingCampaignDto>,
+    existing: { status: WhatsAppMarketingCampaignStatus; scheduledAt: Date | null },
+  ): Partial<{
+    status: WhatsAppMarketingCampaignStatus;
+    scheduledAt: Date | null;
+    lastError: string | null;
+  }> {
+    if (dto.sendMode === undefined) return {};
+
+    if (dto.sendMode === 'scheduled') {
+      if (!dto.scheduledAt?.trim()) {
+        throw new BadRequestException('Zadejte datum a čas odeslání.');
+      }
+      const scheduledAt = parseScheduledAtInput(dto.scheduledAt);
+      if (scheduledAt.getTime() <= Date.now()) {
+        throw new BadRequestException('Datum odeslání musí být v budoucnosti (Europe/Prague).');
+      }
+      return {
+        status: WhatsAppMarketingCampaignStatus.SCHEDULED,
+        scheduledAt,
+        lastError: null,
+      };
+    }
+
+    if (existing.status === WhatsAppMarketingCampaignStatus.SCHEDULED) {
+      return {
+        status: WhatsAppMarketingCampaignStatus.DRAFT,
+        scheduledAt: null,
+        lastError: null,
+      };
+    }
+    return { scheduledAt: null };
+  }
+
+  async cancelCampaignSchedule(id: string) {
+    const existing = await this.prisma.whatsAppMarketingCampaign.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Kampaň nenalezena.');
+    if (existing.status !== WhatsAppMarketingCampaignStatus.SCHEDULED) {
+      throw new BadRequestException('Kampaň není naplánovaná.');
+    }
+    if (existing.scheduledAt && existing.scheduledAt.getTime() <= Date.now()) {
+      throw new BadRequestException('Naplánované odeslání již začalo — nelze zrušit plánování.');
+    }
+
+    const row = await this.prisma.whatsAppMarketingCampaign.update({
+      where: { id },
+      data: {
+        status: WhatsAppMarketingCampaignStatus.DRAFT,
+        scheduledAt: null,
+        lastError: null,
+      },
+    });
+
+    this.logger.log(
+      `[Campaign Schedule] cancelled campaignId=${id} name="${existing.name}" wasScheduledAt=${formatPragueDateTime(existing.scheduledAt)}`,
+    );
+
+    return this.campaignRow(row);
   }
 
   private normalizePhone(raw: string): string | null {
@@ -1069,6 +1176,8 @@ export class WhatsAppMarketingService {
       throw new BadRequestException(WHATSAPP_URL_BUTTON_PARAMETER_REQUIRED_MSG);
     }
 
+    const schedule = this.resolveCampaignScheduleForCreate(dto);
+
     const row = await this.prisma.whatsAppMarketingCampaign.create({
       data: {
         name: dto.name.trim(),
@@ -1093,18 +1202,28 @@ export class WhatsAppMarketingService {
         targetCities: (dto.targetCities ?? []).map((s) => s.trim()).filter(Boolean),
         manualPhones: this.parseManualPhonesForStorage(dto.manualPhones),
         createdByUserId: adminUserId,
+        status: schedule.status,
+        scheduledAt: schedule.scheduledAt,
       },
     });
-    return this.campaignRow(row);
+
+    if (schedule.status === WhatsAppMarketingCampaignStatus.SCHEDULED) {
+      this.logger.log(
+        `[Campaign Schedule] created campaignId=${row.id} name="${row.name}" scheduledAt=${formatPragueDateTime(schedule.scheduledAt)} (${schedule.scheduledAt?.toISOString()})`,
+      );
+    }
+
+    await this.syncRecipientCount(row);
+    const refreshed = await this.prisma.whatsAppMarketingCampaign.findUnique({ where: { id: row.id } });
+    return this.campaignRow(refreshed ?? row);
   }
 
   async updateCampaign(id: string, dto: Partial<CreateWhatsAppMarketingCampaignDto>) {
     const existing = await this.prisma.whatsAppMarketingCampaign.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Kampaň nenalezena.');
-    if (existing.status === WhatsAppMarketingCampaignStatus.SENDING) {
-      throw new BadRequestException('Kampaň právě odesílá — nelze upravit.');
-    }
+    this.assertCampaignEditable(existing);
 
+    const schedulePatch = this.resolveCampaignScheduleForUpdate(dto, existing);
     let resolvedTemplate:
       | {
           waMetaTemplateId: string;
@@ -1235,9 +1354,33 @@ export class WhatsAppMarketingService {
         ...(dto.manualPhones !== undefined
           ? { manualPhones: this.parseManualPhonesForStorage(dto.manualPhones) }
           : {}),
+        ...schedulePatch,
       },
     });
-    return this.campaignRow(row);
+
+    if (
+      schedulePatch.status === WhatsAppMarketingCampaignStatus.SCHEDULED &&
+      schedulePatch.scheduledAt
+    ) {
+      this.logger.log(
+        `[Campaign Schedule] updated campaignId=${id} name="${row.name}" scheduledAt=${formatPragueDateTime(schedulePatch.scheduledAt)} (${schedulePatch.scheduledAt.toISOString()})`,
+      );
+    }
+
+    await this.syncRecipientCount(row);
+    const refreshed = await this.prisma.whatsAppMarketingCampaign.findUnique({ where: { id } });
+    return this.campaignRow(refreshed ?? row);
+  }
+
+  private async syncRecipientCount(
+    campaign: Parameters<WhatsAppMarketingService['resolveRecipients']>[0],
+  ): Promise<number> {
+    const recipients = await this.resolveRecipients(campaign);
+    await this.prisma.whatsAppMarketingCampaign.update({
+      where: { id: campaign.id },
+      data: { recipientCount: recipients.length },
+    });
+    return recipients.length;
   }
 
   async duplicateCampaign(adminUserId: string, id: string) {
@@ -1585,7 +1728,7 @@ export class WhatsAppMarketingService {
     return recipients;
   }
 
-  async runCampaign(campaignId: string) {
+  async runCampaign(campaignId: string, trigger: 'manual' | 'cron' | 'send_now' = 'manual') {
     await this.settings.reload();
 
     const campaign = await this.prisma.whatsAppMarketingCampaign.findUnique({
@@ -1595,8 +1738,31 @@ export class WhatsAppMarketingService {
     if (campaign.status === WhatsAppMarketingCampaignStatus.SENDING) {
       throw new BadRequestException('Kampaň už probíhá.');
     }
+    if (campaign.status === WhatsAppMarketingCampaignStatus.SCHEDULED) {
+      if (trigger === 'cron') {
+        if (!campaign.scheduledAt || campaign.scheduledAt.getTime() > Date.now()) {
+          throw new BadRequestException('Kampaň ještě není k odeslání.');
+        }
+      } else if (trigger === 'send_now') {
+        // ok — okamžité odeslání naplánované kampaně
+      } else {
+        throw new BadRequestException(
+          'Naplánovaná kampaň se odešle automaticky v zadaný čas. Použijte „Odeslat hned“.',
+        );
+      }
+    }
     if (!this.config.isCloudApiConfigured()) {
       throw new ServiceUnavailableException('WhatsApp Cloud API není připraveno.');
+    }
+
+    if (trigger === 'cron') {
+      this.logger.log(
+        `[Campaign Schedule] cron starting campaignId=${campaignId} name="${campaign.name}" scheduledAt=${formatPragueDateTime(campaign.scheduledAt)}`,
+      );
+    } else if (trigger === 'send_now' && campaign.status === WhatsAppMarketingCampaignStatus.SCHEDULED) {
+      this.logger.log(
+        `[Campaign Schedule] send-now campaignId=${campaignId} name="${campaign.name}" wasScheduledAt=${formatPragueDateTime(campaign.scheduledAt)}`,
+      );
     }
 
     const tpl = await this.campaignTemplateConfig(campaign);
@@ -1736,11 +1902,21 @@ export class WhatsAppMarketingService {
     const status =
       sent === 0
         ? WhatsAppMarketingCampaignStatus.FAILED
-        : WhatsAppMarketingCampaignStatus.SENT;
+        : failed > 0
+          ? WhatsAppMarketingCampaignStatus.PARTIAL_FAILED
+          : WhatsAppMarketingCampaignStatus.SENT;
+
+    const lastError =
+      sendErrors.length > 0 ? sendErrors.slice(0, 30).join('\n').slice(0, 8000) : null;
 
     this.logger.log(
-      `[Campaign Run] done campaignId=${campaignId} sent=${sent} failed=${failed} skipped=${skipped} status=${status}`,
+      `[Campaign Run] done campaignId=${campaignId} trigger=${trigger} sent=${sent} failed=${failed} skipped=${skipped} status=${status}`,
     );
+    if (sendErrors.length > 0) {
+      this.logger.warn(
+        `[Campaign Run] meta errors campaignId=${campaignId}: ${sendErrors.slice(0, 5).join(' | ')}`,
+      );
+    }
 
     const updated = await this.prisma.whatsAppMarketingCampaign.update({
       where: { id: campaignId },
@@ -1751,6 +1927,7 @@ export class WhatsAppMarketingService {
         sentCount: sent,
         failedCount: failed,
         skippedCount: skipped,
+        lastError,
       },
     });
 
@@ -1853,6 +2030,8 @@ export class WhatsAppMarketingService {
     targetCities: string[];
     manualPhones: string[];
     status: WhatsAppMarketingCampaignStatus;
+    scheduledAt: Date | null;
+    lastError: string | null;
     recipientCount: number;
     sentCount: number;
     failedCount: number;
@@ -1878,6 +2057,9 @@ export class WhatsAppMarketingService {
       targetCities: r.targetCities,
       manualPhones: r.manualPhones,
       status: r.status,
+      scheduledAt: r.scheduledAt?.toISOString() ?? null,
+      scheduledAtPrague: formatPragueDateTime(r.scheduledAt),
+      lastError: r.lastError ?? null,
       recipientCount: r.recipientCount,
       sentCount: r.sentCount,
       failedCount: r.failedCount,
@@ -1885,6 +2067,7 @@ export class WhatsAppMarketingService {
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
       sentAt: r.sentAt?.toISOString() ?? null,
+      sentAtPrague: formatPragueDateTime(r.sentAt),
     };
   }
 }

@@ -1468,9 +1468,11 @@ enum WhatsAppMarketingCampaignType {
 
 enum WhatsAppMarketingCampaignStatus {
   DRAFT
+  SCHEDULED
   SENDING
   SENT
   FAILED
+  PARTIAL_FAILED
   CANCELLED
 }
 
@@ -1540,6 +1542,8 @@ model WhatsAppMarketingCampaign {
   targetCities    String[]                        @default([])
   manualPhones    String[]                        @default([])
   status          WhatsAppMarketingCampaignStatus @default(DRAFT)
+  scheduledAt     DateTime?
+  lastError       String?                         @db.Text
   createdByUserId String?
   recipientCount  Int                             @default(0)
   sentCount       Int                             @default(0)
@@ -1553,6 +1557,7 @@ model WhatsAppMarketingCampaign {
   logs      WhatsAppMarketingCampaignLog[]
 
   @@index([status, createdAt])
+  @@index([status, scheduledAt])
   @@index([createdByUserId])
 }
 

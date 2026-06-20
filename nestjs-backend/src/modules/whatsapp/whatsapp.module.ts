@@ -10,6 +10,7 @@ import { WhatsAppCloudApiService } from './whatsapp-cloud-api.service';
 import { WhatsAppWebhookService } from './whatsapp-webhook.service';
 import { WhatsAppMetaTemplatesService } from './whatsapp-meta-templates.service';
 import { WhatsAppTemplatesSyncCronService } from './whatsapp-templates-sync.cron.service';
+import { WhatsAppCampaignScheduleCronService } from './whatsapp-campaign-schedule.cron.service';
 import { WhatsAppDiagnosticService } from './whatsapp-diagnostic.service';
 import { WhatsAppCampaignDebugService } from './whatsapp-campaign-debug.service';
 
@@ -25,6 +26,7 @@ import { WhatsAppCampaignDebugService } from './whatsapp-campaign-debug.service'
     WhatsAppCloudApiService,
     WhatsAppMetaTemplatesService,
     WhatsAppTemplatesSyncCronService,
+    WhatsAppCampaignScheduleCronService,
     WhatsAppDiagnosticService,
     WhatsAppCampaignDebugService,
   ],

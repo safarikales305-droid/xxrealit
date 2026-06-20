@@ -232,11 +232,16 @@ export class WhatsAppAdminController {
     }
   }
 
+  @Post('campaigns/:id/cancel-schedule')
+  cancelCampaignSchedule(@Param('id') id: string) {
+    return this.marketing.cancelCampaignSchedule(id);
+  }
+
   @Post('campaigns/:id/run')
   async runCampaign(@Param('id') id: string) {
     const payload = { campaignId: id };
     try {
-      return await this.marketing.runCampaign(id);
+      return await this.marketing.runCampaign(id, 'send_now');
     } catch (error) {
       const ctx = await this.marketing.getCampaignDebugContext(id);
       this.campaignDebug.recordFailure(error, {
