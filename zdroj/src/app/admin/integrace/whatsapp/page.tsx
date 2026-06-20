@@ -744,8 +744,8 @@ export default function AdminWhatsAppIntegrationPage() {
               <div>
                 <h2 className="text-sm font-semibold text-zinc-900">Systémové WhatsApp šablony</h2>
                 <p className="mt-1 text-xs text-zinc-500">
-                  Schválené šablony z aktivního WABA. Ověření telefonu vyžaduje šablonu{' '}
-                  <code>whatsapp_verify_code</code> s 1 proměnnou.
+                  Schválené šablony z aktivního WABA. Ověření telefonu vyžaduje schválenou
+                  šablonu s 1 proměnnou.
                 </p>
               </div>
               <button

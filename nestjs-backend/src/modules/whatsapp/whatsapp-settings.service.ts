@@ -50,7 +50,7 @@ export type WhatsAppIntegrationSettings = {
   newPostNotificationMetaTemplateId: string;
   newPostTemplateName: string;
   newPostTemplateLanguage: string;
-  /** DB id šablony whatsapp_verify_code. */
+  /** DB id vybrané šablony pro ověření telefonu. */
   whatsappVerifyMetaTemplateId: string;
   whatsappVerifyTemplateName: string;
   whatsappVerifyTemplateLanguage: string;

@@ -1,7 +1,5 @@
-export const WHATSAPP_VERIFY_TEMPLATE_NAME = 'whatsapp_verify_code';
-
 export const WHATSAPP_VERIFY_TEMPLATE_ADMIN_MSG =
-  'Vyberte WhatsApp šablonu pro ověření čísla v administraci.';
+  'Ověření telefonu vyžaduje schválenou šablonu s 1 proměnnou.';
 
 export const WHATSAPP_VERIFY_NOT_SAVED_MSG =
   'Nejprve uložte šablonu pro ověření telefonního čísla.';
@@ -50,11 +48,8 @@ export function validateSystemTemplateForSlot(
   }
 
   if (slot === 'verify') {
-    if (template.templateName.trim().toLowerCase() !== WHATSAPP_VERIFY_TEMPLATE_NAME) {
-      return `Pro ověření telefonu musí být šablona „${WHATSAPP_VERIFY_TEMPLATE_NAME}“.`;
-    }
     if (template.variablesCount !== 1) {
-      return `Šablona „${WHATSAPP_VERIFY_TEMPLATE_NAME}“ musí mít přesně 1 proměnnou (ověřovací kód).`;
+      return `Šablona „${template.templateName}“ musí mít přesně 1 proměnnou (ověřovací kód).`;
     }
     return null;
   }
