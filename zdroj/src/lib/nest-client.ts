@@ -254,6 +254,9 @@ export type NestMeProfile = {
   brokerEmailPublic?: string;
   whatsappPhone?: string;
   whatsappEnabled?: boolean;
+  whatsappMarketingOptOut?: boolean;
+  whatsappNotifyMyUploads?: boolean;
+  whatsappNotifyNewPosts?: boolean;
   brokerReviewAverage?: number;
   brokerReviewCount?: number;
   creditBalance?: number;
@@ -572,6 +575,9 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     brokerEmailPublic: typeof o.brokerEmailPublic === 'string' ? o.brokerEmailPublic : undefined,
     whatsappPhone: typeof o.whatsappPhone === 'string' ? o.whatsappPhone : undefined,
     whatsappEnabled: o.whatsappEnabled === true,
+    whatsappMarketingOptOut: o.whatsappMarketingOptOut === true,
+    whatsappNotifyMyUploads: o.whatsappNotifyMyUploads === true,
+    whatsappNotifyNewPosts: o.whatsappNotifyNewPosts === true,
     brokerReviewAverage:
       typeof o.brokerReviewAverage === 'number' ? o.brokerReviewAverage : undefined,
     brokerReviewCount: typeof o.brokerReviewCount === 'number' ? o.brokerReviewCount : undefined,
@@ -7237,9 +7243,22 @@ export async function nestAdminWhatsAppStats(
 
 export async function nestPatchWhatsAppSettings(
   token: string,
-  body: { whatsappPhone?: string; whatsappEnabled?: boolean },
+  body: {
+    whatsappPhone?: string;
+    whatsappEnabled?: boolean;
+    whatsappMarketingOptOut?: boolean;
+    whatsappNotifyMyUploads?: boolean;
+    whatsappNotifyNewPosts?: boolean;
+  },
 ): Promise<
-  | { ok: true; whatsappPhone?: string; whatsappEnabled?: boolean }
+  | {
+      ok: true;
+      whatsappPhone?: string;
+      whatsappEnabled?: boolean;
+      whatsappMarketingOptOut?: boolean;
+      whatsappNotifyMyUploads?: boolean;
+      whatsappNotifyNewPosts?: boolean;
+    }
   | { ok: false; error: string }
 > {
   if (!API_BASE_URL || !token) {
@@ -7267,6 +7286,9 @@ export async function nestPatchWhatsAppSettings(
       whatsappPhone:
         typeof data.whatsappPhone === 'string' ? data.whatsappPhone : undefined,
       whatsappEnabled: data.whatsappEnabled === true,
+      whatsappMarketingOptOut: data.whatsappMarketingOptOut === true,
+      whatsappNotifyMyUploads: data.whatsappNotifyMyUploads === true,
+      whatsappNotifyNewPosts: data.whatsappNotifyNewPosts === true,
     };
   } catch {
     return { ok: false, error: 'Síťová chyba' };

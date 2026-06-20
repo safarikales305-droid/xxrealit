@@ -245,6 +245,10 @@ model User {
   whatsappMarketingOptOut    Boolean  @default(false)
   /// Čas udělení souhlasu s WhatsApp komunikací (registrace / explicitní souhlas).
   whatsappMarketingConsentAt DateTime?
+  /// WhatsApp upozornění po vlastním nahrání příspěvku.
+  whatsappNotifyMyUploads    Boolean @default(false)
+  /// WhatsApp upozornění na nové příspěvky sledovaných uživatelů.
+  whatsappNotifyNewPosts     Boolean @default(false)
   /// Agregát z viditelných recenzí (přepočet při změně recenze).
   brokerReviewAverage   Float    @default(0)
   brokerReviewCount     Int      @default(0)
@@ -633,6 +637,7 @@ model Post {
   reactions   PostReaction[]
   favorites   Favorite[]
   comments    Comment[]
+  whatsappMessages WhatsAppMessage[]
   createdAt   DateTime @default(now())
 
   @@index([userId])
@@ -1537,15 +1542,23 @@ model WhatsAppMessage {
   message           String                   @default("") @db.Text
   status            WhatsAppMessageStatus    @default(PENDING)
   providerMessageId String?
+  /// Související příspěvek (upozornění po uploadu / nový příspěvek).
+  postId            String?
+  /// POST_UPLOADED_AUTHOR | NEW_POST_NOTIFICATION
+  notificationType  String?
+  errorMessage      String?                  @db.Text
   createdAt         DateTime                 @default(now())
 
   user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
   sentByUser User?     @relation("WhatsAppSentBy", fields: [sentByUserId], references: [id], onDelete: SetNull)
   listing    Property? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  post       Post?     @relation(fields: [postId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
   @@index([sentByUserId, createdAt])
   @@index([listingId, createdAt])
+  @@index([postId])
+  @@index([notificationType])
   @@index([status, createdAt])
   @@index([providerMessageId])
 }

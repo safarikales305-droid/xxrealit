@@ -13,6 +13,9 @@ type Props = {
 export function WhatsAppConnectionCard({ token }: Props) {
   const [phone, setPhone] = useState('');
   const [enabled, setEnabled] = useState(false);
+  const [notifyMyUploads, setNotifyMyUploads] = useState(false);
+  const [notifyNewPosts, setNotifyNewPosts] = useState(false);
+  const [marketingOptOut, setMarketingOptOut] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +30,9 @@ export function WhatsAppConnectionCard({ token }: Props) {
     const me = await nestFetchMe(token);
     setPhone(me?.whatsappPhone ?? '');
     setEnabled(Boolean(me?.whatsappEnabled));
+    setNotifyMyUploads(Boolean(me?.whatsappNotifyMyUploads));
+    setNotifyNewPosts(Boolean(me?.whatsappNotifyNewPosts));
+    setMarketingOptOut(Boolean(me?.whatsappMarketingOptOut));
     setLoading(false);
   }, [token]);
 
@@ -47,6 +53,9 @@ export function WhatsAppConnectionCard({ token }: Props) {
     const res = await nestPatchWhatsAppSettings(token, {
       whatsappPhone: trimmed || undefined,
       whatsappEnabled: enabled,
+      whatsappNotifyMyUploads: notifyMyUploads,
+      whatsappNotifyNewPosts: notifyNewPosts,
+      whatsappMarketingOptOut: marketingOptOut,
     });
     setBusy(false);
     if (!res.ok) {
@@ -93,6 +102,41 @@ export function WhatsAppConnectionCard({ token }: Props) {
             />
             Zobrazit tlačítko „Napsat na WhatsApp“
           </label>
+
+          <div className="mt-2 space-y-2 border-t border-zinc-200 pt-3">
+            <p className="text-sm font-semibold text-zinc-900">WhatsApp upozornění</p>
+            <label className="flex items-start gap-2 text-sm text-zinc-800">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={notifyMyUploads}
+                onChange={(e) => setNotifyMyUploads(e.target.checked)}
+              />
+              <span>Upozornění na moje uploady (po úspěšném nahrání příspěvku)</span>
+            </label>
+            <label className="flex items-start gap-2 text-sm text-zinc-800">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={notifyNewPosts}
+                onChange={(e) => setNotifyNewPosts(e.target.checked)}
+              />
+              <span>Upozornění na nové příspěvky sledovaných uživatelů</span>
+            </label>
+            <label className="flex items-start gap-2 text-sm text-zinc-800">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={!marketingOptOut}
+                onChange={(e) => setMarketingOptOut(!e.target.checked)}
+              />
+              <span>Marketingová WhatsApp upozornění (kampaně portálu)</span>
+            </label>
+            <p className="text-xs text-zinc-500">
+              Upozornění na příspěvky vyžadují platné číslo a souhlas s komunikací přes WhatsApp.
+            </p>
+          </div>
+
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
           {ok ? <p className="text-sm text-emerald-700">{ok}</p> : null}
           <button

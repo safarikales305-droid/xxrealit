@@ -36,4 +36,24 @@ export class UpdateWhatsAppSettingsDto {
   })
   @IsBoolean()
   whatsappMarketingOptOut?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === false) return value;
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
+  @IsBoolean()
+  whatsappNotifyMyUploads?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === false) return value;
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
+  @IsBoolean()
+  whatsappNotifyNewPosts?: boolean;
 }

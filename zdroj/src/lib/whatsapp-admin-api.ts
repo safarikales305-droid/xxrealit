@@ -9,6 +9,10 @@ export type WhatsAppIntegrationSettings = {
   welcomeTemplates: Record<string, string>;
   batchSize: number;
   batchDelayMs: number;
+  postNotifyAuthorEnabled: boolean;
+  postNotifyFollowersEnabled: boolean;
+  postUploadedAuthorMetaTemplateId: string;
+  newPostNotificationMetaTemplateId: string;
   accessTokenSet: boolean;
   webhookVerifyTokenSet: boolean;
   metaAppId: string;
@@ -605,6 +609,54 @@ export async function nestAdminWhatsAppTestSend(
       ok: false,
       error: { message: e instanceof Error ? e.message : 'Chyba sítě' },
     };
+  }
+}
+
+export async function nestAdminWhatsAppTestPostAuthorNotification(
+  token: string,
+  toPhone?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/whatsapp/admin/post-notifications/test-author`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ toPhone }),
+      cache: 'no-store',
+    });
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; message?: string };
+    if (!res.ok) {
+      return { ok: false, error: data.error || data.message || `HTTP ${res.status}` };
+    }
+    return { ok: data.ok !== false, error: data.error };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
+  }
+}
+
+export async function nestAdminWhatsAppTestNewPostNotification(
+  token: string,
+  toPhone?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/whatsapp/admin/post-notifications/test-new-post`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ toPhone }),
+      cache: 'no-store',
+    });
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; message?: string };
+    if (!res.ok) {
+      return { ok: false, error: data.error || data.message || `HTTP ${res.status}` };
+    }
+    return { ok: data.ok !== false, error: data.error };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
   }
 }
 

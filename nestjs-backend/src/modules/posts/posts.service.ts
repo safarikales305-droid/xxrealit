@@ -1,8 +1,9 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { MarketingBonusActionType, PostCategory, ReactionType } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
+import { PostWhatsAppNotifyService } from '../whatsapp/post-whatsapp-notify.service';
 import {
   buildCommunityPostsWhere,
   dedupeCommunityPosts,
@@ -80,11 +81,22 @@ function toNumberOrNull(value: unknown): number | null {
 
 @Injectable()
 export class PostsService {
+  private readonly log = new Logger(PostsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly brokerPoints: BrokerPointsService,
     private readonly bonusCampaigns: BonusCampaignService,
+    private readonly postWhatsAppNotify: PostWhatsAppNotifyService,
   ) {}
+
+  private firePostPublishedNotify(userId: string, postId: string) {
+    void this.postWhatsAppNotify.onPostPublished(userId, postId).catch((err) => {
+      this.log.warn(
+        `[post-wa] notify failed post=${postId}: ${err instanceof Error ? err.message : err}`,
+      );
+    });
+  }
 
   async deletePost(id: string) {
     return this.prisma.post.delete({
@@ -187,10 +199,10 @@ export class PostsService {
     });
   }
 
-  create(userId: string, dto: CreatePostDto) {
+  async create(userId: string, dto: CreatePostDto) {
     const text = (dto.text ?? dto.description ?? dto.content ?? '').trim();
     const preview = linkPreviewDataFromDto(dto);
-    return this.prisma.post.create({
+    const created = await this.prisma.post.create({
       data: {
         type: 'post',
         category: (dto.category as PostCategory | undefined) ?? PostCategory.MAKLERI,
@@ -215,6 +227,8 @@ export class PostsService {
         },
       },
     });
+    this.firePostPublishedNotify(userId, created.id);
+    return created;
   }
 
   async createMediaPost(
@@ -271,6 +285,7 @@ export class PostsService {
     void this.bonusCampaigns
       .evaluateMarketingBonuses(userId, MarketingBonusActionType.FIRST_POST)
       .catch(() => {});
+    this.firePostPublishedNotify(userId, created.id);
     return created;
   }
 
@@ -327,6 +342,7 @@ export class PostsService {
     if (input.media.some((m) => m.type === 'video')) {
       await this.brokerPoints.onVideoPostCreated(userId, created.id);
     }
+    this.firePostPublishedNotify(userId, created.id);
     return created;
   }
 

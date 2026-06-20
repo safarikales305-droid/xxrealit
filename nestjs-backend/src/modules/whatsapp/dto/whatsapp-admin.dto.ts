@@ -65,6 +65,24 @@ export class UpdateWhatsAppIntegrationSettingsDto {
   @Min(100)
   @Max(10000)
   batchDelayMs?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  postNotifyAuthorEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  postNotifyFollowersEnabled?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  postUploadedAuthorMetaTemplateId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  newPostNotificationMetaTemplateId?: string;
 }
 
 export class WhatsAppTestSendDto {

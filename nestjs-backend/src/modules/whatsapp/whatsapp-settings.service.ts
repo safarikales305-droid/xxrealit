@@ -14,6 +14,14 @@ export type WhatsAppIntegrationSettings = {
   welcomeTemplates: Record<string, string>;
   batchSize: number;
   batchDelayMs: number;
+  /** Upozornění autorovi po nahrání příspěvku (Meta šablona). */
+  postNotifyAuthorEnabled: boolean;
+  /** Upozornění sledujícím při novém příspěvku. */
+  postNotifyFollowersEnabled: boolean;
+  /** DB id schválené šablony post_uploaded_author. */
+  postUploadedAuthorMetaTemplateId: string;
+  /** DB id schválené šablony new_post_notification. */
+  newPostNotificationMetaTemplateId: string;
 };
 
 export type WhatsAppIntegrationSettingsPublic = Omit<
@@ -64,6 +72,10 @@ export const DEFAULT_WHATSAPP_INTEGRATION_SETTINGS: WhatsAppIntegrationSettings 
   },
   batchSize: 20,
   batchDelayMs: 1000,
+  postNotifyAuthorEnabled: false,
+  postNotifyFollowersEnabled: false,
+  postUploadedAuthorMetaTemplateId: '',
+  newPostNotificationMetaTemplateId: '',
 };
 
 @Injectable()
@@ -114,6 +126,10 @@ export class WhatsAppSettingsService implements OnModuleInit {
       welcomeTemplates,
       batchSize: Math.min(100, this.num(o.batchSize, d.batchSize)),
       batchDelayMs: Math.min(10000, this.num(o.batchDelayMs, d.batchDelayMs)),
+      postNotifyAuthorEnabled: o.postNotifyAuthorEnabled === true,
+      postNotifyFollowersEnabled: o.postNotifyFollowersEnabled === true,
+      postUploadedAuthorMetaTemplateId: this.str(o.postUploadedAuthorMetaTemplateId),
+      newPostNotificationMetaTemplateId: this.str(o.newPostNotificationMetaTemplateId),
     };
   }
 

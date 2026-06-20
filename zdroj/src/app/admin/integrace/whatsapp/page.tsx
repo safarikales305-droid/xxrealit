@@ -12,6 +12,9 @@ import {
   nestAdminWhatsAppSettingsGet,
   nestAdminWhatsAppSettingsPatch,
   nestAdminWhatsAppTestSend,
+  nestAdminWhatsAppTestPostAuthorNotification,
+  nestAdminWhatsAppTestNewPostNotification,
+  nestAdminWhatsAppTemplatesList,
   nestAdminWhatsAppVerifyPhone,
   nestAdminWhatsAppVerifyWaba,
   nestAdminWhatsAppWabaPhoneNumbers,
@@ -26,6 +29,7 @@ import {
   type WhatsAppPhoneVerifyResult,
   type WhatsAppWabaPhoneNumberRow,
   type WhatsAppWabaVerifyResult,
+  type WhatsAppMetaTemplateRow,
 } from '@/lib/whatsapp-admin-api';
 
 const emptySettings: WhatsAppIntegrationSettings = {
@@ -37,6 +41,10 @@ const emptySettings: WhatsAppIntegrationSettings = {
   welcomeTemplates: {},
   batchSize: 20,
   batchDelayMs: 1000,
+  postNotifyAuthorEnabled: false,
+  postNotifyFollowersEnabled: false,
+  postUploadedAuthorMetaTemplateId: '',
+  newPostNotificationMetaTemplateId: '',
   accessTokenSet: false,
   webhookVerifyTokenSet: false,
   metaAppId: '',
@@ -71,13 +79,17 @@ export default function AdminWhatsAppIntegrationPage() {
   const [loadingWabaPhones, setLoadingWabaPhones] = useState(false);
   const [wabaPhones, setWabaPhones] = useState<WhatsAppWabaPhoneNumberRow[]>([]);
   const [selectedWabaPhoneId, setSelectedWabaPhoneId] = useState('');
+  const [waTemplates, setWaTemplates] = useState<WhatsAppMetaTemplateRow[]>([]);
+  const [testingPostAuthor, setTestingPostAuthor] = useState(false);
+  const [testingPostFollower, setTestingPostFollower] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!token) return;
     setLoadError(null);
-    const [statsData, settingsData] = await Promise.all([
+    const [statsData, settingsData, templatesData] = await Promise.all([
       nestAdminWhatsAppMarketingStats(token),
       nestAdminWhatsAppSettingsGet(token),
+      nestAdminWhatsAppTemplatesList(token, true),
     ]);
     if (!statsData || !settingsData) {
       setLoadError('Nepodařilo se načíst WhatsApp integraci.');
@@ -85,6 +97,7 @@ export default function AdminWhatsAppIntegrationPage() {
     }
     setStats(statsData);
     setSettings(settingsData);
+    setWaTemplates(templatesData?.templates?.filter((t) => t.isUsable) ?? []);
   }, [token]);
 
   const loadDiagnostics = useCallback(async () => {
@@ -167,6 +180,10 @@ export default function AdminWhatsAppIntegrationPage() {
       welcomeTemplates: settings.welcomeTemplates,
       batchSize: settings.batchSize,
       batchDelayMs: settings.batchDelayMs,
+      postNotifyAuthorEnabled: settings.postNotifyAuthorEnabled,
+      postNotifyFollowersEnabled: settings.postNotifyFollowersEnabled,
+      postUploadedAuthorMetaTemplateId: settings.postUploadedAuthorMetaTemplateId,
+      newPostNotificationMetaTemplateId: settings.newPostNotificationMetaTemplateId,
     };
     if (accessToken.trim()) patch.accessToken = accessToken.trim();
     if (webhookVerifyToken.trim()) patch.webhookVerifyToken = webhookVerifyToken.trim();
@@ -679,6 +696,126 @@ export default function AdminWhatsAppIntegrationPage() {
                   />
                 </div>
               ))}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-zinc-900">Upozornění na příspěvky</h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              Pouze schválené Meta šablony: <code>post_uploaded_author</code>,{' '}
+              <code>new_post_notification</code>. Respektuje opt-in uživatele v profilu.
+            </p>
+
+            <label className="mt-3 flex items-center gap-2 text-sm text-zinc-700">
+              <input
+                type="checkbox"
+                checked={settings.postNotifyAuthorEnabled}
+                onChange={(e) =>
+                  setSettings((s) => ({ ...s, postNotifyAuthorEnabled: e.target.checked }))
+                }
+              />
+              Upozornění autorovi po nahrání příspěvku
+            </label>
+            <label className="mt-2 flex items-center gap-2 text-sm text-zinc-700">
+              <input
+                type="checkbox"
+                checked={settings.postNotifyFollowersEnabled}
+                onChange={(e) =>
+                  setSettings((s) => ({ ...s, postNotifyFollowersEnabled: e.target.checked }))
+                }
+              />
+              Upozornění sledujícím při novém příspěvku
+            </label>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="text-xs font-medium text-zinc-500">
+                  Šablona post_uploaded_author
+                </label>
+                <select
+                  value={settings.postUploadedAuthorMetaTemplateId}
+                  onChange={(e) =>
+                    setSettings((s) => ({
+                      ...s,
+                      postUploadedAuthorMetaTemplateId: e.target.value,
+                    }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                >
+                  <option value="">— vyberte šablonu —</option>
+                  {waTemplates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.templateName} ({t.language})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={testingPostAuthor}
+                  onClick={async () => {
+                    if (!token) return;
+                    setTestingPostAuthor(true);
+                    setStatusMsg(null);
+                    const r = await nestAdminWhatsAppTestPostAuthorNotification(
+                      token,
+                      settings.testPhone,
+                    );
+                    setTestingPostAuthor(false);
+                    setStatusIsError(!r.ok);
+                    setStatusMsg(
+                      r.ok ? 'Test upozornění autorovi odeslán.' : (r.error ?? 'Test selhal.'),
+                    );
+                  }}
+                  className="mt-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 disabled:opacity-50"
+                >
+                  {testingPostAuthor ? 'Odesílám…' : 'Test autor'}
+                </button>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-zinc-500">
+                  Šablona new_post_notification
+                </label>
+                <select
+                  value={settings.newPostNotificationMetaTemplateId}
+                  onChange={(e) =>
+                    setSettings((s) => ({
+                      ...s,
+                      newPostNotificationMetaTemplateId: e.target.value,
+                    }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                >
+                  <option value="">— vyberte šablonu —</option>
+                  {waTemplates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.templateName} ({t.language})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={testingPostFollower}
+                  onClick={async () => {
+                    if (!token) return;
+                    setTestingPostFollower(true);
+                    setStatusMsg(null);
+                    const r = await nestAdminWhatsAppTestNewPostNotification(
+                      token,
+                      settings.testPhone,
+                    );
+                    setTestingPostFollower(false);
+                    setStatusIsError(!r.ok);
+                    setStatusMsg(
+                      r.ok
+                        ? 'Test upozornění na nový příspěvek odeslán.'
+                        : (r.error ?? 'Test selhal.'),
+                    );
+                  }}
+                  className="mt-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 disabled:opacity-50"
+                >
+                  {testingPostFollower ? 'Odesílám…' : 'Test sledující'}
+                </button>
+              </div>
             </div>
           </div>
         </form>

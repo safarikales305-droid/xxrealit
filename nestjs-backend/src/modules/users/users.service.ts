@@ -357,6 +357,9 @@ export class UsersService {
       brokerEmailPublic: true,
       whatsappPhone: true,
       whatsappEnabled: true,
+      whatsappMarketingOptOut: true,
+      whatsappNotifyMyUploads: true,
+      whatsappNotifyNewPosts: true,
       facebookUrl: true,
       facebookImportEnabled: true,
       facebookLastSyncAt: true,
@@ -548,6 +551,9 @@ export class UsersService {
       brokerEmailPublic: u.brokerEmailPublic,
       whatsappPhone: u.whatsappPhone,
       whatsappEnabled: Boolean(u.whatsappEnabled),
+      whatsappMarketingOptOut: Boolean(u.whatsappMarketingOptOut),
+      whatsappNotifyMyUploads: Boolean(u.whatsappNotifyMyUploads),
+      whatsappNotifyNewPosts: Boolean(u.whatsappNotifyNewPosts),
       brokerReviewAverage: u.brokerReviewAverage,
       brokerReviewCount: u.brokerReviewCount,
       creditBalance: u.creditBalance ?? 0,
@@ -1141,6 +1147,8 @@ export class UsersService {
       whatsappPhone?: string;
       whatsappEnabled?: boolean;
       whatsappMarketingOptOut?: boolean;
+      whatsappNotifyMyUploads?: boolean;
+      whatsappNotifyNewPosts?: boolean;
     },
   ) {
     const current = await this.prisma.user.findUnique({
@@ -1149,6 +1157,8 @@ export class UsersService {
         whatsappPhone: true,
         whatsappEnabled: true,
         whatsappMarketingOptOut: true,
+        whatsappNotifyMyUploads: true,
+        whatsappNotifyNewPosts: true,
       },
     });
     if (!current) {
@@ -1183,11 +1193,29 @@ export class UsersService {
                 : {}),
             }
           : {}),
+        ...(input.whatsappNotifyMyUploads !== undefined
+          ? {
+              whatsappNotifyMyUploads: input.whatsappNotifyMyUploads,
+              ...(input.whatsappNotifyMyUploads && !current.whatsappMarketingOptOut
+                ? { whatsappMarketingConsentAt: new Date() }
+                : {}),
+            }
+          : {}),
+        ...(input.whatsappNotifyNewPosts !== undefined
+          ? {
+              whatsappNotifyNewPosts: input.whatsappNotifyNewPosts,
+              ...(input.whatsappNotifyNewPosts && !current.whatsappMarketingOptOut
+                ? { whatsappMarketingConsentAt: new Date() }
+                : {}),
+            }
+          : {}),
       },
       select: {
         whatsappPhone: true,
         whatsappEnabled: true,
         whatsappMarketingOptOut: true,
+        whatsappNotifyMyUploads: true,
+        whatsappNotifyNewPosts: true,
       },
     });
 
@@ -1196,6 +1224,8 @@ export class UsersService {
       whatsappPhone: updated.whatsappPhone,
       whatsappEnabled: updated.whatsappEnabled,
       whatsappMarketingOptOut: updated.whatsappMarketingOptOut,
+      whatsappNotifyMyUploads: updated.whatsappNotifyMyUploads,
+      whatsappNotifyNewPosts: updated.whatsappNotifyNewPosts,
     };
   }
 }

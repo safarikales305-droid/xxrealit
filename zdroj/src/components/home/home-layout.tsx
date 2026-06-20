@@ -21,6 +21,7 @@ import {
   type ShortVideo,
 } from '@/lib/nest-client';
 import { CreateCommunityPostCard } from '@/components/community/CreateCommunityPostCard';
+import { PostUploadQueueRunner } from '@/components/community/PostUploadProgress';
 import { CommunityPostCard } from '@/components/community/CommunityPostCard';
 import { resolveFacebookPostMedia } from '@/lib/facebook-post-media';
 import { MobileClassicSwipeFeed } from '@/components/home/MobileClassicSwipeFeed';
@@ -312,6 +313,14 @@ export function HomeLayout({
       });
     }
   }
+
+  useEffect(() => {
+    const onPostsRefresh = () => {
+      void refreshPostsFeed();
+    };
+    window.addEventListener('xxrealit:posts-refresh', onPostsRefresh);
+    return () => window.removeEventListener('xxrealit:posts-refresh', onPostsRefresh);
+  });
 
   async function deletePost(postId: string) {
     if (!API_BASE_URL || !apiAccessToken) return;
@@ -839,6 +848,7 @@ export function HomeLayout({
 
   return (
     <div className="flex h-[100dvh] max-h-[100dvh] w-full max-w-[100vw] flex-col overflow-x-hidden overflow-y-hidden bg-[#fafafa] text-zinc-900 md:h-screen md:max-h-screen">
+      <PostUploadQueueRunner />
       {apiConfigMissing ? (
         <div
           role="alert"

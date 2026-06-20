@@ -6,13 +6,14 @@ import { API_BASE_URL } from '@/lib/api';
 import { extractFirstUrl } from '@/lib/extract-first-url';
 import { buildClientLinkPreviewFallback } from '@/lib/link-preview-client';
 import {
-  nestCreateListingPost,
   nestApiConfigured,
   nestFetchLinkPreview,
   nestFetchPostSounds,
   type LinkPreviewResponse,
   type PostSoundTrackDto,
 } from '@/lib/nest-client';
+import { enqueuePostUpload } from '@/lib/post-upload-queue';
+import { PostUploadProgress } from '@/components/community/PostUploadProgress';
 import { LinkPreviewCard } from '@/components/community/LinkPreviewCard';
 
 type Category =
@@ -231,6 +232,14 @@ export function CreateCommunityPostCard({
     return linkPreview ?? buildClientLinkPreviewFallback(detectedUrl);
   }
 
+  useEffect(() => {
+    const handler = () => {
+      void onPublished();
+    };
+    window.addEventListener('xxrealit:post-upload-published', handler);
+    return () => window.removeEventListener('xxrealit:post-upload-published', handler);
+  }, [onPublished]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -251,24 +260,34 @@ export function CreateCommunityPostCard({
     try {
       if (imageFile || videoFile) {
         const titleBase = text.slice(0, 80) || 'Komunitní příspěvek';
-        const r = await nestCreateListingPost(apiAccessToken, {
-          title: titleBase,
-          description: text || ' ',
-          price: null,
-          city: 'Komunita',
-          type: 'post',
-          category: activeCategory,
-          latitude: Number.isFinite(latitude) ? latitude : undefined,
-          longitude: Number.isFinite(longitude) ? longitude : undefined,
-          video: videoFile,
-          images: imageFile ? [imageFile] : [],
-          imageOrder: imageFile ? [`${imageFile.name}::${imageFile.size}`] : [],
-          soundTrackId: selectedSoundId || undefined,
+        await enqueuePostUpload({
+          accessToken: apiAccessToken,
+          videoFile,
+          imageFile,
+          payload: {
+            title: titleBase,
+            description: text || ' ',
+            price: null,
+            city: 'Komunita',
+            type: 'post',
+            category: activeCategory,
+            latitude: Number.isFinite(latitude) ? latitude : undefined,
+            longitude: Number.isFinite(longitude) ? longitude : undefined,
+            soundTrackId: selectedSoundId || undefined,
+            imageOrder: imageFile ? [`${imageFile.name}::${imageFile.size}`] : [],
+            hasVideo: Boolean(videoFile),
+            hasImage: Boolean(imageFile),
+          },
         });
-        if (!r.ok) {
-          setError(r.error ?? 'Nahrání selhalo');
-          return;
-        }
+        setDescription('');
+        clearMedia();
+        setLinkPreview(null);
+        setLinkPreviewDismissed(false);
+        setLinkPreviewFailed(false);
+        setLinkPreviewLoading(false);
+        previewRequestIdRef.current += 1;
+        setSelectedSoundId('');
+        return;
       } else {
         const postsBase = API_BASE_URL.endsWith('/api')
           ? API_BASE_URL
@@ -345,6 +364,7 @@ export function CreateCommunityPostCard({
     Boolean(linkPreview) && !imageFile && !videoFile && !linkPreviewDismissed;
 
   return (
+    <>
     <form
       onSubmit={(e) => void handleSubmit(e)}
       className="w-full rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
@@ -482,5 +502,7 @@ export function CreateCommunityPostCard({
         </button>
       </div>
     </form>
+    <PostUploadProgress />
+    </>
   );
 }
