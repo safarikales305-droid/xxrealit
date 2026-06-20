@@ -20,6 +20,8 @@ import {
   buildTemplateMessageRequest,
   formatMetaApiError,
   formatTemplateLogLabel,
+  resolveUrlButtonSendParameters,
+  WHATSAPP_VERIFY_DEFAULT_URL_BUTTON_PARAM,
 } from './whatsapp-template-send.util';
 import { resolveTemplateRequirementsFromRaw } from './whatsapp-template-sync.util';
 import { normalizeToE164, whatsAppDigits } from './whatsapp-phone.util';
@@ -367,11 +369,26 @@ export class WhatsAppPhoneVerificationService {
       await this.diagnostic.assertPhoneBelongsToConfiguredWaba();
       const tplRow = await this.resolveVerifyTemplateRow();
       const reqs = resolveTemplateRequirementsFromRaw(tplRow.rawTemplate);
+      const stored = this.settings.getStoredSettings();
       const variablesCount = reqs.variablesCount ?? 1;
       const bodyParameters = [code];
       for (let i = 1; i < variablesCount; i += 1) {
         bodyParameters.push(code);
       }
+
+      const urlButtonParamText =
+        stored.whatsappVerifyUrlButtonParameter?.trim() ||
+        WHATSAPP_VERIFY_DEFAULT_URL_BUTTON_PARAM;
+      const urlButtonParameters = resolveUrlButtonSendParameters({
+        urlButtonParameters: reqs.urlButtons.map((btn) => ({
+          index: btn.index,
+          text: urlButtonParamText,
+        })),
+        urlButtonParamCount: reqs.urlButtonParamCount,
+        urlButtonIndices: reqs.urlButtons.map((btn) => btn.index),
+        defaultUrlButtonParameter: urlButtonParamText,
+        needsUrlButtonParameter: reqs.needsUrlButtonParameter,
+      });
 
       const headerRaw = reqs.headerFormat ?? reqs.headerType ?? 'NONE';
       const headerType =
@@ -386,8 +403,10 @@ export class WhatsAppPhoneVerificationService {
           variablesCount,
           headerType,
           headerImageMediaId: undefined,
-          urlButtonParameters: [],
+          urlButtonParameters,
           urlButtonParamCount: reqs.urlButtonParamCount,
+          urlButtonIndices: reqs.urlButtons.map((btn) => btn.index),
+          defaultUrlButtonParameter: urlButtonParamText,
           needsHeaderImage: reqs.needsHeaderImage,
           needsUrlButtonParameter: reqs.needsUrlButtonParameter,
         },

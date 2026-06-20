@@ -13,17 +13,21 @@ export type WhatsAppSystemTemplatesPublic = Pick<
   | 'whatsappVerifyMetaTemplateId'
   | 'whatsappVerifyTemplateName'
   | 'whatsappVerifyTemplateLanguage'
+  | 'whatsappVerifyUrlButtonParameter'
   | 'welcomeMetaTemplateId'
   | 'welcomeTemplateName'
   | 'welcomeTemplateLanguage'
+  | 'welcomeUrlButtonParameter'
   | 'welcomeEnabled'
   | 'postUploadedAuthorMetaTemplateId'
   | 'postUploadedTemplateName'
   | 'postUploadedTemplateLanguage'
+  | 'postUploadedUrlButtonParameter'
   | 'postNotifyAuthorEnabled'
   | 'newPostNotificationMetaTemplateId'
   | 'newPostTemplateName'
   | 'newPostTemplateLanguage'
+  | 'newPostUrlButtonParameter'
   | 'postNotifyFollowersEnabled'
 >;
 
@@ -46,18 +50,22 @@ export type WhatsAppIntegrationSettings = {
   postUploadedAuthorMetaTemplateId: string;
   postUploadedTemplateName: string;
   postUploadedTemplateLanguage: string;
+  postUploadedUrlButtonParameter: string;
   /** DB id schválené šablony new_post_notification. */
   newPostNotificationMetaTemplateId: string;
   newPostTemplateName: string;
   newPostTemplateLanguage: string;
+  newPostUrlButtonParameter: string;
   /** DB id vybrané šablony pro ověření telefonu. */
   whatsappVerifyMetaTemplateId: string;
   whatsappVerifyTemplateName: string;
   whatsappVerifyTemplateLanguage: string;
+  whatsappVerifyUrlButtonParameter: string;
   /** DB id uvítací Meta šablony (má prioritu před textovými šablonami). */
   welcomeMetaTemplateId: string;
   welcomeTemplateName: string;
   welcomeTemplateLanguage: string;
+  welcomeUrlButtonParameter: string;
 };
 
 export type WhatsAppIntegrationSettingsPublic = Omit<
@@ -113,15 +121,19 @@ export const DEFAULT_WHATSAPP_INTEGRATION_SETTINGS: WhatsAppIntegrationSettings 
   postUploadedAuthorMetaTemplateId: '',
   postUploadedTemplateName: '',
   postUploadedTemplateLanguage: '',
+  postUploadedUrlButtonParameter: '',
   newPostNotificationMetaTemplateId: '',
   newPostTemplateName: '',
   newPostTemplateLanguage: '',
+  newPostUrlButtonParameter: '',
   whatsappVerifyMetaTemplateId: '',
   whatsappVerifyTemplateName: '',
   whatsappVerifyTemplateLanguage: '',
+  whatsappVerifyUrlButtonParameter: '',
   welcomeMetaTemplateId: '',
   welcomeTemplateName: '',
   welcomeTemplateLanguage: '',
+  welcomeUrlButtonParameter: '',
 };
 
 @Injectable()
@@ -178,15 +190,19 @@ export class WhatsAppSettingsService implements OnModuleInit {
       postUploadedAuthorMetaTemplateId: this.str(o.postUploadedAuthorMetaTemplateId),
       postUploadedTemplateName: this.str(o.postUploadedTemplateName),
       postUploadedTemplateLanguage: this.str(o.postUploadedTemplateLanguage),
+      postUploadedUrlButtonParameter: this.str(o.postUploadedUrlButtonParameter),
       newPostNotificationMetaTemplateId: this.str(o.newPostNotificationMetaTemplateId),
       newPostTemplateName: this.str(o.newPostTemplateName),
       newPostTemplateLanguage: this.str(o.newPostTemplateLanguage),
+      newPostUrlButtonParameter: this.str(o.newPostUrlButtonParameter),
       whatsappVerifyMetaTemplateId: this.str(o.whatsappVerifyMetaTemplateId),
       whatsappVerifyTemplateName: this.str(o.whatsappVerifyTemplateName),
       whatsappVerifyTemplateLanguage: this.str(o.whatsappVerifyTemplateLanguage),
+      whatsappVerifyUrlButtonParameter: this.str(o.whatsappVerifyUrlButtonParameter),
       welcomeMetaTemplateId: this.str(o.welcomeMetaTemplateId),
       welcomeTemplateName: this.str(o.welcomeTemplateName),
       welcomeTemplateLanguage: this.str(o.welcomeTemplateLanguage),
+      welcomeUrlButtonParameter: this.str(o.welcomeUrlButtonParameter),
     };
   }
 
@@ -473,17 +489,21 @@ export class WhatsAppSettingsService implements OnModuleInit {
       whatsappVerifyMetaTemplateId: settings.whatsappVerifyMetaTemplateId,
       whatsappVerifyTemplateName: settings.whatsappVerifyTemplateName,
       whatsappVerifyTemplateLanguage: settings.whatsappVerifyTemplateLanguage,
+      whatsappVerifyUrlButtonParameter: settings.whatsappVerifyUrlButtonParameter,
       welcomeMetaTemplateId: settings.welcomeMetaTemplateId,
       welcomeTemplateName: settings.welcomeTemplateName,
       welcomeTemplateLanguage: settings.welcomeTemplateLanguage,
+      welcomeUrlButtonParameter: settings.welcomeUrlButtonParameter,
       welcomeEnabled: settings.welcomeEnabled,
       postUploadedAuthorMetaTemplateId: settings.postUploadedAuthorMetaTemplateId,
       postUploadedTemplateName: settings.postUploadedTemplateName,
       postUploadedTemplateLanguage: settings.postUploadedTemplateLanguage,
+      postUploadedUrlButtonParameter: settings.postUploadedUrlButtonParameter,
       postNotifyAuthorEnabled: settings.postNotifyAuthorEnabled,
       newPostNotificationMetaTemplateId: settings.newPostNotificationMetaTemplateId,
       newPostTemplateName: settings.newPostTemplateName,
       newPostTemplateLanguage: settings.newPostTemplateLanguage,
+      newPostUrlButtonParameter: settings.newPostUrlButtonParameter,
       postNotifyFollowersEnabled: settings.postNotifyFollowersEnabled,
     };
   }

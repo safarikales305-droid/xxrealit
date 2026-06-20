@@ -18,6 +18,11 @@ export class SaveSystemTemplatesDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(512)
+  whatsappVerifyUrlButtonParameter?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(120)
   welcomeMetaTemplateId?: string;
 
@@ -30,6 +35,11 @@ export class SaveSystemTemplatesDto {
   @IsString()
   @MaxLength(20)
   welcomeTemplateLanguage?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  welcomeUrlButtonParameter?: string;
 
   @IsOptional()
   @IsBoolean()
@@ -51,6 +61,11 @@ export class SaveSystemTemplatesDto {
   postUploadedTemplateLanguage?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  postUploadedUrlButtonParameter?: string;
+
+  @IsOptional()
   @IsBoolean()
   postNotifyAuthorEnabled?: boolean;
 
@@ -68,6 +83,11 @@ export class SaveSystemTemplatesDto {
   @IsString()
   @MaxLength(20)
   newPostTemplateLanguage?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  newPostUrlButtonParameter?: string;
 
   @IsOptional()
   @IsBoolean()

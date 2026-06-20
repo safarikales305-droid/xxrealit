@@ -12,9 +12,13 @@ export type WhatsAppTemplateSendConfig = {
   headerImageMediaId?: string;
   urlButtonParameters?: Array<{ index: number; text: string }>;
   urlButtonParamCount?: number;
+  urlButtonIndices?: number[];
+  defaultUrlButtonParameter?: string;
   needsHeaderImage?: boolean;
   needsUrlButtonParameter?: boolean;
 };
+
+export const WHATSAPP_VERIFY_DEFAULT_URL_BUTTON_PARAM = 'verify';
 
 export const WHATSAPP_URL_BUTTON_PARAMETER_HELP =
   'Pokud šablona obsahuje URL tlačítko s proměnnou, je nutné vyplnit koncovou část odkazu.';
@@ -116,6 +120,38 @@ function buildUrlButtonComponent(index: number, text: string): Record<string, un
   };
 }
 
+export function resolveUrlButtonSendParameters(
+  config: Pick<
+    WhatsAppTemplateSendConfig,
+    | 'urlButtonParameters'
+    | 'urlButtonParamCount'
+    | 'urlButtonIndices'
+    | 'defaultUrlButtonParameter'
+    | 'needsUrlButtonParameter'
+  >,
+): Array<{ index: number; text: string }> {
+  const needsUrlButton =
+    config.needsUrlButtonParameter ?? (config.urlButtonParamCount ?? 0) > 0;
+  if (!needsUrlButton) return [];
+
+  const configured = (config.urlButtonParameters ?? []).filter((p) =>
+    String(p.text ?? '').trim(),
+  );
+  if (configured.length > 0) return configured;
+
+  const defaultText = (
+    config.defaultUrlButtonParameter ?? WHATSAPP_VERIFY_DEFAULT_URL_BUTTON_PARAM
+  ).trim();
+  if (!defaultText) return [];
+
+  const indices =
+    config.urlButtonIndices?.length
+      ? config.urlButtonIndices
+      : Array.from({ length: Math.max(config.urlButtonParamCount ?? 1, 1) }, (_, i) => i);
+
+  return indices.map((index) => ({ index, text: defaultText }));
+}
+
 function templateComponents(
   config: WhatsAppTemplateSendConfig,
 ): Array<Record<string, unknown>> {
@@ -145,11 +181,9 @@ function templateComponents(
   }
 
   if (needsUrlButton) {
-    for (const btn of config.urlButtonParameters ?? []) {
-      const text = String(btn.text ?? '').trim();
-      if (text) {
-        components.push(buildUrlButtonComponent(btn.index, text));
-      }
+    const resolved = resolveUrlButtonSendParameters(config);
+    for (const btn of resolved) {
+      components.push(buildUrlButtonComponent(btn.index, btn.text));
     }
   }
 

@@ -14,15 +14,19 @@ export type WhatsAppIntegrationSettings = {
   postUploadedAuthorMetaTemplateId: string;
   postUploadedTemplateName: string;
   postUploadedTemplateLanguage: string;
+  postUploadedUrlButtonParameter: string;
   newPostNotificationMetaTemplateId: string;
   newPostTemplateName: string;
   newPostTemplateLanguage: string;
+  newPostUrlButtonParameter: string;
   whatsappVerifyMetaTemplateId: string;
   whatsappVerifyTemplateName: string;
   whatsappVerifyTemplateLanguage: string;
+  whatsappVerifyUrlButtonParameter: string;
   welcomeMetaTemplateId: string;
   welcomeTemplateName: string;
   welcomeTemplateLanguage: string;
+  welcomeUrlButtonParameter: string;
   accessTokenSet: boolean;
   webhookVerifyTokenSet: boolean;
   metaAppId: string;
@@ -35,17 +39,21 @@ export type WhatsAppSystemTemplatesSettings = {
   whatsappVerifyMetaTemplateId: string;
   whatsappVerifyTemplateName: string;
   whatsappVerifyTemplateLanguage: string;
+  whatsappVerifyUrlButtonParameter: string;
   welcomeMetaTemplateId: string;
   welcomeTemplateName: string;
   welcomeTemplateLanguage: string;
+  welcomeUrlButtonParameter: string;
   welcomeEnabled: boolean;
   postUploadedAuthorMetaTemplateId: string;
   postUploadedTemplateName: string;
   postUploadedTemplateLanguage: string;
+  postUploadedUrlButtonParameter: string;
   postNotifyAuthorEnabled: boolean;
   newPostNotificationMetaTemplateId: string;
   newPostTemplateName: string;
   newPostTemplateLanguage: string;
+  newPostUrlButtonParameter: string;
   postNotifyFollowersEnabled: boolean;
 };
 
@@ -134,6 +142,8 @@ export type WhatsAppMetaTemplateRow = {
     componentTypes: string[];
     headerFormat: string | null;
     bodyVariablesCount: number;
+    headerVariablesCount?: number;
+    hasButtons?: boolean;
     needsHeaderImage: boolean;
     needsUrlButtonParameter: boolean;
   };
@@ -740,6 +750,16 @@ export function formatSystemTemplateOptionLabel(template: WhatsAppMetaTemplateRo
   return `${template.templateName} · ${template.language} · ${template.category} · ${template.variablesCount} prom.`;
 }
 
+export function formatSystemTemplateRequirements(template: WhatsAppMetaTemplateRow | undefined): string {
+  if (!template) return '';
+  const headerVars = template.componentsSummary?.headerVariablesCount ?? 0;
+  const hasButton =
+    template.needsUrlButtonParameter ||
+    template.urlButtonParamCount > 0 ||
+    Boolean(template.componentsSummary?.hasButtons);
+  return `Body proměnných: ${template.variablesCount} · Header proměnných: ${headerVars} · URL proměnných: ${template.urlButtonParamCount} · Tlačítko: ${hasButton ? 'ano' : 'ne'}`;
+}
+
 export function extractSystemTemplatesFromSettings(
   settings: Partial<WhatsAppIntegrationSettings>,
 ): WhatsAppSystemTemplatesSettings {
@@ -747,17 +767,21 @@ export function extractSystemTemplatesFromSettings(
     whatsappVerifyMetaTemplateId: settings.whatsappVerifyMetaTemplateId ?? '',
     whatsappVerifyTemplateName: settings.whatsappVerifyTemplateName ?? '',
     whatsappVerifyTemplateLanguage: settings.whatsappVerifyTemplateLanguage ?? '',
+    whatsappVerifyUrlButtonParameter: settings.whatsappVerifyUrlButtonParameter ?? '',
     welcomeMetaTemplateId: settings.welcomeMetaTemplateId ?? '',
     welcomeTemplateName: settings.welcomeTemplateName ?? '',
     welcomeTemplateLanguage: settings.welcomeTemplateLanguage ?? '',
+    welcomeUrlButtonParameter: settings.welcomeUrlButtonParameter ?? '',
     welcomeEnabled: settings.welcomeEnabled ?? false,
     postUploadedAuthorMetaTemplateId: settings.postUploadedAuthorMetaTemplateId ?? '',
     postUploadedTemplateName: settings.postUploadedTemplateName ?? '',
     postUploadedTemplateLanguage: settings.postUploadedTemplateLanguage ?? '',
+    postUploadedUrlButtonParameter: settings.postUploadedUrlButtonParameter ?? '',
     postNotifyAuthorEnabled: settings.postNotifyAuthorEnabled ?? false,
     newPostNotificationMetaTemplateId: settings.newPostNotificationMetaTemplateId ?? '',
     newPostTemplateName: settings.newPostTemplateName ?? '',
     newPostTemplateLanguage: settings.newPostTemplateLanguage ?? '',
+    newPostUrlButtonParameter: settings.newPostUrlButtonParameter ?? '',
     postNotifyFollowersEnabled: settings.postNotifyFollowersEnabled ?? false,
   };
 }

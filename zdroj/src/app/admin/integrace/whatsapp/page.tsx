@@ -20,6 +20,7 @@ import {
   nestAdminWhatsAppSystemTemplatesSave,
   nestAdminWhatsAppTemplatesSync,
   formatSystemTemplateOptionLabel,
+  formatSystemTemplateRequirements,
   extractSystemTemplatesFromSettings,
   enrichSystemTemplatesPayload,
   hydrateSystemTemplateIds,
@@ -60,15 +61,19 @@ const emptySettings: WhatsAppIntegrationSettings = {
   postUploadedAuthorMetaTemplateId: '',
   postUploadedTemplateName: '',
   postUploadedTemplateLanguage: '',
+  postUploadedUrlButtonParameter: '',
   newPostNotificationMetaTemplateId: '',
   newPostTemplateName: '',
   newPostTemplateLanguage: '',
+  newPostUrlButtonParameter: '',
   whatsappVerifyMetaTemplateId: '',
   whatsappVerifyTemplateName: '',
   whatsappVerifyTemplateLanguage: '',
+  whatsappVerifyUrlButtonParameter: '',
   welcomeMetaTemplateId: '',
   welcomeTemplateName: '',
   welcomeTemplateLanguage: '',
+  welcomeUrlButtonParameter: '',
   accessTokenSet: false,
   webhookVerifyTokenSet: false,
   metaAppId: '',
@@ -356,6 +361,42 @@ export default function AdminWhatsAppIntegrationPage() {
 
   const configured = stats?.configured ?? false;
   const verifyTemplateSaved = isVerifySystemTemplateSaved(savedSystemTemplates);
+
+  function systemTemplateById(metaId: string) {
+    return waTemplates.find((t) => t.id === metaId);
+  }
+
+  function renderTemplateMetaAndUrlField(
+    metaId: string,
+    urlButtonKey: keyof WhatsAppIntegrationSettings,
+    urlPlaceholder: string,
+  ) {
+    const tpl = systemTemplateById(metaId);
+    if (!tpl) return null;
+    return (
+      <>
+        <p className="mt-1 text-[10px] text-zinc-500">
+          {formatSystemTemplateRequirements(tpl)}
+        </p>
+        {tpl.needsUrlButtonParameter ? (
+          <div className="mt-2">
+            <label className="text-[11px] font-medium text-zinc-600">
+              Parametr URL tlačítka
+            </label>
+            <input
+              type="text"
+              value={String(settings[urlButtonKey] ?? '')}
+              onChange={(e) =>
+                setSettings((s) => ({ ...s, [urlButtonKey]: e.target.value }))
+              }
+              placeholder={urlPlaceholder}
+              className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+            />
+          </div>
+        ) : null}
+      </>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-zinc-50 px-4 py-6">
@@ -801,6 +842,11 @@ export default function AdminWhatsAppIntegrationPage() {
                     </option>
                   ))}
                 </select>
+                {renderTemplateMetaAndUrlField(
+                  settings.whatsappVerifyMetaTemplateId,
+                  'whatsappVerifyUrlButtonParameter',
+                  'verify (výchozí)',
+                )}
                 <p className="mt-1 font-mono text-[10px] text-zinc-500">
                   Uloženo ověření:{' '}
                   {savedSystemTemplates?.whatsappVerifyTemplateName?.trim() || '—'} +{' '}
@@ -865,6 +911,11 @@ export default function AdminWhatsAppIntegrationPage() {
                     </option>
                   ))}
                 </select>
+                {renderTemplateMetaAndUrlField(
+                  settings.welcomeMetaTemplateId,
+                  'welcomeUrlButtonParameter',
+                  'registrace (výchozí)',
+                )}
                 <label className="mt-2 flex items-center gap-2 text-xs text-zinc-700">
                   <input
                     type="checkbox"
@@ -939,6 +990,11 @@ export default function AdminWhatsAppIntegrationPage() {
                     </option>
                   ))}
                 </select>
+                {renderTemplateMetaAndUrlField(
+                  settings.postUploadedAuthorMetaTemplateId,
+                  'postUploadedUrlButtonParameter',
+                  'posts (výchozí)',
+                )}
                 <label className="mt-2 flex items-center gap-2 text-xs text-zinc-700">
                   <input
                     type="checkbox"
@@ -1013,6 +1069,11 @@ export default function AdminWhatsAppIntegrationPage() {
                     </option>
                   ))}
                 </select>
+                {renderTemplateMetaAndUrlField(
+                  settings.newPostNotificationMetaTemplateId,
+                  'newPostUrlButtonParameter',
+                  'posts (výchozí)',
+                )}
                 <label className="mt-2 flex items-center gap-2 text-xs text-zinc-700">
                   <input
                     type="checkbox"

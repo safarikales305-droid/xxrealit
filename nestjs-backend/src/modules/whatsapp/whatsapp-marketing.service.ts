@@ -34,6 +34,7 @@ import {
   formatTemplateLogLabel,
   metaTemplateLanguageCode,
   normalizeTemplateLanguageCode,
+  resolveUrlButtonSendParameters,
   WHATSAPP_MARKETING_TEMPLATE_REQUIRED_MSG,
   WHATSAPP_IMAGE_HEADER_REQUIRES_MEDIA_ID_MSG,
   formatMetaApiError,
@@ -104,6 +105,8 @@ type CampaignTemplateSendContext = {
   buttonLabels: string[];
   urlButtonParamCount: number;
   urlButtonParameters: Array<{ index: number; text: string }>;
+  urlButtonIndices?: number[];
+  defaultUrlButtonParameter?: string;
   needsHeaderImage: boolean;
   needsUrlButtonParameter: boolean;
 };
@@ -276,11 +279,12 @@ export class WhatsAppMarketingService {
 
   private assertCampaignUrlButtonReady(ctx: Pick<
     CampaignTemplateSendContext,
-    'needsUrlButtonParameter' | 'urlButtonParameters'
+    'needsUrlButtonParameter' | 'urlButtonParameters' | 'defaultUrlButtonParameter'
   >) {
     if (!ctx.needsUrlButtonParameter) return;
     const hasParam = ctx.urlButtonParameters.some((p) => p.text.trim());
-    if (!hasParam) {
+    const hasDefault = Boolean(ctx.defaultUrlButtonParameter?.trim());
+    if (!hasParam && !hasDefault) {
       throw new BadRequestException(WHATSAPP_URL_BUTTON_PARAMETER_REQUIRED_MSG);
     }
   }
@@ -404,10 +408,15 @@ export class WhatsAppMarketingService {
       needsUrlButtonParameter = reqs.needsUrlButtonParameter;
     }
 
-    const urlButtonParameters =
-      needsUrlButtonParameter
-        ? template.urlButtonParameters.filter((p) => p.text.trim())
-        : [];
+    const urlButtonParameters = needsUrlButtonParameter
+      ? resolveUrlButtonSendParameters({
+          urlButtonParameters: template.urlButtonParameters,
+          urlButtonParamCount,
+          urlButtonIndices: template.urlButtonIndices,
+          defaultUrlButtonParameter: template.defaultUrlButtonParameter,
+          needsUrlButtonParameter,
+        })
+      : [];
 
     const normalizedBodyParameters =
       variablesCount > 0
@@ -436,6 +445,8 @@ export class WhatsAppMarketingService {
       headerImageMediaId,
       urlButtonParameters,
       urlButtonParamCount,
+      urlButtonIndices: template.urlButtonIndices,
+      defaultUrlButtonParameter: template.defaultUrlButtonParameter,
       needsHeaderImage,
       needsUrlButtonParameter,
     });
@@ -1083,6 +1094,8 @@ export class WhatsAppMarketingService {
         bodyParameters.push(String(pool[i] ?? pool[pool.length - 1] ?? 'uživateli'));
       }
 
+      const welcomeUrlParam =
+        stored.welcomeUrlButtonParameter?.trim() || 'registrace';
       const tpl: CampaignTemplateSendContext = {
         waMetaTemplateId: welcomeMetaId,
         wabaId: metaTemplate.wabaId,
@@ -1098,7 +1111,12 @@ export class WhatsAppMarketingService {
         urlButtonParamCount: reqs.urlButtonParamCount,
         needsHeaderImage: reqs.needsHeaderImage,
         needsUrlButtonParameter: reqs.needsUrlButtonParameter,
-        urlButtonParameters: [],
+        urlButtonParameters: reqs.urlButtons.map((btn) => ({
+          index: btn.index,
+          text: welcomeUrlParam,
+        })),
+        urlButtonIndices: reqs.urlButtons.map((btn) => btn.index),
+        defaultUrlButtonParameter: welcomeUrlParam,
       };
 
       await this.sendTemplateMessage(phone, tpl, bodyParameters, {
@@ -1148,6 +1166,8 @@ export class WhatsAppMarketingService {
         bodyParameters.push(String(pool[i] ?? pool[pool.length - 1] ?? 'Test'));
       }
 
+      const welcomeUrlParam =
+        stored.welcomeUrlButtonParameter?.trim() || 'registrace';
       const tpl: CampaignTemplateSendContext = {
         waMetaTemplateId: welcomeMetaId,
         wabaId: metaTemplate.wabaId,
@@ -1163,7 +1183,12 @@ export class WhatsAppMarketingService {
         urlButtonParamCount: reqs.urlButtonParamCount,
         needsHeaderImage: reqs.needsHeaderImage,
         needsUrlButtonParameter: reqs.needsUrlButtonParameter,
-        urlButtonParameters: [],
+        urlButtonParameters: reqs.urlButtons.map((btn) => ({
+          index: btn.index,
+          text: welcomeUrlParam,
+        })),
+        urlButtonIndices: reqs.urlButtons.map((btn) => btn.index),
+        defaultUrlButtonParameter: welcomeUrlParam,
       };
 
       const { providerMessageId, metaError } = await this.sendTemplateMessage(phone, tpl, bodyParameters, {

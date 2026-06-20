@@ -57,9 +57,11 @@ export type WhatsAppTemplateComponentSummary = {
   footerText: string;
   buttonLabels: string[];
   bodyVariablesCount: number;
+  headerVariablesCount: number;
   urlButtonsWithVariable: WhatsAppTemplateUrlButton[];
   needsHeaderImage: boolean;
   needsUrlButtonParameter: boolean;
+  hasButtons: boolean;
 };
 
 export function metaTemplateComponents(
@@ -163,9 +165,12 @@ export function countTemplateBodyVariables(
   components?: MetaTemplateComponent[],
   _parameterFormat?: string,
 ): number {
-  const bodyText = extractTemplateBodyText(components);
-  if (!bodyText) return 0;
+  return countTemplateTextVariables(extractTemplateBodyText(components));
+}
 
+function countTemplateTextVariables(text: string): number {
+  const bodyText = text.trim();
+  if (!bodyText) return 0;
   if (!/\{\{[^}]+\}\}/.test(bodyText)) return 0;
 
   let maxPositional = 0;
@@ -179,6 +184,13 @@ export function countTemplateBodyVariables(
 
   const named = bodyText.match(/\{\{[^}]+\}\}/g);
   return named?.length ?? 0;
+}
+
+/** Počítá proměnné z HEADER textu (TEXT header). */
+export function countTemplateHeaderVariables(
+  components?: MetaTemplateComponent[],
+): number {
+  return countTemplateTextVariables(extractTemplateHeaderText(components));
 }
 
 export function parseTemplateComponentSummary(
@@ -202,6 +214,8 @@ export function parseTemplateComponentSummary(
   const footerText = extractTemplateFooterText(components);
   const urlButtonsWithVariable = extractUrlButtonsWithParameters(components);
   const bodyVariablesCount = countTemplateBodyVariables(components);
+  const headerVariablesCount = countTemplateHeaderVariables(components);
+  const buttonLabels = extractTemplateButtonLabels(components);
 
   return {
     componentTypes,
@@ -209,11 +223,13 @@ export function parseTemplateComponentSummary(
     headerText: extractTemplateHeaderText(components),
     bodyText,
     footerText,
-    buttonLabels: extractTemplateButtonLabels(components),
+    buttonLabels,
     bodyVariablesCount,
+    headerVariablesCount,
     urlButtonsWithVariable,
     needsHeaderImage: headerFormat === 'IMAGE',
     needsUrlButtonParameter: urlButtonsWithVariable.length > 0,
+    hasButtons: buttonLabels.length > 0,
   };
 }
 

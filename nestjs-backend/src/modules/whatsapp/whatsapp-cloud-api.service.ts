@@ -193,6 +193,7 @@ export class WhatsAppCloudApiService {
 
     this.logger.log(`[WhatsApp Meta] response status: ${res.status}`);
     this.logger.log(`[WhatsApp Meta] response body: ${JSON.stringify(responseBody)}`);
+    this.logger.log(`[WhatsApp Meta] full meta response: ${JSON.stringify(responseBody)}`);
 
     const attempt: MetaSendAttempt = {
       requestUrl,
@@ -236,6 +237,7 @@ export class WhatsAppCloudApiService {
         fbtrace_id: err?.fbtrace_id,
         message_id: null,
         metaResponse: responseBody,
+        metaResponseFull: JSON.stringify(responseBody),
         attempt,
       };
 
@@ -276,6 +278,7 @@ export class WhatsAppCloudApiService {
       finalPayload,
       message_id: providerMessageId,
       metaResponse: responseBody,
+      metaResponseFull: JSON.stringify(responseBody),
       attempt,
     };
 

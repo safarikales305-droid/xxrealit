@@ -14,6 +14,7 @@ import {
   buildTemplateMessageRequest,
   formatMetaApiError,
   formatTemplateLogLabel,
+  resolveUrlButtonSendParameters,
 } from './whatsapp-template-send.util';
 import { resolveTemplateRequirementsFromRaw } from './whatsapp-template-sync.util';
 import { normalizeToE164, whatsAppDigits } from './whatsapp-phone.util';
@@ -247,10 +248,23 @@ export class PostWhatsAppNotifyService {
         );
       }
 
-      const urlButtonParameters =
-        reqs.urlButtonParamCount > 0
-          ? [{ index: 0, text: input.urlButtonSuffix.trim() || 'posts' }]
-          : [];
+      const urlButtonSuffix = input.urlButtonSuffix.trim();
+      const stored = this.settings.getStoredSettings();
+      const defaultSuffix =
+        input.notificationType === POST_WHATSAPP_NOTIFICATION_TYPES.NEW_POST_NOTIFICATION
+          ? stored.newPostUrlButtonParameter?.trim() || 'posts'
+          : stored.postUploadedUrlButtonParameter?.trim() || 'posts';
+      const urlButtonParamText = urlButtonSuffix || defaultSuffix;
+      const urlButtonParameters = resolveUrlButtonSendParameters({
+        urlButtonParameters: reqs.urlButtons.map((btn) => ({
+          index: btn.index,
+          text: urlButtonParamText,
+        })),
+        urlButtonParamCount: reqs.urlButtonParamCount,
+        urlButtonIndices: reqs.urlButtons.map((btn) => btn.index),
+        defaultUrlButtonParameter: urlButtonParamText,
+        needsUrlButtonParameter: reqs.needsUrlButtonParameter,
+      });
 
       const headerRaw = reqs.headerFormat ?? reqs.headerType ?? 'NONE';
       const headerType =
@@ -267,6 +281,8 @@ export class PostWhatsAppNotifyService {
           headerImageMediaId: undefined,
           urlButtonParameters,
           urlButtonParamCount: reqs.urlButtonParamCount,
+          urlButtonIndices: reqs.urlButtons.map((btn) => btn.index),
+          defaultUrlButtonParameter: urlButtonParamText,
           needsHeaderImage: reqs.needsHeaderImage,
           needsUrlButtonParameter: reqs.needsUrlButtonParameter,
         },
