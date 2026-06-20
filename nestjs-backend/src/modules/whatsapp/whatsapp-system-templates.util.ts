@@ -3,6 +3,9 @@ export const WHATSAPP_VERIFY_TEMPLATE_NAME = 'whatsapp_verify_code';
 export const WHATSAPP_VERIFY_TEMPLATE_ADMIN_MSG =
   'Vyberte WhatsApp šablonu pro ověření čísla v administraci.';
 
+export const WHATSAPP_VERIFY_NOT_SAVED_MSG =
+  'Nejprve uložte šablonu pro ověření telefonního čísla.';
+
 export type SystemTemplateSlot =
   | 'verify'
   | 'postUploaded'

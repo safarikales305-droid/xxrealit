@@ -23,9 +23,7 @@ import {
 } from './whatsapp-template-send.util';
 import { resolveTemplateRequirementsFromRaw } from './whatsapp-template-sync.util';
 import { normalizeToE164, whatsAppDigits } from './whatsapp-phone.util';
-import {
-  WHATSAPP_VERIFY_TEMPLATE_ADMIN_MSG,
-} from './whatsapp-system-templates.util';
+import { WHATSAPP_VERIFY_NOT_SAVED_MSG } from './whatsapp-system-templates.util';
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 60 * 1000;
@@ -130,10 +128,9 @@ export class WhatsAppPhoneVerificationService {
     }
 
     await this.settings.reload();
-    const verifyTemplateId =
-      this.settings.getStoredSettings().whatsappVerifyMetaTemplateId?.trim() || '';
-    if (!verifyTemplateId) {
-      throw new BadRequestException(WHATSAPP_VERIFY_TEMPLATE_ADMIN_MSG);
+    const stored = this.settings.getStoredSettings();
+    if (!stored.whatsappVerifyTemplateName?.trim()) {
+      throw new BadRequestException(WHATSAPP_VERIFY_NOT_SAVED_MSG);
     }
 
     const code = String(randomInt(100000, 1000000));
@@ -333,37 +330,42 @@ export class WhatsAppPhoneVerificationService {
 
   async testVerificationTemplate(toPhone?: string): Promise<{ ok: boolean; error?: string }> {
     await this.settings.reload();
-    const verifyTemplateId =
-      this.settings.getStoredSettings().whatsappVerifyMetaTemplateId?.trim() || '';
-    if (!verifyTemplateId) {
-      return { ok: false, error: WHATSAPP_VERIFY_TEMPLATE_ADMIN_MSG };
+    const stored = this.settings.getStoredSettings();
+    if (!stored.whatsappVerifyTemplateName?.trim()) {
+      return { ok: false, error: WHATSAPP_VERIFY_NOT_SAVED_MSG };
     }
     const phone =
       normalizeToE164(toPhone?.trim() || this.config.getTestPhone() || '') ??
-      normalizeToE164(this.settings.getStoredSettings().testPhone);
+      normalizeToE164(stored.testPhone);
     if (!phone) {
       return { ok: false, error: 'Zadejte platné testovací telefonní číslo (+420…).' };
     }
-    return this.sendVerifyTemplate(phone, '123456', null, verifyTemplateId);
+    this.logger.log(
+      `Test verify template from DB: ${stored.whatsappVerifyTemplateName} (${stored.whatsappVerifyTemplateLanguage || '—'})`,
+    );
+    return this.sendVerifyTemplate(phone, '123456', null);
+  }
+
+  private async resolveVerifyTemplateRow() {
+    const stored = this.settings.getStoredSettings();
+    const name = stored.whatsappVerifyTemplateName?.trim();
+    const language = stored.whatsappVerifyTemplateLanguage?.trim();
+    if (!name) {
+      throw new BadRequestException(WHATSAPP_VERIFY_NOT_SAVED_MSG);
+    }
+    this.logger.log(`Resolve verify template: ${name} (${language || '—'})`);
+    return this.metaTemplates.requireApprovedTemplateByNameAndLanguage(name, language);
   }
 
   private async sendVerifyTemplate(
     phoneE164: string,
     code: string,
     userId: string | null,
-    metaTemplateId?: string,
   ): Promise<{ ok: boolean; error?: string }> {
     try {
       await this.settings.reload();
       await this.diagnostic.assertPhoneBelongsToConfiguredWaba();
-      const tplId =
-        metaTemplateId?.trim() ||
-        this.settings.getStoredSettings().whatsappVerifyMetaTemplateId?.trim() ||
-        '';
-      if (!tplId) {
-        return { ok: false, error: WHATSAPP_VERIFY_TEMPLATE_ADMIN_MSG };
-      }
-      const tplRow = await this.metaTemplates.requireApprovedTemplate(tplId);
+      const tplRow = await this.resolveVerifyTemplateRow();
       const reqs = resolveTemplateRequirementsFromRaw(tplRow.rawTemplate);
       const variablesCount = reqs.variablesCount ?? 1;
       const bodyParameters = [code];

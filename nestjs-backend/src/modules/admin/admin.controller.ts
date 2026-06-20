@@ -34,6 +34,8 @@ import { ProfessionalVerificationService } from '../professional-verification/pr
 import { FacebookPageService } from '../social/facebook/facebook-page.service';
 import { FacebookUrlImportService } from '../social/facebook-url-import/facebook-url-import.service';
 import { WhatsAppPhoneVerificationService } from '../whatsapp/whatsapp-phone-verification.service';
+import { WhatsAppSettingsService } from '../whatsapp/whatsapp-settings.service';
+import { SaveSystemTemplatesDto } from '../whatsapp/dto/save-system-templates.dto';
 
 type ChangePasswordBody = {
   oldPassword?: string;
@@ -70,6 +72,7 @@ export class AdminController {
     private readonly facebookPage: FacebookPageService,
     private readonly facebookUrlImport: FacebookUrlImportService,
     private readonly whatsAppVerification: WhatsAppPhoneVerificationService,
+    private readonly whatsAppSettings: WhatsAppSettingsService,
   ) {}
 
   @Get('social-facebook-connections')
@@ -306,6 +309,19 @@ export class AdminController {
   @Patch('users/:id/whatsapp-verification/reset')
   adminResetUserWhatsApp(@Param('id') id: string) {
     return this.whatsAppVerification.adminResetVerification(id);
+  }
+
+  @Get('whatsapp/system-templates')
+  getWhatsAppSystemTemplates() {
+    return this.whatsAppSettings.getSystemTemplates();
+  }
+
+  @Post('whatsapp/system-templates')
+  saveWhatsAppSystemTemplates(
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: SaveSystemTemplatesDto,
+  ) {
+    return this.whatsAppSettings.updateSystemTemplates(dto);
   }
 
   @Patch('broker-reviews/:id/visibility')

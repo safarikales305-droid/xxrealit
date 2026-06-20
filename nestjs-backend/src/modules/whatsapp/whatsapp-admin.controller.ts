@@ -33,6 +33,7 @@ import {
   WhatsAppHistoryQueryDto,
   WhatsAppTestSendDto,
 } from './dto/whatsapp-admin.dto';
+import { SaveSystemTemplatesDto } from './dto/save-system-templates.dto';
 
 @Controller('whatsapp/admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -59,6 +60,19 @@ export class WhatsAppAdminController {
     dto: UpdateWhatsAppIntegrationSettingsDto,
   ) {
     return this.settings.updateSettings(dto);
+  }
+
+  @Get('system-templates')
+  getSystemTemplates() {
+    return this.settings.getSystemTemplates();
+  }
+
+  @Post('system-templates')
+  saveSystemTemplates(
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: SaveSystemTemplatesDto,
+  ) {
+    return this.settings.updateSystemTemplates(dto);
   }
 
   @Post('test')

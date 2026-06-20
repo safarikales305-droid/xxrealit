@@ -376,6 +376,42 @@ export class WhatsAppMetaTemplatesService {
     return this.rowToDto(usable);
   }
 
+  /** Schválená šablona podle názvu a jazyka (uložené systémové nastavení). */
+  async requireApprovedTemplateByNameAndLanguage(
+    templateName: string,
+    language?: string,
+  ): Promise<WhatsAppMetaTemplateRow> {
+    const name = templateName.trim();
+    if (!name) {
+      throw new BadRequestException('Název šablony je povinný.');
+    }
+    const lang = language?.trim();
+
+    await this.settings.reload();
+    const scope = this.activeWabaWhere();
+
+    if (lang) {
+      const byLang = await this.prisma.whatsAppMetaTemplate.findMany({
+        where: {
+          ...scope,
+          templateName: { equals: name, mode: 'insensitive' },
+          language: { equals: lang, mode: 'insensitive' },
+          isStale: false,
+        },
+      });
+      const usable = byLang.find((row) => {
+        const dto = this.rowToDto(row);
+        return dto.isUsable && !isExcludedCampaignTemplate(row.templateName);
+      });
+      if (usable) {
+        this.assertTemplateBelongsToConfiguredWaba(usable);
+        return this.rowToDto(usable);
+      }
+    }
+
+    return this.requireApprovedTemplateByName(name);
+  }
+
   async cleanupOldTemplates(): Promise<WhatsAppTemplatesCleanupResult> {
     await this.settings.reload();
     const activeWabaId = this.effectiveWabaId();

@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, BadRequestException } from '@nestjs/common';
+import { Injectable, OnModuleInit, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
@@ -6,6 +6,26 @@ import {
   validateSystemTemplateForSlot,
   type SystemTemplateSlot,
 } from './whatsapp-system-templates.util';
+import type { SaveSystemTemplatesDto } from './dto/save-system-templates.dto';
+
+export type WhatsAppSystemTemplatesPublic = Pick<
+  WhatsAppIntegrationSettings,
+  | 'whatsappVerifyMetaTemplateId'
+  | 'whatsappVerifyTemplateName'
+  | 'whatsappVerifyTemplateLanguage'
+  | 'welcomeMetaTemplateId'
+  | 'welcomeTemplateName'
+  | 'welcomeTemplateLanguage'
+  | 'welcomeEnabled'
+  | 'postUploadedAuthorMetaTemplateId'
+  | 'postUploadedTemplateName'
+  | 'postUploadedTemplateLanguage'
+  | 'postNotifyAuthorEnabled'
+  | 'newPostNotificationMetaTemplateId'
+  | 'newPostTemplateName'
+  | 'newPostTemplateLanguage'
+  | 'postNotifyFollowersEnabled'
+>;
 
 export type WhatsAppIntegrationSettings = {
   enabled: boolean;
@@ -106,6 +126,7 @@ export const DEFAULT_WHATSAPP_INTEGRATION_SETTINGS: WhatsAppIntegrationSettings 
 
 @Injectable()
 export class WhatsAppSettingsService implements OnModuleInit {
+  private readonly logger = new Logger(WhatsAppSettingsService.name);
   private stored: WhatsAppIntegrationSettings = DEFAULT_WHATSAPP_INTEGRATION_SETTINGS;
   private effective: EffectiveWhatsAppConfig = this.buildEffective(
     DEFAULT_WHATSAPP_INTEGRATION_SETTINGS,
@@ -378,6 +399,74 @@ export class WhatsAppSettingsService implements OnModuleInit {
     const row = await this.prisma.appSetting.findUnique({ where: { key: SETTINGS_KEY } });
     this.stored = this.normalize(row?.valueJson ?? null);
     this.effective = this.buildEffective(this.stored);
+    this.logLoadedSystemTemplates(this.stored);
+  }
+
+  extractSystemTemplates(
+    settings: WhatsAppIntegrationSettings = this.stored,
+  ): WhatsAppSystemTemplatesPublic {
+    return {
+      whatsappVerifyMetaTemplateId: settings.whatsappVerifyMetaTemplateId,
+      whatsappVerifyTemplateName: settings.whatsappVerifyTemplateName,
+      whatsappVerifyTemplateLanguage: settings.whatsappVerifyTemplateLanguage,
+      welcomeMetaTemplateId: settings.welcomeMetaTemplateId,
+      welcomeTemplateName: settings.welcomeTemplateName,
+      welcomeTemplateLanguage: settings.welcomeTemplateLanguage,
+      welcomeEnabled: settings.welcomeEnabled,
+      postUploadedAuthorMetaTemplateId: settings.postUploadedAuthorMetaTemplateId,
+      postUploadedTemplateName: settings.postUploadedTemplateName,
+      postUploadedTemplateLanguage: settings.postUploadedTemplateLanguage,
+      postNotifyAuthorEnabled: settings.postNotifyAuthorEnabled,
+      newPostNotificationMetaTemplateId: settings.newPostNotificationMetaTemplateId,
+      newPostTemplateName: settings.newPostTemplateName,
+      newPostTemplateLanguage: settings.newPostTemplateLanguage,
+      postNotifyFollowersEnabled: settings.postNotifyFollowersEnabled,
+    };
+  }
+
+  logLoadedSystemTemplates(settings: WhatsAppIntegrationSettings) {
+    this.logger.log(
+      `Loaded verify template: ${settings.whatsappVerifyTemplateName || '—'} (${settings.whatsappVerifyTemplateLanguage || '—'})`,
+    );
+    this.logger.log(
+      `Loaded welcome template: ${settings.welcomeTemplateName || '—'} (${settings.welcomeTemplateLanguage || '—'})`,
+    );
+    this.logger.log(
+      `Loaded post uploaded template: ${settings.postUploadedTemplateName || '—'} (${settings.postUploadedTemplateLanguage || '—'})`,
+    );
+    this.logger.log(
+      `Loaded new post template: ${settings.newPostTemplateName || '—'} (${settings.newPostTemplateLanguage || '—'})`,
+    );
+  }
+
+  async getSystemTemplates(): Promise<WhatsAppSystemTemplatesPublic> {
+    await this.reload();
+    return this.extractSystemTemplates(this.stored);
+  }
+
+  async updateSystemTemplates(
+    patch: SaveSystemTemplatesDto,
+  ): Promise<WhatsAppSystemTemplatesPublic> {
+    const current = this.normalize(this.stored);
+    const merged = this.normalize({
+      ...current,
+      ...patch,
+    });
+    const validated = await this.resolveSystemTemplateFields(merged);
+
+    await this.prisma.appSetting.upsert({
+      where: { key: SETTINGS_KEY },
+      create: {
+        key: SETTINGS_KEY,
+        valueJson: validated as unknown as Prisma.InputJsonValue,
+      },
+      update: { valueJson: validated as unknown as Prisma.InputJsonValue },
+    });
+
+    this.stored = validated;
+    this.effective = this.buildEffective(validated);
+    this.logLoadedSystemTemplates(validated);
+    return this.extractSystemTemplates(validated);
   }
 
   getEffectiveConfig(): EffectiveWhatsAppConfig {

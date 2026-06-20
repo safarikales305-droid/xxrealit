@@ -31,6 +31,24 @@ export type WhatsAppIntegrationSettings = {
   effectiveWabaId: string;
 };
 
+export type WhatsAppSystemTemplatesSettings = {
+  whatsappVerifyMetaTemplateId: string;
+  whatsappVerifyTemplateName: string;
+  whatsappVerifyTemplateLanguage: string;
+  welcomeMetaTemplateId: string;
+  welcomeTemplateName: string;
+  welcomeTemplateLanguage: string;
+  welcomeEnabled: boolean;
+  postUploadedAuthorMetaTemplateId: string;
+  postUploadedTemplateName: string;
+  postUploadedTemplateLanguage: string;
+  postNotifyAuthorEnabled: boolean;
+  newPostNotificationMetaTemplateId: string;
+  newPostTemplateName: string;
+  newPostTemplateLanguage: string;
+  postNotifyFollowersEnabled: boolean;
+};
+
 export type WhatsAppAdminStats = {
   configured: boolean;
   enabled: boolean;
@@ -720,6 +738,126 @@ export async function nestAdminWhatsAppTestWelcomeSystemTemplate(
 
 export function formatSystemTemplateOptionLabel(template: WhatsAppMetaTemplateRow): string {
   return `${template.templateName} · ${template.language} · ${template.category} · ${template.variablesCount} prom.`;
+}
+
+export function extractSystemTemplatesFromSettings(
+  settings: Partial<WhatsAppIntegrationSettings>,
+): WhatsAppSystemTemplatesSettings {
+  return {
+    whatsappVerifyMetaTemplateId: settings.whatsappVerifyMetaTemplateId ?? '',
+    whatsappVerifyTemplateName: settings.whatsappVerifyTemplateName ?? '',
+    whatsappVerifyTemplateLanguage: settings.whatsappVerifyTemplateLanguage ?? '',
+    welcomeMetaTemplateId: settings.welcomeMetaTemplateId ?? '',
+    welcomeTemplateName: settings.welcomeTemplateName ?? '',
+    welcomeTemplateLanguage: settings.welcomeTemplateLanguage ?? '',
+    welcomeEnabled: settings.welcomeEnabled ?? false,
+    postUploadedAuthorMetaTemplateId: settings.postUploadedAuthorMetaTemplateId ?? '',
+    postUploadedTemplateName: settings.postUploadedTemplateName ?? '',
+    postUploadedTemplateLanguage: settings.postUploadedTemplateLanguage ?? '',
+    postNotifyAuthorEnabled: settings.postNotifyAuthorEnabled ?? false,
+    newPostNotificationMetaTemplateId: settings.newPostNotificationMetaTemplateId ?? '',
+    newPostTemplateName: settings.newPostTemplateName ?? '',
+    newPostTemplateLanguage: settings.newPostTemplateLanguage ?? '',
+    postNotifyFollowersEnabled: settings.postNotifyFollowersEnabled ?? false,
+  };
+}
+
+export function hydrateSystemTemplateIds(
+  saved: WhatsAppSystemTemplatesSettings,
+  templates: WhatsAppMetaTemplateRow[],
+): WhatsAppSystemTemplatesSettings {
+  const resolveId = (name: string, language: string, id: string) => {
+    if (id && templates.some((t) => t.id === id)) return id;
+    if (!name.trim()) return '';
+    const match = templates.find(
+      (t) =>
+        t.templateName.toLowerCase() === name.toLowerCase() &&
+        (!language.trim() ||
+          t.language.toLowerCase() === language.toLowerCase()),
+    );
+    return match?.id ?? id;
+  };
+
+  return {
+    ...saved,
+    whatsappVerifyMetaTemplateId: resolveId(
+      saved.whatsappVerifyTemplateName,
+      saved.whatsappVerifyTemplateLanguage,
+      saved.whatsappVerifyMetaTemplateId,
+    ),
+    welcomeMetaTemplateId: resolveId(
+      saved.welcomeTemplateName,
+      saved.welcomeTemplateLanguage,
+      saved.welcomeMetaTemplateId,
+    ),
+    postUploadedAuthorMetaTemplateId: resolveId(
+      saved.postUploadedTemplateName,
+      saved.postUploadedTemplateLanguage,
+      saved.postUploadedAuthorMetaTemplateId,
+    ),
+    newPostNotificationMetaTemplateId: resolveId(
+      saved.newPostTemplateName,
+      saved.newPostTemplateLanguage,
+      saved.newPostNotificationMetaTemplateId,
+    ),
+  };
+}
+
+export function logLoadedSystemTemplates(saved: WhatsAppSystemTemplatesSettings) {
+  console.debug('Loaded verify template:', saved.whatsappVerifyTemplateName, saved.whatsappVerifyTemplateLanguage);
+  console.debug('Loaded welcome template:', saved.welcomeTemplateName, saved.welcomeTemplateLanguage);
+  console.debug('Loaded post uploaded template:', saved.postUploadedTemplateName, saved.postUploadedTemplateLanguage);
+  console.debug('Loaded new post template:', saved.newPostTemplateName, saved.newPostTemplateLanguage);
+}
+
+export async function nestAdminWhatsAppSystemTemplatesGet(
+  token: string,
+): Promise<WhatsAppSystemTemplatesSettings | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/admin/whatsapp/system-templates`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as WhatsAppSystemTemplatesSettings;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestAdminWhatsAppSystemTemplatesSave(
+  token: string,
+  body: WhatsAppSystemTemplatesSettings,
+): Promise<
+  | { ok: true; data: WhatsAppSystemTemplatesSettings }
+  | { ok: false; error: string }
+> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/admin/whatsapp/system-templates`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    });
+    const data = (await res.json().catch(() => ({}))) as WhatsAppSystemTemplatesSettings & {
+      message?: string | string[];
+    };
+    if (!res.ok) {
+      const msg = Array.isArray(data.message)
+        ? data.message.join(' ')
+        : typeof data.message === 'string'
+          ? data.message
+          : `HTTP ${res.status}`;
+      return { ok: false, error: msg };
+    }
+    return { ok: true, data: data as WhatsAppSystemTemplatesSettings };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
+  }
 }
 
 export async function nestAdminWhatsAppLastLog(

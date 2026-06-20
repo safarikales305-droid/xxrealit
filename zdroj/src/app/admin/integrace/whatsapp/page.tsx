@@ -16,8 +16,14 @@ import {
   nestAdminWhatsAppTestNewPostNotification,
   nestAdminWhatsAppTestVerifySystemTemplate,
   nestAdminWhatsAppTestWelcomeSystemTemplate,
+  nestAdminWhatsAppSystemTemplatesGet,
+  nestAdminWhatsAppSystemTemplatesSave,
   nestAdminWhatsAppTemplatesSync,
   formatSystemTemplateOptionLabel,
+  extractSystemTemplatesFromSettings,
+  hydrateSystemTemplateIds,
+  logLoadedSystemTemplates,
+  type WhatsAppSystemTemplatesSettings,
   nestAdminWhatsAppTemplatesList,
   nestAdminWhatsAppVerifyPhone,
   nestAdminWhatsAppVerifyWaba,
@@ -99,6 +105,10 @@ export default function AdminWhatsAppIntegrationPage() {
   const [testingVerify, setTestingVerify] = useState(false);
   const [testingWelcome, setTestingWelcome] = useState(false);
   const [syncingTemplates, setSyncingTemplates] = useState(false);
+  const [savingSystemTemplates, setSavingSystemTemplates] = useState(false);
+  const [savedSystemTemplates, setSavedSystemTemplates] =
+    useState<WhatsAppSystemTemplatesSettings | null>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   function pickSystemTemplate(
     metaIdKey: keyof WhatsAppIntegrationSettings,
@@ -118,18 +128,26 @@ export default function AdminWhatsAppIntegrationPage() {
   const refresh = useCallback(async () => {
     if (!token) return;
     setLoadError(null);
-    const [statsData, settingsData, templatesData] = await Promise.all([
+    const [statsData, settingsData, templatesData, systemData] = await Promise.all([
       nestAdminWhatsAppMarketingStats(token),
       nestAdminWhatsAppSettingsGet(token),
       nestAdminWhatsAppTemplatesList(token, true),
+      nestAdminWhatsAppSystemTemplatesGet(token),
     ]);
     if (!statsData || !settingsData) {
       setLoadError('Nepodařilo se načíst WhatsApp integraci.');
       return;
     }
+    const templates = templatesData?.templates?.filter((t) => t.isUsable) ?? [];
     setStats(statsData);
-    setSettings(settingsData);
-    setWaTemplates(templatesData?.templates?.filter((t) => t.isUsable) ?? []);
+    setWaTemplates(templates);
+
+    const baseSaved =
+      systemData ?? extractSystemTemplatesFromSettings(settingsData);
+    const hydrated = hydrateSystemTemplateIds(baseSaved, templates);
+    logLoadedSystemTemplates(hydrated);
+    setSavedSystemTemplates(hydrated);
+    setSettings({ ...settingsData, ...hydrated });
   }, [token]);
 
   const loadDiagnostics = useCallback(async () => {
@@ -214,18 +232,6 @@ export default function AdminWhatsAppIntegrationPage() {
       batchDelayMs: settings.batchDelayMs,
       postNotifyAuthorEnabled: settings.postNotifyAuthorEnabled,
       postNotifyFollowersEnabled: settings.postNotifyFollowersEnabled,
-      postUploadedAuthorMetaTemplateId: settings.postUploadedAuthorMetaTemplateId,
-      postUploadedTemplateName: settings.postUploadedTemplateName,
-      postUploadedTemplateLanguage: settings.postUploadedTemplateLanguage,
-      newPostNotificationMetaTemplateId: settings.newPostNotificationMetaTemplateId,
-      newPostTemplateName: settings.newPostTemplateName,
-      newPostTemplateLanguage: settings.newPostTemplateLanguage,
-      whatsappVerifyMetaTemplateId: settings.whatsappVerifyMetaTemplateId,
-      whatsappVerifyTemplateName: settings.whatsappVerifyTemplateName,
-      whatsappVerifyTemplateLanguage: settings.whatsappVerifyTemplateLanguage,
-      welcomeMetaTemplateId: settings.welcomeMetaTemplateId,
-      welcomeTemplateName: settings.welcomeTemplateName,
-      welcomeTemplateLanguage: settings.welcomeTemplateLanguage,
     };
     if (accessToken.trim()) patch.accessToken = accessToken.trim();
     if (webhookVerifyToken.trim()) patch.webhookVerifyToken = webhookVerifyToken.trim();
@@ -244,6 +250,27 @@ export default function AdminWhatsAppIntegrationPage() {
     setStatusMsg('Nastavení uloženo.');
     void refresh();
     void loadDiagnostics();
+  }
+
+  async function onSaveSystemTemplates() {
+    if (!token) return;
+    setSavingSystemTemplates(true);
+    setStatusMsg(null);
+    setStatusIsError(false);
+    const payload = extractSystemTemplatesFromSettings(settings);
+    const r = await nestAdminWhatsAppSystemTemplatesSave(token, payload);
+    setSavingSystemTemplates(false);
+    if (!r.ok) {
+      setStatusIsError(true);
+      setStatusMsg(r.error);
+      return;
+    }
+    const hydrated = hydrateSystemTemplateIds(r.data, waTemplates);
+    logLoadedSystemTemplates(hydrated);
+    setSavedSystemTemplates(hydrated);
+    setSettings((s) => ({ ...s, ...hydrated }));
+    setToastMsg('Systémové WhatsApp šablony byly uloženy.');
+    window.setTimeout(() => setToastMsg(null), 4000);
   }
 
   async function onTestSend() {
@@ -356,6 +383,11 @@ export default function AdminWhatsAppIntegrationPage() {
         </div>
 
         {loadError ? <p className="text-sm text-red-600">{loadError}</p> : null}
+        {toastMsg ? (
+          <p className="rounded-xl border border-emerald-300 bg-emerald-100 px-4 py-3 text-sm font-medium text-emerald-900">
+            {toastMsg}
+          </p>
+        ) : null}
         {statusMsg ? (
           <p
             className={`rounded-xl border px-4 py-3 text-sm ${
@@ -765,14 +797,24 @@ export default function AdminWhatsAppIntegrationPage() {
                     </option>
                   ))}
                 </select>
-                {settings.whatsappVerifyTemplateName ? (
-                  <p className="mt-1 text-[11px] text-zinc-500">
-                    Uloženo: {settings.whatsappVerifyTemplateName} ({settings.whatsappVerifyTemplateLanguage})
+                {savedSystemTemplates?.whatsappVerifyTemplateName ? (
+                  <p className="mt-1 text-[11px] text-emerald-700">
+                    Uloženo: {savedSystemTemplates.whatsappVerifyTemplateName} (
+                    {savedSystemTemplates.whatsappVerifyTemplateLanguage})
                   </p>
-                ) : null}
+                ) : (
+                  <p className="mt-1 text-[11px] text-amber-700">
+                    Nejprve uložte šablonu pro ověření telefonního čísla.
+                  </p>
+                )}
                 <button
                   type="button"
-                  disabled={testingVerify}
+                  disabled={testingVerify || !savedSystemTemplates?.whatsappVerifyTemplateName}
+                  title={
+                    !savedSystemTemplates?.whatsappVerifyTemplateName
+                      ? 'Nejprve uložte systémové šablony'
+                      : undefined
+                  }
                   onClick={() => {
                     void (async () => {
                       if (!token) return;
@@ -830,7 +872,12 @@ export default function AdminWhatsAppIntegrationPage() {
                 </label>
                 <button
                   type="button"
-                  disabled={testingWelcome}
+                  disabled={testingWelcome || !savedSystemTemplates?.welcomeTemplateName}
+                  title={
+                    !savedSystemTemplates?.welcomeTemplateName
+                      ? 'Nejprve uložte systémové šablony'
+                      : undefined
+                  }
                   onClick={() => {
                     void (async () => {
                       if (!token) return;
@@ -888,7 +935,12 @@ export default function AdminWhatsAppIntegrationPage() {
                 </label>
                 <button
                   type="button"
-                  disabled={testingPostAuthor}
+                  disabled={testingPostAuthor || !savedSystemTemplates?.postUploadedTemplateName}
+                  title={
+                    !savedSystemTemplates?.postUploadedTemplateName
+                      ? 'Nejprve uložte systémové šablony'
+                      : undefined
+                  }
                   onClick={() => {
                     void (async () => {
                       if (!token) return;
@@ -949,7 +1001,12 @@ export default function AdminWhatsAppIntegrationPage() {
                 </label>
                 <button
                   type="button"
-                  disabled={testingPostFollower}
+                  disabled={testingPostFollower || !savedSystemTemplates?.newPostTemplateName}
+                  title={
+                    !savedSystemTemplates?.newPostTemplateName
+                      ? 'Nejprve uložte systémové šablony'
+                      : undefined
+                  }
                   onClick={() => {
                     void (async () => {
                       if (!token) return;
@@ -973,6 +1030,20 @@ export default function AdminWhatsAppIntegrationPage() {
                   {testingPostFollower ? 'Odesílám…' : 'Test systémové šablony'}
                 </button>
               </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-zinc-100 pt-4">
+              <button
+                type="button"
+                disabled={savingSystemTemplates || !token}
+                onClick={() => void onSaveSystemTemplates()}
+                className="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {savingSystemTemplates ? 'Ukládám…' : '💾 Uložit systémové šablony'}
+              </button>
+              <p className="text-xs text-zinc-500">
+                Testovací tlačítka jsou aktivní až po uložení příslušné šablony.
+              </p>
             </div>
 
             <details className="mt-5 rounded-lg border border-zinc-100 bg-zinc-50/80 p-3">
