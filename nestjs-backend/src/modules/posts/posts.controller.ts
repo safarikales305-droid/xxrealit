@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  Logger,
   NotFoundException,
   Param,
   Post,
@@ -25,10 +26,35 @@ import { uploadPostMedia } from './cloudinary-upload';
 import { CreateListingPostDto } from './dto/create-listing-post.dto';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
+import {
+  isAllowedPostMediaMime,
+  logPostUploadRejection,
+  userFacingUploadError,
+} from './post-media-upload.util';
 import { PostsService } from './posts.service';
+
+const postMediaMulterFilter = (
+  _req: Express.Request,
+  file: Express.Multer.File,
+  cb: (error: Error | null, acceptFile: boolean) => void,
+) => {
+  if (isAllowedPostMediaMime(file.mimetype)) {
+    cb(null, true);
+    return;
+  }
+  logPostUploadRejection(file, `unsupported_mime:${file.mimetype}`);
+  cb(
+    new Error(
+      `Nepodporovaný typ souboru (${file.mimetype}). Video: MP4, MOV, WebM. Obrázek: JPG, PNG, WebP.`,
+    ),
+    false,
+  );
+};
 
 @Controller('posts')
 export class PostsController {
+  private readonly log = new Logger(PostsController.name);
+
   @Get()
   list(
     @Query('category') category?: string,
@@ -157,21 +183,7 @@ export class PostsController {
       limits: {
         fileSize: 300 * 1024 * 1024,
       },
-      fileFilter: (_req, file, cb) => {
-        if (
-          file.mimetype.startsWith('video/') ||
-          file.mimetype.startsWith('image/')
-        ) {
-          cb(null, true);
-        } else {
-          cb(
-            new Error(
-              `Unsupported MIME type "${file.mimetype}". Allowed: video/*, image/*`,
-            ),
-            false,
-          );
-        }
-      },
+      fileFilter: postMediaMulterFilter,
     }),
   )
   @HttpCode(200)
@@ -184,22 +196,29 @@ export class PostsController {
       throw new BadRequestException('Vyberte soubor videa nebo obrázku.');
     }
     if (file.size > 300 * 1024 * 1024) {
-      throw new BadRequestException('Max 300MB');
+      logPostUploadRejection(file, 'file_too_large');
+      throw new BadRequestException('Soubor je příliš velký (max. 300 MB).');
     }
-    let uploaded: { url: string; kind: 'video' | 'image' };
+    this.log.log(
+      `[post-upload] video user=${user.id} mimetype=${file.mimetype} size=${file.size} name=${file.originalname}`,
+    );
+    let uploaded: Awaited<ReturnType<typeof uploadPostMedia>>;
     try {
       uploaded = await uploadPostMedia(file);
     } catch (err) {
-      console.error('Media upload failed:', err);
-      throw new BadRequestException(
-        'Upload média se nezdařil. Ověřte CLOUDINARY_URL (max 300 MB před kompresí, video max 120 s).',
+      const kind = file.mimetype.startsWith('video/') ? 'video' : 'image';
+      this.log.error(
+        `[post-upload] failed user=${user.id} mimetype=${file.mimetype} size=${file.size}: ${err instanceof Error ? err.message : err}`,
+        err instanceof Error ? err.stack : undefined,
       );
+      throw new BadRequestException(userFacingUploadError(err, kind));
     }
 
     await this.postsService.createMediaPost(user.id, {
       kind: uploaded.kind,
       url: uploaded.url,
       description: description ?? '',
+      previewImage: uploaded.thumbnailUrl,
     });
     return {
       success: true,
@@ -222,16 +241,7 @@ export class PostsController {
           fileSize: 300 * 1024 * 1024,
           files: 31,
         },
-        fileFilter: (_req, file, cb) => {
-          if (
-            file.mimetype.startsWith('video/') ||
-            file.mimetype.startsWith('image/')
-          ) {
-            cb(null, true);
-          } else {
-            cb(new Error(`Unsupported MIME type "${file.mimetype}"`), false);
-          }
-        },
+        fileFilter: postMediaMulterFilter,
       },
     ),
   )
@@ -279,12 +289,29 @@ export class PostsController {
         : images;
 
     const media: Array<{ url: string; type: 'video' | 'image'; order: number }> = [];
+    let previewImage: string | undefined;
 
     if (video) {
-      const uploadedVideo = await uploadPostMedia(video);
+      if (video.size > 300 * 1024 * 1024) {
+        logPostUploadRejection(video, 'file_too_large');
+        throw new BadRequestException('Video je příliš velké (max. 300 MB).');
+      }
+      this.log.log(
+        `[post-upload] listing-video user=${user.id} mimetype=${video.mimetype} size=${video.size} name=${video.originalname}`,
+      );
+      let uploadedVideo: Awaited<ReturnType<typeof uploadPostMedia>>;
+      try {
+        uploadedVideo = await uploadPostMedia(video);
+      } catch (err) {
+        this.log.error(
+          `[post-upload] listing-video failed user=${user.id} mimetype=${video.mimetype} size=${video.size}: ${err instanceof Error ? err.message : err}`,
+        );
+        throw new BadRequestException(userFacingUploadError(err, 'video'));
+      }
       if (uploadedVideo.kind !== 'video') {
         throw new BadRequestException('Neplatné video.');
       }
+      previewImage = uploadedVideo.thumbnailUrl;
       media.push({
         url: uploadedVideo.url,
         type: 'video',
@@ -293,7 +320,20 @@ export class PostsController {
     }
 
     for (let i = 0; i < orderedImages.length; i += 1) {
-      const uploadedImage = await uploadPostMedia(orderedImages[i]);
+      const imageFile = orderedImages[i]!;
+      if (imageFile.size > 300 * 1024 * 1024) {
+        logPostUploadRejection(imageFile, 'file_too_large');
+        throw new BadRequestException('Obrázek je příliš velký (max. 300 MB).');
+      }
+      let uploadedImage: Awaited<ReturnType<typeof uploadPostMedia>>;
+      try {
+        uploadedImage = await uploadPostMedia(imageFile);
+      } catch (err) {
+        this.log.error(
+          `[post-upload] listing-image failed user=${user.id} mimetype=${imageFile.mimetype} size=${imageFile.size}: ${err instanceof Error ? err.message : err}`,
+        );
+        throw new BadRequestException(userFacingUploadError(err, 'image'));
+      }
       if (uploadedImage.kind !== 'image') {
         throw new BadRequestException('Neplatný obrázek.');
       }
@@ -307,23 +347,28 @@ export class PostsController {
       throw new BadRequestException('Nahrajte alespoň 1 obrázek nebo video.');
     }
 
-    // Respect explicit intent from create flow: community posts with video stay in "post" feed.
     const type: 'post' | 'short' = body.type === 'short' ? 'short' : 'post';
-    const priceNum = Number(body.price);
-    if (!Number.isFinite(priceNum) || priceNum < 0) {
+    const priceRaw = body.price?.trim();
+    const priceNum =
+      priceRaw != null && priceRaw !== '' ? Number(priceRaw) : null;
+    if (priceNum != null && (!Number.isFinite(priceNum) || priceNum < 0)) {
       throw new BadRequestException('Cena musí být číslo >= 0.');
     }
+
+    const soundTrackId = body.soundTrackId?.trim() || undefined;
 
     const created = await this.postsService.createListingPost(user.id, {
       title: body.title.trim(),
       description: body.description.trim(),
-      price: Math.trunc(priceNum),
+      price: priceNum != null ? Math.trunc(priceNum) : null,
       city: body.city.trim(),
       type,
       category: body.category,
       latitude: body.latitude ? Number(body.latitude) : undefined,
       longitude: body.longitude ? Number(body.longitude) : undefined,
       media,
+      previewImage,
+      soundTrackId,
     });
 
     return { success: true, post: created };

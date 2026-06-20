@@ -9,7 +9,9 @@ import {
   nestCreateListingPost,
   nestApiConfigured,
   nestFetchLinkPreview,
+  nestFetchPostSounds,
   type LinkPreviewResponse,
+  type PostSoundTrackDto,
 } from '@/lib/nest-client';
 import { LinkPreviewCard } from '@/components/community/LinkPreviewCard';
 
@@ -48,12 +50,46 @@ export function CreateCommunityPostCard({
   const [linkPreviewDismissed, setLinkPreviewDismissed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [postSounds, setPostSounds] = useState<PostSoundTrackDto[]>([]);
+  const [selectedSoundId, setSelectedSoundId] = useState('');
+  const [soundsLoading, setSoundsLoading] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previewRequestIdRef = useRef(0);
 
   const detectedUrl = extractFirstUrl(description);
+
+  useEffect(() => {
+    if (!videoFile) {
+      setSelectedSoundId('');
+      return;
+    }
+    let cancelled = false;
+    setSoundsLoading(true);
+    void nestFetchPostSounds().then((rows) => {
+      if (cancelled) return;
+      setPostSounds(rows);
+      setSoundsLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [videoFile]);
+
+  const ALLOWED_VIDEO_TYPES = new Set([
+    'video/mp4',
+    'video/quicktime',
+    'video/webm',
+    'video/x-msvideo',
+  ]);
+
+  function isAllowedVideoFile(file: File): boolean {
+    const mime = (file.type || '').toLowerCase();
+    if (ALLOWED_VIDEO_TYPES.has(mime) || mime.startsWith('video/')) return true;
+    const name = file.name.toLowerCase();
+    return name.endsWith('.mp4') || name.endsWith('.mov') || name.endsWith('.webm');
+  }
 
   useEffect(() => {
     if (!imageFile) {
@@ -174,8 +210,8 @@ export function CreateCommunityPostCard({
     setError(null);
     const f = e.target.files?.[0];
     if (!f) return;
-    if (!f.type.startsWith('video/')) {
-      setError('Vyberte video.');
+    if (!isAllowedVideoFile(f)) {
+      setError('Podporovaná videa: MP4, MOV, WebM.');
       e.target.value = '';
       return;
     }
@@ -218,7 +254,7 @@ export function CreateCommunityPostCard({
         const r = await nestCreateListingPost(apiAccessToken, {
           title: titleBase,
           description: text || ' ',
-          price: 0,
+          price: null,
           city: 'Komunita',
           type: 'post',
           category: activeCategory,
@@ -227,6 +263,7 @@ export function CreateCommunityPostCard({
           video: videoFile,
           images: imageFile ? [imageFile] : [],
           imageOrder: imageFile ? [`${imageFile.name}::${imageFile.size}`] : [],
+          soundTrackId: selectedSoundId || undefined,
         });
         if (!r.ok) {
           setError(r.error ?? 'Nahrání selhalo');
@@ -293,6 +330,7 @@ export function CreateCommunityPostCard({
       setLinkPreviewFailed(false);
       setLinkPreviewLoading(false);
       previewRequestIdRef.current += 1;
+      setSelectedSoundId('');
       await onPublished();
     } finally {
       setLoading(false);
@@ -338,7 +376,7 @@ export function CreateCommunityPostCard({
       <input
         ref={videoInputRef}
         type="file"
-        accept="video/*"
+        accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
         className="sr-only"
         aria-label="Přidat video"
         onChange={onPickVideo}
@@ -371,6 +409,28 @@ export function CreateCommunityPostCard({
           ) : (
             <img src={imagePreview ?? ''} alt="" className="max-h-64 w-full object-contain" />
           )}
+          {videoPreview ? (
+            <div className="border-t border-zinc-100 bg-white px-3 py-2">
+              <label className="text-xs font-semibold text-zinc-600">Zvuk k videu</label>
+              {soundsLoading ? (
+                <p className="mt-1 text-xs text-zinc-500">Načítám zvuky…</p>
+              ) : (
+                <select
+                  value={selectedSoundId}
+                  onChange={(e) => setSelectedSoundId(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-zinc-200 px-2 py-1.5 text-sm"
+                >
+                  <option value="">Bez zvuku</option>
+                  {postSounds.map((sound) => (
+                    <option key={sound.id} value={sound.id}>
+                      {sound.title}
+                      {sound.artist ? ` — ${sound.artist}` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          ) : null}
           <div className="flex justify-end border-t border-zinc-100 bg-white px-2 py-1">
             <button
               type="button"

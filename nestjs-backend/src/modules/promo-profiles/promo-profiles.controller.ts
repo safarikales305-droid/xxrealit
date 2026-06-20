@@ -9,6 +9,18 @@ export class PromoProfilesController {
   listPublic(@Query('limit') limit?: string) {
     const parsed = Number(limit);
     const take = Number.isFinite(parsed) ? parsed : 48;
-    return this.promoProfiles.listPublic(take);
+    return this.promoProfiles.listPortalCarousel(take);
+  }
+}
+
+@Controller('portal-profiles')
+export class PortalProfilesController {
+  constructor(private readonly promoProfiles: PromoProfilesService) {}
+
+  @Get('public')
+  listPublic(@Query('limit') limit?: string) {
+    const parsed = Number(limit);
+    const take = Number.isFinite(parsed) ? parsed : 48;
+    return this.promoProfiles.listPortalCarousel(take);
   }
 }

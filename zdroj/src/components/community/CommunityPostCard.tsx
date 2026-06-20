@@ -8,6 +8,7 @@ import { ShareButtons } from '@/components/share/ShareButtons';
 import type { ListingPost, PostComment } from '@/lib/nest-client';
 import { LinkPreviewCard, type LinkPreviewData } from '@/components/community/LinkPreviewCard';
 import { FacebookPostMediaBlock } from '@/components/community/FacebookPostMediaBlock';
+import { PostSoundAudio } from '@/components/community/PostSoundAudio';
 import {
   isFacebookImportPost,
   resolveFacebookPostMedia,
@@ -111,7 +112,8 @@ export function CommunityPostCard({
     resolvedMedia.mode === 'video' && !resolvedMedia.isFacebookVideo;
   const showFacebookFeedVideo =
     resolvedMedia.mode === 'video' && resolvedMedia.isFacebookVideo;
-  const showMuteForVideo = showNativeFeedVideo;
+  const showMuteForVideo = showNativeFeedVideo && !p.soundTrack;
+  const hasPostSound = Boolean(p.soundTrack?.fileUrl || p.soundTrack?.previewUrl);
 
   return (
     <article className="relative mx-auto w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:rounded-3xl">
@@ -196,16 +198,19 @@ export function CommunityPostCard({
       ) : null}
 
       {hasFeedMedia ? (
-        <FacebookPostMediaBlock
-          media={resolvedMedia}
-          facebookPostType={p.facebookPostType ?? null}
-          compact
-          blurred={interactionsLocked}
-          muted={showMuteForVideo ? muted : false}
-          showMuteToggle={showMuteForVideo}
-          onToggleMute={onToggleMute}
-          onOpenDetail={interactionsLocked ? undefined : onOpenDetail}
-        />
+        <>
+          <FacebookPostMediaBlock
+            media={resolvedMedia}
+            facebookPostType={p.facebookPostType ?? null}
+            compact
+            blurred={interactionsLocked}
+            muted={showNativeFeedVideo ? (hasPostSound ? true : muted) : false}
+            showMuteToggle={showMuteForVideo}
+            onToggleMute={onToggleMute}
+            onOpenDetail={interactionsLocked ? undefined : onOpenDetail}
+          />
+          {hasPostSound ? <PostSoundAudio soundTrack={p.soundTrack} /> : null}
+        </>
       ) : null}
 
       {editingPostId !== id ? (

@@ -3,9 +3,13 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
-import { nestFetchPublicPromoProfiles, type PublicPromoProfileRow } from '@/lib/nest-client';
+import {
+  nestFetchPortalProfiles,
+  type PublicPortalProfileRow,
+} from '@/lib/nest-client';
+import { ProfileCarouselSkeleton } from '@/components/ui/page-loading';
 
-function PromoAvatar({ profile }: { profile: PublicPromoProfileRow }) {
+function PortalAvatar({ profile }: { profile: PublicPortalProfileRow }) {
   const src = profile.avatarUrl ? nestAbsoluteAssetUrl(profile.avatarUrl) : null;
   return (
     <Link
@@ -30,18 +34,23 @@ function PromoAvatar({ profile }: { profile: PublicPromoProfileRow }) {
 }
 
 export function PortalProfilesCarousel() {
-  const [profiles, setProfiles] = useState<PublicPromoProfileRow[]>([]);
+  const [profiles, setProfiles] = useState<PublicPortalProfileRow[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    void nestFetchPublicPromoProfiles(48).then((rows) => {
-      if (!cancelled) setProfiles(rows);
+    setLoading(true);
+    void nestFetchPortalProfiles(48).then((rows) => {
+      if (cancelled) return;
+      setProfiles(rows);
+      setLoading(false);
     });
     return () => {
       cancelled = true;
     };
   }, []);
 
+  if (loading) return <ProfileCarouselSkeleton />;
   if (profiles.length === 0) return null;
 
   return (
@@ -50,7 +59,7 @@ export function PortalProfilesCarousel() {
       <div className="mt-3 -mx-1 overflow-x-auto pb-1">
         <div className="flex gap-3 px-1 sm:gap-4">
           {profiles.map((profile) => (
-            <PromoAvatar key={profile.id} profile={profile} />
+            <PortalAvatar key={profile.id} profile={profile} />
           ))}
         </div>
       </div>

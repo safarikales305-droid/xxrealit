@@ -36,6 +36,7 @@ import { ProfessionalVerificationModule } from './modules/professional-verificat
 import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
 import { CommunicationModule } from './modules/communication/communication.module';
 import { PromoProfilesModule } from './modules/promo-profiles/promo-profiles.module';
+import { PostSoundsModule } from './modules/post-sounds/post-sounds.module';
 
 @Module({
   imports: [
@@ -78,6 +79,7 @@ import { PromoProfilesModule } from './modules/promo-profiles/promo-profiles.mod
     WhatsAppModule,
     CommunicationModule,
     PromoProfilesModule,
+    PostSoundsModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

@@ -5030,6 +5030,14 @@ export type ListingPost = {
   facebookVideoMimeType?: string | null;
   source?: 'INTERNAL' | 'FACEBOOK' | string;
   publishedAt?: string | null;
+  soundTrack?: {
+    id: string;
+    title: string;
+    artist?: string | null;
+    fileUrl: string;
+    previewUrl?: string | null;
+    durationSec?: number | null;
+  } | null;
 };
 
 export type LinkPreviewResponse = {
@@ -5230,6 +5238,7 @@ export async function nestCreateListingPost(
       | 'INVESTORI';
     latitude?: number;
     longitude?: number;
+    soundTrackId?: string;
   },
 ): Promise<{ ok: true; post: ListingPost } | { ok: false; error?: string }> {
   if (!API_BASE_URL || !token) {
@@ -5248,6 +5257,7 @@ export async function nestCreateListingPost(
   fd.append('city', input.city);
   fd.append('type', input.type);
   if (input.category) fd.append('category', input.category);
+  if (input.soundTrackId?.trim()) fd.append('soundTrackId', input.soundTrackId.trim());
   if (Number.isFinite(input.latitude)) fd.append('latitude', String(input.latitude));
   if (Number.isFinite(input.longitude)) fd.append('longitude', String(input.longitude));
   fd.append('imageOrder', JSON.stringify(input.imageOrder));
@@ -7315,21 +7325,37 @@ export type AdminPromoProfileRow = {
   createdAt: string;
 };
 
-export async function nestFetchPublicPromoProfiles(
+export type PublicPortalProfileRow = PublicPromoProfileRow;
+
+export async function nestFetchPortalProfiles(
   limit = 48,
-): Promise<PublicPromoProfileRow[]> {
+): Promise<PublicPortalProfileRow[]> {
   if (!API_BASE_URL) return [];
   try {
-    const res = await fetch(`${API_BASE_URL}/promo-profiles/public?limit=${limit}`, {
+    const res = await fetch(`${API_BASE_URL}/portal-profiles/public?limit=${limit}`, {
       headers: { Accept: 'application/json' },
       cache: 'no-store',
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      const fallback = await fetch(`${API_BASE_URL}/promo-profiles/public?limit=${limit}`, {
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+      });
+      if (!fallback.ok) return [];
+      const data = (await fallback.json()) as unknown;
+      return Array.isArray(data) ? (data as PublicPortalProfileRow[]) : [];
+    }
     const data = (await res.json()) as unknown;
-    return Array.isArray(data) ? (data as PublicPromoProfileRow[]) : [];
+    return Array.isArray(data) ? (data as PublicPortalProfileRow[]) : [];
   } catch {
     return [];
   }
+}
+
+export async function nestFetchPublicPromoProfiles(
+  limit = 48,
+): Promise<PublicPromoProfileRow[]> {
+  return nestFetchPortalProfiles(limit);
 }
 
 export async function nestAdminPromoProfilesList(
@@ -7392,5 +7418,100 @@ export async function nestAdminPromoProfilesBulk(
     return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
   }
   return { ok: true, affected: typeof data.affected === 'number' ? data.affected : 0 };
+}
+
+export type PostSoundTrackDto = {
+  id: string;
+  title: string;
+  artist?: string;
+  fileUrl: string;
+  previewUrl?: string | null;
+  durationSec?: number | null;
+  mimeType?: string;
+  isActive?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export async function nestFetchPostSounds(): Promise<PostSoundTrackDto[]> {
+  if (!API_BASE_URL) return [];
+  try {
+    const res = await fetch(`${API_BASE_URL}/post-sounds`, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as unknown;
+    return Array.isArray(data) ? (data as PostSoundTrackDto[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function nestAdminPostSoundsList(
+  token: string | null,
+): Promise<PostSoundTrackDto[] | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/post-sounds`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as unknown;
+  return Array.isArray(data) ? (data as PostSoundTrackDto[]) : null;
+}
+
+export async function nestAdminPostSoundsUpload(
+  token: string | null,
+  form: FormData,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/post-sounds`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    body: form,
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminPostSoundsUpdate(
+  token: string | null,
+  id: string,
+  body: { title?: string; artist?: string; description?: string | null; isActive?: boolean },
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/post-sounds/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminPostSoundsDelete(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/post-sounds/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true };
 }
 

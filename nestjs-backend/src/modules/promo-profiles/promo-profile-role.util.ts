@@ -16,7 +16,20 @@ export const PROMO_ROLE_LABELS: Record<string, string> = {
   FINANCIAL_ADVISOR: 'Finanční poradce',
   CRAFTSMAN: 'Řemeslník',
   AGENCY: 'RK',
+  USER: 'Uživatel',
+  PRIVATE_SELLER: 'Soukromý prodejce',
+  DEVELOPER: 'Stavební firma',
 };
+
+export const PORTAL_CAROUSEL_ROLES: UserRole[] = [
+  UserRole.AGENT,
+  UserRole.INVESTOR,
+  UserRole.COMPANY,
+  UserRole.FINANCIAL_ADVISOR,
+  UserRole.CRAFTSMAN,
+  UserRole.AGENCY,
+  UserRole.USER,
+];
 
 export function promoRoleLabel(role: string): string {
   return PROMO_ROLE_LABELS[role] ?? role;

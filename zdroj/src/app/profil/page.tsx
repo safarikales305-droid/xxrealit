@@ -61,6 +61,7 @@ import {
   dashboardPathForRole,
 } from '@/lib/roles';
 import { ProfessionalOnlyDialog } from '@/components/auth/ProfessionalListingRestriction';
+import { PageLoadingSpinner } from '@/components/ui/page-loading';
 import { FacebookPostMediaBlock } from '@/components/community/FacebookPostMediaBlock';
 import {
   filterPostMediaForDisplay,
@@ -228,6 +229,7 @@ export default function ProfilPage() {
   const [wallEditPostId, setWallEditPostId] = useState<string | null>(null);
   const [wallEditText, setWallEditText] = useState('');
   const [wallBusyPostId, setWallBusyPostId] = useState<string | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
 
   const showSuccess = useCallback((msg: string) => {
     setSuccessMsg(msg);
@@ -248,7 +250,9 @@ export default function ProfilPage() {
   }
 
   const loadNestProfile = useCallback(async () => {
+    setProfileLoading(true);
     const me = await nestFetchMe(apiAccessToken);
+    setProfileLoading(false);
     /** Při chybě GET /users/me nesmazat už načtené URL — držíme stav z auth / posledního uploadu. */
     if (!me) return;
     setNestMe(me);
@@ -983,10 +987,10 @@ export default function ProfilPage() {
     await loadNestProfile();
   }
 
-  if (isLoading) {
+  if (isLoading || profileLoading) {
     return (
-      <div className="flex h-[100dvh] items-center justify-center overflow-y-auto bg-[#fafafa] text-zinc-600">
-        Načítání…
+      <div className="flex h-[100dvh] items-center justify-center overflow-y-auto bg-[#fafafa]">
+        <PageLoadingSpinner label="Načítám profil…" />
       </div>
     );
   }

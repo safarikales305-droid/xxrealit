@@ -301,6 +301,7 @@ model User {
   whatsappMessagesSent         WhatsAppMessage[] @relation("WhatsAppSentBy")
   whatsappMarketingCampaignsCreated WhatsAppMarketingCampaign[]
   whatsappMarketingCampaignLogs    WhatsAppMarketingCampaignLog[]
+  postSoundTracksUploaded          PostSoundTrack[]
   crmContacts                  CrmContact[]
   marketingCampaigns           MarketingCampaign[]
   activityLogs                 ActivityLog[] @relation("ActivityLogActor")
@@ -564,6 +565,27 @@ model ShareGateVideo {
   @@index([isActive, sortOrder])
 }
 
+model PostSoundTrack {
+  id                 String   @id @default(cuid())
+  title              String
+  artist             String   @default("")
+  description        String?  @db.Text
+  fileUrl            String
+  previewUrl         String?
+  cloudinaryPublicId String?
+  mimeType           String
+  durationSec        Int?
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  uploadedById       String
+  uploadedBy         User     @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  posts              Post[]
+
+  @@index([isActive])
+  @@index([createdAt])
+}
+
 model Post {
   id          String   @id @default(cuid())
   title       String   @default("")
@@ -602,6 +624,9 @@ model Post {
   facebookVideoHasAudio    Boolean?
   facebookVideoMimeType    String?
   publishedAt         DateTime?
+  /// Volitelný zvuk/hudba k video příspěvku (přehrávání jako na Facebooku).
+  soundTrackId        String?
+  soundTrack          PostSoundTrack? @relation(fields: [soundTrackId], references: [id], onDelete: SetNull)
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   media       Media[]
@@ -614,6 +639,7 @@ model Post {
   @@index([createdAt])
   @@index([source, createdAt])
   @@index([latitude, longitude])
+  @@index([soundTrackId])
 }
 
 model PostReaction {

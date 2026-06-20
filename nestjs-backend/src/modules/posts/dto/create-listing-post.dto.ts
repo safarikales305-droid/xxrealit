@@ -11,8 +11,10 @@ export class CreateListingPostDto {
   @MaxLength(4000)
   description!: string;
 
+  /** Volitelné — cena patří k inzerátu, ne ke komunitnímu příspěvku. */
+  @IsOptional()
   @IsString()
-  price!: string;
+  price?: string;
 
   @IsString()
   @MinLength(1)
@@ -52,4 +54,8 @@ export class CreateListingPostDto {
   @IsOptional()
   @IsString()
   longitude?: string;
+
+  @IsOptional()
+  @IsString()
+  soundTrackId?: string;
 }

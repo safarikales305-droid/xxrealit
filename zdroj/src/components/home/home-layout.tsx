@@ -33,6 +33,7 @@ import { Navbar, type ViewMode } from './navbar';
 import { RightSidebar } from './right-sidebar';
 import { SidebarFilters } from './sidebar-filters';
 import { PortalProfilesCarousel } from './PortalProfilesCarousel';
+import { FeedSkeletonRows } from '@/components/ui/page-loading';
 
 type Props = {
   items: PropertyFeedItem[];
@@ -1209,7 +1210,7 @@ export function HomeLayout({
 
                         <div className="mt-4 flex w-full min-w-0 flex-col gap-4">
                     {loadingFeed ? (
-                      <p className="text-sm text-zinc-600">Načítám příspěvky…</p>
+                      <FeedSkeletonRows count={3} />
                     ) : communityFeedPosts.length === 0 ? (
                       <p className="text-sm text-zinc-600">Zatím žádné příspěvky.</p>
                     ) : (

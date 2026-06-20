@@ -223,6 +223,8 @@ export class PostsService {
       kind: 'video' | 'image';
       url: string;
       description: string;
+      previewImage?: string;
+      soundTrackId?: string;
     },
   ) {
     const text = opts.description.trim();
@@ -235,6 +237,8 @@ export class PostsService {
         city: '',
         description: text || '',
         content: text || null,
+        previewImage: opts.previewImage?.trim() || null,
+        soundTrackId: opts.soundTrackId?.trim() || null,
         userId,
         media: {
           create: [
@@ -250,6 +254,7 @@ export class PostsService {
         media: {
           orderBy: { order: 'asc' },
         },
+        soundTrack: true,
         user: {
           select: {
             id: true,
@@ -281,19 +286,23 @@ export class PostsService {
       category?: PostCategory;
       latitude?: number;
       longitude?: number;
+      previewImage?: string;
+      soundTrackId?: string;
     },
   ) {
     const created = await this.prisma.post.create({
       data: {
         title: input.title,
         description: input.description,
-        price: input.price ?? undefined,
+        price: input.price ?? 0,
         city: input.city,
         type: input.type,
         category: input.category ?? PostCategory.MAKLERI,
         latitude: Number.isFinite(input.latitude) ? input.latitude : null,
         longitude: Number.isFinite(input.longitude) ? input.longitude : null,
         content: input.description,
+        previewImage: input.previewImage?.trim() || null,
+        soundTrackId: input.soundTrackId?.trim() || null,
         userId,
         media: {
           create: input.media,
@@ -304,6 +313,7 @@ export class PostsService {
           orderBy: { order: 'asc' },
         },
         reactions: true,
+        soundTrack: true,
         user: {
           select: {
             id: true,
@@ -328,6 +338,7 @@ export class PostsService {
           orderBy: { order: 'asc' },
         },
         reactions: true,
+        soundTrack: true,
         _count: {
           select: {
             favorites: true,
@@ -364,6 +375,7 @@ export class PostsService {
       include: {
         media: { orderBy: { order: 'asc' } },
         reactions: true,
+        soundTrack: true,
         _count: { select: { comments: true } },
         user: {
           select: {

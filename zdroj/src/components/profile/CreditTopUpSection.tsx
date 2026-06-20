@@ -30,13 +30,16 @@ export function CreditTopUpSection({ token, initialBalance, onBalanceChange }: P
       : null,
   );
   const [amount, setAmount] = useState('500');
+  const [balanceLoading, setBalanceLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CreditTopUpResultDto | null>(null);
 
   const refresh = useCallback(async () => {
     if (!token) return;
+    setBalanceLoading(true);
     const data = await nestCreditsBalance(token);
+    setBalanceLoading(false);
     if (data) {
       setBalanceInfo(data);
       onBalanceChange?.(data.creditBalance);
@@ -72,10 +75,17 @@ export function CreditTopUpSection({ token, initialBalance, onBalanceChange }: P
       <h2 className="text-lg font-bold text-zinc-900">Kredit</h2>
       <p className="mt-1 text-sm text-zinc-600">
         Celkem:{' '}
-        <span className="font-semibold text-[#e85d00]">
-          {(balanceInfo?.creditBalance ?? 0).toLocaleString('cs-CZ')} Kč
-        </span>
-        {balanceInfo ? (
+        {balanceLoading ? (
+          <span className="inline-flex items-center gap-2 text-zinc-500">
+            <span className="size-4 animate-spin rounded-full border-2 border-orange-500 border-t-transparent" />
+            Načítám kredity…
+          </span>
+        ) : (
+          <span className="font-semibold text-[#e85d00]">
+            {(balanceInfo?.creditBalance ?? 0).toLocaleString('cs-CZ')} Kč
+          </span>
+        )}
+        {balanceInfo && !balanceLoading ? (
           <span className="mt-1 block text-xs text-zinc-500">
             Běžný {(balanceInfo.realCreditBalance ?? 0).toLocaleString('cs-CZ')} Kč · Bonus{' '}
             {(balanceInfo.bonusCreditBalance ?? 0).toLocaleString('cs-CZ')} Kč · Čekající{' '}

@@ -13,6 +13,7 @@ import {
   composePromoDisplayName,
   generatePromoProfileName,
   isPromoProfileRole,
+  PORTAL_CAROUSEL_ROLES,
   promoRoleLabel,
 } from './promo-profile-role.util';
 
@@ -50,6 +51,65 @@ export class PromoProfilesService {
   }
 
   async listPublic(limit = 48) {
+    return this.listPortalCarousel(limit);
+  }
+
+  /** Všechny veřejné profily na portálu (promo + běžné), bez jmen. */
+  async listPortalCarousel(limit = 48) {
+    const take = Math.min(Math.max(limit, 1), 100);
+    const rows = await this.prisma.user.findMany({
+      where: {
+        role: { in: PORTAL_CAROUSEL_ROLES },
+        avatar: { not: null },
+        OR: [
+          {
+            isPromoProfile: true,
+            promoProfileActive: true,
+            isPublicBrokerProfile: true,
+          },
+          {
+            isPromoProfile: false,
+            OR: [
+              { isPublicBrokerProfile: true },
+              { publicProfessionalProfile: true },
+            ],
+          },
+        ],
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      take: take * 2,
+      select: {
+        id: true,
+        role: true,
+        avatar: true,
+        isPromoProfile: true,
+        promoProfileActive: true,
+        isPublicBrokerProfile: true,
+        publicProfessionalProfile: true,
+      },
+    });
+
+    const mapped = rows
+      .filter((row) => Boolean(row.avatar?.trim()))
+      .filter((row) => {
+        if (row.isPromoProfile) {
+          return row.promoProfileActive && row.isPublicBrokerProfile;
+        }
+        return row.isPublicBrokerProfile || row.publicProfessionalProfile;
+      })
+      .slice(0, take)
+      .map((row) => ({
+        id: row.id,
+        role: row.role,
+        roleLabel: promoRoleLabel(row.role),
+        avatarUrl: row.avatar,
+        profileHref: `/profile/${row.id}`,
+      }));
+
+    return mapped;
+  }
+
+  async listPromoOnly(limit = 48) {
     const rows = await this.prisma.user.findMany({
       where: this.publicWhere(),
       orderBy: { createdAt: 'desc' },

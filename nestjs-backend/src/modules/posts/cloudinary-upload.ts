@@ -45,8 +45,8 @@ export function initCloudinary() {
   });
 }
 
-function uploadVideoBuffer(file: Express.Multer.File): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
+function uploadVideoBuffer(file: Express.Multer.File): Promise<{ url: string; thumbnailUrl: string }> {
+  return new Promise((resolve, reject) => {
     const upload = cloudinary.uploader.upload_stream(
       {
         resource_type: 'video',
@@ -58,6 +58,7 @@ function uploadVideoBuffer(file: Express.Multer.File): Promise<string> {
             { fetch_format: 'mp4' },
             { bit_rate: '800k' },
           ],
+          [{ format: 'jpg' }, { width: 720, crop: 'limit' }],
         ],
         eager_async: false,
       },
@@ -74,7 +75,11 @@ function uploadVideoBuffer(file: Express.Multer.File): Promise<string> {
             new Error('Cloudinary nepodařilo zpracovat video (eager transformace).'),
           );
         }
-        return resolve(eagerUrl);
+        const thumbnailUrl =
+          result.eager?.[1]?.secure_url ??
+          result.secure_url?.replace(/\.[^.]+$/, '.jpg') ??
+          eagerUrl;
+        return resolve({ url: eagerUrl, thumbnailUrl });
       },
     );
 
@@ -106,10 +111,14 @@ function uploadImageBuffer(file: Express.Multer.File): Promise<string> {
   });
 }
 
-export type UploadedMedia = { url: string; kind: 'video' | 'image' };
+export type UploadedMedia = {
+  url: string;
+  kind: 'video' | 'image';
+  thumbnailUrl?: string;
+};
 
 /**
- * Upload video (transcoded eager, max 120s, compressed) or image (auto resource_type) — no FFmpeg.
+ * Upload video (transcoded eager, max 120s, compressed + JPG thumbnail) or image.
  */
 export async function uploadPostMedia(
   file: Express.Multer.File,
@@ -117,8 +126,8 @@ export async function uploadPostMedia(
   initCloudinary();
 
   if (file.mimetype.startsWith('video/')) {
-    const url = await uploadVideoBuffer(file);
-    return { url, kind: 'video' };
+    const { url, thumbnailUrl } = await uploadVideoBuffer(file);
+    return { url, kind: 'video', thumbnailUrl };
   }
 
   if (file.mimetype.startsWith('image/')) {
