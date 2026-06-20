@@ -83,6 +83,13 @@ type Recipient = {
   credit?: number;
 };
 
+type CampaignRecipientInput = {
+  targetRoles: UserRole[];
+  targetRegions: string[];
+  targetCities: string[];
+  manualPhones: string[];
+};
+
 type CampaignTemplateSendContext = {
   waMetaTemplateId: string;
   wabaId: string;
@@ -1213,7 +1220,7 @@ export class WhatsAppMarketingService {
       );
     }
 
-    await this.syncRecipientCount(row);
+    await this.syncRecipientCount(row.id, row);
     const refreshed = await this.prisma.whatsAppMarketingCampaign.findUnique({ where: { id: row.id } });
     return this.campaignRow(refreshed ?? row);
   }
@@ -1367,17 +1374,18 @@ export class WhatsAppMarketingService {
       );
     }
 
-    await this.syncRecipientCount(row);
+    await this.syncRecipientCount(row.id, row);
     const refreshed = await this.prisma.whatsAppMarketingCampaign.findUnique({ where: { id } });
     return this.campaignRow(refreshed ?? row);
   }
 
   private async syncRecipientCount(
-    campaign: Parameters<WhatsAppMarketingService['resolveRecipients']>[0],
+    campaignId: string,
+    campaign: CampaignRecipientInput,
   ): Promise<number> {
     const recipients = await this.resolveRecipients(campaign);
     await this.prisma.whatsAppMarketingCampaign.update({
-      where: { id: campaign.id },
+      where: { id: campaignId },
       data: { recipientCount: recipients.length },
     });
     return recipients.length;
@@ -1622,12 +1630,7 @@ export class WhatsAppMarketingService {
     );
   }
 
-  private async resolveRecipients(campaign: {
-    targetRoles: UserRole[];
-    targetRegions: string[];
-    targetCities: string[];
-    manualPhones: string[];
-  }): Promise<Recipient[]> {
+  private async resolveRecipients(campaign: CampaignRecipientInput): Promise<Recipient[]> {
     const recipients: Recipient[] = [];
     const seen = new Set<string>();
 
