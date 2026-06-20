@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   nestCreditsBalance,
   nestCreditsTopUp,
@@ -15,28 +15,35 @@ type Props = {
   onBalanceChange?: (balance: number) => void;
 };
 
+function emptyBalance(fallback = 0): CreditBalanceDto {
+  return {
+    creditBalance: fallback,
+    realCreditBalance: fallback,
+    bonusCreditBalance: 0,
+    pendingCreditBalance: 0,
+    creditDebt: 0,
+    accountLimited: false,
+    warning: null,
+    pendingTopUps: [],
+  };
+}
+
 export function CreditTopUpSection({
   token,
   initialBalance,
   whatsappVerified = true,
   onBalanceChange,
 }: Props) {
+  const onBalanceChangeRef = useRef(onBalanceChange);
+  onBalanceChangeRef.current = onBalanceChange;
+
   const [balanceInfo, setBalanceInfo] = useState<CreditBalanceDto | null>(
-    initialBalance != null
-      ? {
-          creditBalance: initialBalance,
-          realCreditBalance: initialBalance,
-          bonusCreditBalance: 0,
-          pendingCreditBalance: 0,
-          creditDebt: 0,
-          accountLimited: false,
-          warning: null,
-          pendingTopUps: [],
-        }
-      : null,
+    initialBalance != null ? emptyBalance(initialBalance) : null,
   );
   const [amount, setAmount] = useState('500');
-  const [balanceLoading, setBalanceLoading] = useState(Boolean(token));
+  const [balanceLoading, setBalanceLoading] = useState(
+    Boolean(token) && initialBalance == null,
+  );
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,47 +52,37 @@ export function CreditTopUpSection({
   const refresh = useCallback(async () => {
     if (!token) {
       setBalanceLoading(false);
+      setBalanceError(null);
       if (initialBalance != null) {
-        setBalanceInfo({
-          creditBalance: initialBalance,
-          realCreditBalance: initialBalance,
-          bonusCreditBalance: 0,
-          pendingCreditBalance: 0,
-          creditDebt: 0,
-          accountLimited: false,
-          warning: null,
-          pendingTopUps: [],
-        });
+        setBalanceInfo(emptyBalance(initialBalance));
       }
       return;
     }
+
     setBalanceLoading(true);
     setBalanceError(null);
-    const data = await nestCreditsBalance(token);
-    setBalanceLoading(false);
-    if (data) {
-      setBalanceInfo(data);
-      onBalanceChange?.(data.creditBalance);
-      return;
+    try {
+      const r = await nestCreditsBalance(token);
+      if (r.ok) {
+        setBalanceInfo(r.data);
+        onBalanceChangeRef.current?.(r.data.creditBalance);
+        return;
+      }
+      console.error('[CreditTopUpSection] credits balance failed:', r.error);
+      setBalanceError('Kredit se nepodařilo načíst.');
+      setBalanceInfo(emptyBalance(0));
+    } catch (e: unknown) {
+      console.error('[CreditTopUpSection] credits balance error:', e);
+      setBalanceError('Kredit se nepodařilo načíst.');
+      setBalanceInfo(emptyBalance(0));
+    } finally {
+      setBalanceLoading(false);
     }
-    setBalanceError('Nepodařilo se načíst stav kreditu.');
-    setBalanceInfo((prev) =>
-      prev ?? {
-        creditBalance: initialBalance ?? 0,
-        realCreditBalance: initialBalance ?? 0,
-        bonusCreditBalance: 0,
-        pendingCreditBalance: 0,
-        creditDebt: 0,
-        accountLimited: false,
-        warning: null,
-        pendingTopUps: [],
-      },
-    );
-  }, [token, onBalanceChange, initialBalance]);
+  }, [token, initialBalance]);
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [token]);
 
   async function onTopUp() {
     if (!token) return;
@@ -97,15 +94,20 @@ export function CreditTopUpSection({
       return;
     }
     setLoading(true);
-    const r = await nestCreditsTopUp(token, parsed);
-    setLoading(false);
-    if (!r.ok) {
-      setError(r.error ?? 'Dobití se nezdařilo.');
-      return;
+    try {
+      const r = await nestCreditsTopUp(token, parsed);
+      if (!r.ok) {
+        setError(r.error ?? 'Dobití se nezdařilo.');
+        return;
+      }
+      setResult(r.data);
+      await refresh();
+    } finally {
+      setLoading(false);
     }
-    setResult(r.data);
-    await refresh();
   }
+
+  const displayedBalance = balanceInfo?.creditBalance ?? initialBalance ?? 0;
 
   return (
     <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
@@ -119,7 +121,7 @@ export function CreditTopUpSection({
           </span>
         ) : (
           <span className="font-semibold text-[#e85d00]">
-            {(balanceInfo?.creditBalance ?? initialBalance ?? 0).toLocaleString('cs-CZ')} Kč
+            {displayedBalance.toLocaleString('cs-CZ')} Kč
           </span>
         )}
         {balanceError ? (
@@ -134,7 +136,7 @@ export function CreditTopUpSection({
         ) : null}
         {balanceInfo && balanceInfo.creditDebt > 0 ? (
           <span className="ml-2 text-red-600">
-            (dluh {(balanceInfo.creditDebt).toLocaleString('cs-CZ')} Kč)
+            (dluh {balanceInfo.creditDebt.toLocaleString('cs-CZ')} Kč)
           </span>
         ) : null}
       </p>

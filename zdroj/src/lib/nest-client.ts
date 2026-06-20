@@ -6376,6 +6376,102 @@ export type CreditBalanceDto = {
   }>;
 };
 
+export type CreditsBalanceResult =
+  | { ok: true; data: CreditBalanceDto }
+  | { ok: false; error: string; status?: number };
+
+const CREDITS_BALANCE_TIMEOUT_MS = 15000;
+
+function normalizeCreditBalanceDto(raw: unknown): CreditBalanceDto | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  return {
+    creditBalance: Number(o.creditBalance) || 0,
+    realCreditBalance: Number(o.realCreditBalance) || 0,
+    bonusCreditBalance: Number(o.bonusCreditBalance) || 0,
+    pendingCreditBalance: Number(o.pendingCreditBalance) || 0,
+    creditDebt: Number(o.creditDebt) || 0,
+    accountLimited: o.accountLimited === true,
+    isCreditVerified: o.isCreditVerified === true,
+    firstTopUpUsed: o.firstTopUpUsed === true,
+    warning: typeof o.warning === 'string' ? o.warning : null,
+    pendingTopUps: Array.isArray(o.pendingTopUps)
+      ? (o.pendingTopUps as CreditBalanceDto['pendingTopUps'])
+      : [],
+  };
+}
+
+async function fetchCreditsBalance(
+  url: string,
+  init: RequestInit,
+): Promise<CreditsBalanceResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), CREDITS_BALANCE_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { ...init, signal: controller.signal });
+    const text = await res.text();
+    let parsed: unknown = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      parsed = null;
+    }
+    if (!res.ok) {
+      const msg = nestApiErrorBodyMessage(
+        res.status,
+        (parsed ?? {}) as Record<string, unknown>,
+        `HTTP ${res.status}`,
+      );
+      console.error('[credits/balance] API error:', res.status, msg, parsed);
+      return { ok: false, error: msg, status: res.status };
+    }
+    const data = normalizeCreditBalanceDto(parsed);
+    if (!data) {
+      console.error('[credits/balance] invalid response body:', parsed);
+      return { ok: false, error: 'Neplatná odpověď API kreditu.' };
+    }
+    return { ok: true, data };
+  } catch (e: unknown) {
+    const msg =
+      e instanceof DOMException && e.name === 'AbortError'
+        ? 'Vypršel časový limit načítání kreditu.'
+        : e instanceof Error
+          ? e.message
+          : 'Chyba sítě';
+    console.error('[credits/balance] request failed:', e);
+    return { ok: false, error: msg };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function nestCreditsBalance(token: string | null): Promise<CreditsBalanceResult> {
+  if (typeof window !== 'undefined') {
+    const proxied = await fetchCreditsBalance('/api/nest/credits/balance', {
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (proxied.ok) return proxied;
+    if (proxied.status === 401) return proxied;
+    if (API_BASE_URL && token) {
+      const direct = await fetchCreditsBalance(`${API_BASE_URL}/credits/balance`, {
+        headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+        cache: 'no-store',
+      });
+      return direct;
+    }
+    return proxied;
+  }
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  return fetchCreditsBalance(`${API_BASE_URL}/credits/balance`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    cache: 'no-store',
+  });
+}
+
 export type CreditTopUpResultDto = {
   transactionId: string;
   amount: number;
@@ -6443,26 +6539,6 @@ export type CreditTopUpSettingsDto = {
   createdAt: string;
   updatedAt: string;
 };
-
-export async function nestCreditsBalance(token: string | null): Promise<CreditBalanceDto | null> {
-  if (typeof window !== 'undefined') {
-    const proxied = await fetch('/api/nest/credits/balance', {
-      credentials: 'include',
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-    });
-    if (proxied.ok) {
-      return (await proxied.json().catch(() => null)) as CreditBalanceDto | null;
-    }
-    if (proxied.status === 401) return null;
-  }
-  if (!API_BASE_URL || !token) return null;
-  const res = await fetch(`${API_BASE_URL}/credits/balance`, {
-    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
-  });
-  if (!res.ok) return null;
-  return (await res.json().catch(() => null)) as CreditBalanceDto | null;
-}
 
 export async function nestCreditsTopUp(
   token: string | null,
