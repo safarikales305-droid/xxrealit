@@ -38,6 +38,8 @@ import { ActiveBonusCampaigns } from '@/components/dashboard/ActiveBonusCampaign
 import { InviteFriendsPanel } from '@/components/referral/InviteFriendsPanel';
 import { FacebookPageConnectionCard } from '@/components/profile/FacebookPageConnectionCard';
 import { WhatsAppConnectionCard } from '@/components/profile/WhatsAppConnectionCard';
+import { NotificationPreferencesCard } from '@/components/profile/NotificationPreferencesCard';
+import { dispatchNotificationsChanged } from '@/hooks/use-notifications-unread';
 import { WhatsAppPhoneVerificationCard } from '@/components/profile/WhatsAppPhoneVerificationCard';
 
 type Tab = 'settings' | 'social-integrations' | 'referral' | 'listings' | 'ads' | 'messages' | 'notifications';
@@ -285,6 +287,8 @@ export default function ProfileDashboardPage() {
               <WhatsAppPhoneVerificationCard token={apiAccessToken} onVerified={() => void loadMe()} />
 
               <WhatsAppConnectionCard token={apiAccessToken} />
+
+              <NotificationPreferencesCard token={apiAccessToken} />
 
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="inline-flex items-center gap-2 text-sm text-zinc-800">
@@ -645,7 +649,10 @@ export default function ProfileDashboardPage() {
                         className="mt-2 text-xs font-semibold text-[#e85d00] hover:underline"
                         onClick={() => {
                           if (!apiAccessToken) return;
-                          void nestMarkNotificationRead(apiAccessToken, n.id).then(() => void loadNotifications());
+                          void nestMarkNotificationRead(apiAccessToken, n.id).then(() => {
+                            dispatchNotificationsChanged();
+                            void loadNotifications();
+                          });
                         }}
                       >
                         Označit jako přečtené

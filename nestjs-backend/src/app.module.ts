@@ -37,6 +37,7 @@ import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
 import { CommunicationModule } from './modules/communication/communication.module';
 import { PromoProfilesModule } from './modules/promo-profiles/promo-profiles.module';
 import { PostSoundsModule } from './modules/post-sounds/post-sounds.module';
+import { WebPushModule } from './modules/web-push/web-push.module';
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { PostSoundsModule } from './modules/post-sounds/post-sounds.module';
     CommunicationModule,
     PromoProfilesModule,
     PostSoundsModule,
+    WebPushModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

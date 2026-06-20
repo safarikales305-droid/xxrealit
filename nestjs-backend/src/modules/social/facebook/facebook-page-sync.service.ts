@@ -21,6 +21,31 @@ import {
   FACEBOOK_PAGE_SYNC_INTERVAL_MS,
   GRAPH_API,
 } from './facebook-page.constants';
+import { FacebookConfigService } from './facebook-config.service';
+import {
+  inspectFacebookAccessToken,
+  isFacebookPermissionError,
+  parseFacebookGraphError,
+} from './facebook-graph-permissions.util';
+
+export type FacebookPageSyncResult = {
+  imported: number;
+  found?: number;
+  skippedDuplicates?: number;
+  skipped?: boolean;
+  pageId?: string;
+  error?: string;
+  reason?: string;
+  graphError?: string;
+  graphErrorCode?: number;
+  tokenScopes?: string[];
+  missingPermissions?: string[];
+  permissionDenied?: boolean;
+  fallback?: boolean;
+};
+
+const FACEBOOK_RECONNECT_PERMISSION_MSG =
+  'Znovu propojte Facebook stránku a povolte oprávnění pages_show_list a pages_read_engagement.';
 
 @Injectable()
 export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
@@ -31,6 +56,7 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly crypto: TokenEncryptionService,
     private readonly urlImport: FacebookUrlImportService,
+    private readonly fbConfig: FacebookConfigService,
   ) {}
 
   onModuleInit() {
@@ -72,13 +98,16 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
     return { processed: connections.length + legacy.length };
   }
 
-  async syncPageConnection(pageConnectionId: string) {
+  async syncPageConnection(
+    pageConnectionId: string,
+    options?: { manual?: boolean },
+  ): Promise<FacebookPageSyncResult> {
     const connection = await this.prisma.facebookPageConnection.findUnique({
       where: { id: pageConnectionId },
       include: { user: { select: { id: true, role: true, facebookUrl: true } } },
     });
     if (!connection?.isActive) {
-      return { imported: 0, skipped: true };
+      return { imported: 0, skipped: true, reason: 'connection_inactive' };
     }
 
     let pageToken: string;
@@ -86,7 +115,31 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
       pageToken = this.crypto.decrypt(connection.pageAccessTokenEncrypted);
     } catch {
       await this.markPageSyncError(pageConnectionId, 'Vyžaduje nové propojení.');
-      return { imported: 0, error: 'decrypt_failed' };
+      return { imported: 0, error: 'decrypt_failed', pageId: connection.pageId };
+    }
+
+    const pagesAppId = this.fbConfig.getPagesAppId();
+    const pagesAppSecret = this.fbConfig.getPagesAppSecret();
+    let tokenInspection = null;
+    if (pagesAppId && pagesAppSecret) {
+      tokenInspection = await inspectFacebookAccessToken(pageToken, pagesAppId, pagesAppSecret);
+      this.logger.log(
+        `FACEBOOK_SYNC_TOKEN_DEBUG pageConnectionId=${pageConnectionId} pageId=${connection.pageId} ` +
+          `isValid=${tokenInspection.isValid} scopes=${tokenInspection.scopes.join(',') || 'none'} ` +
+          `missing=${tokenInspection.missingScopes.join(',') || 'none'}`,
+      );
+      if (tokenInspection.missingScopes.length > 0) {
+        await this.markPageSyncError(pageConnectionId, FACEBOOK_RECONNECT_PERMISSION_MSG);
+        return {
+          imported: 0,
+          pageId: connection.pageId,
+          error: FACEBOOK_RECONNECT_PERMISSION_MSG,
+          reason: 'missing_permissions',
+          permissionDenied: true,
+          tokenScopes: tokenInspection.scopes,
+          missingPermissions: tokenInspection.missingScopes,
+        };
+      }
     }
 
     try {
@@ -95,54 +148,120 @@ export class FacebookPageSyncService implements OnModuleInit, OnModuleDestroy {
         `fields=${FACEBOOK_GRAPH_POST_FIELDS}` +
         `&limit=${FACEBOOK_PAGE_POSTS_LIMIT}` +
         `&access_token=${encodeURIComponent(pageToken)}`;
+
+      this.logger.log(
+        `FACEBOOK_SYNC_GRAPH_REQUEST pageConnectionId=${pageConnectionId} pageId=${connection.pageId} ` +
+          `limit=${FACEBOOK_PAGE_POSTS_LIMIT} fields=${FACEBOOK_GRAPH_POST_FIELDS}`,
+      );
+
       const res = await fetch(feedUrl);
       const payload = (await res.json().catch(() => ({}))) as {
         data?: GraphFeedItem[];
-        error?: { message?: string };
+        paging?: { next?: string };
       };
-      if (!res.ok || payload.error) {
-        throw new Error(payload.error?.message ?? `Facebook posts HTTP ${res.status}`);
+      const graphError = parseFacebookGraphError(payload);
+
+      if (!res.ok || graphError) {
+        const errMsg = graphError?.message ?? `Facebook posts HTTP ${res.status}`;
+        this.logger.warn(
+          `FACEBOOK_SYNC_GRAPH_ERROR pageConnectionId=${pageConnectionId} pageId=${connection.pageId} ` +
+            `code=${graphError?.code ?? 'n/a'} type=${graphError?.type ?? 'n/a'} message=${errMsg}`,
+        );
+
+        if (isFacebookPermissionError(graphError)) {
+          await this.markPageSyncError(pageConnectionId, FACEBOOK_RECONNECT_PERMISSION_MSG);
+          return {
+            imported: 0,
+            pageId: connection.pageId,
+            error: FACEBOOK_RECONNECT_PERMISSION_MSG,
+            reason: 'graph_permission_denied',
+            graphError: errMsg,
+            graphErrorCode: graphError?.code,
+            permissionDenied: true,
+            tokenScopes: tokenInspection?.scopes,
+            missingPermissions: tokenInspection?.missingScopes,
+          };
+        }
+
+        throw new Error(errMsg);
       }
 
+      const items = payload.data ?? [];
+      const found = items.length;
       let imported = 0;
-      for (const item of payload.data ?? []) {
+      for (const item of items) {
         if (!item.id) continue;
         const created = await this.importPagePost(connection, item, pageToken);
         if (created) imported += 1;
       }
+      const skippedDuplicates = found - imported;
+
+      this.logger.log(
+        `FACEBOOK_SYNC_GRAPH_RESPONSE pageConnectionId=${pageConnectionId} pageId=${connection.pageId} ` +
+          `found=${found} imported=${imported} skippedDuplicates=${skippedDuplicates} ` +
+          `hasNextPage=${Boolean(payload.paging?.next)}`,
+      );
 
       await this.prisma.facebookPageConnection.update({
         where: { id: pageConnectionId },
         data: { lastSyncAt: new Date(), lastSyncError: null },
       });
+
+      const result: FacebookPageSyncResult = {
+        imported,
+        found,
+        skippedDuplicates,
+        pageId: connection.pageId,
+        tokenScopes: tokenInspection?.scopes,
+      };
+
+      if (found === 0) {
+        result.reason = 'no_posts_on_page';
+        result.graphError = 'Meta Graph API vrátilo 0 příspěvků pro tuto stránku.';
+      } else if (imported === 0) {
+        result.reason = 'all_already_imported';
+        result.graphError = `Nalezeno ${found} příspěvků, všechny už byly dříve importovány.`;
+      }
+
       this.logger.log(
         `FACEBOOK_PAGE_POSTS_SYNCED pageConnectionId=${pageConnectionId} pageId=${connection.pageId} imported=${imported}`,
       );
-      return { imported };
+      return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Synchronizace selhala';
       this.logger.warn(
         `FACEBOOK_PAGE_SYNC_FAILED pageConnectionId=${pageConnectionId} pageId=${connection.pageId} error=${message}`,
       );
 
-      const fallback = await this.tryUrlImportFallback(connection.userId, connection.user.facebookUrl);
-      if (fallback) {
-        await this.prisma.facebookPageConnection.update({
-          where: { id: pageConnectionId },
-          data: {
-            lastSyncAt: new Date(),
-            lastSyncError: `Graph API nedostupné — použit URL import (${fallback.imported} nových).`,
-          },
-        });
-        return {
-          imported: fallback.imported,
-          fallback: true,
-          error: message,
-        };
+      if (!options?.manual) {
+        const fallback = await this.tryUrlImportFallback(connection.userId, connection.user.facebookUrl);
+        if (fallback) {
+          await this.prisma.facebookPageConnection.update({
+            where: { id: pageConnectionId },
+            data: {
+              lastSyncAt: new Date(),
+              lastSyncError: `Graph API nedostupné — použit URL import (${fallback.imported} nových).`,
+            },
+          });
+          return {
+            imported: fallback.imported ?? 0,
+            fallback: true,
+            error: message,
+            pageId: connection.pageId,
+            reason: 'url_import_fallback',
+          };
+        }
       }
 
       await this.markPageSyncError(pageConnectionId, message);
-      return { imported: 0, error: message };
+      return {
+        imported: 0,
+        error: message,
+        pageId: connection.pageId,
+        reason: 'graph_fetch_failed',
+        graphError: message,
+        tokenScopes: tokenInspection?.scopes,
+      };
     }
   }
 

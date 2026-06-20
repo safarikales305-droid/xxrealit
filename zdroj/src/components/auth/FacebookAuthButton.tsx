@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { trackFacebookAnalytics } from '@/lib/facebook-analytics';
 import { storeFacebookOAuthReturnPath } from '@/lib/facebook-oauth-return';
+import { openFacebookOAuthUrl } from '@/lib/pwa-oauth';
 import { isPwaStandalone } from '@/lib/pwa-standalone';
 
 type Props = {
@@ -22,20 +23,18 @@ function FacebookIcon() {
   );
 }
 
-function redirectTo(url: string) {
-  window.location.href = url;
-}
-
 export function FacebookAuthButton({ label, event, className }: Props) {
   const [loading, setLoading] = useState(false);
+  const [pendingUrl, setPendingUrl] = useState<string | null>(null);
+  const standalone = isPwaStandalone();
 
-  async function handleClick() {
+  const startOAuth = useCallback(async () => {
     setLoading(true);
+    setPendingUrl(null);
     trackFacebookAnalytics(event);
     storeFacebookOAuthReturnPath();
 
     const loginPath = '/api/auth/facebook/login';
-    const standalone = isPwaStandalone();
 
     try {
       const res = await fetch(loginPath, {
@@ -46,26 +45,27 @@ export function FacebookAuthButton({ label, event, className }: Props) {
       const data = (await res.json().catch(() => ({}))) as { url?: string };
       const url = typeof data.url === 'string' ? data.url.trim() : '';
       if (url) {
-        if (standalone) {
-          console.info('[facebook-auth] PWA standalone redirect to Facebook OAuth');
+        const result = openFacebookOAuthUrl(url);
+        if (result === 'blocked') {
+          setPendingUrl(url);
         }
-        redirectTo(url);
+        setLoading(false);
         return;
       }
-      console.warn('[facebook-auth] missing OAuth URL from login endpoint');
     } catch (err) {
       console.error('[facebook-auth] login endpoint fetch failed', err);
     }
 
-    redirectTo(loginPath);
-  }
+    openFacebookOAuthUrl(loginPath);
+    setLoading(false);
+  }, [event]);
 
   return (
     <div className={className}>
       <button
         type="button"
         disabled={loading}
-        onClick={() => void handleClick()}
+        onClick={() => void startOAuth()}
         className="flex w-full items-center justify-center gap-3 rounded-full border border-[#1877F2]/30 bg-[#1877F2] px-4 py-3.5 text-[15px] font-semibold text-white shadow-sm transition hover:bg-[#166fe0] disabled:cursor-wait disabled:opacity-70"
       >
         {loading ? (
@@ -75,10 +75,28 @@ export function FacebookAuthButton({ label, event, className }: Props) {
         )}
         {loading ? 'Přesměrovávám na Facebook…' : label}
       </button>
-      <p className="mt-2 text-center text-[10px] leading-snug text-zinc-500 sm:mt-3 sm:text-xs">
-        Přihlášením přes Facebook souhlasíte se zpracováním údajů podle zásad ochrany osobních
-        údajů.
-      </p>
+
+      {standalone && pendingUrl ? (
+        <a
+          href={pendingUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 flex w-full items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800"
+        >
+          Otevřít v prohlížeči
+        </a>
+      ) : null}
+
+      {standalone ? (
+        <p className="mt-2 text-center text-[10px] leading-snug text-zinc-500 sm:text-xs">
+          Po přihlášení na Facebooku se vraťte do aplikace — přihlášení se dokončí automaticky.
+        </p>
+      ) : (
+        <p className="mt-2 text-center text-[10px] leading-snug text-zinc-500 sm:mt-3 sm:text-xs">
+          Přihlášením přes Facebook souhlasíte se zpracováním údajů podle zásad ochrany osobních
+          údajů.
+        </p>
+      )}
     </div>
   );
 }

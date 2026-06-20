@@ -6,6 +6,8 @@ import { FirstContentGuard } from "@/components/registration/FirstContentGuard";
 import { RegistrationRequirementsGuard } from "@/components/registration/RegistrationRequirementsGuard";
 import { GuestRegistrationGateHost } from "@/components/registration/GuestRegistrationGateHost";
 import { PwaInstallPrompt } from "@/components/pwa/PwaInstallPrompt";
+import { AppBadgeSync } from "@/components/pwa/AppBadgeSync";
+import { PwaServiceWorkerRegister } from "@/components/pwa/PwaServiceWorkerRegister";
 import { getSiteMetadataBase } from "@/lib/app-url";
 import "./globals.css";
 
@@ -46,6 +48,10 @@ export default function RootLayout({
             </RegistrationRequirementsGuard>
           </FirstContentGuard>
           <PwaInstallPrompt />
+          <PwaServiceWorkerRegister />
+          <Suspense fallback={null}>
+            <AppBadgeSync />
+          </Suspense>
           <Suspense fallback={null}>
             <GuestRegistrationGateHost />
           </Suspense>

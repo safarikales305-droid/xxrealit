@@ -847,7 +847,7 @@ export class FacebookPageService {
     if (!row) {
       throw new BadRequestException('Nejprve propojte Facebook stránku.');
     }
-    return this.sync.syncPageConnection(row.id);
+    return this.sync.syncPageConnection(row.id, { manual: true });
   }
 
   async syncPageById(userId: string, pageId: string) {

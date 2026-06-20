@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/AppMobileMenuPanel';
 import { useAuth } from '@/hooks/use-auth';
 import { useMessagesUnreadCount } from '@/hooks/use-messages-unread';
+import { useNotificationsUnreadCount } from '@/hooks/use-notifications-unread';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import { imageCropToStyle } from '@/components/profile/image-crop-editor-modal';
 import { canAccessCommunication } from '@/lib/communication-roles';
@@ -42,6 +43,8 @@ export function Navbar({
   const { user, isAuthenticated, isLoading, logout, apiAccessToken } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const unreadMessages = useMessagesUnreadCount(apiAccessToken);
+  const unreadNotifications = useNotificationsUnreadCount(apiAccessToken);
+  const totalUnreadBadge = unreadMessages + unreadNotifications;
 
   const profilePath = '/profil';
   const messagesPath = '/profil/zpravy';
@@ -148,6 +151,7 @@ export function Navbar({
     profilePath,
     messagesPath,
     unreadMessages,
+    totalUnreadBadge,
     isAdmin,
   ]);
 
@@ -379,9 +383,9 @@ export function Navbar({
                   className="relative rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
                 >
                   Zprávy
-                  {unreadMessages > 0 ? (
+                  {totalUnreadBadge > 0 ? (
                     <span className="absolute -right-0.5 -top-0.5 flex min-w-[1.1rem] items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-bold leading-none text-white">
-                      {unreadMessages > 99 ? '99+' : unreadMessages}
+                      {totalUnreadBadge > 99 ? '99+' : totalUnreadBadge}
                     </span>
                   ) : null}
                 </Link>

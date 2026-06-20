@@ -2616,6 +2616,126 @@ export async function nestMarkNotificationRead(
   return res.ok;
 }
 
+export async function nestNotificationsUnreadCount(token: string | null): Promise<number> {
+  if (!API_BASE_URL || !token) return 0;
+  try {
+    const res = await fetch(`${API_BASE_URL}/notifications/unread-count`, {
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (!res.ok) return 0;
+    const data = (await res.json().catch(() => ({}))) as { count?: number };
+    return typeof data.count === 'number' ? data.count : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export type NotificationPrefs = {
+  notifyNewPosts: boolean;
+  notifyNewMessages: boolean;
+  notifyWhatsAppAlerts: boolean;
+  notifyPwaPush: boolean;
+  pushConfigured: boolean;
+  pushSubscribed: boolean;
+};
+
+export async function nestGetNotificationPrefs(
+  token: string,
+): Promise<NotificationPrefs | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/users/me/notification-prefs`, {
+      headers: nestAuthHeaders(token),
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as NotificationPrefs;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestPatchNotificationPrefs(
+  token: string,
+  body: Partial<
+    Pick<
+      NotificationPrefs,
+      'notifyNewPosts' | 'notifyNewMessages' | 'notifyWhatsAppAlerts' | 'notifyPwaPush'
+    >
+  >,
+): Promise<{ ok: true; prefs: NotificationPrefs } | { ok: false; error?: string }> {
+  if (!API_BASE_URL) return { ok: false, error: 'API chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/users/me/notification-prefs`, {
+      method: 'PATCH',
+      headers: {
+        ...nestAuthHeaders(token),
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as NotificationPrefs & {
+      message?: string | string[];
+    };
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return { ok: true, prefs: data as NotificationPrefs };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestPushVapidPublicKey(
+  token: string,
+): Promise<{ publicKey: string | null; configured: boolean } | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/push/vapid-public-key`, {
+      headers: nestAuthHeaders(token),
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { publicKey?: string | null; configured?: boolean };
+    return {
+      publicKey: typeof data.publicKey === 'string' ? data.publicKey : null,
+      configured: Boolean(data.configured),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function nestPushSubscribe(
+  token: string,
+  subscription: { endpoint: string; p256dh: string; auth: string },
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL) return { ok: false, error: 'API chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/push/subscribe`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(subscription),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { message?: string | string[] };
+      return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
 export async function nestPatchBrokerLeadPrefs(
   token: string | null,
   body: {
@@ -6848,12 +6968,18 @@ export async function nestFacebookPageStatus(
 
 export async function nestFacebookPageConnectUrl(
   token: string,
+  options?: { mode?: 'connect' | 'change_page' },
 ): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   if (!API_BASE_URL) {
     return { ok: false, error: 'Facebook propojení není nakonfigurováno administrátorem.' };
   }
+  const mode = options?.mode ?? 'connect';
+  const endpoint =
+    mode === 'change_page'
+      ? `${API_BASE_URL}/social/facebook/connect-page?mode=change_page`
+      : `${API_BASE_URL}/social/facebook/connect-page`;
   try {
-    const res = await fetch(`${API_BASE_URL}/social/facebook/connect`, {
+    const res = await fetch(endpoint, {
       headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
       cache: 'no-store',
     });
@@ -7015,7 +7141,19 @@ export async function nestFacebookPageSetSyncEnabled(
 
 export async function nestFacebookPageSyncNow(
   token: string,
-): Promise<{ ok: true; imported?: number } | { ok: false; error?: string }> {
+): Promise<
+  | {
+      ok: true;
+      imported?: number;
+      found?: number;
+      skippedDuplicates?: number;
+      reason?: string;
+      graphError?: string;
+      permissionDenied?: boolean;
+      message?: string;
+    }
+  | { ok: false; error?: string; permissionDenied?: boolean }
+> {
   if (!API_BASE_URL) return { ok: false, error: 'API chybí' };
   try {
     const res = await fetch(`${API_BASE_URL}/social/facebook/sync-now`, {
@@ -7027,11 +7165,37 @@ export async function nestFacebookPageSyncNow(
       return {
         ok: false,
         error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+        permissionDenied: data.permissionDenied === true,
       };
     }
+    const imported = typeof data.imported === 'number' ? data.imported : 0;
+    const found = typeof data.found === 'number' ? data.found : undefined;
+    const reason = typeof data.reason === 'string' ? data.reason : undefined;
+    const graphError = typeof data.graphError === 'string' ? data.graphError : undefined;
+    const permissionDenied = data.permissionDenied === true;
+
+    let message: string | undefined;
+    if (permissionDenied) {
+      message =
+        typeof data.error === 'string'
+          ? data.error
+          : 'Znovu propojte Facebook stránku a povolte oprávnění.';
+    } else if (imported === 0 && graphError) {
+      message = graphError;
+    } else if (imported === 0 && found === 0) {
+      message = graphError ?? 'Meta API nevrátilo žádné příspěvky.';
+    }
+
     return {
       ok: true,
-      imported: typeof data.imported === 'number' ? data.imported : undefined,
+      imported,
+      found,
+      skippedDuplicates:
+        typeof data.skippedDuplicates === 'number' ? data.skippedDuplicates : undefined,
+      reason,
+      graphError,
+      permissionDenied,
+      message,
     };
   } catch {
     return { ok: false, error: 'Síťová chyba' };

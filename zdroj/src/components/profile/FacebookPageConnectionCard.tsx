@@ -8,10 +8,15 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   FACEBOOK_PAGES_LIST_PERMISSION_MSG,
   FACEBOOK_PAGE_SCOPES_NOT_AVAILABLE_MSG,
+  FACEBOOK_RECONNECT_PERMISSION_MSG,
   isFacebookPageScopeError,
 } from '@/lib/facebook-page-scope';
+import { storeFacebookOAuthReturnPath } from '@/lib/facebook-oauth-return';
+import { openFacebookOAuthUrl } from '@/lib/pwa-oauth';
+import { isPwaStandalone } from '@/lib/pwa-standalone';
 import {
   nestFacebookConfigStatus,
+  nestFacebookPageConnectUrl,
   nestFacebookPageDisconnectPage,
   nestFacebookPageListPages,
   nestFacebookPageSelectPage,
@@ -23,7 +28,6 @@ import {
   type FacebookPageStatus,
 } from '@/lib/nest-client';
 
-const FACEBOOK_CONNECT_PATH = '/api/social/facebook/connect';
 const SOCIAL_TAB_PATH = '/profil/dashboard?tab=social-integrations';
 const PAGE_PICKER_MSG = 'Vyberte Facebook stránku, kterou chcete propojit s XXRealit.';
 const NOT_CONFIGURED_MSG = 'Propojení Facebook stránky není nakonfigurováno administrátorem.';
@@ -51,6 +55,8 @@ export function FacebookPageConnectionCard({ token }: Props) {
   const [pickerMode, setPickerMode] = useState<PickerMode>(null);
   const [previousPageId, setPreviousPageId] = useState<string | null>(null);
   const [confirmPage, setConfirmPage] = useState<FacebookPageOption | null>(null);
+  const [pendingOAuthUrl, setPendingOAuthUrl] = useState<string | null>(null);
+  const pwaStandalone = isPwaStandalone();
 
   const integrationConfigured = configStatus?.pagesConfigured ?? false;
 
@@ -245,7 +251,7 @@ export function FacebookPageConnectionCard({ token }: Props) {
     setError('Propojení Facebooku se nezdařilo. Zkuste to znovu.');
   }, [params, refresh, router, resetPickerState]);
 
-  function startOAuth(oauthMode: 'connect' | 'change_page') {
+  async function startOAuth(oauthMode: 'connect' | 'change_page') {
     if (!token) {
       setError('Pro propojení se přihlaste.');
       return;
@@ -258,24 +264,33 @@ export function FacebookPageConnectionCard({ token }: Props) {
     setBusy(true);
     setError(null);
     setOk(null);
+    setPendingOAuthUrl(null);
     resetPickerState();
 
     if (oauthMode === 'change_page') {
       setStatus(null);
     }
 
-    const url =
-      oauthMode === 'change_page'
-        ? `${FACEBOOK_CONNECT_PATH}?mode=change_page`
-        : FACEBOOK_CONNECT_PATH;
-    console.log('[FacebookPageConnectionCard] OAuth start', { oauthMode, url });
+    storeFacebookOAuthReturnPath(SOCIAL_TAB_PATH);
+    console.log('[FacebookPageConnectionCard] OAuth start', { oauthMode });
 
-    try {
-      window.location.assign(url);
-    } catch (err) {
-      console.error('[FacebookPageConnectionCard] connect redirect failed', err);
-      setBusy(false);
-      setError('Nepodařilo se spustit přihlášení přes Facebook.');
+    const res = await nestFacebookPageConnectUrl(token, { mode: oauthMode });
+    setBusy(false);
+    if (!res.ok) {
+      if (isFacebookPageScopeError(res.error)) {
+        setError(FACEBOOK_PAGES_LIST_PERMISSION_MSG);
+      } else {
+        setError(res.error);
+      }
+      return;
+    }
+
+    const result = openFacebookOAuthUrl(res.url);
+    if (result === 'blocked' || (pwaStandalone && result === 'external')) {
+      setPendingOAuthUrl(res.url);
+      if (pwaStandalone) {
+        setOk('Dokončete přihlášení ve Facebooku a vraťte se do aplikace.');
+      }
     }
   }
 
@@ -318,10 +333,27 @@ export function FacebookPageConnectionCard({ token }: Props) {
     const res = await nestFacebookPageSyncNow(token);
     setBusy(false);
     if (!res.ok) {
-      setError(res.error ?? 'Synchronizace selhala.');
+      setError(
+        res.permissionDenied ? FACEBOOK_RECONNECT_PERMISSION_MSG : res.error ?? 'Synchronizace selhala.',
+      );
       return;
     }
-    setOk(`Synchronizace dokončena (importováno: ${res.imported ?? 0} příspěvků).`);
+    if (res.permissionDenied) {
+      setError(FACEBOOK_RECONNECT_PERMISSION_MSG);
+      return;
+    }
+    if (res.imported === 0 && res.message) {
+      setOk(
+        `Synchronizace dokončena (importováno: 0). ${res.message}` +
+          (res.found != null ? ` Nalezeno na Facebooku: ${res.found}.` : ''),
+      );
+    } else {
+      setOk(
+        `Synchronizace dokončena (importováno: ${res.imported ?? 0}` +
+          (res.found != null ? ` z ${res.found}` : '') +
+          ' příspěvků).',
+      );
+    }
     void refresh();
   }
 
@@ -388,6 +420,16 @@ export function FacebookPageConnectionCard({ token }: Props) {
       ) : null}
 
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      {pendingOAuthUrl ? (
+        <a
+          href={pendingOAuthUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex rounded-full border border-[#1877F2]/40 bg-[#1877F2]/10 px-4 py-2 text-sm font-semibold text-[#1877F2] hover:bg-[#1877F2]/15"
+        >
+          Otevřít v prohlížeči
+        </a>
+      ) : null}
       {ok ? <p className="text-sm text-emerald-700">{ok}</p> : null}
       {status?.tokenNeedsReauth ? (
         <p className="text-sm text-amber-800">Facebook propojení vyžaduje nové přihlášení.</p>
