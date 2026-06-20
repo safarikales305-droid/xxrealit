@@ -19,6 +19,10 @@ import {
   type ShortsMusicSelection,
 } from '../properties/listing-shorts-from-photos.service';
 import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
+import {
+  assertWhatsAppVerified,
+  WHATSAPP_VERIFY_TIPAR_MSG,
+} from '../whatsapp/whatsapp-verification-required.util';
 import { CreateTiparPostDto } from './dto/create-tipar-post.dto';
 import { UpdateTiparPostDto } from './dto/update-tipar-post.dto';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
@@ -52,6 +56,12 @@ export class TiparService {
   ) {}
 
   async activateTipar(userId: string) {
+    const existing = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { whatsappVerified: true },
+    });
+    assertWhatsAppVerified(existing, WHATSAPP_VERIFY_TIPAR_MSG);
+
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: { isTipar: true },
@@ -726,11 +736,12 @@ export class TiparService {
   private async requireTipar(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { isTipar: true },
+      select: { isTipar: true, whatsappVerified: true },
     });
     if (!user?.isTipar) {
       throw new ForbiddenException('Nejdřív aktivujte roli tipaře v profilu.');
     }
+    assertWhatsAppVerified(user, WHATSAPP_VERIFY_TIPAR_MSG);
   }
 
   private async hasUnlocked(userId: string, postId: string, publishedPropertyId?: string | null) {

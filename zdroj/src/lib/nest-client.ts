@@ -253,6 +253,8 @@ export type NestMeProfile = {
   brokerPhonePublic?: string;
   brokerEmailPublic?: string;
   whatsappPhone?: string;
+  whatsappVerified?: boolean;
+  whatsappVerifiedAt?: string | null;
   whatsappEnabled?: boolean;
   whatsappMarketingOptOut?: boolean;
   whatsappNotifyMyUploads?: boolean;
@@ -574,6 +576,11 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     brokerPhonePublic: typeof o.brokerPhonePublic === 'string' ? o.brokerPhonePublic : undefined,
     brokerEmailPublic: typeof o.brokerEmailPublic === 'string' ? o.brokerEmailPublic : undefined,
     whatsappPhone: typeof o.whatsappPhone === 'string' ? o.whatsappPhone : undefined,
+    whatsappVerified: o.whatsappVerified === true,
+    whatsappVerifiedAt:
+      o.whatsappVerifiedAt === null || typeof o.whatsappVerifiedAt === 'string'
+        ? (o.whatsappVerifiedAt as string | null)
+        : undefined,
     whatsappEnabled: o.whatsappEnabled === true,
     whatsappMarketingOptOut: o.whatsappMarketingOptOut === true,
     whatsappNotifyMyUploads: o.whatsappNotifyMyUploads === true,
@@ -701,6 +708,9 @@ export type AdminUserRow = {
   pendingCreditBalance?: number;
   isCreditVerified?: boolean;
   firstTopUpUsed?: boolean;
+  whatsappPhone?: string;
+  whatsappVerified?: boolean;
+  whatsappVerifiedAt?: string | null;
 };
 
 export async function nestAdminStats(
@@ -7306,6 +7316,152 @@ export async function nestPatchWhatsAppSettings(
       whatsappNotifyMyUploads: data.whatsappNotifyMyUploads === true,
       whatsappNotifyNewPosts: data.whatsappNotifyNewPosts === true,
     };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export type WhatsAppVerificationStatusDto = {
+  whatsappPhone: string;
+  whatsappVerified: boolean;
+  whatsappVerifiedAt: string | null;
+  pendingVerification: boolean;
+  verificationExpiresAt: string | null;
+  verificationAttempts: number;
+  maxVerificationAttempts: number;
+  canResend: boolean;
+  resendAvailableAt: string | null;
+};
+
+export async function nestWhatsAppVerificationStatus(
+  token: string | null,
+): Promise<WhatsAppVerificationStatusDto | null> {
+  if (!API_BASE_URL || !token) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/users/me/whatsapp-verification`, {
+      cache: 'no-store',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as WhatsAppVerificationStatusDto;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestRequestWhatsAppVerification(
+  token: string,
+  phone: string,
+): Promise<
+  | ({ ok: true; message?: string } & Partial<WhatsAppVerificationStatusDto>)
+  | { ok: false; error: string }
+> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  try {
+    const res = await fetch(`${API_BASE_URL}/users/me/whatsapp-verification/request`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ phone }),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return { ok: true, ...(data as WhatsAppVerificationStatusDto), message: String(data.message ?? '') };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestConfirmWhatsAppVerification(
+  token: string,
+  code: string,
+): Promise<
+  | ({ ok: true; message?: string } & Partial<WhatsAppVerificationStatusDto>)
+  | { ok: false; error: string }
+> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  try {
+    const res = await fetch(`${API_BASE_URL}/users/me/whatsapp-verification/confirm`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ code }),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return { ok: true, ...(data as WhatsAppVerificationStatusDto), message: String(data.message ?? '') };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestAdminVerifyUserWhatsApp(
+  token: string,
+  userId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/admin/users/${encodeURIComponent(userId)}/whatsapp-verification/verify`,
+      {
+        method: 'PATCH',
+        headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+      },
+    );
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestAdminResetUserWhatsApp(
+  token: string,
+  userId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/admin/users/${encodeURIComponent(userId)}/whatsapp-verification/reset`,
+      {
+        method: 'PATCH',
+        headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+      },
+    );
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return { ok: true };
   } catch {
     return { ok: false, error: 'Síťová chyba' };
   }

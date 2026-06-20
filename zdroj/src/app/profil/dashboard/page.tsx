@@ -38,6 +38,7 @@ import { ActiveBonusCampaigns } from '@/components/dashboard/ActiveBonusCampaign
 import { InviteFriendsPanel } from '@/components/referral/InviteFriendsPanel';
 import { FacebookPageConnectionCard } from '@/components/profile/FacebookPageConnectionCard';
 import { WhatsAppConnectionCard } from '@/components/profile/WhatsAppConnectionCard';
+import { WhatsAppPhoneVerificationCard } from '@/components/profile/WhatsAppPhoneVerificationCard';
 
 type Tab = 'settings' | 'social-integrations' | 'referral' | 'listings' | 'ads' | 'messages' | 'notifications';
 
@@ -281,6 +282,8 @@ export default function ProfileDashboardPage() {
                 Uložit bio
               </button>
 
+              <WhatsAppPhoneVerificationCard token={apiAccessToken} onVerified={() => void loadMe()} />
+
               <WhatsAppConnectionCard token={apiAccessToken} />
 
               <div className="grid gap-3 md:grid-cols-2">
@@ -353,6 +356,13 @@ export default function ProfileDashboardPage() {
                         ))}
                       </ul>
                     ) : null}
+                    {!me?.whatsappVerified &&
+                    me?.professionalVerificationStatus !== 'APPROVED' &&
+                    me?.professionalVerificationStatus !== 'PENDING' ? (
+                      <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                        Pro ověření profilu musíte ověřit WhatsApp číslo (sekce výše).
+                      </p>
+                    ) : null}
                     {me?.professionalVerificationStatus !== 'APPROVED' ? (
                       <>
                         <label className="flex items-start gap-2 text-sm text-zinc-800">
@@ -361,6 +371,7 @@ export default function ProfileDashboardPage() {
                             className="mt-1"
                             checked={wantVerification}
                             onChange={(e) => setWantVerification(e.target.checked)}
+                            disabled={!me?.whatsappVerified}
                           />
                           Chci ověřit profesní profil
                         </label>
@@ -370,15 +381,22 @@ export default function ProfileDashboardPage() {
                             className="mt-1"
                             checked={publishAfterApproval}
                             onChange={(e) => setPublishAfterApproval(e.target.checked)}
+                            disabled={!me?.whatsappVerified}
                           />
                           Zveřejnit po schválení administrátorem
                         </label>
                         <button
                           type="button"
-                          disabled={!apiAccessToken || verificationSaving}
+                          disabled={
+                            !apiAccessToken || verificationSaving || !me?.whatsappVerified
+                          }
                           className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                           onClick={() => {
                             if (!apiAccessToken || !me) return;
+                            if (!me.whatsappVerified) {
+                              setError('Pro ověření profilu musíte ověřit WhatsApp číslo.');
+                              return;
+                            }
                             if (!wantVerification || !publishAfterApproval) {
                               setError(
                                 'Zaškrtněte obě volby: ověření profilu a zveřejnění po schválení.',

@@ -239,6 +239,16 @@ model User {
   brokerEmailPublic     String   @default("")
   /// WhatsApp číslo ve formátu E.164 (+420…); veřejně se nezobrazuje, jen přes tlačítko wa.me.
   whatsappPhone         String   @default("")
+  /// Telefon ověřený přes WhatsApp šablonu s kódem.
+  whatsappVerified      Boolean  @default(false)
+  whatsappVerifiedAt    DateTime?
+  /// Aktuální ověřovací kód (6 číslic); po ověření se vymaže.
+  whatsappVerificationCode String?
+  whatsappVerificationExpiresAt DateTime?
+  /// Počet neúspěšných pokusů o zadání kódu (max 5).
+  whatsappVerificationAttempts Int @default(0)
+  /// Čas posledního odeslání ověřovacího kódu (cooldown 60 s).
+  whatsappVerificationSentAt DateTime?
   /// Zobrazit tlačítko „Napsat na WhatsApp“ u profilu a inzerátů.
   whatsappEnabled       Boolean  @default(false)
   /// Uživatel odmítl marketing přes WhatsApp.

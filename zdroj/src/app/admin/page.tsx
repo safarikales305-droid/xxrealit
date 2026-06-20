@@ -28,6 +28,8 @@ import {
   nestAdminUpdateUserCredit,
   nestAdminVerifyUserCredit,
   nestAdminUnverifyUserCredit,
+  nestAdminVerifyUserWhatsApp,
+  nestAdminResetUserWhatsApp,
   nestAdminUsers,
   type AdminListingPhotoWatermarkSettings,
   type AdminShareTextsSettings,
@@ -334,6 +336,25 @@ export default function AdminPage() {
     setBusyUserId(null);
     if (r.ok) await refresh();
     else setLoadError(r.error ?? 'Zrušení ověření selhalo');
+  }
+
+  async function onAdminVerifyUserWhatsApp(userId: string) {
+    if (!token) return;
+    setBusyUserId(userId);
+    const r = await nestAdminVerifyUserWhatsApp(token, userId);
+    setBusyUserId(null);
+    if (r.ok) await refresh();
+    else setLoadError(r.error ?? 'Ruční ověření WhatsApp selhalo');
+  }
+
+  async function onAdminResetUserWhatsApp(userId: string) {
+    if (!token) return;
+    if (!window.confirm('Resetovat ověření WhatsApp u tohoto uživatele?')) return;
+    setBusyUserId(userId);
+    const r = await nestAdminResetUserWhatsApp(token, userId);
+    setBusyUserId(null);
+    if (r.ok) await refresh();
+    else setLoadError(r.error ?? 'Reset WhatsApp ověření selhalo');
   }
 
   async function onPasswordSubmit(e: React.FormEvent) {
@@ -845,6 +866,7 @@ export default function AdminPage() {
                 <tr>
                   <th className="px-4 py-3">E-mail</th>
                   <th className="px-4 py-3">Role</th>
+                  <th className="hidden px-4 py-3 md:table-cell">WhatsApp</th>
                   <th className="hidden px-4 py-3 lg:table-cell">Premium / body</th>
                   <th className="px-4 py-3">Kredit</th>
                   <th className="hidden px-4 py-3 sm:table-cell">Registrace</th>
@@ -895,6 +917,48 @@ export default function AdminPage() {
                           </option>
                         ))}
                       </select>
+                    </td>
+                    <td className="hidden px-4 py-3 md:table-cell">
+                      <div className="flex flex-col gap-1 text-xs">
+                        <span className="font-mono text-zinc-700">
+                          {u.whatsappPhone?.trim() || '—'}
+                        </span>
+                        <span
+                          className={
+                            u.whatsappVerified
+                              ? 'font-semibold text-emerald-700'
+                              : 'text-zinc-500'
+                          }
+                        >
+                          {u.whatsappVerified ? 'Ověřeno' : 'Neověřeno'}
+                        </span>
+                        {u.whatsappVerifiedAt ? (
+                          <span className="text-[11px] text-zinc-400">
+                            {new Date(u.whatsappVerifiedAt).toLocaleString('cs-CZ')}
+                          </span>
+                        ) : null}
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {!u.whatsappVerified ? (
+                            <button
+                              type="button"
+                              disabled={busyUserId === u.id || !u.whatsappPhone?.trim()}
+                              onClick={() => void onAdminVerifyUserWhatsApp(u.id)}
+                              className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+                            >
+                              Označit ověřené
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={busyUserId === u.id}
+                              onClick={() => void onAdminResetUserWhatsApp(u.id)}
+                              className="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                            >
+                              Resetovat
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </td>
                     <td className="hidden px-4 py-3 lg:table-cell">
                       {u.role === 'AGENT' ? (

@@ -621,6 +621,9 @@ export class AdminService {
         pendingCreditBalance: true,
         isCreditVerified: true,
         firstTopUpUsed: true,
+        whatsappPhone: true,
+        whatsappVerified: true,
+        whatsappVerifiedAt: true,
       },
     });
     return rows.map((u) => ({
@@ -642,6 +645,9 @@ export class AdminService {
       pendingCreditBalance: u.pendingCreditBalance,
       isCreditVerified: u.isCreditVerified,
       firstTopUpUsed: u.firstTopUpUsed,
+      whatsappPhone: u.whatsappPhone,
+      whatsappVerified: u.whatsappVerified,
+      whatsappVerifiedAt: u.whatsappVerifiedAt?.toISOString() ?? null,
     }));
   }
 

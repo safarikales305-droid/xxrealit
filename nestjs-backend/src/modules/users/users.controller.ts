@@ -27,8 +27,11 @@ import { UpdateBrokerPublicProfileDto } from './dto/update-broker-public-profile
 import { UpdateProfileVisibilityDto } from './dto/update-profile-visibility.dto';
 import { UpdateProfessionalVisibilityDto } from './dto/update-professional-visibility.dto';
 import { UpdateWhatsAppSettingsDto } from './dto/update-whatsapp-settings.dto';
+import { RequestWhatsAppVerificationDto } from './dto/request-whatsapp-verification.dto';
+import { ConfirmWhatsAppVerificationDto } from './dto/confirm-whatsapp-verification.dto';
 import { UsersService } from './users.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
+import { WhatsAppPhoneVerificationService } from '../whatsapp/whatsapp-phone-verification.service';
 import { UserRole } from '@prisma/client';
 
 @Controller('users')
@@ -38,6 +41,7 @@ export class UsersController {
     private readonly propertiesService: PropertiesService,
     private readonly jwt: JwtService,
     private readonly brokerPoints: BrokerPointsService,
+    private readonly whatsAppVerification: WhatsAppPhoneVerificationService,
   ) {}
 
   @UseGuards(JwtAuthGuard)
@@ -87,6 +91,32 @@ export class UsersController {
     dto: UpdateWhatsAppSettingsDto,
   ) {
     return this.usersService.updateWhatsAppSettings(user.id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('me/whatsapp-verification')
+  getWhatsAppVerification(@CurrentUser() user: AuthUser) {
+    return this.whatsAppVerification.getStatus(user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('me/whatsapp-verification/request')
+  requestWhatsAppVerification(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: RequestWhatsAppVerificationDto,
+  ) {
+    return this.whatsAppVerification.requestCode(user.id, dto.phone);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('me/whatsapp-verification/confirm')
+  confirmWhatsAppVerification(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: ConfirmWhatsAppVerificationDto,
+  ) {
+    return this.whatsAppVerification.confirmCode(user.id, dto.code);
   }
 
   @UseGuards(JwtAuthGuard)

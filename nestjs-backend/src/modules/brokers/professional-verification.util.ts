@@ -13,6 +13,7 @@ export type UserWithProfiles = {
   professionalVerified?: boolean;
   professionalVerificationStatus?: ProfessionalVerificationStatus;
   publicProfessionalProfile?: boolean;
+  whatsappVerified?: boolean;
   agentProfile?: ProfileVerification;
   companyProfile?: ProfileVerification;
   agencyProfile?: ProfileVerification;
@@ -66,6 +67,7 @@ export function isCatalogEligibleProfessional(user: UserWithProfiles): boolean {
     user.publicProfessionalProfile === true &&
     user.professionalVerified === true &&
     user.professionalVerificationStatus === ProfessionalVerificationStatus.APPROVED &&
+    user.whatsappVerified === true &&
     isProfessionalVerified(user)
   );
 }
@@ -97,6 +99,7 @@ export const CATALOG_VERIFIED_USER_WHERE = {
   professionalVerified: true,
   professionalVerificationStatus: ProfessionalVerificationStatus.APPROVED,
   publicProfessionalProfile: true,
+  whatsappVerified: true,
 } as const;
 
 export function verifiedBadgeLabelForRole(role: UserRole | string | null | undefined): string {

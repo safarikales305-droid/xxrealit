@@ -21,6 +21,10 @@ import {
   mapUserStatusToAgentStatus,
   professionalRoleLabel,
 } from './professional-verification-sync.util';
+import {
+  assertWhatsAppVerified,
+  WHATSAPP_VERIFY_PROFESSIONAL_MSG,
+} from '../whatsapp/whatsapp-verification-required.util';
 
 @Injectable()
 export class ProfessionalVerificationService {
@@ -92,6 +96,7 @@ export class ProfessionalVerificationService {
         avatar: true,
         brokerOfficeName: true,
         professionalVerificationStatus: true,
+        whatsappVerified: true,
         agentProfile: {
           select: { companyName: true, ico: true, bio: true, avatarUrl: true },
         },
@@ -113,6 +118,8 @@ export class ProfessionalVerificationService {
         'Žádost o ověření mohou podat jen profesionální účty (makléř, firma, kancelář, řemeslník, poradce, investor).',
       );
     }
+
+    assertWhatsAppVerified(user, WHATSAPP_VERIFY_PROFESSIONAL_MSG);
 
     const blockingIssues = collectVerificationBlockingIssues(
       user as VerificationEligibilityInput,
@@ -229,6 +236,7 @@ export class ProfessionalVerificationService {
         id: true,
         role: true,
         professionalVerificationStatus: true,
+        whatsappVerified: true,
       },
     });
     if (!user) throw new NotFoundException('Uživatel nenalezen');
@@ -237,6 +245,11 @@ export class ProfessionalVerificationService {
     }
     if (!isProfessionalRole(user.role)) {
       throw new BadRequestException('Uživatel nemá profesionální roli.');
+    }
+    if (!user.whatsappVerified) {
+      throw new BadRequestException(
+        'Uživatel nemá ověřené WhatsApp číslo — nejdříve ověřte telefon nebo schvalte ručně v administraci.',
+      );
     }
 
     const now = new Date();

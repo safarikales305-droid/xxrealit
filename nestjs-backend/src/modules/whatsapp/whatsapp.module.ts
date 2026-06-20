@@ -14,6 +14,7 @@ import { WhatsAppCampaignScheduleCronService } from './whatsapp-campaign-schedul
 import { WhatsAppDiagnosticService } from './whatsapp-diagnostic.service';
 import { WhatsAppCampaignDebugService } from './whatsapp-campaign-debug.service';
 import { PostWhatsAppNotifyService } from './post-whatsapp-notify.service';
+import { WhatsAppPhoneVerificationService } from './whatsapp-phone-verification.service';
 
 @Module({
   imports: [forwardRef(() => AuthModule)],
@@ -31,6 +32,7 @@ import { PostWhatsAppNotifyService } from './post-whatsapp-notify.service';
     WhatsAppDiagnosticService,
     WhatsAppCampaignDebugService,
     PostWhatsAppNotifyService,
+    WhatsAppPhoneVerificationService,
   ],
   exports: [
     WhatsAppSettingsService,
@@ -42,6 +44,7 @@ import { PostWhatsAppNotifyService } from './post-whatsapp-notify.service';
     WhatsAppMetaTemplatesService,
     WhatsAppDiagnosticService,
     PostWhatsAppNotifyService,
+    WhatsAppPhoneVerificationService,
   ],
 })
 export class WhatsAppModule {}

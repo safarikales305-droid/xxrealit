@@ -343,6 +343,39 @@ export class WhatsAppMetaTemplatesService {
     return dto;
   }
 
+  /** Schválená šablona podle názvu (např. whatsapp_verify_code). */
+  async requireApprovedTemplateByName(templateName: string): Promise<WhatsAppMetaTemplateRow> {
+    const normalized = templateName.trim();
+    if (!normalized) {
+      throw new BadRequestException('Název šablony je povinný.');
+    }
+
+    await this.settings.reload();
+    const scope = this.activeWabaWhere();
+    const rows = await this.prisma.whatsAppMetaTemplate.findMany({
+      where: {
+        ...scope,
+        templateName: { equals: normalized, mode: 'insensitive' },
+        isStale: false,
+      },
+      orderBy: [{ language: 'asc' }],
+    });
+
+    const usable = rows.find((row) => {
+      const dto = this.rowToDto(row);
+      return dto.isUsable && !isExcludedCampaignTemplate(row.templateName);
+    });
+
+    if (!usable) {
+      throw new BadRequestException(
+        `Šablona „${normalized}“ není v databázi nebo není schválená — synchronizujte šablony z Meta.`,
+      );
+    }
+
+    this.assertTemplateBelongsToConfiguredWaba(usable);
+    return this.rowToDto(usable);
+  }
+
   async cleanupOldTemplates(): Promise<WhatsAppTemplatesCleanupResult> {
     await this.settings.reload();
     const activeWabaId = this.effectiveWabaId();

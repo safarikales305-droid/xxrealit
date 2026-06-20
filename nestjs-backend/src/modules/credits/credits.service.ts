@@ -9,6 +9,10 @@ import { PrismaService } from '../../database/prisma.service';
 import { CreditWalletService } from './credit-wallet.service';
 import { UpdateCreditSettingsDto } from './dto/update-credit-settings.dto';
 import { buildQrImageUrl, buildSpdPayload } from './utils/spd-qr.util';
+import {
+  assertWhatsAppVerified,
+  WHATSAPP_VERIFY_CREDITS_MSG,
+} from '../whatsapp/whatsapp-verification-required.util';
 
 const SETTINGS_ID = 'default';
 
@@ -184,9 +188,11 @@ export class CreditsService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { isCreditVerified: true, firstTopUpUsed: true },
+      select: { isCreditVerified: true, firstTopUpUsed: true, whatsappVerified: true },
     });
     if (!user) throw new NotFoundException('Uživatel nenalezen');
+
+    assertWhatsAppVerified(user, WHATSAPP_VERIFY_CREDITS_MSG);
 
     if (!user.isCreditVerified) {
       if (!settings.allowUnverifiedFirstTopUp) {

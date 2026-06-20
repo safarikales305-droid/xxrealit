@@ -33,6 +33,7 @@ import { AgentProfileService } from '../agent-profile/agent-profile.service';
 import { ProfessionalVerificationService } from '../professional-verification/professional-verification.service';
 import { FacebookPageService } from '../social/facebook/facebook-page.service';
 import { FacebookUrlImportService } from '../social/facebook-url-import/facebook-url-import.service';
+import { WhatsAppPhoneVerificationService } from '../whatsapp/whatsapp-phone-verification.service';
 
 type ChangePasswordBody = {
   oldPassword?: string;
@@ -68,6 +69,7 @@ export class AdminController {
     private readonly importedBrokerContacts: ImportedBrokerContactService,
     private readonly facebookPage: FacebookPageService,
     private readonly facebookUrlImport: FacebookUrlImportService,
+    private readonly whatsAppVerification: WhatsAppPhoneVerificationService,
   ) {}
 
   @Get('social-facebook-connections')
@@ -294,6 +296,16 @@ export class AdminController {
     @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: PatchUserCreditDto,
   ) {
     return this.adminService.updateUserCreditBalance(user.id, id, dto.creditBalance);
+  }
+
+  @Patch('users/:id/whatsapp-verification/verify')
+  adminVerifyUserWhatsApp(@Param('id') id: string) {
+    return this.whatsAppVerification.adminMarkVerified(id);
+  }
+
+  @Patch('users/:id/whatsapp-verification/reset')
+  adminResetUserWhatsApp(@Param('id') id: string) {
+    return this.whatsAppVerification.adminResetVerification(id);
   }
 
   @Patch('broker-reviews/:id/visibility')

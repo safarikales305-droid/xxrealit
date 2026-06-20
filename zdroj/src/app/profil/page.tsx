@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CreditTopUpSection } from '@/components/profile/CreditTopUpSection';
+import { WhatsAppPhoneVerificationCard } from '@/components/profile/WhatsAppPhoneVerificationCard';
 import { PropertyGrid } from '@/components/property-grid';
 import { useAuth } from '@/hooks/use-auth';
 import { useMessagesUnreadCount } from '@/hooks/use-messages-unread';
@@ -103,6 +104,7 @@ export default function ProfilPage() {
   const [wallVideos, setWallVideos] = useState<NestProfileWallVideo[]>([]);
   const [visibilitySaving, setVisibilitySaving] = useState(false);
   const [tiparActivating, setTiparActivating] = useState(false);
+  const [tiparError, setTiparError] = useState<string | null>(null);
   const [professionalVisibility, setProfessionalVisibility] = useState<boolean>(false);
   const [companyAds, setCompanyAds] = useState<NestCompanyAdRow[]>([]);
 
@@ -1193,15 +1195,31 @@ export default function ProfilPage() {
                     ) : (
                       <button
                         type="button"
-                        disabled={tiparActivating || !apiAccessToken}
+                        disabled={
+                          tiparActivating || !apiAccessToken || !nestMe?.whatsappVerified
+                        }
+                        title={
+                          !nestMe?.whatsappVerified
+                            ? 'Pro používání tipaře musíte mít ověřené WhatsApp číslo.'
+                            : undefined
+                        }
                         onClick={() => {
                           void (async () => {
                             if (!apiAccessToken) return;
+                            if (!nestMe?.whatsappVerified) {
+                              setTiparError(
+                                'Pro používání tipaře musíte mít ověřené WhatsApp číslo.',
+                              );
+                              return;
+                            }
                             setTiparActivating(true);
+                            setTiparError(null);
                             const r = await nestTiparActivate(apiAccessToken);
                             setTiparActivating(false);
                             if (r.ok) {
                               setNestMe((prev) => (prev ? { ...prev, isTipar: true } : prev));
+                            } else if (r.error) {
+                              setTiparError(r.error);
                             }
                           })();
                         }}
@@ -1219,6 +1237,9 @@ export default function ProfilPage() {
                       </Link>
                     ) : null}
                   </div>
+                  {tiparError ? (
+                    <p className="mt-2 text-xs text-red-600">{tiparError}</p>
+                  ) : null}
                 </div>
               </div>
 
@@ -1282,9 +1303,19 @@ export default function ProfilPage() {
               </div>
             </div>
 
+            <div className="mt-5">
+              <WhatsAppPhoneVerificationCard
+                token={apiAccessToken}
+                onVerified={() => {
+                  setNestMe((prev) => (prev ? { ...prev, whatsappVerified: true } : prev));
+                }}
+              />
+            </div>
+
             <CreditTopUpSection
               token={apiAccessToken}
               initialBalance={nestMe?.creditBalance}
+              whatsappVerified={nestMe?.whatsappVerified === true}
               onBalanceChange={(balance) =>
                 setNestMe((prev) => (prev ? { ...prev, creditBalance: balance } : prev))
               }

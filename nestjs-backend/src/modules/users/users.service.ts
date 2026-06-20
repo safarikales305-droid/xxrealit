@@ -22,7 +22,7 @@ import {
   type PropertyViewerAccess,
 } from '../properties/properties.serializer';
 import { UpdateBrokerPublicProfileDto } from './dto/update-broker-public-profile.dto';
-import { isValidWhatsAppPhone } from '../whatsapp/whatsapp-phone.util';
+import { isValidWhatsAppPhone, normalizeToE164 } from '../whatsapp/whatsapp-phone.util';
 import type { ImageCropDto } from './dto/image-crop.dto';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bcrypt = require('bcrypt');
@@ -361,6 +361,8 @@ export class UsersService {
       brokerPhonePublic: true,
       brokerEmailPublic: true,
       whatsappPhone: true,
+      whatsappVerified: true,
+      whatsappVerifiedAt: true,
       whatsappEnabled: true,
       whatsappMarketingOptOut: true,
       whatsappNotifyMyUploads: true,
@@ -555,6 +557,8 @@ export class UsersService {
       brokerPhonePublic: u.brokerPhonePublic,
       brokerEmailPublic: u.brokerEmailPublic,
       whatsappPhone: u.whatsappPhone,
+      whatsappVerified: Boolean(u.whatsappVerified),
+      whatsappVerifiedAt: u.whatsappVerifiedAt?.toISOString() ?? null,
       whatsappEnabled: Boolean(u.whatsappEnabled),
       whatsappMarketingOptOut: Boolean(u.whatsappMarketingOptOut),
       whatsappNotifyMyUploads: Boolean(u.whatsappNotifyMyUploads),
@@ -1183,10 +1187,11 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    const phone =
+    const phoneRaw =
       input.whatsappPhone !== undefined
         ? input.whatsappPhone.trim()
         : current.whatsappPhone;
+    const phone = normalizeToE164(phoneRaw) ?? phoneRaw;
     const enabled =
       input.whatsappEnabled !== undefined
         ? input.whatsappEnabled
