@@ -64,6 +64,7 @@ import {
 import { ProfessionalOnlyDialog } from '@/components/auth/ProfessionalListingRestriction';
 import { PageLoadingSpinner } from '@/components/ui/page-loading';
 import { FacebookPostMediaBlock } from '@/components/community/FacebookPostMediaBlock';
+import { FacebookInlineVideoPlayer } from '@/components/community/FacebookInlineVideoPlayer';
 import {
   filterPostMediaForDisplay,
   isFacebookImportPost,
@@ -1803,23 +1804,18 @@ export default function ProfilPage() {
                           const mediaType =
                             typeof media.type === 'string' ? media.type.toLowerCase() : '';
                           if (mediaType === 'video') {
+                            const poster =
+                              post.facebookVideoThumbnail || post.previewImage
+                                ? String(post.facebookVideoThumbnail ?? post.previewImage)
+                                : null;
                             return (
-                              <video
+                              <FacebookInlineVideoPlayer
                                 key={`${post.id}-video-${idx}`}
                                 src={mediaUrl}
-                                poster={
-                                  post.facebookVideoThumbnail || post.previewImage
-                                    ? nestAbsoluteAssetUrl(
-                                        String(
-                                          post.facebookVideoThumbnail ?? post.previewImage,
-                                        ),
-                                      )
-                                    : undefined
-                                }
-                                className="h-auto w-full rounded-2xl bg-black object-contain"
-                                controls
-                                playsInline
-                                preload="metadata"
+                                poster={poster}
+                                postId={`${post.id}-${idx}`}
+                                muted
+                                showMuteToggle
                               />
                             );
                           }

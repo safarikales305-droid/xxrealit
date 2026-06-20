@@ -1,11 +1,17 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Volume2, VolumeX } from 'lucide-react';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
+import { captureVideoPosterDataUrl } from '@/lib/video-poster';
+import { useFeedVideoAutoplay } from '@/hooks/use-feed-video-autoplay';
 
 type Props = {
   src: string;
   poster?: string | null;
+  postId?: string;
+  /** Mobilní feed — autoplay při scrollu, bez ovládacích prvků na mobilu. */
+  feedAutoplay?: boolean;
   className?: string;
   blurred?: boolean;
   showMuteToggle?: boolean;
@@ -17,77 +23,134 @@ type Props = {
 export function FacebookInlineVideoPlayer({
   src,
   poster,
+  postId,
+  feedAutoplay = false,
   className = '',
   blurred = false,
   showMuteToggle = true,
-  muted = false,
+  muted = true,
   onToggleMute,
   onOpenDetail,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [aspectClass, setAspectClass] = useState('aspect-square max-h-[85vh]');
+  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
+  const [generatedPoster, setGeneratedPoster] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+  const [internalMuted, setInternalMuted] = useState(muted);
 
-  const handleUnmute = useCallback(() => {
+  const effectivePoster =
+    poster?.trim() ? nestAbsoluteAssetUrl(poster) : generatedPoster;
+
+  const isMuted = onToggleMute ? muted : internalMuted;
+
+  useEffect(() => {
+    setInternalMuted(muted);
+  }, [muted]);
+
+  useFeedVideoAutoplay(feedAutoplay, videoRef, postId ?? src, isMuted);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+
+  useEffect(() => {
     const el = videoRef.current;
-    if (el) {
-      el.muted = false;
-      el.volume = 1;
-      void el.play().catch(() => {});
-    }
-    onToggleMute?.();
-  }, [onToggleMute]);
+    if (!el) return;
+    el.muted = isMuted;
+    if (!isMuted) el.volume = 1;
+  }, [isMuted]);
 
-  const handleMetadata = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
-    const el = e.currentTarget;
-    const portrait = el.videoHeight > el.videoWidth * 1.05;
-    setAspectClass(portrait ? 'aspect-[9/16] max-h-[85vh]' : 'aspect-square max-h-[70vh]');
-    if (!showMuteToggle || !muted) {
-      el.muted = false;
-      el.volume = 1;
-    }
-  }, [muted, showMuteToggle]);
+  const handleMetadata = useCallback(
+    async (e: React.SyntheticEvent<HTMLVideoElement>) => {
+      const el = e.currentTarget;
+      if (el.videoWidth > 0 && el.videoHeight > 0) {
+        setAspectRatio(el.videoWidth / el.videoHeight);
+      }
+      if (!poster?.trim() && !generatedPoster) {
+        const dataUrl = await captureVideoPosterDataUrl(el, 1);
+        if (dataUrl) setGeneratedPoster(dataUrl);
+      }
+    },
+    [poster, generatedPoster],
+  );
 
-  const video = (
-    <div className={`relative w-full overflow-hidden bg-black ${aspectClass} ${className}`.trim()}>
+  const portrait = aspectRatio != null && aspectRatio < 0.85;
+  const landscape = aspectRatio != null && aspectRatio > 1.15;
+  const showControls = !feedAutoplay || !isMobile;
+  const mobileFeedMode = feedAutoplay && isMobile;
+
+  const shellStyle = aspectRatio
+    ? { aspectRatio: `${aspectRatio}` }
+    : { aspectRatio: portrait ? '9/16' : landscape ? '16/9' : '1' };
+
+  const handleShellClick = () => {
+    if (mobileFeedMode && onOpenDetail) {
+      onOpenDetail();
+    }
+  };
+
+  const handleMuteClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onToggleMute) {
+      onToggleMute();
+    } else {
+      setInternalMuted((prev) => !prev);
+    }
+  };
+
+  return (
+    <div
+      className={`relative mx-auto w-full max-w-[720px] overflow-hidden bg-zinc-950 ${mobileFeedMode ? 'cursor-pointer' : ''} ${className}`.trim()}
+      style={shellStyle}
+      onClick={handleShellClick}
+      role={mobileFeedMode ? 'button' : undefined}
+      tabIndex={mobileFeedMode ? 0 : undefined}
+      onKeyDown={
+        mobileFeedMode
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onOpenDetail?.();
+              }
+            }
+          : undefined
+      }
+    >
       <video
         ref={videoRef}
         src={nestAbsoluteAssetUrl(src)}
-        poster={poster ? nestAbsoluteAssetUrl(poster) : undefined}
+        poster={effectivePoster || undefined}
         playsInline
-        controls
+        controls={showControls}
         preload="metadata"
-        muted={showMuteToggle ? muted : false}
+        muted={isMuted}
+        loop={feedAutoplay}
         onLoadedMetadata={handleMetadata}
         onClick={(e) => {
-          if (onOpenDetail) {
+          if (mobileFeedMode && onOpenDetail) {
             e.preventDefault();
             e.stopPropagation();
             onOpenDetail();
           }
         }}
-        onPlay={(e) => {
-          const el = e.currentTarget;
-          if (!showMuteToggle || !muted) {
-            el.muted = false;
-            el.volume = 1;
-          }
-        }}
-        className={`absolute inset-0 size-full object-contain ${blurred ? 'blur-sm' : ''}`}
+        className={`size-full object-contain ${blurred ? 'blur-sm' : ''} ${mobileFeedMode ? 'pointer-events-none md:pointer-events-auto' : ''}`}
       />
-      {showMuteToggle && muted ? (
+
+      {showMuteToggle ? (
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleUnmute();
-          }}
-          className="absolute bottom-3 right-3 z-10 rounded-full border border-white/30 bg-black/70 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur hover:bg-black/85"
+          onClick={handleMuteClick}
+          className="absolute bottom-3 right-3 z-10 flex size-9 items-center justify-center rounded-full border border-white/25 bg-black/65 text-white shadow-lg backdrop-blur hover:bg-black/80"
+          aria-label={isMuted ? 'Zapnout zvuk' : 'Ztlumit'}
+          title={isMuted ? 'Zapnout zvuk' : 'Ztlumit'}
         >
-          Zapnout zvuk
+          {isMuted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
         </button>
       ) : null}
     </div>
   );
-
-  return video;
 }

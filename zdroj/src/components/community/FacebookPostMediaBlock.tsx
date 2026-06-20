@@ -9,6 +9,8 @@ import { FacebookInlineVideoPlayer } from '@/components/community/FacebookInline
 type Props = {
   media: ResolvedFacebookPostMedia;
   facebookPostType?: string | null;
+  postId?: string;
+  feedAutoplay?: boolean;
   compact?: boolean;
   blurred?: boolean;
   muted?: boolean;
@@ -23,9 +25,11 @@ type Props = {
 export function FacebookPostMediaBlock({
   media,
   facebookPostType,
+  postId,
+  feedAutoplay = false,
   compact = false,
   blurred = false,
-  muted = false,
+  muted = true,
   showMuteToggle = false,
   onToggleMute,
   onOpenDetail,
@@ -102,27 +106,21 @@ export function FacebookPostMediaBlock({
   }
 
   if (media.mode === 'video' && media.videoUrl) {
-    const video = (
-      <FacebookInlineVideoPlayer
-        src={media.videoUrl}
-        poster={media.posterUrl}
-        blurred={blurred}
-        muted={muted}
-        showMuteToggle={showMuteToggle}
-        onToggleMute={onToggleMute}
-        onOpenDetail={onOpenDetail}
-      />
+    return (
+      <div className={paddedClass}>
+        <FacebookInlineVideoPlayer
+          src={media.videoUrl}
+          poster={media.posterUrl}
+          postId={postId}
+          feedAutoplay={feedAutoplay}
+          blurred={blurred}
+          muted={muted}
+          showMuteToggle={showMuteToggle}
+          onToggleMute={onToggleMute}
+          onOpenDetail={onOpenDetail}
+        />
+      </div>
     );
-    if (onOpenDetail) {
-      return (
-        <div className={paddedClass}>
-          <button type="button" className="block w-full text-left" onClick={onOpenDetail}>
-            {video}
-          </button>
-        </div>
-      );
-    }
-    return <div className={paddedClass}>{video}</div>;
   }
 
   return null;

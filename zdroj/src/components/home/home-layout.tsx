@@ -23,7 +23,6 @@ import {
 import { CreateCommunityPostCard } from '@/components/community/CreateCommunityPostCard';
 import { PostUploadQueueRunner } from '@/components/community/PostUploadProgress';
 import { CommunityPostCard } from '@/components/community/CommunityPostCard';
-import { resolveFacebookPostMedia } from '@/lib/facebook-post-media';
 import { MobileClassicSwipeFeed } from '@/components/home/MobileClassicSwipeFeed';
 import { MobileFiltersSheet } from '@/components/home/MobileFiltersSheet';
 import { PropertyGrid } from '@/components/property-grid';
@@ -1231,9 +1230,7 @@ export function HomeLayout({
                       communityFeedPosts.map((row) => {
                         const p = row as ListingPost;
                         const pid = String(p.id ?? '');
-                        const fbMedia = resolveFacebookPostMedia(p);
-                        const defaultMuted =
-                          fbMedia.isFacebookVideo ? false : (mutedByPostId[pid] ?? true);
+                        const defaultMuted = mutedByPostId[pid] ?? true;
                         return (
                           <CommunityPostCard
                             key={pid || Math.random().toString(36)}
@@ -1281,7 +1278,7 @@ export function HomeLayout({
                             onToggleMute={() =>
                               setMutedByPostId((prev) => ({
                                 ...prev,
-                                [pid]: !(prev[pid] ?? (fbMedia.isFacebookVideo ? false : true)),
+                                [pid]: !(prev[pid] ?? true),
                               }))
                             }
                             onOpenDetail={() => router.push(`/prispevky/${encodeURIComponent(pid)}`)}

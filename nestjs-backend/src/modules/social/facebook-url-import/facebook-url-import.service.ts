@@ -7,6 +7,13 @@ import {
 } from '@nestjs/common';
 import { FacebookImportStatus, PostCategory, PostSource, UserRole } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { TokenEncryptionService } from '../token-encryption.service';
+import {
+  buildExtractedMediaFromScrapedItem,
+  buildFacebookImportMediaPlan,
+  logFacebookVideoImportDiagnostics,
+  resolveFacebookVideoFromGraph,
+} from '../facebook/facebook-video-media.util';
 import type { FacebookContentProvider } from './facebook-content-provider.interface';
 import { FacebookUrlScraperProvider } from './facebook-url.scraper.provider';
 import {
@@ -45,6 +52,7 @@ export class FacebookUrlImportService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly crypto: TokenEncryptionService,
     scraper: FacebookUrlScraperProvider,
   ) {
     this.provider = scraper;
@@ -446,23 +454,49 @@ export class FacebookUrlImportService {
     const importedAt = new Date();
     const facebookPostType = detectFacebookPostType(permalink);
     const facebookEmbedUrl = buildFacebookEmbedUrl(permalink, facebookPostType);
-    const isVideoPost =
-      facebookPostType === 'FACEBOOK_VIDEO' || facebookPostType === 'FACEBOOK_REEL';
     const thumbnail = item.imageUrl?.trim() || null;
     const directVideoUrl = item.videoUrl?.trim() || null;
-    const imageUrl = isVideoPost ? null : thumbnail;
+    const extracted = buildExtractedMediaFromScrapedItem({
+      imageUrl: thumbnail,
+      videoUrl: directVideoUrl,
+      permalink,
+    });
 
-    const mediaCreate: Array<{ url: string; type: string; order: number }> = [];
-    if (isVideoPost && directVideoUrl) {
-      mediaCreate.push({ url: directVideoUrl, type: 'video', order: 1 });
-    } else if (!isVideoPost && thumbnail) {
-      mediaCreate.push({ url: thumbnail, type: 'image', order: 1 });
+    let resolvedVideo = null;
+    if (facebookPostType === 'FACEBOOK_VIDEO' || facebookPostType === 'FACEBOOK_REEL') {
+      const fbAuth = await this.prisma.facebookConnection.findFirst({
+        where: { userId },
+        select: { accessTokenEncrypted: true },
+      });
+      const videoId = extracted.videoId;
+      if (videoId && fbAuth?.accessTokenEncrypted) {
+        try {
+          const token = this.crypto.decrypt(fbAuth.accessTokenEncrypted);
+          resolvedVideo = await resolveFacebookVideoFromGraph(videoId, token);
+        } catch (err) {
+          this.logger.warn(
+            `FACEBOOK_URL_IMPORT_TOKEN_FAIL userId=${userId} error=${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
     }
 
+    const mediaPlan = buildFacebookImportMediaPlan({
+      permalink,
+      extracted,
+      fullPicture: thumbnail,
+      resolvedVideo,
+    });
+
+    const mediaCreate = mediaPlan.mediaCreate;
+    const isVideoPost = mediaPlan.isVideoPost;
+    const imageUrl = mediaPlan.imageUrl;
+    const videoUrl = mediaPlan.videoUrl;
+
     try {
-      await this.prisma.post.create({
+      const post = await this.prisma.post.create({
         data: {
-          type: isVideoPost && directVideoUrl ? 'video' : 'post',
+          type: isVideoPost && videoUrl ? 'video' : 'post',
           category,
           userId,
           professionalProfileId,
@@ -472,17 +506,20 @@ export class FacebookUrlImportService {
           description: text,
           content: text || null,
           imageUrl,
-          videoUrl: directVideoUrl,
+          videoUrl,
           externalUrl: permalink,
           facebookPermalink: permalink,
           facebookExternalId: externalId,
-          facebookPostType,
+          facebookPostType: mediaPlan.facebookPostType,
           facebookEmbedUrl,
-          facebookVideoThumbnail: isVideoPost ? thumbnail : null,
-          facebookVideoSourceUrl: directVideoUrl,
+          facebookVideoThumbnail: mediaPlan.thumbnailUrl,
+          facebookVideoDurationSec: mediaPlan.durationSec,
+          facebookVideoSourceUrl: videoUrl,
+          facebookVideoHasAudio: mediaPlan.hasAudio,
+          facebookVideoMimeType: mediaPlan.mimeType,
           previewTitle: text.slice(0, 200) || 'Facebook příspěvek',
           previewDescription: text.slice(0, 500) || null,
-          previewImage: thumbnail,
+          previewImage: mediaPlan.thumbnailUrl ?? thumbnail,
           previewSiteName: 'Facebook',
           source: PostSource.FACEBOOK,
           isFacebookPagePost: true,
@@ -490,7 +527,40 @@ export class FacebookUrlImportService {
           createdAt: importedAt,
           media: mediaCreate.length ? { create: mediaCreate } : undefined,
         },
+        select: { id: true },
       });
+
+      if (isVideoPost) {
+        const diag = logFacebookVideoImportDiagnostics({
+          postId: post.id,
+          videoUrl,
+          hasAudio: mediaPlan.hasAudio,
+          mimeType: mediaPlan.mimeType,
+          durationSec: mediaPlan.durationSec,
+          sizeBytes: mediaPlan.sizeBytes,
+          importSource: mediaPlan.importSource,
+          failureReason: mediaPlan.videoUrlFailureReason,
+        });
+        if (mediaPlan.videoUrlFailureReason) {
+          this.logger.warn(`FACEBOOK_URL_IMPORT_VIDEO_FAIL ${diag}`);
+          await this.prisma.facebookUrlImportLog.create({
+            data: {
+              userId,
+              status: 'WARNING',
+              found: 1,
+              imported: 1,
+              skipped: 0,
+              importedCount: 1,
+              skippedDuplicates: 0,
+              detectedReason: mediaPlan.videoUrlFailureReason,
+              error: `Video import: ${mediaPlan.videoUrlFailureReason} (${diag})`,
+            },
+          });
+        } else {
+          this.logger.log(`FACEBOOK_URL_IMPORT_VIDEO ${diag}`);
+        }
+      }
+
       return 'imported';
     } catch (err) {
       const code =

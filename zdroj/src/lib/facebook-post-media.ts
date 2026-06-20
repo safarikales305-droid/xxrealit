@@ -65,12 +65,8 @@ export function isFacebookReelPost(post: PostLike): boolean {
   return String(post.facebookPostType ?? '').toUpperCase() === 'FACEBOOK_REEL';
 }
 
-export function getFacebookVideoContainerClass(postType?: string | null): string {
-  const isReel = String(postType ?? '').toUpperCase() === 'FACEBOOK_REEL';
-  if (isReel) {
-    return 'relative mx-auto aspect-[9/16] w-full max-w-[360px] max-h-[75vh] md:max-h-[720px]';
-  }
-  return 'relative aspect-video w-full max-h-[70vh]';
+export function getFacebookVideoContainerClass(_postType?: string | null): string {
+  return 'relative mx-auto w-full max-w-[720px]';
 }
 
 export function isFacebookImportPost(post: PostLike): boolean {

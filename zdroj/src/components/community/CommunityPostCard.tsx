@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { Heart, MessageCircle, Pencil, ThumbsDown, Trash2, Volume2, VolumeX } from 'lucide-react';
+import { Heart, MessageCircle, Pencil, ThumbsDown, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
@@ -10,6 +10,7 @@ import type { ListingPost, PostComment } from '@/lib/nest-client';
 import { LinkPreviewCard, type LinkPreviewData } from '@/components/community/LinkPreviewCard';
 import { FacebookPostMediaBlock } from '@/components/community/FacebookPostMediaBlock';
 import { PostSoundAudio } from '@/components/community/PostSoundAudio';
+import { UserAvatar } from '@/components/user/UserAvatar';
 import {
   isFacebookImportPost,
   resolveFacebookPostMedia,
@@ -114,10 +115,8 @@ export function CommunityPostCard({
   const isFacebookImport = isFacebookImportPost(p);
   const facebookLink = String(p.facebookPermalink ?? p.externalUrl ?? '').trim();
   const hasFeedMedia = resolvedMedia.mode !== 'none';
-  const showNativeFeedVideo =
-    resolvedMedia.mode === 'video' && !resolvedMedia.isFacebookVideo;
-  const showMuteForVideo = showNativeFeedVideo && !p.soundTrack;
   const hasPostSound = Boolean(p.soundTrack?.fileUrl || p.soundTrack?.previewUrl);
+  const showMuteForVideo = resolvedMedia.mode === 'video' && !hasPostSound;
   const postText = String(p.description ?? '').trim();
 
   const actionRow = (
@@ -196,38 +195,46 @@ export function CommunityPostCard({
         </div>
       ) : null}
 
-      <div className="px-3 pt-3 md:px-4 md:pt-4">
-        <p className="text-xs font-medium text-zinc-500">
-          {authorHref ? (
-            <Link href={authorHref} className="font-semibold text-zinc-800 hover:text-orange-600">
-              {author}
-            </Link>
-          ) : (
-            author
-          )}
-          {isFacebookImport ? (
-            <span className="ml-2 inline-flex items-center rounded-full bg-[#1877F2]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#1877F2]">
-              Facebook
-            </span>
+      <div className="flex items-start gap-2.5 px-3 pt-3 md:px-4 md:pt-4">
+        <UserAvatar
+          name={author}
+          avatarUrl={p.user?.avatar}
+          href={authorHref}
+          size="sm"
+        />
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium text-zinc-500">
+            {authorHref ? (
+              <Link href={authorHref} className="font-semibold text-zinc-800 hover:text-orange-600">
+                {author}
+              </Link>
+            ) : (
+              author
+            )}
+            {isFacebookImport ? (
+              <span className="ml-2 inline-flex items-center rounded-full bg-[#1877F2]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#1877F2]">
+                Facebook
+              </span>
+            ) : null}
+          </p>
+          {isFacebookImport && facebookLink ? (
+            <p className="pt-1">
+              <a
+                href={facebookLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-semibold text-[#1877F2] hover:underline"
+              >
+                Otevřít na Facebooku
+              </a>
+            </p>
           ) : null}
-        </p>
-        {isFacebookImport && facebookLink ? (
-          <p className="pt-1">
-            <a
-              href={facebookLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs font-semibold text-[#1877F2] hover:underline"
-            >
-              Otevřít na Facebooku
-            </a>
-          </p>
-        ) : null}
-        {Number.isFinite(p.distanceKm) ? (
-          <p className="pt-1 text-[11px] font-medium text-zinc-500">
-            {Number(p.distanceKm).toFixed(1)} km od vás
-          </p>
-        ) : null}
+          {Number.isFinite(p.distanceKm) ? (
+            <p className="pt-1 text-[11px] font-medium text-zinc-500">
+              {Number(p.distanceKm).toFixed(1)} km od vás
+            </p>
+          ) : null}
+        </div>
       </div>
 
       {editingPostId === id ? (
@@ -282,10 +289,12 @@ export function CommunityPostCard({
           <FacebookPostMediaBlock
             media={resolvedMedia}
             facebookPostType={p.facebookPostType ?? null}
+            postId={id}
+            feedAutoplay
             compact
             blurred={interactionsLocked}
-            muted={showNativeFeedVideo ? (hasPostSound ? true : muted) : false}
-            showMuteToggle={showMuteForVideo}
+            muted={hasPostSound ? true : muted}
+            showMuteToggle={showMuteForVideo && !interactionsLocked}
             onToggleMute={onToggleMute}
             onOpenDetail={interactionsLocked ? undefined : onOpenDetail}
             edgeToEdge
@@ -293,19 +302,6 @@ export function CommunityPostCard({
           />
           {hasPostSound ? <PostSoundAudio soundTrack={p.soundTrack} /> : null}
         </>
-      ) : null}
-
-      {showMuteForVideo && !interactionsLocked ? (
-        <div className="px-3 pb-1 md:px-4">
-          <button
-            type="button"
-            onClick={onToggleMute}
-            className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-600"
-          >
-            {muted ? <VolumeX className="size-3.5" /> : <Volume2 className="size-3.5" />}
-            {muted ? 'Zapnout zvuk' : 'Ztlumit'}
-          </button>
-        </div>
       ) : null}
 
       {actionRow}

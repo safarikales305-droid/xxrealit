@@ -15,6 +15,7 @@ import {
 import { enqueuePostUpload } from '@/lib/post-upload-queue';
 import { PostUploadProgress } from '@/components/community/PostUploadProgress';
 import { LinkPreviewCard } from '@/components/community/LinkPreviewCard';
+import { captureFileVideoPoster } from '@/lib/video-poster';
 
 type Category =
   | 'MAKLERI'
@@ -45,6 +46,7 @@ export function CreateCommunityPostCard({
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
+  const [videoPoster, setVideoPoster] = useState<string | null>(null);
   const [linkPreview, setLinkPreview] = useState<LinkPreviewResponse | null>(null);
   const [linkPreviewLoading, setLinkPreviewLoading] = useState(false);
   const [linkPreviewFailed, setLinkPreviewFailed] = useState(false);
@@ -105,11 +107,19 @@ export function CreateCommunityPostCard({
   useEffect(() => {
     if (!videoFile) {
       setVideoPreview(null);
+      setVideoPoster(null);
       return;
     }
     const u = URL.createObjectURL(videoFile);
     setVideoPreview(u);
-    return () => URL.revokeObjectURL(u);
+    let cancelled = false;
+    void captureFileVideoPoster(videoFile, 1).then((poster) => {
+      if (!cancelled && poster) setVideoPoster(poster);
+    });
+    return () => {
+      cancelled = true;
+      URL.revokeObjectURL(u);
+    };
   }, [videoFile]);
 
   useEffect(() => {
@@ -421,10 +431,12 @@ export function CreateCommunityPostCard({
           {videoPreview ? (
             <video
               src={videoPreview}
+              poster={videoPoster ?? undefined}
               muted
               playsInline
               controls
-              className="max-h-64 w-full object-contain"
+              preload="metadata"
+              className="mx-auto max-h-[min(70vh,720px)] w-full max-w-[720px] object-contain"
             />
           ) : (
             <img src={imagePreview ?? ''} alt="" className="max-h-64 w-full object-contain" />

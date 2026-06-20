@@ -559,5 +559,39 @@ export function logFacebookVideoImportDiagnostics(input: {
   return parts.join(' ');
 }
 
+export function extractFacebookVideoIdFromPermalink(permalink: string): string | null {
+  const u = permalink.trim();
+  const patterns = [
+    /\/videos\/(\d+)/i,
+    /\/reel\/(\d+)/i,
+    /\/reels\/(\d+)/i,
+    /[?&]v=(\d+)/i,
+    /video\.php\?v=(\d+)/i,
+    /\/watch\/?\?v=(\d+)/i,
+  ];
+  for (const re of patterns) {
+    const m = u.match(re);
+    if (m?.[1]) return m[1];
+  }
+  return null;
+}
+
+export function buildExtractedMediaFromScrapedItem(item: {
+  imageUrl?: string | null;
+  videoUrl?: string | null;
+  permalink: string;
+}): ExtractedFacebookMedia {
+  const thumbnail = item.imageUrl?.trim() || null;
+  const scrapedVideo = item.videoUrl?.trim() || null;
+  const videoId = extractFacebookVideoIdFromPermalink(item.permalink);
+  return {
+    imageUrl: thumbnail,
+    videoUrl: scrapedVideo,
+    videoId,
+    thumbnailUrl: thumbnail,
+    linkUrl: item.permalink,
+  };
+}
+
 export const FACEBOOK_GRAPH_POST_FIELDS =
   'id,message,story,created_time,permalink_url,full_picture,attachments{media_type,media{source,image},url,target{id},subattachments}';

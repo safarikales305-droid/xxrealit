@@ -9,6 +9,7 @@ import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { LinkPreviewCard } from '@/components/community/LinkPreviewCard';
 import { FacebookPostMediaBlock } from '@/components/community/FacebookPostMediaBlock';
+import { FacebookInlineVideoPlayer } from '@/components/community/FacebookInlineVideoPlayer';
 import { nestFetchPostDetail, type ListingPost } from '@/lib/nest-client';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
 import {
@@ -99,9 +100,11 @@ export default function PrispevekDetailPage() {
             <FacebookPostMediaBlock
               media={resolvedMedia}
               facebookPostType={post.facebookPostType ?? null}
+              postId={postId}
+              showMuteToggle={resolvedMedia.mode === 'video'}
+              muted
               className="mt-0"
               edgeToEdge
-              onOpenDetail={undefined}
             />
           ) : orderedMedia.length > 0 ? (
             <div className="relative w-full bg-black">
@@ -119,20 +122,16 @@ export default function PrispevekDetailPage() {
                         className="aspect-square w-full object-contain"
                       />
                     ) : (
-                      <video
-                        src={nestAbsoluteAssetUrl(m.url)}
+                      <FacebookInlineVideoPlayer
+                        src={m.url}
                         poster={
                           post.facebookVideoThumbnail || post.previewImage
-                            ? nestAbsoluteAssetUrl(
-                                String(post.facebookVideoThumbnail ?? post.previewImage),
-                              )
-                            : undefined
+                            ? String(post.facebookVideoThumbnail ?? post.previewImage)
+                            : null
                         }
-                        controls
-                        playsInline
-                        autoPlay
-                        preload="metadata"
-                        className="max-h-[100dvh] w-full object-contain md:max-h-[85vh]"
+                        postId={`${postId}-${m.id ?? m.url}`}
+                        muted
+                        showMuteToggle
                       />
                     )}
                   </div>
