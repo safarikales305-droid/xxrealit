@@ -10,6 +10,11 @@ import { PrismaService } from '../../database/prisma.service';
 import { ProfileImagesService } from '../upload/profile-images.service';
 import { ProfileMediaStorageService } from '../upload/profile-media-storage.service';
 import {
+  isProfessionalVerified,
+  publicProfileHref,
+  verifiedBadgeLabelForRole,
+} from '../brokers/professional-verification.util';
+import {
   composePromoDisplayName,
   generatePromoProfileName,
   isPromoProfileRole,
@@ -86,6 +91,13 @@ export class PromoProfilesService {
         promoProfileActive: true,
         isPublicBrokerProfile: true,
         publicProfessionalProfile: true,
+        professionalVerified: true,
+        professionalVerificationStatus: true,
+        agentProfile: { select: { verificationStatus: true } },
+        companyProfile: { select: { verificationStatus: true } },
+        agencyProfile: { select: { verificationStatus: true } },
+        financialAdvisorProfile: { select: { verificationStatus: true } },
+        investorProfile: { select: { verificationStatus: true } },
       },
     });
 
@@ -98,13 +110,18 @@ export class PromoProfilesService {
         return row.isPublicBrokerProfile || row.publicProfessionalProfile;
       })
       .slice(0, take)
-      .map((row) => ({
-        id: row.id,
-        role: row.role,
-        roleLabel: promoRoleLabel(row.role),
-        avatarUrl: row.avatar,
-        profileHref: `/profile/${row.id}`,
-      }));
+      .map((row) => {
+        const verified = isProfessionalVerified(row);
+        return {
+          id: row.id,
+          role: row.role,
+          roleLabel: promoRoleLabel(row.role),
+          avatarUrl: row.avatar,
+          profileHref: publicProfileHref(row.id, row.role),
+          isVerified: verified,
+          verifiedBadgeLabel: verified ? verifiedBadgeLabelForRole(row.role) : null,
+        };
+      });
 
     return mapped;
   }

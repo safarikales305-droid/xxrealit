@@ -98,3 +98,29 @@ export const CATALOG_VERIFIED_USER_WHERE = {
   professionalVerificationStatus: ProfessionalVerificationStatus.APPROVED,
   publicProfessionalProfile: true,
 } as const;
+
+export function verifiedBadgeLabelForRole(role: UserRole | string | null | undefined): string {
+  switch (String(role ?? '').toUpperCase()) {
+    case UserRole.AGENT:
+      return 'Ověřený makléř';
+    case UserRole.AGENCY:
+      return 'Ověřená realitní kancelář';
+    case UserRole.COMPANY:
+      return 'Ověřená stavební firma';
+    case UserRole.FINANCIAL_ADVISOR:
+      return 'Ověřený finanční poradce';
+    case UserRole.INVESTOR:
+      return 'Ověřený investor';
+    case UserRole.CRAFTSMAN:
+      return 'Ověřený řemeslník';
+    default:
+      return 'Ověřený profesionál';
+  }
+}
+
+export function publicProfileHref(userId: string, role: UserRole | string): string {
+  if (String(role).toUpperCase() === UserRole.AGENT) {
+    return `/agent/${userId}`;
+  }
+  return `/profile/${userId}`;
+}

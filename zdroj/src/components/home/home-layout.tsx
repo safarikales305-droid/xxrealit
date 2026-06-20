@@ -252,11 +252,15 @@ export function HomeLayout({
 
   async function refreshPostsFeed() {
     if (!API_BASE_URL) return;
-    const list = await nestFetchCommunityPosts(activeCategory, {
-      radiusKm,
-      lat: userCoords?.lat,
-      lng: userCoords?.lng,
-    });
+    const list = await nestFetchCommunityPosts(
+      activeCategory,
+      {
+        radiusKm,
+        lat: userCoords?.lat,
+        lng: userCoords?.lng,
+      },
+      apiAccessToken,
+    );
     setPostFeed(list as Array<Record<string, unknown>>);
     setLikeCountByPostId((prev) => {
       const next = { ...prev };
@@ -1017,7 +1021,7 @@ export function HomeLayout({
                 )
               ) : viewMode === 'posts' ? (
                 <div className="w-full min-w-0 overflow-x-hidden pb-8 pt-3">
-                  <div className="mx-auto w-full max-w-7xl overflow-x-hidden px-3 py-3 sm:px-4 md:px-6">
+                  <div className="mx-auto w-full max-w-7xl overflow-x-hidden px-0 py-3 sm:px-4 md:px-6">
                     <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
                       <aside className="hidden min-w-0 xl:col-span-3 xl:block">
                         <div className="space-y-4 lg:sticky lg:top-20">
@@ -1218,7 +1222,7 @@ export function HomeLayout({
                           </div>
                         ) : null}
 
-                        <div className="mt-4 flex w-full min-w-0 flex-col gap-4">
+                        <div className="mt-4 flex w-full min-w-0 flex-col gap-0 md:gap-4">
                     {loadingFeed ? (
                       <FeedSkeletonRows count={3} />
                     ) : communityFeedPosts.length === 0 ? (

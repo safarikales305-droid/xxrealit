@@ -68,7 +68,7 @@ export function CreateCommunityPostCard({
     }
     let cancelled = false;
     setSoundsLoading(true);
-    void nestFetchPostSounds().then((rows) => {
+    void nestFetchPostSounds(apiAccessToken).then((rows) => {
       if (cancelled) return;
       setPostSounds(rows);
       setSoundsLoading(false);

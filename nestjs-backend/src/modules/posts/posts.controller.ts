@@ -22,6 +22,7 @@ import { memoryStorage } from 'multer';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { uploadPostMedia } from './cloudinary-upload';
 import { CreateListingPostDto } from './dto/create-listing-post.dto';
 import { CreatePostDto } from './dto/create-post.dto';
@@ -56,7 +57,9 @@ export class PostsController {
   private readonly log = new Logger(PostsController.name);
 
   @Get()
+  @UseGuards(OptionalJwtAuthGuard)
   list(
+    @CurrentUser() viewer: AuthUser | null,
     @Query('category') category?: string,
     @Query('radiusKm') radiusKm?: string,
     @Query('lat') lat?: string,
@@ -83,6 +86,7 @@ export class PostsController {
       Number.isFinite(radius) ? radius : undefined,
       Number.isFinite(userLat) ? userLat : undefined,
       Number.isFinite(userLng) ? userLng : undefined,
+      viewer?.id,
     );
   }
 

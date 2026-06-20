@@ -33,6 +33,9 @@ type PublicProfile = {
     isFollowedByViewer?: boolean | null;
     whatsappEnabled?: boolean;
     facebookUrl?: string | null;
+    isVerified?: boolean;
+    verifiedBadgeLabel?: string | null;
+    profileHref?: string;
   };
   videos?: Array<{ id: string; url: string; description?: string | null; createdAt?: string }>;
   posts?: Array<{
@@ -56,6 +59,9 @@ type PublicProfile = {
   isFollowedByViewer?: boolean | null;
   whatsappEnabled?: boolean;
   facebookUrl?: string | null;
+  isVerified?: boolean;
+  verifiedBadgeLabel?: string | null;
+  profileHref?: string;
 };
 
 async function fetchJson<T>(url: string, auth?: string): Promise<T | null> {
@@ -212,6 +218,11 @@ export default async function ProfilePage({
                   {profileUser.name ?? 'Uživatel'}
                 </h1>
                 <p className="mt-1 text-sm font-medium text-[#e85d00]">{roleLabel}</p>
+                {profileUser.isVerified && profileUser.verifiedBadgeLabel ? (
+                  <p className="mt-2 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+                    {profileUser.verifiedBadgeLabel}
+                  </p>
+                ) : null}
                 {profileUser.city ? (
                   <p className="mt-2 text-[15px] text-zinc-600">📍 {profileUser.city}</p>
                 ) : null}

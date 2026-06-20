@@ -74,8 +74,8 @@ export default function PrispevekDetailPage() {
   const shareUrl = absoluteShareUrl(`/prispevky/${encodeURIComponent(postId)}`);
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-3 py-4">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+    <main className="min-h-[100dvh] bg-black px-0 py-0 text-white md:bg-[#fafafa] md:px-3 md:py-4 md:text-zinc-900">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 px-3 pt-3 md:px-0 md:pt-0">
         <button
           type="button"
           onClick={() => router.push('/')}
@@ -94,15 +94,17 @@ export default function PrispevekDetailPage() {
       ) : null}
 
       {post ? (
-        <article className="mt-4 rounded-2xl border border-zinc-200 bg-white shadow-sm">
+        <article className="mt-0 overflow-hidden bg-black md:mt-4 md:rounded-2xl md:border md:border-zinc-200 md:bg-white md:shadow-sm">
           {useFbMediaRenderer || showPrimaryMediaBlock ? (
             <FacebookPostMediaBlock
               media={resolvedMedia}
               facebookPostType={post.facebookPostType ?? null}
               className="mt-0"
+              edgeToEdge
+              onOpenDetail={undefined}
             />
           ) : orderedMedia.length > 0 ? (
-            <div className="relative w-full">
+            <div className="relative w-full bg-black">
               <div
                 ref={carouselRef}
                 onScroll={onCarouselScroll}
@@ -114,7 +116,7 @@ export default function PrispevekDetailPage() {
                       <img
                         src={nestAbsoluteAssetUrl(m.url)}
                         alt=""
-                        className="h-auto w-full object-contain"
+                        className="aspect-square w-full object-contain"
                       />
                     ) : (
                       <video
@@ -128,8 +130,9 @@ export default function PrispevekDetailPage() {
                         }
                         controls
                         playsInline
+                        autoPlay
                         preload="metadata"
-                        className="h-auto w-full object-contain"
+                        className="max-h-[100dvh] w-full object-contain md:max-h-[85vh]"
                       />
                     )}
                   </div>
@@ -158,7 +161,7 @@ export default function PrispevekDetailPage() {
             </div>
           ) : null}
 
-          <div className="px-3 py-3">
+          <div className="px-3 py-3 md:bg-white">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <h1 className="text-lg font-semibold text-zinc-900">
                 {isCommunityPost ? 'Komunitní příspěvek' : post.title}

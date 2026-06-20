@@ -13,6 +13,11 @@ import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 import { ensureUserRole } from '../auth/user-role.util';
 import { classicPublicListingWhere } from '../properties/property-listing-scope';
 import {
+  isProfessionalVerified,
+  publicProfileHref,
+  verifiedBadgeLabelForRole,
+} from '../brokers/professional-verification.util';
+import {
   serializeProperty,
   type PropertyViewerAccess,
 } from '../properties/properties.serializer';
@@ -638,6 +643,14 @@ export class UsersService {
       isPublicBrokerProfile: true,
       isPromoProfile: true,
       promoProfileActive: true,
+      professionalVerified: true,
+      professionalVerificationStatus: true,
+      publicProfessionalProfile: true,
+      agentProfile: { select: { verificationStatus: true, isPublic: true } },
+      companyProfile: { select: { verificationStatus: true, isPublic: true } },
+      agencyProfile: { select: { verificationStatus: true, isPublic: true } },
+      financialAdvisorProfile: { select: { verificationStatus: true, isPublic: true } },
+      investorProfile: { select: { verificationStatus: true, isPublic: true } },
       avatar: true,
       coverImage: true,
       bio: true,
@@ -795,6 +808,8 @@ export class UsersService {
     const whatsappAvailable =
       Boolean(user.whatsappEnabled) && isValidWhatsAppPhone(user.whatsappPhone ?? '');
 
+    const verified = isProfessionalVerified(user);
+
     return {
       user: {
       id: user.id,
@@ -818,6 +833,9 @@ export class UsersService {
       canContactProfile: professionalRoles.has(user.role) && (viewerIsProfessional || viewerIsAdmin),
       creditBalance: user.creditBalance ?? 0,
       isTipar: Boolean(user.isTipar),
+      isVerified: verified,
+      verifiedBadgeLabel: verified ? verifiedBadgeLabelForRole(user.role) : null,
+      profileHref: publicProfileHref(user.id, user.role),
       },
       videos: videos.map((v) => ({
         ...v,

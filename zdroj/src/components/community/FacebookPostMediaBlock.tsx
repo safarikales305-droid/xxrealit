@@ -16,6 +16,8 @@ type Props = {
   onToggleMute?: () => void;
   onOpenDetail?: () => void;
   className?: string;
+  /** Mobilní feed — video až ke krajům obrazovky. */
+  edgeToEdge?: boolean;
 };
 
 export function FacebookPostMediaBlock({
@@ -28,16 +30,19 @@ export function FacebookPostMediaBlock({
   onToggleMute,
   onOpenDetail,
   className = 'mt-3',
+  edgeToEdge = false,
 }: Props) {
   if (media.mode === 'none') return null;
 
   const containerClass = getFacebookVideoContainerClass(facebookPostType);
-  const paddedClass = `${className} w-full min-w-0 px-3 md:px-4`;
+  const paddedClass = edgeToEdge
+    ? `${className} w-full min-w-0`
+    : `${className} w-full min-w-0 px-3 md:px-4`;
 
   if (media.mode === 'facebook-embed' && media.embedUrl) {
     return (
       <div className={paddedClass}>
-        <div className={`${containerClass} overflow-hidden rounded-2xl bg-black`}>
+        <div className={`${containerClass} overflow-hidden ${edgeToEdge ? '' : 'rounded-2xl'} bg-black`}>
           <FacebookEmbedCard
             embedUrl={media.embedUrl}
             fallbackUrl={media.permalink || media.embedUrl}
@@ -55,7 +60,7 @@ export function FacebookPostMediaBlock({
     return (
       <div className={paddedClass}>
         <div
-          className={`${containerClass} relative overflow-hidden rounded-2xl border border-[#1877F2]/25 bg-zinc-900`}
+          className={`${containerClass} relative overflow-hidden ${edgeToEdge ? '' : 'rounded-2xl'} border border-[#1877F2]/25 bg-zinc-900`}
         >
           <div className="flex h-full min-h-[200px] items-center justify-center bg-gradient-to-br from-[#1877F2]/40 via-[#1877F2]/20 to-zinc-900">
             <span className="text-5xl text-white/90">f</span>
@@ -78,11 +83,11 @@ export function FacebookPostMediaBlock({
 
   if (media.mode === 'image' && media.imageUrl) {
     const body = (
-      <div className="relative w-full overflow-hidden rounded-2xl bg-black">
+      <div className={`relative w-full overflow-hidden bg-black ${edgeToEdge ? '' : 'rounded-2xl'}`}>
         <img
           src={nestAbsoluteAssetUrl(media.imageUrl)}
           alt=""
-          className={`h-auto max-h-[70vh] w-full object-contain ${blurred ? 'blur-sm' : ''}`}
+          className={`aspect-square w-full object-cover ${blurred ? 'blur-sm' : ''}`}
         />
       </div>
     );
@@ -98,22 +103,23 @@ export function FacebookPostMediaBlock({
 
   if (media.mode === 'video' && media.videoUrl) {
     const video = (
-      <div className={`${containerClass} overflow-hidden rounded-2xl bg-black`}>
-        <FacebookInlineVideoPlayer
-          src={media.videoUrl}
-          poster={media.posterUrl}
-          blurred={blurred}
-          muted={muted}
-          showMuteToggle={showMuteToggle}
-          onToggleMute={onToggleMute}
-        />
-      </div>
+      <FacebookInlineVideoPlayer
+        src={media.videoUrl}
+        poster={media.posterUrl}
+        blurred={blurred}
+        muted={muted}
+        showMuteToggle={showMuteToggle}
+        onToggleMute={onToggleMute}
+        onOpenDetail={onOpenDetail}
+      />
     );
     if (onOpenDetail) {
       return (
-        <button type="button" className={`${paddedClass} block text-left`} onClick={onOpenDetail}>
-          {video}
-        </button>
+        <div className={paddedClass}>
+          <button type="button" className="block w-full text-left" onClick={onOpenDetail}>
+            {video}
+          </button>
+        </div>
       );
     }
     return <div className={paddedClass}>{video}</div>;

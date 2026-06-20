@@ -10,6 +10,7 @@ import {
   isPublicMediaUrl,
   postHasFeedVisibility,
   sortCommunityPostsByDate,
+  sortCommunityPostsWithFollowPriority,
 } from './community-posts.util';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
@@ -384,6 +385,7 @@ export class PostsService {
     radiusKm?: number,
     lat?: number,
     lng?: number,
+    viewerUserId?: string,
   ) {
     const rows = await this.prisma.post.findMany({
       where: buildCommunityPostsWhere(category),
@@ -403,16 +405,28 @@ export class PostsService {
         },
       },
     });
-    const publicRows = sortCommunityPostsByDate(
-      dedupeCommunityPosts(
-        rows
-          .map((row) => ({
-            ...row,
-            media: row.media.filter((m) => isPublicMediaUrl(m.url)),
-          }))
-          .filter((row) => postHasFeedVisibility(row)),
-      ),
+    const deduped = dedupeCommunityPosts(
+      rows
+        .map((row) => ({
+          ...row,
+          media: row.media.filter((m) => isPublicMediaUrl(m.url)),
+        }))
+        .filter((row) => postHasFeedVisibility(row)),
     );
+
+    let followedIds = new Set<string>();
+    if (viewerUserId?.trim()) {
+      const follows = await this.prisma.follow.findMany({
+        where: { followerId: viewerUserId.trim() },
+        select: { followingId: true },
+      });
+      followedIds = new Set(follows.map((f) => f.followingId));
+    }
+
+    const publicRows =
+      followedIds.size > 0
+        ? sortCommunityPostsWithFollowPriority(deduped, followedIds)
+        : sortCommunityPostsByDate(deduped);
     const userLat = toNumberOrNull(lat);
     const userLng = toNumberOrNull(lng);
     const radiusNum = toNumberOrNull(radiusKm);

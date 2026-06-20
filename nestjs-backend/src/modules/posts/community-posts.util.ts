@@ -69,6 +69,29 @@ export function sortCommunityPostsByDate<T extends { publishedAt?: Date | null; 
   );
 }
 
+function postAuthorId(row: { userId?: string; user?: { id: string } }): string | null {
+  const id = row.userId?.trim() || row.user?.id?.trim();
+  return id || null;
+}
+
+/** Nejdříve příspěvky sledovaných autorů, v rámci skupin podle data. */
+export function sortCommunityPostsWithFollowPriority<
+  T extends { userId?: string; user?: { id: string }; publishedAt?: Date | null; createdAt: Date },
+>(rows: T[], followedUserIds: ReadonlySet<string>): T[] {
+  if (followedUserIds.size === 0) return sortCommunityPostsByDate(rows);
+  const followed: T[] = [];
+  const others: T[] = [];
+  for (const row of rows) {
+    const authorId = postAuthorId(row);
+    if (authorId && followedUserIds.has(authorId)) {
+      followed.push(row);
+    } else {
+      others.push(row);
+    }
+  }
+  return [...sortCommunityPostsByDate(followed), ...sortCommunityPostsByDate(others)];
+}
+
 /** Odstraní duplicity podle facebookExternalId / permalink / externalUrl. */
 export function dedupeCommunityPosts<T extends CommunityPostRow>(rows: T[]): T[] {
   const seenKeys = new Set<string>();

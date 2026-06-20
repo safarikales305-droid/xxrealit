@@ -3,24 +3,27 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { toPublicApiUrl } from '@/lib/public-api';
 
 type Props = {
   userId: string;
   /** `null` = viewer not logged in */
   initialFollowing: boolean | null;
   initialFollowersCount: number;
+  /** Po změně sledování (např. obnovit feed). */
+  onFollowChange?: (following: boolean) => void;
 };
 
 export function FollowButton({
   userId,
   initialFollowing,
   initialFollowersCount,
+  onFollowChange,
 }: Props) {
   const router = useRouter();
   const [following, setFollowing] = useState<boolean | null>(initialFollowing);
   const [count, setCount] = useState(initialFollowersCount);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (initialFollowing === null) {
     return (
@@ -40,35 +43,32 @@ export function FollowButton({
 
   async function toggle() {
     setLoading(true);
+    setError(null);
     try {
-      if (following) {
-        const res = await fetch(toPublicApiUrl(`/users/${userId}/follow`), {
-          method: 'DELETE',
-        });
-        const data = (await res.json()) as { followersCount?: number };
-        if (res.ok) {
-          setFollowing(false);
-          if (typeof data.followersCount === 'number') {
-            setCount(data.followersCount);
-          } else {
-            setCount((c) => Math.max(0, c - 1));
-          }
-          router.refresh();
-        }
+      const method = following ? 'DELETE' : 'POST';
+      const res = await fetch(`/api/users/${encodeURIComponent(userId)}/follow`, {
+        method,
+        credentials: 'include',
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        followersCount?: number;
+        message?: string;
+      };
+      if (!res.ok) {
+        setError(typeof data.message === 'string' ? data.message : 'Akce selhala.');
+        return;
+      }
+      const nextFollowing = !following;
+      setFollowing(nextFollowing);
+      if (typeof data.followersCount === 'number') {
+        setCount(data.followersCount);
       } else {
-        const res = await fetch(toPublicApiUrl(`/users/${userId}/follow`), {
-          method: 'POST',
-        });
-        const data = (await res.json()) as { followersCount?: number };
-        if (res.ok) {
-          setFollowing(true);
-          if (typeof data.followersCount === 'number') {
-            setCount(data.followersCount);
-          } else {
-            setCount((c) => c + 1);
-          }
-          router.refresh();
-        }
+        setCount((c) => (nextFollowing ? c + 1 : Math.max(0, c - 1)));
+      }
+      onFollowChange?.(nextFollowing);
+      router.refresh();
+      if (nextFollowing) {
+        window.dispatchEvent(new Event('xxrealit:posts-refresh'));
       }
     } finally {
       setLoading(false);
@@ -92,6 +92,7 @@ export function FollowButton({
       <p className="text-sm text-zinc-500">
         <span className="font-semibold text-zinc-800">{count}</span> sledujících
       </p>
+      {error ? <p className="text-xs text-red-600">{error}</p> : null}
     </div>
   );
 }

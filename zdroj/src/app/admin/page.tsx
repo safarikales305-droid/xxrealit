@@ -408,16 +408,10 @@ export default function AdminPage() {
               Makléři (import)
             </Link>
             <Link
-              href="/admin/zvuky"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Zvuky
-            </Link>
-            <Link
               href="/admin/hudba"
               className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >
-              Hudba (shorts)
+              Hudba a zvuky
             </Link>
             <Link
               href="/admin/nastaveni-registrace"

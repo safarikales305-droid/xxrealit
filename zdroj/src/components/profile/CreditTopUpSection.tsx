@@ -30,21 +30,52 @@ export function CreditTopUpSection({ token, initialBalance, onBalanceChange }: P
       : null,
   );
   const [amount, setAmount] = useState('500');
-  const [balanceLoading, setBalanceLoading] = useState(true);
+  const [balanceLoading, setBalanceLoading] = useState(Boolean(token));
+  const [balanceError, setBalanceError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CreditTopUpResultDto | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!token) return;
+    if (!token) {
+      setBalanceLoading(false);
+      if (initialBalance != null) {
+        setBalanceInfo({
+          creditBalance: initialBalance,
+          realCreditBalance: initialBalance,
+          bonusCreditBalance: 0,
+          pendingCreditBalance: 0,
+          creditDebt: 0,
+          accountLimited: false,
+          warning: null,
+          pendingTopUps: [],
+        });
+      }
+      return;
+    }
     setBalanceLoading(true);
+    setBalanceError(null);
     const data = await nestCreditsBalance(token);
     setBalanceLoading(false);
     if (data) {
       setBalanceInfo(data);
       onBalanceChange?.(data.creditBalance);
+      return;
     }
-  }, [token, onBalanceChange]);
+    setBalanceError('Nepodařilo se načíst stav kreditu.');
+    setBalanceInfo((prev) =>
+      prev ?? {
+        creditBalance: initialBalance ?? 0,
+        realCreditBalance: initialBalance ?? 0,
+        bonusCreditBalance: 0,
+        pendingCreditBalance: 0,
+        creditDebt: 0,
+        accountLimited: false,
+        warning: null,
+        pendingTopUps: [],
+      },
+    );
+  }, [token, onBalanceChange, initialBalance]);
 
   useEffect(() => {
     void refresh();
@@ -82,9 +113,12 @@ export function CreditTopUpSection({ token, initialBalance, onBalanceChange }: P
           </span>
         ) : (
           <span className="font-semibold text-[#e85d00]">
-            {(balanceInfo?.creditBalance ?? 0).toLocaleString('cs-CZ')} Kč
+            {(balanceInfo?.creditBalance ?? initialBalance ?? 0).toLocaleString('cs-CZ')} Kč
           </span>
         )}
+        {balanceError ? (
+          <span className="mt-1 block text-xs text-red-600">{balanceError}</span>
+        ) : null}
         {balanceInfo && !balanceLoading ? (
           <span className="mt-1 block text-xs text-zinc-500">
             Běžný {(balanceInfo.realCreditBalance ?? 0).toLocaleString('cs-CZ')} Kč · Bonus{' '}

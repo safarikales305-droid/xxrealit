@@ -29,6 +29,11 @@ function PortalAvatar({ profile }: { profile: PublicPortalProfileRow }) {
       <p className="line-clamp-2 text-center text-[11px] font-semibold leading-tight text-zinc-700 sm:text-xs">
         {profile.roleLabel}
       </p>
+      {profile.isVerified && profile.verifiedBadgeLabel ? (
+        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-semibold leading-tight text-emerald-800">
+          {profile.verifiedBadgeLabel}
+        </span>
+      ) : null}
     </Link>
   );
 }

@@ -107,7 +107,7 @@ export class PostSoundsService {
       file.mimetype || 'audio/mpeg',
     );
 
-    return this.prisma.postSoundTrack.create({
+    return this.prisma.shortsMusicTrack.create({
       data: {
         title: title.trim().slice(0, 200),
         artist: artist.trim().slice(0, 120),
@@ -124,7 +124,7 @@ export class PostSoundsService {
   }
 
   listAllForAdmin() {
-    return this.prisma.postSoundTrack.findMany({
+    return this.prisma.shortsMusicTrack.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
         uploadedBy: { select: { id: true, email: true } },
@@ -133,7 +133,7 @@ export class PostSoundsService {
   }
 
   listActiveForPicker() {
-    return this.prisma.postSoundTrack.findMany({
+    return this.prisma.shortsMusicTrack.findMany({
       where: { isActive: true },
       orderBy: { title: 'asc' },
       select: {
@@ -148,7 +148,7 @@ export class PostSoundsService {
   }
 
   async updateTrack(id: string, body: Record<string, unknown>) {
-    const existing = await this.prisma.postSoundTrack.findUnique({ where: { id } });
+    const existing = await this.prisma.shortsMusicTrack.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Zvuk nenalezen.');
     const data: Record<string, unknown> = {};
     if (typeof body.title === 'string') data.title = body.title.trim().slice(0, 200);
@@ -157,13 +157,13 @@ export class PostSoundsService {
       data.description = body.description.trim().slice(0, 4000) || null;
     }
     if (typeof body.isActive === 'boolean') data.isActive = body.isActive;
-    return this.prisma.postSoundTrack.update({ where: { id }, data });
+    return this.prisma.shortsMusicTrack.update({ where: { id }, data });
   }
 
   async deleteTrack(id: string) {
-    const existing = await this.prisma.postSoundTrack.findUnique({ where: { id } });
+    const existing = await this.prisma.shortsMusicTrack.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Zvuk nenalezen.');
-    await this.prisma.postSoundTrack.delete({ where: { id } });
+    await this.prisma.shortsMusicTrack.delete({ where: { id } });
     return { success: true };
   }
 }

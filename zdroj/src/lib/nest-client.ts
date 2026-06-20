@@ -4999,6 +4999,10 @@ export type ListingPost = {
     name?: string | null;
     email?: string;
     avatar?: string | null;
+    role?: string;
+    profileHref?: string;
+    isVerified?: boolean;
+    verifiedBadgeLabel?: string | null;
   } | null;
   _count?: {
     favorites?: number;
@@ -5514,6 +5518,7 @@ export async function nestFetchCommunityPosts(
     | 'FINANCNI_PORADCI'
     | 'INVESTORI',
   options?: { radiusKm?: number; lat?: number; lng?: number },
+  token?: string | null,
 ): Promise<ListingPost[]> {
   if (!API_BASE_URL) return [];
   const params = new URLSearchParams();
@@ -5524,7 +5529,7 @@ export async function nestFetchCommunityPosts(
   const qs = params.toString() ? `?${params.toString()}` : '';
   const res = await fetch(`${postsApiBase()}/posts${qs}`, {
     cache: 'no-store',
-    headers: { Accept: 'application/json' },
+    headers: { Accept: 'application/json', ...nestAuthHeaders(token ?? null) },
   });
   if (!res.ok) return [];
   const data = (await res.json()) as unknown;
@@ -6430,6 +6435,17 @@ export type CreditTopUpSettingsDto = {
 };
 
 export async function nestCreditsBalance(token: string | null): Promise<CreditBalanceDto | null> {
+  if (typeof window !== 'undefined') {
+    const proxied = await fetch('/api/nest/credits/balance', {
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (proxied.ok) {
+      return (await proxied.json().catch(() => null)) as CreditBalanceDto | null;
+    }
+    if (proxied.status === 401) return null;
+  }
   if (!API_BASE_URL || !token) return null;
   const res = await fetch(`${API_BASE_URL}/credits/balance`, {
     headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
@@ -7331,6 +7347,8 @@ export type PublicPromoProfileRow = {
   roleLabel: string;
   avatarUrl: string | null;
   profileHref: string;
+  isVerified?: boolean;
+  verifiedBadgeLabel?: string | null;
 };
 
 export type AdminPromoProfileRow = {
@@ -7455,19 +7473,16 @@ export type PostSoundTrackDto = {
   updatedAt?: string;
 };
 
-export async function nestFetchPostSounds(): Promise<PostSoundTrackDto[]> {
-  if (!API_BASE_URL) return [];
-  try {
-    const res = await fetch(`${API_BASE_URL}/post-sounds`, {
-      headers: { Accept: 'application/json' },
-      cache: 'no-store',
-    });
-    if (!res.ok) return [];
-    const data = (await res.json()) as unknown;
-    return Array.isArray(data) ? (data as PostSoundTrackDto[]) : [];
-  } catch {
-    return [];
-  }
+export async function nestFetchPostSounds(token?: string | null): Promise<PostSoundTrackDto[]> {
+  const tracks = await nestListActiveShortsMusicTracks(token ?? null);
+  return tracks.map((t) => ({
+    id: t.id,
+    title: t.title,
+    artist: t.artist,
+    fileUrl: t.fileUrl ?? t.audioUrl ?? '',
+    previewUrl: t.previewUrl ?? t.fileUrl ?? t.audioUrl ?? null,
+    durationSec: t.durationSec ?? t.duration ?? null,
+  }));
 }
 
 export async function nestAdminPostSoundsList(

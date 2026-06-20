@@ -534,6 +534,7 @@ model ShortsMusicTrack {
   updatedAt          DateTime @updatedAt
   uploadedById       String
   uploadedBy         User     @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  posts              Post[]
 
   @@index([isActive])
   @@index([createdAt])
@@ -584,7 +585,6 @@ model PostSoundTrack {
   updatedAt          DateTime @updatedAt
   uploadedById       String
   uploadedBy         User     @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
-  posts              Post[]
 
   @@index([isActive])
   @@index([createdAt])
@@ -628,9 +628,9 @@ model Post {
   facebookVideoHasAudio    Boolean?
   facebookVideoMimeType    String?
   publishedAt         DateTime?
-  /// Volitelný zvuk/hudba k video příspěvku (přehrávání jako na Facebooku).
+  /// Volitelný zvuk/hudba k video příspěvku (sdílená knihovna Shorts hudby).
   soundTrackId        String?
-  soundTrack          PostSoundTrack? @relation(fields: [soundTrackId], references: [id], onDelete: SetNull)
+  soundTrack          ShortsMusicTrack? @relation(fields: [soundTrackId], references: [id], onDelete: SetNull)
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   media       Media[]
