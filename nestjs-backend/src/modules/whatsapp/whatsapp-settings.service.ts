@@ -530,7 +530,11 @@ export class WhatsAppSettingsService implements OnModuleInit {
     this.stored = validated;
     this.effective = this.buildEffective(validated);
     this.logLoadedSystemTemplates(validated);
-    return this.extractSystemTemplates(validated);
+    const saved = this.extractSystemTemplates(validated);
+    this.logger.log(
+      `Saved system templates response: verify=${saved.whatsappVerifyTemplateName || '—'}/${saved.whatsappVerifyTemplateLanguage || '—'}`,
+    );
+    return saved;
   }
 
   getEffectiveConfig(): EffectiveWhatsAppConfig {

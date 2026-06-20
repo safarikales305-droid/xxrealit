@@ -24,6 +24,7 @@ import {
   enrichSystemTemplatesPayload,
   hydrateSystemTemplateIds,
   isSystemTemplateSlotSaved,
+  isVerifySystemTemplateSaved,
   logLoadedSystemTemplates,
   logSavedSystemTemplates,
   type WhatsAppSystemTemplatesSettings,
@@ -145,8 +146,7 @@ export default function AdminWhatsAppIntegrationPage() {
     setStats(statsData);
     setWaTemplates(templates);
 
-    const baseSaved =
-      systemData ?? extractSystemTemplatesFromSettings(settingsData);
+    const baseSaved = systemData ?? extractSystemTemplatesFromSettings(settingsData);
     const hydrated = hydrateSystemTemplateIds(baseSaved, templates);
     logLoadedSystemTemplates(hydrated);
     setSavedSystemTemplates(hydrated);
@@ -268,10 +268,10 @@ export default function AdminWhatsAppIntegrationPage() {
       setStatusMsg(r.error);
       return;
     }
-    const hydrated = hydrateSystemTemplateIds(r.data, waTemplates);
-    logSavedSystemTemplates(hydrated);
-    setSavedSystemTemplates(hydrated);
-    setSettings((s) => ({ ...s, ...hydrated }));
+    logSavedSystemTemplates(r.data);
+    setSavedSystemTemplates(r.data);
+    const hydratedForSelect = hydrateSystemTemplateIds(r.data, waTemplates);
+    setSettings((s) => ({ ...s, ...hydratedForSelect }));
     setToastMsg('Systémové WhatsApp šablony byly uloženy.');
     window.setTimeout(() => setToastMsg(null), 4000);
   }
@@ -355,6 +355,7 @@ export default function AdminWhatsAppIntegrationPage() {
   }
 
   const configured = stats?.configured ?? false;
+  const verifyTemplateSaved = isVerifySystemTemplateSaved(savedSystemTemplates);
 
   return (
     <div className="min-h-screen bg-zinc-50 px-4 py-6">
@@ -800,11 +801,12 @@ export default function AdminWhatsAppIntegrationPage() {
                     </option>
                   ))}
                 </select>
-                {isSystemTemplateSlotSaved(
-                  savedSystemTemplates,
-                  'whatsappVerifyTemplateName',
-                  'whatsappVerifyTemplateLanguage',
-                ) ? (
+                <p className="mt-1 font-mono text-[10px] text-zinc-500">
+                  Uloženo ověření:{' '}
+                  {savedSystemTemplates?.whatsappVerifyTemplateName?.trim() || '—'} +{' '}
+                  {savedSystemTemplates?.whatsappVerifyTemplateLanguage?.trim() || '—'}
+                </p>
+                {verifyTemplateSaved ? (
                   <p className="mt-1 text-[11px] text-emerald-700">
                     Uloženo: {savedSystemTemplates!.whatsappVerifyTemplateName} (
                     {savedSystemTemplates!.whatsappVerifyTemplateLanguage})
@@ -816,23 +818,8 @@ export default function AdminWhatsAppIntegrationPage() {
                 )}
                 <button
                   type="button"
-                  disabled={
-                    testingVerify ||
-                    !isSystemTemplateSlotSaved(
-                      savedSystemTemplates,
-                      'whatsappVerifyTemplateName',
-                      'whatsappVerifyTemplateLanguage',
-                    )
-                  }
-                  title={
-                    !isSystemTemplateSlotSaved(
-                      savedSystemTemplates,
-                      'whatsappVerifyTemplateName',
-                      'whatsappVerifyTemplateLanguage',
-                    )
-                      ? 'Nejprve uložte systémové šablony'
-                      : undefined
-                  }
+                  disabled={testingVerify || !verifyTemplateSaved}
+                  title={!verifyTemplateSaved ? 'Nejprve uložte systémové šablony' : undefined}
                   onClick={() => {
                     void (async () => {
                       if (!token) return;

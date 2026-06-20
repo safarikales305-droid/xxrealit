@@ -849,6 +849,31 @@ export function enrichSystemTemplatesPayload(
   };
 }
 
+const WHATSAPP_SYSTEM_TEMPLATES_API = `${API_BASE_URL}/admin/whatsapp/system-templates`;
+
+function parseNestApiError(data: unknown, status: number): string {
+  if (!data || typeof data !== 'object') return `HTTP ${status}`;
+  const o = data as Record<string, unknown>;
+  if (Array.isArray(o.message)) {
+    return o.message.map((m) => String(m)).join(' ');
+  }
+  if (typeof o.message === 'string' && o.message.trim()) return o.message;
+  if (typeof o.error === 'string' && o.error.trim()) return o.error;
+  return `HTTP ${status}`;
+}
+
+export function parseSystemTemplatesApiResponse(
+  raw: unknown,
+): WhatsAppSystemTemplatesSettings | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const payload =
+    o.data && typeof o.data === 'object'
+      ? (o.data as Partial<WhatsAppIntegrationSettings>)
+      : (o as Partial<WhatsAppIntegrationSettings>);
+  return extractSystemTemplatesFromSettings(payload);
+}
+
 export function isSystemTemplateSlotSaved(
   saved: WhatsAppSystemTemplatesSettings | null | undefined,
   nameKey: keyof WhatsAppSystemTemplatesSettings,
@@ -858,6 +883,16 @@ export function isSystemTemplateSlotSaved(
   const name = String(saved[nameKey] ?? '').trim();
   const lang = String(saved[langKey] ?? '').trim();
   return name.length > 0 && lang.length > 0;
+}
+
+export function isVerifySystemTemplateSaved(
+  saved: WhatsAppSystemTemplatesSettings | null | undefined,
+): boolean {
+  return isSystemTemplateSlotSaved(
+    saved,
+    'whatsappVerifyTemplateName',
+    'whatsappVerifyTemplateLanguage',
+  );
 }
 
 export function hydrateSystemTemplateIds(
@@ -920,7 +955,27 @@ export function logSavedSystemTemplates(saved: WhatsAppSystemTemplatesSettings) 
 export async function nestAdminWhatsAppSystemTemplatesGet(
   token: string,
 ): Promise<WhatsAppSystemTemplatesSettings | null> {
-  return adminFetch<WhatsAppSystemTemplatesSettings>(token, '/system-templates');
+  try {
+    const res = await fetch(WHATSAPP_SYSTEM_TEMPLATES_API, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    const raw = await res.json().catch(() => null);
+    if (!res.ok) {
+      console.error(
+        '[WhatsApp system templates] GET failed:',
+        parseNestApiError(raw, res.status),
+      );
+      return null;
+    }
+    return parseSystemTemplatesApiResponse(raw);
+  } catch (e: unknown) {
+    console.error(
+      '[WhatsApp system templates] GET error:',
+      e instanceof Error ? e.message : e,
+    );
+    return null;
+  }
 }
 
 export async function nestAdminWhatsAppSystemTemplatesSave(
@@ -931,7 +986,7 @@ export async function nestAdminWhatsAppSystemTemplatesSave(
   | { ok: false; error: string }
 > {
   try {
-    const res = await fetch(`${API_BASE_URL}/whatsapp/admin/system-templates`, {
+    const res = await fetch(WHATSAPP_SYSTEM_TEMPLATES_API, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -941,18 +996,15 @@ export async function nestAdminWhatsAppSystemTemplatesSave(
       body: JSON.stringify(body),
       cache: 'no-store',
     });
-    const data = (await res.json().catch(() => ({}))) as WhatsAppSystemTemplatesSettings & {
-      message?: string | string[];
-    };
+    const raw = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const msg = Array.isArray(data.message)
-        ? data.message.join(' ')
-        : typeof data.message === 'string'
-          ? data.message
-          : `HTTP ${res.status}`;
-      return { ok: false, error: msg };
+      return { ok: false, error: parseNestApiError(raw, res.status) };
     }
-    return { ok: true, data: data as WhatsAppSystemTemplatesSettings };
+    const saved = parseSystemTemplatesApiResponse(raw);
+    if (!saved) {
+      return { ok: false, error: 'API vrátilo neplatnou odpověď (chybí uložené šablony).' };
+    }
+    return { ok: true, data: saved };
   } catch (e: unknown) {
     return { ok: false, error: e instanceof Error ? e.message : 'Chyba sítě' };
   }
