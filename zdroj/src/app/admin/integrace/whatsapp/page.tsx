@@ -21,8 +21,11 @@ import {
   nestAdminWhatsAppTemplatesSync,
   formatSystemTemplateOptionLabel,
   extractSystemTemplatesFromSettings,
+  enrichSystemTemplatesPayload,
   hydrateSystemTemplateIds,
+  isSystemTemplateSlotSaved,
   logLoadedSystemTemplates,
+  logSavedSystemTemplates,
   type WhatsAppSystemTemplatesSettings,
   nestAdminWhatsAppTemplatesList,
   nestAdminWhatsAppVerifyPhone,
@@ -257,7 +260,7 @@ export default function AdminWhatsAppIntegrationPage() {
     setSavingSystemTemplates(true);
     setStatusMsg(null);
     setStatusIsError(false);
-    const payload = extractSystemTemplatesFromSettings(settings);
+    const payload = enrichSystemTemplatesPayload(settings, waTemplates);
     const r = await nestAdminWhatsAppSystemTemplatesSave(token, payload);
     setSavingSystemTemplates(false);
     if (!r.ok) {
@@ -266,7 +269,7 @@ export default function AdminWhatsAppIntegrationPage() {
       return;
     }
     const hydrated = hydrateSystemTemplateIds(r.data, waTemplates);
-    logLoadedSystemTemplates(hydrated);
+    logSavedSystemTemplates(hydrated);
     setSavedSystemTemplates(hydrated);
     setSettings((s) => ({ ...s, ...hydrated }));
     setToastMsg('Systémové WhatsApp šablony byly uloženy.');
@@ -797,10 +800,14 @@ export default function AdminWhatsAppIntegrationPage() {
                     </option>
                   ))}
                 </select>
-                {savedSystemTemplates?.whatsappVerifyTemplateName ? (
+                {isSystemTemplateSlotSaved(
+                  savedSystemTemplates,
+                  'whatsappVerifyTemplateName',
+                  'whatsappVerifyTemplateLanguage',
+                ) ? (
                   <p className="mt-1 text-[11px] text-emerald-700">
-                    Uloženo: {savedSystemTemplates.whatsappVerifyTemplateName} (
-                    {savedSystemTemplates.whatsappVerifyTemplateLanguage})
+                    Uloženo: {savedSystemTemplates!.whatsappVerifyTemplateName} (
+                    {savedSystemTemplates!.whatsappVerifyTemplateLanguage})
                   </p>
                 ) : (
                   <p className="mt-1 text-[11px] text-amber-700">
@@ -809,9 +816,20 @@ export default function AdminWhatsAppIntegrationPage() {
                 )}
                 <button
                   type="button"
-                  disabled={testingVerify || !savedSystemTemplates?.whatsappVerifyTemplateName}
+                  disabled={
+                    testingVerify ||
+                    !isSystemTemplateSlotSaved(
+                      savedSystemTemplates,
+                      'whatsappVerifyTemplateName',
+                      'whatsappVerifyTemplateLanguage',
+                    )
+                  }
                   title={
-                    !savedSystemTemplates?.whatsappVerifyTemplateName
+                    !isSystemTemplateSlotSaved(
+                      savedSystemTemplates,
+                      'whatsappVerifyTemplateName',
+                      'whatsappVerifyTemplateLanguage',
+                    )
                       ? 'Nejprve uložte systémové šablony'
                       : undefined
                   }
@@ -872,9 +890,20 @@ export default function AdminWhatsAppIntegrationPage() {
                 </label>
                 <button
                   type="button"
-                  disabled={testingWelcome || !savedSystemTemplates?.welcomeTemplateName}
+                  disabled={
+                    testingWelcome ||
+                    !isSystemTemplateSlotSaved(
+                      savedSystemTemplates,
+                      'welcomeTemplateName',
+                      'welcomeTemplateLanguage',
+                    )
+                  }
                   title={
-                    !savedSystemTemplates?.welcomeTemplateName
+                    !isSystemTemplateSlotSaved(
+                      savedSystemTemplates,
+                      'welcomeTemplateName',
+                      'welcomeTemplateLanguage',
+                    )
                       ? 'Nejprve uložte systémové šablony'
                       : undefined
                   }
@@ -935,9 +964,20 @@ export default function AdminWhatsAppIntegrationPage() {
                 </label>
                 <button
                   type="button"
-                  disabled={testingPostAuthor || !savedSystemTemplates?.postUploadedTemplateName}
+                  disabled={
+                    testingPostAuthor ||
+                    !isSystemTemplateSlotSaved(
+                      savedSystemTemplates,
+                      'postUploadedTemplateName',
+                      'postUploadedTemplateLanguage',
+                    )
+                  }
                   title={
-                    !savedSystemTemplates?.postUploadedTemplateName
+                    !isSystemTemplateSlotSaved(
+                      savedSystemTemplates,
+                      'postUploadedTemplateName',
+                      'postUploadedTemplateLanguage',
+                    )
                       ? 'Nejprve uložte systémové šablony'
                       : undefined
                   }
@@ -1001,9 +1041,20 @@ export default function AdminWhatsAppIntegrationPage() {
                 </label>
                 <button
                   type="button"
-                  disabled={testingPostFollower || !savedSystemTemplates?.newPostTemplateName}
+                  disabled={
+                    testingPostFollower ||
+                    !isSystemTemplateSlotSaved(
+                      savedSystemTemplates,
+                      'newPostTemplateName',
+                      'newPostTemplateLanguage',
+                    )
+                  }
                   title={
-                    !savedSystemTemplates?.newPostTemplateName
+                    !isSystemTemplateSlotSaved(
+                      savedSystemTemplates,
+                      'newPostTemplateName',
+                      'newPostTemplateLanguage',
+                    )
                       ? 'Nejprve uložte systémové šablony'
                       : undefined
                   }

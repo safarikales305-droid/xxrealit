@@ -762,6 +762,104 @@ export function extractSystemTemplatesFromSettings(
   };
 }
 
+function enrichSystemTemplateSlot(
+  templates: WhatsAppMetaTemplateRow[],
+  metaId: string,
+  name: string,
+  language: string,
+): { metaId: string; name: string; language: string } {
+  const trimmedId = metaId.trim();
+  const trimmedName = name.trim();
+  const trimmedLang = language.trim();
+
+  if (trimmedId) {
+    const byId = templates.find((t) => t.id === trimmedId);
+    if (byId) {
+      return {
+        metaId: byId.id,
+        name: byId.templateName,
+        language: byId.language,
+      };
+    }
+  }
+
+  if (trimmedName) {
+    const byName = templates.find(
+      (t) =>
+        t.templateName.toLowerCase() === trimmedName.toLowerCase() &&
+        (!trimmedLang || t.language.toLowerCase() === trimmedLang.toLowerCase()),
+    );
+    if (byName) {
+      return {
+        metaId: byName.id,
+        name: byName.templateName,
+        language: byName.language,
+      };
+    }
+  }
+
+  return { metaId: trimmedId, name: trimmedName, language: trimmedLang };
+}
+
+/** Doplní meta ID, název a jazyk z výběru v UI před uložením. */
+export function enrichSystemTemplatesPayload(
+  settings: Partial<WhatsAppIntegrationSettings>,
+  templates: WhatsAppMetaTemplateRow[],
+): WhatsAppSystemTemplatesSettings {
+  const base = extractSystemTemplatesFromSettings(settings);
+  const verify = enrichSystemTemplateSlot(
+    templates,
+    base.whatsappVerifyMetaTemplateId,
+    base.whatsappVerifyTemplateName,
+    base.whatsappVerifyTemplateLanguage,
+  );
+  const welcome = enrichSystemTemplateSlot(
+    templates,
+    base.welcomeMetaTemplateId,
+    base.welcomeTemplateName,
+    base.welcomeTemplateLanguage,
+  );
+  const postUploaded = enrichSystemTemplateSlot(
+    templates,
+    base.postUploadedAuthorMetaTemplateId,
+    base.postUploadedTemplateName,
+    base.postUploadedTemplateLanguage,
+  );
+  const newPost = enrichSystemTemplateSlot(
+    templates,
+    base.newPostNotificationMetaTemplateId,
+    base.newPostTemplateName,
+    base.newPostTemplateLanguage,
+  );
+
+  return {
+    ...base,
+    whatsappVerifyMetaTemplateId: verify.metaId,
+    whatsappVerifyTemplateName: verify.name,
+    whatsappVerifyTemplateLanguage: verify.language,
+    welcomeMetaTemplateId: welcome.metaId,
+    welcomeTemplateName: welcome.name,
+    welcomeTemplateLanguage: welcome.language,
+    postUploadedAuthorMetaTemplateId: postUploaded.metaId,
+    postUploadedTemplateName: postUploaded.name,
+    postUploadedTemplateLanguage: postUploaded.language,
+    newPostNotificationMetaTemplateId: newPost.metaId,
+    newPostTemplateName: newPost.name,
+    newPostTemplateLanguage: newPost.language,
+  };
+}
+
+export function isSystemTemplateSlotSaved(
+  saved: WhatsAppSystemTemplatesSettings | null | undefined,
+  nameKey: keyof WhatsAppSystemTemplatesSettings,
+  langKey: keyof WhatsAppSystemTemplatesSettings,
+): boolean {
+  if (!saved) return false;
+  const name = String(saved[nameKey] ?? '').trim();
+  const lang = String(saved[langKey] ?? '').trim();
+  return name.length > 0 && lang.length > 0;
+}
+
 export function hydrateSystemTemplateIds(
   saved: WhatsAppSystemTemplatesSettings,
   templates: WhatsAppMetaTemplateRow[],
@@ -804,25 +902,25 @@ export function hydrateSystemTemplateIds(
 }
 
 export function logLoadedSystemTemplates(saved: WhatsAppSystemTemplatesSettings) {
-  console.debug('Loaded verify template:', saved.whatsappVerifyTemplateName, saved.whatsappVerifyTemplateLanguage);
-  console.debug('Loaded welcome template:', saved.welcomeTemplateName, saved.welcomeTemplateLanguage);
-  console.debug('Loaded post uploaded template:', saved.postUploadedTemplateName, saved.postUploadedTemplateLanguage);
-  console.debug('Loaded new post template:', saved.newPostTemplateName, saved.newPostTemplateLanguage);
+  console.log('Loaded WhatsApp system templates:', saved);
+  console.log('Loaded verify template:', saved.whatsappVerifyTemplateName, saved.whatsappVerifyTemplateLanguage);
+  console.log('Loaded welcome template:', saved.welcomeTemplateName, saved.welcomeTemplateLanguage);
+  console.log('Loaded post uploaded template:', saved.postUploadedTemplateName, saved.postUploadedTemplateLanguage);
+  console.log('Loaded new post template:', saved.newPostTemplateName, saved.newPostTemplateLanguage);
+}
+
+export function logSavedSystemTemplates(saved: WhatsAppSystemTemplatesSettings) {
+  console.log('Saved WhatsApp system templates:', saved);
+  console.log('Saved verify template:', saved.whatsappVerifyTemplateName, saved.whatsappVerifyTemplateLanguage);
+  console.log('Saved welcome template:', saved.welcomeTemplateName, saved.welcomeTemplateLanguage);
+  console.log('Saved post uploaded template:', saved.postUploadedTemplateName, saved.postUploadedTemplateLanguage);
+  console.log('Saved new post template:', saved.newPostTemplateName, saved.newPostTemplateLanguage);
 }
 
 export async function nestAdminWhatsAppSystemTemplatesGet(
   token: string,
 ): Promise<WhatsAppSystemTemplatesSettings | null> {
-  try {
-    const res = await fetch(`${API_BASE_URL}/admin/whatsapp/system-templates`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-      cache: 'no-store',
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as WhatsAppSystemTemplatesSettings;
-  } catch {
-    return null;
-  }
+  return adminFetch<WhatsAppSystemTemplatesSettings>(token, '/system-templates');
 }
 
 export async function nestAdminWhatsAppSystemTemplatesSave(
@@ -833,7 +931,7 @@ export async function nestAdminWhatsAppSystemTemplatesSave(
   | { ok: false; error: string }
 > {
   try {
-    const res = await fetch(`${API_BASE_URL}/admin/whatsapp/system-templates`, {
+    const res = await fetch(`${API_BASE_URL}/whatsapp/admin/system-templates`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,

@@ -239,6 +239,108 @@ export class WhatsAppSettingsService implements OnModuleInit {
     }
   }
 
+  private async resolveMetaTemplateRow(
+    metaId: string,
+    templateName: string,
+    language: string,
+  ): Promise<{
+    id: string;
+    templateName: string;
+    language: string;
+    variablesCount: number;
+    usable: boolean;
+    isStale: boolean;
+  } | null> {
+    const trimmedId = metaId.trim();
+    if (trimmedId) {
+      const byId = await this.prisma.whatsAppMetaTemplate.findUnique({
+        where: { id: trimmedId },
+        select: {
+          id: true,
+          templateName: true,
+          language: true,
+          variablesCount: true,
+          usable: true,
+          isStale: true,
+        },
+      });
+      if (byId) return byId;
+    }
+
+    const trimmedName = templateName.trim();
+    if (!trimmedName) return null;
+
+    const trimmedLang = language.trim();
+    return this.prisma.whatsAppMetaTemplate.findFirst({
+      where: {
+        templateName: { equals: trimmedName, mode: 'insensitive' },
+        ...(trimmedLang
+          ? { language: { equals: trimmedLang, mode: 'insensitive' } }
+          : {}),
+      },
+      select: {
+        id: true,
+        templateName: true,
+        language: true,
+        variablesCount: true,
+        usable: true,
+        isStale: true,
+      },
+      orderBy: [{ usable: 'desc' }, { isStale: 'asc' }, { updatedAt: 'desc' }],
+    });
+  }
+
+  private clearSystemTemplateSlot(
+    next: WhatsAppIntegrationSettings,
+    metaKey: keyof WhatsAppIntegrationSettings,
+  ) {
+    if (metaKey === 'whatsappVerifyMetaTemplateId') {
+      next.whatsappVerifyMetaTemplateId = '';
+      next.whatsappVerifyTemplateName = '';
+      next.whatsappVerifyTemplateLanguage = '';
+    } else if (metaKey === 'postUploadedAuthorMetaTemplateId') {
+      next.postUploadedAuthorMetaTemplateId = '';
+      next.postUploadedTemplateName = '';
+      next.postUploadedTemplateLanguage = '';
+    } else if (metaKey === 'newPostNotificationMetaTemplateId') {
+      next.newPostNotificationMetaTemplateId = '';
+      next.newPostTemplateName = '';
+      next.newPostTemplateLanguage = '';
+    } else if (metaKey === 'welcomeMetaTemplateId') {
+      next.welcomeMetaTemplateId = '';
+      next.welcomeTemplateName = '';
+      next.welcomeTemplateLanguage = '';
+    }
+  }
+
+  private applyResolvedSystemTemplateSlot(
+    next: WhatsAppIntegrationSettings,
+    metaKey: keyof WhatsAppIntegrationSettings,
+    row: {
+      id: string;
+      templateName: string;
+      language: string;
+    },
+  ) {
+    if (metaKey === 'whatsappVerifyMetaTemplateId') {
+      next.whatsappVerifyMetaTemplateId = row.id;
+      next.whatsappVerifyTemplateName = row.templateName;
+      next.whatsappVerifyTemplateLanguage = row.language;
+    } else if (metaKey === 'postUploadedAuthorMetaTemplateId') {
+      next.postUploadedAuthorMetaTemplateId = row.id;
+      next.postUploadedTemplateName = row.templateName;
+      next.postUploadedTemplateLanguage = row.language;
+    } else if (metaKey === 'newPostNotificationMetaTemplateId') {
+      next.newPostNotificationMetaTemplateId = row.id;
+      next.newPostTemplateName = row.templateName;
+      next.newPostTemplateLanguage = row.language;
+    } else if (metaKey === 'welcomeMetaTemplateId') {
+      next.welcomeMetaTemplateId = row.id;
+      next.welcomeTemplateName = row.templateName;
+      next.welcomeTemplateLanguage = row.language;
+    }
+  }
+
   private async resolveSystemTemplateFields(
     settings: WhatsAppIntegrationSettings,
   ): Promise<WhatsAppIntegrationSettings> {
@@ -257,37 +359,15 @@ export class WhatsAppSettingsService implements OnModuleInit {
       if (!slot || !nameKey || !langKey) continue;
 
       const metaId = String(next[metaKey] ?? '').trim();
-      if (!metaId) {
-        if (metaKey === 'whatsappVerifyMetaTemplateId') {
-          next.whatsappVerifyMetaTemplateId = '';
-          next.whatsappVerifyTemplateName = '';
-          next.whatsappVerifyTemplateLanguage = '';
-        } else if (metaKey === 'postUploadedAuthorMetaTemplateId') {
-          next.postUploadedAuthorMetaTemplateId = '';
-          next.postUploadedTemplateName = '';
-          next.postUploadedTemplateLanguage = '';
-        } else if (metaKey === 'newPostNotificationMetaTemplateId') {
-          next.newPostNotificationMetaTemplateId = '';
-          next.newPostTemplateName = '';
-          next.newPostTemplateLanguage = '';
-        } else if (metaKey === 'welcomeMetaTemplateId') {
-          next.welcomeMetaTemplateId = '';
-          next.welcomeTemplateName = '';
-          next.welcomeTemplateLanguage = '';
-        }
+      const templateName = String(next[nameKey] ?? '').trim();
+      const language = String(next[langKey] ?? '').trim();
+
+      if (!metaId && !templateName) {
+        this.clearSystemTemplateSlot(next, metaKey);
         continue;
       }
 
-      const row = await this.prisma.whatsAppMetaTemplate.findUnique({
-        where: { id: metaId },
-        select: {
-          templateName: true,
-          language: true,
-          variablesCount: true,
-          usable: true,
-          isStale: true,
-        },
-      });
+      const row = await this.resolveMetaTemplateRow(metaId, templateName, language);
       if (!row) {
         throw new BadRequestException(
           `Vybraná systémová šablona (${metaKey}) není v databázi — synchronizujte šablony z Meta.`,
@@ -305,23 +385,7 @@ export class WhatsAppSettingsService implements OnModuleInit {
         throw new BadRequestException(validationError);
       }
 
-      if (metaKey === 'whatsappVerifyMetaTemplateId') {
-        next.whatsappVerifyMetaTemplateId = metaId;
-        next.whatsappVerifyTemplateName = row.templateName;
-        next.whatsappVerifyTemplateLanguage = row.language;
-      } else if (metaKey === 'postUploadedAuthorMetaTemplateId') {
-        next.postUploadedAuthorMetaTemplateId = metaId;
-        next.postUploadedTemplateName = row.templateName;
-        next.postUploadedTemplateLanguage = row.language;
-      } else if (metaKey === 'newPostNotificationMetaTemplateId') {
-        next.newPostNotificationMetaTemplateId = metaId;
-        next.newPostTemplateName = row.templateName;
-        next.newPostTemplateLanguage = row.language;
-      } else if (metaKey === 'welcomeMetaTemplateId') {
-        next.welcomeMetaTemplateId = metaId;
-        next.welcomeTemplateName = row.templateName;
-        next.welcomeTemplateLanguage = row.language;
-      }
+      this.applyResolvedSystemTemplateSlot(next, metaKey, row);
     }
 
     return next;
