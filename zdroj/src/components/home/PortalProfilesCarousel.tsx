@@ -13,7 +13,7 @@ function PortalAvatar({ profile }: { profile: PublicPortalProfileRow }) {
   const src = profile.avatarUrl ? nestAbsoluteAssetUrl(profile.avatarUrl) : null;
   return (
     <Link
-      href={profile.profileHref}
+      href={`/profile/${encodeURIComponent(profile.id)}`}
       className="group flex w-[5.5rem] shrink-0 flex-col items-center gap-2 sm:w-[6.25rem]"
     >
       <div className="relative size-[4.5rem] overflow-hidden rounded-full border-2 border-orange-200 bg-zinc-100 shadow-sm ring-2 ring-white transition group-hover:border-orange-400 sm:size-[5rem]">

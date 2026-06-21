@@ -7895,6 +7895,7 @@ export type PublicPromoProfileRow = {
   roleLabel: string;
   avatarUrl: string | null;
   profileHref: string;
+  isPromoProfile?: boolean;
   isVerified?: boolean;
   verifiedBadgeLabel?: string | null;
 };

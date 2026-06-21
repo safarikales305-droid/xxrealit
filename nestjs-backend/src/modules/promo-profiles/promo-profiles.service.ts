@@ -10,10 +10,13 @@ import { PrismaService } from '../../database/prisma.service';
 import { ProfileImagesService } from '../upload/profile-images.service';
 import { ProfileMediaStorageService } from '../upload/profile-media-storage.service';
 import {
-  isProfessionalVerified,
   publicProfileHref,
   verifiedBadgeLabelForRole,
 } from '../brokers/professional-verification.util';
+import {
+  showVerifiedProfessionalBadge,
+  type ProfileRequirementsInput,
+} from '../users/profile-requirements.util';
 import {
   composePromoDisplayName,
   generatePromoProfileName,
@@ -87,17 +90,65 @@ export class PromoProfilesService {
         id: true,
         role: true,
         avatar: true,
+        name: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        emailVerified: true,
+        whatsappVerified: true,
+        city: true,
+        address: true,
+        postalCode: true,
+        profileIco: true,
         isPromoProfile: true,
         promoProfileActive: true,
         isPublicBrokerProfile: true,
         publicProfessionalProfile: true,
         professionalVerified: true,
         professionalVerificationStatus: true,
-        agentProfile: { select: { verificationStatus: true } },
-        companyProfile: { select: { verificationStatus: true } },
-        agencyProfile: { select: { verificationStatus: true } },
-        financialAdvisorProfile: { select: { verificationStatus: true } },
-        investorProfile: { select: { verificationStatus: true } },
+        brokerOfficeName: true,
+        agentProfile: {
+          select: {
+            verificationStatus: true,
+            fullName: true,
+            companyName: true,
+            ico: true,
+            city: true,
+          },
+        },
+        companyProfile: {
+          select: {
+            verificationStatus: true,
+            companyName: true,
+            ico: true,
+            city: true,
+            contactFullName: true,
+          },
+        },
+        agencyProfile: {
+          select: {
+            verificationStatus: true,
+            agencyName: true,
+            ico: true,
+            city: true,
+            contactFullName: true,
+          },
+        },
+        financialAdvisorProfile: {
+          select: {
+            verificationStatus: true,
+            fullName: true,
+            ico: true,
+            city: true,
+          },
+        },
+        investorProfile: {
+          select: {
+            verificationStatus: true,
+            fullName: true,
+            city: true,
+          },
+        },
       },
     });
 
@@ -111,13 +162,35 @@ export class PromoProfilesService {
       })
       .slice(0, take)
       .map((row) => {
-        const verified = isProfessionalVerified(row);
+        const reqInput: ProfileRequirementsInput = {
+          role: row.role,
+          name: row.name,
+          firstName: row.firstName,
+          lastName: row.lastName,
+          email: row.email,
+          emailVerified: row.emailVerified === true,
+          whatsappVerified: row.whatsappVerified === true,
+          city: row.city,
+          address: row.address,
+          profileIco: row.profileIco,
+          professionalVerified: Boolean(row.professionalVerified),
+          professionalVerificationStatus: row.professionalVerificationStatus,
+          brokerOfficeName: row.brokerOfficeName,
+          agentProfile: row.agentProfile,
+          companyProfile: row.companyProfile,
+          agencyProfile: row.agencyProfile,
+          financialAdvisorProfile: row.financialAdvisorProfile,
+          investorProfile: row.investorProfile,
+        };
+        const verified = showVerifiedProfessionalBadge(reqInput);
+        const profileHref = `/profile/${row.id}`;
         return {
           id: row.id,
           role: row.role,
           roleLabel: promoRoleLabel(row.role),
           avatarUrl: row.avatar,
-          profileHref: publicProfileHref(row.id, row.role),
+          profileHref,
+          isPromoProfile: Boolean(row.isPromoProfile),
           isVerified: verified,
           verifiedBadgeLabel: verified ? verifiedBadgeLabelForRole(row.role) : null,
         };
