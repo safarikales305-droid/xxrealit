@@ -20,6 +20,7 @@ enum UserRole {
   TIPSTER
   ADMIN
   PORTAL_WORKER
+  PROPERTY_SEEKER
 }
 
 enum CreditTopUpStatus {
@@ -300,6 +301,20 @@ model User {
   whatsappMarketingOptOut    Boolean  @default(false)
   /// Čas udělení souhlasu s WhatsApp komunikací (registrace / explicitní souhlas).
   whatsappMarketingConsentAt DateTime?
+  /// Marketingový souhlas — WhatsApp (registrace hledače nemovitosti).
+  marketingConsentWhatsApp   Boolean  @default(false)
+  /// Marketingový souhlas — e-mail (registrace hledače nemovitosti).
+  marketingConsentEmail      Boolean  @default(false)
+  /// Čas udělení marketingového souhlasu.
+  consentCreatedAt           DateTime?
+  /// Zdroj souhlasu, např. REGISTRATION_PROPERTY_SEEKER.
+  consentSource              String?
+  /// Počet sdílení portálu přes WhatsApp (hledač nemovitosti).
+  shareCount                 Int      @default(0)
+  /// Čas dokončení povinného sdílení (5×).
+  shareCompletedAt           DateTime?
+  /// Uživatel sdílel portál přes WhatsApp při registraci.
+  invitedViaWhatsApp         Boolean  @default(false)
   /// WhatsApp upozornění po vlastním nahrání příspěvku.
   whatsappNotifyMyUploads    Boolean @default(false)
   /// WhatsApp upozornění na nové příspěvky sledovaných uživatelů.

@@ -142,6 +142,10 @@ export class UsersService {
     lastName?: string;
     city?: string;
     bio?: string;
+    marketingConsentWhatsApp?: boolean;
+    marketingConsentEmail?: boolean;
+    consentCreatedAt?: Date;
+    consentSource?: string;
   }): Promise<User> {
     return this.prisma.user.create({ data });
   }
@@ -590,6 +594,13 @@ export class UsersService {
       testAccountPublicVisible: true,
       portalWorkerStatus: true,
       portalWorkerApprovedAt: true,
+      marketingConsentWhatsApp: true,
+      marketingConsentEmail: true,
+      consentCreatedAt: true,
+      consentSource: true,
+      shareCount: true,
+      shareCompletedAt: true,
+      invitedViaWhatsApp: true,
       facebookUrl: true,
       facebookImportEnabled: true,
       facebookLastSyncAt: true,
@@ -792,6 +803,13 @@ export class UsersService {
       testAccountPublicVisible: Boolean(u.testAccountPublicVisible),
       portalWorkerStatus: u.portalWorkerStatus ?? null,
       portalWorkerApprovedAt: u.portalWorkerApprovedAt?.toISOString() ?? null,
+      marketingConsentWhatsApp: Boolean(u.marketingConsentWhatsApp),
+      marketingConsentEmail: Boolean(u.marketingConsentEmail),
+      consentCreatedAt: u.consentCreatedAt?.toISOString() ?? null,
+      consentSource: u.consentSource ?? null,
+      shareCount: u.shareCount ?? 0,
+      shareCompletedAt: u.shareCompletedAt?.toISOString() ?? null,
+      invitedViaWhatsApp: Boolean(u.invitedViaWhatsApp),
       brokerReviewAverage: u.brokerReviewAverage,
       brokerReviewCount: u.brokerReviewCount,
       creditBalance: u.creditBalance ?? 0,

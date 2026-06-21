@@ -13,6 +13,10 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import {
+  assertPropertySeekerCannotCreateContent,
+  assertPropertySeekerCannotUnlockTips,
+} from '../auth/assert-property-seeker';
 import { parseBearerUserId } from '../auth/auth-token.util';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { TiparService } from './tipar.service';
@@ -30,6 +34,7 @@ export class TiparController {
   @Post('activate')
   @UseGuards(JwtAuthGuard)
   activate(@CurrentUser() user: AuthUser) {
+    assertPropertySeekerCannotCreateContent(user);
     return this.tipar.activateTipar(user.id);
   }
 
@@ -60,6 +65,7 @@ export class TiparController {
     @CurrentUser() user: AuthUser,
     @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: CreateTiparPostDto,
   ) {
+    assertPropertySeekerCannotCreateContent(user);
     return this.tipar.createPost(user.id, dto);
   }
 
@@ -87,6 +93,7 @@ export class TiparController {
     @Body(new ValidationPipe({ whitelist: true, transform: true }))
     dto: UnlockListingContactDto,
   ) {
+    assertPropertySeekerCannotUnlockTips(user);
     return this.tipar.unlockContact(user.id, id, dto);
   }
 }

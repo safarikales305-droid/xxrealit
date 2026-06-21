@@ -68,4 +68,16 @@ export class RegisterDto {
   @IsOptional()
   @IsBoolean()
   portalWorkerCooperationConsent?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  wantsPropertySeeker?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  marketingConsentWhatsApp?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  marketingConsentEmail?: boolean;
 }

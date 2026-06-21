@@ -22,6 +22,7 @@ type UseContactGateOptions = {
   isOwner: boolean;
   isAuthenticated: boolean;
   apiAccessToken: string | null;
+  viewerRole?: string | null;
   defaultName?: string;
   defaultEmail?: string;
   defaultPhone?: string;
@@ -29,11 +30,15 @@ type UseContactGateOptions = {
   onLoginRequired?: () => void;
 };
 
+const PROPERTY_SEEKER_TIP_MSG =
+  'Tip na nemovitost je dostupný pouze uživatelům s placeným kreditem.';
+
 export function useContactGate({
   listing,
   isOwner,
   isAuthenticated,
   apiAccessToken,
+  viewerRole = null,
   defaultName = '',
   defaultEmail = '',
   defaultPhone = '',
@@ -42,6 +47,8 @@ export function useContactGate({
 }: UseContactGateOptions) {
   const listingId = listing.id;
   const isTip = isTipListing(listing);
+  const isPropertySeekerViewer = viewerRole === 'PROPERTY_SEEKER';
+  const propertySeekerTipBlocked = isTip && isPropertySeekerViewer;
   const contactUnlockPrice = listing.contactUnlockPrice ?? 0;
   const contactUnlockAvailable = listing.contactUnlockAvailable !== false;
 
@@ -73,6 +80,10 @@ export function useContactGate({
       onLoginRequired?.();
       return;
     }
+    if (propertySeekerTipBlocked) {
+      setContactLeadError(PROPERTY_SEEKER_TIP_MSG);
+      return;
+    }
     if (isOwner || contactRevealed) return;
     if (!isTip && interestSubmitted) return;
     setContactLeadError(null);
@@ -85,6 +96,7 @@ export function useContactGate({
     isOwner,
     isTip,
     onLoginRequired,
+    propertySeekerTipBlocked,
   ]);
 
   const requestMessaging = useCallback(
@@ -99,6 +111,10 @@ export function useContactGate({
       if (!isAuthenticated || !apiAccessToken) {
         onLoginRequired?.();
         return 'login-required' as const;
+      }
+      if (isTipListing(target) && viewerRole === 'PROPERTY_SEEKER') {
+        setContactLeadError(PROPERTY_SEEKER_TIP_MSG);
+        return 'contact-required' as const;
       }
       if (isOwner) return 'own-listing' as const;
       if (locked) {
@@ -115,6 +131,7 @@ export function useContactGate({
       isOwner,
       listing,
       onLoginRequired,
+      viewerRole,
     ],
   );
 
@@ -130,6 +147,12 @@ export function useContactGate({
       const r = await nestListingUnlockContact(apiAccessToken, targetId, lead);
       setContactLeadBusy(false);
       if (!r.ok || !r.data) {
+        if (r.code === 'PROPERTY_SEEKER_TIP_BLOCKED') {
+          setContactLeadError(
+            r.error ?? PROPERTY_SEEKER_TIP_MSG,
+          );
+          return;
+        }
         if (r.code === 'INSUFFICIENT_CREDIT') {
           setContactLeadOpen(false);
           setShowCreditModal(true);
@@ -195,6 +218,8 @@ export function useContactGate({
 
   return {
     isTip,
+    propertySeekerTipBlocked,
+    propertySeekerTipMessage: PROPERTY_SEEKER_TIP_MSG,
     contactLocked,
     contactRevealed,
     contactUnlockPrice,
@@ -243,7 +268,7 @@ export function ContactGateModals({
         onSubmit={(lead) => void gate.submitForActiveListing(lead)}
       />
 
-      {gate.showCreditModal ? (
+      {gate.showCreditModal && !gate.propertySeekerTipBlocked ? (
         <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/40 p-4">
           <div className="max-w-sm rounded-2xl bg-white p-5 shadow-xl">
             <h3 className="text-lg font-semibold">Dobijte kredit</h3>

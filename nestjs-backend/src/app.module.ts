@@ -43,6 +43,7 @@ import { PurchaseAdviceArticlesModule } from './modules/purchase-advice-articles
 import { DeveloperNotesModule } from './modules/developer-notes/developer-notes.module';
 import { PortalTestingModule } from './modules/portal-testing/portal-testing.module';
 import { PortalWorkerModule } from './modules/portal-worker/portal-worker.module';
+import { PropertySeekerModule } from './modules/property-seeker/property-seeker.module';
 
 @Module({
   imports: [
@@ -92,6 +93,7 @@ import { PortalWorkerModule } from './modules/portal-worker/portal-worker.module
     DeveloperNotesModule,
     PortalTestingModule,
     PortalWorkerModule,
+    PropertySeekerModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

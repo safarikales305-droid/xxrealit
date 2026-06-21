@@ -21,6 +21,7 @@ export const USER_ROLES = [
   'TIPSTER',
   'ADMIN',
   'PORTAL_WORKER',
+  'PROPERTY_SEEKER',
 ] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];
@@ -50,6 +51,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   TIPSTER: 'Tipař',
   ADMIN: 'Administrátor',
   PORTAL_WORKER: 'Pracovník portálu',
+  PROPERTY_SEEKER: 'Hledám nemovitost',
 };
 
 export const DASHBOARD_SEGMENTS: Record<UserRole, string> = {
@@ -73,10 +75,12 @@ export const DASHBOARD_SEGMENTS: Record<UserRole, string> = {
   TIPSTER: 'uzivatel',
   ADMIN: 'ADMIN',
   PORTAL_WORKER: 'pracovnik',
+  PROPERTY_SEEKER: 'sledujici',
 };
 
 export function dashboardPathForRole(role: UserRole): string {
   if (role === 'PORTAL_WORKER') return '/pracovnik';
+  if (role === 'PROPERTY_SEEKER') return '/';
   return `/dashboard/${DASHBOARD_SEGMENTS[role]}`;
 }
 
@@ -90,6 +94,7 @@ export const PROFESSIONAL_UPGRADE_ELIGIBLE_ROLES = [
 /** Uživatel ještě není profesionální profil ani admin — může vidět sekci „Rozšířit účet“. */
 export function canRequestProfessionalProfileUpgrade(role: string | undefined | null): boolean {
   if (!role) return false;
+  if (role === 'PROPERTY_SEEKER' || role === 'PORTAL_WORKER') return false;
   if (
     role === 'AGENT' ||
     role === 'COMPANY' ||

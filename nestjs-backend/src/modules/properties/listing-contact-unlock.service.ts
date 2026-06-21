@@ -20,6 +20,10 @@ import {
 } from './contact-resolve.util';
 import { UnlockListingContactDto } from './dto/unlock-listing-contact.dto';
 import { ListingLeadWhatsAppNotifyService } from '../whatsapp/listing-lead-whatsapp-notify.service';
+import {
+  isPropertySeeker,
+  PROPERTY_SEEKER_TIP_BLOCKED_MSG,
+} from '../../common/property-seeker.util';
 
 const MISSING_CONTACT_MSG = 'Kontakt u tohoto inzerátu není vyplněný.';
 const LEAD_DEDUP_MS = 24 * 60 * 60 * 1000;
@@ -208,6 +212,7 @@ export class ListingContactUnlockService {
       return this.submitAdvertiserListingInterest(buyerUserId, property, dto);
     }
 
+    await this.assertBuyerCanUnlockTips(buyerUserId);
     return this.unlockTipListingContact(buyerUserId, property, dto);
   }
 
@@ -255,6 +260,19 @@ export class ListingContactUnlockService {
 
   private sellerContactPayload(contact: ResolvedContact) {
     return this.contactResponse(contact);
+  }
+
+  private async assertBuyerCanUnlockTips(buyerUserId: string) {
+    const buyer = await this.prisma.user.findUnique({
+      where: { id: buyerUserId },
+      select: { role: true },
+    });
+    if (isPropertySeeker(buyer?.role)) {
+      throw new ForbiddenException({
+        message: PROPERTY_SEEKER_TIP_BLOCKED_MSG,
+        code: 'PROPERTY_SEEKER_TIP_BLOCKED',
+      });
+    }
   }
 
   private async ensureBuyerListingUnlock(
@@ -807,6 +825,7 @@ export class ListingContactUnlockService {
   }
 
   async unlockTipContact(buyerUserId: string, tipId: string, dto: UnlockListingContactDto) {
+    await this.assertBuyerCanUnlockTips(buyerUserId);
     const tip = await this.prisma.tiparPost.findFirst({
       where: { id: tipId, deletedAt: null, isActive: true, approved: true },
       select: {

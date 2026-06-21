@@ -171,6 +171,24 @@ function assertPortalWorkerRegistration(dto: RegisterDto): {
   return { name: `${firstName} ${lastName}`.trim(), firstName, lastName, city, bio };
 }
 
+function assertPropertySeekerRegistration(dto: RegisterDto): void {
+  if (dto.wantsPortalWorker === true) {
+    throw new HttpException(
+      { error: 'Nelze kombinovat registraci hledače nemovitosti s pracovníkem portálu.' },
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+  if (dto.marketingConsentWhatsApp !== true || dto.marketingConsentEmail !== true) {
+    throw new HttpException(
+      {
+        error:
+          'Pro pokračování je nutný souhlas se zasíláním nabídek přes WhatsApp a e-mail.',
+      },
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+}
+
 function errorDetailForResponse(err: unknown): Record<string, unknown> {
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     return {
@@ -509,16 +527,35 @@ export class AuthService {
     }
     const password = dto.password;
 
-    const mappedRole = dto.wantsPortalWorker
-      ? UserRole.PORTAL_WORKER
-      : mapRegisterRole(dto.role);
-    if (!dto.wantsPortalWorker && mappedRole === UserRole.PORTAL_WORKER) {
+    const mappedRole = dto.wantsPropertySeeker
+      ? UserRole.PROPERTY_SEEKER
+      : dto.wantsPortalWorker
+        ? UserRole.PORTAL_WORKER
+        : mapRegisterRole(dto.role);
+    if (
+      !dto.wantsPortalWorker &&
+      !dto.wantsPropertySeeker &&
+      mappedRole === UserRole.PORTAL_WORKER
+    ) {
       throw new HttpException(
         { error: 'Roli pracovníka portálu lze získat pouze registrací přes formulář pracovníka.' },
         HttpStatus.BAD_REQUEST,
       );
     }
-    if (!REGISTER_ROLES.includes(mappedRole) && mappedRole !== UserRole.PORTAL_WORKER) {
+    if (
+      !dto.wantsPropertySeeker &&
+      mappedRole === UserRole.PROPERTY_SEEKER
+    ) {
+      throw new HttpException(
+        { error: 'Roli hledače nemovitosti lze získat pouze registrací přes „Hledám nemovitost“.' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    if (
+      !REGISTER_ROLES.includes(mappedRole) &&
+      mappedRole !== UserRole.PORTAL_WORKER &&
+      mappedRole !== UserRole.PROPERTY_SEEKER
+    ) {
       throw new HttpException(
         {
           error: 'Neplatná role',
@@ -536,6 +573,12 @@ export class AuthService {
       city?: string;
       bio?: string;
     } = {};
+    let propertySeekerFields: {
+      marketingConsentWhatsApp: boolean;
+      marketingConsentEmail: boolean;
+      consentCreatedAt: Date;
+      consentSource: string;
+    } | null = null;
     let resolvedName = name;
     if (dto.wantsPortalWorker) {
       const pw = assertPortalWorkerRegistration(dto);
@@ -545,6 +588,17 @@ export class AuthService {
         lastName: pw.lastName,
         city: pw.city,
         bio: pw.bio,
+      };
+    } else if (dto.wantsPropertySeeker) {
+      assertPropertySeekerRegistration(dto);
+      if (!name) {
+        throw new HttpException({ error: 'Jméno je povinné' }, HttpStatus.BAD_REQUEST);
+      }
+      propertySeekerFields = {
+        marketingConsentWhatsApp: true,
+        marketingConsentEmail: true,
+        consentCreatedAt: new Date(),
+        consentSource: 'REGISTRATION_PROPERTY_SEEKER',
       };
     } else if (!name) {
       throw new HttpException({ error: 'Jméno je povinné' }, HttpStatus.BAD_REQUEST);
@@ -584,6 +638,7 @@ export class AuthService {
             ? PortalWorkerStatus.PENDING_APPROVAL
             : undefined,
         ...portalWorkerFields,
+        ...(propertySeekerFields ?? {}),
       });
       void this.referral.ensureReferralCode(user.id).catch(() => {});
       if (referredByUserId) {

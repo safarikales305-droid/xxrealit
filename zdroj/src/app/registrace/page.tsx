@@ -159,6 +159,22 @@ export default function RegistracePage() {
       </p>
 
       <form onSubmit={onSubmit} className="space-y-3 sm:space-y-4">
+        <Link
+          href="/registrace/hledam-nemovitost"
+          className="flex w-full items-center justify-center rounded-full border-2 border-orange-400 bg-orange-50/60 py-3 text-sm font-semibold text-orange-700 transition hover:bg-orange-50 sm:py-3.5 sm:text-[15px]"
+        >
+          Hledám nemovitost
+        </Link>
+
+        <div className="relative my-1 sm:my-2">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-zinc-200" />
+          </div>
+          <div className="relative flex justify-center text-xs font-medium uppercase tracking-wide">
+            <span className="bg-white px-3 text-zinc-500">nebo registrace inzerenta</span>
+          </div>
+        </div>
+
         <label className="flex items-start gap-2 rounded-xl border border-orange-200 bg-orange-50/80 px-3 py-3 text-sm text-zinc-800">
           <input
             type="checkbox"

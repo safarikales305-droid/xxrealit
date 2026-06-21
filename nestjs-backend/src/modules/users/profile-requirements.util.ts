@@ -1,4 +1,5 @@
 import { UserRole } from '@prisma/client';
+import { isPropertySeeker } from '../../common/property-seeker.util';
 
 export type ProfileRequirementsInput = {
   role: UserRole | string;
@@ -230,10 +231,12 @@ export function collectCreditRequirementIssues(input: ProfileRequirementsInput):
 }
 
 export function canUseTiparFeatures(input: ProfileRequirementsInput): boolean {
+  if (isPropertySeeker(input.role)) return false;
   return input.isTipar === true && collectTiparRequirementIssues(input).length === 0;
 }
 
 export function canTopUpCredits(input: ProfileRequirementsInput): boolean {
+  if (isPropertySeeker(input.role)) return false;
   return collectCreditRequirementIssues(input).length === 0;
 }
 

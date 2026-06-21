@@ -242,6 +242,7 @@ export default function VideoCard({
     isOwner,
     isAuthenticated,
     apiAccessToken,
+    viewerRole: user?.role,
     defaultName: user?.name ?? '',
     defaultEmail: user?.email ?? '',
     defaultPhone: user?.phone ?? '',

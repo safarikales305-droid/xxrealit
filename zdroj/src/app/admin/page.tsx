@@ -597,6 +597,12 @@ export default function AdminPage() {
               Pracovníci portálu
             </Link>
             <Link
+              href="/admin/hledaci-nemovitosti"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Hledači nemovitosti
+            </Link>
+            <Link
               href="/admin/provize-pracovniku"
               className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
 import { AuthProvider } from "@/context/AuthContext";
 import { PortalWorkerGuard } from "@/components/portal-worker/portal-worker-guard";
+import { PropertySeekerGuard } from "@/components/property-seeker/property-seeker-guard";
 import { FacebookOAuthReturnRedirect } from "@/components/auth/FacebookOAuthReturnRedirect";
 import { FirstContentGuard } from "@/components/registration/FirstContentGuard";
 import { RegistrationRequirementsGuard } from "@/components/registration/RegistrationRequirementsGuard";
@@ -47,6 +48,9 @@ export default function RootLayout({
           </Suspense>
           <Suspense fallback={null}>
             <PortalWorkerGuard />
+          </Suspense>
+          <Suspense fallback={null}>
+            <PropertySeekerGuard />
           </Suspense>
           <FirstContentGuard>
             <RegistrationRequirementsGuard>

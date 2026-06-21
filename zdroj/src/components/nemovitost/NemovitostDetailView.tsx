@@ -245,6 +245,7 @@ export function NemovitostDetailView({
     isOwner,
     isAuthenticated,
     apiAccessToken,
+    viewerRole: user?.role,
     defaultName: user?.name ?? '',
     defaultEmail: user?.email ?? '',
     defaultPhone: user?.phone ?? '',
@@ -570,6 +571,11 @@ export function NemovitostDetailView({
                     />
                   ) : null}
                   {!isOwner && !contactRevealed && contactUnlockAvailable && !( !isTip && interestSubmitted) ? (
+                    contactGate.propertySeekerTipBlocked ? (
+                      <p className="w-full max-w-[360px] text-sm font-medium text-zinc-700" role="status">
+                        {contactGate.propertySeekerTipMessage}
+                      </p>
+                    ) : (
                     <button
                       type="button"
                       onClick={handleShowContact}
@@ -580,6 +586,7 @@ export function NemovitostDetailView({
                         ? ` (${contactUnlockPrice.toLocaleString('cs-CZ')} Kč)`
                         : ''}
                     </button>
+                    )
                   ) : null}
                   {contactSuccessMsg ? (
                     <p className="w-full max-w-[360px] text-sm font-medium text-emerald-800" role="status">
@@ -684,6 +691,11 @@ export function NemovitostDetailView({
               Domluvte si prohlídku nebo doplňující informace u inzerenta.
             </p>
             {!isOwner && !contactRevealed && contactUnlockAvailable && !(!isTip && interestSubmitted) ? (
+              contactGate.propertySeekerTipBlocked ? (
+                <p className="mt-3 text-sm font-medium text-zinc-700" role="status">
+                  {contactGate.propertySeekerTipMessage}
+                </p>
+              ) : (
               <button
                 type="button"
                 onClick={handleShowContact}
@@ -694,6 +706,7 @@ export function NemovitostDetailView({
                   ? ` (${contactUnlockPrice.toLocaleString('cs-CZ')} Kč)`
                   : ''}
               </button>
+              )
             ) : null}
             {contactSuccessMsg ? (
               <p className="mt-2 text-sm font-medium text-emerald-800" role="status">

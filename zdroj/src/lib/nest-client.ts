@@ -291,6 +291,13 @@ export type NestMeProfile = {
   testAccountPublicVisible?: boolean;
   portalWorkerStatus?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'SUSPENDED' | null;
   portalWorkerApprovedAt?: string | null;
+  marketingConsentWhatsApp?: boolean;
+  marketingConsentEmail?: boolean;
+  consentCreatedAt?: string | null;
+  consentSource?: string | null;
+  shareCount?: number;
+  shareCompletedAt?: string | null;
+  invitedViaWhatsApp?: boolean;
   facebookUrl?: string | null;
   facebookImportEnabled?: boolean;
   facebookLastSyncAt?: string | null;
@@ -694,6 +701,22 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
       o.portalWorkerApprovedAt === null || typeof o.portalWorkerApprovedAt === 'string'
         ? (o.portalWorkerApprovedAt as string | null)
         : undefined,
+    marketingConsentWhatsApp: o.marketingConsentWhatsApp === true,
+    marketingConsentEmail: o.marketingConsentEmail === true,
+    consentCreatedAt:
+      o.consentCreatedAt === null || typeof o.consentCreatedAt === 'string'
+        ? (o.consentCreatedAt as string | null)
+        : undefined,
+    consentSource:
+      o.consentSource === null || typeof o.consentSource === 'string'
+        ? (o.consentSource as string | null)
+        : undefined,
+    shareCount: typeof o.shareCount === 'number' ? o.shareCount : undefined,
+    shareCompletedAt:
+      o.shareCompletedAt === null || typeof o.shareCompletedAt === 'string'
+        ? (o.shareCompletedAt as string | null)
+        : undefined,
+    invitedViaWhatsApp: o.invitedViaWhatsApp === true,
     facebookUrl:
       o.facebookUrl === null || typeof o.facebookUrl === 'string'
         ? (o.facebookUrl as string | null)
@@ -9151,5 +9174,148 @@ export async function nestAdminPwaPushCampaignSend(
     return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
   }
   return { ok: true, sent: typeof data.sent === 'number' ? data.sent : undefined };
+}
+
+export type PropertySeekerRow = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  whatsappPhone: string | null;
+  whatsappVerifiedPhone: string | null;
+  whatsappVerified: boolean;
+  marketingConsentWhatsApp: boolean;
+  marketingConsentEmail: boolean;
+  consentCreatedAt: string | null;
+  consentSource: string | null;
+  shareCount: number;
+  shareCompletedAt: string | null;
+  invitedViaWhatsApp: boolean;
+  registeredAt: string;
+};
+
+export type PropertySeekerStatus = {
+  role: string;
+  whatsappVerified: boolean;
+  whatsappPhone: string | null;
+  shareCount: number;
+  shareRequired: number;
+  shareCompletedAt: string | null;
+  onboardingComplete: boolean;
+  marketingConsentWhatsApp: boolean;
+  marketingConsentEmail: boolean;
+  invitedViaWhatsApp: boolean;
+};
+
+export async function nestPropertySeekerStatus(
+  token: string | null,
+): Promise<PropertySeekerStatus | null> {
+  if (typeof window !== 'undefined') {
+    const res = await fetch('/api/nest/property-seeker/me/status', {
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as PropertySeekerStatus;
+  }
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/property-seeker/me/status`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as PropertySeekerStatus;
+}
+
+export async function nestPropertySeekerRecordShare(
+  token: string | null,
+): Promise<{ ok: boolean; shareCount?: number; completed?: boolean; error?: string }> {
+  if (typeof window !== 'undefined') {
+    const res = await fetch('/api/nest/property-seeker/me/record-share', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+    }
+    return {
+      ok: true,
+      shareCount: typeof data.shareCount === 'number' ? data.shareCount : undefined,
+      completed: data.completed === true,
+    };
+  }
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/property-seeker/me/record-share`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return {
+    ok: true,
+    shareCount: typeof data.shareCount === 'number' ? data.shareCount : undefined,
+    completed: data.completed === true,
+  };
+}
+
+export async function nestAdminListPropertySeekers(
+  token: string | null,
+): Promise<{ items: PropertySeekerRow[]; total: number; error?: string }> {
+  if (typeof window !== 'undefined') {
+    const res = await fetch('/api/nest/admin/property-seekers', {
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) {
+      const raw = (await res.json().catch(() => ({}))) as { message?: string };
+      return {
+        items: [],
+        total: 0,
+        error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`),
+      };
+    }
+    const data = (await res.json()) as { items?: PropertySeekerRow[]; total?: number };
+    return { items: data.items ?? [], total: data.total ?? 0 };
+  }
+  if (!API_BASE_URL || !token) return { items: [], total: 0, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/property-seekers`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    const raw = (await res.json().catch(() => ({}))) as { message?: string };
+    return {
+      items: [],
+      total: 0,
+      error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`),
+    };
+  }
+  const data = (await res.json()) as { items?: PropertySeekerRow[]; total?: number };
+  return { items: data.items ?? [], total: data.total ?? 0 };
+}
+
+export async function nestAdminExportPropertySeekersCsv(
+  token: string | null,
+): Promise<{ ok: boolean; blob?: Blob; error?: string }> {
+  if (typeof window !== 'undefined') {
+    const res = await fetch('/api/nest/admin/property-seekers/export', {
+      credentials: 'include',
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      return { ok: false, error: `HTTP ${res.status}` };
+    }
+    return { ok: true, blob: await res.blob() };
+  }
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/property-seekers/export`, {
+    headers: nestAuthHeaders(token),
+  });
+  if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+  return { ok: true, blob: await res.blob() };
 }
 

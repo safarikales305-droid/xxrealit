@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Post, UseGuards, ValidationPipe } from '@nestjs/common';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
+import { assertPropertySeekerCannotTopUp } from '../auth/assert-property-seeker';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreditsService } from './credits.service';
 import { TopUpCreditDto } from './dto/top-up.dto';
@@ -26,6 +27,7 @@ export class CreditsController {
     @Body(new ValidationPipe({ whitelist: true, transform: true }))
     dto: TopUpCreditDto,
   ) {
+    assertPropertySeekerCannotTopUp(user);
     return this.credits.topUp(user.id, dto.amount);
   }
 }
