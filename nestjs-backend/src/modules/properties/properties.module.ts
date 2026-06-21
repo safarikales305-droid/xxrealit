@@ -4,9 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { EmailsModule } from '../emails/emails.module';
 import { MessagesModule } from '../messages/messages.module';
 import { ContactMonetizationAdminController } from './contact-monetization-admin.controller';
-import { ContactMonetizationService } from './contact-monetization.service';
 import { ListingsController } from './listings.controller';
-import { ListingContactUnlockService } from './listing-contact-unlock.service';
 import { PropertiesController } from './properties.controller';
 import { PropertiesService } from './properties.service';
 import { ListingShortsFromPhotosService } from './listing-shorts-from-photos.service';
@@ -22,17 +20,17 @@ import { ShareModule } from '../share/share.module';
 import { BonusCampaignModule } from '../bonus-campaign/bonus-campaign.module';
 import { CreditsModule } from '../credits/credits.module';
 import { RegistrationGateModule } from '../registration-gate/registration-gate.module';
-import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { AdvertiserListingLeadsController } from './advertiser-listing-leads.controller';
+import { ListingContactUnlockModule } from './listing-contact-unlock.module';
 
 @Module({
   imports: [
     ShareModule,
     forwardRef(() => CreditsModule),
-    BonusCampaignModule,
+    forwardRef(() => BonusCampaignModule),
     forwardRef(() => RegistrationGateModule),
     forwardRef(() => MessagesModule),
-    WhatsAppModule,
+    ListingContactUnlockModule,
     EmailsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -51,8 +49,6 @@ import { AdvertiserListingLeadsController } from './advertiser-listing-leads.con
     ShortsListingController,
   ],
   providers: [
-    ContactMonetizationService,
-    ListingContactUnlockService,
     PropertiesService,
     PropertyMediaCloudinaryService,
     ListingPhotoWatermarkService,
@@ -63,8 +59,7 @@ import { AdvertiserListingLeadsController } from './advertiser-listing-leads.con
     FacebookShareImageService,
   ],
   exports: [
-    ContactMonetizationService,
-    ListingContactUnlockService,
+    ListingContactUnlockModule,
     PropertiesService,
     PropertyMediaCloudinaryService,
     ListingWatermarkSettingsService,
