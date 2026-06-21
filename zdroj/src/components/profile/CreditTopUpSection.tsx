@@ -6,6 +6,7 @@ import {
   nestCreditsTopUp,
   type CreditBalanceDto,
   type CreditTopUpResultDto,
+  type NestProfileRequirements,
 } from '@/lib/nest-client';
 
 type Props = {
@@ -13,6 +14,7 @@ type Props = {
   initialBalance?: number;
   whatsappVerified?: boolean;
   canTopUpCredits?: boolean;
+  requirements?: NestProfileRequirements | null;
   onBalanceChange?: (balance: number) => void;
 };
 
@@ -34,6 +36,7 @@ export function CreditTopUpSection({
   initialBalance,
   whatsappVerified = true,
   canTopUpCredits = true,
+  requirements,
   onBalanceChange,
 }: Props) {
   const onBalanceChangeRef = useRef(onBalanceChange);
@@ -155,7 +158,15 @@ export function CreditTopUpSection({
         </p>
       ) : null}
 
-      {!canTopUpCredits ? (
+      {!canTopUpCredits && requirements?.checklist?.length ? (
+        <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Pro dobití kreditu:{' '}
+          {requirements.checklist
+            .filter((item) => ['whatsapp', 'email', 'name'].includes(item.id) && !item.satisfied)
+            .map((item) => item.missingLabel.toLowerCase())
+            .join(', ') || 'doplňte povinné údaje v profilu.'}
+        </p>
+      ) : !canTopUpCredits ? (
         <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           Pro dobití kreditu vyplňte jméno, ověřte e-mail a ověřte WhatsApp číslo v profilu.
         </p>

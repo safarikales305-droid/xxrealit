@@ -18,6 +18,7 @@ import {
   verifiedBadgeLabelForRole,
 } from '../brokers/professional-verification.util';
 import {
+  buildProfileRequirementsChecklist,
   collectProfessionalRequirementIssues,
   collectTiparRequirementIssues,
   canTopUpCredits,
@@ -257,22 +258,44 @@ export class UsersService {
     input: {
       bio?: string | null;
       name?: string;
+      firstName?: string;
+      lastName?: string;
       phone?: string;
       phonePublic?: boolean;
       brokerOfficeName?: string;
       city?: string | null;
+      address?: string | null;
+      postalCode?: string | null;
+      profileIco?: string | null;
       tiparPayoutBankAccount?: string | null;
     },
   ) {
-    const { bio, name, phone, phonePublic, brokerOfficeName, city, tiparPayoutBankAccount } =
-      input;
+    const {
+      bio,
+      name,
+      firstName,
+      lastName,
+      phone,
+      phonePublic,
+      brokerOfficeName,
+      city,
+      address,
+      postalCode,
+      profileIco,
+      tiparPayoutBankAccount,
+    } = input;
     if (
       bio === undefined &&
       name === undefined &&
+      firstName === undefined &&
+      lastName === undefined &&
       phone === undefined &&
       phonePublic === undefined &&
       brokerOfficeName === undefined &&
       city === undefined &&
+      address === undefined &&
+      postalCode === undefined &&
+      profileIco === undefined &&
       tiparPayoutBankAccount === undefined
     ) {
       const u = await this.prisma.user.findUnique({
@@ -301,15 +324,28 @@ export class UsersService {
       bio === null || (typeof bio === 'string' && bio.trim().length === 0)
         ? null
         : String(bio).trim().slice(0, 500);
+    const nextFirst = firstName !== undefined ? firstName.trim().slice(0, 60) : undefined;
+    const nextLast = lastName !== undefined ? lastName.trim().slice(0, 60) : undefined;
+    const combinedName =
+      name !== undefined
+        ? name.trim().slice(0, 120)
+        : nextFirst !== undefined || nextLast !== undefined
+          ? `${nextFirst ?? ''} ${nextLast ?? ''}`.trim().slice(0, 120)
+          : undefined;
     const data: Prisma.UserUpdateInput = {
-      bio: normalized,
-      ...(name !== undefined ? { name: name.trim().slice(0, 120) } : {}),
+      ...(bio !== undefined ? { bio: normalized } : {}),
+      ...(combinedName !== undefined ? { name: combinedName } : {}),
+      ...(nextFirst !== undefined ? { firstName: nextFirst } : {}),
+      ...(nextLast !== undefined ? { lastName: nextLast } : {}),
       ...(phone !== undefined ? { phone: phone.trim().slice(0, 40) } : {}),
       ...(phonePublic !== undefined ? { phonePublic } : {}),
       ...(brokerOfficeName !== undefined
         ? { brokerOfficeName: brokerOfficeName.trim().slice(0, 200) }
         : {}),
       ...(city !== undefined ? { city: city?.trim().slice(0, 120) || null } : {}),
+      ...(address !== undefined ? { address: address?.trim().slice(0, 200) || '' } : {}),
+      ...(postalCode !== undefined ? { postalCode: postalCode?.trim().slice(0, 16) || '' } : {}),
+      ...(profileIco !== undefined ? { profileIco: profileIco?.trim().slice(0, 16) || '' } : {}),
       ...(tiparPayoutBankAccount !== undefined
         ? { tiparPayoutBankAccount: tiparPayoutBankAccount?.trim().slice(0, 64) || null }
         : {}),
@@ -321,6 +357,8 @@ export class UsersService {
         id: true,
         email: true,
         name: true,
+        firstName: true,
+        lastName: true,
         phone: true,
         phonePublic: true,
         avatar: true,
@@ -328,11 +366,104 @@ export class UsersService {
         coverImage: true,
         coverCrop: true,
         bio: true,
+        city: true,
+        address: true,
+        postalCode: true,
+        profileIco: true,
         role: true,
         createdAt: true,
       },
     });
+    await this.syncRoleProfileFromUserSettings(userId, updated.role, {
+      name: updated.name,
+      brokerOfficeName: brokerOfficeName?.trim(),
+      city: city?.trim(),
+      address: address?.trim(),
+      profileIco: profileIco?.trim(),
+    });
     return { ...updated, role: ensureUserRole(updated.role) };
+  }
+
+  private async syncRoleProfileFromUserSettings(
+    userId: string,
+    role: UserRole,
+    patch: {
+      name?: string;
+      brokerOfficeName?: string;
+      city?: string;
+      address?: string;
+      profileIco?: string;
+    },
+  ) {
+    const city = patch.city || undefined;
+    const ico = patch.profileIco || undefined;
+    if (role === UserRole.AGENT) {
+      const existing = await this.prisma.agentProfile.findUnique({ where: { userId } });
+      if (existing) {
+        await this.prisma.agentProfile.update({
+          where: { userId },
+          data: {
+            ...(patch.name ? { fullName: patch.name } : {}),
+            ...(patch.brokerOfficeName ? { companyName: patch.brokerOfficeName } : {}),
+            ...(city ? { city } : {}),
+            ...(ico ? { ico } : {}),
+          },
+        });
+      }
+    }
+    if (role === UserRole.COMPANY) {
+      const existing = await this.prisma.companyProfile.findUnique({ where: { userId } });
+      if (existing) {
+        await this.prisma.companyProfile.update({
+          where: { userId },
+          data: {
+            ...(patch.brokerOfficeName ? { companyName: patch.brokerOfficeName } : {}),
+            ...(patch.name ? { contactFullName: patch.name } : {}),
+            ...(city ? { city } : {}),
+            ...(ico ? { ico } : {}),
+          },
+        });
+      }
+    }
+    if (role === UserRole.AGENCY) {
+      const existing = await this.prisma.agencyProfile.findUnique({ where: { userId } });
+      if (existing) {
+        await this.prisma.agencyProfile.update({
+          where: { userId },
+          data: {
+            ...(patch.brokerOfficeName ? { agencyName: patch.brokerOfficeName } : {}),
+            ...(patch.name ? { contactFullName: patch.name } : {}),
+            ...(city ? { city } : {}),
+            ...(ico ? { ico } : {}),
+          },
+        });
+      }
+    }
+    if (role === UserRole.FINANCIAL_ADVISOR) {
+      const existing = await this.prisma.financialAdvisorProfile.findUnique({ where: { userId } });
+      if (existing) {
+        await this.prisma.financialAdvisorProfile.update({
+          where: { userId },
+          data: {
+            ...(patch.name ? { fullName: patch.name } : {}),
+            ...(city ? { city } : {}),
+            ...(ico ? { ico } : {}),
+          },
+        });
+      }
+    }
+    if (role === UserRole.INVESTOR) {
+      const existing = await this.prisma.investorProfile.findUnique({ where: { userId } });
+      if (existing) {
+        await this.prisma.investorProfile.update({
+          where: { userId },
+          data: {
+            ...(patch.name ? { fullName: patch.name } : {}),
+            ...(city ? { city } : {}),
+          },
+        });
+      }
+    }
   }
 
   async getMeProfile(userId: string) {
@@ -346,6 +477,11 @@ export class UsersService {
       coverImage: true,
       bio: true,
       city: true,
+      address: true,
+      postalCode: true,
+      firstName: true,
+      lastName: true,
+      profileIco: true,
       emailVerified: true,
       tiparPayoutBankAccount: true,
       role: true,
@@ -648,10 +784,15 @@ export class UsersService {
     const reqInput: ProfileRequirementsInput = {
       role: u.role,
       name: u.name,
+      firstName: u.firstName,
+      lastName: u.lastName,
       email: u.email,
-      emailVerified: Boolean(u.emailVerified),
-      whatsappVerified: Boolean(u.whatsappVerified),
+      emailVerified: u.emailVerified === true,
+      whatsappVerified: u.whatsappVerified === true,
       city: u.city,
+      address: u.address,
+      postalCode: u.postalCode,
+      profileIco: u.profileIco,
       isTipar: Boolean(u.isTipar),
       tiparPayoutBankAccount: u.tiparPayoutBankAccount,
       professionalVerified: Boolean(u.professionalVerified),
@@ -663,9 +804,16 @@ export class UsersService {
       financialAdvisorProfile: u.financialAdvisorProfile,
       investorProfile: u.investorProfile,
     };
+    const checklist = buildProfileRequirementsChecklist(reqInput);
     return {
       ...profile,
+      firstName: u.firstName ?? '',
+      lastName: u.lastName ?? '',
+      address: u.address ?? '',
+      postalCode: u.postalCode ?? '',
+      profileIco: u.profileIco ?? '',
       profileRequirements: {
+        checklist,
         professional: collectProfessionalRequirementIssues(reqInput),
         tipar: collectTiparRequirementIssues(reqInput),
         canTopUpCredits: canTopUpCredits(reqInput),
@@ -725,6 +873,7 @@ export class UsersService {
           city: true,
           ico: true,
           companyName: true,
+          fullName: true,
         },
       },
       companyProfile: {
@@ -734,6 +883,7 @@ export class UsersService {
           city: true,
           ico: true,
           companyName: true,
+          contactFullName: true,
         },
       },
       agencyProfile: {
@@ -743,16 +893,22 @@ export class UsersService {
           city: true,
           ico: true,
           agencyName: true,
+          contactFullName: true,
         },
       },
       financialAdvisorProfile: {
-        select: { verificationStatus: true, isPublic: true, city: true, ico: true },
+        select: { verificationStatus: true, isPublic: true, city: true, ico: true, fullName: true },
       },
-      investorProfile: { select: { verificationStatus: true, isPublic: true, city: true } },
+      investorProfile: { select: { verificationStatus: true, isPublic: true, city: true, fullName: true } },
       avatar: true,
       coverImage: true,
       bio: true,
       city: true,
+      address: true,
+      firstName: true,
+      lastName: true,
+      profileIco: true,
+      brokerOfficeName: true,
       rating: true,
       createdAt: true,
       creditBalance: true,
@@ -871,14 +1027,19 @@ export class UsersService {
     const reqInput: ProfileRequirementsInput = {
       role: user.role,
       name: user.name,
+      firstName: user.firstName,
+      lastName: user.lastName,
       email: user.email,
-      emailVerified: Boolean(user.emailVerified),
-      whatsappVerified: Boolean(user.whatsappVerified),
+      emailVerified: user.emailVerified === true,
+      whatsappVerified: user.whatsappVerified === true,
       city: user.city,
+      address: user.address,
+      profileIco: user.profileIco,
       isTipar: Boolean(user.isTipar),
       tiparPayoutBankAccount: user.tiparPayoutBankAccount,
       professionalVerified: Boolean(user.professionalVerified),
       professionalVerificationStatus: user.professionalVerificationStatus,
+      brokerOfficeName: user.brokerOfficeName,
       agentProfile: user.agentProfile,
       companyProfile: user.companyProfile,
       agencyProfile: user.agencyProfile,

@@ -16,6 +16,20 @@ export class UpdateProfileDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @ValidateIf((_, v) => v !== undefined)
   @IsString()
+  @MaxLength(60)
+  firstName?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @ValidateIf((_, v) => v !== undefined)
+  @IsString()
+  @MaxLength(60)
+  lastName?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @ValidateIf((_, v) => v !== undefined)
+  @IsString()
   @Matches(/^\+[1-9]\d{7,14}$/, {
     message: 'Telefon musí být ve formátu +420123456789.',
   })
@@ -59,6 +73,27 @@ export class UpdateProfileDto {
   @IsString()
   @MaxLength(120)
   city?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @ValidateIf((_, v) => v !== undefined)
+  @IsString()
+  @MaxLength(200)
+  address?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @ValidateIf((_, v) => v !== undefined)
+  @IsString()
+  @MaxLength(16)
+  postalCode?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @ValidateIf((_, v) => v !== undefined)
+  @IsString()
+  @MaxLength(16)
+  profileIco?: string;
 
   @IsOptional()
   @Transform(({ value }) => {

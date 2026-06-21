@@ -217,7 +217,15 @@ export type NestInvestorProfileMe = {
 };
 
 /** Odpověď GET /users/me (Nest JWT). */
+export type ProfileRequirementChecklistItem = {
+  id: string;
+  label: string;
+  missingLabel: string;
+  satisfied: boolean;
+};
+
 export type NestProfileRequirements = {
+  checklist?: ProfileRequirementChecklistItem[];
   professional: string[];
   tipar: string[];
   canTopUpCredits: boolean;
@@ -229,7 +237,12 @@ export type NestMeProfile = {
   id: string;
   email: string;
   name?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
   city?: string | null;
+  address?: string | null;
+  postalCode?: string | null;
+  profileIco?: string | null;
   emailVerified?: boolean;
   tiparPayoutBankAccount?: string | null;
   phone?: string;
@@ -462,7 +475,24 @@ function parseNestProfileRequirements(raw: unknown): NestProfileRequirements | u
   const tipar = Array.isArray(o.tipar)
     ? o.tipar.filter((x): x is string => typeof x === 'string')
     : [];
+  const checklist = Array.isArray(o.checklist)
+    ? o.checklist
+        .map((row) => {
+          if (row == null || typeof row !== 'object') return null;
+          const item = row as Record<string, unknown>;
+          if (typeof item.id !== 'string' || typeof item.label !== 'string') return null;
+          return {
+            id: item.id,
+            label: item.label,
+            missingLabel:
+              typeof item.missingLabel === 'string' ? item.missingLabel : item.label,
+            satisfied: item.satisfied === true,
+          } satisfies ProfileRequirementChecklistItem;
+        })
+        .filter((x): x is ProfileRequirementChecklistItem => x != null)
+    : [];
   return {
+    checklist,
     professional,
     tipar,
     canTopUpCredits: o.canTopUpCredits !== false,
@@ -544,8 +574,28 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     id: o.id,
     email: o.email,
     name: typeof o.name === 'string' || o.name === null ? (o.name as string | null) : undefined,
+    firstName:
+      typeof o.firstName === 'string' || o.firstName === null
+        ? (o.firstName as string | null)
+        : undefined,
+    lastName:
+      typeof o.lastName === 'string' || o.lastName === null
+        ? (o.lastName as string | null)
+        : undefined,
     city:
       o.city === null || typeof o.city === 'string' ? (o.city as string | null) : undefined,
+    address:
+      typeof o.address === 'string' || o.address === null
+        ? (o.address as string | null)
+        : undefined,
+    postalCode:
+      typeof o.postalCode === 'string' || o.postalCode === null
+        ? (o.postalCode as string | null)
+        : undefined,
+    profileIco:
+      typeof o.profileIco === 'string' || o.profileIco === null
+        ? (o.profileIco as string | null)
+        : undefined,
     emailVerified: o.emailVerified === true,
     tiparPayoutBankAccount:
       o.tiparPayoutBankAccount === null || typeof o.tiparPayoutBankAccount === 'string'
@@ -4702,10 +4752,15 @@ export async function nestPatchProfileBio(
   body: {
     bio?: string | null;
     name?: string;
+    firstName?: string;
+    lastName?: string;
     phone?: string;
     phonePublic?: boolean;
     brokerOfficeName?: string;
     city?: string;
+    address?: string;
+    postalCode?: string;
+    profileIco?: string;
     tiparPayoutBankAccount?: string | null;
   },
 ): Promise<{

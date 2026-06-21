@@ -149,6 +149,16 @@ model User {
   bio          String?
   /// User's own city (for personalization); separate from listing city.
   city         String?
+  /// Ulice a číslo popisné (profil / ověření).
+  address      String   @default("")
+  /// PSČ.
+  postalCode   String   @default("")
+  /// Křestní jméno (profil).
+  firstName    String   @default("")
+  /// Příjmení (profil).
+  lastName     String   @default("")
+  /// IČO na úrovni uživatele (sync s role profily).
+  profileIco   String   @default("")
   /// Average rating 0–5 (manual / future reviews).
   rating       Float      @default(0)
   creditBalance Int       @default(0)

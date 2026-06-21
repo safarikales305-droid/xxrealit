@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CreditTopUpSection } from '@/components/profile/CreditTopUpSection';
-import { ProfileRequirementsCard } from '@/components/profile/ProfileRequirementsCard';
+import { ProfileRequirementsCard, VERIFIED_BADGE_TOOLTIP } from '@/components/profile/ProfileRequirementsCard';
 import { WhatsAppPhoneVerificationCard } from '@/components/profile/WhatsAppPhoneVerificationCard';
 import { PropertyGrid } from '@/components/property-grid';
 import { useAuth } from '@/hooks/use-auth';
@@ -1138,7 +1138,10 @@ export default function ProfilPage() {
                       {user.name?.trim() || 'Uživatel'}
                     </h1>
                     {nestMe?.profileRequirements?.showVerifiedBadge ? (
-                      <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+                      <span
+                        className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800"
+                        title={VERIFIED_BADGE_TOOLTIP}
+                      >
                         {nestMe.isTipar && nestMe.profileRequirements?.canUseTipar
                           ? 'Ověřený tipař'
                           : verifiedBadgeLabelForRole(user.role)}
@@ -1323,6 +1326,7 @@ export default function ProfilPage() {
               requirements={nestMe?.profileRequirements}
               role={user.role}
               isTipar={nestMe?.isTipar}
+              showVerifiedBadge={nestMe?.profileRequirements?.showVerifiedBadge}
             />
 
             <div className="mt-5">
@@ -1342,6 +1346,7 @@ export default function ProfilPage() {
               initialBalance={nestMe?.creditBalance}
               whatsappVerified={nestMe?.whatsappVerified === true}
               canTopUpCredits={nestMe?.profileRequirements?.canTopUpCredits !== false}
+              requirements={nestMe?.profileRequirements}
               onBalanceChange={(balance) =>
                 setNestMe((prev) => (prev ? { ...prev, creditBalance: balance } : prev))
               }

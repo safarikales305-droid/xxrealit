@@ -168,10 +168,15 @@ export class UsersController {
     const updated = await this.usersService.updateProfile(user.id, {
       bio: dto.bio,
       name: dto.name,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
       phone: dto.phone,
       phonePublic: dto.phonePublic,
       brokerOfficeName: dto.brokerOfficeName,
       city: dto.city,
+      address: dto.address,
+      postalCode: dto.postalCode,
+      profileIco: dto.profileIco,
       tiparPayoutBankAccount: dto.tiparPayoutBankAccount,
     });
     return {

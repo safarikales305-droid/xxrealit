@@ -39,6 +39,8 @@ import { InviteFriendsPanel } from '@/components/referral/InviteFriendsPanel';
 import { FacebookPageConnectionCard } from '@/components/profile/FacebookPageConnectionCard';
 import { WhatsAppConnectionCard } from '@/components/profile/WhatsAppConnectionCard';
 import { NotificationPreferencesCard } from '@/components/profile/NotificationPreferencesCard';
+import { ProfileDetailsForm } from '@/components/profile/ProfileDetailsForm';
+import { ProfileRequirementsCard } from '@/components/profile/ProfileRequirementsCard';
 import { dispatchNotificationsChanged } from '@/hooks/use-notifications-unread';
 import { WhatsAppPhoneVerificationCard } from '@/components/profile/WhatsAppPhoneVerificationCard';
 
@@ -238,6 +240,21 @@ export default function ProfileDashboardPage() {
             <div className="space-y-5">
               <h1 className="text-xl font-bold text-zinc-900">Nastavení profilu</h1>
               {loadingMe ? <p className="text-sm text-zinc-600">Načítám…</p> : null}
+
+              <ProfileRequirementsCard
+                requirements={me?.profileRequirements}
+                role={user?.role ?? 'USER'}
+                isTipar={me?.isTipar}
+                showVerifiedBadge={me?.profileRequirements?.showVerifiedBadge}
+              />
+
+              <ProfileDetailsForm
+                token={apiAccessToken}
+                onSaved={(fresh) => {
+                  setMe(fresh);
+                  setOk('Údaje profilu uloženy — podmínky ověření byly přepočítány.');
+                }}
+              />
               {user?.role === 'COMPANY' || user?.role === 'AGENCY' ? (
                 <label className="block text-sm font-semibold text-zinc-800">
                   Název firmy / kanceláře
