@@ -1,7 +1,10 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import webpush from 'web-push';
 import { PrismaService } from '../../database/prisma.service';
+import {
+  getWebPushClient,
+  isWebPushClientReady,
+} from './web-push-client.util';
 import {
   resolveVapidConfig,
   VAPID_SETUP_INSTRUCTIONS,
@@ -30,14 +33,37 @@ export class WebPushService {
   }
 
   private bootstrapVapid(): void {
-    const vapid = resolveVapidConfig(this.config);
-    if (!vapid.configured || !vapid.publicKey || !vapid.privateKey || !vapid.subject) {
-      this.logger.warn(`[web-push] VAPID není připraveno: ${vapid.issues.join('; ')}`);
-      return;
+    try {
+      if (!isWebPushClientReady()) {
+        this.logger.warn('[web-push] web-push není dostupný');
+        return;
+      }
+
+      const vapid = resolveVapidConfig(this.config);
+      if (!vapid.configured || !vapid.publicKey || !vapid.privateKey || !vapid.subject) {
+        this.logger.warn('VAPID keys missing, push notifications disabled');
+        if (vapid.issues.length > 0) {
+          this.logger.warn(`[web-push] ${vapid.issues.join('; ')}`);
+        }
+        return;
+      }
+
+      const webpush = getWebPushClient();
+      if (!webpush?.setVapidDetails) {
+        this.logger.warn('[web-push] web-push není dostupný');
+        return;
+      }
+
+      webpush.setVapidDetails(vapid.subject, vapid.publicKey, vapid.privateKey);
+      this.vapidInitialized = true;
+      this.logger.log('[web-push] VAPID aktivní (setVapidDetails)');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `[web-push] init selhalo — push disabled, backend pokračuje: ${message}`,
+      );
+      this.vapidInitialized = false;
     }
-    webpush.setVapidDetails(vapid.subject, vapid.publicKey, vapid.privateKey);
-    this.vapidInitialized = true;
-    this.logger.log('[web-push] VAPID aktivní (setVapidDetails)');
   }
 
   private vapid() {
@@ -350,6 +376,12 @@ export class WebPushService {
 
     let sent = 0;
     let failed = 0;
+    const webpush = getWebPushClient();
+    if (!webpush?.sendNotification) {
+      this.logger.warn('[web-push] send skipped — web-push není dostupný');
+      return { sent: 0, failed: 0 };
+    }
+
     for (const sub of subs) {
       try {
         await webpush.sendNotification(
