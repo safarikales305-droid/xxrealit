@@ -13,7 +13,7 @@ import { UsersService } from './users.service';
     forwardRef(() => AuthModule),
     forwardRef(() => PropertiesModule),
     forwardRef(() => WhatsAppModule),
-    PortalTestingModule,
+    forwardRef(() => PortalTestingModule),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
