@@ -143,19 +143,18 @@ export class CreditsService {
           )
         : user.accountLimited
           ? 'Váš účet je omezen kvůli neuhrazenému dobití kreditu. Kontaktujte podporu.'
-          : user.creditDebt > 0
-            ? `Máte dluh ${user.creditDebt.toLocaleString('cs-CZ')} Kč z neuhrazeného dobití kreditu.`
-            : null;
+          : null;
 
     const balances = this.wallet.serializeBalances(user);
     const paidCredit = balances.realCreditBalance;
     const bonusCredit = balances.bonusCreditBalance;
+    const displayDebt = user.accountLimited && user.creditDebt > 0 ? user.creditDebt : 0;
     return {
       ...balances,
       paidCredit,
       bonusCredit,
       marketingCreditTotal: paidCredit + bonusCredit,
-      creditDebt: user.creditDebt,
+      creditDebt: displayDebt,
       accountLimited: user.accountLimited,
       isCreditVerified: user.isCreditVerified,
       firstTopUpUsed: user.firstTopUpUsed,
@@ -699,5 +698,79 @@ export class CreditsService {
     const tx = await this.prisma.creditTopUpTransaction.findUnique({ where: { id } });
     if (!tx) throw new NotFoundException('Transakce nenalezena');
     return tx;
+  }
+
+  /**
+   * Přepočítá zůstatky z CreditLedger (+ ověří součet CreditTransaction).
+   * Vymaže neoprávněný creditDebt, pokud neexistuje zrušené/expir. dobití.
+   */
+  async recalculateUserCredit(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        accountLimited: true,
+        creditDebt: true,
+      },
+    });
+    if (!user) throw new NotFoundException('Uživatel nenalezen');
+
+    const [ledgerRows, txSum] = await Promise.all([
+      this.prisma.creditLedger.findMany({
+        where: { userId },
+        select: { amount: true, creditType: true, purpose: true },
+      }),
+      this.prisma.creditTransaction.aggregate({
+        where: { buyerUserId: userId },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    let real = 0;
+    let bonus = 0;
+    let pending = 0;
+    for (const row of ledgerRows) {
+      const bucket = (row.creditType ?? 'REAL').toUpperCase();
+      if (bucket === 'BONUS') bonus += row.amount;
+      else if (bucket === 'PENDING') pending += row.amount;
+      else real += row.amount;
+    }
+
+    real = Math.max(0, real);
+    bonus = Math.max(0, bonus);
+    pending = Math.max(0, pending);
+
+    const hasReversal = ledgerRows.some(
+      (r) => r.purpose === 'TOP_UP_REVERSED' || r.purpose === 'TOP_UP_EXPIRED',
+    );
+    const creditDebt = user.accountLimited && hasReversal ? Math.max(0, user.creditDebt) : 0;
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        realCreditBalance: real,
+        bonusCreditBalance: bonus,
+        pendingCreditBalance: pending,
+        creditBalance: real + bonus + pending,
+        creditDebt,
+        ...(creditDebt === 0 && !hasReversal ? { accountLimited: false } : {}),
+      },
+      select: {
+        realCreditBalance: true,
+        bonusCreditBalance: true,
+        pendingCreditBalance: true,
+        creditBalance: true,
+        creditDebt: true,
+        accountLimited: true,
+      },
+    });
+
+    return {
+      ...this.wallet.serializeBalances(updated),
+      creditDebt: updated.creditDebt,
+      accountLimited: updated.accountLimited,
+      ledgerEntries: ledgerRows.length,
+      creditTransactionSum: txSum._sum.amount ?? 0,
+    };
   }
 }

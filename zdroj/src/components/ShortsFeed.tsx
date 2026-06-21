@@ -271,7 +271,15 @@ export function ShortsFeed({ items }: Props) {
   }
 
   function renderClipSection(c: Clip, isActive: boolean) {
-    const showProfileLink = !!c.userId;
+    const clipOwnerId = (c.userId ?? '').trim();
+    const isClipOwner = Boolean(
+      user?.id && clipOwnerId && String(user.id).trim() === clipOwnerId,
+    );
+    const clipContactRevealed =
+      isClipOwner ||
+      Boolean(c.contactUnlocked) ||
+      Boolean(c.sellerContactVisible);
+    const showProfileLink = Boolean(c.userId) && clipContactRevealed;
     const ad = adsByClipId[c.id] ?? null;
     const adImageSrc = ad ? nestAbsoluteAssetUrl(ad.imageUrl).trim() : '';
     const isAdOpen = Boolean(ad && adPanelOpenByClipId[c.id]);

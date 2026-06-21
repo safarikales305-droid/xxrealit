@@ -167,7 +167,7 @@ export function CreditTopUpSection({
             ) : null}
           </span>
         ) : null}
-        {balanceInfo && balanceInfo.creditDebt > 0 ? (
+        {balanceInfo?.accountLimited && balanceInfo.creditDebt > 0 ? (
           <span className="ml-2 text-red-600">
             (dluh {balanceInfo.creditDebt.toLocaleString('cs-CZ')} Kč)
           </span>

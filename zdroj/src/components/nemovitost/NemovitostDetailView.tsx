@@ -363,18 +363,12 @@ export function NemovitostDetailView({
 
   function renderLockedContactBlock(compact = false) {
     if (!sellerContactLocked) return null;
-    const displayName = author.name?.trim() || 'Uživatel';
     return (
       <div
         className={`space-y-1 rounded-xl border border-zinc-200 bg-zinc-50/90 p-3 text-sm text-zinc-700 ${compact ? 'mt-3' : 'mt-3'}`}
       >
         <p className="font-semibold text-zinc-900">Kontakt skrytý</p>
-        <p>
-          Inzerent:{' '}
-          <span className={author.nameBlurred ? 'font-medium tracking-wide blur-[3px]' : 'font-medium'}>
-            {displayName}
-          </span>
-        </p>
+        <p>Inzerent: <span className="font-medium">skrytý</span></p>
         <p className="text-zinc-500">Telefon skrytý</p>
         <p className="text-zinc-500">E-mail skrytý</p>
       </div>
@@ -563,7 +557,7 @@ export function NemovitostDetailView({
                     <MessageCircle className="size-5 shrink-0" strokeWidth={2.25} aria-hidden />
                     ✉️ Napsat zprávu
                   </button>
-                  {!isOwner && author.whatsappEnabled ? (
+                  {!isOwner && contactRevealed && author.whatsappEnabled ? (
                     <WhatsAppContactButton
                       targetUserId={author.id}
                       listingId={propertyId}
@@ -653,6 +647,7 @@ export function NemovitostDetailView({
             </div>
           </div>
 
+          {(contactRevealed || isOwner) ? (
           <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-6">
             <h2 className="text-lg font-semibold tracking-tight text-zinc-900">Inzerent</h2>
             <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -671,16 +666,15 @@ export function NemovitostDetailView({
               </div>
               <div className="min-w-0">
                 <p className="font-semibold text-zinc-900">
-                  <span className={author.nameBlurred && sellerContactLocked ? 'tracking-wide blur-[3px]' : ''}>
-                    {author.name?.trim() || 'Uživatel'}
-                  </span>
+                  {author.name?.trim() || 'Uživatel'}
                 </p>
-                {sellerContactLocked && companyName ? (
-                  <p className="mt-1 text-sm text-zinc-500 tracking-wide blur-[3px]">{companyName}</p>
+                {companyName ? (
+                  <p className="mt-1 text-sm text-zinc-500">{companyName}</p>
                 ) : null}
               </div>
             </div>
           </div>
+          ) : null}
         </main>
 
         <aside className="hidden space-y-4 xl:col-span-3 xl:block">

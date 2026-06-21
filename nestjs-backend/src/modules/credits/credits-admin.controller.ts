@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Patch,
+  Post,
   UseGuards,
   ValidationPipe,
 } from '@nestjs/common';
@@ -67,5 +68,10 @@ export class CreditsAdminController {
   @Patch('users/:userId/unverify')
   unverifyUserCredit(@Param('userId') userId: string) {
     return this.credits.unverifyUserCredit(userId);
+  }
+
+  @Post('users/:userId/recalculate')
+  recalculateUserCredit(@Param('userId') userId: string) {
+    return this.credits.recalculateUserCredit(userId);
   }
 }

@@ -7299,6 +7299,118 @@ export async function nestAdminUnverifyUserCredit(
   return { ok: true };
 }
 
+export async function nestAdminRecalculateUserCredit(
+  token: string | null,
+  userId: string,
+): Promise<{ ok: boolean; error?: string; data?: Record<string, unknown> }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(
+    `${API_BASE_URL}/admin/credits/users/${encodeURIComponent(userId)}/recalculate`,
+    {
+      method: 'POST',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    },
+  );
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: typeof data.message === 'string' ? data.message : `HTTP ${res.status}`,
+    };
+  }
+  return { ok: true, data };
+}
+
+export type DeveloperNoteRow = {
+  id: string;
+  category: string;
+  status: 'OPEN' | 'RESOLVED';
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  author: { id: string; name: string | null; email: string };
+};
+
+export async function nestAdminListDeveloperNotes(
+  token: string | null,
+  params?: { q?: string; category?: string; status?: string },
+): Promise<{ items: DeveloperNoteRow[]; total: number }> {
+  if (!API_BASE_URL || !token) return { items: [], total: 0 };
+  const qs = new URLSearchParams();
+  if (params?.q?.trim()) qs.set('q', params.q.trim());
+  if (params?.category?.trim()) qs.set('category', params.category.trim());
+  if (params?.status?.trim()) qs.set('status', params.status.trim());
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  const res = await fetch(`${API_BASE_URL}/admin/developer-notes${suffix}`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return { items: [], total: 0 };
+  const data = (await res.json().catch(() => ({}))) as {
+    items?: DeveloperNoteRow[];
+    total?: number;
+  };
+  return { items: Array.isArray(data.items) ? data.items : [], total: data.total ?? 0 };
+}
+
+export async function nestAdminCreateDeveloperNote(
+  token: string | null,
+  payload: { body: string; category: string; status?: 'OPEN' | 'RESOLVED' },
+): Promise<{ ok: boolean; error?: string; note?: DeveloperNoteRow }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/developer-notes`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json().catch(() => ({}))) as DeveloperNoteRow & { message?: string };
+  if (!res.ok) {
+    return { ok: false, error: typeof data.message === 'string' ? data.message : `HTTP ${res.status}` };
+  }
+  return { ok: true, note: data };
+}
+
+export async function nestAdminUpdateDeveloperNote(
+  token: string | null,
+  id: string,
+  payload: Partial<{ body: string; category: string; status: 'OPEN' | 'RESOLVED' }>,
+): Promise<{ ok: boolean; error?: string; note?: DeveloperNoteRow }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/developer-notes/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json().catch(() => ({}))) as DeveloperNoteRow & { message?: string };
+  if (!res.ok) {
+    return { ok: false, error: typeof data.message === 'string' ? data.message : `HTTP ${res.status}` };
+  }
+  return { ok: true, note: data };
+}
+
+export async function nestAdminDeleteDeveloperNote(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/developer-notes/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { message?: string };
+    return { ok: false, error: typeof data.message === 'string' ? data.message : `HTTP ${res.status}` };
+  }
+  return { ok: true };
+}
+
 export type ContactMonetizationSettingsDto = {
   tipPortalPercent: number;
   tipTipsterPercent: number;

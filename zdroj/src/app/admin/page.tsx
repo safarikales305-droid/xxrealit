@@ -26,6 +26,7 @@ import {
   nestAdminUpdateShareTextsSettings,
   nestAdminUpdateUserRole,
   nestAdminUpdateUserCredit,
+  nestAdminRecalculateUserCredit,
   nestAdminVerifyUserCredit,
   nestAdminUnverifyUserCredit,
   nestAdminVerifyUserWhatsApp,
@@ -323,6 +324,15 @@ export default function AdminPage() {
     else setLoadError(r.error ?? 'Uložení kreditu selhalo');
   }
 
+  async function onRecalculateUserCredit(userId: string) {
+    if (!token) return;
+    setBusyUserId(userId);
+    const r = await nestAdminRecalculateUserCredit(token, userId);
+    setBusyUserId(null);
+    if (r.ok) await refresh();
+    else setLoadError(r.error ?? 'Přepočet kreditu selhal');
+  }
+
   async function onVerifyUserCredit(userId: string) {
     if (!token) return;
     setBusyUserId(userId);
@@ -567,6 +577,12 @@ export default function AdminPage() {
               className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >
               Logy systému
+            </Link>
+            <Link
+              href="/admin/vyvojarske-poznamky"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Vývojářské poznámky
             </Link>
             <Link
               href="/"
@@ -1065,6 +1081,15 @@ export default function AdminPage() {
                             className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:opacity-50"
                           >
                             Uložit
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busyUserId === u.id}
+                            onClick={() => void onRecalculateUserCredit(u.id)}
+                            className="rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-900 transition hover:bg-sky-100 disabled:opacity-50"
+                            title="Přepočítat kredit z CreditLedger / CreditTransaction"
+                          >
+                            Přepočítat kredit
                           </button>
                           {u.isCreditVerified ? (
                             <button

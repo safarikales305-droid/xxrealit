@@ -40,6 +40,7 @@ import { PostSoundsModule } from './modules/post-sounds/post-sounds.module';
 import { WebPushModule } from './modules/web-push/web-push.module';
 import { MarketingOnboardingModule } from './modules/marketing-onboarding/marketing-onboarding.module';
 import { PurchaseAdviceArticlesModule } from './modules/purchase-advice-articles/purchase-advice-articles.module';
+import { DeveloperNotesModule } from './modules/developer-notes/developer-notes.module';
 
 @Module({
   imports: [
@@ -86,6 +87,7 @@ import { PurchaseAdviceArticlesModule } from './modules/purchase-advice-articles
     WebPushModule,
     PurchaseAdviceArticlesModule,
     MarketingOnboardingModule,
+    DeveloperNotesModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

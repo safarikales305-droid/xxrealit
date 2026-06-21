@@ -326,6 +326,7 @@ model User {
   creditTransactionsAsBuyer CreditTransaction[] @relation("CreditTransactionBuyer")
   creditTransactionsAsTipar CreditTransaction[] @relation("CreditTransactionTipar")
   creditLedgerEntries CreditLedger[]
+  developerNotes      DeveloperNote[]
   creditTopUpTransactions CreditTopUpTransaction[]
   bonusClaims         BonusClaim[]
   referralInvitesSent ReferralInvite[] @relation("ReferralInvitesSent")
@@ -2108,4 +2109,20 @@ model PwaPushCampaign {
   updatedAt        DateTime  @updatedAt
 
   @@index([status, scheduledAt])
+}
+
+/// Interní vývojářské poznámky (admin).
+model DeveloperNote {
+  id        String   @id @default(cuid())
+  category  String
+  status    String   @default("OPEN")
+  body      String   @db.Text
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+  @@index([category])
+  @@index([status])
 }

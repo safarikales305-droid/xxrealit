@@ -207,4 +207,26 @@ export class ContactMonetizationService {
 
     return this.wallet.advertiserLeadAffordable(owner, price);
   }
+
+  async ownerCanAffordLeadTx(
+    tx: import('@prisma/client').Prisma.TransactionClient,
+    ownerUserId: string,
+    amount: number,
+  ): Promise<boolean> {
+    const price = Math.max(0, Math.trunc(amount));
+    if (price === 0) return true;
+
+    const owner = await tx.user.findUnique({
+      where: { id: ownerUserId },
+      select: {
+        realCreditBalance: true,
+        bonusCreditBalance: true,
+        pendingCreditBalance: true,
+        creditBalance: true,
+      },
+    });
+    if (!owner) return false;
+
+    return this.wallet.advertiserLeadAffordable(owner, price);
+  }
 }

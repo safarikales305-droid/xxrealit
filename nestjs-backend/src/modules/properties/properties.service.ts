@@ -66,7 +66,6 @@ import {
   type PropertyViewerAccess,
 } from './properties.serializer';
 import { ListingContactUnlockService } from './listing-contact-unlock.service';
-import { blurPersonName } from './name-blur.util';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { OwnerListingNotifyService } from '../premium-broker/owner-listing-notify.service';
 import type { CreateShortsFromClassicDto } from './dto/create-shorts-from-classic.dto';
@@ -918,17 +917,18 @@ export class PropertiesService {
     const showAuthorContact = isOwner || Boolean(access?.isAdmin) || sellerContactVisible;
 
     const userPayload = {
-      id: author.id,
-      name: showAuthorContact ? author.name ?? null : blurPersonName(author.name),
+      id: showAuthorContact ? author.id : null,
+      name: showAuthorContact ? author.name ?? null : null,
       nameBlurred: !showAuthorContact,
-      avatar: author.avatar ?? null,
+      avatar: showAuthorContact ? author.avatar ?? null : null,
       phone: showAuthorContact && author.phonePublic ? author.phone : null,
       phonePublic: showAuthorContact && Boolean(author.phonePublic),
       whatsappEnabled:
         showAuthorContact &&
         Boolean(author.whatsappEnabled) &&
         isValidWhatsAppPhone(author.whatsappPhone ?? ''),
-      role: author.role,
+      role: showAuthorContact ? author.role : null,
+      advertiserVisible: showAuthorContact,
     };
     const contactUnlockAvailable =
       await this.listingContactUnlock.isContactUnlockAvailableForProperty(property.id);

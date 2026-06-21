@@ -452,7 +452,6 @@ export class ListingContactUnlockService {
       ownerRole: property.user.role,
     });
     const leadPrice = this.monetization.resolveLeadPrice(settings, leadSource);
-    const canAfford = await this.monetization.ownerCanAffordLead(property.userId, leadPrice);
     const now = new Date();
 
     const created = await this.prisma.$transaction(async (tx) => {
@@ -460,6 +459,15 @@ export class ListingContactUnlockService {
       let creditCharged = false;
       let status: 'UNLOCKED' | 'WAITING_FOR_CREDIT' = 'UNLOCKED';
       let unlockedAt: Date | null = now;
+      let canAfford = leadPrice === 0;
+
+      if (leadPrice > 0) {
+        canAfford = await this.monetization.ownerCanAffordLeadTx(
+          tx,
+          property.userId,
+          leadPrice,
+        );
+      }
 
       if (!canAfford && leadPrice > 0) {
         status = 'WAITING_FOR_CREDIT';

@@ -129,7 +129,22 @@ export class CreditWalletService {
       },
     });
 
-    const total = this.totalBalance(updated);
+    const clamped = {
+      realCreditBalance: Math.max(0, updated.realCreditBalance),
+      bonusCreditBalance: Math.max(0, updated.bonusCreditBalance),
+      pendingCreditBalance: Math.max(0, updated.pendingCreditBalance),
+    };
+    if (
+      clamped.realCreditBalance !== updated.realCreditBalance ||
+      clamped.bonusCreditBalance !== updated.bonusCreditBalance
+    ) {
+      await tx.user.update({
+        where: { id: userId },
+        data: clamped,
+      });
+    }
+
+    const total = this.totalBalance(clamped);
     await tx.user.update({
       where: { id: userId },
       data: { creditBalance: total },
@@ -156,7 +171,7 @@ export class CreditWalletService {
 
     return {
       ...breakdown,
-      ...this.serializeBalances({ ...updated, creditBalance: total }),
+      ...this.serializeBalances({ ...clamped, creditBalance: total }),
     };
   }
 
