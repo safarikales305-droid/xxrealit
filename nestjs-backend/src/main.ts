@@ -53,6 +53,7 @@ function isAllowedCorsOrigin(origin: string, allowlist: string[]): boolean {
     const host = parsed.hostname.toLowerCase();
     if (host === 'xxrealit.cz' || host === 'www.xxrealit.cz') return true;
     if (host.endsWith('.xxrealit.cz')) return true;
+    if (host.endsWith('.up.railway.app')) return true;
     if (host === 'localhost' || host === '127.0.0.1') return true;
   } catch {
     return false;
@@ -66,17 +67,26 @@ function isAllowedCorsOrigin(origin: string, allowlist: string[]): boolean {
  * nebo CORS_ORIGINS=https://www.xxrealit.cz,https://xxrealit.cz
  */
 function buildCorsOriginAllowlist(): string[] {
+  const railwayPublic = process.env.RAILWAY_PUBLIC_DOMAIN?.trim();
+  const railwayStatic = process.env.RAILWAY_STATIC_URL?.trim();
   const fromEnv = [
     ...parseCommaSeparatedOrigins(process.env.CORS_ORIGINS),
     ...parseCommaSeparatedOrigins(process.env.FRONTEND_URL),
     ...parseCommaSeparatedOrigins(process.env.CORS_ORIGIN),
     ...parseCommaSeparatedOrigins(process.env.NEXT_PUBLIC_SITE_URL),
     ...parseCommaSeparatedOrigins(process.env.PUBLIC_APP_URL),
+    ...(railwayPublic
+      ? [
+          normalizeOrigin(`https://${railwayPublic}`),
+          normalizeOrigin(`http://${railwayPublic}`),
+        ]
+      : []),
+    ...(railwayStatic ? [normalizeOrigin(railwayStatic)] : []),
   ];
   const defaults = [
     'https://www.xxrealit.cz',
     'https://xxrealit.cz',
-    'https://surprising-wisdom-production-679.up.railway.app',
+    'https://surprising-wisdom-production-f679.up.railway.app',
     'https://xxrealit-production.up.railway.app',
     'http://localhost:3000',
     'http://localhost:3001',
@@ -111,7 +121,9 @@ async function bootstrap() {
     } else {
       console.error('[DB] Schema readiness check failed:', error);
     }
-    throw error;
+    console.warn(
+      '[DB] Pokračuji se startem — přihlášení může fungovat i bez Post/Video tabulek.',
+    );
   }
 
   app.useGlobalPipes(
@@ -183,14 +195,6 @@ async function bootstrap() {
     exposedHeaders: ['Content-Length'],
     optionsSuccessStatus: 204,
     maxAge: 86_400,
-  });
-
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    if (req.method === 'OPTIONS') {
-      res.status(204).end();
-      return;
-    }
-    next();
   });
 
   const port = Number(process.env.PORT) || 3000;

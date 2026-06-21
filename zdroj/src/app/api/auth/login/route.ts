@@ -52,54 +52,70 @@ export async function POST(request: Request) {
 
     const nestBase = getOptionalInternalApiBaseUrl();
     if (nestBase) {
+      let nestRes: Response;
       try {
-        const nestRes = await fetch(`${nestBase}/auth/login`, {
+        nestRes = await fetch(`${nestBase}/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password }),
         });
-
-        const nestData = (await nestRes.json().catch(() => ({}))) as NestLoginOk & {
-          error?: string | { message?: string };
-        };
-
-        if (nestRes.ok && typeof nestData.accessToken === 'string' && nestData.user) {
-          const u = nestData.user;
-          if (typeof u.id === 'string' && typeof u.email === 'string' && typeof u.role === 'string') {
-            const sessionUser = {
-              id: u.id,
-              email: u.email,
-              role: u.role,
-              avatar: u.avatar ?? null,
-              coverImage: u.coverImage ?? null,
-              bio: u.bio ?? null,
-              createdAt:
-                typeof u.createdAt === 'string'
-                  ? u.createdAt
-                  : new Date().toISOString(),
-            };
-
-            const res = NextResponse.json({
-              success: true,
-              access_token: nestData.accessToken,
-              session: { user: sessionUser },
-            });
-            setAuthCookies(res, nestData.accessToken);
-            return res;
-          }
-        }
-
-        if (nestRes.status === 401) {
-          return NextResponse.json(
-            { error: 'Neplatný e-mail nebo heslo' },
-            { status: 401 },
-          );
-        }
-
-        console.warn('[login] Nest auth unexpected status', nestRes.status, nestData);
       } catch (e) {
-        console.error('[login] Nest nedostupný, zkouším lokální Prisma', e);
+        console.error('[login] Nest nedostupný', {
+          nestBase,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        return NextResponse.json(
+          { error: 'Autentizační služba je dočasně nedostupná' },
+          { status: 502 },
+        );
       }
+
+      const nestData = (await nestRes.json().catch(() => ({}))) as NestLoginOk & {
+        error?: string | { message?: string };
+      };
+
+      if (nestRes.ok && typeof nestData.accessToken === 'string' && nestData.user) {
+        const u = nestData.user;
+        if (typeof u.id === 'string' && typeof u.email === 'string' && typeof u.role === 'string') {
+          const sessionUser = {
+            id: u.id,
+            email: u.email,
+            role: u.role,
+            avatar: u.avatar ?? null,
+            coverImage: u.coverImage ?? null,
+            bio: u.bio ?? null,
+            createdAt:
+              typeof u.createdAt === 'string'
+                ? u.createdAt
+                : new Date().toISOString(),
+          };
+
+          const res = NextResponse.json({
+            success: true,
+            access_token: nestData.accessToken,
+            session: { user: sessionUser },
+          });
+          setAuthCookies(res, nestData.accessToken);
+          return res;
+        }
+      }
+
+      if (nestRes.status === 401) {
+        return NextResponse.json(
+          { error: 'Neplatný e-mail nebo heslo' },
+          { status: 401 },
+        );
+      }
+
+      console.error('[login] Nest auth unexpected response', {
+        nestBase,
+        status: nestRes.status,
+        body: nestData,
+      });
+      return NextResponse.json(
+        { error: 'Autentizační služba je dočasně nedostupná' },
+        { status: 502 },
+      );
     }
 
     const user = await prisma.user.findUnique({ where: { email } });

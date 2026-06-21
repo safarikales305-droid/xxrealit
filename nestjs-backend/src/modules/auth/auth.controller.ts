@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Get,
   HttpCode,
+  Logger,
   Options,
   Post,
   Request,
@@ -22,6 +23,8 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(
     private readonly authService: AuthService,
     private readonly usersService: UsersService,
@@ -37,8 +40,24 @@ export class AuthController {
 
   @Post('login')
   async login(@Body() dto: LoginDto) {
-    console.log('LOGIN HIT');
-    return this.authService.login(dto);
+    const email = dto.email?.trim().toLowerCase() ?? '';
+    this.logger.log(`[login] attempt email=${email || '(empty)'}`);
+    try {
+      const result = await this.authService.login(dto);
+      this.logger.log(`[login] success email=${email}`);
+      return result;
+    } catch (err: unknown) {
+      const status =
+        err && typeof err === 'object' && 'getStatus' in err
+          ? (err as { getStatus: () => number }).getStatus()
+          : 500;
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `[login] failed email=${email} status=${status} message=${message}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      throw err;
+    }
   }
 
   @Post('reset-request')

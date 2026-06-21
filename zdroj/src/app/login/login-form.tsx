@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { AuthPageShell } from '@/components/auth/auth-page-shell';
 import { FacebookAuthButton } from '@/components/auth/FacebookAuthButton';
 import { useAuth } from '@/hooks/use-auth';
-import { API_BASE_URL } from '@/lib/api';
+import { getBrowserAuthLoginUrl } from '@/lib/api';
 import { clearPwaInstallDismissed } from '@/lib/pwa-install-storage';
 
 const inputClass =
@@ -39,7 +39,7 @@ export function LoginForm() {
     setLoading(true);
 
     try {
-      const loginUrl = API_BASE_URL ? `${API_BASE_URL}/auth/login` : '/api/auth/login';
+      const loginUrl = getBrowserAuthLoginUrl();
       const res = await fetch(loginUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

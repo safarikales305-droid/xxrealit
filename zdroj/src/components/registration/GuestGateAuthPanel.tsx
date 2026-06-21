@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { FacebookAuthButton } from '@/components/auth/FacebookAuthButton';
 import { useAuth } from '@/hooks/use-auth';
-import { API_BASE_URL } from '@/lib/api';
+import { getBrowserAuthLoginUrl } from '@/lib/api';
 import { closeGuestRegistrationGate } from '@/lib/guest-registration-gate-store';
 import { storeFacebookOAuthReturnPath } from '@/lib/facebook-oauth-return';
 import { clearPwaInstallDismissed } from '@/lib/pwa-install-storage';
@@ -54,7 +54,7 @@ export function GuestGateAuthPanel({ mode, returnTo, onClose, onSwitchMode }: Pr
     setError(null);
     setLoading(true);
     try {
-      const loginUrl = API_BASE_URL ? `${API_BASE_URL}/auth/login` : '/api/auth/login';
+      const loginUrl = getBrowserAuthLoginUrl();
       const res = await fetch(loginUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -101,7 +101,7 @@ export function GuestGateAuthPanel({ mode, returnTo, onClose, onSwitchMode }: Pr
         setError(typeof data.error === 'string' ? data.error : 'Registrace selhala.');
         return;
       }
-      const loginUrl = API_BASE_URL ? `${API_BASE_URL}/auth/login` : '/api/auth/login';
+      const loginUrl = getBrowserAuthLoginUrl();
       const loginRes = await fetch(loginUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

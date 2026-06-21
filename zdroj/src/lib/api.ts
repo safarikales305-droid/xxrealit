@@ -51,6 +51,11 @@ function resolveApiBaseUrl(): string {
  */
 export const API_BASE_URL = resolveApiBaseUrl();
 
+/** Browser login/register — vždy same-origin Next route (bez CORS, cookies na doméně webu). */
+export function getBrowserAuthLoginUrl(): string {
+  return '/api/auth/login';
+}
+
 if (
   typeof window !== 'undefined' &&
   process.env.NEXT_PUBLIC_DEBUG_API === '1' &&

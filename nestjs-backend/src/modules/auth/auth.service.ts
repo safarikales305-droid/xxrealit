@@ -572,13 +572,14 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
+    const email = dto.email.trim().toLowerCase();
     try {
-      const email = dto.email.trim().toLowerCase();
       const { password } = dto;
 
       const user = await this.users.findByEmail(email);
 
       if (!user) {
+        this.logger.warn(`[login] invalid credentials email=${email} reason=user_not_found`);
         throw new HttpException(
           { error: 'Neplatný e-mail nebo heslo' },
           HttpStatus.UNAUTHORIZED,
@@ -587,9 +588,8 @@ export class AuthService {
 
       const isValid = await bcrypt.compare(password, user.password);
 
-      console.log('COMPARE RESULT:', isValid);
-
       if (!isValid) {
+        this.logger.warn(`[login] invalid credentials email=${email} reason=bad_password`);
         throw new HttpException(
           { error: 'Neplatný e-mail nebo heslo' },
           HttpStatus.UNAUTHORIZED,
@@ -598,14 +598,16 @@ export class AuthService {
 
       return this.issueTokens(user);
     } catch (err: unknown) {
-      console.error('LOGIN ERROR FULL:', err);
-
       if (err instanceof HttpException) {
         throw err;
       }
 
       const message =
         err instanceof Error ? err.message : 'Unknown error';
+      this.logger.error(
+        `[login] internal error email=${email} message=${message}`,
+        err instanceof Error ? err.stack : undefined,
+      );
       throw new HttpException({ error: message }, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
