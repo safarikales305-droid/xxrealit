@@ -6548,15 +6548,19 @@ export async function nestTiparUnlockContact(
 export async function nestListingUnlockContact(
   token: string | null,
   listingId: string,
-  payload: { name: string; email: string; phone: string },
+  payload: { name: string; email: string; phone: string; message?: string },
 ): Promise<{
   ok: boolean;
   data?: {
-    phone: string | null;
-    email: string | null;
-    contactName: string | null;
-    alreadyUnlocked: boolean;
-    creditCharged: number;
+    phone?: string | null;
+    email?: string | null;
+    contactName?: string | null;
+    alreadyUnlocked?: boolean;
+    creditCharged?: number;
+    submitted?: boolean;
+    duplicate?: boolean;
+    status?: string;
+    message?: string;
   };
   error?: string;
   code?: string;
@@ -6608,7 +6612,65 @@ export async function nestListingUnlockContact(
         typeof data.creditCharged === 'number' && Number.isFinite(data.creditCharged)
           ? data.creditCharged
           : 0,
+      submitted: data.submitted === true,
+      duplicate: data.duplicate === true,
+      status: typeof data.status === 'string' ? data.status : undefined,
+      message: typeof data.message === 'string' ? data.message : undefined,
     },
+  };
+}
+
+export type AdvertiserListingLeadRow = {
+  id: string;
+  listingId: string | null;
+  listingTitle: string | null;
+  listingCity: string | null;
+  buyerName: string;
+  buyerPhone: string | null;
+  buyerEmail: string | null;
+  message: string | null;
+  leadSource: string | null;
+  status: string;
+  creditCharged: boolean;
+  leadPrice: number;
+  unlockedAt: string | null;
+  createdAt: string;
+};
+
+export async function nestListAdvertiserLeads(
+  token: string | null,
+): Promise<AdvertiserListingLeadRow[]> {
+  if (!API_BASE_URL || !token) return [];
+  const res = await fetch(`${API_BASE_URL}/users/me/listing-leads`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return [];
+  const data = await res.json().catch(() => []);
+  return Array.isArray(data) ? (data as AdvertiserListingLeadRow[]) : [];
+}
+
+export async function nestUnlockPendingListingLeads(
+  token: string | null,
+): Promise<{ ok: boolean; unlocked?: number; remaining?: number; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/users/me/listing-leads/unlock-pending`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return {
+      ok: false,
+      error:
+        typeof data.message === 'string'
+          ? data.message
+          : nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return {
+    ok: true,
+    unlocked: typeof data.unlocked === 'number' ? data.unlocked : 0,
+    remaining: typeof data.remaining === 'number' ? data.remaining : 0,
   };
 }
 
@@ -7221,6 +7283,13 @@ export type ContactMonetizationSettingsDto = {
   tipPortalPercent: number;
   tipTipsterPercent: number;
   ownerListingContactPrice: number;
+  leadPriceClassic: number;
+  leadPriceShorts: number;
+  leadPriceDeveloper: number;
+  leadPriceCompany: number;
+  tipMinContactPrice: number;
+  tipMaxContactPrice: number;
+  tipSuccessBonus: number;
 };
 
 export async function nestAdminContactMonetizationGet(

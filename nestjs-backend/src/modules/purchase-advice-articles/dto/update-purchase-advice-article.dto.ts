@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class UpdatePurchaseAdviceArticleDto {
   @IsOptional()
@@ -13,6 +13,11 @@ export class UpdatePurchaseAdviceArticleDto {
   imageUrl?: string;
 
   @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  galleryUrls?: string[];
+
+  @IsOptional()
   @IsString()
   @MinLength(1)
   body?: string;
@@ -21,6 +26,16 @@ export class UpdatePurchaseAdviceArticleDto {
   @IsString()
   @MaxLength(80)
   category?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  seoTitle?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  seoDescription?: string;
 
   @IsOptional()
   @IsBoolean()

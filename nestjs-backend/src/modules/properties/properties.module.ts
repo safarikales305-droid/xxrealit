@@ -22,6 +22,8 @@ import { ShareModule } from '../share/share.module';
 import { BonusCampaignModule } from '../bonus-campaign/bonus-campaign.module';
 import { CreditsModule } from '../credits/credits.module';
 import { RegistrationGateModule } from '../registration-gate/registration-gate.module';
+import { WhatsAppModule } from '../whatsapp/whatsapp.module';
+import { AdvertiserListingLeadsController } from './advertiser-listing-leads.controller';
 
 @Module({
   imports: [
@@ -30,6 +32,7 @@ import { RegistrationGateModule } from '../registration-gate/registration-gate.m
     BonusCampaignModule,
     forwardRef(() => RegistrationGateModule),
     forwardRef(() => MessagesModule),
+    WhatsAppModule,
     EmailsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -42,6 +45,7 @@ import { RegistrationGateModule } from '../registration-gate/registration-gate.m
   controllers: [
     PropertiesController,
     ListingsController,
+    AdvertiserListingLeadsController,
     ContactMonetizationAdminController,
     SeedController,
     ShortsListingController,

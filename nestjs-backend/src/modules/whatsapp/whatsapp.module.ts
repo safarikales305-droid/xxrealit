@@ -14,6 +14,7 @@ import { WhatsAppCampaignScheduleCronService } from './whatsapp-campaign-schedul
 import { WhatsAppDiagnosticService } from './whatsapp-diagnostic.service';
 import { WhatsAppCampaignDebugService } from './whatsapp-campaign-debug.service';
 import { PostWhatsAppNotifyService } from './post-whatsapp-notify.service';
+import { ListingLeadWhatsAppNotifyService } from './listing-lead-whatsapp-notify.service';
 import { WhatsAppPhoneVerificationService } from './whatsapp-phone-verification.service';
 
 @Module({
@@ -32,6 +33,7 @@ import { WhatsAppPhoneVerificationService } from './whatsapp-phone-verification.
     WhatsAppDiagnosticService,
     WhatsAppCampaignDebugService,
     PostWhatsAppNotifyService,
+    ListingLeadWhatsAppNotifyService,
     WhatsAppPhoneVerificationService,
   ],
   exports: [
@@ -44,6 +46,7 @@ import { WhatsAppPhoneVerificationService } from './whatsapp-phone-verification.
     WhatsAppMetaTemplatesService,
     WhatsAppDiagnosticService,
     PostWhatsAppNotifyService,
+    ListingLeadWhatsAppNotifyService,
     WhatsAppPhoneVerificationService,
   ],
 })

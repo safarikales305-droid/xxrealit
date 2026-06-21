@@ -1,8 +1,10 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { CreditTopUpStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
@@ -10,6 +12,7 @@ import { CreditWalletService } from './credit-wallet.service';
 import { UpdateCreditSettingsDto } from './dto/update-credit-settings.dto';
 import { buildQrImageUrl, buildSpdPayload } from './utils/spd-qr.util';
 import { canTopUpCredits } from '../users/profile-requirements.util';
+import { ListingContactUnlockService } from '../properties/listing-contact-unlock.service';
 
 const SETTINGS_ID = 'default';
 
@@ -23,6 +26,8 @@ export class CreditsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly wallet: CreditWalletService,
+    @Inject(forwardRef(() => ListingContactUnlockService))
+    private readonly listingLeads: ListingContactUnlockService,
   ) {}
 
   private async getSettingsRow() {
@@ -447,6 +452,15 @@ export class CreditsService {
         include: { user: { select: { id: true, email: true, name: true } } },
       });
     });
+    try {
+      await this.listingLeads.unlockPendingLeadsForUser(updated.userId);
+    } catch (err) {
+      this.logger.warn(
+        `Unlock pending leads after top-up failed user=${updated.userId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
     return this.serializeTransaction(updated);
   }
 

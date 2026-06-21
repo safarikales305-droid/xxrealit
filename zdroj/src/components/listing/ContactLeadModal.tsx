@@ -10,8 +10,10 @@ type Props = {
   defaultEmail?: string;
   defaultPhone?: string;
   unlockPrice?: number;
+  /** interest = běžný inzerát (Mám zájem), unlock = tipařský kontakt */
+  mode?: 'interest' | 'unlock';
   onClose: () => void;
-  onSubmit: (payload: { name: string; email: string; phone: string }) => void;
+  onSubmit: (payload: { name: string; email: string; phone: string; message?: string }) => void;
 };
 
 export function ContactLeadModal({
@@ -22,19 +24,23 @@ export function ContactLeadModal({
   defaultEmail = '',
   defaultPhone = '',
   unlockPrice = 0,
+  mode = 'unlock',
   onClose,
   onSubmit,
 }: Props) {
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail);
   const [phone, setPhone] = useState(defaultPhone);
+  const [message, setMessage] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
+  const isInterest = mode === 'interest';
 
   useEffect(() => {
     if (!open) return;
     setName(defaultName);
     setEmail(defaultEmail);
     setPhone(defaultPhone);
+    setMessage('');
     setLocalError(null);
   }, [open, defaultName, defaultEmail, defaultPhone]);
 
@@ -45,6 +51,7 @@ export function ContactLeadModal({
     const trimmedName = name.trim();
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedPhone = phone.trim();
+    const trimmedMessage = message.trim();
     if (trimmedName.length < 2) {
       setLocalError('Vyplňte jméno.');
       return;
@@ -59,14 +66,26 @@ export function ContactLeadModal({
       return;
     }
     setLocalError(null);
-    onSubmit({ name: trimmedName, email: trimmedEmail, phone: trimmedPhone });
+    onSubmit({
+      name: trimmedName,
+      email: trimmedEmail,
+      phone: trimmedPhone,
+      ...(trimmedMessage ? { message: trimmedMessage } : {}),
+    });
   }
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl">
-        <h2 className="text-lg font-bold text-zinc-900">Zadejte své kontaktní údaje</h2>
-        {unlockPrice > 0 ? (
+        <h2 className="text-lg font-bold text-zinc-900">
+          {isInterest ? 'Mám zájem o nemovitost' : 'Zadejte své kontaktní údaje'}
+        </h2>
+        {isInterest ? (
+          <p className="mt-2 text-sm text-zinc-600">
+            Vyplňte kontakt a prodejce se vám ozve. Kontakt inzerenta se vám nezobrazí — platí
+            inzerent.
+          </p>
+        ) : unlockPrice > 0 ? (
           <p className="mt-2 text-sm text-zinc-600">
             Odemčení kontaktu: <strong>{unlockPrice.toLocaleString('cs-CZ')} Kč</strong> kreditu
           </p>
@@ -86,17 +105,6 @@ export function ContactLeadModal({
             />
           </label>
           <label className="block text-sm">
-            <span className="mb-1 block font-medium text-zinc-800">E-mail</span>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-xl border border-zinc-200 px-3 py-2.5"
-              autoComplete="email"
-              required
-            />
-          </label>
-          <label className="block text-sm">
             <span className="mb-1 block font-medium text-zinc-800">Telefon</span>
             <input
               type="tel"
@@ -107,6 +115,30 @@ export function ContactLeadModal({
               required
             />
           </label>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium text-zinc-800">E-mail</span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2.5"
+              autoComplete="email"
+              required
+            />
+          </label>
+          {isInterest ? (
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium text-zinc-800">Zpráva (volitelné)</span>
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                rows={3}
+                maxLength={2000}
+                className="w-full rounded-xl border border-zinc-200 px-3 py-2.5"
+                placeholder="Mám zájem o prohlídku…"
+              />
+            </label>
+          ) : null}
 
           {localError || error ? (
             <p className="text-sm font-medium text-red-600" role="alert">
@@ -120,7 +152,11 @@ export function ContactLeadModal({
               disabled={busy}
               className="flex flex-1 items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-3 text-sm font-bold text-white disabled:opacity-60"
             >
-              {busy ? 'Odesílám…' : 'Odeslat a zobrazit kontakt'}
+              {busy
+                ? 'Odesílám…'
+                : isInterest
+                  ? 'Odeslat zájem'
+                  : 'Odeslat a zobrazit kontakt'}
             </button>
             <button
               type="button"

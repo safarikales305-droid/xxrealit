@@ -10,15 +10,33 @@ import {
   type ContactMonetizationSettingsDto,
 } from '@/lib/nest-client';
 
+type FormState = {
+  leadPriceClassic: string;
+  leadPriceShorts: string;
+  leadPriceDeveloper: string;
+  leadPriceCompany: string;
+  tipPortalPercent: string;
+  tipTipsterPercent: string;
+  tipMinContactPrice: string;
+  tipMaxContactPrice: string;
+  tipSuccessBonus: string;
+};
+
 export default function AdminContactMonetizationPage() {
   const router = useRouter();
   const { user, isLoading, apiAccessToken } = useAuth();
   const token = apiAccessToken;
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<FormState>({
+    leadPriceClassic: '50',
+    leadPriceShorts: '50',
+    leadPriceDeveloper: '50',
+    leadPriceCompany: '50',
     tipPortalPercent: '30',
     tipTipsterPercent: '70',
-    ownerListingContactPrice: '50',
+    tipMinContactPrice: '0',
+    tipMaxContactPrice: '10000',
+    tipSuccessBonus: '0',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -27,9 +45,15 @@ export default function AdminContactMonetizationPage() {
 
   const applySettings = useCallback((s: ContactMonetizationSettingsDto) => {
     setForm({
+      leadPriceClassic: String(s.leadPriceClassic ?? s.ownerListingContactPrice ?? 50),
+      leadPriceShorts: String(s.leadPriceShorts ?? 50),
+      leadPriceDeveloper: String(s.leadPriceDeveloper ?? 50),
+      leadPriceCompany: String(s.leadPriceCompany ?? 50),
       tipPortalPercent: String(s.tipPortalPercent),
       tipTipsterPercent: String(s.tipTipsterPercent),
-      ownerListingContactPrice: String(s.ownerListingContactPrice),
+      tipMinContactPrice: String(s.tipMinContactPrice ?? 0),
+      tipMaxContactPrice: String(s.tipMaxContactPrice ?? 10000),
+      tipSuccessBonus: String(s.tipSuccessBonus ?? 0),
     });
   }, []);
 
@@ -59,19 +83,27 @@ export default function AdminContactMonetizationPage() {
     setSaving(true);
     setMsg(null);
     setError(null);
-    const portal = Number(form.tipPortalPercent);
-    const tipster = Number(form.tipTipsterPercent);
-    const ownerPrice = Number(form.ownerListingContactPrice);
-    if (!Number.isFinite(portal) || !Number.isFinite(tipster) || !Number.isFinite(ownerPrice)) {
+
+    const payload = {
+      leadPriceClassic: Number(form.leadPriceClassic),
+      leadPriceShorts: Number(form.leadPriceShorts),
+      leadPriceDeveloper: Number(form.leadPriceDeveloper),
+      leadPriceCompany: Number(form.leadPriceCompany),
+      tipPortalPercent: Number(form.tipPortalPercent),
+      tipTipsterPercent: Number(form.tipTipsterPercent),
+      tipMinContactPrice: Number(form.tipMinContactPrice),
+      tipMaxContactPrice: Number(form.tipMaxContactPrice),
+      tipSuccessBonus: Number(form.tipSuccessBonus),
+      ownerListingContactPrice: Number(form.leadPriceClassic),
+    };
+
+    if (Object.values(payload).some((v) => !Number.isFinite(v))) {
       setSaving(false);
       setError('Zadejte platná čísla.');
       return;
     }
-    const r = await nestAdminContactMonetizationUpdate(token, {
-      tipPortalPercent: portal,
-      tipTipsterPercent: tipster,
-      ownerListingContactPrice: ownerPrice,
-    });
+
+    const r = await nestAdminContactMonetizationUpdate(token, payload);
     setSaving(false);
     if (!r.ok) {
       setError(r.error ?? 'Uložení se nezdařilo.');
@@ -97,14 +129,42 @@ export default function AdminContactMonetizationPage() {
 
       <h1 className="text-2xl font-bold text-zinc-900">Provize a kontakty</h1>
       <p className="mt-2 text-sm text-zinc-600">
-        Nastavení rozdělení kreditu při odemčení kontaktu u tipů a ceny leadu u vlastních inzerátů.
+        Oddělené nastavení tarifů leadů pro inzerenty a tipařského systému.
       </p>
 
-      <form onSubmit={onSave} className="mt-6 space-y-5 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-        <fieldset>
-          <legend className="text-sm font-semibold text-zinc-900">Tipařské kontakty</legend>
-          <p className="mt-1 text-xs text-zinc-500">Součet procent portálu a tipaře musí být 100 %.</p>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <form onSubmit={onSave} className="mt-6 space-y-6">
+        <section className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h2 className="text-sm font-semibold text-zinc-900">A) Tarify leadů pro inzerenty</h2>
+          <p className="text-xs text-zinc-500">
+            Zájemce neplatí — kredit se strhne inzerentovi při odemčení leadu.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(
+              [
+                ['leadPriceClassic', 'Klasik (Kč)'],
+                ['leadPriceShorts', 'Shorts (Kč)'],
+                ['leadPriceDeveloper', 'Developerský projekt (Kč)'],
+                ['leadPriceCompany', 'Firemní nabídka (Kč)'],
+              ] as const
+            ).map(([key, label]) => (
+              <label key={key} className="block text-sm">
+                <span className="mb-1 block font-medium">{label}</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={form[key]}
+                  onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+                  className="w-full rounded-xl border border-zinc-200 px-3 py-2"
+                />
+              </label>
+            ))}
+          </div>
+        </section>
+
+        <section className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h2 className="text-sm font-semibold text-zinc-900">B) Tipařský systém</h2>
+          <p className="text-xs text-zinc-500">Součet provizí portálu a tipaře musí být 100 %.</p>
+          <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm">
               <span className="mb-1 block font-medium">Portál (%)</span>
               <input
@@ -127,22 +187,38 @@ export default function AdminContactMonetizationPage() {
                 className="w-full rounded-xl border border-zinc-200 px-3 py-2"
               />
             </label>
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">Min. cena kontaktu (Kč)</span>
+              <input
+                type="number"
+                min={0}
+                value={form.tipMinContactPrice}
+                onChange={(e) => setForm((f) => ({ ...f, tipMinContactPrice: e.target.value }))}
+                className="w-full rounded-xl border border-zinc-200 px-3 py-2"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">Max. cena kontaktu (Kč)</span>
+              <input
+                type="number"
+                min={0}
+                value={form.tipMaxContactPrice}
+                onChange={(e) => setForm((f) => ({ ...f, tipMaxContactPrice: e.target.value }))}
+                className="w-full rounded-xl border border-zinc-200 px-3 py-2"
+              />
+            </label>
+            <label className="col-span-full block text-sm">
+              <span className="mb-1 block font-medium">Bonus za úspěšný tip (Kč)</span>
+              <input
+                type="number"
+                min={0}
+                value={form.tipSuccessBonus}
+                onChange={(e) => setForm((f) => ({ ...f, tipSuccessBonus: e.target.value }))}
+                className="w-full rounded-xl border border-zinc-200 px-3 py-2"
+              />
+            </label>
           </div>
-        </fieldset>
-
-        <label className="block text-sm">
-          <span className="mb-1 block font-semibold text-zinc-900">Cena kontaktu pro vlastní inzerát (Kč)</span>
-          <span className="mb-2 block text-xs text-zinc-500">
-            Zájemce neplatí — poplatek se strhne inzerentovi za lead.
-          </span>
-          <input
-            type="number"
-            min={0}
-            value={form.ownerListingContactPrice}
-            onChange={(e) => setForm((f) => ({ ...f, ownerListingContactPrice: e.target.value }))}
-            className="w-full rounded-xl border border-zinc-200 px-3 py-2"
-          />
-        </label>
+        </section>
 
         {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
         {msg ? <p className="text-sm font-medium text-emerald-700">{msg}</p> : null}

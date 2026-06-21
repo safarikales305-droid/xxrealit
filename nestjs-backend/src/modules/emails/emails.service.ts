@@ -541,4 +541,52 @@ export class EmailsService implements OnModuleInit {
     }
     return { ok: true };
   }
+
+  async sendContactLeadWaitingCreditEmail(input: {
+    to: string;
+    ownerName: string;
+    listingTitle: string;
+    listingUrl: string;
+  }) {
+    const listingUrl = this.normalizePublicUrl(input.listingUrl);
+    const subject = `Nový zájemce – dobijte kredit: ${input.listingTitle}`;
+    const html = this.buildLayout(
+      [
+        `<p>Dobrý den ${input.ownerName},</p>`,
+        `<p><strong>Máte nového zájemce o vaši nemovitost na XXrealit.cz.</strong></p>`,
+        `<p>Pro zobrazení kontaktu si prosím dobijte kredit.</p>`,
+        `<p>Po dobití se vám ihned zobrazí kontakty na zájemce, kteří se zajímali o vaši nemovitost.</p>`,
+        `<p><strong>Inzerát:</strong> ${input.listingTitle}</p>`,
+        `<p><a href="${listingUrl}">Otevřít inzerát</a></p>`,
+      ].join(''),
+      listingUrl,
+    );
+    const text = [
+      `Dobrý den ${input.ownerName},`,
+      '',
+      'Máte nového zájemce o vaši nemovitost na XXrealit.cz.',
+      'Pro zobrazení kontaktu si prosím dobijte kredit.',
+      'Po dobití se vám ihned zobrazí kontakty na zájemce, kteří se zajímali o vaši nemovitost.',
+      '',
+      `Inzerát: ${input.listingTitle}`,
+      listingUrl,
+    ].join('\n');
+
+    const apiKey = this.config.get<string>('RESEND_API_KEY')?.trim();
+    if (!apiKey) {
+      throw new Error('Missing RESEND_API_KEY');
+    }
+    const resend = new Resend(apiKey);
+    const response = await resend.emails.send({
+      from: this.senderAddress(),
+      to: input.to,
+      subject,
+      html,
+      text,
+    });
+    if (response.error) {
+      throw new Error(response.error.message || 'Unknown resend error');
+    }
+    return { ok: true };
+  }
 }

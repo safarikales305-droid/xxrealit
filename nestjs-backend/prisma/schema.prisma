@@ -1272,23 +1272,27 @@ model ListingContactUnlock {
 
 /// Lead zájemce po vyplnění formuláře před zobrazením kontaktu.
 model ContactLead {
-  id                 String   @id @default(cuid())
+  id                 String    @id @default(cuid())
   listingId          String?
   tipId              String?
-  sourceType         String   @default("LISTING")
+  sourceType         String    @default("LISTING")
   sourceId           String?
+  leadSource         String?
   interestedUserId   String
   ownerUserId        String
   tipsterUserId      String?
   name               String
   email              String
   phone              String
-  unlockPrice        Int      @default(0)
-  portalAmount       Int      @default(0)
-  tipsterAmount      Int      @default(0)
-  ownerChargedAmount Int      @default(0)
-  creditCharged      Boolean  @default(false)
-  createdAt          DateTime @default(now())
+  message            String?   @db.Text
+  status             String    @default("UNLOCKED")
+  unlockPrice        Int       @default(0)
+  portalAmount       Int       @default(0)
+  tipsterAmount      Int       @default(0)
+  ownerChargedAmount Int       @default(0)
+  creditCharged      Boolean   @default(false)
+  unlockedAt         DateTime?
+  createdAt          DateTime  @default(now())
 
   listing        Property?  @relation("ContactLeadListing", fields: [listingId], references: [id], onDelete: SetNull)
   tip            TiparPost? @relation("ContactLeadTip", fields: [tipId], references: [id], onDelete: SetNull)
@@ -1351,6 +1355,13 @@ model ContactMonetizationSetting {
   tipPortalPercent         Int      @default(30)
   tipTipsterPercent        Int      @default(70)
   ownerListingContactPrice Int      @default(50)
+  leadPriceClassic         Int      @default(50)
+  leadPriceShorts          Int      @default(50)
+  leadPriceDeveloper       Int      @default(50)
+  leadPriceCompany         Int      @default(50)
+  tipMinContactPrice       Int      @default(0)
+  tipMaxContactPrice       Int      @default(10000)
+  tipSuccessBonus          Int      @default(0)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 }
@@ -2037,15 +2048,18 @@ model ActivityLog {
 
 /// Články / rady při koupi (admin CMS, box na detailu inzerátu).
 model PurchaseAdviceArticle {
-  id          String   @id @default(cuid())
-  title       String
-  imageUrl    String?
-  body        String   @db.Text
-  category    String   @default("obecne")
-  isPublished Boolean  @default(false)
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  title          String
+  imageUrl       String?
+  galleryUrls    String[] @default([])
+  body           String   @db.Text
+  category       String   @default("rady-pri-koupi")
+  seoTitle       String?
+  seoDescription String?  @db.Text
+  isPublished    Boolean  @default(false)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@index([isPublished, sortOrder])
   @@index([category])

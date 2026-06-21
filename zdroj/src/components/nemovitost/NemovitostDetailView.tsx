@@ -173,6 +173,7 @@ export function NemovitostDetailView({
   const [contactLeadError, setContactLeadError] = useState<string | null>(null);
   const [showCreditModal, setShowCreditModal] = useState(false);
   const [contactSuccessMsg, setContactSuccessMsg] = useState<string | null>(null);
+  const [interestSubmitted, setInterestSubmitted] = useState(false);
   const [unlockedContact, setUnlockedContact] = useState<{
     phone: string | null;
     email: string | null;
@@ -235,7 +236,7 @@ export function NemovitostDetailView({
   const isAgentViewer = user?.role === 'AGENT';
   const showOwnerBadges = Boolean(p.isOwnerListing);
   const contactRevealed =
-    Boolean(p.contactUnlocked) || Boolean(unlockedContact);
+    isTipListing(p) && (Boolean(p.contactUnlocked) || Boolean(unlockedContact));
   const phone = contactRevealed
     ? (unlockedContact?.phone ?? p.contactPhone ?? '').trim()
     : '';
@@ -269,11 +270,11 @@ export function NemovitostDetailView({
 
   function handleShowContact() {
     if (!isAuthenticated || !apiAccessToken) {
-      window.alert('Pro zobrazení kontaktu se přihlaste.');
+      window.alert(isTip ? 'Pro zobrazení kontaktu se přihlaste.' : 'Pro odeslání zájmu se přihlaste.');
       redirectToLoginForMessages();
       return;
     }
-    if (isOwner || contactRevealed) return;
+    if (isOwner || contactRevealed || (!isTip && interestSubmitted)) return;
     setContactLeadError(null);
     setContactLeadOpen(true);
   }
@@ -282,6 +283,7 @@ export function NemovitostDetailView({
     name: string;
     email: string;
     phone: string;
+    message?: string;
   }) {
     if (!apiAccessToken) return;
     setContactLeadBusy(true);
@@ -301,18 +303,27 @@ export function NemovitostDetailView({
         );
         return;
       }
-      setContactLeadError(r.error ?? 'Odemčení kontaktu se nezdařilo.');
+      setContactLeadError(r.error ?? (isTip ? 'Odemčení kontaktu se nezdařilo.' : 'Odeslání zájmu se nezdařilo.'));
       return;
     }
+
     setContactLeadOpen(false);
+
+    if (!isTip && r.data.submitted) {
+      setInterestSubmitted(true);
+      setContactSuccessMsg(
+        r.data.message ??
+          'Děkujeme, prodejce vás bude brzy kontaktovat.',
+      );
+      return;
+    }
+
     setUnlockedContact({
-      phone: r.data.phone,
-      email: r.data.email,
-      contactName: r.data.contactName,
+      phone: r.data.phone ?? null,
+      email: r.data.email ?? null,
+      contactName: r.data.contactName ?? null,
     });
-    setContactSuccessMsg(
-      'Kontakt byl odemčen. Vaše údaje byly odeslány inzerentovi.',
-    );
+    setContactSuccessMsg('Kontakt byl odemčen. Vaše údaje byly odeslány inzerentovi.');
   }
 
   function handleWriteSeller() {
@@ -580,17 +591,22 @@ export function NemovitostDetailView({
                       className="w-full max-w-[360px]"
                     />
                   ) : null}
-                  {!isOwner && !contactRevealed && contactUnlockAvailable ? (
+                  {!isOwner && !contactRevealed && contactUnlockAvailable && !( !isTip && interestSubmitted) ? (
                     <button
                       type="button"
                       onClick={handleShowContact}
                       className={secondaryActionClass}
                     >
-                      Zobrazit kontakt
-                      {contactUnlockPrice > 0
+                      {isTip ? 'Zobrazit kontakt' : 'Mám zájem'}
+                      {isTip && contactUnlockPrice > 0
                         ? ` (${contactUnlockPrice.toLocaleString('cs-CZ')} Kč)`
                         : ''}
                     </button>
+                  ) : null}
+                  {contactSuccessMsg ? (
+                    <p className="w-full max-w-[360px] text-sm font-medium text-emerald-800" role="status">
+                      {contactSuccessMsg}
+                    </p>
                   ) : null}
                   {contactLeadError && !contactLeadOpen ? (
                     <p className="w-full max-w-[360px] text-sm font-medium text-red-600" role="alert">
@@ -683,21 +699,32 @@ export function NemovitostDetailView({
             <p className="mt-2 text-sm text-zinc-600">
               Domluvte si prohlídku nebo doplňující informace u inzerenta.
             </p>
-            {!isOwner && !contactRevealed && contactUnlockAvailable ? (
+            {!isOwner && !contactRevealed && contactUnlockAvailable && !(!isTip && interestSubmitted) ? (
               <button
                 type="button"
                 onClick={handleShowContact}
                 className={`${secondaryActionClass} mt-3`}
               >
-                Zobrazit kontakt
-                {contactUnlockPrice > 0 ? ` (${contactUnlockPrice.toLocaleString('cs-CZ')} Kč)` : ''}
+                {isTip ? 'Zobrazit kontakt' : 'Mám zájem'}
+                {isTip && contactUnlockPrice > 0
+                  ? ` (${contactUnlockPrice.toLocaleString('cs-CZ')} Kč)`
+                  : ''}
               </button>
             ) : null}
+            {contactSuccessMsg ? (
+              <p className="mt-2 text-sm font-medium text-emerald-800" role="status">
+                {contactSuccessMsg}
+              </p>
+            ) : null}
             {renderContactBlock()}
-            {!contactRevealed && p.isOwnerListing ? (
+            {!contactRevealed && !isTip ? (
               <p className="mt-2 text-sm text-zinc-600">
-                Kontakt zobrazíte po vyplnění krátkého formuláře. U vlastnických inzerátů můžete
-                také nabídnout služby jako makléř.
+                Projevte zájem — inzerent vás bude kontaktovat. Kontakt inzerenta se vám nezobrazí.
+              </p>
+            ) : null}
+            {!contactRevealed && isTip ? (
+              <p className="mt-2 text-sm text-zinc-600">
+                Kontakt zobrazíte po vyplnění formuláře a zaplacení kreditem.
               </p>
             ) : null}
             <button type="button" onClick={handleWriteSeller} className={`${primaryMessageClass} mt-4`}>
@@ -760,6 +787,7 @@ export function NemovitostDetailView({
         defaultEmail={user?.email ?? ''}
         defaultPhone={user?.phone ?? ''}
         unlockPrice={contactUnlockPrice}
+        mode={isTip ? 'unlock' : 'interest'}
         onClose={() => setContactLeadOpen(false)}
         onSubmit={(lead) => void handleContactLeadSubmit(lead)}
       />

@@ -41,7 +41,10 @@ export class PurchaseAdviceArticlesService {
         title: dto.title.trim(),
         imageUrl: dto.imageUrl?.trim() || null,
         body: dto.body,
-        category: dto.category?.trim() || 'obecne',
+        category: dto.category?.trim() || 'rady-pri-koupi',
+        galleryUrls: dto.galleryUrls?.map((u) => u.trim()).filter(Boolean) ?? [],
+        seoTitle: dto.seoTitle?.trim() || null,
+        seoDescription: dto.seoDescription?.trim() || null,
         isPublished: dto.isPublished ?? false,
         sortOrder: dto.sortOrder ?? 0,
       },
@@ -57,7 +60,14 @@ export class PurchaseAdviceArticlesService {
         ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
         ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl?.trim() || null } : {}),
         ...(dto.body !== undefined ? { body: dto.body } : {}),
-        ...(dto.category !== undefined ? { category: dto.category.trim() || 'obecne' } : {}),
+        ...(dto.category !== undefined ? { category: dto.category.trim() || 'rady-pri-koupi' } : {}),
+        ...(dto.galleryUrls !== undefined
+          ? { galleryUrls: dto.galleryUrls.map((u) => u.trim()).filter(Boolean) }
+          : {}),
+        ...(dto.seoTitle !== undefined ? { seoTitle: dto.seoTitle?.trim() || null } : {}),
+        ...(dto.seoDescription !== undefined
+          ? { seoDescription: dto.seoDescription?.trim() || null }
+          : {}),
         ...(dto.isPublished !== undefined ? { isPublished: dto.isPublished } : {}),
         ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
       },

@@ -19,8 +19,10 @@ import {
   type ResolvedContact,
 } from './contact-resolve.util';
 import { UnlockListingContactDto } from './dto/unlock-listing-contact.dto';
+import { ListingLeadWhatsAppNotifyService } from '../whatsapp/listing-lead-whatsapp-notify.service';
 
 const MISSING_CONTACT_MSG = 'Kontakt u tohoto inzerátu není vyplněný.';
+const LEAD_DEDUP_MS = 24 * 60 * 60 * 1000;
 
 function normalizePhone(phone: string): string {
   return phone.trim();
@@ -43,6 +45,7 @@ export class ListingContactUnlockService {
     private readonly config: ConfigService,
     private readonly monetization: ContactMonetizationService,
     private readonly wallet: CreditWalletService,
+    private readonly listingLeadWhatsApp: ListingLeadWhatsAppNotifyService,
   ) {}
 
   async resolveUnlockPrice(property: {
@@ -138,6 +141,7 @@ export class ListingContactUnlockService {
     const name = dto.name?.trim() ?? '';
     const email = dto.email?.trim().toLowerCase() ?? '';
     const phone = normalizePhone(dto.phone ?? '');
+    const message = dto.message?.trim() || null;
     if (name.length < 2) {
       throw new BadRequestException('Vyplňte jméno.');
     }
@@ -147,7 +151,7 @@ export class ListingContactUnlockService {
     if (!phone || !isValidPhone(phone)) {
       throw new BadRequestException('Vyplňte platné telefonní číslo.');
     }
-    return { name, email, phone };
+    return { name, email, phone, message };
   }
 
   private assertContactAvailable(contact: ResolvedContact) {
@@ -175,6 +179,7 @@ export class ListingContactUnlockService {
         userId: true,
         title: true,
         city: true,
+        listingType: true,
         contactName: true,
         contactPhone: true,
         contactEmail: true,
@@ -182,24 +187,258 @@ export class ListingContactUnlockService {
         isContactPaid: true,
         isOwnerListing: true,
         contactUnlockPrice: true,
+        user: { select: { role: true } },
       },
     });
     if (!property) throw new NotFoundException('Inzerát nenalezen');
 
-    const tip = property.isTiparTip
-      ? await this.prisma.tiparPost.findFirst({
-          where: { publishedPropertyId: property.id, deletedAt: null },
-          select: {
-            id: true,
-            userId: true,
-            isShorts: true,
-            contactName: true,
-            contactPhone: true,
-            contactEmail: true,
-            contactUnlockPrice: true,
+    if (!property.isTiparTip) {
+      return this.submitAdvertiserListingInterest(buyerUserId, property, dto);
+    }
+
+    return this.unlockTipListingContact(buyerUserId, property, dto);
+  }
+
+  async listAdvertiserLeads(ownerUserId: string) {
+    const rows = await this.prisma.contactLead.findMany({
+      where: {
+        ownerUserId,
+        tipId: null,
+        listingId: { not: null },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      include: {
+        listing: {
+          select: { id: true, title: true, city: true },
+        },
+      },
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      listingId: row.listingId,
+      listingTitle: row.listing?.title ?? null,
+      listingCity: row.listing?.city ?? null,
+      buyerName: row.name,
+      buyerPhone: row.status === 'UNLOCKED' ? row.phone : null,
+      buyerEmail: row.status === 'UNLOCKED' ? row.email : null,
+      message: row.status === 'UNLOCKED' ? row.message : null,
+      leadSource: row.leadSource,
+      status: row.status,
+      creditCharged: row.creditCharged,
+      leadPrice: row.ownerChargedAmount,
+      unlockedAt: row.unlockedAt?.toISOString() ?? null,
+      createdAt: row.createdAt.toISOString(),
+    }));
+  }
+
+  async unlockPendingLeadsForUser(ownerUserId: string) {
+    const pending = await this.prisma.contactLead.findMany({
+      where: {
+        ownerUserId,
+        status: 'WAITING_FOR_CREDIT',
+        tipId: null,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    let unlocked = 0;
+    for (const lead of pending) {
+      const price = Math.max(0, lead.ownerChargedAmount);
+      const canAfford = await this.monetization.ownerCanAffordLead(ownerUserId, price);
+      if (!canAfford) break;
+
+      const listing = lead.listingId
+        ? await this.prisma.property.findUnique({
+            where: { id: lead.listingId },
+            select: { title: true },
+          })
+        : null;
+
+      await this.prisma.$transaction(async (tx) => {
+        if (price > 0) {
+          await this.monetization.chargeOwnerForLead(
+            tx,
+            ownerUserId,
+            price,
+            lead.id,
+            `Poplatek za lead: ${listing?.title ?? lead.listingId ?? lead.id}`,
+          );
+        }
+        await tx.contactLead.update({
+          where: { id: lead.id },
+          data: {
+            status: 'UNLOCKED',
+            creditCharged: price > 0,
+            unlockedAt: new Date(),
           },
-        })
-      : null;
+        });
+      });
+
+      await this.notifyOwner({
+        buyerUserId: lead.interestedUserId,
+        ownerUserId,
+        propertyId: lead.listingId ?? lead.id,
+        propertyTitle: listing?.title ?? 'inzerát',
+        lead: {
+          name: lead.name,
+          email: lead.email,
+          phone: lead.phone,
+          message: lead.message,
+        },
+        waitingForCredit: false,
+        skipWhatsApp: true,
+      });
+      unlocked += 1;
+    }
+
+    return { unlocked, remaining: Math.max(0, pending.length - unlocked) };
+  }
+
+  private async submitAdvertiserListingInterest(
+    buyerUserId: string,
+    property: {
+      id: string;
+      userId: string;
+      title: string;
+      listingType: string;
+      user: { role: import('@prisma/client').UserRole };
+    },
+    dto: UnlockListingContactDto,
+  ) {
+    if (property.userId === buyerUserId) {
+      throw new BadRequestException('U vlastního inzerátu nelze projevit zájem.');
+    }
+
+    const lead = this.validateLead(dto);
+    const since = new Date(Date.now() - LEAD_DEDUP_MS);
+    const duplicate = await this.prisma.contactLead.findFirst({
+      where: {
+        listingId: property.id,
+        tipId: null,
+        createdAt: { gte: since },
+        OR: [{ phone: lead.phone }, { email: lead.email }],
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (duplicate) {
+      return {
+        submitted: true,
+        duplicate: true,
+        status: duplicate.status,
+        message:
+          duplicate.status === 'UNLOCKED'
+            ? 'Děkujeme, prodejce vás bude brzy kontaktovat.'
+            : 'Děkujeme, prodejce se vám brzy ozve.',
+      };
+    }
+
+    const settings = await this.monetization.getSettings();
+    const leadSource = this.monetization.resolveLeadSource({
+      listingType: property.listingType,
+      ownerRole: property.user.role,
+    });
+    const leadPrice = this.monetization.resolveLeadPrice(settings, leadSource);
+    const canAfford = await this.monetization.ownerCanAffordLead(property.userId, leadPrice);
+    const now = new Date();
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      let ownerChargedAmount = leadPrice;
+      let creditCharged = false;
+      let status: 'UNLOCKED' | 'WAITING_FOR_CREDIT' = 'UNLOCKED';
+      let unlockedAt: Date | null = now;
+
+      if (canAfford && leadPrice > 0) {
+        const charged = await this.monetization.chargeOwnerForLead(
+          tx,
+          property.userId,
+          leadPrice,
+          property.id,
+          `Poplatek za lead u inzerátu: ${property.title}`,
+        );
+        ownerChargedAmount = charged;
+        creditCharged = charged > 0;
+      } else if (!canAfford && leadPrice > 0) {
+        status = 'WAITING_FOR_CREDIT';
+        creditCharged = false;
+        unlockedAt = null;
+      } else {
+        ownerChargedAmount = 0;
+        creditCharged = false;
+      }
+
+      return tx.contactLead.create({
+        data: {
+          listingId: property.id,
+          sourceType: 'LISTING',
+          sourceId: property.id,
+          leadSource,
+          interestedUserId: buyerUserId,
+          ownerUserId: property.userId,
+          name: lead.name,
+          email: lead.email,
+          phone: lead.phone,
+          message: lead.message,
+          status,
+          unlockPrice: 0,
+          ownerChargedAmount,
+          creditCharged,
+          unlockedAt,
+        },
+      });
+    });
+
+    const waitingForCredit = created.status === 'WAITING_FOR_CREDIT';
+    await this.notifyOwner({
+      buyerUserId,
+      ownerUserId: property.userId,
+      propertyId: property.id,
+      propertyTitle: property.title,
+      lead,
+      waitingForCredit,
+    });
+
+    return {
+      submitted: true,
+      duplicate: false,
+      status: created.status,
+      message: waitingForCredit
+        ? 'Děkujeme, prodejce se vám brzy ozve.'
+        : 'Děkujeme, prodejce vás bude brzy kontaktovat.',
+    };
+  }
+
+  private async unlockTipListingContact(
+    buyerUserId: string,
+    property: {
+      id: string;
+      userId: string;
+      title: string;
+      city: string;
+      contactName: string | null;
+      contactPhone: string | null;
+      contactEmail: string | null;
+      isTiparTip: boolean;
+      isContactPaid: boolean;
+      isOwnerListing: boolean;
+      contactUnlockPrice: number;
+    },
+    dto: UnlockListingContactDto,
+  ) {
+    const propertyId = property.id;
+    const tip = await this.prisma.tiparPost.findFirst({
+      where: { publishedPropertyId: property.id, deletedAt: null },
+      select: {
+        id: true,
+        userId: true,
+        isShorts: true,
+        contactName: true,
+        contactPhone: true,
+        contactEmail: true,
+        contactUnlockPrice: true,
+      },
+    });
 
     const ownerUser = await this.prisma.user.findUnique({
       where: { id: tip?.userId ?? property.userId },
@@ -603,26 +842,32 @@ export class ListingContactUnlockService {
     ownerUserId: string;
     propertyId: string;
     propertyTitle: string;
-    lead: { name: string; email: string; phone: string };
+    lead: { name: string; email: string; phone: string; message?: string | null };
     listingPath?: string;
+    waitingForCredit?: boolean;
+    skipWhatsApp?: boolean;
   }) {
     const listingUrl = this.listingUrl(input.propertyId, input.listingPath);
     const now = new Date();
     const dateStr = now.toLocaleDateString('cs-CZ');
     const timeStr = now.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
+    const waiting = input.waitingForCredit === true;
 
     try {
       await this.notifications.create(
         input.ownerUserId,
         'CONTACT_LEAD',
-        'Zájemce o váš inzerát',
-        'Uživatel projevil zájem o váš inzerát a zobrazil si kontakt.',
+        waiting ? 'Nový zájemce – dobijte kredit' : 'Zájemce o váš inzerát',
+        waiting
+          ? 'Máte nového zájemce. Pro zobrazení kontaktu dobijte kredit.'
+          : `Máte nového zájemce o inzerát ${input.propertyTitle}.`,
         {
           propertyId: input.propertyId,
           listingUrl,
           leadName: input.lead.name,
-          leadEmail: input.lead.email,
-          leadPhone: input.lead.phone,
+          leadEmail: waiting ? null : input.lead.email,
+          leadPhone: waiting ? null : input.lead.phone,
+          status: waiting ? 'WAITING_FOR_CREDIT' : 'UNLOCKED',
           date: dateStr,
           time: timeStr,
         },
@@ -631,27 +876,31 @@ export class ListingContactUnlockService {
       this.logger.warn(`Notification failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    try {
-      const buyerConv = await this.messages.getOrCreateConversation(
-        input.buyerUserId,
-        input.propertyId,
-      );
-      await this.messages.sendMessage(
-        input.buyerUserId,
-        buyerConv.id,
-        [
-          '[Kontakt odemčen]',
-          `Jméno: ${input.lead.name}`,
-          `E-mail: ${input.lead.email}`,
-          `Telefon: ${input.lead.phone}`,
-          '',
-          'Uživatel projevil zájem o váš inzerát a zobrazil si kontakt.',
-          `Inzerát: ${listingUrl}`,
-          `Datum: ${dateStr} ${timeStr}`,
-        ].join('\n'),
-      );
-    } catch (err) {
-      this.logger.warn(`Internal message failed: ${err instanceof Error ? err.message : String(err)}`);
+    if (!waiting) {
+      try {
+        const buyerConv = await this.messages.getOrCreateConversation(
+          input.buyerUserId,
+          input.propertyId,
+        );
+        await this.messages.sendMessage(
+          input.buyerUserId,
+          buyerConv.id,
+          [
+            '[Nový zájemce]',
+            `Jméno: ${input.lead.name}`,
+            `E-mail: ${input.lead.email}`,
+            `Telefon: ${input.lead.phone}`,
+            input.lead.message ? `Zpráva: ${input.lead.message}` : '',
+            '',
+            `Inzerát: ${listingUrl}`,
+            `Datum: ${dateStr} ${timeStr}`,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        );
+      } catch (err) {
+        this.logger.warn(`Internal message failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
 
     try {
@@ -660,20 +909,44 @@ export class ListingContactUnlockService {
         select: { email: true, name: true },
       });
       if (owner?.email?.trim()) {
-        await this.emails.sendContactLeadEmail({
-          to: owner.email.trim(),
-          ownerName: owner.name || 'inzerente',
-          listingTitle: input.propertyTitle,
-          listingUrl,
-          leadName: input.lead.name,
-          leadEmail: input.lead.email,
-          leadPhone: input.lead.phone,
-          date: dateStr,
-          time: timeStr,
-        });
+        if (waiting) {
+          await this.emails.sendContactLeadWaitingCreditEmail({
+            to: owner.email.trim(),
+            ownerName: owner.name || 'inzerente',
+            listingTitle: input.propertyTitle,
+            listingUrl,
+          });
+        } else {
+          await this.emails.sendContactLeadEmail({
+            to: owner.email.trim(),
+            ownerName: owner.name || 'inzerente',
+            listingTitle: input.propertyTitle,
+            listingUrl,
+            leadName: input.lead.name,
+            leadEmail: input.lead.email,
+            leadPhone: input.lead.phone,
+            date: dateStr,
+            time: timeStr,
+          });
+        }
       }
     } catch (err) {
       this.logger.warn(`Lead email failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    if (!input.skipWhatsApp) {
+      try {
+        await this.listingLeadWhatsApp.notifyAdvertiser({
+          ownerUserId: input.ownerUserId,
+          listingTitle: input.propertyTitle,
+          leadName: input.lead.name,
+          leadPhone: input.lead.phone,
+          leadEmail: input.lead.email,
+          waitingForCredit: waiting,
+        });
+      } catch (err) {
+        this.logger.warn(`Lead WhatsApp failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
 
