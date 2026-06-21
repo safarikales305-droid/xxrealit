@@ -1,22 +1,48 @@
-// Minimal service worker pro PWA push notifikace.
+// Service worker pro PWA push notifikace a badge na ikoně.
+self.addEventListener('install', () => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
 self.addEventListener('push', (event) => {
-  const fallback = { title: 'XXrealit', body: 'Máte nové upozornění.' };
+  const fallback = {
+    title: 'XXrealit',
+    body: 'Máte nové upozornění.',
+    url: '/',
+    badge: 1,
+  };
   let payload = fallback;
   try {
     if (event.data) {
-      payload = { ...fallback, ...event.data.json() };
+      const parsed = event.data.json();
+      payload = { ...fallback, ...parsed };
     }
   } catch {
     /* use fallback */
   }
-  event.waitUntil(
+
+  const tasks = [
     self.registration.showNotification(payload.title, {
       body: payload.body,
       icon: '/icons/icon-192.png',
       badge: '/icons/icon-192.png',
-      data: payload.data ?? {},
+      tag: payload.tag || 'xxrealit',
+      data: { url: payload.url || '/', badge: payload.badge },
+      renotify: true,
     }),
-  );
+  ];
+
+  const badgeCount = Number(payload.badge);
+  if (Number.isFinite(badgeCount) && badgeCount > 0 && 'setAppBadge' in self.registration) {
+    tasks.push(
+      self.registration.setAppBadge(Math.min(99, Math.floor(badgeCount))),
+    );
+  }
+
+  event.waitUntil(Promise.all(tasks));
 });
 
 self.addEventListener('notificationclick', (event) => {
@@ -34,4 +60,19 @@ self.addEventListener('notificationclick', (event) => {
       return undefined;
     }),
   );
+});
+
+self.addEventListener('message', (event) => {
+  const data = event.data;
+  if (!data || typeof data !== 'object') return;
+  if (data.type === 'SET_BADGE') {
+    const count = Number(data.count);
+    if ('setAppBadge' in self.registration) {
+      if (!Number.isFinite(count) || count <= 0) {
+        event.waitUntil(self.registration.clearAppBadge());
+      } else {
+        event.waitUntil(self.registration.setAppBadge(Math.min(99, Math.floor(count))));
+      }
+    }
+  }
 });

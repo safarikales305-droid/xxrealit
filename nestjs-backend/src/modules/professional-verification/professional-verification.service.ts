@@ -25,10 +25,14 @@ import {
   assertWhatsAppVerified,
   WHATSAPP_VERIFY_PROFESSIONAL_MSG,
 } from '../whatsapp/whatsapp-verification-required.util';
+import { WebPushService } from '../web-push/web-push.service';
 
 @Injectable()
 export class ProfessionalVerificationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly webPush: WebPushService,
+  ) {}
 
   private async syncProfileVerificationStatus(
     userId: string,
@@ -273,6 +277,8 @@ export class ProfessionalVerificationService {
       ProfessionalVerificationStatus.APPROVED,
       true,
     );
+
+    void this.webPush.notifyBrokerApproved(userId).catch(() => undefined);
 
     return { ok: true, userId };
   }

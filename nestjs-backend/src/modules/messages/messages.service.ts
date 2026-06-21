@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { WebPushService } from '../web-push/web-push.service';
 
 const MESSAGE_MAX_LEN = 1000;
 
@@ -14,7 +15,10 @@ function sortedUserPair(a: string, b: string): [string, string] {
 
 @Injectable()
 export class MessagesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly webPush: WebPushService,
+  ) {}
 
   private async assertParticipant(conversationId: string, userId: string) {
     const c = await this.prisma.propertyConversation.findUnique({
@@ -88,6 +92,10 @@ export class MessagesService {
       );
     }
     await this.assertParticipant(conversationId, viewerId);
+    const conv = await this.prisma.propertyConversation.findUnique({
+      where: { id: conversationId },
+      select: { userLowId: true, userHighId: true },
+    });
     const msg = await this.prisma.propertyMessage.create({
       data: {
         conversationId,
@@ -99,6 +107,18 @@ export class MessagesService {
       where: { id: conversationId },
       data: { updatedAt: new Date() },
     });
+
+    if (conv) {
+      const recipientId = this.counterpartId(conv, viewerId);
+      const sender = await this.prisma.user.findUnique({
+        where: { id: viewerId },
+        select: { name: true },
+      });
+      void this.webPush
+        .notifyNewMessage(recipientId, sender?.name ?? '', conversationId)
+        .catch(() => undefined);
+    }
+
     return msg;
   }
 

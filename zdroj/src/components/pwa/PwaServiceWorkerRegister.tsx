@@ -1,16 +1,39 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+
+let swReadyPromise: Promise<ServiceWorkerRegistration | null> | null = null;
+
+function getSwReady(): Promise<ServiceWorkerRegistration | null> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+    return Promise.resolve(null);
+  }
+  if (!swReadyPromise) {
+    swReadyPromise = navigator.serviceWorker
+      .register('/sw.js')
+      .then((reg) => reg)
+      .catch((err) => {
+        console.warn('[pwa] service worker registration failed', err);
+        return null;
+      });
+  }
+  return swReadyPromise;
+}
 
 /** Registruje service worker pro web push (PWA). */
 export function PwaServiceWorkerRegister() {
+  const [, setReady] = useState(false);
+
   useEffect(() => {
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
-    void navigator.serviceWorker.register('/sw.js').catch((err) => {
-      console.warn('[pwa] service worker registration failed', err);
-    });
+    void getSwReady().then((reg) => setReady(Boolean(reg)));
   }, []);
+
   return null;
+}
+
+export async function isServiceWorkerRegistered(): Promise<boolean> {
+  const reg = await getSwReady();
+  return Boolean(reg?.active || reg?.installing || reg?.waiting);
 }
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -32,13 +55,18 @@ export async function subscribeToWebPush(
     return { ok: false, error: 'Prohlížeč nepodporuje push notifikace.' };
   }
 
+  const registration = await getSwReady();
+  if (!registration) {
+    return { ok: false, error: 'Service worker není registrován.' };
+  }
+
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') {
     return { ok: false, error: 'Oprávnění k notifikacím nebylo uděleno.' };
   }
 
-  const registration = await navigator.serviceWorker.ready;
-  const subscription = await registration.pushManager.subscribe({
+  const ready = await navigator.serviceWorker.ready;
+  const subscription = await ready.pushManager.subscribe({
     userVisibleOnly: true,
     applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
   });

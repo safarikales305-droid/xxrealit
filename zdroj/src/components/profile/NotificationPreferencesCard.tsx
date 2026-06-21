@@ -5,16 +5,49 @@ import {
   nestGetNotificationPrefs,
   nestPatchNotificationPrefs,
   nestPushAdminStatus,
+  nestPushTest,
   nestPushVapidPublicKey,
   type NotificationPrefs,
 } from '@/lib/nest-client';
-import { subscribeToWebPush } from '@/components/pwa/PwaServiceWorkerRegister';
+import {
+  isServiceWorkerRegistered,
+  subscribeToWebPush,
+} from '@/components/pwa/PwaServiceWorkerRegister';
 import { dispatchNotificationsChanged } from '@/hooks/use-notifications-unread';
+import { supportsAppBadge } from '@/hooks/use-app-badge';
 import { useAuth } from '@/hooks/use-auth';
 
 type Props = {
   token: string | null;
 };
+
+function PushStatusList({
+  vapidActive,
+  pushActive,
+  serviceWorkerActive,
+  badgeActive,
+}: {
+  vapidActive: boolean;
+  pushActive: boolean;
+  serviceWorkerActive: boolean;
+  badgeActive: boolean;
+}) {
+  const rows = [
+    { ok: vapidActive, label: 'VAPID aktivní' },
+    { ok: pushActive, label: 'Push aktivní' },
+    { ok: serviceWorkerActive, label: 'Service Worker aktivní' },
+    { ok: badgeActive, label: 'Badge aktivní' },
+  ];
+  return (
+    <ul className="mt-2 space-y-1 text-xs">
+      {rows.map((row) => (
+        <li key={row.label} className={row.ok ? 'text-emerald-800' : 'text-zinc-500'}>
+          {row.ok ? '✓' : '○'} {row.label}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export function NotificationPreferencesCard({ token }: Props) {
   const { user } = useAuth();
@@ -25,8 +58,10 @@ export function NotificationPreferencesCard({ token }: Props) {
     issues: string[];
     instructions: string[];
   } | null>(null);
+  const [swRegistered, setSwRegistered] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pushBusy, setPushBusy] = useState(false);
+  const [testBusy, setTestBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,18 +73,25 @@ export function NotificationPreferencesCard({ token }: Props) {
       return;
     }
     setLoading(true);
-    const [row, adminStatus] = await Promise.all([
+    const [row, adminStatus, swOk] = await Promise.all([
       nestGetNotificationPrefs(token),
       isAdmin ? nestPushAdminStatus(token) : Promise.resolve(null),
+      isServiceWorkerRegistered(),
     ]);
     setPrefs(row);
     setAdminPush(adminStatus);
+    setSwRegistered(swOk);
     setLoading(false);
   }, [token, isAdmin]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const vapidActive = Boolean(prefs?.vapidActive ?? prefs?.pushConfigured);
+  const pushActive = Boolean(prefs?.pushActive ?? (vapidActive && prefs?.pushSubscribed));
+  const badgeActive = supportsAppBadge();
+  const canEnablePush = vapidActive && swRegistered;
 
   async function patch(partial: Partial<NotificationPrefs>) {
     if (!token) return;
@@ -67,6 +109,14 @@ export function NotificationPreferencesCard({ token }: Props) {
 
   async function enablePush() {
     if (!token) return;
+    if (!canEnablePush) {
+      setError(
+        !vapidActive
+          ? 'Push nelze aktivovat — chybí VAPID klíče na serveru.'
+          : 'Push nelze aktivovat — service worker není registrován.',
+      );
+      return;
+    }
     setPushBusy(true);
     setError(null);
     setMessage(null);
@@ -95,6 +145,24 @@ export function NotificationPreferencesCard({ token }: Props) {
     void load();
   }
 
+  async function onTestPush() {
+    if (!token) return;
+    setTestBusy(true);
+    setError(null);
+    setMessage(null);
+    const r = await nestPushTest(token);
+    setTestBusy(false);
+    if (!r.ok) {
+      setError(r.error ?? 'Test push selhal.');
+      return;
+    }
+    setMessage(
+      r.sent && r.sent > 0
+        ? 'Testovací push notifikace byla odeslána.'
+        : 'Test proběhl — zkontrolujte, zda máte aktivní push subscription.',
+    );
+  }
+
   if (!token) return null;
 
   const setupInstructions =
@@ -119,7 +187,16 @@ export function NotificationPreferencesCard({ token }: Props) {
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
       {message ? <p className="text-sm text-emerald-700">{message}</p> : null}
 
-      {isAdmin && !prefs?.pushConfigured ? (
+      {!loading ? (
+        <PushStatusList
+          vapidActive={vapidActive}
+          pushActive={pushActive}
+          serviceWorkerActive={swRegistered}
+          badgeActive={badgeActive}
+        />
+      ) : null}
+
+      {isAdmin && !vapidActive ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
           <p className="font-semibold">Nastavení VAPID pro administrátora</p>
           {setupIssues.length > 0 ? (
@@ -136,7 +213,26 @@ export function NotificationPreferencesCard({ token }: Props) {
               ))}
             </ol>
           ) : null}
+          <button
+            type="button"
+            disabled={testBusy || !vapidActive}
+            onClick={() => void onTestPush()}
+            className="mt-3 rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 disabled:opacity-50"
+          >
+            {testBusy ? 'Odesílám…' : 'Otestovat push notifikaci'}
+          </button>
         </div>
+      ) : null}
+
+      {isAdmin && vapidActive ? (
+        <button
+          type="button"
+          disabled={testBusy}
+          onClick={() => void onTestPush()}
+          className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 disabled:opacity-50"
+        >
+          {testBusy ? 'Odesílám…' : 'Otestovat push notifikaci'}
+        </button>
       ) : null}
 
       {prefs ? (
@@ -165,10 +261,20 @@ export function NotificationPreferencesCard({ token }: Props) {
             />
             WhatsApp upozornění
           </label>
-          <label className="flex items-center gap-2 text-sm text-zinc-800">
+          <label
+            className={`flex items-center gap-2 text-sm ${canEnablePush ? 'text-zinc-800' : 'text-zinc-400'}`}
+            title={
+              !canEnablePush
+                ? !vapidActive
+                  ? 'Chybí VAPID klíče na serveru'
+                  : 'Service worker není registrován'
+                : undefined
+            }
+          >
             <input
               type="checkbox"
               checked={prefs.notifyPwaPush}
+              disabled={!canEnablePush && !prefs.notifyPwaPush}
               onChange={(e) => {
                 if (e.target.checked) {
                   void enablePush();
@@ -176,14 +282,13 @@ export function NotificationPreferencesCard({ token }: Props) {
                   void patch({ notifyPwaPush: false });
                 }
               }}
-              disabled={!prefs.pushConfigured && pushBusy}
             />
             PWA push upozornění
             {prefs.pushSubscribed ? (
               <span className="text-xs text-emerald-700">(aktivní)</span>
             ) : null}
           </label>
-          {prefs.notifyPwaPush && !prefs.pushSubscribed ? (
+          {prefs.notifyPwaPush && !prefs.pushSubscribed && canEnablePush ? (
             <button
               type="button"
               disabled={pushBusy}

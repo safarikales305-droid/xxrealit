@@ -2678,6 +2678,8 @@ export type NotificationPrefs = {
   pushSubscribed: boolean;
   pushSetupIssues?: string[];
   pushSetupInstructions?: string[];
+  vapidActive?: boolean;
+  pushActive?: boolean;
 };
 
 export async function nestGetNotificationPrefs(
@@ -2788,7 +2790,7 @@ export async function nestPushSubscribe(
 ): Promise<{ ok: boolean; error?: string }> {
   if (!API_BASE_URL) return { ok: false, error: 'API chybí' };
   try {
-    const res = await fetch(`${API_BASE_URL}/push/subscribe`, {
+    const res = await fetch(`${API_BASE_URL}/notifications/subscribe`, {
       method: 'POST',
       headers: {
         ...nestAuthHeaders(token),
@@ -2802,6 +2804,28 @@ export async function nestPushSubscribe(
       return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
     }
     return { ok: true };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestPushTest(
+  token: string,
+): Promise<{ ok: boolean; sent?: number; error?: string }> {
+  if (!API_BASE_URL) return { ok: false, error: 'API chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/push/test`, {
+      method: 'POST',
+      headers: nestAuthHeaders(token),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      sent?: number;
+      message?: string | string[];
+    };
+    if (!res.ok) {
+      return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+    }
+    return { ok: true, sent: typeof data.sent === 'number' ? data.sent : 0 };
   } catch {
     return { ok: false, error: 'Síťová chyba' };
   }

@@ -4,6 +4,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { PostWhatsAppNotifyService } from '../whatsapp/post-whatsapp-notify.service';
+import { WebPushService } from '../web-push/web-push.service';
 import {
   buildCommunityPostsWhere,
   dedupeCommunityPosts,
@@ -89,12 +90,18 @@ export class PostsService {
     private readonly brokerPoints: BrokerPointsService,
     private readonly bonusCampaigns: BonusCampaignService,
     private readonly postWhatsAppNotify: PostWhatsAppNotifyService,
+    private readonly webPush: WebPushService,
   ) {}
 
   private firePostPublishedNotify(userId: string, postId: string) {
     void this.postWhatsAppNotify.onPostPublished(userId, postId).catch((err) => {
       this.log.warn(
         `[post-wa] notify failed post=${postId}: ${err instanceof Error ? err.message : err}`,
+      );
+    });
+    void this.webPush.notifyFollowersNewPost(userId, postId).catch((err) => {
+      this.log.warn(
+        `[post-push] notify failed post=${postId}: ${err instanceof Error ? err.message : err}`,
       );
     });
   }
