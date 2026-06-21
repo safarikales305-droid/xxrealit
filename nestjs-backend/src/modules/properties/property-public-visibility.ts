@@ -16,22 +16,22 @@ export function publiclyVisiblePropertyWhere(
 }
 
 /**
- * Stejné podmínky jako admin filtr status=ACTIVE (listingStatus ACTIVE v /admin/inzeraty).
- * Podporuje approved=true i status APPROVED/ACTIVE (různé zápisy v DB).
+ * Veřejný portál — pouze aktivní zveřejněné inzeráty.
+ * published = approved, status = ACTIVE (nebo APPROVED z admin schválení), deletedAt = null.
  */
 export function publiclyActiveListingWhere(
   now: Date = new Date(),
 ): Prisma.PropertyWhereInput {
   return {
     deletedAt: null,
+    approved: true,
     isActive: true,
     isVisible: true,
     AND: [
       {
         OR: [
-          { approved: true },
-          { status: { equals: 'APPROVED', mode: 'insensitive' } },
           { status: { equals: 'ACTIVE', mode: 'insensitive' } },
+          { status: { equals: 'APPROVED', mode: 'insensitive' } },
         ],
       },
       { OR: [{ activeFrom: null }, { activeFrom: { lte: now } }] },
@@ -47,7 +47,12 @@ export type ListingLifecycleFields = {
   activeFrom: Date | null;
   activeUntil: Date | null;
   approved: boolean;
+  status?: string | null;
 };
+
+function normalizeListingStatus(status?: string | null): string {
+  return String(status ?? '').trim().toUpperCase();
+}
 
 export function computeListingPublicStatus(
   p: ListingLifecycleFields,
@@ -61,6 +66,17 @@ export function computeListingPublicStatus(
   | 'ACTIVE' {
   if (p.deletedAt) return 'DELETED';
   if (!p.approved) return 'PENDING_APPROVAL';
+
+  const statusNorm = normalizeListingStatus(p.status);
+  if (
+    statusNorm &&
+    statusNorm !== 'ACTIVE' &&
+    statusNorm !== 'APPROVED'
+  ) {
+    if (statusNorm === 'PENDING') return 'PENDING_APPROVAL';
+    return 'INACTIVE';
+  }
+
   if (!p.isActive) return 'INACTIVE';
   if (!p.isVisible) return 'INACTIVE';
   if (p.activeUntil && p.activeUntil < now) return 'EXPIRED';

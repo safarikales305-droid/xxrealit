@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { AuthPageShell } from '@/components/auth/auth-page-shell';
 import { FacebookAuthButton } from '@/components/auth/FacebookAuthButton';
+import { PasswordField } from '@/components/ui/PasswordField';
 import { useAuth } from '@/hooks/use-auth';
 import { getBrowserAuthLoginUrl } from '@/lib/api';
 import { clearPwaInstallDismissed } from '@/lib/pwa-install-storage';
@@ -161,14 +162,13 @@ export function LoginForm() {
               Zapomenuté heslo?
             </Link>
           </div>
-          <input
+          <PasswordField
             id="password"
             name="password"
-            type="password"
             autoComplete="current-password"
             required
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={setPassword}
             className={inputClass}
             placeholder="••••••••"
           />

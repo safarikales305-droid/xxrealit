@@ -844,14 +844,21 @@ export class PropertiesService {
 
     const admin = await this.viewerIsAdmin(viewerId);
     const isOwner = viewerId === property.userId;
+    const publicStatus = computeListingPublicStatus(property);
+
     if (!property.approved && !admin && !isOwner) {
       throw new NotFoundException(`Property "${id}" not found`);
     }
-    if (!admin && !isOwner && !isPropertyPubliclyListed(property)) {
-      throw new NotFoundException(`Property "${id}" not found`);
-    }
-    if (!admin && !isOwner && !isImportedListingPubliclyVisible(property)) {
-      throw new NotFoundException(`Property "${id}" not found`);
+    if (!admin && !isOwner) {
+      if (publicStatus === 'DELETED' || publicStatus === 'PENDING_APPROVAL') {
+        throw new NotFoundException(`Property "${id}" not found`);
+      }
+      if (publicStatus !== 'ACTIVE') {
+        throw new GoneException('Inzerát již není aktivní');
+      }
+      if (!isImportedListingPubliclyVisible(property)) {
+        throw new NotFoundException(`Property "${id}" not found`);
+      }
     }
 
     const rawAuthor = property.user;

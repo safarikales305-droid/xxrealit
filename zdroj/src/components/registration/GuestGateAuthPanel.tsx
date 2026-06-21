@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { FacebookAuthButton } from '@/components/auth/FacebookAuthButton';
+import { PasswordField } from '@/components/ui/PasswordField';
 import { useAuth } from '@/hooks/use-auth';
 import { getBrowserAuthLoginUrl } from '@/lib/api';
 import { closeGuestRegistrationGate } from '@/lib/guest-registration-gate-store';
@@ -186,13 +187,12 @@ export function GuestGateAuthPanel({ mode, returnTo, onClose, onSwitchMode }: Pr
               <label htmlFor="gate-login-password" className="mb-1 block text-sm font-semibold text-zinc-800">
                 Heslo
               </label>
-              <input
+              <PasswordField
                 id="gate-login-password"
-                type="password"
-                required
                 autoComplete="current-password"
+                required
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={setPassword}
                 className={inputClass}
               />
             </div>
@@ -246,23 +246,25 @@ export function GuestGateAuthPanel({ mode, returnTo, onClose, onSwitchMode }: Pr
                 </option>
               ))}
             </select>
-            <input
-              type="password"
+            <PasswordField
+              id="gate-register-password"
+              autoComplete="new-password"
               required
               minLength={6}
-              placeholder="Heslo (min. 6 znaků)"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={setPassword}
               className={inputClass}
+              placeholder="Heslo (min. 6 znaků)"
             />
-            <input
-              type="password"
+            <PasswordField
+              id="gate-register-confirm"
+              autoComplete="new-password"
               required
               minLength={6}
-              placeholder="Potvrzení hesla"
               value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
+              onChange={setConfirmPassword}
               className={inputClass}
+              placeholder="Potvrzení hesla"
             />
             {error ? (
               <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">

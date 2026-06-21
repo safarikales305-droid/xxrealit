@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { AuthPageShell } from '@/components/auth/auth-page-shell';
 import { FacebookAuthButton } from '@/components/auth/FacebookAuthButton';
+import { PasswordField } from '@/components/ui/PasswordField';
 import {
   REGISTRATION_ACCOUNT_TYPES,
   type RegistrationAccountType,
@@ -217,14 +218,13 @@ export default function RegistracePage() {
           <label htmlFor="password" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:mb-1.5 sm:text-sm">
             Heslo
           </label>
-          <input
+          <PasswordField
             id="password"
-            type="password"
+            autoComplete="new-password"
             required
             minLength={6}
-            autoComplete="new-password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={setPassword}
             className={inputClass}
             placeholder="Nejméně 6 znaků"
             aria-invalid={Boolean(fieldErrors.password)}
@@ -238,14 +238,13 @@ export default function RegistracePage() {
           <label htmlFor="confirm" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:mb-1.5 sm:text-sm">
             Potvrzení hesla
           </label>
-          <input
+          <PasswordField
             id="confirm"
-            type="password"
+            autoComplete="new-password"
             required
             minLength={6}
-            autoComplete="new-password"
             value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
+            onChange={setConfirmPassword}
             className={inputClass}
             placeholder="Zopakujte heslo"
             aria-invalid={Boolean(fieldErrors.confirmPassword)}
