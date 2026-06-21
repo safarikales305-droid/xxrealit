@@ -289,6 +289,8 @@ export type NestMeProfile = {
   isTipar?: boolean;
   isTestAccount?: boolean;
   testAccountPublicVisible?: boolean;
+  portalWorkerStatus?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'SUSPENDED' | null;
+  portalWorkerApprovedAt?: string | null;
   facebookUrl?: string | null;
   facebookImportEnabled?: boolean;
   facebookLastSyncAt?: string | null;
@@ -8475,6 +8477,139 @@ export async function nestAdminRunPortalTestScenario(
     };
   }
   return { ok: true, result: data };
+}
+
+export type PortalWorkerRow = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  whatsappPhone: string;
+  whatsappVerified: boolean;
+  emailVerified: boolean;
+  status: string;
+  registeredAt: string;
+  referredClientCount: number;
+  totalCommission: number;
+};
+
+export type PortalWorkerDashboard = {
+  clientCount: number;
+  totalCommission: number;
+  pendingCommission: number;
+  approvedCommission: number;
+  paidCommission: number;
+  clients: Array<{
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    registeredAt: string;
+    status: string;
+    totalTopUp: number;
+    totalCommission: number;
+  }>;
+  commissions: Array<{
+    id: string;
+    referredUserName: string;
+    topUpAmount: number;
+    percent: number;
+    commissionAmount: number;
+    status: string;
+    createdAt: string;
+  }>;
+};
+
+export async function nestAdminListPortalWorkers(
+  token: string | null,
+): Promise<{ items: PortalWorkerRow[]; total: number }> {
+  if (!API_BASE_URL || !token) return { items: [], total: 0 };
+  const res = await fetch(`${API_BASE_URL}/admin/portal-workers`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return { items: [], total: 0 };
+  const data = (await res.json()) as { items?: PortalWorkerRow[]; total?: number };
+  return { items: data.items ?? [], total: data.total ?? 0 };
+}
+
+export async function nestAdminPortalWorkerAction(
+  token: string | null,
+  userId: string,
+  action: 'approve' | 'reject' | 'suspend' | 'activate',
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(
+    `${API_BASE_URL}/admin/portal-workers/${encodeURIComponent(userId)}/${action}`,
+    { method: 'POST', headers: { ...nestAuthHeaders(token), Accept: 'application/json' } },
+  );
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { message?: string };
+    return { ok: false, error: data.message ?? `HTTP ${res.status}` };
+  }
+  return { ok: true };
+}
+
+export async function nestPortalWorkerDashboard(
+  token: string | null,
+): Promise<PortalWorkerDashboard | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/portal-worker/me/dashboard`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as PortalWorkerDashboard;
+}
+
+export async function nestCreateClientPreregistration(
+  token: string | null,
+  payload: {
+    targetRole: string;
+    name: string;
+    email: string;
+    phone: string;
+    city?: string;
+    note?: string;
+  },
+): Promise<{ ok: boolean; error?: string; message?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/portal-worker/client-preregistrations`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json().catch(() => ({}))) as { message?: string };
+  if (!res.ok) return { ok: false, error: data.message ?? `HTTP ${res.status}` };
+  return { ok: true, message: data.message };
+}
+
+export async function nestGetWorkerReferralByToken(token: string) {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(
+    `${API_BASE_URL}/auth/worker-referral/${encodeURIComponent(token)}`,
+    { headers: { Accept: 'application/json' } },
+  );
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function nestCompleteWorkerReferral(payload: {
+  token: string;
+  password: string;
+  name?: string;
+}): Promise<{ ok: boolean; error?: string; message?: string }> {
+  if (!API_BASE_URL) return { ok: false, error: 'API není nakonfigurováno' };
+  const res = await fetch(`${API_BASE_URL}/auth/worker-referral/complete`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json().catch(() => ({}))) as { message?: string };
+  if (!res.ok) return { ok: false, error: data.message ?? `HTTP ${res.status}` };
+  return { ok: true, message: data.message };
 }
 
 export async function nestAdminVerifyUserWhatsApp(

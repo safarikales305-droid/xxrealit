@@ -29,6 +29,7 @@ const bodySchema = z
       .regex(/^\+[1-9]\d{7,14}$/, 'Telefon musí být ve formátu +420123456789'),
     role: z.enum(ALLOWED_ROLES, { message: 'Vyberte platnou roli' }),
     referralCode: z.string().max(32).optional(),
+    wantsPortalWorker: z.boolean().optional(),
   })
   .refine((d) => d.password === d.confirmPassword, {
     message: 'Hesla se neshodují',
@@ -69,6 +70,7 @@ export async function POST(req: Request) {
         phone: parsed.data.phone,
         role: parsed.data.role,
         referralCode: parsed.data.referralCode,
+        wantsPortalWorker: parsed.data.wantsPortalWorker === true,
       }),
     });
     const raw = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;

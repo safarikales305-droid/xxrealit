@@ -13,6 +13,7 @@ import { UpdateCreditSettingsDto } from './dto/update-credit-settings.dto';
 import { buildQrImageUrl, buildSpdPayload } from './utils/spd-qr.util';
 import { canTopUpCredits } from '../users/profile-requirements.util';
 import { ListingContactUnlockService } from '../properties/listing-contact-unlock.service';
+import { PortalWorkerService } from '../portal-worker/portal-worker.service';
 
 const SETTINGS_ID = 'default';
 
@@ -28,6 +29,8 @@ export class CreditsService {
     private readonly wallet: CreditWalletService,
     @Inject(forwardRef(() => ListingContactUnlockService))
     private readonly listingLeads: ListingContactUnlockService,
+    @Inject(forwardRef(() => PortalWorkerService))
+    private readonly portalWorker: PortalWorkerService,
   ) {}
 
   private async getSettingsRow() {
@@ -506,6 +509,28 @@ export class CreditsService {
         }`,
       );
     }
+    try {
+      await this.recalculateUserCredit(updated.userId);
+    } catch (err) {
+      this.logger.warn(
+        `Recalculate credit after top-up failed user=${updated.userId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+    try {
+      await this.portalWorker.processCommissionForTopUp(
+        updated.userId,
+        updated.id,
+        updated.amount,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Worker commission after top-up failed user=${updated.userId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
     return this.serializeTransaction(updated);
   }
 
@@ -743,7 +768,8 @@ export class CreditsService {
     const hasReversal = ledgerRows.some(
       (r) => r.purpose === 'TOP_UP_REVERSED' || r.purpose === 'TOP_UP_EXPIRED',
     );
-    const creditDebt = user.accountLimited && hasReversal ? Math.max(0, user.creditDebt) : 0;
+    const creditDebt = hasReversal ? Math.max(0, user.creditDebt) : 0;
+    const accountLimited = hasReversal && creditDebt > 0;
 
     const updated = await this.prisma.user.update({
       where: { id: userId },
@@ -753,7 +779,7 @@ export class CreditsService {
         pendingCreditBalance: pending,
         creditBalance: real + bonus + pending,
         creditDebt,
-        ...(creditDebt === 0 && !hasReversal ? { accountLimited: false } : {}),
+        accountLimited,
       },
       select: {
         realCreditBalance: true,
@@ -772,5 +798,19 @@ export class CreditsService {
       ledgerEntries: ledgerRows.length,
       creditTransactionSum: txSum._sum.amount ?? 0,
     };
+  }
+
+  /** Jednorázová / hromadná oprava neoprávněného creditDebt u všech uživatelů. */
+  async fixUnauthorizedCreditDebts() {
+    const users = await this.prisma.user.findMany({
+      where: { OR: [{ creditDebt: { gt: 0 } }, { accountLimited: true }] },
+      select: { id: true },
+    });
+    const results: Array<{ userId: string; creditDebt: number }> = [];
+    for (const u of users) {
+      const r = await this.recalculateUserCredit(u.id);
+      results.push({ userId: u.id, creditDebt: r.creditDebt });
+    }
+    return { fixed: results.length, results };
   }
 }

@@ -57,6 +57,7 @@ export function CreditTopUpSection({
   const [result, setResult] = useState<CreditTopUpResultDto | null>(null);
   const [history, setHistory] = useState<CreditHistoryRowDto[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!token) {
@@ -76,20 +77,10 @@ export function CreditTopUpSection({
         setBalanceInfo(r.data);
         onBalanceChangeRef.current?.(r.data.creditBalance);
       } else {
-        console.error('[CreditTopUpSection] credits balance failed:', r.error);
         setBalanceError('Kredit se nepodařilo načíst.');
         setBalanceInfo(emptyBalance(0));
       }
-
-      if (token) {
-        setHistoryLoading(true);
-        const h = await nestCreditsHistory(token);
-        setHistoryLoading(false);
-        if (h.ok) setHistory(h.data);
-      }
-      return;
-    } catch (e: unknown) {
-      console.error('[CreditTopUpSection] credits balance error:', e);
+    } catch {
       setBalanceError('Kredit se nepodařilo načíst.');
       setBalanceInfo(emptyBalance(0));
     } finally {
@@ -97,9 +88,21 @@ export function CreditTopUpSection({
     }
   }, [token, initialBalance]);
 
+  const loadHistory = useCallback(async () => {
+    if (!token) return;
+    setHistoryLoading(true);
+    const h = await nestCreditsHistory(token);
+    setHistoryLoading(false);
+    if (h.ok) setHistory(h.data);
+  }, [token]);
+
   useEffect(() => {
     void refresh();
-  }, [token]);
+  }, [refresh]);
+
+  useEffect(() => {
+    if (historyOpen) void loadHistory();
+  }, [historyOpen, loadHistory]);
 
   async function onTopUp() {
     if (!token) return;
@@ -119,62 +122,52 @@ export function CreditTopUpSection({
       }
       setResult(r.data);
       await refresh();
+      if (historyOpen) await loadHistory();
     } finally {
       setLoading(false);
     }
   }
 
-  const displayedBalance = balanceInfo?.creditBalance ?? initialBalance ?? 0;
+  const paid =
+    balanceInfo?.paidCredit ?? balanceInfo?.realCreditBalance ?? initialBalance ?? 0;
+  const bonus = balanceInfo?.bonusCredit ?? balanceInfo?.bonusCreditBalance ?? 0;
+  const marketing =
+    balanceInfo?.marketingCreditTotal ?? balanceInfo?.creditBalance ?? paid + bonus;
 
   return (
     <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
       <h2 className="text-lg font-bold text-zinc-900">Kredit</h2>
-      <p className="mt-1 text-sm text-zinc-600">
-        {balanceLoading ? (
-          <span className="inline-flex items-center gap-2 text-zinc-500">
-            <span className="size-4 animate-spin rounded-full border-2 border-orange-500 border-t-transparent" />
-            Načítám kredity…
-          </span>
-        ) : (
-          <span className="font-semibold text-[#e85d00]">
-            {(balanceInfo?.marketingCreditTotal ?? displayedBalance).toLocaleString('cs-CZ')} Kč
-          </span>
-        )}
-        {balanceError ? (
-          <span className="mt-1 block text-xs text-red-600">{balanceError}</span>
-        ) : null}
-        {balanceInfo && !balanceLoading ? (
-          <span className="mt-2 block space-y-1 text-xs text-zinc-600">
-            <span className="block">
-              Placený kredit:{' '}
-              <strong>{(balanceInfo.paidCredit ?? balanceInfo.realCreditBalance ?? 0).toLocaleString('cs-CZ')} Kč</strong>
-            </span>
-            <span className="block">
-              Bonusový kredit:{' '}
-              <strong>{(balanceInfo.bonusCredit ?? balanceInfo.bonusCreditBalance ?? 0).toLocaleString('cs-CZ')} Kč</strong>
-            </span>
-            <span className="block text-zinc-500">
-              Celkem pro marketing:{' '}
-              {(balanceInfo.marketingCreditTotal ?? balanceInfo.creditBalance ?? 0).toLocaleString('cs-CZ')} Kč
-            </span>
-            <span className="block text-zinc-500">
-              Pro tipaře lze použít pouze placený kredit.
-            </span>
-            {(balanceInfo.pendingCreditBalance ?? 0) > 0 ? (
-              <span className="block text-amber-700">
-                Čekající na potvrzení: {balanceInfo.pendingCreditBalance.toLocaleString('cs-CZ')} Kč
-              </span>
-            ) : null}
-          </span>
-        ) : null}
-        {balanceInfo?.accountLimited && balanceInfo.creditDebt > 0 ? (
-          <span className="ml-2 text-red-600">
-            (dluh {balanceInfo.creditDebt.toLocaleString('cs-CZ')} Kč)
-          </span>
-        ) : null}
-      </p>
 
-      {balanceInfo?.accountLimited ? (
+      {balanceLoading ? (
+        <p className="mt-2 text-sm text-zinc-500">Načítám kredity…</p>
+      ) : balanceError ? (
+        <p className="mt-2 text-sm text-red-600">{balanceError}</p>
+      ) : (
+        <p className="mt-2 text-sm text-zinc-800">
+          <span className="font-medium">Placený kredit:</span>{' '}
+          <strong>{paid.toLocaleString('cs-CZ')} Kč</strong>
+          <span className="mx-2 text-zinc-400">|</span>
+          <span className="font-medium">Bonusový kredit:</span>{' '}
+          <strong>{bonus.toLocaleString('cs-CZ')} Kč</strong>
+          <span className="mx-2 text-zinc-400">|</span>
+          <span className="font-medium">Marketing kredit:</span>{' '}
+          <strong className="text-[#e85d00]">{marketing.toLocaleString('cs-CZ')} Kč</strong>
+        </p>
+      )}
+
+      {(balanceInfo?.pendingCreditBalance ?? 0) > 0 ? (
+        <p className="mt-2 text-xs text-amber-700">
+          Čekající na potvrzení: {balanceInfo!.pendingCreditBalance!.toLocaleString('cs-CZ')} Kč
+        </p>
+      ) : null}
+
+      {balanceInfo && balanceInfo.creditDebt > 0 ? (
+        <p className="mt-2 text-sm text-red-700">
+          Dluh: {balanceInfo.creditDebt.toLocaleString('cs-CZ')} Kč
+        </p>
+      ) : null}
+
+      {balanceInfo?.accountLimited && (balanceInfo.creditDebt ?? 0) > 0 ? (
         <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
           Váš účet je omezen kvůli neuhrazenému dobití kreditu.
         </p>
@@ -232,35 +225,45 @@ export function CreditTopUpSection({
 
       {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
 
-      <div className="mt-6">
-        <h3 className="text-sm font-bold text-zinc-900">Historie transakcí</h3>
-        {historyLoading ? (
-          <p className="mt-2 text-sm text-zinc-500">Načítám historii…</p>
-        ) : history.length === 0 ? (
-          <p className="mt-2 text-sm text-zinc-500">Zatím žádné pohyby.</p>
-        ) : (
-          <ul className="mt-3 max-h-64 space-y-2 overflow-y-auto text-sm">
-            {history.map((row) => (
-              <li
-                key={`${row.source}-${row.id}`}
-                className="flex items-start justify-between gap-3 rounded-lg border border-zinc-100 px-3 py-2"
-              >
-                <div className="min-w-0">
-                  <p className="font-medium text-zinc-900">{row.description || row.type}</p>
-                  <p className="text-xs text-zinc-500">
-                    {new Date(row.createdAt).toLocaleString('cs-CZ')}
-                  </p>
-                </div>
-                <span
-                  className={`shrink-0 font-semibold ${row.amount < 0 ? 'text-red-600' : 'text-emerald-700'}`}
-                >
-                  {row.amount > 0 ? '+' : ''}
-                  {row.amount.toLocaleString('cs-CZ')} Kč
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+      <div className="mt-5">
+        <button
+          type="button"
+          onClick={() => setHistoryOpen((v) => !v)}
+          className="text-sm font-semibold text-[#e85d00] hover:underline"
+        >
+          {historyOpen ? 'Skrýt historii transakcí' : 'Zobrazit historii transakcí'}
+        </button>
+        {historyOpen ? (
+          <div className="mt-3">
+            {historyLoading ? (
+              <p className="text-sm text-zinc-500">Načítám historii…</p>
+            ) : history.length === 0 ? (
+              <p className="text-sm text-zinc-500">Zatím žádné pohyby.</p>
+            ) : (
+              <ul className="max-h-64 space-y-2 overflow-y-auto text-sm">
+                {history.map((row) => (
+                  <li
+                    key={`${row.source}-${row.id}`}
+                    className="flex items-start justify-between gap-3 rounded-lg border border-zinc-100 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium text-zinc-900">{row.description || row.type}</p>
+                      <p className="text-xs text-zinc-500">
+                        {new Date(row.createdAt).toLocaleString('cs-CZ')}
+                      </p>
+                    </div>
+                    <span
+                      className={`shrink-0 font-semibold ${row.amount < 0 ? 'text-red-600' : 'text-emerald-700'}`}
+                    >
+                      {row.amount > 0 ? '+' : ''}
+                      {row.amount.toLocaleString('cs-CZ')} Kč
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {result ? (
@@ -285,23 +288,6 @@ export function CreditTopUpSection({
               </p>
               <p>
                 <span className="font-semibold">Faktura:</span> {result.invoiceNumber}
-              </p>
-              <p>
-                <span className="font-semibold">Účet:</span>{' '}
-                {result.paymentDetails.accountNumber}/{result.paymentDetails.bankCode}
-              </p>
-              <p>
-                <span className="font-semibold">Příjemce:</span> {result.paymentDetails.recipientName}
-              </p>
-              <p>
-                <span className="font-semibold">Zpráva:</span> {result.paymentDetails.paymentMessage}
-              </p>
-              <p className="mt-2 text-xs text-zinc-500">
-                Platbu potvrďte do{' '}
-                {new Date(result.expiresAt).toLocaleString('cs-CZ', {
-                  dateStyle: 'medium',
-                  timeStyle: 'short',
-                })}
               </p>
             </div>
           </div>

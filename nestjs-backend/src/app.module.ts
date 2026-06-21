@@ -42,6 +42,7 @@ import { MarketingOnboardingModule } from './modules/marketing-onboarding/market
 import { PurchaseAdviceArticlesModule } from './modules/purchase-advice-articles/purchase-advice-articles.module';
 import { DeveloperNotesModule } from './modules/developer-notes/developer-notes.module';
 import { PortalTestingModule } from './modules/portal-testing/portal-testing.module';
+import { PortalWorkerModule } from './modules/portal-worker/portal-worker.module';
 
 @Module({
   imports: [
@@ -90,6 +91,7 @@ import { PortalTestingModule } from './modules/portal-testing/portal-testing.mod
     MarketingOnboardingModule,
     DeveloperNotesModule,
     PortalTestingModule,
+    PortalWorkerModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

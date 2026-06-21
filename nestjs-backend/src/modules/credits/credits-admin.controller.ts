@@ -74,4 +74,9 @@ export class CreditsAdminController {
   recalculateUserCredit(@Param('userId') userId: string) {
     return this.credits.recalculateUserCredit(userId);
   }
+
+  @Post('fix-unauthorized-debts')
+  fixUnauthorizedDebts() {
+    return this.credits.fixUnauthorizedCreditDebts();
+  }
 }

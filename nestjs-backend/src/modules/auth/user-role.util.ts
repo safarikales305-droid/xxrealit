@@ -12,6 +12,7 @@ const KNOWN: readonly string[] = [
   UserRole.CRAFTSMAN,
   UserRole.TIPSTER,
   UserRole.ADMIN,
+  UserRole.PORTAL_WORKER,
 ];
 
 /**

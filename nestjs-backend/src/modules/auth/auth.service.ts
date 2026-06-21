@@ -7,7 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
-import { UserRole } from '@prisma/client';
+import { UserRole, PortalWorkerStatus } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
 import { Resend } from 'resend';
 import { PrismaService } from '../../database/prisma.service';
@@ -108,6 +108,10 @@ const roleMap: Record<string, UserRole> = {
   firmicka: UserRole.COMPANY,
   'stavebni firma': UserRole.COMPANY,
   'majitel stavebni firmy': UserRole.COMPANY,
+
+  portal_worker: UserRole.PORTAL_WORKER,
+  'pracovnik portalu': UserRole.PORTAL_WORKER,
+  'pracovník portálu': UserRole.PORTAL_WORKER,
 };
 
 function mapRegisterRole(input?: string): UserRole {
@@ -128,6 +132,7 @@ const REGISTER_ROLES: readonly UserRole[] = [
   UserRole.PRIVATE_SELLER,
   UserRole.CRAFTSMAN,
   UserRole.TIPSTER,
+  UserRole.PORTAL_WORKER,
 ];
 
 function errorDetailForResponse(err: unknown): Record<string, unknown> {
@@ -467,7 +472,9 @@ export class AuthService {
     }
     const password = dto.password;
 
-    const mappedRole = mapRegisterRole(dto.role);
+    const mappedRole = dto.wantsPortalWorker
+      ? UserRole.PORTAL_WORKER
+      : mapRegisterRole(dto.role);
     if (!REGISTER_ROLES.includes(mappedRole)) {
       throw new HttpException(
         {
@@ -512,6 +519,10 @@ export class AuthService {
         referredByUserId,
         emailVerified: false,
         phoneVerified: false,
+        portalWorkerStatus:
+          mappedRole === UserRole.PORTAL_WORKER
+            ? PortalWorkerStatus.PENDING_APPROVAL
+            : undefined,
       });
       void this.referral.ensureReferralCode(user.id).catch(() => {});
       if (referredByUserId) {

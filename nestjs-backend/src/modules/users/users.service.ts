@@ -134,6 +134,7 @@ export class UsersService {
     referredByUserId?: string | null;
     emailVerified?: boolean;
     phoneVerified?: boolean;
+    portalWorkerStatus?: import('@prisma/client').PortalWorkerStatus;
   }): Promise<User> {
     return this.prisma.user.create({ data });
   }
@@ -568,6 +569,8 @@ export class UsersService {
       whatsappNotifyNewPosts: true,
       isTestAccount: true,
       testAccountPublicVisible: true,
+      portalWorkerStatus: true,
+      portalWorkerApprovedAt: true,
       facebookUrl: true,
       facebookImportEnabled: true,
       facebookLastSyncAt: true,
@@ -768,6 +771,8 @@ export class UsersService {
       whatsappNotifyNewPosts: Boolean(u.whatsappNotifyNewPosts),
       isTestAccount: Boolean(u.isTestAccount),
       testAccountPublicVisible: Boolean(u.testAccountPublicVisible),
+      portalWorkerStatus: u.portalWorkerStatus ?? null,
+      portalWorkerApprovedAt: u.portalWorkerApprovedAt?.toISOString() ?? null,
       brokerReviewAverage: u.brokerReviewAverage,
       brokerReviewCount: u.brokerReviewCount,
       creditBalance: u.creditBalance ?? 0,

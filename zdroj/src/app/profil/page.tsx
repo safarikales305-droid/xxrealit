@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CreditTopUpSection } from '@/components/profile/CreditTopUpSection';
 import { ProfileRequirementsCard, VERIFIED_BADGE_TOOLTIP } from '@/components/profile/ProfileRequirementsCard';
 import { TestAccountBanner } from '@/components/profile/TestAccountBanner';
+import { WhatsAppProfileStatus } from '@/components/profile/WhatsAppProfileStatus';
 import { PropertyGrid } from '@/components/property-grid';
 import { useAuth } from '@/hooks/use-auth';
 import { useMessagesUnreadCount } from '@/hooks/use-messages-unread';
@@ -1309,6 +1310,14 @@ export default function ProfilPage() {
                 >
                   Nastavení profilu
                 </Link>
+                {user.role === 'PORTAL_WORKER' ? (
+                  <Link
+                    href="/profil/pracovnik"
+                    className="rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-900 hover:bg-violet-100"
+                  >
+                    Pracovník portálu
+                  </Link>
+                ) : null}
                 <Link
                   href="/profil/dashboard?tab=messages"
                   className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
@@ -1354,22 +1363,12 @@ export default function ProfilPage() {
               }}
             />
 
-            {!nestMe?.whatsappVerified ? (
-              <p className="mt-5 text-sm text-zinc-600">
-                Ověření WhatsApp čísla najdete v{' '}
-                <Link
-                  href="/profil/dashboard?tab=settings#whatsapp-verify"
-                  className="font-semibold text-[#e85d00] hover:underline"
-                >
-                  nastavení profilu
-                </Link>
-                .
-              </p>
-            ) : (
-              <p className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm font-semibold text-emerald-900">
-                WhatsApp číslo ověřeno
-              </p>
-            )}
+            <WhatsAppProfileStatus
+              token={apiAccessToken}
+              whatsappVerified={nestMe?.whatsappVerified}
+              whatsappPhone={nestMe?.whatsappPhone}
+              onVerified={() => void loadNestProfile()}
+            />
 
             <CreditTopUpSection
               token={apiAccessToken}

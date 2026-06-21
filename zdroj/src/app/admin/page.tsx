@@ -591,6 +591,18 @@ export default function AdminPage() {
               Testování portálu
             </Link>
             <Link
+              href="/admin/pracovnici-portalu"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Pracovníci portálu
+            </Link>
+            <Link
+              href="/admin/provize-pracovniku"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Provize pracovníků
+            </Link>
+            <Link
               href="/"
               className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >
@@ -1095,7 +1107,7 @@ export default function AdminPage() {
                             className="rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-900 transition hover:bg-sky-100 disabled:opacity-50"
                             title="Přepočítat kredit z CreditLedger / CreditTransaction"
                           >
-                            Přepočítat kredit
+                            Přepočítat kredit uživatele
                           </button>
                           {u.isCreditVerified ? (
                             <button

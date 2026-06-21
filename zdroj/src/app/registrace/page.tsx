@@ -51,6 +51,7 @@ export default function RegistracePage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState<RegistrationAccountType>('USER');
+  const [wantsPortalWorker, setWantsPortalWorker] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [loading, setLoading] = useState(false);
@@ -72,6 +73,7 @@ export default function RegistracePage() {
           confirmPassword,
           role,
           referralCode: referralCode?.trim() || undefined,
+          wantsPortalWorker,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as RegisterJson;
@@ -213,6 +215,16 @@ export default function RegistracePage() {
             <p className="mt-1.5 text-sm text-red-600">{fieldErrors.role}</p>
           ) : null}
         </div>
+
+        <label className="flex items-start gap-2 rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-3 text-sm text-zinc-800">
+          <input
+            type="checkbox"
+            checked={wantsPortalWorker}
+            onChange={(e) => setWantsPortalWorker(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>Chci pracovat pro portál XXrealit.cz (pracovník portálu — vyžaduje schválení adminem)</span>
+        </label>
 
         <div>
           <label htmlFor="password" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:mb-1.5 sm:text-sm">

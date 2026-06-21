@@ -2,6 +2,7 @@ import {
   IsEmail,
   IsNotEmpty,
   IsOptional,
+  IsBoolean,
   Matches,
   IsString,
   MaxLength,
@@ -39,4 +40,8 @@ export class RegisterDto {
   @IsString()
   @MaxLength(32)
   referralCode?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  wantsPortalWorker?: boolean;
 }

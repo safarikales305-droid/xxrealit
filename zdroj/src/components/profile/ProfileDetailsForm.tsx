@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import { WhatsAppPhoneVerificationCard } from '@/components/profile/WhatsAppPhoneVerificationCard';
 import {
   nestFetchMe,
   nestPatchProfileBio,
@@ -251,8 +250,6 @@ export function ProfileDetailsForm({ token, onSaved }: Props) {
           </div>
         </div>
       ) : null}
-
-      <WhatsAppPhoneVerificationCard token={token} onVerified={() => void load()} />
 
       <div className="flex flex-wrap gap-2">
         <button

@@ -19,6 +19,7 @@ enum UserRole {
   CRAFTSMAN
   TIPSTER
   ADMIN
+  PORTAL_WORKER
 }
 
 enum CreditTopUpStatus {
@@ -49,6 +50,25 @@ enum ProfessionalVerificationStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+enum PortalWorkerStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum ClientPreregistrationStatus {
+  PENDING
+  COMPLETED
+  EXPIRED
+}
+
+enum WorkerCommissionStatus {
+  PENDING
+  APPROVED
+  PAID
 }
 
 enum ReactionType {
@@ -192,6 +212,15 @@ model User {
   referredByUserId String?
   referredBy User? @relation("UserReferrals", fields: [referredByUserId], references: [id], onDelete: SetNull)
   referrals User[] @relation("UserReferrals")
+  /// Trvalé přiřazení k pracovníkovi portálu (doporučený klient).
+  portalWorkerId String?
+  portalWorker User? @relation("PortalWorkerClients", fields: [portalWorkerId], references: [id], onDelete: SetNull)
+  portalWorkerClients User[] @relation("PortalWorkerClients")
+  /// Stav schválení pro roli PORTAL_WORKER.
+  portalWorkerStatus PortalWorkerStatus?
+  portalWorkerApprovedAt DateTime?
+  portalWorkerRejectedAt DateTime?
+  portalWorkerSuspendedAt DateTime?
   /// Aktivní role tipaře — může vytvářet tipy na nemovitosti.
   isTipar       Boolean   @default(false)
   createdAt    DateTime   @default(now())
@@ -335,6 +364,10 @@ model User {
   creditLedgerEntries CreditLedger[]
   developerNotes      DeveloperNote[]
   creditTopUpTransactions CreditTopUpTransaction[]
+  workerCommissionsAsWorker WorkerCommission[] @relation("WorkerCommissionWorker")
+  workerCommissionsAsClient WorkerCommission[] @relation("WorkerCommissionClient")
+  clientPreregistrationsCreated ClientPreregistration[] @relation("ClientPreregistrationWorker")
+  clientPreregistrationCompleted ClientPreregistration? @relation("ClientPreregistrationCompletedUser")
   bonusClaims         BonusClaim[]
   referralInvitesSent ReferralInvite[] @relation("ReferralInvitesSent")
   facebookConnection           FacebookConnection?
@@ -1907,6 +1940,7 @@ model CreditTopUpTransaction {
   updatedAt           DateTime          @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workerCommission WorkerCommission?
 
   @@index([userId, createdAt])
   @@index([status, expiresAt])
@@ -2131,5 +2165,68 @@ model DeveloperNote {
 
   @@index([createdAt])
   @@index([category])
+  @@index([status])
+}
+
+/// Předregistrace klienta vytvořená pracovníkem portálu.
+model ClientPreregistration {
+  id               String                      @id @default(cuid())
+  workerId         String
+  targetRole       UserRole
+  name             String
+  email            String
+  phone            String
+  city             String                      @default("")
+  note             String?                     @db.Text
+  status           ClientPreregistrationStatus @default(PENDING)
+  completionToken  String                      @unique
+  tokenExpiresAt   DateTime
+  completedUserId  String?                     @unique
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+
+  worker        User  @relation("ClientPreregistrationWorker", fields: [workerId], references: [id], onDelete: Cascade)
+  completedUser User? @relation("ClientPreregistrationCompletedUser", fields: [completedUserId], references: [id], onDelete: SetNull)
+
+  @@index([workerId, createdAt])
+  @@index([email])
+  @@index([status])
+}
+
+/// Nastavení provizí pracovníků portálu (singleton).
+model WorkerCommissionSetting {
+  id             String   @id @default("default")
+  defaultPercent Int      @default(10)
+  minTopUpAmount Int      @default(300)
+  validityDays   Int      @default(365)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+/// Procento provize podle role doporučeného klienta.
+model WorkerCommissionRoleRate {
+  role    UserRole @id
+  percent Int
+}
+
+/// Provize pracovníka z potvrzeného dobití kreditu klienta (jen placený kredit).
+model WorkerCommission {
+  id               String                 @id @default(cuid())
+  workerId         String
+  referredUserId   String
+  creditTopUpId    String                 @unique
+  amount           Int
+  percent          Int
+  commissionAmount Int
+  status           WorkerCommissionStatus @default(PENDING)
+  createdAt        DateTime               @default(now())
+  paidAt           DateTime?
+
+  worker       User                   @relation("WorkerCommissionWorker", fields: [workerId], references: [id], onDelete: Cascade)
+  referredUser User                   @relation("WorkerCommissionClient", fields: [referredUserId], references: [id], onDelete: Cascade)
+  creditTopUp  CreditTopUpTransaction @relation(fields: [creditTopUpId], references: [id], onDelete: Cascade)
+
+  @@index([workerId, createdAt])
+  @@index([referredUserId, createdAt])
   @@index([status])
 }

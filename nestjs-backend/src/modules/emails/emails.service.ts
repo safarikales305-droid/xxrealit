@@ -369,6 +369,45 @@ export class EmailsService implements OnModuleInit {
     });
   }
 
+  async sendWorkerClientInvitationEmail(input: {
+    email: string;
+    clientName: string;
+    completionUrl: string;
+  }) {
+    const subject = 'Pracovník portálu XXrealit.cz vám založil účet';
+    const html = this.buildLayout(
+      [
+        `<p>Dobrý den ${input.clientName},</p>`,
+        `<p><strong>Pracovník portálu XXrealit.cz vám založil účet.</strong></p>`,
+        `<p>Klikněte na odkaz a dokončete registraci — nastavte heslo a doplňte údaje.</p>`,
+        `<p><a href="${input.completionUrl}">Dokončit registraci</a></p>`,
+      ].join(''),
+      input.completionUrl,
+    );
+    const text = [
+      `Dobrý den ${input.clientName},`,
+      '',
+      'Pracovník portálu XXrealit.cz vám založil účet.',
+      'Klikněte na odkaz a dokončete registraci:',
+      input.completionUrl,
+    ].join('\n');
+
+    const apiKey = this.config.get<string>('RESEND_API_KEY')?.trim();
+    if (!apiKey) {
+      this.logger.warn('RESEND_API_KEY missing — worker client invitation not sent');
+      return { ok: false };
+    }
+    const resend = new Resend(apiKey);
+    await resend.emails.send({
+      from: this.senderAddress(),
+      to: input.email,
+      subject,
+      html,
+      text,
+    });
+    return { ok: true };
+  }
+
   async sendProfileOnboardingReminderEmail(user: { email: string; name?: string | null }) {
     const profileUrl = `${this.appUrl()}/profil/dashboard?tab=settings`;
     const subject = 'Doplňte profil a ověřte WhatsApp na XXrealit.cz';
