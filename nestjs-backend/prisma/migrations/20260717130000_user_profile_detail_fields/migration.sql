@@ -1,0 +1,6 @@
+-- Profile detail fields (schema drift — never migrated, blocked db push on Railway)
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "address" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "postalCode" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "firstName" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "lastName" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "profileIco" TEXT NOT NULL DEFAULT '';

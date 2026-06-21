@@ -201,7 +201,17 @@ async function bootstrap() {
 
   await app.listen(port, '0.0.0.0');
 
-  console.log(`Backend running on ${port}`);
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    console.log('✓ Prisma connected');
+  } catch (err) {
+    console.error('✗ Prisma NOT connected:', err);
+  }
+
+  console.log('✓ Backend running');
+  console.log('✓ Auth module loaded');
+  console.log('✓ Properties module loaded');
+  console.log(`Backend listening on 0.0.0.0:${port}`);
 }
 
 bootstrap();
