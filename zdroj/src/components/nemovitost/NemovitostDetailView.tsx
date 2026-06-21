@@ -309,7 +309,7 @@ export function NemovitostDetailView({
       if (r.code === 'BONUS_NOT_ALLOWED_FOR_TIP' || r.code === 'REAL_CREDIT_REQUIRED') {
         setContactLeadError(
           r.error ??
-            'Na tento kontakt potřebujete běžný kredit. Bonusový nebo čekající kredit nelze použít.',
+            'Pro odemknutí tipu je nutné dobít placený kredit přes QR kód.',
         );
         return;
       }
@@ -325,7 +325,10 @@ export function NemovitostDetailView({
         r.data.message ??
           'Děkujeme, prodejce vás bude brzy kontaktovat.',
       );
-      if (r.data.phone || r.data.email) {
+      const unlocked =
+        r.data.sellerContactVisible === true ||
+        r.data.status === 'UNLOCKED';
+      if (unlocked && (r.data.phone || r.data.email || r.data.contactName)) {
         setUnlockedContact({
           phone: r.data.phone ?? null,
           email: r.data.email ?? null,

@@ -211,11 +211,7 @@ export class ListingContactUnlockService {
       },
       orderBy: { createdAt: 'desc' },
     });
-    const settings = await this.monetization.getSettings();
-    const sellerContactVisible =
-      Boolean(lead) &&
-      lead!.status === 'UNLOCKED' &&
-      settings.showSellerContactToBuyer;
+    const sellerContactVisible = Boolean(lead) && lead!.status === 'UNLOCKED';
     return {
       submitted: Boolean(lead),
       status: lead?.status ?? null,
@@ -374,16 +370,15 @@ export class ListingContactUnlockService {
       orderBy: { createdAt: 'desc' },
     });
     if (duplicate) {
-      const settings = await this.monetization.getSettings();
-      const showContact =
-        duplicate.status === 'UNLOCKED' && settings.showSellerContactToBuyer;
-      const sellerContact = showContact
-        ? await this.resolvePropertySellerContact(property.id)
-        : null;
+      const sellerContact =
+        duplicate.status === 'UNLOCKED'
+          ? await this.resolvePropertySellerContact(property.id)
+          : null;
       return {
         submitted: true,
         duplicate: true,
         status: duplicate.status,
+        sellerContactVisible: duplicate.status === 'UNLOCKED',
         message:
           duplicate.status === 'UNLOCKED'
             ? 'Děkujeme, prodejce vás bude brzy kontaktovat.'
@@ -466,9 +461,7 @@ export class ListingContactUnlockService {
       waitingForCredit,
     });
 
-    const showContact =
-      !waitingForCredit && settings.showSellerContactToBuyer;
-    const sellerContact = showContact
+    const sellerContact = !waitingForCredit
       ? await this.resolvePropertySellerContact(property.id)
       : null;
 
@@ -476,6 +469,7 @@ export class ListingContactUnlockService {
       submitted: true,
       duplicate: false,
       status: created.status,
+      sellerContactVisible: !waitingForCredit,
       message: waitingForCredit
         ? 'Děkujeme, prodejce se vám brzy ozve.'
         : 'Děkujeme, prodejce vás bude brzy kontaktovat.',
@@ -631,9 +625,9 @@ export class ListingContactUnlockService {
               tx,
               tipsterUserId,
               tipSplit.tipsterAmount,
-              'CONTACT_UNLOCK_TIPSTER',
+              'TIPSTER_EARNING',
               tip?.id ?? propertyId,
-              `Provize za odemčení kontaktu tipu: ${property.title}`,
+              `Výdělek tipaře za odemčení kontaktu: ${property.title}`,
             );
           }
           if (tip) {
@@ -643,7 +637,7 @@ export class ListingContactUnlockService {
                 tiparUserId: tipsterUserId,
                 tiparPostId: tip.id,
                 amount: buyerPrice,
-                type: 'CONTACT_UNLOCK',
+                type: 'TIP_UNLOCK',
                 sourceType,
                 sourceId: propertyId,
                 counterpartyUserId: tipsterUserId,
@@ -856,9 +850,9 @@ export class ListingContactUnlockService {
             tx,
             tip.userId,
             tipSplit.tipsterAmount,
-            'CONTACT_UNLOCK_TIPSTER',
+            'TIPSTER_EARNING',
             tipId,
-            `Provize za odemčení kontaktu tipu: ${tip.title}`,
+            `Výdělek tipaře za odemčení kontaktu: ${tip.title}`,
           );
         }
 
@@ -868,7 +862,7 @@ export class ListingContactUnlockService {
             tiparUserId: tip.userId,
             tiparPostId: tipId,
             amount: buyerPrice,
-            type: 'CONTACT_UNLOCK',
+            type: 'TIP_UNLOCK',
             sourceType,
             sourceId: tipId,
             counterpartyUserId: tip.userId,

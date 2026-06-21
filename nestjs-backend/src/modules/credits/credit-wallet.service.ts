@@ -58,6 +58,108 @@ export class CreditWalletService {
     };
   }
 
+  spendableForAdvertiserLead(row: WalletUserRow): { paid: number; bonus: number; total: number } {
+    const paid = Math.max(0, row.realCreditBalance);
+    const bonus = Math.max(0, row.bonusCreditBalance);
+    return { paid, bonus, total: paid + bonus };
+  }
+
+  advertiserLeadAffordable(row: WalletUserRow, amount: number): boolean {
+    const price = Math.max(0, Math.trunc(amount));
+    if (price === 0) return true;
+    return this.spendableForAdvertiserLead(row).total >= price;
+  }
+
+  computeAdvertiserLeadSpend(row: WalletUserRow, amount: number): ContactUnlockSpendBreakdown {
+    const price = Math.max(0, Math.trunc(amount));
+    if (price === 0) {
+      return { realUsed: 0, bonusUsed: 0, pendingUsed: 0 };
+    }
+    const spendable = this.spendableForAdvertiserLead(row);
+    if (spendable.total < price) {
+      throw new ForbiddenException({
+        message: 'Inzerent nemá dostatek kreditu pro lead.',
+        code: 'INSUFFICIENT_ADVERTISER_CREDIT',
+        required: price,
+        realCreditBalance: row.realCreditBalance,
+        bonusCreditBalance: row.bonusCreditBalance,
+        creditBalance: spendable.total,
+      });
+    }
+
+    let remaining = price;
+    const bonusUsed = Math.min(remaining, spendable.bonus);
+    remaining -= bonusUsed;
+    const realUsed = Math.min(remaining, spendable.paid);
+    return { realUsed, bonusUsed, pendingUsed: 0 };
+  }
+
+  async spendForAdvertiserLead(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    amount: number,
+    referenceId: string,
+    description: string,
+  ): Promise<ContactUnlockSpendBreakdown & UserCreditBalances> {
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: {
+        realCreditBalance: true,
+        bonusCreditBalance: true,
+        pendingCreditBalance: true,
+        creditBalance: true,
+      },
+    });
+    if (!user) throw new ForbiddenException('Uživatel nenalezen');
+
+    const breakdown = this.computeAdvertiserLeadSpend(user, amount);
+    const purpose: CreditLedgerPurpose = 'LEAD_CHARGE';
+
+    const updated = await tx.user.update({
+      where: { id: userId },
+      data: {
+        realCreditBalance: { decrement: breakdown.realUsed },
+        bonusCreditBalance: { decrement: breakdown.bonusUsed },
+      },
+      select: {
+        realCreditBalance: true,
+        bonusCreditBalance: true,
+        pendingCreditBalance: true,
+        creditBalance: true,
+      },
+    });
+
+    const total = this.totalBalance(updated);
+    await tx.user.update({
+      where: { id: userId },
+      data: { creditBalance: total },
+    });
+
+    const ledgerParts: Array<{ bucket: CreditBucket; amount: number }> = [
+      { bucket: 'BONUS', amount: breakdown.bonusUsed },
+      { bucket: 'REAL', amount: breakdown.realUsed },
+    ];
+    for (const part of ledgerParts) {
+      if (part.amount <= 0) continue;
+      await tx.creditLedger.create({
+        data: {
+          userId,
+          amount: -part.amount,
+          type: purpose,
+          creditType: part.bucket,
+          purpose,
+          referenceId,
+          description,
+        },
+      });
+    }
+
+    return {
+      ...breakdown,
+      ...this.serializeBalances({ ...updated, creditBalance: total }),
+    };
+  }
+
   spendableForContactUnlock(
     row: WalletUserRow,
     sourceType: ContactUnlockSourceType,
@@ -86,10 +188,22 @@ export class CreditWalletService {
     const price = Math.max(0, Math.trunc(amount));
     if (price === 0) return;
 
+    const isTip = sourceType === 'TIP' || sourceType === 'TIP_SHORTS';
+    if (isTip && row.realCreditBalance < price) {
+      throw new ForbiddenException({
+        message:
+          'Pro odemknutí tipu je nutné dobít placený kredit přes QR kód.',
+        code: row.bonusCreditBalance > 0 ? 'BONUS_NOT_ALLOWED_FOR_TIP' : 'INSUFFICIENT_CREDIT',
+        required: price,
+        realCreditBalance: row.realCreditBalance,
+        bonusCreditBalance: row.bonusCreditBalance,
+        pendingCreditBalance: row.pendingCreditBalance,
+      });
+    }
+
     const spendable = this.spendableForContactUnlock(row, sourceType, settings);
     if (spendable.total >= price) return;
 
-    const isTip = sourceType === 'TIP' || sourceType === 'TIP_SHORTS';
     const hasOnlyBonus =
       row.realCreditBalance < price &&
       row.bonusCreditBalance > 0 &&
@@ -101,7 +215,7 @@ export class CreditWalletService {
     if (isTip && hasOnlyBonus) {
       throw new ForbiddenException({
         message:
-          'Bonusový kredit nelze použít na kontakty tipů. Dobijte si běžný kredit.',
+          'Pro odemknutí tipu je nutné dobít placený kredit přes QR kód.',
         code: 'BONUS_NOT_ALLOWED_FOR_TIP',
         required: price,
         realCreditBalance: row.realCreditBalance,
@@ -113,7 +227,7 @@ export class CreditWalletService {
     if (isTip && hasBonusOrPendingNoReal) {
       throw new ForbiddenException({
         message:
-          'Na tento kontakt potřebujete běžný kredit. Bonusový nebo čekající kredit nelze použít.',
+          'Pro odemknutí tipu je nutné dobít placený kredit přes QR kód.',
         code: 'REAL_CREDIT_REQUIRED',
         required: price,
         realCreditBalance: row.realCreditBalance,
@@ -144,6 +258,12 @@ export class CreditWalletService {
       return { realUsed: 0, bonusUsed: 0, pendingUsed: 0 };
     }
     this.assertContactUnlockAffordable(row, price, sourceType, settings);
+
+    const isTip = sourceType === 'TIP' || sourceType === 'TIP_SHORTS';
+    if (isTip) {
+      const realUsed = Math.min(price, Math.max(0, row.realCreditBalance));
+      return { realUsed, bonusUsed: 0, pendingUsed: 0 };
+    }
 
     let remaining = price;
     const realUsed = Math.min(remaining, Math.max(0, row.realCreditBalance));

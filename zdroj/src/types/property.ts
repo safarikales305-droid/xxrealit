@@ -104,6 +104,7 @@ export type PropertyFromApi = {
   contactUnlocked?: boolean;
   sellerContactVisible?: boolean;
   buyerInterestSubmitted?: boolean;
+  buyerLeadStatus?: string | null;
   contactUnlockPrice?: number;
   contactUnlockAvailable?: boolean;
   isContactPaid?: boolean;
@@ -165,6 +166,7 @@ export type PropertyFeedItem = {
   contactUnlocked?: boolean;
   sellerContactVisible?: boolean;
   buyerInterestSubmitted?: boolean;
+  buyerLeadStatus?: string | null;
   contactUnlockPrice?: number;
   contactUnlockAvailable?: boolean;
   isContactPaid?: boolean;
@@ -295,6 +297,8 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
     contactUnlocked: p.contactUnlocked === true,
     sellerContactVisible: p.sellerContactVisible === true,
     buyerInterestSubmitted: p.buyerInterestSubmitted === true,
+    buyerLeadStatus:
+      typeof p.buyerLeadStatus === 'string' ? p.buyerLeadStatus : null,
     contactUnlockPrice:
       typeof p.contactUnlockPrice === 'number' && Number.isFinite(p.contactUnlockPrice)
         ? Math.max(0, Math.trunc(p.contactUnlockPrice))

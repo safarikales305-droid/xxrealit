@@ -913,7 +913,7 @@ export class PropertiesService {
       : null;
     const sellerContactVisible = property.isTiparTip
       ? contactUnlocked
-      : Boolean(advertiserLeadState?.sellerContactVisible);
+      : advertiserLeadState?.status === 'UNLOCKED';
     const showAuthorContact = isOwner || Boolean(access?.isAdmin) || sellerContactVisible;
 
     const userPayload = {
@@ -945,6 +945,7 @@ export class PropertiesService {
       isContactPaid: Boolean(property.isContactPaid) || Boolean(property.isTiparTip),
       sellerContactVisible,
       buyerInterestSubmitted: Boolean(advertiserLeadState?.submitted),
+      buyerLeadStatus: advertiserLeadState?.status ?? null,
     };
 
     let propertySerialized: Record<string, unknown>;

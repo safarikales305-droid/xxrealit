@@ -6551,7 +6551,7 @@ export async function nestListingUnlockContact(
   payload: { name: string; email: string; phone: string; message?: string },
 ): Promise<{
   ok: boolean;
-  data?: {
+      data?: {
     phone?: string | null;
     email?: string | null;
     contactName?: string | null;
@@ -6560,6 +6560,7 @@ export async function nestListingUnlockContact(
     submitted?: boolean;
     duplicate?: boolean;
     status?: string;
+    sellerContactVisible?: boolean;
     message?: string;
   };
   error?: string;
@@ -6615,6 +6616,7 @@ export async function nestListingUnlockContact(
       submitted: data.submitted === true,
       duplicate: data.duplicate === true,
       status: typeof data.status === 'string' ? data.status : undefined,
+      sellerContactVisible: data.sellerContactVisible === true,
       message: typeof data.message === 'string' ? data.message : undefined,
     },
   };
@@ -6931,6 +6933,9 @@ export type CreditBalanceDto = {
   creditBalance: number;
   realCreditBalance: number;
   bonusCreditBalance: number;
+  paidCredit?: number;
+  bonusCredit?: number;
+  marketingCreditTotal?: number;
   pendingCreditBalance: number;
   creditDebt: number;
   accountLimited: boolean;
@@ -6959,6 +6964,11 @@ function normalizeCreditBalanceDto(raw: unknown): CreditBalanceDto | null {
     creditBalance: Number(o.creditBalance) || 0,
     realCreditBalance: Number(o.realCreditBalance) || 0,
     bonusCreditBalance: Number(o.bonusCreditBalance) || 0,
+    paidCredit: Number(o.paidCredit ?? o.realCreditBalance) || 0,
+    bonusCredit: Number(o.bonusCredit ?? o.bonusCreditBalance) || 0,
+    marketingCreditTotal:
+      Number(o.marketingCreditTotal) ||
+      (Number(o.realCreditBalance) || 0) + (Number(o.bonusCreditBalance) || 0),
     pendingCreditBalance: Number(o.pendingCreditBalance) || 0,
     creditDebt: Number(o.creditDebt) || 0,
     accountLimited: o.accountLimited === true,

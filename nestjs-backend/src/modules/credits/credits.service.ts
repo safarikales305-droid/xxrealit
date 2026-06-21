@@ -148,8 +148,13 @@ export class CreditsService {
             : null;
 
     const balances = this.wallet.serializeBalances(user);
+    const paidCredit = balances.realCreditBalance;
+    const bonusCredit = balances.bonusCreditBalance;
     return {
       ...balances,
+      paidCredit,
+      bonusCredit,
+      marketingCreditTotal: paidCredit + bonusCredit,
       creditDebt: user.creditDebt,
       accountLimited: user.accountLimited,
       isCreditVerified: user.isCreditVerified,

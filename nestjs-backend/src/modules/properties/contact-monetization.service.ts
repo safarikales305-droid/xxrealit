@@ -164,15 +164,13 @@ export class ContactMonetizationService {
     const charge = Math.max(0, Math.trunc(amount));
     if (charge === 0) return 0;
 
-    const description = `Kontakt zájemce u inzerátu: ${listingTitle}`;
-    await this.wallet.spendForContactUnlock(
+    const description = `Lead u inzerátu: ${listingTitle}`;
+    await this.wallet.spendForAdvertiserLead(
       tx,
       ownerUserId,
       charge,
-      'LISTING',
       leadId,
       description,
-      'LEAD_UNLOCK',
     );
 
     await tx.creditTransaction.create({
@@ -182,7 +180,7 @@ export class ContactMonetizationService {
         tiparPostId: null,
         propertyId: listingId,
         amount: -charge,
-        type: 'LEAD_UNLOCK',
+        type: 'LEAD_CHARGE',
         sourceType: 'LISTING',
         sourceId: listingId,
         description,
@@ -196,28 +194,17 @@ export class ContactMonetizationService {
     const price = Math.max(0, Math.trunc(amount));
     if (price === 0) return true;
 
-    const [owner, creditSettings] = await Promise.all([
-      this.prisma.user.findUnique({
-        where: { id: ownerUserId },
-        select: {
-          realCreditBalance: true,
-          bonusCreditBalance: true,
-          pendingCreditBalance: true,
-          creditBalance: true,
-        },
-      }),
-      this.prisma.creditTopUpSetting.findUnique({ where: { id: 'default' } }),
-    ]);
+    const owner = await this.prisma.user.findUnique({
+      where: { id: ownerUserId },
+      select: {
+        realCreditBalance: true,
+        bonusCreditBalance: true,
+        pendingCreditBalance: true,
+        creditBalance: true,
+      },
+    });
     if (!owner) return false;
 
-    const spendable = this.wallet.spendableForContactUnlock(owner, 'LISTING', {
-      allowBonusCreditOnListingContacts:
-        creditSettings?.allowBonusCreditOnListingContacts ?? true,
-      allowBonusCreditOnTipContacts: creditSettings?.allowBonusCreditOnTipContacts ?? false,
-      allowPendingCreditSpending: creditSettings?.allowPendingCreditSpending ?? false,
-      allowPendingForInternalServices:
-        creditSettings?.allowPendingForInternalServices ?? false,
-    });
-    return spendable.total >= price;
+    return this.wallet.advertiserLeadAffordable(owner, price);
   }
 }

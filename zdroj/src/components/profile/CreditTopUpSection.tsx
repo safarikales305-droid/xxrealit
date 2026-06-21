@@ -130,7 +130,6 @@ export function CreditTopUpSection({
     <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
       <h2 className="text-lg font-bold text-zinc-900">Kredit</h2>
       <p className="mt-1 text-sm text-zinc-600">
-        Celkem:{' '}
         {balanceLoading ? (
           <span className="inline-flex items-center gap-2 text-zinc-500">
             <span className="size-4 animate-spin rounded-full border-2 border-orange-500 border-t-transparent" />
@@ -138,17 +137,34 @@ export function CreditTopUpSection({
           </span>
         ) : (
           <span className="font-semibold text-[#e85d00]">
-            {displayedBalance.toLocaleString('cs-CZ')} Kč
+            {(balanceInfo?.marketingCreditTotal ?? displayedBalance).toLocaleString('cs-CZ')} Kč
           </span>
         )}
         {balanceError ? (
           <span className="mt-1 block text-xs text-red-600">{balanceError}</span>
         ) : null}
         {balanceInfo && !balanceLoading ? (
-          <span className="mt-1 block text-xs text-zinc-500">
-            Běžný {(balanceInfo.realCreditBalance ?? 0).toLocaleString('cs-CZ')} Kč · Bonus{' '}
-            {(balanceInfo.bonusCreditBalance ?? 0).toLocaleString('cs-CZ')} Kč · Čekající{' '}
-            {(balanceInfo.pendingCreditBalance ?? 0).toLocaleString('cs-CZ')} Kč
+          <span className="mt-2 block space-y-1 text-xs text-zinc-600">
+            <span className="block">
+              Placený kredit:{' '}
+              <strong>{(balanceInfo.paidCredit ?? balanceInfo.realCreditBalance ?? 0).toLocaleString('cs-CZ')} Kč</strong>
+            </span>
+            <span className="block">
+              Bonusový kredit:{' '}
+              <strong>{(balanceInfo.bonusCredit ?? balanceInfo.bonusCreditBalance ?? 0).toLocaleString('cs-CZ')} Kč</strong>
+            </span>
+            <span className="block text-zinc-500">
+              Celkem pro marketing:{' '}
+              {(balanceInfo.marketingCreditTotal ?? balanceInfo.creditBalance ?? 0).toLocaleString('cs-CZ')} Kč
+            </span>
+            <span className="block text-zinc-500">
+              Pro tipaře lze použít pouze placený kredit.
+            </span>
+            {(balanceInfo.pendingCreditBalance ?? 0) > 0 ? (
+              <span className="block text-amber-700">
+                Čekající na potvrzení: {balanceInfo.pendingCreditBalance.toLocaleString('cs-CZ')} Kč
+              </span>
+            ) : null}
           </span>
         ) : null}
         {balanceInfo && balanceInfo.creditDebt > 0 ? (
