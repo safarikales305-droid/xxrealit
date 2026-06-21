@@ -32,7 +32,6 @@ import { ConfirmWhatsAppVerificationDto } from './dto/confirm-whatsapp-verificat
 import { UsersService } from './users.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { WhatsAppPhoneVerificationService } from '../whatsapp/whatsapp-phone-verification.service';
-import { PortalTestingService } from '../portal-testing/portal-testing.service';
 import { UserRole } from '@prisma/client';
 
 @Controller('users')
@@ -43,7 +42,6 @@ export class UsersController {
     private readonly jwt: JwtService,
     private readonly brokerPoints: BrokerPointsService,
     private readonly whatsAppVerification: WhatsAppPhoneVerificationService,
-    private readonly portalTesting: PortalTestingService,
   ) {}
 
   @UseGuards(JwtAuthGuard)
@@ -125,12 +123,6 @@ export class UsersController {
   @Post('me/whatsapp-verification/begin-change')
   beginWhatsAppPhoneChange(@CurrentUser() user: AuthUser) {
     return this.whatsAppVerification.beginPhoneChange(user.id);
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Post('me/test-account/reset')
-  resetMyTestAccount(@CurrentUser() user: AuthUser) {
-    return this.portalTesting.resetTestAccount(user.id);
   }
 
   @UseGuards(JwtAuthGuard)
