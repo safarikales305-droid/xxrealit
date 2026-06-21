@@ -22,6 +22,7 @@ export type AuthUser = {
   phonePublic?: boolean;
   role: string;
   createdAt: string;
+  portalWorkerStatus?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'SUSPENDED' | null;
   avatar?: string | null;
   avatarCrop?: { x: number; y: number; zoom: number } | null;
   coverImage?: string | null;
@@ -87,6 +88,15 @@ function normalizeMeUser(raw: unknown): AuthUser | null {
         : undefined;
   const createdAt =
     typeof o.createdAt === 'string' ? o.createdAt : new Date().toISOString();
+  const portalWorkerStatus =
+    o.portalWorkerStatus === 'PENDING_APPROVAL' ||
+    o.portalWorkerStatus === 'APPROVED' ||
+    o.portalWorkerStatus === 'REJECTED' ||
+    o.portalWorkerStatus === 'SUSPENDED'
+      ? o.portalWorkerStatus
+      : o.portalWorkerStatus === null
+        ? null
+        : undefined;
   return {
     id: o.id,
     email: o.email,
@@ -95,6 +105,7 @@ function normalizeMeUser(raw: unknown): AuthUser | null {
     phonePublic: o.phonePublic === true,
     role: o.role,
     createdAt,
+    portalWorkerStatus,
     avatar,
     avatarCrop,
     coverImage,

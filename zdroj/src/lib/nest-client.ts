@@ -681,6 +681,19 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     brokerReviewCount: typeof o.brokerReviewCount === 'number' ? o.brokerReviewCount : undefined,
     creditBalance: typeof o.creditBalance === 'number' ? o.creditBalance : undefined,
     isTipar: typeof o.isTipar === 'boolean' ? o.isTipar : undefined,
+    portalWorkerStatus:
+      o.portalWorkerStatus === 'PENDING_APPROVAL' ||
+      o.portalWorkerStatus === 'APPROVED' ||
+      o.portalWorkerStatus === 'REJECTED' ||
+      o.portalWorkerStatus === 'SUSPENDED'
+        ? o.portalWorkerStatus
+        : o.portalWorkerStatus === null
+          ? null
+          : undefined,
+    portalWorkerApprovedAt:
+      o.portalWorkerApprovedAt === null || typeof o.portalWorkerApprovedAt === 'string'
+        ? (o.portalWorkerApprovedAt as string | null)
+        : undefined,
     facebookUrl:
       o.facebookUrl === null || typeof o.facebookUrl === 'string'
         ? (o.facebookUrl as string | null)
@@ -8484,12 +8497,14 @@ export type PortalWorkerRow = {
   name: string;
   email: string;
   phone: string;
+  city?: string;
   whatsappPhone: string;
   whatsappVerified: boolean;
   emailVerified: boolean;
   status: string;
   registeredAt: string;
   referredClientCount: number;
+  clientsTurnover?: number;
   totalCommission: number;
 };
 
@@ -8499,6 +8514,7 @@ export type PortalWorkerDashboard = {
   pendingCommission: number;
   approvedCommission: number;
   paidCommission: number;
+  isActive?: boolean;
   clients: Array<{
     id: string;
     name: string;
@@ -8508,6 +8524,15 @@ export type PortalWorkerDashboard = {
     status: string;
     totalTopUp: number;
     totalCommission: number;
+  }>;
+  preregistrations?: Array<{
+    id: string;
+    name: string;
+    email: string;
+    targetRole: string;
+    status: string;
+    createdAt: string;
+    expiresAt: string;
   }>;
   commissions: Array<{
     id: string;
@@ -8522,12 +8547,36 @@ export type PortalWorkerDashboard = {
 
 export async function nestAdminListPortalWorkers(
   token: string | null,
-): Promise<{ items: PortalWorkerRow[]; total: number }> {
-  if (!API_BASE_URL || !token) return { items: [], total: 0 };
+): Promise<{ items: PortalWorkerRow[]; total: number; error?: string }> {
+  if (typeof window !== 'undefined') {
+    const res = await fetch('/api/nest/admin/portal-workers', {
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) {
+      const raw = (await res.json().catch(() => ({}))) as { message?: string };
+      return {
+        items: [],
+        total: 0,
+        error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`),
+      };
+    }
+    const data = (await res.json()) as { items?: PortalWorkerRow[]; total?: number };
+    return { items: data.items ?? [], total: data.total ?? 0 };
+  }
+  if (!API_BASE_URL || !token) return { items: [], total: 0, error: 'API nebo token chybí' };
   const res = await fetch(`${API_BASE_URL}/admin/portal-workers`, {
     headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
   });
-  if (!res.ok) return { items: [], total: 0 };
+  if (!res.ok) {
+    const raw = (await res.json().catch(() => ({}))) as { message?: string };
+    return {
+      items: [],
+      total: 0,
+      error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`),
+    };
+  }
   const data = (await res.json()) as { items?: PortalWorkerRow[]; total?: number };
   return { items: data.items ?? [], total: data.total ?? 0 };
 }
@@ -8537,14 +8586,29 @@ export async function nestAdminPortalWorkerAction(
   userId: string,
   action: 'approve' | 'reject' | 'suspend' | 'activate',
 ): Promise<{ ok: boolean; error?: string }> {
+  if (typeof window !== 'undefined') {
+    const res = await fetch(
+      `/api/nest/admin/portal-workers/${encodeURIComponent(userId)}/${action}`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      },
+    );
+    if (!res.ok) {
+      const raw = (await res.json().catch(() => ({}))) as { message?: string };
+      return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+    }
+    return { ok: true };
+  }
   if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
   const res = await fetch(
     `${API_BASE_URL}/admin/portal-workers/${encodeURIComponent(userId)}/${action}`,
     { method: 'POST', headers: { ...nestAuthHeaders(token), Accept: 'application/json' } },
   );
   if (!res.ok) {
-    const data = (await res.json().catch(() => ({}))) as { message?: string };
-    return { ok: false, error: data.message ?? `HTTP ${res.status}` };
+    const raw = (await res.json().catch(() => ({}))) as { message?: string };
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
   }
   return { ok: true };
 }
@@ -8552,6 +8616,15 @@ export async function nestAdminPortalWorkerAction(
 export async function nestPortalWorkerDashboard(
   token: string | null,
 ): Promise<PortalWorkerDashboard | null> {
+  if (typeof window !== 'undefined') {
+    const res = await fetch('/api/nest/portal-worker/me/dashboard', {
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as PortalWorkerDashboard;
+  }
   if (!API_BASE_URL || !token) return null;
   const res = await fetch(`${API_BASE_URL}/portal-worker/me/dashboard`, {
     headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
@@ -8571,6 +8644,19 @@ export async function nestCreateClientPreregistration(
     note?: string;
   },
 ): Promise<{ ok: boolean; error?: string; message?: string }> {
+  if (typeof window !== 'undefined') {
+    const res = await fetch('/api/nest/portal-worker/client-preregistrations', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = (await res.json().catch(() => ({}))) as { message?: string };
+    if (!res.ok) {
+      return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+    }
+    return { ok: true, message: data.message };
+  }
   if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
   const res = await fetch(`${API_BASE_URL}/portal-worker/client-preregistrations`, {
     method: 'POST',
@@ -8582,7 +8668,7 @@ export async function nestCreateClientPreregistration(
     body: JSON.stringify(payload),
   });
   const data = (await res.json().catch(() => ({}))) as { message?: string };
-  if (!res.ok) return { ok: false, error: data.message ?? `HTTP ${res.status}` };
+  if (!res.ok) return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
   return { ok: true, message: data.message };
 }
 

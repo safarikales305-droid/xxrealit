@@ -15,7 +15,9 @@ const ALLOWED_ROLES = REGISTRATION_ACCOUNT_TYPES.map((t) => t.value) as [
 
 const bodySchema = z
   .object({
-    name: z.string().min(2, 'Jméno je povinné').max(120, 'Jméno je příliš dlouhé').transform((s) => s.trim()),
+    name: z.string().max(120).transform((s) => s.trim()).optional(),
+    firstName: z.string().max(60).transform((s) => s.trim()).optional(),
+    lastName: z.string().max(60).transform((s) => s.trim()).optional(),
     email: z
       .string()
       .min(1, 'E-mail je povinný')
@@ -27,13 +29,51 @@ const bodySchema = z
       .string()
       .trim()
       .regex(/^\+[1-9]\d{7,14}$/, 'Telefon musí být ve formátu +420123456789'),
-    role: z.enum(ALLOWED_ROLES, { message: 'Vyberte platnou roli' }),
+    role: z.enum(ALLOWED_ROLES, { message: 'Vyberte platnou roli' }).optional(),
     referralCode: z.string().max(32).optional(),
     wantsPortalWorker: z.boolean().optional(),
+    city: z.string().max(120).transform((s) => s.trim()).optional(),
+    bio: z.string().max(500).transform((s) => s.trim()).optional(),
+    portalWorkerCooperationConsent: z.boolean().optional(),
   })
   .refine((d) => d.password === d.confirmPassword, {
     message: 'Hesla se neshodují',
     path: ['confirmPassword'],
+  })
+  .superRefine((d, ctx) => {
+    if (d.wantsPortalWorker) return;
+    if (!d.name || d.name.length < 2) {
+      ctx.addIssue({ code: 'custom', message: 'Jméno je povinné', path: ['name'] });
+    }
+    if (!d.role) {
+      ctx.addIssue({ code: 'custom', message: 'Vyberte typ účtu', path: ['role'] });
+    }
+  })
+  .superRefine((d, ctx) => {
+    if (!d.wantsPortalWorker) return;
+    if (!d.firstName || d.firstName.length < 2) {
+      ctx.addIssue({ code: 'custom', message: 'Jméno je povinné', path: ['firstName'] });
+    }
+    if (!d.lastName || d.lastName.length < 2) {
+      ctx.addIssue({ code: 'custom', message: 'Příjmení je povinné', path: ['lastName'] });
+    }
+    if (!d.city) {
+      ctx.addIssue({ code: 'custom', message: 'Město je povinné', path: ['city'] });
+    }
+    if (!d.bio || d.bio.length < 20) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Krátké představení musí mít alespoň 20 znaků',
+        path: ['bio'],
+      });
+    }
+    if (d.portalWorkerCooperationConsent !== true) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Musíte souhlasit se spoluprací',
+        path: ['portalWorkerCooperationConsent'],
+      });
+    }
   });
 
 export async function POST(req: Request) {
@@ -60,32 +100,42 @@ export async function POST(req: Request) {
     if (!API_BASE_URL) {
       return NextResponse.json({ error: 'API není nakonfigurováno' }, { status: 500 });
     }
+
+    const pw = parsed.data.wantsPortalWorker === true;
+    const displayName = pw
+      ? `${parsed.data.firstName ?? ''} ${parsed.data.lastName ?? ''}`.trim()
+      : (parsed.data.name ?? '');
+
     const upstream = await fetch(`${API_BASE_URL}/auth/register`, {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: parsed.data.name,
+        name: displayName,
+        firstName: parsed.data.firstName,
+        lastName: parsed.data.lastName,
         email: parsed.data.email,
         password: parsed.data.password,
         phone: parsed.data.phone,
-        role: parsed.data.role,
+        role: pw ? 'USER' : parsed.data.role,
+        city: parsed.data.city,
+        bio: parsed.data.bio,
         referralCode: parsed.data.referralCode,
-        wantsPortalWorker: parsed.data.wantsPortalWorker === true,
+        wantsPortalWorker: pw,
+        portalWorkerCooperationConsent: parsed.data.portalWorkerCooperationConsent,
       }),
     });
     const raw = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;
     if (!upstream.ok) {
       return NextResponse.json(
         {
-          error:
-            typeof raw.error === 'string' ? raw.error : 'Registrace selhala',
+          error: typeof raw.error === 'string' ? raw.error : 'Registrace selhala',
           code: raw.code,
           fieldErrors: raw.fieldErrors,
         },
         { status: upstream.status },
       );
     }
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, portalWorker: pw });
   } catch (e: unknown) {
     console.error('[register]', e);
     return NextResponse.json(

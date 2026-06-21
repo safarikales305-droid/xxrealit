@@ -8,6 +8,11 @@ class RoleRateDto {
   @IsInt()
   @Min(0)
   percent!: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  fixedAmount?: number;
 }
 
 export class UpdateWorkerCommissionSettingsDto {
@@ -15,6 +20,11 @@ export class UpdateWorkerCommissionSettingsDto {
   @IsInt()
   @Min(0)
   defaultPercent?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  defaultFixedAmount?: number;
 
   @IsOptional()
   @IsInt()

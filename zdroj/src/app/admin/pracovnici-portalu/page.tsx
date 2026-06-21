@@ -17,17 +17,44 @@ const STATUS_LABEL: Record<string, string> = {
   SUSPENDED: 'Pozastaven',
 };
 
+const ACTION_LABEL: Record<string, string> = {
+  approve: 'Schválen',
+  reject: 'Zamítnut',
+  suspend: 'Pozastaven',
+  activate: 'Aktivován',
+};
+
+function actionsForStatus(status: string): Array<'approve' | 'reject' | 'suspend' | 'activate'> {
+  switch (status) {
+    case 'PENDING_APPROVAL':
+      return ['approve', 'reject'];
+    case 'APPROVED':
+      return ['suspend', 'reject'];
+    case 'REJECTED':
+      return ['approve'];
+    case 'SUSPENDED':
+      return ['activate', 'reject'];
+    default:
+      return ['approve', 'reject', 'suspend', 'activate'];
+  }
+}
+
 export default function AdminPortalWorkersPage() {
   const router = useRouter();
   const { user, apiAccessToken, isLoading } = useAuth();
   const [items, setItems] = useState<PortalWorkerRow[]>([]);
+  const [listError, setListError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
+  const [loadingList, setLoadingList] = useState(true);
 
   const refresh = useCallback(async () => {
-    if (!apiAccessToken) return;
+    setLoadingList(true);
+    setListError(null);
     const data = await nestAdminListPortalWorkers(apiAccessToken);
     setItems(data.items);
+    if (data.error) setListError(data.error);
+    setLoadingList(false);
   }, [apiAccessToken]);
 
   useEffect(() => {
@@ -39,14 +66,22 @@ export default function AdminPortalWorkersPage() {
     void refresh();
   }, [user, isLoading, router, refresh]);
 
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [toast]);
+
   async function act(userId: string, action: 'approve' | 'reject' | 'suspend' | 'activate') {
-    if (!apiAccessToken) return;
     setBusyId(userId);
-    setError(null);
     const r = await nestAdminPortalWorkerAction(apiAccessToken, userId, action);
     setBusyId(null);
-    if (!r.ok) setError(r.error ?? 'Akce selhala');
-    else await refresh();
+    if (!r.ok) {
+      setToast({ type: 'err', msg: r.error ?? 'Akce selhala' });
+      return;
+    }
+    setToast({ type: 'ok', msg: `Pracovník ${ACTION_LABEL[action] ?? 'aktualizován'}.` });
+    await refresh();
   }
 
   return (
@@ -60,55 +95,86 @@ export default function AdminPortalWorkersPage() {
         </div>
       </header>
       <main className="mx-auto max-w-6xl space-y-4 px-4 py-8">
-        {error ? <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800">{error}</p> : null}
-        {items.map((w) => (
-          <div key={w.id} className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-            <p className="font-semibold text-zinc-900">{w.name}</p>
-            <p className="text-sm text-zinc-600">
-              {w.email} · {w.phone} · WA {w.whatsappVerified ? '✓' : '✗'} · e-mail{' '}
-              {w.emailVerified ? '✓' : '✗'}
-            </p>
-            <p className="mt-1 text-xs text-zinc-500">
-              Registrace: {new Date(w.registeredAt).toLocaleString('cs-CZ')} · Klienti:{' '}
-              {w.referredClientCount} · Provize: {w.totalCommission.toLocaleString('cs-CZ')} Kč ·{' '}
-              {STATUS_LABEL[w.status] ?? w.status}
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={busyId === w.id}
-                onClick={() => void act(w.id, 'approve')}
-                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white"
-              >
-                Schválit
-              </button>
-              <button
-                type="button"
-                disabled={busyId === w.id}
-                onClick={() => void act(w.id, 'reject')}
-                className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-semibold text-red-800"
-              >
-                Zamítnout
-              </button>
-              <button
-                type="button"
-                disabled={busyId === w.id}
-                onClick={() => void act(w.id, 'suspend')}
-                className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-semibold"
-              >
-                Pozastavit
-              </button>
-              <button
-                type="button"
-                disabled={busyId === w.id}
-                onClick={() => void act(w.id, 'activate')}
-                className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-semibold"
-              >
-                Aktivovat
-              </button>
+        {toast ? (
+          <p
+            className={`rounded-xl px-4 py-3 text-sm font-medium ${
+              toast.type === 'ok'
+                ? 'bg-emerald-50 text-emerald-800'
+                : 'bg-red-50 text-red-800'
+            }`}
+          >
+            {toast.msg}
+          </p>
+        ) : null}
+        {listError ? (
+          <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800">{listError}</p>
+        ) : null}
+        {loadingList ? (
+          <p className="text-sm text-zinc-600">Načítám pracovníky…</p>
+        ) : items.length === 0 ? (
+          <p className="text-sm text-zinc-600">Žádní pracovníci portálu.</p>
+        ) : null}
+        {items.map((w) => {
+          const actions = actionsForStatus(w.status);
+          return (
+            <div key={w.id} className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <p className="font-semibold text-zinc-900">{w.name}</p>
+              <p className="text-sm text-zinc-600">
+                {w.email} · {w.phone}
+                {w.city ? ` · ${w.city}` : ''}
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">
+                Registrace: {new Date(w.registeredAt).toLocaleString('cs-CZ')} · WA{' '}
+                {w.whatsappVerified ? '✓' : '✗'} · e-mail {w.emailVerified ? '✓' : '✗'} · Klienti:{' '}
+                {w.referredClientCount} · Obrat: {(w.clientsTurnover ?? 0).toLocaleString('cs-CZ')} Kč
+                · Provize: {w.totalCommission.toLocaleString('cs-CZ')} Kč ·{' '}
+                <strong>{STATUS_LABEL[w.status] ?? w.status}</strong>
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {actions.includes('approve') ? (
+                  <button
+                    type="button"
+                    disabled={busyId === w.id}
+                    onClick={() => void act(w.id, 'approve')}
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    Schválit
+                  </button>
+                ) : null}
+                {actions.includes('reject') ? (
+                  <button
+                    type="button"
+                    disabled={busyId === w.id}
+                    onClick={() => void act(w.id, 'reject')}
+                    className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-semibold text-red-800 disabled:opacity-50"
+                  >
+                    Zamítnout
+                  </button>
+                ) : null}
+                {actions.includes('suspend') ? (
+                  <button
+                    type="button"
+                    disabled={busyId === w.id}
+                    onClick={() => void act(w.id, 'suspend')}
+                    className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-semibold disabled:opacity-50"
+                  >
+                    Pozastavit
+                  </button>
+                ) : null}
+                {actions.includes('activate') ? (
+                  <button
+                    type="button"
+                    disabled={busyId === w.id}
+                    onClick={() => void act(w.id, 'activate')}
+                    className="rounded-lg border border-emerald-400 px-3 py-1.5 text-sm font-semibold text-emerald-800 disabled:opacity-50"
+                  >
+                    Aktivovat
+                  </button>
+                ) : null}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </main>
     </div>
   );

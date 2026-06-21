@@ -82,6 +82,7 @@ export class PortalWorkerService {
         name: true,
         email: true,
         phone: true,
+        city: true,
         whatsappPhone: true,
         whatsappVerified: true,
         emailVerified: true,
@@ -107,18 +108,49 @@ export class PortalWorkerService {
       commissionAgg.map((a) => [a.workerId, a._sum.commissionAmount ?? 0]),
     );
 
+    const clientIdsByWorker = await Promise.all(
+      workerIds.map(async (workerId) => {
+        const clients = await this.prisma.user.findMany({
+          where: { portalWorkerId: workerId },
+          select: { id: true },
+        });
+        return { workerId, clientIds: clients.map((c) => c.id) };
+      }),
+    );
+    const allClientIds = clientIdsByWorker.flatMap((x) => x.clientIds);
+    const turnoverAgg =
+      allClientIds.length > 0
+        ? await this.prisma.creditTopUpTransaction.groupBy({
+            by: ['userId'],
+            where: { userId: { in: allClientIds }, status: 'CONFIRMED' },
+            _sum: { amount: true },
+          })
+        : [];
+    const turnoverByClient = new Map(
+      turnoverAgg.map((t) => [t.userId, t._sum.amount ?? 0]),
+    );
+    const turnoverByWorker = new Map<string, number>();
+    for (const { workerId, clientIds } of clientIdsByWorker) {
+      turnoverByWorker.set(
+        workerId,
+        clientIds.reduce((sum, id) => sum + (turnoverByClient.get(id) ?? 0), 0),
+      );
+    }
+
     return {
       items: rows.map((r) => ({
         id: r.id,
         name: r.name,
         email: r.email,
         phone: r.phone,
+        city: r.city ?? '',
         whatsappPhone: r.whatsappPhone,
         whatsappVerified: r.whatsappVerified,
         emailVerified: r.emailVerified,
         status: r.portalWorkerStatus ?? PortalWorkerStatus.PENDING_APPROVAL,
         registeredAt: r.createdAt.toISOString(),
         referredClientCount: r._count.portalWorkerClients,
+        clientsTurnover: turnoverByWorker.get(r.id) ?? 0,
         totalCommission: commissionMap.get(r.id) ?? 0,
         approvedAt: r.portalWorkerApprovedAt?.toISOString() ?? null,
         rejectedAt: r.portalWorkerRejectedAt?.toISOString() ?? null,
@@ -166,41 +198,105 @@ export class PortalWorkerService {
   }
 
   async getWorkerDashboard(workerId: string) {
-    await this.requireActiveWorker(workerId);
-    const [clients, commissions] = await Promise.all([
-      this.prisma.user.findMany({
-        where: { portalWorkerId: workerId },
+    const user = await this.prisma.user.findUnique({
+      where: { id: workerId },
+      select: {
+        id: true,
+        role: true,
+        portalWorkerStatus: true,
+        emailVerified: true,
+        whatsappVerified: true,
+      },
+    });
+    if (!user || user.role !== UserRole.PORTAL_WORKER) {
+      throw new NotFoundException('Pracovník portálu nenalezen.');
+    }
+    if (user.portalWorkerStatus === PortalWorkerStatus.SUSPENDED) {
+      throw new ForbiddenException('Účet pracovníka byl pozastaven administrátorem.');
+    }
+    if (
+      user.portalWorkerStatus === PortalWorkerStatus.PENDING_APPROVAL ||
+      user.portalWorkerStatus === PortalWorkerStatus.REJECTED
+    ) {
+      throw new ForbiddenException('Účet pracovníka čeká na schválení administrátorem.');
+    }
+
+    const isActive = this.isActivePortalWorker(user);
+    const [clients, commissions, preregistrations] = await Promise.all([
+      isActive
+        ? this.prisma.user.findMany({
+            where: { portalWorkerId: workerId },
+            orderBy: { createdAt: 'desc' },
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+              createdAt: true,
+              emailVerified: true,
+              whatsappVerified: true,
+              realCreditBalance: true,
+            },
+          })
+        : Promise.resolve([] as Array<{
+            id: string;
+            name: string;
+            email: string;
+            role: UserRole;
+            createdAt: Date;
+            emailVerified: boolean;
+            whatsappVerified: boolean;
+            realCreditBalance: number;
+          }>),
+      isActive
+        ? this.prisma.workerCommission.findMany({
+            where: { workerId },
+            orderBy: { createdAt: 'desc' },
+            take: 100,
+            include: {
+              referredUser: { select: { id: true, name: true, email: true, role: true } },
+              creditTopUp: { select: { amount: true, confirmedAt: true, invoiceNumber: true } },
+            },
+          })
+        : Promise.resolve([] as Array<{
+            id: string;
+            status: WorkerCommissionStatus;
+            referredUserId: string;
+            commissionAmount: number;
+            amount: number;
+            percent: number;
+            createdAt: Date;
+            paidAt: Date | null;
+            referredUser: { id: string; name: string; email: string; role: UserRole };
+            creditTopUp: { amount: number; confirmedAt: Date | null; invoiceNumber: string | null };
+          }>),
+      this.prisma.clientPreregistration.findMany({
+        where: { workerId },
         orderBy: { createdAt: 'desc' },
+        take: 50,
         select: {
           id: true,
           name: true,
           email: true,
-          role: true,
+          targetRole: true,
+          status: true,
           createdAt: true,
-          emailVerified: true,
-          whatsappVerified: true,
-          realCreditBalance: true,
-        },
-      }),
-      this.prisma.workerCommission.findMany({
-        where: { workerId },
-        orderBy: { createdAt: 'desc' },
-        take: 100,
-        include: {
-          referredUser: { select: { id: true, name: true, email: true, role: true } },
-          creditTopUp: { select: { amount: true, confirmedAt: true, invoiceNumber: true } },
+          tokenExpiresAt: true,
         },
       }),
     ]);
 
-    const topUpSums = await this.prisma.creditTopUpTransaction.groupBy({
-      by: ['userId'],
-      where: {
-        userId: { in: clients.map((c) => c.id) },
-        status: 'CONFIRMED',
-      },
-      _sum: { amount: true },
-    });
+    const topUpSums =
+      clients.length > 0
+        ? await this.prisma.creditTopUpTransaction.groupBy({
+            by: ['userId'],
+            where: {
+              userId: { in: clients.map((c) => c.id) },
+              status: 'CONFIRMED',
+            },
+            _sum: { amount: true },
+          })
+        : [];
     const topUpMap = new Map(topUpSums.map((t) => [t.userId, t._sum.amount ?? 0]));
 
     const pending = commissions
@@ -214,6 +310,7 @@ export class PortalWorkerService {
       .reduce((s, c) => s + c.commissionAmount, 0);
 
     return {
+      isActive,
       clientCount: clients.length,
       totalCommission: commissions.reduce((s, c) => s + c.commissionAmount, 0),
       pendingCommission: pending,
@@ -248,6 +345,15 @@ export class PortalWorkerService {
         createdAt: c.createdAt.toISOString(),
         paidAt: c.paidAt?.toISOString() ?? null,
         invoiceNumber: c.creditTopUp.invoiceNumber,
+      })),
+      preregistrations: preregistrations.map((p) => ({
+        id: p.id,
+        name: p.name,
+        email: p.email,
+        targetRole: p.targetRole,
+        status: p.status,
+        createdAt: p.createdAt.toISOString(),
+        expiresAt: p.tokenExpiresAt.toISOString(),
       })),
     };
   }
@@ -400,7 +506,8 @@ export class PortalWorkerService {
     if (existing) return existing;
 
     const percent = roleRate.percent;
-    const commissionAmount = Math.floor((paidAmount * percent) / 100);
+    const fixedAmount = roleRate.fixedAmount ?? 0;
+    const commissionAmount = Math.floor((paidAmount * percent) / 100) + fixedAmount;
     if (commissionAmount <= 0) return null;
 
     return this.prisma.workerCommission.create({
@@ -423,9 +530,14 @@ export class PortalWorkerService {
     const roleRates = await this.prisma.workerCommissionRoleRate.findMany();
     return {
       defaultPercent: row?.defaultPercent ?? 10,
+      defaultFixedAmount: row?.defaultFixedAmount ?? 0,
       minTopUpAmount: row?.minTopUpAmount ?? 300,
       validityDays: row?.validityDays ?? 365,
-      roleRates: roleRates.map((r) => ({ role: r.role, percent: r.percent })),
+      roleRates: roleRates.map((r) => ({
+        role: r.role,
+        percent: r.percent,
+        fixedAmount: r.fixedAmount ?? 0,
+      })),
     };
   }
 
@@ -435,11 +547,15 @@ export class PortalWorkerService {
       create: {
         id: 'default',
         defaultPercent: dto.defaultPercent ?? 10,
+        defaultFixedAmount: dto.defaultFixedAmount ?? 0,
         minTopUpAmount: dto.minTopUpAmount ?? 300,
         validityDays: dto.validityDays ?? 365,
       },
       update: {
         ...(dto.defaultPercent !== undefined ? { defaultPercent: dto.defaultPercent } : {}),
+        ...(dto.defaultFixedAmount !== undefined
+          ? { defaultFixedAmount: dto.defaultFixedAmount }
+          : {}),
         ...(dto.minTopUpAmount !== undefined ? { minTopUpAmount: dto.minTopUpAmount } : {}),
         ...(dto.validityDays !== undefined ? { validityDays: dto.validityDays } : {}),
       },
@@ -448,8 +564,15 @@ export class PortalWorkerService {
       for (const rr of dto.roleRates) {
         await this.prisma.workerCommissionRoleRate.upsert({
           where: { role: rr.role as UserRole },
-          create: { role: rr.role as UserRole, percent: rr.percent },
-          update: { percent: rr.percent },
+          create: {
+            role: rr.role as UserRole,
+            percent: rr.percent,
+            fixedAmount: rr.fixedAmount ?? 0,
+          },
+          update: {
+            percent: rr.percent,
+            ...(rr.fixedAmount !== undefined ? { fixedAmount: rr.fixedAmount } : {}),
+          },
         });
       }
     }

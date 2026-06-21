@@ -2195,18 +2195,20 @@ model ClientPreregistration {
 
 /// Nastavení provizí pracovníků portálu (singleton).
 model WorkerCommissionSetting {
-  id             String   @id @default("default")
-  defaultPercent Int      @default(10)
-  minTopUpAmount Int      @default(300)
-  validityDays   Int      @default(365)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                 String   @id @default("default")
+  defaultPercent     Int      @default(10)
+  defaultFixedAmount Int      @default(0)
+  minTopUpAmount     Int      @default(300)
+  validityDays       Int      @default(365)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 }
 
 /// Procento provize podle role doporučeného klienta.
 model WorkerCommissionRoleRate {
-  role    UserRole @id
-  percent Int
+  role         UserRole @id
+  percent      Int
+  fixedAmount  Int      @default(0)
 }
 
 /// Provize pracovníka z potvrzeného dobití kreditu klienta (jen placený kredit).

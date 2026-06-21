@@ -18,13 +18,27 @@ const selectClass =
   'w-full rounded-xl border border-zinc-200/90 bg-zinc-50/80 px-3.5 py-2.5 text-sm text-zinc-900 shadow-inner shadow-zinc-100/80 outline-none transition focus:border-orange-400/80 focus:bg-white focus:ring-2 focus:ring-orange-500/20 sm:px-4 sm:py-3.5 sm:text-[15px]';
 
 type FieldErrors = Partial<
-  Record<'name' | 'email' | 'phone' | 'password' | 'confirmPassword' | 'role', string>
+  Record<
+    | 'name'
+    | 'firstName'
+    | 'lastName'
+    | 'email'
+    | 'phone'
+    | 'password'
+    | 'confirmPassword'
+    | 'role'
+    | 'city'
+    | 'bio'
+    | 'portalWorkerCooperationConsent',
+    string
+  >
 >;
 
 type RegisterJson = {
   error?: string;
   code?: string;
   fieldErrors?: Record<string, string[] | undefined>;
+  portalWorker?: boolean;
 };
 
 function pickFieldErrors(raw: RegisterJson['fieldErrors']): FieldErrors {
@@ -32,11 +46,16 @@ function pickFieldErrors(raw: RegisterJson['fieldErrors']): FieldErrors {
   const first = (arr: string[] | undefined) => (arr && arr[0] ? arr[0] : undefined);
   return {
     name: first(raw.name),
+    firstName: first(raw.firstName),
+    lastName: first(raw.lastName),
     email: first(raw.email),
     phone: first(raw.phone),
     password: first(raw.password),
     confirmPassword: first(raw.confirmPassword),
     role: first(raw.role),
+    city: first(raw.city),
+    bio: first(raw.bio),
+    portalWorkerCooperationConsent: first(raw.portalWorkerCooperationConsent),
   };
 }
 
@@ -46,12 +65,17 @@ export default function RegistracePage() {
   const redirect = searchParams.get('redirect');
   const referralCode = searchParams.get('ref');
   const [name, setName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [city, setCity] = useState('');
+  const [bio, setBio] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState<RegistrationAccountType>('USER');
   const [wantsPortalWorker, setWantsPortalWorker] = useState(false);
+  const [cooperationConsent, setCooperationConsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [loading, setLoading] = useState(false);
@@ -66,14 +90,19 @@ export default function RegistracePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name,
+          name: wantsPortalWorker ? undefined : name,
+          firstName: wantsPortalWorker ? firstName : undefined,
+          lastName: wantsPortalWorker ? lastName : undefined,
           email,
           phone,
+          city: wantsPortalWorker ? city : undefined,
+          bio: wantsPortalWorker ? bio : undefined,
           password,
           confirmPassword,
-          role,
+          role: wantsPortalWorker ? 'USER' : role,
           referralCode: referralCode?.trim() || undefined,
           wantsPortalWorker,
+          portalWorkerCooperationConsent: wantsPortalWorker ? cooperationConsent : undefined,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as RegisterJson;
@@ -88,22 +117,17 @@ export default function RegistracePage() {
         }
 
         if (res.status === 400) {
-          if (fe.confirmPassword) setError('Hesla se neshodují');
-          else if (fe.password) {
-            setError(
-              fe.password.includes('6')
-                ? 'Slabé heslo — použijte alespoň 6 znaků'
-                : fe.password,
-            );
-          } else if (fe.name) setError(fe.name);
-          else if (fe.phone) setError(fe.phone);
-          else if (fe.email) setError(fe.email);
-          else if (fe.role) setError(fe.role);
-          else setError(data.error ?? 'Zkontrolujte údaje ve formuláři');
+          setError(data.error ?? 'Zkontrolujte údaje ve formuláři');
           return;
         }
 
         setError(data.error ?? 'Registrace selhala');
+        return;
+      }
+
+      if (data.portalWorker || wantsPortalWorker) {
+        router.push('/registrace/pracovnik-dekujeme');
+        router.refresh();
         return;
       }
 
@@ -129,29 +153,80 @@ export default function RegistracePage() {
         Nový účet
       </p>
       <p className="mb-3 hidden text-center text-sm leading-relaxed text-zinc-600 sm:mb-5 sm:block">
-        Heslo alespoň 6 znaků. Vyberte typ účtu, který nejlépe vystihuje vaši roli na trhu.
+        {wantsPortalWorker
+          ? 'Registrace pracovníka portálu XXrealit.cz — po odeslání žádosti čekáte na schválení adminem.'
+          : 'Heslo alespoň 6 znaků. Vyberte typ účtu, který nejlépe vystihuje vaši roli na trhu.'}
       </p>
 
       <form onSubmit={onSubmit} className="space-y-3 sm:space-y-4">
-        <div>
-          <label htmlFor="name" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:mb-1.5 sm:text-sm">
-            Jméno
-          </label>
+        <label className="flex items-start gap-2 rounded-xl border border-orange-200 bg-orange-50/80 px-3 py-3 text-sm text-zinc-800">
           <input
-            id="name"
-            type="text"
-            required
-            autoComplete="name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className={inputClass}
-            placeholder="Jan Novák"
-            aria-invalid={Boolean(fieldErrors.name)}
+            type="checkbox"
+            checked={wantsPortalWorker}
+            onChange={(e) => setWantsPortalWorker(e.target.checked)}
+            className="mt-0.5"
           />
-          {fieldErrors.name ? (
-            <p className="mt-1.5 text-sm text-red-600">{fieldErrors.name}</p>
-          ) : null}
-        </div>
+          <span>Chci pracovat pro XXrealit.cz</span>
+        </label>
+
+        {wantsPortalWorker ? (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label htmlFor="firstName" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:text-sm">
+                  Jméno
+                </label>
+                <input
+                  id="firstName"
+                  required
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  className={inputClass}
+                  aria-invalid={Boolean(fieldErrors.firstName)}
+                />
+                {fieldErrors.firstName ? (
+                  <p className="mt-1.5 text-sm text-red-600">{fieldErrors.firstName}</p>
+                ) : null}
+              </div>
+              <div>
+                <label htmlFor="lastName" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:text-sm">
+                  Příjmení
+                </label>
+                <input
+                  id="lastName"
+                  required
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  className={inputClass}
+                  aria-invalid={Boolean(fieldErrors.lastName)}
+                />
+                {fieldErrors.lastName ? (
+                  <p className="mt-1.5 text-sm text-red-600">{fieldErrors.lastName}</p>
+                ) : null}
+              </div>
+            </div>
+          </>
+        ) : (
+          <div>
+            <label htmlFor="name" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:mb-1.5 sm:text-sm">
+              Jméno
+            </label>
+            <input
+              id="name"
+              type="text"
+              required
+              autoComplete="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className={inputClass}
+              placeholder="Jan Novák"
+              aria-invalid={Boolean(fieldErrors.name)}
+            />
+            {fieldErrors.name ? (
+              <p className="mt-1.5 text-sm text-red-600">{fieldErrors.name}</p>
+            ) : null}
+          </div>
+        )}
 
         <div>
           <label htmlFor="email" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:mb-1.5 sm:text-sm">
@@ -193,38 +268,81 @@ export default function RegistracePage() {
           ) : null}
         </div>
 
-        <div>
-          <label htmlFor="role" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:mb-1.5 sm:text-sm">
-            Typ účtu
-          </label>
-          <select
-            id="role"
-            name="role"
-            value={role}
-            onChange={(e) => setRole(e.target.value as RegistrationAccountType)}
-            className={selectClass}
-            aria-invalid={Boolean(fieldErrors.role)}
-          >
-            {REGISTRATION_ACCOUNT_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-          {fieldErrors.role ? (
-            <p className="mt-1.5 text-sm text-red-600">{fieldErrors.role}</p>
-          ) : null}
-        </div>
-
-        <label className="flex items-start gap-2 rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-3 text-sm text-zinc-800">
-          <input
-            type="checkbox"
-            checked={wantsPortalWorker}
-            onChange={(e) => setWantsPortalWorker(e.target.checked)}
-            className="mt-0.5"
-          />
-          <span>Chci pracovat pro portál XXrealit.cz (pracovník portálu — vyžaduje schválení adminem)</span>
-        </label>
+        {wantsPortalWorker ? (
+          <>
+            <div>
+              <label htmlFor="city" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:text-sm">
+                Město
+              </label>
+              <input
+                id="city"
+                required
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                className={inputClass}
+                aria-invalid={Boolean(fieldErrors.city)}
+              />
+              {fieldErrors.city ? (
+                <p className="mt-1.5 text-sm text-red-600">{fieldErrors.city}</p>
+              ) : null}
+            </div>
+            <div>
+              <label htmlFor="bio" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:text-sm">
+                Krátké představení
+              </label>
+              <textarea
+                id="bio"
+                required
+                minLength={20}
+                rows={3}
+                value={bio}
+                onChange={(e) => setBio(e.target.value)}
+                className={inputClass}
+                placeholder="Napište, proč chcete spolupracovat s XXrealit.cz…"
+                aria-invalid={Boolean(fieldErrors.bio)}
+              />
+              {fieldErrors.bio ? (
+                <p className="mt-1.5 text-sm text-red-600">{fieldErrors.bio}</p>
+              ) : null}
+            </div>
+            <label className="flex items-start gap-2 rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-3 text-sm text-zinc-800">
+              <input
+                type="checkbox"
+                required
+                checked={cooperationConsent}
+                onChange={(e) => setCooperationConsent(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>Souhlasím se spoluprací s XXrealit.cz jako pracovník portálu</span>
+            </label>
+            {fieldErrors.portalWorkerCooperationConsent ? (
+              <p className="text-sm text-red-600">{fieldErrors.portalWorkerCooperationConsent}</p>
+            ) : null}
+          </>
+        ) : (
+          <div>
+            <label htmlFor="role" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:mb-1.5 sm:text-sm">
+              Typ účtu
+            </label>
+            <select
+              id="role"
+              name="role"
+              value={role}
+              onChange={(e) => setRole(e.target.value as RegistrationAccountType)}
+              className={selectClass}
+              aria-invalid={Boolean(fieldErrors.role)}
+            >
+              {REGISTRATION_ACCOUNT_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+            {fieldErrors.role ? (
+              <p className="mt-1.5 text-sm text-red-600">{fieldErrors.role}</p>
+            ) : null}
+          </div>
+        )}
 
         <div>
           <label htmlFor="password" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:mb-1.5 sm:text-sm">
@@ -280,20 +398,24 @@ export default function RegistracePage() {
           disabled={loading}
           className="w-full rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-3 text-sm font-semibold text-white shadow-lg shadow-orange-900/25 transition hover:opacity-[0.97] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55 sm:py-3.5 sm:text-[15px]"
         >
-          {loading ? 'Vytvářím účet…' : 'Registrovat'}
+          {loading ? 'Odesílám…' : wantsPortalWorker ? 'Odeslat žádost' : 'Registrovat'}
         </button>
       </form>
 
-      <div className="relative my-4 sm:my-6">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-zinc-200" />
-        </div>
-        <div className="relative flex justify-center text-xs font-medium uppercase tracking-wide">
-          <span className="bg-white px-3 text-zinc-500">nebo</span>
-        </div>
-      </div>
+      {!wantsPortalWorker ? (
+        <>
+          <div className="relative my-4 sm:my-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-zinc-200" />
+            </div>
+            <div className="relative flex justify-center text-xs font-medium uppercase tracking-wide">
+              <span className="bg-white px-3 text-zinc-500">nebo</span>
+            </div>
+          </div>
 
-      <FacebookAuthButton label="Registrovat přes Facebook" event="facebook_register_click" />
+          <FacebookAuthButton label="Registrovat přes Facebook" event="facebook_register_click" />
+        </>
+      ) : null}
 
       <p className="mt-4 border-t border-zinc-100 pt-4 text-center text-xs text-zinc-600 sm:mt-6 sm:pt-5 sm:text-sm">
         Už máte účet?{' '}

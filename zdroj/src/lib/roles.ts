@@ -72,10 +72,11 @@ export const DASHBOARD_SEGMENTS: Record<UserRole, string> = {
   CRAFTSMAN: 'remeslnik',
   TIPSTER: 'uzivatel',
   ADMIN: 'ADMIN',
-  PORTAL_WORKER: 'uzivatel',
+  PORTAL_WORKER: 'pracovnik',
 };
 
 export function dashboardPathForRole(role: UserRole): string {
+  if (role === 'PORTAL_WORKER') return '/pracovnik';
   return `/dashboard/${DASHBOARD_SEGMENTS[role]}`;
 }
 

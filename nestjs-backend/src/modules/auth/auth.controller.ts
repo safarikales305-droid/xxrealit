@@ -196,6 +196,7 @@ export class AuthController {
       bio: profile.bio ?? null,
       emailVerified: profile.emailVerified,
       whatsappVerified: profile.whatsappVerified,
+      portalWorkerStatus: profile.portalWorkerStatus ?? null,
       isTipar: profile.isTipar,
       profileRequirements: profile.profileRequirements,
       createdAt: profile.createdAt.toISOString(),

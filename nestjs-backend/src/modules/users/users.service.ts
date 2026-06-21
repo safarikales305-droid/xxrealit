@@ -135,6 +135,10 @@ export class UsersService {
     emailVerified?: boolean;
     phoneVerified?: boolean;
     portalWorkerStatus?: import('@prisma/client').PortalWorkerStatus;
+    firstName?: string;
+    lastName?: string;
+    city?: string;
+    bio?: string;
   }): Promise<User> {
     return this.prisma.user.create({ data });
   }

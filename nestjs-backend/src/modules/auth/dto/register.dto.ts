@@ -14,7 +14,7 @@ export class RegisterDto {
   email!: string;
 
   @IsString()
-  @MinLength(8)
+  @MinLength(6)
   password!: string;
 
   @IsString()
@@ -44,4 +44,28 @@ export class RegisterDto {
   @IsOptional()
   @IsBoolean()
   wantsPortalWorker?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  firstName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  lastName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  bio?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  portalWorkerCooperationConsent?: boolean;
 }

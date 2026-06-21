@@ -132,8 +132,42 @@ const REGISTER_ROLES: readonly UserRole[] = [
   UserRole.PRIVATE_SELLER,
   UserRole.CRAFTSMAN,
   UserRole.TIPSTER,
-  UserRole.PORTAL_WORKER,
 ];
+
+function assertPortalWorkerRegistration(dto: RegisterDto): {
+  name: string;
+  firstName: string;
+  lastName: string;
+  city: string;
+  bio: string;
+} {
+  const firstName = dto.firstName?.trim() ?? '';
+  const lastName = dto.lastName?.trim() ?? '';
+  const city = dto.city?.trim() ?? '';
+  const bio = dto.bio?.trim() ?? '';
+  if (!firstName) {
+    throw new HttpException({ error: 'Jméno je povinné' }, HttpStatus.BAD_REQUEST);
+  }
+  if (!lastName) {
+    throw new HttpException({ error: 'Příjmení je povinné' }, HttpStatus.BAD_REQUEST);
+  }
+  if (!city) {
+    throw new HttpException({ error: 'Město je povinné' }, HttpStatus.BAD_REQUEST);
+  }
+  if (bio.length < 20) {
+    throw new HttpException(
+      { error: 'Krátké představení musí mít alespoň 20 znaků' },
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+  if (dto.portalWorkerCooperationConsent !== true) {
+    throw new HttpException(
+      { error: 'Musíte souhlasit se spoluprací s XXrealit.cz' },
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+  return { name: `${firstName} ${lastName}`.trim(), firstName, lastName, city, bio };
+}
 
 function errorDetailForResponse(err: unknown): Record<string, unknown> {
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
@@ -475,7 +509,13 @@ export class AuthService {
     const mappedRole = dto.wantsPortalWorker
       ? UserRole.PORTAL_WORKER
       : mapRegisterRole(dto.role);
-    if (!REGISTER_ROLES.includes(mappedRole)) {
+    if (!dto.wantsPortalWorker && mappedRole === UserRole.PORTAL_WORKER) {
+      throw new HttpException(
+        { error: 'Roli pracovníka portálu lze získat pouze registrací přes formulář pracovníka.' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    if (!REGISTER_ROLES.includes(mappedRole) && mappedRole !== UserRole.PORTAL_WORKER) {
       throw new HttpException(
         {
           error: 'Neplatná role',
@@ -487,7 +527,23 @@ export class AuthService {
 
     const name = dto.name?.trim() || '';
     const phone = dto.phone?.trim() || '';
-    if (!name) {
+    let portalWorkerFields: {
+      firstName?: string;
+      lastName?: string;
+      city?: string;
+      bio?: string;
+    } = {};
+    let resolvedName = name;
+    if (dto.wantsPortalWorker) {
+      const pw = assertPortalWorkerRegistration(dto);
+      resolvedName = pw.name;
+      portalWorkerFields = {
+        firstName: pw.firstName,
+        lastName: pw.lastName,
+        city: pw.city,
+        bio: pw.bio,
+      };
+    } else if (!name) {
       throw new HttpException({ error: 'Jméno je povinné' }, HttpStatus.BAD_REQUEST);
     }
     if (!phone) {
@@ -511,7 +567,7 @@ export class AuthService {
       const user = await this.users.create({
         email,
         password: hashedPassword,
-        name,
+        name: resolvedName,
         phone,
         phonePublic: false,
         role: mappedRole,
@@ -523,6 +579,7 @@ export class AuthService {
           mappedRole === UserRole.PORTAL_WORKER
             ? PortalWorkerStatus.PENDING_APPROVAL
             : undefined,
+        ...portalWorkerFields,
       });
       void this.referral.ensureReferralCode(user.id).catch(() => {});
       if (referredByUserId) {
