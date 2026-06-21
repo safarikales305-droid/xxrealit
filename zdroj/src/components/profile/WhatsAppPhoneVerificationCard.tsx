@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
+  nestBeginWhatsAppPhoneChange,
   nestConfirmWhatsAppVerification,
   nestRequestWhatsAppVerification,
   nestWhatsAppVerificationStatus,
@@ -26,6 +27,7 @@ export function WhatsAppPhoneVerificationCard({ token, onVerified }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [resendCountdown, setResendCountdown] = useState(0);
+  const [changingNumber, setChangingNumber] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!token) {
@@ -114,29 +116,65 @@ export function WhatsAppPhoneVerificationCard({ token, onVerified }: Props) {
     );
   }
 
-  if (status?.whatsappVerified) {
+  if (status?.whatsappVerified && !changingNumber) {
     return (
-      <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50/80 p-4">
-        <p className="text-sm font-semibold text-emerald-900">Ověření WhatsApp čísla</p>
+      <div
+        id="whatsapp-verify"
+        className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/80 p-4"
+      >
+        <p className="text-sm font-semibold text-emerald-900">WhatsApp číslo ověřeno</p>
         <p className="text-sm text-emerald-800">
-          Číslo <span className="font-mono font-medium">{status.whatsappPhone}</span> je ověřené
+          Číslo <span className="font-mono font-medium">{status.whatsappPhone}</span>
           {status.whatsappVerifiedAt
-            ? ` od ${new Date(status.whatsappVerifiedAt).toLocaleString('cs-CZ')}`
+            ? ` · ověřeno ${new Date(status.whatsappVerifiedAt).toLocaleString('cs-CZ')}`
             : ''}
-          .
         </p>
+        <button
+          type="button"
+          onClick={() => {
+            void (async () => {
+              if (!token) return;
+              setChangingNumber(true);
+              setError(null);
+              setOk(null);
+              setCode('');
+              const res = await nestBeginWhatsAppPhoneChange(token);
+              if (!res.ok) {
+                setError(res.error ?? 'Nepodařilo se připravit změnu čísla.');
+                setChangingNumber(false);
+                return;
+              }
+              void refresh();
+            })();
+          }}
+          className="rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-50"
+        >
+          Změnit WhatsApp číslo
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
+    <div id="whatsapp-verify" className="space-y-4 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
       <div>
         <p className="text-sm font-semibold text-zinc-900">Ověření WhatsApp čísla</p>
         <p className="mt-1 text-sm text-zinc-600">
           Pro dobití kreditu, tipaře a ověření profesionálního profilu je nutné ověřit telefonní
           číslo přes WhatsApp. Kód platí 10 minut.
         </p>
+        {changingNumber ? (
+          <button
+            type="button"
+            onClick={() => {
+              setChangingNumber(false);
+              void refresh();
+            }}
+            className="mt-2 text-xs font-semibold text-zinc-600 underline"
+          >
+            Zrušit změnu čísla
+          </button>
+        ) : null}
       </div>
 
       <div className="space-y-2">

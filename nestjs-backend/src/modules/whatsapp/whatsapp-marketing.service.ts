@@ -1767,6 +1767,7 @@ export class WhatsAppMarketingService {
       const where: Record<string, unknown> = {
         whatsappMarketingOptOut: false,
         role: { not: UserRole.ADMIN },
+        isTestAccount: false,
       };
 
       if (campaign.targetRoles.length > 0) {

@@ -287,6 +287,8 @@ export type NestMeProfile = {
   brokerReviewCount?: number;
   creditBalance?: number;
   isTipar?: boolean;
+  isTestAccount?: boolean;
+  testAccountPublicVisible?: boolean;
   facebookUrl?: string | null;
   facebookImportEnabled?: boolean;
   facebookLastSyncAt?: string | null;
@@ -8269,6 +8271,210 @@ export async function nestConfirmWhatsAppVerification(
   } catch {
     return { ok: false, error: 'Síťová chyba' };
   }
+}
+
+export async function nestBeginWhatsAppPhoneChange(
+  token: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  try {
+    const res = await fetch(`${API_BASE_URL}/users/me/whatsapp-verification/begin-change`, {
+      method: 'POST',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestResetMyTestAccount(
+  token: string | null,
+): Promise<{ ok: boolean; message?: string; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/users/me/test-account/reset`, {
+      method: 'POST',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    });
+    const data = (await res.json().catch(() => ({}))) as { message?: string };
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: typeof data.message === 'string' ? data.message : `HTTP ${res.status}`,
+      };
+    }
+    return { ok: true, message: data.message ?? 'Testovací účet byl resetován.' };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export type PortalTestAccountRow = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  isTestAccount: boolean;
+  testAccountPublicVisible: boolean;
+  config: {
+    resetPaidCredit: number;
+    resetBonusCredit: number;
+    emailVerified: boolean;
+    whatsappVerified: boolean;
+    profileApproved: boolean;
+    publicProfile: boolean;
+    testPhone: string;
+  };
+  paidCredit: number;
+  bonusCredit: number;
+  emailVerified: boolean;
+  whatsappVerified: boolean;
+  whatsappPhone: string;
+  profileApproved: boolean;
+  publicProfile: boolean;
+  createdAt: string;
+};
+
+export type PortalTestScenarioResult = {
+  scenario: string;
+  message: string;
+  hint?: string;
+  url?: string;
+};
+
+export async function nestAdminListPortalTestAccounts(
+  token: string | null,
+): Promise<{ items: PortalTestAccountRow[]; total: number }> {
+  if (!API_BASE_URL || !token) return { items: [], total: 0 };
+  const res = await fetch(`${API_BASE_URL}/admin/portal-testing`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return { items: [], total: 0 };
+  const data = (await res.json().catch(() => ({}))) as {
+    items?: PortalTestAccountRow[];
+    total?: number;
+  };
+  return { items: Array.isArray(data.items) ? data.items : [], total: data.total ?? 0 };
+}
+
+export async function nestAdminCreatePortalTestAccount(
+  token: string | null,
+  payload: {
+    name: string;
+    email: string;
+    role: string;
+    password: string;
+    paidCredit: number;
+    bonusCredit: number;
+    testPhone?: string;
+    emailVerified: boolean;
+    whatsappVerified: boolean;
+    profileApproved: boolean;
+    publicProfile: boolean;
+    publicVisible?: boolean;
+  },
+): Promise<{ ok: boolean; account?: PortalTestAccountRow; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/portal-testing`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json().catch(() => ({}))) as PortalTestAccountRow & { message?: string };
+  if (!res.ok) {
+    return { ok: false, error: typeof data.message === 'string' ? data.message : `HTTP ${res.status}` };
+  }
+  return { ok: true, account: data };
+}
+
+export async function nestAdminUpdatePortalTestAccount(
+  token: string | null,
+  userId: string,
+  payload: Partial<{
+    paidCredit: number;
+    bonusCredit: number;
+    testPhone: string;
+    emailVerified: boolean;
+    whatsappVerified: boolean;
+    profileApproved: boolean;
+    publicProfile: boolean;
+    publicVisible: boolean;
+  }>,
+): Promise<{ ok: boolean; account?: PortalTestAccountRow; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/portal-testing/${encodeURIComponent(userId)}`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json().catch(() => ({}))) as PortalTestAccountRow & { message?: string };
+  if (!res.ok) {
+    return { ok: false, error: typeof data.message === 'string' ? data.message : `HTTP ${res.status}` };
+  }
+  return { ok: true, account: data };
+}
+
+export async function nestAdminResetPortalTestAccount(
+  token: string | null,
+  userId: string,
+): Promise<{ ok: boolean; message?: string; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(
+    `${API_BASE_URL}/admin/portal-testing/${encodeURIComponent(userId)}/reset`,
+    {
+      method: 'POST',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    },
+  );
+  const data = (await res.json().catch(() => ({}))) as { message?: string };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: typeof data.message === 'string' ? data.message : `HTTP ${res.status}`,
+    };
+  }
+  return { ok: true, message: data.message ?? 'Testovací účet byl resetován.' };
+}
+
+export async function nestAdminRunPortalTestScenario(
+  token: string | null,
+  userId: string,
+  scenario: string,
+): Promise<{ ok: boolean; result?: PortalTestScenarioResult; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(
+    `${API_BASE_URL}/admin/portal-testing/${encodeURIComponent(userId)}/scenarios/${encodeURIComponent(scenario)}`,
+    {
+      method: 'POST',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    },
+  );
+  const data = (await res.json().catch(() => ({}))) as PortalTestScenarioResult & { message?: string };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: typeof data.message === 'string' ? data.message : `HTTP ${res.status}`,
+    };
+  }
+  return { ok: true, result: data };
 }
 
 export async function nestAdminVerifyUserWhatsApp(

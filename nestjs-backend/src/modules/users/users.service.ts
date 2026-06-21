@@ -566,6 +566,8 @@ export class UsersService {
       whatsappMarketingOptOut: true,
       whatsappNotifyMyUploads: true,
       whatsappNotifyNewPosts: true,
+      isTestAccount: true,
+      testAccountPublicVisible: true,
       facebookUrl: true,
       facebookImportEnabled: true,
       facebookLastSyncAt: true,
@@ -764,6 +766,8 @@ export class UsersService {
       whatsappMarketingOptOut: Boolean(u.whatsappMarketingOptOut),
       whatsappNotifyMyUploads: Boolean(u.whatsappNotifyMyUploads),
       whatsappNotifyNewPosts: Boolean(u.whatsappNotifyNewPosts),
+      isTestAccount: Boolean(u.isTestAccount),
+      testAccountPublicVisible: Boolean(u.testAccountPublicVisible),
       brokerReviewAverage: u.brokerReviewAverage,
       brokerReviewCount: u.brokerReviewCount,
       creditBalance: u.creditBalance ?? 0,
@@ -908,6 +912,8 @@ export class UsersService {
       publicProfessionalProfile: true,
       email: true,
       emailVerified: true,
+      isTestAccount: true,
+      testAccountPublicVisible: true,
       isTipar: true,
       tiparPayoutBankAccount: true,
       agentProfile: {
@@ -1020,6 +1026,9 @@ export class UsersService {
 
     const isOwnerViewer = Boolean(viewerId && viewerId === resolvedId);
     const canSeePrivate = isOwnerViewer || viewerIsAdmin;
+    if (!canSeePrivate && user.isTestAccount && !user.testAccountPublicVisible) {
+      throw new NotFoundException('User not found');
+    }
     const isActivePublicPromo =
       Boolean(user.isPromoProfile) &&
       Boolean(user.promoProfileActive) &&

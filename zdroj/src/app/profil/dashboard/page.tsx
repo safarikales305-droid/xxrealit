@@ -20,6 +20,7 @@ import {
   nestPatchProfileVisibility,
   nestPatchProfessionalVisibility,
   nestRequestProfessionalVerification,
+  nestResetMyTestAccount,
   nestTopMyProperty,
   type NestMeProfile,
   type NestMyListingRow,
@@ -41,9 +42,9 @@ import { WhatsAppConnectionCard } from '@/components/profile/WhatsAppConnectionC
 import { NotificationPreferencesCard } from '@/components/profile/NotificationPreferencesCard';
 import { ProfileDetailsForm } from '@/components/profile/ProfileDetailsForm';
 import { ProfileRequirementsCard } from '@/components/profile/ProfileRequirementsCard';
+import { TestAccountBanner } from '@/components/profile/TestAccountBanner';
 import { dispatchNotificationsChanged } from '@/hooks/use-notifications-unread';
 import { clearAppBadgeCount } from '@/hooks/use-app-badge';
-import { WhatsAppPhoneVerificationCard } from '@/components/profile/WhatsAppPhoneVerificationCard';
 
 type Tab = 'settings' | 'social-integrations' | 'referral' | 'listings' | 'ads' | 'messages' | 'notifications';
 
@@ -121,6 +122,7 @@ export default function ProfileDashboardPage() {
   const [notifLoading, setNotifLoading] = useState(false);
   const notifBadgeClearedRef = useRef(false);
   const [companyAds, setCompanyAds] = useState<NestCompanyAdRow[]>([]);
+  const [resetBusy, setResetBusy] = useState(false);
 
   const isProfessional = isProfessionalVerificationRole(user?.role);
   const verificationStatusLabel = professionalVerificationStatusLabel(
@@ -250,6 +252,32 @@ export default function ProfileDashboardPage() {
         </aside>
 
         <section className="space-y-4">
+          <TestAccountBanner
+            isTestAccount={me?.isTestAccount}
+            showReset
+            resetBusy={resetBusy}
+            onReset={() => {
+              void (async () => {
+                if (!apiAccessToken) return;
+                if (!window.confirm('Resetovat testovací účet? Smaže se testovací aktivita a obnoví výchozí stav.')) {
+                  return;
+                }
+                setResetBusy(true);
+                setError(null);
+                const r = await nestResetMyTestAccount(apiAccessToken);
+                setResetBusy(false);
+                if (!r.ok) {
+                  setError(r.error ?? 'Reset selhal.');
+                  return;
+                }
+                setOk(r.message ?? 'Testovací účet byl resetován.');
+                void loadMe();
+                void loadListings();
+                void loadNotifications();
+                void refresh();
+              })();
+            }}
+          />
           <ActiveBonusCampaigns />
           <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
@@ -326,8 +354,6 @@ export default function ProfileDashboardPage() {
               >
                 Uložit bio
               </button>
-
-              <WhatsAppPhoneVerificationCard token={apiAccessToken} onVerified={() => void loadMe()} />
 
               <WhatsAppConnectionCard token={apiAccessToken} />
 

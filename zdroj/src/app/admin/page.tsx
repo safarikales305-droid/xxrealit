@@ -585,6 +585,12 @@ export default function AdminPage() {
               Vývojářské poznámky
             </Link>
             <Link
+              href="/admin/testovani-portalu"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Testování portálu
+            </Link>
+            <Link
               href="/"
               className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >

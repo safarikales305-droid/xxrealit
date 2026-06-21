@@ -461,4 +461,26 @@ export class WhatsAppPhoneVerificationService {
       return { ok: false, error: errorMessage };
     }
   }
+
+  async beginPhoneChange(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { whatsappVerified: true },
+    });
+    if (!user) throw new BadRequestException('Uživatel nenalezen.');
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        whatsappVerified: false,
+        whatsappVerifiedAt: null,
+        whatsappVerificationCode: null,
+        whatsappVerificationExpiresAt: null,
+        whatsappVerificationAttempts: 0,
+        whatsappVerificationSentAt: null,
+      },
+    });
+
+    return this.getStatus(userId);
+  }
 }

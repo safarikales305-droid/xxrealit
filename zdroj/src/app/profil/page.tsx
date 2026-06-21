@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CreditTopUpSection } from '@/components/profile/CreditTopUpSection';
 import { ProfileRequirementsCard, VERIFIED_BADGE_TOOLTIP } from '@/components/profile/ProfileRequirementsCard';
-import { WhatsAppPhoneVerificationCard } from '@/components/profile/WhatsAppPhoneVerificationCard';
+import { TestAccountBanner } from '@/components/profile/TestAccountBanner';
 import { PropertyGrid } from '@/components/property-grid';
 import { useAuth } from '@/hooks/use-auth';
 import { useMessagesUnreadCount } from '@/hooks/use-messages-unread';
@@ -31,6 +31,7 @@ import {
   nestListMyCompanyAds,
   nestPatchProfileBio,
   nestCreateStory,
+  nestResetMyTestAccount,
   nestSubmitAgentProfileRequest,
   nestSubmitAgencyProfileRequest,
   nestSubmitCompanyProfileRequest,
@@ -107,6 +108,7 @@ export default function ProfilPage() {
   const [wallVideos, setWallVideos] = useState<NestProfileWallVideo[]>([]);
   const [visibilitySaving, setVisibilitySaving] = useState(false);
   const [tiparActivating, setTiparActivating] = useState(false);
+  const [testResetBusy, setTestResetBusy] = useState(false);
   const [tiparError, setTiparError] = useState<string | null>(null);
   const [professionalVisibility, setProfessionalVisibility] = useState<boolean>(false);
   const [companyAds, setCompanyAds] = useState<NestCompanyAdRow[]>([]);
@@ -1329,17 +1331,45 @@ export default function ProfilPage() {
               showVerifiedBadge={nestMe?.profileRequirements?.showVerifiedBadge}
             />
 
-            <div className="mt-5">
-              <WhatsAppPhoneVerificationCard
-                token={apiAccessToken}
-                onVerified={() => {
-                  setNestMe((prev) =>
-                    prev ? { ...prev, whatsappVerified: true } : prev,
-                  );
+            <TestAccountBanner
+              isTestAccount={nestMe?.isTestAccount}
+              showReset
+              resetBusy={testResetBusy}
+              onReset={() => {
+                void (async () => {
+                  if (!apiAccessToken) return;
+                  if (
+                    !window.confirm(
+                      'Resetovat testovací účet? Smaže se testovací aktivita a obnoví výchozí stav.',
+                    )
+                  ) {
+                    return;
+                  }
+                  setTestResetBusy(true);
+                  const r = await nestResetMyTestAccount(apiAccessToken);
+                  setTestResetBusy(false);
+                  if (!r.ok) return;
                   void loadNestProfile();
-                }}
-              />
-            </div>
+                })();
+              }}
+            />
+
+            {!nestMe?.whatsappVerified ? (
+              <p className="mt-5 text-sm text-zinc-600">
+                Ověření WhatsApp čísla najdete v{' '}
+                <Link
+                  href="/profil/dashboard?tab=settings#whatsapp-verify"
+                  className="font-semibold text-[#e85d00] hover:underline"
+                >
+                  nastavení profilu
+                </Link>
+                .
+              </p>
+            ) : (
+              <p className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm font-semibold text-emerald-900">
+                WhatsApp číslo ověřeno
+              </p>
+            )}
 
             <CreditTopUpSection
               token={apiAccessToken}

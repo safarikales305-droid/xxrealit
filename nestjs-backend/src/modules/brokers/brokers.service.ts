@@ -96,6 +96,8 @@ export class BrokersService {
     allowBrokerReviews: true,
     brokerPhonePublic: true,
     brokerEmailPublic: true,
+    isTestAccount: true,
+    testAccountPublicVisible: true,
     agentProfile: {
       select: {
         isPublic: true,

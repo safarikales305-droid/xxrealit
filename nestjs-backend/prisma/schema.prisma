@@ -284,6 +284,13 @@ model User {
   promoFirstName     String  @default("")
   promoLastName      String  @default("")
 
+  /// Testovací účet pro opakované QA (admin).
+  isTestAccount            Boolean @default(false)
+  /// Zobrazit testovací účet ve veřejných katalozích.
+  testAccountPublicVisible Boolean @default(false)
+  /// Výchozí stav po resetu (kredity, ověření, telefon…).
+  testAccountConfig        Json?
+
   /// Veřejná URL Facebook stránky/profilu pro import bez Meta API.
   facebookUrl            String?
   facebookImportEnabled  Boolean              @default(false)

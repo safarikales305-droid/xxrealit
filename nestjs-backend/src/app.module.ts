@@ -41,6 +41,7 @@ import { WebPushModule } from './modules/web-push/web-push.module';
 import { MarketingOnboardingModule } from './modules/marketing-onboarding/marketing-onboarding.module';
 import { PurchaseAdviceArticlesModule } from './modules/purchase-advice-articles/purchase-advice-articles.module';
 import { DeveloperNotesModule } from './modules/developer-notes/developer-notes.module';
+import { PortalTestingModule } from './modules/portal-testing/portal-testing.module';
 
 @Module({
   imports: [
@@ -88,6 +89,7 @@ import { DeveloperNotesModule } from './modules/developer-notes/developer-notes.
     PurchaseAdviceArticlesModule,
     MarketingOnboardingModule,
     DeveloperNotesModule,
+    PortalTestingModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

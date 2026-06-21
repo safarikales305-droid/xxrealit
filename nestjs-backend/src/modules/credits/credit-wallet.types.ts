@@ -23,7 +23,8 @@ export type CreditLedgerPurpose =
   | 'LEAD_CHARGE'
   | 'CONTACT_UNLOCK_TIPSTER'
   | 'TIPSTER_EARNING'
-  | 'ADMIN_ADJUSTMENT';
+  | 'ADMIN_ADJUSTMENT'
+  | 'TEST';
 
 export type ContactUnlockSourceType = 'LISTING' | 'TIP' | 'TIP_SHORTS';
 

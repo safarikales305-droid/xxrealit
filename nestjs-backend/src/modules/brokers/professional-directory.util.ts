@@ -39,6 +39,8 @@ export type ProfessionalDirectoryUser = {
   allowBrokerReviews: boolean;
   brokerPhonePublic: string;
   brokerEmailPublic: string;
+  isTestAccount?: boolean;
+  testAccountPublicVisible?: boolean;
   agentProfile?: RoleProfilePublic | null;
   companyProfile?: RoleProfilePublic | null;
   agencyProfile?: RoleProfilePublic | null;
@@ -88,6 +90,9 @@ export function professionalDirectoryFilterReasons(
   allowedRoles: Set<UserRole>,
 ): string[] {
   const reasons: string[] = [];
+  if (user.isTestAccount && !user.testAccountPublicVisible) {
+    reasons.push('test_account_hidden');
+  }
   if (!allowedRoles.has(user.role)) {
     reasons.push(`role_not_allowed:${user.role}`);
   }
