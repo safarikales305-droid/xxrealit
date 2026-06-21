@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, Min } from 'class-validator';
 
 export class UpdateContactMonetizationDto {
   @IsOptional()
@@ -50,4 +50,8 @@ export class UpdateContactMonetizationDto {
   @IsInt()
   @Min(0)
   tipSuccessBonus?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  showSellerContactToBuyer?: boolean;
 }

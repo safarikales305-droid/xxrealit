@@ -7290,7 +7290,34 @@ export type ContactMonetizationSettingsDto = {
   tipMinContactPrice: number;
   tipMaxContactPrice: number;
   tipSuccessBonus: number;
+  showSellerContactToBuyer?: boolean;
 };
+
+export type CreditHistoryRowDto = {
+  id: string;
+  source: 'ledger' | 'transaction';
+  amount: number;
+  type: string;
+  purpose?: string | null;
+  description?: string | null;
+  propertyId?: string | null;
+  createdAt: string;
+};
+
+export async function nestCreditsHistory(
+  token: string | null,
+): Promise<{ ok: true; data: CreditHistoryRowDto[] } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/credits/history`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    return { ok: false, error: `HTTP ${res.status}` };
+  }
+  const data = (await res.json().catch(() => [])) as CreditHistoryRowDto[];
+  return { ok: true, data: Array.isArray(data) ? data : [] };
+}
 
 export async function nestAdminContactMonetizationGet(
   token: string | null,

@@ -66,6 +66,7 @@ import {
   type PropertyViewerAccess,
 } from './properties.serializer';
 import { ListingContactUnlockService } from './listing-contact-unlock.service';
+import { blurPersonName } from './name-blur.util';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { OwnerListingNotifyService } from '../premium-broker/owner-listing-notify.service';
 import type { CreateShortsFromClassicDto } from './dto/create-shorts-from-classic.dto';
@@ -872,17 +873,6 @@ export class PropertiesService {
       role: UserRole.USER,
     };
     const access = await this.viewerAccess(viewerId);
-    const userPayload = {
-      id: author.id,
-      name: author.name ?? null,
-      avatar: author.avatar ?? null,
-      phone: author.phonePublic ? author.phone : null,
-      phonePublic: Boolean(author.phonePublic),
-      whatsappEnabled:
-        Boolean(author.whatsappEnabled) &&
-        isValidWhatsAppPhone(author.whatsappPhone ?? ''),
-      role: author.role,
-    };
 
     const otherRows = includeOther
       ? await this.findSimilarPropertyRows(
@@ -918,6 +908,27 @@ export class PropertiesService {
       property.id,
       Boolean(property.isTiparTip),
     );
+    const advertiserLeadState = !property.isTiparTip
+      ? await this.listingContactUnlock.getBuyerAdvertiserLeadState(viewerId, property.id)
+      : null;
+    const sellerContactVisible = property.isTiparTip
+      ? contactUnlocked
+      : Boolean(advertiserLeadState?.sellerContactVisible);
+    const showAuthorContact = isOwner || Boolean(access?.isAdmin) || sellerContactVisible;
+
+    const userPayload = {
+      id: author.id,
+      name: showAuthorContact ? author.name ?? null : blurPersonName(author.name),
+      nameBlurred: !showAuthorContact,
+      avatar: author.avatar ?? null,
+      phone: showAuthorContact && author.phonePublic ? author.phone : null,
+      phonePublic: showAuthorContact && Boolean(author.phonePublic),
+      whatsappEnabled:
+        showAuthorContact &&
+        Boolean(author.whatsappEnabled) &&
+        isValidWhatsAppPhone(author.whatsappPhone ?? ''),
+      role: author.role,
+    };
     const contactUnlockAvailable =
       await this.listingContactUnlock.isContactUnlockAvailableForProperty(property.id);
     const contactUnlockPrice = await this.listingContactUnlock.resolveUnlockPrice({
@@ -932,6 +943,8 @@ export class PropertiesService {
       contactUnlockPrice,
       contactUnlockAvailable,
       isContactPaid: Boolean(property.isContactPaid) || Boolean(property.isTiparTip),
+      sellerContactVisible,
+      buyerInterestSubmitted: Boolean(advertiserLeadState?.submitted),
     };
 
     let propertySerialized: Record<string, unknown>;

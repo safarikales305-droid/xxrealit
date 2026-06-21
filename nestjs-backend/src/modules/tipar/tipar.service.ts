@@ -696,7 +696,9 @@ export class TiparService {
       orderBy: { _sum: { amount: 'desc' } },
       take: 20,
     });
-    const tiparIds = topTipars.map((t) => t.tiparUserId);
+    const tiparIds = topTipars
+      .map((t) => t.tiparUserId)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
     const users = await this.prisma.user.findMany({
       where: { id: { in: tiparIds } },
       select: { id: true, name: true, email: true },
@@ -708,13 +710,15 @@ export class TiparService {
       tiparsCount,
       totalCreditsEarned: earningsAgg._sum.amount ?? 0,
       transactionCount: earningsAgg._count,
-      topTipars: topTipars.map((t) => ({
-        userId: t.tiparUserId,
-        name: userMap.get(t.tiparUserId)?.name ?? '',
-        email: userMap.get(t.tiparUserId)?.email ?? '',
-        unlockCount: t._count,
-        totalEarned: t._sum.amount ?? 0,
-      })),
+      topTipars: topTipars
+        .filter((t): t is typeof t & { tiparUserId: string } => typeof t.tiparUserId === 'string')
+        .map((t) => ({
+          userId: t.tiparUserId,
+          name: userMap.get(t.tiparUserId)?.name ?? '',
+          email: userMap.get(t.tiparUserId)?.email ?? '',
+          unlockCount: t._count,
+          totalEarned: t._sum.amount ?? 0,
+        })),
     };
   }
 

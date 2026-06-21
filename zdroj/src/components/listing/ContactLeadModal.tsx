@@ -78,12 +78,11 @@ export function ContactLeadModal({
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl">
         <h2 className="text-lg font-bold text-zinc-900">
-          {isInterest ? 'Mám zájem o nemovitost' : 'Zadejte své kontaktní údaje'}
+          {isInterest ? 'Zájem o nemovitost' : 'Zadejte své kontaktní údaje'}
         </h2>
         {isInterest ? (
           <p className="mt-2 text-sm text-zinc-600">
-            Vyplňte kontakt a prodejce se vám ozve. Kontakt inzerenta se vám nezobrazí — platí
-            inzerent.
+            Vyplňte kontakt — inzerent vás bude kontaktovat. Poplatek za lead platí inzerent.
           </p>
         ) : unlockPrice > 0 ? (
           <p className="mt-2 text-sm text-zinc-600">
@@ -155,7 +154,7 @@ export function ContactLeadModal({
               {busy
                 ? 'Odesílám…'
                 : isInterest
-                  ? 'Odeslat zájem'
+                  ? 'Odeslat'
                   : 'Odeslat a zobrazit kontakt'}
             </button>
             <button

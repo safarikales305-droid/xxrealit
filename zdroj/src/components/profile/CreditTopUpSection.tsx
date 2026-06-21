@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   nestCreditsBalance,
+  nestCreditsHistory,
   nestCreditsTopUp,
   type CreditBalanceDto,
+  type CreditHistoryRowDto,
   type CreditTopUpResultDto,
   type NestProfileRequirements,
 } from '@/lib/nest-client';
@@ -53,6 +55,8 @@ export function CreditTopUpSection({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CreditTopUpResultDto | null>(null);
+  const [history, setHistory] = useState<CreditHistoryRowDto[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!token) {
@@ -71,11 +75,19 @@ export function CreditTopUpSection({
       if (r.ok) {
         setBalanceInfo(r.data);
         onBalanceChangeRef.current?.(r.data.creditBalance);
-        return;
+      } else {
+        console.error('[CreditTopUpSection] credits balance failed:', r.error);
+        setBalanceError('Kredit se nepodařilo načíst.');
+        setBalanceInfo(emptyBalance(0));
       }
-      console.error('[CreditTopUpSection] credits balance failed:', r.error);
-      setBalanceError('Kredit se nepodařilo načíst.');
-      setBalanceInfo(emptyBalance(0));
+
+      if (token) {
+        setHistoryLoading(true);
+        const h = await nestCreditsHistory(token);
+        setHistoryLoading(false);
+        if (h.ok) setHistory(h.data);
+      }
+      return;
     } catch (e: unknown) {
       console.error('[CreditTopUpSection] credits balance error:', e);
       setBalanceError('Kredit se nepodařilo načíst.');
@@ -203,6 +215,37 @@ export function CreditTopUpSection({
       </div>
 
       {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
+
+      <div className="mt-6">
+        <h3 className="text-sm font-bold text-zinc-900">Historie transakcí</h3>
+        {historyLoading ? (
+          <p className="mt-2 text-sm text-zinc-500">Načítám historii…</p>
+        ) : history.length === 0 ? (
+          <p className="mt-2 text-sm text-zinc-500">Zatím žádné pohyby.</p>
+        ) : (
+          <ul className="mt-3 max-h-64 space-y-2 overflow-y-auto text-sm">
+            {history.map((row) => (
+              <li
+                key={`${row.source}-${row.id}`}
+                className="flex items-start justify-between gap-3 rounded-lg border border-zinc-100 px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="font-medium text-zinc-900">{row.description || row.type}</p>
+                  <p className="text-xs text-zinc-500">
+                    {new Date(row.createdAt).toLocaleString('cs-CZ')}
+                  </p>
+                </div>
+                <span
+                  className={`shrink-0 font-semibold ${row.amount < 0 ? 'text-red-600' : 'text-emerald-700'}`}
+                >
+                  {row.amount > 0 ? '+' : ''}
+                  {row.amount.toLocaleString('cs-CZ')} Kč
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       {result ? (
         <div className="mt-5 rounded-xl border border-zinc-200 bg-zinc-50 p-4">

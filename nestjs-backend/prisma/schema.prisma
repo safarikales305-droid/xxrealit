@@ -900,6 +900,7 @@ model Property {
   importedBrokerContactLinks ImportedBrokerContactListing[]
   listingContactUnlocks ListingContactUnlock[]
   contactLeads          ContactLead[] @relation("ContactLeadListing")
+  creditTransactions    CreditTransaction[]
   whatsappMessages      WhatsAppMessage[]
   crmContacts           CrmContact[]
 
@@ -1328,8 +1329,9 @@ model ContactUnlock {
 model CreditTransaction {
   id                 String   @id @default(cuid())
   buyerUserId        String
-  tiparUserId        String
-  tiparPostId        String
+  tiparUserId        String?
+  tiparPostId        String?
+  propertyId         String?
   amount             Int
   type               String   @default("CONTACT_UNLOCK")
   sourceType         String?
@@ -1340,13 +1342,15 @@ model CreditTransaction {
   description        String?
   createdAt          DateTime @default(now())
 
-  buyer     User      @relation("CreditTransactionBuyer", fields: [buyerUserId], references: [id], onDelete: Cascade)
-  tipar     User      @relation("CreditTransactionTipar", fields: [tiparUserId], references: [id], onDelete: Cascade)
-  tiparPost TiparPost @relation(fields: [tiparPostId], references: [id], onDelete: Cascade)
+  buyer     User       @relation("CreditTransactionBuyer", fields: [buyerUserId], references: [id], onDelete: Cascade)
+  tipar     User?      @relation("CreditTransactionTipar", fields: [tiparUserId], references: [id], onDelete: Cascade)
+  tiparPost TiparPost? @relation(fields: [tiparPostId], references: [id], onDelete: Cascade)
+  property  Property?  @relation(fields: [propertyId], references: [id], onDelete: SetNull)
 
   @@index([buyerUserId, createdAt])
   @@index([tiparUserId, createdAt])
   @@index([tiparPostId])
+  @@index([propertyId])
   @@index([sourceType, sourceId])
 }
 
@@ -1363,6 +1367,8 @@ model ContactMonetizationSetting {
   tipMinContactPrice       Int      @default(0)
   tipMaxContactPrice       Int      @default(10000)
   tipSuccessBonus          Int      @default(0)
+  /// Po odeslání leadu ukázat kontakt inzerenta zájemci (výchozí ne).
+  showSellerContactToBuyer Boolean  @default(false)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 }

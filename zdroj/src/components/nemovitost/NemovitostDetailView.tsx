@@ -173,13 +173,19 @@ export function NemovitostDetailView({
   const [contactLeadError, setContactLeadError] = useState<string | null>(null);
   const [showCreditModal, setShowCreditModal] = useState(false);
   const [contactSuccessMsg, setContactSuccessMsg] = useState<string | null>(null);
-  const [interestSubmitted, setInterestSubmitted] = useState(false);
+  const [interestSubmitted, setInterestSubmitted] = useState(
+    Boolean(p.buyerInterestSubmitted),
+  );
   const [unlockedContact, setUnlockedContact] = useState<{
     phone: string | null;
     email: string | null;
     contactName: string | null;
   } | null>(null);
   const active = media[safeMediaIndex] ?? media[0];
+
+  useEffect(() => {
+    setInterestSubmitted(Boolean(p.buyerInterestSubmitted));
+  }, [p.id, p.buyerInterestSubmitted]);
 
   useEffect(() => {
     if (media.length === 0) {
@@ -236,7 +242,10 @@ export function NemovitostDetailView({
   const isAgentViewer = user?.role === 'AGENT';
   const showOwnerBadges = Boolean(p.isOwnerListing);
   const contactRevealed =
-    isTipListing(p) && (Boolean(p.contactUnlocked) || Boolean(unlockedContact));
+    (isTipListing(p) && (Boolean(p.contactUnlocked) || Boolean(unlockedContact))) ||
+    (!isTipListing(p) &&
+      (Boolean(p.sellerContactVisible) || Boolean(unlockedContact)));
+  const sellerContactLocked = !isOwner && !contactRevealed;
   const phone = contactRevealed
     ? (unlockedContact?.phone ?? p.contactPhone ?? '').trim()
     : '';
@@ -248,8 +257,9 @@ export function NemovitostDetailView({
     : '';
   const contactUnlockPrice = p.contactUnlockPrice ?? 0;
   const contactUnlockAvailable = p.contactUnlockAvailable !== false;
-  const companyName =
-    (p as PropertyFeedItem & { companyName?: string | null }).companyName?.trim() ?? '';
+  const companyName = sellerContactLocked
+    ? ''
+    : ((p as PropertyFeedItem & { companyName?: string | null }).companyName?.trim() ?? '');
   const coverForMessage = classicListingCoverUrl(p);
   const isTip = isTipListing(p);
 
@@ -315,6 +325,13 @@ export function NemovitostDetailView({
         r.data.message ??
           'Děkujeme, prodejce vás bude brzy kontaktovat.',
       );
+      if (r.data.phone || r.data.email) {
+        setUnlockedContact({
+          phone: r.data.phone ?? null,
+          email: r.data.email ?? null,
+          contactName: r.data.contactName ?? null,
+        });
+      }
       return;
     }
 
@@ -333,6 +350,11 @@ export function NemovitostDetailView({
     }
     if (isOwner) {
       setSellerActionHint('Toto je váš vlastní inzerát.');
+      window.setTimeout(() => setSellerActionHint(null), 5000);
+      return;
+    }
+    if (sellerContactLocked) {
+      setSellerActionHint('Nejdříve odešlete formulář „Zobrazit kontakt“.');
       window.setTimeout(() => setSellerActionHint(null), 5000);
       return;
     }
@@ -394,6 +416,9 @@ export function NemovitostDetailView({
     setShareEmailMsg(result.ok ? result.message ?? 'E-mail byl odeslán.' : result.error ?? 'Odeslání selhalo.');
   }
 
+  const disabledActionClass =
+    'mx-auto flex h-[50px] w-full max-w-[360px] cursor-not-allowed items-center justify-center gap-2 rounded-full border-2 border-zinc-200 bg-zinc-100 px-5 py-2.5 text-sm font-bold text-zinc-400 max-md:max-w-none';
+
   const favoriteBtnClass =
     'inline-flex size-14 shrink-0 items-center justify-center rounded-full border-2 border-orange-300/90 bg-white text-orange-700 shadow-[0_6px_24px_rgba(0,0,0,0.08)] transition hover:border-orange-500 hover:bg-gradient-to-br hover:from-orange-50 hover:to-amber-50 hover:text-orange-800 active:scale-95 disabled:pointer-events-none disabled:opacity-45';
 
@@ -402,6 +427,26 @@ export function NemovitostDetailView({
 
   const secondaryActionClass =
     'mx-auto flex h-[50px] w-full max-w-[360px] items-center justify-center gap-2 rounded-full border-2 border-zinc-300 bg-white px-5 py-2.5 text-sm font-bold text-zinc-800 shadow-sm transition hover:border-orange-300 hover:bg-orange-50 max-md:max-w-none';
+
+  function renderLockedContactBlock(compact = false) {
+    if (!sellerContactLocked) return null;
+    const displayName = author.name?.trim() || 'Uživatel';
+    return (
+      <div
+        className={`space-y-1 rounded-xl border border-zinc-200 bg-zinc-50/90 p-3 text-sm text-zinc-700 ${compact ? 'mt-3' : 'mt-3'}`}
+      >
+        <p className="font-semibold text-zinc-900">Kontakt skrytý</p>
+        <p>
+          Inzerent:{' '}
+          <span className={author.nameBlurred ? 'font-medium tracking-wide blur-[3px]' : 'font-medium'}>
+            {displayName}
+          </span>
+        </p>
+        <p className="text-zinc-500">Telefon skrytý</p>
+        <p className="text-zinc-500">E-mail skrytý</p>
+      </div>
+    );
+  }
 
   function renderContactBlock(compact = false) {
     if (!contactRevealed || (!phone && !email)) return null;
@@ -576,7 +621,12 @@ export function NemovitostDetailView({
                       📞 Zavolat
                     </a>
                   ) : null}
-                  <button type="button" onClick={handleWriteSeller} className={primaryMessageClass}>
+                  <button
+                    type="button"
+                    onClick={handleWriteSeller}
+                    disabled={sellerContactLocked}
+                    className={sellerContactLocked ? disabledActionClass : primaryMessageClass}
+                  >
                     <MessageCircle className="size-5 shrink-0" strokeWidth={2.25} aria-hidden />
                     ✉️ Napsat zprávu
                   </button>
@@ -589,6 +639,7 @@ export function NemovitostDetailView({
                       variant="secondary"
                       label="💬 WhatsApp"
                       className="w-full max-w-[360px]"
+                      disabled={sellerContactLocked}
                     />
                   ) : null}
                   {!isOwner && !contactRevealed && contactUnlockAvailable && !( !isTip && interestSubmitted) ? (
@@ -597,7 +648,7 @@ export function NemovitostDetailView({
                       onClick={handleShowContact}
                       className={secondaryActionClass}
                     >
-                      {isTip ? 'Zobrazit kontakt' : 'Mám zájem'}
+                      Zobrazit kontakt
                       {isTip && contactUnlockPrice > 0
                         ? ` (${contactUnlockPrice.toLocaleString('cs-CZ')} Kč)`
                         : ''}
@@ -613,6 +664,7 @@ export function NemovitostDetailView({
                       {contactLeadError}
                     </p>
                   ) : null}
+                  {renderLockedContactBlock(true)}
                   {renderContactBlock(true)}
                   {sellerActionHint ? (
                     <p className="w-full text-sm font-medium text-amber-800" role="status">
@@ -686,8 +738,13 @@ export function NemovitostDetailView({
               </div>
               <div className="min-w-0">
                 <p className="font-semibold text-zinc-900">
-                  {author.name?.trim() || 'Uživatel'}
+                  <span className={author.nameBlurred && sellerContactLocked ? 'tracking-wide blur-[3px]' : ''}>
+                    {author.name?.trim() || 'Uživatel'}
+                  </span>
                 </p>
+                {sellerContactLocked && companyName ? (
+                  <p className="mt-1 text-sm text-zinc-500 tracking-wide blur-[3px]">{companyName}</p>
+                ) : null}
               </div>
             </div>
           </div>
@@ -705,7 +762,7 @@ export function NemovitostDetailView({
                 onClick={handleShowContact}
                 className={`${secondaryActionClass} mt-3`}
               >
-                {isTip ? 'Zobrazit kontakt' : 'Mám zájem'}
+                Zobrazit kontakt
                 {isTip && contactUnlockPrice > 0
                   ? ` (${contactUnlockPrice.toLocaleString('cs-CZ')} Kč)`
                   : ''}
@@ -716,10 +773,11 @@ export function NemovitostDetailView({
                 {contactSuccessMsg}
               </p>
             ) : null}
+            {renderLockedContactBlock()}
             {renderContactBlock()}
             {!contactRevealed && !isTip ? (
               <p className="mt-2 text-sm text-zinc-600">
-                Projevte zájem — inzerent vás bude kontaktovat. Kontakt inzerenta se vám nezobrazí.
+                Kontakt inzerenta se zobrazí až po odeslání formuláře a zaplacení leadu inzerentem.
               </p>
             ) : null}
             {!contactRevealed && isTip ? (
@@ -727,9 +785,14 @@ export function NemovitostDetailView({
                 Kontakt zobrazíte po vyplnění formuláře a zaplacení kreditem.
               </p>
             ) : null}
-            <button type="button" onClick={handleWriteSeller} className={`${primaryMessageClass} mt-4`}>
+            <button
+              type="button"
+              onClick={handleWriteSeller}
+              disabled={sellerContactLocked}
+              className={`${sellerContactLocked ? disabledActionClass : primaryMessageClass} mt-4`}
+            >
               <MessageCircle className="size-5 shrink-0" strokeWidth={2.25} aria-hidden />
-              Odeslat zprávu prodejci
+              Napsat prodejci
             </button>
             {p.isOwnerListing && isAgentViewer && !isOwner ? (
               <button

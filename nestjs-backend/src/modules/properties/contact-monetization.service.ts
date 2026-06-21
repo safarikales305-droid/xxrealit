@@ -14,6 +14,7 @@ export type ContactMonetizationSettings = {
   tipMinContactPrice: number;
   tipMaxContactPrice: number;
   tipSuccessBonus: number;
+  showSellerContactToBuyer: boolean;
 };
 
 export type AdvertiserLeadSource = 'CLASSIC' | 'SHORTS' | 'DEVELOPER' | 'COMPANY';
@@ -29,6 +30,7 @@ const DEFAULT_SETTINGS: ContactMonetizationSettings = {
   tipMinContactPrice: 0,
   tipMaxContactPrice: 10000,
   tipSuccessBonus: 0,
+  showSellerContactToBuyer: false,
 };
 
 @Injectable()
@@ -54,6 +56,7 @@ export class ContactMonetizationService {
       tipMinContactPrice: row.tipMinContactPrice,
       tipMaxContactPrice: row.tipMaxContactPrice,
       tipSuccessBonus: row.tipSuccessBonus,
+      showSellerContactToBuyer: Boolean(row.showSellerContactToBuyer),
     };
   }
 
@@ -71,6 +74,8 @@ export class ContactMonetizationService {
       tipMinContactPrice: dto.tipMinContactPrice ?? current.tipMinContactPrice,
       tipMaxContactPrice: dto.tipMaxContactPrice ?? current.tipMaxContactPrice,
       tipSuccessBonus: dto.tipSuccessBonus ?? current.tipSuccessBonus,
+      showSellerContactToBuyer:
+        dto.showSellerContactToBuyer ?? current.showSellerContactToBuyer,
     };
 
     const nonNegative = [
@@ -111,6 +116,7 @@ export class ContactMonetizationService {
       tipMinContactPrice: row.tipMinContactPrice,
       tipMaxContactPrice: row.tipMaxContactPrice,
       tipSuccessBonus: row.tipSuccessBonus,
+      showSellerContactToBuyer: Boolean(row.showSellerContactToBuyer),
     };
   }
 
@@ -151,10 +157,39 @@ export class ContactMonetizationService {
     tx: Prisma.TransactionClient,
     ownerUserId: string,
     amount: number,
-    referenceId: string,
-    description: string,
+    listingId: string,
+    leadId: string,
+    listingTitle: string,
   ): Promise<number> {
-    return this.wallet.chargeOwnerReal(tx, ownerUserId, amount, referenceId, description);
+    const charge = Math.max(0, Math.trunc(amount));
+    if (charge === 0) return 0;
+
+    const description = `Kontakt zájemce u inzerátu: ${listingTitle}`;
+    await this.wallet.spendForContactUnlock(
+      tx,
+      ownerUserId,
+      charge,
+      'LISTING',
+      leadId,
+      description,
+      'LEAD_UNLOCK',
+    );
+
+    await tx.creditTransaction.create({
+      data: {
+        buyerUserId: ownerUserId,
+        tiparUserId: null,
+        tiparPostId: null,
+        propertyId: listingId,
+        amount: -charge,
+        type: 'LEAD_UNLOCK',
+        sourceType: 'LISTING',
+        sourceId: listingId,
+        description,
+      },
+    });
+
+    return charge;
   }
 
   async ownerCanAffordLead(ownerUserId: string, amount: number): Promise<boolean> {

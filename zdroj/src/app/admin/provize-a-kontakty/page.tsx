@@ -20,6 +20,7 @@ type FormState = {
   tipMinContactPrice: string;
   tipMaxContactPrice: string;
   tipSuccessBonus: string;
+  showSellerContactToBuyer: boolean;
 };
 
 export default function AdminContactMonetizationPage() {
@@ -37,6 +38,7 @@ export default function AdminContactMonetizationPage() {
     tipMinContactPrice: '0',
     tipMaxContactPrice: '10000',
     tipSuccessBonus: '0',
+    showSellerContactToBuyer: false,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -54,6 +56,7 @@ export default function AdminContactMonetizationPage() {
       tipMinContactPrice: String(s.tipMinContactPrice ?? 0),
       tipMaxContactPrice: String(s.tipMaxContactPrice ?? 10000),
       tipSuccessBonus: String(s.tipSuccessBonus ?? 0),
+      showSellerContactToBuyer: Boolean(s.showSellerContactToBuyer),
     });
   }, []);
 
@@ -95,6 +98,7 @@ export default function AdminContactMonetizationPage() {
       tipMaxContactPrice: Number(form.tipMaxContactPrice),
       tipSuccessBonus: Number(form.tipSuccessBonus),
       ownerListingContactPrice: Number(form.leadPriceClassic),
+      showSellerContactToBuyer: form.showSellerContactToBuyer,
     };
 
     if (Object.values(payload).some((v) => !Number.isFinite(v))) {
@@ -159,6 +163,24 @@ export default function AdminContactMonetizationPage() {
               </label>
             ))}
           </div>
+          <label className="flex items-start gap-3 rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-3 text-sm">
+            <input
+              type="checkbox"
+              checked={form.showSellerContactToBuyer}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, showSellerContactToBuyer: e.target.checked }))
+              }
+              className="mt-1"
+            />
+            <span>
+              <span className="block font-medium text-zinc-900">
+                Po odeslání leadu ukázat kontakt inzerenta zájemci
+              </span>
+              <span className="mt-0.5 block text-xs text-zinc-500">
+                Výchozí: ne. Platí jen po úspěšném stržení kreditu inzerenta (lead UNLOCKED).
+              </span>
+            </span>
+          </label>
         </section>
 
         <section className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">

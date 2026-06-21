@@ -15,6 +15,11 @@ export class CreditsController {
     return this.credits.getBalance(user.id);
   }
 
+  @Get('history')
+  getHistory(@CurrentUser() user: AuthUser) {
+    return this.credits.getHistory(user.id);
+  }
+
   @Post('top-up')
   topUp(
     @CurrentUser() user: AuthUser,

@@ -102,6 +102,8 @@ export type PropertyFromApi = {
   ownerContactConsent?: boolean;
   directContactVisible?: boolean;
   contactUnlocked?: boolean;
+  sellerContactVisible?: boolean;
+  buyerInterestSubmitted?: boolean;
   contactUnlockPrice?: number;
   contactUnlockAvailable?: boolean;
   isContactPaid?: boolean;
@@ -161,6 +163,8 @@ export type PropertyFeedItem = {
   ownerContactConsent?: boolean;
   directContactVisible?: boolean;
   contactUnlocked?: boolean;
+  sellerContactVisible?: boolean;
+  buyerInterestSubmitted?: boolean;
   contactUnlockPrice?: number;
   contactUnlockAvailable?: boolean;
   isContactPaid?: boolean;
@@ -289,6 +293,8 @@ export function normalizeProperty(p: PropertyFromApi): PropertyFeedItem {
     directContactVisible:
       typeof p.directContactVisible === 'boolean' ? p.directContactVisible : undefined,
     contactUnlocked: p.contactUnlocked === true,
+    sellerContactVisible: p.sellerContactVisible === true,
+    buyerInterestSubmitted: p.buyerInterestSubmitted === true,
     contactUnlockPrice:
       typeof p.contactUnlockPrice === 'number' && Number.isFinite(p.contactUnlockPrice)
         ? Math.max(0, Math.trunc(p.contactUnlockPrice))

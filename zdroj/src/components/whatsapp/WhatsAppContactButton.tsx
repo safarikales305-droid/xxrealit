@@ -11,6 +11,7 @@ type Props = {
   className?: string;
   variant?: 'primary' | 'secondary' | 'green';
   label?: string;
+  disabled?: boolean;
 };
 
 const VARIANT_CLASS: Record<NonNullable<Props['variant']>, string> = {
@@ -30,11 +31,13 @@ export function WhatsAppContactButton({
   className = '',
   variant = 'primary',
   label = 'Napsat na WhatsApp',
+  disabled = false,
 }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleClick() {
+    if (disabled) return;
     setBusy(true);
     setError(null);
     const res = await nestWhatsAppClick({
@@ -55,9 +58,9 @@ export function WhatsAppContactButton({
     <div className={className}>
       <button
         type="button"
-        disabled={busy}
+        disabled={busy || disabled}
         onClick={() => void handleClick()}
-        className={VARIANT_CLASS[variant]}
+        className={`${VARIANT_CLASS[variant]} ${disabled ? 'cursor-not-allowed border-zinc-200 bg-zinc-100 text-zinc-400' : ''}`}
         aria-label={label}
       >
         {busy ? 'Otevírám WhatsApp…' : label}

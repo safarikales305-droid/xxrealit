@@ -199,6 +199,56 @@ export class ListingContactUnlockService {
     return this.unlockTipListingContact(buyerUserId, property, dto);
   }
 
+  async getBuyerAdvertiserLeadState(buyerUserId: string | undefined, propertyId: string) {
+    if (!buyerUserId) {
+      return { submitted: false, sellerContactVisible: false, status: null as string | null };
+    }
+    const lead = await this.prisma.contactLead.findFirst({
+      where: {
+        listingId: propertyId,
+        interestedUserId: buyerUserId,
+        tipId: null,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const settings = await this.monetization.getSettings();
+    const sellerContactVisible =
+      Boolean(lead) &&
+      lead!.status === 'UNLOCKED' &&
+      settings.showSellerContactToBuyer;
+    return {
+      submitted: Boolean(lead),
+      status: lead?.status ?? null,
+      sellerContactVisible,
+    };
+  }
+
+  private async resolvePropertySellerContact(propertyId: string): Promise<ResolvedContact | null> {
+    const property = await this.prisma.property.findFirst({
+      where: { id: propertyId, deletedAt: null },
+      select: {
+        id: true,
+        contactName: true,
+        contactPhone: true,
+        contactEmail: true,
+        userId: true,
+        isTiparTip: true,
+      },
+    });
+    if (!property || property.isTiparTip) return null;
+
+    const owner = await this.prisma.user.findUnique({
+      where: { id: property.userId },
+      select: { name: true, phone: true, email: true },
+    });
+    const contact = resolveListingContact({ listing: property, tip: null, owner });
+    return isContactComplete(contact) ? contact : null;
+  }
+
+  private sellerContactPayload(contact: ResolvedContact) {
+    return this.contactResponse(contact);
+  }
+
   async listAdvertiserLeads(ownerUserId: string) {
     const rows = await this.prisma.contactLead.findMany({
       where: {
@@ -262,8 +312,9 @@ export class ListingContactUnlockService {
             tx,
             ownerUserId,
             price,
+            lead.listingId ?? lead.id,
             lead.id,
-            `Poplatek za lead: ${listing?.title ?? lead.listingId ?? lead.id}`,
+            listing?.title ?? 'inzerát',
           );
         }
         await tx.contactLead.update({
@@ -323,6 +374,12 @@ export class ListingContactUnlockService {
       orderBy: { createdAt: 'desc' },
     });
     if (duplicate) {
+      const settings = await this.monetization.getSettings();
+      const showContact =
+        duplicate.status === 'UNLOCKED' && settings.showSellerContactToBuyer;
+      const sellerContact = showContact
+        ? await this.resolvePropertySellerContact(property.id)
+        : null;
       return {
         submitted: true,
         duplicate: true,
@@ -331,6 +388,7 @@ export class ListingContactUnlockService {
           duplicate.status === 'UNLOCKED'
             ? 'Děkujeme, prodejce vás bude brzy kontaktovat.'
             : 'Děkujeme, prodejce se vám brzy ozve.',
+        ...(sellerContact ? this.sellerContactPayload(sellerContact) : {}),
       };
     }
 
@@ -349,26 +407,16 @@ export class ListingContactUnlockService {
       let status: 'UNLOCKED' | 'WAITING_FOR_CREDIT' = 'UNLOCKED';
       let unlockedAt: Date | null = now;
 
-      if (canAfford && leadPrice > 0) {
-        const charged = await this.monetization.chargeOwnerForLead(
-          tx,
-          property.userId,
-          leadPrice,
-          property.id,
-          `Poplatek za lead u inzerátu: ${property.title}`,
-        );
-        ownerChargedAmount = charged;
-        creditCharged = charged > 0;
-      } else if (!canAfford && leadPrice > 0) {
+      if (!canAfford && leadPrice > 0) {
         status = 'WAITING_FOR_CREDIT';
         creditCharged = false;
         unlockedAt = null;
-      } else {
+      } else if (leadPrice === 0) {
         ownerChargedAmount = 0;
         creditCharged = false;
       }
 
-      return tx.contactLead.create({
+      const leadRow = await tx.contactLead.create({
         data: {
           listingId: property.id,
           sourceType: 'LISTING',
@@ -382,11 +430,30 @@ export class ListingContactUnlockService {
           message: lead.message,
           status,
           unlockPrice: 0,
-          ownerChargedAmount,
+          ownerChargedAmount: status === 'WAITING_FOR_CREDIT' ? leadPrice : ownerChargedAmount,
           creditCharged,
           unlockedAt,
         },
       });
+
+      if (canAfford && leadPrice > 0) {
+        const charged = await this.monetization.chargeOwnerForLead(
+          tx,
+          property.userId,
+          leadPrice,
+          property.id,
+          leadRow.id,
+          property.title,
+        );
+        ownerChargedAmount = charged;
+        creditCharged = charged > 0;
+        await tx.contactLead.update({
+          where: { id: leadRow.id },
+          data: { ownerChargedAmount: charged, creditCharged: charged > 0 },
+        });
+      }
+
+      return { ...leadRow, ownerChargedAmount, creditCharged, status };
     });
 
     const waitingForCredit = created.status === 'WAITING_FOR_CREDIT';
@@ -399,6 +466,12 @@ export class ListingContactUnlockService {
       waitingForCredit,
     });
 
+    const showContact =
+      !waitingForCredit && settings.showSellerContactToBuyer;
+    const sellerContact = showContact
+      ? await this.resolvePropertySellerContact(property.id)
+      : null;
+
     return {
       submitted: true,
       duplicate: false,
@@ -406,6 +479,8 @@ export class ListingContactUnlockService {
       message: waitingForCredit
         ? 'Děkujeme, prodejce se vám brzy ozve.'
         : 'Děkujeme, prodejce vás bude brzy kontaktovat.',
+      leadPriceCharged: created.creditCharged ? created.ownerChargedAmount : 0,
+      ...(sellerContact ? this.sellerContactPayload(sellerContact) : {}),
     };
   }
 
@@ -592,34 +667,62 @@ export class ListingContactUnlockService {
 
       let ownerChargedAmount = 0;
       if (ownerCharge > 0) {
+        const leadRow = await tx.contactLead.create({
+          data: {
+            listingId: propertyId,
+            tipId: tip?.id ?? null,
+            sourceType,
+            sourceId: propertyId,
+            interestedUserId: buyerUserId,
+            ownerUserId: property.userId,
+            tipsterUserId,
+            name: lead.name,
+            email: lead.email,
+            phone: lead.phone,
+            unlockPrice: buyerPrice,
+            portalAmount: property.isTiparTip ? tipSplit.portalAmount : 0,
+            tipsterAmount: property.isTiparTip ? tipSplit.tipsterAmount : 0,
+            ownerChargedAmount: 0,
+            creditCharged: buyerPrice > 0,
+            status: 'UNLOCKED',
+            unlockedAt: new Date(),
+          },
+        });
         ownerChargedAmount = await this.monetization.chargeOwnerForLead(
           tx,
           property.userId,
           ownerCharge,
           propertyId,
-          `Poplatek za lead u vlastního inzerátu: ${property.title}`,
+          leadRow.id,
+          property.title,
         );
+        await tx.contactLead.update({
+          where: { id: leadRow.id },
+          data: { ownerChargedAmount },
+        });
+      } else {
+        await tx.contactLead.create({
+          data: {
+            listingId: propertyId,
+            tipId: tip?.id ?? null,
+            sourceType,
+            sourceId: propertyId,
+            interestedUserId: buyerUserId,
+            ownerUserId: property.userId,
+            tipsterUserId,
+            name: lead.name,
+            email: lead.email,
+            phone: lead.phone,
+            unlockPrice: buyerPrice,
+            portalAmount: property.isTiparTip ? tipSplit.portalAmount : 0,
+            tipsterAmount: property.isTiparTip ? tipSplit.tipsterAmount : 0,
+            ownerChargedAmount: 0,
+            creditCharged: buyerPrice > 0,
+            status: 'UNLOCKED',
+            unlockedAt: new Date(),
+          },
+        });
       }
-
-      await tx.contactLead.create({
-        data: {
-          listingId: propertyId,
-          tipId: tip?.id ?? null,
-          sourceType,
-          sourceId: propertyId,
-          interestedUserId: buyerUserId,
-          ownerUserId: property.userId,
-          tipsterUserId,
-          name: lead.name,
-          email: lead.email,
-          phone: lead.phone,
-          unlockPrice: buyerPrice,
-          portalAmount: property.isTiparTip ? tipSplit.portalAmount : 0,
-          tipsterAmount: property.isTiparTip ? tipSplit.tipsterAmount : 0,
-          ownerChargedAmount,
-          creditCharged: buyerPrice > 0,
-        },
-      });
     });
 
     await this.notifyOwner({

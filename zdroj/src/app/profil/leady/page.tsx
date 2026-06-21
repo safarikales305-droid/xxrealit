@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import {
+  nestCreditsBalance,
   nestListAdvertiserLeads,
   nestUnlockPendingListingLeads,
   type AdvertiserListingLeadRow,
@@ -24,6 +25,7 @@ export default function ProfilLeadyPage() {
     if (!token) return;
     setLoading(true);
     setLeads(await nestListAdvertiserLeads(token));
+    void nestCreditsBalance(token);
     setLoading(false);
   }, [token]);
 

@@ -8,6 +8,7 @@ import {
 export type PropertyDetailAuthor = {
   id: string;
   name?: string | null;
+  nameBlurred?: boolean;
   phone?: string | null;
   phonePublic?: boolean;
   whatsappEnabled?: boolean;
@@ -50,6 +51,7 @@ function pickUserFromDetail(
       return {
         id,
         name: str(u.name),
+        nameBlurred: u.nameBlurred === true,
         phone: str(u.phone),
         phonePublic: u.phonePublic === true,
         whatsappEnabled: u.whatsappEnabled === true,

@@ -175,6 +175,7 @@ export class CreditWalletService {
     sourceType: ContactUnlockSourceType,
     referenceId: string,
     description: string,
+    purposeOverride?: CreditLedgerPurpose,
   ): Promise<ContactUnlockSpendBreakdown & UserCreditBalances> {
     const settings = await this.getSettings();
     const user = await tx.user.findUnique({
@@ -190,7 +191,8 @@ export class CreditWalletService {
 
     const breakdown = this.computeContactUnlockSpend(user, amount, sourceType, settings);
     const purpose: CreditLedgerPurpose =
-      sourceType === 'LISTING' ? 'LISTING_CONTACT_UNLOCK' : 'TIP_CONTACT_UNLOCK';
+      purposeOverride ??
+      (sourceType === 'LISTING' ? 'LISTING_CONTACT_UNLOCK' : 'TIP_CONTACT_UNLOCK');
 
     const updated = await tx.user.update({
       where: { id: userId },

@@ -19,6 +19,7 @@ export type CreditLedgerPurpose =
   | 'PROFILE_VERIFIED'
   | 'CUSTOM'
   | 'OWNER_CONTACT_LEAD'
+  | 'LEAD_UNLOCK'
   | 'CONTACT_UNLOCK_TIPSTER'
   | 'ADMIN_ADJUSTMENT';
 

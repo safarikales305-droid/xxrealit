@@ -165,6 +165,47 @@ export class CreditsService {
     };
   }
 
+  async getHistory(userId: string, limit = 50) {
+    const take = Math.min(100, Math.max(1, Math.trunc(limit)));
+    const [ledger, transactions] = await Promise.all([
+      this.prisma.creditLedger.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.creditTransaction.findMany({
+        where: { buyerUserId: userId },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+    ]);
+
+    const ledgerRows = ledger.map((row) => ({
+      id: row.id,
+      source: 'ledger' as const,
+      amount: row.amount,
+      type: row.type,
+      purpose: row.purpose,
+      description: row.description,
+      createdAt: row.createdAt.toISOString(),
+    }));
+
+    const txRows = transactions.map((row) => ({
+      id: row.id,
+      source: 'transaction' as const,
+      amount: row.amount,
+      type: row.type,
+      purpose: row.type,
+      description: row.description,
+      propertyId: row.propertyId,
+      createdAt: row.createdAt.toISOString(),
+    }));
+
+    return [...ledgerRows, ...txRows]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, take);
+  }
+
   async topUp(userId: string, amountInput: number) {
     const amount = Math.trunc(amountInput);
     if (!Number.isFinite(amount) || amount !== amountInput) {

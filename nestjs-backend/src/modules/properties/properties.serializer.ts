@@ -238,6 +238,8 @@ export type PropertySerializeOptions = {
   contactUnlockPrice?: number;
   contactUnlockAvailable?: boolean;
   isContactPaid?: boolean;
+  sellerContactVisible?: boolean;
+  buyerInterestSubmitted?: boolean;
 };
 
 function shouldRedactOwnerContact(
@@ -560,6 +562,8 @@ function serializePropertyCore(
     district: safeTrim(p.district),
     directContactVisible: !redact,
     contactUnlocked: Boolean(opts?.contactUnlocked),
+    sellerContactVisible: Boolean(opts?.sellerContactVisible),
+    buyerInterestSubmitted: Boolean(opts?.buyerInterestSubmitted),
     contactUnlockPrice: unlockPrice,
     contactUnlockAvailable: opts?.contactUnlockAvailable !== false,
     isContactPaid: Boolean(opts?.isContactPaid ?? p.isContactPaid),
