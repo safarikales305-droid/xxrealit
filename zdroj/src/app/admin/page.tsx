@@ -467,6 +467,12 @@ export default function AdminPage() {
               Promo profily
             </Link>
             <Link
+              href="/admin/clanky"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Články / Rady
+            </Link>
+            <Link
               href="/admin/bonusove-akce"
               className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >

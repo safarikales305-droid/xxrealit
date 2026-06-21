@@ -2034,3 +2034,19 @@ model ActivityLog {
   @@index([userId, createdAt])
   @@index([listingId, createdAt])
 }
+
+/// Články / rady při koupi (admin CMS, box na detailu inzerátu).
+model PurchaseAdviceArticle {
+  id          String   @id @default(cuid())
+  title       String
+  imageUrl    String?
+  body        String   @db.Text
+  category    String   @default("obecne")
+  isPublished Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isPublished, sortOrder])
+  @@index([category])
+}

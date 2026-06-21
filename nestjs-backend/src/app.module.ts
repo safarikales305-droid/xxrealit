@@ -38,6 +38,7 @@ import { CommunicationModule } from './modules/communication/communication.modul
 import { PromoProfilesModule } from './modules/promo-profiles/promo-profiles.module';
 import { PostSoundsModule } from './modules/post-sounds/post-sounds.module';
 import { WebPushModule } from './modules/web-push/web-push.module';
+import { PurchaseAdviceArticlesModule } from './modules/purchase-advice-articles/purchase-advice-articles.module';
 
 @Module({
   imports: [
@@ -82,6 +83,7 @@ import { WebPushModule } from './modules/web-push/web-push.module';
     PromoProfilesModule,
     PostSoundsModule,
     WebPushModule,
+    PurchaseAdviceArticlesModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

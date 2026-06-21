@@ -185,7 +185,7 @@ export function normalizePropertyDetailPayload(
     });
   }
 
-  const otherRaw = (o.otherProperties ?? o.other ?? o.similar) as unknown;
+  const otherRaw = (o.otherProperties ?? o.similarProperties ?? o.other ?? o.similar) as unknown;
   const other: PropertyFeedItem[] = [];
   if (Array.isArray(otherRaw)) {
     for (const item of otherRaw) {

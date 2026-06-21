@@ -3912,6 +3912,178 @@ export async function nestListPublicBrokers(
   return nestListPublicProfessionals(options);
 }
 
+export type PurchaseAdviceArticleRow = {
+  id: string;
+  title: string;
+  imageUrl?: string | null;
+  category?: string;
+  body?: string;
+  isPublished?: boolean;
+  sortOrder?: number;
+  createdAt?: string;
+};
+
+export type PurchaseAdviceArticleAdminRow = PurchaseAdviceArticleRow & {
+  body: string;
+  isPublished: boolean;
+  sortOrder: number;
+};
+
+export async function nestListPurchaseAdviceArticles(
+  limit = 12,
+): Promise<PurchaseAdviceArticleRow[]> {
+  if (!API_BASE_URL) return [];
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/purchase-advice-articles/public?limit=${encodeURIComponent(String(limit))}`,
+      { cache: 'no-store', headers: { Accept: 'application/json' } },
+    );
+    if (!res.ok) return [];
+    const data = (await res.json()) as unknown;
+    return Array.isArray(data) ? (data as PurchaseAdviceArticleRow[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function nestGetPurchaseAdviceArticle(
+  id: string,
+): Promise<PurchaseAdviceArticleRow | null> {
+  if (!API_BASE_URL || !id.trim()) return null;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/purchase-advice-articles/public/${encodeURIComponent(id.trim())}`,
+      { cache: 'no-store', headers: { Accept: 'application/json' } },
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as PurchaseAdviceArticleRow;
+  } catch {
+    return null;
+  }
+}
+
+export async function nestAdminPurchaseAdviceArticlesList(
+  token: string,
+): Promise<{ ok: boolean; rows?: PurchaseAdviceArticleAdminRow[]; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/admin/purchase-advice-articles`, {
+      cache: 'no-store',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    });
+    const data = await res.json().catch(() => []);
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return { ok: true, rows: Array.isArray(data) ? data : [] };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestAdminPurchaseAdviceArticleCreate(
+  token: string,
+  body: {
+    title: string;
+    imageUrl?: string;
+    body: string;
+    category?: string;
+    isPublished?: boolean;
+    sortOrder?: number;
+  },
+): Promise<{ ok: boolean; row?: PurchaseAdviceArticleAdminRow; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/admin/purchase-advice-articles`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return { ok: true, row: data as PurchaseAdviceArticleAdminRow };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestAdminPurchaseAdviceArticleUpdate(
+  token: string,
+  id: string,
+  body: Partial<{
+    title: string;
+    imageUrl: string;
+    body: string;
+    category: string;
+    isPublished: boolean;
+    sortOrder: number;
+  }>,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/admin/purchase-advice-articles/${encodeURIComponent(id)}`,
+      {
+        method: 'PATCH',
+        headers: {
+          ...nestAuthHeaders(token),
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestAdminPurchaseAdviceArticleDelete(
+  token: string,
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/admin/purchase-advice-articles/${encodeURIComponent(id)}`,
+      {
+        method: 'DELETE',
+        headers: nestAuthHeaders(token),
+      },
+    );
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return {
+        ok: false,
+        error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
 export type NestStoryRow = {
   id: string;
   type: 'IMAGE' | 'VIDEO';

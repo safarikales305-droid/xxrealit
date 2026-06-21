@@ -654,6 +654,149 @@ export class PropertiesService {
     };
   }
 
+  private similarListingInclude(viewerId?: string) {
+    return {
+      media: {
+        orderBy: { sortOrder: 'asc' as const },
+      },
+      _count: { select: { likes: true } },
+      user: { select: { id: true, city: true } },
+      ...(viewerId
+        ? {
+            likes: {
+              where: { userId: viewerId },
+              select: { id: true },
+              take: 1,
+            },
+          }
+        : {}),
+    };
+  }
+
+  private scoreSimilarListing(
+    candidate: {
+      city: string;
+      propertyType: string;
+      offerType: string;
+      price: number | null;
+      importCategoryKey: string;
+    },
+    source: {
+      city: string;
+      propertyType: string;
+      offerType: string;
+      price: number | null;
+      importCategoryKey: string;
+    },
+  ): number {
+    let score = 0;
+    const cityA = source.city.trim().toLowerCase();
+    const cityB = candidate.city.trim().toLowerCase();
+    if (cityA && cityB && cityA === cityB) score += 5;
+    if (candidate.propertyType === source.propertyType) score += 4;
+    if (candidate.offerType === source.offerType) score += 2;
+    const catA = source.importCategoryKey.trim();
+    const catB = candidate.importCategoryKey.trim();
+    if (catA && catB && catA === catB) score += 2;
+    const priceA = source.price;
+    const priceB = candidate.price;
+    if (priceA != null && priceA > 0 && priceB != null && priceB > 0) {
+      const diff = Math.abs(priceB - priceA) / priceA;
+      if (diff <= 0.15) score += 4;
+      else if (diff <= 0.3) score += 2;
+      else if (diff <= 0.5) score += 1;
+    }
+    return score;
+  }
+
+  private async findSimilarPropertyRows(
+    property: {
+      id: string;
+      userId: string;
+      city: string;
+      propertyType: string;
+      offerType: string;
+      price: number | null;
+      importCategoryKey: string;
+    },
+    viewerId: string | undefined,
+    take = 8,
+  ) {
+    const baseWhere: Prisma.PropertyWhereInput = {
+      id: { not: property.id },
+      userId: { not: property.userId },
+      deletedAt: null,
+      ...classicPublicListingWhere,
+    };
+
+    const price = property.price;
+    const priceBand =
+      price != null && price > 0
+        ? { gte: Math.floor(price * 0.7), lte: Math.ceil(price * 1.3) }
+        : undefined;
+
+    const orFilters: Prisma.PropertyWhereInput[] = [
+      { city: { equals: property.city, mode: 'insensitive' } },
+      { propertyType: property.propertyType },
+      { offerType: property.offerType },
+    ];
+    if (property.importCategoryKey.trim()) {
+      orFilters.push({ importCategoryKey: property.importCategoryKey.trim() });
+    }
+    if (priceBand) {
+      orFilters.push({ price: priceBand });
+    }
+
+    const include = this.similarListingInclude(viewerId);
+    const matched = await this.prisma.property.findMany({
+      where: { ...baseWhere, OR: orFilters },
+      take: 48,
+      include,
+    });
+
+    const seen = new Set<string>(matched.map((r) => r.id));
+    let pool = [...matched];
+    if (pool.length < take) {
+      const fallback = await this.prisma.property.findMany({
+        where: baseWhere,
+        orderBy: { createdAt: 'desc' },
+        take: 48,
+        include,
+      });
+      for (const row of fallback) {
+        if (seen.has(row.id)) continue;
+        seen.add(row.id);
+        pool.push(row);
+      }
+    }
+
+    const source = {
+      city: property.city,
+      propertyType: property.propertyType,
+      offerType: property.offerType,
+      price: property.price,
+      importCategoryKey: property.importCategoryKey,
+    };
+
+    return pool
+      .map((row) => ({
+        row,
+        score: this.scoreSimilarListing(
+          {
+            city: row.city,
+            propertyType: row.propertyType,
+            offerType: row.offerType,
+            price: row.price,
+            importCategoryKey: row.importCategoryKey,
+          },
+          source,
+        ),
+      }))
+      .sort((a, b) => b.score - a.score || b.row.createdAt.getTime() - a.row.createdAt.getTime())
+      .slice(0, take)
+      .map((x) => x.row);
+  }
+
   async findOneForDetail(
     id: string,
     viewerId?: string,
@@ -734,41 +877,20 @@ export class PropertiesService {
       role: author.role,
     };
 
-    const othersWhere: Prisma.PropertyWhereInput =
-      admin || isOwner
-        ? {
-            userId: property.userId,
-            id: { not: property.id },
-            deletedAt: null,
-          }
-        : {
-            userId: property.userId,
-            id: { not: property.id },
-            ...classicPublicListingWhere,
-          };
-
     const otherRows = includeOther
-      ? await this.prisma.property.findMany({
-          where: othersWhere,
-          orderBy: { createdAt: 'desc' },
-          take: 8,
-          include: {
-            media: {
-              orderBy: { sortOrder: 'asc' },
-            },
-            _count: { select: { likes: true } },
-            user: { select: { id: true, city: true } },
-            ...(viewerId
-              ? {
-                  likes: {
-                    where: { userId: viewerId },
-                    select: { id: true },
-                    take: 1,
-                  },
-                }
-              : {}),
+      ? await this.findSimilarPropertyRows(
+          {
+            id: property.id,
+            userId: property.userId,
+            city: property.city,
+            propertyType: property.propertyType,
+            offerType: property.offerType,
+            price: property.price,
+            importCategoryKey: property.importCategoryKey ?? '',
           },
-        })
+          viewerId,
+          8,
+        )
       : [];
 
     const likesArr =

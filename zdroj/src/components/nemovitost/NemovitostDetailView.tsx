@@ -23,6 +23,7 @@ import { TipDetailBadge } from '@/components/listing/TipBadges';
 import { isTipListing } from '@/lib/is-tip-listing';
 import { listingDetailHref } from '@/lib/listing-detail-navigation';
 import { ListingDetailBackButton } from '@/components/nemovitost/ListingDetailBackButton';
+import { ListingDetailLeftSidebar } from '@/components/nemovitost/ListingDetailLeftSidebar';
 import { WhatsAppContactButton } from '@/components/whatsapp/WhatsAppContactButton';
 import { classicListingCoverUrl, type PropertyFeedItem } from '@/types/property';
 
@@ -170,6 +171,7 @@ export function NemovitostDetailView({
   const [contactLeadOpen, setContactLeadOpen] = useState(false);
   const [contactLeadBusy, setContactLeadBusy] = useState(false);
   const [contactLeadError, setContactLeadError] = useState<string | null>(null);
+  const [showCreditModal, setShowCreditModal] = useState(false);
   const [contactSuccessMsg, setContactSuccessMsg] = useState<string | null>(null);
   const [unlockedContact, setUnlockedContact] = useState<{
     phone: string | null;
@@ -232,11 +234,17 @@ export function NemovitostDetailView({
   );
   const isAgentViewer = user?.role === 'AGENT';
   const showOwnerBadges = Boolean(p.isOwnerListing);
-  const directContactOk = p.directContactVisible === true || p.contactUnlocked === true;
-  const phone = (unlockedContact?.phone ?? p.contactPhone ?? '').trim();
-  const email = (unlockedContact?.email ?? p.contactEmail ?? '').trim();
-  const nameContact = (unlockedContact?.contactName ?? p.contactName ?? '').trim();
-  const contactRevealed = directContactOk || Boolean(unlockedContact);
+  const contactRevealed =
+    Boolean(p.contactUnlocked) || Boolean(unlockedContact);
+  const phone = contactRevealed
+    ? (unlockedContact?.phone ?? p.contactPhone ?? '').trim()
+    : '';
+  const email = contactRevealed
+    ? (unlockedContact?.email ?? p.contactEmail ?? '').trim()
+    : '';
+  const nameContact = contactRevealed
+    ? (unlockedContact?.contactName ?? p.contactName ?? '').trim()
+    : '';
   const contactUnlockPrice = p.contactUnlockPrice ?? 0;
   const contactUnlockAvailable = p.contactUnlockAvailable !== false;
   const companyName =
@@ -281,6 +289,11 @@ export function NemovitostDetailView({
     const r = await nestListingUnlockContact(apiAccessToken, propertyId, lead);
     setContactLeadBusy(false);
     if (!r.ok || !r.data) {
+      if (r.code === 'INSUFFICIENT_CREDIT') {
+        setContactLeadOpen(false);
+        setShowCreditModal(true);
+        return;
+      }
       if (r.code === 'BONUS_NOT_ALLOWED_FOR_TIP' || r.code === 'REAL_CREDIT_REQUIRED') {
         setContactLeadError(
           r.error ??
@@ -412,26 +425,7 @@ export function NemovitostDetailView({
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6">
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-        <aside className="hidden space-y-4 xl:col-span-3 xl:block">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-            <p className="text-sm font-semibold text-zinc-900">Makléři a partneři</p>
-            <p className="mt-2 text-sm text-zinc-600">
-              Prostor pro doporučené makléřské služby a reklamu.
-            </p>
-          </div>
-          <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-            <p className="text-sm font-semibold text-zinc-900">Stavební firmy</p>
-            <p className="mt-2 text-sm text-zinc-600">
-              Tipy na ověřené dodavatele a rekonstrukce.
-            </p>
-          </div>
-          <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-            <p className="text-sm font-semibold text-zinc-900">Rady při koupi</p>
-            <p className="mt-2 text-sm text-zinc-600">
-              Kontrola LV, hypotéka, předání nemovitosti.
-            </p>
-          </div>
-        </aside>
+        <ListingDetailLeftSidebar />
 
         <main className="min-w-0 xl:col-span-6">
           <ListingDetailBackButton />
@@ -566,7 +560,7 @@ export function NemovitostDetailView({
                   Rychlé akce
                 </p>
                 <div className="mt-3 flex flex-col items-center gap-3">
-                  {!isOwner && phone ? (
+                  {!isOwner && contactRevealed && phone ? (
                     <a href={`tel:${phone}`} className={secondaryActionClass}>
                       📞 Zavolat
                     </a>
@@ -586,15 +580,14 @@ export function NemovitostDetailView({
                       className="w-full max-w-[360px]"
                     />
                   ) : null}
-                  {!isOwner && contactUnlockAvailable ? (
+                  {!isOwner && !contactRevealed && contactUnlockAvailable ? (
                     <button
                       type="button"
                       onClick={handleShowContact}
                       className={secondaryActionClass}
-                      disabled={contactRevealed}
                     >
                       Zobrazit kontakt
-                      {contactUnlockPrice > 0 && !contactRevealed
+                      {contactUnlockPrice > 0
                         ? ` (${contactUnlockPrice.toLocaleString('cs-CZ')} Kč)`
                         : ''}
                     </button>
@@ -677,7 +670,7 @@ export function NemovitostDetailView({
               </div>
               <div className="min-w-0">
                 <p className="font-semibold text-zinc-900">
-                  {(nameContact || author.name)?.trim() || 'Uživatel'}
+                  {author.name?.trim() || 'Uživatel'}
                 </p>
               </div>
             </div>
@@ -690,14 +683,14 @@ export function NemovitostDetailView({
             <p className="mt-2 text-sm text-zinc-600">
               Domluvte si prohlídku nebo doplňující informace u inzerenta.
             </p>
-            {!isOwner && contactUnlockAvailable ? (
+            {!isOwner && !contactRevealed && contactUnlockAvailable ? (
               <button
                 type="button"
                 onClick={handleShowContact}
                 className={`${secondaryActionClass} mt-3`}
-                disabled={contactRevealed}
               >
                 Zobrazit kontakt
+                {contactUnlockPrice > 0 ? ` (${contactUnlockPrice.toLocaleString('cs-CZ')} Kč)` : ''}
               </button>
             ) : null}
             {renderContactBlock()}
@@ -726,7 +719,7 @@ export function NemovitostDetailView({
           </div>
           {other.length > 0 ? (
             <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-              <p className="text-sm font-semibold text-zinc-900">Další od stejného uživatele</p>
+              <p className="text-sm font-semibold text-zinc-900">Podobné inzeráty</p>
               <ul className="mt-3 space-y-3">
                 {other.map((item) => (
                   <li key={item.id}>
@@ -752,8 +745,8 @@ export function NemovitostDetailView({
             </div>
           ) : (
             <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-              <p className="text-sm font-semibold text-zinc-900">Podobné nabídky</p>
-              <p className="mt-2 text-sm text-zinc-600">Brzy doplníme doporučené inzeráty.</p>
+              <p className="text-sm font-semibold text-zinc-900">Podobné inzeráty</p>
+              <p className="mt-2 text-sm text-zinc-600">Zatím nemáme podobné nabídky.</p>
             </div>
           )}
         </aside>
@@ -770,6 +763,32 @@ export function NemovitostDetailView({
         onClose={() => setContactLeadOpen(false)}
         onSubmit={(lead) => void handleContactLeadSubmit(lead)}
       />
+
+      {showCreditModal ? (
+        <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/40 p-4">
+          <div className="max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold">Dobijte kredit</h3>
+            <p className="mt-2 text-sm text-zinc-600">
+              Nemáte dostatek kreditu pro zobrazení kontaktu. Dobijte si kredit v profilu.
+            </p>
+            <div className="mt-4 flex gap-2">
+              <Link
+                href="/profil/dashboard?tab=settings"
+                className="rounded-full bg-[#e85d00] px-4 py-2 text-sm font-semibold text-white"
+              >
+                Dobít kredit
+              </Link>
+              <button
+                type="button"
+                onClick={() => setShowCreditModal(false)}
+                className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700"
+              >
+                Zavřít
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <MessageSellerModal
         open={sellerModalOpen}
