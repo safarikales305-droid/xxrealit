@@ -277,6 +277,9 @@ model User {
   facebookImportStatus   FacebookImportStatus @default(IDLE)
   facebookImportError    String?              @db.Text
 
+  /// Číslo účtu pro výplatu provizí tipařům.
+  tiparPayoutBankAccount String?
+
   /// Upozornění — nové příspěvky ve feedu / od sledovaných.
   notifyNewPosts       Boolean @default(true)
   /// Upozornění — nové zprávy v chatu.

@@ -12,6 +12,7 @@ type Props = {
   token: string | null;
   initialBalance?: number;
   whatsappVerified?: boolean;
+  canTopUpCredits?: boolean;
   onBalanceChange?: (balance: number) => void;
 };
 
@@ -32,6 +33,7 @@ export function CreditTopUpSection({
   token,
   initialBalance,
   whatsappVerified = true,
+  canTopUpCredits = true,
   onBalanceChange,
 }: Props) {
   const onBalanceChangeRef = useRef(onBalanceChange);
@@ -153,7 +155,11 @@ export function CreditTopUpSection({
         </p>
       ) : null}
 
-      {!whatsappVerified ? (
+      {!canTopUpCredits ? (
+        <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Pro dobití kreditu vyplňte jméno, ověřte e-mail a ověřte WhatsApp číslo v profilu.
+        </p>
+      ) : !whatsappVerified ? (
         <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           Pro dobití kreditu musíte nejdříve ověřit telefonní číslo přes WhatsApp.
         </p>
@@ -177,7 +183,7 @@ export function CreditTopUpSection({
         </div>
         <button
           type="button"
-          disabled={loading || !token || !whatsappVerified}
+          disabled={loading || !token || !whatsappVerified || !canTopUpCredits}
           onClick={() => void onTopUp()}
           className="rounded-xl bg-[#e85d00] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#d45300] disabled:opacity-60"
         >

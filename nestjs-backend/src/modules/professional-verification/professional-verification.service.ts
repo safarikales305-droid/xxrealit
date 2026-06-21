@@ -94,22 +94,24 @@ export class ProfessionalVerificationService {
         email: true,
         bio: true,
         avatar: true,
+        city: true,
+        emailVerified: true,
+        whatsappVerified: true,
         brokerOfficeName: true,
         professionalVerificationStatus: true,
-        whatsappVerified: true,
         agentProfile: {
-          select: { companyName: true, ico: true, bio: true, avatarUrl: true },
+          select: { companyName: true, ico: true, bio: true, avatarUrl: true, city: true },
         },
         companyProfile: {
-          select: { companyName: true, ico: true, description: true, logoUrl: true },
+          select: { companyName: true, ico: true, description: true, logoUrl: true, city: true },
         },
         agencyProfile: {
-          select: { agencyName: true, ico: true, logoUrl: true },
+          select: { agencyName: true, ico: true, logoUrl: true, city: true },
         },
         financialAdvisorProfile: {
-          select: { ico: true, bio: true, avatarUrl: true },
+          select: { ico: true, bio: true, avatarUrl: true, city: true },
         },
-        investorProfile: { select: { bio: true, avatarUrl: true } },
+        investorProfile: { select: { bio: true, avatarUrl: true, city: true } },
       },
     });
     if (!user) throw new NotFoundException('Uživatel nenalezen');

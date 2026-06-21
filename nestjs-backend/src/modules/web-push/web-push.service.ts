@@ -1,6 +1,10 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../database/prisma.service';
+import {
+  resolveVapidConfig,
+  VAPID_SETUP_INSTRUCTIONS,
+} from './vapid-config.util';
 
 @Injectable()
 export class WebPushService {
@@ -9,18 +13,37 @@ export class WebPushService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
-  ) {}
+  ) {
+    const vapid = resolveVapidConfig(this.config);
+    if (vapid.configured) {
+      this.logger.log('[web-push] VAPID klíče nakonfigurovány');
+    } else {
+      this.logger.warn(`[web-push] VAPID není připraveno: ${vapid.issues.join('; ')}`);
+    }
+  }
+
+  private vapid() {
+    return resolveVapidConfig(this.config);
+  }
 
   getVapidPublicKey(): string | null {
-    const key = this.config.get<string>('WEB_PUSH_VAPID_PUBLIC_KEY')?.trim();
-    return key || null;
+    return this.vapid().publicKey;
   }
 
   isConfigured(): boolean {
-    return Boolean(
-      this.getVapidPublicKey() &&
-        this.config.get<string>('WEB_PUSH_VAPID_PRIVATE_KEY')?.trim(),
-    );
+    return this.vapid().configured;
+  }
+
+  getAdminStatus() {
+    const vapid = this.vapid();
+    return {
+      configured: vapid.configured,
+      issues: vapid.issues,
+      hasPublicKey: Boolean(vapid.publicKey),
+      hasPrivateKey: Boolean(vapid.privateKey),
+      subject: vapid.subject,
+      instructions: [...VAPID_SETUP_INSTRUCTIONS],
+    };
   }
 
   async getNotificationPrefs(userId: string) {
@@ -43,6 +66,8 @@ export class WebPushService {
       pushSubscribed: await this.prisma.webPushSubscription
         .count({ where: { userId } })
         .then((n) => n > 0),
+      pushSetupIssues: this.vapid().issues,
+      pushSetupInstructions: this.isConfigured() ? [] : [...VAPID_SETUP_INSTRUCTIONS],
     };
   }
 
@@ -85,6 +110,8 @@ export class WebPushService {
       pushSubscribed: await this.prisma.webPushSubscription
         .count({ where: { userId } })
         .then((n) => n > 0),
+      pushSetupIssues: this.vapid().issues,
+      pushSetupInstructions: this.isConfigured() ? [] : [...VAPID_SETUP_INSTRUCTIONS],
     };
   }
 

@@ -18,6 +18,15 @@ import {
   verifiedBadgeLabelForRole,
 } from '../brokers/professional-verification.util';
 import {
+  collectProfessionalRequirementIssues,
+  collectTiparRequirementIssues,
+  canTopUpCredits,
+  canUseTiparFeatures,
+  showVerifiedProfessionalBadge,
+  showVerifiedTiparBadge,
+  type ProfileRequirementsInput,
+} from './profile-requirements.util';
+import {
   serializeProperty,
   type PropertyViewerAccess,
 } from '../properties/properties.serializer';
@@ -251,15 +260,20 @@ export class UsersService {
       phone?: string;
       phonePublic?: boolean;
       brokerOfficeName?: string;
+      city?: string | null;
+      tiparPayoutBankAccount?: string | null;
     },
   ) {
-    const { bio, name, phone, phonePublic, brokerOfficeName } = input;
+    const { bio, name, phone, phonePublic, brokerOfficeName, city, tiparPayoutBankAccount } =
+      input;
     if (
       bio === undefined &&
       name === undefined &&
       phone === undefined &&
       phonePublic === undefined &&
-      brokerOfficeName === undefined
+      brokerOfficeName === undefined &&
+      city === undefined &&
+      tiparPayoutBankAccount === undefined
     ) {
       const u = await this.prisma.user.findUnique({
         where: { id: userId },
@@ -295,6 +309,10 @@ export class UsersService {
       ...(brokerOfficeName !== undefined
         ? { brokerOfficeName: brokerOfficeName.trim().slice(0, 200) }
         : {}),
+      ...(city !== undefined ? { city: city?.trim().slice(0, 120) || null } : {}),
+      ...(tiparPayoutBankAccount !== undefined
+        ? { tiparPayoutBankAccount: tiparPayoutBankAccount?.trim().slice(0, 64) || null }
+        : {}),
     };
     const updated = await this.prisma.user.update({
       where: { id: userId },
@@ -327,6 +345,9 @@ export class UsersService {
       avatar: true,
       coverImage: true,
       bio: true,
+      city: true,
+      emailVerified: true,
+      tiparPayoutBankAccount: true,
       role: true,
       createdAt: true,
       creditBalance: true,
@@ -624,10 +645,52 @@ export class UsersService {
     this.logger.log(
       `[profile-media] getMeProfile userId=${u.id} hasAvatar=${Boolean(profile.avatarUrl)} hasCover=${Boolean(profile.coverImageUrl)}`,
     );
-    return profile;
+    const reqInput: ProfileRequirementsInput = {
+      role: u.role,
+      name: u.name,
+      email: u.email,
+      emailVerified: Boolean(u.emailVerified),
+      whatsappVerified: Boolean(u.whatsappVerified),
+      city: u.city,
+      isTipar: Boolean(u.isTipar),
+      tiparPayoutBankAccount: u.tiparPayoutBankAccount,
+      professionalVerified: Boolean(u.professionalVerified),
+      professionalVerificationStatus: u.professionalVerificationStatus,
+      brokerOfficeName: u.brokerOfficeName,
+      agentProfile: u.agentProfile,
+      companyProfile: u.companyProfile,
+      agencyProfile: u.agencyProfile,
+      financialAdvisorProfile: u.financialAdvisorProfile,
+      investorProfile: u.investorProfile,
+    };
+    return {
+      ...profile,
+      profileRequirements: {
+        professional: collectProfessionalRequirementIssues(reqInput),
+        tipar: collectTiparRequirementIssues(reqInput),
+        canTopUpCredits: canTopUpCredits(reqInput),
+        canUseTipar: canUseTiparFeatures({ ...reqInput, isTipar: true }),
+        showVerifiedBadge:
+          showVerifiedProfessionalBadge(reqInput) || showVerifiedTiparBadge(reqInput),
+      },
+    };
+  }
+
+  private async resolvePublicProfileUserId(idOrSlug: string): Promise<string | null> {
+    const direct = await this.prisma.user.findUnique({
+      where: { id: idOrSlug },
+      select: { id: true },
+    });
+    if (direct) return direct.id;
+    const bySlug = await this.prisma.user.findFirst({
+      where: { brokerProfileSlug: idOrSlug },
+      select: { id: true },
+    });
+    return bySlug?.id ?? null;
   }
 
   async getPublicProfile(userId: string, viewerId?: string) {
+    const resolvedId = (await this.resolvePublicProfileUserId(userId)) ?? userId;
     const professionalRoles = new Set<UserRole>([
       UserRole.AGENT,
       UserRole.COMPANY,
@@ -642,6 +705,7 @@ export class UsersService {
       phonePublic: true,
       whatsappPhone: true,
       whatsappEnabled: true,
+      whatsappVerified: true,
       facebookUrl: true,
       role: true,
       isPublicBrokerProfile: true,
@@ -650,11 +714,41 @@ export class UsersService {
       professionalVerified: true,
       professionalVerificationStatus: true,
       publicProfessionalProfile: true,
-      agentProfile: { select: { verificationStatus: true, isPublic: true } },
-      companyProfile: { select: { verificationStatus: true, isPublic: true } },
-      agencyProfile: { select: { verificationStatus: true, isPublic: true } },
-      financialAdvisorProfile: { select: { verificationStatus: true, isPublic: true } },
-      investorProfile: { select: { verificationStatus: true, isPublic: true } },
+      email: true,
+      emailVerified: true,
+      isTipar: true,
+      tiparPayoutBankAccount: true,
+      agentProfile: {
+        select: {
+          verificationStatus: true,
+          isPublic: true,
+          city: true,
+          ico: true,
+          companyName: true,
+        },
+      },
+      companyProfile: {
+        select: {
+          verificationStatus: true,
+          isPublic: true,
+          city: true,
+          ico: true,
+          companyName: true,
+        },
+      },
+      agencyProfile: {
+        select: {
+          verificationStatus: true,
+          isPublic: true,
+          city: true,
+          ico: true,
+          agencyName: true,
+        },
+      },
+      financialAdvisorProfile: {
+        select: { verificationStatus: true, isPublic: true, city: true, ico: true },
+      },
+      investorProfile: { select: { verificationStatus: true, isPublic: true, city: true } },
       avatar: true,
       coverImage: true,
       bio: true,
@@ -662,14 +756,13 @@ export class UsersService {
       rating: true,
       createdAt: true,
       creditBalance: true,
-      isTipar: true,
       _count: { select: { followers: true, following: true } },
     } as const;
     let hasCropColumns = true;
     let user: any;
     try {
       user = await this.prisma.user.findUnique({
-        where: { id: userId },
+        where: { id: resolvedId },
         select: { ...baseSelect, avatarCrop: true, coverCrop: true },
       });
     } catch (error) {
@@ -682,7 +775,7 @@ export class UsersService {
           '[profile-media] public profile fallback without avatarCrop/coverCrop columns',
         );
         user = await this.prisma.user.findUnique({
-          where: { id: userId },
+          where: { id: resolvedId },
           select: baseSelect,
         });
       } else {
@@ -694,12 +787,12 @@ export class UsersService {
     }
 
     let isFollowedByViewer: boolean | null = null;
-    if (viewerId && viewerId !== userId) {
+    if (viewerId && viewerId !== resolvedId) {
       const row = await this.prisma.follow.findUnique({
         where: {
           followerId_followingId: {
             followerId: viewerId,
-            followingId: userId,
+            followingId: resolvedId,
           },
         },
       });
@@ -725,7 +818,7 @@ export class UsersService {
       }
     }
 
-    const isOwnerViewer = Boolean(viewerId && viewerId === userId);
+    const isOwnerViewer = Boolean(viewerId && viewerId === resolvedId);
     const canSeePrivate = isOwnerViewer || viewerIsAdmin;
     const isActivePublicPromo =
       Boolean(user.isPromoProfile) &&
@@ -736,47 +829,10 @@ export class UsersService {
         if (!isActivePublicPromo) {
           throw new NotFoundException('User not found');
         }
-      } else if (!user.isPublicBrokerProfile) {
-        throw new NotFoundException('User not found');
-      } else if (user.role === UserRole.AGENT) {
-        const ap = await this.prisma.agentProfile.findUnique({
-          where: { userId },
-          select: { isPublic: true },
-        });
-        const isPublic = Boolean(ap?.isPublic) && Boolean(user.isPublicBrokerProfile);
-        if (!isPublic) {
-          throw new NotFoundException('User not found');
-        }
-      } else if (user.role === UserRole.COMPANY) {
-        const cp = await this.prisma.companyProfile.findUnique({
-          where: { userId },
-          select: { isPublic: true },
-        });
-        if (!cp?.isPublic) {
-          throw new NotFoundException('User not found');
-        }
-      } else if (user.role === UserRole.AGENCY) {
-        const agp = await this.prisma.agencyProfile.findUnique({
-          where: { userId },
-          select: { isPublic: true },
-        });
-        if (!agp?.isPublic) {
-          throw new NotFoundException('User not found');
-        }
-      } else if (user.role === UserRole.FINANCIAL_ADVISOR) {
-        const fp = await this.prisma.financialAdvisorProfile.findUnique({
-          where: { userId },
-          select: { isPublic: true },
-        });
-        if (!fp?.isPublic) {
-          throw new NotFoundException('User not found');
-        }
-      } else if (user.role === UserRole.INVESTOR) {
-        const ip = await this.prisma.investorProfile.findUnique({
-          where: { userId },
-          select: { isPublic: true },
-        });
-        if (!ip?.isPublic) {
+      } else {
+        const portalVisible =
+          Boolean(user.publicProfessionalProfile) || Boolean(user.isPublicBrokerProfile);
+        if (!portalVisible) {
           throw new NotFoundException('User not found');
         }
       }
@@ -784,11 +840,11 @@ export class UsersService {
 
     const [videos, posts, properties] = await Promise.all([
       this.prisma.video.findMany({
-        where: { userId },
+        where: { userId: resolvedId },
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.post.findMany({
-        where: { userId },
+        where: { userId: resolvedId },
         orderBy: { createdAt: 'desc' },
         include: {
           media: {
@@ -798,9 +854,9 @@ export class UsersService {
       }),
       this.prisma.property.findMany({
         where:
-          viewerId === userId || viewerIsAdmin
-            ? { userId, deletedAt: null }
-            : { userId, ...classicPublicListingWhere },
+          viewerId === resolvedId || viewerIsAdmin
+            ? { userId: resolvedId, deletedAt: null }
+            : { userId: resolvedId, ...classicPublicListingWhere },
         orderBy: { createdAt: 'desc' },
         include: {
           _count: { select: { likes: true } },
@@ -812,7 +868,31 @@ export class UsersService {
     const whatsappAvailable =
       Boolean(user.whatsappEnabled) && isValidWhatsAppPhone(user.whatsappPhone ?? '');
 
-    const verified = isProfessionalVerified(user);
+    const reqInput: ProfileRequirementsInput = {
+      role: user.role,
+      name: user.name,
+      email: user.email,
+      emailVerified: Boolean(user.emailVerified),
+      whatsappVerified: Boolean(user.whatsappVerified),
+      city: user.city,
+      isTipar: Boolean(user.isTipar),
+      tiparPayoutBankAccount: user.tiparPayoutBankAccount,
+      professionalVerified: Boolean(user.professionalVerified),
+      professionalVerificationStatus: user.professionalVerificationStatus,
+      agentProfile: user.agentProfile,
+      companyProfile: user.companyProfile,
+      agencyProfile: user.agencyProfile,
+      financialAdvisorProfile: user.financialAdvisorProfile,
+      investorProfile: user.investorProfile,
+    };
+    const showTiparBadge = showVerifiedTiparBadge(reqInput);
+    const showProfBadge = showVerifiedProfessionalBadge(reqInput);
+    const verified = showProfBadge || showTiparBadge;
+    const verifiedBadgeLabel = showTiparBadge
+      ? 'Ověřený tipař'
+      : showProfBadge
+        ? verifiedBadgeLabelForRole(user.role)
+        : null;
 
     return {
       user: {
@@ -838,7 +918,7 @@ export class UsersService {
       creditBalance: user.creditBalance ?? 0,
       isTipar: Boolean(user.isTipar),
       isVerified: verified,
-      verifiedBadgeLabel: verified ? verifiedBadgeLabelForRole(user.role) : null,
+      verifiedBadgeLabel: verified ? verifiedBadgeLabel : null,
       profileHref: publicProfileHref(user.id, user.role),
       },
       videos: videos.map((v) => ({

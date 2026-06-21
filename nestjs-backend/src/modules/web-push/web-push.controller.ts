@@ -14,6 +14,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { SubscribeWebPushDto } from './dto/subscribe-web-push.dto';
 import { UpdateNotificationPrefsDto } from './dto/update-notification-prefs.dto';
+import { AdminGuard } from '../admin/guards/admin.guard';
 import { WebPushService } from './web-push.service';
 
 @Controller()
@@ -25,6 +26,12 @@ export class WebPushController {
   vapidPublicKey() {
     const publicKey = this.webPush.getVapidPublicKey();
     return { publicKey, configured: Boolean(publicKey) };
+  }
+
+  @UseGuards(AdminGuard)
+  @Get('push/admin-status')
+  adminPushStatus() {
+    return this.webPush.getAdminStatus();
   }
 
   @Get('users/me/notification-prefs')

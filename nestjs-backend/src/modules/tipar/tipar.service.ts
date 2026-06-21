@@ -8,6 +8,7 @@ import { BonusSourceType, Prisma, TiparPost } from '@prisma/client';
 import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
 import { RegistrationGateService } from '../registration-gate/registration-gate.service';
 import { PrismaService } from '../../database/prisma.service';
+import { collectTiparRequirementIssues } from '../users/profile-requirements.util';
 import { PropertyMediaCloudinaryService } from '../properties/property-media-cloudinary.service';
 import { ListingContactUnlockService } from '../properties/listing-contact-unlock.service';
 import { PropertiesService } from '../properties/properties.service';
@@ -58,9 +59,31 @@ export class TiparService {
   async activateTipar(userId: string) {
     const existing = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { whatsappVerified: true },
+      select: {
+        whatsappVerified: true,
+        emailVerified: true,
+        name: true,
+        email: true,
+        city: true,
+        role: true,
+        tiparPayoutBankAccount: true,
+        isTipar: true,
+        agentProfile: { select: { city: true } },
+        companyProfile: { select: { city: true } },
+        agencyProfile: { select: { city: true } },
+        financialAdvisorProfile: { select: { city: true } },
+        investorProfile: { select: { city: true } },
+      },
     });
     assertWhatsAppVerified(existing, WHATSAPP_VERIFY_TIPAR_MSG);
+    const issues = collectTiparRequirementIssues({
+      ...existing!,
+      role: existing!.role,
+      isTipar: true,
+    });
+    if (issues.length > 0) {
+      throw new BadRequestException(issues.join(' '));
+    }
 
     const user = await this.prisma.user.update({
       where: { id: userId },
@@ -736,12 +759,30 @@ export class TiparService {
   private async requireTipar(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { isTipar: true, whatsappVerified: true },
+      select: {
+        isTipar: true,
+        whatsappVerified: true,
+        emailVerified: true,
+        name: true,
+        email: true,
+        city: true,
+        role: true,
+        tiparPayoutBankAccount: true,
+        agentProfile: { select: { city: true } },
+        companyProfile: { select: { city: true } },
+        agencyProfile: { select: { city: true } },
+        financialAdvisorProfile: { select: { city: true } },
+        investorProfile: { select: { city: true } },
+      },
     });
     if (!user?.isTipar) {
       throw new ForbiddenException('Nejdřív aktivujte roli tipaře v profilu.');
     }
     assertWhatsAppVerified(user, WHATSAPP_VERIFY_TIPAR_MSG);
+    const issues = collectTiparRequirementIssues({ ...user, role: user.role, isTipar: true });
+    if (issues.length > 0) {
+      throw new ForbiddenException(issues.join(' '));
+    }
   }
 
   private async hasUnlocked(userId: string, postId: string, publishedPropertyId?: string | null) {

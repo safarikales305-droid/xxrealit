@@ -171,6 +171,8 @@ export class UsersController {
       phone: dto.phone,
       phonePublic: dto.phonePublic,
       brokerOfficeName: dto.brokerOfficeName,
+      city: dto.city,
+      tiparPayoutBankAccount: dto.tiparPayoutBankAccount,
     });
     return {
       success: true,

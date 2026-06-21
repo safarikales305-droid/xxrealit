@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CreditTopUpSection } from '@/components/profile/CreditTopUpSection';
+import { ProfileRequirementsCard } from '@/components/profile/ProfileRequirementsCard';
 import { WhatsAppPhoneVerificationCard } from '@/components/profile/WhatsAppPhoneVerificationCard';
 import { PropertyGrid } from '@/components/property-grid';
 import { useAuth } from '@/hooks/use-auth';
@@ -61,6 +62,7 @@ import {
   canRequestProfessionalProfileUpgrade,
   dashboardPathForRole,
 } from '@/lib/roles';
+import { verifiedBadgeLabelForRole } from '@/lib/professional-verification';
 import { ProfessionalOnlyDialog } from '@/components/auth/ProfessionalListingRestriction';
 import { PageLoadingSpinner } from '@/components/ui/page-loading';
 import { FacebookPostMediaBlock } from '@/components/community/FacebookPostMediaBlock';
@@ -139,6 +141,8 @@ export default function ProfilPage() {
   const [bioDraft, setBioDraft] = useState('');
   const [bioEditing, setBioEditing] = useState(false);
   const [profileNameDraft, setProfileNameDraft] = useState('');
+  const [profileCityDraft, setProfileCityDraft] = useState('');
+  const [tiparBankDraft, setTiparBankDraft] = useState('');
   const [profilePhoneDraft, setProfilePhoneDraft] = useState('');
   const [profilePhonePublicDraft, setProfilePhonePublicDraft] = useState(false);
 
@@ -266,6 +270,8 @@ export default function ProfilPage() {
     setNestBio(me.bio ?? null);
     setBioDraft(me.bio ?? '');
     setProfileNameDraft((me.name ?? '').trim());
+    setProfileCityDraft((me.city ?? '').trim());
+    setTiparBankDraft((me.tiparPayoutBankAccount ?? '').trim());
     setProfilePhoneDraft((me.phone ?? '').trim());
     setProfilePhonePublicDraft(Boolean(me.phonePublic));
     const visibility =
@@ -598,6 +604,8 @@ export default function ProfilPage() {
       name: profileNameDraft.trim(),
       phone: profilePhoneDraft.trim(),
       phonePublic: profilePhonePublicDraft,
+      city: profileCityDraft.trim(),
+      tiparPayoutBankAccount: tiparBankDraft.trim() || null,
     });
     setBioSaving(false);
     if (!res.ok) {
@@ -1129,17 +1137,13 @@ export default function ProfilPage() {
                     <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
                       {user.name?.trim() || 'Uživatel'}
                     </h1>
-                    {user.role === 'AGENT' &&
-                    (nestMe?.professionalVerified &&
-                    nestMe?.professionalVerificationStatus === 'APPROVED' ? (
+                    {nestMe?.profileRequirements?.showVerifiedBadge ? (
                       <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
-                        Ověřený makléř
+                        {nestMe.isTipar && nestMe.profileRequirements?.canUseTipar
+                          ? 'Ověřený tipař'
+                          : verifiedBadgeLabelForRole(user.role)}
                       </span>
-                    ) : nestMe?.agentProfile?.verificationStatus === 'verified' ? (
-                      <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
-                        Ověřený makléř
-                      </span>
-                    ) : null)}
+                    ) : null}
                     {user.role === 'AGENT' &&
                     (nestMe?.professionalVerificationStatus === 'PENDING' ||
                       nestMe?.agentProfile?.verificationStatus === 'pending') ? (
@@ -1192,24 +1196,31 @@ export default function ProfilPage() {
                     {nestMe?.isTipar ? (
                       <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900">
                         Tipař
+                        {nestMe.profileRequirements?.showVerifiedBadge &&
+                        nestMe.profileRequirements.canUseTipar
+                          ? ' · ověřen'
+                          : ''}
                       </span>
                     ) : (
                       <button
                         type="button"
                         disabled={
-                          tiparActivating || !apiAccessToken || !nestMe?.whatsappVerified
+                          tiparActivating ||
+                          !apiAccessToken ||
+                          (nestMe?.profileRequirements?.tipar?.length ?? 0) > 0
                         }
                         title={
-                          !nestMe?.whatsappVerified
-                            ? 'Pro používání tipaře musíte mít ověřené WhatsApp číslo.'
+                          (nestMe?.profileRequirements?.tipar?.length ?? 0) > 0
+                            ? nestMe?.profileRequirements?.tipar?.join(' ')
                             : undefined
                         }
                         onClick={() => {
                           void (async () => {
                             if (!apiAccessToken) return;
-                            if (!nestMe?.whatsappVerified) {
+                            if ((nestMe?.profileRequirements?.tipar?.length ?? 0) > 0) {
                               setTiparError(
-                                'Pro používání tipaře musíte mít ověřené WhatsApp číslo.',
+                                nestMe?.profileRequirements?.tipar?.join(' ') ??
+                                  'Doplňte údaje v profilu před aktivací tipaře.',
                               );
                               return;
                             }
@@ -1231,7 +1242,11 @@ export default function ProfilPage() {
                     )}
                     {nestMe?.isTipar ? (
                       <Link
-                        href="/profil/tipy"
+                        href={
+                          nestMe.profileRequirements?.canUseTipar === false
+                            ? '/profil'
+                            : '/profil/tipy'
+                        }
                         className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
                       >
                         Moje tipy
@@ -1304,11 +1319,20 @@ export default function ProfilPage() {
               </div>
             </div>
 
+            <ProfileRequirementsCard
+              requirements={nestMe?.profileRequirements}
+              role={user.role}
+              isTipar={nestMe?.isTipar}
+            />
+
             <div className="mt-5">
               <WhatsAppPhoneVerificationCard
                 token={apiAccessToken}
                 onVerified={() => {
-                  setNestMe((prev) => (prev ? { ...prev, whatsappVerified: true } : prev));
+                  setNestMe((prev) =>
+                    prev ? { ...prev, whatsappVerified: true } : prev,
+                  );
+                  void loadNestProfile();
                 }}
               />
             </div>
@@ -1317,6 +1341,7 @@ export default function ProfilPage() {
               token={apiAccessToken}
               initialBalance={nestMe?.creditBalance}
               whatsappVerified={nestMe?.whatsappVerified === true}
+              canTopUpCredits={nestMe?.profileRequirements?.canTopUpCredits !== false}
               onBalanceChange={(balance) =>
                 setNestMe((prev) => (prev ? { ...prev, creditBalance: balance } : prev))
               }
@@ -1369,6 +1394,24 @@ export default function ProfilPage() {
                       onChange={(e) => setProfilePhoneDraft(e.target.value)}
                       className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-normal text-zinc-900 outline-none ring-orange-500/30 focus:ring-2"
                       placeholder="+420123456789"
+                    />
+                  </label>
+                  <label className="block text-sm font-semibold text-zinc-800">
+                    Město / adresa
+                    <input
+                      value={profileCityDraft}
+                      onChange={(e) => setProfileCityDraft(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-normal text-zinc-900 outline-none ring-orange-500/30 focus:ring-2"
+                      placeholder="Praha"
+                    />
+                  </label>
+                  <label className="block text-sm font-semibold text-zinc-800 sm:col-span-2">
+                    Bankovní účet pro výplatu provizí (tipař)
+                    <input
+                      value={tiparBankDraft}
+                      onChange={(e) => setTiparBankDraft(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-normal text-zinc-900 outline-none ring-orange-500/30 focus:ring-2"
+                      placeholder="123456789/0100"
                     />
                   </label>
                 </div>

@@ -121,9 +121,15 @@ export function verifiedBadgeLabelForRole(role: UserRole | string | null | undef
   }
 }
 
-export function publicProfileHref(userId: string, role: UserRole | string): string {
-  if (String(role).toUpperCase() === UserRole.AGENT) {
-    return `/agent/${userId}`;
+export function verifiedBadgeLabelForUser(
+  user: UserWithProfiles & { isTipar?: boolean },
+): string | null {
+  if (user.isTipar) {
+    return 'Ověřený tipař';
   }
+  return verifiedBadgeLabelForRole(user.role);
+}
+
+export function publicProfileHref(userId: string, _role?: UserRole | string): string {
   return `/profile/${userId}`;
 }

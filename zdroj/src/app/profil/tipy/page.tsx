@@ -34,6 +34,10 @@ export default function ProfilTipyPage() {
         router.replace('/profil');
         return;
       }
+      if (me.profileRequirements?.canUseTipar === false) {
+        router.replace('/profil');
+        return;
+      }
       setPosts(await nestTiparMyPosts(apiAccessToken));
     })();
   }, [apiAccessToken, router]);

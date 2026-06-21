@@ -4,6 +4,9 @@ export type VerificationEligibilityInput = {
   role: UserRole;
   name: string | null;
   email: string;
+  emailVerified?: boolean;
+  whatsappVerified?: boolean;
+  city?: string | null;
   bio: string | null;
   avatar: string | null;
   brokerOfficeName?: string | null;
@@ -12,26 +15,31 @@ export type VerificationEligibilityInput = {
     ico?: string;
     bio?: string;
     avatarUrl?: string | null;
+    city?: string;
   } | null;
   companyProfile?: {
     companyName?: string;
     ico?: string;
     description?: string;
     logoUrl?: string | null;
+    city?: string;
   } | null;
   agencyProfile?: {
     agencyName?: string;
     ico?: string;
     logoUrl?: string | null;
+    city?: string;
   } | null;
   financialAdvisorProfile?: {
     ico?: string;
     bio?: string;
     avatarUrl?: string | null;
+    city?: string;
   } | null;
   investorProfile?: {
     bio?: string;
     avatarUrl?: string | null;
+    city?: string;
   } | null;
 };
 
@@ -88,7 +96,17 @@ export function resolveVerificationIco(input: VerificationEligibilityInput): str
   }
 }
 
-/** Povinné údaje před odesláním žádosti (nikdy obecná „rozšířte profil“). */
+export function resolveVerificationAddress(input: VerificationEligibilityInput): string {
+  return (
+    str(input.city) ||
+    str(input.agentProfile?.city) ||
+    str(input.companyProfile?.city) ||
+    str(input.agencyProfile?.city) ||
+    str(input.financialAdvisorProfile?.city) ||
+    str(input.investorProfile?.city)
+  );
+}
+
 export function collectVerificationBlockingIssues(
   input: VerificationEligibilityInput,
 ): string[] {
@@ -100,24 +118,43 @@ export function collectVerificationBlockingIssues(
   if (!str(input.email)) {
     issues.push('Chybí e-mail');
   }
+  if (!input.emailVerified) {
+    issues.push('E-mail není ověřen');
+  }
+  if (!input.whatsappVerified) {
+    issues.push('WhatsApp číslo není ověřeno');
+  }
+  if (!resolveVerificationAddress(input)) {
+    issues.push('Chybí adresa / město');
+  }
 
   if (input.role === UserRole.COMPANY || input.role === UserRole.AGENCY) {
     if (!resolveVerificationCompanyName(input)) {
       issues.push('Chybí název firmy');
     }
+  }
+
+  if (
+    input.role === UserRole.AGENT ||
+    input.role === UserRole.COMPANY ||
+    input.role === UserRole.AGENCY ||
+    input.role === UserRole.FINANCIAL_ADVISOR
+  ) {
     const hasBusinessProfile =
       input.role === UserRole.COMPANY
         ? Boolean(input.companyProfile)
-        : Boolean(input.agencyProfile);
+        : input.role === UserRole.AGENCY
+          ? Boolean(input.agencyProfile)
+          : input.role === UserRole.AGENT
+            ? Boolean(input.agentProfile)
+            : Boolean(input.financialAdvisorProfile);
     if (hasBusinessProfile && !resolveVerificationIco(input)) {
       issues.push('Chybí IČO');
     }
   }
 
-  if (input.role === UserRole.FINANCIAL_ADVISOR && input.financialAdvisorProfile) {
-    if (!resolveVerificationIco(input)) {
-      issues.push('Chybí IČO');
-    }
+  if (input.role === UserRole.AGENT && input.agentProfile && !resolveVerificationIco(input)) {
+    issues.push('Chybí IČO');
   }
 
   return issues;

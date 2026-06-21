@@ -52,4 +52,22 @@ export class UpdateProfileDto {
   @IsString()
   @MaxLength(200)
   brokerOfficeName?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @ValidateIf((_, v) => v !== undefined)
+  @IsString()
+  @MaxLength(120)
+  city?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === '' || value === undefined) return undefined;
+    if (value === null) return null;
+    return typeof value === 'string' ? value.trim() : value;
+  })
+  @ValidateIf((_, v) => v !== undefined && v !== null)
+  @IsString()
+  @MaxLength(64)
+  tiparPayoutBankAccount?: string | null;
 }

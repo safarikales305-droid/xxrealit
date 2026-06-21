@@ -9,10 +9,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { CreditWalletService } from './credit-wallet.service';
 import { UpdateCreditSettingsDto } from './dto/update-credit-settings.dto';
 import { buildQrImageUrl, buildSpdPayload } from './utils/spd-qr.util';
-import {
-  assertWhatsAppVerified,
-  WHATSAPP_VERIFY_CREDITS_MSG,
-} from '../whatsapp/whatsapp-verification-required.util';
+import { canTopUpCredits } from '../users/profile-requirements.util';
 
 const SETTINGS_ID = 'default';
 
@@ -188,11 +185,26 @@ export class CreditsService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { isCreditVerified: true, firstTopUpUsed: true, whatsappVerified: true },
+      select: {
+        isCreditVerified: true,
+        firstTopUpUsed: true,
+        whatsappVerified: true,
+        emailVerified: true,
+        name: true,
+        role: true,
+      },
     });
     if (!user) throw new NotFoundException('Uživatel nenalezen');
 
-    assertWhatsAppVerified(user, WHATSAPP_VERIFY_CREDITS_MSG);
+    if (!canTopUpCredits(user)) {
+      const issues: string[] = [];
+      if (!user.whatsappVerified) issues.push('ověřte WhatsApp číslo');
+      if (!user.emailVerified) issues.push('ověřte e-mail');
+      if (!user.name?.trim()) issues.push('vyplňte jméno v profilu');
+      throw new BadRequestException(
+        `Pro dobití kreditu ${issues.join(', ')}.`,
+      );
+    }
 
     if (!user.isCreditVerified) {
       if (!settings.allowUnverifiedFirstTopUp) {

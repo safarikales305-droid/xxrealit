@@ -217,10 +217,21 @@ export type NestInvestorProfileMe = {
 };
 
 /** Odpověď GET /users/me (Nest JWT). */
+export type NestProfileRequirements = {
+  professional: string[];
+  tipar: string[];
+  canTopUpCredits: boolean;
+  canUseTipar: boolean;
+  showVerifiedBadge: boolean;
+};
+
 export type NestMeProfile = {
   id: string;
   email: string;
   name?: string | null;
+  city?: string | null;
+  emailVerified?: boolean;
+  tiparPayoutBankAccount?: string | null;
   phone?: string;
   phonePublic?: boolean;
   role: string;
@@ -273,6 +284,7 @@ export type NestMeProfile = {
   agencyProfile?: NestAgencyProfileMe | null;
   financialAdvisorProfile?: NestFinancialAdvisorProfileMe | null;
   investorProfile?: NestInvestorProfileMe | null;
+  profileRequirements?: NestProfileRequirements;
 };
 
 function parseNestAgentProfileMeJson(raw: unknown): NestAgentProfileMe | null {
@@ -441,6 +453,24 @@ function parseNestInvestorProfileMeJson(raw: unknown): NestInvestorProfileMe | n
   };
 }
 
+function parseNestProfileRequirements(raw: unknown): NestProfileRequirements | undefined {
+  if (raw == null || typeof raw !== 'object') return undefined;
+  const o = raw as Record<string, unknown>;
+  const professional = Array.isArray(o.professional)
+    ? o.professional.filter((x): x is string => typeof x === 'string')
+    : [];
+  const tipar = Array.isArray(o.tipar)
+    ? o.tipar.filter((x): x is string => typeof x === 'string')
+    : [];
+  return {
+    professional,
+    tipar,
+    canTopUpCredits: o.canTopUpCredits !== false,
+    canUseTipar: o.canUseTipar === true,
+    showVerifiedBadge: o.showVerifiedBadge === true,
+  };
+}
+
 /** GET /users/me může vracet avatarUrl nebo legacy avatar / coverImage. */
 export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
   if (raw == null || typeof raw !== 'object') return null;
@@ -514,6 +544,13 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     id: o.id,
     email: o.email,
     name: typeof o.name === 'string' || o.name === null ? (o.name as string | null) : undefined,
+    city:
+      o.city === null || typeof o.city === 'string' ? (o.city as string | null) : undefined,
+    emailVerified: o.emailVerified === true,
+    tiparPayoutBankAccount:
+      o.tiparPayoutBankAccount === null || typeof o.tiparPayoutBankAccount === 'string'
+        ? (o.tiparPayoutBankAccount as string | null)
+        : undefined,
     phone,
     phonePublic: o.phonePublic === true,
     role,
@@ -616,6 +653,7 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     agencyProfile,
     financialAdvisorProfile,
     investorProfile,
+    profileRequirements: parseNestProfileRequirements(o.profileRequirements),
   };
 }
 
@@ -2638,6 +2676,8 @@ export type NotificationPrefs = {
   notifyPwaPush: boolean;
   pushConfigured: boolean;
   pushSubscribed: boolean;
+  pushSetupIssues?: string[];
+  pushSetupInstructions?: string[];
 };
 
 export async function nestGetNotificationPrefs(
@@ -2688,6 +2728,37 @@ export async function nestPatchNotificationPrefs(
     return { ok: true, prefs: data as NotificationPrefs };
   } catch {
     return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestPushAdminStatus(
+  token: string,
+): Promise<{
+  configured: boolean;
+  issues: string[];
+  instructions: string[];
+} | null> {
+  if (!API_BASE_URL) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/push/admin-status`, {
+      headers: nestAuthHeaders(token),
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      configured?: boolean;
+      issues?: string[];
+      instructions?: string[];
+    };
+    return {
+      configured: Boolean(data.configured),
+      issues: Array.isArray(data.issues) ? data.issues.filter((x) => typeof x === 'string') : [],
+      instructions: Array.isArray(data.instructions)
+        ? data.instructions.filter((x) => typeof x === 'string')
+        : [],
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -4610,6 +4681,8 @@ export async function nestPatchProfileBio(
     phone?: string;
     phonePublic?: boolean;
     brokerOfficeName?: string;
+    city?: string;
+    tiparPayoutBankAccount?: string | null;
   },
 ): Promise<{
   ok: boolean;

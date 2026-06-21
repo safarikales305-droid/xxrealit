@@ -26,6 +26,17 @@ export function resolveVerificationAvatar(me: NestMeProfile): string {
   );
 }
 
+function resolveProfileAddress(me: NestMeProfile): string {
+  return (
+    str(me.city) ||
+    str(me.agentProfile?.city) ||
+    str(me.companyProfile?.city) ||
+    str(me.agencyProfile?.city) ||
+    str(me.financialAdvisorProfile?.city) ||
+    str(me.investorProfile?.city)
+  );
+}
+
 function resolveCompanyName(me: NestMeProfile): string {
   const role = String(me.role ?? '').toUpperCase();
   if (role === 'COMPANY') {
@@ -34,6 +45,9 @@ function resolveCompanyName(me: NestMeProfile): string {
   if (role === 'AGENCY') {
     return str(me.agencyProfile?.agencyName) || str(me.brokerOfficeName);
   }
+  if (role === 'AGENT') {
+    return str(me.agentProfile?.companyName) || str(me.brokerOfficeName);
+  }
   return '';
 }
 
@@ -41,24 +55,33 @@ function resolveIco(me: NestMeProfile): string {
   const role = String(me.role ?? '').toUpperCase();
   if (role === 'COMPANY') return str(me.companyProfile?.ico);
   if (role === 'AGENCY') return str(me.agencyProfile?.ico);
+  if (role === 'AGENT') return str(me.agentProfile?.ico);
   if (role === 'FINANCIAL_ADVISOR') return str(me.financialAdvisorProfile?.ico);
   return '';
 }
 
 export function collectVerificationBlockingIssues(me: NestMeProfile): string[] {
+  if (me.profileRequirements?.professional?.length) {
+    return me.profileRequirements.professional.filter(
+      (issue) => !issue.includes('administrátorem'),
+    );
+  }
+
   const issues: string[] = [];
   const role = String(me.role ?? '').toUpperCase();
 
   if (!str(me.name)) issues.push('Chybí jméno');
   if (!str(me.email)) issues.push('Chybí e-mail');
+  if (!me.emailVerified) issues.push('Ověřte e-mail');
+  if (!me.whatsappVerified) issues.push('Ověřte WhatsApp číslo');
+  if (!resolveProfileAddress(me)) issues.push('Vyplňte adresu / město');
+
+  if (['AGENT', 'COMPANY', 'AGENCY', 'FINANCIAL_ADVISOR'].includes(role)) {
+    if (!resolveIco(me)) issues.push('Chybí IČO');
+  }
 
   if (role === 'COMPANY' || role === 'AGENCY') {
     if (!resolveCompanyName(me)) issues.push('Chybí název firmy');
-    const hasProfile = role === 'COMPANY' ? Boolean(me.companyProfile) : Boolean(me.agencyProfile);
-    if (hasProfile && !resolveIco(me)) issues.push('Chybí IČO');
-  }
-  if (role === 'FINANCIAL_ADVISOR' && me.financialAdvisorProfile && !resolveIco(me)) {
-    issues.push('Chybí IČO');
   }
 
   return issues;
