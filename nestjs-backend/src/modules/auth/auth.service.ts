@@ -11,6 +11,8 @@ import { UserRole, PortalWorkerStatus } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
 import { Resend } from 'resend';
 import { PrismaService } from '../../database/prisma.service';
+import { AccountUniquenessService } from '../../common/account-uniqueness.service';
+import { EMAIL_ALREADY_REGISTERED_MSG } from '../../common/account-uniqueness.constants';
 import { buildEmailVerificationUrl, buildPasswordResetUrl, resolveFrontendUrl } from '../../common/resolve-frontend-url';
 import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 import { EmailsService } from '../emails/emails.service';
@@ -221,6 +223,7 @@ export class AuthService {
     private readonly referral: ReferralService,
     private readonly bonusCampaigns: BonusCampaignService,
     private readonly whatsAppMarketing: WhatsAppMarketingService,
+    private readonly accountUniqueness: AccountUniquenessService,
   ) {}
 
   private resendFromAddress(): string {
@@ -563,6 +566,7 @@ export class AuthService {
     console.log('HASHED PASSWORD:', hashedPassword);
 
     try {
+      await this.accountUniqueness.assertEmailAvailable(email);
       const referredByUserId = await this.referral.resolveReferrerByCode(dto.referralCode);
       const user = await this.users.create({
         email,
@@ -623,7 +627,8 @@ export class AuthService {
       ) {
         throw new HttpException(
           {
-            error: 'Uživatel s tímto e-mailem už existuje',
+            error: EMAIL_ALREADY_REGISTERED_MSG,
+            code: 'EMAIL_EXISTS',
             detail: errorDetailForResponse(err),
           },
           HttpStatus.CONFLICT,

@@ -9,6 +9,8 @@ import {
 import { Prisma, ProfessionalVerificationStatus, UserRole } from '@prisma/client';
 import type { User } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { AccountUniquenessService } from '../../common/account-uniqueness.service';
+import { normalizeProfileIco } from '../../common/account-uniqueness.constants';
 import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 import { ensureUserRole } from '../auth/user-role.util';
 import { classicPublicListingWhere } from '../properties/property-listing-scope';
@@ -61,6 +63,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly accountUniqueness: AccountUniquenessService,
   ) {}
 
   private normalizeCrop(crop?: ImageCropDto | null): Prisma.InputJsonValue | undefined {
@@ -379,6 +382,18 @@ export class UsersService {
         : nextFirst !== undefined || nextLast !== undefined
           ? `${nextFirst ?? ''} ${nextLast ?? ''}`.trim().slice(0, 120)
           : undefined;
+    const nextProfileIco =
+      profileIco !== undefined ? normalizeProfileIco(profileIco) : undefined;
+    if (profileIco !== undefined) {
+      const roleRow = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { role: true },
+      });
+      if (!roleRow) throw new NotFoundException('User not found');
+      if (nextProfileIco) {
+        await this.accountUniqueness.assertIcoAvailable(nextProfileIco, userId, roleRow.role);
+      }
+    }
     const data: Prisma.UserUpdateInput = {
       ...(bio !== undefined ? { bio: normalized } : {}),
       ...(combinedName !== undefined ? { name: combinedName } : {}),
@@ -392,7 +407,7 @@ export class UsersService {
       ...(city !== undefined ? { city: city?.trim().slice(0, 120) || null } : {}),
       ...(address !== undefined ? { address: address?.trim().slice(0, 200) || '' } : {}),
       ...(postalCode !== undefined ? { postalCode: postalCode?.trim().slice(0, 16) || '' } : {}),
-      ...(profileIco !== undefined ? { profileIco: profileIco?.trim().slice(0, 16) || '' } : {}),
+      ...(nextProfileIco !== undefined ? { profileIco: nextProfileIco } : {}),
       ...(tiparPayoutBankAccount !== undefined
         ? { tiparPayoutBankAccount: tiparPayoutBankAccount?.trim().slice(0, 64) || null }
         : {}),
@@ -426,7 +441,7 @@ export class UsersService {
       brokerOfficeName: brokerOfficeName?.trim(),
       city: city?.trim(),
       address: address?.trim(),
-      profileIco: profileIco?.trim(),
+      profileIco: normalizeProfileIco(profileIco ?? undefined) ?? undefined,
     });
     return { ...updated, role: ensureUserRole(updated.role) };
   }

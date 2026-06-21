@@ -177,8 +177,8 @@ model User {
   firstName    String   @default("")
   /// Příjmení (profil).
   lastName     String   @default("")
-  /// IČO na úrovni uživatele (sync s role profily).
-  profileIco   String   @default("")
+  /// IČO na úrovni uživatele (sync s role profily); prázdné = null.
+  profileIco   String?  @unique
   /// Average rating 0–5 (manual / future reviews).
   rating       Float      @default(0)
   creditBalance Int       @default(0)
@@ -285,6 +285,8 @@ model User {
   /// Telefon ověřený přes WhatsApp šablonu s kódem.
   whatsappVerified      Boolean  @default(false)
   whatsappVerifiedAt    DateTime?
+  /// Ověřené WhatsApp číslo (unikátní napříč účty); null = neověřeno.
+  whatsappVerifiedPhone String?  @unique
   /// Aktuální ověřovací kód (6 číslic); po ověření se vymaže.
   whatsappVerificationCode String?
   whatsappVerificationExpiresAt DateTime?

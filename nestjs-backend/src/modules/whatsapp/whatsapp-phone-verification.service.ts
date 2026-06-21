@@ -10,6 +10,8 @@ import {
   WhatsAppMessageDirection,
   WhatsAppMessageStatus,
 } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { AccountUniquenessService } from '../../common/account-uniqueness.service';
 import { PrismaService } from '../../database/prisma.service';
 import { WhatsAppCloudApiService } from './whatsapp-cloud-api.service';
 import { WhatsAppConfigService } from './whatsapp-config.service';
@@ -26,6 +28,7 @@ import {
 import { resolveTemplateRequirementsFromRaw } from './whatsapp-template-sync.util';
 import { normalizeToE164, whatsAppDigits } from './whatsapp-phone.util';
 import { WHATSAPP_VERIFY_NOT_SAVED_MSG } from './whatsapp-system-templates.util';
+import { WHATSAPP_ALREADY_USED_MSG } from '../../common/account-uniqueness.constants';
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 60 * 1000;
@@ -38,6 +41,7 @@ export class WhatsAppPhoneVerificationService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly accountUniqueness: AccountUniquenessService,
     private readonly settings: WhatsAppSettingsService,
     private readonly config: WhatsAppConfigService,
     private readonly metaTemplates: WhatsAppMetaTemplatesService,
@@ -112,6 +116,8 @@ export class WhatsAppPhoneVerificationService {
     if (user.whatsappVerified) {
       throw new BadRequestException('WhatsApp číslo je již ověřené.');
     }
+
+    await this.accountUniqueness.assertWhatsAppPhoneAvailable(phone, userId);
 
     const now = Date.now();
     const lastSent = user.whatsappVerificationSentAt?.getTime() ?? 0;
@@ -245,26 +251,41 @@ export class WhatsAppPhoneVerificationService {
       );
     }
 
+    const phone = user.whatsappPhone;
+    await this.accountUniqueness.assertWhatsAppPhoneAvailable(phone, userId);
+
     const verifiedAt = new Date();
-    const updated = await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        whatsappVerified: true,
-        whatsappVerifiedAt: verifiedAt,
-        whatsappVerificationCode: null,
-        whatsappVerificationExpiresAt: null,
-        whatsappVerificationAttempts: 0,
-        whatsappVerificationSentAt: null,
-      },
-      select: {
-        whatsappPhone: true,
-        whatsappVerified: true,
-        whatsappVerifiedAt: true,
-        whatsappVerificationExpiresAt: true,
-        whatsappVerificationSentAt: true,
-        whatsappVerificationAttempts: true,
-      },
-    });
+    let updated;
+    try {
+      updated = await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          whatsappVerified: true,
+          whatsappVerifiedAt: verifiedAt,
+          whatsappVerifiedPhone: phone,
+          whatsappVerificationCode: null,
+          whatsappVerificationExpiresAt: null,
+          whatsappVerificationAttempts: 0,
+          whatsappVerificationSentAt: null,
+        },
+        select: {
+          whatsappPhone: true,
+          whatsappVerified: true,
+          whatsappVerifiedAt: true,
+          whatsappVerificationExpiresAt: true,
+          whatsappVerificationSentAt: true,
+          whatsappVerificationAttempts: true,
+        },
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new BadRequestException(WHATSAPP_ALREADY_USED_MSG);
+      }
+      throw err;
+    }
 
     return {
       ok: true,
@@ -283,11 +304,14 @@ export class WhatsAppPhoneVerificationService {
       throw new BadRequestException('Uživatel nemá uložené WhatsApp číslo.');
     }
 
+    await this.accountUniqueness.assertWhatsAppPhoneAvailable(user.whatsappPhone, userId);
+
     const updated = await this.prisma.user.update({
       where: { id: userId },
       data: {
         whatsappVerified: true,
         whatsappVerifiedAt: new Date(),
+        whatsappVerifiedPhone: user.whatsappPhone,
         whatsappVerificationCode: null,
         whatsappVerificationExpiresAt: null,
         whatsappVerificationAttempts: 0,
@@ -312,6 +336,7 @@ export class WhatsAppPhoneVerificationService {
       data: {
         whatsappVerified: false,
         whatsappVerifiedAt: null,
+        whatsappVerifiedPhone: null,
         whatsappVerificationCode: null,
         whatsappVerificationExpiresAt: null,
         whatsappVerificationAttempts: 0,
@@ -474,6 +499,7 @@ export class WhatsAppPhoneVerificationService {
       data: {
         whatsappVerified: false,
         whatsappVerifiedAt: null,
+        whatsappVerifiedPhone: null,
         whatsappVerificationCode: null,
         whatsappVerificationExpiresAt: null,
         whatsappVerificationAttempts: 0,

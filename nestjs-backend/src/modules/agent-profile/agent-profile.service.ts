@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { AgentVerificationStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { AccountUniquenessService } from '../../common/account-uniqueness.service';
 import { anyPublicListingWhere } from '../properties/property-listing-scope';
 import {
   serializeProperty,
@@ -68,7 +69,17 @@ export class AgentProfileService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly professionalVerification: ProfessionalVerificationService,
+    private readonly accountUniqueness: AccountUniquenessService,
   ) {}
+
+  private async syncUserProfileIco(userId: string, role: UserRole, icoRaw: string) {
+    if (!icoRaw) return;
+    await this.accountUniqueness.assertIcoAvailable(icoRaw, userId, role);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { profileIco: icoRaw },
+    });
+  }
 
   /**
    * Rezervováno pro budoucí SMS ověření telefonu (Twilio apod.).
@@ -140,6 +151,7 @@ export class AgentProfileService {
     if (icoRaw && !/^\d{8}$/.test(icoRaw)) {
       throw new BadRequestException('IČO musí mít přesně 8 číslic nebo zůstat prázdné.');
     }
+    await this.syncUserProfileIco(userId, user.role, icoRaw);
 
     const existing = await this.prisma.agentProfile.findUnique({
       where: { userId },
@@ -423,6 +435,7 @@ export class AgentProfileService {
     if (icoRaw && !/^\d{8}$/.test(icoRaw)) {
       throw new BadRequestException('IČO musí mít přesně 8 číslic nebo zůstat prázdné.');
     }
+    await this.syncUserProfileIco(userId, user.role, icoRaw);
     const existing = await this.prisma.companyProfile.findUnique({ where: { userId } });
     if (existing?.verificationStatus === AgentVerificationStatus.verified) {
       throw new ConflictException('Žádost již byla schválena.');
@@ -464,6 +477,7 @@ export class AgentProfileService {
     if (icoRaw && !/^\d{8}$/.test(icoRaw)) {
       throw new BadRequestException('IČO musí mít přesně 8 číslic nebo zůstat prázdné.');
     }
+    await this.syncUserProfileIco(userId, user.role, icoRaw);
     const existing = await this.prisma.agencyProfile.findUnique({ where: { userId } });
     if (existing?.verificationStatus === AgentVerificationStatus.verified) {
       throw new ConflictException('Žádost již byla schválena.');
@@ -509,6 +523,7 @@ export class AgentProfileService {
     if (icoRaw && !/^\d{8}$/.test(icoRaw)) {
       throw new BadRequestException('IČO musí mít přesně 8 číslic nebo zůstat prázdné.');
     }
+    await this.syncUserProfileIco(userId, user.role, icoRaw);
     const existing = await this.prisma.financialAdvisorProfile.findUnique({ where: { userId } });
     if (existing?.verificationStatus === AgentVerificationStatus.verified) {
       throw new ConflictException('Žádost již byla schválena.');

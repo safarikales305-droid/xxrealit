@@ -112,7 +112,7 @@ export default function RegistracePage() {
         setFieldErrors(fe);
 
         if (res.status === 409 && data.code === 'EMAIL_EXISTS') {
-          setError(data.error ?? 'Tento e-mail je již registrován');
+          setError(data.error ?? 'Tento e-mail je již registrovaný.');
           return;
         }
 

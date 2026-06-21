@@ -22,6 +22,7 @@ import { PatchBrokerReviewVisibilityDto } from './dto/patch-broker-review-visibi
 import { PatchPremiumBrokerDto } from './dto/patch-premium-broker.dto';
 import { PatchUserCreditDto } from './dto/patch-user-credit.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
+import { AdminChangeUserEmailDto } from './dto/admin-change-user-email.dto';
 import { UpdateImportSourceDto } from './dto/update-import-source.dto';
 import { BulkDisableImportedDto } from './dto/bulk-disable-imported.dto';
 import { BulkImportedBrokerContactsDto } from './dto/bulk-imported-broker-contacts.dto';
@@ -34,6 +35,7 @@ import { ProfessionalVerificationService } from '../professional-verification/pr
 import { FacebookPageService } from '../social/facebook/facebook-page.service';
 import { FacebookUrlImportService } from '../social/facebook-url-import/facebook-url-import.service';
 import { WhatsAppPhoneVerificationService } from '../whatsapp/whatsapp-phone-verification.service';
+import { AccountUniquenessService } from '../../common/account-uniqueness.service';
 import { WhatsAppSettingsService } from '../whatsapp/whatsapp-settings.service';
 import { SaveSystemTemplatesDto } from '../whatsapp/dto/save-system-templates.dto';
 
@@ -73,6 +75,7 @@ export class AdminController {
     private readonly facebookUrlImport: FacebookUrlImportService,
     private readonly whatsAppVerification: WhatsAppPhoneVerificationService,
     private readonly whatsAppSettings: WhatsAppSettingsService,
+    private readonly accountUniqueness: AccountUniquenessService,
   ) {}
 
   @Get('social-facebook-connections')
@@ -309,6 +312,25 @@ export class AdminController {
   @Patch('users/:id/whatsapp-verification/reset')
   adminResetUserWhatsApp(@Param('id') id: string) {
     return this.whatsAppVerification.adminResetVerification(id);
+  }
+
+  @Patch('users/:id/release-whatsapp')
+  adminReleaseUserWhatsApp(@Param('id') id: string) {
+    return this.whatsAppVerification.adminResetVerification(id);
+  }
+
+  @Patch('users/:id/release-ico')
+  adminReleaseUserIco(@Param('id') id: string) {
+    return this.accountUniqueness.adminReleaseIco(id);
+  }
+
+  @Patch('users/:id/email')
+  adminChangeUserEmail(
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: AdminChangeUserEmailDto,
+  ) {
+    return this.accountUniqueness.adminChangeEmail(id, dto.email);
   }
 
   @Get('whatsapp/system-templates')
