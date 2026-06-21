@@ -2881,6 +2881,70 @@ export async function nestPushTest(
   }
 }
 
+export async function nestSendEmailVerification(
+  token: string | null,
+): Promise<{ ok: boolean; message?: string; error?: string }> {
+  if (!token) return { ok: false, error: 'Nejste přihlášeni.' };
+  const url = API_BASE_URL
+    ? `${API_BASE_URL}/auth/send-email-verification`
+    : '/api/auth/send-email-verification';
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+      credentials: 'include',
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      success?: boolean;
+      message?: string;
+      error?: string;
+    };
+    if (!res.ok) {
+      return {
+        ok: false,
+        error:
+          data.error ??
+          nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+      };
+    }
+    if (data.success === false) {
+      return { ok: false, error: data.error ?? 'Odeslání e-mailu se nezdařilo.' };
+    }
+    return { ok: true, message: data.message ?? 'Ověřovací e-mail byl odeslán.' };
+  } catch {
+    return { ok: false, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestVerifyEmailByToken(
+  verifyToken: string,
+): Promise<{ ok: boolean; message?: string; error?: string }> {
+  const trimmed = verifyToken.trim();
+  if (!trimmed) {
+    return { ok: false, error: 'Ověřovací odkaz je neplatný nebo expiroval.' };
+  }
+  const url = API_BASE_URL
+    ? `${API_BASE_URL}/auth/verify-email?token=${encodeURIComponent(trimmed)}`
+    : `/api/auth/verify-email?token=${encodeURIComponent(trimmed)}`;
+  try {
+    const res = await fetch(url, { method: 'GET', credentials: 'include' });
+    const data = (await res.json().catch(() => ({}))) as {
+      success?: boolean;
+      message?: string;
+      error?: string;
+    };
+    if (!res.ok || data.success === false) {
+      return {
+        ok: false,
+        error: data.error ?? 'Ověřovací odkaz je neplatný nebo expiroval.',
+      };
+    }
+    return { ok: true, message: data.message ?? 'E-mail byl úspěšně ověřen.' };
+  } catch {
+    return { ok: false, error: 'Nelze se spojit se serverem.' };
+  }
+}
+
 export async function nestPatchBrokerLeadPrefs(
   token: string | null,
   body: {

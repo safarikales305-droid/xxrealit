@@ -46,6 +46,15 @@ const DEFAULT_TEMPLATES: TemplateInput[] = [
       'Obnova hesla\n\nKlikněte na odkaz: {{resetUrl}}\n\nPlatnost odkazu je 60 minut.',
   },
   {
+    key: 'email_verification',
+    name: 'Ověření e-mailu',
+    subject: 'Ověření e-mailu na XXrealit.cz',
+    htmlContent:
+      '<p>Dobrý den, pro ověření e-mailu klikněte na tlačítko níže.</p><p><a href="{{verifyUrl}}" style="display:inline-block;background:#ff5a00;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:700">Ověřit e-mail</a></p><p>Platnost odkazu je 24 hodin.</p>',
+    textContent:
+      'Dobrý den, pro ověření e-mailu klikněte na odkaz:\n\n{{verifyUrl}}\n\nPlatnost odkazu je 24 hodin.',
+  },
+  {
     key: 'listing_shared',
     name: 'Sdílení inzerátu',
     subject: 'Byl vám sdílen inzerát z xxrealit.cz',
@@ -371,6 +380,20 @@ export class EmailsService implements OnModuleInit {
         ctaUrl: safeResetUrl,
       },
       metadata: { resetUrl: safeResetUrl },
+    });
+  }
+
+  async sendEmailVerificationEmail(input: { email: string; verifyUrl: string }) {
+    const safeVerifyUrl = this.normalizePublicUrl(input.verifyUrl);
+    return this.sendTemplatedEmail({
+      type: 'email_verification',
+      templateKey: 'email_verification',
+      to: input.email,
+      variables: {
+        verifyUrl: safeVerifyUrl,
+        ctaUrl: safeVerifyUrl,
+      },
+      metadata: { verifyUrl: safeVerifyUrl },
     });
   }
 

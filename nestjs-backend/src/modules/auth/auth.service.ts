@@ -11,7 +11,7 @@ import { UserRole } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
 import { Resend } from 'resend';
 import { PrismaService } from '../../database/prisma.service';
-import { buildPasswordResetUrl, resolveFrontendUrl } from '../../common/resolve-frontend-url';
+import { buildEmailVerificationUrl, buildPasswordResetUrl, resolveFrontendUrl } from '../../common/resolve-frontend-url';
 import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 import { EmailsService } from '../emails/emails.service';
 import { WhatsAppMarketingService } from '../whatsapp/whatsapp-marketing.service';
@@ -610,6 +610,82 @@ export class AuthService {
       );
       throw new HttpException({ error: message }, HttpStatus.INTERNAL_SERVER_ERROR);
     }
+  }
+
+  async sendEmailVerification(userId: string): Promise<{
+    success: boolean;
+    message?: string;
+    error?: string;
+  }> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, emailVerified: true },
+      });
+      if (!user) {
+        return { success: false, error: 'Uživatel nenalezen.' };
+      }
+      if (user.emailVerified) {
+        return { success: true, message: 'E-mail je již ověřený.' };
+      }
+      if (!this.isValidEmail(user.email)) {
+        return { success: false, error: 'Neplatná e-mailová adresa účtu.' };
+      }
+
+      const token = randomBytes(32).toString('hex');
+      const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      await this.users.setEmailVerificationToken(user.id, token, expires);
+
+      const verifyUrl = buildEmailVerificationUrl(token, this.config, this.logger);
+      await this.emailsService.sendEmailVerificationEmail({
+        email: user.email,
+        verifyUrl,
+      });
+
+      this.logger.log(`[email-verify] sent userId=${user.id}`);
+      return {
+        success: true,
+        message: 'Ověřovací e-mail byl odeslán. Zkontrolujte schránku.',
+      };
+    } catch (err: unknown) {
+      const message = this.resendErrorMessage(err);
+      this.logger.error(`[email-verify] send failed: ${message}`);
+      return { success: false, error: `E-mail se nepodařilo odeslat (${message}).` };
+    }
+  }
+
+  async verifyEmailByToken(tokenRaw: string): Promise<{
+    success: boolean;
+    message?: string;
+    error?: string;
+  }> {
+    const token = String(tokenRaw ?? '').trim();
+    if (!token) {
+      return {
+        success: false,
+        error: 'Ověřovací odkaz je neplatný nebo expiroval.',
+      };
+    }
+
+    const user = await this.users.findByEmailVerificationToken(token);
+    if (
+      !user ||
+      !user.emailVerificationExpires ||
+      user.emailVerificationExpires.getTime() < Date.now()
+    ) {
+      return {
+        success: false,
+        error: 'Ověřovací odkaz je neplatný nebo expiroval.',
+      };
+    }
+
+    if (user.emailVerified) {
+      return { success: true, message: 'E-mail byl úspěšně ověřen.' };
+    }
+
+    await this.users.confirmEmailVerification(user.id);
+    this.logger.log(`[email-verify] confirmed userId=${user.id}`);
+    return { success: true, message: 'E-mail byl úspěšně ověřen.' };
   }
 
   async createAdminAccount() {

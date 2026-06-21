@@ -7,6 +7,7 @@ import {
   Logger,
   Options,
   Post,
+  Query,
   Request,
   UseGuards,
 } from '@nestjs/common';
@@ -19,6 +20,7 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import type { AuthUser } from './decorators/current-user.decorator';
+import { CurrentUser } from './decorators/current-user.decorator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Controller('auth')
@@ -131,6 +133,17 @@ export class AuthController {
   @Post('create-admin')
   async createAdminPost() {
     return this.authService.createAdminAccount();
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('send-email-verification')
+  sendEmailVerification(@CurrentUser() user: AuthUser) {
+    return this.authService.sendEmailVerification(user.id);
+  }
+
+  @Get('verify-email')
+  verifyEmail(@Query('token') token?: string) {
+    return this.authService.verifyEmailByToken(String(token ?? ''));
   }
 
   @UseGuards(JwtAuthGuard)

@@ -53,6 +53,15 @@ export function buildPasswordResetUrl(
   return `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`;
 }
 
+export function buildEmailVerificationUrl(
+  token: string,
+  config?: ConfigService,
+  logger?: Logger,
+): string {
+  const baseUrl = resolveFrontendUrl(config, logger);
+  return `${baseUrl}/verify-email?token=${encodeURIComponent(token)}`;
+}
+
 export function normalizePublicEmailUrl(
   url: string,
   config?: ConfigService,

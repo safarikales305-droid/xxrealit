@@ -6,9 +6,9 @@ import { WhatsAppPhoneVerificationCard } from '@/components/profile/WhatsAppPhon
 import {
   nestFetchMe,
   nestPatchProfileBio,
+  nestSendEmailVerification,
   type NestMeProfile,
 } from '@/lib/nest-client';
-import { nestVerifyEmail } from '@/lib/marketing-bonus';
 
 type Props = {
   token: string | null;
@@ -117,14 +117,14 @@ export function ProfileDetailsForm({ token, onSaved }: Props) {
     if (!token) return;
     setVerifyingEmail(true);
     setError(null);
-    const success = await nestVerifyEmail(token);
+    setOk(null);
+    const result = await nestSendEmailVerification(token);
     setVerifyingEmail(false);
-    if (!success) {
-      setError('Ověření e-mailu se nezdařilo.');
+    if (!result.ok) {
+      setError(result.error ?? 'Odeslání ověřovacího e-mailu se nezdařilo.');
       return;
     }
-    setOk('E-mail byl označen jako ověřený.');
-    void load();
+    setOk(result.message ?? 'Ověřovací e-mail byl odeslán. Zkontrolujte schránku.');
   }
 
   if (!token) return null;
@@ -244,7 +244,7 @@ export function ProfileDetailsForm({ token, onSaved }: Props) {
                   onClick={() => void onVerifyEmail()}
                   className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-semibold"
                 >
-                  {verifyingEmail ? 'Ověřuji…' : 'Ověřit e-mail'}
+                  {verifyingEmail ? 'Odesílám…' : 'Ověřit e-mail'}
                 </button>
               )}
             </div>

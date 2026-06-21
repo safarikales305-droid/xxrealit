@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
-import { nestVerifyEmail, nestVerifyPhone } from '@/lib/marketing-bonus';
+import { nestSendEmailVerification } from '@/lib/nest-client';
+import { nestVerifyPhone } from '@/lib/marketing-bonus';
 
 export default function CompleteRegistrationPage() {
   const router = useRouter();
@@ -19,8 +20,8 @@ export default function CompleteRegistrationPage() {
 
   async function handleVerifyEmail() {
     if (!apiAccessToken) return;
-    const ok = await nestVerifyEmail(apiAccessToken);
-    if (ok) void refresh();
+    const result = await nestSendEmailVerification(apiAccessToken);
+    if (result.ok) void refresh();
   }
 
   async function handleVerifyPhone() {
@@ -73,7 +74,7 @@ export default function CompleteRegistrationPage() {
                       onClick={() => void handleVerifyEmail()}
                       className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700"
                     >
-                      Potvrdit e-mail
+                      Odeslat ověřovací e-mail
                     </button>
                   ) : null}
                   {step.key === 'PHONE_VERIFIED' ? (

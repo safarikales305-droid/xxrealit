@@ -161,6 +161,7 @@ export function NotificationPreferencesCard({ token }: Props) {
         ? 'Testovací push notifikace byla odeslána.'
         : 'Test proběhl — zkontrolujte, zda máte aktivní push subscription.',
     );
+    dispatchNotificationsChanged();
   }
 
   if (!token) return null;
@@ -219,7 +220,7 @@ export function NotificationPreferencesCard({ token }: Props) {
             onClick={() => void onTestPush()}
             className="mt-3 rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 disabled:opacity-50"
           >
-            {testBusy ? 'Odesílám…' : 'Otestovat push notifikaci'}
+            {testBusy ? 'Odesílám…' : 'Otestovat PWA notifikaci'}
           </button>
         </div>
       ) : null}
@@ -231,7 +232,18 @@ export function NotificationPreferencesCard({ token }: Props) {
           onClick={() => void onTestPush()}
           className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 disabled:opacity-50"
         >
-          {testBusy ? 'Odesílám…' : 'Otestovat push notifikaci'}
+          {testBusy ? 'Odesílám…' : 'Otestovat PWA notifikaci'}
+        </button>
+      ) : null}
+
+      {!isAdmin ? (
+        <button
+          type="button"
+          disabled={testBusy || !pushActive}
+          onClick={() => void onTestPush()}
+          className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 disabled:opacity-50"
+        >
+          {testBusy ? 'Odesílám…' : 'Otestovat upozornění'}
         </button>
       ) : null}
 

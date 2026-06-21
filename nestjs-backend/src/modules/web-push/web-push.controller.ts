@@ -29,16 +29,15 @@ export class WebPushController {
     return { publicKey, configured: this.webPush.isConfigured() };
   }
 
+  @Post('push/test')
+  testPush(@CurrentUser() user: AuthUser) {
+    return this.webPush.sendTestPush(user.id);
+  }
+
   @UseGuards(AdminGuard)
   @Get('push/admin-status')
   adminPushStatus() {
     return this.webPush.getAdminStatus();
-  }
-
-  @UseGuards(AdminGuard)
-  @Post('push/test')
-  testPush(@CurrentUser() user: AuthUser) {
-    return this.webPush.sendTestPush(user.id);
   }
 
   @Get('users/me/notification-prefs')

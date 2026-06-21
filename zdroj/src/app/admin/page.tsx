@@ -30,6 +30,7 @@ import {
   nestAdminUnverifyUserCredit,
   nestAdminVerifyUserWhatsApp,
   nestAdminResetUserWhatsApp,
+  nestPushTest,
   nestAdminUsers,
   type AdminListingPhotoWatermarkSettings,
   type AdminShareTextsSettings,
@@ -102,6 +103,8 @@ export default function AdminPage() {
   const [importError, setImportError] = useState<string | null>(null);
   const [xmlImportSuccess, setXmlImportSuccess] = useState<string | null>(null);
   const [xmlImportError, setXmlImportError] = useState<string | null>(null);
+  const [pushTestBusy, setPushTestBusy] = useState(false);
+  const [pushTestMsg, setPushTestMsg] = useState<string | null>(null);
   const [watermarkSettings, setWatermarkSettings] =
     useState<AdminListingPhotoWatermarkSettings | null>(null);
   const [watermarkBusy, setWatermarkBusy] = useState(false);
@@ -355,6 +358,23 @@ export default function AdminPage() {
     setBusyUserId(null);
     if (r.ok) await refresh();
     else setLoadError(r.error ?? 'Reset WhatsApp ověření selhalo');
+  }
+
+  async function onAdminTestPwaPush() {
+    if (!token) return;
+    setPushTestBusy(true);
+    setPushTestMsg(null);
+    const r = await nestPushTest(token);
+    setPushTestBusy(false);
+    if (!r.ok) {
+      setPushTestMsg(r.error ?? 'Test PWA notifikace selhal.');
+      return;
+    }
+    setPushTestMsg(
+      r.sent && r.sent > 0
+        ? 'Testovací PWA push notifikace byla odeslána.'
+        : 'Test proběhl — zkontrolujte aktivní push subscription v profilu.',
+    );
   }
 
   async function onPasswordSubmit(e: React.FormEvent) {
@@ -657,6 +677,22 @@ export default function AdminPage() {
               {xmlImportLoading ? 'Importuji XML…' : 'Import XML'}
             </button>
           </form>
+        </section>
+
+        <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-semibold tracking-tight">PWA notifikace</h2>
+          <p className="mt-2 text-sm text-zinc-600">
+            Odešle testovací push notifikaci na váš účet a zvýší badge na ikoně aplikace.
+          </p>
+          {pushTestMsg ? <p className="mt-2 text-sm text-zinc-700">{pushTestMsg}</p> : null}
+          <button
+            type="button"
+            disabled={pushTestBusy || !token}
+            onClick={() => void onAdminTestPwaPush()}
+            className="mt-4 rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
+          >
+            {pushTestBusy ? 'Odesílám…' : 'Otestovat PWA notifikaci'}
+          </button>
         </section>
 
         <section>

@@ -31,6 +31,7 @@ import {
   serializeProperty,
   type PropertyViewerAccess,
 } from '../properties/properties.serializer';
+import { NotificationsService } from '../premium-broker/notifications.service';
 import { UpdateBrokerPublicProfileDto } from './dto/update-broker-public-profile.dto';
 import { isValidWhatsAppPhone, normalizeToE164 } from '../whatsapp/whatsapp-phone.util';
 import type { ImageCropDto } from './dto/image-crop.dto';
@@ -57,7 +58,10 @@ type LoginSafeUser = Pick<
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   private normalizeCrop(crop?: ImageCropDto | null): Prisma.InputJsonValue | undefined {
     if (!crop) return undefined;
@@ -134,12 +138,50 @@ export class UsersService {
     return this.prisma.user.create({ data });
   }
 
-  async verifyEmail(userId: string) {
-    await this.prisma.user.update({
+  async verifyEmail(_userId: string) {
+    throw new BadRequestException(
+      'E-mail lze ověřit pouze kliknutím na odkaz v e-mailu. Použijte „Ověřit e-mail“ pro odeslání odkazu.',
+    );
+  }
+
+  setEmailVerificationToken(
+    userId: string,
+    token: string,
+    expires: Date,
+  ): Promise<User> {
+    return this.prisma.user.update({
       where: { id: userId },
-      data: { emailVerified: true },
+      data: {
+        emailVerificationToken: token,
+        emailVerificationExpires: expires,
+      },
     });
-    return { ok: true };
+  }
+
+  findByEmailVerificationToken(token: string) {
+    const trimmed = token.trim();
+    if (!trimmed) return Promise.resolve(null);
+    return this.prisma.user.findFirst({
+      where: { emailVerificationToken: trimmed },
+      select: {
+        id: true,
+        email: true,
+        emailVerified: true,
+        emailVerificationExpires: true,
+      },
+    });
+  }
+
+  confirmEmailVerification(userId: string): Promise<User> {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        emailVerified: true,
+        emailVerifiedAt: new Date(),
+        emailVerificationToken: null,
+        emailVerificationExpires: null,
+      },
+    });
   }
 
   async verifyPhone(userId: string) {
@@ -1121,6 +1163,28 @@ export class UsersService {
       const followersCount = await this.prisma.follow.count({
         where: { followingId },
       });
+
+      const follower = await this.prisma.user.findUnique({
+        where: { id: followerId },
+        select: { name: true },
+      });
+      const followerLabel = follower?.name?.trim() || 'Uživatel';
+      void this.notifications
+        .create(
+          followingId,
+          'NEW_FOLLOWER',
+          'Nový sledující',
+          `${followerLabel} vás začal sledovat`,
+          { followerId, profileUrl: `/profile/${followerId}` },
+        )
+        .catch((err) => {
+          this.logger.warn(
+            `[follow] notification failed followingId=${followingId}: ${
+              err instanceof Error ? err.message : err
+            }`,
+          );
+        });
+
       return { ok: true, followersCount };
     } catch (e) {
       if (

@@ -234,13 +234,9 @@ export async function nestAdminManualBonusRevoke(
 }
 
 export async function nestVerifyEmail(token: string | null): Promise<boolean> {
-  const base = apiBase();
-  if (!base || !token) return false;
-  const res = await fetch(`${base}/users/me/verify-email`, {
-    method: 'POST',
-    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
-  });
-  return res.ok;
+  const { nestSendEmailVerification } = await import('@/lib/nest-client');
+  const result = await nestSendEmailVerification(token);
+  return result.ok;
 }
 
 export async function nestVerifyPhone(token: string | null): Promise<boolean> {

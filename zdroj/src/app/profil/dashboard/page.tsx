@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useMessagesUnreadCount } from '@/hooks/use-messages-unread';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
@@ -42,6 +42,7 @@ import { NotificationPreferencesCard } from '@/components/profile/NotificationPr
 import { ProfileDetailsForm } from '@/components/profile/ProfileDetailsForm';
 import { ProfileRequirementsCard } from '@/components/profile/ProfileRequirementsCard';
 import { dispatchNotificationsChanged } from '@/hooks/use-notifications-unread';
+import { clearAppBadgeCount } from '@/hooks/use-app-badge';
 import { WhatsAppPhoneVerificationCard } from '@/components/profile/WhatsAppPhoneVerificationCard';
 
 type Tab = 'settings' | 'social-integrations' | 'referral' | 'listings' | 'ads' | 'messages' | 'notifications';
@@ -91,6 +92,10 @@ export default function ProfileDashboardPage() {
         reason: params.get('reason') ?? undefined,
       });
     }
+    if (params.get('emailVerified') === '1') {
+      setOk('E-mail byl úspěšně ověřen.');
+      void refresh();
+    }
   }, [params, refresh]);
 
   const [me, setMe] = useState<NestMeProfile | null>(null);
@@ -114,6 +119,7 @@ export default function ProfileDashboardPage() {
 
   const [notifications, setNotifications] = useState<UserNotificationRow[]>([]);
   const [notifLoading, setNotifLoading] = useState(false);
+  const notifBadgeClearedRef = useRef(false);
   const [companyAds, setCompanyAds] = useState<NestCompanyAdRow[]>([]);
 
   const isProfessional = isProfessionalVerificationRole(user?.role);
@@ -165,6 +171,26 @@ export default function ProfileDashboardPage() {
     void loadListings();
     void loadNotifications();
   }, [loadMe, loadListings, loadNotifications]);
+
+  useEffect(() => {
+    if (tab !== 'notifications') {
+      notifBadgeClearedRef.current = false;
+      return;
+    }
+    if (!apiAccessToken || notifBadgeClearedRef.current) return;
+    notifBadgeClearedRef.current = true;
+    clearAppBadgeCount();
+    void (async () => {
+      const rows = await nestListNotifications(apiAccessToken);
+      const unread = (rows ?? []).filter((n) => !n.readAt);
+      if (unread.length === 0) return;
+      await Promise.all(
+        unread.map((n) => nestMarkNotificationRead(apiAccessToken, n.id)),
+      );
+      dispatchNotificationsChanged();
+      void loadNotifications();
+    })();
+  }, [tab, apiAccessToken, loadNotifications]);
 
   const activeCompanyAds = useMemo(
     () => companyAds.filter((x) => x.isActive).length,

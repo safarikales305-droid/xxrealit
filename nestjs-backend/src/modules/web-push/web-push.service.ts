@@ -221,6 +221,14 @@ export class WebPushService {
   }
 
   async sendTestPush(userId: string) {
+    await this.prisma.userNotification.create({
+      data: {
+        userId,
+        type: 'TEST_PUSH',
+        title: 'XXrealit — test push',
+        body: 'PWA push notifikace fungují správně.',
+      },
+    });
     return this.sendToUser(
       userId,
       {
@@ -308,6 +316,9 @@ export class WebPushService {
   }
 
   private urlForNotificationType(type: string, data?: Record<string, unknown>): string {
+    if (type === 'NEW_FOLLOWER' && typeof data?.followerId === 'string') {
+      return `/profile/${data.followerId}`;
+    }
     if (type === 'BROKER_LEAD' && typeof data?.propertyId === 'string') {
       return `/nemovitost/${data.propertyId}`;
     }

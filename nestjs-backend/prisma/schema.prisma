@@ -180,6 +180,9 @@ model User {
   firstContentCompleted Boolean @default(false)
   /// Ověřený e-mail (povinný krok registrace).
   emailVerified Boolean @default(false)
+  emailVerifiedAt DateTime?
+  emailVerificationToken String?
+  emailVerificationExpires DateTime?
   /// Ověřený telefon (povinný krok registrace).
   phoneVerified Boolean @default(false)
   /// Unikátní referral kód pro pozvánky přátel.
