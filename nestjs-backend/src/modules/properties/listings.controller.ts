@@ -11,6 +11,16 @@ export class ListingsController {
 
   @Post(':id/unlock-contact')
   @UseGuards(JwtAuthGuard)
+  unlockContactLegacy(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UnlockListingContactDto,
+  ) {
+    return this.listingContactUnlock.unlockContact(user.id, id, dto);
+  }
+
+  @Post(':id/contact-unlock')
+  @UseGuards(JwtAuthGuard)
   unlockContact(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,

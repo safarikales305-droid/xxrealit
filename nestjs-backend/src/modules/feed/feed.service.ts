@@ -9,6 +9,7 @@ import {
   publicShortPropertyWhere,
 } from '../properties/property-listing-scope';
 import { publiclyVisiblePropertyWhere } from '../properties/property-public-visibility';
+import { ListingContactUnlockService } from '../properties/listing-contact-unlock.service';
 import {
   serializeProperty,
   type PropertyViewerAccess,
@@ -51,6 +52,7 @@ export class FeedService {
     private readonly prisma: PrismaService,
     private readonly posts: PostsService,
     private readonly _autoViewsAutopilot: ShortsViewsAutopilotService,
+    private readonly listingContactUnlock: ListingContactUnlockService,
   ) {}
 
   async getPersonalizedForUser(viewerId: string) {
@@ -128,7 +130,21 @@ export class FeedService {
    * Shorts = jen schválené inzeráty s videem (`publicShortPropertyWhere`: PropertyMedia
    * typu video nebo neprázdné `videoUrl`).
    */
-  async listShorts() {
+  async listShorts(viewerId?: string) {
+    const viewer = viewerId
+      ? await this.prisma.user.findUnique({
+          where: { id: viewerId },
+          select: { id: true, role: true, isPremiumBroker: true },
+        })
+      : null;
+    const access: PropertyViewerAccess | undefined = viewer
+      ? {
+          role: viewer.role,
+          isPremiumBroker: Boolean(viewer.isPremiumBroker),
+          isAdmin: viewer.role === UserRole.ADMIN,
+        }
+      : undefined;
+
     const rows = await this.prisma.property.findMany({
       where: publicShortPropertyWhere,
       orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
@@ -156,17 +172,45 @@ export class FeedService {
       `[feed/shorts] DB rows=${sorted.length} (videoUrl=${withVideoUrl}, mediaVideo=${withVideoMedia}) listingType=SHORTS+approved+visible`,
     );
 
-    const serialized: Record<string, unknown>[] = sorted.map((r) => {
-      const base = serializeProperty(
-        { ...r, likes: [] as { id: string }[] },
-        undefined,
-      ) as Record<string, unknown>;
-      return {
-        ...base,
-        tiparPostId: r.tiparPostPublished?.id ?? null,
-        contactUnlockPrice: r.tiparPostPublished?.contactUnlockPrice ?? null,
-      };
-    });
+    const serialized: Record<string, unknown>[] = await Promise.all(
+      sorted.map(async (r) => {
+        const isOwner = Boolean(viewerId && r.userId === viewerId);
+        const hasViewerUnlock = viewerId
+          ? await this.listingContactUnlock.hasUnlocked(
+              viewerId,
+              r.id,
+              Boolean(r.isTiparTip),
+            )
+          : false;
+        const contactUnlocked = isOwner || hasViewerUnlock;
+        const sellerContactVisible = !isOwner && hasViewerUnlock;
+        const contactUnlockPrice = await this.listingContactUnlock.resolveUnlockPrice({
+          id: r.id,
+          isTiparTip: Boolean(r.isTiparTip),
+          isContactPaid: Boolean(r.isContactPaid),
+          isOwnerListing: Boolean(r.isOwnerListing),
+          contactUnlockPrice: r.contactUnlockPrice ?? 0,
+        });
+        const base = serializeProperty(
+          { ...r, likes: [] as { id: string }[] },
+          viewerId,
+          access,
+          {
+            contactUnlocked,
+            sellerContactVisible,
+            contactUnlockPrice,
+            contactUnlockAvailable:
+              await this.listingContactUnlock.isContactUnlockAvailableForProperty(r.id),
+            isContactPaid: Boolean(r.isContactPaid) || Boolean(r.isTiparTip),
+          },
+        ) as Record<string, unknown>;
+        return {
+          ...base,
+          tiparPostId: r.tiparPostPublished?.id ?? null,
+          contactUnlockPrice: r.tiparPostPublished?.contactUnlockPrice ?? contactUnlockPrice,
+        };
+      }),
+    );
 
     if (serialized.length > 0) {
       const sample = serialized.slice(0, 3).map((x) => ({

@@ -4,14 +4,13 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { Heart, MessageCircle } from 'lucide-react';
-import { ContactLeadModal } from '@/components/listing/ContactLeadModal';
+import { ContactGateModals, useContactGate } from '@/components/listing/ContactGate';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { useAuth } from '@/hooks/use-auth';
 import { getNestPublicOrigin, nestAbsoluteAssetUrl } from '@/lib/api';
 import { isValidImageUrl, normalizeImageCandidate } from '@/lib/images';
 import {
-  nestListingUnlockContact,
   nestShareListingByEmail,
   nestSubmitOwnerLeadOffer,
   nestToggleFavorite,
@@ -168,15 +167,7 @@ export function NemovitostDetailView({
   const [shareSenderMessage, setShareSenderMessage] = useState('');
   const [shareEmailBusy, setShareEmailBusy] = useState(false);
   const [shareEmailMsg, setShareEmailMsg] = useState<string | null>(null);
-  const [contactLeadOpen, setContactLeadOpen] = useState(false);
-  const [contactLeadBusy, setContactLeadBusy] = useState(false);
-  const [contactLeadError, setContactLeadError] = useState<string | null>(null);
-  const [showCreditModal, setShowCreditModal] = useState(false);
-  const [contactSuccessMsg, setContactSuccessMsg] = useState<string | null>(null);
-  const [interestSubmitted, setInterestSubmitted] = useState(
-    Boolean(p.buyerInterestSubmitted),
-  );
-  const [unlockedContact, setUnlockedContact] = useState<{
+  const [revealedContact, setRevealedContact] = useState<{
     phone: string | null;
     email: string | null;
     contactName: string | null;
@@ -184,8 +175,8 @@ export function NemovitostDetailView({
   const active = media[safeMediaIndex] ?? media[0];
 
   useEffect(() => {
-    setInterestSubmitted(Boolean(p.buyerInterestSubmitted));
-  }, [p.id, p.buyerInterestSubmitted]);
+    setRevealedContact(null);
+  }, [p.id, p.contactUnlocked, p.sellerContactVisible]);
 
   useEffect(() => {
     if (media.length === 0) {
@@ -241,27 +232,45 @@ export function NemovitostDetailView({
   );
   const isAgentViewer = user?.role === 'AGENT';
   const showOwnerBadges = Boolean(p.isOwnerListing);
-  const contactRevealed =
-    (isTipListing(p) && (Boolean(p.contactUnlocked) || Boolean(unlockedContact))) ||
-    (!isTipListing(p) &&
-      (Boolean(p.sellerContactVisible) || Boolean(unlockedContact)));
-  const sellerContactLocked = !isOwner && !contactRevealed;
-  const phone = contactRevealed
-    ? (unlockedContact?.phone ?? p.contactPhone ?? '').trim()
-    : '';
-  const email = contactRevealed
-    ? (unlockedContact?.email ?? p.contactEmail ?? '').trim()
-    : '';
-  const nameContact = contactRevealed
-    ? (unlockedContact?.contactName ?? p.contactName ?? '').trim()
-    : '';
+
+  function redirectToLoginForMessages() {
+    const path = `/nemovitost/${encodeURIComponent(propertyId)}`;
+    router.push(`/login?redirect=${encodeURIComponent(path)}`);
+  }
+
+  const isTip = isTipListing(p);
+
+  const contactGate = useContactGate({
+    listing: p,
+    isOwner,
+    isAuthenticated,
+    apiAccessToken,
+    defaultName: user?.name ?? '',
+    defaultEmail: user?.email ?? '',
+    defaultPhone: user?.phone ?? '',
+    onLoginRequired: redirectToLoginForMessages,
+    onAfterUnlock: () => router.refresh(),
+  });
+
+  const contactRevealed = contactGate.contactRevealed;
+  const sellerContactLocked = contactGate.contactLocked;
+  const interestSubmitted = contactGate.interestSubmitted;
+  const contactSuccessMsg = contactGate.contactSuccessMsg;
   const contactUnlockPrice = p.contactUnlockPrice ?? 0;
   const contactUnlockAvailable = p.contactUnlockAvailable !== false;
+  const phone = contactRevealed
+    ? (revealedContact?.phone ?? p.contactPhone ?? '').trim()
+    : '';
+  const email = contactRevealed
+    ? (revealedContact?.email ?? p.contactEmail ?? '').trim()
+    : '';
+  const nameContact = contactRevealed
+    ? (revealedContact?.contactName ?? p.contactName ?? '').trim()
+    : '';
   const companyName = sellerContactLocked
     ? ''
     : ((p as PropertyFeedItem & { companyName?: string | null }).companyName?.trim() ?? '');
   const coverForMessage = classicListingCoverUrl(p);
-  const isTip = isTipListing(p);
 
   const summaryLine = useMemo(() => {
     const parts: string[] = [];
@@ -273,95 +282,16 @@ export function NemovitostDetailView({
     return parts.join(' • ');
   }, [extraFields.area, extraFields.propertyType]);
 
-  function redirectToLoginForMessages() {
-    const path = `/nemovitost/${encodeURIComponent(propertyId)}`;
-    router.push(`/login?redirect=${encodeURIComponent(path)}`);
-  }
-
   function handleShowContact() {
-    if (!isAuthenticated || !apiAccessToken) {
-      window.alert(isTip ? 'Pro zobrazení kontaktu se přihlaste.' : 'Pro odeslání zájmu se přihlaste.');
-      redirectToLoginForMessages();
-      return;
-    }
-    if (isOwner || contactRevealed || (!isTip && interestSubmitted)) return;
-    setContactLeadError(null);
-    setContactLeadOpen(true);
-  }
-
-  async function handleContactLeadSubmit(lead: {
-    name: string;
-    email: string;
-    phone: string;
-    message?: string;
-  }) {
-    if (!apiAccessToken) return;
-    setContactLeadBusy(true);
-    setContactLeadError(null);
-    const r = await nestListingUnlockContact(apiAccessToken, propertyId, lead);
-    setContactLeadBusy(false);
-    if (!r.ok || !r.data) {
-      if (r.code === 'INSUFFICIENT_CREDIT') {
-        setContactLeadOpen(false);
-        setShowCreditModal(true);
-        return;
-      }
-      if (r.code === 'BONUS_NOT_ALLOWED_FOR_TIP' || r.code === 'REAL_CREDIT_REQUIRED') {
-        setContactLeadError(
-          r.error ??
-            'Pro odemknutí tipu je nutné dobít placený kredit přes QR kód.',
-        );
-        return;
-      }
-      setContactLeadError(r.error ?? (isTip ? 'Odemčení kontaktu se nezdařilo.' : 'Odeslání zájmu se nezdařilo.'));
-      return;
-    }
-
-    setContactLeadOpen(false);
-
-    if (!isTip && r.data.submitted) {
-      setInterestSubmitted(true);
-      setContactSuccessMsg(
-        r.data.message ??
-          'Děkujeme, prodejce vás bude brzy kontaktovat.',
-      );
-      const unlocked =
-        r.data.sellerContactVisible === true ||
-        r.data.status === 'UNLOCKED';
-      if (unlocked && (r.data.phone || r.data.email || r.data.contactName)) {
-        setUnlockedContact({
-          phone: r.data.phone ?? null,
-          email: r.data.email ?? null,
-          contactName: r.data.contactName ?? null,
-        });
-      }
-      return;
-    }
-
-    setUnlockedContact({
-      phone: r.data.phone ?? null,
-      email: r.data.email ?? null,
-      contactName: r.data.contactName ?? null,
-    });
-    setContactSuccessMsg('Kontakt byl odemčen. Vaše údaje byly odeslány inzerentovi.');
+    contactGate.openContactForm();
   }
 
   function handleWriteSeller() {
-    if (!isAuthenticated || !apiAccessToken) {
-      redirectToLoginForMessages();
-      return;
-    }
-    if (isOwner) {
+    const result = contactGate.requestMessaging(() => setSellerModalOpen(true));
+    if (result === 'own-listing') {
       setSellerActionHint('Toto je váš vlastní inzerát.');
       window.setTimeout(() => setSellerActionHint(null), 5000);
-      return;
     }
-    if (sellerContactLocked) {
-      setSellerActionHint('Nejdříve odešlete formulář „Zobrazit kontakt“.');
-      window.setTimeout(() => setSellerActionHint(null), 5000);
-      return;
-    }
-    setSellerModalOpen(true);
   }
 
   async function handleOwnerLeadSubmit() {
@@ -662,9 +592,9 @@ export function NemovitostDetailView({
                       {contactSuccessMsg}
                     </p>
                   ) : null}
-                  {contactLeadError && !contactLeadOpen ? (
+                  {contactGate.contactLeadError && !contactGate.contactLeadOpen ? (
                     <p className="w-full max-w-[360px] text-sm font-medium text-red-600" role="alert">
-                      {contactLeadError}
+                      {contactGate.contactLeadError}
                     </p>
                   ) : null}
                   {renderLockedContactBlock(true)}
@@ -845,44 +775,12 @@ export function NemovitostDetailView({
         </aside>
       </div>
 
-      <ContactLeadModal
-        open={contactLeadOpen}
-        busy={contactLeadBusy}
-        error={contactLeadError}
+      <ContactGateModals
+        gate={contactGate}
         defaultName={user?.name ?? ''}
         defaultEmail={user?.email ?? ''}
         defaultPhone={user?.phone ?? ''}
-        unlockPrice={contactUnlockPrice}
-        mode={isTip ? 'unlock' : 'interest'}
-        onClose={() => setContactLeadOpen(false)}
-        onSubmit={(lead) => void handleContactLeadSubmit(lead)}
       />
-
-      {showCreditModal ? (
-        <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/40 p-4">
-          <div className="max-w-sm rounded-2xl bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold">Dobijte kredit</h3>
-            <p className="mt-2 text-sm text-zinc-600">
-              Nemáte dostatek kreditu pro zobrazení kontaktu. Dobijte si kredit v profilu.
-            </p>
-            <div className="mt-4 flex gap-2">
-              <Link
-                href="/profil/dashboard?tab=settings"
-                className="rounded-full bg-[#e85d00] px-4 py-2 text-sm font-semibold text-white"
-              >
-                Dobít kredit
-              </Link>
-              <button
-                type="button"
-                onClick={() => setShowCreditModal(false)}
-                className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700"
-              >
-                Zavřít
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       <MessageSellerModal
         open={sellerModalOpen}

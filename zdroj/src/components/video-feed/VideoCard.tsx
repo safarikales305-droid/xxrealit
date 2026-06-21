@@ -11,6 +11,7 @@ import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
 import { listingShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
+import { ContactGateModals, useContactGate } from '@/components/listing/ContactGate';
 import { nestToggleFavorite, type ShortVideo } from '@/lib/nest-client';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
 import { TipShortsSticker } from '@/components/listing/TipBadges';
@@ -235,6 +236,19 @@ export default function VideoCard({
   const isOwner = Boolean(
     user?.id && ownerId && String(user.id).trim() === String(ownerId).trim(),
   );
+
+  const contactGate = useContactGate({
+    listing: video,
+    isOwner,
+    isAuthenticated,
+    apiAccessToken,
+    defaultName: user?.name ?? '',
+    defaultEmail: user?.email ?? '',
+    defaultPhone: user?.phone ?? '',
+    onLoginRequired: redirectToLogin,
+    onAfterUnlock: () => router.refresh(),
+  });
+
   const coverStill =
     ((video.images ?? []).find((u) => typeof u === 'string' && u.trim()) ?? '').trim() ||
     (video.imageUrl ?? '').trim() ||
@@ -270,16 +284,11 @@ export default function VideoCard({
   }
 
   function handleWriteSeller() {
-    if (!isAuthenticated || !apiAccessToken) {
-      redirectToLogin();
-      return;
-    }
-    if (isOwner) {
+    const result = contactGate.requestMessaging(() => setSellerModalOpen(true));
+    if (result === 'own-listing') {
       setSellerActionHint('Toto je váš vlastní inzerát.');
       window.setTimeout(() => setSellerActionHint(null), 5000);
-      return;
     }
-    setSellerModalOpen(true);
   }
 
   function handleFavoriteClick() {
@@ -697,6 +706,13 @@ export default function VideoCard({
           </>
         ) : null}
       </div>
+
+      <ContactGateModals
+        gate={contactGate}
+        defaultName={user?.name ?? ''}
+        defaultEmail={user?.email ?? ''}
+        defaultPhone={user?.phone ?? ''}
+      />
 
       <MessageSellerModal
         open={sellerModalOpen}

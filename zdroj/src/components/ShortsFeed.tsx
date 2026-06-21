@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Mail } from 'lucide-react';
 import { CommentsPlaceholder } from '@/components/feed/comments-placeholder';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
+import { ContactGateModals, useContactGate } from '@/components/listing/ContactGate';
 import { useAuth } from '@/hooks/use-auth';
 import { toPublicApiUrl } from '@/lib/public-api';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
@@ -110,6 +111,28 @@ export function ShortsFeed({ items }: Props) {
     prefetchSrc: (clip) => clip.src,
   });
   const activeId = currentItem?.id ?? null;
+
+  const contactGate = useContactGate({
+    listing: currentItem ?? { id: '' },
+    isOwner: Boolean(
+      user?.id &&
+        currentItem?.userId &&
+        String(user.id).trim() === String(currentItem.userId).trim(),
+    ),
+    isAuthenticated,
+    apiAccessToken,
+    defaultName: user?.name ?? '',
+    defaultEmail: user?.email ?? '',
+    defaultPhone: user?.phone ?? '',
+    onLoginRequired: () => {
+      const path =
+        typeof window !== 'undefined'
+          ? `${window.location.pathname}${window.location.search}`
+          : '/';
+      router.push(`/prihlaseni?redirect=${encodeURIComponent(path)}`);
+    },
+    onAfterUnlock: () => router.refresh(),
+  });
 
   const [liked, setLiked] = useState<Record<string, boolean>>({});
   const [likes, setLikes] = useState<Record<string, number>>({});
@@ -216,14 +239,6 @@ export function ShortsFeed({ items }: Props) {
 
   const handleWriteSeller = useCallback(
     (clip: Clip) => {
-      if (!isAuthenticated || !apiAccessToken) {
-        const path =
-          typeof window !== 'undefined'
-            ? `${window.location.pathname}${window.location.search}`
-            : '/';
-        router.push(`/prihlaseni?redirect=${encodeURIComponent(path)}`);
-        return;
-      }
       const ownerListingUserId = (clip.userId ?? '').trim();
       const isListingOwner = Boolean(
         user?.id &&
@@ -235,9 +250,13 @@ export function ShortsFeed({ items }: Props) {
         window.setTimeout(() => setSellerActionHint(null), 5000);
         return;
       }
-      setSellerClip(clip);
+      const result = contactGate.requestMessagingFor(clip, () => setSellerClip(clip));
+      if (result === 'own-listing') {
+        setSellerActionHint('Toto je váš vlastní inzerát.');
+        window.setTimeout(() => setSellerActionHint(null), 5000);
+      }
     },
-    [apiAccessToken, isAuthenticated, router, user?.id],
+    [contactGate, user?.id],
   );
 
   if (clips.length === 0) {
@@ -530,6 +549,12 @@ export function ShortsFeed({ items }: Props) {
           })}
         </div>
       </div>
+      <ContactGateModals
+        gate={contactGate}
+        defaultName={user?.name ?? ''}
+        defaultEmail={user?.email ?? ''}
+        defaultPhone={user?.phone ?? ''}
+      />
       {sellerClip ? (
         <MessageSellerModal
           open={Boolean(sellerClip)}

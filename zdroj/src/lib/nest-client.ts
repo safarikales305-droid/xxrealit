@@ -5066,6 +5066,11 @@ export type ShortVideo = {
   isTiparTip?: boolean;
   isTip?: boolean;
   listingType?: string | null;
+  contactUnlocked?: boolean;
+  sellerContactVisible?: boolean;
+  buyerInterestSubmitted?: boolean;
+  contactUnlockPrice?: number;
+  contactUnlockAvailable?: boolean;
   user?: {
     id: string;
     name?: string | null;
@@ -5133,12 +5138,15 @@ export async function nestCreateVideoPost(
   }
 }
 
-export async function nestFetchVideos(): Promise<ShortVideo[]> {
+export async function nestFetchVideos(token?: string | null): Promise<ShortVideo[]> {
   if (!API_BASE_URL) return [];
   try {
     const res = await fetch(`${API_BASE_URL}/feed/shorts`, {
       cache: 'no-store',
-      headers: { Accept: 'application/json' },
+      headers: {
+        Accept: 'application/json',
+        ...(token ? nestAuthHeaders(token) : {}),
+      },
     });
     if (!res.ok) return [];
     const data = (await res.json()) as unknown;
@@ -6556,6 +6564,7 @@ export async function nestListingUnlockContact(
     email?: string | null;
     contactName?: string | null;
     alreadyUnlocked?: boolean;
+    contactUnlocked?: boolean;
     creditCharged?: number;
     submitted?: boolean;
     duplicate?: boolean;
@@ -6568,7 +6577,7 @@ export async function nestListingUnlockContact(
 }> {
   if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
   const res = await fetch(
-    `${API_BASE_URL}/listings/${encodeURIComponent(listingId)}/unlock-contact`,
+    `${API_BASE_URL}/listings/${encodeURIComponent(listingId)}/contact-unlock`,
     {
       method: 'POST',
       headers: {
@@ -6609,6 +6618,7 @@ export async function nestListingUnlockContact(
       email: typeof data.email === 'string' ? data.email : null,
       contactName: typeof data.contactName === 'string' ? data.contactName : null,
       alreadyUnlocked: data.alreadyUnlocked === true,
+      contactUnlocked: data.contactUnlocked === true || data.alreadyUnlocked === true,
       creditCharged:
         typeof data.creditCharged === 'number' && Number.isFinite(data.creditCharged)
           ? data.creditCharged

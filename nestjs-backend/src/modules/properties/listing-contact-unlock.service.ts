@@ -81,6 +81,18 @@ export class ListingContactUnlockService {
       where: { userId_propertyId: { userId, propertyId } },
     });
     if (listingUnlock) return true;
+
+    const unlockedLead = await this.prisma.contactLead.findFirst({
+      where: {
+        listingId: propertyId,
+        interestedUserId: userId,
+        tipId: null,
+        status: 'UNLOCKED',
+      },
+      select: { id: true },
+    });
+    if (unlockedLead) return true;
+
     if (!isTiparTip) return false;
     const tip = await this.prisma.tiparPost.findFirst({
       where: { publishedPropertyId: propertyId, deletedAt: null },
@@ -245,6 +257,18 @@ export class ListingContactUnlockService {
     return this.contactResponse(contact);
   }
 
+  private async ensureBuyerListingUnlock(
+    tx: import('@prisma/client').Prisma.TransactionClient,
+    buyerUserId: string,
+    propertyId: string,
+  ) {
+    await tx.listingContactUnlock.upsert({
+      where: { userId_propertyId: { userId: buyerUserId, propertyId } },
+      create: { userId: buyerUserId, propertyId, amount: 0 },
+      update: {},
+    });
+  }
+
   async listAdvertiserLeads(ownerUserId: string) {
     const rows = await this.prisma.contactLead.findMany({
       where: {
@@ -321,6 +345,9 @@ export class ListingContactUnlockService {
             unlockedAt: new Date(),
           },
         });
+        if (lead.interestedUserId && lead.listingId) {
+          await this.ensureBuyerListingUnlock(tx, lead.interestedUserId, lead.listingId);
+        }
       });
 
       await this.notifyOwner({
@@ -359,6 +386,32 @@ export class ListingContactUnlockService {
     }
 
     const lead = this.validateLead(dto);
+    const existingUnlocked = await this.prisma.contactLead.findFirst({
+      where: {
+        listingId: property.id,
+        interestedUserId: buyerUserId,
+        tipId: null,
+        status: 'UNLOCKED',
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existingUnlocked) {
+      await this.prisma.$transaction(async (tx) => {
+        await this.ensureBuyerListingUnlock(tx, buyerUserId, property.id);
+      });
+      const sellerContact = await this.resolvePropertySellerContact(property.id);
+      return {
+        submitted: true,
+        duplicate: false,
+        alreadyUnlocked: true,
+        status: 'UNLOCKED',
+        contactUnlocked: true,
+        sellerContactVisible: true,
+        message: 'Kontakt je již odemčený.',
+        ...(sellerContact ? this.sellerContactPayload(sellerContact) : {}),
+      };
+    }
+
     const since = new Date(Date.now() - LEAD_DEDUP_MS);
     const duplicate = await this.prisma.contactLead.findFirst({
       where: {
@@ -370,6 +423,11 @@ export class ListingContactUnlockService {
       orderBy: { createdAt: 'desc' },
     });
     if (duplicate) {
+      if (duplicate.status === 'UNLOCKED' && duplicate.interestedUserId === buyerUserId) {
+        await this.prisma.$transaction(async (tx) => {
+          await this.ensureBuyerListingUnlock(tx, buyerUserId, property.id);
+        });
+      }
       const sellerContact =
         duplicate.status === 'UNLOCKED'
           ? await this.resolvePropertySellerContact(property.id)
@@ -378,6 +436,7 @@ export class ListingContactUnlockService {
         submitted: true,
         duplicate: true,
         status: duplicate.status,
+        contactUnlocked: duplicate.status === 'UNLOCKED',
         sellerContactVisible: duplicate.status === 'UNLOCKED',
         message:
           duplicate.status === 'UNLOCKED'
@@ -448,6 +507,10 @@ export class ListingContactUnlockService {
         });
       }
 
+      if (status === 'UNLOCKED') {
+        await this.ensureBuyerListingUnlock(tx, buyerUserId, property.id);
+      }
+
       return { ...leadRow, ownerChargedAmount, creditCharged, status };
     });
 
@@ -469,6 +532,7 @@ export class ListingContactUnlockService {
       submitted: true,
       duplicate: false,
       status: created.status,
+      contactUnlocked: !waitingForCredit,
       sellerContactVisible: !waitingForCredit,
       message: waitingForCredit
         ? 'Děkujeme, prodejce se vám brzy ozve.'

@@ -2,6 +2,7 @@ import { Controller, Get, UseGuards } from '@nestjs/common';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { FeedService } from './feed.service';
 
 @Controller('feed')
@@ -9,8 +10,9 @@ export class FeedController {
   constructor(private readonly feedService: FeedService) {}
 
   @Get('shorts')
-  shorts() {
-    return this.feedService.listShorts();
+  @UseGuards(OptionalJwtAuthGuard)
+  shorts(@CurrentUser() user: AuthUser | null) {
+    return this.feedService.listShorts(user?.id);
   }
 
   @Get('posts')

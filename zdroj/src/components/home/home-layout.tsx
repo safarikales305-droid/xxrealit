@@ -14,6 +14,7 @@ import {
   nestFetchPostComments,
   nestListPublicStories,
   nestFetchShortVideoPublic,
+  nestAuthHeaders,
   nestSetPostReaction,
   type ListingPost,
   type NestStoryRow,
@@ -145,6 +146,14 @@ function feedShortsRowToShortVideo(row: Record<string, unknown>): ShortVideo | n
     isTiparTip: row.isTiparTip === true || row.isTip === true,
     isTip: row.isTip === true || row.isTiparTip === true,
     listingType: typeof row.listingType === 'string' ? row.listingType : null,
+    contactUnlocked: row.contactUnlocked === true,
+    sellerContactVisible: row.sellerContactVisible === true,
+    buyerInterestSubmitted: row.buyerInterestSubmitted === true,
+    contactUnlockPrice:
+      typeof row.contactUnlockPrice === 'number' && Number.isFinite(row.contactUnlockPrice)
+        ? row.contactUnlockPrice
+        : undefined,
+    contactUnlockAvailable: row.contactUnlockAvailable !== false,
   };
 }
 
@@ -214,6 +223,7 @@ export function HomeLayout({
   const [postFeed, setPostFeed] = useState<Array<Record<string, unknown>>>([]);
   const [loadingFeed, setLoadingFeed] = useState(false);
   const shortsLoadedRef = useRef(false);
+  const shortsAuthKeyRef = useRef('');
   const [activeCategory, setActiveCategory] = useState<CommunityCategory>('VSE');
   const [postsCategoryOpen, setPostsCategoryOpen] = useState(false);
   const [radiusKm, setRadiusKm] = useState<(typeof RADIUS_OPTIONS_KM)[number]>(30);
@@ -517,7 +527,8 @@ export function HomeLayout({
 
   useEffect(() => {
     if (!API_BASE_URL || viewMode !== 'shorts') return;
-    if (shortsLoadedRef.current) return;
+    const authKey = apiAccessToken ?? '';
+    if (shortsLoadedRef.current && shortsAuthKeyRef.current === authKey) return;
     let cancelled = false;
     setLoadingFeed(true);
 
@@ -529,6 +540,10 @@ export function HomeLayout({
         const res = await fetch(shortsUrl, {
           cache: 'no-store',
           signal: controller.signal,
+          headers: {
+            Accept: 'application/json',
+            ...(apiAccessToken ? nestAuthHeaders(apiAccessToken) : {}),
+          },
         });
         if (!res.ok) {
           // eslint-disable-next-line no-console
@@ -585,6 +600,7 @@ export function HomeLayout({
           setShortsFallbackItems([]);
         }
         shortsLoadedRef.current = true;
+        shortsAuthKeyRef.current = authKey;
       } catch (err) {
         if (process.env.NODE_ENV === 'development') {
           // eslint-disable-next-line no-console
@@ -602,6 +618,7 @@ export function HomeLayout({
             if (!cancelled) setShortsFallbackItems([]);
           }
           shortsLoadedRef.current = true;
+          shortsAuthKeyRef.current = authKey;
         }
       } finally {
         window.clearTimeout(timeout);
@@ -612,7 +629,7 @@ export function HomeLayout({
     return () => {
       cancelled = true;
     };
-  }, [viewMode]);
+  }, [viewMode, apiAccessToken]);
 
   useEffect(() => {
     if (viewMode !== 'posts') return;

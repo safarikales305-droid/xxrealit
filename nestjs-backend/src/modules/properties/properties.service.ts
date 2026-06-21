@@ -903,17 +903,18 @@ export class PropertiesService {
       });
     }
 
-    const contactUnlocked = await this.listingContactUnlock.hasUnlocked(
+    const hasViewerUnlock = await this.listingContactUnlock.hasUnlocked(
       viewerId,
       property.id,
       Boolean(property.isTiparTip),
     );
+    const contactUnlocked =
+      isOwner || Boolean(access?.isAdmin) || hasViewerUnlock;
     const advertiserLeadState = !property.isTiparTip
       ? await this.listingContactUnlock.getBuyerAdvertiserLeadState(viewerId, property.id)
       : null;
-    const sellerContactVisible = property.isTiparTip
-      ? contactUnlocked
-      : advertiserLeadState?.status === 'UNLOCKED';
+    const sellerContactVisible =
+      !isOwner && !access?.isAdmin && hasViewerUnlock;
     const showAuthorContact = isOwner || Boolean(access?.isAdmin) || sellerContactVisible;
 
     const userPayload = {
