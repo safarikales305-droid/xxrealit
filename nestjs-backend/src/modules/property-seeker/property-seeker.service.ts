@@ -5,11 +5,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
-import { PrismaService } from '../database/prisma.service';
+import { PrismaService } from '../../database/prisma.service';
 import {
   PROPERTY_SEEKER_SHARE_REQUIRED,
   propertySeekerOnboardingComplete,
-} from './property-seeker.util';
+} from '../../common/property-seeker.util';
 
 @Injectable()
 export class PropertySeekerService {
