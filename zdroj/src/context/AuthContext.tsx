@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { API_BASE_URL, getClientTokenFromCookie } from '@/lib/api';
 import { clearPwaInstallDismissed } from '@/lib/pwa-install-storage';
+import { clearProfileOnboardingSession } from '@/lib/onboarding-popup-session';
 
 export type AuthUser = {
   id: string;
@@ -212,6 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       /* ignore */
     }
     clearPwaInstallDismissed();
+    clearProfileOnboardingSession();
     void fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     setUser(null);
     window.location.reload();

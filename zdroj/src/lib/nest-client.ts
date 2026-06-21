@@ -8406,3 +8406,164 @@ export async function nestAdminPostSoundsDelete(
   return { ok: true };
 }
 
+export type MarketingPopupRow = {
+  id: string;
+  name: string;
+  title: string;
+  body: string;
+  imageUrl: string | null;
+  videoUrl: string | null;
+  buttons: Array<{ label: string; href: string }>;
+  targetRoles: string[];
+  triggers: string[];
+  isEnabled: boolean;
+  sortOrder: number;
+};
+
+export type PwaPushCampaignRow = {
+  id: string;
+  title: string;
+  body: string;
+  url: string | null;
+  targetRoles: string[];
+  targetCity: string | null;
+  targetInterests: string[];
+  scheduledAt: string | null;
+  status: string;
+  sentCount: number;
+  sentAt: string | null;
+  createdAt: string;
+};
+
+export async function nestMarketingPopupsEligible(
+  token: string | null,
+  opts?: { justRegistered?: boolean; justLoggedIn?: boolean; isPwaInstalled?: boolean },
+): Promise<MarketingPopupRow[]> {
+  if (!API_BASE_URL || !token) return [];
+  const qs = new URLSearchParams();
+  if (opts?.justRegistered) qs.set('justRegistered', '1');
+  if (opts?.justLoggedIn) qs.set('justLoggedIn', '1');
+  if (opts?.isPwaInstalled) qs.set('isPwaInstalled', '1');
+  const res = await fetch(`${API_BASE_URL}/marketing-popups/eligible?${qs}`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return [];
+  const data = await res.json().catch(() => []);
+  return Array.isArray(data) ? (data as MarketingPopupRow[]) : [];
+}
+
+export async function nestAdminMarketingPopupsList(token: string | null): Promise<MarketingPopupRow[]> {
+  if (!API_BASE_URL || !token) return [];
+  const res = await fetch(`${API_BASE_URL}/admin/marketing-popups`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return [];
+  const data = await res.json().catch(() => []);
+  return Array.isArray(data) ? (data as MarketingPopupRow[]) : [];
+}
+
+export async function nestAdminMarketingPopupSave(
+  token: string | null,
+  body: Partial<MarketingPopupRow> & { name: string; title: string; body: string },
+  id?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(
+    id
+      ? `${API_BASE_URL}/admin/marketing-popups/${encodeURIComponent(id)}`
+      : `${API_BASE_URL}/admin/marketing-popups`,
+    {
+      method: id ? 'PATCH' : 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminMarketingPopupDelete(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/marketing-popups/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminPwaPushCampaignsList(
+  token: string | null,
+): Promise<PwaPushCampaignRow[]> {
+  if (!API_BASE_URL || !token) return [];
+  const res = await fetch(`${API_BASE_URL}/admin/pwa-push-campaigns`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return [];
+  const data = await res.json().catch(() => []);
+  return Array.isArray(data) ? (data as PwaPushCampaignRow[]) : [];
+}
+
+export async function nestAdminPwaPushCampaignSave(
+  token: string | null,
+  body: {
+    title: string;
+    body: string;
+    url?: string;
+    targetRoles?: string[];
+    targetCity?: string;
+    scheduledAt?: string;
+  },
+  id?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(
+    id
+      ? `${API_BASE_URL}/admin/pwa-push-campaigns/${encodeURIComponent(id)}`
+      : `${API_BASE_URL}/admin/pwa-push-campaigns`,
+    {
+      method: id ? 'PATCH' : 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminPwaPushCampaignSend(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; error?: string; sent?: number }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/pwa-push-campaigns/${encodeURIComponent(id)}/send`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true, sent: typeof data.sent === 'number' ? data.sent : undefined };
+}
+

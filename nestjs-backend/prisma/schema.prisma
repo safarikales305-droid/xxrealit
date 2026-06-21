@@ -181,6 +181,7 @@ model User {
   /// Ověřený e-mail (povinný krok registrace).
   emailVerified Boolean @default(false)
   emailVerifiedAt DateTime?
+  profileOnboardingEmailSentAt DateTime?
   emailVerificationToken String?
   emailVerificationExpires DateTime?
   /// Ověřený telefon (povinný krok registrace).
@@ -2063,4 +2064,42 @@ model PurchaseAdviceArticle {
 
   @@index([isPublished, sortOrder])
   @@index([category])
+}
+
+/// Admin CMS — marketingové popup okna (po přihlášení, chybějící profil, PWA…).
+model MarketingPopup {
+  id          String   @id @default(cuid())
+  name        String
+  title       String
+  body        String   @db.Text
+  imageUrl    String?
+  videoUrl    String?
+  buttons     Json     @default("[]")
+  targetRoles String[] @default([])
+  triggers    String[] @default([])
+  isEnabled   Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isEnabled, sortOrder])
+}
+
+/// Admin — plánované PWA push kampaně.
+model PwaPushCampaign {
+  id               String    @id @default(cuid())
+  title            String
+  body             String    @db.Text
+  url              String?
+  targetRoles      String[]  @default([])
+  targetCity       String?
+  targetInterests  String[]  @default([])
+  scheduledAt      DateTime?
+  status           String    @default("DRAFT")
+  sentCount        Int       @default(0)
+  sentAt           DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([status, scheduledAt])
 }

@@ -7,6 +7,10 @@ import {
   clearFacebookOAuthReturnPath,
   readFacebookOAuthReturnPath,
 } from '@/lib/facebook-oauth-return';
+import {
+  clearProfileOnboardingSession,
+  markJustLoggedIn,
+} from '@/lib/onboarding-popup-session';
 
 /** Po úspěšném Facebook OAuth vrátí uživatele na stránku, odkud přihlášení začalo (PWA i prohlížeč). */
 export function FacebookOAuthReturnRedirect() {
@@ -19,6 +23,8 @@ export function FacebookOAuthReturnRedirect() {
     const fb = searchParams.get('facebook');
     if (fb === 'success' && !handled.current) {
       handled.current = true;
+      clearProfileOnboardingSession();
+      markJustLoggedIn();
       void refresh().then(() => {
         const stored = readFacebookOAuthReturnPath();
         clearFacebookOAuthReturnPath();

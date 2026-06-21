@@ -479,6 +479,18 @@ export default function AdminPage() {
               Marketing → Bonusové akce
             </Link>
             <Link
+              href="/admin/marketing/popup-okna"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Marketing → Popup okna
+            </Link>
+            <Link
+              href="/admin/marketing/push-notifikace"
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+            >
+              Marketing → Push notifikace
+            </Link>
+            <Link
               href="/admin/marketing/whatsapp-kampane"
               className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
             >

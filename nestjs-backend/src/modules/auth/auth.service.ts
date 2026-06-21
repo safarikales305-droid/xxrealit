@@ -529,6 +529,7 @@ export class AuthService {
             `Welcome email failed for userId=${user.id}: ${this.resendErrorMessage(error)}`,
           );
         });
+      void this.sendProfileOnboardingEmailOnce(user.id, user.email, user.name);
       void this.whatsAppMarketing
         .sendWelcomeOnRegister({
           id: user.id,
@@ -709,6 +710,32 @@ export class AuthService {
         role: true,
         createdAt: true,
       },
+    });
+  }
+
+  private sendProfileOnboardingEmailOnce(
+    userId: string,
+    email: string,
+    name: string | null,
+  ): void {
+    void (async () => {
+      const row = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { profileOnboardingEmailSentAt: true },
+      });
+      if (row?.profileOnboardingEmailSentAt) return;
+      await this.emailsService.sendProfileOnboardingReminderEmail({
+        email,
+        name: name ?? undefined,
+      });
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { profileOnboardingEmailSentAt: new Date() },
+      });
+    })().catch((error: unknown) => {
+      this.logger.warn(
+        `Profile onboarding email failed for userId=${userId}: ${this.resendErrorMessage(error)}`,
+      );
     });
   }
 

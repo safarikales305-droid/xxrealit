@@ -718,6 +718,8 @@ export class UsersService {
     const profile = {
       id: u.id,
       email: u.email,
+      emailVerified: Boolean(u.emailVerified),
+      emailVerifiedAt: u.emailVerifiedAt?.toISOString() ?? null,
       name: u.name,
       phone: u.phone,
       phonePublic: Boolean(u.phonePublic),

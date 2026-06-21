@@ -9,6 +9,11 @@ import { PasswordField } from '@/components/ui/PasswordField';
 import { useAuth } from '@/hooks/use-auth';
 import { getBrowserAuthLoginUrl } from '@/lib/api';
 import { clearPwaInstallDismissed } from '@/lib/pwa-install-storage';
+import {
+  clearProfileOnboardingSession,
+  markJustLoggedIn,
+  markJustRegistered,
+} from '@/lib/onboarding-popup-session';
 
 const inputClass =
   'w-full rounded-xl border border-zinc-200/90 bg-zinc-50/80 px-3.5 py-2.5 text-sm text-zinc-900 shadow-inner shadow-zinc-100/80 outline-none transition placeholder:text-zinc-400 focus:border-orange-400/80 focus:bg-white focus:ring-2 focus:ring-orange-500/20 sm:px-4 sm:py-3.5 sm:text-[15px]';
@@ -103,6 +108,12 @@ export function LoginForm() {
       await refresh();
 
       clearPwaInstallDismissed();
+      clearProfileOnboardingSession();
+      if (searchParams.get('registered') === '1') {
+        markJustRegistered();
+      } else {
+        markJustLoggedIn();
+      }
 
       const redirectParam =
         searchParams.get('redirect') ??

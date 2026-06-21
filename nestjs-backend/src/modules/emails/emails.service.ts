@@ -369,6 +369,44 @@ export class EmailsService implements OnModuleInit {
     });
   }
 
+  async sendProfileOnboardingReminderEmail(user: { email: string; name?: string | null }) {
+    const profileUrl = `${this.appUrl()}/profil/dashboard?tab=settings`;
+    const subject = 'Doplňte profil a ověřte WhatsApp na XXrealit.cz';
+    const html = this.buildLayout(
+      [
+        `<p>Dobrý den ${user.name || 'uživateli'},</p>`,
+        `<p><strong>Doplňte profil a ověřte WhatsApp číslo, abyste mohli naplno využívat XXrealit.cz.</strong></p>`,
+        `<p>Ověřený profil vám umožní dobíjet kredit, přijímat leady, tipařit a využívat všechny funkce portálu.</p>`,
+        `<p><a href="${profileUrl}">Doplnit profil</a></p>`,
+      ].join(''),
+      profileUrl,
+    );
+    const text = [
+      `Dobrý den ${user.name || 'uživateli'},`,
+      '',
+      'Doplňte profil a ověřte WhatsApp číslo, abyste mohli naplno využívat XXrealit.cz.',
+      '',
+      profileUrl,
+    ].join('\n');
+
+    const apiKey = this.config.get<string>('RESEND_API_KEY')?.trim();
+    if (!apiKey) {
+      throw new Error('Missing RESEND_API_KEY');
+    }
+    const resend = new Resend(apiKey);
+    const response = await resend.emails.send({
+      from: this.senderAddress(),
+      to: user.email,
+      subject,
+      html,
+      text,
+    });
+    if (response.error) {
+      throw new Error(response.error.message || 'Unknown resend error');
+    }
+    return { ok: true };
+  }
+
   async sendPasswordResetEmail(input: { email: string; resetUrl: string }) {
     const safeResetUrl = this.normalizePublicUrl(input.resetUrl);
     return this.sendTemplatedEmail({

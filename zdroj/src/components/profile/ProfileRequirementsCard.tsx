@@ -50,6 +50,9 @@ export function ProfileRequirementsCard({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="text-sm font-semibold text-amber-950">Stav údajů v profilu</p>
+          <p className="mt-0.5 text-xs text-amber-900/80">
+            Role: <strong>{role}</strong>
+          </p>
           <p className="mt-1 text-xs text-amber-900/90">
             Zelené položky jsou splněné. Červené je potřeba doplnit nebo ověřit.
           </p>
