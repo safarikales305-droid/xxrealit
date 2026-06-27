@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { AdminDashboardPanels } from '@/components/admin/AdminDashboardPanels';
+import { AdminUsersPanel } from '@/components/admin/AdminUsersPanel';
 import { formatListingPrice } from '@/lib/price';
 import { nestApiConfigured } from '@/lib/nest-client';
 import {
@@ -38,20 +39,6 @@ import {
   type AdminUserRow,
   type NestAdminProfessionalProfileRow,
 } from '@/lib/nest-client';
-
-const ROLE_OPTIONS = [
-  'USER',
-  'AGENT',
-  'COMPANY',
-  'AGENCY',
-  'DEVELOPER',
-  'PRIVATE_SELLER',
-  'CRAFTSMAN',
-  'TIPSTER',
-  'FINANCIAL_ADVISOR',
-  'INVESTOR',
-  'ADMIN',
-] as const;
 
 type PropertyRow = {
   id: string;
@@ -750,226 +737,27 @@ export default function AdminPage() {
 
         <section id="uzivatele">
           <h2 className="mb-4 text-lg font-semibold tracking-tight">Uživatelé</h2>
-          {roleChangeMessage ? (
-            <p className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-              {roleChangeMessage}
-            </p>
-          ) : null}
-          <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
-            <table className="w-full min-w-[640px] text-left text-sm">
-              <thead className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                <tr>
-                  <th className="px-4 py-3">E-mail</th>
-                  <th className="px-4 py-3">Role</th>
-                  <th className="hidden px-4 py-3 md:table-cell">WhatsApp</th>
-                  <th className="hidden px-4 py-3 lg:table-cell">Premium / body</th>
-                  <th className="px-4 py-3">Kredit</th>
-                  <th className="hidden px-4 py-3 sm:table-cell">Registrace</th>
-                  <th className="px-4 py-3 text-right">Akce</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100">
-                {usersList.map((u) => (
-                  <tr key={u.id} className="hover:bg-zinc-50/80">
-                    <td className="px-4 py-3 font-medium text-zinc-900">
-                      <div>{u.email}</div>
-                      {u.isPromoProfile ? (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-800">
-                            Promo profil
-                          </span>
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                              u.isPublicBrokerProfile
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-zinc-200 text-zinc-700'
-                            }`}
-                          >
-                            {u.isPublicBrokerProfile ? 'Veřejný' : 'Neveřejný'}
-                          </span>
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                              u.promoProfileActive !== false
-                                ? 'bg-sky-100 text-sky-800'
-                                : 'bg-amber-100 text-amber-900'
-                            }`}
-                          >
-                            {u.promoProfileActive !== false ? 'Aktivní' : 'Vypnutý'}
-                          </span>
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-3">
-                      <select
-                        value={u.role}
-                        disabled={busyUserId === u.id}
-                        onChange={(e) => void onUserRoleChange(u.id, e.target.value)}
-                        className="max-w-[11rem] rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-800 outline-none focus:border-[#ff6a00]/55 focus:ring-2 focus:ring-[#ff6a00]/15 disabled:opacity-50"
-                      >
-                        {ROLE_OPTIONS.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="hidden px-4 py-3 md:table-cell">
-                      <div className="flex flex-col gap-1 text-xs">
-                        <span className="font-mono text-zinc-700">
-                          {u.whatsappPhone?.trim() || '—'}
-                        </span>
-                        <span
-                          className={
-                            u.whatsappVerified
-                              ? 'font-semibold text-emerald-700'
-                              : 'text-zinc-500'
-                          }
-                        >
-                          {u.whatsappVerified ? 'Ověřeno' : 'Neověřeno'}
-                        </span>
-                        {u.whatsappVerifiedAt ? (
-                          <span className="text-[11px] text-zinc-400">
-                            {new Date(u.whatsappVerifiedAt).toLocaleString('cs-CZ')}
-                          </span>
-                        ) : null}
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {!u.whatsappVerified ? (
-                            <button
-                              type="button"
-                              disabled={busyUserId === u.id || !u.whatsappPhone?.trim()}
-                              onClick={() => void onAdminVerifyUserWhatsApp(u.id)}
-                              className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
-                            >
-                              Označit ověřené
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              disabled={busyUserId === u.id}
-                              onClick={() => void onAdminResetUserWhatsApp(u.id)}
-                              className="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
-                            >
-                              Resetovat
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="hidden px-4 py-3 lg:table-cell">
-                      {u.role === 'AGENT' ? (
-                        <div className="flex flex-col gap-1 text-xs text-zinc-700">
-                          <button
-                            type="button"
-                            disabled={busyUserId === u.id}
-                            onClick={() => void onPremiumBrokerToggle(u)}
-                            className={`max-w-[10rem] rounded-lg border px-2 py-1 text-left font-semibold transition ${
-                              u.isPremiumBroker
-                                ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
-                                : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50'
-                            }`}
-                          >
-                            Premium: {u.isPremiumBroker ? 'ano' : 'ne'} (přepnout)
-                          </button>
-                          <span className="text-zinc-500">
-                            Body {u.brokerPoints ?? 0} · Free leady {u.brokerFreeLeads ?? 0}
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-zinc-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col gap-1.5">
-                        <span className="text-xs text-zinc-500">
-                          Běžný {(u.realCreditBalance ?? u.creditBalance ?? 0).toLocaleString('cs-CZ')} ·
-                          Bonus {(u.bonusCreditBalance ?? 0).toLocaleString('cs-CZ')} · Čekající{' '}
-                          {(u.pendingCreditBalance ?? 0).toLocaleString('cs-CZ')} Kč
-                        </span>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <input
-                            value={
-                              creditDraftByUserId[u.id] ??
-                              String(Math.max(0, u.realCreditBalance ?? u.creditBalance ?? 0))
-                            }
-                            disabled={busyUserId === u.id}
-                            onChange={(e) =>
-                              setCreditDraftByUserId((prev) => ({ ...prev, [u.id]: e.target.value }))
-                            }
-                            className="w-24 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-800 outline-none focus:border-[#ff6a00]/55 focus:ring-2 focus:ring-[#ff6a00]/15 disabled:opacity-50"
-                            inputMode="numeric"
-                            title="Ruční úprava běžného kreditu"
-                          />
-                          <button
-                            type="button"
-                            disabled={busyUserId === u.id}
-                            onClick={() => void onUserCreditSave(u.id)}
-                            className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:opacity-50"
-                          >
-                            Uložit
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busyUserId === u.id}
-                            onClick={() => void onRecalculateUserCredit(u.id)}
-                            className="rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-900 transition hover:bg-sky-100 disabled:opacity-50"
-                            title="Přepočítat paidCredit, bonusCredit a odstranit falešný dluh"
-                          >
-                            🧮 Přepočítat kredity
-                          </button>
-                          {u.isCreditVerified ? (
-                            <button
-                              type="button"
-                              disabled={busyUserId === u.id}
-                              onClick={() => void onUnverifyUserCredit(u.id)}
-                              className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-900 transition hover:bg-amber-100 disabled:opacity-50"
-                            >
-                              Zrušit ověření
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              disabled={busyUserId === u.id}
-                              onClick={() => void onVerifyUserCredit(u.id)}
-                              className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-900 transition hover:bg-emerald-100 disabled:opacity-50"
-                            >
-                              Ověřit pro kredit
-                            </button>
-                          )}
-                        </div>
-                        <span className="text-[11px] text-zinc-400">
-                          {u.isCreditVerified ? 'Ověřen pro kredit' : 'Neověřen'}
-                          {u.firstTopUpUsed ? ' · první dobití použito' : ''}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="hidden px-4 py-3 text-zinc-500 sm:table-cell">
-                      {u.createdAt
-                        ? new Date(u.createdAt).toLocaleDateString('cs-CZ')
-                        : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        disabled={busyUserId === u.id || u.id === user?.id}
-                        title={
-                          u.id === user?.id
-                            ? 'Nelze smazat vlastní účet'
-                            : 'Smazat uživatele'
-                        }
-                        onClick={() => void onDeleteUserRow(u)}
-                        className="rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Smazat
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {usersList.length === 0 ? (
-              <p className="px-4 py-6 text-center text-sm text-zinc-500">Žádní uživatelé.</p>
-            ) : null}
-          </div>
+          <AdminUsersPanel
+            users={usersList}
+            loading={usersList.length === 0 && stats === null}
+            busyUserId={busyUserId}
+            currentUserId={user?.id}
+            token={token}
+            creditDraftByUserId={creditDraftByUserId}
+            roleChangeMessage={roleChangeMessage}
+            onCreditDraftChange={(userId, value) =>
+              setCreditDraftByUserId((prev) => ({ ...prev, [userId]: value }))
+            }
+            onRoleChange={onUserRoleChange}
+            onCreditSave={onUserCreditSave}
+            onRecalculateCredit={onRecalculateUserCredit}
+            onVerifyCredit={onVerifyUserCredit}
+            onUnverifyCredit={onUnverifyUserCredit}
+            onVerifyWhatsApp={onAdminVerifyUserWhatsApp}
+            onResetWhatsApp={onAdminResetUserWhatsApp}
+            onPremiumBrokerToggle={onPremiumBrokerToggle}
+            onDeleteUser={onDeleteUserRow}
+          />
         </section>
 
         <section>

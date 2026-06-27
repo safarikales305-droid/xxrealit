@@ -693,6 +693,12 @@ export class AdminService {
         whatsappPhone: true,
         whatsappVerified: true,
         whatsappVerifiedAt: true,
+        emailVerified: true,
+        emailVerifiedAt: true,
+        phone: true,
+        profileIco: true,
+        creditDebt: true,
+        accountLimited: true,
       },
     });
     return rows.map((u) => ({
@@ -712,11 +718,17 @@ export class AdminService {
       realCreditBalance: u.realCreditBalance,
       bonusCreditBalance: u.bonusCreditBalance,
       pendingCreditBalance: u.pendingCreditBalance,
+      creditDebt: u.creditDebt,
+      accountLimited: u.accountLimited,
       isCreditVerified: u.isCreditVerified,
       firstTopUpUsed: u.firstTopUpUsed,
       whatsappPhone: u.whatsappPhone,
       whatsappVerified: u.whatsappVerified,
       whatsappVerifiedAt: u.whatsappVerifiedAt?.toISOString() ?? null,
+      emailVerified: u.emailVerified,
+      emailVerifiedAt: u.emailVerifiedAt?.toISOString() ?? null,
+      phone: u.phone,
+      profileIco: u.profileIco,
     }));
   }
 

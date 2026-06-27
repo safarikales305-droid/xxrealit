@@ -859,6 +859,12 @@ export type AdminUserRow = {
   whatsappPhone?: string;
   whatsappVerified?: boolean;
   whatsappVerifiedAt?: string | null;
+  emailVerified?: boolean;
+  emailVerifiedAt?: string | null;
+  phone?: string;
+  profileIco?: string | null;
+  creditDebt?: number;
+  accountLimited?: boolean;
 };
 
 export async function nestAdminStats(
