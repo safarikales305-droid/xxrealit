@@ -7408,6 +7408,7 @@ export type DeveloperNoteRow = {
   createdAt: string;
   updatedAt: string;
   author: { id: string; name: string | null; email: string };
+  updatedBy?: { id: string; name: string | null; email: string } | null;
 };
 
 export async function nestAdminListDeveloperNotes(
@@ -7467,9 +7468,17 @@ export async function nestAdminUpdateDeveloperNote(
     },
     body: JSON.stringify(payload),
   });
-  const data = (await res.json().catch(() => ({}))) as DeveloperNoteRow & { message?: string };
+  const data = (await res.json().catch(() => ({}))) as DeveloperNoteRow & {
+    message?: string | string[];
+  };
   if (!res.ok) {
-    return { ok: false, error: typeof data.message === 'string' ? data.message : `HTTP ${res.status}` };
+    const msg = data.message;
+    const errText = Array.isArray(msg)
+      ? msg.join(', ')
+      : typeof msg === 'string'
+        ? msg
+        : `HTTP ${res.status}`;
+    return { ok: false, error: errText };
   }
   return { ok: true, note: data };
 }

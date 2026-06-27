@@ -379,7 +379,8 @@ model User {
   creditTransactionsAsBuyer CreditTransaction[] @relation("CreditTransactionBuyer")
   creditTransactionsAsTipar CreditTransaction[] @relation("CreditTransactionTipar")
   creditLedgerEntries CreditLedger[]
-  developerNotes      DeveloperNote[]
+  developerNotes      DeveloperNote[] @relation("DeveloperNoteAuthor")
+  developerNotesUpdated DeveloperNote[] @relation("DeveloperNoteUpdatedBy")
   creditTopUpTransactions CreditTopUpTransaction[]
   workerCommissionsAsWorker WorkerCommission[] @relation("WorkerCommissionWorker")
   workerCommissionsAsClient WorkerCommission[] @relation("WorkerCommissionClient")
@@ -2171,18 +2172,21 @@ model PwaPushCampaign {
 
 /// Interní vývojářské poznámky (admin).
 model DeveloperNote {
-  id        String   @id @default(cuid())
-  category  String
-  status    String   @default("OPEN")
-  body      String   @db.Text
-  authorId  String
-  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  category    String
+  status      String   @default("OPEN")
+  body        String   @db.Text
+  authorId    String
+  author      User     @relation("DeveloperNoteAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  updatedById String?
+  updatedBy   User?    @relation("DeveloperNoteUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([createdAt])
   @@index([category])
   @@index([status])
+  @@index([updatedById])
 }
 
 /// Předregistrace klienta vytvořená pracovníkem portálu.

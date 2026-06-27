@@ -8,7 +8,6 @@ import {
   Post,
   Query,
   UseGuards,
-  ValidationPipe,
 } from '@nestjs/common';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -33,21 +32,17 @@ export class DeveloperNotesAdminController {
   }
 
   @Post()
-  create(
-    @CurrentUser() user: AuthUser,
-    @Body(new ValidationPipe({ whitelist: true, transform: true }))
-    dto: CreateDeveloperNoteDto,
-  ) {
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateDeveloperNoteDto) {
     return this.notes.create(user.id, dto);
   }
 
   @Patch(':id')
   update(
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
-    @Body(new ValidationPipe({ whitelist: true, transform: true }))
-    dto: UpdateDeveloperNoteDto,
+    @Body() dto: UpdateDeveloperNoteDto,
   ) {
-    return this.notes.update(id, dto);
+    return this.notes.update(id, user.id, dto);
   }
 
   @Delete(':id')
