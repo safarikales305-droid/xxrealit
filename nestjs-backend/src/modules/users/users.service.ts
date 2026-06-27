@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, ProfessionalVerificationStatus, UserRole } from '@prisma/client';
 import type { User } from '@prisma/client';
+import { normalizeCreditDebtState } from '../credits/credit-debt.util';
 import { PrismaService } from '../../database/prisma.service';
 import { AccountUniquenessService } from '../../common/account-uniqueness.service';
 import { normalizeProfileIco } from '../../common/account-uniqueness.constants';
@@ -817,8 +818,12 @@ export class UsersService {
       realCreditBalance: u.realCreditBalance ?? 0,
       bonusCreditBalance: u.bonusCreditBalance ?? 0,
       pendingCreditBalance: u.pendingCreditBalance ?? 0,
-      creditDebt: u.creditDebt ?? 0,
-      accountLimited: Boolean(u.accountLimited),
+      ...normalizeCreditDebtState({
+        realCreditBalance: u.realCreditBalance ?? 0,
+        bonusCreditBalance: u.bonusCreditBalance ?? 0,
+        creditDebt: u.creditDebt ?? 0,
+        accountLimited: Boolean(u.accountLimited),
+      }),
       isCreditVerified: Boolean(u.isCreditVerified),
       firstTopUpUsed: Boolean(u.firstTopUpUsed),
       firstContentCompleted: Boolean(u.firstContentCompleted),

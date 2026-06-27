@@ -807,6 +807,26 @@ export type AdminStats = {
   crmContacts?: number;
   bonusClaims?: number;
   creditLedgerEntries?: number;
+  registrationsToday?: number;
+  topupsTodayCzk?: number;
+  newListingsToday?: number;
+};
+
+export type AdminPortalSearchResult = {
+  users: Array<{
+    id: string;
+    email: string;
+    name: string | null;
+    role: string;
+    phone: string | null;
+    whatsappPhone: string | null;
+  }>;
+  properties: Array<{
+    id: string;
+    title: string;
+    city: string;
+    importExternalId: string | null;
+  }>;
 };
 
 export type AdminListingPhotoWatermarkSettings = {
@@ -850,6 +870,19 @@ export async function nestAdminStats(
   });
   if (!res.ok) return null;
   return (await res.json()) as AdminStats;
+}
+
+export async function nestAdminPortalSearch(
+  token: string | null,
+  q: string,
+): Promise<AdminPortalSearchResult | null> {
+  if (!API_BASE_URL || !token || q.trim().length < 2) return null;
+  const res = await fetch(
+    `${API_BASE_URL}/admin/search?${new URLSearchParams({ q: q.trim() })}`,
+    { headers: { ...nestAuthHeaders(token), Accept: 'application/json' } },
+  );
+  if (!res.ok) return null;
+  return (await res.json()) as AdminPortalSearchResult;
 }
 
 export async function nestAdminListingPhotoWatermarkSettings(
@@ -7345,7 +7378,7 @@ export async function nestAdminRecalculateUserCredit(
 ): Promise<{ ok: boolean; error?: string; data?: Record<string, unknown> }> {
   if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
   const res = await fetch(
-    `${API_BASE_URL}/admin/credits/users/${encodeURIComponent(userId)}/recalculate`,
+    `${API_BASE_URL}/admin/users/${encodeURIComponent(userId)}/recalculate-credit`,
     {
       method: 'POST',
       headers: { ...nestAuthHeaders(token), Accept: 'application/json' },

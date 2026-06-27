@@ -14,6 +14,7 @@ import { buildQrImageUrl, buildSpdPayload } from './utils/spd-qr.util';
 import { canTopUpCredits } from '../users/profile-requirements.util';
 import { ListingContactUnlockService } from '../properties/listing-contact-unlock.service';
 import { PortalWorkerService } from '../portal-worker/portal-worker.service';
+import { normalizeCreditDebtState } from './credit-debt.util';
 
 const SETTINGS_ID = 'default';
 
@@ -138,27 +139,43 @@ export class CreditsService {
     });
 
     const settings = await this.getSettingsRow();
+
+    const balances = this.wallet.serializeBalances(user);
+    const paidCredit = balances.realCreditBalance;
+    const bonusCredit = balances.bonusCreditBalance;
+    const debtState = normalizeCreditDebtState({
+      realCreditBalance: paidCredit,
+      bonusCreditBalance: bonusCredit,
+      creditDebt: user.creditDebt,
+      accountLimited: user.accountLimited,
+    });
+    const displayDebt = debtState.creditDebt;
+    const displayLimited = debtState.accountLimited;
+    if (
+      user.creditDebt !== displayDebt ||
+      user.accountLimited !== displayLimited
+    ) {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { creditDebt: displayDebt, accountLimited: displayLimited },
+      });
+    }
     const warning =
       pending.length > 0
         ? PENDING_MESSAGE.replace(
             '2 dnů',
             `${settings.confirmDeadlineDays} ${settings.confirmDeadlineDays === 1 ? 'dne' : 'dnů'}`,
           )
-        : user.accountLimited
+        : displayLimited && displayDebt > 0
           ? 'Váš účet je omezen kvůli neuhrazenému dobití kreditu. Kontaktujte podporu.'
           : null;
-
-    const balances = this.wallet.serializeBalances(user);
-    const paidCredit = balances.realCreditBalance;
-    const bonusCredit = balances.bonusCreditBalance;
-    const displayDebt = user.accountLimited && user.creditDebt > 0 ? user.creditDebt : 0;
     return {
       ...balances,
       paidCredit,
       bonusCredit,
       marketingCreditTotal: paidCredit + bonusCredit,
       creditDebt: displayDebt,
-      accountLimited: user.accountLimited,
+      accountLimited: displayLimited,
       isCreditVerified: user.isCreditVerified,
       firstTopUpUsed: user.firstTopUpUsed,
       warning,
@@ -624,21 +641,28 @@ export class CreditsService {
             bonusCreditBalance: true,
             pendingCreditBalance: true,
             creditDebt: true,
+            accountLimited: true,
           },
         });
         if (!user) throw new NotFoundException('Uživatel nenalezen');
         let newReal = user.realCreditBalance - tx.amount;
-        let creditDebt = user.creditDebt;
+        let rawDebt = user.creditDebt;
         if (newReal < 0) {
-          creditDebt += -newReal;
+          rawDebt += -newReal;
           newReal = 0;
         }
+        const debtState = normalizeCreditDebtState({
+          realCreditBalance: newReal,
+          bonusCreditBalance: user.bonusCreditBalance,
+          creditDebt: rawDebt,
+          accountLimited: opts.blockAccount || user.accountLimited || rawDebt > 0,
+        });
         const row = await db.user.update({
           where: { id: tx.userId },
           data: {
             realCreditBalance: newReal,
-            creditDebt,
-            ...(opts.blockAccount || creditDebt > 0 ? { accountLimited: true } : {}),
+            creditDebt: debtState.creditDebt,
+            accountLimited: debtState.accountLimited,
           },
           select: {
             realCreditBalance: true,
@@ -768,8 +792,15 @@ export class CreditsService {
     const hasReversal = ledgerRows.some(
       (r) => r.purpose === 'TOP_UP_REVERSED' || r.purpose === 'TOP_UP_EXPIRED',
     );
-    const creditDebt = hasReversal ? Math.max(0, user.creditDebt) : 0;
-    const accountLimited = hasReversal && creditDebt > 0;
+    const rawDebt = hasReversal ? Math.max(0, user.creditDebt) : 0;
+    const debtState = normalizeCreditDebtState({
+      realCreditBalance: real,
+      bonusCreditBalance: bonus,
+      creditDebt: rawDebt,
+      accountLimited: user.accountLimited,
+    });
+    const creditDebt = debtState.creditDebt;
+    const accountLimited = debtState.accountLimited;
 
     const updated = await this.prisma.user.update({
       where: { id: userId },

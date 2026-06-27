@@ -1,10 +1,9 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { getClientTokenFromCookie } from '@/lib/api';
+import { AdminDashboardPanels } from '@/components/admin/AdminDashboardPanels';
 import { formatListingPrice } from '@/lib/price';
 import { nestApiConfigured } from '@/lib/nest-client';
 import {
@@ -75,7 +74,7 @@ function StatCard({ title, value }: { title: string; value: number | string }) {
 
 export default function AdminPage() {
   const router = useRouter();
-  const { user, isLoading, logout, apiAccessToken } = useAuth();
+  const { user, isLoading, apiAccessToken } = useAuth();
   const token = apiAccessToken;
 
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -186,11 +185,6 @@ export default function AdminPage() {
       void refresh();
     }
   }, [token, user?.role, refresh]);
-
-  useEffect(() => {
-    const stored = getClientTokenFromCookie();
-    console.log('TOKEN:', stored);
-  }, []);
 
   async function onApprove(id: string) {
     if (!token) return;
@@ -425,207 +419,7 @@ export default function AdminPage() {
   const apiOk = nestApiConfigured();
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900">
-      <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className="text-lg font-bold tracking-tight text-[#e85d00] hover:text-[#ff6a00]"
-            >
-              XXrealit
-            </Link>
-            <span className="rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-semibold text-orange-800">
-              Admin
-            </span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Link
-              href="/admin/inzeraty"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Všechny inzeráty
-            </Link>
-            <Link
-              href="/admin/importy"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Importy
-            </Link>
-            <Link
-              href="/admin/databaze-makleiru"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Makléři (import)
-            </Link>
-            <Link
-              href="/admin/hudba"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Hudba a zvuky
-            </Link>
-            <Link
-              href="/admin/nastaveni-registrace"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Nastavení registrace
-            </Link>
-            <Link
-              href="/admin/promo-profily"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Promo profily
-            </Link>
-            <Link
-              href="/admin/clanky"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Články / Rady
-            </Link>
-            <Link
-              href="/admin/bonusove-akce"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Marketing → Bonusové akce
-            </Link>
-            <Link
-              href="/admin/marketing/popup-okna"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Marketing → Popup okna
-            </Link>
-            <Link
-              href="/admin/marketing/push-notifikace"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Marketing → Push notifikace
-            </Link>
-            <Link
-              href="/admin/marketing/whatsapp-kampane"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Marketing → WhatsApp kampaně
-            </Link>
-            <Link
-              href="/admin/dobiti-kreditu"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Dobití kreditů
-            </Link>
-            <Link
-              href="/admin/nastaveni-plateb-kreditu"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Nastavení plateb kreditu
-            </Link>
-            <Link
-              href="/admin/provize-a-kontakty"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Provize a kontakty
-            </Link>
-            <Link
-              href="/admin/registrace-a-vyzvy"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Registrace a výzvy
-            </Link>
-            <Link
-              href="/admin/overeni-profesionalu"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Ověření profesionálů
-            </Link>
-            <Link
-              href="/admin/integrace/facebook"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Integrace → Facebook
-            </Link>
-            <Link
-              href="/admin/integrace/whatsapp"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Integrace → WhatsApp
-            </Link>
-            <Link
-              href="/admin/facebook-propojeni"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Facebook propojení (uživatelé)
-            </Link>
-            <Link
-              href="/admin/reklamni-videa-sdileni"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Reklamní videa (sdílení)
-            </Link>
-            <Link
-              href="/admin/tipar"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Tipaři
-            </Link>
-            <Link
-              href="/admin/emails"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              E-maily
-            </Link>
-            <Link
-              href="/admin/logy"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Logy systému
-            </Link>
-            <Link
-              href="/admin/vyvojarske-poznamky"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Vývojářské poznámky
-            </Link>
-            <Link
-              href="/admin/testovani-portalu"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Testování portálu
-            </Link>
-            <Link
-              href="/admin/pracovnici-portalu"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Pracovníci portálu
-            </Link>
-            <Link
-              href="/admin/hledaci-nemovitosti"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Hledači nemovitosti
-            </Link>
-            <Link
-              href="/admin/provize-pracovniku"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Provize pracovníků
-            </Link>
-            <Link
-              href="/"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Prohlížet nemovitosti
-            </Link>
-            <button
-              type="button"
-              onClick={() => logout()}
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Odhlásit
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-6xl space-y-10 px-4 py-8">
+    <div className="mx-auto max-w-6xl space-y-10">
         {!apiOk ? (
           <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             Nastavte <code className="rounded bg-amber-100 px-1">NEXT_PUBLIC_API_URL</code> na Nest
@@ -643,7 +437,14 @@ export default function AdminPage() {
           </p>
         ) : null}
 
-        <section>
+        <AdminDashboardPanels
+          stats={stats}
+          pendingListings={properties.length}
+          pendingProfessionals={agentRequests.length}
+          loading={stats === null}
+        />
+
+        <section id="import-inzeratu">
           <h2 className="mb-4 text-lg font-semibold tracking-tight">Import inzerátů</h2>
           <p className="mb-4 max-w-2xl text-sm text-zinc-600">
             RapidAPI —{' '}
@@ -753,7 +554,7 @@ export default function AdminPage() {
           </button>
         </section>
 
-        <section>
+        <section id="statistiky">
           <h2 className="mb-4 text-lg font-semibold tracking-tight">Statistiky</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard title="Uživatelé" value={stats?.users ?? '—'} />
@@ -947,7 +748,7 @@ export default function AdminPage() {
           </div>
         </section>
 
-        <section>
+        <section id="uzivatele">
           <h2 className="mb-4 text-lg font-semibold tracking-tight">Uživatelé</h2>
           {roleChangeMessage ? (
             <p className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -1111,9 +912,9 @@ export default function AdminPage() {
                             disabled={busyUserId === u.id}
                             onClick={() => void onRecalculateUserCredit(u.id)}
                             className="rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-900 transition hover:bg-sky-100 disabled:opacity-50"
-                            title="Přepočítat kredit z CreditLedger / CreditTransaction"
+                            title="Přepočítat paidCredit, bonusCredit a odstranit falešný dluh"
                           >
-                            Přepočítat kredit uživatele
+                            🧮 Přepočítat kredity
                           </button>
                           {u.isCreditVerified ? (
                             <button
@@ -1323,7 +1124,6 @@ export default function AdminPage() {
             </button>
           </form>
         </section>
-      </main>
     </div>
   );
 }

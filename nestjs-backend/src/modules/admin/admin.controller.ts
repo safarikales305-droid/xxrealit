@@ -38,6 +38,7 @@ import { WhatsAppPhoneVerificationService } from '../whatsapp/whatsapp-phone-ver
 import { AccountUniquenessService } from '../../common/account-uniqueness.service';
 import { WhatsAppSettingsService } from '../whatsapp/whatsapp-settings.service';
 import { SaveSystemTemplatesDto } from '../whatsapp/dto/save-system-templates.dto';
+import { CreditsService } from '../credits/credits.service';
 
 type ChangePasswordBody = {
   oldPassword?: string;
@@ -76,6 +77,7 @@ export class AdminController {
     private readonly whatsAppVerification: WhatsAppPhoneVerificationService,
     private readonly whatsAppSettings: WhatsAppSettingsService,
     private readonly accountUniqueness: AccountUniquenessService,
+    private readonly credits: CreditsService,
   ) {}
 
   @Get('social-facebook-connections')
@@ -109,6 +111,11 @@ export class AdminController {
   @Get('stats')
   stats() {
     return this.adminService.stats();
+  }
+
+  @Get('search')
+  portalSearch(@Query('q') q?: string) {
+    return this.adminService.portalSearch(typeof q === 'string' ? q : '');
   }
 
   @Get('listing-photo-watermark')
@@ -275,6 +282,11 @@ export class AdminController {
   @Post('professional-verification-requests/:id/reject')
   rejectProfessionalVerificationRequest(@Param('id') id: string) {
     return this.professionalVerification.adminReject(id);
+  }
+
+  @Post('users/:id/recalculate-credit')
+  recalculateUserCredit(@Param('id') id: string) {
+    return this.credits.recalculateUserCredit(id);
   }
 
   @Patch('users/:id/role')

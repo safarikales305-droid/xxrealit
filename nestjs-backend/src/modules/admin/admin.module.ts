@@ -11,9 +11,11 @@ import { ShareModule } from '../share/share.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { ProfessionalVerificationModule } from '../professional-verification/professional-verification.module';
 import { SocialModule } from '../social/social.module';
+import { CreditsModule } from '../credits/credits.module';
 @Module({
   imports: [
     AuthModule,
+    CreditsModule,
     AgentProfileModule,
     ProfessionalVerificationModule,
     SocialModule,

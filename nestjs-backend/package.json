@@ -13,6 +13,7 @@
   "scripts": {
     "build": "prisma generate && nest build",
     "test:uniqueness": "tsx --test src/common/account-uniqueness.constants.test.ts",
+    "test:credit-debt": "tsx --test src/modules/credits/credit-debt.util.test.ts",
     "start": "node dist/main.js",
     "start:prod": "sh -c 'sh prisma/scripts/migrate-deploy-safe.sh; node dist/main.js'",
     "start:dev": "nest start --watch",

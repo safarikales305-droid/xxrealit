@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { normalizeCreditDebtState } from './credit-debt.util';
 import type {
   ContactUnlockSourceType,
   ContactUnlockSpendBreakdown,
@@ -610,27 +611,34 @@ export class CreditWalletService {
         pendingCreditBalance: true,
         creditBalance: true,
         creditDebt: true,
+        accountLimited: true,
       },
     });
     if (!user) return;
 
     const amt = Math.max(0, Math.trunc(amount));
     const pendingDebit = Math.min(amt, Math.max(0, user.pendingCreditBalance));
-    let realDebit = amt - pendingDebit;
+    const realDebit = amt - pendingDebit;
     let newReal = user.realCreditBalance - realDebit;
-    let creditDebt = user.creditDebt;
+    let rawDebt = user.creditDebt;
     if (newReal < 0) {
-      creditDebt += -newReal;
+      rawDebt += -newReal;
       newReal = 0;
     }
+    const debtState = normalizeCreditDebtState({
+      realCreditBalance: newReal,
+      bonusCreditBalance: user.bonusCreditBalance,
+      creditDebt: rawDebt,
+      accountLimited: user.accountLimited || rawDebt > 0,
+    });
 
     const updated = await tx.user.update({
       where: { id: userId },
       data: {
         pendingCreditBalance: { decrement: pendingDebit },
         realCreditBalance: newReal,
-        creditDebt,
-        ...(creditDebt > 0 ? { accountLimited: true } : {}),
+        creditDebt: debtState.creditDebt,
+        accountLimited: debtState.accountLimited,
       },
       select: {
         realCreditBalance: true,
@@ -672,14 +680,24 @@ export class CreditWalletService {
         pendingCreditBalance: true,
         creditBalance: true,
         creditDebt: true,
+        accountLimited: true,
       },
     });
     if (!owner) return charge;
 
+    const spendable = Math.max(0, owner.realCreditBalance) + Math.max(0, owner.bonusCreditBalance);
+    if (spendable < charge) {
+      throw new ForbiddenException('Nedostatek kreditu pro odečtení.');
+    }
+
     let newReal = owner.realCreditBalance - charge;
-    let creditDebt = owner.creditDebt;
+    const debtState = normalizeCreditDebtState({
+      realCreditBalance: Math.max(0, newReal),
+      bonusCreditBalance: owner.bonusCreditBalance,
+      creditDebt: owner.creditDebt,
+      accountLimited: owner.accountLimited,
+    });
     if (newReal < 0) {
-      creditDebt += -newReal;
       newReal = 0;
     }
 
@@ -687,8 +705,8 @@ export class CreditWalletService {
       where: { id: ownerUserId },
       data: {
         realCreditBalance: newReal,
-        creditDebt,
-        ...(creditDebt > 0 ? { accountLimited: true } : {}),
+        creditDebt: debtState.creditDebt,
+        accountLimited: debtState.accountLimited,
       },
       select: {
         realCreditBalance: true,

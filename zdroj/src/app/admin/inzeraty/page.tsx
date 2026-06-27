@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { formatListingPrice } from '@/lib/price';
-import { AdminListingTypeBadge } from '@/components/listing/TipBadges';
+import { AdminSubPage } from '@/components/admin/AdminSubPage';
 import { isTipListing } from '@/lib/is-tip-listing';
 import {
   nestAdminApproveProperty,
@@ -281,47 +281,10 @@ export default function AdminListingsPage() {
   const apiOk = nestApiConfigured();
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900">
-      <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-[1400px] flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className="text-lg font-bold tracking-tight text-[#e85d00] hover:text-[#ff6a00]"
-            >
-              XXrealit
-            </Link>
-            <span className="rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-semibold text-orange-800">
-              Admin — Inzeráty
-            </span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Link
-              href="/admin"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Přehled admin
-            </Link>
-            <Link
-              href="/admin/hudba"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Hudba
-            </Link>
-            <Link
-              href="/admin/importy"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
-            >
-              Importy
-            </Link>
-            <Link href="/" className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100">
-              Web
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-[1400px] space-y-6 px-4 py-8">
+    <AdminSubPage
+      title="Inzeráty"
+      description="Správa všech nemovitostí včetně shorts a klasiku. Veřejně se zobrazují jen aktivní, schválené a v časovém okně."
+    >
         {!apiOk ? (
           <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             Nastavte <code className="rounded bg-amber-100 px-1">NEXT_PUBLIC_API_URL</code> na Nest API.
@@ -335,13 +298,7 @@ export default function AdminListingsPage() {
         ) : null}
 
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
-          <h1 className="text-xl font-semibold tracking-tight">Všechny inzeráty</h1>
-          <p className="mt-1 text-sm text-zinc-600">
-            Správa všech nemovitostí včetně shorts a klasiku. Veřejně se zobrazují jen aktivní,
-            schválené a v časovém okně.
-          </p>
-
-          <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-2 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <div>
               <label className="mb-1 block text-xs font-medium text-zinc-600">Hledat (název / město)</label>
               <input
@@ -566,8 +523,6 @@ export default function AdminListingsPage() {
             </tbody>
           </table>
         </section>
-      </main>
-
       {editRow ? (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
@@ -762,6 +717,6 @@ export default function AdminListingsPage() {
           </div>
         </div>
       ) : null}
-    </div>
+    </AdminSubPage>
   );
 }

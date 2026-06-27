@@ -6,7 +6,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ListingImportMethod, ListingImportPortal, Prisma, UserRole } from '@prisma/client';
+import { ListingImportMethod, ListingImportPortal, Prisma, UserRole, CreditTopUpStatus } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { AdminUpdatePropertyDto } from './dto/admin-update-property.dto';
 import {
@@ -241,6 +241,9 @@ export class AdminService {
   }
 
   async stats() {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
     const [
       totalUsers,
       adminUsers,
@@ -258,6 +261,9 @@ export class AdminService {
       crmContacts,
       bonusClaims,
       creditLedgerEntries,
+      registrationsToday,
+      topupsTodayAgg,
+      newListingsToday,
     ] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.user.count({ where: { role: UserRole.ADMIN } }),
@@ -279,6 +285,17 @@ export class AdminService {
       this.prisma.crmContact.count(),
       this.prisma.bonusClaim.count(),
       this.prisma.creditLedger.count(),
+      this.prisma.user.count({
+        where: { createdAt: { gte: startOfToday }, role: { not: UserRole.ADMIN } },
+      }),
+      this.prisma.creditTopUpTransaction.aggregate({
+        where: {
+          status: CreditTopUpStatus.CONFIRMED,
+          confirmedAt: { gte: startOfToday },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.property.count({ where: { createdAt: { gte: startOfToday } } }),
     ]);
     return {
       users: totalUsers - adminUsers,
@@ -298,7 +315,59 @@ export class AdminService {
       crmContacts,
       bonusClaims,
       creditLedgerEntries,
+      registrationsToday,
+      topupsTodayCzk: topupsTodayAgg._sum.amount ?? 0,
+      newListingsToday,
     };
+  }
+
+  async portalSearch(q: string) {
+    const term = q.trim();
+    if (term.length < 2) {
+      return { users: [], properties: [] };
+    }
+
+    const userOr: Prisma.UserWhereInput[] = [
+      { email: { contains: term, mode: 'insensitive' } },
+      { name: { contains: term, mode: 'insensitive' } },
+      { phone: { contains: term } },
+      { whatsappPhone: { contains: term } },
+      { profileIco: { contains: term } },
+    ];
+    if (term.length >= 8) {
+      userOr.push({ id: term });
+    }
+
+    const propOr: Prisma.PropertyWhereInput[] = [
+      { title: { contains: term, mode: 'insensitive' } },
+      { city: { contains: term, mode: 'insensitive' } },
+      { importExternalId: { contains: term } },
+      { id: term },
+    ];
+
+    const [users, properties] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { OR: userOr },
+        take: 8,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          phone: true,
+          whatsappPhone: true,
+        },
+      }),
+      this.prisma.property.findMany({
+        where: { deletedAt: null, OR: propOr },
+        take: 8,
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, title: true, city: true, importExternalId: true },
+      }),
+    ]);
+
+    return { users, properties };
   }
 
   private toAdminRow(
