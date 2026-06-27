@@ -9,12 +9,32 @@ export class CreateClientPreregistrationDto {
   @MinLength(1)
   name!: string;
 
+  @IsOptional()
+  @IsString()
+  firstName?: string;
+
+  @IsOptional()
+  @IsString()
+  lastName?: string;
+
+  @IsOptional()
+  @IsString()
+  company?: string;
+
   @IsEmail()
   email!: string;
 
   @IsString()
   @MinLength(5)
   phone!: string;
+
+  @IsOptional()
+  @IsString()
+  whatsappPhone?: string;
+
+  @IsOptional()
+  @IsString()
+  ico?: string;
 
   @IsOptional()
   @IsString()

@@ -5,9 +5,12 @@ import Link from 'next/link';
 const NAV = [
   { href: '/pracovnik', label: 'Přehled' },
   { href: '/pracovnik/klienti', label: 'Moji klienti' },
+  { href: '/pracovnik/registrace', label: 'Zahájené registrace' },
   { href: '/pracovnik/pozvanky', label: 'Pozvánky' },
+  { href: '/pracovnik/kredity', label: 'Kredity klientů' },
   { href: '/pracovnik/provize', label: 'Provize' },
   { href: '/pracovnik/statistiky', label: 'Statistiky' },
+  { href: '/pracovnik/poznamky', label: 'Poznámky' },
   { href: '/pracovnik/nastaveni', label: 'Nastavení účtu' },
 ] as const;
 
@@ -35,7 +38,7 @@ export default function PortalWorkerPanelLayout({ children }: { children: React.
             </nav>
           </div>
         </header>
-        <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
+        <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
-import { PortalWorkerDashboardView } from '@/components/portal-worker/portal-worker-dashboard';
+import { PortalWorkerCrmPanel } from '@/components/portal-worker/portal-worker-crm-panel';
 
 export default function PortalWorkerClientsPage() {
-  return <PortalWorkerDashboardView section="clients" />;
+  return <PortalWorkerCrmPanel section="clients" />;
 }

@@ -9,6 +9,7 @@ import {
   ClientPreregistrationStatus,
   PortalWorkerStatus,
   UserRole,
+  WorkerClientAuditAction,
   WorkerCommissionStatus,
 } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
@@ -27,6 +28,7 @@ const WORKER_CLIENT_ROLES: UserRole[] = [
   UserRole.COMPANY,
   UserRole.INVESTOR,
   UserRole.FINANCIAL_ADVISOR,
+  UserRole.PRIVATE_SELLER,
 ];
 
 @Injectable()
@@ -92,6 +94,7 @@ export class PortalWorkerService {
         portalWorkerSuspendedAt: true,
         createdAt: true,
         _count: { select: { portalWorkerClients: true } },
+        workerProfile: { select: { maxBonusPerClient: true, commissionPercent: true, adminNotes: true } },
       },
     });
 
@@ -155,6 +158,9 @@ export class PortalWorkerService {
         approvedAt: r.portalWorkerApprovedAt?.toISOString() ?? null,
         rejectedAt: r.portalWorkerRejectedAt?.toISOString() ?? null,
         suspendedAt: r.portalWorkerSuspendedAt?.toISOString() ?? null,
+        maxBonusPerClient: r.workerProfile?.maxBonusPerClient ?? 3000,
+        commissionPercent: r.workerProfile?.commissionPercent ?? null,
+        adminNotes: r.workerProfile?.adminNotes ?? null,
       })),
       total: rows.length,
     };
@@ -380,12 +386,18 @@ export class PortalWorkerService {
         workerId,
         targetRole: dto.targetRole as UserRole,
         name: dto.name.trim(),
+        firstName: dto.firstName?.trim() ?? '',
+        lastName: dto.lastName?.trim() ?? '',
+        company: dto.company?.trim() ?? '',
         email,
         phone: dto.phone.trim(),
+        whatsappPhone: (dto.whatsappPhone ?? dto.phone).trim(),
+        ico: dto.ico?.trim() ?? '',
         city: dto.city?.trim() ?? '',
         note: dto.note?.trim() || null,
         completionToken: token,
         tokenExpiresAt,
+        lastActivityAt: new Date(),
       },
     });
 
@@ -468,6 +480,16 @@ export class PortalWorkerService {
         data: {
           status: ClientPreregistrationStatus.COMPLETED,
           completedUserId: created.id,
+          lastActivityAt: new Date(),
+        },
+      });
+      await tx.workerClientAuditLog.create({
+        data: {
+          workerId: row.workerId,
+          actorUserId: created.id,
+          preregistrationId: row.id,
+          clientUserId: created.id,
+          action: WorkerClientAuditAction.REGISTRATION_COMPLETED,
         },
       });
       return created;

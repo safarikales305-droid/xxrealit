@@ -2196,6 +2196,47 @@ export class WhatsAppMarketingService {
       sentAtPrague: formatPragueDateTime(r.sentAt),
     };
   }
+
+  /** Šablony pro CRM pracovníka portálu (textový fallback + volitelná Meta šablona z nastavení). */
+  async sendWorkerCrmTemplate(input: {
+    phone: string;
+    templateKey: 'invite' | 'complete' | 'verify' | 'welcome' | 'bonus' | 'reminder';
+    vars: { jmeno: string; odkaz?: string; kredit?: string };
+  }): Promise<{ ok: boolean; error?: string }> {
+    const stored = this.settings.getStoredSettings();
+    const workerTemplates =
+      (stored as { workerCrmTextTemplates?: Record<string, string> }).workerCrmTextTemplates ?? {};
+    const defaults: Record<string, string> = {
+      invite: 'Dobrý den {jmeno}, dokončete registraci na XXrealit: {odkaz}',
+      complete: 'Dobrý den {jmeno}, váš účet na XXrealit je připraven k dokončení: {odkaz}',
+      verify: 'Váš ověřovací kód XXrealit: {odkaz}',
+      welcome: 'Vítejte na XXrealit, {jmeno}! {odkaz}',
+      bonus: 'Dobrý den {jmeno}, na účet vám byly připsány bonusové kredity: {kredit} Kč. {odkaz}',
+      reminder: 'Připomínka: dokončete registraci na XXrealit, {jmeno}: {odkaz}',
+    };
+    const template = workerTemplates[input.templateKey] || defaults[input.templateKey];
+    if (!template) return { ok: false, error: 'Neznámá šablona.' };
+
+    const phone = this.normalizePhone(input.phone);
+    if (!phone) return { ok: false, error: 'Neplatné telefonní číslo.' };
+
+    const message = renderWhatsAppTemplate(template, {
+      jmeno: input.vars.jmeno,
+      odkaz: input.vars.odkaz ?? '',
+      kredit: input.vars.kredit ?? '',
+      role: '',
+    });
+
+    try {
+      await this.sendCloudToPhone(phone, message, {
+        campaignType: WhatsAppMarketingCampaignType.PORTAL_INVITE,
+        previewText: `worker-crm:${input.templateKey}`,
+      });
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : 'Odeslání selhalo' };
+    }
+  }
 }
 
 const DEFAULT_WELCOME_FALLBACK =

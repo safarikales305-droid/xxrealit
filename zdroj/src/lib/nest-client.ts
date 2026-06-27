@@ -8577,6 +8577,9 @@ export type PortalWorkerRow = {
   referredClientCount: number;
   clientsTurnover?: number;
   totalCommission: number;
+  maxBonusPerClient?: number;
+  commissionPercent?: number | null;
+  adminNotes?: string | null;
 };
 
 export type PortalWorkerDashboard = {

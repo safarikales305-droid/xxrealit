@@ -19,6 +19,8 @@ export default function CompleteWorkerReferralPage() {
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [gdprAccepted, setGdprAccepted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -44,6 +46,10 @@ export default function CompleteWorkerReferralPage() {
     e.preventDefault();
     if (password !== confirm) {
       setError('Hesla se neshodují.');
+      return;
+    }
+    if (!termsAccepted || !gdprAccepted) {
+      setError('Musíte souhlasit s obchodními podmínkami a GDPR.');
       return;
     }
     setLoading(true);
@@ -97,6 +103,26 @@ export default function CompleteWorkerReferralPage() {
             minLength={8}
             required
           />
+        </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" checked={termsAccepted} onChange={(e) => setTermsAccepted(e.target.checked)} className="mt-1" />
+          <span>
+            Souhlasím s{' '}
+            <Link href="/obchodni-podminky" target="_blank" className="text-[#e85d00] underline">
+              obchodními podmínkami
+            </Link>
+            .
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" checked={gdprAccepted} onChange={(e) => setGdprAccepted(e.target.checked)} className="mt-1" />
+          <span>
+            Souhlasím se zpracováním osobních údajů dle{' '}
+            <Link href="/privacy" target="_blank" className="text-[#e85d00] underline">
+              GDPR
+            </Link>
+            .
+          </span>
         </label>
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
         <button

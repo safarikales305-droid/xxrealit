@@ -16,11 +16,16 @@ import { AdminGuard } from '../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PortalWorkerService } from './portal-worker.service';
 import { UpdateWorkerCommissionSettingsDto } from './dto/update-worker-commission-settings.dto';
+import { UpdateWorkerProfileAdminDto } from './dto/worker-crm.dto';
+import { PortalWorkerCrmService } from './portal-worker-crm.service';
 
 @Controller('admin/portal-workers')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class PortalWorkerAdminController {
-  constructor(private readonly portalWorker: PortalWorkerService) {}
+  constructor(
+    private readonly portalWorker: PortalWorkerService,
+    private readonly crm: PortalWorkerCrmService,
+  ) {}
 
   @Get()
   list() {
@@ -81,5 +86,28 @@ export class PortalWorkerAdminController {
     dto: UpdateWorkerCommissionSettingsDto,
   ) {
     return this.portalWorker.updateCommissionSettings(dto);
+  }
+
+  @Get('crm/clients')
+  listCrmClients(
+    @Query('workerId') workerId?: string,
+    @Query('status') status?: string,
+    @Query('q') q?: string,
+  ) {
+    return this.crm.listAllClientsAdmin({ workerId, status, q });
+  }
+
+  @Get(':userId/profile')
+  getWorkerProfile(@Param('userId') userId: string) {
+    return this.crm.getWorkerProfile(userId);
+  }
+
+  @Patch(':userId/profile')
+  updateWorkerProfile(
+    @Param('userId') userId: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: UpdateWorkerProfileAdminDto,
+  ) {
+    return this.crm.updateWorkerProfileAdmin(userId, dto);
   }
 }

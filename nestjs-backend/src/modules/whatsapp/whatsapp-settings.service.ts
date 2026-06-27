@@ -66,6 +66,8 @@ export type WhatsAppIntegrationSettings = {
   welcomeTemplateName: string;
   welcomeTemplateLanguage: string;
   welcomeUrlButtonParameter: string;
+  /** Textové šablony CRM pracovníka portálu (invite, complete, reminder, …). */
+  workerCrmTextTemplates: Record<string, string>;
 };
 
 export type WhatsAppIntegrationSettingsPublic = Omit<
@@ -134,6 +136,14 @@ export const DEFAULT_WHATSAPP_INTEGRATION_SETTINGS: WhatsAppIntegrationSettings 
   welcomeTemplateName: '',
   welcomeTemplateLanguage: '',
   welcomeUrlButtonParameter: '',
+  workerCrmTextTemplates: {
+    invite: 'Dobrý den {jmeno}, dokončete registraci na XXrealit: {odkaz}',
+    complete: 'Dobrý den {jmeno}, dokončete registraci na XXrealit: {odkaz}',
+    verify: 'Váš ověřovací kód XXrealit bude zaslán v další zprávě.',
+    welcome: 'Vítejte na XXrealit, {jmeno}! {odkaz}',
+    bonus: 'Dobrý den {jmeno}, na účet vám byly připsány bonusové kredity: {kredit} Kč.',
+    reminder: 'Připomínka: dokončete registraci na XXrealit, {jmeno}: {odkaz}',
+  },
 };
 
 @Injectable()
@@ -173,6 +183,16 @@ export class WhatsAppSettingsService implements OnModuleInit {
     for (const [k, v] of Object.entries(templatesRaw)) {
       if (typeof v === 'string' && v.trim()) welcomeTemplates[k] = v.trim();
     }
+    const workerCrmRaw =
+      o.workerCrmTextTemplates && typeof o.workerCrmTextTemplates === 'object'
+        ? (o.workerCrmTextTemplates as Record<string, unknown>)
+        : {};
+    const workerCrmTextTemplates: Record<string, string> = {
+      ...d.workerCrmTextTemplates,
+    };
+    for (const [k, v] of Object.entries(workerCrmRaw)) {
+      if (typeof v === 'string' && v.trim()) workerCrmTextTemplates[k] = v.trim();
+    }
 
     return {
       enabled: o.enabled === true,
@@ -203,6 +223,7 @@ export class WhatsAppSettingsService implements OnModuleInit {
       welcomeTemplateName: this.str(o.welcomeTemplateName),
       welcomeTemplateLanguage: this.str(o.welcomeTemplateLanguage),
       welcomeUrlButtonParameter: this.str(o.welcomeUrlButtonParameter),
+      workerCrmTextTemplates,
     };
   }
 

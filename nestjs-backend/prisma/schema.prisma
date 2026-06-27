@@ -64,6 +64,31 @@ enum ClientPreregistrationStatus {
   PENDING
   COMPLETED
   EXPIRED
+  NEEDS_CONTACT
+}
+
+enum WorkerClientNoteType {
+  PHONE_CALL
+  WHATSAPP
+  EMAIL
+  AGREED
+  UNREACHABLE
+  INTEREST
+  REJECTED
+  OTHER
+}
+
+enum WorkerClientAuditAction {
+  CLIENT_CREATED
+  WHATSAPP_SENT
+  EMAIL_SENT
+  REGISTRATION_COMPLETED
+  BONUS_GRANTED
+  CREDIT_TOPUP
+  COMMISSION_CREATED
+  STATUS_CHANGED
+  NOTE_ADDED
+  REMINDER_SENT
 }
 
 enum WorkerCommissionStatus {
@@ -396,6 +421,9 @@ model User {
   workerCommissionsAsClient WorkerCommission[] @relation("WorkerCommissionClient")
   clientPreregistrationsCreated ClientPreregistration[] @relation("ClientPreregistrationWorker")
   clientPreregistrationCompleted ClientPreregistration? @relation("ClientPreregistrationCompletedUser")
+  workerProfile WorkerProfile?
+  workerClientNotesAuthored WorkerClientNote[] @relation("WorkerClientNoteAuthor")
+  workerClientAudits WorkerClientAuditLog[] @relation("WorkerClientAuditActor")
   bonusClaims         BonusClaim[]
   referralInvitesSent ReferralInvite[] @relation("ReferralInvitesSent")
   facebookConnection           FacebookConnection?
@@ -2313,29 +2341,94 @@ model DeveloperNote {
   @@index([updatedById])
 }
 
-/// Předregistrace klienta vytvořená pracovníkem portálu.
+/// Předregistrace klienta vytvořená pracovníkem portálu (zahájená registrace / pozvánka).
 model ClientPreregistration {
   id               String                      @id @default(cuid())
   workerId         String
   targetRole       UserRole
   name             String
+  firstName        String                      @default("")
+  lastName         String                      @default("")
+  company          String                      @default("")
   email            String
   phone            String
+  whatsappPhone    String                      @default("")
+  ico              String                      @default("")
   city             String                      @default("")
   note             String?                     @db.Text
   status           ClientPreregistrationStatus @default(PENDING)
   completionToken  String                      @unique
   tokenExpiresAt   DateTime
   completedUserId  String?                     @unique
+  reminder24hSentAt DateTime?
+  reminder72hSentAt DateTime?
+  lastWhatsappAt   DateTime?
+  lastEmailAt      DateTime?
+  lastActivityAt   DateTime?
   createdAt        DateTime                    @default(now())
   updatedAt        DateTime                    @updatedAt
 
   worker        User  @relation("ClientPreregistrationWorker", fields: [workerId], references: [id], onDelete: Cascade)
   completedUser User? @relation("ClientPreregistrationCompletedUser", fields: [completedUserId], references: [id], onDelete: SetNull)
+  notes         WorkerClientNote[]
+  auditLogs     WorkerClientAuditLog[]
 
   @@index([workerId, createdAt])
   @@index([email])
+  @@index([phone])
+  @@index([whatsappPhone])
   @@index([status])
+}
+
+/// Profil pracovníka portálu — provize, limity bonusů, admin poznámky.
+model WorkerProfile {
+  userId              String   @id
+  commissionPercent   Int?
+  maxBonusPerClient   Int      @default(3000)
+  adminNotes          String?  @db.Text
+  permissions         Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Poznámka pracovníka ke klientovi (předregistrace nebo dokončený účet).
+model WorkerClientNote {
+  id                String               @id @default(cuid())
+  workerId          String
+  preregistrationId String?
+  clientUserId      String?
+  noteType          WorkerClientNoteType @default(OTHER)
+  body              String               @db.Text
+  createdAt         DateTime             @default(now())
+
+  worker          User                  @relation("WorkerClientNoteAuthor", fields: [workerId], references: [id], onDelete: Cascade)
+  preregistration ClientPreregistration? @relation(fields: [preregistrationId], references: [id], onDelete: Cascade)
+
+  @@index([workerId, createdAt])
+  @@index([preregistrationId])
+  @@index([clientUserId])
+}
+
+/// Auditní log CRM pracovníka portálu.
+model WorkerClientAuditLog {
+  id                String                  @id @default(cuid())
+  workerId          String
+  actorUserId       String
+  preregistrationId String?
+  clientUserId      String?
+  action            WorkerClientAuditAction
+  metadata          Json?
+  createdAt         DateTime                @default(now())
+
+  actor           User                   @relation("WorkerClientAuditActor", fields: [actorUserId], references: [id], onDelete: Cascade)
+  preregistration ClientPreregistration? @relation(fields: [preregistrationId], references: [id], onDelete: SetNull)
+
+  @@index([workerId, createdAt])
+  @@index([preregistrationId])
+  @@index([clientUserId])
+  @@index([action])
 }
 
 /// Nastavení provizí pracovníků portálu (singleton).
