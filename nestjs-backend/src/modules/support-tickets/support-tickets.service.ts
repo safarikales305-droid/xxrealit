@@ -326,7 +326,11 @@ export class SupportTicketsService {
       data.status = dto.status as SupportTicketStatus;
     }
     if (dto.assignedToId !== undefined) {
-      data.assignedToId = dto.assignedToId || null;
+      if (dto.assignedToId) {
+        data.assignedTo = { connect: { id: dto.assignedToId } };
+      } else {
+        data.assignedTo = { disconnect: true };
+      }
     }
     await this.prisma.supportTicket.update({ where: { id: ticketId }, data });
     return this.adminGet(ticketId);
@@ -361,7 +365,9 @@ export class SupportTicketsService {
       data: {
         lastMessageAt: now,
         status: nextStatus,
-        assignedToId: ticket.assignedToId ?? staffUserId,
+        ...(ticket.assignedToId
+          ? {}
+          : { assignedTo: { connect: { id: staffUserId } } }),
       },
     });
 

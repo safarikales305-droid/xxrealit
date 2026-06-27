@@ -2228,10 +2228,24 @@ export class WhatsAppMarketingService {
     });
 
     try {
-      await this.sendCloudToPhone(phone, message, {
+      const stored = this.settings.getStoredSettings();
+      const templateName = stored.welcomeTemplateName?.trim();
+      if (!templateName) {
+        return {
+          ok: false,
+          error: 'Vyberte schválenou Meta šablonu v nastavení WhatsApp (uvítací šablona).',
+        };
+      }
+
+      const result = await this.sendCloudToPhone(phone, message, {
         campaignType: WhatsAppMarketingCampaignType.PORTAL_INVITE,
-        previewText: `worker-crm:${input.templateKey}`,
+        waTemplateName: templateName,
+        waTemplateLanguage: stored.welcomeTemplateLanguage,
+        recipientName: input.vars.jmeno,
       });
+      if (!result.ok) {
+        return { ok: false, error: result.error ?? 'Odeslání selhalo' };
+      }
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : 'Odeslání selhalo' };
