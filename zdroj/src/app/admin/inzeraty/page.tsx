@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { formatListingPrice } from '@/lib/price';
 import { AdminSubPage } from '@/components/admin/AdminSubPage';
+import { AdminListingTypeBadge } from '@/components/listing/TipBadges';
 import { isTipListing } from '@/lib/is-tip-listing';
 import {
   nestAdminApproveProperty,
