@@ -8,13 +8,16 @@ import {
   Options,
   Post,
   Query,
+  Req,
   Request,
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { UserRole } from '@prisma/client';
+import { extractRequestClientMeta } from '../../common/request-client-meta';
 import { RegistrationGateService } from '../registration-gate/registration-gate.service';
 import { RegistrationRequirementsService } from '../registration-gate/registration-requirements.service';
+import { PortalTermsService } from '../portal-terms/portal-terms.service';
 import { UsersService } from '../users/users.service';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -33,11 +36,12 @@ export class AuthController {
     private readonly registrationGate: RegistrationGateService,
     private readonly registrationRequirements: RegistrationRequirementsService,
     private readonly config: ConfigService,
+    private readonly portalTerms: PortalTermsService,
   ) {}
 
   @Post('register')
-  async register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto);
+  async register(@Body() dto: RegisterDto, @Req() req: { ip?: string; headers?: Record<string, string | string[] | undefined> }) {
+    return this.authService.register(dto, extractRequestClientMeta(req));
   }
 
   @Post('login')
@@ -147,6 +151,15 @@ export class AuthController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post('accept-terms')
+  acceptTerms(
+    @CurrentUser() user: AuthUser,
+    @Req() req: { ip?: string; headers?: Record<string, string | string[] | undefined> },
+  ) {
+    return this.authService.acceptTerms(user.id, extractRequestClientMeta(req));
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get('me')
   async getMe(@Request() req: { user: AuthUser }) {
     const profile = await this.usersService.getMeProfile(req.user.id);
@@ -176,6 +189,9 @@ export class AuthController {
       registrationRequirements = { allCompleted: true, pendingCount: 0, steps: [] };
     }
 
+    const termsReacceptRequired = await this.portalTerms.userNeedsReaccept(req.user.id);
+    const currentTerms = termsReacceptRequired ? await this.portalTerms.getCurrentPublished() : null;
+
     if (!profile) {
       console.log(`[auth/me] ROLE_LOADED userId=${req.user.id} role=${req.user.role} source=jwt`);
       return {
@@ -184,6 +200,8 @@ export class AuthController {
         firstContentCompleted,
         requireFirstContent,
         registrationRequirements,
+        termsReacceptRequired,
+        currentTermsVersion: currentTerms?.version ?? null,
       };
     }
     console.log(
@@ -210,6 +228,8 @@ export class AuthController {
       firstContentCompleted,
       requireFirstContent,
       registrationRequirements,
+      termsReacceptRequired,
+      currentTermsVersion: currentTerms?.version ?? null,
     };
   }
 }

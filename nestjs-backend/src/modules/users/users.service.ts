@@ -148,6 +148,11 @@ export class UsersService {
     consentCreatedAt?: Date;
     consentSource?: string;
     firstContentCompleted?: boolean;
+    termsAccepted?: boolean;
+    termsAcceptedAt?: Date;
+    termsVersion?: number;
+    termsIp?: string | null;
+    termsUserAgent?: string | null;
   }): Promise<User> {
     return this.prisma.user.create({ data });
   }

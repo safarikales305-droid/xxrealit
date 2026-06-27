@@ -128,6 +128,7 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
     tone: 'blue',
     children: [
       { id: 'reg-settings', label: 'Registrace', href: '/admin/nastaveni-registrace', icon: '📝' },
+      { id: 'terms', label: 'Obchodní podmínky', href: '/admin/obchodni-podminky', icon: '📜' },
       { id: 'music', label: 'Hudba a zvuky', href: '/admin/hudba', icon: '🎵' },
       { id: 'logs', label: 'Logy systému', href: '/admin/logy', icon: '📜' },
     ],

@@ -7,6 +7,9 @@ export function SiteFooter() {
         <Link href="/privacy-policy" className="font-medium transition hover:text-[#e85d00]">
           Privacy Policy
         </Link>
+        <Link href="/obchodni-podminky" className="font-medium transition hover:text-[#e85d00]">
+          Obchodní podmínky
+        </Link>
         <Link href="/terms" className="font-medium transition hover:text-[#e85d00]">
           Terms of Service
         </Link>

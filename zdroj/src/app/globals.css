@@ -504,3 +504,43 @@ body {
     transform: translateY(0) scale(1);
   }
 }
+
+.portal-terms-html h2 {
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #18181b;
+}
+
+.portal-terms-html h3 {
+  margin-top: 1rem;
+  margin-bottom: 0.375rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #27272a;
+}
+
+.portal-terms-html p {
+  margin-bottom: 0.75rem;
+}
+
+.portal-terms-html ul {
+  margin: 0.5rem 0 0.75rem 1.25rem;
+  list-style: disc;
+}
+
+.portal-terms-html li {
+  margin-bottom: 0.35rem;
+}
+
+.portal-terms-html a {
+  color: #e85d00;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.portal-terms-html strong {
+  font-weight: 700;
+  color: #18181b;
+}

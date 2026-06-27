@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { FacebookAuthButton } from '@/components/auth/FacebookAuthButton';
+import { TermsConsentCheckbox } from '@/components/auth/TermsConsentCheckbox';
 import { PasswordField } from '@/components/ui/PasswordField';
 import { useAuth } from '@/hooks/use-auth';
 import { getBrowserAuthLoginUrl } from '@/lib/api';
@@ -36,6 +37,7 @@ export function GuestGateAuthPanel({ mode, returnTo, onClose, onSwitchMode }: Pr
   const [phone, setPhone] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState<RegistrationAccountType>('USER');
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   async function finishAuth() {
     storeFacebookOAuthReturnPath(returnTo);
@@ -95,7 +97,7 @@ export function GuestGateAuthPanel({ mode, returnTo, onClose, onSwitchMode }: Pr
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, phone, password, confirmPassword, role }),
+        body: JSON.stringify({ name, email, phone, password, confirmPassword, role, termsAccepted }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
@@ -271,9 +273,10 @@ export function GuestGateAuthPanel({ mode, returnTo, onClose, onSwitchMode }: Pr
                 {error}
               </p>
             ) : null}
+            <TermsConsentCheckbox checked={termsAccepted} onChange={setTermsAccepted} />
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !termsAccepted}
               className="w-full rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-3 text-sm font-bold text-white disabled:opacity-60"
             >
               {loading ? 'Vytvářím účet…' : 'Registrovat'}
@@ -293,6 +296,7 @@ export function GuestGateAuthPanel({ mode, returnTo, onClose, onSwitchMode }: Pr
         <FacebookAuthButton
           label="Přihlásit přes Facebook"
           event={mode === 'login' ? 'facebook_login_click' : 'facebook_register_click'}
+          disabled={mode === 'register' && !termsAccepted}
         />
 
         <p className="mt-4 text-center text-sm text-zinc-600">

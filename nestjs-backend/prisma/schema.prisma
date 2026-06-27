@@ -309,6 +309,12 @@ model User {
   consentCreatedAt           DateTime?
   /// Zdroj souhlasu, např. REGISTRATION_PROPERTY_SEEKER.
   consentSource              String?
+  /// Souhlas s obchodními podmínkami portálu.
+  termsAccepted              Boolean   @default(false)
+  termsAcceptedAt            DateTime?
+  termsVersion               Int?
+  termsIp                    String?
+  termsUserAgent             String?   @db.VarChar(512)
   /// Počet sdílení portálu přes WhatsApp (hledač nemovitosti).
   shareCount                 Int      @default(0)
   /// Čas dokončení povinného sdílení (5×).
@@ -381,6 +387,7 @@ model User {
   creditLedgerEntries CreditLedger[]
   developerNotes      DeveloperNote[] @relation("DeveloperNoteAuthor")
   developerNotesUpdated DeveloperNote[] @relation("DeveloperNoteUpdatedBy")
+  portalTermsVersionsCreated PortalTermsVersion[] @relation("PortalTermsAuthor")
   creditTopUpTransactions CreditTopUpTransaction[]
   workerCommissionsAsWorker WorkerCommission[] @relation("WorkerCommissionWorker")
   workerCommissionsAsClient WorkerCommission[] @relation("WorkerCommissionClient")
@@ -2168,6 +2175,26 @@ model PwaPushCampaign {
   updatedAt        DateTime  @updatedAt
 
   @@index([status, scheduledAt])
+}
+
+/// Verze obchodních podmínek a pravidel portálu (CMS).
+model PortalTermsVersion {
+  id                     String    @id @default(cuid())
+  version                Int
+  title                  String
+  termsHtml              String    @db.Text
+  rulesHtml              String    @db.Text
+  operatorContact        String    @db.Text
+  isPublished            Boolean   @default(false)
+  requireReacceptOnLogin Boolean   @default(false)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  publishedAt            DateTime?
+  createdById            String?
+  createdBy              User?     @relation("PortalTermsAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([version])
+  @@index([isPublished, publishedAt])
 }
 
 /// Interní vývojářské poznámky (admin).

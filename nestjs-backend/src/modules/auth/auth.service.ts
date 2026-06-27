@@ -21,6 +21,8 @@ import { UsersService } from '../users/users.service';
 import { ReferralService } from '../bonus-campaign/referral.service';
 import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
 import { MarketingBonusActionType } from '@prisma/client';
+import type { RequestClientMeta } from '../../common/request-client-meta';
+import { PortalTermsService } from '../portal-terms/portal-terms.service';
 type TokenUserShape = {
   id: string;
   email: string;
@@ -242,6 +244,7 @@ export class AuthService {
     private readonly bonusCampaigns: BonusCampaignService,
     private readonly whatsAppMarketing: WhatsAppMarketingService,
     private readonly accountUniqueness: AccountUniquenessService,
+    private readonly portalTerms: PortalTermsService,
   ) {}
 
   private resendFromAddress(): string {
@@ -506,7 +509,7 @@ export class AuthService {
     }
   }
 
-  async register(dto: RegisterDto) {
+  async register(dto: RegisterDto, meta?: RequestClientMeta) {
     const emailTrimmed = dto.email?.trim().toLowerCase() ?? '';
     if (!emailTrimmed) {
       throw new HttpException(
@@ -608,6 +611,10 @@ export class AuthService {
     if (!phone) {
       throw new HttpException({ error: 'Telefon je povinný' }, HttpStatus.BAD_REQUEST);
     }
+
+    const termsVersion = await this.portalTerms.assertRegistrationConsent(dto.termsAccepted);
+    const termsConsent = this.portalTerms.termsConsentData(termsVersion, meta);
+
     const role = dto.role;
 
     console.log('REGISTER INPUT:', {
@@ -641,6 +648,7 @@ export class AuthService {
             : undefined,
         ...portalWorkerFields,
         ...(propertySeekerFields ?? {}),
+        ...termsConsent,
       });
       void this.referral.ensureReferralCode(user.id).catch(() => {});
       if (referredByUserId) {
@@ -700,6 +708,10 @@ export class AuthService {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  async acceptTerms(userId: string, meta?: RequestClientMeta) {
+    return this.portalTerms.acceptTermsForUser(userId, meta);
   }
 
   async login(dto: LoginDto) {

@@ -44,6 +44,7 @@ import { DeveloperNotesModule } from './modules/developer-notes/developer-notes.
 import { PortalTestingModule } from './modules/portal-testing/portal-testing.module';
 import { PortalWorkerModule } from './modules/portal-worker/portal-worker.module';
 import { PropertySeekerModule } from './modules/property-seeker/property-seeker.module';
+import { PortalTermsModule } from './modules/portal-terms/portal-terms.module';
 
 @Module({
   imports: [
@@ -94,6 +95,7 @@ import { PropertySeekerModule } from './modules/property-seeker/property-seeker.
     PortalTestingModule,
     PortalWorkerModule,
     PropertySeekerModule,
+    PortalTermsModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

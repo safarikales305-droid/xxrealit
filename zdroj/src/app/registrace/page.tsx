@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { AuthPageShell } from '@/components/auth/auth-page-shell';
 import { FacebookAuthButton } from '@/components/auth/FacebookAuthButton';
+import { TermsConsentCheckbox } from '@/components/auth/TermsConsentCheckbox';
 import { PasswordField } from '@/components/ui/PasswordField';
 import {
   REGISTRATION_ACCOUNT_TYPES,
@@ -29,7 +30,8 @@ type FieldErrors = Partial<
     | 'role'
     | 'city'
     | 'bio'
-    | 'portalWorkerCooperationConsent',
+    | 'portalWorkerCooperationConsent'
+    | 'termsAccepted',
     string
   >
 >;
@@ -56,6 +58,7 @@ function pickFieldErrors(raw: RegisterJson['fieldErrors']): FieldErrors {
     city: first(raw.city),
     bio: first(raw.bio),
     portalWorkerCooperationConsent: first(raw.portalWorkerCooperationConsent),
+    termsAccepted: first(raw.termsAccepted),
   };
 }
 
@@ -76,6 +79,7 @@ export default function RegistracePage() {
   const [role, setRole] = useState<RegistrationAccountType>('USER');
   const [wantsPortalWorker, setWantsPortalWorker] = useState(false);
   const [cooperationConsent, setCooperationConsent] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [loading, setLoading] = useState(false);
@@ -103,6 +107,7 @@ export default function RegistracePage() {
           referralCode: referralCode?.trim() || undefined,
           wantsPortalWorker,
           portalWorkerCooperationConsent: wantsPortalWorker ? cooperationConsent : undefined,
+          termsAccepted,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as RegisterJson;
@@ -409,9 +414,15 @@ export default function RegistracePage() {
           </div>
         ) : null}
 
+        <TermsConsentCheckbox
+          checked={termsAccepted}
+          onChange={setTermsAccepted}
+          error={fieldErrors.termsAccepted}
+        />
+
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || !termsAccepted}
           className="w-full rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-3 text-sm font-semibold text-white shadow-lg shadow-orange-900/25 transition hover:opacity-[0.97] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55 sm:py-3.5 sm:text-[15px]"
         >
           {loading ? 'Odesílám…' : wantsPortalWorker ? 'Odeslat žádost' : 'Registrovat'}
@@ -429,7 +440,11 @@ export default function RegistracePage() {
             </div>
           </div>
 
-          <FacebookAuthButton label="Registrovat přes Facebook" event="facebook_register_click" />
+          <FacebookAuthButton
+            label="Registrovat přes Facebook"
+            event="facebook_register_click"
+            disabled={!termsAccepted}
+          />
         </>
       ) : null}
 

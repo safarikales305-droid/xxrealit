@@ -9367,3 +9367,155 @@ export async function nestAdminExportPropertySeekersCsv(
   return { ok: true, blob: await res.blob() };
 }
 
+export type PortalTermsVersionRow = import('@/lib/portal-terms').PortalTermsVersion;
+
+export async function nestFetchCurrentPortalTerms(): Promise<PortalTermsVersionRow | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/portal-terms/current`, {
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as PortalTermsVersionRow | null;
+}
+
+export async function nestAdminListPortalTermsVersions(
+  token: string | null,
+): Promise<{ items: PortalTermsVersionRow[]; total: number }> {
+  if (!API_BASE_URL || !token) return { items: [], total: 0 };
+  const res = await fetch(`${API_BASE_URL}/admin/portal-terms/versions`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return { items: [], total: 0 };
+  const data = (await res.json().catch(() => ({}))) as {
+    items?: PortalTermsVersionRow[];
+    total?: number;
+  };
+  return { items: Array.isArray(data.items) ? data.items : [], total: data.total ?? 0 };
+}
+
+export async function nestAdminCreatePortalTermsVersion(
+  token: string | null,
+  payload: {
+    title: string;
+    termsHtml: string;
+    rulesHtml: string;
+    operatorContact: string;
+    publish?: boolean;
+    requireReacceptOnLogin?: boolean;
+  },
+): Promise<{ ok: boolean; error?: string; version?: PortalTermsVersionRow }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/portal-terms/versions`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json().catch(() => ({}))) as PortalTermsVersionRow & {
+    message?: string | string[];
+  };
+  if (!res.ok) {
+    const msg = data.message;
+    const errText = Array.isArray(msg)
+      ? msg.join(', ')
+      : typeof msg === 'string'
+        ? msg
+        : `HTTP ${res.status}`;
+    return { ok: false, error: errText };
+  }
+  return { ok: true, version: data };
+}
+
+export async function nestAdminUpdatePortalTermsVersion(
+  token: string | null,
+  id: string,
+  payload: Partial<{
+    title: string;
+    termsHtml: string;
+    rulesHtml: string;
+    operatorContact: string;
+    requireReacceptOnLogin: boolean;
+  }>,
+): Promise<{ ok: boolean; error?: string; version?: PortalTermsVersionRow }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/portal-terms/versions/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json().catch(() => ({}))) as PortalTermsVersionRow & {
+    message?: string | string[];
+  };
+  if (!res.ok) {
+    const msg = data.message;
+    const errText = Array.isArray(msg)
+      ? msg.join(', ')
+      : typeof msg === 'string'
+        ? msg
+        : `HTTP ${res.status}`;
+    return { ok: false, error: errText };
+  }
+  return { ok: true, version: data };
+}
+
+export async function nestAdminPublishPortalTermsVersion(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; error?: string; version?: PortalTermsVersionRow }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(
+    `${API_BASE_URL}/admin/portal-terms/versions/${encodeURIComponent(id)}/publish`,
+    {
+      method: 'POST',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    },
+  );
+  const data = (await res.json().catch(() => ({}))) as PortalTermsVersionRow & { message?: string };
+  if (!res.ok) {
+    return { ok: false, error: typeof data.message === 'string' ? data.message : `HTTP ${res.status}` };
+  }
+  return { ok: true, version: data };
+}
+
+export async function nestAdminUnpublishPortalTermsVersion(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; error?: string; version?: PortalTermsVersionRow }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(
+    `${API_BASE_URL}/admin/portal-terms/versions/${encodeURIComponent(id)}/unpublish`,
+    {
+      method: 'POST',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+    },
+  );
+  const data = (await res.json().catch(() => ({}))) as PortalTermsVersionRow & { message?: string };
+  if (!res.ok) {
+    return { ok: false, error: typeof data.message === 'string' ? data.message : `HTTP ${res.status}` };
+  }
+  return { ok: true, version: data };
+}
+
+export async function nestAcceptTerms(
+  token: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/auth/accept-terms`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { message?: string };
+    return { ok: false, error: typeof data.message === 'string' ? data.message : `HTTP ${res.status}` };
+  }
+  return { ok: true };
+}
+

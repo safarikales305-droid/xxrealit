@@ -80,4 +80,7 @@ export class RegisterDto {
   @IsOptional()
   @IsBoolean()
   marketingConsentEmail?: boolean;
+
+  @IsBoolean()
+  termsAccepted!: boolean;
 }

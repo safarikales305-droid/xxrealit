@@ -10,6 +10,7 @@ type Props = {
   label: string;
   event: 'facebook_login_click' | 'facebook_register_click';
   className?: string;
+  disabled?: boolean;
 };
 
 function FacebookIcon() {
@@ -23,7 +24,7 @@ function FacebookIcon() {
   );
 }
 
-export function FacebookAuthButton({ label, event, className }: Props) {
+export function FacebookAuthButton({ label, event, className, disabled = false }: Props) {
   const [loading, setLoading] = useState(false);
   const [pendingUrl, setPendingUrl] = useState<string | null>(null);
   const standalone = isPwaStandalone();
@@ -64,9 +65,9 @@ export function FacebookAuthButton({ label, event, className }: Props) {
     <div className={className}>
       <button
         type="button"
-        disabled={loading}
+        disabled={loading || disabled}
         onClick={() => void startOAuth()}
-        className="flex w-full items-center justify-center gap-3 rounded-full border border-[#1877F2]/30 bg-[#1877F2] px-4 py-3.5 text-[15px] font-semibold text-white shadow-sm transition hover:bg-[#166fe0] disabled:cursor-wait disabled:opacity-70"
+        className="flex w-full items-center justify-center gap-3 rounded-full border border-[#1877F2]/30 bg-[#1877F2] px-4 py-3.5 text-[15px] font-semibold text-white shadow-sm transition hover:bg-[#166fe0] disabled:cursor-not-allowed disabled:opacity-70"
       >
         {loading ? (
           <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />

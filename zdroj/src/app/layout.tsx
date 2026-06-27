@@ -6,6 +6,7 @@ import { PropertySeekerGuard } from "@/components/property-seeker/property-seeke
 import { FacebookOAuthReturnRedirect } from "@/components/auth/FacebookOAuthReturnRedirect";
 import { FirstContentGuard } from "@/components/registration/FirstContentGuard";
 import { RegistrationRequirementsGuard } from "@/components/registration/RegistrationRequirementsGuard";
+import { TermsReacceptGuard } from "@/components/registration/TermsReacceptGuard";
 import { GuestRegistrationGateHost } from "@/components/registration/GuestRegistrationGateHost";
 import { PwaInstallPrompt } from "@/components/pwa/PwaInstallPrompt";
 import { ProfileOnboardingPopupHost } from "@/components/onboarding/ProfileOnboardingPopupHost";
@@ -54,7 +55,9 @@ export default function RootLayout({
           </Suspense>
           <FirstContentGuard>
             <RegistrationRequirementsGuard>
-              <div className="w-full min-h-screen">{children}</div>
+              <TermsReacceptGuard>
+                <div className="w-full min-h-screen">{children}</div>
+              </TermsReacceptGuard>
             </RegistrationRequirementsGuard>
           </FirstContentGuard>
           <PwaInstallPrompt />

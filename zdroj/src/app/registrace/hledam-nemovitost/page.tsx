@@ -4,13 +4,14 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { AuthPageShell } from '@/components/auth/auth-page-shell';
+import { TermsConsentCheckbox } from '@/components/auth/TermsConsentCheckbox';
 import { PasswordField } from '@/components/ui/PasswordField';
 
 const inputClass =
   'w-full rounded-xl border border-zinc-200/90 bg-zinc-50/80 px-3.5 py-2.5 text-sm text-zinc-900 shadow-inner shadow-zinc-100/80 outline-none transition placeholder:text-zinc-400 focus:border-orange-400/80 focus:bg-white focus:ring-2 focus:ring-orange-500/20 sm:px-4 sm:py-3.5 sm:text-[15px]';
 
 type FieldErrors = Partial<
-  Record<'name' | 'email' | 'phone' | 'password' | 'confirmPassword' | 'marketingConsent', string>
+  Record<'name' | 'email' | 'phone' | 'password' | 'confirmPassword' | 'marketingConsent' | 'termsAccepted', string>
 >;
 
 export default function HledamNemovitostPage() {
@@ -21,6 +22,7 @@ export default function HledamNemovitostPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [marketingConsent, setMarketingConsent] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [loading, setLoading] = useState(false);
@@ -43,6 +45,7 @@ export default function HledamNemovitostPage() {
           wantsPropertySeeker: true,
           marketingConsentWhatsApp: marketingConsent,
           marketingConsentEmail: marketingConsent,
+          termsAccepted,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -63,6 +66,7 @@ export default function HledamNemovitostPage() {
           fe.confirmPassword = first(raw.confirmPassword);
           fe.marketingConsent =
             first(raw.marketingConsentWhatsApp) ?? first(raw.marketingConsentEmail);
+          fe.termsAccepted = first(raw.termsAccepted);
         }
         setFieldErrors(fe);
         setError(data.error ?? 'Registrace selhala');
@@ -192,6 +196,12 @@ export default function HledamNemovitostPage() {
           <p className="text-sm text-red-600">{fieldErrors.marketingConsent}</p>
         ) : null}
 
+        <TermsConsentCheckbox
+          checked={termsAccepted}
+          onChange={setTermsAccepted}
+          error={fieldErrors.termsAccepted}
+        />
+
         {error ? (
           <div className="rounded-xl border border-red-200/80 bg-red-50 px-4 py-3 text-sm font-medium text-red-800" role="alert">
             {error}
@@ -200,7 +210,7 @@ export default function HledamNemovitostPage() {
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || !termsAccepted}
           className="w-full rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-3 text-sm font-semibold text-white shadow-lg shadow-orange-900/25 transition hover:opacity-[0.97] disabled:opacity-55 sm:py-3.5"
         >
           {loading ? 'Odesílám…' : 'Registrovat jako hledač nemovitosti'}

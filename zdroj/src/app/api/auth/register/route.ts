@@ -39,10 +39,20 @@ const bodySchema = z
     portalWorkerCooperationConsent: z.boolean().optional(),
     marketingConsentWhatsApp: z.boolean().optional(),
     marketingConsentEmail: z.boolean().optional(),
+    termsAccepted: z.boolean().optional(),
   })
   .refine((d) => d.password === d.confirmPassword, {
     message: 'Hesla se neshodují',
     path: ['confirmPassword'],
+  })
+  .superRefine((d, ctx) => {
+    if (d.termsAccepted !== true) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Musíte souhlasit s obchodními podmínkami a pravidly portálu',
+        path: ['termsAccepted'],
+      });
+    }
   })
   .superRefine((d, ctx) => {
     if (d.wantsPropertySeeker) return;
@@ -145,9 +155,20 @@ export async function POST(req: Request) {
       ? `${parsed.data.firstName ?? ''} ${parsed.data.lastName ?? ''}`.trim()
       : (parsed.data.name ?? '');
 
+    const userAgent = req.headers.get('user-agent');
+    const clientIp =
+      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+      req.headers.get('x-real-ip') ??
+      null;
+
     const upstream = await fetch(`${API_BASE_URL}/auth/register`, {
       method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...(clientIp ? { 'x-forwarded-for': clientIp } : {}),
+        ...(userAgent ? { 'user-agent': userAgent } : {}),
+      },
       body: JSON.stringify({
         name: displayName,
         firstName: parsed.data.firstName,
@@ -164,6 +185,7 @@ export async function POST(req: Request) {
         portalWorkerCooperationConsent: parsed.data.portalWorkerCooperationConsent,
         marketingConsentWhatsApp: parsed.data.marketingConsentWhatsApp,
         marketingConsentEmail: parsed.data.marketingConsentEmail,
+        termsAccepted: parsed.data.termsAccepted === true,
       }),
     });
     const raw = (await upstream.json().catch(() => ({}))) as Record<string, unknown> & NestRegisterOk;
