@@ -88,6 +88,20 @@ export class PortalWorkerAdminController {
     return this.portalWorker.updateCommissionSettings(dto);
   }
 
+  @Get('commission-overview')
+  commissionOverview() {
+    return this.crm.listWorkersCommissionOverview();
+  }
+
+  @Get('commission-overview/export')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  exportCommissionOverview(@Res() res: Response) {
+    return this.crm.exportWorkersCommissionCsv().then((csv) => {
+      res.setHeader('Content-Disposition', 'attachment; filename="workers-commission-overview.csv"');
+      res.send(csv);
+    });
+  }
+
   @Get('crm/clients')
   listCrmClients(
     @Query('workerId') workerId?: string,
@@ -97,9 +111,14 @@ export class PortalWorkerAdminController {
     return this.crm.listAllClientsAdmin({ workerId, status, q });
   }
 
+  @Get(':userId/detail')
+  getWorkerDetail(@Param('userId') userId: string) {
+    return this.crm.getWorkerDetailAdmin(userId);
+  }
+
   @Get(':userId/profile')
   getWorkerProfile(@Param('userId') userId: string) {
-    return this.crm.getWorkerProfile(userId);
+    return this.crm.getWorkerDetailAdmin(userId);
   }
 
   @Patch(':userId/profile')

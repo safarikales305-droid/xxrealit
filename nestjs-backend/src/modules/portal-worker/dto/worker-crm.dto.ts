@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsEmail,
   IsEnum,
   IsIn,
@@ -104,6 +105,52 @@ export class UpdateWorkerProfileAdminDto {
   maxBonusPerClient?: number;
 
   @IsOptional()
+  @IsBoolean()
+  canAssignBonusCredits?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsOptional()
   @IsString()
   adminNotes?: string | null;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  whatsappPhone?: string;
+
+  @IsOptional()
+  @IsString()
+  avatarUrl?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  emailVerified?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  phoneVerified?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  whatsappVerified?: boolean;
+}
+
+export class UpdateWorkerSelfSettingsDto {
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  whatsappPhone?: string;
+
+  @IsOptional()
+  @IsString()
+  name?: string;
 }

@@ -273,6 +273,21 @@ export function AdminShell({ children }: Props) {
                   </div>
                 ) : null}
               </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <Link
+                  href="/"
+                  className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:border-orange-300 hover:text-[#e85d00] dark:border-zinc-700 dark:text-zinc-200"
+                >
+                  Přejít na web
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => logout()}
+                  className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
+                >
+                  Odhlásit se
+                </button>
+              </div>
             </div>
           </header>
 

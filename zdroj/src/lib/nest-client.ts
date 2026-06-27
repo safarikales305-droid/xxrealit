@@ -4834,6 +4834,43 @@ export async function nestGeneratePropertyShortsFromPhotos(
 }
 
 /**
+ * POST /upload/avatar — pouze nahrání souboru, bez PATCH uživatele.
+ */
+export async function nestUploadImageFile(
+  token: string | null,
+  file: File,
+): Promise<{ url?: string; error?: string }> {
+  if (!API_BASE_URL || !token) {
+    return { error: 'API nebo token chybí' };
+  }
+  if (file.size > NEST_PROFILE_IMAGE_MAX_BYTES) {
+    return {
+      error: `Soubor je příliš velký (max. ${NEST_PROFILE_IMAGE_MAX_BYTES / (1024 * 1024)} MB).`,
+    };
+  }
+  const fd = new FormData();
+  fd.append('file', file);
+  const up = await fetch(`${API_BASE_URL}/upload/avatar`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: nestAuthHeaders(token),
+    body: fd,
+  });
+  const upData = (await up.json().catch(() => ({}))) as {
+    url?: string;
+    message?: string | string[];
+  };
+  if (!up.ok) {
+    return {
+      error: nestApiErrorBodyMessage(up.status, upData, `Nahrání fotky selhalo (HTTP ${up.status}).`),
+    };
+  }
+  const url = typeof upData.url === 'string' ? upData.url : '';
+  if (!url) return { error: 'Server nevrátil URL obrázku' };
+  return { url };
+}
+
+/**
  * POST /upload/avatar (soubor) → PATCH /users/avatar { avatarUrl }.
  */
 export async function nestUploadAvatar(
@@ -8685,6 +8722,138 @@ export async function nestAdminPortalWorkerAction(
     return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
   }
   return { ok: true };
+}
+
+export type WorkerCommissionOverviewRow = {
+  id: string;
+  name: string;
+  email: string;
+  status: string;
+  clientCount: number;
+  clientsPaidTopUp: number;
+  commissionPercent: number | null;
+  maxBonusPerClient: number;
+  canAssignBonusCredits: boolean;
+  isActive: boolean;
+  totalCommission: number;
+  estimatedCommission: number;
+};
+
+export type WorkerDetailAdmin = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  whatsappPhone: string | null;
+  avatarUrl: string | null;
+  emailVerified: boolean;
+  phoneVerified: boolean;
+  whatsappVerified: boolean;
+  portalWorkerStatus: string;
+  clientCount: number;
+  clientsPaidTopUp: number;
+  totalCommissionRecorded: number;
+  estimatedCommission: number;
+  profile: {
+    commissionPercent: number | null;
+    maxBonusPerClient: number;
+    canAssignBonusCredits: boolean;
+    isActive: boolean;
+    adminNotes: string | null;
+  };
+};
+
+export async function nestAdminWorkersCommissionOverview(
+  token: string | null,
+): Promise<{ items: WorkerCommissionOverviewRow[]; error?: string }> {
+  if (typeof window !== 'undefined') {
+    const res = await fetch('/api/nest/admin/portal-workers/commission-overview', {
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) {
+      const raw = (await res.json().catch(() => ({}))) as { message?: string };
+      return { items: [], error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+    }
+    const data = (await res.json()) as { items?: WorkerCommissionOverviewRow[] };
+    return { items: data.items ?? [] };
+  }
+  if (!API_BASE_URL || !token) return { items: [], error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/portal-workers/commission-overview`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    const raw = (await res.json().catch(() => ({}))) as { message?: string };
+    return { items: [], error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  }
+  const data = (await res.json()) as { items?: WorkerCommissionOverviewRow[] };
+  return { items: data.items ?? [] };
+}
+
+export async function nestAdminGetWorkerDetail(
+  token: string | null,
+  userId: string,
+): Promise<{ worker: WorkerDetailAdmin | null; error?: string }> {
+  const path = `/admin/portal-workers/${encodeURIComponent(userId)}/detail`;
+  if (typeof window !== 'undefined') {
+    const res = await fetch(`/api/nest/admin/portal-workers/${encodeURIComponent(userId)}/detail`, {
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) {
+      const raw = (await res.json().catch(() => ({}))) as { message?: string };
+      return { worker: null, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+    }
+    return { worker: (await res.json()) as WorkerDetailAdmin };
+  }
+  if (!API_BASE_URL || !token) return { worker: null, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    const raw = (await res.json().catch(() => ({}))) as { message?: string };
+    return { worker: null, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  }
+  return { worker: (await res.json()) as WorkerDetailAdmin };
+}
+
+export async function nestAdminUpdateWorkerProfile(
+  token: string | null,
+  userId: string,
+  payload: Record<string, unknown>,
+): Promise<{ ok: boolean; worker?: WorkerDetailAdmin; error?: string }> {
+  if (typeof window !== 'undefined') {
+    const res = await fetch(
+      `/api/nest/admin/portal-workers/${encodeURIComponent(userId)}/profile`,
+      {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+    );
+    if (!res.ok) {
+      const raw = (await res.json().catch(() => ({}))) as { message?: string };
+      return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+    }
+    return { ok: true, worker: (await res.json()) as WorkerDetailAdmin };
+  }
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(
+    `${API_BASE_URL}/admin/portal-workers/${encodeURIComponent(userId)}/profile`,
+    {
+      method: 'PATCH',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!res.ok) {
+    const raw = (await res.json().catch(() => ({}))) as { message?: string };
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, raw, `HTTP ${res.status}`) };
+  }
+  return { ok: true, worker: (await res.json()) as WorkerDetailAdmin };
 }
 
 export async function nestPortalWorkerDashboard(

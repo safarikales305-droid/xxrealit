@@ -108,6 +108,40 @@ export async function grantWorkerClientBonus(clientUserId: string, amount: numbe
   return { ok: res.ok, error: data.message };
 }
 
+export type WorkerSelfSettings = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  whatsappPhone: string | null;
+  avatarUrl: string | null;
+  emailVerified: boolean;
+  phoneVerified: boolean;
+  whatsappVerified: boolean;
+  maxBonusPerClient: number;
+  canAssignBonusCredits: boolean;
+  commissionPercent: number | null;
+};
+
+export async function fetchWorkerSelfSettings(): Promise<WorkerSelfSettings | null> {
+  return workerFetch<WorkerSelfSettings>('me/settings');
+}
+
+export async function updateWorkerSelfSettings(payload: {
+  phone?: string;
+  whatsappPhone?: string;
+  name?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch('/api/nest/portal-worker/me/settings', {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json().catch(() => ({}))) as { message?: string };
+  return { ok: res.ok, error: res.ok ? undefined : (data.message ?? 'Chyba') };
+}
+
 export async function sendWorkerClientEmail(preregistrationId: string) {
   const res = await fetch(
     `/api/nest/portal-worker/clients/${encodeURIComponent(preregistrationId)}/send-email`,

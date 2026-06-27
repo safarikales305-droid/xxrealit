@@ -232,7 +232,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearProfileOnboardingSession();
     void fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     setUser(null);
-    window.location.reload();
+    window.location.href = '/login';
   }, []);
 
   const value = useMemo(

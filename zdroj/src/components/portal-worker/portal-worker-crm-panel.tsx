@@ -20,6 +20,7 @@ import {
   type WorkerClientRow,
   type WorkerCrmOverview,
 } from '@/lib/portal-worker-crm-api';
+import { PortalWorkerSettingsPanel } from '@/components/portal-worker/portal-worker-settings-panel';
 
 export type WorkerCrmSection =
   | 'overview'
@@ -460,15 +461,9 @@ export function PortalWorkerCrmPanel({ section, clientId }: Props) {
     );
   }
 
-  return (
-    <div className="space-y-4">
-      <h2 className="text-xl font-bold">Nastavení účtu</h2>
-      <section className="rounded-xl border bg-white p-5 text-sm">
-        <p><strong>Jméno:</strong> {me?.name ?? '—'}</p>
-        <p className="mt-1"><strong>E-mail:</strong> {me?.email}</p>
-        <p className="mt-1"><strong>Max bonus / klient:</strong> {overview?.maxBonusPerClient ?? 3000} Kč (nastavuje admin)</p>
-        <p className="mt-1"><strong>Provize %:</strong> {overview?.commissionPercent ?? 'dle role klienta'}</p>
-      </section>
-    </div>
-  );
+  if (section === 'settings') {
+    return <PortalWorkerSettingsPanel />;
+  }
+
+  return null;
 }

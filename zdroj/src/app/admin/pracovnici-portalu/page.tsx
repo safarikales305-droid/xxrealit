@@ -118,19 +118,36 @@ export default function AdminPortalWorkersPage() {
           const actions = actionsForStatus(w.status);
           return (
             <div key={w.id} className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-              <p className="font-semibold text-zinc-900">{w.name}</p>
-              <p className="text-sm text-zinc-600">
-                {w.email} · {w.phone}
-                {w.city ? ` · ${w.city}` : ''}
-              </p>
-              <p className="mt-1 text-xs text-zinc-500">
-                Registrace: {new Date(w.registeredAt).toLocaleString('cs-CZ')} · WA{' '}
-                {w.whatsappVerified ? '✓' : '✗'} · e-mail {w.emailVerified ? '✓' : '✗'} · Klienti:{' '}
-                {w.referredClientCount} · Obrat: {(w.clientsTurnover ?? 0).toLocaleString('cs-CZ')} Kč
-                · Provize: {w.totalCommission.toLocaleString('cs-CZ')} Kč ·{' '}
-                <strong>{STATUS_LABEL[w.status] ?? w.status}</strong>
-              </p>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="font-semibold text-zinc-900">
+                    <Link
+                      href={`/admin/pracovnici-portalu/${w.id}`}
+                      className="hover:text-[#e85d00] hover:underline"
+                    >
+                      {w.name}
+                    </Link>
+                  </p>
+                  <p className="text-sm text-zinc-600">
+                    {w.email} · {w.phone}
+                    {w.city ? ` · ${w.city}` : ''}
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Registrace: {new Date(w.registeredAt).toLocaleString('cs-CZ')} · WA{' '}
+                    {w.whatsappVerified ? '✓' : '✗'} · e-mail {w.emailVerified ? '✓' : '✗'} · Klienti:{' '}
+                    {w.referredClientCount} · Obrat: {(w.clientsTurnover ?? 0).toLocaleString('cs-CZ')} Kč
+                    · Provize: {w.totalCommission.toLocaleString('cs-CZ')} Kč ·{' '}
+                    <strong>{STATUS_LABEL[w.status] ?? w.status}</strong>
+                  </p>
+                </div>
+              </div>
               <div className="mt-3 flex flex-wrap gap-2">
+                <Link
+                  href={`/admin/pracovnici-portalu/${w.id}`}
+                  className="rounded-lg border border-[#e85d00] px-3 py-1.5 text-sm font-semibold text-[#e85d00]"
+                >
+                  Detail / nastavení
+                </Link>
                 {actions.includes('approve') ? (
                   <button
                     type="button"

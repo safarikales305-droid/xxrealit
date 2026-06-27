@@ -2,36 +2,45 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { API_BASE_URL } from '@/lib/api';
-import { nestAuthHeaders } from '@/lib/nest-client';
+import {
+  nestAdminUpdateWorkerProfile,
+  nestAdminWorkersCommissionOverview,
+  type WorkerCommissionOverviewRow,
+} from '@/lib/nest-client';
 
-type CommissionRow = {
-  id: string;
-  workerName: string;
-  referredUserName: string;
-  amount: number;
-  percent: number;
-  commissionAmount: number;
-  status: string;
-  createdAt: string;
-};
-
-type Settings = {
-  defaultPercent: number;
-  minTopUpAmount: number;
-  validityDays: number;
-  roleRates: Array<{ role: string; percent: number }>;
+type RowDraft = WorkerCommissionOverviewRow & {
+  draftPercent: string;
+  draftMaxBonus: string;
+  draftCanBonus: boolean;
+  saving?: boolean;
+  saved?: boolean;
+  error?: string;
 };
 
 export default function AdminWorkerCommissionsPage() {
   const router = useRouter();
   const { user, apiAccessToken, isLoading } = useAuth();
-  const [items, setItems] = useState<CommissionRow[]>([]);
-  const [settings, setSettings] = useState<Settings | null>(null);
-  const [workerFilter, setWorkerFilter] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [rows, setRows] = useState<RowDraft[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    const data = await nestAdminWorkersCommissionOverview(apiAccessToken);
+    if (data.error) setLoadError(data.error);
+    setRows(
+      data.items.map((w) => ({
+        ...w,
+        draftPercent: w.commissionPercent != null ? String(w.commissionPercent) : '10',
+        draftMaxBonus: String(w.maxBonusPerClient ?? 3000),
+        draftCanBonus: w.canAssignBonusCredits,
+      })),
+    );
+    setLoading(false);
+  }, [apiAccessToken]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -39,95 +48,128 @@ export default function AdminWorkerCommissionsPage() {
       router.replace('/admin');
       return;
     }
-    if (!apiAccessToken || !API_BASE_URL) return;
-    void (async () => {
-      const qs = workerFilter ? `?workerId=${encodeURIComponent(workerFilter)}` : '';
-      const [listRes, settingsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/admin/portal-workers/commissions${qs}`, {
-          headers: { ...nestAuthHeaders(apiAccessToken), Accept: 'application/json' },
-        }),
-        fetch(`${API_BASE_URL}/admin/portal-workers/commission-settings`, {
-          headers: { ...nestAuthHeaders(apiAccessToken), Accept: 'application/json' },
-        }),
-      ]);
-      if (listRes.ok) {
-        const data = (await listRes.json()) as { items: CommissionRow[] };
-        setItems(data.items ?? []);
-      }
-      if (settingsRes.ok) setSettings((await settingsRes.json()) as Settings);
-    })();
-  }, [user, isLoading, router, apiAccessToken, workerFilter]);
+    void refresh();
+  }, [user, isLoading, router, refresh]);
 
-  async function markPaid(id: string) {
-    if (!apiAccessToken || !API_BASE_URL) return;
-    const res = await fetch(`${API_BASE_URL}/admin/portal-workers/commissions/${id}/mark-paid`, {
-      method: 'POST',
-      headers: { ...nestAuthHeaders(apiAccessToken), Accept: 'application/json' },
+  function patchRow(id: string, patch: Partial<RowDraft>) {
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+
+  async function saveRow(row: RowDraft) {
+    patchRow(row.id, { saving: true, error: undefined, saved: false });
+    const payload: Record<string, unknown> = {
+      commissionPercent: Number(row.draftPercent) || 0,
+      maxBonusPerClient: Number(row.draftMaxBonus) || 0,
+      canAssignBonusCredits: row.draftCanBonus,
+    };
+    const r = await nestAdminUpdateWorkerProfile(apiAccessToken, row.id, payload);
+    if (!r.ok) {
+      patchRow(row.id, { saving: false, error: r.error ?? 'Uložení selhalo' });
+      return;
+    }
+    patchRow(row.id, {
+      saving: false,
+      saved: true,
+      commissionPercent: Number(row.draftPercent) || 0,
+      maxBonusPerClient: Number(row.draftMaxBonus) || 0,
+      canAssignBonusCredits: row.draftCanBonus,
+      estimatedCommission: r.worker
+        ? r.worker.estimatedCommission
+        : Math.floor((row.clientsPaidTopUp * (Number(row.draftPercent) || 0)) / 100),
     });
-    if (!res.ok) setError('Označení vyplaceno selhalo');
-    else setItems((prev) => prev.map((r) => (r.id === id ? { ...r, status: 'PAID' } : r)));
+    window.setTimeout(() => patchRow(row.id, { saved: false }), 3000);
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50">
-      <header className="border-b border-zinc-200 bg-white">
-        <div className="mx-auto max-w-6xl px-4 py-4">
-          <Link href="/admin" className="text-sm font-semibold text-[#e85d00] hover:underline">
-            ← Administrace
-          </Link>
-          <h1 className="mt-1 text-xl font-bold">Provize pracovníků</h1>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-zinc-900">Provize pracovníků</h1>
+          <p className="mt-1 text-sm text-zinc-600">
+            Provize se počítá pouze z reálně zaplacených kreditů klientů (nikoli z bonusů).
+          </p>
         </div>
-      </header>
-      <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
-        {settings ? (
-          <section className="rounded-xl border border-zinc-200 bg-white p-4 text-sm">
-            <p>
-              Výchozí %: {settings.defaultPercent} · Min. dobití: {settings.minTopUpAmount} Kč ·
-              Platnost: {settings.validityDays} dní
-            </p>
-            <p className="mt-2 text-zinc-600">
-              Role:{' '}
-              {settings.roleRates.map((r) => `${r.role} ${r.percent}%`).join(' · ')}
-            </p>
-          </section>
-        ) : null}
-        <div className="flex flex-wrap gap-2">
-          <input
-            value={workerFilter}
-            onChange={(e) => setWorkerFilter(e.target.value)}
-            placeholder="Filtrovat dle ID pracovníka"
-            className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-          />
-          {apiAccessToken && API_BASE_URL ? (
-            <a
-              href={`${API_BASE_URL}/admin/portal-workers/commissions/export${workerFilter ? `?workerId=${encodeURIComponent(workerFilter)}` : ''}`}
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-semibold"
-            >
-              Export CSV
-            </a>
-          ) : null}
-        </div>
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
-        {items.map((r) => (
-          <div key={r.id} className="rounded-xl border border-zinc-200 bg-white p-4 text-sm">
-            <p className="font-semibold">
-              {r.workerName} → {r.referredUserName}
-            </p>
-            <p className="text-zinc-600">
-              Dobití {r.amount} Kč · {r.percent}% = {r.commissionAmount} Kč · {r.status}
-            </p>
-            {r.status !== 'PAID' ? (
-              <button
-                type="button"
-                onClick={() => void markPaid(r.id)}
-                className="mt-2 rounded-lg bg-zinc-900 px-3 py-1 text-xs font-semibold text-white"
-              >
-                Označit jako vyplaceno
-              </button>
-            ) : null}
+        <a
+          href="/api/nest/admin/portal-workers/commission-overview/export"
+          className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50"
+        >
+          Export CSV
+        </a>
+      </div>
+
+      {loadError ? <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800">{loadError}</p> : null}
+      {loading ? <p className="text-sm text-zinc-600">Načítám pracovníky…</p> : null}
+
+      {!loading && rows.length === 0 ? (
+        <p className="text-sm text-zinc-600">Žádní pracovníci portálu.</p>
+      ) : null}
+
+      <div className="space-y-4">
+        {rows.map((w) => (
+          <div key={w.id} className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="font-semibold text-zinc-900">
+                  <Link href={`/admin/pracovnici-portalu/${w.id}`} className="text-[#e85d00] hover:underline">
+                    {w.name}
+                  </Link>
+                </p>
+                <p className="text-sm text-zinc-600">{w.email}</p>
+              </div>
+              <p className="text-xs text-zinc-500">
+                Klienti: {w.clientCount} · Dobití: {w.clientsPaidTopUp.toLocaleString('cs-CZ')} Kč · Provize:{' '}
+                {w.estimatedCommission.toLocaleString('cs-CZ')} Kč
+                {w.isActive ? '' : ' · neaktivní'}
+              </p>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="block text-xs font-medium text-zinc-600">
+                Provize (%)
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={w.draftPercent}
+                  onChange={(e) => patchRow(w.id, { draftPercent: e.target.value })}
+                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="block text-xs font-medium text-zinc-600">
+                Limit bonusů / klient (Kč)
+                <input
+                  type="number"
+                  min={0}
+                  value={w.draftMaxBonus}
+                  onChange={(e) => patchRow(w.id, { draftMaxBonus: e.target.value })}
+                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="flex items-end gap-2 pb-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={w.draftCanBonus}
+                  onChange={(e) => patchRow(w.id, { draftCanBonus: e.target.checked })}
+                />
+                Povolit bonusové kredity
+              </label>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  disabled={w.saving}
+                  onClick={() => void saveRow(w)}
+                  className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {w.saving ? 'Ukládám…' : 'Uložit'}
+                </button>
+              </div>
+            </div>
+
+            {w.saved ? <p className="mt-2 text-xs text-emerald-700">Uloženo.</p> : null}
+            {w.error ? <p className="mt-2 text-xs text-red-600">{w.error}</p> : null}
           </div>
         ))}
-      </main>
+      </div>
     </div>
   );
 }

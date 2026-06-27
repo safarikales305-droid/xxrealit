@@ -72,6 +72,10 @@ export class PortalWorkerService {
         'Funkce pracovníka portálu je dostupná po schválení adminem a ověření e-mailu a WhatsApp.',
       );
     }
+    const profile = await this.prisma.workerProfile.findUnique({ where: { userId } });
+    if (profile && !profile.isActive) {
+      throw new ForbiddenException('Váš pracovní účet byl deaktivován administrátorem.');
+    }
     return user;
   }
 

@@ -17,6 +17,7 @@ import {
   AddWorkerClientNoteDto,
   CreateWorkerClientDto,
   GrantWorkerBonusDto,
+  UpdateWorkerSelfSettingsDto,
   WorkerCrmMessageDto,
 } from './dto/worker-crm.dto';
 import { PortalWorkerCrmService } from './portal-worker-crm.service';
@@ -65,6 +66,20 @@ export class PortalWorkerController {
     dto: CreateWorkerClientDto,
   ) {
     return this.crm.createWorkerClient(user.id, dto);
+  }
+
+  @Get('me/settings')
+  selfSettings(@CurrentUser() user: AuthUser) {
+    return this.crm.getWorkerSelfSettings(user.id);
+  }
+
+  @Patch('me/settings')
+  updateSelfSettings(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: UpdateWorkerSelfSettingsDto,
+  ) {
+    return this.crm.updateWorkerSelfSettings(user.id, dto);
   }
 
   @Post('client-preregistrations')

@@ -22,6 +22,7 @@ import type {
   CreateWorkerClientDto,
   GrantWorkerBonusDto,
   UpdateWorkerProfileAdminDto,
+  UpdateWorkerSelfSettingsDto,
   WorkerCrmMessageDto,
 } from './dto/worker-crm.dto';
 import { PortalWorkerService } from './portal-worker.service';
@@ -68,8 +69,37 @@ export class PortalWorkerCrmService {
   }
 
   async updateWorkerProfileAdmin(workerId: string, dto: UpdateWorkerProfileAdminDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: workerId },
+      select: { id: true, role: true },
+    });
+    if (!user || user.role !== UserRole.PORTAL_WORKER) {
+      throw new NotFoundException('Pracovník portálu nenalezen.');
+    }
+
     await this.ensureWorkerProfile(workerId);
-    return this.prisma.workerProfile.update({
+
+    const userData: Record<string, unknown> = {};
+    if (dto.phone !== undefined) userData.phone = dto.phone.trim();
+    if (dto.whatsappPhone !== undefined) userData.whatsappPhone = dto.whatsappPhone.trim();
+    if (dto.avatarUrl !== undefined) userData.avatar = dto.avatarUrl?.trim() || null;
+    if (dto.emailVerified !== undefined) {
+      userData.emailVerified = dto.emailVerified;
+      userData.emailVerifiedAt = dto.emailVerified ? new Date() : null;
+    }
+    if (dto.phoneVerified !== undefined) {
+      userData.phoneVerified = dto.phoneVerified;
+    }
+    if (dto.whatsappVerified !== undefined) {
+      userData.whatsappVerified = dto.whatsappVerified;
+      userData.whatsappVerifiedAt = dto.whatsappVerified ? new Date() : null;
+    }
+
+    if (Object.keys(userData).length > 0) {
+      await this.prisma.user.update({ where: { id: workerId }, data: userData });
+    }
+
+    const profile = await this.prisma.workerProfile.update({
       where: { userId: workerId },
       data: {
         ...(dto.commissionPercent !== undefined
@@ -78,9 +108,183 @@ export class PortalWorkerCrmService {
         ...(dto.maxBonusPerClient !== undefined
           ? { maxBonusPerClient: dto.maxBonusPerClient }
           : {}),
+        ...(dto.canAssignBonusCredits !== undefined
+          ? { canAssignBonusCredits: dto.canAssignBonusCredits }
+          : {}),
+        ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
         ...(dto.adminNotes !== undefined ? { adminNotes: dto.adminNotes } : {}),
       },
     });
+
+    return this.getWorkerDetailAdmin(workerId);
+  }
+
+  async getWorkerDetailAdmin(workerId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: workerId },
+      include: {
+        workerProfile: true,
+        _count: { select: { portalWorkerClients: true } },
+      },
+    });
+    if (!user || user.role !== UserRole.PORTAL_WORKER) {
+      throw new NotFoundException('Pracovník portálu nenalezen.');
+    }
+
+    const profile = user.workerProfile ?? (await this.ensureWorkerProfile(workerId));
+    const clientIds = (
+      await this.prisma.user.findMany({
+        where: { portalWorkerId: workerId },
+        select: { id: true },
+      })
+    ).map((c) => c.id);
+
+    const [topUpSum, commissionSum] = await Promise.all([
+      clientIds.length
+        ? this.prisma.creditTopUpTransaction.aggregate({
+            where: { userId: { in: clientIds }, status: 'CONFIRMED' },
+            _sum: { amount: true },
+          })
+        : { _sum: { amount: 0 } },
+      this.prisma.workerCommission.aggregate({
+        where: { workerId },
+        _sum: { commissionAmount: true },
+      }),
+    ]);
+
+    const paidTopUp = topUpSum._sum.amount ?? 0;
+    const percent = profile.commissionPercent ?? 10;
+    const estimatedCommission = Math.floor((paidTopUp * percent) / 100);
+
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      whatsappPhone: user.whatsappPhone,
+      avatarUrl: user.avatar,
+      emailVerified: user.emailVerified,
+      phoneVerified: user.phoneVerified,
+      whatsappVerified: user.whatsappVerified,
+      portalWorkerStatus: user.portalWorkerStatus,
+      clientCount: user._count.portalWorkerClients,
+      clientsPaidTopUp: paidTopUp,
+      totalCommissionRecorded: commissionSum._sum.commissionAmount ?? 0,
+      estimatedCommission,
+      profile: {
+        commissionPercent: profile.commissionPercent,
+        maxBonusPerClient: profile.maxBonusPerClient,
+        canAssignBonusCredits: profile.canAssignBonusCredits,
+        isActive: profile.isActive,
+        adminNotes: profile.adminNotes,
+      },
+    };
+  }
+
+  async listWorkersCommissionOverview() {
+    const workers = await this.prisma.user.findMany({
+      where: { role: UserRole.PORTAL_WORKER },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        workerProfile: true,
+        _count: { select: { portalWorkerClients: true } },
+      },
+    });
+
+    const items = await Promise.all(
+      workers.map(async (w) => {
+        const profile = w.workerProfile ?? (await this.ensureWorkerProfile(w.id));
+        const clientIds = (
+          await this.prisma.user.findMany({
+            where: { portalWorkerId: w.id },
+            select: { id: true },
+          })
+        ).map((c) => c.id);
+
+        const [topUpSum, commissionSum] = await Promise.all([
+          clientIds.length
+            ? this.prisma.creditTopUpTransaction.aggregate({
+                where: { userId: { in: clientIds }, status: 'CONFIRMED' },
+                _sum: { amount: true },
+              })
+            : { _sum: { amount: 0 } },
+          this.prisma.workerCommission.aggregate({
+            where: { workerId: w.id },
+            _sum: { commissionAmount: true },
+          }),
+        ]);
+
+        const paidTopUp = topUpSum._sum.amount ?? 0;
+        const percent = profile.commissionPercent ?? 10;
+
+        return {
+          id: w.id,
+          name: w.name,
+          email: w.email,
+          status: w.portalWorkerStatus,
+          clientCount: w._count.portalWorkerClients,
+          clientsPaidTopUp: paidTopUp,
+          commissionPercent: profile.commissionPercent,
+          maxBonusPerClient: profile.maxBonusPerClient,
+          canAssignBonusCredits: profile.canAssignBonusCredits,
+          isActive: profile.isActive,
+          totalCommission: commissionSum._sum.commissionAmount ?? 0,
+          estimatedCommission: Math.floor((paidTopUp * percent) / 100),
+        };
+      }),
+    );
+
+    return { items };
+  }
+
+  exportWorkersCommissionCsv() {
+    return this.listWorkersCommissionOverview().then(({ items }) => {
+      const header =
+        'id,name,email,client_count,paid_topup,commission_percent,max_bonus_per_client,can_assign_bonus,is_active,total_commission,estimated_commission\n';
+      const lines = items.map(
+        (w) =>
+          `${w.id},"${w.name}","${w.email}",${w.clientCount},${w.clientsPaidTopUp},${w.commissionPercent ?? ''},${w.maxBonusPerClient},${w.canAssignBonusCredits},${w.isActive},${w.totalCommission},${w.estimatedCommission}`,
+      );
+      return header + lines.join('\n');
+    });
+  }
+
+  async updateWorkerSelfSettings(workerId: string, dto: UpdateWorkerSelfSettingsDto) {
+    await this.portalWorker.requireActiveWorker(workerId);
+    const data: Record<string, string> = {};
+    if (dto.phone !== undefined) data.phone = dto.phone.trim();
+    if (dto.whatsappPhone !== undefined) data.whatsappPhone = dto.whatsappPhone.trim();
+    if (dto.name !== undefined) data.name = dto.name.trim();
+    if (Object.keys(data).length === 0) {
+      return this.getWorkerSelfSettings(workerId);
+    }
+    await this.prisma.user.update({ where: { id: workerId }, data });
+    return this.getWorkerSelfSettings(workerId);
+  }
+
+  async getWorkerSelfSettings(workerId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: workerId },
+      include: { workerProfile: true },
+    });
+    if (!user || user.role !== UserRole.PORTAL_WORKER) {
+      throw new NotFoundException('Pracovník nenalezen.');
+    }
+    const profile = user.workerProfile ?? (await this.ensureWorkerProfile(workerId));
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      whatsappPhone: user.whatsappPhone,
+      avatarUrl: user.avatar,
+      emailVerified: user.emailVerified,
+      phoneVerified: user.phoneVerified,
+      whatsappVerified: user.whatsappVerified,
+      maxBonusPerClient: profile.maxBonusPerClient,
+      canAssignBonusCredits: profile.canAssignBonusCredits,
+      commissionPercent: profile.commissionPercent,
+    };
   }
 
   private async audit(
@@ -519,6 +723,12 @@ export class PortalWorkerCrmService {
     if (!client) throw new NotFoundException('Klient nenalezen.');
 
     const profile = await this.ensureWorkerProfile(workerId);
+    if (!profile.canAssignBonusCredits) {
+      throw new ForbiddenException('Přidělování bonusových kreditů nemáte povoleno administrátorem.');
+    }
+    if (!profile.isActive) {
+      throw new ForbiddenException('Váš pracovní účet není aktivní.');
+    }
     const amount = Math.trunc(dto.amount);
     if (amount <= 0) throw new BadRequestException('Neplatná částka.');
 
