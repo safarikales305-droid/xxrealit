@@ -1,4 +1,7 @@
+'use client';
+
 import Link from 'next/link';
+import { SupportContactButton } from '@/components/support/SupportContactButton';
 
 export function PrivacyPolicyContent() {
   return (
@@ -15,10 +18,8 @@ export function PrivacyPolicyContent() {
             www.xxrealit.cz
           </a>{' '}
           (dále jen „XXRealit“) je provozovatel služby XXRealit. V případě dotazů k ochraně
-          osobních údajů nás kontaktujte na{' '}
-          <a href="mailto:info@xxrealit.cz" className="font-semibold text-[#e85d00] hover:underline">
-            info@xxrealit.cz
-          </a>
+          osobních údajů nás kontaktujte přes{' '}
+          <SupportContactButton variant="link" label="formulář podpory" subject="Dotaz k ochraně osobních údajů" category="OTHER" />
           .
         </p>
       </section>
@@ -97,10 +98,8 @@ export function PrivacyPolicyContent() {
           <li>podat stížnost u Úřadu pro ochranu osobních údajů (www.uoou.cz)</li>
         </ul>
         <p className="mt-2">
-          Pro uplatnění práv nás kontaktujte na{' '}
-          <a href="mailto:info@xxrealit.cz" className="font-semibold text-[#e85d00] hover:underline">
-            info@xxrealit.cz
-          </a>
+          Pro uplatnění práv nás kontaktujte přes{' '}
+          <SupportContactButton variant="link" label="formulář podpory" subject="Uplatnění práv subjektu údajů" category="OTHER" />
           .
         </p>
       </section>
@@ -108,10 +107,7 @@ export function PrivacyPolicyContent() {
       <section className="rounded-xl border border-zinc-100 bg-zinc-50/80 p-4">
         <h2 className="text-lg font-semibold text-zinc-900">Kontakt</h2>
         <p className="mt-2">
-          E-mail:{' '}
-          <a href="mailto:info@xxrealit.cz" className="font-semibold text-[#e85d00] hover:underline">
-            info@xxrealit.cz
-          </a>
+          <SupportContactButton variant="link" label="Kontaktovat podporu" />
         </p>
         <p className="mt-1">
           Web:{' '}

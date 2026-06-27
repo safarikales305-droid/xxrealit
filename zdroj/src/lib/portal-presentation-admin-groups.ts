@@ -122,8 +122,7 @@ export const PORTAL_PRESENTATION_ADMIN_GROUPS: PresentationAdminGroup[] = [
     kind: 'sections',
     sectionAnchors: ['kontakt', 'cta'],
     pageFields: [
-      { key: 'contactEmail', label: 'Kontaktní e-mail' },
-      { key: 'contactPhone', label: 'Kontaktní telefon' },
+      { key: 'contactPhone', label: 'Kontaktní telefon (volitelné, neveřejné)' },
       { key: 'contactAddress', label: 'Kontaktní adresa / popis', multiline: true },
     ],
   },

@@ -13,6 +13,7 @@ import { ProfileOnboardingPopupHost } from "@/components/onboarding/ProfileOnboa
 import { PwaPushOnboarding } from "@/components/pwa/PwaPushOnboarding";
 import { AppBadgeSync } from "@/components/pwa/AppBadgeSync";
 import { PwaServiceWorkerRegister } from "@/components/pwa/PwaServiceWorkerRegister";
+import { SupportContactProvider } from "@/components/support/SupportContactProvider";
 import { getSiteMetadataBase } from "@/lib/app-url";
 import "./globals.css";
 
@@ -44,6 +45,7 @@ export default function RootLayout({
     <html lang="cs">
       <body>
         <AuthProvider>
+          <SupportContactProvider>
           <Suspense fallback={null}>
             <FacebookOAuthReturnRedirect />
           </Suspense>
@@ -72,6 +74,7 @@ export default function RootLayout({
           <Suspense fallback={null}>
             <GuestRegistrationGateHost />
           </Suspense>
+          </SupportContactProvider>
         </AuthProvider>
       </body>
     </html>

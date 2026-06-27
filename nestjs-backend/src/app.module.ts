@@ -46,6 +46,7 @@ import { PortalWorkerModule } from './modules/portal-worker/portal-worker.module
 import { PropertySeekerModule } from './modules/property-seeker/property-seeker.module';
 import { PortalTermsModule } from './modules/portal-terms/portal-terms.module';
 import { PortalPresentationModule } from './modules/portal-presentation/portal-presentation.module';
+import { SupportTicketsModule } from './modules/support-tickets/support-tickets.module';
 
 @Module({
   imports: [
@@ -98,6 +99,7 @@ import { PortalPresentationModule } from './modules/portal-presentation/portal-p
     PropertySeekerModule,
     PortalTermsModule,
     PortalPresentationModule,
+    SupportTicketsModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { LegalPageShell } from '@/components/legal/LegalPageShell';
+import { DataDeletionContactBlock, DataDeletionSupportBlock } from '@/components/support/DataDeletionSupportBlocks';
 
 export const metadata: Metadata = {
   title: 'Smazání dat Facebook účtu | XXRealit',
@@ -19,16 +20,7 @@ export default function DataDeletionPage() {
         Portál XXRealit respektuje právo uživatelů na ochranu osobních údajů v souladu s GDPR.
       </p>
 
-      <p>
-        Pokud si uživatel přeje odstranit data získaná prostřednictvím Facebook Login, zašle žádost
-        na:
-      </p>
-
-      <p className="rounded-xl border border-orange-100 bg-orange-50/60 px-4 py-3 text-center text-lg font-semibold text-zinc-900">
-        <a href="mailto:info@xxrealit.cz" className="text-[#e85d00] hover:underline">
-          info@xxrealit.cz
-        </a>
-      </p>
+      <DataDeletionSupportBlock />
 
       <p>
         Po ověření identity budou odstraněna všechna propojená data, zejména:
@@ -42,7 +34,7 @@ export default function DataDeletionPage() {
       </ul>
 
       <p>
-        Žádost zpracujeme nejpozději do <strong>30 dnů</strong> od ověření totožnosti. Do e-mailu
+        Žádost zpracujeme nejpozději do <strong>30 dnů</strong> od ověření totožnosti. Do zprávy
         uveďte e-mail účtu na XXRealit a pokud je to možné i odkaz na váš Facebook profil nebo jméno
         účtu použité při přihlášení.
       </p>
@@ -56,23 +48,7 @@ export default function DataDeletionPage() {
         .
       </p>
 
-      <div className="rounded-xl border border-zinc-100 bg-zinc-50/80 p-4">
-        <p className="font-semibold text-zinc-900">Kontakt</p>
-        <p className="mt-2">
-          <a href="mailto:info@xxrealit.cz" className="font-semibold text-[#e85d00] hover:underline">
-            info@xxrealit.cz
-          </a>
-        </p>
-        <p className="mt-1">
-          <a
-            href="https://www.xxrealit.cz"
-            className="font-semibold text-[#e85d00] hover:underline"
-            rel="noopener noreferrer"
-          >
-            https://www.xxrealit.cz
-          </a>
-        </p>
-      </div>
+      <DataDeletionContactBlock />
     </LegalPageShell>
   );
 }

@@ -109,6 +109,7 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
     label: 'Komunikace',
     icon: '📨',
     children: [
+      { id: 'support-center', label: 'Centrum podpory', href: '/admin/komunikace/centrum-podpory', icon: '🎫', tone: 'red' },
       { id: 'wa-int', label: 'Integrace WhatsApp', href: '/admin/integrace/whatsapp', icon: '📱' },
       { id: 'fb-int', label: 'Integrace Facebook', href: '/admin/integrace/facebook', icon: '👤' },
       { id: 'fb-users', label: 'Facebook propojení', href: '/admin/facebook-propojeni', icon: '🔗' },

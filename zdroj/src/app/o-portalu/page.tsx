@@ -76,7 +76,6 @@ function buildJsonLd(page: NonNullable<Awaited<ReturnType<typeof fetchPortalPres
         '@id': `${ORIGIN}/#organization`,
         name: 'XXREALIT',
         url: ORIGIN,
-        email: page.contactEmail ?? 'info@xxrealit.cz',
         logo: page.ogImageUrl ?? `${ORIGIN}/icons/icon-512.png`,
       },
       {

@@ -387,6 +387,9 @@ model User {
   creditLedgerEntries CreditLedger[]
   developerNotes      DeveloperNote[] @relation("DeveloperNoteAuthor")
   developerNotesUpdated DeveloperNote[] @relation("DeveloperNoteUpdatedBy")
+  supportTickets      SupportTicket[] @relation("SupportTicketUser")
+  assignedSupportTickets SupportTicket[] @relation("SupportTicketAssignee")
+  supportTicketMessages SupportTicketMessage[] @relation("SupportTicketMessageAuthor")
   portalTermsVersionsCreated PortalTermsVersion[] @relation("PortalTermsAuthor")
   creditTopUpTransactions CreditTopUpTransaction[]
   workerCommissionsAsWorker WorkerCommission[] @relation("WorkerCommissionWorker")
@@ -2373,4 +2376,84 @@ model WorkerCommission {
   @@index([workerId, createdAt])
   @@index([referredUserId, createdAt])
   @@index([status])
+}
+
+enum SupportTicketStatus {
+  NEW
+  WAITING_REPLY
+  IN_PROGRESS
+  WAITING_CUSTOMER
+  RESOLVED
+  CLOSED
+}
+
+enum SupportTicketCategory {
+  TECHNICAL
+  LISTING
+  PAYMENTS
+  CREDITS
+  BROKERS
+  CONSTRUCTION
+  INVESTORS
+  FINANCIAL_ADVISORS
+  REPORT_ISSUE
+  BUSINESS_COOPERATION
+  OTHER
+}
+
+enum SupportMessageAuthorType {
+  CUSTOMER
+  STAFF
+  SYSTEM
+}
+
+/// Interní ticket zákaznické podpory portálu.
+model SupportTicket {
+  id               String               @id @default(cuid())
+  publicId         String               @unique
+  userId           String?
+  firstName        String
+  lastName         String?
+  phone            String
+  whatsapp         String
+  email            String
+  subject          String
+  category         SupportTicketCategory
+  status           SupportTicketStatus  @default(NEW)
+  assignedToId     String?
+  ipAddress        String?
+  userAgent        String?              @db.VarChar(512)
+  gdprConsentAt    DateTime
+  contactConsentAt DateTime
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  lastMessageAt    DateTime             @default(now())
+
+  user       User?                  @relation("SupportTicketUser", fields: [userId], references: [id], onDelete: SetNull)
+  assignedTo User?                  @relation("SupportTicketAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  messages   SupportTicketMessage[]
+
+  @@index([status, createdAt])
+  @@index([category])
+  @@index([email])
+  @@index([phone])
+  @@index([whatsapp])
+  @@index([assignedToId])
+  @@index([userId, createdAt])
+  @@index([publicId])
+}
+
+model SupportTicketMessage {
+  id             String                 @id @default(cuid())
+  ticketId       String
+  authorType     SupportMessageAuthorType
+  authorUserId   String?
+  body           String                 @db.Text
+  isInternalNote Boolean                @default(false)
+  createdAt      DateTime               @default(now())
+
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorUser User?         @relation("SupportTicketMessageAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId, createdAt])
 }

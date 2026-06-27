@@ -2,10 +2,16 @@
 
 import Link from 'next/link';
 import { PortalTermsHtml } from '@/components/legal/PortalTermsHtml';
+import { SupportContactButton } from '@/components/support/SupportContactButton';
 import type { PortalPresentationSection } from '@/lib/portal-presentation';
 
 type ProcessStep = { step: number; title: string; text: string };
 type CtaItem = { label: string; url: string };
+
+function isSupportUrl(url: string): boolean {
+  const u = url.trim().toLowerCase();
+  return u === 'support:' || u === '#support' || u.startsWith('mailto:');
+}
 
 function parseJson<T>(raw: string, fallback: T): T {
   try {
@@ -97,16 +103,25 @@ export function PresentationSectionBlock({ section, index, onCtaClick }: Props) 
             ) : null}
           </header>
           <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {ctas.map((cta) => (
-              <Link
-                key={cta.label}
-                href={cta.url}
-                onClick={() => onCtaClick?.(section.anchor, cta.label)}
-                className="rounded-2xl border border-white/30 bg-white/15 px-5 py-4 text-center text-sm font-bold text-white backdrop-blur transition hover:scale-[1.02] hover:border-white/50 hover:bg-white/25"
-              >
-                {cta.label}
-              </Link>
-            ))}
+            {ctas.map((cta) =>
+              isSupportUrl(cta.url) ? (
+                <div key={cta.label} className="flex justify-center">
+                  <SupportContactButton
+                    label={cta.label}
+                    className="w-full rounded-2xl border border-white/30 bg-white/15 px-5 py-4 text-center text-sm font-bold text-white backdrop-blur transition hover:scale-[1.02] hover:border-white/50 hover:bg-white/25"
+                  />
+                </div>
+              ) : (
+                <Link
+                  key={cta.label}
+                  href={cta.url}
+                  onClick={() => onCtaClick?.(section.anchor, cta.label)}
+                  className="rounded-2xl border border-white/30 bg-white/15 px-5 py-4 text-center text-sm font-bold text-white backdrop-blur transition hover:scale-[1.02] hover:border-white/50 hover:bg-white/25"
+                >
+                  {cta.label}
+                </Link>
+              ),
+            )}
           </div>
         </div>
       </section>
@@ -147,13 +162,19 @@ export function PresentationSectionBlock({ section, index, onCtaClick }: Props) 
             <PortalTermsHtml html={section.bodyHtml} onDark={bg.isDark} />
           </div>
           {section.ctaLabel && section.ctaUrl ? (
-            <Link
-              href={section.ctaUrl}
-              onClick={() => onCtaClick?.(section.anchor, section.ctaLabel ?? '')}
-              className="mt-6 inline-flex rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-3 text-sm font-bold text-white shadow-lg transition hover:opacity-95"
-            >
-              {section.ctaLabel}
-            </Link>
+            isSupportUrl(section.ctaUrl) ? (
+              <div className="mt-6">
+                <SupportContactButton label={section.ctaLabel} />
+              </div>
+            ) : (
+              <Link
+                href={section.ctaUrl}
+                onClick={() => onCtaClick?.(section.anchor, section.ctaLabel ?? '')}
+                className="mt-6 inline-flex rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-3 text-sm font-bold text-white shadow-lg transition hover:opacity-95"
+              >
+                {section.ctaLabel}
+              </Link>
+            )
           ) : null}
         </div>
 

@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 
-const RESERVED = new Set(['tipy', 'zpravy', 'dashboard']);
+const RESERVED = new Set(['tipy', 'zpravy', 'dashboard', 'podpora', 'komunikace']);
 
 /** /profil/:id → veřejný profil (legacy odkazy z katalogu makléřů). */
 export default async function ProfilUserRedirectPage({

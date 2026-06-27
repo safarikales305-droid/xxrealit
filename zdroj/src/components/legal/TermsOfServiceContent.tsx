@@ -1,4 +1,7 @@
+'use client';
+
 import Link from 'next/link';
+import { SupportContactButton } from '@/components/support/SupportContactButton';
 
 export function TermsOfServiceContent() {
   return (
@@ -90,10 +93,8 @@ export function TermsOfServiceContent() {
       <section className="rounded-xl border border-zinc-100 bg-zinc-50/80 p-4">
         <h2 className="text-lg font-semibold text-zinc-900">Kontakt</h2>
         <p className="mt-2">
-          Dotazy k podmínkám užívání směřujte na{' '}
-          <a href="mailto:info@xxrealit.cz" className="font-semibold text-[#e85d00] hover:underline">
-            info@xxrealit.cz
-          </a>
+          Dotazy k podmínkám užívání směřujte přes{' '}
+          <SupportContactButton variant="link" label="formulář podpory" subject="Dotaz k podmínkám užívání" category="OTHER" />
           .
         </p>
         <p className="mt-1">

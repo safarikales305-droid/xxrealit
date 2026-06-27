@@ -28,6 +28,11 @@ export default function KomunikaceHubPage() {
 
   const cards = [
     {
+      href: '/profil/podpora',
+      title: 'Moje komunikace s podporou',
+      desc: 'Dotazy na portál, technická podpora a odpovědi zákaznického centra.',
+    },
+    {
       href: '/profil/komunikace/whatsapp',
       title: 'WhatsApp centrum',
       desc: 'Odesílání zpráv, historie a hromadné oslovení zájemců o inzerát.',

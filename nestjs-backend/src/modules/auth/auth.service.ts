@@ -1,8 +1,10 @@
 import {
   HttpException,
   HttpStatus,
+  Inject,
   Injectable,
   Logger,
+  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -23,6 +25,7 @@ import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
 import { MarketingBonusActionType } from '@prisma/client';
 import type { RequestClientMeta } from '../../common/request-client-meta';
 import { PortalTermsService } from '../portal-terms/portal-terms.service';
+import { SupportTicketsService } from '../support-tickets/support-tickets.service';
 type TokenUserShape = {
   id: string;
   email: string;
@@ -245,6 +248,8 @@ export class AuthService {
     private readonly whatsAppMarketing: WhatsAppMarketingService,
     private readonly accountUniqueness: AccountUniquenessService,
     private readonly portalTerms: PortalTermsService,
+    @Inject(forwardRef(() => SupportTicketsService))
+    private readonly supportTickets: SupportTicketsService,
   ) {}
 
   private resendFromAddress(): string {
@@ -677,6 +682,14 @@ export class AuthService {
         .catch((error: unknown) => {
           this.logger.warn(
             `Welcome WhatsApp failed for userId=${user.id}: ${error instanceof Error ? error.message : 'unknown'}`,
+          );
+        });
+
+      void this.supportTickets
+        .linkTicketsByEmail(user.id, user.email)
+        .catch((error: unknown) => {
+          this.logger.warn(
+            `Support ticket link failed for userId=${user.id}: ${error instanceof Error ? error.message : 'unknown'}`,
           );
         });
 

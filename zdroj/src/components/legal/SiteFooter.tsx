@@ -1,4 +1,7 @@
+'use client';
+
 import Link from 'next/link';
+import { SupportContactButton } from '@/components/support/SupportContactButton';
 
 export function SiteFooter() {
   return (
@@ -22,12 +25,7 @@ export function SiteFooter() {
         <Link href="/data-deletion" className="font-medium transition hover:text-[#e85d00]">
           Smazání Facebook dat
         </Link>
-        <a
-          href="mailto:info@xxrealit.cz"
-          className="font-medium transition hover:text-[#e85d00]"
-        >
-          info@xxrealit.cz
-        </a>
+        <SupportContactButton variant="footer" label="Kontaktovat podporu" />
       </div>
     </footer>
   );

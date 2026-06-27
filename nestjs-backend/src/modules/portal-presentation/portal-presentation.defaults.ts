@@ -40,7 +40,7 @@ export const DEFAULT_PRESENTATION_PAGE = {
   heroSecondaryCtaUrl: '/inzerat/pridat',
   heroGradientFrom: '#ff6a00',
   heroGradientTo: '#ff3c00',
-  contactEmail: 'info@xxrealit.cz',
+  contactEmail: null,
   contactPhone: '+420000000000',
   contactAddress: 'XXrealit.cz — online realitní portál',
 };
@@ -440,9 +440,9 @@ export const DEFAULT_PRESENTATION_SECTIONS: DefaultSection[] = [
     title: 'Kontakt',
     subtitle: 'Jsme tu pro vás',
     bodyHtml:
-      '<p>Máte dotaz k portálu, partnerství nebo investici? Kontaktujte nás e-mailem <a href="mailto:info@xxrealit.cz">info@xxrealit.cz</a>.</p>',
-    ctaLabel: 'Napsat e-mail',
-    ctaUrl: 'mailto:info@xxrealit.cz',
+      '<p>Máte dotaz k portálu, partnerství nebo investici? Napište nám přes formulář zákaznické podpory — odpovíme co nejdříve.</p>',
+    ctaLabel: 'Napsat na podporu',
+    ctaUrl: 'support:',
     bgStyle: 'muted',
   },
   {
@@ -463,7 +463,7 @@ export const DEFAULT_PRESENTATION_SECTIONS: DefaultSection[] = [
       { label: 'Registrovat finančního poradce', url: '/registrace' },
       { label: 'Registrovat řemeslníka', url: '/registrace' },
       { label: 'Stát se tipařem', url: '/registrace' },
-      { label: 'Kontaktovat nás', url: 'mailto:info@xxrealit.cz' },
+      { label: 'Kontaktovat nás', url: 'support:' },
     ]),
     bgStyle: 'gradient',
     accentColor: '#ff6a00',

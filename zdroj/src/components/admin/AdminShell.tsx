@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAdminPortalSearch, type AdminPortalSearchResult } from '@/lib/nest-client';
+import { nestAdminSupportStats } from '@/lib/support-tickets-api';
 import {
   ADMIN_QUICK_ACTIONS,
   ADMIN_SIDEBAR_GROUPS,
@@ -27,6 +28,7 @@ export function AdminShell({ children }: Props) {
   const [portalHits, setPortalHits] = useState<AdminPortalSearchResult | null>(null);
   const [fabOpen, setFabOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [supportNewCount, setSupportNewCount] = useState(0);
 
   useEffect(() => {
     if (isLoading) return;
@@ -34,6 +36,15 @@ export function AdminShell({ children }: Props) {
       router.replace('/');
     }
   }, [user, isLoading, router]);
+
+  useEffect(() => {
+    if (!apiAccessToken || user?.role !== 'ADMIN') return;
+    void nestAdminSupportStats(apiAccessToken).then((s) => setSupportNewCount(s.newCount));
+    const interval = window.setInterval(() => {
+      void nestAdminSupportStats(apiAccessToken).then((s) => setSupportNewCount(s.newCount));
+    }, 60_000);
+    return () => window.clearInterval(interval);
+  }, [apiAccessToken, user?.role]);
 
   useEffect(() => {
     const q = search.trim();
@@ -79,7 +90,15 @@ export function AdminShell({ children }: Props) {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
-  function NavLink({ item, onClick }: { item: AdminNavItem; onClick?: () => void }) {
+  function NavLink({
+    item,
+    onClick,
+    badge,
+  }: {
+    item: AdminNavItem;
+    onClick?: () => void;
+    badge?: number;
+  }) {
     const active = pathname === item.href || (item.href !== '/admin' && pathname?.startsWith(item.href));
     return (
       <Link
@@ -92,7 +111,12 @@ export function AdminShell({ children }: Props) {
         }`}
       >
         <span aria-hidden>{item.icon}</span>
-        <span>{item.label}</span>
+        <span className="flex-1">{item.label}</span>
+        {badge && badge > 0 ? (
+          <span className="rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+            {badge > 99 ? '99+' : badge}
+          </span>
+        ) : null}
       </Link>
     );
   }
@@ -117,8 +141,13 @@ export function AdminShell({ children }: Props) {
                   onClick={() => toggleGroup(group.id)}
                   className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm font-semibold text-zinc-800 hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
                 >
-                  <span>
+                  <span className="flex items-center gap-2">
                     {group.icon} {group.label}
+                    {group.id === 'communication' && supportNewCount > 0 ? (
+                      <span className="rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                        {supportNewCount > 99 ? '99+' : supportNewCount}
+                      </span>
+                    ) : null}
                   </span>
                   <span className="text-xs text-zinc-400">{expanded[group.id] ? '▾' : '▸'}</span>
                 </button>
@@ -128,6 +157,7 @@ export function AdminShell({ children }: Props) {
                       <NavLink
                         key={child.id}
                         item={child}
+                        badge={child.id === 'support-center' ? supportNewCount : undefined}
                         onClick={() => setSidebarOpen(false)}
                       />
                     ))}

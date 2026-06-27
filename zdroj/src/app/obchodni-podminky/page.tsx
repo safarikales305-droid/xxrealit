@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { LegalPageShell } from '@/components/legal/LegalPageShell';
 import { PortalTermsHtml } from '@/components/legal/PortalTermsHtml';
 import { fetchCurrentPortalTerms } from '@/lib/portal-terms';
+import { TermsUnavailableSupport } from '@/components/support/TermsUnavailableSupport';
+import { OperatorContactSupport } from '@/components/support/OperatorContactSupport';
 
 export const metadata: Metadata = {
   title: 'Obchodní podmínky | XXRealit',
@@ -31,7 +33,7 @@ export default async function ObchodniPodminkyPage() {
   if (!terms) {
     return (
       <LegalPageShell title="Obchodní podmínky" breadcrumb="Obchodní podmínky">
-        <p>Obchodní podmínky momentálně nejsou k dispozici. Kontaktujte provozovatele na info@xxrealit.cz.</p>
+        <TermsUnavailableSupport />
       </LegalPageShell>
     );
   }
@@ -64,9 +66,7 @@ export default async function ObchodniPodminkyPage() {
 
       <section className="mt-10 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
         <h2 className="text-base font-bold text-zinc-900">Kontakt na provozovatele</h2>
-        <pre className="mt-2 whitespace-pre-wrap font-sans text-sm leading-relaxed text-zinc-700">
-          {terms.operatorContact}
-        </pre>
+        <OperatorContactSupport />
       </section>
     </LegalPageShell>
   );
