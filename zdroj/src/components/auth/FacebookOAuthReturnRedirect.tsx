@@ -11,6 +11,9 @@ import {
   clearProfileOnboardingSession,
   markJustLoggedIn,
 } from '@/lib/onboarding-popup-session';
+import {
+  fetchInternalRoleLoginPath,
+} from '@/lib/post-login-routing';
 
 /** Po úspěšném Facebook OAuth vrátí uživatele na stránku, odkud přihlášení začalo (PWA i prohlížeč). */
 export function FacebookOAuthReturnRedirect() {
@@ -25,9 +28,14 @@ export function FacebookOAuthReturnRedirect() {
       handled.current = true;
       clearProfileOnboardingSession();
       markJustLoggedIn();
-      void refresh().then(() => {
+      void refresh().then(async () => {
         const stored = readFacebookOAuthReturnPath();
         clearFacebookOAuthReturnPath();
+        const internalPath = await fetchInternalRoleLoginPath();
+        if (internalPath) {
+          router.replace(internalPath);
+          return;
+        }
         if (stored && stored !== `${window.location.pathname}${window.location.search}`) {
           router.replace(stored);
         } else {

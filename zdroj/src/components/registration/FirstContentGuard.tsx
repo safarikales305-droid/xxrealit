@@ -4,6 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, type ReactNode } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { isPathAllowedForFirstContent } from '@/lib/registration-gate';
+import { isExemptFromFirstContentOnboarding } from '@/lib/post-login-routing';
 
 type Props = {
   children: ReactNode;
@@ -15,9 +16,9 @@ export function FirstContentGuard({ children }: Props) {
   const router = useRouter();
 
   const needsOnboarding = Boolean(
-    user?.role !== 'ADMIN' &&
-      user?.role !== 'PROPERTY_SEEKER' &&
-      user?.requireFirstContent &&
+    user &&
+      !isExemptFromFirstContentOnboarding(user.role) &&
+      user.requireFirstContent &&
       !user.firstContentCompleted,
   );
   const allowed = isPathAllowedForFirstContent(pathname ?? '');

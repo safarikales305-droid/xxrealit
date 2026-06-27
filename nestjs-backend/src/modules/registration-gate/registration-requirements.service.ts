@@ -196,7 +196,7 @@ export class RegistrationRequirementsService {
   }
 
   async getStatusForUser(userId: string, role: UserRole): Promise<RegistrationRequirementsStatus> {
-    if (role === 'ADMIN' || role === 'PROPERTY_SEEKER') {
+    if (role === 'ADMIN' || role === 'PROPERTY_SEEKER' || role === 'PORTAL_WORKER') {
       return { allCompleted: true, pendingCount: 0, steps: [] };
     }
 

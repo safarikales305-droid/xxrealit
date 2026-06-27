@@ -4,6 +4,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { useAuth } from '@/hooks/use-auth';
+import {
+  isExemptFromFirstContentOnboarding,
+  postLoginHomePath,
+} from '@/lib/post-login-routing';
 
 export default function FirstContentOnboardingPage() {
   const router = useRouter();
@@ -16,13 +20,12 @@ export default function FirstContentOnboardingPage() {
       return;
     }
     if (!user) return;
-    if (
-      user.role === 'ADMIN' ||
-      user.role === 'PROPERTY_SEEKER' ||
-      !user.requireFirstContent ||
-      user.firstContentCompleted
-    ) {
-      router.replace(user.role === 'PROPERTY_SEEKER' ? '/?tab=shorts' : '/');
+    if (isExemptFromFirstContentOnboarding(user.role)) {
+      router.replace(postLoginHomePath(user.role, user.portalWorkerStatus));
+      return;
+    }
+    if (!user.requireFirstContent || user.firstContentCompleted) {
+      router.replace('/');
     }
   }, [isLoading, isAuthenticated, user, router]);
 

@@ -173,8 +173,9 @@ export class AuthController {
 
     const role = (profile?.role ?? req.user.role) as UserRole;
     const isPropertySeeker = role === UserRole.PROPERTY_SEEKER;
+    const isPortalWorker = role === UserRole.PORTAL_WORKER;
 
-    if (!isAdmin && !isPropertySeeker) {
+    if (!isAdmin && !isPropertySeeker && !isPortalWorker) {
       firstContentCompleted = await this.registrationGate.syncFirstContentStatus(
         req.user.id,
       );
@@ -183,7 +184,7 @@ export class AuthController {
         req.user.id,
         role,
       );
-    } else if (isPropertySeeker) {
+    } else if (isPropertySeeker || isPortalWorker) {
       firstContentCompleted = true;
       requireFirstContent = false;
       registrationRequirements = { allCompleted: true, pendingCount: 0, steps: [] };

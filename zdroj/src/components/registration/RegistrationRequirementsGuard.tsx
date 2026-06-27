@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, type ReactNode } from 'react';
 import { useAuth } from '@/hooks/use-auth';
+import { isExemptFromFirstContentOnboarding } from '@/lib/post-login-routing';
 import { isPathAllowedForRegistrationRequirements } from '@/lib/registration-gate';
 
 type Props = {
@@ -16,8 +17,8 @@ export function RegistrationRequirementsGuard({ children }: Props) {
 
   const requirements = user?.registrationRequirements;
   const needsWizard = Boolean(
-    user?.role !== 'ADMIN' &&
-      user?.role !== 'PROPERTY_SEEKER' &&
+    user &&
+      !isExemptFromFirstContentOnboarding(user.role) &&
       requirements &&
       !requirements.allCompleted,
   );

@@ -9,7 +9,7 @@ import { PortalIntroLink } from '@/components/auth/PortalIntroLink';
 import { PasswordField } from '@/components/ui/PasswordField';
 import { useAuth } from '@/hooks/use-auth';
 import { getBrowserAuthLoginUrl } from '@/lib/api';
-import { portalWorkerHomePath } from '@/lib/portal-worker-routing';
+import { postLoginHomePath } from '@/lib/post-login-routing';
 import { clearPwaInstallDismissed } from '@/lib/pwa-install-storage';
 import {
   clearProfileOnboardingSession,
@@ -124,6 +124,12 @@ export function LoginForm() {
 
       const sessionUser = data.user ?? data.session?.user;
       const role = sessionUser?.role;
+
+      if (role === 'ADMIN') {
+        window.location.href = postLoginHomePath('ADMIN');
+        return;
+      }
+
       let portalWorkerStatus: string | null | undefined = null;
       if (role === 'PORTAL_WORKER') {
         const meRes = await fetch('/api/auth/me', { credentials: 'include', cache: 'no-store' });
@@ -135,7 +141,8 @@ export function LoginForm() {
           portalWorkerStatus =
             meRaw.portalWorkerStatus ?? meRaw.user?.portalWorkerStatus ?? 'PENDING_APPROVAL';
         }
-        window.location.href = portalWorkerHomePath(
+        window.location.href = postLoginHomePath(
+          'PORTAL_WORKER',
           portalWorkerStatus as 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'SUSPENDED' | null,
         );
         return;
