@@ -32,6 +32,7 @@ export function isPathAllowedForFirstContent(pathname: string): boolean {
     '/privacy-policy',
     '/terms',
     '/obchodni-podminky',
+    '/o-portalu',
     '/data-deletion',
   ];
   return allowedPrefixes.some((prefix) => p === prefix || p.startsWith(`${prefix}/`));
@@ -50,6 +51,7 @@ export function isPathAllowedForRegistrationRequirements(pathname: string): bool
     '/privacy-policy',
     '/terms',
     '/obchodni-podminky',
+    '/o-portalu',
     '/data-deletion',
   ];
   return allowedPrefixes.some((prefix) => p === prefix || p.startsWith(`${prefix}/`));

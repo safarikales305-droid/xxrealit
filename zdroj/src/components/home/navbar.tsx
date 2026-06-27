@@ -132,6 +132,12 @@ export function Navbar({
     }
     return [
       {
+        key: 'about',
+        label: 'O portálu',
+        href: '/o-portalu',
+        icon: menuIcons.profile,
+      },
+      {
         key: 'login',
         label: 'Přihlásit',
         href: '/login',
@@ -407,6 +413,12 @@ export function Navbar({
               </>
             ) : (
               <>
+                <Link
+                  href="/o-portalu"
+                  className="hidden rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900 lg:inline"
+                >
+                  O portálu
+                </Link>
                 <Link
                   href="/login"
                   className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"

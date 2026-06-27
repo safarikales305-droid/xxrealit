@@ -2197,6 +2197,98 @@ model PortalTermsVersion {
   @@index([isPublished, publishedAt])
 }
 
+/// Veřejná prezentační landing page portálu (CMS).
+model PortalPresentationPage {
+  id                    String   @id @default(cuid())
+  locale                String   @default("cs")
+  slug                  String   @default("o-portalu")
+  isPublished           Boolean  @default(false)
+  metaTitle             String
+  metaDescription       String   @db.Text
+  metaKeywords          String?  @db.Text
+  ogImageUrl            String?
+  canonicalUrl          String?
+  heroTitle             String
+  heroSubtitle          String   @db.Text
+  heroCtaLabel          String?
+  heroCtaUrl            String?
+  heroSecondaryCtaLabel String?
+  heroSecondaryCtaUrl   String?
+  heroImageUrl          String?
+  heroVideoUrl          String?
+  heroGradientFrom      String   @default("#ff6a00")
+  heroGradientTo        String   @default("#ff3c00")
+  contactEmail          String?
+  contactPhone          String?
+  contactAddress        String?  @db.Text
+  publishedAt           DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  sections   PortalPresentationSection[]
+  faqItems   PortalPresentationFaq[]
+  analytics  PortalPresentationAnalytics[]
+
+  @@unique([locale, slug])
+  @@index([isPublished, locale])
+}
+
+model PortalPresentationSection {
+  id          String   @id @default(cuid())
+  pageId      String
+  page        PortalPresentationPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  anchor      String
+  sectionType String   @default("feature")
+  sortOrder   Int      @default(0)
+  isVisible   Boolean  @default(true)
+  icon        String?
+  title       String
+  subtitle    String?  @db.Text
+  bodyHtml    String   @db.Text
+  imageUrl    String?
+  galleryUrls String[] @default([])
+  videoUrl    String?
+  youtubeUrl  String?
+  ctaLabel    String?
+  ctaUrl      String?
+  accentColor String?
+  bgStyle     String   @default("white")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([pageId, anchor])
+  @@index([pageId, sortOrder])
+}
+
+model PortalPresentationFaq {
+  id         String   @id @default(cuid())
+  pageId     String
+  page       PortalPresentationPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  question   String
+  answerHtml String   @db.Text
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([pageId, sortOrder])
+}
+
+model PortalPresentationAnalytics {
+  id        String   @id @default(cuid())
+  pageId    String
+  page      PortalPresentationPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  eventType String
+  visitorId String?
+  sessionId String?
+  payload   Json?
+  referrer  String?
+  userAgent String?  @db.VarChar(512)
+  createdAt DateTime @default(now())
+
+  @@index([pageId, eventType, createdAt])
+  @@index([createdAt])
+}
+
 /// Interní vývojářské poznámky (admin).
 model DeveloperNote {
   id          String   @id @default(cuid())

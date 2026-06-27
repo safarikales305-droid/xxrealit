@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { AuthPageShell } from '@/components/auth/auth-page-shell';
 import { FacebookAuthButton } from '@/components/auth/FacebookAuthButton';
+import { PortalIntroLink } from '@/components/auth/PortalIntroLink';
 import { TermsConsentCheckbox } from '@/components/auth/TermsConsentCheckbox';
 import { PasswordField } from '@/components/ui/PasswordField';
 import {
@@ -164,6 +165,7 @@ export default function RegistracePage() {
       </p>
 
       <form onSubmit={onSubmit} className="space-y-3 sm:space-y-4">
+        <PortalIntroLink />
         <Link
           href="/registrace/hledam-nemovitost"
           className="flex w-full items-center justify-center rounded-full border-2 border-orange-400 bg-orange-50/60 py-3 text-sm font-semibold text-orange-700 transition hover:bg-orange-50 sm:py-3.5 sm:text-[15px]"

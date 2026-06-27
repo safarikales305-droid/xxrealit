@@ -9519,3 +9519,130 @@ export async function nestAcceptTerms(
   return { ok: true };
 }
 
+export type PortalPresentationPageRow = import('@/lib/portal-presentation').PortalPresentationPage;
+
+export type PresentationAnalyticsSummary = {
+  days: number;
+  pageViews: number;
+  uniqueVisitors: number;
+  ctaClicks: number;
+  scrollDepthBuckets: Record<string, number>;
+  topReferrers: Array<{ referrer: string; count: number }>;
+  totalEvents: number;
+};
+
+export async function nestAdminGetPresentation(
+  token: string | null,
+  locale = 'cs',
+): Promise<PortalPresentationPageRow | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/portal-presentation?locale=${encodeURIComponent(locale)}`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as PortalPresentationPageRow | null;
+}
+
+export async function nestAdminUpdatePresentationPage(
+  token: string | null,
+  payload: Record<string, unknown>,
+  locale = 'cs',
+): Promise<{ ok: boolean; error?: string; page?: PortalPresentationPageRow }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/portal-presentation?locale=${encodeURIComponent(locale)}`, {
+    method: 'PATCH',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json().catch(() => ({}))) as PortalPresentationPageRow & { message?: string };
+  if (!res.ok) return { ok: false, error: typeof data.message === 'string' ? data.message : `HTTP ${res.status}` };
+  return { ok: true, page: data };
+}
+
+export async function nestAdminUpsertPresentationSection(
+  token: string | null,
+  payload: Record<string, unknown>,
+  locale = 'cs',
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/portal-presentation/sections?locale=${encodeURIComponent(locale)}`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { message?: string };
+    return { ok: false, error: typeof data.message === 'string' ? data.message : `HTTP ${res.status}` };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminDeletePresentationSection(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean }> {
+  if (!API_BASE_URL || !token) return { ok: false };
+  const res = await fetch(`${API_BASE_URL}/admin/portal-presentation/sections/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: nestAuthHeaders(token),
+  });
+  return { ok: res.ok };
+}
+
+export async function nestAdminReorderPresentationSections(
+  token: string | null,
+  orderedIds: string[],
+  locale = 'cs',
+): Promise<{ ok: boolean }> {
+  if (!API_BASE_URL || !token) return { ok: false };
+  const res = await fetch(
+    `${API_BASE_URL}/admin/portal-presentation/sections/reorder?locale=${encodeURIComponent(locale)}`,
+    {
+      method: 'POST',
+      headers: { ...nestAuthHeaders(token), Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderedIds }),
+    },
+  );
+  return { ok: res.ok };
+}
+
+export async function nestAdminUpsertPresentationFaq(
+  token: string | null,
+  payload: { id?: string; question: string; answerHtml: string; sortOrder?: number },
+  locale = 'cs',
+): Promise<{ ok: boolean }> {
+  if (!API_BASE_URL || !token) return { ok: false };
+  const res = await fetch(`${API_BASE_URL}/admin/portal-presentation/faq?locale=${encodeURIComponent(locale)}`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return { ok: res.ok };
+}
+
+export async function nestAdminDeletePresentationFaq(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean }> {
+  if (!API_BASE_URL || !token) return { ok: false };
+  const res = await fetch(`${API_BASE_URL}/admin/portal-presentation/faq/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: nestAuthHeaders(token),
+  });
+  return { ok: res.ok };
+}
+
+export async function nestAdminGetPresentationAnalytics(
+  token: string | null,
+  locale = 'cs',
+  days = 30,
+): Promise<PresentationAnalyticsSummary | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(
+    `${API_BASE_URL}/admin/portal-presentation/analytics?locale=${encodeURIComponent(locale)}&days=${days}`,
+    { headers: { ...nestAuthHeaders(token), Accept: 'application/json' } },
+  );
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as PresentationAnalyticsSummary | null;
+}
+

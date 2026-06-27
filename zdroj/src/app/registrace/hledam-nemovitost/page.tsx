@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { AuthPageShell } from '@/components/auth/auth-page-shell';
 import { TermsConsentCheckbox } from '@/components/auth/TermsConsentCheckbox';
+import { PortalIntroLink } from '@/components/auth/PortalIntroLink';
 import { PasswordField } from '@/components/ui/PasswordField';
 
 const inputClass =
@@ -91,6 +92,7 @@ export default function HledamNemovitostPage() {
       </p>
 
       <form onSubmit={onSubmit} className="space-y-3 sm:space-y-4">
+        <PortalIntroLink />
         <div>
           <label htmlFor="name" className="mb-1 block text-left text-xs font-semibold text-zinc-800 sm:text-sm">
             Jméno

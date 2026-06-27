@@ -96,6 +96,7 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
     tone: 'purple',
     children: [
       { id: 'bonus', label: 'Bonusové akce', href: '/admin/bonusove-akce', icon: '🎁', tone: 'purple' },
+      { id: 'presentation', label: 'Představení portálu', href: '/admin/predstaveni-portalu', icon: '🌐' },
       { id: 'popups', label: 'Popup okna', href: '/admin/marketing/popup-okna', icon: '💬' },
       { id: 'push', label: 'Push notifikace', href: '/admin/marketing/push-notifikace', icon: '🔔' },
       { id: 'wa-campaigns', label: 'WhatsApp kampaně', href: '/admin/marketing/whatsapp-kampane', icon: '📱' },
@@ -145,6 +146,7 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
 ];
 
 export const ADMIN_QUICK_ACTIONS: AdminNavItem[] = [
+  { id: 'qa-presentation', label: 'Náhled prezentace', href: '/o-portalu', icon: '🌐', tone: 'orange' },
   { id: 'qa-listing', label: 'Nový inzerát', href: '/inzerat/pridat', icon: '🏘', tone: 'orange' },
   { id: 'qa-worker', label: 'Nový pracovník', href: '/admin/pracovnici-portalu', icon: '🛠', tone: 'blue' },
   { id: 'qa-broker', label: 'Nový makléř', href: '/admin/promo-profily', icon: '👔', tone: 'blue' },

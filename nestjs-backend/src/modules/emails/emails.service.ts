@@ -32,9 +32,9 @@ const DEFAULT_TEMPLATES: TemplateInput[] = [
     name: 'Uvítací e-mail',
     subject: 'Vítejte na xxrealit.cz',
     htmlContent:
-      '<h1>Vítejte na xxrealit.cz</h1><p>Dobrý den {{userName}}, váš účet je aktivní.</p><p><a href="{{ctaUrl}}">Dokončit profil</a></p>',
+      '<h1>Vítejte na xxrealit.cz</h1><p>Dobrý den {{userName}}, váš účet je aktivní.</p><p><a href="{{ctaUrl}}">Dokončit profil</a></p><p><a href="https://www.xxrealit.cz/o-portalu">Představení portálu XXREALIT</a></p>',
     textContent:
-      'Vítejte na xxrealit.cz\n\nDobrý den {{userName}}, váš účet je aktivní.\n\nDokončit profil: {{ctaUrl}}',
+      'Vítejte na xxrealit.cz\n\nDobrý den {{userName}}, váš účet je aktivní.\n\nDokončit profil: {{ctaUrl}}\n\nPředstavení portálu: https://www.xxrealit.cz/o-portalu',
   },
   {
     key: 'password_reset',

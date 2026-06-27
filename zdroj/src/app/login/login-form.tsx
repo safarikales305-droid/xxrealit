@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { AuthPageShell } from '@/components/auth/auth-page-shell';
 import { FacebookAuthButton } from '@/components/auth/FacebookAuthButton';
+import { PortalIntroLink } from '@/components/auth/PortalIntroLink';
 import { PasswordField } from '@/components/ui/PasswordField';
 import { useAuth } from '@/hooks/use-auth';
 import { getBrowserAuthLoginUrl } from '@/lib/api';
@@ -231,6 +232,8 @@ export function LoginForm() {
       </div>
 
       <FacebookAuthButton label="Přihlásit přes Facebook" event="facebook_login_click" />
+
+      <PortalIntroLink className="mt-4" />
 
       <p className="mt-4 border-t border-zinc-100 pt-4 text-center text-xs text-zinc-600 sm:mt-8 sm:pt-6 sm:text-sm">
         Ještě nemáte účet?{' '}

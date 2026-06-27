@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { FacebookAuthButton } from '@/components/auth/FacebookAuthButton';
+import { PortalIntroLink } from '@/components/auth/PortalIntroLink';
 import { TermsConsentCheckbox } from '@/components/auth/TermsConsentCheckbox';
 import { PasswordField } from '@/components/ui/PasswordField';
 import { useAuth } from '@/hooks/use-auth';
@@ -213,6 +214,7 @@ export function GuestGateAuthPanel({ mode, returnTo, onClose, onSwitchMode }: Pr
           </form>
         ) : (
           <form onSubmit={handleRegister} className="mt-5 space-y-3">
+            <PortalIntroLink />
             <input
               type="text"
               required
