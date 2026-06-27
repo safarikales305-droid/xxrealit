@@ -2210,6 +2210,8 @@ model PortalPresentationPage {
   canonicalUrl          String?
   heroTitle             String
   heroSubtitle          String   @db.Text
+  heroBadgeText         String?  @default("Představení portálu")
+  faqTitle              String?  @default("Časté dotazy")
   heroCtaLabel          String?
   heroCtaUrl            String?
   heroSecondaryCtaLabel String?

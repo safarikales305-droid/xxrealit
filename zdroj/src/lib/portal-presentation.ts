@@ -40,6 +40,8 @@ export type PortalPresentationPage = {
   canonicalUrl: string | null;
   heroTitle: string;
   heroSubtitle: string;
+  heroBadgeText: string | null;
+  faqTitle: string | null;
   heroCtaLabel: string | null;
   heroCtaUrl: string | null;
   heroSecondaryCtaLabel: string | null;

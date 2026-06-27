@@ -40,6 +40,16 @@ export class UpdatePresentationPageDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
+  heroBadgeText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  faqTitle?: string;
+
+  @IsOptional()
+  @IsString()
   heroCtaLabel?: string;
 
   @IsOptional()

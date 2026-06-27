@@ -98,7 +98,7 @@ export function PresentationLanding({ page }: Props) {
         <div className="pointer-events-none absolute -right-20 top-20 size-72 rounded-full bg-white/10 blur-3xl" />
         <div className="relative mx-auto w-full max-w-6xl px-4 pb-20 pt-10 sm:px-6 sm:pb-24 sm:pt-14">
           <p className="animate-[app-menu-in_0.6s_ease-out] text-sm font-semibold uppercase tracking-[0.2em] text-white/80">
-            Představení portálu
+            {page.heroBadgeText ?? 'Představení portálu'}
           </p>
           <h1 className="mt-4 max-w-4xl text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl lg:text-6xl">
             {page.heroTitle}
@@ -139,7 +139,7 @@ export function PresentationLanding({ page }: Props) {
       {page.faq.length > 0 ? (
         <section id="faq" className="scroll-mt-24 bg-white py-16 sm:py-20">
           <div className="mx-auto max-w-3xl px-4 sm:px-6">
-            <h2 className="text-center text-3xl font-bold">Časté dotazy</h2>
+            <h2 className="text-center text-3xl font-bold">{page.faqTitle ?? 'Časté dotazy'}</h2>
             <ul className="mt-10 space-y-3">
               {page.faq.map((item) => (
                 <li key={item.id} className="rounded-2xl border border-zinc-200 bg-zinc-50/50">

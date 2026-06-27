@@ -32,6 +32,8 @@ export const DEFAULT_PRESENTATION_PAGE = {
   heroTitle: 'XXREALIT — budoucnost realitního marketingu',
   heroSubtitle:
     'Propojujeme majitele nemovitostí, makléře, developery, investory a tipaře v jedné moderní platformě s videem, sociální sítí a férovým obchodním modelem.',
+  heroBadgeText: 'Představení portálu',
+  faqTitle: 'Časté dotazy',
   heroCtaLabel: 'Registrovat zdarma',
   heroCtaUrl: '/registrace',
   heroSecondaryCtaLabel: 'Přidat nemovitost',

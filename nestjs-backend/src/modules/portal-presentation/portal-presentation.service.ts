@@ -84,6 +84,8 @@ export class PortalPresentationService implements OnModuleInit {
       canonicalUrl: string | null;
       heroTitle: string;
       heroSubtitle: string;
+      heroBadgeText: string | null;
+      faqTitle: string | null;
       heroCtaLabel: string | null;
       heroCtaUrl: string | null;
       heroSecondaryCtaLabel: string | null;
@@ -124,6 +126,8 @@ export class PortalPresentationService implements OnModuleInit {
       canonicalUrl: page.canonicalUrl,
       heroTitle: page.heroTitle,
       heroSubtitle: page.heroSubtitle,
+      heroBadgeText: page.heroBadgeText ?? 'Představení portálu',
+      faqTitle: page.faqTitle ?? 'Časté dotazy',
       heroCtaLabel: page.heroCtaLabel,
       heroCtaUrl: page.heroCtaUrl,
       heroSecondaryCtaLabel: page.heroSecondaryCtaLabel,
@@ -236,6 +240,8 @@ export class PortalPresentationService implements OnModuleInit {
       'canonicalUrl',
       'heroTitle',
       'heroSubtitle',
+      'heroBadgeText',
+      'faqTitle',
       'heroCtaLabel',
       'heroCtaUrl',
       'heroSecondaryCtaLabel',
