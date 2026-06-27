@@ -1,13 +1,10 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { formatListingPrice } from '@/lib/price';
 import { AdminSubPage } from '@/components/admin/AdminSubPage';
-import { AdminListingTypeBadge } from '@/components/listing/TipBadges';
-import { isTipListing } from '@/lib/is-tip-listing';
+import { AdminListingsPanel } from '@/components/admin/AdminListingsPanel';
 import {
   nestAdminApproveProperty,
   nestAdminDeleteProperty,
@@ -33,33 +30,6 @@ const TYPE_OPTIONS = [
   { value: 'CLASSIC', label: 'Klasik' },
   { value: 'TIP', label: 'TIP' },
 ] as const;
-
-function formatDt(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  return Number.isFinite(d.getTime())
-    ? d.toLocaleString('cs-CZ', { dateStyle: 'short', timeStyle: 'short' })
-    : '—';
-}
-
-function statusBadgeClass(status: string | undefined): string {
-  switch (status) {
-    case 'ACTIVE':
-      return 'bg-emerald-100 text-emerald-900';
-    case 'PENDING_APPROVAL':
-      return 'bg-amber-100 text-amber-900';
-    case 'INACTIVE':
-      return 'bg-zinc-200 text-zinc-800';
-    case 'EXPIRED':
-      return 'bg-rose-100 text-rose-900';
-    case 'SCHEDULED':
-      return 'bg-sky-100 text-sky-900';
-    case 'DELETED':
-      return 'bg-red-100 text-red-900';
-    default:
-      return 'bg-zinc-100 text-zinc-700';
-  }
-}
 
 function toInputLocal(iso: string | null | undefined): string {
   if (!iso) return '';
@@ -384,146 +354,16 @@ export default function AdminListingsPage() {
           </div>
         </section>
 
-        <section className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
-          <table className="w-full min-w-[1100px] text-left text-sm">
-            <thead className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              <tr>
-                <th className="px-3 py-3">Název</th>
-                <th className="px-3 py-3">TYP</th>
-                <th className="px-3 py-3">Autor</th>
-                <th className="px-3 py-3">Město</th>
-                <th className="px-3 py-3">Cena</th>
-                <th className="px-3 py-3">Zdroj</th>
-                <th className="px-3 py-3">Vytvořeno</th>
-                <th className="px-3 py-3">Views</th>
-                <th className="px-3 py-3">Stav</th>
-                <th className="px-3 py-3">Aktivní od / do</th>
-                <th className="px-3 py-3 text-right">Akce</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100">
-              {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={11} className="px-4 py-10 text-center text-zinc-500">
-                    Žádné záznamy. Upravte filtry nebo zkuste znovu načíst.
-                  </td>
-                </tr>
-              ) : (
-                rows.map((r) => {
-                  const pending = r.listingStatus === 'PENDING_APPROVAL';
-                  const deleted = Boolean(r.deletedAt);
-                  return (
-                    <tr key={r.id} className="hover:bg-zinc-50/80">
-                      <td className="max-w-[200px] px-3 py-2">
-                        <Link
-                          href={`/nemovitost/${r.id}`}
-                          className="line-clamp-2 font-medium text-[#e85d00] hover:underline"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {r.title ?? r.id}
-                        </Link>
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <AdminListingTypeBadge
-                          listingType={r.listingType}
-                          isTip={isTipListing(r)}
-                        />
-                      </td>
-                      <td className="max-w-[160px] truncate px-3 py-2 text-xs text-zinc-600" title={r.authorEmail}>
-                        {r.authorEmail ?? r.userId ?? '—'}
-                      </td>
-                      <td className="px-3 py-2">{r.city ?? r.location ?? '—'}</td>
-                      <td className="px-3 py-2 tabular-nums">{formatListingPrice(r.price)}</td>
-                      <td className="px-3 py-2 text-xs text-zinc-600">
-                        {r.importSource ? `${r.importSource}/${r.importMethod ?? '-'}` : 'Lokální'}
-                        {r.importExternalId ? <div className="font-mono text-[10px]">{r.importExternalId}</div> : null}
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-xs text-zinc-600">
-                        {formatDt(r.createdAt)}
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-xs font-semibold tabular-nums text-zinc-900">
-                        {Math.max(0, Math.trunc(r.viewsCount ?? 0)).toLocaleString('cs-CZ')}
-                      </td>
-                      <td className="px-3 py-2">
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusBadgeClass(r.listingStatus)}`}
-                        >
-                          {r.listingStatus ?? '—'}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-xs text-zinc-600">
-                        <div>{formatDt(r.activeFrom)}</div>
-                        <div>{formatDt(r.activeUntil)}</div>
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="flex flex-wrap justify-end gap-1">
-                          <button
-                            type="button"
-                            onClick={() => openEdit(r)}
-                            disabled={busyId === r.id}
-                            className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                          >
-                            Upravit
-                          </button>
-                          {pending ? (
-                            <button
-                              type="button"
-                              onClick={() => void onApprove(r.id)}
-                              disabled={busyId === r.id}
-                              className="rounded-md bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-2 py-1 text-xs font-semibold text-white disabled:opacity-50"
-                            >
-                              Schválit
-                            </button>
-                          ) : null}
-                          {!deleted && r.isActive !== false ? (
-                            <button
-                              type="button"
-                              onClick={() => void quickSetActive(r.id, false)}
-                              disabled={busyId === r.id}
-                              className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900 disabled:opacity-50"
-                            >
-                              Deaktivovat
-                            </button>
-                          ) : null}
-                          {!deleted && r.isActive === false ? (
-                            <button
-                              type="button"
-                              onClick={() => void quickSetActive(r.id, true)}
-                              disabled={busyId === r.id}
-                              className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-900 disabled:opacity-50"
-                            >
-                              Aktivovat
-                            </button>
-                          ) : null}
-                          {deleted ? (
-                            <button
-                              type="button"
-                              onClick={() => void onRestore(r.id)}
-                              disabled={busyId === r.id}
-                              className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-900 disabled:opacity-50"
-                            >
-                              Obnovit
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => void onSoftDelete(r.id)}
-                              disabled={busyId === r.id}
-                              className="rounded-md border border-red-200 bg-white px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
-                            >
-                              Smazat
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </section>
+        <AdminListingsPanel
+          rows={rows}
+          busyId={busyId}
+          onEdit={openEdit}
+          onApprove={(id) => void onApprove(id)}
+          onSoftDelete={(id) => void onSoftDelete(id)}
+          onQuickSetActive={(id, active) => void quickSetActive(id, active)}
+          onRestore={(id) => void onRestore(id)}
+        />
+
       {editRow ? (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
