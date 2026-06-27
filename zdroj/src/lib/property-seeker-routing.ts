@@ -1,5 +1,7 @@
 export const PROPERTY_SEEKER_SHARE_REQUIRED = 5;
 
+export const PROPERTY_SEEKER_PORTAL_HOME = '/?tab=shorts';
+
 export const PROPERTY_SEEKER_SHARE_MESSAGE =
   'Ahoj, našel jsem realitní portál XXrealit.cz – můžeš sledovat inzeráty jako Shorts videa, klasické nabídky i příspěvky makléřů. Mrkni na to: https://www.xxrealit.cz';
 
@@ -65,7 +67,9 @@ export function shouldRedirectPropertySeeker(
     return '/registrace/sdileni';
   }
 
-  if (isOnboardingPath(p)) return '/';
-  if (isBlockedWritePath(p)) return '/';
+  if (isOnboardingPath(p) || p.startsWith('/onboarding')) {
+    return PROPERTY_SEEKER_PORTAL_HOME;
+  }
+  if (isBlockedWritePath(p)) return PROPERTY_SEEKER_PORTAL_HOME;
   return null;
 }

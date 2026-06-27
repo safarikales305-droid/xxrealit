@@ -13,6 +13,11 @@ export default function CompleteRegistrationPage() {
   const pending = requirements?.steps.filter((s) => !s.completed) ?? [];
   const pendingCount = requirements?.pendingCount ?? pending.length;
 
+  if (!isLoading && user?.role === 'PROPERTY_SEEKER') {
+    router.replace('/?tab=shorts');
+    return null;
+  }
+
   if (!isLoading && requirements?.allCompleted) {
     router.replace('/');
     return null;

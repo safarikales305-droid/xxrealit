@@ -16,6 +16,7 @@ export function FirstContentGuard({ children }: Props) {
 
   const needsOnboarding = Boolean(
     user?.role !== 'ADMIN' &&
+      user?.role !== 'PROPERTY_SEEKER' &&
       user?.requireFirstContent &&
       !user.firstContentCompleted,
   );

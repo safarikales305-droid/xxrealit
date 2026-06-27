@@ -9,6 +9,7 @@ import {
   nestPropertySeekerStatus,
 } from '@/lib/nest-client';
 import {
+  PROPERTY_SEEKER_PORTAL_HOME,
   PROPERTY_SEEKER_SHARE_MESSAGE,
   PROPERTY_SEEKER_SHARE_REQUIRED,
 } from '@/lib/property-seeker-routing';
@@ -28,7 +29,7 @@ export default function SdileniPortaluPage() {
     if (status) {
       setShareCount(status.shareCount);
       if (status.onboardingComplete) {
-        router.replace('/');
+        router.replace(PROPERTY_SEEKER_PORTAL_HOME);
         router.refresh();
       }
     }
@@ -62,7 +63,7 @@ export default function SdileniPortaluPage() {
     }
     if (typeof r.shareCount === 'number') setShareCount(r.shareCount);
     if (r.completed) {
-      router.replace('/');
+      router.replace(PROPERTY_SEEKER_PORTAL_HOME);
       router.refresh();
     }
   }

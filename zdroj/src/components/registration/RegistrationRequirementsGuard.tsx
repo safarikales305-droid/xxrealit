@@ -16,7 +16,10 @@ export function RegistrationRequirementsGuard({ children }: Props) {
 
   const requirements = user?.registrationRequirements;
   const needsWizard = Boolean(
-    user?.role !== 'ADMIN' && requirements && !requirements.allCompleted,
+    user?.role !== 'ADMIN' &&
+      user?.role !== 'PROPERTY_SEEKER' &&
+      requirements &&
+      !requirements.allCompleted,
   );
   const allowed = isPathAllowedForRegistrationRequirements(pathname ?? '');
 

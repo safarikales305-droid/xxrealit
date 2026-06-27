@@ -146,6 +146,7 @@ export class UsersService {
     marketingConsentEmail?: boolean;
     consentCreatedAt?: Date;
     consentSource?: string;
+    firstContentCompleted?: boolean;
   }): Promise<User> {
     return this.prisma.user.create({ data });
   }

@@ -12,7 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { UserRole } from '@prisma/client';
+import { UserRole } from '@prisma/client';
 import { RegistrationGateService } from '../registration-gate/registration-gate.service';
 import { RegistrationRequirementsService } from '../registration-gate/registration-requirements.service';
 import { UsersService } from '../users/users.service';
@@ -158,15 +158,22 @@ export class AuthController {
       ReturnType<RegistrationRequirementsService['getStatusForUser']>
     > | null = null;
 
-    if (!isAdmin) {
+    const role = (profile?.role ?? req.user.role) as UserRole;
+    const isPropertySeeker = role === UserRole.PROPERTY_SEEKER;
+
+    if (!isAdmin && !isPropertySeeker) {
       firstContentCompleted = await this.registrationGate.syncFirstContentStatus(
         req.user.id,
       );
       requireFirstContent = await this.registrationGate.getRequireFirstContent();
       registrationRequirements = await this.registrationRequirements.getStatusForUser(
         req.user.id,
-        (profile?.role ?? req.user.role) as UserRole,
+        role,
       );
+    } else if (isPropertySeeker) {
+      firstContentCompleted = true;
+      requireFirstContent = false;
+      registrationRequirements = { allCompleted: true, pendingCount: 0, steps: [] };
     }
 
     if (!profile) {

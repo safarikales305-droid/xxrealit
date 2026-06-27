@@ -18,10 +18,11 @@ export default function FirstContentOnboardingPage() {
     if (!user) return;
     if (
       user.role === 'ADMIN' ||
+      user.role === 'PROPERTY_SEEKER' ||
       !user.requireFirstContent ||
       user.firstContentCompleted
     ) {
-      router.replace('/');
+      router.replace(user.role === 'PROPERTY_SEEKER' ? '/?tab=shorts' : '/');
     }
   }, [isLoading, isAuthenticated, user, router]);
 

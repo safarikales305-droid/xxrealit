@@ -578,6 +578,7 @@ export class AuthService {
       marketingConsentEmail: boolean;
       consentCreatedAt: Date;
       consentSource: string;
+      firstContentCompleted: boolean;
     } | null = null;
     let resolvedName = name;
     if (dto.wantsPortalWorker) {
@@ -599,6 +600,7 @@ export class AuthService {
         marketingConsentEmail: true,
         consentCreatedAt: new Date(),
         consentSource: 'REGISTRATION_PROPERTY_SEEKER',
+        firstContentCompleted: true,
       };
     } else if (!name) {
       throw new HttpException({ error: 'Jméno je povinné' }, HttpStatus.BAD_REQUEST);
