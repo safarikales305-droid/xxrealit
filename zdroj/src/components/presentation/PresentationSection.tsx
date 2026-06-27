@@ -19,6 +19,7 @@ function sectionBg(bgStyle: string, accent?: string | null) {
   if (bgStyle === 'gradient') {
     const c = accent ?? '#ff6a00';
     return {
+      isDark: true,
       className: 'text-white',
       style: {
         background: `linear-gradient(135deg, ${c} 0%, #1e1b4b 100%)`,
@@ -26,9 +27,9 @@ function sectionBg(bgStyle: string, accent?: string | null) {
     };
   }
   if (bgStyle === 'muted') {
-    return { className: 'bg-zinc-50 text-zinc-900', style: undefined };
+    return { isDark: false, className: 'bg-zinc-50 text-zinc-900', style: undefined };
   }
-  return { className: 'bg-white text-zinc-900', style: undefined };
+  return { isDark: false, className: 'bg-white text-zinc-900', style: undefined };
 }
 
 type Props = {
@@ -48,24 +49,34 @@ export function PresentationSectionBlock({ section, index, onCtaClick }: Props) 
         <div className="mx-auto max-w-6xl px-4 sm:px-6">
           <header className="text-center">
             {section.icon ? <span className="text-4xl">{section.icon}</span> : null}
-            <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">{section.title}</h2>
-            {section.subtitle ? <p className="mt-3 text-lg opacity-90">{section.subtitle}</p> : null}
+            <h2 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">{section.title}</h2>
+            {section.subtitle ? (
+              <p className="mt-3 text-lg text-white/90">{section.subtitle}</p>
+            ) : null}
           </header>
           <ol className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             {steps.map((step) => (
               <li
                 key={step.step}
                 className={`relative rounded-2xl border p-5 ${
-                  bg.className.includes('text-white')
-                    ? 'border-white/20 bg-white/10 backdrop-blur-sm'
+                  bg.isDark
+                    ? 'border-white/25 bg-white/10 backdrop-blur-sm'
                     : 'border-orange-200 bg-orange-50/80'
                 }`}
               >
-                <span className="flex size-10 items-center justify-center rounded-full bg-white/20 text-lg font-bold">
+                <span
+                  className={`flex size-10 items-center justify-center rounded-full text-lg font-bold ${
+                    bg.isDark ? 'bg-white/20 text-white' : 'bg-orange-100 text-orange-700'
+                  }`}
+                >
                   {step.step}
                 </span>
-                <h3 className="mt-4 text-lg font-bold">{step.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed opacity-90">{step.text}</p>
+                <h3 className={`mt-4 text-lg font-bold ${bg.isDark ? 'text-white' : 'text-zinc-900'}`}>
+                  {step.title}
+                </h3>
+                <p className={`mt-2 text-sm leading-relaxed ${bg.isDark ? 'text-white/85' : 'text-zinc-600'}`}>
+                  {step.text}
+                </p>
               </li>
             ))}
           </ol>
@@ -80,8 +91,10 @@ export function PresentationSectionBlock({ section, index, onCtaClick }: Props) 
       <section id={section.anchor} className={`scroll-mt-24 py-16 sm:py-24 ${bg.className}`} style={bg.style}>
         <div className="mx-auto max-w-6xl px-4 sm:px-6">
           <header className="text-center">
-            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">{section.title}</h2>
-            {section.subtitle ? <p className="mt-3 text-lg opacity-90">{section.subtitle}</p> : null}
+            <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">{section.title}</h2>
+            {section.subtitle ? (
+              <p className="mt-3 text-lg text-white/90">{section.subtitle}</p>
+            ) : null}
           </header>
           <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {ctas.map((cta) => (
@@ -89,7 +102,7 @@ export function PresentationSectionBlock({ section, index, onCtaClick }: Props) 
                 key={cta.label}
                 href={cta.url}
                 onClick={() => onCtaClick?.(section.anchor, cta.label)}
-                className="rounded-2xl border border-white/25 bg-white/15 px-5 py-4 text-center text-sm font-bold backdrop-blur transition hover:scale-[1.02] hover:bg-white/25"
+                className="rounded-2xl border border-white/30 bg-white/15 px-5 py-4 text-center text-sm font-bold text-white backdrop-blur transition hover:scale-[1.02] hover:border-white/50 hover:bg-white/25"
               >
                 {cta.label}
               </Link>
@@ -111,21 +124,27 @@ export function PresentationSectionBlock({ section, index, onCtaClick }: Props) 
         <div className={section.sectionType === 'benefits-grid' ? 'max-w-3xl' : ''}>
           <div className="flex items-start gap-3">
             {section.icon ? (
-              <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-orange-500/15 text-2xl">
+              <span
+                className={`flex size-12 shrink-0 items-center justify-center rounded-2xl text-2xl ${
+                  bg.isDark ? 'bg-white/15' : 'bg-orange-500/15'
+                }`}
+              >
                 {section.icon}
               </span>
             ) : null}
             <div>
-              <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">{section.title}</h2>
+              <h2 className={`text-2xl font-bold tracking-tight sm:text-3xl ${bg.isDark ? 'text-white' : 'text-zinc-900'}`}>
+                {section.title}
+              </h2>
               {section.subtitle ? (
-                <p className={`mt-2 text-base sm:text-lg ${bg.className.includes('text-white') ? 'text-white/85' : 'text-zinc-600'}`}>
+                <p className={`mt-2 text-base sm:text-lg ${bg.isDark ? 'text-white/90' : 'text-zinc-600'}`}>
                   {section.subtitle}
                 </p>
               ) : null}
             </div>
           </div>
           <div className="mt-6">
-            <PortalTermsHtml html={section.bodyHtml} />
+            <PortalTermsHtml html={section.bodyHtml} onDark={bg.isDark} />
           </div>
           {section.ctaLabel && section.ctaUrl ? (
             <Link

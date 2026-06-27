@@ -151,43 +151,49 @@ export function PresentationHeader({ navSections, onCtaClick }: Props) {
         <div className="fixed inset-0 z-[60] lg:hidden" role="dialog" aria-modal="true" aria-label="Navigace">
           <button
             type="button"
-            className="absolute inset-0 bg-black/40"
+            className="absolute inset-0 bg-zinc-900/50 backdrop-blur-[2px]"
             aria-label="Zavřít menu"
             onClick={closeMobile}
           />
-          <aside className="absolute inset-y-0 right-0 flex w-[min(100%,20rem)] flex-col bg-white shadow-2xl motion-safe:animate-[app-sheet-in_0.28s_ease-out]">
-            <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-              <span className="text-sm font-bold text-zinc-900">Menu</span>
+          <aside className="absolute inset-y-2 right-2 flex w-[min(100%,22rem)] flex-col overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-2xl motion-safe:animate-[app-sheet-in_0.28s_ease-out]">
+            <div className="flex items-center justify-between gap-3 border-b border-zinc-100 px-4 py-4">
+              <Link href="/" onClick={closeMobile} className="inline-flex shrink-0 items-center" aria-label="XXREALIT — domů">
+                <Logo className="h-8 w-auto" />
+              </Link>
               <button
                 type="button"
                 onClick={closeMobile}
-                className="rounded-lg px-2 py-1 text-sm font-semibold text-zinc-500 hover:bg-zinc-100"
-                aria-label="Zavřít"
+                className="flex size-10 items-center justify-center rounded-full border border-zinc-200 bg-zinc-50 text-xl font-light text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900"
+                aria-label="Zavřít menu"
               >
-                Zavřít
+                ×
               </button>
             </div>
-            <nav className="flex-1 overflow-y-auto p-3" aria-label="Sekce stránky">
-              <ul className="space-y-1">
+            <nav className="flex-1 overflow-y-auto px-3 py-2" aria-label="Sekce stránky">
+              <ul className="space-y-1.5">
                 {navSections.map((s) => (
                   <li key={s.anchor}>
                     <a
                       href={`#${s.anchor}`}
-                      className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-orange-50 hover:text-[#ff6a00]"
+                      className="flex min-h-[3rem] items-center gap-3 rounded-xl px-4 py-3 text-[15px] font-semibold text-zinc-800 transition active:bg-orange-100 active:text-[#ff6a00] hover:bg-orange-50 hover:text-[#ff6a00]"
                       onClick={closeMobile}
                     >
-                      {s.icon ? <span aria-hidden>{s.icon}</span> : null}
-                      {s.title}
+                      {s.icon ? (
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-orange-50 text-lg" aria-hidden>
+                          {s.icon}
+                        </span>
+                      ) : null}
+                      <span className="leading-snug">{s.title}</span>
                     </a>
                   </li>
                 ))}
               </ul>
             </nav>
-            <div className="space-y-2 border-t border-zinc-200 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <div className="space-y-2.5 border-t border-zinc-100 bg-zinc-50/80 p-4">
               <Link
                 href="/login"
                 onClick={closeMobile}
-                className="block w-full rounded-full border border-zinc-200 py-2.5 text-center text-sm font-semibold text-zinc-800"
+                className="flex min-h-[3rem] w-full items-center justify-center rounded-full border border-zinc-200 bg-white px-4 text-[15px] font-semibold text-zinc-800 shadow-sm transition hover:border-zinc-300 hover:bg-zinc-50"
               >
                 Přihlásit
               </Link>
@@ -197,7 +203,7 @@ export function PresentationHeader({ navSections, onCtaClick }: Props) {
                   onCtaClick('header-mobile', 'Registrace');
                   closeMobile();
                 }}
-                className="block w-full rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-2.5 text-center text-sm font-bold text-white"
+                className="flex min-h-[3rem] w-full items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 text-[15px] font-bold text-white shadow-lg shadow-orange-500/25 transition hover:opacity-95"
               >
                 Registrovat
               </Link>
