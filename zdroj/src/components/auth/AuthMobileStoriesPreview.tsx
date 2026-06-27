@@ -1,7 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import type { AuthPortalPreviewItem } from '@/lib/auth-portal-preview';
+import {
+  MOBILE_BACKDROP_POSITIONS,
+  type AuthPortalPreviewItem,
+} from '@/lib/auth-portal-preview';
 import type { AuthShellVariant } from '@/components/auth/auth-page-shell';
 import { openGuestRegistrationGate } from '@/lib/guest-registration-gate-store';
 import {
@@ -15,73 +18,141 @@ type Props = {
   variant?: AuthShellVariant;
 };
 
-function StoryPreviewCard({
+const ROTATIONS = [2, -3, 3, -2, 4, -4, 2, -3] as const;
+const OPACITIES = [0.35, 0.42, 0.38, 0.48, 0.32, 0.45, 0.4, 0.36] as const;
+const SCALES = [0.9, 1, 1.05, 0.95, 1.08, 0.92, 1.02, 0.88] as const;
+
+function MobilePreviewCard({
   item,
+  index,
   onOpenGate,
 }: {
   item: AuthPortalPreviewItem;
+  index: number;
   onOpenGate: () => void;
 }) {
   const media = item.videoUrl || item.coverUrl;
+  const position = MOBILE_BACKDROP_POSITIONS[index % MOBILE_BACKDROP_POSITIONS.length];
+  const rotate = ROTATIONS[index % ROTATIONS.length];
+  const opacity = OPACITIES[index % OPACITIES.length];
+  const scale = SCALES[index % SCALES.length];
+  const animClass = item.kind === 'promo' ? 'auth-backdrop-float' : 'auth-backdrop-float-slow';
+  const delayClass = `auth-backdrop-float-delay-${(index % 4) + 1}`;
+
+  const motionStyle = {
+    '--auth-rotate': `${rotate}deg`,
+    '--auth-scale': scale,
+    '--auth-opacity': opacity,
+    opacity,
+  } as React.CSSProperties;
 
   if (item.kind === 'promo') {
+    const size = index % 3 === 0 ? 'size-14' : index % 3 === 1 ? 'size-16' : 'size-[3.75rem]';
     return (
       <button
         type="button"
         onClick={onOpenGate}
         aria-label={item.subtitle}
-        className="flex h-full w-auto shrink-0 flex-col items-center justify-center gap-1 px-1"
+        className={`pointer-events-auto absolute ${position} z-[5] lg:hidden`}
       >
-        <div className="aspect-square h-[min(72%,5.5rem)] max-h-[5.5rem] overflow-hidden rounded-full border-2 border-orange-200 bg-zinc-100 shadow-sm">
-          {media ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={media} alt="" className="size-full object-cover" />
-          ) : (
-            <span className="flex size-full items-center justify-center text-xs font-bold text-orange-600">
-              ?
-            </span>
-          )}
+        <div
+          className={`${animClass} ${delayClass} flex flex-col items-center gap-1`}
+          style={motionStyle}
+        >
+          <div
+            className={`${size} overflow-hidden rounded-full border-2 border-white/40 bg-zinc-100 shadow-lg ring-2 ring-orange-300/50`}
+          >
+            {media ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={media} alt="" className="size-full object-cover" />
+            ) : (
+              <span className="flex size-full items-center justify-center text-xs font-bold text-orange-600">
+                ?
+              </span>
+            )}
+          </div>
         </div>
-        <span className="max-w-[4.5rem] truncate text-[9px] font-semibold text-zinc-700">
-          {item.subtitle}
-        </span>
       </button>
     );
   }
+
+  const width =
+    item.kind === 'short' || item.kind === 'story'
+      ? index % 3 === 0
+        ? 'w-[3.25rem]'
+        : index % 3 === 1
+          ? 'w-[4rem]'
+          : 'w-[3.5rem]'
+      : index % 2 === 0
+        ? 'w-[5.5rem]'
+        : 'w-[6.25rem]';
 
   return (
     <button
       type="button"
       onClick={onOpenGate}
       aria-label={item.title}
-      className="relative h-full w-auto shrink-0 aspect-[9/16] max-h-full overflow-hidden rounded-[0.65rem] border border-zinc-200/90 bg-zinc-900 ring-1 ring-zinc-900/10"
+      className={`pointer-events-auto absolute ${position} z-[5] lg:hidden`}
     >
-      {item.videoUrl ? (
-        <video
-          src={item.videoUrl}
-          muted
-          playsInline
-          loop
-          autoPlay
-          preload="metadata"
-          className="size-full object-cover"
-        />
-      ) : media ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={media} alt="" className="size-full object-cover" />
-      ) : (
-        <span className="flex size-full items-center justify-center text-[10px] font-bold text-white/70">
-          XX
-        </span>
-      )}
+      <div className={`${animClass} ${delayClass}`} style={motionStyle}>
+        {item.kind === 'short' || item.kind === 'story' ? (
+          <div
+            className={`relative aspect-[9/16] ${width} overflow-hidden rounded-xl border border-white/30 bg-zinc-900 shadow-[0_12px_32px_rgba(0,0,0,0.35)] ring-1 ring-white/20`}
+          >
+            {item.videoUrl ? (
+              <video
+                src={item.videoUrl}
+                muted
+                playsInline
+                loop
+                autoPlay
+                preload="metadata"
+                className="size-full object-cover"
+              />
+            ) : media ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={media} alt="" className="size-full object-cover" />
+            ) : (
+              <span className="flex size-full items-center justify-center text-[10px] font-bold text-white/70">
+                XX
+              </span>
+            )}
+          </div>
+        ) : (
+          <div
+            className={`${width} overflow-hidden rounded-xl border border-white/25 bg-zinc-900 shadow-[0_12px_32px_rgba(0,0,0,0.35)] ring-1 ring-white/15`}
+          >
+            <div className="relative aspect-[4/3] w-full overflow-hidden">
+              {item.videoUrl ? (
+                <video
+                  src={item.videoUrl}
+                  muted
+                  playsInline
+                  loop
+                  autoPlay
+                  preload="metadata"
+                  className="size-full object-cover"
+                />
+              ) : media ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={media} alt="" className="size-full object-cover" />
+              ) : (
+                <span className="flex size-full items-center justify-center text-[10px] font-bold text-white/70">
+                  XX
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </button>
   );
 }
 
 /**
- * Kompaktní horizontální stories carousel — pevná výška, statické náhledy bez animací.
+ * Ostré živé náhledy po okrajích mobilní obrazovky — zůstávají viditelné při scrollu.
  */
-export function AuthMobileStoriesPreview({ items, variant = 'login' }: Props) {
+export function AuthMobileStoriesPreview({ items, variant: _variant = 'login' }: Props) {
   const preview = items.slice(0, 12);
   const [gateSettings, setGateSettings] = useState<PublicRegistrationGateSettings | null>(null);
 
@@ -103,22 +174,15 @@ export function AuthMobileStoriesPreview({ items, variant = 'login' }: Props) {
   if (!preview.length) return null;
 
   return (
-    <section
-      className="mx-auto mt-3 w-full shrink-0 lg:hidden"
-      aria-label="Náhled portálu"
-    >
-      <div className="h-[clamp(140px,min(24dvh,180px),180px)] max-h-[180px] min-h-[140px] overflow-hidden rounded-xl border border-zinc-200/90 bg-gradient-to-b from-zinc-50/90 to-white shadow-inner shadow-zinc-100/50">
-        <div className="no-scrollbar flex h-full items-stretch gap-2.5 overflow-x-auto overflow-y-hidden px-2.5 py-2.5">
-          {preview.map((item) => (
-            <StoryPreviewCard key={item.id} item={item} onOpenGate={openGate} />
-          ))}
-        </div>
+    <>
+      <div
+        className="pointer-events-none fixed inset-0 z-[5] overflow-hidden lg:hidden"
+        aria-hidden
+      >
+        {preview.map((item, index) => (
+          <MobilePreviewCard key={item.id} item={item} index={index} onOpenGate={openGate} />
+        ))}
       </div>
-      {variant === 'login' ? (
-        <p className="mt-1.5 text-center text-[10px] leading-snug text-zinc-500 sm:text-[11px]">
-          Klepněte na náhled a zaregistrujte se
-        </p>
-      ) : null}
-    </section>
+    </>
   );
 }

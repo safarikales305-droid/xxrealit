@@ -13,11 +13,16 @@ import {
   type RegistrationAccountType,
 } from '@/lib/registration-account-types';
 
-const inputClass =
-  'w-full rounded-xl border border-zinc-200/90 bg-zinc-50/80 px-3.5 py-2.5 text-sm text-zinc-900 shadow-inner shadow-zinc-100/80 outline-none transition placeholder:text-zinc-400 focus:border-orange-400/80 focus:bg-white focus:ring-2 focus:ring-orange-500/20 sm:px-4 sm:py-3.5 sm:text-[15px]';
-
-const selectClass =
-  'w-full rounded-xl border border-zinc-200/90 bg-zinc-50/80 px-3.5 py-2.5 text-sm text-zinc-900 shadow-inner shadow-zinc-100/80 outline-none transition focus:border-orange-400/80 focus:bg-white focus:ring-2 focus:ring-orange-500/20 sm:px-4 sm:py-3.5 sm:text-[15px]';
+import {
+  authDividerClass,
+  authFormSpacing,
+  authInputClass,
+  authLabelClass,
+  authPrimaryBtnClass,
+  authSecondaryBtnClass,
+  authSelectClass,
+  authTextareaClass,
+} from '@/components/auth/auth-form-styles';
 
 type FieldErrors = Partial<
   Record<
@@ -155,25 +160,13 @@ export default function RegistracePage() {
 
   return (
     <AuthPageShell variant="register">
-      <p className="mb-2 hidden text-center text-sm font-medium text-zinc-500 sm:mb-4 sm:block">
-        Nový účet
-      </p>
-      <p className="mb-3 hidden text-center text-sm leading-relaxed text-zinc-600 sm:mb-5 sm:block">
-        {wantsPortalWorker
-          ? 'Registrace pracovníka portálu XXrealit.cz — po odeslání žádosti čekáte na schválení adminem.'
-          : 'Heslo alespoň 6 znaků. Vyberte typ účtu, který nejlépe vystihuje vaši roli na trhu.'}
-      </p>
-
-      <form onSubmit={onSubmit} className="space-y-3 sm:space-y-4">
+      <form onSubmit={onSubmit} className={authFormSpacing}>
         <PortalIntroLink />
-        <Link
-          href="/registrace/hledam-nemovitost"
-          className="flex w-full items-center justify-center rounded-full border-2 border-orange-400 bg-orange-50/60 py-3 text-sm font-semibold text-orange-700 transition hover:bg-orange-50 sm:py-3.5 sm:text-[15px]"
-        >
+        <Link href="/registrace/hledam-nemovitost" className={authSecondaryBtnClass}>
           Hledám nemovitost
         </Link>
 
-        <div className="relative my-1 sm:my-2">
+        <div className={authDividerClass}>
           <div className="absolute inset-0 flex items-center">
             <div className="w-full border-t border-zinc-200" />
           </div>
@@ -182,7 +175,7 @@ export default function RegistracePage() {
           </div>
         </div>
 
-        <label className="flex items-start gap-2 rounded-xl border border-orange-200 bg-orange-50/80 px-3 py-3 text-sm text-zinc-800">
+        <label className="flex items-start gap-3 rounded-2xl border border-orange-200 bg-orange-50/80 px-4 py-4 text-sm text-zinc-800">
           <input
             type="checkbox"
             checked={wantsPortalWorker}
@@ -204,7 +197,7 @@ export default function RegistracePage() {
                   required
                   value={firstName}
                   onChange={(e) => setFirstName(e.target.value)}
-                  className={inputClass}
+                  className={authInputClass}
                   aria-invalid={Boolean(fieldErrors.firstName)}
                 />
                 {fieldErrors.firstName ? (
@@ -220,7 +213,7 @@ export default function RegistracePage() {
                   required
                   value={lastName}
                   onChange={(e) => setLastName(e.target.value)}
-                  className={inputClass}
+                  className={authInputClass}
                   aria-invalid={Boolean(fieldErrors.lastName)}
                 />
                 {fieldErrors.lastName ? (
@@ -241,7 +234,7 @@ export default function RegistracePage() {
               autoComplete="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className={inputClass}
+              className={authInputClass}
               placeholder="Jan Novák"
               aria-invalid={Boolean(fieldErrors.name)}
             />
@@ -262,7 +255,7 @@ export default function RegistracePage() {
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className={inputClass}
+            className={authInputClass}
             placeholder="vas@email.cz"
             aria-invalid={Boolean(fieldErrors.email)}
           />
@@ -282,7 +275,7 @@ export default function RegistracePage() {
             autoComplete="tel"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            className={inputClass}
+            className={authInputClass}
             placeholder="+420123456789"
             aria-invalid={Boolean(fieldErrors.phone)}
           />
@@ -302,7 +295,7 @@ export default function RegistracePage() {
                 required
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
-                className={inputClass}
+                className={authInputClass}
                 aria-invalid={Boolean(fieldErrors.city)}
               />
               {fieldErrors.city ? (
@@ -320,7 +313,7 @@ export default function RegistracePage() {
                 rows={3}
                 value={bio}
                 onChange={(e) => setBio(e.target.value)}
-                className={inputClass}
+                className={authTextareaClass}
                 placeholder="Napište, proč chcete spolupracovat s XXrealit.cz…"
                 aria-invalid={Boolean(fieldErrors.bio)}
               />
@@ -328,7 +321,7 @@ export default function RegistracePage() {
                 <p className="mt-1.5 text-sm text-red-600">{fieldErrors.bio}</p>
               ) : null}
             </div>
-            <label className="flex items-start gap-2 rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-3 text-sm text-zinc-800">
+            <label className="flex items-start gap-3 rounded-2xl border border-[#EAEAEA] bg-[#FAFAFA] px-4 py-4 text-sm text-zinc-800">
               <input
                 type="checkbox"
                 required
@@ -352,7 +345,7 @@ export default function RegistracePage() {
               name="role"
               value={role}
               onChange={(e) => setRole(e.target.value as RegistrationAccountType)}
-              className={selectClass}
+              className={authSelectClass}
               aria-invalid={Boolean(fieldErrors.role)}
             >
               {REGISTRATION_ACCOUNT_TYPES.map((t) => (
@@ -378,7 +371,7 @@ export default function RegistracePage() {
             minLength={6}
             value={password}
             onChange={setPassword}
-            className={inputClass}
+            className={authInputClass}
             placeholder="Nejméně 6 znaků"
             aria-invalid={Boolean(fieldErrors.password)}
           />
@@ -398,7 +391,7 @@ export default function RegistracePage() {
             minLength={6}
             value={confirmPassword}
             onChange={setConfirmPassword}
-            className={inputClass}
+            className={authInputClass}
             placeholder="Zopakujte heslo"
             aria-invalid={Boolean(fieldErrors.confirmPassword)}
           />
@@ -425,7 +418,7 @@ export default function RegistracePage() {
         <button
           type="submit"
           disabled={loading || !termsAccepted}
-          className="w-full rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-3 text-sm font-semibold text-white shadow-lg shadow-orange-900/25 transition hover:opacity-[0.97] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55 sm:py-3.5 sm:text-[15px]"
+          className={authPrimaryBtnClass}
         >
           {loading ? 'Odesílám…' : wantsPortalWorker ? 'Odeslat žádost' : 'Registrovat'}
         </button>
@@ -433,7 +426,7 @@ export default function RegistracePage() {
 
       {!wantsPortalWorker ? (
         <>
-          <div className="relative my-4 sm:my-6">
+          <div className={authDividerClass}>
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-zinc-200" />
             </div>
@@ -450,7 +443,7 @@ export default function RegistracePage() {
         </>
       ) : null}
 
-      <p className="mt-4 border-t border-zinc-100 pt-4 text-center text-xs text-zinc-600 sm:mt-6 sm:pt-5 sm:text-sm">
+      <p className="mt-8 border-t border-zinc-100 pt-6 text-center text-sm text-zinc-600">
         Už máte účet?{' '}
         <Link href={loginHref} className="font-semibold text-orange-600 hover:text-orange-700 hover:underline">
           Přihlásit se

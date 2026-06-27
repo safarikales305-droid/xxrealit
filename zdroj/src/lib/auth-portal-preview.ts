@@ -23,18 +23,39 @@ export type AuthPortalPreviewItem = {
 };
 
 const DESKTOP_POSITIONS = [
-  'left-[2%] top-[8%] hidden lg:block',
-  'right-[1%] top-[6%] hidden xl:block',
-  'right-[3%] top-[34%] hidden lg:block',
-  'left-[3%] bottom-[14%] hidden xl:block',
-  'left-[5%] top-[38%] hidden lg:block',
-  'right-[2%] bottom-[10%] hidden lg:block',
-  'left-[0.5%] bottom-[4%] hidden 2xl:block',
-  'right-[7%] bottom-[28%] hidden 2xl:block',
-  'left-[12%] top-[18%] hidden 2xl:block',
-  'right-[12%] top-[52%] hidden 2xl:block',
-  'left-[18%] bottom-[22%] hidden 2xl:block',
-  'right-[16%] top-[20%] hidden 2xl:block',
+  'left-[1%] top-[6%] hidden lg:block',
+  'right-[0.5%] top-[4%] hidden lg:block',
+  'right-[2%] top-[30%] hidden lg:block',
+  'left-[2%] bottom-[12%] hidden lg:block',
+  'left-[4%] top-[36%] hidden lg:block',
+  'right-[1%] bottom-[8%] hidden lg:block',
+  'left-[0%] bottom-[2%] hidden xl:block',
+  'right-[6%] bottom-[26%] hidden xl:block',
+  'left-[10%] top-[16%] hidden xl:block',
+  'right-[10%] top-[48%] hidden xl:block',
+  'left-[16%] bottom-[20%] hidden xl:block',
+  'right-[14%] top-[18%] hidden xl:block',
+  'left-[22%] top-[52%] hidden 2xl:block',
+  'right-[20%] bottom-[18%] hidden 2xl:block',
+  'left-[8%] top-[62%] hidden 2xl:block',
+  'right-[8%] top-[72%] hidden 2xl:block',
+  'left-[28%] top-[8%] hidden 2xl:block',
+  'right-[24%] bottom-[4%] hidden 2xl:block',
+] as const;
+
+export const MOBILE_BACKDROP_POSITIONS = [
+  'left-[-2%] top-[10%]',
+  'right-[-4%] top-[7%]',
+  'left-[-6%] top-[36%]',
+  'right-[-2%] top-[32%]',
+  'left-[1%] bottom-[20%]',
+  'right-[0%] bottom-[16%]',
+  'left-[-4%] bottom-[34%]',
+  'right-[-6%] bottom-[30%]',
+  'left-[3%] top-[58%]',
+  'right-[2%] top-[62%]',
+  'left-[-8%] top-[22%]',
+  'right-[-8%] bottom-[42%]',
 ] as const;
 
 function shuffle<T>(items: T[]): T[] {

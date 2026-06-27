@@ -26,14 +26,14 @@ type AuthPageShellProps = {
 };
 
 /**
- * Sdílený layout pro přihlášení a registraci — logo, carousel, kompaktní formulář.
+ * Sdílený layout pro přihlášení a registraci — logo, živé pozadí, prémiový formulář.
  */
 export function AuthPageShell({ variant, children }: AuthPageShellProps) {
   const [previewItems, setPreviewItems] = useState<AuthPortalPreviewItem[]>([]);
 
   useEffect(() => {
     let cancelled = false;
-    void loadAuthPortalPreviewItems(14).then((items) => {
+    void loadAuthPortalPreviewItems(20).then((items) => {
       if (!cancelled) setPreviewItems(items);
     });
     return () => {
@@ -48,55 +48,56 @@ export function AuthPageShell({ variant, children }: AuthPageShellProps) {
         aria-hidden
       />
       <div
-        className="pointer-events-none absolute inset-0 bg-gradient-to-b from-slate-950/40 via-slate-950/20 to-slate-950"
+        className="pointer-events-none absolute inset-0 bg-gradient-to-b from-slate-950/35 via-slate-950/15 to-slate-950/55"
         aria-hidden
       />
 
       <AuthDesktopLiveBackdrop items={previewItems} />
+      <AuthMobileStoriesPreview items={previewItems} variant={variant} />
 
       <div
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_65%_55%_at_50%_48%,rgba(15,23,42,0.72),transparent_72%)]"
+        className="pointer-events-none absolute inset-0 hidden bg-[radial-gradient(ellipse_60%_50%_at_50%_48%,rgba(15,23,42,0.55),transparent_75%)] lg:block"
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_85%_70%_at_50%_42%,rgba(15,23,42,0.62),transparent_68%)] lg:hidden"
         aria-hidden
       />
 
-      <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:justify-center sm:px-6 sm:py-10 md:py-14">
+      <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:justify-center sm:px-6 sm:py-10 md:py-14">
         <Link
           href="/"
-          className="mb-2 inline-flex w-fit shrink-0 items-center gap-1.5 text-sm font-medium text-white/70 transition hover:text-white sm:mb-6"
+          className="mb-3 inline-flex w-fit shrink-0 items-center gap-1.5 text-sm font-medium text-white/75 transition hover:text-white sm:mb-8"
         >
           <span aria-hidden>←</span> Zpět na úvod
         </Link>
 
-        <div className="mx-auto w-full max-w-lg flex-1 sm:flex-none">
-          <div className="rounded-[1.35rem] border border-white/15 bg-white/[0.97] p-4 shadow-[0_32px_64px_-24px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:rounded-[1.75rem] sm:p-7 md:p-9 md:rounded-[2rem]">
+        <div className="mx-auto w-[95%] max-w-[520px] flex-1 sm:flex-none">
+          <div className="auth-form-enter rounded-[28px] bg-white p-6 shadow-[0_20px_60px_rgba(0,0,0,0.15)] sm:p-10">
             <header className="flex flex-col items-center text-center">
-              <div className="flex items-center gap-2.5 sm:flex-col sm:gap-3">
-                <div className="rounded-xl bg-gradient-to-br from-[#ff6a00]/12 to-[#ff3c00]/5 px-3 py-2 ring-1 ring-orange-500/15 sm:rounded-2xl sm:px-5 sm:py-3.5">
-                  <Logo className="h-8 w-auto sm:h-11 md:h-12" />
-                </div>
-                <span className="text-base font-bold tracking-tight text-zinc-900 sm:text-lg md:text-xl">
-                  xxrealit
+              <div className="flex flex-col items-center gap-4 px-2 pt-1 sm:gap-5 sm:px-4">
+                <Logo className="h-12 w-auto sm:h-14 md:h-[4.25rem]" />
+                <span className="text-[13px] font-bold tracking-[2px] text-[#777] sm:text-sm">
+                  XXREALIT.CZ
                 </span>
               </div>
 
-              <h1 className="mt-3 max-w-md text-xl font-bold tracking-tight text-zinc-900 sm:mt-6 sm:text-3xl md:text-4xl">
+              <h1 className="mt-8 text-[1.65rem] font-extrabold leading-tight tracking-tight text-zinc-900 sm:mt-10 sm:text-4xl">
                 Vítejte ve světě realit
               </h1>
 
               {variant === 'register' ? (
-                <p className="mt-2 max-w-md text-pretty text-sm font-extrabold leading-snug tracking-tight text-zinc-900 sm:mt-4 sm:text-lg md:text-xl">
+                <p className="mt-4 max-w-[380px] text-pretty text-base font-extrabold leading-snug tracking-tight text-zinc-900 sm:mt-5 sm:text-xl">
                   Prohlížení inzerátů je plně zdarma
                 </p>
               ) : null}
 
-              <p className="mt-2 hidden max-w-md text-pretty text-sm leading-relaxed text-zinc-600 sm:mt-3 sm:block sm:text-[15px]">
+              <p className="mt-4 max-w-[380px] text-pretty text-[15px] leading-[1.7] text-zinc-500 sm:mt-5 sm:text-base">
                 {SUBTITLES[variant]}
               </p>
             </header>
 
-            <AuthMobileStoriesPreview items={previewItems} variant={variant} />
-
-            <div className="mt-3 min-w-0 sm:mt-6">{children}</div>
+            <div className="relative z-10 mt-8 min-w-0 sm:mt-10">{children}</div>
           </div>
         </div>
       </div>

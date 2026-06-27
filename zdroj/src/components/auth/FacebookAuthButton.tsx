@@ -67,7 +67,7 @@ export function FacebookAuthButton({ label, event, className, disabled = false }
         type="button"
         disabled={loading || disabled}
         onClick={() => void startOAuth()}
-        className="flex w-full items-center justify-center gap-3 rounded-full border border-[#1877F2]/30 bg-[#1877F2] px-4 py-3.5 text-[15px] font-semibold text-white shadow-sm transition hover:bg-[#166fe0] disabled:cursor-not-allowed disabled:opacity-70"
+        className="auth-form-btn-primary flex h-[58px] w-full cursor-pointer items-center justify-center gap-3 rounded-[18px] border border-[#1877F2]/25 bg-[#1877F2] px-4 text-[15px] font-semibold text-white shadow-[0_6px_20px_rgba(24,119,242,0.35)] transition duration-200 hover:scale-[1.02] hover:bg-[#166fe0] hover:shadow-[0_10px_28px_rgba(24,119,242,0.42)] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100"
       >
         {loading ? (
           <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
@@ -82,7 +82,7 @@ export function FacebookAuthButton({ label, event, className, disabled = false }
           href={pendingUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-2 flex w-full items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800"
+          className="mt-3 flex h-[58px] w-full cursor-pointer items-center justify-center rounded-[18px] border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50"
         >
           Otevřít v prohlížeči
         </a>
