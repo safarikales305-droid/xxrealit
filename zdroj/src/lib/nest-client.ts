@@ -9820,3 +9820,235 @@ export async function nestAdminGetPresentationAnalytics(
   return (await res.json().catch(() => null)) as PresentationAnalyticsSummary | null;
 }
 
+// —— Portal analytics (návštěvnost) ——
+
+export type NestAnalyticsSettings = {
+  id: string;
+  anonymizeIp: boolean;
+  excludeStaff: boolean;
+  trackingEnabled: boolean;
+  updatedAt: string;
+};
+
+export type NestAnalyticsLiveRow = {
+  id: string;
+  sessionId: string;
+  at: string;
+  userId: string | null;
+  userName: string | null;
+  userEmail: string | null;
+  visitorId: string;
+  path: string;
+  title: string;
+  url: string;
+  referrer: string;
+  previousPath: string | null;
+  deviceType: string;
+  browser: string;
+  os: string;
+  ip: string | null;
+  country: string;
+  city: string;
+  language: string;
+};
+
+export type NestAnalyticsRealtime = {
+  cards: {
+    onlineTotal: number;
+    onlineLoggedIn: number;
+    onlineAnonymous: number;
+    activeSessions5m: number;
+    visitsToday: number;
+    pageViewsToday: number;
+  };
+  liveRows: NestAnalyticsLiveRow[];
+};
+
+export type NestAnalyticsSessionBrief = {
+  id: string;
+  visitorId: string;
+  userId: string | null;
+  userName: string | null;
+  userEmail: string | null;
+  ip: string | null;
+  deviceType: string;
+  browser: string;
+  os: string;
+  country: string;
+  city: string;
+  language: string;
+  referrer: string;
+  pageViewCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  currentPath: string | null;
+  currentTitle: string | null;
+  currentUrl: string | null;
+  isOnline: boolean;
+};
+
+export type NestAnalyticsSessionDetail = NestAnalyticsSessionBrief & {
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  userAgent: string;
+  durationSeconds: number;
+  pageViews: Array<{
+    id: string;
+    path: string;
+    title: string;
+    url: string;
+    referrer: string;
+    previousPath: string | null;
+    utmSource: string | null;
+    utmMedium: string | null;
+    utmCampaign: string | null;
+    createdAt: string;
+  }>;
+};
+
+export type NestAnalyticsSummary = {
+  period: { from: string; to: string };
+  sessions: number;
+  pageViews: number;
+  onlineNow: number;
+  uniqueVisitors: number;
+  returningVisitors: number;
+  newVisitors: number;
+  charts: {
+    visitsByHour: Array<{ hour: string; sessions: number; pageViews: number }>;
+    onlineByMinute: Array<{ minute: string; count: number }>;
+    topPages: Array<{ path: string; count: number }>;
+    topReferrers: Array<{ referrer: string; count: number }>;
+    byCountry: Array<{ country: string; count: number }>;
+    byCity: Array<{ city: string; country: string; count: number }>;
+    byDevice: Array<{ device: string; count: number }>;
+  };
+};
+
+function analyticsQuery(params: Record<string, string | undefined>): string {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v) q.set(k, v);
+  }
+  const s = q.toString();
+  return s ? `?${s}` : '';
+}
+
+export async function nestAdminAnalyticsRealtime(
+  token: string | null,
+): Promise<NestAnalyticsRealtime | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/analytics/realtime`, {
+    cache: 'no-store',
+    headers: nestAuthHeaders(token),
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as NestAnalyticsRealtime | null;
+}
+
+export async function nestAdminAnalyticsSummary(
+  token: string | null,
+  query: { period?: string; from?: string; to?: string } = {},
+): Promise<NestAnalyticsSummary | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(
+    `${API_BASE_URL}/admin/analytics/summary${analyticsQuery(query)}`,
+    { cache: 'no-store', headers: nestAuthHeaders(token) },
+  );
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as NestAnalyticsSummary | null;
+}
+
+export async function nestAdminAnalyticsSessions(
+  token: string | null,
+  query: {
+    period?: string;
+    from?: string;
+    to?: string;
+    path?: string;
+    country?: string;
+    city?: string;
+    referrer?: string;
+    loggedIn?: string;
+    deviceType?: string;
+    limit?: string;
+  } = {},
+): Promise<{ items: NestAnalyticsSessionBrief[] } | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(
+    `${API_BASE_URL}/admin/analytics/sessions${analyticsQuery(query)}`,
+    { cache: 'no-store', headers: nestAuthHeaders(token) },
+  );
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as { items: NestAnalyticsSessionBrief[] } | null;
+}
+
+export async function nestAdminAnalyticsSessionDetail(
+  token: string | null,
+  sessionId: string,
+): Promise<NestAnalyticsSessionDetail | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(
+    `${API_BASE_URL}/admin/analytics/sessions/${encodeURIComponent(sessionId)}`,
+    { cache: 'no-store', headers: nestAuthHeaders(token) },
+  );
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as NestAnalyticsSessionDetail | null;
+}
+
+export async function nestAdminAnalyticsLocations(
+  token: string | null,
+  query: { period?: string; from?: string; to?: string } = {},
+): Promise<{
+  items: Array<{
+    country: string;
+    city: string;
+    visitors: number;
+    pageViews: number;
+    lastActivity: string | null;
+  }>;
+} | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(
+    `${API_BASE_URL}/admin/analytics/locations${analyticsQuery(query)}`,
+    { cache: 'no-store', headers: nestAuthHeaders(token) },
+  );
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as {
+    items: Array<{
+      country: string;
+      city: string;
+      visitors: number;
+      pageViews: number;
+      lastActivity: string | null;
+    }>;
+  } | null;
+}
+
+export async function nestAdminAnalyticsSettings(
+  token: string | null,
+): Promise<NestAnalyticsSettings | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/analytics/settings`, {
+    cache: 'no-store',
+    headers: nestAuthHeaders(token),
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as NestAnalyticsSettings | null;
+}
+
+export async function nestAdminUpdateAnalyticsSettings(
+  token: string | null,
+  patch: Partial<Pick<NestAnalyticsSettings, 'anonymizeIp' | 'excludeStaff' | 'trackingEnabled'>>,
+): Promise<NestAnalyticsSettings | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/analytics/settings`, {
+    method: 'PATCH',
+    headers: { ...nestAuthHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as NestAnalyticsSettings | null;
+}
+

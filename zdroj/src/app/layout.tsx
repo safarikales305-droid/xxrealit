@@ -1,3 +1,4 @@
+import { PortalAnalyticsTracker } from "@/components/analytics/PortalAnalyticsTracker";
 import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
 import { AuthProvider } from "@/context/AuthContext";
@@ -73,6 +74,9 @@ export default function RootLayout({
           </Suspense>
           <Suspense fallback={null}>
             <GuestRegistrationGateHost />
+          </Suspense>
+          <Suspense fallback={null}>
+            <PortalAnalyticsTracker />
           </Suspense>
           </SupportContactProvider>
         </AuthProvider>

@@ -419,6 +419,7 @@ model User {
   supportTickets      SupportTicket[] @relation("SupportTicketUser")
   assignedSupportTickets SupportTicket[] @relation("SupportTicketAssignee")
   supportTicketMessages SupportTicketMessage[] @relation("SupportTicketMessageAuthor")
+  analyticsSessions     AnalyticsSession[]
   portalTermsVersionsCreated PortalTermsVersion[] @relation("PortalTermsAuthor")
   creditTopUpTransactions CreditTopUpTransaction[]
   workerCommissionsAsWorker WorkerCommission[] @relation("WorkerCommissionWorker")
@@ -2561,4 +2562,69 @@ model SupportTicketMessage {
   authorUser User?         @relation("SupportTicketMessageAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
 
   @@index([ticketId, createdAt])
+}
+
+/// Nastavení interní analytiky portálu (singleton).
+model AnalyticsSettings {
+  id              String   @id @default("default")
+  anonymizeIp     Boolean  @default(false)
+  excludeStaff    Boolean  @default(true)
+  trackingEnabled Boolean  @default(true)
+  updatedAt       DateTime @updatedAt
+}
+
+/// Relace návštěvníka portálu.
+model AnalyticsSession {
+  id            String   @id @default(cuid())
+  visitorId     String
+  userId        String?
+  ip            String?
+  userAgent     String   @default("") @db.Text
+  deviceType    String   @default("desktop")
+  browser       String   @default("")
+  os            String   @default("")
+  language      String   @default("")
+  country       String   @default("")
+  city          String   @default("")
+  referrer      String   @default("")
+  utmSource     String?
+  utmMedium     String?
+  utmCampaign   String?
+  pageViewCount Int      @default(0)
+  firstSeenAt   DateTime @default(now())
+  lastSeenAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user       User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  pageViews  AnalyticsPageView[]
+
+  @@index([visitorId])
+  @@index([userId])
+  @@index([lastSeenAt])
+  @@index([firstSeenAt])
+  @@index([country, city])
+}
+
+/// Zobrazení stránky v rámci relace.
+model AnalyticsPageView {
+  id           String   @id @default(cuid())
+  sessionId    String
+  userId       String?
+  url          String   @db.Text
+  path         String
+  title        String   @default("")
+  referrer     String   @default("")
+  previousPath String?
+  utmSource    String?
+  utmMedium    String?
+  utmCampaign  String?
+  createdAt    DateTime @default(now())
+
+  session AnalyticsSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([path, createdAt])
+  @@index([createdAt])
+  @@index([userId, createdAt])
 }

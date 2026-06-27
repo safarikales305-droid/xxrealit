@@ -23,7 +23,7 @@ export type AdminNavGroup = {
 /** Horní hlavní navigace */
 export const ADMIN_TOP_NAV: AdminNavItem[] = [
   { id: 'dashboard', label: 'Dashboard', href: '/admin', icon: '🏠' },
-  { id: 'stats', label: 'Statistiky', href: '/admin#statistiky', icon: '📊' },
+  { id: 'stats', label: 'Statistiky', href: '/admin/statistiky/prehled', icon: '📊' },
   { id: 'users', label: 'Uživatelé', href: '/admin#uzivatele', icon: '👥' },
   { id: 'listings', label: 'Inzeráty', href: '/admin/inzeraty', icon: '🏘' },
   { id: 'credits', label: 'Kredity', href: '/admin/dobiti-kreditu', icon: '💳' },
@@ -120,7 +120,17 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
     id: 'stats',
     label: 'Statistiky',
     icon: '📈',
-    href: '/admin#statistiky',
+    href: '/admin/statistiky/prehled',
+    dashboardTile: true,
+    tone: 'blue',
+    children: [
+      { id: 'stats-overview', label: 'Přehled návštěv', href: '/admin/statistiky/prehled', icon: '📊' },
+      { id: 'stats-realtime', label: 'Reálný čas', href: '/admin/statistiky/realny-cas', icon: '⚡', tone: 'orange' },
+      { id: 'stats-pages', label: 'Stránky', href: '/admin/statistiky/stranky', icon: '📄' },
+      { id: 'stats-sources', label: 'Zdroje návštěvnosti', href: '/admin/statistiky/zdroje', icon: '🔗' },
+      { id: 'stats-locations', label: 'Lokace', href: '/admin/statistiky/lokace', icon: '🌍' },
+      { id: 'stats-devices', label: 'Zařízení', href: '/admin/statistiky/zarizeni', icon: '📱' },
+    ],
   },
   {
     id: 'settings',
