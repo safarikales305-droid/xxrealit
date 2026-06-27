@@ -17,6 +17,7 @@ import {
   AddWorkerClientNoteDto,
   CreateWorkerClientDto,
   GrantWorkerBonusDto,
+  UpdateWorkerClientDto,
   UpdateWorkerSelfSettingsDto,
   WorkerCrmMessageDto,
 } from './dto/worker-crm.dto';
@@ -57,6 +58,17 @@ export class PortalWorkerController {
     @Query('kind') kind?: string,
   ) {
     return this.crm.getClientDetail(user.id, id, kind);
+  }
+
+  @Patch('clients/:id')
+  updateClient(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('kind') kind: string | undefined,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: UpdateWorkerClientDto,
+  ) {
+    return this.crm.updateWorkerClient(user.id, id, dto, kind);
   }
 
   @Post('clients')

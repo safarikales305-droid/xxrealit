@@ -21,6 +21,7 @@ import {
   type WorkerCrmOverview,
 } from '@/lib/portal-worker-crm-api';
 import { PortalWorkerSettingsPanel } from '@/components/portal-worker/portal-worker-settings-panel';
+import { WorkerClientEditForm } from '@/components/portal-worker/worker-client-edit-form';
 
 export type WorkerCrmSection =
   | 'overview'
@@ -287,100 +288,13 @@ export function PortalWorkerCrmPanel({ section, clientId }: Props) {
     );
   }
 
-  if (section === 'client-detail' && clientId && detail) {
-    const profile = (detail.profile ?? {}) as Record<string, unknown>;
-    const isPrereg = detail.kind === 'preregistration';
-    const preregId = isPrereg ? clientId : (detail.preregistrationId as string | null);
-
+  if (section === 'client-detail' && clientId) {
     return (
       <div className="space-y-6">
         <Link href="/pracovnik/klienti" className="text-sm text-[#e85d00] hover:underline">
           ← Moji klienti
         </Link>
-        <h2 className="text-xl font-bold">{String(profile.name ?? 'Klient')}</h2>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-xl border bg-white p-4 text-sm">
-            <p>E-mail: {String(profile.email ?? '')}</p>
-            <p>Telefon: {String(profile.phone ?? '')}</p>
-            <p>WhatsApp: {String(profile.whatsapp ?? profile.phone ?? '')}</p>
-            <p>Stav: {REG_STATUS_LABEL[String(profile.registrationStatus ?? '')] ?? '—'}</p>
-          </div>
-          {isPrereg && preregId ? (
-            <div className="flex flex-wrap gap-2">
-              {(['invite', 'complete', 'reminder', 'welcome'] as const).map((action) => (
-                <button
-                  key={action}
-                  type="button"
-                  className="rounded-full border px-3 py-1 text-xs font-semibold"
-                  onClick={() => void sendWorkerClientWhatsapp(preregId, action).then((r) => setOk(r.message ?? ''))}
-                >
-                  WA: {action}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="rounded-full border px-3 py-1 text-xs font-semibold"
-                onClick={() => void sendWorkerClientEmail(preregId).then((r) => setOk(r.message ?? ''))}
-              >
-                E-mail pozvánka
-              </button>
-            </div>
-          ) : null}
-        </div>
-
-        {!isPrereg && detail.kind === 'client' ? (
-          <section className="rounded-xl border bg-white p-4">
-            <h3 className="font-semibold">Bonusový kredit</h3>
-            <div className="mt-2 flex gap-2">
-              <input type="number" value={bonusAmount} onChange={(e) => setBonusAmount(e.target.value)} className="rounded border px-2 py-1 text-sm w-28" />
-              <button
-                type="button"
-                className="rounded-full bg-[#e85d00] px-4 py-1 text-sm font-semibold text-white"
-                onClick={() =>
-                  void grantWorkerClientBonus(clientId, Number(bonusAmount)).then((r) =>
-                    r.ok ? setOk('Bonus připsán') : setError(r.error ?? 'Chyba'),
-                  )
-                }
-              >
-                Připsat bonus
-              </button>
-            </div>
-            <p className="mt-1 text-xs text-zinc-500">Limit na klienta: {overview?.maxBonusPerClient ?? 3000} Kč. Z bonusu se nepočítá provize.</p>
-          </section>
-        ) : null}
-
-        <section className="rounded-xl border bg-white p-4">
-          <h3 className="font-semibold">Poznámka</h3>
-          <div className="mt-2 flex flex-col gap-2">
-            <select value={noteForm.noteType} onChange={(e) => setNoteForm((n) => ({ ...n, noteType: e.target.value }))} className="rounded border px-2 py-1 text-sm">
-              {NOTE_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-            <textarea value={noteForm.body} onChange={(e) => setNoteForm((n) => ({ ...n, body: e.target.value }))} className="rounded border px-2 py-1 text-sm" rows={3} />
-            <button
-              type="button"
-              className="self-start rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-semibold text-white"
-              onClick={() =>
-                void addWorkerClientNote({
-                  ...(isPrereg ? { preregistrationId: clientId } : { clientUserId: clientId }),
-                  noteType: noteForm.noteType,
-                  body: noteForm.body,
-                }).then(() => {
-                  setNoteForm({ noteType: 'PHONE_CALL', body: '' });
-                  void refresh();
-                })
-              }
-            >
-              Uložit poznámku
-            </button>
-          </div>
-        </section>
-
-        {ok ? <p className="text-sm text-emerald-700">{ok}</p> : null}
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
+        <WorkerClientEditForm clientId={clientId} />
       </div>
     );
   }

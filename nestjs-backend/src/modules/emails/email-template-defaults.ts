@@ -1,0 +1,239 @@
+export type EmailTemplateDefault = {
+  key: string;
+  name: string;
+  category: string;
+  subject: string;
+  htmlContent: string;
+  textContent: string;
+  variables: string[];
+};
+
+export const EMAIL_TEMPLATE_VARIABLES: Record<string, string[]> = {
+  welcome_email: ['userName', 'ctaUrl', 'portalName', 'loginUrl'],
+  password_reset: ['resetUrl', 'ctaUrl', 'portalName', 'loginUrl'],
+  email_verification: ['verifyUrl', 'ctaUrl', 'portalName', 'loginUrl'],
+  listing_shared: [
+    'recipientName',
+    'listingTitle',
+    'listingLocation',
+    'listingPrice',
+    'listingType',
+    'listingParams',
+    'listingDescription',
+    'listingUrl',
+    'listingImageUrl',
+    'senderMessage',
+    'ctaUrl',
+    'portalName',
+  ],
+  newsletter: ['subject', 'title', 'contentHtml', 'contentText', 'portalName'],
+  promo_campaign: ['subject', 'title', 'contentHtml', 'contentText', 'ctaUrl', 'portalName'],
+  worker_client_invitation: [
+    'clientName',
+    'workerName',
+    'portalName',
+    'completeRegistrationUrl',
+    'setPasswordUrl',
+    'loginUrl',
+    'supportEmail',
+  ],
+  profile_onboarding_reminder: ['userName', 'profileUrl', 'ctaUrl', 'portalName', 'loginUrl'],
+  contact_lead: [
+    'ownerName',
+    'listingTitle',
+    'listingUrl',
+    'leadName',
+    'leadEmail',
+    'leadPhone',
+    'date',
+    'time',
+    'portalName',
+  ],
+  contact_lead_low_credit: ['ownerName', 'listingTitle', 'listingUrl', 'ctaUrl', 'portalName'],
+  credit_top_up_confirmed: ['userName', 'amount', 'invoiceNumber', 'portalName', 'loginUrl'],
+  client_registration_complete: ['clientName', 'portalName', 'loginUrl', 'profileUrl'],
+  worker_portal_invitation: ['workerName', 'completeUrl', 'portalName', 'loginUrl'],
+  system_notification: ['title', 'messageHtml', 'messageText', 'ctaUrl', 'portalName'],
+  custom_message: ['subject', 'bodyHtml', 'bodyText', 'portalName'],
+  whatsapp_followup_email: ['userName', 'messageHtml', 'messageText', 'ctaUrl', 'portalName'],
+};
+
+export const DEFAULT_EMAIL_TEMPLATES: EmailTemplateDefault[] = [
+  {
+    key: 'welcome_email',
+    name: 'Uvítací e-mail po registraci',
+    category: 'system',
+    subject: 'Vítejte na {{portalName}}',
+    htmlContent:
+      '<h1>Vítejte na {{portalName}}</h1><p>Dobrý den {{userName}}, váš účet je aktivní.</p><p><a href="{{ctaUrl}}">Dokončit profil</a></p><p><a href="{{loginUrl}}">Přihlásit se</a></p>',
+    textContent:
+      'Vítejte na {{portalName}}\n\nDobrý den {{userName}}, váš účet je aktivní.\n\nDokončit profil: {{ctaUrl}}\nPřihlášení: {{loginUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.welcome_email,
+  },
+  {
+    key: 'email_verification',
+    name: 'Ověření e-mailu',
+    category: 'system',
+    subject: 'Ověření e-mailu na {{portalName}}',
+    htmlContent:
+      '<p>Dobrý den, pro ověření e-mailu klikněte na tlačítko níže.</p><p><a href="{{verifyUrl}}" style="display:inline-block;background:#ff5a00;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:700">Ověřit e-mail</a></p><p>Platnost odkazu je 24 hodin.</p>',
+    textContent: 'Ověření e-mailu:\n\n{{verifyUrl}}\n\nPlatnost odkazu je 24 hodin.',
+    variables: EMAIL_TEMPLATE_VARIABLES.email_verification,
+  },
+  {
+    key: 'password_reset',
+    name: 'Reset hesla',
+    category: 'system',
+    subject: 'Obnova hesla na {{portalName}}',
+    htmlContent:
+      '<h1>Obnova hesla</h1><p>Klikněte na tlačítko pro změnu hesla.</p><p><a href="{{resetUrl}}">Změnit heslo</a></p><p>Platnost odkazu je 60 minut.</p>',
+    textContent: 'Obnova hesla\n\n{{resetUrl}}\n\nPlatnost odkazu je 60 minut.',
+    variables: EMAIL_TEMPLATE_VARIABLES.password_reset,
+  },
+  {
+    key: 'worker_client_invitation',
+    name: 'Pozvánka klienta od pracovníka',
+    category: 'worker_crm',
+    subject: '{{workerName}} vás pozval na {{portalName}}',
+    htmlContent: `<p>Dobrý den {{clientName}},</p>
+<p>byli jste předregistrováni na <strong>{{portalName}}</strong> pracovníkem <strong>{{workerName}}</strong>.</p>
+<p>Dokončete registraci, nastavte heslo a využijte výhod portálu — inzeráty, leady, kredity a profesionální nástroje.</p>
+<p><a href="{{completeRegistrationUrl}}" style="display:inline-block;background:#ff5a00;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:700;margin-right:8px">Dokončit registraci</a>
+<a href="{{setPasswordUrl}}" style="display:inline-block;background:#111827;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:700">Nastavit heslo</a></p>
+<p><a href="{{loginUrl}}">Přihlášení na portál</a></p>
+<p>V případě dotazů nás kontaktujte: {{supportEmail}}</p>`,
+    textContent: `Dobrý den {{clientName}},
+
+Byli jste předregistrováni na {{portalName}} pracovníkem {{workerName}}.
+
+Dokončit registraci: {{completeRegistrationUrl}}
+Nastavit heslo: {{setPasswordUrl}}
+Přihlášení: {{loginUrl}}
+
+Podpora: {{supportEmail}}`,
+    variables: EMAIL_TEMPLATE_VARIABLES.worker_client_invitation,
+  },
+  {
+    key: 'client_registration_complete',
+    name: 'Dokončení registrace klienta',
+    category: 'worker_crm',
+    subject: 'Registrace na {{portalName}} dokončena',
+    htmlContent:
+      '<p>Dobrý den {{clientName}},</p><p>Vaše registrace na {{portalName}} byla úspěšně dokončena.</p><p><a href="{{loginUrl}}">Přihlásit se</a> · <a href="{{profileUrl}}">Doplnit profil</a></p>',
+    textContent:
+      'Registrace dokončena.\n\nPřihlášení: {{loginUrl}}\nProfil: {{profileUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.client_registration_complete,
+  },
+  {
+    key: 'listing_shared',
+    name: 'Sdílení inzerátu e-mailem',
+    category: 'marketing',
+    subject: 'Byl vám sdílen inzerát z {{portalName}}',
+    htmlContent:
+      '<h1>Byl vám sdílen inzerát</h1><p><strong>{{listingTitle}}</strong></p><p>{{listingLocation}} · {{listingPrice}}</p><p>{{senderMessage}}</p><p><a href="{{listingUrl}}">Zobrazit inzerát</a></p>',
+    textContent:
+      'Sdílený inzerát: {{listingTitle}}\n{{listingLocation}} · {{listingPrice}}\n\n{{senderMessage}}\n\n{{listingUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.listing_shared,
+  },
+  {
+    key: 'contact_lead',
+    name: 'Nový lead (kontakt zobrazen)',
+    category: 'system',
+    subject: 'Zájemce o inzerát: {{listingTitle}}',
+    htmlContent:
+      '<p>Dobrý den {{ownerName}},</p><p><strong>Uživatel projevil zájem o váš inzerát.</strong></p><p><strong>Inzerát:</strong> {{listingTitle}}</p><p><strong>Jméno:</strong> {{leadName}}</p><p><strong>E-mail:</strong> {{leadEmail}}</p><p><strong>Telefon:</strong> {{leadPhone}}</p><p><strong>Datum:</strong> {{date}} {{time}}</p><p><a href="{{listingUrl}}">Otevřít inzerát</a></p>',
+    textContent:
+      'Nový zájemce o {{listingTitle}}\n\n{{leadName}}\n{{leadEmail}}\n{{leadPhone}}\n{{date}} {{time}}\n\n{{listingUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.contact_lead,
+  },
+  {
+    key: 'contact_lead_low_credit',
+    name: 'Nový lead – dobijte kredit',
+    category: 'system',
+    subject: 'Nový zájemce – dobijte kredit: {{listingTitle}}',
+    htmlContent:
+      '<p>Dobrý den {{ownerName}},</p><p>Máte nového zájemce o vaši nemovitost na {{portalName}}.</p><p>Pro zobrazení kontaktu si prosím dobijte kredit.</p><p><strong>Inzerát:</strong> {{listingTitle}}</p><p><a href="{{listingUrl}}">Otevřít inzerát</a></p>',
+    textContent:
+      'Nový zájemce – dobijte kredit.\n\n{{listingTitle}}\n{{listingUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.contact_lead_low_credit,
+  },
+  {
+    key: 'credit_top_up_confirmed',
+    name: 'Potvrzení dobití kreditů',
+    category: 'system',
+    subject: 'Dobití kreditu potvrzeno – {{amount}} Kč',
+    htmlContent:
+      '<p>Dobrý den {{userName}},</p><p>Vaše dobití kreditu ve výši <strong>{{amount}} Kč</strong> ({{invoiceNumber}}) bylo potvrzeno.</p><p><a href="{{loginUrl}}">Přejít na portál</a></p>',
+    textContent: 'Dobití {{amount}} Kč potvrzeno ({{invoiceNumber}}).\n\n{{loginUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.credit_top_up_confirmed,
+  },
+  {
+    key: 'profile_onboarding_reminder',
+    name: 'Doplnění profilu a WhatsApp',
+    category: 'system',
+    subject: 'Doplňte profil na {{portalName}}',
+    htmlContent:
+      '<p>Dobrý den {{userName}},</p><p>Doplňte profil a ověřte WhatsApp, abyste mohli naplno využívat {{portalName}}.</p><p><a href="{{profileUrl}}">Doplnit profil</a></p>',
+    textContent: 'Doplňte profil: {{profileUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.profile_onboarding_reminder,
+  },
+  {
+    key: 'newsletter',
+    name: 'Newsletter',
+    category: 'marketing',
+    subject: '{{subject}}',
+    htmlContent: '<h1>{{title}}</h1><div>{{contentHtml}}</div>',
+    textContent: '{{title}}\n\n{{contentText}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.newsletter,
+  },
+  {
+    key: 'promo_campaign',
+    name: 'Reklamní kampaň',
+    category: 'marketing',
+    subject: '{{subject}}',
+    htmlContent: '<h1>{{title}}</h1><div>{{contentHtml}}</div><p><a href="{{ctaUrl}}">Zjistit více</a></p>',
+    textContent: '{{title}}\n\n{{contentText}}\n\n{{ctaUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.promo_campaign,
+  },
+  {
+    key: 'system_notification',
+    name: 'Systémová notifikace',
+    category: 'system',
+    subject: '{{title}}',
+    htmlContent: '<h1>{{title}}</h1><div>{{messageHtml}}</div>',
+    textContent: '{{title}}\n\n{{messageText}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.system_notification,
+  },
+  {
+    key: 'custom_message',
+    name: 'Vlastní zpráva (komunikační centrum)',
+    category: 'communication',
+    subject: '{{subject}}',
+    htmlContent: '<div>{{bodyHtml}}</div>',
+    textContent: '{{bodyText}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.custom_message,
+  },
+  {
+    key: 'whatsapp_followup_email',
+    name: 'WhatsApp doprovodný e-mail',
+    category: 'communication',
+    subject: 'Zpráva z {{portalName}}',
+    htmlContent: '<p>Dobrý den {{userName}},</p><div>{{messageHtml}}</div>',
+    textContent: 'Dobrý den {{userName}},\n\n{{messageText}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.whatsapp_followup_email,
+  },
+  {
+    key: 'worker_portal_invitation',
+    name: 'Pozvánka pracovníka portálu',
+    category: 'worker_crm',
+    subject: 'Pozvánka do týmu {{portalName}}',
+    htmlContent:
+      '<p>Dobrý den {{workerName}},</p><p>Byli jste pozváni jako pracovník portálu {{portalName}}.</p><p><a href="{{completeUrl}}">Dokončit registraci</a></p>',
+    textContent: 'Pozvánka pracovníka.\n\n{{completeUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.worker_portal_invitation,
+  },
+];
+
+export function getTemplateVariables(key: string): string[] {
+  return EMAIL_TEMPLATE_VARIABLES[key] ?? [];
+}

@@ -5967,10 +5967,12 @@ export type NestEmailTemplateRow = {
   id: string;
   key: string;
   name: string;
+  category?: string;
   subject: string;
   htmlContent: string;
   textContent: string;
   isActive: boolean;
+  variables?: string[];
   createdAt: string;
   updatedAt: string;
 };

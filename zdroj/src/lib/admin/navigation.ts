@@ -101,7 +101,7 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
       { id: 'popups', label: 'Popup okna', href: '/admin/marketing/popup-okna', icon: '💬' },
       { id: 'push', label: 'Push notifikace', href: '/admin/marketing/push-notifikace', icon: '🔔' },
       { id: 'wa-campaigns', label: 'WhatsApp kampaně', href: '/admin/marketing/whatsapp-kampane', icon: '📱' },
-      { id: 'emails', label: 'E-maily', href: '/admin/emails', icon: '✉' },
+      { id: 'emails', label: 'E-maily', href: '/admin/marketing/emaily', icon: '✉' },
       { id: 'registration-gate', label: 'Registrace a výzvy', href: '/admin/registrace-a-vyzvy', icon: '📝' },
     ],
   },

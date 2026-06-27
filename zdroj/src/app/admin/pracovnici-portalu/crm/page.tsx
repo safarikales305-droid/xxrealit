@@ -86,18 +86,19 @@ export default function AdminPortalWorkerCrmPage() {
               <th className="px-3 py-2">Kontakt</th>
               <th className="px-3 py-2">Stav</th>
               <th className="px-3 py-2">Datum</th>
+              <th className="px-3 py-2" />
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-zinc-500">
+                <td colSpan={7} className="px-3 py-8 text-center text-zinc-500">
                   Načítám…
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-zinc-500">
+                <td colSpan={7} className="px-3 py-8 text-center text-zinc-500">
                   Žádné záznamy
                 </td>
               </tr>
@@ -114,6 +115,14 @@ export default function AdminPortalWorkerCrmPage() {
                   </td>
                   <td className="px-3 py-2">{r.status}</td>
                   <td className="px-3 py-2">{new Date(r.createdAt).toLocaleString('cs-CZ')}</td>
+                  <td className="px-3 py-2">
+                    <Link
+                      href={`/admin/pracovnici-portalu/crm/${r.id}`}
+                      className="font-semibold text-[#e85d00] hover:underline"
+                    >
+                      Detail
+                    </Link>
+                  </td>
                 </tr>
               ))
             )}

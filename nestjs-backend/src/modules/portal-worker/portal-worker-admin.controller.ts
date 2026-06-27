@@ -102,6 +102,16 @@ export class PortalWorkerAdminController {
     });
   }
 
+  @Get('crm/clients/:id')
+  getCrmClientDetail(@Param('id') id: string) {
+    return this.crm.getClientDetailAdmin(id);
+  }
+
+  @Post('crm/clients/:id/send-registration-email')
+  sendRegistrationEmailAdmin(@Param('id') id: string) {
+    return this.crm.sendRegistrationEmailAdmin(id);
+  }
+
   @Get('crm/clients')
   listCrmClients(
     @Query('workerId') workerId?: string,

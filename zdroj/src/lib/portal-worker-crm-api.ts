@@ -148,7 +148,7 @@ export async function sendWorkerClientEmail(preregistrationId: string) {
     { method: 'POST', credentials: 'include' },
   );
   const data = (await res.json().catch(() => ({}))) as { message?: string };
-  return { ok: res.ok, message: data.message };
+  return { ok: res.ok, message: data.message, error: res.ok ? undefined : (data.message ?? 'Chyba') };
 }
 
 export async function sendWorkerClientWhatsapp(
@@ -164,8 +164,8 @@ export async function sendWorkerClientWhatsapp(
       body: JSON.stringify({ action }),
     },
   );
-  const data = (await res.json().catch(() => ({}))) as { message?: string };
-  return { ok: res.ok, message: data.message, error: data.message };
+  const data = (await res.json().catch(() => ({}))) as { message?: string; ok?: boolean };
+  return { ok: res.ok, message: data.message, error: res.ok ? undefined : (data.message ?? 'Chyba') };
 }
 
 export const WORKER_CLIENT_ROLES = [

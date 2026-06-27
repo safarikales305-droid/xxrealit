@@ -193,6 +193,10 @@ model User {
   /// Volitelné UI nastavení výřezu cover fotky (x/y posun, zoom).
   coverCrop    Json?
   bio          String?
+  /// Veřejná webová stránka / URL profilu.
+  website      String   @default("")
+  /// Popis činnosti (veřejný profil).
+  activityDescription String? @db.Text
   /// User's own city (for personalization); separate from listing city.
   city         String?
   /// Ulice a číslo popisné (profil / ověření).
@@ -553,6 +557,7 @@ model EmailTemplate {
   id          String   @id @default(cuid())
   key         String   @unique
   name        String
+  category    String   @default("system")
   subject     String
   htmlContent String   @db.Text
   textContent String   @db.Text
@@ -2355,7 +2360,12 @@ model ClientPreregistration {
   whatsappPhone    String                      @default("")
   ico              String                      @default("")
   city             String                      @default("")
+  address          String                      @default("")
+  website          String                      @default("")
+  activityDescription String?                  @db.Text
+  bio              String?                     @db.Text
   note             String?                     @db.Text
+  workerInternalNote String?                   @db.Text
   status           ClientPreregistrationStatus @default(PENDING)
   completionToken  String                      @unique
   tokenExpiresAt   DateTime

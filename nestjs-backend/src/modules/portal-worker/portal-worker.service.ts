@@ -406,10 +406,17 @@ export class PortalWorkerService {
     });
 
     const completionUrl = `${resolveFrontendUrl(this.config)}/dokoncit-registraci-pracovnik?token=${encodeURIComponent(token)}`;
+    const worker = await this.prisma.user.findUnique({
+      where: { id: workerId },
+      select: { name: true },
+    });
     await this.emails.sendWorkerClientInvitationEmail({
       email,
       clientName: row.name,
+      workerName: worker?.name || 'Pracovník portálu',
       completionUrl,
+      preregistrationId: row.id,
+      workerId,
     });
 
     return {
@@ -470,11 +477,19 @@ export class PortalWorkerService {
           email: row.email,
           password: hashed,
           name: name?.trim() || row.name,
+          firstName: row.firstName,
+          lastName: row.lastName,
           phone: row.phone,
           phonePublic: false,
           role: row.targetRole,
           portalWorkerId: row.workerId,
           city: row.city,
+          address: row.address,
+          website: row.website,
+          bio: row.bio,
+          activityDescription: row.activityDescription,
+          profileIco: row.ico?.trim() || null,
+          whatsappPhone: row.whatsappPhone || row.phone,
           emailVerified: false,
           phoneVerified: false,
         },
@@ -498,6 +513,24 @@ export class PortalWorkerService {
       });
       return created;
     });
+
+    try {
+      await this.emails.sendTemplatedEmail({
+        type: 'client_registration_complete',
+        templateKey: 'client_registration_complete',
+        to: user.email,
+        variables: {
+          clientName: user.name,
+          portalName: this.emails.portalName(),
+          loginUrl: this.emails.loginUrl(),
+          profileUrl: `${resolveFrontendUrl(this.config)}/profil`,
+          ctaUrl: this.emails.loginUrl(),
+        },
+        metadata: { userId: user.id, preregistrationId: row.id },
+      });
+    } catch {
+      // non-blocking
+    }
 
     return {
       ok: true,

@@ -8,9 +8,15 @@ import {
   resolveFrontendUrl,
 } from '../../common/resolve-frontend-url';
 
+import {
+  DEFAULT_EMAIL_TEMPLATES,
+  getTemplateVariables,
+} from './email-template-defaults';
+
 type TemplateInput = {
   key: string;
   name: string;
+  category: string;
   subject: string;
   htmlContent: string;
   textContent: string;
@@ -26,58 +32,7 @@ type SendTemplatedEmailInput = {
   metadata?: Record<string, unknown>;
 };
 
-const DEFAULT_TEMPLATES: TemplateInput[] = [
-  {
-    key: 'welcome_email',
-    name: 'Uvítací e-mail',
-    subject: 'Vítejte na xxrealit.cz',
-    htmlContent:
-      '<h1>Vítejte na xxrealit.cz</h1><p>Dobrý den {{userName}}, váš účet je aktivní.</p><p><a href="{{ctaUrl}}">Dokončit profil</a></p><p><a href="https://www.xxrealit.cz/o-portalu">Představení portálu XXREALIT</a></p>',
-    textContent:
-      'Vítejte na xxrealit.cz\n\nDobrý den {{userName}}, váš účet je aktivní.\n\nDokončit profil: {{ctaUrl}}\n\nPředstavení portálu: https://www.xxrealit.cz/o-portalu',
-  },
-  {
-    key: 'password_reset',
-    name: 'Reset hesla',
-    subject: 'Obnova hesla na xxrealit.cz',
-    htmlContent:
-      '<h1>Obnova hesla</h1><p>Klikněte na tlačítko pro změnu hesla.</p><p><a href="{{resetUrl}}">Změnit heslo</a></p><p>Platnost odkazu je 60 minut.</p>',
-    textContent:
-      'Obnova hesla\n\nKlikněte na odkaz: {{resetUrl}}\n\nPlatnost odkazu je 60 minut.',
-  },
-  {
-    key: 'email_verification',
-    name: 'Ověření e-mailu',
-    subject: 'Ověření e-mailu na XXrealit.cz',
-    htmlContent:
-      '<p>Dobrý den, pro ověření e-mailu klikněte na tlačítko níže.</p><p><a href="{{verifyUrl}}" style="display:inline-block;background:#ff5a00;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:700">Ověřit e-mail</a></p><p>Platnost odkazu je 24 hodin.</p>',
-    textContent:
-      'Dobrý den, pro ověření e-mailu klikněte na odkaz:\n\n{{verifyUrl}}\n\nPlatnost odkazu je 24 hodin.',
-  },
-  {
-    key: 'listing_shared',
-    name: 'Sdílení inzerátu',
-    subject: 'Byl vám sdílen inzerát z xxrealit.cz',
-    htmlContent:
-      '<h1>Byl vám sdílen inzerát z xxrealit.cz</h1><p><strong>{{listingTitle}}</strong></p><p>{{listingLocation}} · {{listingPrice}}</p><p>{{senderMessage}}</p><p><a href="{{listingUrl}}">Zobrazit inzerát</a></p>',
-    textContent:
-      'Byl vám sdílen inzerát z xxrealit.cz\n\n{{listingTitle}}\n{{listingLocation}} · {{listingPrice}}\n\n{{senderMessage}}\n\nZobrazit inzerát: {{listingUrl}}',
-  },
-  {
-    key: 'newsletter',
-    name: 'Newsletter',
-    subject: '{{subject}}',
-    htmlContent: '<h1>{{title}}</h1><div>{{contentHtml}}</div>',
-    textContent: '{{title}}\n\n{{contentText}}',
-  },
-  {
-    key: 'promo_campaign',
-    name: 'Promo kampaň',
-    subject: '{{subject}}',
-    htmlContent: '<h1>{{title}}</h1><div>{{contentHtml}}</div><p><a href="{{ctaUrl}}">Zjistit více</a></p>',
-    textContent: '{{title}}\n\n{{contentText}}\n\n{{ctaUrl}}',
-  },
-];
+const PORTAL_NAME = 'XXrealit.cz';
 
 @Injectable()
 export class EmailsService implements OnModuleInit {
@@ -132,12 +87,54 @@ export class EmailsService implements OnModuleInit {
   }
 
   async ensureDefaultTemplates() {
-    for (const t of DEFAULT_TEMPLATES) {
+    for (const t of DEFAULT_EMAIL_TEMPLATES) {
       const existing = await this.prisma.emailTemplate.findUnique({ where: { key: t.key } });
       if (!existing) {
-        await this.prisma.emailTemplate.create({ data: t });
+        await this.prisma.emailTemplate.create({
+          data: {
+            key: t.key,
+            name: t.name,
+            category: t.category,
+            subject: t.subject,
+            htmlContent: t.htmlContent,
+            textContent: t.textContent,
+          },
+        });
       }
     }
+  }
+
+  getTemplateCatalog() {
+    return DEFAULT_EMAIL_TEMPLATES.map((t) => ({
+      key: t.key,
+      name: t.name,
+      category: t.category,
+      variables: t.variables,
+    }));
+  }
+
+  async getLog(id: string) {
+    return this.prisma.emailLog.findUnique({ where: { id } });
+  }
+
+  async listLogsForRecipient(email: string, limit = 50) {
+    return this.prisma.emailLog.findMany({
+      where: { recipientEmail: email.trim().toLowerCase() },
+      orderBy: { createdAt: 'desc' },
+      take: Math.max(1, Math.min(200, limit)),
+    });
+  }
+
+  supportEmail(): string {
+    return this.config.get<string>('SUPPORT_EMAIL')?.trim() || 'podpora@xxrealit.cz';
+  }
+
+  portalName(): string {
+    return PORTAL_NAME;
+  }
+
+  loginUrl(): string {
+    return `${this.appUrl()}/login`;
   }
 
   async listLogs(limit = 200) {
@@ -148,7 +145,11 @@ export class EmailsService implements OnModuleInit {
   }
 
   async listTemplates() {
-    return this.prisma.emailTemplate.findMany({ orderBy: { key: 'asc' } });
+    const rows = await this.prisma.emailTemplate.findMany({ orderBy: { key: 'asc' } });
+    return rows.map((row) => ({
+      ...row,
+      variables: getTemplateVariables(row.key),
+    }));
   }
 
   async updateTemplate(
@@ -364,6 +365,8 @@ export class EmailsService implements OnModuleInit {
       variables: {
         userName: user.name || 'uživateli',
         ctaUrl,
+        portalName: this.portalName(),
+        loginUrl: this.loginUrl(),
       },
       metadata: { userEmail: user.email },
     });
@@ -372,78 +375,49 @@ export class EmailsService implements OnModuleInit {
   async sendWorkerClientInvitationEmail(input: {
     email: string;
     clientName: string;
+    workerName: string;
     completionUrl: string;
+    preregistrationId?: string;
+    workerId?: string;
   }) {
-    const subject = 'Pracovník portálu XXrealit.cz vám založil účet';
-    const html = this.buildLayout(
-      [
-        `<p>Dobrý den ${input.clientName},</p>`,
-        `<p><strong>Pracovník portálu XXrealit.cz vám založil účet.</strong></p>`,
-        `<p>Klikněte na odkaz a dokončete registraci — nastavte heslo a doplňte údaje.</p>`,
-        `<p><a href="${input.completionUrl}">Dokončit registraci</a></p>`,
-      ].join(''),
-      input.completionUrl,
-    );
-    const text = [
-      `Dobrý den ${input.clientName},`,
-      '',
-      'Pracovník portálu XXrealit.cz vám založil účet.',
-      'Klikněte na odkaz a dokončete registraci:',
-      input.completionUrl,
-    ].join('\n');
-
-    const apiKey = this.config.get<string>('RESEND_API_KEY')?.trim();
-    if (!apiKey) {
-      this.logger.warn('RESEND_API_KEY missing — worker client invitation not sent');
-      return { ok: false };
-    }
-    const resend = new Resend(apiKey);
-    await resend.emails.send({
-      from: this.senderAddress(),
+    const completeRegistrationUrl = this.normalizePublicUrl(input.completionUrl);
+    const setPasswordUrl = completeRegistrationUrl;
+    return this.sendTemplatedEmail({
+      type: 'worker_client_invitation',
+      templateKey: 'worker_client_invitation',
       to: input.email,
-      subject,
-      html,
-      text,
+      variables: {
+        clientName: input.clientName,
+        workerName: input.workerName,
+        portalName: this.portalName(),
+        completeRegistrationUrl,
+        setPasswordUrl,
+        loginUrl: this.loginUrl(),
+        supportEmail: this.supportEmail(),
+        ctaUrl: completeRegistrationUrl,
+      },
+      metadata: {
+        preregistrationId: input.preregistrationId ?? null,
+        workerId: input.workerId ?? null,
+      },
     });
-    return { ok: true };
   }
 
   async sendProfileOnboardingReminderEmail(user: { email: string; name?: string | null }) {
     const profileUrl = `${this.appUrl()}/profil/dashboard?tab=settings`;
-    const subject = 'Doplňte profil a ověřte WhatsApp na XXrealit.cz';
-    const html = this.buildLayout(
-      [
-        `<p>Dobrý den ${user.name || 'uživateli'},</p>`,
-        `<p><strong>Doplňte profil a ověřte WhatsApp číslo, abyste mohli naplno využívat XXrealit.cz.</strong></p>`,
-        `<p>Ověřený profil vám umožní dobíjet kredit, přijímat leady, tipařit a využívat všechny funkce portálu.</p>`,
-        `<p><a href="${profileUrl}">Doplnit profil</a></p>`,
-      ].join(''),
-      profileUrl,
-    );
-    const text = [
-      `Dobrý den ${user.name || 'uživateli'},`,
-      '',
-      'Doplňte profil a ověřte WhatsApp číslo, abyste mohli naplno využívat XXrealit.cz.',
-      '',
-      profileUrl,
-    ].join('\n');
-
-    const apiKey = this.config.get<string>('RESEND_API_KEY')?.trim();
-    if (!apiKey) {
-      throw new Error('Missing RESEND_API_KEY');
-    }
-    const resend = new Resend(apiKey);
-    const response = await resend.emails.send({
-      from: this.senderAddress(),
+    return this.sendTemplatedEmail({
+      type: 'profile_onboarding_reminder',
+      templateKey: 'profile_onboarding_reminder',
       to: user.email,
-      subject,
-      html,
-      text,
+      variables: {
+        userName: user.name || 'uživateli',
+        profileUrl: this.normalizePublicUrl(profileUrl),
+        ctaUrl: this.normalizePublicUrl(profileUrl),
+        portalName: this.portalName(),
+        loginUrl: this.loginUrl(),
+      },
+      metadata: { userEmail: user.email },
     });
-    if (response.error) {
-      throw new Error(response.error.message || 'Unknown resend error');
-    }
-    return { ok: true };
   }
 
   async sendPasswordResetEmail(input: { email: string; resetUrl: string }) {
@@ -455,6 +429,8 @@ export class EmailsService implements OnModuleInit {
       variables: {
         resetUrl: safeResetUrl,
         ctaUrl: safeResetUrl,
+        portalName: this.portalName(),
+        loginUrl: this.loginUrl(),
       },
       metadata: { resetUrl: safeResetUrl },
     });
@@ -469,6 +445,8 @@ export class EmailsService implements OnModuleInit {
       variables: {
         verifyUrl: safeVerifyUrl,
         ctaUrl: safeVerifyUrl,
+        portalName: this.portalName(),
+        loginUrl: this.loginUrl(),
       },
       metadata: { verifyUrl: safeVerifyUrl },
     });
@@ -552,6 +530,7 @@ export class EmailsService implements OnModuleInit {
         listingImageUrl: imageUrl,
         senderMessage: contentMessage,
         ctaUrl: listingUrl,
+        portalName: this.portalName(),
       },
       metadata: {
         propertyId: property.id,
@@ -573,50 +552,24 @@ export class EmailsService implements OnModuleInit {
     time: string;
   }) {
     const listingUrl = this.normalizePublicUrl(input.listingUrl);
-    const subject = `Zájemce o inzerát: ${input.listingTitle}`;
-    const html = this.buildLayout(
-      [
-        `<p>Dobrý den ${input.ownerName},</p>`,
-        `<p><strong>Uživatel projevil zájem o váš inzerát a zobrazil si kontakt.</strong></p>`,
-        `<p><strong>Inzerát:</strong> ${input.listingTitle}</p>`,
-        `<p><strong>Jméno zájemce:</strong> ${input.leadName}</p>`,
-        `<p><strong>E-mail:</strong> ${input.leadEmail}</p>`,
-        `<p><strong>Telefon:</strong> ${input.leadPhone}</p>`,
-        `<p><strong>Datum:</strong> ${input.date} ${input.time}</p>`,
-        `<p><a href="${listingUrl}">Otevřít inzerát</a></p>`,
-      ].join(''),
-      listingUrl,
-    );
-    const text = [
-      `Dobrý den ${input.ownerName},`,
-      '',
-      'Uživatel projevil zájem o váš inzerát a zobrazil si kontakt.',
-      '',
-      `Inzerát: ${input.listingTitle}`,
-      `Jméno: ${input.leadName}`,
-      `E-mail: ${input.leadEmail}`,
-      `Telefon: ${input.leadPhone}`,
-      `Datum: ${input.date} ${input.time}`,
-      '',
-      listingUrl,
-    ].join('\n');
-
-    const apiKey = this.config.get<string>('RESEND_API_KEY')?.trim();
-    if (!apiKey) {
-      throw new Error('Missing RESEND_API_KEY');
-    }
-    const resend = new Resend(apiKey);
-    const response = await resend.emails.send({
-      from: this.senderAddress(),
+    return this.sendTemplatedEmail({
+      type: 'contact_lead',
+      templateKey: 'contact_lead',
       to: input.to,
-      subject,
-      html,
-      text,
+      variables: {
+        ownerName: input.ownerName,
+        listingTitle: input.listingTitle,
+        listingUrl,
+        leadName: input.leadName,
+        leadEmail: input.leadEmail,
+        leadPhone: input.leadPhone,
+        date: input.date,
+        time: input.time,
+        portalName: this.portalName(),
+        ctaUrl: listingUrl,
+      },
+      metadata: { listingTitle: input.listingTitle },
     });
-    if (response.error) {
-      throw new Error(response.error.message || 'Unknown resend error');
-    }
-    return { ok: true };
   }
 
   async sendContactLeadWaitingCreditEmail(input: {
@@ -626,44 +579,40 @@ export class EmailsService implements OnModuleInit {
     listingUrl: string;
   }) {
     const listingUrl = this.normalizePublicUrl(input.listingUrl);
-    const subject = `Nový zájemce – dobijte kredit: ${input.listingTitle}`;
-    const html = this.buildLayout(
-      [
-        `<p>Dobrý den ${input.ownerName},</p>`,
-        `<p><strong>Máte nového zájemce o vaši nemovitost na XXrealit.cz.</strong></p>`,
-        `<p>Pro zobrazení kontaktu si prosím dobijte kredit.</p>`,
-        `<p>Po dobití se vám ihned zobrazí kontakty na zájemce, kteří se zajímali o vaši nemovitost.</p>`,
-        `<p><strong>Inzerát:</strong> ${input.listingTitle}</p>`,
-        `<p><a href="${listingUrl}">Otevřít inzerát</a></p>`,
-      ].join(''),
-      listingUrl,
-    );
-    const text = [
-      `Dobrý den ${input.ownerName},`,
-      '',
-      'Máte nového zájemce o vaši nemovitost na XXrealit.cz.',
-      'Pro zobrazení kontaktu si prosím dobijte kredit.',
-      'Po dobití se vám ihned zobrazí kontakty na zájemce, kteří se zajímali o vaši nemovitost.',
-      '',
-      `Inzerát: ${input.listingTitle}`,
-      listingUrl,
-    ].join('\n');
-
-    const apiKey = this.config.get<string>('RESEND_API_KEY')?.trim();
-    if (!apiKey) {
-      throw new Error('Missing RESEND_API_KEY');
-    }
-    const resend = new Resend(apiKey);
-    const response = await resend.emails.send({
-      from: this.senderAddress(),
+    return this.sendTemplatedEmail({
+      type: 'contact_lead_low_credit',
+      templateKey: 'contact_lead_low_credit',
       to: input.to,
-      subject,
-      html,
-      text,
+      variables: {
+        ownerName: input.ownerName,
+        listingTitle: input.listingTitle,
+        listingUrl,
+        ctaUrl: listingUrl,
+        portalName: this.portalName(),
+      },
+      metadata: { listingTitle: input.listingTitle },
     });
-    if (response.error) {
-      throw new Error(response.error.message || 'Unknown resend error');
-    }
-    return { ok: true };
+  }
+
+  async sendCreditTopUpConfirmedEmail(input: {
+    to: string;
+    userName: string;
+    amount: number;
+    invoiceNumber: string;
+  }) {
+    return this.sendTemplatedEmail({
+      type: 'credit_top_up_confirmed',
+      templateKey: 'credit_top_up_confirmed',
+      to: input.to,
+      variables: {
+        userName: input.userName,
+        amount: `${new Intl.NumberFormat('cs-CZ').format(input.amount)}`,
+        invoiceNumber: input.invoiceNumber,
+        portalName: this.portalName(),
+        loginUrl: this.loginUrl(),
+        ctaUrl: this.loginUrl(),
+      },
+      metadata: { invoiceNumber: input.invoiceNumber, amount: input.amount },
+    });
   }
 }

@@ -23,6 +23,7 @@ import type {
   GrantWorkerBonusDto,
   UpdateWorkerProfileAdminDto,
   UpdateWorkerSelfSettingsDto,
+  UpdateWorkerClientDto,
   WorkerCrmMessageDto,
 } from './dto/worker-crm.dto';
 import { PortalWorkerService } from './portal-worker.service';
@@ -309,6 +310,35 @@ export class PortalWorkerCrmService {
     return `${resolveFrontendUrl(this.config)}/dokoncit-registraci-pracovnik?token=${encodeURIComponent(token)}`;
   }
 
+  private async ensureValidPreregistrationToken(preregistrationId: string) {
+    const row = await this.prisma.clientPreregistration.findUnique({
+      where: { id: preregistrationId },
+    });
+    if (!row) throw new NotFoundException('Registrace nenalezena.');
+    if (row.tokenExpiresAt.getTime() < Date.now()) {
+      const token = randomBytes(32).toString('hex');
+      const tokenExpiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+      return this.prisma.clientPreregistration.update({
+        where: { id: row.id },
+        data: {
+          completionToken: token,
+          tokenExpiresAt,
+          status: ClientPreregistrationStatus.PENDING,
+        },
+      });
+    }
+    return row;
+  }
+
+  private async workerDisplayName(workerId: string): Promise<string> {
+    const w = await this.prisma.user.findUnique({ where: { id: workerId }, select: { name: true } });
+    return w?.name || 'Pracovník portálu';
+  }
+
+  private async emailHistoryForClient(email: string) {
+    return this.emails.listLogsForRecipient(email, 50);
+  }
+
   async createWorkerClient(workerId: string, dto: CreateWorkerClientDto) {
     await this.portalWorker.requireActiveWorker(workerId);
     const email = dto.email.trim().toLowerCase();
@@ -349,7 +379,12 @@ export class PortalWorkerCrmService {
         whatsappPhone,
         ico: dto.ico?.trim() ?? '',
         city: dto.city?.trim() ?? '',
-        note: dto.note?.trim() || null,
+        address: dto.address?.trim() ?? '',
+        website: dto.website?.trim() ?? '',
+        activityDescription: dto.activityDescription?.trim() || null,
+        bio: dto.bio?.trim() || null,
+        note: dto.note?.trim() || dto.workerInternalNote?.trim() || null,
+        workerInternalNote: dto.workerInternalNote?.trim() || dto.note?.trim() || null,
         completionToken: token,
         tokenExpiresAt,
         lastActivityAt: new Date(),
@@ -372,13 +407,26 @@ export class PortalWorkerCrmService {
       metadata: { email, targetRole: dto.targetRole },
     });
 
+    if (email) {
+      try {
+        await this.sendRegistrationEmail(workerId, row.id);
+      } catch {
+        // auto-email is best-effort; worker can resend manually
+      }
+    }
+
+    const fresh = await this.prisma.clientPreregistration.findUnique({ where: { id: row.id } });
+    const tokenForUrl = fresh?.completionToken ?? token;
+
     return {
       id: row.id,
       email: row.email,
       status: row.status,
       registrationStatus: 'STARTED',
-      completionUrl: this.completionUrl(token),
-      message: 'Zahájená registrace vytvořena.',
+      completionUrl: this.completionUrl(tokenForUrl),
+      message: email
+        ? 'Zahájená registrace vytvořena a registrační e-mail odeslán.'
+        : 'Zahájená registrace vytvořena.',
     };
   }
 
@@ -538,7 +586,7 @@ export class PortalWorkerCrmService {
         },
       });
       if (!row) throw new NotFoundException('Klient nenalezen.');
-      return this.serializePreregDetail(row);
+      return this.serializePreregDetail(row, await this.emailHistoryForClient(row.email));
     }
 
     const user = await this.prisma.user.findFirst({
@@ -552,11 +600,11 @@ export class PortalWorkerCrmService {
           auditLogs: { orderBy: { createdAt: 'desc' }, take: 100 },
         },
       });
-      if (prereg) return this.serializePreregDetail(prereg);
+      if (prereg) return this.serializePreregDetail(prereg, await this.emailHistoryForClient(prereg.email));
       throw new NotFoundException('Klient nenalezen.');
     }
 
-    const [notes, audits, topUps, commissions, ledger, prereg] = await Promise.all([
+    const [notes, audits, topUps, commissions, ledger, prereg, emailHistory] = await Promise.all([
       this.prisma.workerClientNote.findMany({
         where: { workerId, clientUserId: user.id },
         orderBy: { createdAt: 'desc' },
@@ -583,6 +631,7 @@ export class PortalWorkerCrmService {
       this.prisma.clientPreregistration.findFirst({
         where: { completedUserId: user.id, workerId },
       }),
+      this.emailHistoryForClient(user.email),
     ]);
 
     return {
@@ -591,13 +640,20 @@ export class PortalWorkerCrmService {
       preregistrationId: prereg?.id ?? null,
       profile: {
         name: user.name,
+        firstName: user.firstName,
+        lastName: user.lastName,
         email: user.email,
         phone: user.phone,
         whatsapp: user.whatsappPhone,
         role: user.role,
         roleLabel: ROLE_LABELS[user.role] ?? user.role,
         city: user.city,
+        address: user.address,
+        website: user.website,
         ico: user.profileIco,
+        activityDescription: user.activityDescription,
+        bio: user.bio,
+        workerInternalNote: prereg?.workerInternalNote ?? prereg?.note ?? null,
         emailVerified: user.emailVerified,
         whatsappVerified: user.whatsappVerified,
         bonusCredit: user.bonusCreditBalance,
@@ -609,8 +665,142 @@ export class PortalWorkerCrmService {
       topUps,
       commissions,
       creditHistory: ledger,
+      emailHistory,
       completionUrl: prereg ? this.completionUrl(prereg.completionToken) : null,
     };
+  }
+
+  async updateWorkerClient(
+    workerId: string,
+    id: string,
+    dto: UpdateWorkerClientDto,
+    kind?: string,
+  ) {
+    await this.portalWorker.requireActiveWorker(workerId);
+
+    const isPrereg = kind === 'preregistration';
+    let prereg = isPrereg
+      ? await this.prisma.clientPreregistration.findFirst({ where: { id, workerId } })
+      : null;
+
+    if (!prereg) {
+      const user = await this.prisma.user.findFirst({ where: { id, portalWorkerId: workerId } });
+      if (user) {
+        const userData: Record<string, unknown> = {};
+        if (dto.firstName !== undefined) userData.firstName = dto.firstName.trim();
+        if (dto.lastName !== undefined) userData.lastName = dto.lastName.trim();
+        if (dto.name !== undefined) userData.name = dto.name.trim();
+        if (dto.phone !== undefined) userData.phone = dto.phone.trim();
+        if (dto.whatsappPhone !== undefined) userData.whatsappPhone = dto.whatsappPhone.trim();
+        if (dto.city !== undefined) userData.city = dto.city.trim();
+        if (dto.address !== undefined) userData.address = dto.address.trim();
+        if (dto.website !== undefined) userData.website = dto.website.trim();
+        if (dto.ico !== undefined) userData.profileIco = dto.ico.trim() || null;
+        if (dto.bio !== undefined) userData.bio = dto.bio.trim() || null;
+        if (dto.activityDescription !== undefined) {
+          userData.activityDescription = dto.activityDescription.trim() || null;
+        }
+        if (dto.targetRole !== undefined) userData.role = dto.targetRole;
+        if (dto.email !== undefined) {
+          const email = dto.email.trim().toLowerCase();
+          const clash = await this.prisma.user.findFirst({
+            where: { email, NOT: { id: user.id } },
+          });
+          if (clash) throw new BadRequestException('E-mail už používá jiný účet.');
+          userData.email = email;
+        }
+        if (Object.keys(userData).length > 0) {
+          await this.prisma.user.update({ where: { id: user.id }, data: userData });
+        }
+        prereg = await this.prisma.clientPreregistration.findFirst({
+          where: { completedUserId: user.id, workerId },
+        });
+        if (prereg && dto.workerInternalNote !== undefined) {
+          await this.prisma.clientPreregistration.update({
+            where: { id: prereg.id },
+            data: { workerInternalNote: dto.workerInternalNote.trim() || null },
+          });
+        }
+        return this.getClientDetail(workerId, user.id);
+      }
+      prereg = await this.prisma.clientPreregistration.findFirst({ where: { id, workerId } });
+    }
+
+    if (!prereg) throw new NotFoundException('Klient nenalezen.');
+
+    const firstName = dto.firstName?.trim() ?? prereg.firstName;
+    const lastName = dto.lastName?.trim() ?? prereg.lastName;
+    const displayName =
+      dto.name?.trim() ||
+      [firstName, lastName].filter(Boolean).join(' ') ||
+      dto.company?.trim() ||
+      prereg.name;
+
+    const data: Record<string, unknown> = {
+      ...(dto.firstName !== undefined ? { firstName } : {}),
+      ...(dto.lastName !== undefined ? { lastName } : {}),
+      ...(dto.name !== undefined || dto.firstName !== undefined || dto.lastName !== undefined
+        ? { name: displayName }
+        : {}),
+      ...(dto.company !== undefined ? { company: dto.company.trim() } : {}),
+      ...(dto.phone !== undefined ? { phone: dto.phone.trim() } : {}),
+      ...(dto.whatsappPhone !== undefined ? { whatsappPhone: dto.whatsappPhone.trim() } : {}),
+      ...(dto.ico !== undefined ? { ico: dto.ico.trim() } : {}),
+      ...(dto.city !== undefined ? { city: dto.city.trim() } : {}),
+      ...(dto.address !== undefined ? { address: dto.address.trim() } : {}),
+      ...(dto.website !== undefined ? { website: dto.website.trim() } : {}),
+      ...(dto.activityDescription !== undefined
+        ? { activityDescription: dto.activityDescription.trim() || null }
+        : {}),
+      ...(dto.bio !== undefined ? { bio: dto.bio.trim() || null } : {}),
+      ...(dto.workerInternalNote !== undefined
+        ? { workerInternalNote: dto.workerInternalNote.trim() || null }
+        : {}),
+      ...(dto.targetRole !== undefined ? { targetRole: dto.targetRole } : {}),
+      lastActivityAt: new Date(),
+    };
+    if (dto.email !== undefined) {
+      const email = dto.email.trim().toLowerCase();
+      const clash = await this.prisma.user.findUnique({ where: { email } });
+      if (clash) throw new BadRequestException('E-mail už používá jiný účet.');
+      data.email = email;
+    }
+
+    await this.prisma.clientPreregistration.update({ where: { id: prereg.id }, data });
+    return this.getClientDetail(workerId, prereg.id, 'preregistration');
+  }
+
+  async getClientDetailAdmin(preregistrationId: string) {
+    const row = await this.prisma.clientPreregistration.findUnique({
+      where: { id: preregistrationId },
+      include: {
+        worker: { select: { id: true, name: true, email: true } },
+        notes: { orderBy: { createdAt: 'desc' } },
+        auditLogs: { orderBy: { createdAt: 'desc' }, take: 100 },
+      },
+    });
+    if (!row) throw new NotFoundException('Klient nenalezen.');
+    const emailHistory = await this.emailHistoryForClient(row.email);
+    const detail = this.serializePreregDetail(row, emailHistory);
+    const base = {
+      ...detail,
+      worker: (row as { worker?: { id: string; name: string; email: string } }).worker ?? null,
+    };
+    if (row.completedUserId) {
+      const user = await this.prisma.user.findUnique({ where: { id: row.completedUserId } });
+      if (user) {
+        return {
+          ...base,
+          completedUser: {
+            id: user.id,
+            bio: user.bio,
+            activityDescription: user.activityDescription,
+            website: user.website,
+          },
+        };
+      }
+    }
+    return base;
   }
 
   private serializePreregDetail(
@@ -625,9 +815,14 @@ export class PortalWorkerCrmService {
       whatsappPhone: string;
       ico: string;
       city: string;
+      address: string;
+      website: string;
+      activityDescription: string | null;
+      bio: string | null;
       targetRole: UserRole;
       status: ClientPreregistrationStatus;
       note: string | null;
+      workerInternalNote: string | null;
       createdAt: Date;
       updatedAt: Date;
       lastActivityAt: Date | null;
@@ -648,6 +843,7 @@ export class PortalWorkerCrmService {
         createdAt: Date;
       }>;
     },
+    emailHistory: Awaited<ReturnType<EmailsService['listLogsForRecipient']>> = [],
   ) {
     return {
       kind: 'preregistration',
@@ -662,10 +858,15 @@ export class PortalWorkerCrmService {
         whatsapp: row.whatsappPhone || row.phone,
         ico: row.ico,
         city: row.city,
+        address: row.address,
+        website: row.website,
+        activityDescription: row.activityDescription,
+        bio: row.bio,
         role: row.targetRole,
         roleLabel: ROLE_LABELS[row.targetRole] ?? row.targetRole,
         registrationStatus: row.status,
         initialNote: row.note,
+        workerInternalNote: row.workerInternalNote ?? row.note,
         createdAt: row.createdAt.toISOString(),
         lastActivityAt: (row.lastActivityAt ?? row.updatedAt).toISOString(),
         lastWhatsappAt: row.lastWhatsappAt?.toISOString() ?? null,
@@ -673,6 +874,7 @@ export class PortalWorkerCrmService {
       },
       notes: row.notes,
       timeline: row.auditLogs,
+      emailHistory,
       completionUrl: this.completionUrl(row.completionToken),
       clientUserId: row.completedUserId,
     };
@@ -769,7 +971,7 @@ export class PortalWorkerCrmService {
 
   async sendRegistrationEmail(workerId: string, preregistrationId: string) {
     await this.portalWorker.requireActiveWorker(workerId);
-    const row = await this.prisma.clientPreregistration.findFirst({
+    let row = await this.prisma.clientPreregistration.findFirst({
       where: { id: preregistrationId, workerId },
     });
     if (!row) throw new NotFoundException('Registrace nenalezena.');
@@ -777,11 +979,17 @@ export class PortalWorkerCrmService {
       throw new BadRequestException('Registrace už není aktivní.');
     }
 
+    row = await this.ensureValidPreregistrationToken(row.id);
     const completionUrl = this.completionUrl(row.completionToken);
+    const workerName = await this.workerDisplayName(workerId);
+
     await this.emails.sendWorkerClientInvitationEmail({
       email: row.email,
       clientName: row.name,
+      workerName,
       completionUrl,
+      preregistrationId: row.id,
+      workerId,
     });
 
     await this.prisma.clientPreregistration.update({
@@ -794,7 +1002,15 @@ export class PortalWorkerCrmService {
       metadata: { type: 'invite' },
     });
 
-    return { ok: true, message: 'E-mail odeslán.' };
+    return { ok: true, message: 'E-mail pro dokončení registrace byl odeslán.' };
+  }
+
+  async sendRegistrationEmailAdmin(preregistrationId: string) {
+    const row = await this.prisma.clientPreregistration.findUnique({
+      where: { id: preregistrationId },
+    });
+    if (!row) throw new NotFoundException('Klient nenalezen.');
+    return this.sendRegistrationEmail(row.workerId, preregistrationId);
   }
 
   async sendWhatsAppAction(workerId: string, dto: WorkerCrmMessageDto) {

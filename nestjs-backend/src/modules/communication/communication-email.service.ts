@@ -74,12 +74,16 @@ export class CommunicationEmailService {
     const html = `<div style="font-family:sans-serif;line-height:1.5">${dto.body.replace(/\n/g, '<br>')}</div>`;
     const text = dto.body;
 
-    await this.emails.sendRawEmail({
-      type: `communication:individual`,
+    await this.emails.sendTemplatedEmail({
+      type: 'communication:individual',
+      templateKey: 'custom_message',
       to: dto.to,
-      subject: dto.subject,
-      html,
-      text,
+      variables: {
+        subject: dto.subject,
+        bodyHtml: html,
+        bodyText: text,
+        portalName: this.emails.portalName(),
+      },
       metadata: {
         senderUserId: userId,
         listingId: dto.listingId ?? null,

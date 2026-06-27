@@ -14,6 +14,16 @@ export class EmailsAdminController {
     return this.emails.listLogs(Number.isFinite(n) ? n : 200);
   }
 
+  @Get('logs/:id')
+  logDetail(@Param('id') id: string) {
+    return this.emails.getLog(id);
+  }
+
+  @Get('templates/catalog')
+  templateCatalog() {
+    return this.emails.getTemplateCatalog();
+  }
+
   @Get('templates')
   templates() {
     return this.emails.listTemplates();
@@ -49,17 +59,38 @@ export class EmailsAdminController {
       to,
       variables: {
         userName: 'Testovací uživatel',
+        clientName: 'Jan Klient',
+        workerName: 'Marie Pracovník',
         ctaUrl: 'https://www.xxrealit.cz',
         title: 'Test šablony',
         subject: 'Test šablony',
         contentHtml: '<p>Toto je testovací obsah.</p>',
         contentText: 'Toto je testovací obsah.',
         resetUrl: 'https://www.xxrealit.cz/reset-hesla?token=test',
+        verifyUrl: 'https://www.xxrealit.cz/verify-email?token=test',
+        completeRegistrationUrl: 'https://www.xxrealit.cz/dokoncit-registraci-pracovnik?token=test',
+        setPasswordUrl: 'https://www.xxrealit.cz/dokoncit-registraci-pracovnik?token=test',
+        loginUrl: 'https://www.xxrealit.cz/login',
+        portalName: 'XXrealit.cz',
+        supportEmail: 'podpora@xxrealit.cz',
+        profileUrl: 'https://www.xxrealit.cz/profil',
         listingTitle: 'Testovací inzerát',
         listingLocation: 'Praha',
         listingPrice: '1 000 000 Kč',
         listingUrl: 'https://www.xxrealit.cz/nemovitost/test',
         senderMessage: 'Test zpráva',
+        ownerName: 'Vlastník',
+        leadName: 'Zájemce',
+        leadEmail: 'zajemce@example.com',
+        leadPhone: '+420123456789',
+        date: '1. 6. 2026',
+        time: '10:00',
+        amount: '1 000',
+        invoiceNumber: 'INV-TEST',
+        messageHtml: '<p>Test notifikace</p>',
+        messageText: 'Test notifikace',
+        bodyHtml: '<p>Test tělo</p>',
+        bodyText: 'Test tělo',
       },
       metadata: { templateId: id, isTest: true },
     });
