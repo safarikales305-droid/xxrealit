@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import Logo from '@/components/Logo';
 import { SiteFooter } from '@/components/legal/SiteFooter';
 import { PortalTermsHtml } from '@/components/legal/PortalTermsHtml';
+import { PresentationHeader } from '@/components/presentation/PresentationHeader';
 import { PresentationSectionBlock } from '@/components/presentation/PresentationSection';
 import type { PortalPresentationPage } from '@/lib/portal-presentation';
 import { API_BASE_URL } from '@/lib/api';
@@ -56,18 +56,16 @@ async function track(eventType: string, payload?: Record<string, unknown>) {
 }
 
 export function PresentationLanding({ page }: Props) {
-  const [navScrolled, setNavScrolled] = useState(false);
   const [openFaq, setOpenFaq] = useState<string | null>(null);
 
   const navSections = useMemo(
-    () => page.sections.filter((s) => s.sectionType !== 'cta-grid').slice(0, 12),
+    () => page.sections.filter((s) => s.sectionType !== 'cta-grid' && s.isVisible !== false),
     [page.sections],
   );
 
   useEffect(() => {
     void track('page_view', { path: '/o-portalu' });
     const onScroll = () => {
-      setNavScrolled(window.scrollY > 24);
       const h = document.documentElement.scrollHeight - window.innerHeight;
       if (h <= 0) return;
       const pct = Math.round((window.scrollY / h) * 100);
@@ -90,50 +88,15 @@ export function PresentationLanding({ page }: Props) {
 
   return (
     <div className="min-h-[100dvh] bg-[#fafafa] text-zinc-900">
-      <header
-        className={`fixed inset-x-0 top-0 z-50 border-b transition ${
-          navScrolled ? 'border-zinc-200/80 bg-white/95 shadow-sm backdrop-blur-md' : 'border-transparent bg-transparent'
-        }`}
-      >
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-          <Link href="/" className="shrink-0" aria-label="XXREALIT — domů">
-            <Logo className={`h-7 w-auto transition ${navScrolled ? '' : 'brightness-0 invert'}`} />
-          </Link>
-          <nav className="hidden items-center gap-4 lg:flex" aria-label="Sekce stránky">
-            {navSections.map((s) => (
-              <a
-                key={s.anchor}
-                href={`#${s.anchor}`}
-                className={`text-xs font-semibold transition hover:text-[#ff6a00] ${navScrolled ? 'text-zinc-600' : 'text-white/90'}`}
-              >
-                {s.title.length > 18 ? `${s.title.slice(0, 16)}…` : s.title}
-              </a>
-            ))}
-          </nav>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/login"
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold sm:text-sm ${
-                navScrolled ? 'text-zinc-700 hover:bg-zinc-100' : 'text-white hover:bg-white/10'
-              }`}
-            >
-              Přihlásit
-            </Link>
-            <Link
-              href="/registrace"
-              onClick={() => onCtaClick('header', 'Registrace')}
-              className="rounded-full bg-white px-4 py-1.5 text-xs font-bold text-[#ff6a00] shadow sm:text-sm"
-            >
-              Registrovat
-            </Link>
-          </div>
-        </div>
-      </header>
+      <PresentationHeader navSections={navSections} onCtaClick={onCtaClick} />
 
-      <section className="relative flex min-h-[100dvh] items-center overflow-hidden text-white" style={heroStyle}>
+      <section
+        className="relative flex min-h-[100dvh] items-center overflow-hidden text-white pt-[calc(3.5rem+env(safe-area-inset-top))]"
+        style={heroStyle}
+      >
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.12),transparent_45%)]" />
         <div className="pointer-events-none absolute -right-20 top-20 size-72 rounded-full bg-white/10 blur-3xl" />
-        <div className="relative mx-auto max-w-6xl px-4 pb-24 pt-28 sm:px-6 sm:pt-32">
+        <div className="relative mx-auto w-full max-w-6xl px-4 pb-20 pt-10 sm:px-6 sm:pb-24 sm:pt-14">
           <p className="animate-[app-menu-in_0.6s_ease-out] text-sm font-semibold uppercase tracking-[0.2em] text-white/80">
             Představení portálu
           </p>
