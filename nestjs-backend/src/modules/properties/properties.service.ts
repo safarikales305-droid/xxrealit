@@ -1176,6 +1176,7 @@ export class PropertiesService {
           ownerContactConsent: dto.ownerContactConsent ?? false,
           region: (dto.region ?? '').trim().slice(0, 120),
           district: (dto.district ?? '').trim().slice(0, 120),
+          importSourceUrl: dto.sourceUrl?.trim().slice(0, 2000) || null,
         },
       });
 

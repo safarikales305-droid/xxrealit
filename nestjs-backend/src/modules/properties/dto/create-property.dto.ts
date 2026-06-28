@@ -164,4 +164,10 @@ export class CreatePropertyDto {
   @IsString()
   @MaxLength(120)
   district?: string;
+
+  /** Původní URL zdroje (např. Sreality) — uživatel musí obsah před uložením zkontrolovat. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  sourceUrl?: string;
 }

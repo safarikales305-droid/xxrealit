@@ -442,6 +442,7 @@ export class PropertiesController {
       ownerContactConsent: toBool(body.ownerContactConsent) ?? false,
       region: str(body.region).slice(0, 120),
       district: str(body.district).slice(0, 120),
+      sourceUrl: str(body.sourceUrl).trim().slice(0, 2000) || undefined,
     };
 
     return this.propertiesService.create(user.id, dto, {

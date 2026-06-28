@@ -9,6 +9,10 @@ import {
   nestListActiveShortsMusicTracks,
   type ShortsMusicTrackDto,
 } from '@/lib/nest-client';
+import {
+  SrealityPrefillSection,
+  type SrealityPrefillApplyPayload,
+} from '@/components/listing/SrealityPrefillSection';
 
 const inputClass =
   'w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-[#ff6a00]/55 focus:ring-2 focus:ring-[#ff6a00]/15';
@@ -56,6 +60,7 @@ export function ListingCreateForm() {
   const [ownerContactConsent, setOwnerContactConsent] = useState(false);
   const [region, setRegion] = useState('');
   const [district, setDistrict] = useState('');
+  const [savedSourceUrl, setSavedSourceUrl] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -165,6 +170,49 @@ export function ListingCreateForm() {
       const target = prev[index];
       if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
       return prev.filter((_, i) => i !== index);
+    });
+  }, []);
+
+  const applySrealityPrefill = useCallback((payload: SrealityPrefillApplyPayload) => {
+    const { data, sourceUrl } = payload;
+    setSavedSourceUrl(sourceUrl);
+    if (data.title) setTitle(data.title);
+    if (data.description) setDescription(data.description);
+    if (data.offerType) setOfferType(data.offerType);
+    if (data.propertyType) setPropertyType(data.propertyType);
+    if (data.subType) setSubType(data.subType);
+    if (data.address) setAddress(data.address);
+    if (data.city) setCity(data.city);
+    if (data.region) setRegion(data.region);
+    if (data.district) setDistrict(data.district);
+    if (data.area != null) setArea(String(data.area));
+    if (data.landArea != null) setLandArea(String(data.landArea));
+    if (data.floor != null) setFloor(String(data.floor));
+    if (data.totalFloors != null) setTotalFloors(String(data.totalFloors));
+    if (data.condition) setCondition(data.condition);
+    if (data.construction) setConstruction(data.construction);
+    if (data.ownership) setOwnership(data.ownership);
+    if (data.energyClass) setEnergyLabel(data.energyClass);
+    if (data.equipment) setEquipment(data.equipment);
+    if (data.price != null && data.price > 0) setPrice(String(data.price));
+    if (data.currency) setCurrency(data.currency);
+    setError(null);
+  }, []);
+
+  const loadSourceImages = useCallback((files: File[]) => {
+    if (!files.length) return;
+    setImageFiles((prev) => [...prev, ...files].slice(0, 30));
+    setImagePreviews((prev) => {
+      const next = [...prev];
+      for (const file of files) {
+        if (next.length >= 30) break;
+        next.push({
+          id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          file,
+          previewUrl: URL.createObjectURL(file),
+        });
+      }
+      return next;
     });
   }, []);
 
@@ -311,6 +359,7 @@ export function ListingCreateForm() {
     if (landArea.trim()) fd.append('landArea', landArea.trim());
     if (floor.trim()) fd.append('floor', floor.trim());
     if (totalFloors.trim()) fd.append('totalFloors', totalFloors.trim());
+    if (savedSourceUrl.trim()) fd.append('sourceUrl', savedSourceUrl.trim());
 
     if (videoFile) {
       fd.append('video', videoFile);
@@ -366,6 +415,7 @@ export function ListingCreateForm() {
     setOwnerContactConsent(false);
     setRegion('');
     setDistrict('');
+    setSavedSourceUrl('');
   }
 
   return (
@@ -373,6 +423,12 @@ export function ListingCreateForm() {
       onSubmit={(e) => void handleSubmit(e)}
       className="mx-auto w-full max-w-3xl space-y-10 pb-16"
     >
+      <SrealityPrefillSection
+        token={apiAccessToken}
+        onApply={applySrealityPrefill}
+        onSourceImagesLoaded={loadSourceImages}
+      />
+
       {success ? (
         <div className="space-y-2" role="status">
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-medium text-emerald-900">

@@ -5,6 +5,7 @@ import { EmailsModule } from '../emails/emails.module';
 import { MessagesModule } from '../messages/messages.module';
 import { ContactMonetizationAdminController } from './contact-monetization-admin.controller';
 import { ListingsController } from './listings.controller';
+import { ListingsPrefillService } from './listings-prefill.service';
 import { PropertiesController } from './properties.controller';
 import { PropertiesService } from './properties.service';
 import { ListingShortsFromPhotosService } from './listing-shorts-from-photos.service';
@@ -57,6 +58,7 @@ import { SocialModule } from '../social/social.module';
     PropertyMediaCloudinaryService,
     ListingPhotoWatermarkService,
     ListingWatermarkSettingsService,
+    ListingsPrefillService,
     ListingShortsFromPhotosService,
     ShortsListingService,
     VideoOgThumbnailService,

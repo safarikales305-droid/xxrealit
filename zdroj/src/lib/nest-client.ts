@@ -2711,6 +2711,109 @@ export async function nestCreatePropertyListingMultipart(
   }
 }
 
+export type ListingPrefillFromUrlData = {
+  title: string | null;
+  description: string | null;
+  location: string | null;
+  address: string | null;
+  city: string | null;
+  region: string | null;
+  district: string | null;
+  propertyType: string | null;
+  offerType: string | null;
+  subType: string | null;
+  area: number | null;
+  landArea: number | null;
+  floor: number | null;
+  totalFloors: number | null;
+  condition: string | null;
+  construction: string | null;
+  ownership: string | null;
+  energyClass: string | null;
+  equipment: string | null;
+  price: number | null;
+  currency: string | null;
+  sourceImageUrls: string[];
+  canUseSourceImages: boolean;
+  rawSourceData: Record<string, unknown> | null;
+};
+
+export async function nestPrefillListingFromUrl(
+  token: string | null,
+  sourceUrl: string,
+): Promise<
+  { ok: true; data: ListingPrefillFromUrlData } | { ok: false; error: string }
+> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  try {
+    const res = await fetch(`${API_BASE_URL}/listings/prefill-from-url`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ sourceUrl }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      error?: string;
+      data?: ListingPrefillFromUrlData;
+    };
+    if (!res.ok || !data.ok || !data.data) {
+      return {
+        ok: false,
+        error: data.error ?? 'Údaje se nepodařilo načíst. Vyplňte inzerát ručně.',
+      };
+    }
+    return { ok: true, data: data.data };
+  } catch {
+    return { ok: false, error: 'Údaje se nepodařilo načíst. Vyplňte inzerát ručně.' };
+  }
+}
+
+export async function nestFetchListingSourceImages(
+  token: string | null,
+  urls: string[],
+): Promise<
+  | {
+      ok: true;
+      images: Array<{ fileName: string; mimeType: string; base64: string }>;
+    }
+  | { ok: false; error: string }
+> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  try {
+    const res = await fetch(`${API_BASE_URL}/listings/fetch-source-images`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ urls }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      error?: string;
+      images?: Array<{ fileName: string; mimeType: string; base64: string }>;
+    };
+    if (!res.ok || !data.ok || !data.images?.length) {
+      return {
+        ok: false,
+        error: data.error ?? 'Fotky prosím nahrajte vlastní.',
+      };
+    }
+    return { ok: true, images: data.images };
+  } catch {
+    return { ok: false, error: 'Fotky prosím nahrajte vlastní.' };
+  }
+}
+
 export async function nestSubmitOwnerLeadOffer(
   token: string | null,
   propertyId: string,
