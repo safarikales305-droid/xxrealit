@@ -238,7 +238,7 @@ export class SocialPublisherService {
   }
 
   async testFacebookPublish(): Promise<FacebookPublishResult> {
-    const publicUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim() || 'https://xxrealit.cz';
+    const publicUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim() || 'https://www.xxrealit.cz';
     return this.publishToFacebook({
       message: `🧪 Testovací příspěvek z administrace XXREALIT\n\n${new Date().toLocaleString('cs-CZ')}\n\n${publicUrl}\n\n#xxrealit`,
       link: publicUrl,

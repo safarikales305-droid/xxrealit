@@ -1,7 +1,7 @@
 import type { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 
-export const PRODUCTION_FRONTEND_FALLBACK = 'https://xxrealit.cz';
+export const PRODUCTION_FRONTEND_FALLBACK = 'https://www.xxrealit.cz';
 
 const PRODUCTION_FALLBACK = PRODUCTION_FRONTEND_FALLBACK;
 const LOCALHOST_FALLBACK = 'http://localhost:3000';
@@ -38,6 +38,15 @@ export function resolveFrontendUrl(config?: ConfigService, logger?: Logger): str
         `FRONTEND_URL resolves to localhost in production (${normalized}). Falling back to ${PRODUCTION_FALLBACK}.`,
       );
       return PRODUCTION_FALLBACK;
+    }
+    try {
+      const u = new URL(normalized);
+      if (u.hostname.toLowerCase() === 'xxrealit.cz') {
+        u.hostname = 'www.xxrealit.cz';
+        return u.toString().replace(/\/+$/, '');
+      }
+    } catch {
+      /* ignore */
     }
     return normalized;
   }

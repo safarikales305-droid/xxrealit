@@ -60,7 +60,7 @@ export function getSiteOriginForOg(): string {
   return (
     process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
     process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    'https://xxrealit.cz'
+    'https://www.xxrealit.cz'
   ).replace(/\/+$/, '');
 }
 

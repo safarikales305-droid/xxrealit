@@ -32,7 +32,7 @@ export function renderWhatsAppTemplate(
   const map: Record<string, string> = {
     jmeno: vars.jmeno?.trim() || 'uživateli',
     role: vars.role?.trim() || '',
-    odkaz: vars.odkaz?.trim() || 'https://xxrealit.cz',
+    odkaz: vars.odkaz?.trim() || 'https://www.xxrealit.cz',
     kredit:
       vars.kredit != null && String(vars.kredit).trim() !== ''
         ? String(vars.kredit)
@@ -46,6 +46,6 @@ export function portalBaseUrl(): string {
   const raw =
     process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
     process.env.FRONTEND_URL?.trim() ||
-    'https://xxrealit.cz';
+    'https://www.xxrealit.cz';
   return raw.replace(/\/+$/, '');
 }

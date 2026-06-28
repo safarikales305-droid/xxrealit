@@ -93,7 +93,7 @@ export class FacebookPageService {
   private frontendUrl(): string {
     return (
       this.config.get<string>('FRONTEND_URL')?.trim().replace(/\/+$/, '') ||
-      'https://xxrealit.cz'
+      'https://www.xxrealit.cz'
     );
   }
 

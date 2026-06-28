@@ -1,7 +1,7 @@
 import { upgradeHttpToHttps } from './public-urls';
 
-/** Produkční výchozí doména — musí odpovídat TLS certifikátu (apex, ne www). */
-export const PRODUCTION_SITE_ORIGIN_FALLBACK = 'https://xxrealit.cz';
+/** Produkční výchozí doména — www je kanonická. */
+export const PRODUCTION_SITE_ORIGIN_FALLBACK = 'https://www.xxrealit.cz';
 
 export const XXREALIT_HOSTNAMES = ['xxrealit.cz', 'www.xxrealit.cz'] as const;
 
@@ -10,6 +10,20 @@ const LOCALHOST_LIKE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
 
 function trimOrigin(url: string): string {
   return upgradeHttpToHttps(url.trim()).replace(/\/+$/, '');
+}
+
+/** V produkci vždy www — apex z env přepíšeme. */
+function normalizeXxrealitOrigin(origin: string): string {
+  try {
+    const u = new URL(origin);
+    if (u.hostname.toLowerCase() === 'xxrealit.cz') {
+      u.hostname = 'www.xxrealit.cz';
+      return trimOrigin(u.toString());
+    }
+  } catch {
+    /* ignore */
+  }
+  return origin;
 }
 
 function isProductionRuntime(): boolean {
@@ -59,6 +73,10 @@ export function resolveSiteOrigin(): string {
     raw = PRODUCTION_SITE_ORIGIN_FALLBACK;
   }
 
+  if (isProductionRuntime() || onRailway) {
+    raw = normalizeXxrealitOrigin(raw);
+  }
+
   return raw;
 }
 
@@ -66,7 +84,7 @@ export function resolveCanonicalHostname(): string {
   try {
     return new URL(resolveSiteOrigin()).hostname.toLowerCase();
   } catch {
-    return 'xxrealit.cz';
+    return 'www.xxrealit.cz';
   }
 }
 

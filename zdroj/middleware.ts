@@ -6,7 +6,6 @@ import { isUserRole } from '@/lib/roles';
 import {
   hostnameFromHostHeader,
   isKnownXxrealitHostname,
-  resolveCanonicalHostname,
 } from '@/lib/site-origin';
 
 type JwtAuthClaims = {
@@ -21,28 +20,34 @@ const PROTECTED_PREFIXES = [
   '/admin',
 ];
 
+const CANONICAL_WWW_HOST = 'www.xxrealit.cz';
+const APEX_HOST = 'xxrealit.cz';
+
 function handleCanonicalRedirect(request: NextRequest): NextResponse | null {
   if (process.env.NODE_ENV !== 'production') return null;
 
   const hostHeader = request.headers.get('host') ?? '';
   const host = hostnameFromHostHeader(hostHeader);
   const proto = request.headers.get('x-forwarded-proto') ?? 'https';
-  const canonicalHost = resolveCanonicalHostname();
 
-  if (proto === 'http') {
+  if (proto === 'http' && isKnownXxrealitHostname(host)) {
     const url = request.nextUrl.clone();
     url.protocol = 'https:';
+    if (host === APEX_HOST) {
+      url.hostname = CANONICAL_WWW_HOST;
+    }
     // eslint-disable-next-line no-console
     console.log('[middleware] Redirect to:', url.toString(), '(http→https)');
     return NextResponse.redirect(url, 301);
   }
 
-  if (isKnownXxrealitHostname(host) && host !== canonicalHost) {
+  // Pouze apex → www; www nikdy nepřesměrovávat na apex
+  if (host === APEX_HOST) {
     const url = request.nextUrl.clone();
-    url.hostname = canonicalHost;
+    url.hostname = CANONICAL_WWW_HOST;
     url.protocol = 'https:';
     // eslint-disable-next-line no-console
-    console.log('[middleware] Redirect to:', url.toString(), `(canonical host ${canonicalHost})`);
+    console.log('[middleware] Redirect to:', url.toString(), '(apex→www)');
     return NextResponse.redirect(url, 301);
   }
 

@@ -27,8 +27,8 @@ export const DEFAULT_PRESENTATION_PAGE = {
     'XXREALIT je moderní realitní portál s video Shorts, klasickou inzercí, sociální sítí, tipařským programem, marketplace služeb a kreditním systémem. Inzerujte zdarma a plaťte až za skutečný zájem.',
   metaKeywords:
     'XXREALIT, realitní portál, nemovitosti, video shorts, tipař, makléř, realitní kancelář, inzerce zdarma, marketplace nemovitostí',
-  ogImageUrl: 'https://xxrealit.cz/icons/icon-512.png',
-  canonicalUrl: 'https://xxrealit.cz/o-portalu',
+  ogImageUrl: 'https://www.xxrealit.cz/icons/icon-512.png',
+  canonicalUrl: 'https://www.xxrealit.cz/o-portalu',
   heroTitle: 'XXREALIT — budoucnost realitního marketingu',
   heroSubtitle:
     'Propojujeme majitele nemovitostí, makléře, developery, investory a tipaře v jedné moderní platformě s videem, sociální sítí a férovým obchodním modelem.',
