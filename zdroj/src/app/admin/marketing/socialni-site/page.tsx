@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import {
+  formatGraphErrorDetail,
   nestAdminSocialAutopostFacebookPatch,
   nestAdminSocialAutopostSettingsGet,
   nestAdminSocialAutopostTestConnection,
@@ -97,7 +98,17 @@ export default function AdminSocialAutopostPage() {
     setBusy(true);
     const r = await nestAdminSocialAutopostTestConnection(token);
     setBusy(false);
-    setMsg(r?.ok ? `Připojeno: ${r.pageName ?? fb?.pageName ?? 'OK'}` : (r?.error ?? 'Test selhal'));
+    if (!r) {
+      setMsg('Test připojení selhal (server nevrátil odpověď).');
+      return;
+    }
+    if (r.ok) {
+      const extra = r.tokenSource === 'me_accounts' ? ' (token doplněn z /me/accounts)' : '';
+      setMsg(`Připojeno: ${r.pageName ?? fb?.pageName ?? 'OK'}${extra}`);
+    } else {
+      const detail = formatGraphErrorDetail(r.graphError) || r.error || 'Test selhal';
+      setMsg(r.hint ? `${detail}\n\n${r.hint}` : detail);
+    }
     void refresh();
   }
 
@@ -106,7 +117,21 @@ export default function AdminSocialAutopostPage() {
     setBusy(true);
     const r = await nestAdminSocialAutopostTestPublish(token);
     setBusy(false);
-    setMsg(r?.publishedUrl ? `Test publikován: ${r.publishedUrl}` : 'Test publikování selhal');
+    if (r.ok && r.publishedUrl) {
+      const idPart = r.externalPostId ? ` (ID: ${r.externalPostId})` : '';
+      const tokenNote =
+        r.tokenSource === 'me_accounts'
+          ? '\n\nPoznámka: použit Page Access Token z /me/accounts — uložte ho do pole tokenu.'
+          : '';
+      setMsg(`Test publikován úspěšně: ${r.publishedUrl}${idPart}${tokenNote}`);
+    } else {
+      const detail =
+        formatGraphErrorDetail(r.graphError) ||
+        r.error ||
+        r.httpError ||
+        'Test publikování selhal';
+      setMsg(r.hint ? `${detail}\n\n${r.hint}` : detail);
+    }
     void refresh();
   }
 
@@ -126,7 +151,9 @@ export default function AdminSocialAutopostPage() {
       </div>
 
       {loadError ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{loadError}</p> : null}
-      {msg ? <p className="rounded-xl bg-zinc-100 p-3 text-sm text-zinc-800">{msg}</p> : null}
+      {msg ? (
+        <p className="whitespace-pre-wrap rounded-xl bg-zinc-100 p-3 text-sm text-zinc-800">{msg}</p>
+      ) : null}
 
       <div className="flex flex-wrap gap-2 border-b border-zinc-200 pb-2">
         {(

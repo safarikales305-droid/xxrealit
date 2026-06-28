@@ -50,6 +50,38 @@ export type SocialQueueRow = {
   author?: { id: string; name: string | null; role: string } | null;
 };
 
+export type FacebookGraphErrorPublic = {
+  httpStatus?: number;
+  message?: string;
+  type?: string;
+  code?: number;
+  error_subcode?: number;
+  fbtrace_id?: string;
+  userMessage?: string;
+  hint?: string;
+};
+
+export type FacebookTestConnectionResponse = {
+  ok: boolean;
+  pageName?: string;
+  pageId?: string;
+  tokenSource?: string;
+  maskedToken?: string | null;
+  error?: string;
+  hint?: string;
+  graphError?: FacebookGraphErrorPublic;
+};
+
+export type FacebookTestPublishResponse = {
+  ok: boolean;
+  externalPostId?: string;
+  publishedUrl?: string;
+  tokenSource?: string;
+  error?: string;
+  hint?: string;
+  graphError?: FacebookGraphErrorPublic;
+};
+
 async function adminFetch<T>(
   token: string,
   path: string,
@@ -68,6 +100,39 @@ async function adminFetch<T>(
   return res.json() as Promise<T>;
 }
 
+async function adminFetchJson<T>(
+  token: string,
+  path: string,
+  init?: RequestInit,
+): Promise<{ data: T | null; status: number; body: unknown }> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      ...(init?.headers ?? {}),
+    },
+    cache: 'no-store',
+  });
+  const body = (await res.json().catch(() => ({}))) as unknown;
+  if (!res.ok) {
+    return { data: null, status: res.status, body };
+  }
+  return { data: body as T, status: res.status, body };
+}
+
+function formatGraphErrorDetail(graph?: FacebookGraphErrorPublic): string {
+  if (!graph) return '';
+  const parts = [
+    graph.userMessage ?? graph.message,
+    graph.code != null ? `kód ${graph.code}` : null,
+    graph.error_subcode != null ? `subkód ${graph.error_subcode}` : null,
+    graph.type ? `typ ${graph.type}` : null,
+    graph.fbtrace_id ? `fbtrace_id ${graph.fbtrace_id}` : null,
+  ].filter(Boolean);
+  return parts.join(' · ');
+}
+
 export function nestAdminSocialAutopostSettingsGet(token: string) {
   return adminFetch<SocialAutopostSettingsPublic>(token, '/social/autopost/admin/settings');
 }
@@ -83,20 +148,33 @@ export function nestAdminSocialAutopostFacebookPatch(
 }
 
 export function nestAdminSocialAutopostTestConnection(token: string) {
-  return adminFetch<{ ok: boolean; pageName?: string; error?: string }>(
+  return adminFetch<FacebookTestConnectionResponse>(
     token,
     '/social/autopost/admin/facebook/test-connection',
     { method: 'POST' },
   );
 }
 
-export function nestAdminSocialAutopostTestPublish(token: string) {
-  return adminFetch<{ externalPostId: string; publishedUrl: string }>(
+export async function nestAdminSocialAutopostTestPublish(
+  token: string,
+): Promise<FacebookTestPublishResponse & { httpError?: string }> {
+  const { data, status, body } = await adminFetchJson<FacebookTestPublishResponse>(
     token,
     '/social/autopost/admin/facebook/test-publish',
     { method: 'POST' },
   );
+  if (data) return data;
+  const errBody = body as { message?: string; error?: string };
+  const msg =
+    typeof errBody?.message === 'string'
+      ? errBody.message
+      : typeof errBody?.error === 'string'
+        ? errBody.error
+        : `HTTP ${status}`;
+  return { ok: false, error: msg, httpError: msg };
 }
+
+export { formatGraphErrorDetail };
 
 export function nestAdminSocialQueueList(token: string, status?: string) {
   const q = status ? `?status=${encodeURIComponent(status)}` : '';
