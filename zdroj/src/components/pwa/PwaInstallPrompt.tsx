@@ -7,6 +7,7 @@ import {
   isPwaInstallDismissed,
   setPwaInstallDismissed,
 } from '@/lib/pwa-install-storage';
+import { nestMarketingPopupBySlug } from '@/lib/nest-client';
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -25,12 +26,19 @@ function isRunningAsInstalledPwa(): boolean {
  * „Nechci“ uloží dismiss do localStorage; maže se při loginu / logoutu → při dalším přihlášení se panel znovu může zobrazit.
  */
 export function PwaInstallPrompt() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, apiAccessToken } = useAuth();
+  const token = apiAccessToken;
   const [mounted, setMounted] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [installing, setInstalling] = useState(false);
+  const [popupTitle, setPopupTitle] = useState('Rychlejší přístup na mobilu');
+  const [popupBody, setPopupBody] = useState(
+    'Přidejte XXrealit na plochu jako samostatnou aplikaci.',
+  );
+  const [installLabel, setInstallLabel] = useState('Nainstalovat aplikaci');
+  const [popupEnabled, setPopupEnabled] = useState(true);
 
   useEffect(() => {
     setMounted(true);
@@ -77,6 +85,21 @@ export function PwaInstallPrompt() {
     }
   }, [deferred]);
 
+  useEffect(() => {
+    if (!deferred || !token) return;
+    void nestMarketingPopupBySlug(token, 'pwa-install').then((popup) => {
+      if (!popup) return;
+      if (!popup.isEnabled) {
+        setPopupEnabled(false);
+        return;
+      }
+      setPopupTitle(popup.title);
+      setPopupBody(popup.body);
+      const btn = popup.buttons?.[0];
+      if (btn?.label) setInstallLabel(btn.label);
+    });
+  }, [deferred, token]);
+
   const handleDismiss = useCallback(() => {
     setPwaInstallDismissed();
     setDismissed(true);
@@ -85,7 +108,7 @@ export function PwaInstallPrompt() {
   if (!mounted || isLoading) return null;
   if (!isAuthenticated || !mobile) return null;
   if (isRunningAsInstalledPwa()) return null;
-  if (!deferred || dismissed) return null;
+  if (!deferred || dismissed || !popupEnabled) return null;
 
   return (
     <>
@@ -104,10 +127,10 @@ export function PwaInstallPrompt() {
             id="pwa-install-title"
             className="text-center text-[15px] font-semibold leading-snug text-zinc-900"
           >
-            Rychlejší přístup na mobilu
+            {popupTitle}
           </p>
           <p className="mt-1.5 text-center text-xs leading-relaxed text-zinc-600">
-            Přidejte XXrealit na plochu jako samostatnou aplikaci.
+            {popupBody}
           </p>
           <div className="mt-4 flex flex-col gap-2.5">
             <button
@@ -116,7 +139,7 @@ export function PwaInstallPrompt() {
               onClick={() => void handleInstall()}
               className="min-h-[48px] w-full rounded-xl bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-3 text-[14px] font-bold text-white shadow-[0_8px_28px_-6px_rgba(255,106,0,0.45)] transition hover:brightness-105 active:scale-[0.99] disabled:opacity-60 sm:text-[15px]"
             >
-              {installing ? 'Otevírám…' : 'Nainstalovat aplikaci'}
+              {installing ? 'Otevírám…' : installLabel}
             </button>
             <button
               type="button"

@@ -55,6 +55,11 @@ export class MarketingPopupAdminController {
   delete(@Param('id') id: string) {
     return this.popups.delete(id);
   }
+
+  @Post(':id/toggle')
+  toggle(@Param('id') id: string) {
+    return this.popups.toggleEnabled(id);
+  }
 }
 
 @Controller('admin/pwa-push-campaigns')
@@ -103,26 +108,49 @@ export class MarketingPopupController {
     private readonly users: UsersService,
   ) {}
 
+  @Get('by-slug/:slug')
+  async bySlug(@Param('slug') slug: string) {
+    return this.popups.getBySlug(slug);
+  }
+
   @Get('eligible')
   async eligible(
     @CurrentUser() user: AuthUser,
     @Query('justRegistered') justRegistered?: string,
     @Query('justLoggedIn') justLoggedIn?: string,
     @Query('isPwaInstalled') isPwaInstalled?: string,
+    @Query('onWorkerPanel') onWorkerPanel?: string,
   ) {
     const me = await this.users.getMeProfile(user.id);
     if (!me) return [];
     const checklist = me.profileRequirements?.checklist ?? [];
     const profileComplete = checklist.every((item) => item.satisfied);
+    const role = String(me.role ?? user.role);
+    const hasPhone = Boolean(String(me.phone ?? '').trim());
+    const hasAvatar = Boolean(me.avatarUrl);
+    const workerOnboardingIncomplete =
+      role.toUpperCase() === 'PORTAL_WORKER' &&
+      (!hasPhone || !me.emailVerified || !me.whatsappVerified || !hasAvatar);
+
     return this.popups.listEligible({
-      role: String(me.role ?? user.role),
+      userId: user.id,
+      role,
       emailVerified: Boolean(me.emailVerified),
       whatsappVerified: Boolean(me.whatsappVerified),
+      hasPhone,
+      hasAvatar,
       isTipar: Boolean(me.isTipar),
       profileComplete,
       isPwaInstalled: isPwaInstalled === '1' || isPwaInstalled === 'true',
       justRegistered: justRegistered === '1' || justRegistered === 'true',
       justLoggedIn: justLoggedIn === '1' || justLoggedIn === 'true',
+      onWorkerPanel: onWorkerPanel === '1' || onWorkerPanel === 'true',
+      workerOnboardingIncomplete,
     });
+  }
+
+  @Post(':id/record-view')
+  recordView(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.popups.recordView(user.id, id);
   }
 }

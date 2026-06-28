@@ -9239,16 +9239,25 @@ export async function nestAdminPostSoundsDelete(
 
 export type MarketingPopupRow = {
   id: string;
+  slug: string | null;
   name: string;
   title: string;
   body: string;
   imageUrl: string | null;
   videoUrl: string | null;
   buttons: Array<{ label: string; href: string }>;
+  linkUrl: string | null;
   targetRoles: string[];
+  excludeRoles: string[];
   triggers: string[];
+  profileTriggers: string[];
   isEnabled: boolean;
   sortOrder: number;
+  maxViewsPerUser: number;
+  repeatAfterDays: number | null;
+  displayCount: number;
+  isSystem: boolean;
+  variant: string;
 };
 
 export type PwaPushCampaignRow = {
@@ -9268,19 +9277,64 @@ export type PwaPushCampaignRow = {
 
 export async function nestMarketingPopupsEligible(
   token: string | null,
-  opts?: { justRegistered?: boolean; justLoggedIn?: boolean; isPwaInstalled?: boolean },
+  opts?: {
+    justRegistered?: boolean;
+    justLoggedIn?: boolean;
+    isPwaInstalled?: boolean;
+    onWorkerPanel?: boolean;
+  },
 ): Promise<MarketingPopupRow[]> {
   if (!API_BASE_URL || !token) return [];
   const qs = new URLSearchParams();
   if (opts?.justRegistered) qs.set('justRegistered', '1');
   if (opts?.justLoggedIn) qs.set('justLoggedIn', '1');
   if (opts?.isPwaInstalled) qs.set('isPwaInstalled', '1');
+  if (opts?.onWorkerPanel) qs.set('onWorkerPanel', '1');
   const res = await fetch(`${API_BASE_URL}/marketing-popups/eligible?${qs}`, {
     headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
   });
   if (!res.ok) return [];
   const data = await res.json().catch(() => []);
   return Array.isArray(data) ? (data as MarketingPopupRow[]) : [];
+}
+
+export async function nestMarketingPopupRecordView(
+  token: string | null,
+  popupId: string,
+): Promise<void> {
+  if (!API_BASE_URL || !token) return;
+  await fetch(`${API_BASE_URL}/marketing-popups/${encodeURIComponent(popupId)}/record-view`, {
+    method: 'POST',
+    headers: nestAuthHeaders(token),
+  }).catch(() => undefined);
+}
+
+export async function nestMarketingPopupBySlug(
+  token: string | null,
+  slug: string,
+): Promise<MarketingPopupRow | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/marketing-popups/by-slug/${encodeURIComponent(slug)}`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as MarketingPopupRow | null;
+}
+
+export async function nestAdminMarketingPopupToggle(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/marketing-popups/${encodeURIComponent(id)}/toggle`, {
+    method: 'POST',
+    headers: nestAuthHeaders(token),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true };
 }
 
 export async function nestAdminMarketingPopupsList(token: string | null): Promise<MarketingPopupRow[]> {

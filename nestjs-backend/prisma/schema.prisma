@@ -419,7 +419,8 @@ model User {
   supportTickets      SupportTicket[] @relation("SupportTicketUser")
   assignedSupportTickets SupportTicket[] @relation("SupportTicketAssignee")
   supportTicketMessages SupportTicketMessage[] @relation("SupportTicketMessageAuthor")
-  analyticsSessions     AnalyticsSession[]
+  marketingPopupViews     MarketingPopupUserView[]
+  analyticsSessions       AnalyticsSession[]
   portalTermsVersionsCreated PortalTermsVersion[] @relation("PortalTermsAuthor")
   creditTopUpTransactions CreditTopUpTransaction[]
   workerCommissionsAsWorker WorkerCommission[] @relation("WorkerCommissionWorker")
@@ -2178,21 +2179,48 @@ model PurchaseAdviceArticle {
 
 /// Admin CMS — marketingové popup okna (po přihlášení, chybějící profil, PWA…).
 model MarketingPopup {
-  id          String   @id @default(cuid())
-  name        String
-  title       String
-  body        String   @db.Text
-  imageUrl    String?
-  videoUrl    String?
-  buttons     Json     @default("[]")
-  targetRoles String[] @default([])
-  triggers    String[] @default([])
-  isEnabled   Boolean  @default(false)
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(cuid())
+  slug            String?  @unique
+  name            String
+  title           String
+  body            String   @db.Text
+  imageUrl        String?
+  videoUrl        String?
+  buttons         Json     @default("[]")
+  linkUrl         String?
+  targetRoles     String[] @default([])
+  excludeRoles    String[] @default([])
+  triggers        String[] @default([])
+  profileTriggers String[] @default([])
+  isEnabled       Boolean  @default(false)
+  sortOrder       Int      @default(0)
+  maxViewsPerUser Int      @default(1)
+  repeatAfterDays Int?
+  displayCount    Int      @default(0)
+  isSystem        Boolean  @default(false)
+  variant         String   @default("modal")
+  config          Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  userViews MarketingPopupUserView[]
 
   @@index([isEnabled, sortOrder])
+}
+
+model MarketingPopupUserView {
+  id          String    @id @default(cuid())
+  popupId     String
+  userId      String
+  viewCount   Int       @default(0)
+  lastShownAt DateTime  @default(now())
+  dismissedAt DateTime?
+
+  popup MarketingPopup @relation(fields: [popupId], references: [id], onDelete: Cascade)
+  user  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([popupId, userId])
+  @@index([userId])
 }
 
 /// Admin — plánované PWA push kampaně.
