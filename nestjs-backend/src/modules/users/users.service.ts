@@ -833,6 +833,7 @@ export class UsersService {
       firstTopUpUsed: Boolean(u.firstTopUpUsed),
       firstContentCompleted: Boolean(u.firstContentCompleted),
       isTipar: Boolean(u.isTipar),
+      tiparPayoutBankAccount: u.tiparPayoutBankAccount ?? null,
       agentProfile,
       companyProfile: u.companyProfile
         ? {
