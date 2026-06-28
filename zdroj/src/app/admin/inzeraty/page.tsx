@@ -13,6 +13,7 @@ import {
   nestApiConfigured,
   type AdminListingRow,
 } from '@/lib/nest-client';
+import { nestAdminSocialEnqueue } from '@/lib/social-autopost-admin-api';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'Všechny stavy' },
@@ -203,6 +204,23 @@ export default function AdminListingsPage() {
     else setLoadError(r.error ?? 'Schválení selhalo');
   }
 
+  async function onFacebookPublish(row: AdminListingRow) {
+    if (!token) return;
+    setBusyId(row.id);
+    const contentType = String(row.listingType ?? '').toUpperCase() === 'SHORTS' ? 'SHORT' : 'PROPERTY';
+    const r = await nestAdminSocialEnqueue(token, {
+      contentType,
+      contentId: row.id,
+      force: true,
+    });
+    setBusyId(null);
+    if (r?.ok) {
+      window.alert(r.skipped ? `Přeskočeno: ${r.reason ?? 'neznámý důvod'}` : 'Zařazeno do fronty Facebook publikování.');
+    } else {
+      setLoadError(r?.error ?? r?.reason ?? 'Zařazení do fronty selhalo');
+    }
+  }
+
   async function onSoftDelete(id: string) {
     if (!token) return;
     if (
@@ -362,6 +380,7 @@ export default function AdminListingsPage() {
           onSoftDelete={(id) => void onSoftDelete(id)}
           onQuickSetActive={(id, active) => void quickSetActive(id, active)}
           onRestore={(id) => void onRestore(id)}
+          onFacebookPublish={(row) => void onFacebookPublish(row)}
         />
 
       {editRow ? (

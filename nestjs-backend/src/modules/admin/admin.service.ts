@@ -27,6 +27,7 @@ import { ShortsListingService } from '../properties/shorts-listing.service';
 import { safeParsePrice } from '../imports/price-parse.util';
 import { ImportedBrokerContactService } from '../imported-broker-contacts/imported-broker-contact.service';
 import { TiparService } from '../tipar/tipar.service';
+import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
 import {
   ListingWatermarkSettingsService,
   type ListingWatermarkPosition,
@@ -146,6 +147,7 @@ export class AdminService {
     private readonly watermarkSettings: ListingWatermarkSettingsService,
     private readonly tipar: TiparService,
     private readonly shareTextsSettings: ShareTextsSettingsService,
+    private readonly socialPublishEnqueue: SocialPublishEnqueueService,
   ) {}
 
   async getShareTextsSettings() {
@@ -802,6 +804,7 @@ export class AdminService {
         isOwnerListing: updated.isOwnerListing,
       });
     }
+    this.socialPublishEnqueue.firePropertyApproved(propertyId);
     return updated;
   }
 

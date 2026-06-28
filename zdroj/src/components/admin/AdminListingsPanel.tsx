@@ -51,6 +51,7 @@ type ActionHandlers = {
   onSoftDelete: (id: string) => void;
   onQuickSetActive: (id: string, isActive: boolean) => void;
   onRestore: (id: string) => void;
+  onFacebookPublish?: (r: AdminListingRow) => void;
 };
 
 function ListingDetail({ r }: { r: AdminListingRow }) {
@@ -239,6 +240,15 @@ function ActionsMenu({
                 onClick={() => run(() => handlers.onApprove(r.id))}
               >
                 Schválit
+              </button>
+            ) : null}
+            {!deleted && handlers.onFacebookPublish ? (
+              <button
+                type="button"
+                className="block w-full px-3 py-2 text-left text-sm text-[#1877f2] hover:bg-blue-50"
+                onClick={() => run(() => handlers.onFacebookPublish?.(r))}
+              >
+                Publikovat na Facebook
               </button>
             ) : null}
             {!deleted && r.isActive !== false ? (

@@ -23,10 +23,12 @@ import { RegistrationGateModule } from '../registration-gate/registration-gate.m
 import { AdvertiserListingLeadsController } from './advertiser-listing-leads.controller';
 import { ListingContactUnlockModule } from './listing-contact-unlock.module';
 import { SeoModule } from '../seo/seo.module';
+import { SocialModule } from '../social/social.module';
 
 @Module({
   imports: [
     ShareModule,
+    forwardRef(() => SocialModule),
     forwardRef(() => CreditsModule),
     forwardRef(() => BonusCampaignModule),
     forwardRef(() => RegistrationGateModule),

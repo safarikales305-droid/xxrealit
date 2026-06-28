@@ -73,6 +73,7 @@ import type { CreateShortsFromClassicDto } from './dto/create-shorts-from-classi
 import { socialInclude } from './shorts-listing.social-include';
 import { ShortsListingService } from './shorts-listing.service';
 import { ListingWatermarkSettingsService } from './listing-watermark-settings.service';
+import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
 
 @Injectable()
 export class PropertiesService {
@@ -91,6 +92,7 @@ export class PropertiesService {
     private readonly registrationGate: RegistrationGateService,
     private readonly listingContactUnlock: ListingContactUnlockService,
     private readonly seo: SeoService,
+    private readonly socialPublishEnqueue: SocialPublishEnqueueService,
   ) {}
 
   /** Předgeneruje statický JPG 1200×630 pro Facebook og:image. */
@@ -1240,6 +1242,7 @@ export class PropertiesService {
         BonusSourceType.LISTING,
         full.id,
       );
+      this.socialPublishEnqueue.firePropertyCreated(full.id);
       const serialized = serializeProperty(
         {
           ...full,

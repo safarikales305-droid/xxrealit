@@ -465,6 +465,7 @@ model User {
   marketingCampaigns           MarketingCampaign[]
   activityLogs                 ActivityLog[] @relation("ActivityLogActor")
   activityLogsTargeted         ActivityLog[] @relation("ActivityLogTarget")
+  socialPublishQueueItems      SocialPublishQueue[]
 
   @@index([professionalVerificationStatus, professionalVerificationRequestedAt])
 }
@@ -2722,4 +2723,53 @@ model AnalyticsPageView {
   @@index([path, createdAt])
   @@index([createdAt])
   @@index([userId, createdAt])
+}
+
+enum SocialPlatform {
+  FACEBOOK
+  INSTAGRAM
+  YOUTUBE
+  TIKTOK
+}
+
+enum SocialPublishContentType {
+  POST
+  PROPERTY
+  SHORT
+}
+
+enum SocialPublishStatus {
+  PENDING
+  PROCESSING
+  PUBLISHED
+  FAILED
+  SKIPPED
+}
+
+/// Fronta automatického publikování na sociální sítě portálu XXREALIT.
+model SocialPublishQueue {
+  id              String                   @id @default(cuid())
+  platform        SocialPlatform           @default(FACEBOOK)
+  contentType     SocialPublishContentType
+  contentId       String
+  authorUserId    String?
+  contentTitle    String                   @default("")
+  status          SocialPublishStatus      @default(PENDING)
+  attempts        Int                      @default(0)
+  lastError       String?                  @db.Text
+  publishedUrl    String?
+  externalPostId  String?
+  lastApiResponse Json?
+  scheduledAt     DateTime?
+  processedAt     DateTime?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  author User? @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+
+  @@unique([platform, contentType, contentId])
+  @@index([status, scheduledAt])
+  @@index([status, createdAt])
+  @@index([contentType, contentId])
+  @@index([authorUserId])
 }

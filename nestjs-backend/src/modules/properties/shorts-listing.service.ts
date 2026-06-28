@@ -16,6 +16,7 @@ import {
 } from './listing-shorts-from-photos.service';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
 import { FacebookShareImageService } from './facebook-share-image.service';
+import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
 import { computeStoredOgMediaFields } from './property-og-media.util';
 import { socialInclude } from './shorts-listing.social-include';
 import {
@@ -126,6 +127,7 @@ export class ShortsListingService {
     private readonly brokerPoints: BrokerPointsService,
     private readonly propertyMediaCloudinary: PropertyMediaCloudinaryService,
     private readonly facebookShareImage: FacebookShareImageService,
+    private readonly socialPublishEnqueue: SocialPublishEnqueueService,
   ) {}
 
   private async viewerAccess(viewerId: string): Promise<PropertyViewerAccess> {
@@ -1030,6 +1032,8 @@ export class ShortsListingService {
       userId,
       access,
     );
+
+    this.socialPublishEnqueue.firePropertyCreated(String(serialized.id));
 
     return {
       property: serialized,

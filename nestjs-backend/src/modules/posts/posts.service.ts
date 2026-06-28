@@ -5,6 +5,7 @@ import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { PostWhatsAppNotifyService } from '../whatsapp/post-whatsapp-notify.service';
 import { WebPushService } from '../web-push/web-push.service';
+import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
 import {
   buildCommunityPostsWhere,
   dedupeCommunityPosts,
@@ -91,6 +92,7 @@ export class PostsService {
     private readonly bonusCampaigns: BonusCampaignService,
     private readonly postWhatsAppNotify: PostWhatsAppNotifyService,
     private readonly webPush: WebPushService,
+    private readonly socialPublishEnqueue: SocialPublishEnqueueService,
   ) {}
 
   private firePostPublishedNotify(userId: string, postId: string) {
@@ -104,6 +106,7 @@ export class PostsService {
         `[post-push] notify failed post=${postId}: ${err instanceof Error ? err.message : err}`,
       );
     });
+    this.socialPublishEnqueue.firePostCreated(postId);
   }
 
   async deletePost(id: string) {

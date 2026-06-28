@@ -1,0 +1,207 @@
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { UserRole } from '@prisma/client';
+import { PrismaService } from '../../../database/prisma.service';
+import { TokenEncryptionService } from '../token-encryption.service';
+import {
+  DEFAULT_SOCIAL_AUTOPOST_SETTINGS,
+  maskAccessToken,
+  type FacebookAutopostSettings,
+  type SocialApiLogEntry,
+  type SocialAutopostSettings,
+  type SocialAutopostSettingsPublic,
+} from './social-autopost.types';
+
+const SETTINGS_KEY = 'social_autopost_settings';
+const MAX_API_LOGS = 30;
+
+@Injectable()
+export class SocialAutopostSettingsService implements OnModuleInit {
+  private readonly logger = new Logger(SocialAutopostSettingsService.name);
+  private stored: SocialAutopostSettings = { ...DEFAULT_SOCIAL_AUTOPOST_SETTINGS };
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+    private readonly tokenEncryption: TokenEncryptionService,
+  ) {}
+
+  async onModuleInit() {
+    await this.reload();
+  }
+
+  private str(v: unknown, fallback = ''): string {
+    return typeof v === 'string' ? v.trim() : fallback;
+  }
+
+  private roles(v: unknown): UserRole[] {
+    if (!Array.isArray(v)) return [];
+    return v.filter((x): x is UserRole => typeof x === 'string');
+  }
+
+  normalize(raw: unknown): SocialAutopostSettings {
+    const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    const d = DEFAULT_SOCIAL_AUTOPOST_SETTINGS;
+    const fbRaw =
+      o.facebook && typeof o.facebook === 'object'
+        ? (o.facebook as Record<string, unknown>)
+        : {};
+
+    const facebook: FacebookAutopostSettings = {
+      enabled: fbRaw.enabled === true,
+      pageId: this.str(fbRaw.pageId),
+      pageAccessTokenEncrypted: this.str(fbRaw.pageAccessTokenEncrypted),
+      pageName: this.str(fbRaw.pageName),
+      tokenExpiresAt:
+        fbRaw.tokenExpiresAt === null || typeof fbRaw.tokenExpiresAt === 'string'
+          ? (fbRaw.tokenExpiresAt as string | null)
+          : null,
+      publishPosts: fbRaw.publishPosts !== false,
+      publishProperties: fbRaw.publishProperties !== false,
+      publishShorts: fbRaw.publishShorts !== false,
+      approvedOnly: fbRaw.approvedOnly !== false,
+      publicPostsOnly: fbRaw.publicPostsOnly !== false,
+      professionalsOnly: fbRaw.professionalsOnly === true,
+      allowedRoles: this.roles(fbRaw.allowedRoles),
+    };
+
+    const logsRaw = Array.isArray(o.lastApiResponses) ? o.lastApiResponses : [];
+    const lastApiResponses: SocialApiLogEntry[] = logsRaw
+      .filter((x) => x && typeof x === 'object')
+      .slice(0, MAX_API_LOGS) as SocialApiLogEntry[];
+
+    return {
+      facebook,
+      instagram: { enabled: false },
+      youtube: { enabled: false },
+      tiktok: { enabled: false },
+      lastApiResponses,
+    };
+  }
+
+  async reload() {
+    const row = await this.prisma.appSetting.findUnique({ where: { key: SETTINGS_KEY } });
+    this.stored = this.normalize(row?.valueJson ?? DEFAULT_SOCIAL_AUTOPOST_SETTINGS);
+    this.applyEnvFallback();
+  }
+
+  getSettings(): SocialAutopostSettings {
+    return structuredClone(this.stored);
+  }
+
+  private applyEnvFallback() {
+    const envPageId = this.config.get<string>('FACEBOOK_PAGE_ID')?.trim();
+    const envToken = this.config.get<string>('FACEBOOK_PAGE_ACCESS_TOKEN')?.trim();
+    if (!this.stored.facebook.pageId && envPageId) {
+      this.stored.facebook.pageId = envPageId;
+    }
+    if (!this.stored.facebook.pageAccessTokenEncrypted && envToken) {
+      try {
+        this.stored.facebook.pageAccessTokenEncrypted = this.tokenEncryption.encrypt(envToken);
+      } catch (err) {
+        this.logger.warn(`Env FACEBOOK_PAGE_ACCESS_TOKEN encrypt failed: ${String(err)}`);
+      }
+    }
+    if (!this.stored.facebook.pageName && envPageId) {
+      this.stored.facebook.pageName = 'XXREALIT (env)';
+    }
+  }
+
+  resolveFacebookPageAccessToken(): string | null {
+    const enc = this.stored.facebook.pageAccessTokenEncrypted?.trim();
+    if (enc) {
+      try {
+        return this.tokenEncryption.decrypt(enc);
+      } catch (err) {
+        this.logger.warn(`Facebook page token decrypt failed: ${String(err)}`);
+      }
+    }
+    const envToken = this.config.get<string>('FACEBOOK_PAGE_ACCESS_TOKEN')?.trim();
+    return envToken || null;
+  }
+
+  resolveFacebookPageId(): string | null {
+    return (
+      this.stored.facebook.pageId?.trim() ||
+      this.config.get<string>('FACEBOOK_PAGE_ID')?.trim() ||
+      null
+    );
+  }
+
+  isFacebookAutopostReady(): boolean {
+    return Boolean(
+      this.stored.facebook.enabled &&
+        this.resolveFacebookPageId() &&
+        this.resolveFacebookPageAccessToken(),
+    );
+  }
+
+  toPublic(settings: SocialAutopostSettings = this.stored): SocialAutopostSettingsPublic {
+    const token = this.resolveFacebookPageAccessToken();
+    const { pageAccessTokenEncrypted: _enc, ...fbRest } = settings.facebook;
+    return {
+      facebook: {
+        ...fbRest,
+        connected: Boolean(settings.facebook.pageId && token),
+        maskedToken: maskAccessToken(token),
+        tokenSet: Boolean(token),
+      },
+      instagram: settings.instagram,
+      youtube: settings.youtube,
+      tiktok: settings.tiktok,
+      lastApiResponses: settings.lastApiResponses.slice(0, MAX_API_LOGS),
+    };
+  }
+
+  async getPublicSettings(): Promise<SocialAutopostSettingsPublic> {
+    await this.reload();
+    return this.toPublic();
+  }
+
+  async updateSettings(
+    patch: {
+      facebook?: Partial<FacebookAutopostSettings> & { pageAccessToken?: string };
+      lastApiResponses?: SocialAutopostSettings['lastApiResponses'];
+    },
+  ) {
+    const current = this.getSettings();
+    const fbPatch = (patch.facebook ?? {}) as Partial<FacebookAutopostSettings> & {
+      pageAccessToken?: string;
+    };
+
+    let pageAccessTokenEncrypted = current.facebook.pageAccessTokenEncrypted;
+    if (typeof fbPatch.pageAccessToken === 'string' && fbPatch.pageAccessToken.trim()) {
+      pageAccessTokenEncrypted = this.tokenEncryption.encrypt(fbPatch.pageAccessToken.trim());
+    }
+
+    const next: SocialAutopostSettings = {
+      ...current,
+      facebook: {
+        ...current.facebook,
+        ...fbPatch,
+        pageAccessTokenEncrypted,
+        allowedRoles: fbPatch.allowedRoles ?? current.facebook.allowedRoles,
+      },
+      lastApiResponses: patch.lastApiResponses ?? current.lastApiResponses,
+    };
+
+    delete (next.facebook as Record<string, unknown>).pageAccessToken;
+
+    await this.prisma.appSetting.upsert({
+      where: { key: SETTINGS_KEY },
+      create: { key: SETTINGS_KEY, valueJson: next as object },
+      update: { valueJson: next as object },
+    });
+
+    this.stored = next;
+    this.applyEnvFallback();
+    return this.toPublic();
+  }
+
+  async appendApiLog(entry: Omit<SocialApiLogEntry, 'at'>) {
+    const current = this.getSettings();
+    const nextLog: SocialApiLogEntry = { at: new Date().toISOString(), ...entry };
+    const lastApiResponses = [nextLog, ...current.lastApiResponses].slice(0, MAX_API_LOGS);
+    await this.updateSettings({ lastApiResponses });
+  }
+}

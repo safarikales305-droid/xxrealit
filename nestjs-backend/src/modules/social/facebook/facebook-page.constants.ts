@@ -16,6 +16,7 @@ export const FACEBOOK_PAGE_API_SCOPES = [
   'pages_show_list',
   'pages_read_engagement',
   'pages_manage_metadata',
+  'pages_manage_posts',
 ].join(',');
 
 /** Propojení účtu + stránky — všechna požadovaná oprávnění. */
