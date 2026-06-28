@@ -20,6 +20,7 @@ import { DesktopShortsNavButtons } from '@/components/shorts/shorts-feed-nav-con
 import { isTipListing } from '@/lib/is-tip-listing';
 import { resolveShortsPosterUrl } from '@/lib/feed/shorts-poster-url';
 import { parseApiListingPrice } from '@/types/property';
+import { logListingDetailNavigation } from '@/lib/listing-detail-debug';
 
 type VideoCardProps = {
   video: ShortVideo;
@@ -281,6 +282,12 @@ export default function VideoCard({
   }
 
   function handleOpenListing() {
+    logListingDetailNavigation('click-open-listing', {
+      listingId: video.id,
+      targetDetailUrl: listingPath,
+      currentHost: typeof window !== 'undefined' ? window.location.host : '',
+      source: 'shorts',
+    });
     router.push(listingPath);
   }
 

@@ -1,10 +1,12 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect } from 'react';
 import {
   listingDetailBackTarget,
   parseListingDetailSource,
 } from '@/lib/listing-detail-navigation';
+import { logListingDetailNavigation } from '@/lib/listing-detail-debug';
 
 export function PropertyDetailFetchError({
   listingId,
@@ -20,16 +22,33 @@ export function PropertyDetailFetchError({
   const source = parseListingDetailSource(sp);
   const back = listingDetailBackTarget(source);
   const inactive = status === 410;
+  const notFound = status === 404;
+
+  useEffect(() => {
+    logListingDetailNavigation('detail-fetch-error', {
+      listingId,
+      status,
+      inactive,
+      notFound,
+      currentHost: window.location.host,
+    });
+  }, [listingId, status, inactive, notFound]);
 
   return (
     <div className="mx-auto flex min-h-[50vh] w-full max-w-2xl flex-col items-center justify-center px-4 text-center">
       <h1 className="text-2xl font-bold text-zinc-900">
-        {inactive ? 'Inzerát již není aktivní' : 'Inzerát se nepodařilo načíst'}
+        {inactive
+          ? 'Inzerát již není aktivní'
+          : notFound
+            ? 'Inzerát nebyl nalezen'
+            : 'Inzerát se nepodařilo načíst'}
       </h1>
       <p className="mt-3 text-sm text-zinc-600">
         {inactive
           ? 'Tento inzerát byl vypnut, expiroval nebo již není veřejně dostupný.'
-          : 'Inzerát se nepodařilo načíst. Zkuste obnovit stránku.'}
+          : notFound
+            ? 'Inzerát mohl být smazán, není veřejný nebo má neplatný odkaz.'
+            : 'Inzerát se nepodařilo načíst. Zkuste obnovit stránku.'}
       </p>
       {!inactive && status > 0 ? (
         <p className="mt-2 text-xs text-zinc-400">Chyba serveru ({status})</p>

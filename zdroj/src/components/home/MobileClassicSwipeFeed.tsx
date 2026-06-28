@@ -8,6 +8,7 @@ import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
 import { useGuestRegistrationGate } from '@/hooks/use-guest-registration-gate';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
+import { logListingDetailNavigation } from '@/lib/listing-detail-debug';
 import { isTipListing } from '@/lib/is-tip-listing';
 import { classicListingCoverUrl, type PropertyFeedItem } from '@/types/property';
 
@@ -62,6 +63,14 @@ function ClassicMobileCard({
         />
         <Link
           href={`/nemovitost/${item.id}?source=classic`}
+          onClick={() =>
+            logListingDetailNavigation('click-open-listing', {
+              listingId: item.id,
+              targetDetailUrl: `/nemovitost/${encodeURIComponent(item.id)}?source=classic`,
+              currentHost: typeof window !== 'undefined' ? window.location.host : '',
+              source: 'classic-mobile',
+            })
+          }
           className="mt-2 inline-flex w-full items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] py-3.5 text-[15px] font-semibold text-white shadow-[0_6px_24px_-6px_rgba(255,106,0,0.45)] transition active:scale-[0.98]"
         >
           Zobrazit inzerát

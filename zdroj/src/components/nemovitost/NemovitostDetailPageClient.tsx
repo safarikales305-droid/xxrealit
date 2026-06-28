@@ -7,6 +7,7 @@ import { PropertyDetailFetchError } from '@/app/nemovitost/[id]/fetch-error';
 import { useAuth } from '@/hooks/use-auth';
 import { useGuestRegistrationGate } from '@/hooks/use-guest-registration-gate';
 import { nestFetchPropertyDetail } from '@/lib/nest-client';
+import { logListingDetailNavigation } from '@/lib/listing-detail-debug';
 import {
   normalizePropertyDetailPayload,
   type PropertyDetailAuthor,
@@ -73,12 +74,25 @@ export function NemovitostDetailPageClient({ propertyId }: { propertyId: string 
     setReady(null);
     setOther([]);
 
+    logListingDetailNavigation('detail-mount', {
+      listingId: propertyId,
+      targetDetailUrl: `/nemovitost/${encodeURIComponent(propertyId)}`,
+      currentHost: typeof window !== 'undefined' ? window.location.host : '',
+      search: typeof window !== 'undefined' ? window.location.search : '',
+    });
+
     void (async () => {
       const result = await nestFetchPropertyDetail(propertyId, tokenRef.current, {
         includeOther: false,
         signal: controller.signal,
       });
       if (cancelled) return;
+
+      logListingDetailNavigation('detail-api-response', {
+        listingId: propertyId,
+        status: result.ok ? 200 : result.status,
+        ok: result.ok,
+      });
 
       if (!result.ok) {
         setErrorStatus(result.status || 502);

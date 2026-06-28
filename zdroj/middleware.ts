@@ -37,14 +37,22 @@ function handleCanonicalRedirect(request: NextRequest): NextResponse | null {
     return null;
   }
 
-  const url = request.nextUrl.clone();
-  url.protocol = 'https:';
-  url.hostname = CANONICAL_WWW_HOST;
-  url.port = '';
+  const pathname = request.nextUrl.pathname;
+  const search = request.nextUrl.search;
+  const destination = `https://${CANONICAL_WWW_HOST}${pathname}${search}`;
 
   // eslint-disable-next-line no-console
-  console.log('[middleware] Redirect to:', url.toString(), `(host=${host}, proto=${proto})`);
-  return NextResponse.redirect(url, 301);
+  console.log('[middleware] canonical redirect', {
+    from: request.url,
+    to: destination,
+    host,
+    proto,
+    pathname,
+    search,
+    redirectTarget: destination,
+  });
+
+  return NextResponse.redirect(destination, 301);
 }
 
 function isProtectedPath(pathname: string): boolean {

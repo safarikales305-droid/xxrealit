@@ -3670,14 +3670,22 @@ export async function nestFetchPropertyDetail(
   if (!API_BASE_URL) return { ok: false, status: 0 };
   const qs =
     options?.includeOther === false ? '?includeOther=false' : '';
-  const res = await fetch(
-    `${API_BASE_URL}/properties/${encodeURIComponent(propertyId)}${qs}`,
-    {
-      cache: 'no-store',
-      signal: options?.signal,
-      headers: { Accept: 'application/json', ...nestAuthHeaders(token) },
-    },
+  const url = `${API_BASE_URL}/properties/${encodeURIComponent(propertyId)}${qs}`;
+  const { logListingDetailNavigation, shouldLogListingDetailNav } = await import(
+    '@/lib/listing-detail-debug'
   );
+  if (shouldLogListingDetailNav()) {
+    logListingDetailNavigation('api-request', {
+      listingId: propertyId,
+      url,
+      apiBase: API_BASE_URL,
+    });
+  }
+  const res = await fetch(url, {
+    cache: 'no-store',
+    signal: options?.signal,
+    headers: { Accept: 'application/json', ...nestAuthHeaders(token) },
+  });
   if (!res.ok) return { ok: false, status: res.status };
   const data = (await res.json().catch(() => null)) as unknown;
   if (data == null) return { ok: false, status: 502 };

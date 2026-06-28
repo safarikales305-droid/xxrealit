@@ -44,6 +44,15 @@ export function isPathAllowedForTermsReaccept(pathname: string): boolean {
     '/prihlaseni',
     '/logout',
     '/api',
+    '/nemovitost',
+    '/nemovitosti',
+    '/shorts',
+    '/prispevky',
+    '/tipy',
+    '/o-portalu',
+    '/privacy',
+    '/privacy-policy',
+    '/terms',
   ];
   return allowed.some((prefix) => p === prefix || p.startsWith(`${prefix}/`));
 }

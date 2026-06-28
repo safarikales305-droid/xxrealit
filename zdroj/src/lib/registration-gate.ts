@@ -34,6 +34,11 @@ export function isPathAllowedForFirstContent(pathname: string): boolean {
     '/obchodni-podminky',
     '/o-portalu',
     '/data-deletion',
+    '/nemovitost',
+    '/nemovitosti',
+    '/shorts',
+    '/prispevky',
+    '/tipy',
   ];
   return allowedPrefixes.some((prefix) => p === prefix || p.startsWith(`${prefix}/`));
 }
@@ -53,6 +58,11 @@ export function isPathAllowedForRegistrationRequirements(pathname: string): bool
     '/obchodni-podminky',
     '/o-portalu',
     '/data-deletion',
+    '/nemovitost',
+    '/nemovitosti',
+    '/shorts',
+    '/prispevky',
+    '/tipy',
   ];
   return allowedPrefixes.some((prefix) => p === prefix || p.startsWith(`${prefix}/`));
 }
