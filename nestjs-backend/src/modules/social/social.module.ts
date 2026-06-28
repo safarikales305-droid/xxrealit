@@ -31,7 +31,12 @@ import {
 import { SocialPublishQueueCronService } from './autopost/social-publish-queue.cron.service';
 
 @Module({
-  imports: [AuthModule, forwardRef(() => PostsModule), BonusCampaignModule, ShareModule],
+  imports: [
+    forwardRef(() => AuthModule),
+    forwardRef(() => PostsModule),
+    BonusCampaignModule,
+    ShareModule,
+  ],
   controllers: [
     FacebookController,
     FacebookPageController,

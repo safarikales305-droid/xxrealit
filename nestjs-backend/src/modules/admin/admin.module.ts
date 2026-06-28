@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { AdminController } from './admin.controller';
 import { AdminSeedService } from './admin-seed.service';
@@ -18,7 +18,7 @@ import { CreditsModule } from '../credits/credits.module';
     CreditsModule,
     AgentProfileModule,
     ProfessionalVerificationModule,
-    SocialModule,
+    forwardRef(() => SocialModule),
     ImportsModule,
     PropertiesModule,
     TiparModule,

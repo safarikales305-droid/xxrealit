@@ -13,7 +13,7 @@ import { PostsService } from './posts.service';
     forwardRef(() => BonusCampaignModule),
     WhatsAppModule,
     forwardRef(() => SocialModule),
-    AuthModule,
+    forwardRef(() => AuthModule),
   ],
   controllers: [PostsController],
   providers: [PostsService],
