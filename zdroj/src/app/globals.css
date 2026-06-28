@@ -672,6 +672,38 @@ body {
   will-change: transform, opacity;
 }
 
+/* Jemné odplutí stranou při focusu / psaní do formuláře (mobil) */
+@keyframes auth-float-nudge-left {
+  to {
+    transform: translate3d(-18px, -6px, 0) rotate(calc(var(--auth-rotate, 0deg) - 2deg))
+      scale(calc(var(--auth-scale, 1) * 0.96));
+    opacity: max(0.18, calc(var(--auth-opacity, 0.35) - 0.12));
+  }
+}
+
+@keyframes auth-float-nudge-right {
+  to {
+    transform: translate3d(18px, -6px, 0) rotate(calc(var(--auth-rotate, 0deg) + 2deg))
+      scale(calc(var(--auth-scale, 1) * 0.96));
+    opacity: max(0.18, calc(var(--auth-opacity, 0.35) - 0.12));
+  }
+}
+
+@media (max-width: 1023px) {
+  .auth-page-shell:has(.auth-form-interactive:focus-within) .auth-float-drift-left {
+    animation: auth-float-nudge-left 0.7s ease-out forwards;
+  }
+
+  .auth-page-shell:has(.auth-form-interactive:focus-within) .auth-float-drift-right {
+    animation: auth-float-nudge-right 0.7s ease-out forwards;
+  }
+
+  .auth-page-shell:has(.auth-form-interactive:focus-within) .auth-float-gentle,
+  .auth-page-shell:has(.auth-form-interactive:focus-within) .auth-float-gentle-slow {
+    animation-play-state: paused;
+  }
+}
+
 .auth-form-input:focus {
   outline: none;
 }
@@ -681,7 +713,9 @@ body {
   .auth-backdrop-float,
   .auth-backdrop-float-slow,
   .auth-float-gentle,
-  .auth-float-gentle-slow {
-    animation: none;
+  .auth-float-gentle-slow,
+  .auth-float-drift-left,
+  .auth-float-drift-right {
+    animation: none !important;
   }
 }

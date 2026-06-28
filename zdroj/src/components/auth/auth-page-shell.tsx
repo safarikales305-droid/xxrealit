@@ -42,7 +42,7 @@ export function AuthPageShell({ variant, children }: AuthPageShellProps) {
   }, []);
 
   return (
-    <div className="relative flex min-h-[100dvh] flex-col overflow-x-hidden bg-slate-950 text-zinc-900">
+    <div className="auth-page-shell relative flex min-h-[100dvh] flex-col overflow-x-hidden bg-slate-950 text-zinc-900">
       <div
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_120%_80%_at_50%_-20%,rgba(234,88,12,0.22),transparent_50%),radial-gradient(ellipse_80%_50%_at_100%_50%,rgba(249,115,22,0.08),transparent_45%),radial-gradient(ellipse_60%_40%_at_0%_80%,rgba(251,146,60,0.07),transparent_40%)]"
         aria-hidden
@@ -53,14 +53,13 @@ export function AuthPageShell({ variant, children }: AuthPageShellProps) {
       />
 
       <AuthDesktopLiveBackdrop items={previewItems} />
-      <FloatingAuthDecorations items={previewItems} />
 
       <div
         className="pointer-events-none absolute inset-0 hidden bg-[radial-gradient(ellipse_60%_50%_at_50%_48%,rgba(15,23,42,0.55),transparent_75%)] lg:block"
         aria-hidden
       />
       <div
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_85%_70%_at_50%_42%,rgba(15,23,42,0.62),transparent_68%)] lg:hidden"
+        className="pointer-events-none absolute inset-0 z-[5] bg-[radial-gradient(ellipse_85%_70%_at_50%_42%,rgba(15,23,42,0.62),transparent_68%)] lg:hidden"
         aria-hidden
       />
 
@@ -73,7 +72,7 @@ export function AuthPageShell({ variant, children }: AuthPageShellProps) {
         </Link>
 
         <div className="mx-auto w-[95%] max-w-[520px] flex-1 sm:flex-none">
-          <div className="auth-form-enter rounded-[28px] bg-white/95 p-6 shadow-[0_20px_60px_rgba(0,0,0,0.18)] backdrop-blur-md max-lg:ring-1 max-lg:ring-white/40 sm:p-10 lg:bg-white lg:backdrop-blur-none">
+          <div className="auth-form-interactive auth-form-enter pointer-events-auto relative rounded-[28px] bg-white/92 p-6 shadow-[0_20px_60px_rgba(0,0,0,0.2)] backdrop-blur-lg max-lg:ring-1 max-lg:ring-white/50 sm:p-10 lg:bg-white lg:backdrop-blur-none">
             <header className="flex flex-col items-center text-center">
               <div className="flex flex-col items-center gap-4 px-2 pt-1 sm:gap-5 sm:px-4">
                 <Logo className="h-12 w-auto sm:h-14 md:h-[4.25rem]" />
@@ -97,10 +96,14 @@ export function AuthPageShell({ variant, children }: AuthPageShellProps) {
               </p>
             </header>
 
-            <div className="relative z-10 mt-8 min-w-0 sm:mt-10">{children}</div>
+            <div className="relative mt-8 min-w-0 sm:mt-10 [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_input]:pointer-events-auto [&_select]:pointer-events-auto [&_textarea]:pointer-events-auto">
+              {children}
+            </div>
           </div>
         </div>
       </div>
+
+      <FloatingAuthDecorations items={previewItems} />
 
       <div className="hidden sm:block">
         <SiteFooter />
