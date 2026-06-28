@@ -128,6 +128,7 @@ export class MarketingPopupController {
     const role = String(me.role ?? user.role);
     const hasPhone = Boolean(String(me.phone ?? '').trim());
     const hasAvatar = Boolean(me.avatarUrl);
+    const hasBankAccount = Boolean(String(me.tiparPayoutBankAccount ?? '').trim());
     const workerOnboardingIncomplete =
       role.toUpperCase() === 'PORTAL_WORKER' &&
       (!hasPhone || !me.emailVerified || !me.whatsappVerified || !hasAvatar);
@@ -146,6 +147,7 @@ export class MarketingPopupController {
       justLoggedIn: justLoggedIn === '1' || justLoggedIn === 'true',
       onWorkerPanel: onWorkerPanel === '1' || onWorkerPanel === 'true',
       workerOnboardingIncomplete,
+      hasBankAccount,
     });
   }
 

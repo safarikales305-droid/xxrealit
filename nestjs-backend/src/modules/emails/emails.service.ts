@@ -645,4 +645,90 @@ export class EmailsService implements OnModuleInit {
       },
     });
   }
+
+  private formatAmount(amount: number) {
+    return new Intl.NumberFormat('cs-CZ').format(amount);
+  }
+
+  private tiparPayoutEmailVars(input: {
+    userName: string;
+    amount: number;
+    adminNote?: string | null;
+  }) {
+    return {
+      userName: input.userName,
+      amount: this.formatAmount(input.amount),
+      adminNote: input.adminNote?.trim() || '',
+      portalName: this.portalName(),
+      loginUrl: this.loginUrl(),
+      ctaUrl: this.loginUrl(),
+    };
+  }
+
+  async sendTiparPayoutRequestReceivedEmail(input: {
+    to: string;
+    userName: string;
+    amount: number;
+    userId: string;
+    requestId: string;
+  }) {
+    return this.sendTemplatedEmail({
+      type: 'tipar_payout_request_received',
+      templateKey: 'tipar_payout_request_received',
+      to: input.to,
+      variables: this.tiparPayoutEmailVars(input),
+      metadata: { userId: input.userId, requestId: input.requestId, amount: input.amount },
+    });
+  }
+
+  async sendTiparPayoutApprovedEmail(input: {
+    to: string;
+    userName: string;
+    amount: number;
+    userId: string;
+    requestId: string;
+    adminNote?: string | null;
+  }) {
+    return this.sendTemplatedEmail({
+      type: 'tipar_payout_approved',
+      templateKey: 'tipar_payout_approved',
+      to: input.to,
+      variables: this.tiparPayoutEmailVars(input),
+      metadata: { userId: input.userId, requestId: input.requestId, amount: input.amount },
+    });
+  }
+
+  async sendTiparPayoutRejectedEmail(input: {
+    to: string;
+    userName: string;
+    amount: number;
+    userId: string;
+    requestId: string;
+    adminNote?: string | null;
+  }) {
+    return this.sendTemplatedEmail({
+      type: 'tipar_payout_rejected',
+      templateKey: 'tipar_payout_rejected',
+      to: input.to,
+      variables: this.tiparPayoutEmailVars(input),
+      metadata: { userId: input.userId, requestId: input.requestId, amount: input.amount },
+    });
+  }
+
+  async sendTiparPayoutPaidEmail(input: {
+    to: string;
+    userName: string;
+    amount: number;
+    userId: string;
+    requestId: string;
+    adminNote?: string | null;
+  }) {
+    return this.sendTemplatedEmail({
+      type: 'tipar_payout_paid',
+      templateKey: 'tipar_payout_paid',
+      to: input.to,
+      variables: this.tiparPayoutEmailVars(input),
+      metadata: { userId: input.userId, requestId: input.requestId, amount: input.amount },
+    });
+  }
 }

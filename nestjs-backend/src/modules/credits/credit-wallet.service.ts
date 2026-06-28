@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { normalizeCreditDebtState } from './credit-debt.util';
@@ -321,6 +321,7 @@ export class CreditWalletService {
         bonusCreditBalance: true,
         pendingCreditBalance: true,
         creditBalance: true,
+        tiparEarningsBalance: true,
       },
     });
     if (!user) throw new ForbiddenException('Uživatel nenalezen');
@@ -330,12 +331,18 @@ export class CreditWalletService {
       purposeOverride ??
       (sourceType === 'LISTING' ? 'LISTING_CONTACT_UNLOCK' : 'TIP_CONTACT_UNLOCK');
 
+    const tiparEarningsDebit =
+      breakdown.realUsed > 0 ? Math.min(breakdown.realUsed, Math.max(0, user.tiparEarningsBalance)) : 0;
+
     const updated = await tx.user.update({
       where: { id: userId },
       data: {
         realCreditBalance: { decrement: breakdown.realUsed },
         bonusCreditBalance: { decrement: breakdown.bonusUsed },
         pendingCreditBalance: { decrement: breakdown.pendingUsed },
+        ...(tiparEarningsDebit > 0
+          ? { tiparEarningsBalance: { decrement: tiparEarningsDebit } }
+          : {}),
       },
       select: {
         realCreditBalance: true,
@@ -423,6 +430,90 @@ export class CreditWalletService {
       },
     });
     return this.serializeBalances({ ...updated, creditBalance: total });
+  }
+
+  async creditTipsterEarning(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    amount: number,
+    referenceId: string | null,
+    description: string,
+  ): Promise<UserCreditBalances> {
+    const amt = Math.max(0, Math.trunc(amount));
+    const balances = await this.creditReal(
+      tx,
+      userId,
+      amt,
+      'TIPSTER_EARNING',
+      referenceId,
+      description,
+    );
+    if (amt > 0) {
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          tiparLifetimeEarnings: { increment: amt },
+          tiparEarningsBalance: { increment: amt },
+        },
+      });
+    }
+    return balances;
+  }
+
+  async debitTiparPayout(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    amount: number,
+    payoutRequestId: string,
+    description: string,
+  ): Promise<void> {
+    const amt = Math.max(0, Math.trunc(amount));
+    if (amt <= 0) return;
+
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: {
+        realCreditBalance: true,
+        bonusCreditBalance: true,
+        pendingCreditBalance: true,
+        tiparEarningsBalance: true,
+      },
+    });
+    if (!user) throw new ForbiddenException('Uživatel nenalezen.');
+    if (user.tiparEarningsBalance < amt) {
+      throw new BadRequestException('Nedostatečný výdělek k výplatě.');
+    }
+    if (user.realCreditBalance < amt) {
+      throw new BadRequestException('Nedostatečný reálný kredit pro výplatu.');
+    }
+
+    const updated = await tx.user.update({
+      where: { id: userId },
+      data: {
+        realCreditBalance: { decrement: amt },
+        tiparEarningsBalance: { decrement: amt },
+        tiparPaidOutTotal: { increment: amt },
+      },
+      select: {
+        realCreditBalance: true,
+        bonusCreditBalance: true,
+        pendingCreditBalance: true,
+        creditBalance: true,
+      },
+    });
+    const total = this.totalBalance(updated);
+    await tx.user.update({ where: { id: userId }, data: { creditBalance: total } });
+    await tx.creditLedger.create({
+      data: {
+        userId,
+        amount: -amt,
+        type: 'TIPAR_PAYOUT',
+        creditType: 'REAL',
+        purpose: 'TIPAR_PAYOUT',
+        referenceId: payoutRequestId,
+        description,
+      },
+    });
   }
 
   async creditBonus(

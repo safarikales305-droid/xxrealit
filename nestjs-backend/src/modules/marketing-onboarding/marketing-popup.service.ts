@@ -44,6 +44,7 @@ export type OnboardingUserContext = {
   justLoggedIn: boolean;
   onWorkerPanel: boolean;
   workerOnboardingIncomplete: boolean;
+  hasBankAccount: boolean;
 };
 
 @Injectable()
@@ -313,6 +314,8 @@ export class MarketingPopupService implements OnModuleInit {
         return !ctx.hasAvatar;
       case 'MISSING_PROFILE':
         return !ctx.profileComplete;
+      case 'MISSING_BANK_ACCOUNT':
+        return !ctx.hasBankAccount;
       case 'TIPSTER_OFFER':
         return !ctx.isTipar;
       case 'PWA_INSTALL':

@@ -20,6 +20,7 @@ const TRIGGERS = [
   { id: 'MISSING_PHONE', label: 'Chybí telefon' },
   { id: 'MISSING_AVATAR', label: 'Chybí profilová fotka' },
   { id: 'MISSING_PROFILE', label: 'Neúplný profil' },
+  { id: 'MISSING_BANK_ACCOUNT', label: 'Chybí číslo bankovního účtu' },
   { id: 'TIPSTER_OFFER', label: 'Nabídka tipaře' },
   { id: 'PWA_INSTALL', label: 'Instalace PWA' },
   { id: 'PWA_PUSH', label: 'PWA push notifikace' },

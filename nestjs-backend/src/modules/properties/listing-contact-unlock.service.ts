@@ -711,11 +711,10 @@ export class ListingContactUnlockService {
 
         if (property.isTiparTip && tipsterUserId) {
           if (tipSplit.tipsterAmount > 0) {
-            await this.wallet.creditReal(
+            await this.wallet.creditTipsterEarning(
               tx,
               tipsterUserId,
               tipSplit.tipsterAmount,
-              'TIPSTER_EARNING',
               tip?.id ?? propertyId,
               `Výdělek tipaře za odemčení kontaktu: ${property.title}`,
             );
@@ -937,11 +936,10 @@ export class ListingContactUnlockService {
         );
 
         if (tipSplit.tipsterAmount > 0) {
-          await this.wallet.creditReal(
+          await this.wallet.creditTipsterEarning(
             tx,
             tip.userId,
             tipSplit.tipsterAmount,
-            'TIPSTER_EARNING',
             tipId,
             `Výdělek tipaře za odemčení kontaktu: ${tip.title}`,
           );

@@ -97,6 +97,13 @@ enum WorkerCommissionStatus {
   PAID
 }
 
+enum TiparPayoutStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+}
+
 enum ReactionType {
   LIKE
   DISLIKE
@@ -381,6 +388,12 @@ model User {
 
   /// Číslo účtu pro výplatu provizí tipařům.
   tiparPayoutBankAccount String?
+  /// Celkový výdělek z tipů (kumulativně).
+  tiparLifetimeEarnings Int @default(0)
+  /// Dostupný výdělek k výplatě (bez bonusového kreditu).
+  tiparEarningsBalance Int @default(0)
+  /// Již vyplacená částka z tipů.
+  tiparPaidOutTotal Int @default(0)
 
   /// Upozornění — nové příspěvky ve feedu / od sledovaných.
   notifyNewPosts       Boolean @default(true)
@@ -406,6 +419,8 @@ model User {
 
   shortsListings ShortsListing[] @relation("UserShortsListings")
   tiparPosts     TiparPost[]
+  tiparPayoutRequests TiparPayoutRequest[] @relation("TiparPayoutUser")
+  tiparPayoutsResolved TiparPayoutRequest[] @relation("TiparPayoutAdmin")
   contactUnlocks ContactUnlock[]
   listingContactUnlocks ListingContactUnlock[]
   contactLeadsAsInterested ContactLead[] @relation("ContactLeadInterested")
@@ -1323,6 +1338,28 @@ model WebPushSubscription {
 
   @@unique([userId, endpoint])
   @@index([userId])
+}
+
+/// Žádost tipaře o výplatu výdělku z tipů.
+model TiparPayoutRequest {
+  id                  String            @id @default(cuid())
+  userId              String
+  amount              Int
+  status              TiparPayoutStatus @default(PENDING)
+  bankAccountSnapshot String
+  userEmailSnapshot   String
+  userPhoneSnapshot   String?
+  userRoleSnapshot    String
+  adminNote           String?           @db.Text
+  requestedAt         DateTime          @default(now())
+  resolvedAt          DateTime?
+  resolvedByAdminId   String?
+
+  user       User  @relation("TiparPayoutUser", fields: [userId], references: [id], onDelete: Cascade)
+  resolvedBy User? @relation("TiparPayoutAdmin", fields: [resolvedByAdminId], references: [id], onDelete: SetNull)
+
+  @@index([userId, requestedAt])
+  @@index([status, requestedAt])
 }
 
 /// Tipařský příspěvek — tip na nemovitost, volitelně ve Shorts feedu.

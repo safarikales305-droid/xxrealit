@@ -48,6 +48,7 @@ import { PropertySeekerModule } from './modules/property-seeker/property-seeker.
 import { PortalTermsModule } from './modules/portal-terms/portal-terms.module';
 import { PortalPresentationModule } from './modules/portal-presentation/portal-presentation.module';
 import { SupportTicketsModule } from './modules/support-tickets/support-tickets.module';
+import { TiparPayoutModule } from './modules/tipar-payout/tipar-payout.module';
 
 @Module({
   imports: [
@@ -102,6 +103,7 @@ import { SupportTicketsModule } from './modules/support-tickets/support-tickets.
     PortalTermsModule,
     PortalPresentationModule,
     SupportTicketsModule,
+    TiparPayoutModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

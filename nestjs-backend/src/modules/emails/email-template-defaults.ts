@@ -54,6 +54,10 @@ export const EMAIL_TEMPLATE_VARIABLES: Record<string, string[]> = {
   client_registration_complete: ['clientName', 'portalName', 'loginUrl', 'profileUrl'],
   worker_portal_invitation: ['workerName', 'completeUrl', 'portalName', 'loginUrl'],
   worker_bonus_credit_gift: ['clientName', 'amount', 'workerName', 'portalUrl'],
+  tipar_payout_request_received: ['userName', 'amount', 'portalName', 'loginUrl'],
+  tipar_payout_approved: ['userName', 'amount', 'adminNote', 'portalName', 'loginUrl'],
+  tipar_payout_rejected: ['userName', 'amount', 'adminNote', 'portalName', 'loginUrl'],
+  tipar_payout_paid: ['userName', 'amount', 'adminNote', 'portalName', 'loginUrl'],
   system_notification: ['title', 'messageHtml', 'messageText', 'ctaUrl', 'portalName'],
   custom_message: ['subject', 'bodyHtml', 'bodyText', 'portalName'],
   whatsapp_followup_email: ['userName', 'messageHtml', 'messageText', 'ctaUrl', 'portalName'],
@@ -257,6 +261,50 @@ Kredit můžete využít na portálu {{portalName}} podle aktuálních pravidel 
 Děkujeme,
 tým {{portalName}}`,
     variables: EMAIL_TEMPLATE_VARIABLES.worker_bonus_credit_gift,
+  },
+  {
+    key: 'tipar_payout_request_received',
+    name: 'Žádost o výplatu přijata',
+    category: 'system',
+    subject: 'Přijali jsme vaši žádost o výplatu {{amount}} Kč',
+    htmlContent:
+      '<p>Dobrý den {{userName}},</p><p>vaši žádost o výplatu ve výši <strong>{{amount}} Kč</strong> jsme přijali ke zpracování.</p><p>O výsledku vás budeme informovat e-mailem.</p><p><a href="{{loginUrl}}">Přejít na portál</a></p>',
+    textContent:
+      'Dobrý den {{userName}},\n\nPřijali jsme vaši žádost o výplatu {{amount}} Kč.\n\n{{loginUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.tipar_payout_request_received,
+  },
+  {
+    key: 'tipar_payout_approved',
+    name: 'Výplata schválena',
+    category: 'system',
+    subject: 'Vaše výplata {{amount}} Kč byla schválena',
+    htmlContent:
+      '<p>Dobrý den {{userName}},</p><p>žádost o výplatu <strong>{{amount}} Kč</strong> byla schválena.</p><p>{{adminNote}}</p><p><a href="{{loginUrl}}">Přejít na portál</a></p>',
+    textContent:
+      'Výplata {{amount}} Kč schválena.\n\n{{adminNote}}\n\n{{loginUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.tipar_payout_approved,
+  },
+  {
+    key: 'tipar_payout_rejected',
+    name: 'Výplata zamítnuta',
+    category: 'system',
+    subject: 'Vaše žádost o výplatu {{amount}} Kč byla zamítnuta',
+    htmlContent:
+      '<p>Dobrý den {{userName}},</p><p>žádost o výplatu <strong>{{amount}} Kč</strong> byla zamítnuta.</p><p>{{adminNote}}</p><p><a href="{{loginUrl}}">Přejít na portál</a></p>',
+    textContent:
+      'Výplata {{amount}} Kč zamítnuta.\n\n{{adminNote}}\n\n{{loginUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.tipar_payout_rejected,
+  },
+  {
+    key: 'tipar_payout_paid',
+    name: 'Výplata odeslána',
+    category: 'system',
+    subject: 'Výplata {{amount}} Kč byla odeslána na váš účet',
+    htmlContent:
+      '<p>Dobrý den {{userName}},</p><p>částka <strong>{{amount}} Kč</strong> byla odeslána na váš bankovní účet.</p><p>{{adminNote}}</p><p><a href="{{loginUrl}}">Přejít na portál</a></p>',
+    textContent:
+      'Výplata {{amount}} Kč odeslána.\n\n{{adminNote}}\n\n{{loginUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.tipar_payout_paid,
   },
 ];
 

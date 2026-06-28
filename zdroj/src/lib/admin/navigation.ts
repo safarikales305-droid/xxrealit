@@ -53,6 +53,7 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
       { id: 'workers', label: 'Pracovníci portálu', href: '/admin/pracovnici-portalu', icon: '🛠' },
       { id: 'workers-crm', label: 'CRM klienti pracovníků', href: '/admin/pracovnici-portalu/crm', icon: '📋', tone: 'blue' },
       { id: 'tipsters', label: 'Tipaři', href: '/admin/tipar', icon: '💡' },
+      { id: 'tipster-payouts', label: 'Výplaty tipařů', href: '/admin/tipar/vyplaty', icon: '💸', tone: 'green' },
       { id: 'promo', label: 'Promo profily', href: '/admin/promo-profily', icon: '⭐' },
       { id: 'brokers-db', label: 'Databáze makléřů', href: '/admin/databaze-makleiru', icon: '📇' },
     ],
