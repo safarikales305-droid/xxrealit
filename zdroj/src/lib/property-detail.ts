@@ -14,6 +14,9 @@ export type PropertyDetailAuthor = {
   whatsappEnabled?: boolean;
   avatar?: string | null;
   role?: string;
+  professionalVerified?: boolean;
+  brokerReviewAverage?: number | null;
+  brokerReviewCount?: number | null;
 };
 
 export type PropertyDetailPayload = {
@@ -57,6 +60,11 @@ function pickUserFromDetail(
         whatsappEnabled: u.whatsappEnabled === true,
         avatar: u.avatar === null ? null : str(u.avatar),
         role: typeof u.role === 'string' ? u.role : undefined,
+        professionalVerified: u.professionalVerified === true,
+        brokerReviewAverage:
+          typeof u.brokerReviewAverage === 'number' ? u.brokerReviewAverage : null,
+        brokerReviewCount:
+          typeof u.brokerReviewCount === 'number' ? u.brokerReviewCount : null,
       };
     }
   }

@@ -3,34 +3,42 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { Heart, MessageCircle } from 'lucide-react';
 import { ContactGateModals, useContactGate } from '@/components/listing/ContactGate';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
-import { ShareButtons } from '@/components/share/ShareButtons';
 import { useAuth } from '@/hooks/use-auth';
-import { getNestPublicOrigin, nestAbsoluteAssetUrl } from '@/lib/api';
-import { isValidImageUrl, normalizeImageCandidate } from '@/lib/images';
+import { nestAbsoluteAssetUrl } from '@/lib/api';
 import {
   nestShareListingByEmail,
   nestSubmitOwnerLeadOffer,
   nestToggleFavorite,
 } from '@/lib/nest-client';
-import { listingShareUrl } from '@/lib/public-share-url';
 import type { PropertyDetailAuthor } from '@/lib/property-detail';
 import { ListingPriceDisplay } from '@/components/pricing/ListingPriceDisplay';
-import { TipDetailBadge } from '@/components/listing/TipBadges';
 import { isTipListing } from '@/lib/is-tip-listing';
-import { listingDetailHref } from '@/lib/listing-detail-navigation';
+import { listingShareUrl } from '@/lib/public-share-url';
 import { ListingDetailBackButton } from '@/components/nemovitost/ListingDetailBackButton';
 import { ListingDetailLeftSidebar } from '@/components/nemovitost/ListingDetailLeftSidebar';
-import { WhatsAppContactButton } from '@/components/whatsapp/WhatsAppContactButton';
+import { ListingActionBar } from '@/components/nemovitost/listing-detail/ListingActionBar';
+import { ListingContactCard } from '@/components/nemovitost/listing-detail/ListingContactCard';
+import { ListingDescription } from '@/components/nemovitost/listing-detail/ListingDescription';
+import { ListingDetailGallery } from '@/components/nemovitost/listing-detail/ListingDetailGallery';
+import { ListingDetailHeader } from '@/components/nemovitost/listing-detail/ListingDetailHeader';
+import { ListingDetailLightbox } from '@/components/nemovitost/listing-detail/ListingDetailLightbox';
+import { ListingDetailMap } from '@/components/nemovitost/listing-detail/ListingDetailMap';
+import { ListingMobileStickyBar } from '@/components/nemovitost/listing-detail/ListingMobileStickyBar';
+import { ListingMortgageCalculator } from '@/components/nemovitost/listing-detail/ListingMortgageCalculator';
+import { ListingParametersTable } from '@/components/nemovitost/listing-detail/ListingParametersTable';
+import { ListingQuickParams } from '@/components/nemovitost/listing-detail/ListingQuickParams';
+import { ListingSimilarCarousel } from '@/components/nemovitost/listing-detail/ListingSimilarCarousel';
+import {
+  buildMediaList,
+  buildParameterRows,
+  buildQuickParams,
+  mapsQuery,
+  pricePerSqm,
+} from '@/components/nemovitost/listing-detail/listing-detail-utils';
+import { ShareButtons } from '@/components/share/ShareButtons';
 import { classicListingCoverUrl, type PropertyFeedItem } from '@/types/property';
-
-type MediaItem = {
-  key: string;
-  url: string;
-  type: 'image' | 'video';
-};
 
 type Props = {
   propertyId: string;
@@ -39,100 +47,6 @@ type Props = {
   other: PropertyFeedItem[];
   extraFields?: Record<string, unknown>;
 };
-
-function collectPhotoUrls(p: PropertyFeedItem): string[] {
-  const ext = p as PropertyFeedItem & {
-    photos?: Array<{ url?: string } | string>;
-  };
-  const base = getNestPublicOrigin() || undefined;
-  if (!Array.isArray(ext.photos)) return [];
-  const out: string[] = [];
-  for (const x of ext.photos) {
-    if (typeof x === 'string') {
-      const u = x.trim();
-      const n = normalizeImageCandidate(u, base);
-      if (isValidImageUrl(n)) out.push(n!);
-    } else if (x && typeof x === 'object') {
-      const u = typeof x.url === 'string' ? x.url.trim() : '';
-      const n = normalizeImageCandidate(u, base);
-      if (isValidImageUrl(n)) out.push(n!);
-    }
-  }
-  return out;
-}
-
-function collectImagesFieldUrls(p: PropertyFeedItem): string[] {
-  const base = getNestPublicOrigin() || undefined;
-  const candidates = [
-    ...(Array.isArray(p.images) ? p.images : []),
-    ...(Array.isArray(p.galleryImages) ? p.galleryImages : []),
-    ...(typeof p.mainImage === 'string' && p.mainImage.trim() ? [p.mainImage.trim()] : []),
-  ];
-  if (candidates.length === 0) return [];
-  const out: string[] = [];
-  for (const raw of candidates) {
-    if (typeof raw !== 'string') continue;
-    const n = normalizeImageCandidate(raw.trim(), base);
-    if (isValidImageUrl(n)) out.push(n!);
-  }
-  return out;
-}
-
-function buildMediaList(p: PropertyFeedItem): MediaItem[] {
-  const base = getNestPublicOrigin() || undefined;
-  const relation = [...(p.media ?? [])]
-    .filter((m) => m.url?.trim())
-    .sort((a, b) => a.order - b.order);
-
-  const videos: MediaItem[] = relation
-    .filter((m) => m.type === 'video')
-    .map((m, i) => ({
-      key: `video-${m.order}-${i}`,
-      url: m.url.trim(),
-      type: 'video' as const,
-    }));
-
-  const seenNorm = new Set<string>();
-  const imagesOut: MediaItem[] = [];
-  const pushImage = (rawUrl: string, keyPrefix: string) => {
-    const n = normalizeImageCandidate(rawUrl.trim(), base);
-    if (!isValidImageUrl(n) || !n) return;
-    if (seenNorm.has(n)) return;
-    seenNorm.add(n);
-    imagesOut.push({
-      key: `${keyPrefix}-${imagesOut.length}`,
-      url: n,
-      type: 'image',
-    });
-  };
-
-  for (const m of relation) {
-    if (m.type === 'image' && m.url?.trim()) pushImage(m.url, 'media');
-  }
-  for (const u of collectImagesFieldUrls(p)) pushImage(u, 'img');
-  for (const u of collectPhotoUrls(p)) pushImage(u, 'photo');
-
-  if (videos.length > 0 || imagesOut.length > 0) {
-    return [...videos, ...imagesOut];
-  }
-  const v = p.videoUrl?.trim();
-  if (v) {
-    return [{ key: 'video-fallback', url: v, type: 'video' }];
-  }
-  const cover = classicListingCoverUrl(p);
-  if (cover) {
-    return [{ key: 'image-fallback', url: cover, type: 'image' }];
-  }
-  return [];
-}
-
-function formatExtra(label: string, v: unknown): string | null {
-  if (v == null || v === '') return null;
-  if (typeof v === 'number' && Number.isFinite(v)) return `${label}: ${v}`;
-  if (typeof v === 'string') return `${label}: ${v}`;
-  if (typeof v === 'boolean') return `${label}: ${v ? 'Ano' : 'Ne'}`;
-  return null;
-}
 
 export function NemovitostDetailView({
   propertyId,
@@ -144,13 +58,8 @@ export function NemovitostDetailView({
   const router = useRouter();
   const { user, isAuthenticated, apiAccessToken } = useAuth();
   const media = useMemo(() => buildMediaList(p), [p]);
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [brokenMediaKeys, setBrokenMediaKeys] = useState<Record<string, boolean>>({});
-  const safeMediaIndex = Math.min(
-    activeIndex,
-    Math.max(0, media.length > 0 ? media.length - 1 : 0),
-  );
   const [sellerModalOpen, setSellerModalOpen] = useState(false);
   const [sellerActionHint, setSellerActionHint] = useState<string | null>(null);
   const [liked, setLiked] = useState(Boolean(p.liked));
@@ -167,54 +76,7 @@ export function NemovitostDetailView({
   const [shareSenderMessage, setShareSenderMessage] = useState('');
   const [shareEmailBusy, setShareEmailBusy] = useState(false);
   const [shareEmailMsg, setShareEmailMsg] = useState<string | null>(null);
-  const [revealedContact, setRevealedContact] = useState<{
-    phone: string | null;
-    email: string | null;
-    contactName: string | null;
-  } | null>(null);
-  const active = media[safeMediaIndex] ?? media[0];
-
-  useEffect(() => {
-    setRevealedContact(null);
-  }, [p.id, p.contactUnlocked, p.sellerContactVisible]);
-
-  useEffect(() => {
-    if (media.length === 0) {
-      if (activeIndex !== 0) setActiveIndex(0);
-      return;
-    }
-    if (activeIndex > media.length - 1) setActiveIndex(media.length - 1);
-  }, [media.length, activeIndex]);
-
-  useEffect(() => {
-    setBrokenMediaKeys({});
-  }, [p.id]);
-
-  useEffect(() => {
-    setLiked(Boolean(p.liked));
-  }, [p.id, p.liked]);
-
-  useEffect(() => {
-    setShareSenderName(user?.name ?? '');
-    setShareSenderEmail(user?.email ?? '');
-  }, [user?.email, user?.name]);
-
-  const paramLines = useMemo(() => {
-    const lines: string[] = [];
-    const ex = (k: string, label: string) => {
-      const t = formatExtra(label, extraFields[k]);
-      if (t) lines.push(t);
-    };
-    ex('area', 'Plocha (m²)');
-    ex('landArea', 'Plocha pozemku');
-    ex('floor', 'Patro');
-    ex('totalFloors', 'Počet podlaží');
-    ex('propertyType', 'Typ nemovitosti');
-    ex('offerType', 'Typ nabídky');
-    ex('condition', 'Stav');
-    ex('energyLabel', 'Energetický štítek');
-    return lines;
-  }, [extraFields]);
+  const [mobileShareOpen, setMobileShareOpen] = useState(false);
 
   const avatarSrc =
     author.avatar && author.avatar.trim().length > 0
@@ -227,18 +89,14 @@ export function NemovitostDetailView({
   });
 
   const ownerId = String(p.userId ?? author.id ?? '').trim();
-  const isOwner = Boolean(
-    user?.id && ownerId && String(user.id).trim() === String(ownerId).trim(),
-  );
+  const isOwner = Boolean(user?.id && ownerId && String(user.id).trim() === String(ownerId).trim());
   const isAgentViewer = user?.role === 'AGENT';
   const showOwnerBadges = Boolean(p.isOwnerListing);
+  const isTip = isTipListing(p);
 
   function redirectToLoginForMessages() {
-    const path = `/nemovitost/${encodeURIComponent(propertyId)}`;
-    router.push(`/login?redirect=${encodeURIComponent(path)}`);
+    router.push(`/login?redirect=${encodeURIComponent(`/nemovitost/${encodeURIComponent(propertyId)}`)}`);
   }
-
-  const isTip = isTipListing(p);
 
   const contactGate = useContactGate({
     listing: p,
@@ -255,33 +113,38 @@ export function NemovitostDetailView({
 
   const contactRevealed = contactGate.contactRevealed;
   const sellerContactLocked = contactGate.contactLocked;
-  const interestSubmitted = contactGate.interestSubmitted;
-  const contactSuccessMsg = contactGate.contactSuccessMsg;
   const contactUnlockPrice = p.contactUnlockPrice ?? 0;
   const contactUnlockAvailable = p.contactUnlockAvailable !== false;
-  const phone = contactRevealed
-    ? (revealedContact?.phone ?? p.contactPhone ?? '').trim()
-    : '';
-  const email = contactRevealed
-    ? (revealedContact?.email ?? p.contactEmail ?? '').trim()
-    : '';
-  const nameContact = contactRevealed
-    ? (revealedContact?.contactName ?? p.contactName ?? '').trim()
-    : '';
+  const phone = contactRevealed ? (p.contactPhone ?? '').trim() : '';
+  const email = contactRevealed ? (p.contactEmail ?? '').trim() : '';
+  const nameContact = contactRevealed ? (p.contactName ?? '').trim() : '';
   const companyName = sellerContactLocked
     ? ''
     : ((p as PropertyFeedItem & { companyName?: string | null }).companyName?.trim() ?? '');
   const coverForMessage = classicListingCoverUrl(p);
 
-  const summaryLine = useMemo(() => {
-    const parts: string[] = [];
-    const pt = extraFields.propertyType;
-    const ar = extraFields.area;
-    if (typeof pt === 'string' && pt.trim()) parts.push(pt.trim());
-    if (typeof ar === 'number' && Number.isFinite(ar)) parts.push(`${ar} m²`);
-    else if (typeof ar === 'string' && ar.trim()) parts.push(`${ar} m²`);
-    return parts.join(' • ');
-  }, [extraFields.area, extraFields.propertyType]);
+  const quickParams = useMemo(() => buildQuickParams(p, extraFields), [p, extraFields]);
+  const paramRows = useMemo(
+    () => buildParameterRows(p, extraFields, isAuthenticated),
+    [p, extraFields, isAuthenticated],
+  );
+  const mapQuery = mapsQuery(p);
+
+  const profileHref =
+    author.role === 'AGENT' && author.id
+      ? `/profile/${encodeURIComponent(author.id)}`
+      : author.id
+        ? `/profil/${encodeURIComponent(author.id)}`
+        : undefined;
+
+  useEffect(() => {
+    setLiked(Boolean(p.liked));
+  }, [p.id, p.liked]);
+
+  useEffect(() => {
+    setShareSenderName(user?.name ?? '');
+    setShareSenderEmail(user?.email ?? '');
+  }, [user?.email, user?.name]);
 
   function handleShowContact() {
     contactGate.openContactForm();
@@ -347,440 +210,328 @@ export function NemovitostDetailView({
       senderMessage: shareSenderMessage.trim() || undefined,
     });
     setShareEmailBusy(false);
-    setShareEmailMsg(result.ok ? result.message ?? 'E-mail byl odeslán.' : result.error ?? 'Odeslání selhalo.');
-  }
-
-  const disabledActionClass =
-    'mx-auto flex h-[50px] w-full max-w-[360px] cursor-not-allowed items-center justify-center gap-2 rounded-full border-2 border-zinc-200 bg-zinc-100 px-5 py-2.5 text-sm font-bold text-zinc-400 max-md:max-w-none';
-
-  const favoriteBtnClass =
-    'inline-flex size-14 shrink-0 items-center justify-center rounded-full border-2 border-orange-300/90 bg-white text-orange-700 shadow-[0_6px_24px_rgba(0,0,0,0.08)] transition hover:border-orange-500 hover:bg-gradient-to-br hover:from-orange-50 hover:to-amber-50 hover:text-orange-800 active:scale-95 disabled:pointer-events-none disabled:opacity-45';
-
-  const primaryMessageClass =
-    'mx-auto flex h-[50px] w-full max-w-[360px] items-center justify-center gap-2 rounded-full border-2 border-orange-400/90 bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2.5 text-sm font-bold text-white shadow-[0_8px_24px_rgba(255,90,0,0.3)] transition hover:brightness-110 active:scale-[0.99] max-md:max-w-none';
-
-  const secondaryActionClass =
-    'mx-auto flex h-[50px] w-full max-w-[360px] items-center justify-center gap-2 rounded-full border-2 border-zinc-300 bg-white px-5 py-2.5 text-sm font-bold text-zinc-800 shadow-sm transition hover:border-orange-300 hover:bg-orange-50 max-md:max-w-none';
-
-  function renderLockedContactBlock(compact = false) {
-    if (!sellerContactLocked) return null;
-    return (
-      <div
-        className={`space-y-1 rounded-xl border border-zinc-200 bg-zinc-50/90 p-3 text-sm text-zinc-700 ${compact ? 'mt-3' : 'mt-3'}`}
-      >
-        <p className="font-semibold text-zinc-900">Kontakt skrytý</p>
-        <p>Inzerent: <span className="font-medium">skrytý</span></p>
-        <p className="text-zinc-500">Telefon skrytý</p>
-        <p className="text-zinc-500">E-mail skrytý</p>
-      </div>
+    setShareEmailMsg(
+      result.ok ? (result.message ?? 'E-mail byl odeslán.') : (result.error ?? 'Odeslání selhalo.'),
     );
   }
 
-  function renderContactBlock(compact = false) {
-    if (!contactRevealed || (!phone && !email)) return null;
-    return (
-      <div
-        className={`space-y-2 rounded-xl border border-emerald-200 bg-emerald-50/90 text-sm text-zinc-800 ${compact ? 'mt-3 p-3' : 'mt-3 p-3'}`}
-      >
-        {contactSuccessMsg ? (
-          <p className="font-medium text-emerald-800">{contactSuccessMsg}</p>
-        ) : null}
-        {nameContact ? <p className="font-semibold">{nameContact}</p> : null}
-        {phone ? (
-          <p>
-            Telefon:{' '}
-            <a href={`tel:${phone}`} className="font-semibold text-orange-700 hover:underline">
-              {phone}
-            </a>
-          </p>
-        ) : null}
-        {email ? (
-          <p className="break-all">
-            E-mail:{' '}
-            <a href={`mailto:${email}`} className="font-semibold text-orange-700 hover:underline">
-              {email}
-            </a>
-          </p>
-        ) : null}
-      </div>
-    );
-  }
+  const unlockCta = !isOwner && !contactRevealed && contactUnlockAvailable && !(!isTip && contactGate.interestSubmitted);
+
+  const lockedBlock = sellerContactLocked ? (
+    <div className="mt-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
+      <p className="font-semibold text-zinc-900">Kontakt skrytý</p>
+      <p>Telefon a e-mail se zobrazí po odemčení kontaktu.</p>
+    </div>
+  ) : null;
+
+  const revealedBlock =
+    contactGate.contactSuccessMsg && contactRevealed ? (
+      <p className="text-sm font-medium text-emerald-800">{contactGate.contactSuccessMsg}</p>
+    ) : null;
+
+  const contactUnlockSection = unlockCta ? (
+    <section className="rounded-2xl border border-orange-200 bg-orange-50/60 p-4">
+      {contactGate.propertySeekerTipBlocked ? (
+        <p className="text-sm font-medium text-zinc-700">{contactGate.propertySeekerTipMessage}</p>
+      ) : (
+        <button
+          type="button"
+          onClick={handleShowContact}
+          className="w-full rounded-xl bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-3 text-sm font-bold text-white shadow-md"
+        >
+          Zobrazit kontakt
+          {isTip && contactUnlockPrice > 0
+            ? ` (${contactUnlockPrice.toLocaleString('cs-CZ')} Kč)`
+            : ''}
+        </button>
+      )}
+      {contactGate.contactLeadError && !contactGate.contactLeadOpen ? (
+        <p className="mt-2 text-sm text-red-600">{contactGate.contactLeadError}</p>
+      ) : null}
+    </section>
+  ) : null;
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 py-6">
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-        <ListingDetailLeftSidebar />
+    <div className="bg-zinc-50/80 pb-24 xl:pb-10">
+      <div className="mx-auto w-full max-w-7xl px-4 py-4 sm:py-6">
+        <ListingDetailBackButton />
 
-        <main className="min-w-0 xl:col-span-6">
-          <ListingDetailBackButton />
+        <div className="mt-4 space-y-5">
+          <ListingDetailHeader
+            property={p}
+            extraFields={extraFields}
+            author={author}
+            isAuthenticated={isAuthenticated}
+            isTip={isTip}
+            showOwnerBadges={showOwnerBadges}
+          />
 
-          {media.length > 0 && active != null ? (
-            <div className="overflow-hidden rounded-2xl bg-black">
-              <div className="flex min-h-[200px] items-center justify-center">
-                {active.type === 'video' ? (
-                  <video
-                    key={active.key}
-                    src={nestAbsoluteAssetUrl(active.url)}
-                    controls
-                    playsInline
-                    className="h-auto max-h-[80vh] w-full rounded-2xl bg-black object-contain"
-                  />
-                ) : !brokenMediaKeys[active.key] ? (
-                  <button
-                    type="button"
-                    onClick={() => setLightboxOpen(true)}
-                    className="w-full"
-                    aria-label="Otevřít galerii fotek"
-                  >
-                    <img
-                      src={nestAbsoluteAssetUrl(active.url)}
-                      alt={p.title}
-                      className="h-auto max-h-[80vh] w-full rounded-2xl bg-black object-contain"
-                      onError={() =>
-                        setBrokenMediaKeys((prev) => ({ ...prev, [active.key]: true }))
-                      }
-                    />
-                  </button>
-                ) : (
-                  <div className="flex min-h-[200px] w-full items-center justify-center rounded-2xl bg-zinc-100 text-sm text-zinc-500">
-                    Náhled není dostupný
-                  </div>
-                )}
-              </div>
-              {media.length > 1 ? (
-                <div className="flex gap-2 overflow-x-auto p-3">
-                  {media.map((item, index) => (
-                    <button
-                      key={item.key}
-                      type="button"
-                      onClick={() => setActiveIndex(index)}
-                      className={`h-16 w-16 shrink-0 overflow-hidden rounded-xl border-2 transition ${
-                        index === safeMediaIndex
-                          ? 'border-[#e85d00] ring-2 ring-[#e85d00]/20'
-                          : 'border-zinc-600'
-                      }`}
-                    >
-                      {item.type === 'video' ? (
-                        <video
-                          src={nestAbsoluteAssetUrl(item.url)}
-                          muted
-                          playsInline
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        !brokenMediaKeys[item.key] ? (
-                          <img
-                            src={nestAbsoluteAssetUrl(item.url)}
-                            alt=""
-                            loading="lazy"
-                            decoding="async"
-                            className="h-full w-full object-cover"
-                            onError={() =>
-                              setBrokenMediaKeys((prev) => ({ ...prev, [item.key]: true }))
-                            }
-                          />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center bg-zinc-200 text-[10px] text-zinc-600">
-                            Bez náhledu
-                          </div>
-                        )
-                      )}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <div className="flex min-h-[200px] items-center justify-center rounded-2xl bg-zinc-100 text-sm text-zinc-500">
-              Bez náhledu
-            </div>
-          )}
+          <ListingDetailGallery
+            title={p.title}
+            media={media}
+            onOpenLightbox={(i) => {
+              setLightboxIndex(i);
+              setLightboxOpen(true);
+            }}
+          />
 
-          <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-6">
-            <div className="space-y-3">
-              <h1 className="text-2xl font-bold tracking-tight text-zinc-900">{p.title}</h1>
-              {showOwnerBadges ? (
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-900">
-                    Přímý vlastník
-                  </span>
-                  <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-800">
-                    Bez realitky
-                  </span>
-                  {p.ownerContactConsent ? (
-                    <span className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-900">
-                      Souhlas s kontaktem makléřů
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-              <ListingPriceDisplay
-                as="div"
-                price={p.price}
-                isAuthenticated={isAuthenticated}
-                className="text-xl font-semibold text-orange-600"
-              />
-              <div className="text-sm text-zinc-500">
-                {p.address?.trim() ? (
-                  <>
-                    <span className="block text-zinc-700">{p.address.trim()}</span>
-                    <span className="mt-0.5 block">{p.location}</span>
-                  </>
-                ) : (
-                  p.location
-                )}
-              </div>
-              {summaryLine ? (
-                <div className="text-sm text-zinc-700">{summaryLine}</div>
-              ) : null}
-              {isTip ? (
-                <div className="pt-1">
-                  <TipDetailBadge />
-                </div>
-              ) : null}
-
-              <div className="rounded-2xl border-2 border-orange-200/80 bg-gradient-to-br from-orange-50 via-white to-amber-50/40 p-4 shadow-[0_8px_30px_rgba(234,88,0,0.12)] sm:p-5">
-                <p className="text-[11px] font-extrabold uppercase tracking-wider text-orange-800/75">
-                  Rychlé akce
+          <div className="lg:hidden">
+            <ListingPriceDisplay
+              as="div"
+              price={p.price}
+              isAuthenticated={isAuthenticated}
+              className="text-2xl font-bold text-[#e85d00]"
+              labelClassName="text-sm text-zinc-500"
+            />
+            <div className="mt-2 space-y-0.5 text-sm text-zinc-600">
+              {pricePerSqm(p.price, extraFields.area) != null && isAuthenticated ? (
+                <p>
+                  Cena za m²:{' '}
+                  <strong className="text-zinc-900">
+                    {pricePerSqm(p.price, extraFields.area)!.toLocaleString('cs-CZ')} Kč/m²
+                  </strong>
                 </p>
-                <div className="mt-3 flex flex-col items-center gap-3">
-                  {!isOwner && contactRevealed && phone ? (
-                    <a href={`tel:${phone}`} className={secondaryActionClass}>
-                      📞 Zavolat
-                    </a>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={handleWriteSeller}
-                    disabled={sellerContactLocked}
-                    className={sellerContactLocked ? disabledActionClass : primaryMessageClass}
-                  >
-                    <MessageCircle className="size-5 shrink-0" strokeWidth={2.25} aria-hidden />
-                    ✉️ Napsat zprávu
-                  </button>
-                  {!isOwner && contactRevealed && author.whatsappEnabled ? (
-                    <WhatsAppContactButton
-                      targetUserId={author.id}
-                      listingId={propertyId}
-                      listingTitle={p.title}
-                      listingUrl={shareUrl}
-                      variant="secondary"
-                      label="💬 WhatsApp"
-                      className="w-full max-w-[360px]"
-                      disabled={sellerContactLocked}
-                    />
-                  ) : null}
-                  {!isOwner && !contactRevealed && contactUnlockAvailable && !( !isTip && interestSubmitted) ? (
-                    contactGate.propertySeekerTipBlocked ? (
-                      <p className="w-full max-w-[360px] text-sm font-medium text-zinc-700" role="status">
-                        {contactGate.propertySeekerTipMessage}
-                      </p>
-                    ) : (
-                    <button
-                      type="button"
-                      onClick={handleShowContact}
-                      className={secondaryActionClass}
-                    >
-                      Zobrazit kontakt
-                      {isTip && contactUnlockPrice > 0
-                        ? ` (${contactUnlockPrice.toLocaleString('cs-CZ')} Kč)`
-                        : ''}
-                    </button>
-                    )
-                  ) : null}
-                  {contactSuccessMsg ? (
-                    <p className="w-full max-w-[360px] text-sm font-medium text-emerald-800" role="status">
-                      {contactSuccessMsg}
-                    </p>
-                  ) : null}
-                  {contactGate.contactLeadError && !contactGate.contactLeadOpen ? (
-                    <p className="w-full max-w-[360px] text-sm font-medium text-red-600" role="alert">
-                      {contactGate.contactLeadError}
-                    </p>
-                  ) : null}
-                  {renderLockedContactBlock(true)}
-                  {renderContactBlock(true)}
-                  {sellerActionHint ? (
-                    <p className="w-full text-sm font-medium text-amber-800" role="status">
-                      {sellerActionHint}
-                    </p>
-                  ) : null}
-                  <div className="flex w-full flex-wrap items-center justify-center gap-3">
-                    <button
-                      type="button"
-                      disabled={likeBusy}
-                      onClick={handleFavoriteClick}
-                      className={`${favoriteBtnClass} ${liked ? 'border-orange-500 bg-gradient-to-br from-[#ff6a00] to-[#ff3c00] text-white hover:text-white' : ''}`}
-                      aria-label={liked ? 'Odebrat z oblíbených' : 'Přidat do oblíbených'}
-                    >
-                      <Heart
-                        className={`size-6 ${liked ? 'fill-white text-white' : ''}`}
-                        strokeWidth={liked ? 0 : 2.25}
-                      />
-                    </button>
+              ) : null}
+              <p>
+                Typ nabídky:{' '}
+                <strong className="text-zinc-900">
+                  {String(extraFields.offerType ?? extraFields.type ?? 'prodej')}
+                </strong>
+              </p>
+              {extraFields.condition ? (
+                <p>
+                  Stav: <strong className="text-zinc-900">{String(extraFields.condition)}</strong>
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          <ListingQuickParams items={quickParams} />
+
+          <div className="hidden rounded-2xl border border-zinc-200/80 bg-white p-4 shadow-sm lg:block">
+            <ListingActionBar
+              liked={liked}
+              likeBusy={likeBusy}
+              onFavorite={handleFavoriteClick}
+              shareTitle={p.title}
+              shareUrl={shareUrl}
+              videoUrl={typeof p.videoUrl === 'string' ? p.videoUrl : null}
+              apiAccessToken={apiAccessToken}
+              onShareEmail={() => setShareEmailOpen(true)}
+              onMessage={handleWriteSeller}
+              messageDisabled={sellerContactLocked}
+              phone={phone}
+              showPhone={!isOwner && contactRevealed && Boolean(phone)}
+              whatsappEnabled={!isOwner && contactRevealed && Boolean(author.whatsappEnabled)}
+              authorId={author.id}
+              propertyId={propertyId}
+              listingTitle={p.title}
+              whatsappDisabled={sellerContactLocked}
+            />
+            {sellerActionHint ? (
+              <p className="mt-2 text-sm text-amber-800">{sellerActionHint}</p>
+            ) : null}
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
+            <div className="space-y-6 lg:col-span-2">
+              {contactUnlockSection}
+
+              <div className="lg:hidden">
+                <ListingContactCard
+                  author={author}
+                  avatarSrc={avatarSrc}
+                  companyName={companyName}
+                  phone={phone}
+                  email={email}
+                  nameContact={nameContact}
+                  contactRevealed={contactRevealed || isOwner}
+                  sellerContactLocked={sellerContactLocked}
+                  onMessage={handleWriteSeller}
+                  messageDisabled={sellerContactLocked}
+                  profileHref={profileHref}
+                  propertyId={propertyId}
+                  listingTitle={p.title}
+                  shareUrl={shareUrl}
+                  lockedBlock={lockedBlock}
+                  revealedBlock={revealedBlock}
+                />
+              </div>
+
+              <div className="lg:hidden">
+                <ListingActionBar
+                  layout="stack"
+                  liked={liked}
+                  likeBusy={likeBusy}
+                  onFavorite={handleFavoriteClick}
+                  shareTitle={p.title}
+                  shareUrl={shareUrl}
+                  videoUrl={typeof p.videoUrl === 'string' ? p.videoUrl : null}
+                  apiAccessToken={apiAccessToken}
+                  onShareEmail={() => setShareEmailOpen(true)}
+                  onMessage={handleWriteSeller}
+                  messageDisabled={sellerContactLocked}
+                  phone={phone}
+                  showPhone={!isOwner && contactRevealed && Boolean(phone)}
+                  whatsappEnabled={!isOwner && contactRevealed && Boolean(author.whatsappEnabled)}
+                  authorId={author.id}
+                  propertyId={propertyId}
+                  listingTitle={p.title}
+                  whatsappDisabled={sellerContactLocked}
+                />
+              </div>
+
+              <div className="lg:hidden">
+                <ListingParametersTable rows={paramRows} />
+              </div>
+
+              {p.description ? <ListingDescription text={p.description} /> : null}
+
+              <div className="hidden lg:block">
+                <ListingParametersTable rows={paramRows} />
+              </div>
+
+              <ListingDetailMap query={mapQuery} />
+
+              <div className="hidden lg:block">
+                <ListingSimilarCarousel items={other} isAuthenticated={isAuthenticated} />
+              </div>
+            </div>
+
+            <aside className="hidden space-y-4 lg:block">
+              <div className="sticky top-20 space-y-4">
+                <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+                  <ListingPriceDisplay
+                    as="div"
+                    price={p.price}
+                    isAuthenticated={isAuthenticated}
+                    className="text-2xl font-bold text-[#e85d00]"
+                    labelClassName="sr-only"
+                  />
+                </section>
+
+                <ListingContactCard
+                  author={author}
+                  avatarSrc={avatarSrc}
+                  companyName={companyName}
+                  phone={phone}
+                  email={email}
+                  nameContact={nameContact}
+                  contactRevealed={contactRevealed || isOwner}
+                  sellerContactLocked={sellerContactLocked}
+                  onMessage={handleWriteSeller}
+                  messageDisabled={sellerContactLocked}
+                  profileHref={profileHref}
+                  propertyId={propertyId}
+                  listingTitle={p.title}
+                  shareUrl={shareUrl}
+                  lockedBlock={lockedBlock}
+                  revealedBlock={revealedBlock}
+                />
+
+                {contactUnlockSection}
+
+                <ListingMortgageCalculator price={p.price} />
+
+                <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+                  <p className="text-sm font-semibold text-zinc-900">Sdílení</p>
+                  <div className="mt-3">
                     <ShareButtons
                       title={p.title}
                       url={shareUrl}
                       variant="lightRail"
-                      label="Sdílet"
+                      label="Sdílet inzerát"
                       shorts={{
                         videoUrl: typeof p.videoUrl === 'string' ? p.videoUrl : null,
                         apiAccessToken,
                       }}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShareEmailOpen(true)}
-                      className="rounded-full border-2 border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:border-orange-400 hover:text-orange-700"
-                    >
-                      Sdílet e-mailem
-                    </button>
                   </div>
-                </div>
-              </div>
+                  <button
+                    type="button"
+                    onClick={() => setShareEmailOpen(true)}
+                    className="mt-2 w-full rounded-xl border border-zinc-200 py-2 text-sm font-semibold hover:bg-zinc-50"
+                  >
+                    Sdílet e-mailem
+                  </button>
+                </section>
 
-              {paramLines.length > 0 ? (
-                <ul className="space-y-1 text-sm text-zinc-700">
-                  {paramLines.map((line) => (
-                    <li key={line}>{line}</li>
-                  ))}
-                </ul>
-              ) : null}
-              {p.description ? (
-                <div className="text-base leading-7 text-zinc-800">
-                  <p className="whitespace-pre-wrap">{p.description}</p>
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          {(contactRevealed || isOwner) ? (
-          <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-6">
-            <h2 className="text-lg font-semibold tracking-tight text-zinc-900">Inzerent</h2>
-            <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
-              <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-zinc-200 bg-zinc-100 text-xl font-bold text-zinc-600">
-                {avatarSrc ? (
-                  <img
-                    src={avatarSrc}
-                    alt=""
-                    width={64}
-                    height={64}
-                    className="size-full object-cover"
-                  />
-                ) : (
-                  (author.name?.trim().charAt(0) || 'U').toUpperCase()
-                )}
-              </div>
-              <div className="min-w-0">
-                <p className="font-semibold text-zinc-900">
-                  {author.name?.trim() || 'Uživatel'}
-                </p>
-                {companyName ? (
-                  <p className="mt-1 text-sm text-zinc-500">{companyName}</p>
+                {other.length > 0 ? (
+                  <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+                    <p className="text-sm font-semibold text-zinc-900">Podobné nabídky</p>
+                    <ul className="mt-3 space-y-2">
+                      {other.slice(0, 3).map((item) => (
+                        <li key={item.id}>
+                          <Link
+                            href={`/nemovitost/${item.id}`}
+                            className="block rounded-lg border border-zinc-100 p-2 text-sm hover:border-orange-200"
+                          >
+                            <p className="line-clamp-2 font-medium">{item.title}</p>
+                            <ListingPriceDisplay
+                              as="p"
+                              price={item.price}
+                              isAuthenticated={isAuthenticated}
+                              className="mt-1 text-xs font-bold text-[#e85d00]"
+                              labelClassName="sr-only"
+                            />
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
                 ) : null}
+
+                <section className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-center text-xs text-zinc-500">
+                  Reklamní prostor
+                </section>
+
+                <ListingDetailLeftSidebar embedded />
               </div>
+            </aside>
+          </div>
+
+          <div className="lg:hidden">
+            <div className="mt-6">
+              <ListingSimilarCarousel items={other} isAuthenticated={isAuthenticated} />
             </div>
           </div>
-          ) : null}
-        </main>
 
-        <aside className="hidden space-y-4 xl:col-span-3 xl:block">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-            <p className="text-sm font-semibold text-zinc-900">Kontakt a návštěva</p>
-            <p className="mt-2 text-sm text-zinc-600">
-              Domluvte si prohlídku nebo doplňující informace u inzerenta.
-            </p>
-            {!isOwner && !contactRevealed && contactUnlockAvailable && !(!isTip && interestSubmitted) ? (
-              contactGate.propertySeekerTipBlocked ? (
-                <p className="mt-3 text-sm font-medium text-zinc-700" role="status">
-                  {contactGate.propertySeekerTipMessage}
-                </p>
-              ) : (
-              <button
-                type="button"
-                onClick={handleShowContact}
-                className={`${secondaryActionClass} mt-3`}
-              >
-                Zobrazit kontakt
-                {isTip && contactUnlockPrice > 0
-                  ? ` (${contactUnlockPrice.toLocaleString('cs-CZ')} Kč)`
-                  : ''}
-              </button>
-              )
-            ) : null}
-            {contactSuccessMsg ? (
-              <p className="mt-2 text-sm font-medium text-emerald-800" role="status">
-                {contactSuccessMsg}
-              </p>
-            ) : null}
-            {renderLockedContactBlock()}
-            {renderContactBlock()}
-            {!contactRevealed && !isTip ? (
-              <p className="mt-2 text-sm text-zinc-600">
-                Kontakt inzerenta se zobrazí až po odeslání formuláře a zaplacení leadu inzerentem.
-              </p>
-            ) : null}
-            {!contactRevealed && isTip ? (
-              <p className="mt-2 text-sm text-zinc-600">
-                Kontakt zobrazíte po vyplnění formuláře a zaplacení kreditem.
-              </p>
-            ) : null}
-            <button
-              type="button"
-              onClick={handleWriteSeller}
-              disabled={sellerContactLocked}
-              className={`${sellerContactLocked ? disabledActionClass : primaryMessageClass} mt-4`}
-            >
-              <MessageCircle className="size-5 shrink-0" strokeWidth={2.25} aria-hidden />
-              Napsat prodejci
-            </button>
-            {p.isOwnerListing && isAgentViewer && !isOwner ? (
+          {(contactRevealed || isOwner) && p.isOwnerListing && isAgentViewer && !isOwner ? (
+            <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
               <button
                 type="button"
                 onClick={() => {
                   setOwnerLeadErr(null);
                   setOwnerLeadOpen(true);
                 }}
-                className="mt-3 flex w-full min-h-[48px] items-center justify-center rounded-full border-2 border-zinc-300 bg-white px-4 py-3 text-sm font-bold text-zinc-800 shadow-sm transition hover:border-orange-300 hover:bg-orange-50"
+                className="w-full rounded-xl border-2 border-zinc-300 py-3 text-sm font-bold text-zinc-800 hover:border-orange-300"
               >
                 Nabídnout služby vlastníkovi
               </button>
-            ) : null}
-          </div>
-          {other.length > 0 ? (
-            <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-              <p className="text-sm font-semibold text-zinc-900">Podobné inzeráty</p>
-              <ul className="mt-3 space-y-3">
-                {other.map((item) => (
-                  <li key={item.id}>
-                    <Link
-                      href={listingDetailHref(item.id, 'classic')}
-                      className="block rounded-xl border border-zinc-100 p-3 transition hover:border-orange-200 hover:bg-orange-50/40"
-                    >
-                      <p className="line-clamp-2 text-sm font-medium text-zinc-900">{item.title}</p>
-                      <p className="mt-1 text-xs text-zinc-500">{item.location}</p>
-                      <ListingPriceDisplay
-                        as="p"
-                        price={item.price}
-                        isAuthenticated={isAuthenticated}
-                        className="mt-1 text-sm font-bold text-[#e85d00]"
-                      />
-                      <span className="mt-3 inline-flex min-h-[40px] w-full items-center justify-center rounded-full border-2 border-orange-400/90 bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-4 py-2 text-xs font-extrabold uppercase tracking-wide text-white shadow-md transition hover:brightness-110">
-                        Zobrazit inzerát
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-              <p className="text-sm font-semibold text-zinc-900">Podobné inzeráty</p>
-              <p className="mt-2 text-sm text-zinc-600">Zatím nemáme podobné nabídky.</p>
-            </div>
-          )}
-        </aside>
+            </section>
+          ) : null}
+        </div>
       </div>
+
+      <ListingMobileStickyBar
+        liked={liked}
+        likeBusy={likeBusy}
+        onFavorite={handleFavoriteClick}
+        onShare={() => setMobileShareOpen(true)}
+        onMessage={handleWriteSeller}
+        onCall={phone ? () => window.open(`tel:${phone}`) : undefined}
+        showCall={!isOwner && contactRevealed && Boolean(phone)}
+        messageDisabled={sellerContactLocked}
+      />
+
+      <ListingDetailLightbox
+        open={lightboxOpen}
+        media={media}
+        index={lightboxIndex}
+        title={p.title}
+        onClose={() => setLightboxOpen(false)}
+        onIndexChange={setLightboxIndex}
+      />
 
       <ContactGateModals
         gate={contactGate}
@@ -798,53 +549,32 @@ export function NemovitostDetailView({
         location={p.location}
         coverImageUrl={coverForMessage}
         token={apiAccessToken}
-        onSent={(conversationId) => {
-          router.push(`/profil/zpravy/${conversationId}`);
-        }}
+        onSent={(conversationId) => router.push(`/profil/zpravy/${conversationId}`)}
       />
 
       {ownerLeadOpen ? (
-        <div
-          className="fixed inset-0 z-[200] flex items-end justify-center bg-black/50 p-4 sm:items-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="owner-lead-title"
-        >
-          <div className="w-full max-w-lg rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl">
-            <h2 id="owner-lead-title" className="text-lg font-semibold text-zinc-900">
-              Nabídka služeb vlastníkovi
-            </h2>
-            <p className="mt-2 text-sm text-zinc-600">
-              Zpráva se odešle přes interní komunikaci. První oslovení může spotřebovat odměnový
-              lead, pokud nemáte prémiový účet makléře.
-            </p>
+        <div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/50 p-4 sm:items-center">
+          <div className="w-full max-w-lg rounded-2xl border bg-white p-5 shadow-xl">
+            <h2 className="text-lg font-semibold">Nabídka služeb vlastníkovi</h2>
             <textarea
               value={ownerLeadText}
               onChange={(e) => setOwnerLeadText(e.target.value)}
               rows={5}
-              className="mt-4 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-[#ff6a00]/55 focus:ring-2 focus:ring-[#ff6a00]/15"
-              placeholder="Stručně představte svou kancelář a nabídku…"
+              className="mt-4 w-full rounded-xl border px-3 py-2 text-sm"
+              placeholder="Stručně představte svou kancelář…"
             />
-            {ownerLeadErr ? (
-              <p className="mt-2 text-sm font-medium text-red-600" role="alert">
-                {ownerLeadErr}
-              </p>
-            ) : null}
-            <div className="mt-4 flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setOwnerLeadOpen(false)}
-                className="rounded-full border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-              >
+            {ownerLeadErr ? <p className="mt-2 text-sm text-red-600">{ownerLeadErr}</p> : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setOwnerLeadOpen(false)} className="rounded-full border px-4 py-2 text-sm">
                 Zrušit
               </button>
               <button
                 type="button"
                 disabled={ownerLeadBusy}
                 onClick={() => void handleOwnerLeadSubmit()}
-                className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-110 disabled:opacity-50"
+                className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2 text-sm font-bold text-white"
               >
-                {ownerLeadBusy ? 'Odesílám…' : 'Odeslat nabídku'}
+                {ownerLeadBusy ? 'Odesílám…' : 'Odeslat'}
               </button>
             </div>
           </div>
@@ -852,64 +582,56 @@ export function NemovitostDetailView({
       ) : null}
 
       {shareEmailOpen ? (
-        <div
-          className="fixed inset-0 z-[210] flex items-end justify-center bg-black/50 p-4 sm:items-center"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="w-full max-w-xl rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl">
-            <h2 className="text-lg font-semibold text-zinc-900">Sdílet inzerát e-mailem</h2>
+        <div className="fixed inset-0 z-[210] flex items-end justify-center bg-black/50 p-4 sm:items-center">
+          <div className="w-full max-w-xl rounded-2xl border bg-white p-5 shadow-xl">
+            <h2 className="text-lg font-semibold">Sdílet inzerát e-mailem</h2>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <input
                 type="email"
                 value={shareRecipientEmail}
                 onChange={(e) => setShareRecipientEmail(e.target.value)}
-                className="rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                className="rounded-xl border px-3 py-2 text-sm"
                 placeholder="E-mail příjemce *"
               />
               <input
                 type="text"
                 value={shareRecipientName}
                 onChange={(e) => setShareRecipientName(e.target.value)}
-                className="rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                placeholder="Jméno příjemce (volitelné)"
+                className="rounded-xl border px-3 py-2 text-sm"
+                placeholder="Jméno příjemce"
               />
               <input
                 type="text"
                 value={shareSenderName}
                 onChange={(e) => setShareSenderName(e.target.value)}
-                className="rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                placeholder="Vaše jméno (volitelné)"
+                className="rounded-xl border px-3 py-2 text-sm"
+                placeholder="Vaše jméno"
               />
               <input
                 type="email"
                 value={shareSenderEmail}
                 onChange={(e) => setShareSenderEmail(e.target.value)}
-                className="rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                placeholder="Váš e-mail (volitelné)"
+                className="rounded-xl border px-3 py-2 text-sm"
+                placeholder="Váš e-mail"
               />
             </div>
             <textarea
               value={shareSenderMessage}
               onChange={(e) => setShareSenderMessage(e.target.value)}
               rows={4}
-              className="mt-3 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-              placeholder="Osobní zpráva (volitelné)"
+              className="mt-3 w-full rounded-xl border px-3 py-2 text-sm"
+              placeholder="Osobní zpráva"
             />
-            {shareEmailMsg ? <p className="mt-3 text-sm text-zinc-700">{shareEmailMsg}</p> : null}
+            {shareEmailMsg ? <p className="mt-3 text-sm">{shareEmailMsg}</p> : null}
             <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShareEmailOpen(false)}
-                className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700"
-              >
+              <button type="button" onClick={() => setShareEmailOpen(false)} className="rounded-full border px-4 py-2 text-sm">
                 Zavřít
               </button>
               <button
                 type="button"
                 disabled={shareEmailBusy}
                 onClick={() => void handleShareByEmail()}
-                className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2 text-sm font-bold text-white disabled:opacity-50"
+                className="rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2 text-sm font-bold text-white"
               >
                 {shareEmailBusy ? 'Odesílám…' : 'Odeslat'}
               </button>
@@ -918,27 +640,39 @@ export function NemovitostDetailView({
         </div>
       ) : null}
 
-      {lightboxOpen && media.filter((m) => m.type === 'image').length > 0 ? (
-        <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/80 p-4">
-          <div className="w-full max-w-6xl">
-            <div className="mb-2 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setLightboxOpen(false)}
-                className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-zinc-900"
-              >
-                Zavřít
-              </button>
+      {mobileShareOpen ? (
+        <div className="fixed inset-0 z-[215] flex items-end justify-center bg-black/50 p-4 xl:hidden">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5">
+            <p className="font-semibold">Sdílet inzerát</p>
+            <div className="mt-3">
+              <ShareButtons
+                title={p.title}
+                url={shareUrl}
+                variant="lightRail"
+                label="Sdílet"
+                shorts={{
+                  videoUrl: typeof p.videoUrl === 'string' ? p.videoUrl : null,
+                  apiAccessToken,
+                }}
+              />
             </div>
-            <img
-              src={nestAbsoluteAssetUrl((media[safeMediaIndex] ?? media[0])?.url ?? '')}
-              alt={p.title}
-              className="max-h-[80vh] w-full rounded-xl object-contain"
-              onError={(e) => {
-                const target = e.currentTarget;
-                target.style.display = 'none';
+            <button
+              type="button"
+              onClick={() => {
+                setMobileShareOpen(false);
+                setShareEmailOpen(true);
               }}
-            />
+              className="mt-3 w-full rounded-xl border py-2 text-sm font-semibold"
+            >
+              Sdílet e-mailem
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileShareOpen(false)}
+              className="mt-2 w-full py-2 text-sm text-zinc-500"
+            >
+              Zavřít
+            </button>
           </div>
         </div>
       ) : null}

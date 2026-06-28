@@ -172,13 +172,23 @@ function AdviceArticlesBox() {
   );
 }
 
-export function ListingDetailLeftSidebar() {
-  return (
-    <aside className="hidden space-y-4 xl:col-span-3 xl:block">
+export function ListingDetailLeftSidebar({ embedded }: { embedded?: boolean } = {}) {
+  const inner = (
+    <>
       {PROFILE_SECTIONS.map((section) => (
         <ProfileSectionBox key={section.title} {...section} />
       ))}
       <AdviceArticlesBox />
+    </>
+  );
+
+  if (embedded) {
+    return <div className="space-y-4">{inner}</div>;
+  }
+
+  return (
+    <aside className="hidden space-y-4 xl:col-span-3 xl:block">
+      {inner}
     </aside>
   );
 }

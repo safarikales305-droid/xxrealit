@@ -831,6 +831,9 @@ export class PropertiesService {
             whatsappEnabled: true,
             city: true,
             role: true,
+            professionalVerified: true,
+            brokerReviewAverage: true,
+            brokerReviewCount: true,
           },
         },
         _count: { select: { likes: true } },
@@ -936,6 +939,15 @@ export class PropertiesService {
         Boolean(author.whatsappEnabled) &&
         isValidWhatsAppPhone(author.whatsappPhone ?? ''),
       role: showAuthorContact ? author.role : null,
+      professionalVerified: showAuthorContact ? Boolean(author.professionalVerified) : false,
+      brokerReviewAverage:
+        showAuthorContact && author.brokerReviewAverage != null
+          ? author.brokerReviewAverage
+          : null,
+      brokerReviewCount:
+        showAuthorContact && author.brokerReviewCount != null
+          ? author.brokerReviewCount
+          : null,
       advertiserVisible: showAuthorContact,
     };
     const contactUnlockAvailable =

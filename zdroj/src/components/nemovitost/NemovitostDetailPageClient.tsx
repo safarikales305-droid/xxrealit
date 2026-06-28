@@ -18,17 +18,32 @@ const DETAIL_FETCH_TIMEOUT_MS = 15_000;
 function pickExtraFields(rawProp: unknown): Record<string, unknown> {
   if (!rawProp || typeof rawProp !== 'object') return {};
   const o = rawProp as Record<string, unknown>;
-  const pick = (k: string) => o[k];
-  return {
-    area: pick('area'),
-    landArea: pick('landArea'),
-    floor: pick('floor'),
-    totalFloors: pick('totalFloors'),
-    propertyType: pick('propertyType'),
-    offerType: pick('offerType') ?? pick('type'),
-    condition: pick('condition'),
-    energyLabel: pick('energyLabel'),
-  };
+  const keys = [
+    'area',
+    'landArea',
+    'floor',
+    'totalFloors',
+    'propertyType',
+    'propertyTypeLabel',
+    'offerType',
+    'type',
+    'condition',
+    'energyLabel',
+    'ownership',
+    'construction',
+    'parking',
+    'cellar',
+    'subType',
+    'equipment',
+    'currency',
+    'viewsCount',
+    'likeCount',
+  ];
+  const out: Record<string, unknown> = {};
+  for (const k of keys) {
+    if (o[k] !== undefined) out[k] = o[k];
+  }
+  return out;
 }
 
 type ReadyState = {
