@@ -335,8 +335,14 @@ export type PropertyPublishLogRow = {
   contentId: string;
   status: string;
   facebookPostType?: string | null;
+  publishKind?: string | null;
+  contentTitle?: string | null;
   externalPostId: string | null;
+  externalReelId?: string | null;
   publishedUrl: string | null;
+  reelPublishedUrl?: string | null;
+  teaserDurationSec?: number | null;
+  originalVideoDurationSec?: number | null;
   lastError: string | null;
   lastApiResponse?: unknown;
   processedAt?: string | null;

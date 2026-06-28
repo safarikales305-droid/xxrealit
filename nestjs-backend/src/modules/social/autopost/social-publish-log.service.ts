@@ -5,6 +5,7 @@ import {
   SocialPublishStatus,
   SocialPublishTriggerSource,
   FacebookPostType,
+  SocialPublishKind,
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { pragueDateKey } from './social-publish-schedule.util';
@@ -40,9 +41,16 @@ export class SocialPublishLogService {
     queueId?: string | null;
     status: SocialPublishStatus;
     externalPostId?: string | null;
+    externalReelId?: string | null;
     publishedUrl?: string | null;
+    reelPublishedUrl?: string | null;
     lastError?: string | null;
     facebookPostType?: FacebookPostType | null;
+    publishKind?: SocialPublishKind | null;
+    contentTitle?: string | null;
+    teaserDurationSec?: number | null;
+    originalVideoDurationSec?: number | null;
+    graphApiResponse?: unknown;
     triggerSource: SocialPublishTriggerSource;
     triggeredByUserId?: string | null;
     scheduleId?: string | null;
@@ -56,9 +64,17 @@ export class SocialPublishLogService {
         scheduleId: input.scheduleId ?? null,
         status: input.status,
         externalPostId: input.externalPostId ?? null,
+        externalReelId: input.externalReelId ?? null,
         publishedUrl: input.publishedUrl ?? null,
+        reelPublishedUrl: input.reelPublishedUrl ?? null,
         lastError: input.lastError ?? null,
         facebookPostType: input.facebookPostType ?? null,
+        publishKind: input.publishKind ?? null,
+        contentTitle: input.contentTitle ?? null,
+        teaserDurationSec: input.teaserDurationSec ?? null,
+        originalVideoDurationSec: input.originalVideoDurationSec ?? null,
+        graphApiResponse:
+          input.graphApiResponse != null ? (input.graphApiResponse as object) : undefined,
         triggerSource: input.triggerSource,
         triggeredByUserId: input.triggeredByUserId ?? null,
       },
@@ -102,12 +118,18 @@ export class SocialPublishLogService {
       status: row.status,
       createdAt: row.createdAt.toISOString(),
       externalPostId: row.externalPostId,
+      externalReelId: row.externalReelId,
       publishedUrl: row.publishedUrl,
+      reelPublishedUrl: row.reelPublishedUrl,
       lastError: row.lastError,
       facebookPostType: row.facebookPostType,
+      publishKind: row.publishKind,
+      contentTitle: row.contentTitle,
+      teaserDurationSec: row.teaserDurationSec,
+      originalVideoDurationSec: row.originalVideoDurationSec,
       triggerSource: row.triggerSource,
       triggeredBy: row.triggeredBy,
-      lastApiResponse: row.queue?.lastApiResponse ?? null,
+      lastApiResponse: row.graphApiResponse ?? row.queue?.lastApiResponse ?? null,
       processedAt: row.queue?.processedAt?.toISOString() ?? null,
     }));
   }

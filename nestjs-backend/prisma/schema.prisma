@@ -127,6 +127,13 @@ enum FacebookPostType {
   FACEBOOK_REEL
 }
 
+enum SocialPublishKind {
+  PHOTO_POST
+  VIDEO_REEL
+  USER_POST
+  LISTING
+}
+
 enum StoryType {
   IMAGE
   VIDEO
@@ -2841,20 +2848,27 @@ model SocialPublishSchedule {
 
 /// Historie publikování (včetně opakování).
 model SocialPublishLog {
-  id                String                     @id @default(cuid())
-  platform          SocialPlatform             @default(FACEBOOK)
-  contentType       SocialPublishContentType
-  contentId         String
-  queueId           String?
-  scheduleId        String?
-  status            SocialPublishStatus
-  externalPostId    String?
-  publishedUrl      String?
-  lastError         String?                    @db.Text
-  facebookPostType  FacebookPostType?
-  triggerSource     SocialPublishTriggerSource
-  triggeredByUserId String?
-  createdAt         DateTime                   @default(now())
+  id                       String                     @id @default(cuid())
+  platform                 SocialPlatform             @default(FACEBOOK)
+  contentType              SocialPublishContentType
+  contentId                String
+  queueId                  String?
+  scheduleId               String?
+  status                   SocialPublishStatus
+  externalPostId           String?
+  externalReelId           String?
+  publishedUrl             String?
+  reelPublishedUrl         String?
+  lastError                String?                    @db.Text
+  facebookPostType         FacebookPostType?
+  publishKind              SocialPublishKind?
+  contentTitle             String?
+  teaserDurationSec        Float?
+  originalVideoDurationSec Float?
+  graphApiResponse         Json?
+  triggerSource            SocialPublishTriggerSource
+  triggeredByUserId        String?
+  createdAt                DateTime                   @default(now())
 
   queue       SocialPublishQueue? @relation(fields: [queueId], references: [id], onDelete: SetNull)
   schedule    SocialPublishSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)

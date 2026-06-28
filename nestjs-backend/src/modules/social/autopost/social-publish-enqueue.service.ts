@@ -15,8 +15,9 @@ import { SocialPublisherService } from './social-publisher.service';
 import { FacebookGraphPublishError } from './facebook-graph-autopost.util';
 import { SocialPublishLogService } from './social-publish-log.service';
 import {
-  buildPostFacebookMessage,
   buildPropertyFacebookMessage,
+  buildPostDetailUrl,
+  resolvePostShareImage,
   resolvePropertyShareImage,
   toAbsoluteMediaUrl,
 } from './social-publish-format.util';
@@ -528,8 +529,16 @@ export class SocialPublishProcessorService {
         scheduleId: item.scheduleId ?? null,
         status: SocialPublishStatus.PUBLISHED,
         externalPostId: result.externalPostId,
+        externalReelId: result.externalReelId ?? null,
         publishedUrl: result.publishedUrl,
+        reelPublishedUrl: result.reelPublishedUrl ?? null,
         facebookPostType: result.facebookPostType ?? item.facebookPostType ?? null,
+        publishKind: result.publishKind ?? null,
+        contentTitle: result.contentTitle ?? null,
+        teaserDurationSec: result.teaserDurationSec ?? null,
+        originalVideoDurationSec: result.originalVideoDurationSec ?? null,
+        graphApiResponse: result.raw,
+        lastError: result.teaserError ?? null,
         triggerSource: item.triggerSource,
         triggeredByUserId: item.triggeredByUserId,
       });
@@ -612,32 +621,22 @@ export class SocialPublishProcessorService {
   private async publishPost(contentId: string) {
     const post = await this.prisma.post.findUnique({
       where: { id: contentId },
-      include: { media: { orderBy: { order: 'asc' }, take: 1 } },
+      include: { media: { orderBy: { order: 'asc' } } },
     });
     if (!post) throw new Error('Příspěvek není k dispozici');
 
-    const origin = metaOrigin();
-    const publicUrl = `${origin}/prispevky/${encodeURIComponent(post.id)}`;
+    const publicUrl = buildPostDetailUrl(post.id);
     const text = (post.content ?? post.description ?? post.title ?? '').trim();
-    const message = buildPostFacebookMessage(text, publicUrl);
-    const imageUrl = toAbsoluteMediaUrl(
-      post.imageUrl ?? post.media[0]?.url ?? post.previewImage,
-    );
+    const imageUrl = resolvePostShareImage(post);
     const videoUrl = toAbsoluteMediaUrl(post.videoUrl);
+    const title = post.title?.trim() || text.slice(0, 80) || undefined;
 
-    return this.publisher.publishToFacebook({
-      message,
-      link: publicUrl,
+    return this.publisher.publishUserPostToFacebook({
+      description: text,
+      publicUrl,
       imageUrl,
       videoUrl,
+      title,
     });
   }
-}
-
-function metaOrigin(): string {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    process.env.FRONTEND_URL?.trim() ||
-    'https://www.xxrealit.cz'
-  ).replace(/\/+$/, '');
 }

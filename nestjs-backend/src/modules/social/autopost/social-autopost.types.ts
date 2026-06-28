@@ -1,5 +1,5 @@
 import type { UserRole } from '@prisma/client';
-import type { FacebookPostType } from '@prisma/client';
+import type { FacebookPostType, SocialPublishKind } from '@prisma/client';
 
 export type SocialApiLogEntry = {
   at: string;
@@ -14,6 +14,13 @@ export type FacebookPublishResult = {
   publishedUrl: string;
   usedVideo: boolean;
   facebookPostType?: FacebookPostType;
+  publishKind?: SocialPublishKind;
+  contentTitle?: string | null;
+  externalReelId?: string | null;
+  reelPublishedUrl?: string | null;
+  teaserDurationSec?: number | null;
+  originalVideoDurationSec?: number | null;
+  teaserError?: string | null;
   raw: unknown;
 };
 

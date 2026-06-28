@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { BonusCampaignModule } from '../bonus-campaign/bonus-campaign.module';
 import { PostsModule } from '../posts/posts.module';
+import { PropertiesModule } from '../properties/properties.module';
 import { ShareModule } from '../share/share.module';
 import { FacebookAuthService } from './facebook/facebook-auth.service';
 import { FacebookController } from './facebook/facebook.controller';
@@ -37,11 +38,13 @@ import { SocialPublishSchedulerLogService } from './autopost/social-publish-sche
 import { SocialAutopostFacebookOAuthService } from './autopost/social-autopost-facebook-oauth.service';
 import { SocialAutopostTokenService } from './autopost/social-autopost-token.service';
 import { SocialFacebookReelPublisherService } from './autopost/social-facebook-reel-publisher.service';
+import { FacebookVideoTeaserService } from './autopost/facebook-video-teaser.service';
 
 @Module({
   imports: [
     forwardRef(() => AuthModule),
     forwardRef(() => PostsModule),
+    forwardRef(() => PropertiesModule),
     BonusCampaignModule,
     ShareModule,
   ],
@@ -80,6 +83,7 @@ import { SocialFacebookReelPublisherService } from './autopost/social-facebook-r
     SocialAutopostFacebookOAuthService,
     SocialAutopostTokenService,
     SocialFacebookReelPublisherService,
+    FacebookVideoTeaserService,
   ],
   exports: [
     FacebookConfigService,

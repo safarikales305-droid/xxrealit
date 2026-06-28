@@ -73,37 +73,40 @@ export function AuthPageShell({ variant, children }: AuthPageShellProps) {
 
         <div className="mx-auto w-[95%] max-w-[520px] flex-1 sm:flex-none">
           <div className="auth-form-interactive auth-form-enter pointer-events-auto relative rounded-[28px] bg-white/92 p-6 shadow-[0_20px_60px_rgba(0,0,0,0.2)] backdrop-blur-lg max-lg:ring-1 max-lg:ring-white/50 sm:p-10 lg:bg-white lg:backdrop-blur-none">
-            <header className="flex flex-col items-center text-center">
-              <div className="flex flex-col items-center gap-4 px-2 pt-1 sm:gap-5 sm:px-4">
-                <Logo className="h-12 w-auto sm:h-14 md:h-[4.25rem]" />
-                <span className="text-[13px] font-bold tracking-[2px] text-[#777] sm:text-sm">
-                  XXREALIT.CZ
-                </span>
+            <header className="relative text-center">
+              <div className="relative mx-auto min-h-[11.5rem] max-w-full overflow-visible sm:min-h-[13rem]">
+                <FloatingAuthDecorations items={previewItems} />
+                <div className="relative z-[30] flex flex-col items-center px-2 pt-1">
+                  <div className="flex flex-col items-center gap-4 sm:gap-5">
+                    <Logo className="h-12 w-auto sm:h-14 md:h-[4.25rem]" />
+                    <span className="text-[13px] font-bold tracking-[2px] text-[#777] sm:text-sm">
+                      XXREALIT.CZ
+                    </span>
+                  </div>
+
+                  <h1 className="mt-6 text-[1.65rem] font-extrabold leading-tight tracking-tight text-zinc-900 sm:mt-8 sm:text-4xl">
+                    Vítejte ve světě realit
+                  </h1>
+                </div>
               </div>
 
-              <h1 className="mt-8 text-[1.65rem] font-extrabold leading-tight tracking-tight text-zinc-900 sm:mt-10 sm:text-4xl">
-                Vítejte ve světě realit
-              </h1>
-
               {variant === 'register' ? (
-                <p className="mt-4 max-w-[380px] text-pretty text-base font-extrabold leading-snug tracking-tight text-zinc-900 sm:mt-5 sm:text-xl">
+                <p className="relative z-[30] mt-4 max-w-[380px] mx-auto text-pretty text-base font-extrabold leading-snug tracking-tight text-zinc-900 sm:mt-5 sm:text-xl">
                   Prohlížení inzerátů je plně zdarma
                 </p>
               ) : null}
 
-              <p className="mt-4 max-w-[380px] text-pretty text-[15px] leading-[1.7] text-zinc-500 sm:mt-5 sm:text-base">
+              <p className="relative z-[30] mt-4 mx-auto max-w-[380px] text-pretty text-[15px] leading-[1.7] text-zinc-500 sm:mt-5 sm:text-base">
                 {SUBTITLES[variant]}
               </p>
             </header>
 
-            <div className="relative mt-8 min-w-0 sm:mt-10 [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_input]:pointer-events-auto [&_select]:pointer-events-auto [&_textarea]:pointer-events-auto">
+            <div className="relative z-40 mt-8 min-w-0 sm:mt-10 [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_input]:pointer-events-auto [&_select]:pointer-events-auto [&_textarea]:pointer-events-auto">
               {children}
             </div>
           </div>
         </div>
       </div>
-
-      <FloatingAuthDecorations items={previewItems} />
 
       <div className="hidden sm:block">
         <SiteFooter />

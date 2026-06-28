@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { FacebookPostType } from '@prisma/client';
-import { resolveFrontendUrl } from '../../../common/resolve-frontend-url';
+import { FacebookPostType, SocialPublishKind } from '@prisma/client';
 import { FacebookConfigService } from '../facebook/facebook-config.service';
 import { GRAPH_API, GRAPH_VIDEO_API } from '../facebook/facebook-page.constants';
 import {
@@ -16,12 +15,15 @@ import {
 import { SocialAutopostSettingsService } from './social-autopost-settings.service';
 import { SocialAutopostTokenService } from './social-autopost-token.service';
 import { SocialFacebookReelPublisherService } from './social-facebook-reel-publisher.service';
-import {
-  propertyHasPublishableVideo,
-  validateRemoteVideoForFacebook,
-} from './social-facebook-reel.util';
+import { FacebookVideoTeaserService } from './facebook-video-teaser.service';
+import { propertyHasPublishableVideo, validateRemoteVideoForFacebook } from './social-facebook-reel.util';
 import { maskAccessToken, type FacebookPublishResult } from './social-autopost.types';
-import { facebookPostPermalink } from './social-publish-format.util';
+import {
+  buildPostFacebookMessage,
+  buildVideoReelFacebookMessage,
+  facebookPostPermalink,
+  getPublicPortalUrl,
+} from './social-publish-format.util';
 
 export type FacebookPublishPayload = {
   message: string;
@@ -64,6 +66,7 @@ export class SocialPublisherService {
     private readonly fbConfig: FacebookConfigService,
     private readonly tokenService: SocialAutopostTokenService,
     private readonly reelPublisher: SocialFacebookReelPublisherService,
+    private readonly teaserService: FacebookVideoTeaserService,
   ) {}
 
   async publishToInstagram(): Promise<never> {
@@ -89,11 +92,105 @@ export class SocialPublisherService {
   }
 
   private publicSiteUrl(): string {
-    return (
-      process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-      resolveFrontendUrl() ||
-      'https://www.xxrealit.cz'
-    ).replace(/\/+$/, '');
+    return getPublicPortalUrl();
+  }
+
+  /** Publikuje uživatelský příspěvek — foto / Reel (teaser) / odkaz. */
+  async publishUserPostToFacebook(input: {
+    description: string;
+    publicUrl: string;
+    imageUrl: string | null;
+    videoUrl: string | null;
+    title?: string;
+  }): Promise<FacebookPublishResult> {
+    const publicUrl = input.publicUrl.replace(/\/+$/, '');
+    const contentTitle = input.title?.trim() || null;
+
+    if (input.videoUrl?.trim()) {
+      const reelMessage = buildVideoReelFacebookMessage(publicUrl);
+      try {
+        const teaser = await this.teaserService.createTeaserFromVideoUrl(input.videoUrl.trim());
+        const reel = await this.publishPropertyAsFacebookReel({
+          videoUrl: teaser.teaserUrl,
+          message: reelMessage,
+          title: contentTitle ?? undefined,
+        });
+        return {
+          ...reel,
+          publishKind: SocialPublishKind.VIDEO_REEL,
+          contentTitle,
+          externalReelId: reel.externalReelId ?? reel.externalPostId,
+          reelPublishedUrl: reel.publishedUrl,
+          teaserDurationSec: teaser.teaserDurationSec,
+          originalVideoDurationSec: teaser.originalDurationSec,
+        };
+      } catch (err) {
+        const teaserError = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`User post reel/teaser failed, fallback to link: ${teaserError}`);
+        const linkMessage = buildPostFacebookMessage(input.description, publicUrl);
+        const fallback = await this.publishLinkOnly(linkMessage, publicUrl);
+        return {
+          ...fallback,
+          publishKind: SocialPublishKind.USER_POST,
+          contentTitle,
+          teaserError,
+        };
+      }
+    }
+
+    if (input.imageUrl?.trim()) {
+      const message = buildPostFacebookMessage(input.description, publicUrl);
+      try {
+        const photo = await this.publishPhotoPost(message, input.imageUrl.trim());
+        return {
+          ...photo,
+          publishKind: SocialPublishKind.PHOTO_POST,
+          contentTitle,
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`User post photo failed, fallback to link: ${msg}`);
+      }
+    }
+
+    const message = buildPostFacebookMessage(input.description, publicUrl);
+    const link = await this.publishLinkOnly(message, publicUrl);
+    return {
+      ...link,
+      publishKind: SocialPublishKind.USER_POST,
+      contentTitle,
+    };
+  }
+
+  private async publishPhotoPost(
+    message: string,
+    imageUrl: string,
+  ): Promise<FacebookPublishResult> {
+    const { pageId, accessToken } = await this.resolveAccessTokenForPublish();
+    const graphApi = this.graphApiBase();
+    const result = await this.postPhoto(
+      `${graphApi}/${pageId}/photos`,
+      pageId,
+      accessToken,
+      imageUrl,
+      message,
+    );
+    await this.settings.appendApiLog({ action: 'publish_photo', ok: true, body: result.raw });
+    return result;
+  }
+
+  private async publishLinkOnly(message: string, link: string): Promise<FacebookPublishResult> {
+    const { pageId, accessToken } = await this.resolveAccessTokenForPublish();
+    const graphApi = this.graphApiBase();
+    const result = await this.postFeed(
+      `${graphApi}/${pageId}/feed`,
+      pageId,
+      accessToken,
+      message,
+      link,
+      'publish_feed',
+    );
+    return result;
   }
 
   private logGraphFailure(
@@ -628,7 +725,7 @@ export class SocialPublisherService {
   }
 
   /**
-   * Publikuje inzerát s volbou formátu a fallbacky dle nastavení autopostu.
+   * Publikuje inzerát — foto příspěvek, Reel (teaser) nebo odkaz jako fallback.
    */
   async publishPropertyToFacebook(
     input: {
@@ -642,94 +739,63 @@ export class SocialPublisherService {
     opts: { forceFormat?: FacebookPostType } = {},
   ): Promise<FacebookPublishResult> {
     await this.settings.reload();
-    const fb = this.settings.getSettings().facebook;
-    const format = opts.forceFormat ?? this.resolvePropertyPublishFormat(input, fb);
+    const publicUrl = input.link.replace(/\/+$/, '');
+    const contentTitle = input.title?.trim() || null;
+    const forceReel =
+      opts.forceFormat === FacebookPostType.FACEBOOK_REEL ||
+      (propertyHasPublishableVideo({ videoUrl: input.videoUrl }) &&
+        opts.forceFormat !== FacebookPostType.FACEBOOK_POST);
 
-    if (format === FacebookPostType.FACEBOOK_REEL) {
-      if (!input.videoUrl) {
-        throw new Error('Shorts inzerát nemá video — nelze publikovat jako Reel.');
-      }
+    if (forceReel && input.videoUrl?.trim()) {
+      const reelMessage = buildVideoReelFacebookMessage(publicUrl);
       try {
-        return await this.publishPropertyAsFacebookReel({
-          videoUrl: input.videoUrl,
-          message: input.message,
-          title: input.title,
+        const teaser = await this.teaserService.createTeaserFromVideoUrl(input.videoUrl.trim());
+        const reel = await this.publishPropertyAsFacebookReel({
+          videoUrl: teaser.teaserUrl,
+          message: reelMessage,
+          title: contentTitle ?? undefined,
         });
+        return {
+          ...reel,
+          publishKind: SocialPublishKind.VIDEO_REEL,
+          contentTitle,
+          externalReelId: reel.externalReelId ?? reel.externalPostId,
+          reelPublishedUrl: reel.publishedUrl,
+          teaserDurationSec: teaser.teaserDurationSec,
+          originalVideoDurationSec: teaser.originalDurationSec,
+        };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (!fb.reelsFallbackToVideoPost) {
-          throw err instanceof FacebookGraphPublishError
-            ? err
-            : new Error(`Facebook Reels selhalo: ${msg}`);
-        }
-        this.logger.warn(`Reels failed, fallback to video post: ${msg}`);
-        if (input.videoUrl) {
-          return this.publishPropertyVideoOnly(input);
-        }
-        throw err;
+        const teaserError = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Property reel/teaser failed, fallback to link: ${teaserError}`);
+        const fallback = await this.publishLinkOnly(input.message, publicUrl);
+        return {
+          ...fallback,
+          publishKind: SocialPublishKind.LISTING,
+          contentTitle,
+          teaserError,
+        };
       }
     }
 
-    if (format === FacebookPostType.FACEBOOK_VIDEO && input.videoUrl) {
+    if (input.imageUrl?.trim()) {
       try {
-        return await this.publishPropertyVideoOnly(input);
+        const photo = await this.publishPhotoPost(input.message, input.imageUrl.trim());
+        return {
+          ...photo,
+          publishKind: SocialPublishKind.LISTING,
+          contentTitle,
+        };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (!fb.reelsFallbackToPhotoPost) {
-          throw err;
-        }
-        this.logger.warn(`Video post failed, fallback to photo: ${msg}`);
+        this.logger.warn(`Property photo failed, fallback to link: ${msg}`);
       }
     }
 
-    return this.publishPropertyPhotoOrFeed(input);
-  }
-
-  private resolvePropertyPublishFormat(
-    input: { videoUrl: string | null; isShortsVideo?: boolean },
-    fb: { publishShortsAsReels: boolean },
-  ): FacebookPostType {
-    if (!propertyHasPublishableVideo({ videoUrl: input.videoUrl })) {
-      return FacebookPostType.FACEBOOK_POST;
-    }
-    if (input.isShortsVideo && fb.publishShortsAsReels) {
-      return FacebookPostType.FACEBOOK_REEL;
-    }
-    return FacebookPostType.FACEBOOK_VIDEO;
-  }
-
-  private async publishPropertyVideoOnly(input: {
-    message: string;
-    link: string;
-    videoUrl: string | null;
-  }): Promise<FacebookPublishResult> {
-    if (!input.videoUrl) {
-      throw new Error('Chybí URL videa.');
-    }
-    const check = await validateRemoteVideoForFacebook(input.videoUrl);
-    if (!check.ok) {
-      throw new Error(check.error ?? 'Video není dostupné.');
-    }
-    const result = await this.publishToFacebook({
-      message: input.message,
-      link: input.link,
-      imageUrl: null,
-      videoUrl: input.videoUrl,
-    });
-    return { ...result, facebookPostType: FacebookPostType.FACEBOOK_VIDEO };
-  }
-
-  private async publishPropertyPhotoOrFeed(input: {
-    message: string;
-    link: string;
-    imageUrl: string | null;
-  }): Promise<FacebookPublishResult> {
-    const result = await this.publishToFacebook({
-      message: input.message,
-      link: input.link,
-      imageUrl: input.imageUrl,
-      videoUrl: null,
-    });
-    return { ...result, facebookPostType: FacebookPostType.FACEBOOK_POST };
+    const fallback = await this.publishLinkOnly(input.message, publicUrl);
+    return {
+      ...fallback,
+      publishKind: SocialPublishKind.LISTING,
+      contentTitle,
+    };
   }
 }

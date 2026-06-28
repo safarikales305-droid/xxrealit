@@ -5,9 +5,14 @@ import { getPortalLogoFallbackUrl } from '../../properties/property-og-media.uti
 import { resolveAssetBaseUrl } from '../../../lib/image-url';
 import { upgradeHttpToHttpsForApi } from '../../../lib/secure-url';
 
-/** Veřejný text místo ceny — Facebook příspěvky jsou viditelné bez přihlášení. */
-export const FACEBOOK_PROPERTY_PRICE_LINE =
-  'Dostupná po přihlášení na portálu XXREALIT';
+/** Veřejná URL portálu — vždy https://www.xxrealit.cz (nebo env override). */
+export function getPublicPortalUrl(): string {
+  return getSiteOriginForOg();
+}
+
+export function buildPostDetailUrl(postId: string): string {
+  return `${getPublicPortalUrl()}/prispevky/${encodeURIComponent(postId)}`;
+}
 
 export function buildPropertyFacebookMessage(
   p: Pick<Property, 'title' | 'city' | 'address' | 'area' | 'landArea'>,
@@ -32,11 +37,12 @@ export function buildPropertyFacebookMessage(
 
   lines.push(
     '',
-    `💰 Cena:\n${FACEBOOK_PROPERTY_PRICE_LINE}`,
+    '👉 Více na:',
+    publicUrl,
     '',
-    `Detail nabídky:\n${publicUrl}`,
-    '',
-    '#xxrealit #reality #nemovitosti',
+    '#xxrealit',
+    '#reality',
+    '#nemovitosti',
   );
 
   return lines.join('\n');
@@ -45,13 +51,34 @@ export function buildPropertyFacebookMessage(
 export function buildPostFacebookMessage(text: string, publicUrl: string): string {
   const body = text.trim() || 'Nový příspěvek na portálu XXREALIT.';
   return [
-    'Nový příspěvek na XXREALIT',
+    '🏡 Nový příspěvek na XXREALIT',
     '',
     body,
     '',
-    `Zobrazit na portálu:\n${publicUrl}`,
+    '👉 Více na:',
+    publicUrl,
     '',
     '#xxrealit',
+    '#reality',
+    '#nemovitosti',
+  ].join('\n');
+}
+
+export function buildVideoReelFacebookMessage(publicUrl: string): string {
+  return [
+    '🎬 Nové video na XXREALIT',
+    '',
+    'Podívejte se na krátkou ukázku.',
+    '',
+    'Celé video najdete na portálu:',
+    '',
+    publicUrl,
+    '',
+    '#xxrealit',
+    '#reality',
+    '#nemovitosti',
+    '#reels',
+    '#video',
   ].join('\n');
 }
 
@@ -95,4 +122,23 @@ export function facebookPostPermalink(pageId: string, postId: string): string {
     return `https://www.facebook.com/${postId}`;
   }
   return `https://www.facebook.com/${pageId}/posts/${postId}`;
+}
+
+/** První fotografie z příspěvku (galerie / náhled / OG). */
+export function resolvePostShareImage(post: {
+  imageUrl?: string | null;
+  previewImage?: string | null;
+  media?: Array<{ url?: string | null; type?: string | null }>;
+}): string | null {
+  for (const m of post.media ?? []) {
+    const type = String(m.type ?? '').toLowerCase();
+    if (type === 'video') continue;
+    const url = toAbsoluteMediaUrl(m.url);
+    if (url) return url;
+  }
+  return (
+    toAbsoluteMediaUrl(post.imageUrl) ??
+    toAbsoluteMediaUrl(post.previewImage) ??
+    null
+  );
 }

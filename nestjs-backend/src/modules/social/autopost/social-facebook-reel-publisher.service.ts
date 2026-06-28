@@ -143,7 +143,9 @@ export class SocialFacebookReelPublisherService {
 
     return {
       externalPostId: postId,
+      externalReelId: videoId,
       publishedUrl,
+      reelPublishedUrl: publishedUrl,
       usedVideo: true,
       facebookPostType: FacebookPostType.FACEBOOK_REEL,
       raw: finishRaw,

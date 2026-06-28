@@ -672,6 +672,18 @@ body {
   will-change: transform, opacity;
 }
 
+.auth-float-parallax-near {
+  animation-duration: 14s;
+}
+
+.auth-float-parallax-mid {
+  animation-duration: 18s;
+}
+
+.auth-float-parallax-far {
+  animation-duration: 24s;
+}
+
 /* Jemné odplutí stranou při focusu / psaní do formuláře (mobil) */
 @keyframes auth-float-nudge-left {
   to {
