@@ -166,7 +166,6 @@ export function TiparDetailClient({ id }: Props) {
             listingUrl={shareUrl}
             title={post.title}
             city={post.city}
-            price={post.propertyPrice}
             videoUrl={playbackVideo}
             apiAccessToken={apiAccessToken}
           />

@@ -16,20 +16,18 @@ const FACEBOOK_LINK_SHARE_NOTE =
 const facebookSharerUrl = (url: string) =>
   `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`;
 
+import { FACEBOOK_PUBLIC_PRICE_LINE } from '@/lib/listing-og-metadata';
+
 export type FacebookShortsShareProps = {
   listingUrl: string;
   title: string;
   city: string;
-  price?: number | null;
   videoUrl: string | null;
   apiAccessToken: string | null;
 };
 
-function buildUploadDescription(title: string, city: string, price?: number | null): string {
-  const lines = [title.trim()];
-  if (price != null && price > 0) {
-    lines.push(`${price.toLocaleString('cs-CZ')} Kč`);
-  }
+function buildUploadDescription(title: string, city: string): string {
+  const lines = [title.trim(), FACEBOOK_PUBLIC_PRICE_LINE];
   if (city.trim()) {
     lines.push(city.trim());
   }
@@ -40,7 +38,6 @@ export function FacebookShortsShare({
   listingUrl,
   title,
   city,
-  price,
   videoUrl,
   apiAccessToken,
 }: FacebookShortsShareProps) {
@@ -99,7 +96,7 @@ export function FacebookShortsShare({
         setFbConnected(true);
       }
 
-      const description = buildUploadDescription(title, city, price);
+      const description = buildUploadDescription(title, city);
       const uploadRes = await nestFacebookUploadVideo(apiAccessToken, {
         videoUrl: videoUrl.trim(),
         title: title.trim(),
@@ -123,7 +120,6 @@ export function FacebookShortsShare({
     fbConfigured,
     fbConnected,
     listingUrl,
-    price,
     title,
     videoUrl,
   ]);

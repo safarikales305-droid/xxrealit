@@ -246,10 +246,12 @@ export function formatListingPrice(price: number | null | undefined, currency = 
   return `${Math.round(price).toLocaleString('cs-CZ')} ${cur}`;
 }
 
+/** Veřejný text místo ceny — Facebook sdílení je viditelné bez přihlášení. */
+export const FACEBOOK_PUBLIC_PRICE_LINE =
+  'Dostupná po přihlášení na portálu XXREALIT';
+
 export function buildListingOgTitle(listing: ListingOgInput): string {
-  const title = (listing.title || 'Inzerát').trim();
-  const priceLine = formatListingPrice(listing.price, listing.currency ?? 'CZK');
-  return `${title} | ${priceLine}`;
+  return (listing.title || 'Inzerát').trim();
 }
 
 export function buildListingOgDescription(listing: ListingOgInput): string {

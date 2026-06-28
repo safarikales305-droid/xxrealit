@@ -284,14 +284,10 @@ export function deriveThumbnailUrlFromListing(input: {
 
 export function buildOgTitle(
   title: string,
-  price: number | null | undefined,
-  currency = 'CZK',
+  _price?: number | null | undefined,
+  _currency = 'CZK',
 ): string {
-  const t = title.trim() || 'Inzerát';
-  if (price == null || !Number.isFinite(price) || price <= 0) {
-    return `${t} | Cena na dotaz`;
-  }
-  return `${t} | ${Math.round(price).toLocaleString('cs-CZ')} ${(currency || 'CZK').trim()}`;
+  return title.trim() || 'Inzerát';
 }
 
 export function buildOgDescription(city: string, description: string): string {

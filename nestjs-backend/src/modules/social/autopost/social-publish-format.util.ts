@@ -5,28 +5,22 @@ import { getPortalLogoFallbackUrl } from '../../properties/property-og-media.uti
 import { resolveAssetBaseUrl } from '../../../lib/image-url';
 import { upgradeHttpToHttpsForApi } from '../../../lib/secure-url';
 
+/** Veřejný text místo ceny — Facebook příspěvky jsou viditelné bez přihlášení. */
+export const FACEBOOK_PROPERTY_PRICE_LINE =
+  'Dostupná po přihlášení na portálu XXREALIT';
+
 export function buildPropertyFacebookMessage(
-  p: Pick<
-    Property,
-    'title' | 'city' | 'address' | 'price' | 'area' | 'landArea' | 'currency'
-  >,
+  p: Pick<Property, 'title' | 'city' | 'address' | 'area' | 'landArea'>,
   publicUrl: string,
-  priceVisible: boolean,
 ): string {
   const location = [p.address?.trim(), p.city?.trim()].filter(Boolean).join(', ') || 'Neuvedeno';
-  const priceLine =
-    priceVisible && p.price != null && Number.isFinite(p.price)
-      ? `${p.price.toLocaleString('cs-CZ')} ${p.currency || 'CZK'}`
-      : 'Cena na portálu XXREALIT';
 
   const lines = [
     '🏠 Nová nabídka na XXREALIT',
     '',
-    `Název:\n${p.title.trim() || 'Inzerát'}`,
+    p.title.trim() || 'Inzerát',
     '',
     `📍 Lokalita:\n${location}`,
-    '',
-    `💰 Cena:\n${priceLine}`,
   ];
 
   if (p.area != null && Number.isFinite(p.area)) {
@@ -38,9 +32,11 @@ export function buildPropertyFacebookMessage(
 
   lines.push(
     '',
-    `Podívejte se na detail:\n${publicUrl}`,
+    `💰 Cena:\n${FACEBOOK_PROPERTY_PRICE_LINE}`,
     '',
-    '#xxrealit #reality #nemovitosti #prodej #pronajem',
+    `Detail nabídky:\n${publicUrl}`,
+    '',
+    '#xxrealit #reality #nemovitosti',
   );
 
   return lines.join('\n');
