@@ -29,6 +29,8 @@ export default function AdminPortalWorkerDetailPage() {
   const [whatsappPhone, setWhatsappPhone] = useState('');
   const [commissionPercent, setCommissionPercent] = useState('');
   const [maxBonus, setMaxBonus] = useState('');
+  const [maxBonusDay, setMaxBonusDay] = useState('');
+  const [maxBonusMonth, setMaxBonusMonth] = useState('');
   const [canAssignBonus, setCanAssignBonus] = useState(true);
   const [isActive, setIsActive] = useState(true);
   const [emailVerified, setEmailVerified] = useState(false);
@@ -46,6 +48,8 @@ export default function AdminPortalWorkerDetailPage() {
     setWhatsappPhone(w.whatsappPhone ?? '');
     setCommissionPercent(w.profile.commissionPercent != null ? String(w.profile.commissionPercent) : '');
     setMaxBonus(String(w.profile.maxBonusPerClient ?? 3000));
+    setMaxBonusDay(w.profile.maxBonusPerDay != null ? String(w.profile.maxBonusPerDay) : '');
+    setMaxBonusMonth(w.profile.maxBonusPerMonth != null ? String(w.profile.maxBonusPerMonth) : '');
     setCanAssignBonus(w.profile.canAssignBonusCredits);
     setIsActive(w.profile.isActive);
     setEmailVerified(w.emailVerified);
@@ -89,6 +93,10 @@ export default function AdminPortalWorkerDetailPage() {
     if (pct !== '') payload.commissionPercent = Number(pct);
     const bonus = maxBonus.trim();
     if (bonus !== '') payload.maxBonusPerClient = Number(bonus);
+    const bonusDay = maxBonusDay.trim();
+    payload.maxBonusPerDay = bonusDay !== '' ? Number(bonusDay) : null;
+    const bonusMonth = maxBonusMonth.trim();
+    payload.maxBonusPerMonth = bonusMonth !== '' ? Number(bonusMonth) : null;
 
     const r = await nestAdminUpdateWorkerProfile(apiAccessToken, userId, payload);
     setBusy(false);
@@ -207,6 +215,28 @@ export default function AdminPortalWorkerDetailPage() {
             min={0}
             value={maxBonus}
             onChange={(e) => setMaxBonus(e.target.value)}
+            className="mt-1 w-full rounded-lg border px-3 py-2"
+          />
+        </label>
+        <label className="block text-sm">
+          Max. bonusové kredity / den (Kč)
+          <input
+            type="number"
+            min={0}
+            value={maxBonusDay}
+            onChange={(e) => setMaxBonusDay(e.target.value)}
+            placeholder="bez limitu"
+            className="mt-1 w-full rounded-lg border px-3 py-2"
+          />
+        </label>
+        <label className="block text-sm">
+          Max. bonusové kredity / měsíc (Kč)
+          <input
+            type="number"
+            min={0}
+            value={maxBonusMonth}
+            onChange={(e) => setMaxBonusMonth(e.target.value)}
+            placeholder="bez limitu"
             className="mt-1 w-full rounded-lg border px-3 py-2"
           />
         </label>

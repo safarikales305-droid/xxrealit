@@ -46,6 +46,8 @@ const ROLE_LABELS: Record<string, string> = {
   PRIVATE_SELLER: 'Soukromý inzerent',
 };
 
+const WORKER_BONUS_PURPOSES = ['WORKER_BONUS', 'BONUS_CREDIT'] as const;
+
 @Injectable()
 export class PortalWorkerCrmService {
   constructor(
@@ -56,6 +58,27 @@ export class PortalWorkerCrmService {
     private readonly creditWallet: CreditWalletService,
     private readonly config: ConfigService,
   ) {}
+
+  private workerBonusPurposeFilter() {
+    return { in: [...WORKER_BONUS_PURPOSES] };
+  }
+
+  private async sumWorkerBonusGranted(
+    workerId: string,
+    opts?: { clientUserId?: string; since?: Date },
+  ): Promise<number> {
+    const agg = await this.prisma.creditLedger.aggregate({
+      where: {
+        creditType: 'BONUS',
+        purpose: this.workerBonusPurposeFilter(),
+        referenceId: workerId,
+        ...(opts?.clientUserId ? { userId: opts.clientUserId } : {}),
+        ...(opts?.since ? { createdAt: { gte: opts.since } } : {}),
+      },
+      _sum: { amount: true },
+    });
+    return agg._sum.amount ?? 0;
+  }
 
   async ensureWorkerProfile(userId: string) {
     return this.prisma.workerProfile.upsert({
@@ -109,6 +132,8 @@ export class PortalWorkerCrmService {
         ...(dto.maxBonusPerClient !== undefined
           ? { maxBonusPerClient: dto.maxBonusPerClient }
           : {}),
+        ...(dto.maxBonusPerDay !== undefined ? { maxBonusPerDay: dto.maxBonusPerDay } : {}),
+        ...(dto.maxBonusPerMonth !== undefined ? { maxBonusPerMonth: dto.maxBonusPerMonth } : {}),
         ...(dto.canAssignBonusCredits !== undefined
           ? { canAssignBonusCredits: dto.canAssignBonusCredits }
           : {}),
@@ -175,6 +200,8 @@ export class PortalWorkerCrmService {
       profile: {
         commissionPercent: profile.commissionPercent,
         maxBonusPerClient: profile.maxBonusPerClient,
+        maxBonusPerDay: profile.maxBonusPerDay,
+        maxBonusPerMonth: profile.maxBonusPerMonth,
         canAssignBonusCredits: profile.canAssignBonusCredits,
         isActive: profile.isActive,
         adminNotes: profile.adminNotes,
@@ -283,6 +310,8 @@ export class PortalWorkerCrmService {
       phoneVerified: user.phoneVerified,
       whatsappVerified: user.whatsappVerified,
       maxBonusPerClient: profile.maxBonusPerClient,
+      maxBonusPerDay: profile.maxBonusPerDay,
+      maxBonusPerMonth: profile.maxBonusPerMonth,
       canAssignBonusCredits: profile.canAssignBonusCredits,
       commissionPercent: profile.commissionPercent,
     };
@@ -510,7 +539,7 @@ export class PortalWorkerCrmService {
             where: {
               userId: { in: clientIds },
               creditType: 'BONUS',
-              purpose: { startsWith: 'WORKER_BONUS' },
+              purpose: this.workerBonusPurposeFilter(),
             },
           })
         : [],
@@ -604,7 +633,8 @@ export class PortalWorkerCrmService {
       throw new NotFoundException('Klient nenalezen.');
     }
 
-    const [notes, audits, topUps, commissions, ledger, prereg, emailHistory] = await Promise.all([
+    const [notes, audits, topUps, commissions, ledger, prereg, emailHistory, profile, workerBonusOnClient] =
+      await Promise.all([
       this.prisma.workerClientNote.findMany({
         where: { workerId, clientUserId: user.id },
         orderBy: { createdAt: 'desc' },
@@ -632,7 +662,16 @@ export class PortalWorkerCrmService {
         where: { completedUserId: user.id, workerId },
       }),
       this.emailHistoryForClient(user.email),
+      this.ensureWorkerProfile(workerId),
+      this.sumWorkerBonusGranted(workerId, { clientUserId: user.id }),
     ]);
+
+    const workerBonusHistory = ledger.filter(
+      (entry) =>
+        entry.creditType === 'BONUS' &&
+        entry.referenceId === workerId &&
+        WORKER_BONUS_PURPOSES.includes(entry.purpose as (typeof WORKER_BONUS_PURPOSES)[number]),
+    );
 
     return {
       kind: 'client',
@@ -658,13 +697,25 @@ export class PortalWorkerCrmService {
         whatsappVerified: user.whatsappVerified,
         bonusCredit: user.bonusCreditBalance,
         realCredit: user.realCreditBalance,
+        totalCredit: user.realCreditBalance + user.bonusCreditBalance,
         registeredAt: user.createdAt.toISOString(),
       },
+      bonusCreditInfo: profile.canAssignBonusCredits
+        ? {
+            canAssign: true,
+            maxBonusPerClient: profile.maxBonusPerClient,
+            maxBonusPerDay: profile.maxBonusPerDay,
+            maxBonusPerMonth: profile.maxBonusPerMonth,
+            bonusGrantedToClient: workerBonusOnClient,
+            bonusRemainingOnClient: Math.max(0, profile.maxBonusPerClient - workerBonusOnClient),
+          }
+        : { canAssign: false },
       notes,
       timeline: audits,
       topUps,
       commissions,
       creditHistory: ledger,
+      workerBonusHistory,
       emailHistory,
       completionUrl: prereg ? this.completionUrl(prereg.completionToken) : null,
     };
@@ -934,21 +985,38 @@ export class PortalWorkerCrmService {
     const amount = Math.trunc(dto.amount);
     if (amount <= 0) throw new BadRequestException('Neplatná částka.');
 
-    const existingBonus = await this.prisma.creditLedger.aggregate({
-      where: {
-        userId: client.id,
-        creditType: 'BONUS',
-        purpose: 'WORKER_BONUS',
-        referenceId: workerId,
-      },
-      _sum: { amount: true },
+    const alreadyGranted = await this.sumWorkerBonusGranted(workerId, {
+      clientUserId: client.id,
     });
-    const alreadyGranted = existingBonus._sum.amount ?? 0;
     if (alreadyGranted + amount > profile.maxBonusPerClient) {
       throw new BadRequestException(
         `Limit bonusového kreditu na klienta je ${profile.maxBonusPerClient} Kč (zbývá ${Math.max(0, profile.maxBonusPerClient - alreadyGranted)} Kč).`,
       );
     }
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
+
+    if (profile.maxBonusPerDay != null) {
+      const grantedToday = await this.sumWorkerBonusGranted(workerId, { since: todayStart });
+      if (grantedToday + amount > profile.maxBonusPerDay) {
+        throw new BadRequestException(
+          `Denní limit bonusového kreditu je ${profile.maxBonusPerDay} Kč (dnes zbývá ${Math.max(0, profile.maxBonusPerDay - grantedToday)} Kč).`,
+        );
+      }
+    }
+
+    if (profile.maxBonusPerMonth != null) {
+      const grantedMonth = await this.sumWorkerBonusGranted(workerId, { since: monthStart });
+      if (grantedMonth + amount > profile.maxBonusPerMonth) {
+        throw new BadRequestException(
+          `Měsíční limit bonusového kreditu je ${profile.maxBonusPerMonth} Kč (tento měsíc zbývá ${Math.max(0, profile.maxBonusPerMonth - grantedMonth)} Kč).`,
+        );
+      }
+    }
+
+    const noteText = dto.description?.trim() || `Bonus od pracovníka portálu`;
 
     await this.prisma.$transaction(async (tx) => {
       await this.creditWallet.creditBonus(
@@ -956,17 +1024,46 @@ export class PortalWorkerCrmService {
         client.id,
         amount,
         workerId,
-        dto.description?.trim() || `Bonus od pracovníka portálu`,
-        'WORKER_BONUS',
+        noteText,
+        'BONUS_CREDIT',
       );
     });
 
     await this.audit(workerId, workerId, WorkerClientAuditAction.BONUS_GRANTED, {
       clientUserId: client.id,
-      metadata: { amount },
+      metadata: { amount, description: noteText },
     });
 
-    return { ok: true, amount };
+    let emailSent = false;
+    let emailError: string | undefined;
+    if (dto.sendGiftEmail) {
+      try {
+        const workerName = await this.workerDisplayName(workerId);
+        await this.emails.sendWorkerBonusCreditGiftEmail({
+          email: client.email,
+          clientName: client.name || client.firstName || 'kliente',
+          amount,
+          workerName,
+          clientUserId: client.id,
+          workerId,
+        });
+        emailSent = true;
+        await this.audit(workerId, workerId, WorkerClientAuditAction.EMAIL_SENT, {
+          clientUserId: client.id,
+          metadata: { type: 'worker_bonus_credit_gift', amount },
+        });
+      } catch (error) {
+        emailError = error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    return {
+      ok: true,
+      amount,
+      message: 'Bonusový kredit byl úspěšně připsán.',
+      emailSent,
+      ...(emailError ? { emailError } : {}),
+    };
   }
 
   async sendRegistrationEmail(workerId: string, preregistrationId: string) {
@@ -1071,7 +1168,7 @@ export class PortalWorkerCrmService {
       this.prisma.creditLedger.aggregate({
         where: {
           creditType: 'BONUS',
-          purpose: 'WORKER_BONUS',
+          purpose: this.workerBonusPurposeFilter(),
           referenceId: workerId,
         },
         _sum: { amount: true },

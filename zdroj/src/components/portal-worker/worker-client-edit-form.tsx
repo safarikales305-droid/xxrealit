@@ -6,6 +6,7 @@ import {
   fetchWorkerClientDetail,
   sendWorkerClientEmail,
 } from '@/lib/portal-worker-crm-api';
+import { WorkerClientBonusCreditSection } from '@/components/portal-worker/worker-client-bonus-credit-section';
 
 type ClientDetail = Record<string, unknown>;
 
@@ -235,6 +236,33 @@ export function WorkerClientEditForm({ clientId, onSaved }: Props) {
           />
         </label>
       </section>
+
+      {detail.kind === 'client' ? (
+        <WorkerClientBonusCreditSection
+          clientUserId={clientId}
+          profile={(detail.profile ?? {}) as { realCredit?: number; bonusCredit?: number; totalCredit?: number }}
+          bonusCreditInfo={
+            (detail.bonusCreditInfo ?? null) as {
+              canAssign: boolean;
+              maxBonusPerClient?: number;
+              maxBonusPerDay?: number | null;
+              maxBonusPerMonth?: number | null;
+              bonusGrantedToClient?: number;
+              bonusRemainingOnClient?: number;
+            } | null
+          }
+          workerBonusHistory={
+            (detail.workerBonusHistory ?? []) as Array<{
+              id: string;
+              amount: number;
+              description?: string | null;
+              purpose?: string | null;
+              createdAt: string;
+            }>
+          }
+          onGranted={load}
+        />
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
         <button

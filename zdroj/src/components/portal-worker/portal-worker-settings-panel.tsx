@@ -253,6 +253,18 @@ export function PortalWorkerSettingsPanel() {
           Přidělování bonusů:{' '}
           <strong>{settings.canAssignBonusCredits ? 'povoleno' : 'zakázáno'}</strong>
         </p>
+        {settings.maxBonusPerDay != null ? (
+          <p className="mt-1">
+            Denní limit bonusů:{' '}
+            <strong>{settings.maxBonusPerDay.toLocaleString('cs-CZ')} Kč</strong>
+          </p>
+        ) : null}
+        {settings.maxBonusPerMonth != null ? (
+          <p className="mt-1">
+            Měsíční limit bonusů:{' '}
+            <strong>{settings.maxBonusPerMonth.toLocaleString('cs-CZ')} Kč</strong>
+          </p>
+        ) : null}
         {settings.commissionPercent != null ? (
           <p className="mt-1">
             Vaše provize: <strong>{settings.commissionPercent} %</strong>

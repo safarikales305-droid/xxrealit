@@ -53,6 +53,7 @@ export const EMAIL_TEMPLATE_VARIABLES: Record<string, string[]> = {
   credit_top_up_confirmed: ['userName', 'amount', 'invoiceNumber', 'portalName', 'loginUrl'],
   client_registration_complete: ['clientName', 'portalName', 'loginUrl', 'profileUrl'],
   worker_portal_invitation: ['workerName', 'completeUrl', 'portalName', 'loginUrl'],
+  worker_bonus_credit_gift: ['clientName', 'amount', 'workerName', 'portalUrl'],
   system_notification: ['title', 'messageHtml', 'messageText', 'ctaUrl', 'portalName'],
   custom_message: ['subject', 'bodyHtml', 'bodyText', 'portalName'],
   whatsapp_followup_email: ['userName', 'messageHtml', 'messageText', 'ctaUrl', 'portalName'],
@@ -231,6 +232,31 @@ Podpora: {{supportEmail}}`,
       '<p>Dobrý den {{workerName}},</p><p>Byli jste pozváni jako pracovník portálu {{portalName}}.</p><p><a href="{{completeUrl}}">Dokončit registraci</a></p>',
     textContent: 'Pozvánka pracovníka.\n\n{{completeUrl}}',
     variables: EMAIL_TEMPLATE_VARIABLES.worker_portal_invitation,
+  },
+  {
+    key: 'worker_bonus_credit_gift',
+    name: 'Dárek bonusového kreditu od pracovníka',
+    category: 'worker_crm',
+    subject: 'Dali jsme vám dárek {{amount}} Kč v kreditech na {{portalName}}',
+    htmlContent: `<p>Dobrý den {{clientName}},</p>
+<p>děkujeme za založení účtu na portálu <strong>{{portalName}}</strong>.</p>
+<p>Jako dárek jsme vám připsali bonusový kredit ve výši <strong>{{amount}} Kč</strong>.</p>
+<p>Kredit můžete využít na portálu {{portalName}} podle aktuálních pravidel a obchodních podmínek.</p>
+<p><a href="{{portalUrl}}" style="display:inline-block;background:#ff5a00;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:700">Přejít na portál</a></p>
+<p>Děkujeme,<br/>tým {{portalName}}</p>`,
+    textContent: `Dobrý den {{clientName}},
+
+děkujeme za založení účtu na portálu {{portalName}}.
+
+Jako dárek jsme vám připsali bonusový kredit ve výši {{amount}} Kč.
+
+Kredit můžete využít na portálu {{portalName}} podle aktuálních pravidel a obchodních podmínek.
+
+{{portalUrl}}
+
+Děkujeme,
+tým {{portalName}}`,
+    variables: EMAIL_TEMPLATE_VARIABLES.worker_bonus_credit_gift,
   },
 ];
 

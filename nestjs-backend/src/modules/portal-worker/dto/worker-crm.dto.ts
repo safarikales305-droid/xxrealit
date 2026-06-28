@@ -165,6 +165,10 @@ export class GrantWorkerBonusDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  sendGiftEmail?: boolean;
 }
 
 export class WorkerCrmMessageDto {
@@ -185,6 +189,16 @@ export class UpdateWorkerProfileAdminDto {
   @IsInt()
   @Min(0)
   maxBonusPerClient?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  maxBonusPerDay?: number | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  maxBonusPerMonth?: number | null;
 
   @IsOptional()
   @IsBoolean()

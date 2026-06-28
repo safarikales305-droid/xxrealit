@@ -2452,6 +2452,8 @@ model WorkerProfile {
   userId                String   @id
   commissionPercent     Int?
   maxBonusPerClient     Int      @default(3000)
+  maxBonusPerDay        Int?
+  maxBonusPerMonth      Int?
   canAssignBonusCredits Boolean  @default(true)
   isActive              Boolean  @default(true)
   adminNotes            String?  @db.Text

@@ -1,0 +1,2 @@
+ALTER TABLE "WorkerProfile" ADD COLUMN IF NOT EXISTS "maxBonusPerDay" INTEGER;
+ALTER TABLE "WorkerProfile" ADD COLUMN IF NOT EXISTS "maxBonusPerMonth" INTEGER;

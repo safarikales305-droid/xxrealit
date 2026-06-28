@@ -8759,6 +8759,8 @@ export type WorkerDetailAdmin = {
   profile: {
     commissionPercent: number | null;
     maxBonusPerClient: number;
+    maxBonusPerDay: number | null;
+    maxBonusPerMonth: number | null;
     canAssignBonusCredits: boolean;
     isActive: boolean;
     adminNotes: string | null;

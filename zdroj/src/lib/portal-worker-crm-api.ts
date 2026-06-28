@@ -97,15 +97,28 @@ export async function addWorkerClientNote(payload: {
   return { ok: res.ok };
 }
 
-export async function grantWorkerClientBonus(clientUserId: string, amount: number, description?: string) {
+export async function grantWorkerClientBonus(
+  clientUserId: string,
+  amount: number,
+  description?: string,
+  sendGiftEmail?: boolean,
+) {
   const res = await fetch('/api/nest/portal-worker/clients/bonus', {
     method: 'POST',
     credentials: 'include',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ clientUserId, amount, description }),
+    body: JSON.stringify({ clientUserId, amount, description, sendGiftEmail }),
   });
-  const data = (await res.json().catch(() => ({}))) as { message?: string };
-  return { ok: res.ok, error: data.message };
+  const data = (await res.json().catch(() => ({}))) as {
+    message?: string;
+    emailSent?: boolean;
+  };
+  return {
+    ok: res.ok,
+    error: data.message,
+    message: data.message,
+    emailSent: data.emailSent,
+  };
 }
 
 export type WorkerSelfSettings = {
@@ -119,6 +132,8 @@ export type WorkerSelfSettings = {
   phoneVerified: boolean;
   whatsappVerified: boolean;
   maxBonusPerClient: number;
+  maxBonusPerDay?: number | null;
+  maxBonusPerMonth?: number | null;
   canAssignBonusCredits: boolean;
   commissionPercent: number | null;
 };

@@ -25,6 +25,7 @@ export type CreditLedgerPurpose =
   | 'TIPSTER_EARNING'
   | 'ADMIN_ADJUSTMENT'
   | 'WORKER_BONUS'
+  | 'BONUS_CREDIT'
   | 'TEST';
 
 export type ContactUnlockSourceType = 'LISTING' | 'TIP' | 'TIP_SHORTS';

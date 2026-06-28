@@ -615,4 +615,34 @@ export class EmailsService implements OnModuleInit {
       metadata: { invoiceNumber: input.invoiceNumber, amount: input.amount },
     });
   }
+
+  async sendWorkerBonusCreditGiftEmail(input: {
+    email: string;
+    clientName: string;
+    amount: number;
+    workerName: string;
+    clientUserId: string;
+    workerId: string;
+  }) {
+    const portalUrl = this.loginUrl();
+    const amountFormatted = new Intl.NumberFormat('cs-CZ').format(input.amount);
+    return this.sendTemplatedEmail({
+      type: 'worker_bonus_credit_gift',
+      templateKey: 'worker_bonus_credit_gift',
+      to: input.email,
+      variables: {
+        clientName: input.clientName,
+        amount: amountFormatted,
+        workerName: input.workerName,
+        portalUrl: this.normalizePublicUrl(portalUrl),
+        portalName: this.portalName(),
+        ctaUrl: this.normalizePublicUrl(portalUrl),
+      },
+      metadata: {
+        clientUserId: input.clientUserId,
+        workerId: input.workerId,
+        amount: input.amount,
+      },
+    });
+  }
 }
