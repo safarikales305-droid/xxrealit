@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
+import { AdminFacebookAutopostOAuth } from '@/components/admin/AdminFacebookAutopostOAuth';
 import {
   formatGraphErrorDetail,
   nestAdminSocialAutopostFacebookPatch,
@@ -29,7 +30,6 @@ export default function AdminSocialAutopostPage() {
   const [tab, setTab] = useState<Tab>('facebook');
   const [settings, setSettings] = useState<SocialAutopostSettingsPublic | null>(null);
   const [queue, setQueue] = useState<SocialQueueRow[]>([]);
-  const [pageAccessToken, setPageAccessToken] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -72,9 +72,6 @@ export default function AdminSocialAutopostPage() {
     const patch: Record<string, unknown> = {
       enabled: fb.enabled,
       facebookEnabled: fb.enabled,
-      pageId: fb.pageId,
-      pageName: fb.pageName,
-      tokenExpiresAt: fb.tokenExpiresAt,
       publishPosts: fb.publishPosts,
       publishProperties: fb.publishProperties,
       publishShorts: fb.publishShorts,
@@ -83,7 +80,6 @@ export default function AdminSocialAutopostPage() {
       professionalsOnly: fb.professionalsOnly,
       allowedRoles: fb.allowedRoles,
     };
-    if (pageAccessToken.trim()) patch.pageAccessToken = pageAccessToken.trim();
     const next = await nestAdminSocialAutopostFacebookPatch(token, patch);
     setBusy(false);
     if (!next) {
@@ -91,7 +87,6 @@ export default function AdminSocialAutopostPage() {
       return;
     }
     setSettings(next);
-    setPageAccessToken('');
     setMsg('Nastavení uloženo.');
   }
 
@@ -125,7 +120,7 @@ export default function AdminSocialAutopostPage() {
       const idPart = r.externalPostId ? ` (ID: ${r.externalPostId})` : '';
       const tokenNote =
         r.tokenSource === 'me_accounts'
-          ? '\n\nPoznámka: použit Page Access Token z /me/accounts — uložte ho do pole tokenu.'
+          ? ''
           : '';
       setMsg(`✓ Publikováno${idPart}${tokenNote}`);
     } else {
@@ -195,6 +190,19 @@ export default function AdminSocialAutopostPage() {
 
       {tab === 'facebook' && fb ? (
         <section className="space-y-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          {token ? (
+            <Suspense fallback={<p className="text-sm text-zinc-500">Načítám propojení…</p>}>
+              <AdminFacebookAutopostOAuth
+                token={token}
+                fb={fb}
+                busy={busy}
+                setBusy={setBusy}
+                onSettingsChange={() => void refresh()}
+                onMessage={setMsg}
+              />
+            </Suspense>
+          ) : null}
+
           <label className="flex items-center gap-3 text-sm font-medium">
             <input
               type="checkbox"
@@ -207,50 +215,6 @@ export default function AdminSocialAutopostPage() {
             />
             Zapnout automatické publikování na Facebook
           </label>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-sm">
-              <span className="font-medium text-zinc-700">Facebook Page ID</span>
-              <input
-                value={fb.pageId}
-                onChange={(e) =>
-                  setSettings((s) =>
-                    s ? { ...s, facebook: { ...s.facebook, pageId: e.target.value } } : s,
-                  )
-                }
-                className="mt-1 w-full rounded-xl border px-3 py-2"
-                placeholder="123456789"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="font-medium text-zinc-700">Název stránky</span>
-              <input
-                value={fb.pageName}
-                onChange={(e) =>
-                  setSettings((s) =>
-                    s ? { ...s, facebook: { ...s.facebook, pageName: e.target.value } } : s,
-                  )
-                }
-                className="mt-1 w-full rounded-xl border px-3 py-2"
-              />
-            </label>
-            <label className="block text-sm sm:col-span-2">
-              <span className="font-medium text-zinc-700">Page Access Token</span>
-              <input
-                type="password"
-                value={pageAccessToken}
-                onChange={(e) => setPageAccessToken(e.target.value)}
-                className="mt-1 w-full rounded-xl border px-3 py-2"
-                placeholder={fb.maskedToken ?? 'Nový token (ponechte prázdné pro zachování)'}
-              />
-              <p className="mt-1 text-xs text-zinc-500">
-                {fb.tokenSet
-                  ? `Uložený token: ${fb.maskedToken ?? '••••'}`
-                  : 'Token zatím není nastaven (lze použít env FACEBOOK_PAGE_ACCESS_TOKEN)'}
-                {fb.connected ? ' · Připojeno' : ''}
-              </p>
-            </label>
-          </div>
 
           <div className="grid gap-2 sm:grid-cols-2">
             {(

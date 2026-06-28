@@ -1,6 +1,11 @@
 import { IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { SocialPublishContentType, SocialPublishRepeatType, UserRole } from '@prisma/client';
 
+export class SelectFacebookAutopostPageDto {
+  @IsString()
+  pageId!: string;
+}
+
 export class UpdateFacebookAutopostDto {
   @IsOptional()
   @IsBoolean()

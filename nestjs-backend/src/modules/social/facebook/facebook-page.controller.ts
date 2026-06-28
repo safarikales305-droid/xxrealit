@@ -24,6 +24,7 @@ import { FacebookSelectPageDto } from '../dto/facebook-select-page.dto';
 import { FacebookSyncToggleDto } from '../dto/facebook-sync-toggle.dto';
 import { FacebookAuthService } from './facebook-auth.service';
 import { FacebookPageService } from './facebook-page.service';
+import { SocialAutopostFacebookOAuthService } from '../autopost/social-autopost-facebook-oauth.service';
 
 @Controller('social/facebook')
 export class FacebookPageController implements OnModuleInit {
@@ -32,6 +33,7 @@ export class FacebookPageController implements OnModuleInit {
   constructor(
     private readonly facebookPage: FacebookPageService,
     private readonly facebookAuth: FacebookAuthService,
+    private readonly autopostOAuth: SocialAutopostFacebookOAuthService,
   ) {}
 
   onModuleInit() {
@@ -119,6 +121,17 @@ export class FacebookPageController implements OnModuleInit {
     @Req() req: Request,
     @Res() res: Response,
   ) {
+    if (state?.trim().startsWith('m')) {
+      const result = await this.autopostOAuth.handleCallback(
+        code,
+        state,
+        oauthError,
+        errorReason,
+        errorDescription,
+      );
+      return this.respondOAuth(res, req, result);
+    }
+
     const result = await this.facebookPage.handlePageCallback(
       code,
       state,

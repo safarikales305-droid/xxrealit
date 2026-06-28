@@ -52,10 +52,27 @@ export class SocialAutopostSettingsService implements OnModuleInit {
       pageId: this.str(fbRaw.pageId),
       pageAccessTokenEncrypted: this.str(fbRaw.pageAccessTokenEncrypted),
       pageName: this.str(fbRaw.pageName),
+      userAccessTokenEncrypted: this.str(fbRaw.userAccessTokenEncrypted),
       tokenExpiresAt:
         fbRaw.tokenExpiresAt === null || typeof fbRaw.tokenExpiresAt === 'string'
           ? (fbRaw.tokenExpiresAt as string | null)
           : null,
+      tokenObtainedAt:
+        fbRaw.tokenObtainedAt === null || typeof fbRaw.tokenObtainedAt === 'string'
+          ? (fbRaw.tokenObtainedAt as string | null)
+          : null,
+      tokenLastUsedAt:
+        fbRaw.tokenLastUsedAt === null || typeof fbRaw.tokenLastUsedAt === 'string'
+          ? (fbRaw.tokenLastUsedAt as string | null)
+          : null,
+      tokenScopes: Array.isArray(fbRaw.tokenScopes)
+        ? fbRaw.tokenScopes.filter((x): x is string => typeof x === 'string')
+        : [],
+      tokenWarning:
+        fbRaw.tokenWarning === null || typeof fbRaw.tokenWarning === 'string'
+          ? (fbRaw.tokenWarning as string | null)
+          : null,
+      connectedViaOAuth: fbRaw.connectedViaOAuth === true,
       publishPosts: fbRaw.publishPosts !== false,
       publishProperties: fbRaw.publishProperties !== false,
       publishShorts: fbRaw.publishShorts !== false,
@@ -120,6 +137,30 @@ export class SocialAutopostSettingsService implements OnModuleInit {
     return envToken || null;
   }
 
+  resolveFacebookUserAccessToken(): string | null {
+    const enc = this.stored.facebook.userAccessTokenEncrypted?.trim();
+    if (!enc) return null;
+    try {
+      return this.tokenEncryption.decrypt(enc);
+    } catch (err) {
+      this.logger.warn(`Facebook user token decrypt failed: ${String(err)}`);
+      return null;
+    }
+  }
+
+  async touchTokenLastUsed() {
+    const now = new Date().toISOString();
+    await this.updateSettings({
+      facebook: { tokenLastUsedAt: now },
+    });
+  }
+
+  async setTokenWarning(message: string | null) {
+    await this.updateSettings({
+      facebook: { tokenWarning: message },
+    });
+  }
+
   resolveFacebookPageId(): string | null {
     return (
       this.stored.facebook.pageId?.trim() ||
@@ -143,7 +184,11 @@ export class SocialAutopostSettingsService implements OnModuleInit {
 
   toPublic(settings: SocialAutopostSettings = this.stored): SocialAutopostSettingsPublic {
     const token = this.resolveFacebookPageAccessToken();
-    const { pageAccessTokenEncrypted: _enc, ...fbRest } = settings.facebook;
+    const {
+      pageAccessTokenEncrypted: _enc,
+      userAccessTokenEncrypted: _userEnc,
+      ...fbRest
+    } = settings.facebook;
     return {
       facebook: {
         ...fbRest,
@@ -166,18 +211,27 @@ export class SocialAutopostSettingsService implements OnModuleInit {
 
   async updateSettings(
     patch: {
-      facebook?: Partial<FacebookAutopostSettings> & { pageAccessToken?: string };
+      facebook?: Partial<FacebookAutopostSettings> & {
+        pageAccessToken?: string;
+        userAccessToken?: string;
+      };
       lastApiResponses?: SocialAutopostSettings['lastApiResponses'];
     },
   ) {
     const current = this.getSettings();
     const fbPatch = (patch.facebook ?? {}) as Partial<FacebookAutopostSettings> & {
       pageAccessToken?: string;
+      userAccessToken?: string;
     };
 
     let pageAccessTokenEncrypted = current.facebook.pageAccessTokenEncrypted;
     if (typeof fbPatch.pageAccessToken === 'string' && fbPatch.pageAccessToken.trim()) {
       pageAccessTokenEncrypted = this.tokenEncryption.encrypt(fbPatch.pageAccessToken.trim());
+    }
+
+    let userAccessTokenEncrypted = current.facebook.userAccessTokenEncrypted;
+    if (typeof fbPatch.userAccessToken === 'string' && fbPatch.userAccessToken.trim()) {
+      userAccessTokenEncrypted = this.tokenEncryption.encrypt(fbPatch.userAccessToken.trim());
     }
 
     const next: SocialAutopostSettings = {
@@ -186,12 +240,15 @@ export class SocialAutopostSettingsService implements OnModuleInit {
         ...current.facebook,
         ...fbPatch,
         pageAccessTokenEncrypted,
+        userAccessTokenEncrypted,
         allowedRoles: fbPatch.allowedRoles ?? current.facebook.allowedRoles,
+        tokenScopes: fbPatch.tokenScopes ?? current.facebook.tokenScopes,
       },
       lastApiResponses: patch.lastApiResponses ?? current.lastApiResponses,
     };
 
     delete (next.facebook as Record<string, unknown>).pageAccessToken;
+    delete (next.facebook as Record<string, unknown>).userAccessToken;
 
     await this.prisma.appSetting.upsert({
       where: { key: SETTINGS_KEY },

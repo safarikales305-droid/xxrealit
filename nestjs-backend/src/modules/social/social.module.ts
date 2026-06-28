@@ -33,6 +33,8 @@ import {
 import { SocialPublishQueueCronService } from './autopost/social-publish-queue.cron.service';
 import { SocialPublishScheduleService } from './autopost/social-publish-schedule.service';
 import { SocialPublishScheduleCronService } from './autopost/social-publish-schedule.cron.service';
+import { SocialAutopostFacebookOAuthService } from './autopost/social-autopost-facebook-oauth.service';
+import { SocialAutopostTokenService } from './autopost/social-autopost-token.service';
 
 @Module({
   imports: [
@@ -72,6 +74,8 @@ import { SocialPublishScheduleCronService } from './autopost/social-publish-sche
     SocialPublishScheduleService,
     SocialPublishQueueCronService,
     SocialPublishScheduleCronService,
+    SocialAutopostFacebookOAuthService,
+    SocialAutopostTokenService,
   ],
   exports: [
     FacebookConfigService,

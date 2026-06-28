@@ -15,6 +15,11 @@ export type FacebookAutopostSettingsPublic = {
   pageId: string;
   pageName: string;
   tokenExpiresAt: string | null;
+  tokenObtainedAt?: string | null;
+  tokenLastUsedAt?: string | null;
+  tokenScopes?: string[];
+  tokenWarning?: string | null;
+  connectedViaOAuth?: boolean;
   publishPosts: boolean;
   publishProperties: boolean;
   publishShorts: boolean;
@@ -167,6 +172,54 @@ function formatGraphErrorDetail(graph?: FacebookGraphErrorPublic): string {
     graph.fbtrace_id ? `fbtrace_id ${graph.fbtrace_id}` : null,
   ].filter(Boolean);
   return parts.join(' · ');
+}
+
+export async function nestAdminFacebookAutopostConnectUrl(token: string): Promise<string | null> {
+  const url = `${resolveSocialAdminApiUrl('/social/autopost/admin/facebook/connect')}?format=json`;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+    },
+    cache: 'no-store',
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { url?: string };
+  return data.url ?? null;
+}
+
+export function nestAdminFacebookAutopostListPages(token: string) {
+  return adminFetch<{ ok: boolean; pages: Array<{ id: string; name: string; picture?: string | null }>; error?: string }>(
+    token,
+    '/social/autopost/admin/facebook/pages',
+  );
+}
+
+export function nestAdminFacebookAutopostSelectPage(token: string, pageId: string) {
+  return adminFetchJson<{ ok: boolean; pageId?: string; pageName?: string; error?: string }>(
+    token,
+    '/social/autopost/admin/facebook/select-page',
+    { method: 'POST', body: JSON.stringify({ pageId }) },
+  ).then(({ data, status, body }) => {
+    if (data) return data;
+    const err = body as { message?: string; error?: string };
+    return {
+      ok: false,
+      error: typeof err?.error === 'string' ? err.error : `HTTP ${status}`,
+    };
+  });
+}
+
+export function nestAdminFacebookAutopostRefreshToken(token: string) {
+  return adminFetchJson<{ ok: boolean; error?: string }>(
+    token,
+    '/social/autopost/admin/facebook/refresh-token',
+    { method: 'POST' },
+  ).then(({ data, status, body }) => {
+    if (data) return data;
+    const err = body as { error?: string };
+    return { ok: false, error: err?.error ?? `HTTP ${status}` };
+  });
 }
 
 export function nestAdminSocialAutopostSettingsGet(token: string) {

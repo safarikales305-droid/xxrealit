@@ -6,9 +6,12 @@ import {
   Patch,
   Post,
   Query,
+  Req,
+  Res,
   UseGuards,
   ValidationPipe,
 } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { SocialPublishStatus } from '@prisma/client';
 import { AdminGuard } from '../../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
@@ -27,9 +30,11 @@ import {
   PropertyIdsDto,
   PropertyPublishNowDto,
   PropertyScheduleDto,
+  SelectFacebookAutopostPageDto,
   SocialQueueQueryDto,
   UpdateFacebookAutopostDto,
 } from './dto/social-autopost-admin.dto';
+import { SocialAutopostFacebookOAuthService } from './social-autopost-facebook-oauth.service';
 
 @Controller('social/autopost/admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -41,6 +46,7 @@ export class SocialAutopostAdminController {
     private readonly processor: SocialPublishProcessorService,
     private readonly scheduleService: SocialPublishScheduleService,
     private readonly prisma: PrismaService,
+    private readonly autopostOAuth: SocialAutopostFacebookOAuthService,
   ) {}
 
   @Get('settings')
@@ -71,6 +77,47 @@ export class SocialAutopostAdminController {
   @Post('facebook/test-publish')
   testPublish() {
     return this.publisher.testFacebookPublish();
+  }
+
+  @Get('facebook/connect')
+  async connectFacebook(
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    const wantsJson =
+      req.query.format === 'json' ||
+      (req.headers.accept ?? '').includes('application/json');
+    try {
+      const url = await this.autopostOAuth.buildConnectUrl(user.id);
+      if (wantsJson) return res.json({ url });
+      return res.redirect(url);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Facebook OAuth není dostupné.';
+      if (wantsJson) return res.status(503).json({ message, error: message });
+      return res.redirect(
+        `${this.autopostOAuth.getAdminSettingsUrl()}?facebook=error&reason=connect_failed`,
+      );
+    }
+  }
+
+  @Get('facebook/pages')
+  listFacebookPages(@CurrentUser() user: AuthUser) {
+    return this.autopostOAuth.listPages(user.id);
+  }
+
+  @Post('facebook/select-page')
+  selectFacebookPage(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: SelectFacebookAutopostPageDto,
+  ) {
+    return this.autopostOAuth.selectPage(user.id, dto.pageId);
+  }
+
+  @Post('facebook/refresh-token')
+  refreshFacebookToken() {
+    return this.autopostOAuth.refreshPageAccessToken();
   }
 
   @Get('queue')

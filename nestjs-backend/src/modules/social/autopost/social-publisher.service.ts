@@ -12,6 +12,7 @@ import {
   type ParsedFacebookGraphError,
 } from './facebook-graph-autopost.util';
 import { SocialAutopostSettingsService } from './social-autopost-settings.service';
+import { SocialAutopostTokenService } from './social-autopost-token.service';
 import { maskAccessToken } from './social-autopost.types';
 import { facebookPostPermalink } from './social-publish-format.util';
 
@@ -78,6 +79,7 @@ export class SocialPublisherService {
   constructor(
     private readonly settings: SocialAutopostSettingsService,
     private readonly fbConfig: FacebookConfigService,
+    private readonly tokenService: SocialAutopostTokenService,
   ) {}
 
   async publishToInstagram(): Promise<never> {
@@ -230,9 +232,17 @@ export class SocialPublisherService {
     return { ok: false, error };
   }
 
+  private async getValidatedStoredToken(): Promise<string | null> {
+    const ensured = await this.tokenService.ensureValidTokenBeforePublish();
+    if (!ensured.ok || !ensured.token) {
+      throw new Error(ensured.warning ?? 'Facebook token není platný.');
+    }
+    return ensured.token;
+  }
+
   async publishToFacebook(payload: FacebookPublishPayload): Promise<FacebookPublishResult> {
     const pageId = this.settings.resolveFacebookPageId();
-    const storedToken = this.settings.resolveFacebookPageAccessToken();
+    const storedToken = await this.getValidatedStoredToken();
     if (!pageId || !storedToken) {
       throw new Error('Facebook Page ID nebo access token chybí.');
     }
@@ -452,9 +462,15 @@ export class SocialPublisherService {
 
   async testFacebookConnection(): Promise<FacebookTestConnectionResult> {
     const pageId = this.settings.resolveFacebookPageId();
-    const storedToken = this.settings.resolveFacebookPageAccessToken();
+    let storedToken: string | null;
+    try {
+      storedToken = await this.getValidatedStoredToken();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Token není platný.';
+      return { ok: false, error: message };
+    }
     if (!pageId || !storedToken) {
-      return { ok: false, error: 'Chybí Page ID nebo access token.' };
+      return { ok: false, error: 'Chybí Page ID nebo access token. Připojte Facebook přes OAuth.' };
     }
 
     const resolved = await this.resolvePageAccessToken(pageId, storedToken);
@@ -516,11 +532,17 @@ export class SocialPublisherService {
 
   async testFacebookPublish(): Promise<FacebookTestPublishResult> {
     const pageId = this.settings.resolveFacebookPageId();
-    const storedToken = this.settings.resolveFacebookPageAccessToken();
+    let storedToken: string | null;
+    try {
+      storedToken = await this.getValidatedStoredToken();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Token není platný.';
+      return { ok: false, error: message };
+    }
     if (!pageId || !storedToken) {
       return {
         ok: false,
-        error: 'Chybí Page ID nebo access token. Uložte nastavení Facebook autopostu.',
+        error: 'Chybí Page ID nebo access token. Připojte Facebook přes OAuth.',
       };
     }
 

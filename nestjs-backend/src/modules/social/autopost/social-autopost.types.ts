@@ -13,7 +13,14 @@ export type FacebookAutopostSettings = {
   pageId: string;
   pageAccessTokenEncrypted: string;
   pageName: string;
+  /** Long-lived user token pro obnovu page tokenu (OAuth). */
+  userAccessTokenEncrypted: string;
   tokenExpiresAt: string | null;
+  tokenObtainedAt: string | null;
+  tokenLastUsedAt: string | null;
+  tokenScopes: string[];
+  tokenWarning: string | null;
+  connectedViaOAuth: boolean;
   publishPosts: boolean;
   publishProperties: boolean;
   publishShorts: boolean;
@@ -37,7 +44,7 @@ export type SocialAutopostSettings = {
 
 export type FacebookAutopostSettingsPublic = Omit<
   FacebookAutopostSettings,
-  'pageAccessTokenEncrypted'
+  'pageAccessTokenEncrypted' | 'userAccessTokenEncrypted'
 > & {
   /** Alias pro `enabled` v API odpovědi. */
   facebookEnabled?: boolean;
@@ -59,7 +66,13 @@ export const DEFAULT_FACEBOOK_AUTOPOST: FacebookAutopostSettings = {
   pageId: '',
   pageAccessTokenEncrypted: '',
   pageName: '',
+  userAccessTokenEncrypted: '',
   tokenExpiresAt: null,
+  tokenObtainedAt: null,
+  tokenLastUsedAt: null,
+  tokenScopes: [],
+  tokenWarning: null,
+  connectedViaOAuth: false,
   publishPosts: true,
   publishProperties: true,
   publishShorts: true,
