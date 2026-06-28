@@ -130,7 +130,15 @@ export class SocialPublishScheduleService {
   }
 
   async publishNow(propertyIds: string[], userId: string | undefined, force = false) {
-    const results: Array<{ propertyId: string; ok: boolean; error?: string; skipped?: boolean; reason?: string }> = [];
+    const results: Array<{
+      propertyId: string;
+      ok: boolean;
+      error?: string;
+      skipped?: boolean;
+      reason?: string;
+      publishedUrl?: string;
+      externalPostId?: string;
+    }> = [];
 
     for (const propertyId of propertyIds) {
       const property = await this.prisma.property.findUnique({ where: { id: propertyId } });
@@ -181,9 +189,18 @@ export class SocialPublishScheduleService {
         ? await this.prisma.socialPublishQueue.findUnique({ where: { id: enq.queueId } })
         : null;
       if (queue?.status === SocialPublishStatus.FAILED) {
-        results.push({ propertyId, ok: false, error: queue.lastError ?? 'Publikace selhala' });
+        results.push({
+          propertyId,
+          ok: false,
+          error: queue.lastError ?? 'Publikace selhala',
+        });
       } else if (queue?.status === SocialPublishStatus.PUBLISHED) {
-        results.push({ propertyId, ok: true });
+        results.push({
+          propertyId,
+          ok: true,
+          publishedUrl: queue.publishedUrl ?? undefined,
+          externalPostId: queue.externalPostId ?? undefined,
+        });
       } else {
         results.push({ propertyId, ok: true });
       }

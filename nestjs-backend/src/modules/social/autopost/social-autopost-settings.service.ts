@@ -136,12 +136,18 @@ export class SocialAutopostSettingsService implements OnModuleInit {
     );
   }
 
+  /** Připojení k FB stránce (token + pageId) — bez ohledu na přepínač autopost. */
+  isFacebookPublishingConfigured(): boolean {
+    return Boolean(this.resolveFacebookPageId() && this.resolveFacebookPageAccessToken());
+  }
+
   toPublic(settings: SocialAutopostSettings = this.stored): SocialAutopostSettingsPublic {
     const token = this.resolveFacebookPageAccessToken();
     const { pageAccessTokenEncrypted: _enc, ...fbRest } = settings.facebook;
     return {
       facebook: {
         ...fbRest,
+        facebookEnabled: settings.facebook.enabled,
         connected: Boolean(settings.facebook.pageId && token),
         maskedToken: maskAccessToken(token),
         tokenSet: Boolean(token),

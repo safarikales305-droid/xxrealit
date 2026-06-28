@@ -22,6 +22,7 @@ import { TiktokController } from './tiktok/tiktok.controller';
 import { TokenEncryptionService } from './token-encryption.service';
 import { YoutubeController } from './youtube/youtube.controller';
 import { SocialAutopostAdminController } from './autopost/social-autopost-admin.controller';
+import { FacebookAdminController } from './autopost/facebook-admin.controller';
 import { SocialAutopostSettingsService } from './autopost/social-autopost-settings.service';
 import { SocialPublisherService } from './autopost/social-publisher.service';
 import { SocialPublishLogService } from './autopost/social-publish-log.service';
@@ -46,6 +47,7 @@ import { SocialPublishScheduleCronService } from './autopost/social-publish-sche
     FacebookWebhookController,
     FacebookUrlImportController,
     SocialAutopostAdminController,
+    FacebookAdminController,
     TiktokController,
     YoutubeController,
     InstagramController,

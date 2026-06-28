@@ -7,6 +7,16 @@ import {
   type PropertyPublishLogRow,
 } from '@/lib/social-autopost-admin-api';
 
+function formatApiResponse(raw: unknown): string {
+  if (raw == null) return '—';
+  try {
+    const s = typeof raw === 'string' ? raw : JSON.stringify(raw);
+    return s.length > 120 ? `${s.slice(0, 120)}…` : s;
+  } catch {
+    return '—';
+  }
+}
+
 function formatDt(iso: string | null | undefined): string {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -54,6 +64,8 @@ export function FacebookPublishLogModal({ open, title, loading, rows, onClose }:
                     <th className="pb-2 pr-3">Odkaz</th>
                     <th className="pb-2 pr-3">Zdroj</th>
                     <th className="pb-2 pr-3">Kdo</th>
+                    <th className="pb-2 pr-3">Čas zprac.</th>
+                    <th className="pb-2 pr-3">Graph API</th>
                     <th className="pb-2">Chyba</th>
                   </tr>
                 </thead>
@@ -84,6 +96,12 @@ export function FacebookPublishLogModal({ open, title, loading, rows, onClose }:
                       </td>
                       <td className="py-2 pr-3 text-xs">
                         {row.triggeredBy?.name ?? row.triggeredBy?.email ?? '—'}
+                      </td>
+                      <td className="py-2 pr-3 whitespace-nowrap text-xs">
+                        {formatDt(row.processedAt ?? row.createdAt)}
+                      </td>
+                      <td className="py-2 pr-3 max-w-[200px] truncate font-mono text-[10px] text-zinc-600" title={formatApiResponse(row.lastApiResponse)}>
+                        {formatApiResponse(row.lastApiResponse)}
                       </td>
                       <td className="py-2 text-xs text-red-700">{row.lastError ?? '—'}</td>
                     </tr>

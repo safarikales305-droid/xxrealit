@@ -10,6 +10,8 @@ export type SocialApiLogEntry = {
 
 export type FacebookAutopostSettingsPublic = {
   enabled: boolean;
+  /** Alias pro enabled — ukládá se jako facebook.enabled v DB. */
+  facebookEnabled?: boolean;
   pageId: string;
   pageName: string;
   tokenExpiresAt: string | null;
@@ -80,14 +82,47 @@ export type FacebookTestPublishResponse = {
   error?: string;
   hint?: string;
   graphError?: FacebookGraphErrorPublic;
+  results?: Array<{
+    propertyId: string;
+    ok: boolean;
+    error?: string;
+    skipped?: boolean;
+    reason?: string;
+    publishedUrl?: string;
+    externalPostId?: string;
+  }>;
 };
+
+/** V prohlížeči same-origin proxy (bez CORS); na serveru přímé Nest API. */
+function resolveSocialAdminApiUrl(nestPath: string): string {
+  const path = nestPath.startsWith('/') ? nestPath : `/${nestPath}`;
+  if (typeof window !== 'undefined') {
+    const origin = window.location.origin.replace(/\/+$/, '');
+    if (path === '/social/autopost/admin/properties/publish-now') {
+      return `${origin}/api/facebook/post`;
+    }
+    if (path === '/social/autopost/admin/facebook/test-publish') {
+      return `${origin}/api/facebook/post`;
+    }
+    if (path === '/social/autopost/admin/facebook/test-connection') {
+      return `${origin}/api/facebook/test-connection`;
+    }
+    const prefix = '/social/autopost/admin';
+    if (path.startsWith(prefix)) {
+      return `${origin}/api/facebook/autopost${path.slice(prefix.length)}`;
+    }
+  }
+  if (!API_BASE_URL) return path;
+  return `${API_BASE_URL}${path}`;
+}
 
 async function adminFetch<T>(
   token: string,
   path: string,
   init?: RequestInit,
 ): Promise<T | null> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const url = resolveSocialAdminApiUrl(path);
+  const res = await fetch(url, {
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -105,7 +140,8 @@ async function adminFetchJson<T>(
   path: string,
   init?: RequestInit,
 ): Promise<{ data: T | null; status: number; body: unknown }> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const url = resolveSocialAdminApiUrl(path);
+  const res = await fetch(url, {
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -161,7 +197,7 @@ export async function nestAdminSocialAutopostTestPublish(
   const { data, status, body } = await adminFetchJson<FacebookTestPublishResponse>(
     token,
     '/social/autopost/admin/facebook/test-publish',
-    { method: 'POST' },
+    { method: 'POST', body: JSON.stringify({ test: true }) },
   );
   if (data) return data;
   const errBody = body as { message?: string; error?: string };
@@ -245,6 +281,8 @@ export type PropertyPublishLogRow = {
   externalPostId: string | null;
   publishedUrl: string | null;
   lastError: string | null;
+  lastApiResponse?: unknown;
+  processedAt?: string | null;
   triggerSource: string;
   createdAt: string;
   triggeredBy?: { id: string; name: string | null; email: string } | null;
@@ -271,11 +309,35 @@ export function nestAdminPropertyPublishNow(
   token: string,
   body: { propertyIds: string[]; force?: boolean },
 ) {
-  return adminFetch<{
-    results: Array<{ propertyId: string; ok: boolean; error?: string; skipped?: boolean; reason?: string }>;
+  return adminFetchJson<{
+    results: Array<{
+      propertyId: string;
+      ok: boolean;
+      error?: string;
+      skipped?: boolean;
+      reason?: string;
+      publishedUrl?: string;
+      externalPostId?: string;
+    }>;
   }>(token, '/social/autopost/admin/properties/publish-now', {
     method: 'POST',
     body: JSON.stringify(body),
+  }).then(({ data, status, body: errBody }) => {
+    if (data) return data;
+    const err = errBody as { message?: string; error?: string };
+    const msg =
+      typeof err?.message === 'string'
+        ? err.message
+        : typeof err?.error === 'string'
+          ? err.error
+          : `HTTP ${status}`;
+    return {
+      results: body.propertyIds.map((propertyId) => ({
+        propertyId,
+        ok: false,
+        error: msg,
+      })),
+    };
   });
 }
 

@@ -6,6 +6,11 @@ export class UpdateFacebookAutopostDto {
   @IsBoolean()
   enabled?: boolean;
 
+  /** Alias pro `enabled` — frontend může posílat facebookEnabled. */
+  @IsOptional()
+  @IsBoolean()
+  facebookEnabled?: boolean;
+
   @IsOptional()
   @IsString()
   pageId?: string;

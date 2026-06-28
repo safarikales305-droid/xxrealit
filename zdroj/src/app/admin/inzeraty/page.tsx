@@ -95,6 +95,8 @@ export default function AdminListingsPage() {
   >({});
   const [fbMsg, setFbMsg] = useState<string | null>(null);
   const [fbBusy, setFbBusy] = useState(false);
+  const [fbProgress, setFbProgress] = useState<string | null>(null);
+  const [fbSuccessUrl, setFbSuccessUrl] = useState<string | null>(null);
 
   const [scheduleModal, setScheduleModal] = useState<{
     mode: 'schedule' | 'repeat';
@@ -296,14 +298,39 @@ export default function AdminListingsPage() {
     if (!token || propertyIds.length === 0) return;
     setFbBusy(true);
     setFbMsg(null);
-    const r = await nestAdminPropertyPublishNow(token, { propertyIds, force });
-    setFbBusy(false);
-    if (!r) {
-      setFbMsg('Publikace selhala: nepodařilo se kontaktovat API');
-      return;
+    setFbSuccessUrl(null);
+    setFbProgress(null);
+
+    const ids = [...propertyIds];
+    const aggregated: Array<{
+      propertyId: string;
+      ok: boolean;
+      error?: string;
+      skipped?: boolean;
+      reason?: string;
+      publishedUrl?: string;
+    }> = [];
+
+    for (let i = 0; i < ids.length; i += 1) {
+      setFbProgress(`Publikuji ${i + 1} z ${ids.length}…`);
+      const r = await nestAdminPropertyPublishNow(token, {
+        propertyIds: [ids[i]],
+        force,
+      });
+      if (r?.results?.length) {
+        aggregated.push(...r.results);
+      } else if (!r) {
+        aggregated.push({ propertyId: ids[i], ok: false, error: 'API nedostupné' });
+      }
     }
-    const failed = r.results.filter((x) => !x.ok && !x.skipped);
-    const skipped = r.results.filter((x) => x.skipped);
+
+    setFbBusy(false);
+    setFbProgress(null);
+
+    const failed = aggregated.filter((x) => !x.ok && !x.skipped);
+    const skipped = aggregated.filter((x) => x.skipped);
+    const succeeded = aggregated.filter((x) => x.ok);
+
     if (failed.length > 0) {
       setFbMsg(`Publikace selhala: ${failed[0].error ?? failed[0].reason ?? 'neznámá chyba'}`);
     } else if (skipped.length > 0) {
@@ -317,14 +344,19 @@ export default function AdminListingsPage() {
         return;
       }
       setFbMsg(`Přeskočeno: ${reason}`);
-    } else {
+    } else if (succeeded.length > 0) {
+      const lastUrl = succeeded.find((x) => x.publishedUrl)?.publishedUrl ?? null;
+      if (lastUrl) setFbSuccessUrl(lastUrl);
       setFbMsg(
-        propertyIds.length === 1
-          ? 'Publikováno na Facebook'
-          : `Publikováno ${propertyIds.length} inzerátů na Facebook`,
+        succeeded.length === 1
+          ? '✓ Publikováno na Facebook'
+          : `✓ Publikováno ${succeeded.length} z ${ids.length} inzerátů na Facebook`,
       );
+    } else {
+      setFbMsg('Publikace selhala: žádná odpověď ze serveru');
     }
-    await refreshFacebookStatus(propertyIds);
+
+    await refreshFacebookStatus(ids);
   }
 
   async function runSchedule(
@@ -476,13 +508,29 @@ export default function AdminListingsPage() {
         {fbMsg ? (
           <p
             className={`rounded-xl border px-4 py-3 text-sm ${
-              fbMsg.includes('selhala') || fbMsg.includes('selhalo')
+              fbMsg.includes('selhala') || fbMsg.includes('selhalo') || fbMsg.startsWith('Přeskočeno')
                 ? 'border-red-200 bg-red-50 text-red-800'
                 : 'border-blue-200 bg-blue-50 text-blue-900'
             }`}
             role="status"
           >
             {fbMsg}
+            {fbSuccessUrl ? (
+              <a
+                href={fbSuccessUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 block font-semibold text-[#1877f2] hover:underline"
+              >
+                Otevřít příspěvek na Facebooku →
+              </a>
+            ) : null}
+          </p>
+        ) : null}
+
+        {fbProgress ? (
+          <p className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900" role="status">
+            {fbProgress}
           </p>
         ) : null}
 

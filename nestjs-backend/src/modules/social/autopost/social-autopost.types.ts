@@ -39,6 +39,8 @@ export type FacebookAutopostSettingsPublic = Omit<
   FacebookAutopostSettings,
   'pageAccessTokenEncrypted'
 > & {
+  /** Alias pro `enabled` v API odpovědi. */
+  facebookEnabled?: boolean;
   connected: boolean;
   maskedToken: string | null;
   tokenSet: boolean;

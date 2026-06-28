@@ -70,8 +70,13 @@ export class SocialPublishLogService {
       take: limit,
       include: {
         triggeredBy: { select: { id: true, name: true, email: true } },
+        queue: { select: { lastApiResponse: true, processedAt: true } },
       },
     });
-    return rows;
+    return rows.map((row) => ({
+      ...row,
+      lastApiResponse: row.queue?.lastApiResponse ?? null,
+      processedAt: row.queue?.processedAt?.toISOString() ?? null,
+    }));
   }
 }

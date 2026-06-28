@@ -33,6 +33,7 @@ export default function AdminSocialAutopostPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [lastPublishedUrl, setLastPublishedUrl] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -70,6 +71,7 @@ export default function AdminSocialAutopostPage() {
     setMsg(null);
     const patch: Record<string, unknown> = {
       enabled: fb.enabled,
+      facebookEnabled: fb.enabled,
       pageId: fb.pageId,
       pageName: fb.pageName,
       tokenExpiresAt: fb.tokenExpiresAt,
@@ -115,21 +117,23 @@ export default function AdminSocialAutopostPage() {
   async function runTestPublish() {
     if (!token) return;
     setBusy(true);
+    setLastPublishedUrl(null);
     const r = await nestAdminSocialAutopostTestPublish(token);
     setBusy(false);
     if (r.ok && r.publishedUrl) {
+      setLastPublishedUrl(r.publishedUrl);
       const idPart = r.externalPostId ? ` (ID: ${r.externalPostId})` : '';
       const tokenNote =
         r.tokenSource === 'me_accounts'
           ? '\n\nPoznámka: použit Page Access Token z /me/accounts — uložte ho do pole tokenu.'
           : '';
-      setMsg(`Test publikován úspěšně: ${r.publishedUrl}${idPart}${tokenNote}`);
+      setMsg(`✓ Publikováno${idPart}${tokenNote}`);
     } else {
       const detail =
         formatGraphErrorDetail(r.graphError) ||
         r.error ||
         r.httpError ||
-        'Test publikování selhal';
+        'Publikace selhala';
       setMsg(r.hint ? `${detail}\n\n${r.hint}` : detail);
     }
     void refresh();
@@ -152,7 +156,19 @@ export default function AdminSocialAutopostPage() {
 
       {loadError ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{loadError}</p> : null}
       {msg ? (
-        <p className="whitespace-pre-wrap rounded-xl bg-zinc-100 p-3 text-sm text-zinc-800">{msg}</p>
+        <div className="rounded-xl bg-zinc-100 p-3 text-sm text-zinc-800">
+          <p className="whitespace-pre-wrap">{msg}</p>
+          {lastPublishedUrl ? (
+            <a
+              href={lastPublishedUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 inline-flex rounded-lg bg-[#1877f2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#166fe0]"
+            >
+              Otevřít příspěvek na Facebooku
+            </a>
+          ) : null}
+        </div>
       ) : null}
 
       <div className="flex flex-wrap gap-2 border-b border-zinc-200 pb-2">

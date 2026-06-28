@@ -50,7 +50,7 @@ export type FacebookTestPublishResult = {
   graphError?: Omit<ParsedFacebookGraphError, 'raw'>;
 };
 
-class FacebookGraphPublishError extends Error {
+export class FacebookGraphPublishError extends Error {
   readonly graphError?: Omit<ParsedFacebookGraphError, 'raw'>;
   readonly hint?: string;
 

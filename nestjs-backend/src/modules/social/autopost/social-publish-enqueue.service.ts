@@ -10,7 +10,7 @@ import { PrismaService } from '../../../database/prisma.service';
 import { ShareMetadataService } from '../../share/share-metadata.service';
 import { isPropertyPubliclyListed } from '../../properties/property-public-visibility';
 import { SocialAutopostSettingsService } from './social-autopost-settings.service';
-import { SocialPublisherService } from './social-publisher.service';
+import { SocialPublisherService, FacebookGraphPublishError } from './social-publisher.service';
 import { SocialPublishLogService } from './social-publish-log.service';
 import {
   buildPostFacebookMessage,
@@ -134,24 +134,27 @@ export class SocialPublishEnqueueService {
       String(property.listingType ?? '').toUpperCase() === 'SHORTS' || Boolean(property.videoUrl?.trim());
     const contentType: SocialPublishContentType = isShort ? 'SHORT' : 'PROPERTY';
 
-    const skip = await this.shouldSkipContent({
-      contentId: propertyId,
-      contentType,
-      authorUserId: property.userId,
-      authorRole: property.user?.role,
-      accountLimited: property.user?.accountLimited,
-      isPublic: isPropertyPubliclyListed(property),
-      approved: property.approved,
-      deleted: Boolean(property.deletedAt),
-      hasMedia: Boolean(
-        property.videoUrl?.trim() ||
-          property.mainImage?.trim() ||
-          property.images?.length ||
-          property.facebookShareImageUrl?.trim(),
-      ),
-      hasText: Boolean(property.title?.trim() || property.description?.trim()),
-      isFacebookImport: false,
-    });
+    const skip = await this.shouldSkipContent(
+      {
+        contentId: propertyId,
+        contentType,
+        authorUserId: property.userId,
+        authorRole: property.user?.role,
+        accountLimited: property.user?.accountLimited,
+        isPublic: isPropertyPubliclyListed(property),
+        approved: property.approved,
+        deleted: Boolean(property.deletedAt),
+        hasMedia: Boolean(
+          property.videoUrl?.trim() ||
+            property.mainImage?.trim() ||
+            property.images?.length ||
+            property.facebookShareImageUrl?.trim(),
+        ),
+        hasText: Boolean(property.title?.trim() || property.description?.trim()),
+        isFacebookImport: false,
+      },
+      { manual: opts.manual, force: opts.force },
+    );
     if (skip && !opts.force) {
       return { ok: false, skipped: true, reason: skip };
     }
@@ -264,19 +267,22 @@ export class SocialPublishEnqueueService {
     const imageUrl = post.imageUrl ?? post.media[0]?.url ?? post.previewImage;
     const videoUrl = post.videoUrl;
 
-    const skip = await this.shouldSkipContent({
-      contentId: postId,
-      contentType: SocialPublishContentType.POST,
-      authorUserId: post.userId,
-      authorRole: post.user?.role,
-      accountLimited: post.user?.accountLimited,
-      isPublic: true,
-      approved: true,
-      deleted: false,
-      hasMedia: Boolean(imageUrl?.trim() || videoUrl?.trim()),
-      hasText: Boolean(text),
-      isFacebookImport: post.isFacebookPagePost || post.source === 'FACEBOOK',
-    });
+    const skip = await this.shouldSkipContent(
+      {
+        contentId: postId,
+        contentType: SocialPublishContentType.POST,
+        authorUserId: post.userId,
+        authorRole: post.user?.role,
+        accountLimited: post.user?.accountLimited,
+        isPublic: true,
+        approved: true,
+        deleted: false,
+        hasMedia: Boolean(imageUrl?.trim() || videoUrl?.trim()),
+        hasText: Boolean(text),
+        isFacebookImport: post.isFacebookPagePost || post.source === 'FACEBOOK',
+      },
+      { manual: opts.manual, force: opts.force },
+    );
     if (skip && !opts.force) {
       return { ok: false, skipped: true, reason: skip };
     }
@@ -336,49 +342,69 @@ export class SocialPublishEnqueueService {
     return { ok: true, queueId: row.id };
   }
 
-  private async shouldSkipContent(input: {
-    contentId: string;
-    contentType: SocialPublishContentType;
-    authorUserId: string;
-    authorRole?: UserRole;
-    accountLimited?: boolean;
-    isPublic: boolean;
-    approved: boolean;
-    deleted: boolean;
-    hasMedia: boolean;
-    hasText: boolean;
-    isFacebookImport: boolean;
-  }): Promise<string | null> {
+  private async shouldSkipContent(
+    input: {
+      contentId: string;
+      contentType: SocialPublishContentType;
+      authorUserId: string;
+      authorRole?: UserRole;
+      accountLimited?: boolean;
+      isPublic: boolean;
+      approved: boolean;
+      deleted: boolean;
+      hasMedia: boolean;
+      hasText: boolean;
+      isFacebookImport: boolean;
+    },
+    opts: { manual?: boolean; force?: boolean } = {},
+  ): Promise<string | null> {
     await this.settings.reload();
     const fb = this.settings.getSettings().facebook;
-    if (!fb.enabled) return 'Autopost vypnutý';
+
+    if (!this.settings.isFacebookPublishingConfigured()) {
+      return 'Facebook není nakonfigurován (Page ID / token)';
+    }
+
+    if (!opts.manual) {
+      if (!fb.enabled) return 'Autopost vypnutý';
+    }
+
     if (input.deleted) return 'Obsah smazaný';
-    if (!input.isPublic && input.contentType !== SocialPublishContentType.POST) return 'Obsah není veřejný';
-    if (fb.approvedOnly && !input.approved && input.contentType !== SocialPublishContentType.POST) {
-      return 'Inzerát není schválený';
+
+    if (!opts.manual) {
+      if (!input.isPublic && input.contentType !== SocialPublishContentType.POST) {
+        return 'Obsah není veřejný';
+      }
+      if (fb.approvedOnly && !input.approved && input.contentType !== SocialPublishContentType.POST) {
+        return 'Inzerát není schválený';
+      }
+      if (input.accountLimited) return 'Účet autora je omezený';
+      if (fb.publicPostsOnly && input.isFacebookImport) return 'Importovaný FB příspěvek';
+      if (fb.professionalsOnly && input.authorRole && !PROFESSIONAL_ROLES.includes(input.authorRole)) {
+        return 'Autor není profesionál';
+      }
+      if (fb.allowedRoles.length > 0 && input.authorRole && !fb.allowedRoles.includes(input.authorRole)) {
+        return 'Role autora není povolená';
+      }
     }
-    if (input.accountLimited) return 'Účet autora je omezený';
-    if (fb.publicPostsOnly && input.isFacebookImport) return 'Importovaný FB příspěvek';
-    if (fb.professionalsOnly && input.authorRole && !PROFESSIONAL_ROLES.includes(input.authorRole)) {
-      return 'Autor není profesionál';
-    }
-    if (fb.allowedRoles.length > 0 && input.authorRole && !fb.allowedRoles.includes(input.authorRole)) {
-      return 'Role autora není povolená';
-    }
+
     if (!input.hasMedia && !input.hasText) return 'Chybí text i média';
 
-    const existing = await this.prisma.socialPublishQueue.findUnique({
-      where: {
-        platform_contentType_contentId: {
-          platform: SocialPlatform.FACEBOOK,
-          contentType: input.contentType,
-          contentId: input.contentId,
+    if (!opts.force) {
+      const existing = await this.prisma.socialPublishQueue.findUnique({
+        where: {
+          platform_contentType_contentId: {
+            platform: SocialPlatform.FACEBOOK,
+            contentType: input.contentType,
+            contentId: input.contentId,
+          },
         },
-      },
-    });
-    if (existing?.status === SocialPublishStatus.PUBLISHED) {
-      return 'Již publikováno na Facebook';
+      });
+      if (existing?.status === SocialPublishStatus.PUBLISHED) {
+        return 'Již publikováno na Facebook';
+      }
     }
+
     return null;
   }
 
@@ -497,11 +523,13 @@ export class SocialPublishProcessorService {
 
       return updated;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const graphErr =
+        err instanceof FacebookGraphPublishError ? err.graphError : undefined;
+      const message = graphErr?.userMessage ?? (err instanceof Error ? err.message : String(err));
       await this.settings.appendApiLog({
         action: `process_${item.contentType.toLowerCase()}`,
         ok: false,
-        body: { queueId: id, error: message },
+        body: { queueId: id, error: message, graphError: graphErr },
       });
 
       const failed = await this.prisma.socialPublishQueue.update({
@@ -509,6 +537,7 @@ export class SocialPublishProcessorService {
         data: {
           status: SocialPublishStatus.FAILED,
           lastError: message,
+          lastApiResponse: graphErr ? (graphErr as object) : undefined,
           processedAt: new Date(),
         },
       });

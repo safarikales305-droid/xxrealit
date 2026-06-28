@@ -53,8 +53,13 @@ export class SocialAutopostAdminController {
     @Body(new ValidationPipe({ whitelist: true, transform: true }))
     dto: UpdateFacebookAutopostDto,
   ) {
+    const { facebookEnabled, ...rest } = dto;
+    const patch = {
+      ...rest,
+      ...(facebookEnabled !== undefined ? { enabled: facebookEnabled } : {}),
+    };
     return this.settings.updateSettings({
-      facebook: dto,
+      facebook: patch,
     });
   }
 
