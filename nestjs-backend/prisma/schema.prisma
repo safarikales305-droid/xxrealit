@@ -873,6 +873,11 @@ model Follow {
 model Property {
   id              String   @id @default(uuid())
   title           String
+  /// SEO-friendly URL slug (např. prodej-bytu-3kk-brno).
+  slug            String?  @unique
+  seoTitle        String?
+  seoDescription  String?  @db.Text
+  seoKeywords     String[] @default([])
   description     String   @db.Text
   status          String   @default("PENDING")
   /// null = cena neuvedena / na dotaz (import bez parsované ceny)
@@ -2206,6 +2211,29 @@ model MarketingPopup {
   userViews MarketingPopupUserView[]
 
   @@index([isEnabled, sortOrder])
+}
+
+/// Globální SEO nastavení portálu (singleton).
+model SeoSettings {
+  id                              String   @id @default("default")
+  defaultTitle                    String   @default("XXREALIT | Moderní realitní portál s video inzeráty")
+  defaultDescription              String   @default("XXREALIT je moderní realitní portál propojující video inzeráty, klasickou inzerci, makléře, stavební firmy, finanční poradce a investory.") @db.Text
+  defaultKeywords                 String[] @default([])
+  defaultOgImageUrl               String?
+  robotsIndex                     Boolean  @default(true)
+  googleAnalyticsId               String?
+  googleTagManagerId              String?
+  googleSearchConsoleVerification String?
+  metaPixelId                     String?
+  seznamWebmasterVerification     String?
+  bingWebmasterVerification       String?
+  yandexVerification              String?
+  pinterestVerification           String?
+  tiktokPixelId                   String?
+  linkedInInsightId               String?
+  cookieConsentEnabled            Boolean  @default(true)
+  hreflangLocales                 String[] @default(["cs", "en", "de", "pl"])
+  updatedAt                       DateTime @updatedAt
 }
 
 model MarketingPopupUserView {

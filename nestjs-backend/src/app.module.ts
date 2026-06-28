@@ -39,6 +39,7 @@ import { PromoProfilesModule } from './modules/promo-profiles/promo-profiles.mod
 import { PostSoundsModule } from './modules/post-sounds/post-sounds.module';
 import { WebPushModule } from './modules/web-push/web-push.module';
 import { MarketingOnboardingModule } from './modules/marketing-onboarding/marketing-onboarding.module';
+import { SeoModule } from './modules/seo/seo.module';
 import { PurchaseAdviceArticlesModule } from './modules/purchase-advice-articles/purchase-advice-articles.module';
 import { DeveloperNotesModule } from './modules/developer-notes/developer-notes.module';
 import { PortalTestingModule } from './modules/portal-testing/portal-testing.module';
@@ -93,6 +94,7 @@ import { SupportTicketsModule } from './modules/support-tickets/support-tickets.
     WebPushModule,
     PurchaseAdviceArticlesModule,
     MarketingOnboardingModule,
+    SeoModule,
     DeveloperNotesModule,
     PortalTestingModule,
     PortalWorkerModule,

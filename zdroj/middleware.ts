@@ -8,12 +8,53 @@ type JwtAuthClaims = {
   role?: string;
 };
 
+const CANONICAL_HOST = 'www.xxrealit.cz';
+const PROTECTED_PREFIXES = [
+  '/following',
+  '/create',
+  '/inzerat/pridat',
+  '/profile/edit',
+  '/admin',
+];
+
+function handleCanonicalRedirect(request: NextRequest): NextResponse | null {
+  if (process.env.NODE_ENV !== 'production') return null;
+  const host = request.headers.get('host') ?? '';
+  const proto = request.headers.get('x-forwarded-proto') ?? 'https';
+
+  if (proto === 'http') {
+    const url = request.nextUrl.clone();
+    url.protocol = 'https:';
+    return NextResponse.redirect(url, 301);
+  }
+
+  if (host === 'xxrealit.cz' || host.startsWith('xxrealit.cz:')) {
+    const url = request.nextUrl.clone();
+    url.host = CANONICAL_HOST;
+    url.protocol = 'https:';
+    return NextResponse.redirect(url, 301);
+  }
+
+  return null;
+}
+
+function isProtectedPath(pathname: string): boolean {
+  return PROTECTED_PREFIXES.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`),
+  );
+}
+
 /**
- * Chráněné routy — vyžadují platný JWT cookie.
- * Veřejné stránky (/, /nemovitost/*, /shorts/*, /prihlaseni, …) zde nejsou v `matcher` a middleware se na ně nevolá.
+ * JWT ochrana vybraných rout + kanonický host www.xxrealit.cz (301).
  */
 export async function middleware(request: NextRequest) {
+  const canonical = handleCanonicalRedirect(request);
+  if (canonical) return canonical;
+
   const { pathname } = request.nextUrl;
+  if (!isProtectedPath(pathname)) {
+    return NextResponse.next();
+  }
 
   const token =
     request.cookies.get('token')?.value ??
@@ -25,19 +66,14 @@ export async function middleware(request: NextRequest) {
   }
 
   try {
-    const { payload: jwtPayload } = await jwtVerify(
-      token,
-      getJwtSecretBytes(),
-      { algorithms: ['HS256'] },
-    );
+    const { payload: jwtPayload } = await jwtVerify(token, getJwtSecretBytes(), {
+      algorithms: ['HS256'],
+    });
     const p = jwtPayload as JwtAuthClaims;
     const role = p.role;
     if (!role || typeof role !== 'string' || !isUserRole(role)) {
       throw new Error('invalid role');
     }
-
-    // Přístup na /admin ověřuje klient přes /auth/me (aktuální role z DB).
-    // JWT role může být zastaralá po změně role administrátorem.
   } catch {
     const login = new URL('/login', request.url);
     login.searchParams.set('callbackUrl', pathname);
@@ -64,11 +100,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/following',
-    '/create',
-    '/inzerat/pridat',
-    '/profile/edit',
-    '/admin',
-    '/admin/:path*',
+    '/((?!_next/static|_next/image|favicon.ico|icons|manifest.json|videos|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 };

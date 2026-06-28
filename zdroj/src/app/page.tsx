@@ -1,10 +1,18 @@
 import { Suspense } from 'react';
+import type { Metadata } from 'next';
 import { HomeLayout } from '@/components/home/home-layout';
 import { ShortsFeed } from '@/components/ShortsFeed';
 import { getServerSideApiBaseUrl } from '@/lib/api';
 import { loadPropertyFeedItems } from '@/lib/load-feed';
 import { classicListingsOnly } from '@/lib/property-feed-filters';
+import { buildSiteMetadata, DEFAULT_DESCRIPTION, DEFAULT_TITLE } from '@/lib/seo/metadata';
 import type { PropertyFeedItem } from '@/types/property';
+
+export const metadata: Metadata = buildSiteMetadata({
+  title: 'XXREALIT | Moderní realitní portál s video inzeráty',
+  description: DEFAULT_DESCRIPTION,
+  path: '/',
+});
 
 /** Server-render on every request when an API URL is configured. */
 export const dynamic = 'force-dynamic';

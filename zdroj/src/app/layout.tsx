@@ -1,4 +1,6 @@
 import { PortalAnalyticsTracker } from "@/components/analytics/PortalAnalyticsTracker";
+import { JsonLd } from "@/components/seo/JsonLd";
+import { SeoTrackingScripts } from "@/components/seo/SeoTrackingScripts";
 import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
 import { AuthProvider } from "@/context/AuthContext";
@@ -16,13 +18,35 @@ import { AppBadgeSync } from "@/components/pwa/AppBadgeSync";
 import { PwaServiceWorkerRegister } from "@/components/pwa/PwaServiceWorkerRegister";
 import { SupportContactProvider } from "@/components/support/SupportContactProvider";
 import { getSiteMetadataBase } from "@/lib/app-url";
+import { getOptionalInternalApiBaseUrl } from "@/lib/server-api";
+import { DEFAULT_DESCRIPTION, DEFAULT_TITLE, SITE_NAME } from "@/lib/seo/metadata";
+import { organizationJsonLd, webSiteJsonLd } from "@/lib/seo/schema";
 import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: getSiteMetadataBase(),
-  title: "XXrealit",
-  description: "Real estate social app with video listings",
+  title: {
+    default: DEFAULT_TITLE,
+    template: `%s | ${SITE_NAME}`,
+  },
+  description: DEFAULT_DESCRIPTION,
   manifest: "/manifest.json",
+  robots: { index: true, follow: true },
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    locale: "cs_CZ",
+    siteName: SITE_NAME,
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+    images: [{ url: "/icons/icon-192.png", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+    images: ["/icons/icon-192.png"],
+  },
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
@@ -37,14 +61,41 @@ export const viewport: Viewport = {
   themeColor: "#ff6a00",
 };
 
-export default function RootLayout({
+async function loadSeoSettings() {
+  const api = getOptionalInternalApiBaseUrl();
+  if (!api) return null;
+  try {
+    const res = await fetch(`${api}/seo/settings`, { next: { revalidate: 300 } });
+    if (!res.ok) return null;
+    return (await res.json()) as Record<string, string | null>;
+  } catch {
+    return null;
+  }
+}
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const seoSettings = await loadSeoSettings();
+
   return (
     <html lang="cs">
+      <head>
+        {seoSettings?.googleSearchConsoleVerification ? (
+          <meta name="google-site-verification" content={seoSettings.googleSearchConsoleVerification} />
+        ) : null}
+        {seoSettings?.seznamWebmasterVerification ? (
+          <meta name="seznam-webmaster-verification" content={seoSettings.seznamWebmasterVerification} />
+        ) : null}
+        {seoSettings?.bingWebmasterVerification ? (
+          <meta name="msvalidate.01" content={seoSettings.bingWebmasterVerification} />
+        ) : null}
+      </head>
       <body>
+        <JsonLd data={[organizationJsonLd(), webSiteJsonLd()]} />
+        <SeoTrackingScripts settings={seoSettings} />
         <AuthProvider>
           <SupportContactProvider>
           <Suspense fallback={null}>

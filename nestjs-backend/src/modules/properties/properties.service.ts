@@ -66,6 +66,7 @@ import {
   type PropertyViewerAccess,
 } from './properties.serializer';
 import { ListingContactUnlockService } from './listing-contact-unlock.service';
+import { SeoService } from '../seo/seo.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { OwnerListingNotifyService } from '../premium-broker/owner-listing-notify.service';
 import type { CreateShortsFromClassicDto } from './dto/create-shorts-from-classic.dto';
@@ -89,6 +90,7 @@ export class PropertiesService {
     private readonly bonusCampaign: BonusCampaignService,
     private readonly registrationGate: RegistrationGateService,
     private readonly listingContactUnlock: ListingContactUnlockService,
+    private readonly seo: SeoService,
   ) {}
 
   /** Předgeneruje statický JPG 1200×630 pro Facebook og:image. */
@@ -406,6 +408,9 @@ export class PropertiesService {
       where: { id: id.trim(), deletedAt: null },
       select: {
         id: true,
+        slug: true,
+        seoTitle: true,
+        seoDescription: true,
         title: true,
         description: true,
         city: true,
@@ -492,6 +497,9 @@ export class PropertiesService {
 
     return {
       id: property.id,
+      slug: property.slug,
+      seoTitle: property.seoTitle,
+      seoDescription: property.seoDescription,
       title: property.title,
       description: property.description,
       city: property.city,
@@ -1187,6 +1195,12 @@ export class PropertiesService {
         await this.ensureFacebookShareImage(created.id, true);
       } catch (err) {
         this.log.warn(`Facebook share image po vytvoření ${created.id}: ${String(err)}`);
+      }
+
+      try {
+        await this.seo.ensurePropertySeoFields(created.id);
+      } catch (err) {
+        this.log.warn(`SEO fields po vytvoření ${created.id}: ${String(err)}`);
       }
 
       const full = await this.prisma.property.findUnique({

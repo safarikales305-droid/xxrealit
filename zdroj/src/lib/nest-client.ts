@@ -10106,3 +10106,81 @@ export async function nestAdminUpdateAnalyticsSettings(
   return (await res.json().catch(() => null)) as NestAnalyticsSettings | null;
 }
 
+// —— SEO portálu ——
+
+export type NestSeoSettings = {
+  id: string;
+  defaultTitle: string;
+  defaultDescription: string;
+  defaultKeywords: string[];
+  defaultOgImageUrl: string | null;
+  robotsIndex: boolean;
+  googleAnalyticsId: string | null;
+  googleTagManagerId: string | null;
+  googleSearchConsoleVerification: string | null;
+  metaPixelId: string | null;
+  seznamWebmasterVerification: string | null;
+  bingWebmasterVerification: string | null;
+  yandexVerification: string | null;
+  pinterestVerification: string | null;
+  tiktokPixelId: string | null;
+  linkedInInsightId: string | null;
+  cookieConsentEnabled: boolean;
+  hreflangLocales: string[];
+  updatedAt: string;
+};
+
+export type NestSeoHealth = {
+  indexedListings: number;
+  totalListings: number;
+  missingMetaTitle: number;
+  missingMetaDescription: number;
+  missingSlug: number;
+  duplicateSlugs: number;
+  seoScore: number;
+};
+
+export async function nestAdminSeoSettings(token: string | null): Promise<NestSeoSettings | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/seo/settings`, {
+    headers: nestAuthHeaders(token),
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as NestSeoSettings | null;
+}
+
+export async function nestAdminSeoUpdateSettings(
+  token: string | null,
+  patch: Partial<NestSeoSettings>,
+): Promise<NestSeoSettings | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/seo/settings`, {
+    method: 'PATCH',
+    headers: { ...nestAuthHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as NestSeoSettings | null;
+}
+
+export async function nestAdminSeoHealth(token: string | null): Promise<NestSeoHealth | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/seo/health`, {
+    headers: nestAuthHeaders(token),
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as NestSeoHealth | null;
+}
+
+export async function nestAdminSeoBackfillSlugs(
+  token: string | null,
+): Promise<{ processed: number } | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/seo/backfill-slugs`, {
+    method: 'POST',
+    headers: nestAuthHeaders(token),
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as { processed: number } | null;
+}
+

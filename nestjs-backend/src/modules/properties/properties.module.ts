@@ -22,6 +22,7 @@ import { CreditsModule } from '../credits/credits.module';
 import { RegistrationGateModule } from '../registration-gate/registration-gate.module';
 import { AdvertiserListingLeadsController } from './advertiser-listing-leads.controller';
 import { ListingContactUnlockModule } from './listing-contact-unlock.module';
+import { SeoModule } from '../seo/seo.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { ListingContactUnlockModule } from './listing-contact-unlock.module';
     forwardRef(() => RegistrationGateModule),
     forwardRef(() => MessagesModule),
     ListingContactUnlockModule,
+    SeoModule,
     EmailsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
