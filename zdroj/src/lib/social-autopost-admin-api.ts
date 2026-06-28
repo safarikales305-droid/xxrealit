@@ -409,6 +409,7 @@ export function nestAdminPropertySchedule(
     maxRuns?: number | null;
     requireActive?: boolean;
     requireApproved?: boolean;
+    shortsPublishAsReel?: boolean | null;
   },
 ) {
   return adminFetch<{
@@ -464,13 +465,169 @@ export const SOCIAL_TRIGGER_SOURCE_LABELS: Record<string, string> = {
 };
 
 export const SOCIAL_REPEAT_TYPE_LABELS: Record<SocialPublishRepeatType, string> = {
-  NONE: 'Bez opakování',
+  NONE: 'Jednou',
   DAILY: 'Každý den',
   WEEKLY: 'Jednou týdně',
   BIWEEKLY: 'Jednou za 14 dní',
   MONTHLY: 'Jednou měsíčně',
   CUSTOM_DAYS: 'Vlastní interval',
 };
+
+export type SchedulePlannerDisplayStatus =
+  | 'WAITING'
+  | 'PUBLISHED'
+  | 'RUNNING'
+  | 'REPEATING'
+  | 'FAILED'
+  | 'PAUSED';
+
+export const SCHEDULE_PLANNER_STATUS_LABELS: Record<SchedulePlannerDisplayStatus, string> = {
+  WAITING: 'Čeká',
+  PUBLISHED: 'Publikováno',
+  RUNNING: 'Probíhá',
+  REPEATING: 'Opakované',
+  FAILED: 'Selhalo',
+  PAUSED: 'Pozastaveno',
+};
+
+export const SCHEDULE_PLANNER_STATUS_EMOJI: Record<SchedulePlannerDisplayStatus, string> = {
+  WAITING: '🟡',
+  PUBLISHED: '🟢',
+  RUNNING: '🔵',
+  REPEATING: '🟠',
+  FAILED: '🔴',
+  PAUSED: '⚫',
+};
+
+export type SchedulePlannerRow = {
+  id: string;
+  propertyId: string;
+  propertyTitle: string;
+  publishType: string;
+  publishTypeKey: string | null;
+  planCreatedAt: string;
+  scheduledAt: string;
+  repeatType: SocialPublishRepeatType;
+  repeatIntervalDays: number | null;
+  repeatUntil: string | null;
+  maxRuns: number | null;
+  runCount: number;
+  lastPublishedAt: string | null;
+  lastRunAt: string | null;
+  nextRunAt: string;
+  enabled: boolean;
+  displayStatus: SchedulePlannerDisplayStatus;
+  countdown: string;
+  lastError: string | null;
+  author: { id: string; name: string | null; email: string } | null;
+  facebookPageId: string;
+  facebookPageName: string;
+  requireActive: boolean;
+  requireApproved: boolean;
+  shortsPublishAsReel: boolean | null;
+  queue: {
+    status: string;
+    publishedUrl: string | null;
+    externalPostId: string | null;
+    lastError: string | null;
+  } | null;
+};
+
+export type SchedulePlannerDashboard = {
+  scheduledToday: number;
+  scheduledThisWeek: number;
+  waiting: number;
+  publishedToday: number;
+  failed: number;
+  reels: number;
+  posts: number;
+};
+
+export type SchedulePlannerDetail = {
+  schedule: SchedulePlannerRow;
+  history: PropertyPublishLogRow[];
+  schedulerTicks: Array<{
+    id: string;
+    checkedAt: string;
+    source: string;
+    dueCount: number;
+    publishedCount: number;
+    failedCount: number;
+    skippedCount: number;
+    details: unknown;
+  }>;
+};
+
+export function nestAdminSchedulesList(token: string) {
+  return adminFetch<{ items: SchedulePlannerRow[]; dashboard: SchedulePlannerDashboard }>(
+    token,
+    '/social/autopost/admin/schedules',
+  );
+}
+
+export function nestAdminScheduleDetail(token: string, scheduleId: string) {
+  return adminFetch<SchedulePlannerDetail>(
+    token,
+    `/social/autopost/admin/schedules/${encodeURIComponent(scheduleId)}`,
+  );
+}
+
+export function nestAdminScheduleUpdate(
+  token: string,
+  scheduleId: string,
+  body: {
+    firstRunAt: string;
+    repeatType: SocialPublishRepeatType;
+    repeatIntervalDays?: number | null;
+    repeatUntil?: string | null;
+    maxRuns?: number | null;
+    requireActive?: boolean;
+    requireApproved?: boolean;
+    shortsPublishAsReel?: boolean | null;
+    resetRunCount?: boolean;
+  },
+) {
+  return adminFetch<SchedulePlannerDetail>(
+    token,
+    `/social/autopost/admin/schedules/${encodeURIComponent(scheduleId)}`,
+    { method: 'PATCH', body: JSON.stringify(body) },
+  );
+}
+
+export function nestAdminSchedulePublishNow(token: string, scheduleId: string) {
+  return adminFetch<{
+    ok: boolean;
+    error?: string;
+    publishedUrl?: string;
+    externalPostId?: string;
+  }>(token, `/social/autopost/admin/schedules/${encodeURIComponent(scheduleId)}/publish-now`, {
+    method: 'POST',
+  });
+}
+
+export function nestAdminSchedulePause(token: string, scheduleId: string) {
+  return adminFetch<{ ok: boolean }>(
+    token,
+    `/social/autopost/admin/schedules/${encodeURIComponent(scheduleId)}/pause`,
+    { method: 'POST' },
+  );
+}
+
+export function nestAdminScheduleResume(token: string, scheduleId: string) {
+  return adminFetch<{ ok: boolean; nextRunAt?: string }>(
+    token,
+    `/social/autopost/admin/schedules/${encodeURIComponent(scheduleId)}/resume`,
+    { method: 'POST' },
+  );
+}
+
+export function nestAdminScheduleDelete(token: string, scheduleId: string) {
+  return adminFetch<{ ok: boolean }>(
+    token,
+    `/social/autopost/admin/schedules/${encodeURIComponent(scheduleId)}`,
+    { method: 'DELETE' },
+  );
+}
 
 export const SOCIAL_CONTENT_TYPE_LABELS: Record<string, string> = {
   POST: 'Příspěvek',

@@ -33,6 +33,7 @@ import {
 import { SocialPublishQueueCronService } from './autopost/social-publish-queue.cron.service';
 import { SocialPublishScheduleService } from './autopost/social-publish-schedule.service';
 import { SocialPublishScheduleCronService } from './autopost/social-publish-schedule.cron.service';
+import { SocialPublishSchedulerLogService } from './autopost/social-publish-scheduler-log.service';
 import { SocialAutopostFacebookOAuthService } from './autopost/social-autopost-facebook-oauth.service';
 import { SocialAutopostTokenService } from './autopost/social-autopost-token.service';
 import { SocialFacebookReelPublisherService } from './autopost/social-facebook-reel-publisher.service';
@@ -73,6 +74,7 @@ import { SocialFacebookReelPublisherService } from './autopost/social-facebook-r
     SocialPublishEnqueueService,
     SocialPublishProcessorService,
     SocialPublishScheduleService,
+    SocialPublishSchedulerLogService,
     SocialPublishQueueCronService,
     SocialPublishScheduleCronService,
     SocialAutopostFacebookOAuthService,

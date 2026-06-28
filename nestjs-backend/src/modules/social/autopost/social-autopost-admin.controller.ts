@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -33,6 +34,7 @@ import {
   SelectFacebookAutopostPageDto,
   SocialQueueQueryDto,
   UpdateFacebookAutopostDto,
+  UpdateScheduleDto,
 } from './dto/social-autopost-admin.dto';
 import { SocialAutopostFacebookOAuthService } from './social-autopost-facebook-oauth.service';
 
@@ -193,6 +195,45 @@ export class SocialAutopostAdminController {
     dto: PropertyIdsDto,
   ) {
     return this.scheduleService.cancelSchedules(dto.propertyIds);
+  }
+
+  @Get('schedules')
+  listSchedules() {
+    return this.scheduleService.listSchedules();
+  }
+
+  @Get('schedules/:id')
+  getSchedule(@Param('id') id: string) {
+    return this.scheduleService.getScheduleDetail(id);
+  }
+
+  @Patch('schedules/:id')
+  updateSchedule(
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: UpdateScheduleDto,
+  ) {
+    return this.scheduleService.updateScheduleById(id, dto);
+  }
+
+  @Post('schedules/:id/publish-now')
+  publishScheduleNow(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.scheduleService.publishScheduleNow(id, user?.id);
+  }
+
+  @Post('schedules/:id/pause')
+  pauseSchedule(@Param('id') id: string) {
+    return this.scheduleService.pauseSchedule(id);
+  }
+
+  @Post('schedules/:id/resume')
+  resumeSchedule(@Param('id') id: string) {
+    return this.scheduleService.resumeSchedule(id);
+  }
+
+  @Delete('schedules/:id')
+  deleteSchedule(@Param('id') id: string) {
+    return this.scheduleService.deleteSchedule(id);
   }
 
   @Get('properties/:id/publish-log')

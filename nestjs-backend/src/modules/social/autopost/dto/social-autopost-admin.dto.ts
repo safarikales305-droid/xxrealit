@@ -150,3 +150,46 @@ export class PropertyFacebookStatusQueryDto {
   @IsString()
   ids!: string;
 }
+
+export class ScheduleIdDto {
+  @IsString()
+  scheduleId!: string;
+}
+
+export class UpdateScheduleDto {
+  @IsString()
+  firstRunAt!: string;
+
+  @IsEnum(SocialPublishRepeatType)
+  repeatType!: SocialPublishRepeatType;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  repeatIntervalDays?: number;
+
+  @IsOptional()
+  @IsString()
+  repeatUntil?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxRuns?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  requireActive?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  requireApproved?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  shortsPublishAsReel?: boolean | null;
+
+  @IsOptional()
+  @IsBoolean()
+  resetRunCount?: boolean;
+}

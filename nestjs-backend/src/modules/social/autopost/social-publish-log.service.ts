@@ -45,6 +45,7 @@ export class SocialPublishLogService {
     facebookPostType?: FacebookPostType | null;
     triggerSource: SocialPublishTriggerSource;
     triggeredByUserId?: string | null;
+    scheduleId?: string | null;
   }) {
     return this.prisma.socialPublishLog.create({
       data: {
@@ -52,6 +53,7 @@ export class SocialPublishLogService {
         contentType: input.contentType,
         contentId: input.contentId,
         queueId: input.queueId ?? null,
+        scheduleId: input.scheduleId ?? null,
         status: input.status,
         externalPostId: input.externalPostId ?? null,
         publishedUrl: input.publishedUrl ?? null,
@@ -78,6 +80,33 @@ export class SocialPublishLogService {
     });
     return rows.map((row) => ({
       ...row,
+      lastApiResponse: row.queue?.lastApiResponse ?? null,
+      processedAt: row.queue?.processedAt?.toISOString() ?? null,
+    }));
+  }
+
+  async listForSchedule(scheduleId: string, contentId: string, limit = 50) {
+    const rows = await this.prisma.socialPublishLog.findMany({
+      where: {
+        OR: [{ scheduleId }, { contentId, triggerSource: 'SCHEDULE' }],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      include: {
+        triggeredBy: { select: { id: true, name: true, email: true } },
+        queue: { select: { lastApiResponse: true, processedAt: true } },
+      },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      status: row.status,
+      createdAt: row.createdAt.toISOString(),
+      externalPostId: row.externalPostId,
+      publishedUrl: row.publishedUrl,
+      lastError: row.lastError,
+      facebookPostType: row.facebookPostType,
+      triggerSource: row.triggerSource,
+      triggeredBy: row.triggeredBy,
       lastApiResponse: row.queue?.lastApiResponse ?? null,
       processedAt: row.queue?.processedAt?.toISOString() ?? null,
     }));

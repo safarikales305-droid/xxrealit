@@ -33,9 +33,11 @@ export class SocialPublishScheduleCronService implements OnModuleInit, OnModuleD
 
     this.running = true;
     try {
-      const result = await this.scheduleService.processDueSchedules(10);
-      if (result.processed > 0) {
-        this.logger.log(`[Social Publish Schedule] ${source}: processed ${result.processed} schedule(s)`);
+      const result = await this.scheduleService.processDueSchedules(20, source);
+      if (result.dueCount > 0 || result.processed > 0) {
+        this.logger.log(
+          `[Social Publish Schedule] ${source}: due=${result.dueCount} ok=${result.publishedCount} fail=${result.failedCount} skip=${result.skippedCount}`,
+        );
       }
     } finally {
       this.running = false;

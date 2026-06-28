@@ -10,6 +10,7 @@ import {
   type FacebookScheduleFormValues,
 } from '@/components/admin/FacebookScheduleModal';
 import { FacebookPublishLogModal } from '@/components/admin/FacebookPublishLogModal';
+import { FacebookScheduledPlannerPanel } from '@/components/admin/FacebookScheduledPlannerPanel';
 import {
   nestAdminApproveProperty,
   nestAdminDeleteProperty,
@@ -725,6 +726,17 @@ export default function AdminListingsPage() {
           onFacebookSetRepeat={onFacebookSetRepeat}
           onFacebookCancelRepeat={(row) => void onFacebookCancelRepeat(row)}
           onFacebookShowLog={(row) => void openPublishLog(row)}
+        />
+
+        <FacebookScheduledPlannerPanel
+          token={token}
+          onNotify={(msg, successUrl) => {
+            setFbMsg(msg);
+            setFbSuccessUrl(successUrl ?? null);
+          }}
+          onDataChange={() => {
+            void refreshFacebookStatus(rows.map((r) => r.id));
+          }}
         />
 
       <FacebookScheduleModal

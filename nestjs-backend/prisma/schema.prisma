@@ -2823,6 +2823,7 @@ model SocialPublishSchedule {
   /// true = Reel, false = běžné video, null = globální nastavení autopostu
   shortsPublishAsReel Boolean?
   lastRunAt          DateTime?
+  lastPublishedAt    DateTime?
   lastStatus         SocialPublishScheduleLastStatus?
   lastError          String?                       @db.Text
   createdByUserId    String?
@@ -2831,6 +2832,7 @@ model SocialPublishSchedule {
 
   createdBy User? @relation("SocialPublishScheduleCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
   queueItems SocialPublishQueue[]
+  logs SocialPublishLog[]
 
   @@unique([platform, contentType, contentId])
   @@index([enabled, nextRunAt])
@@ -2844,6 +2846,7 @@ model SocialPublishLog {
   contentType       SocialPublishContentType
   contentId         String
   queueId           String?
+  scheduleId        String?
   status            SocialPublishStatus
   externalPostId    String?
   publishedUrl      String?
@@ -2854,9 +2857,26 @@ model SocialPublishLog {
   createdAt         DateTime                   @default(now())
 
   queue       SocialPublishQueue? @relation(fields: [queueId], references: [id], onDelete: SetNull)
+  schedule    SocialPublishSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
   triggeredBy User? @relation("SocialPublishLogTrigger", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
 
   @@index([contentType, contentId, createdAt])
   @@index([queueId])
+  @@index([scheduleId])
   @@index([triggeredByUserId])
+}
+
+/// Log běhu minutového scheduleru plánovaného publikování.
+model SocialPublishSchedulerLog {
+  id             String   @id @default(cuid())
+  checkedAt      DateTime @default(now())
+  source         String   @default("cron")
+  dueCount       Int      @default(0)
+  publishedCount Int      @default(0)
+  failedCount    Int      @default(0)
+  skippedCount   Int      @default(0)
+  details        Json?
+  createdAt      DateTime @default(now())
+
+  @@index([checkedAt])
 }
