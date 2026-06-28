@@ -12,6 +12,7 @@ import {
 import { API_BASE_URL, getClientTokenFromCookie } from '@/lib/api';
 import { clearPwaInstallDismissed } from '@/lib/pwa-install-storage';
 import { clearProfileOnboardingSession } from '@/lib/onboarding-popup-session';
+import { setWindowLocationHref } from '@/lib/navigation-debug';
 
 export type AuthUser = {
   id: string;
@@ -232,7 +233,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearProfileOnboardingSession();
     void fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     setUser(null);
-    window.location.href = '/login';
+    setWindowLocationHref('/login', 'AuthContext.logout');
   }, []);
 
   const value = useMemo(

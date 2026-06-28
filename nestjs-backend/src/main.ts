@@ -63,8 +63,8 @@ function isAllowedCorsOrigin(origin: string, allowlist: string[]): boolean {
 
 /**
  * Povolené Origin hodnoty pro browser (JWT v Authorization; cookies dle nastavení).
- * Na Railway nastavte např. FRONTEND_URL=https://www.xxrealit.cz
- * nebo CORS_ORIGINS=https://www.xxrealit.cz,https://xxrealit.cz
+ * Na Railway nastavte např. FRONTEND_URL=https://xxrealit.cz
+ * nebo CORS_ORIGINS=https://xxrealit.cz,https://www.xxrealit.cz
  */
 function buildCorsOriginAllowlist(): string[] {
   const railwayPublic = process.env.RAILWAY_PUBLIC_DOMAIN?.trim();
@@ -84,8 +84,8 @@ function buildCorsOriginAllowlist(): string[] {
     ...(railwayStatic ? [normalizeOrigin(railwayStatic)] : []),
   ];
   const defaults = [
-    'https://www.xxrealit.cz',
     'https://xxrealit.cz',
+    'https://www.xxrealit.cz',
     'https://surprising-wisdom-production-f679.up.railway.app',
     'https://xxrealit-production.up.railway.app',
     'http://localhost:3000',

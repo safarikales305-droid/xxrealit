@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   description:
     'Obchodní podmínky a pravidla portálu XXrealit.cz — aktuální verze, kontakt na provozovatele.',
   alternates: {
-    canonical: 'https://www.xxrealit.cz/obchodni-podminky',
+    canonical: '/obchodni-podminky',
   },
 };
 

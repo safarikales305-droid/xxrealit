@@ -9,6 +9,7 @@ import { PortalIntroLink } from '@/components/auth/PortalIntroLink';
 import { PasswordField } from '@/components/ui/PasswordField';
 import { useAuth } from '@/hooks/use-auth';
 import { getBrowserAuthLoginUrl } from '@/lib/api';
+import { setWindowLocationHref } from '@/lib/navigation-debug';
 import { postLoginHomePath } from '@/lib/post-login-routing';
 import { clearPwaInstallDismissed } from '@/lib/pwa-install-storage';
 import {
@@ -126,7 +127,7 @@ export function LoginForm() {
       const role = sessionUser?.role;
 
       if (role === 'ADMIN') {
-        window.location.href = postLoginHomePath('ADMIN');
+        setWindowLocationHref(postLoginHomePath('ADMIN'), 'login-form:admin');
         return;
       }
 
@@ -141,9 +142,12 @@ export function LoginForm() {
           portalWorkerStatus =
             meRaw.portalWorkerStatus ?? meRaw.user?.portalWorkerStatus ?? 'PENDING_APPROVAL';
         }
-        window.location.href = postLoginHomePath(
-          'PORTAL_WORKER',
-          portalWorkerStatus as 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'SUSPENDED' | null,
+        setWindowLocationHref(
+          postLoginHomePath(
+            'PORTAL_WORKER',
+            portalWorkerStatus as 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'SUSPENDED' | null,
+          ),
+          'login-form:portal-worker',
         );
         return;
       }
@@ -158,7 +162,7 @@ export function LoginForm() {
           ? rawTarget
           : '/';
 
-      window.location.href = target;
+      setWindowLocationHref(target, 'login-form:post-login');
     } catch {
       setError('Nelze se spojit se serverem. Zkuste to prosím za chvíli.');
     } finally {

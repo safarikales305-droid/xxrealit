@@ -1,4 +1,5 @@
 import { PortalAnalyticsTracker } from "@/components/analytics/PortalAnalyticsTracker";
+import { SiteOriginDebug } from "@/components/debug/SiteOriginDebug";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { SeoTrackingScripts } from "@/components/seo/SeoTrackingScripts";
 import type { Metadata, Viewport } from "next";
@@ -94,6 +95,7 @@ export default async function RootLayout({
         ) : null}
       </head>
       <body>
+        <SiteOriginDebug />
         <JsonLd data={[organizationJsonLd(), webSiteJsonLd()]} />
         <SeoTrackingScripts settings={seoSettings} />
         <AuthProvider>

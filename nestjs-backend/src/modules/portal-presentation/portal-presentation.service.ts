@@ -503,7 +503,7 @@ export class PortalPresentationService implements OnModuleInit {
 
   async buildRss(locale = 'cs') {
     const page = await this.getPublic(locale);
-    const base = page.canonicalUrl?.replace(/\/o-portalu.*$/, '') || 'https://www.xxrealit.cz';
+    const base = page.canonicalUrl?.replace(/\/o-portalu.*$/, '') || 'https://xxrealit.cz';
     const items = page.sections.map((s) => ({
       title: s.title,
       link: `${base}/o-portalu#${s.anchor}`,

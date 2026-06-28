@@ -1,7 +1,9 @@
 import type { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 
-const PRODUCTION_FALLBACK = 'https://www.xxrealit.cz';
+export const PRODUCTION_FRONTEND_FALLBACK = 'https://xxrealit.cz';
+
+const PRODUCTION_FALLBACK = PRODUCTION_FRONTEND_FALLBACK;
 const LOCALHOST_FALLBACK = 'http://localhost:3000';
 const LOCALHOST_LIKE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
 

@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     'Zásady ochrany osobních údajů portálu XXRealit — registrace, Facebook Login, cookies a práva subjektů údajů podle GDPR.',
   robots: { index: true, follow: true },
   alternates: {
-    canonical: 'https://www.xxrealit.cz/privacy',
+    canonical: '/privacy',
   },
 };
 

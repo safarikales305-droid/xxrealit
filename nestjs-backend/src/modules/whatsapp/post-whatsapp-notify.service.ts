@@ -392,7 +392,7 @@ export class PostWhatsAppNotifyService {
   }
 
   private postPathSuffix(postId: string): string {
-    const base = this.env.get<string>('FRONTEND_URL')?.trim() || 'https://www.xxrealit.cz';
+    const base = this.env.get<string>('FRONTEND_URL')?.trim() || 'https://xxrealit.cz';
     const path = `?tab=posts&post=${postId}`;
     try {
       const url = new URL(base);

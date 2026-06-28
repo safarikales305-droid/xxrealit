@@ -40,7 +40,7 @@ export class FacebookAuthService {
   private frontendUrl(): string {
     return (
       this.config.get<string>('FRONTEND_URL')?.trim().replace(/\/+$/, '') ||
-      'https://www.xxrealit.cz'
+      'https://xxrealit.cz'
     );
   }
 

@@ -1,3 +1,4 @@
+import { assignWindowLocation } from '@/lib/navigation-debug';
 import { isPwaStandalone } from '@/lib/pwa-standalone';
 
 export type PwaOAuthOpenResult = 'redirected' | 'external' | 'blocked';
@@ -11,7 +12,7 @@ export function openFacebookOAuthUrl(url: string): PwaOAuthOpenResult {
   if (!target) return 'blocked';
 
   if (!isPwaStandalone()) {
-    window.location.assign(target);
+    assignWindowLocation(target, 'pwa-oauth:browser');
     return 'redirected';
   }
 
@@ -25,7 +26,7 @@ export function openFacebookOAuthUrl(url: string): PwaOAuthOpenResult {
     return 'external';
   }
 
-  window.location.assign(target);
+  assignWindowLocation(target, 'pwa-oauth:pwa-fallback');
   return 'redirected';
 }
 

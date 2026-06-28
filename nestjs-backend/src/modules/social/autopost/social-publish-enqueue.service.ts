@@ -468,6 +468,6 @@ function metaOrigin(): string {
   return (
     process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
     process.env.FRONTEND_URL?.trim() ||
-    'https://www.xxrealit.cz'
+    'https://xxrealit.cz'
   ).replace(/\/+$/, '');
 }

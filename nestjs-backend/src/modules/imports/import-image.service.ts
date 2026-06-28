@@ -117,7 +117,7 @@ export class ImportImageService {
         validateStatus: (s: number) => s >= 200 && s < 300,
         headers: {
           'User-Agent':
-            'Mozilla/5.0 (compatible; XXRealitImport/1.0; +https://www.xxrealit.cz)',
+            'Mozilla/5.0 (compatible; XXRealitImport/1.0; +https://xxrealit.cz)',
           Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
         },
       });

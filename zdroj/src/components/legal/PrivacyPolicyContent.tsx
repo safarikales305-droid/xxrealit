@@ -10,13 +10,9 @@ export function PrivacyPolicyContent() {
         <h2 className="text-lg font-semibold text-zinc-900">Provozovatel</h2>
         <p className="mt-2">
           Provozovatelem internetového portálu{' '}
-          <a
-            href="https://www.xxrealit.cz"
-            className="font-semibold text-[#e85d00] hover:underline"
-            rel="noopener noreferrer"
-          >
-            www.xxrealit.cz
-          </a>{' '}
+          <Link href="/" className="font-semibold text-[#e85d00] hover:underline">
+            xxrealit.cz
+          </Link>{' '}
           (dále jen „XXRealit“) je provozovatel služby XXRealit. V případě dotazů k ochraně
           osobních údajů nás kontaktujte přes{' '}
           <SupportContactButton variant="link" label="formulář podpory" subject="Dotaz k ochraně osobních údajů" category="OTHER" />
@@ -111,13 +107,9 @@ export function PrivacyPolicyContent() {
         </p>
         <p className="mt-1">
           Web:{' '}
-          <a
-            href="https://www.xxrealit.cz"
-            className="font-semibold text-[#e85d00] hover:underline"
-            rel="noopener noreferrer"
-          >
-            https://www.xxrealit.cz
-          </a>
+          <Link href="/" className="font-semibold text-[#e85d00] hover:underline">
+            xxrealit.cz
+          </Link>
         </p>
       </section>
     </>

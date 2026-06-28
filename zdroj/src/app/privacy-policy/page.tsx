@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     'Privacy Policy for XXRealit — user registration, Facebook Login, cookies and data subject rights under GDPR.',
   robots: { index: true, follow: true },
   alternates: {
-    canonical: 'https://www.xxrealit.cz/privacy-policy',
+    canonical: '/privacy-policy',
   },
 };
 

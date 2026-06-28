@@ -3,12 +3,16 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { ACCESS_TOKEN_COOKIE, getJwtSecretBytes } from '@/lib/server-api';
 import { isUserRole } from '@/lib/roles';
+import {
+  hostnameFromHostHeader,
+  isKnownXxrealitHostname,
+  resolveCanonicalHostname,
+} from '@/lib/site-origin';
 
 type JwtAuthClaims = {
   role?: string;
 };
 
-const CANONICAL_HOST = 'www.xxrealit.cz';
 const PROTECTED_PREFIXES = [
   '/following',
   '/create',
@@ -19,19 +23,26 @@ const PROTECTED_PREFIXES = [
 
 function handleCanonicalRedirect(request: NextRequest): NextResponse | null {
   if (process.env.NODE_ENV !== 'production') return null;
-  const host = request.headers.get('host') ?? '';
+
+  const hostHeader = request.headers.get('host') ?? '';
+  const host = hostnameFromHostHeader(hostHeader);
   const proto = request.headers.get('x-forwarded-proto') ?? 'https';
+  const canonicalHost = resolveCanonicalHostname();
 
   if (proto === 'http') {
     const url = request.nextUrl.clone();
     url.protocol = 'https:';
+    // eslint-disable-next-line no-console
+    console.log('[middleware] Redirect to:', url.toString(), '(http→https)');
     return NextResponse.redirect(url, 301);
   }
 
-  if (host === 'xxrealit.cz' || host.startsWith('xxrealit.cz:')) {
+  if (isKnownXxrealitHostname(host) && host !== canonicalHost) {
     const url = request.nextUrl.clone();
-    url.host = CANONICAL_HOST;
+    url.hostname = canonicalHost;
     url.protocol = 'https:';
+    // eslint-disable-next-line no-console
+    console.log('[middleware] Redirect to:', url.toString(), `(canonical host ${canonicalHost})`);
     return NextResponse.redirect(url, 301);
   }
 
@@ -45,7 +56,7 @@ function isProtectedPath(pathname: string): boolean {
 }
 
 /**
- * JWT ochrana vybraných rout + kanonický host www.xxrealit.cz (301).
+ * JWT ochrana vybraných rout + kanonický host z env (301).
  */
 export async function middleware(request: NextRequest) {
   const canonical = handleCanonicalRedirect(request);
@@ -62,6 +73,8 @@ export async function middleware(request: NextRequest) {
   if (!token) {
     const login = new URL('/login', request.url);
     login.searchParams.set('callbackUrl', pathname);
+    // eslint-disable-next-line no-console
+    console.log('[middleware] Redirect to:', login.toString(), '(auth required)');
     return NextResponse.redirect(login);
   }
 
@@ -78,6 +91,8 @@ export async function middleware(request: NextRequest) {
     const login = new URL('/login', request.url);
     login.searchParams.set('callbackUrl', pathname);
     const res = NextResponse.redirect(login);
+    // eslint-disable-next-line no-console
+    console.log('[middleware] Redirect to:', login.toString(), '(invalid token)');
     res.cookies.set('token', '', {
       httpOnly: false,
       sameSite: 'lax',

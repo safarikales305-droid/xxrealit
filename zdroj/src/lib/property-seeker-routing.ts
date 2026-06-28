@@ -1,9 +1,19 @@
+import { buildAbsoluteSiteUrl } from './site-origin';
+
 export const PROPERTY_SEEKER_SHARE_REQUIRED = 5;
 
 export const PROPERTY_SEEKER_PORTAL_HOME = '/?tab=shorts';
 
-export const PROPERTY_SEEKER_SHARE_MESSAGE =
-  'Ahoj, našel jsem realitní portál XXrealit.cz – můžeš sledovat inzeráty jako Shorts videa, klasické nabídky i příspěvky makléřů. Mrkni na to: https://www.xxrealit.cz';
+const PROPERTY_SEEKER_SHARE_MESSAGE_PREFIX =
+  'Ahoj, našel jsem realitní portál XXrealit.cz – můžeš sledovat inzeráty jako Shorts videa, klasické nabídky i příspěvky makléřů. Mrkni na to:';
+
+/** Dynamická URL portálu z env / aktuálního originu (ne hardcoded www). */
+export function getPropertySeekerShareMessage(): string {
+  return `${PROPERTY_SEEKER_SHARE_MESSAGE_PREFIX} ${buildAbsoluteSiteUrl('/')}`;
+}
+
+/** @deprecated Preferujte getPropertySeekerShareMessage() — zachováno pro kompatibilitu. */
+export const PROPERTY_SEEKER_SHARE_MESSAGE = getPropertySeekerShareMessage();
 
 export type PropertySeekerMe = {
   whatsappVerified?: boolean;

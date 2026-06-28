@@ -10,7 +10,7 @@ import {
 } from '@/lib/nest-client';
 import {
   PROPERTY_SEEKER_PORTAL_HOME,
-  PROPERTY_SEEKER_SHARE_MESSAGE,
+  getPropertySeekerShareMessage,
   PROPERTY_SEEKER_SHARE_REQUIRED,
 } from '@/lib/property-seeker-routing';
 
@@ -49,11 +49,13 @@ export default function SdileniPortaluPage() {
     void refresh();
   }, [user, isLoading, router, refresh]);
 
+  const shareMessage = getPropertySeekerShareMessage();
+
   async function handleShare() {
     if (!apiAccessToken) return;
     setBusy(true);
     setError(null);
-    const encoded = encodeURIComponent(PROPERTY_SEEKER_SHARE_MESSAGE);
+    const encoded = encodeURIComponent(shareMessage);
     window.open(`https://wa.me/?text=${encoded}`, '_blank', 'noopener,noreferrer');
     const r = await nestPropertySeekerRecordShare(apiAccessToken);
     setBusy(false);
@@ -82,7 +84,7 @@ export default function SdileniPortaluPage() {
 
       <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4 text-sm text-zinc-700">
         <p className="font-medium text-zinc-900">Text zprávy:</p>
-        <p className="mt-2 whitespace-pre-wrap">{PROPERTY_SEEKER_SHARE_MESSAGE}</p>
+        <p className="mt-2 whitespace-pre-wrap">{shareMessage}</p>
       </div>
 
       <p className="mb-4 text-center text-sm font-semibold text-zinc-800">

@@ -18,7 +18,7 @@ export class ReferralController {
     return (
       this.config.get<string>('PUBLIC_SITE_URL')?.trim() ||
       this.config.get<string>('FRONTEND_URL')?.trim() ||
-      'https://www.xxrealit.cz'
+      'https://xxrealit.cz'
     );
   }
 

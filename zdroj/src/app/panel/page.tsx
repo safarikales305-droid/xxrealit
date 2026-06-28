@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useLayoutEffect, useState } from 'react';
 import { LogoutButton } from '@/components/dashboard/logout-button';
 import { getClientTokenFromCookie } from '@/lib/api';
+import { setWindowLocationHref } from '@/lib/navigation-debug';
 
 type StoredUser = {
   id?: string;
@@ -20,7 +21,7 @@ export default function PanelPage() {
     const token = getClientTokenFromCookie();
     const user = localStorage.getItem('user');
     if (!token && !user) {
-      window.location.href = '/login';
+      setWindowLocationHref('/login', 'panel/page');
       return;
     }
     if (user) {
@@ -29,7 +30,7 @@ export default function PanelPage() {
         setReady(true);
         return;
       } catch {
-        window.location.href = '/login';
+        setWindowLocationHref('/login', 'panel/page');
         return;
       }
     }
@@ -42,12 +43,12 @@ export default function PanelPage() {
             : undefined,
         });
         if (!res.ok) {
-          window.location.href = '/login';
+          setWindowLocationHref('/login', 'panel/page');
           return;
         }
         const data = (await res.json()) as { user?: StoredUser };
         if (!data.user) {
-          window.location.href = '/login';
+          setWindowLocationHref('/login', 'panel/page');
           return;
         }
         setStoredUser(data.user);
@@ -58,7 +59,7 @@ export default function PanelPage() {
         }
         setReady(true);
       } catch {
-        window.location.href = '/login';
+        setWindowLocationHref('/login', 'panel/page');
       }
     })();
   }, []);

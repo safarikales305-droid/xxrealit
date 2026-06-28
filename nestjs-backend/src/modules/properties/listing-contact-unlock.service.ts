@@ -1140,7 +1140,7 @@ export class ListingContactUnlockService {
     const base =
       this.config.get<string>('FRONTEND_URL')?.trim() ||
       this.config.get<string>('NEXT_PUBLIC_SITE_URL')?.trim() ||
-      'https://www.xxrealit.cz';
+      'https://xxrealit.cz';
     const suffix = path ?? `/nemovitost/${propertyId}`;
     return `${base.replace(/\/+$/, '')}${suffix}`;
   }

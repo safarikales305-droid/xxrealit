@@ -10,13 +10,9 @@ export function TermsOfServiceContent() {
         <h2 className="text-lg font-semibold text-zinc-900">Úvodní ustanovení</h2>
         <p className="mt-2">
           Tyto podmínky užívání (dále jen „Podmínky“) upravují používání internetového portálu{' '}
-          <a
-            href="https://www.xxrealit.cz"
-            className="font-semibold text-[#e85d00] hover:underline"
-            rel="noopener noreferrer"
-          >
-            www.xxrealit.cz
-          </a>{' '}
+          <Link href="/" className="font-semibold text-[#e85d00] hover:underline">
+            xxrealit.cz
+          </Link>{' '}
           provozovaného pod značkou XXRealit (dále jen „portál“ nebo „služba“). Používáním portálu
           potvrzujete, že jste se s těmito Podmínkami seznámili a souhlasíte s nimi.
         </p>
@@ -99,13 +95,9 @@ export function TermsOfServiceContent() {
         </p>
         <p className="mt-1">
           Web:{' '}
-          <a
-            href="https://www.xxrealit.cz"
-            className="font-semibold text-[#e85d00] hover:underline"
-            rel="noopener noreferrer"
-          >
-            https://www.xxrealit.cz
-          </a>
+          <Link href="/" className="font-semibold text-[#e85d00] hover:underline">
+            xxrealit.cz
+          </Link>
         </p>
       </section>
     </>

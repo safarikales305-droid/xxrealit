@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     'Terms of Service for the XXRealit real estate portal — accounts, listings, social integrations and liability.',
   robots: { index: true, follow: true },
   alternates: {
-    canonical: 'https://www.xxrealit.cz/terms',
+    canonical: '/terms',
   },
 };
 

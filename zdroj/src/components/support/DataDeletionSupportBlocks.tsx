@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { SupportContactButton } from '@/components/support/SupportContactButton';
 
 export function DataDeletionSupportBlock() {
@@ -29,13 +30,9 @@ export function DataDeletionContactBlock() {
         <SupportContactButton variant="link" label="Kontaktovat podporu" />
       </p>
       <p className="mt-1">
-        <a
-          href="https://www.xxrealit.cz"
-          className="font-semibold text-[#e85d00] hover:underline"
-          rel="noopener noreferrer"
-        >
-          www.xxrealit.cz
-        </a>
+        <Link href="/" className="font-semibold text-[#e85d00] hover:underline">
+          xxrealit.cz
+        </Link>
       </p>
     </div>
   );

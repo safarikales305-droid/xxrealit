@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     'Jak požádat o smazání dat získaných prostřednictvím Facebook Login na portálu XXRealit.',
   robots: { index: true, follow: true },
   alternates: {
-    canonical: 'https://www.xxrealit.cz/data-deletion',
+    canonical: '/data-deletion',
   },
 };
 

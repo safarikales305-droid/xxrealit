@@ -7,6 +7,7 @@ import { TermsConsentCheckbox } from '@/components/auth/TermsConsentCheckbox';
 import { PasswordField } from '@/components/ui/PasswordField';
 import { useAuth } from '@/hooks/use-auth';
 import { getBrowserAuthLoginUrl } from '@/lib/api';
+import { setWindowLocationHref } from '@/lib/navigation-debug';
 import { closeGuestRegistrationGate } from '@/lib/guest-registration-gate-store';
 import { storeFacebookOAuthReturnPath } from '@/lib/facebook-oauth-return';
 import { clearPwaInstallDismissed } from '@/lib/pwa-install-storage';
@@ -47,7 +48,7 @@ export function GuestGateAuthPanel({ mode, returnTo, onClose, onSwitchMode }: Pr
     closeGuestRegistrationGate();
     onClose();
     if (returnTo && returnTo !== '/') {
-      window.location.href = returnTo;
+      setWindowLocationHref(returnTo, 'GuestGateAuthPanel.finishAuth');
     } else {
       window.location.reload();
     }

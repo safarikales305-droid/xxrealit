@@ -15,7 +15,7 @@ export class SeoPublicController {
 
   @Get('sitemap')
   getSitemap(@Query('origin') origin?: string) {
-    const base = origin?.trim() || 'https://www.xxrealit.cz';
+    const base = origin?.trim() || 'https://xxrealit.cz';
     return this.seo.getSitemapEntries(base);
   }
 
