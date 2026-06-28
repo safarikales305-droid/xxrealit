@@ -291,10 +291,22 @@ export default function AdminListingsPage() {
           : null,
       requireActive: form.requireActive,
       requireApproved: form.requireApproved,
+      shortsPublishAsReel:
+        form.shortsPublishMode === 'reel'
+          ? true
+          : form.shortsPublishMode === 'video'
+            ? false
+            : null,
     };
   }
 
-  async function runPublishNow(propertyIds: string[], force = false) {
+  function rowHasShortsVideo(row: AdminListingRow): boolean {
+    const isShorts = String(row.listingType ?? '').toUpperCase() === 'SHORTS';
+    const hasVideo = Boolean(String(row.videoUrl ?? '').trim());
+    return isShorts && hasVideo;
+  }
+
+  async function runPublishNow(propertyIds: string[], force = false, publishAsReel = false) {
     if (!token || propertyIds.length === 0) return;
     setFbBusy(true);
     setFbMsg(null);
@@ -316,6 +328,7 @@ export default function AdminListingsPage() {
       const r = await nestAdminPropertyPublishNow(token, {
         propertyIds: [ids[i]],
         force,
+        publishAsReel,
       });
       if (r?.results?.length) {
         aggregated.push(...r.results);
@@ -340,7 +353,7 @@ export default function AdminListingsPage() {
         reason.includes('Dnes již publikováno') &&
         window.confirm(`${reason}. Vynutit publikování?`)
       ) {
-        await runPublishNow(propertyIds, true);
+        await runPublishNow(propertyIds, true, publishAsReel);
         return;
       }
       setFbMsg(`Přeskočeno: ${reason}`);
@@ -414,8 +427,17 @@ export default function AdminListingsPage() {
 
   const selectedIdsArray = useMemo(() => [...selectedIds], [selectedIds]);
 
+  const selectedShortsVideoCount = useMemo(
+    () => selectedIdsArray.filter((id) => rowHasShortsVideo(rows.find((r) => r.id === id) ?? { id })).length,
+    [selectedIdsArray, rows],
+  );
+
   async function onFacebookPublishNow(row: AdminListingRow) {
     await runPublishNow([row.id]);
+  }
+
+  async function onFacebookPublishReel(row: AdminListingRow) {
+    await runPublishNow([row.id], false, true);
   }
 
   function onFacebookSchedule(row: AdminListingRow) {
@@ -641,6 +663,19 @@ export default function AdminListingsPage() {
               </button>
               <button
                 type="button"
+                disabled={selectedIds.size === 0 || fbBusy || selectedShortsVideoCount === 0}
+                title={
+                  selectedShortsVideoCount === 0
+                    ? 'Vyberte shorts inzeráty s videem'
+                    : undefined
+                }
+                onClick={() => void runPublishNow(selectedIdsArray, false, true)}
+                className="rounded-lg border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-900 hover:bg-violet-100 disabled:opacity-50"
+              >
+                Publikovat jako Reel na Facebook
+              </button>
+              <button
+                type="button"
                 disabled={selectedIds.size === 0 || fbBusy}
                 onClick={() =>
                   setScheduleModal({
@@ -685,6 +720,7 @@ export default function AdminListingsPage() {
           onQuickSetActive={(id, active) => void quickSetActive(id, active)}
           onRestore={(id) => void onRestore(id)}
           onFacebookPublishNow={(row) => void onFacebookPublishNow(row)}
+          onFacebookPublishReel={(row) => void onFacebookPublishReel(row)}
           onFacebookSchedule={onFacebookSchedule}
           onFacebookSetRepeat={onFacebookSetRepeat}
           onFacebookCancelRepeat={(row) => void onFacebookCancelRepeat(row)}

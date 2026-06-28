@@ -173,7 +173,9 @@ export class SocialAutopostAdminController {
     @Body(new ValidationPipe({ whitelist: true, transform: true }))
     dto: PropertyPublishNowDto,
   ) {
-    return this.scheduleService.publishNow(dto.propertyIds, user?.id, dto.force);
+    return this.scheduleService.publishNow(dto.propertyIds, user?.id, dto.force, {
+      publishAsReel: dto.publishAsReel,
+    });
   }
 
   @Post('properties/schedule')

@@ -13,6 +13,8 @@ export type FacebookScheduleFormValues = {
   repeatUntil: string;
   requireActive: boolean;
   requireApproved: boolean;
+  /** auto | reel | video — jen pro shorts */
+  shortsPublishMode: 'auto' | 'reel' | 'video';
 };
 
 function defaultFirstRunLocal(): string {
@@ -32,6 +34,7 @@ export function defaultFacebookScheduleForm(): FacebookScheduleFormValues {
     repeatUntil: '',
     requireActive: true,
     requireApproved: true,
+    shortsPublishMode: 'auto',
   };
 }
 
@@ -197,6 +200,39 @@ export function FacebookScheduleModal({
                 onChange={(e) => setForm((f) => ({ ...f, requireApproved: e.target.checked }))}
               />
               Publikovat jen schválené inzeráty
+            </label>
+          </div>
+
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Shorts / video inzeráty
+            </p>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="shortsPublishMode"
+                checked={form.shortsPublishMode === 'auto'}
+                onChange={() => setForm((f) => ({ ...f, shortsPublishMode: 'auto' }))}
+              />
+              Podle globálního nastavení
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="shortsPublishMode"
+                checked={form.shortsPublishMode === 'reel'}
+                onChange={() => setForm((f) => ({ ...f, shortsPublishMode: 'reel' }))}
+              />
+              Publikovat jako Facebook Reel
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="shortsPublishMode"
+                checked={form.shortsPublishMode === 'video'}
+                onChange={() => setForm((f) => ({ ...f, shortsPublishMode: 'video' }))}
+              />
+              Publikovat jako běžný video příspěvek
             </label>
           </div>
 

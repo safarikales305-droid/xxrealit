@@ -159,3 +159,24 @@ export function buildGraphUrl(
   url.searchParams.set('access_token', accessToken);
   return url.toString();
 }
+
+export class FacebookGraphPublishError extends Error {
+  readonly graphError?: Omit<ParsedFacebookGraphError, 'raw'>;
+  readonly hint?: string;
+
+  constructor(parsed: ParsedFacebookGraphError) {
+    super(parsed.userMessage);
+    this.name = 'FacebookGraphPublishError';
+    this.graphError = {
+      httpStatus: parsed.httpStatus,
+      message: parsed.message,
+      type: parsed.type,
+      code: parsed.code,
+      error_subcode: parsed.error_subcode,
+      fbtrace_id: parsed.fbtrace_id,
+      userMessage: parsed.userMessage,
+      hint: parsed.hint,
+    };
+    this.hint = parsed.hint;
+  }
+}

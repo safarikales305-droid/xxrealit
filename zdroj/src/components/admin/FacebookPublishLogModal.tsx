@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  FACEBOOK_POST_TYPE_LABELS,
   PROPERTY_FACEBOOK_STATUS_LABELS,
   SOCIAL_PUBLISH_STATUS_LABELS,
   SOCIAL_TRIGGER_SOURCE_LABELS,
@@ -59,6 +60,7 @@ export function FacebookPublishLogModal({ open, title, loading, rows, onClose }:
                 <thead>
                   <tr className="border-b border-zinc-200 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
                     <th className="pb-2 pr-3">Datum</th>
+                    <th className="pb-2 pr-3">Typ</th>
                     <th className="pb-2 pr-3">Stav</th>
                     <th className="pb-2 pr-3">Post ID</th>
                     <th className="pb-2 pr-3">Odkaz</th>
@@ -73,6 +75,11 @@ export function FacebookPublishLogModal({ open, title, loading, rows, onClose }:
                   {rows.map((row) => (
                     <tr key={row.id} className="border-b border-zinc-100 align-top">
                       <td className="py-2 pr-3 whitespace-nowrap">{formatDt(row.createdAt)}</td>
+                      <td className="py-2 pr-3">
+                        {row.facebookPostType
+                          ? (FACEBOOK_POST_TYPE_LABELS[row.facebookPostType] ?? row.facebookPostType)
+                          : '—'}
+                      </td>
                       <td className="py-2 pr-3">
                         {SOCIAL_PUBLISH_STATUS_LABELS[row.status] ?? row.status}
                       </td>

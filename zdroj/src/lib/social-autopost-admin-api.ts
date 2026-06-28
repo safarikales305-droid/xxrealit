@@ -23,6 +23,9 @@ export type FacebookAutopostSettingsPublic = {
   publishPosts: boolean;
   publishProperties: boolean;
   publishShorts: boolean;
+  publishShortsAsReels?: boolean;
+  reelsFallbackToVideoPost?: boolean;
+  reelsFallbackToPhotoPost?: boolean;
   approvedOnly: boolean;
   publicPostsOnly: boolean;
   professionalsOnly: boolean;
@@ -331,6 +334,7 @@ export type PropertyPublishLogRow = {
   contentType: string;
   contentId: string;
   status: string;
+  facebookPostType?: string | null;
   externalPostId: string | null;
   publishedUrl: string | null;
   lastError: string | null;
@@ -360,7 +364,7 @@ export function nestAdminPropertyFacebookStatus(token: string, propertyIds: stri
 
 export function nestAdminPropertyPublishNow(
   token: string,
-  body: { propertyIds: string[]; force?: boolean },
+  body: { propertyIds: string[]; force?: boolean; publishAsReel?: boolean },
 ) {
   return adminFetchJson<{
     results: Array<{
@@ -430,6 +434,12 @@ export function nestAdminPropertyPublishLog(token: string, propertyId: string) {
     `/social/autopost/admin/properties/${encodeURIComponent(propertyId)}/publish-log`,
   );
 }
+
+export const FACEBOOK_POST_TYPE_LABELS: Record<string, string> = {
+  FACEBOOK_POST: 'Příspěvek',
+  FACEBOOK_VIDEO: 'Video',
+  FACEBOOK_REEL: 'Reel',
+};
 
 export const PROPERTY_FACEBOOK_STATUS_LABELS: Record<PropertyFacebookDisplayStatus, string> = {
   NOT_PUBLISHED: 'Nepublikováno',

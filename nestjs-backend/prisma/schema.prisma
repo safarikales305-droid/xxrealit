@@ -2789,6 +2789,7 @@ model SocialPublishQueue {
   triggerSource   SocialPublishTriggerSource @default(AUTO)
   triggeredByUserId String?
   scheduleId      String?
+  facebookPostType FacebookPostType?
   createdAt       DateTime                 @default(now())
   updatedAt       DateTime                 @updatedAt
 
@@ -2819,6 +2820,8 @@ model SocialPublishSchedule {
   runCount           Int                           @default(0)
   requireActive      Boolean                       @default(true)
   requireApproved    Boolean                       @default(true)
+  /// true = Reel, false = běžné video, null = globální nastavení autopostu
+  shortsPublishAsReel Boolean?
   lastRunAt          DateTime?
   lastStatus         SocialPublishScheduleLastStatus?
   lastError          String?                       @db.Text
@@ -2845,6 +2848,7 @@ model SocialPublishLog {
   externalPostId    String?
   publishedUrl      String?
   lastError         String?                    @db.Text
+  facebookPostType  FacebookPostType?
   triggerSource     SocialPublishTriggerSource
   triggeredByUserId String?
   createdAt         DateTime                   @default(now())

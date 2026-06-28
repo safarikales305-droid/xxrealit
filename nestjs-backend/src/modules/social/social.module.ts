@@ -35,6 +35,7 @@ import { SocialPublishScheduleService } from './autopost/social-publish-schedule
 import { SocialPublishScheduleCronService } from './autopost/social-publish-schedule.cron.service';
 import { SocialAutopostFacebookOAuthService } from './autopost/social-autopost-facebook-oauth.service';
 import { SocialAutopostTokenService } from './autopost/social-autopost-token.service';
+import { SocialFacebookReelPublisherService } from './autopost/social-facebook-reel-publisher.service';
 
 @Module({
   imports: [
@@ -76,6 +77,7 @@ import { SocialAutopostTokenService } from './autopost/social-autopost-token.ser
     SocialPublishScheduleCronService,
     SocialAutopostFacebookOAuthService,
     SocialAutopostTokenService,
+    SocialFacebookReelPublisherService,
   ],
   exports: [
     FacebookConfigService,

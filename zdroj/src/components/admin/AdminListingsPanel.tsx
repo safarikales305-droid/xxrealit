@@ -76,6 +76,12 @@ function sourceLabel(r: AdminListingRow): string {
   return 'Lokální';
 }
 
+function rowHasShortsVideo(r: AdminListingRow): boolean {
+  const isShorts = String(r.listingType ?? '').toUpperCase() === 'SHORTS';
+  const hasVideo = Boolean(String(r.videoUrl ?? '').trim());
+  return isShorts && hasVideo;
+}
+
 type ActionHandlers = {
   onEdit: (r: AdminListingRow) => void;
   onApprove: (id: string) => void;
@@ -83,6 +89,7 @@ type ActionHandlers = {
   onQuickSetActive: (id: string, isActive: boolean) => void;
   onRestore: (id: string) => void;
   onFacebookPublishNow?: (r: AdminListingRow) => void;
+  onFacebookPublishReel?: (r: AdminListingRow) => void;
   onFacebookSchedule?: (r: AdminListingRow) => void;
   onFacebookSetRepeat?: (r: AdminListingRow) => void;
   onFacebookCancelRepeat?: (r: AdminListingRow) => void;
@@ -284,6 +291,17 @@ function ActionsMenu({
                 onClick={() => run(() => handlers.onFacebookPublishNow?.(r))}
               >
                 Publikovat na Facebook teď
+              </button>
+            ) : null}
+            {!deleted && handlers.onFacebookPublishReel ? (
+              <button
+                type="button"
+                disabled={!rowHasShortsVideo(r)}
+                title={!rowHasShortsVideo(r) ? 'Inzerát nemá shorts video' : undefined}
+                className="block w-full px-3 py-2 text-left text-sm text-violet-800 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => run(() => handlers.onFacebookPublishReel?.(r))}
+              >
+                Publikovat jako Reel na Facebook
               </button>
             ) : null}
             {!deleted && handlers.onFacebookSchedule ? (

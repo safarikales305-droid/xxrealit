@@ -1036,6 +1036,7 @@ export type AdminListingRow = {
   canGenerateShorts?: boolean;
   shortsGenerated?: boolean;
   shortsSourceType?: string | null;
+  videoUrl?: string | null;
 };
 
 export type AdminImportRunState = {

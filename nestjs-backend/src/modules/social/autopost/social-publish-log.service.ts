@@ -4,6 +4,7 @@ import {
   SocialPublishContentType,
   SocialPublishStatus,
   SocialPublishTriggerSource,
+  FacebookPostType,
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { pragueDateKey } from './social-publish-schedule.util';
@@ -41,6 +42,7 @@ export class SocialPublishLogService {
     externalPostId?: string | null;
     publishedUrl?: string | null;
     lastError?: string | null;
+    facebookPostType?: FacebookPostType | null;
     triggerSource: SocialPublishTriggerSource;
     triggeredByUserId?: string | null;
   }) {
@@ -54,6 +56,7 @@ export class SocialPublishLogService {
         externalPostId: input.externalPostId ?? null,
         publishedUrl: input.publishedUrl ?? null,
         lastError: input.lastError ?? null,
+        facebookPostType: input.facebookPostType ?? null,
         triggerSource: input.triggerSource,
         triggeredByUserId: input.triggeredByUserId ?? null,
       },

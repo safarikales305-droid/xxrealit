@@ -53,7 +53,9 @@ export class FacebookAdminController {
           error: 'Facebook není nakonfigurován — nastavte Page ID a access token.',
         };
       }
-      return this.scheduleService.publishNow(dto.propertyIds, user?.id, dto.force);
+      return this.scheduleService.publishNow(dto.propertyIds, user?.id, dto.force, {
+        publishAsReel: dto.publishAsReel,
+      });
     }
 
     if (dto.contentType && dto.contentId) {

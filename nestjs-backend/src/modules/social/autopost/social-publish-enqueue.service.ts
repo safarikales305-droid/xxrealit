@@ -4,13 +4,15 @@ import {
   SocialPublishContentType,
   SocialPublishStatus,
   SocialPublishTriggerSource,
+  FacebookPostType,
   type UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { ShareMetadataService } from '../../share/share-metadata.service';
 import { isPropertyPubliclyListed } from '../../properties/property-public-visibility';
 import { SocialAutopostSettingsService } from './social-autopost-settings.service';
-import { SocialPublisherService, FacebookGraphPublishError } from './social-publisher.service';
+import { SocialPublisherService } from './social-publisher.service';
+import { FacebookGraphPublishError } from './facebook-graph-autopost.util';
 import { SocialPublishLogService } from './social-publish-log.service';
 import {
   buildPostFacebookMessage,
@@ -18,6 +20,7 @@ import {
   resolvePropertyShareImage,
   toAbsoluteMediaUrl,
 } from './social-publish-format.util';
+import { isShortsVideoProperty } from './social-facebook-reel.util';
 import { PROFESSIONAL_ROLES } from './social-autopost.types';
 
 const MAX_ATTEMPTS = 5;
@@ -79,6 +82,7 @@ export class SocialPublishEnqueueService {
       triggeredByUserId?: string;
       scheduleId?: string;
       scheduledAt?: Date;
+      facebookPostType?: FacebookPostType | null;
     },
   ) {
     return this.enqueueProperty(propertyId, { manual: true, ...opts });
@@ -122,6 +126,7 @@ export class SocialPublishEnqueueService {
       triggeredByUserId?: string;
       scheduleId?: string;
       scheduledAt?: Date;
+      facebookPostType?: FacebookPostType | null;
     },
   ) {
     const property = await this.prisma.property.findUnique({
@@ -208,6 +213,7 @@ export class SocialPublishEnqueueService {
           triggerSource,
           triggeredByUserId: opts.triggeredByUserId ?? null,
           scheduleId: opts.scheduleId ?? null,
+          facebookPostType: opts.facebookPostType ?? null,
         },
         update: opts.force
           ? {
@@ -218,6 +224,7 @@ export class SocialPublishEnqueueService {
               triggerSource,
               triggeredByUserId: opts.triggeredByUserId ?? null,
               scheduleId: opts.scheduleId ?? null,
+              facebookPostType: opts.facebookPostType ?? null,
             }
           : {
               status: SocialPublishStatus.PENDING,
@@ -225,6 +232,9 @@ export class SocialPublishEnqueueService {
               triggerSource,
               triggeredByUserId: opts.triggeredByUserId ?? null,
               scheduleId: opts.scheduleId ?? null,
+              ...(opts.facebookPostType !== undefined
+                ? { facebookPostType: opts.facebookPostType }
+                : {}),
             },
       });
       return { ok: true, queueId: row.id };
@@ -496,7 +506,7 @@ export class SocialPublishProcessorService {
       const result =
         item.contentType === SocialPublishContentType.POST
           ? await this.publishPost(item.contentId)
-          : await this.publishProperty(item.contentId, item.contentType);
+          : await this.publishProperty(item.contentId, item.contentType, item.facebookPostType);
 
       const updated = await this.prisma.socialPublishQueue.update({
         where: { id },
@@ -506,6 +516,7 @@ export class SocialPublishProcessorService {
           publishedUrl: result.publishedUrl,
           lastApiResponse: result.raw as object,
           lastError: null,
+          facebookPostType: result.facebookPostType ?? item.facebookPostType ?? null,
           processedAt: new Date(),
         },
       });
@@ -517,6 +528,7 @@ export class SocialPublishProcessorService {
         status: SocialPublishStatus.PUBLISHED,
         externalPostId: result.externalPostId,
         publishedUrl: result.publishedUrl,
+        facebookPostType: result.facebookPostType ?? item.facebookPostType ?? null,
         triggerSource: item.triggerSource,
         triggeredByUserId: item.triggeredByUserId,
       });
@@ -548,6 +560,7 @@ export class SocialPublishProcessorService {
         queueId: id,
         status: SocialPublishStatus.FAILED,
         lastError: message,
+        facebookPostType: item.facebookPostType ?? null,
         triggerSource: item.triggerSource,
         triggeredByUserId: item.triggeredByUserId,
       });
@@ -556,7 +569,11 @@ export class SocialPublishProcessorService {
     }
   }
 
-  private async publishProperty(contentId: string, contentType: SocialPublishContentType) {
+  private async publishProperty(
+    contentId: string,
+    contentType: SocialPublishContentType,
+    forceFormat?: FacebookPostType | null,
+  ) {
     const property = await this.prisma.property.findUnique({ where: { id: contentId } });
     if (!property || property.deletedAt) throw new Error('Inzerát není k dispozici');
 
@@ -565,13 +582,29 @@ export class SocialPublishProcessorService {
     const message = buildPropertyFacebookMessage(property, meta.shareUrl, true);
     const imageUrl = resolvePropertyShareImage(property);
     const videoUrl = toAbsoluteMediaUrl(property.videoUrl);
+    const isShortsVideo = isShortsVideoProperty(property);
 
-    return this.publisher.publishToFacebook({
-      message,
-      link: meta.shareUrl,
-      imageUrl,
-      videoUrl,
-    });
+    return this.publisher.publishPropertyToFacebook(
+      {
+        message,
+        link: meta.shareUrl,
+        imageUrl,
+        videoUrl,
+        title: property.title?.trim() || undefined,
+        isShortsVideo,
+      },
+      forceFormat ? { forceFormat } : {},
+    );
+  }
+
+  /** Publikuje shorts/video inzerát jako Facebook Reel (propertyId). */
+  async publishPropertyAsFacebookReel(propertyId: string) {
+    const property = await this.prisma.property.findUnique({ where: { id: propertyId } });
+    if (!property || property.deletedAt) throw new Error('Inzerát není k dispozici');
+    if (!isShortsVideoProperty(property) && !property.videoUrl?.trim()) {
+      throw new Error('Inzerát nemá shorts video.');
+    }
+    return this.publishProperty(propertyId, SocialPublishContentType.SHORT, FacebookPostType.FACEBOOK_REEL);
   }
 
   private async publishPost(contentId: string) {

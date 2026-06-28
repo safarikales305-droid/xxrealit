@@ -6,6 +6,7 @@ import {
   SocialPublishScheduleLastStatus,
   SocialPublishStatus,
   SocialPublishTriggerSource,
+  FacebookPostType,
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { isPropertyPubliclyListed } from '../../properties/property-public-visibility';
@@ -16,6 +17,7 @@ import {
   resolvePropertyFacebookStatus,
   shouldDisableSchedule,
 } from './social-publish-schedule.util';
+import { isShortsVideoProperty } from './social-facebook-reel.util';
 
 export type PropertyScheduleInput = {
   propertyIds: string[];
@@ -26,6 +28,8 @@ export type PropertyScheduleInput = {
   maxRuns?: number | null;
   requireActive?: boolean;
   requireApproved?: boolean;
+  /** Shorts: true = Reel, false = video post, undefined = globální nastavení */
+  shortsPublishAsReel?: boolean | null;
 };
 
 @Injectable()
@@ -129,7 +133,12 @@ export class SocialPublishScheduleService {
     return { items };
   }
 
-  async publishNow(propertyIds: string[], userId: string | undefined, force = false) {
+  async publishNow(
+    propertyIds: string[],
+    userId: string | undefined,
+    force = false,
+    opts: { publishAsReel?: boolean } = {},
+  ) {
     const results: Array<{
       propertyId: string;
       ok: boolean;
@@ -165,6 +174,7 @@ export class SocialPublishScheduleService {
         force: Boolean(force),
         triggerSource: SocialPublishTriggerSource.MANUAL,
         triggeredByUserId: userId,
+        facebookPostType: opts.publishAsReel ? FacebookPostType.FACEBOOK_REEL : undefined,
       });
       if (!enq.ok) {
         results.push({
@@ -259,6 +269,7 @@ export class SocialPublishScheduleService {
           maxRuns: input.maxRuns ?? null,
           requireActive: input.requireActive ?? true,
           requireApproved: input.requireApproved ?? true,
+          shortsPublishAsReel: input.shortsPublishAsReel ?? null,
           createdByUserId: userId ?? null,
         },
         update: {
@@ -273,6 +284,7 @@ export class SocialPublishScheduleService {
           maxRuns: input.maxRuns ?? null,
           requireActive: input.requireActive ?? true,
           requireApproved: input.requireApproved ?? true,
+          shortsPublishAsReel: input.shortsPublishAsReel ?? null,
           lastError: null,
         },
       });
@@ -371,6 +383,7 @@ export class SocialPublishScheduleService {
       triggerSource: SocialPublishTriggerSource.SCHEDULE,
       scheduleId: schedule.id,
       scheduledAt: schedule.nextRunAt,
+      facebookPostType: this.resolveScheduleFacebookPostType(schedule, property),
     });
 
     if (!enq.ok) {
@@ -463,5 +476,21 @@ export class SocialPublishScheduleService {
 
   getPublishLog(propertyId: string) {
     return this.logService.listForProperty(propertyId);
+  }
+
+  private resolveScheduleFacebookPostType(
+    schedule: { shortsPublishAsReel: boolean | null },
+    property: { listingType?: string | null; videoUrl?: string | null },
+  ): FacebookPostType | undefined {
+    if (!isShortsVideoProperty(property) && !property.videoUrl?.trim()) {
+      return undefined;
+    }
+    if (schedule.shortsPublishAsReel === true) {
+      return FacebookPostType.FACEBOOK_REEL;
+    }
+    if (schedule.shortsPublishAsReel === false) {
+      return FacebookPostType.FACEBOOK_VIDEO;
+    }
+    return undefined;
   }
 }

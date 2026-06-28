@@ -75,6 +75,9 @@ export default function AdminSocialAutopostPage() {
       publishPosts: fb.publishPosts,
       publishProperties: fb.publishProperties,
       publishShorts: fb.publishShorts,
+      publishShortsAsReels: fb.publishShortsAsReels !== false,
+      reelsFallbackToVideoPost: fb.reelsFallbackToVideoPost !== false,
+      reelsFallbackToPhotoPost: fb.reelsFallbackToPhotoPost !== false,
       approvedOnly: fb.approvedOnly,
       publicPostsOnly: fb.publicPostsOnly,
       professionalsOnly: fb.professionalsOnly,
@@ -240,6 +243,58 @@ export default function AdminSocialAutopostPage() {
                 {label}
               </label>
             ))}
+          </div>
+
+          <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-4 space-y-2">
+            <p className="text-sm font-semibold text-violet-900">Facebook Reels (shorts / video)</p>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={fb.publishShortsAsReels !== false}
+                onChange={(e) =>
+                  setSettings((s) =>
+                    s
+                      ? { ...s, facebook: { ...s.facebook, publishShortsAsReels: e.target.checked } }
+                      : s,
+                  )
+                }
+              />
+              Shorts/video inzeráty publikovat jako Facebook Reels
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={fb.reelsFallbackToVideoPost !== false}
+                onChange={(e) =>
+                  setSettings((s) =>
+                    s
+                      ? {
+                          ...s,
+                          facebook: { ...s.facebook, reelsFallbackToVideoPost: e.target.checked },
+                        }
+                      : s,
+                  )
+                }
+              />
+              Pokud Reels selže, publikovat jako běžný video příspěvek
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={fb.reelsFallbackToPhotoPost !== false}
+                onChange={(e) =>
+                  setSettings((s) =>
+                    s
+                      ? {
+                          ...s,
+                          facebook: { ...s.facebook, reelsFallbackToPhotoPost: e.target.checked },
+                        }
+                      : s,
+                  )
+                }
+              />
+              Pokud video není dostupné, publikovat jako klasický příspěvek s fotkou
+            </label>
           </div>
 
           <div>

@@ -1,4 +1,5 @@
 import type { UserRole } from '@prisma/client';
+import type { FacebookPostType } from '@prisma/client';
 
 export type SocialApiLogEntry = {
   at: string;
@@ -6,6 +7,14 @@ export type SocialApiLogEntry = {
   ok: boolean;
   statusCode?: number;
   body: unknown;
+};
+
+export type FacebookPublishResult = {
+  externalPostId: string;
+  publishedUrl: string;
+  usedVideo: boolean;
+  facebookPostType?: FacebookPostType;
+  raw: unknown;
 };
 
 export type FacebookAutopostSettings = {
@@ -24,6 +33,12 @@ export type FacebookAutopostSettings = {
   publishPosts: boolean;
   publishProperties: boolean;
   publishShorts: boolean;
+  /** Shorts/video inzeráty publikovat jako Facebook Reels. */
+  publishShortsAsReels: boolean;
+  /** Při selhání Reels zkusit běžný video příspěvek. */
+  reelsFallbackToVideoPost: boolean;
+  /** Při nedostupném videu publikovat klasický příspěvek s fotkou. */
+  reelsFallbackToPhotoPost: boolean;
   approvedOnly: boolean;
   publicPostsOnly: boolean;
   professionalsOnly: boolean;
@@ -76,6 +91,9 @@ export const DEFAULT_FACEBOOK_AUTOPOST: FacebookAutopostSettings = {
   publishPosts: true,
   publishProperties: true,
   publishShorts: true,
+  publishShortsAsReels: true,
+  reelsFallbackToVideoPost: true,
+  reelsFallbackToPhotoPost: true,
   approvedOnly: true,
   publicPostsOnly: true,
   professionalsOnly: false,

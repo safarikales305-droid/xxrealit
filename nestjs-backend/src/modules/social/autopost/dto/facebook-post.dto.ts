@@ -17,6 +17,10 @@ export class FacebookPostDto {
   @IsBoolean()
   force?: boolean;
 
+  @IsOptional()
+  @IsBoolean()
+  publishAsReel?: boolean;
+
   /** Ruční zařazení jednoho obsahu do fronty. */
   @IsOptional()
   @IsEnum(SocialPublishContentType)

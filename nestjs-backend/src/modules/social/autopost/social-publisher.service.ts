@@ -1,10 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { FacebookPostType } from '@prisma/client';
 import { resolveFrontendUrl } from '../../../common/resolve-frontend-url';
 import { FacebookConfigService } from '../facebook/facebook-config.service';
 import { GRAPH_API, GRAPH_VIDEO_API } from '../facebook/facebook-page.constants';
 import {
   buildGraphUrl,
   fetchFacebookGraphJson,
+  FacebookGraphPublishError,
   parseFacebookGraphError,
   redactGraphBody,
   stripAccessTokenFromUrl,
@@ -13,7 +15,12 @@ import {
 } from './facebook-graph-autopost.util';
 import { SocialAutopostSettingsService } from './social-autopost-settings.service';
 import { SocialAutopostTokenService } from './social-autopost-token.service';
-import { maskAccessToken } from './social-autopost.types';
+import { SocialFacebookReelPublisherService } from './social-facebook-reel-publisher.service';
+import {
+  propertyHasPublishableVideo,
+  validateRemoteVideoForFacebook,
+} from './social-facebook-reel.util';
+import { maskAccessToken, type FacebookPublishResult } from './social-autopost.types';
 import { facebookPostPermalink } from './social-publish-format.util';
 
 export type FacebookPublishPayload = {
@@ -23,12 +30,7 @@ export type FacebookPublishPayload = {
   videoUrl?: string | null;
 };
 
-export type FacebookPublishResult = {
-  externalPostId: string;
-  publishedUrl: string;
-  usedVideo: boolean;
-  raw: unknown;
-};
+export type { FacebookPublishResult };
 
 export type FacebookTestConnectionResult = {
   ok: boolean;
@@ -51,26 +53,7 @@ export type FacebookTestPublishResult = {
   graphError?: Omit<ParsedFacebookGraphError, 'raw'>;
 };
 
-export class FacebookGraphPublishError extends Error {
-  readonly graphError?: Omit<ParsedFacebookGraphError, 'raw'>;
-  readonly hint?: string;
-
-  constructor(parsed: ParsedFacebookGraphError) {
-    super(parsed.userMessage);
-    this.name = 'FacebookGraphPublishError';
-    this.graphError = {
-      httpStatus: parsed.httpStatus,
-      message: parsed.message,
-      type: parsed.type,
-      code: parsed.code,
-      error_subcode: parsed.error_subcode,
-      fbtrace_id: parsed.fbtrace_id,
-      userMessage: parsed.userMessage,
-      hint: parsed.hint,
-    };
-    this.hint = parsed.hint;
-  }
-}
+export { FacebookGraphPublishError };
 
 @Injectable()
 export class SocialPublisherService {
@@ -80,6 +63,7 @@ export class SocialPublisherService {
     private readonly settings: SocialAutopostSettingsService,
     private readonly fbConfig: FacebookConfigService,
     private readonly tokenService: SocialAutopostTokenService,
+    private readonly reelPublisher: SocialFacebookReelPublisherService,
   ) {}
 
   async publishToInstagram(): Promise<never> {
@@ -360,6 +344,7 @@ export class SocialPublisherService {
       externalPostId: id,
       publishedUrl: `https://www.facebook.com/${id}`,
       usedVideo: true,
+      facebookPostType: FacebookPostType.FACEBOOK_VIDEO,
       raw,
     };
   }
@@ -401,6 +386,7 @@ export class SocialPublisherService {
       externalPostId: postId,
       publishedUrl: facebookPostPermalink(pageId, postId),
       usedVideo: false,
+      facebookPostType: FacebookPostType.FACEBOOK_POST,
       raw,
     };
   }
@@ -456,6 +442,7 @@ export class SocialPublisherService {
       externalPostId: postId,
       publishedUrl: facebookPostPermalink(pageId, postId),
       usedVideo: false,
+      facebookPostType: FacebookPostType.FACEBOOK_POST,
       raw,
     };
   }
@@ -598,5 +585,151 @@ export class SocialPublisherService {
         error: messageText,
       };
     }
+  }
+
+  private async resolveAccessTokenForPublish(): Promise<{ pageId: string; accessToken: string }> {
+    const pageId = this.settings.resolveFacebookPageId();
+    const storedToken = await this.getValidatedStoredToken();
+    if (!pageId || !storedToken) {
+      throw new Error('Facebook Page ID nebo access token chybí.');
+    }
+    const resolved = await this.resolvePageAccessToken(pageId, storedToken);
+    if (!resolved.ok) {
+      throw new FacebookGraphPublishError(resolved.error);
+    }
+    return { pageId, accessToken: resolved.token };
+  }
+
+  /** Publikuje shorts/video inzerát jako Facebook Reel. */
+  async publishPropertyAsFacebookReel(input: {
+    videoUrl: string;
+    message: string;
+    title?: string;
+  }): Promise<FacebookPublishResult> {
+    const { pageId, accessToken } = await this.resolveAccessTokenForPublish();
+    const videoUrl = input.videoUrl.trim();
+    const check = await validateRemoteVideoForFacebook(videoUrl);
+    if (!check.ok) {
+      throw new Error(check.error ?? 'Video není dostupné pro Reels.');
+    }
+    const result = await this.reelPublisher.publishReel({
+      pageId,
+      accessToken,
+      videoUrl,
+      description: input.message,
+      title: input.title,
+    });
+    await this.settings.appendApiLog({
+      action: 'publish_reel',
+      ok: true,
+      body: result.raw,
+    });
+    return result;
+  }
+
+  /**
+   * Publikuje inzerát s volbou formátu a fallbacky dle nastavení autopostu.
+   */
+  async publishPropertyToFacebook(
+    input: {
+      message: string;
+      link: string;
+      imageUrl: string | null;
+      videoUrl: string | null;
+      title?: string;
+      isShortsVideo?: boolean;
+    },
+    opts: { forceFormat?: FacebookPostType } = {},
+  ): Promise<FacebookPublishResult> {
+    await this.settings.reload();
+    const fb = this.settings.getSettings().facebook;
+    const format = opts.forceFormat ?? this.resolvePropertyPublishFormat(input, fb);
+
+    if (format === FacebookPostType.FACEBOOK_REEL) {
+      if (!input.videoUrl) {
+        throw new Error('Shorts inzerát nemá video — nelze publikovat jako Reel.');
+      }
+      try {
+        return await this.publishPropertyAsFacebookReel({
+          videoUrl: input.videoUrl,
+          message: input.message,
+          title: input.title,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!fb.reelsFallbackToVideoPost) {
+          throw err instanceof FacebookGraphPublishError
+            ? err
+            : new Error(`Facebook Reels selhalo: ${msg}`);
+        }
+        this.logger.warn(`Reels failed, fallback to video post: ${msg}`);
+        if (input.videoUrl) {
+          return this.publishPropertyVideoOnly(input);
+        }
+        throw err;
+      }
+    }
+
+    if (format === FacebookPostType.FACEBOOK_VIDEO && input.videoUrl) {
+      try {
+        return await this.publishPropertyVideoOnly(input);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!fb.reelsFallbackToPhotoPost) {
+          throw err;
+        }
+        this.logger.warn(`Video post failed, fallback to photo: ${msg}`);
+      }
+    }
+
+    return this.publishPropertyPhotoOrFeed(input);
+  }
+
+  private resolvePropertyPublishFormat(
+    input: { videoUrl: string | null; isShortsVideo?: boolean },
+    fb: { publishShortsAsReels: boolean },
+  ): FacebookPostType {
+    if (!propertyHasPublishableVideo({ videoUrl: input.videoUrl })) {
+      return FacebookPostType.FACEBOOK_POST;
+    }
+    if (input.isShortsVideo && fb.publishShortsAsReels) {
+      return FacebookPostType.FACEBOOK_REEL;
+    }
+    return FacebookPostType.FACEBOOK_VIDEO;
+  }
+
+  private async publishPropertyVideoOnly(input: {
+    message: string;
+    link: string;
+    videoUrl: string | null;
+  }): Promise<FacebookPublishResult> {
+    if (!input.videoUrl) {
+      throw new Error('Chybí URL videa.');
+    }
+    const check = await validateRemoteVideoForFacebook(input.videoUrl);
+    if (!check.ok) {
+      throw new Error(check.error ?? 'Video není dostupné.');
+    }
+    const result = await this.publishToFacebook({
+      message: input.message,
+      link: input.link,
+      imageUrl: null,
+      videoUrl: input.videoUrl,
+    });
+    return { ...result, facebookPostType: FacebookPostType.FACEBOOK_VIDEO };
+  }
+
+  private async publishPropertyPhotoOrFeed(input: {
+    message: string;
+    link: string;
+    imageUrl: string | null;
+  }): Promise<FacebookPublishResult> {
+    const result = await this.publishToFacebook({
+      message: input.message,
+      link: input.link,
+      imageUrl: input.imageUrl,
+      videoUrl: null,
+    });
+    return { ...result, facebookPostType: FacebookPostType.FACEBOOK_POST };
   }
 }

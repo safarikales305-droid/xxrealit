@@ -46,6 +46,18 @@ export class UpdateFacebookAutopostDto {
 
   @IsOptional()
   @IsBoolean()
+  publishShortsAsReels?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  reelsFallbackToVideoPost?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  reelsFallbackToPhotoPost?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   approvedOnly?: boolean;
 
   @IsOptional()
@@ -94,6 +106,10 @@ export class PropertyPublishNowDto extends PropertyIdsDto {
   @IsOptional()
   @IsBoolean()
   force?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  publishAsReel?: boolean;
 }
 
 export class PropertyScheduleDto extends PropertyIdsDto {
@@ -124,6 +140,10 @@ export class PropertyScheduleDto extends PropertyIdsDto {
   @IsOptional()
   @IsBoolean()
   requireApproved?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  shortsPublishAsReel?: boolean | null;
 }
 
 export class PropertyFacebookStatusQueryDto {
