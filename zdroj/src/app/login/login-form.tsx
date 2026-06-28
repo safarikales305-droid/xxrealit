@@ -243,10 +243,6 @@ export function LoginForm() {
 
       <PortalIntroLink className="mt-6" />
 
-      <p className="mt-4 text-center text-[11px] leading-snug text-zinc-500 lg:hidden">
-        Klepněte na náhled u okraje obrazovky a zaregistrujte se
-      </p>
-
       <p className="mt-8 border-t border-zinc-100 pt-6 text-center text-sm text-zinc-600">
         Ještě nemáte účet?{' '}
         <Link href={registerHref} className="font-semibold text-orange-600 hover:text-orange-700 hover:underline">

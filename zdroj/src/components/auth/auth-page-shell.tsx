@@ -5,7 +5,7 @@ import Link from 'next/link';
 import Logo from '@/components/Logo';
 import { SiteFooter } from '@/components/legal/SiteFooter';
 import { AuthDesktopLiveBackdrop } from '@/components/auth/AuthDesktopLiveBackdrop';
-import { AuthMobileStoriesPreview } from '@/components/auth/AuthMobileStoriesPreview';
+import { FloatingAuthDecorations } from '@/components/auth/FloatingAuthDecorations';
 import {
   loadAuthPortalPreviewItems,
   type AuthPortalPreviewItem,
@@ -53,7 +53,7 @@ export function AuthPageShell({ variant, children }: AuthPageShellProps) {
       />
 
       <AuthDesktopLiveBackdrop items={previewItems} />
-      <AuthMobileStoriesPreview items={previewItems} variant={variant} />
+      <FloatingAuthDecorations items={previewItems} />
 
       <div
         className="pointer-events-none absolute inset-0 hidden bg-[radial-gradient(ellipse_60%_50%_at_50%_48%,rgba(15,23,42,0.55),transparent_75%)] lg:block"
@@ -64,7 +64,7 @@ export function AuthPageShell({ variant, children }: AuthPageShellProps) {
         aria-hidden
       />
 
-      <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:justify-center sm:px-6 sm:py-10 md:py-14">
+      <div className="relative z-20 mx-auto flex w-full max-w-6xl flex-1 flex-col px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:justify-center sm:px-6 sm:py-10 md:py-14">
         <Link
           href="/"
           className="mb-3 inline-flex w-fit shrink-0 items-center gap-1.5 text-sm font-medium text-white/75 transition hover:text-white sm:mb-8"
@@ -73,7 +73,7 @@ export function AuthPageShell({ variant, children }: AuthPageShellProps) {
         </Link>
 
         <div className="mx-auto w-[95%] max-w-[520px] flex-1 sm:flex-none">
-          <div className="auth-form-enter rounded-[28px] bg-white p-6 shadow-[0_20px_60px_rgba(0,0,0,0.15)] sm:p-10">
+          <div className="auth-form-enter rounded-[28px] bg-white/95 p-6 shadow-[0_20px_60px_rgba(0,0,0,0.18)] backdrop-blur-md max-lg:ring-1 max-lg:ring-white/40 sm:p-10 lg:bg-white lg:backdrop-blur-none">
             <header className="flex flex-col items-center text-center">
               <div className="flex flex-col items-center gap-4 px-2 pt-1 sm:gap-5 sm:px-4">
                 <Logo className="h-12 w-auto sm:h-14 md:h-[4.25rem]" />

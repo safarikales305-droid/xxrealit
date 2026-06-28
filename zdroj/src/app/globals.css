@@ -644,6 +644,34 @@ body {
   animation-delay: 2.4s;
 }
 
+@keyframes auth-float-gentle {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(var(--auth-rotate, 0deg)) scale(var(--auth-scale, 1));
+    opacity: var(--auth-opacity, 0.35);
+  }
+  33% {
+    transform: translate3d(5px, -9px, 0) rotate(calc(var(--auth-rotate, 0deg) + 1.5deg))
+      scale(calc(var(--auth-scale, 1) * 1.02));
+    opacity: min(0.5, calc(var(--auth-opacity, 0.35) + 0.06));
+  }
+  66% {
+    transform: translate3d(-4px, 7px, 0) rotate(calc(var(--auth-rotate, 0deg) - 1deg))
+      scale(calc(var(--auth-scale, 1) * 0.98));
+    opacity: var(--auth-opacity, 0.35);
+  }
+}
+
+.auth-float-gentle {
+  animation: auth-float-gentle 16s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.auth-float-gentle-slow {
+  animation: auth-float-gentle 20s ease-in-out infinite reverse;
+  will-change: transform, opacity;
+}
+
 .auth-form-input:focus {
   outline: none;
 }
@@ -651,7 +679,9 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .auth-form-enter,
   .auth-backdrop-float,
-  .auth-backdrop-float-slow {
+  .auth-backdrop-float-slow,
+  .auth-float-gentle,
+  .auth-float-gentle-slow {
     animation: none;
   }
 }
