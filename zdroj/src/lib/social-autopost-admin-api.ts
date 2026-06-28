@@ -204,12 +204,147 @@ export function nestAdminSocialQueueSkip(token: string, id: string) {
   });
 }
 
+export type PropertyFacebookDisplayStatus =
+  | 'NOT_PUBLISHED'
+  | 'SCHEDULED'
+  | 'PUBLISHED'
+  | 'REPEAT_ACTIVE'
+  | 'ERROR';
+
+export type PropertyFacebookStatusItem = {
+  propertyId: string;
+  status: PropertyFacebookDisplayStatus;
+  schedule: {
+    id: string;
+    enabled: boolean;
+    nextRunAt: string;
+    repeatType: string;
+    repeatIntervalDays: number | null;
+    repeatUntil: string | null;
+    maxRuns: number | null;
+    runCount: number;
+    lastRunAt: string | null;
+    lastStatus: string | null;
+    lastError: string | null;
+  } | null;
+  queue: {
+    id: string;
+    status: string;
+    publishedUrl: string | null;
+    externalPostId: string | null;
+    lastError: string | null;
+  } | null;
+};
+
+export type PropertyPublishLogRow = {
+  id: string;
+  platform: string;
+  contentType: string;
+  contentId: string;
+  status: string;
+  externalPostId: string | null;
+  publishedUrl: string | null;
+  lastError: string | null;
+  triggerSource: string;
+  createdAt: string;
+  triggeredBy?: { id: string; name: string | null; email: string } | null;
+};
+
+export type SocialPublishRepeatType =
+  | 'NONE'
+  | 'DAILY'
+  | 'WEEKLY'
+  | 'BIWEEKLY'
+  | 'MONTHLY'
+  | 'CUSTOM_DAYS';
+
+export function nestAdminPropertyFacebookStatus(token: string, propertyIds: string[]) {
+  if (propertyIds.length === 0) return Promise.resolve({ items: [] as PropertyFacebookStatusItem[] });
+  const q = encodeURIComponent(propertyIds.join(','));
+  return adminFetch<{ items: PropertyFacebookStatusItem[] }>(
+    token,
+    `/social/autopost/admin/properties/facebook-status?ids=${q}`,
+  );
+}
+
+export function nestAdminPropertyPublishNow(
+  token: string,
+  body: { propertyIds: string[]; force?: boolean },
+) {
+  return adminFetch<{
+    results: Array<{ propertyId: string; ok: boolean; error?: string; skipped?: boolean; reason?: string }>;
+  }>(token, '/social/autopost/admin/properties/publish-now', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function nestAdminPropertySchedule(
+  token: string,
+  body: {
+    propertyIds: string[];
+    firstRunAt: string;
+    repeatType: SocialPublishRepeatType;
+    repeatIntervalDays?: number | null;
+    repeatUntil?: string | null;
+    maxRuns?: number | null;
+    requireActive?: boolean;
+    requireApproved?: boolean;
+  },
+) {
+  return adminFetch<{
+    results: Array<{ propertyId: string; ok: boolean; scheduleId?: string; error?: string }>;
+  }>(token, '/social/autopost/admin/properties/schedule', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function nestAdminPropertyScheduleCancel(token: string, propertyIds: string[]) {
+  return adminFetch<{
+    results: Array<{ propertyId: string; ok: boolean; error?: string }>;
+  }>(token, '/social/autopost/admin/properties/schedule/cancel', {
+    method: 'POST',
+    body: JSON.stringify({ propertyIds }),
+  });
+}
+
+export function nestAdminPropertyPublishLog(token: string, propertyId: string) {
+  return adminFetch<{ items: PropertyPublishLogRow[] }>(
+    token,
+    `/social/autopost/admin/properties/${encodeURIComponent(propertyId)}/publish-log`,
+  );
+}
+
+export const PROPERTY_FACEBOOK_STATUS_LABELS: Record<PropertyFacebookDisplayStatus, string> = {
+  NOT_PUBLISHED: 'Nepublikováno',
+  SCHEDULED: 'Naplánováno',
+  PUBLISHED: 'Publikováno',
+  REPEAT_ACTIVE: 'Opakování aktivní',
+  ERROR: 'Chyba',
+};
+
 export const SOCIAL_PUBLISH_STATUS_LABELS: Record<string, string> = {
   PENDING: 'Čeká',
   PROCESSING: 'Zpracovává se',
   PUBLISHED: 'Publikováno',
   FAILED: 'Chyba',
   SKIPPED: 'Přeskočeno',
+};
+
+export const SOCIAL_TRIGGER_SOURCE_LABELS: Record<string, string> = {
+  MANUAL: 'Ruční',
+  SCHEDULE: 'Plán',
+  AUTO: 'Automatické',
+};
+
+export const SOCIAL_REPEAT_TYPE_LABELS: Record<SocialPublishRepeatType, string> = {
+  NONE: 'Bez opakování',
+  DAILY: 'Každý den',
+  WEEKLY: 'Jednou týdně',
+  BIWEEKLY: 'Jednou za 14 dní',
+  MONTHLY: 'Jednou měsíčně',
+  CUSTOM_DAYS: 'Vlastní interval',
 };
 
 export const SOCIAL_CONTENT_TYPE_LABELS: Record<string, string> = {

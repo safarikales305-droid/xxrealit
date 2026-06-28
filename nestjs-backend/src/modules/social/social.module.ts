@@ -24,11 +24,14 @@ import { YoutubeController } from './youtube/youtube.controller';
 import { SocialAutopostAdminController } from './autopost/social-autopost-admin.controller';
 import { SocialAutopostSettingsService } from './autopost/social-autopost-settings.service';
 import { SocialPublisherService } from './autopost/social-publisher.service';
+import { SocialPublishLogService } from './autopost/social-publish-log.service';
 import {
   SocialPublishEnqueueService,
   SocialPublishProcessorService,
 } from './autopost/social-publish-enqueue.service';
 import { SocialPublishQueueCronService } from './autopost/social-publish-queue.cron.service';
+import { SocialPublishScheduleService } from './autopost/social-publish-schedule.service';
+import { SocialPublishScheduleCronService } from './autopost/social-publish-schedule.cron.service';
 
 @Module({
   imports: [
@@ -61,9 +64,12 @@ import { SocialPublishQueueCronService } from './autopost/social-publish-queue.c
     SocialPlatformStubService,
     SocialAutopostSettingsService,
     SocialPublisherService,
+    SocialPublishLogService,
     SocialPublishEnqueueService,
     SocialPublishProcessorService,
+    SocialPublishScheduleService,
     SocialPublishQueueCronService,
+    SocialPublishScheduleCronService,
   ],
   exports: [
     FacebookConfigService,

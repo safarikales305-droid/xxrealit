@@ -6,6 +6,10 @@ import { formatListingPrice } from '@/lib/price';
 import { AdminListingTypeBadge } from '@/components/listing/TipBadges';
 import { isTipListing } from '@/lib/is-tip-listing';
 import type { AdminListingRow } from '@/lib/nest-client';
+import {
+  PROPERTY_FACEBOOK_STATUS_LABELS,
+  type PropertyFacebookDisplayStatus,
+} from '@/lib/social-autopost-admin-api';
 
 function formatDt(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -40,6 +44,33 @@ function statusBadgeClass(status: string | undefined): string {
   }
 }
 
+function facebookStatusBadgeClass(status: PropertyFacebookDisplayStatus | undefined): string {
+  switch (status) {
+    case 'PUBLISHED':
+      return 'bg-blue-100 text-blue-900';
+    case 'SCHEDULED':
+      return 'bg-sky-100 text-sky-900';
+    case 'REPEAT_ACTIVE':
+      return 'bg-indigo-100 text-indigo-900';
+    case 'ERROR':
+      return 'bg-red-100 text-red-900';
+    default:
+      return 'bg-zinc-100 text-zinc-600';
+  }
+}
+
+function FacebookStatusCell({ status }: { status?: PropertyFacebookDisplayStatus }) {
+  const key = status ?? 'NOT_PUBLISHED';
+  return (
+    <span
+      className={`inline-flex max-w-full truncate rounded-full px-2 py-0.5 text-[10px] font-semibold ${facebookStatusBadgeClass(key)}`}
+      title={PROPERTY_FACEBOOK_STATUS_LABELS[key]}
+    >
+      {PROPERTY_FACEBOOK_STATUS_LABELS[key]}
+    </span>
+  );
+}
+
 function sourceLabel(r: AdminListingRow): string {
   if (r.importSource) return r.importSource;
   return 'Lokální';
@@ -51,7 +82,11 @@ type ActionHandlers = {
   onSoftDelete: (id: string) => void;
   onQuickSetActive: (id: string, isActive: boolean) => void;
   onRestore: (id: string) => void;
-  onFacebookPublish?: (r: AdminListingRow) => void;
+  onFacebookPublishNow?: (r: AdminListingRow) => void;
+  onFacebookSchedule?: (r: AdminListingRow) => void;
+  onFacebookSetRepeat?: (r: AdminListingRow) => void;
+  onFacebookCancelRepeat?: (r: AdminListingRow) => void;
+  onFacebookShowLog?: (r: AdminListingRow) => void;
 };
 
 function ListingDetail({ r }: { r: AdminListingRow }) {
@@ -225,7 +260,7 @@ function ActionsMenu({
       {open ? (
         <>
           <button type="button" className="fixed inset-0 z-10" aria-label="Zavřít menu" onClick={onClose} />
-          <div className="absolute right-0 z-20 mt-1 w-44 rounded-xl border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+          <div className="absolute right-0 z-20 mt-1 w-52 rounded-xl border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
             <button
               type="button"
               className="block w-full px-3 py-2 text-left text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
@@ -242,13 +277,49 @@ function ActionsMenu({
                 Schválit
               </button>
             ) : null}
-            {!deleted && handlers.onFacebookPublish ? (
+            {!deleted && handlers.onFacebookPublishNow ? (
               <button
                 type="button"
                 className="block w-full px-3 py-2 text-left text-sm text-[#1877f2] hover:bg-blue-50"
-                onClick={() => run(() => handlers.onFacebookPublish?.(r))}
+                onClick={() => run(() => handlers.onFacebookPublishNow?.(r))}
               >
-                Publikovat na Facebook
+                Publikovat na Facebook teď
+              </button>
+            ) : null}
+            {!deleted && handlers.onFacebookSchedule ? (
+              <button
+                type="button"
+                className="block w-full px-3 py-2 text-left text-sm text-[#1877f2] hover:bg-blue-50"
+                onClick={() => run(() => handlers.onFacebookSchedule?.(r))}
+              >
+                Naplánovat publikování
+              </button>
+            ) : null}
+            {!deleted && handlers.onFacebookSetRepeat ? (
+              <button
+                type="button"
+                className="block w-full px-3 py-2 text-left text-sm text-[#1877f2] hover:bg-blue-50"
+                onClick={() => run(() => handlers.onFacebookSetRepeat?.(r))}
+              >
+                Nastavit opakování
+              </button>
+            ) : null}
+            {!deleted && handlers.onFacebookCancelRepeat ? (
+              <button
+                type="button"
+                className="block w-full px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
+                onClick={() => run(() => handlers.onFacebookCancelRepeat?.(r))}
+              >
+                Zrušit opakování
+              </button>
+            ) : null}
+            {handlers.onFacebookShowLog ? (
+              <button
+                type="button"
+                className="block w-full px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
+                onClick={() => run(() => handlers.onFacebookShowLog?.(r))}
+              >
+                Zobrazit log publikování
               </button>
             ) : null}
             {!deleted && r.isActive !== false ? (
@@ -298,6 +369,9 @@ function ListingRow({
   expanded,
   busy,
   menuOpen,
+  selected,
+  facebookStatus,
+  onToggleSelect,
   onToggle,
   onMenuToggle,
   onMenuClose,
@@ -307,6 +381,9 @@ function ListingRow({
   expanded: boolean;
   busy: boolean;
   menuOpen: boolean;
+  selected: boolean;
+  facebookStatus?: PropertyFacebookDisplayStatus;
+  onToggleSelect: (e: React.MouseEvent) => void;
   onToggle: () => void;
   onMenuToggle: (e: React.MouseEvent) => void;
   onMenuClose: () => void;
@@ -327,10 +404,20 @@ function ListingRow({
             onToggle();
           }
         }}
-        className={`grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b border-zinc-100 px-3 py-2.5 transition hover:bg-zinc-50 md:grid-cols-[minmax(0,1fr)_5rem_4.5rem_5.5rem_5rem_3.5rem_auto] md:gap-x-2 md:px-4 dark:border-zinc-800 dark:hover:bg-zinc-900/50 ${
+        className={`grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b border-zinc-100 px-3 py-2.5 transition hover:bg-zinc-50 md:grid-cols-[auto_minmax(0,1fr)_5rem_4.5rem_5.5rem_5rem_5.5rem_3.5rem_auto] md:gap-x-2 md:px-4 dark:border-zinc-800 dark:hover:bg-zinc-900/50 ${
           expanded ? 'bg-orange-50/40 dark:bg-orange-950/20' : ''
-        }`}
+        } ${selected ? 'bg-blue-50/30' : ''}`}
       >
+        <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => {}}
+            onClick={onToggleSelect}
+            aria-label={`Vybrat ${r.title ?? r.id}`}
+            className="size-4 rounded border-zinc-300"
+          />
+        </div>
         <div className="min-w-0">
           <p className="truncate font-medium text-zinc-900 dark:text-zinc-100">{r.title ?? r.id}</p>
           <p className="truncate text-xs text-zinc-500">{city || '—'}</p>
@@ -346,6 +433,9 @@ function ListingRow({
           >
             {r.listingStatus ?? '—'}
           </span>
+        </div>
+        <div className="hidden md:block">
+          <FacebookStatusCell status={facebookStatus} />
         </div>
         <div className="hidden whitespace-nowrap text-xs text-zinc-500 md:block">{formatDateShort(r.createdAt)}</div>
         <div className="hidden text-right text-xs font-semibold tabular-nums md:block">
@@ -366,7 +456,8 @@ function ListingRow({
           />
         </div>
 
-        <div className="col-span-2 flex flex-wrap gap-2 md:hidden">
+        <div className="col-span-3 flex flex-wrap items-center gap-2 md:hidden">
+          <FacebookStatusCell status={facebookStatus} />
           <span className="text-sm font-semibold tabular-nums">{formatListingPrice(r.price)}</span>
           <span
             className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass(r.listingStatus)}`}
@@ -389,6 +480,9 @@ function ListingCard({
   expanded,
   busy,
   menuOpen,
+  selected,
+  facebookStatus,
+  onToggleSelect,
   onToggle,
   onMenuToggle,
   onMenuClose,
@@ -398,19 +492,25 @@ function ListingCard({
   expanded: boolean;
   busy: boolean;
   menuOpen: boolean;
+  selected: boolean;
+  facebookStatus?: PropertyFacebookDisplayStatus;
+  onToggleSelect: () => void;
   onToggle: () => void;
   onMenuToggle: (e: React.MouseEvent) => void;
   onMenuClose: () => void;
   handlers: ActionHandlers;
 }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      <button
-        type="button"
-        className="flex w-full items-start justify-between gap-2 p-4 text-left"
-        onClick={onToggle}
-      >
-        <div className="min-w-0 flex-1">
+    <div className={`overflow-hidden rounded-2xl border bg-white shadow-sm dark:bg-zinc-900 ${selected ? 'border-blue-300' : 'border-zinc-200 dark:border-zinc-800'}`}>
+      <div className="flex items-start gap-3 p-4">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelect}
+          aria-label={`Vybrat ${r.title ?? r.id}`}
+          className="mt-1 size-4 shrink-0 rounded border-zinc-300"
+        />
+        <button type="button" className="min-w-0 flex-1 text-left" onClick={onToggle}>
           <p className="font-semibold text-zinc-900">{r.title ?? r.id}</p>
           <p className="text-sm text-zinc-500">{r.city ?? r.location ?? '—'}</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -420,11 +520,19 @@ function ListingCard({
             >
               {r.listingStatus ?? '—'}
             </span>
+            <FacebookStatusCell status={facebookStatus} />
             <span className="text-xs text-zinc-500">{sourceLabel(r)}</span>
           </div>
-        </div>
-        <span className={`shrink-0 text-zinc-400 ${expanded ? 'rotate-180' : ''}`}>▼</span>
-      </button>
+        </button>
+        <button
+          type="button"
+          className={`shrink-0 text-zinc-400 ${expanded ? 'rotate-180' : ''}`}
+          onClick={onToggle}
+          aria-label="Rozbalit detail"
+        >
+          ▼
+        </button>
+      </div>
       <div className="flex justify-end border-t border-zinc-100 px-4 py-2 dark:border-zinc-800">
         <ActionsMenu
           r={r}
@@ -443,11 +551,43 @@ function ListingCard({
 type Props = {
   rows: AdminListingRow[];
   busyId: string | null;
+  selectedIds: Set<string>;
+  onSelectedIdsChange: (ids: Set<string>) => void;
+  facebookStatusById: Record<string, PropertyFacebookDisplayStatus>;
+  bulkActions?: React.ReactNode;
 } & ActionHandlers;
 
-export function AdminListingsPanel({ rows, busyId, ...handlers }: Props) {
+export function AdminListingsPanel({
+  rows,
+  busyId,
+  selectedIds,
+  onSelectedIdsChange,
+  facebookStatusById,
+  bulkActions,
+  ...handlers
+}: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
+
+  const allSelected = rows.length > 0 && rows.every((r) => selectedIds.has(r.id));
+
+  const toggleSelectAll = useCallback(() => {
+    if (allSelected) {
+      onSelectedIdsChange(new Set());
+    } else {
+      onSelectedIdsChange(new Set(rows.map((r) => r.id)));
+    }
+  }, [allSelected, onSelectedIdsChange, rows]);
+
+  const toggleSelect = useCallback(
+    (id: string) => {
+      const next = new Set(selectedIds);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      onSelectedIdsChange(next);
+    },
+    [onSelectedIdsChange, selectedIds],
+  );
 
   const toggleExpand = useCallback((id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
@@ -464,12 +604,28 @@ export function AdminListingsPanel({ rows, busyId, ...handlers }: Props) {
 
   return (
     <>
+      {bulkActions ? (
+        <div className="mb-4 rounded-2xl border border-[#1877f2]/20 bg-blue-50/50 p-4 dark:border-blue-900 dark:bg-blue-950/20">
+          {bulkActions}
+        </div>
+      ) : null}
+
       <div className="hidden overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm md:block dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="grid grid-cols-[minmax(0,1fr)_5rem_4.5rem_5.5rem_5rem_3.5rem_auto] gap-x-2 border-b border-zinc-200 bg-zinc-50 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="grid grid-cols-[auto_minmax(0,1fr)_5rem_4.5rem_5.5rem_5rem_5.5rem_3.5rem_auto] gap-x-2 border-b border-zinc-200 bg-zinc-50 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
+          <span className="flex items-center">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleSelectAll}
+              aria-label="Vybrat vše"
+              className="size-4 rounded border-zinc-300"
+            />
+          </span>
           <span>Název / město</span>
           <span className="text-right">Cena</span>
           <span>Zdroj</span>
           <span>Stav</span>
+          <span>Facebook</span>
           <span>Vytvořeno</span>
           <span className="text-right">Views</span>
           <span className="text-right">Akce</span>
@@ -481,6 +637,12 @@ export function AdminListingsPanel({ rows, busyId, ...handlers }: Props) {
             expanded={expandedId === r.id}
             busy={busyId === r.id}
             menuOpen={menuId === r.id}
+            selected={selectedIds.has(r.id)}
+            facebookStatus={facebookStatusById[r.id]}
+            onToggleSelect={(e) => {
+              e.stopPropagation();
+              toggleSelect(r.id);
+            }}
             onToggle={() => toggleExpand(r.id)}
             onMenuToggle={(e) => {
               e.stopPropagation();
@@ -493,6 +655,15 @@ export function AdminListingsPanel({ rows, busyId, ...handlers }: Props) {
       </div>
 
       <div className="space-y-3 md:hidden">
+        <label className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-medium dark:border-zinc-800 dark:bg-zinc-900">
+          <input
+            type="checkbox"
+            checked={allSelected}
+            onChange={toggleSelectAll}
+            className="size-4 rounded border-zinc-300"
+          />
+          Vybrat vše ({selectedIds.size})
+        </label>
         {rows.map((r) => (
           <ListingCard
             key={r.id}
@@ -500,6 +671,9 @@ export function AdminListingsPanel({ rows, busyId, ...handlers }: Props) {
             expanded={expandedId === r.id}
             busy={busyId === r.id}
             menuOpen={menuId === r.id}
+            selected={selectedIds.has(r.id)}
+            facebookStatus={facebookStatusById[r.id]}
+            onToggleSelect={() => toggleSelect(r.id)}
             onToggle={() => toggleExpand(r.id)}
             onMenuToggle={(e) => {
               e.stopPropagation();

@@ -3,6 +3,7 @@ import {
   SocialPlatform,
   SocialPublishContentType,
   SocialPublishStatus,
+  SocialPublishTriggerSource,
   type UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
@@ -10,6 +11,7 @@ import { ShareMetadataService } from '../../share/share-metadata.service';
 import { isPropertyPubliclyListed } from '../../properties/property-public-visibility';
 import { SocialAutopostSettingsService } from './social-autopost-settings.service';
 import { SocialPublisherService } from './social-publisher.service';
+import { SocialPublishLogService } from './social-publish-log.service';
 import {
   buildPostFacebookMessage,
   buildPropertyFacebookMessage,
@@ -27,6 +29,7 @@ export class SocialPublishEnqueueService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SocialAutopostSettingsService,
+    private readonly logService: SocialPublishLogService,
   ) {}
 
   firePropertyCreated(propertyId: string) {
@@ -51,11 +54,34 @@ export class SocialPublishEnqueueService {
     contentType: SocialPublishContentType;
     contentId: string;
     force?: boolean;
+    triggeredByUserId?: string;
   }) {
     if (input.contentType === 'POST') {
-      return this.enqueuePost(input.contentId, { manual: true, force: input.force });
+      return this.enqueuePost(input.contentId, {
+        manual: true,
+        force: input.force,
+        triggerSource: SocialPublishTriggerSource.MANUAL,
+        triggeredByUserId: input.triggeredByUserId,
+      });
     }
-    return this.enqueueProperty(input.contentId, { manual: true, force: input.force });
+    return this.enqueuePropertyManual(input.contentId, {
+      force: input.force,
+      triggerSource: SocialPublishTriggerSource.MANUAL,
+      triggeredByUserId: input.triggeredByUserId,
+    });
+  }
+
+  async enqueuePropertyManual(
+    propertyId: string,
+    opts: {
+      force?: boolean;
+      triggerSource?: SocialPublishTriggerSource;
+      triggeredByUserId?: string;
+      scheduleId?: string;
+      scheduledAt?: Date;
+    },
+  ) {
+    return this.enqueueProperty(propertyId, { manual: true, ...opts });
   }
 
   private async tryEnqueueProperty(propertyId: string, source: 'create' | 'approve') {
@@ -89,7 +115,14 @@ export class SocialPublishEnqueueService {
 
   private async enqueueProperty(
     propertyId: string,
-    opts: { manual: boolean; force?: boolean },
+    opts: {
+      manual: boolean;
+      force?: boolean;
+      triggerSource?: SocialPublishTriggerSource;
+      triggeredByUserId?: string;
+      scheduleId?: string;
+      scheduledAt?: Date;
+    },
   ) {
     const property = await this.prisma.property.findUnique({
       where: { id: propertyId },
@@ -123,6 +156,22 @@ export class SocialPublishEnqueueService {
       return { ok: false, skipped: true, reason: skip };
     }
 
+    if (!opts.force) {
+      const dup = await this.logService.wasPublishedToday({ contentType, contentId: propertyId });
+      if (dup) {
+        return {
+          ok: false,
+          skipped: true,
+          reason: 'Dnes již publikováno na Facebook — použijte vynucení',
+        };
+      }
+    }
+
+    const triggerSource =
+      opts.triggerSource ??
+      (opts.manual ? SocialPublishTriggerSource.MANUAL : SocialPublishTriggerSource.AUTO);
+    const scheduledAt = opts.scheduledAt ?? new Date();
+
     try {
       const existing = await this.prisma.socialPublishQueue.findUnique({
         where: {
@@ -152,18 +201,27 @@ export class SocialPublishEnqueueService {
           authorUserId: property.userId,
           contentTitle: property.title,
           status: SocialPublishStatus.PENDING,
-          scheduledAt: new Date(),
+          scheduledAt,
+          triggerSource,
+          triggeredByUserId: opts.triggeredByUserId ?? null,
+          scheduleId: opts.scheduleId ?? null,
         },
         update: opts.force
           ? {
               status: SocialPublishStatus.PENDING,
               lastError: null,
-              scheduledAt: new Date(),
+              scheduledAt,
               attempts: 0,
+              triggerSource,
+              triggeredByUserId: opts.triggeredByUserId ?? null,
+              scheduleId: opts.scheduleId ?? null,
             }
           : {
               status: SocialPublishStatus.PENDING,
-              scheduledAt: new Date(),
+              scheduledAt,
+              triggerSource,
+              triggeredByUserId: opts.triggeredByUserId ?? null,
+              scheduleId: opts.scheduleId ?? null,
             },
       });
       return { ok: true, queueId: row.id };
@@ -184,7 +242,15 @@ export class SocialPublishEnqueueService {
     }
   }
 
-  private async enqueuePost(postId: string, opts: { manual: boolean; force?: boolean }) {
+  private async enqueuePost(
+    postId: string,
+    opts: {
+      manual: boolean;
+      force?: boolean;
+      triggerSource?: SocialPublishTriggerSource;
+      triggeredByUserId?: string;
+    },
+  ) {
     const post = await this.prisma.post.findUnique({
       where: { id: postId },
       include: {
@@ -228,6 +294,10 @@ export class SocialPublishEnqueueService {
       return { ok: false, skipped: true, reason: 'Již publikováno' };
     }
 
+    const triggerSource =
+      opts.triggerSource ??
+      (opts.manual ? SocialPublishTriggerSource.MANUAL : SocialPublishTriggerSource.AUTO);
+
     const row = await this.prisma.socialPublishQueue.upsert({
       where: {
         platform_contentType_contentId: {
@@ -244,6 +314,8 @@ export class SocialPublishEnqueueService {
         contentTitle: post.title || text.slice(0, 120) || 'Příspěvek',
         status: SocialPublishStatus.PENDING,
         scheduledAt: new Date(),
+        triggerSource,
+        triggeredByUserId: opts.triggeredByUserId ?? null,
       },
       update: opts.force
         ? {
@@ -251,8 +323,15 @@ export class SocialPublishEnqueueService {
             lastError: null,
             scheduledAt: new Date(),
             attempts: 0,
+            triggerSource,
+            triggeredByUserId: opts.triggeredByUserId ?? null,
           }
-        : { status: SocialPublishStatus.PENDING, scheduledAt: new Date() },
+        : {
+            status: SocialPublishStatus.PENDING,
+            scheduledAt: new Date(),
+            triggerSource,
+            triggeredByUserId: opts.triggeredByUserId ?? null,
+          },
     });
     return { ok: true, queueId: row.id };
   }
@@ -336,6 +415,7 @@ export class SocialPublishProcessorService {
     private readonly settings: SocialAutopostSettingsService,
     private readonly publisher: SocialPublisherService,
     private readonly shareMetadata: ShareMetadataService,
+    private readonly logService: SocialPublishLogService,
   ) {}
 
   async processDueBatch(limit = 5) {
@@ -392,7 +472,7 @@ export class SocialPublishProcessorService {
           ? await this.publishPost(item.contentId)
           : await this.publishProperty(item.contentId, item.contentType);
 
-      return this.prisma.socialPublishQueue.update({
+      const updated = await this.prisma.socialPublishQueue.update({
         where: { id },
         data: {
           status: SocialPublishStatus.PUBLISHED,
@@ -403,6 +483,19 @@ export class SocialPublishProcessorService {
           processedAt: new Date(),
         },
       });
+
+      await this.logService.writeLog({
+        contentType: item.contentType,
+        contentId: item.contentId,
+        queueId: id,
+        status: SocialPublishStatus.PUBLISHED,
+        externalPostId: result.externalPostId,
+        publishedUrl: result.publishedUrl,
+        triggerSource: item.triggerSource,
+        triggeredByUserId: item.triggeredByUserId,
+      });
+
+      return updated;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await this.settings.appendApiLog({
@@ -410,7 +503,8 @@ export class SocialPublishProcessorService {
         ok: false,
         body: { queueId: id, error: message },
       });
-      return this.prisma.socialPublishQueue.update({
+
+      const failed = await this.prisma.socialPublishQueue.update({
         where: { id },
         data: {
           status: SocialPublishStatus.FAILED,
@@ -418,6 +512,18 @@ export class SocialPublishProcessorService {
           processedAt: new Date(),
         },
       });
+
+      await this.logService.writeLog({
+        contentType: item.contentType,
+        contentId: item.contentId,
+        queueId: id,
+        status: SocialPublishStatus.FAILED,
+        lastError: message,
+        triggerSource: item.triggerSource,
+        triggeredByUserId: item.triggeredByUserId,
+      });
+
+      return failed;
     }
   }
 

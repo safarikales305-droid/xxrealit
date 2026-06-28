@@ -12,6 +12,7 @@ import {
 import { SocialPublishStatus } from '@prisma/client';
 import { AdminGuard } from '../../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { CurrentUser, type AuthUser } from '../../auth/decorators/current-user.decorator';
 import { PrismaService } from '../../../database/prisma.service';
 import { SocialAutopostSettingsService } from './social-autopost-settings.service';
 import { SocialPublisherService } from './social-publisher.service';
@@ -19,8 +20,13 @@ import {
   SocialPublishEnqueueService,
   SocialPublishProcessorService,
 } from './social-publish-enqueue.service';
+import { SocialPublishScheduleService } from './social-publish-schedule.service';
 import {
   ManualSocialEnqueueDto,
+  PropertyFacebookStatusQueryDto,
+  PropertyIdsDto,
+  PropertyPublishNowDto,
+  PropertyScheduleDto,
   SocialQueueQueryDto,
   UpdateFacebookAutopostDto,
 } from './dto/social-autopost-admin.dto';
@@ -33,6 +39,7 @@ export class SocialAutopostAdminController {
     private readonly publisher: SocialPublisherService,
     private readonly publishEnqueue: SocialPublishEnqueueService,
     private readonly processor: SocialPublishProcessorService,
+    private readonly scheduleService: SocialPublishScheduleService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -86,10 +93,57 @@ export class SocialAutopostAdminController {
 
   @Post('enqueue')
   manualEnqueue(
+    @CurrentUser() user: AuthUser,
     @Body(new ValidationPipe({ whitelist: true, transform: true }))
     dto: ManualSocialEnqueueDto,
   ) {
-    return this.publishEnqueue.enqueueManual(dto);
+    return this.publishEnqueue.enqueueManual({
+      ...dto,
+      triggeredByUserId: user?.id,
+    });
+  }
+
+  @Get('properties/facebook-status')
+  propertyFacebookStatus(
+    @Query(new ValidationPipe({ whitelist: true, transform: true }))
+    query: PropertyFacebookStatusQueryDto,
+  ) {
+    const ids = query.ids
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean);
+    return this.scheduleService.getFacebookStatus(ids);
+  }
+
+  @Post('properties/publish-now')
+  propertyPublishNow(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: PropertyPublishNowDto,
+  ) {
+    return this.scheduleService.publishNow(dto.propertyIds, user?.id, dto.force);
+  }
+
+  @Post('properties/schedule')
+  propertySchedule(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: PropertyScheduleDto,
+  ) {
+    return this.scheduleService.upsertSchedules(dto, user?.id);
+  }
+
+  @Post('properties/schedule/cancel')
+  propertyScheduleCancel(
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: PropertyIdsDto,
+  ) {
+    return this.scheduleService.cancelSchedules(dto.propertyIds);
+  }
+
+  @Get('properties/:id/publish-log')
+  propertyPublishLog(@Param('id') id: string) {
+    return this.scheduleService.getPublishLog(id).then((items) => ({ items }));
   }
 
   @Post('queue/:id/retry')

@@ -1,5 +1,5 @@
-import { IsArray, IsBoolean, IsEnum, IsOptional, IsString } from 'class-validator';
-import { SocialPublishContentType, UserRole } from '@prisma/client';
+import { IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { SocialPublishContentType, SocialPublishRepeatType, UserRole } from '@prisma/client';
 
 export class UpdateFacebookAutopostDto {
   @IsOptional()
@@ -72,4 +72,51 @@ export class SocialQueueQueryDto {
   @IsOptional()
   @IsString()
   contentType?: string;
+}
+
+export class PropertyIdsDto {
+  @IsArray()
+  @IsString({ each: true })
+  propertyIds!: string[];
+}
+
+export class PropertyPublishNowDto extends PropertyIdsDto {
+  @IsOptional()
+  @IsBoolean()
+  force?: boolean;
+}
+
+export class PropertyScheduleDto extends PropertyIdsDto {
+  @IsString()
+  firstRunAt!: string;
+
+  @IsEnum(SocialPublishRepeatType)
+  repeatType!: SocialPublishRepeatType;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  repeatIntervalDays?: number;
+
+  @IsOptional()
+  @IsString()
+  repeatUntil?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxRuns?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  requireActive?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  requireApproved?: boolean;
+}
+
+export class PropertyFacebookStatusQueryDto {
+  @IsString()
+  ids!: string;
 }

@@ -466,6 +466,8 @@ model User {
   activityLogs                 ActivityLog[] @relation("ActivityLogActor")
   activityLogsTargeted         ActivityLog[] @relation("ActivityLogTarget")
   socialPublishQueueItems      SocialPublishQueue[]
+  socialPublishSchedulesCreated SocialPublishSchedule[] @relation("SocialPublishScheduleCreator")
+  socialPublishLogsTriggered   SocialPublishLog[] @relation("SocialPublishLogTrigger")
 
   @@index([professionalVerificationStatus, professionalVerificationRequestedAt])
 }
@@ -2746,6 +2748,28 @@ enum SocialPublishStatus {
   SKIPPED
 }
 
+enum SocialPublishRepeatType {
+  NONE
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  CUSTOM_DAYS
+}
+
+enum SocialPublishScheduleLastStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  SKIPPED
+}
+
+enum SocialPublishTriggerSource {
+  MANUAL
+  SCHEDULE
+  AUTO
+}
+
 /// Fronta automatického publikování na sociální sítě portálu XXREALIT.
 model SocialPublishQueue {
   id              String                   @id @default(cuid())
@@ -2762,14 +2786,73 @@ model SocialPublishQueue {
   lastApiResponse Json?
   scheduledAt     DateTime?
   processedAt     DateTime?
+  triggerSource   SocialPublishTriggerSource @default(AUTO)
+  triggeredByUserId String?
+  scheduleId      String?
   createdAt       DateTime                 @default(now())
   updatedAt       DateTime                 @updatedAt
 
   author User? @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+  schedule SocialPublishSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  logs SocialPublishLog[]
 
   @@unique([platform, contentType, contentId])
   @@index([status, scheduledAt])
   @@index([status, createdAt])
   @@index([contentType, contentId])
   @@index([authorUserId])
+  @@index([scheduleId])
+}
+
+/// Plánované / opakované publikování na sociální sítě.
+model SocialPublishSchedule {
+  id                 String                        @id @default(cuid())
+  platform           SocialPlatform                @default(FACEBOOK)
+  contentType        SocialPublishContentType
+  contentId          String
+  enabled            Boolean                       @default(true)
+  nextRunAt          DateTime
+  repeatType         SocialPublishRepeatType       @default(NONE)
+  repeatIntervalDays Int?
+  repeatUntil        DateTime?
+  maxRuns            Int?
+  runCount           Int                           @default(0)
+  requireActive      Boolean                       @default(true)
+  requireApproved    Boolean                       @default(true)
+  lastRunAt          DateTime?
+  lastStatus         SocialPublishScheduleLastStatus?
+  lastError          String?                       @db.Text
+  createdByUserId    String?
+  createdAt          DateTime                      @default(now())
+  updatedAt          DateTime                      @updatedAt
+
+  createdBy User? @relation("SocialPublishScheduleCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  queueItems SocialPublishQueue[]
+
+  @@unique([platform, contentType, contentId])
+  @@index([enabled, nextRunAt])
+  @@index([contentType, contentId])
+}
+
+/// Historie publikování (včetně opakování).
+model SocialPublishLog {
+  id                String                     @id @default(cuid())
+  platform          SocialPlatform             @default(FACEBOOK)
+  contentType       SocialPublishContentType
+  contentId         String
+  queueId           String?
+  status            SocialPublishStatus
+  externalPostId    String?
+  publishedUrl      String?
+  lastError         String?                    @db.Text
+  triggerSource     SocialPublishTriggerSource
+  triggeredByUserId String?
+  createdAt         DateTime                   @default(now())
+
+  queue       SocialPublishQueue? @relation(fields: [queueId], references: [id], onDelete: SetNull)
+  triggeredBy User? @relation("SocialPublishLogTrigger", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+
+  @@index([contentType, contentId, createdAt])
+  @@index([queueId])
+  @@index([triggeredByUserId])
 }

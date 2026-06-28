@@ -1,10 +1,15 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { AdminSubPage } from '@/components/admin/AdminSubPage';
 import { AdminListingsPanel } from '@/components/admin/AdminListingsPanel';
+import {
+  FacebookScheduleModal,
+  type FacebookScheduleFormValues,
+} from '@/components/admin/FacebookScheduleModal';
+import { FacebookPublishLogModal } from '@/components/admin/FacebookPublishLogModal';
 import {
   nestAdminApproveProperty,
   nestAdminDeleteProperty,
@@ -13,7 +18,16 @@ import {
   nestApiConfigured,
   type AdminListingRow,
 } from '@/lib/nest-client';
-import { nestAdminSocialEnqueue } from '@/lib/social-autopost-admin-api';
+import {
+  nestAdminPropertyFacebookStatus,
+  nestAdminPropertyPublishLog,
+  nestAdminPropertyPublishNow,
+  nestAdminPropertySchedule,
+  nestAdminPropertyScheduleCancel,
+  type PropertyFacebookDisplayStatus,
+  type PropertyPublishLogRow,
+  type SocialPublishRepeatType,
+} from '@/lib/social-autopost-admin-api';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'Všechny stavy' },
@@ -75,6 +89,27 @@ export default function AdminListingsPage() {
   const [editImportDisabled, setEditImportDisabled] = useState(false);
   const [editMsg, setEditMsg] = useState<string | null>(null);
 
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [facebookStatusById, setFacebookStatusById] = useState<
+    Record<string, PropertyFacebookDisplayStatus>
+  >({});
+  const [fbMsg, setFbMsg] = useState<string | null>(null);
+  const [fbBusy, setFbBusy] = useState(false);
+
+  const [scheduleModal, setScheduleModal] = useState<{
+    mode: 'schedule' | 'repeat';
+    propertyIds: string[];
+    title: string;
+    initial?: Partial<FacebookScheduleFormValues>;
+  } | null>(null);
+
+  const [logModal, setLogModal] = useState<{
+    propertyId: string;
+    title: string;
+  } | null>(null);
+  const [logRows, setLogRows] = useState<PropertyPublishLogRow[]>([]);
+  const [logLoading, setLogLoading] = useState(false);
+
   const refresh = useCallback(async () => {
     if (!token) return;
     setLoadError(null);
@@ -93,6 +128,19 @@ export default function AdminListingsPage() {
       return;
     }
     setRows(list);
+    const ids = list.map((r) => r.id);
+    if (ids.length > 0) {
+      const fb = await nestAdminPropertyFacebookStatus(token, ids);
+      if (fb?.items) {
+        const map: Record<string, PropertyFacebookDisplayStatus> = {};
+        for (const item of fb.items) {
+          map[item.propertyId] = item.status;
+        }
+        setFacebookStatusById(map);
+      }
+    } else {
+      setFacebookStatusById({});
+    }
   }, [
     token,
     search,
@@ -204,21 +252,160 @@ export default function AdminListingsPage() {
     else setLoadError(r.error ?? 'Schválení selhalo');
   }
 
-  async function onFacebookPublish(row: AdminListingRow) {
-    if (!token) return;
-    setBusyId(row.id);
-    const contentType = String(row.listingType ?? '').toUpperCase() === 'SHORTS' ? 'SHORT' : 'PROPERTY';
-    const r = await nestAdminSocialEnqueue(token, {
-      contentType,
-      contentId: row.id,
-      force: true,
+  async function refreshFacebookStatus(ids: string[]) {
+    if (!token || ids.length === 0) return;
+    const fb = await nestAdminPropertyFacebookStatus(token, ids);
+    if (!fb?.items) return;
+    setFacebookStatusById((prev) => {
+      const next = { ...prev };
+      for (const item of fb.items) {
+        next[item.propertyId] = item.status;
+      }
+      return next;
     });
-    setBusyId(null);
-    if (r?.ok) {
-      window.alert(r.skipped ? `Přeskočeno: ${r.reason ?? 'neznámý důvod'}` : 'Zařazeno do fronty Facebook publikování.');
-    } else {
-      setLoadError(r?.error ?? r?.reason ?? 'Zařazení do fronty selhalo');
+  }
+
+  function scheduleFormToBody(
+    form: FacebookScheduleFormValues,
+    propertyIds: string[],
+    mode: 'schedule' | 'repeat',
+  ) {
+    const repeatType: SocialPublishRepeatType =
+      form.repeatType === 'NONE' && mode === 'repeat' ? 'WEEKLY' : form.repeatType;
+
+    return {
+      propertyIds,
+      firstRunAt: new Date(form.firstRunAt).toISOString(),
+      repeatType,
+      repeatIntervalDays:
+        repeatType === 'CUSTOM_DAYS' ? Number.parseInt(form.repeatIntervalDays, 10) || 1 : null,
+      repeatUntil:
+        form.endMode === 'repeatUntil' && form.repeatUntil
+          ? new Date(form.repeatUntil).toISOString()
+          : null,
+      maxRuns:
+        form.endMode === 'maxRuns' && form.maxRuns
+          ? Number.parseInt(form.maxRuns, 10) || null
+          : null,
+      requireActive: form.requireActive,
+      requireApproved: form.requireApproved,
+    };
+  }
+
+  async function runPublishNow(propertyIds: string[], force = false) {
+    if (!token || propertyIds.length === 0) return;
+    setFbBusy(true);
+    setFbMsg(null);
+    const r = await nestAdminPropertyPublishNow(token, { propertyIds, force });
+    setFbBusy(false);
+    if (!r) {
+      setFbMsg('Publikace selhala: nepodařilo se kontaktovat API');
+      return;
     }
+    const failed = r.results.filter((x) => !x.ok && !x.skipped);
+    const skipped = r.results.filter((x) => x.skipped);
+    if (failed.length > 0) {
+      setFbMsg(`Publikace selhala: ${failed[0].error ?? failed[0].reason ?? 'neznámá chyba'}`);
+    } else if (skipped.length > 0) {
+      const reason = skipped[0].reason ?? 'přeskočeno';
+      if (
+        !force &&
+        reason.includes('Dnes již publikováno') &&
+        window.confirm(`${reason}. Vynutit publikování?`)
+      ) {
+        await runPublishNow(propertyIds, true);
+        return;
+      }
+      setFbMsg(`Přeskočeno: ${reason}`);
+    } else {
+      setFbMsg(
+        propertyIds.length === 1
+          ? 'Publikováno na Facebook'
+          : `Publikováno ${propertyIds.length} inzerátů na Facebook`,
+      );
+    }
+    await refreshFacebookStatus(propertyIds);
+  }
+
+  async function runSchedule(
+    propertyIds: string[],
+    form: FacebookScheduleFormValues,
+    mode: 'schedule' | 'repeat',
+  ) {
+    if (!token || propertyIds.length === 0) return;
+    setFbBusy(true);
+    setFbMsg(null);
+    const body = scheduleFormToBody(form, propertyIds, mode);
+    const r = await nestAdminPropertySchedule(token, body);
+    setFbBusy(false);
+    setScheduleModal(null);
+    if (!r) {
+      setFbMsg('Uložení selhalo: nepodařilo se kontaktovat API');
+      return;
+    }
+    const failed = r.results.filter((x) => !x.ok);
+    if (failed.length > 0) {
+      setFbMsg(`Uložení selhalo: ${failed[0].error ?? 'neznámá chyba'}`);
+      return;
+    }
+    if (body.repeatType === 'NONE') {
+      setFbMsg('Publikování naplánováno');
+    } else {
+      setFbMsg('Opakované publikování aktivní');
+    }
+    await refreshFacebookStatus(propertyIds);
+  }
+
+  async function runCancelRepeat(propertyIds: string[]) {
+    if (!token || propertyIds.length === 0) return;
+    setFbBusy(true);
+    setFbMsg(null);
+    const r = await nestAdminPropertyScheduleCancel(token, propertyIds);
+    setFbBusy(false);
+    if (!r) {
+      setFbMsg('Zrušení selhalo: nepodařilo se kontaktovat API');
+      return;
+    }
+    setFbMsg('Publikování zrušeno');
+    await refreshFacebookStatus(propertyIds);
+  }
+
+  async function openPublishLog(row: AdminListingRow) {
+    if (!token) return;
+    setLogModal({ propertyId: row.id, title: row.title ?? row.id });
+    setLogLoading(true);
+    setLogRows([]);
+    const r = await nestAdminPropertyPublishLog(token, row.id);
+    setLogRows(r?.items ?? []);
+    setLogLoading(false);
+  }
+
+  const selectedIdsArray = useMemo(() => [...selectedIds], [selectedIds]);
+
+  async function onFacebookPublishNow(row: AdminListingRow) {
+    await runPublishNow([row.id]);
+  }
+
+  function onFacebookSchedule(row: AdminListingRow) {
+    setScheduleModal({
+      mode: 'schedule',
+      propertyIds: [row.id],
+      title: 'Naplánovat publikování na Facebook',
+      initial: { repeatType: 'NONE' },
+    });
+  }
+
+  function onFacebookSetRepeat(row: AdminListingRow) {
+    setScheduleModal({
+      mode: 'repeat',
+      propertyIds: [row.id],
+      title: 'Nastavit opakované publikování',
+      initial: { repeatType: 'WEEKLY' },
+    });
+  }
+
+  async function onFacebookCancelRepeat(row: AdminListingRow) {
+    await runCancelRepeat([row.id]);
   }
 
   async function onSoftDelete(id: string) {
@@ -283,6 +470,19 @@ export default function AdminListingsPage() {
         {loadError ? (
           <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
             {loadError}
+          </p>
+        ) : null}
+
+        {fbMsg ? (
+          <p
+            className={`rounded-xl border px-4 py-3 text-sm ${
+              fbMsg.includes('selhala') || fbMsg.includes('selhalo')
+                ? 'border-red-200 bg-red-50 text-red-800'
+                : 'border-blue-200 bg-blue-50 text-blue-900'
+            }`}
+            role="status"
+          >
+            {fbMsg}
           </p>
         ) : null}
 
@@ -375,13 +575,93 @@ export default function AdminListingsPage() {
         <AdminListingsPanel
           rows={rows}
           busyId={busyId}
+          selectedIds={selectedIds}
+          onSelectedIdsChange={setSelectedIds}
+          facebookStatusById={facebookStatusById}
+          bulkActions={
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-zinc-700">
+                Vybráno: {selectedIds.size}
+              </span>
+              <button
+                type="button"
+                disabled={selectedIds.size === 0 || fbBusy}
+                onClick={() => void runPublishNow(selectedIdsArray)}
+                className="rounded-lg bg-[#1877f2] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#166fe0] disabled:opacity-50"
+              >
+                Publikovat vybrané na Facebook teď
+              </button>
+              <button
+                type="button"
+                disabled={selectedIds.size === 0 || fbBusy}
+                onClick={() =>
+                  setScheduleModal({
+                    mode: 'schedule',
+                    propertyIds: selectedIdsArray,
+                    title: 'Naplánovat publikování vybraných',
+                    initial: { repeatType: 'NONE' },
+                  })
+                }
+                className="rounded-lg border border-[#1877f2] px-3 py-1.5 text-xs font-semibold text-[#1877f2] hover:bg-blue-50 disabled:opacity-50"
+              >
+                Naplánovat vybrané
+              </button>
+              <button
+                type="button"
+                disabled={selectedIds.size === 0 || fbBusy}
+                onClick={() =>
+                  setScheduleModal({
+                    mode: 'repeat',
+                    propertyIds: selectedIdsArray,
+                    title: 'Nastavit opakované publikování vybraných',
+                    initial: { repeatType: 'WEEKLY' },
+                  })
+                }
+                className="rounded-lg border border-indigo-300 px-3 py-1.5 text-xs font-semibold text-indigo-800 hover:bg-indigo-50 disabled:opacity-50"
+              >
+                Nastavit opakované publikování
+              </button>
+              <button
+                type="button"
+                disabled={selectedIds.size === 0 || fbBusy}
+                onClick={() => void runCancelRepeat(selectedIdsArray)}
+                className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
+              >
+                Zrušit opakování u vybraných
+              </button>
+            </div>
+          }
           onEdit={openEdit}
           onApprove={(id) => void onApprove(id)}
           onSoftDelete={(id) => void onSoftDelete(id)}
           onQuickSetActive={(id, active) => void quickSetActive(id, active)}
           onRestore={(id) => void onRestore(id)}
-          onFacebookPublish={(row) => void onFacebookPublish(row)}
+          onFacebookPublishNow={(row) => void onFacebookPublishNow(row)}
+          onFacebookSchedule={onFacebookSchedule}
+          onFacebookSetRepeat={onFacebookSetRepeat}
+          onFacebookCancelRepeat={(row) => void onFacebookCancelRepeat(row)}
+          onFacebookShowLog={(row) => void openPublishLog(row)}
         />
+
+      <FacebookScheduleModal
+        open={scheduleModal != null}
+        title={scheduleModal?.title ?? ''}
+        count={scheduleModal?.propertyIds.length ?? 0}
+        busy={fbBusy}
+        initial={scheduleModal?.initial}
+        onClose={() => setScheduleModal(null)}
+        onSubmit={(form) => {
+          if (scheduleModal) void runSchedule(scheduleModal.propertyIds, form, scheduleModal.mode);
+        }}
+      />
+
+      <FacebookPublishLogModal
+        open={logModal != null}
+        title={logModal?.title ?? 'Log publikování'}
+        loading={logLoading}
+        rows={logRows}
+        onClose={() => setLogModal(null)}
+      />
 
       {editRow ? (
         <div
