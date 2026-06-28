@@ -4,8 +4,9 @@ import { NextResponse } from 'next/server';
 import { ACCESS_TOKEN_COOKIE, getJwtSecretBytes } from '@/lib/server-api';
 import { isUserRole } from '@/lib/roles';
 import {
-  hostnameFromHostHeader,
+  CANONICAL_WWW_HOST,
   isKnownXxrealitHostname,
+  resolveRequestHostname,
 } from '@/lib/site-origin';
 
 type JwtAuthClaims = {
@@ -20,38 +21,30 @@ const PROTECTED_PREFIXES = [
   '/admin',
 ];
 
-const CANONICAL_WWW_HOST = 'www.xxrealit.cz';
-const APEX_HOST = 'xxrealit.cz';
-
 function handleCanonicalRedirect(request: NextRequest): NextResponse | null {
   if (process.env.NODE_ENV !== 'production') return null;
 
-  const hostHeader = request.headers.get('host') ?? '';
-  const host = hostnameFromHostHeader(hostHeader);
-  const proto = request.headers.get('x-forwarded-proto') ?? 'https';
+  const host = resolveRequestHostname(
+    request.headers.get('host'),
+    request.headers.get('x-forwarded-host'),
+  );
+  const proto = (request.headers.get('x-forwarded-proto') ?? 'https').split(',')[0]?.trim();
 
-  if (proto === 'http' && isKnownXxrealitHostname(host)) {
-    const url = request.nextUrl.clone();
-    url.protocol = 'https:';
-    if (host === APEX_HOST) {
-      url.hostname = CANONICAL_WWW_HOST;
-    }
-    // eslint-disable-next-line no-console
-    console.log('[middleware] Redirect to:', url.toString(), '(http→https)');
-    return NextResponse.redirect(url, 301);
+  if (!isKnownXxrealitHostname(host)) return null;
+
+  // www + https → žádný redirect (hlavní doména)
+  if (host === CANONICAL_WWW_HOST && proto === 'https') {
+    return null;
   }
 
-  // Pouze apex → www; www nikdy nepřesměrovávat na apex
-  if (host === APEX_HOST) {
-    const url = request.nextUrl.clone();
-    url.hostname = CANONICAL_WWW_HOST;
-    url.protocol = 'https:';
-    // eslint-disable-next-line no-console
-    console.log('[middleware] Redirect to:', url.toString(), '(apex→www)');
-    return NextResponse.redirect(url, 301);
-  }
+  const url = request.nextUrl.clone();
+  url.protocol = 'https:';
+  url.hostname = CANONICAL_WWW_HOST;
+  url.port = '';
 
-  return null;
+  // eslint-disable-next-line no-console
+  console.log('[middleware] Redirect to:', url.toString(), `(host=${host}, proto=${proto})`);
+  return NextResponse.redirect(url, 301);
 }
 
 function isProtectedPath(pathname: string): boolean {
@@ -61,7 +54,7 @@ function isProtectedPath(pathname: string): boolean {
 }
 
 /**
- * JWT ochrana vybraných rout + kanonický host z env (301).
+ * JWT ochrana vybraných rout + apex/http → https://www.xxrealit.cz (301).
  */
 export async function middleware(request: NextRequest) {
   const canonical = handleCanonicalRedirect(request);

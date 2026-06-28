@@ -1,8 +1,8 @@
 import type { MetadataRoute } from 'next';
-import { getAppOrigin } from '@/lib/app-url';
+import { CANONICAL_WWW_HOST, CANONICAL_WWW_ORIGIN, resolveSiteOrigin } from '@/lib/site-origin';
 
 export default function robots(): MetadataRoute.Robots {
-  const base = getAppOrigin();
+  const base = resolveSiteOrigin() || CANONICAL_WWW_ORIGIN;
 
   return {
     rules: {
@@ -22,6 +22,6 @@ export default function robots(): MetadataRoute.Robots {
       ],
     },
     sitemap: `${base}/sitemap.xml`,
-    host: base.replace(/^https?:\/\//, ''),
+    host: CANONICAL_WWW_HOST,
   };
 }

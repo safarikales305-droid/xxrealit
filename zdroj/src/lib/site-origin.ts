@@ -1,9 +1,14 @@
 import { upgradeHttpToHttps } from './public-urls';
 
-/** Produkční výchozí doména — www je kanonická. */
-export const PRODUCTION_SITE_ORIGIN_FALLBACK = 'https://www.xxrealit.cz';
+/** Kanonická produkční doména — vždy www. */
+export const CANONICAL_WWW_ORIGIN = 'https://www.xxrealit.cz';
+export const CANONICAL_WWW_HOST = 'www.xxrealit.cz';
+export const APEX_HOST = 'xxrealit.cz';
 
-export const XXREALIT_HOSTNAMES = ['xxrealit.cz', 'www.xxrealit.cz'] as const;
+/** @alias CANONICAL_WWW_ORIGIN */
+export const PRODUCTION_SITE_ORIGIN_FALLBACK = CANONICAL_WWW_ORIGIN;
+
+export const XXREALIT_HOSTNAMES = [APEX_HOST, CANONICAL_WWW_HOST] as const;
 
 const LOCALHOST_FALLBACK = 'http://localhost:3000';
 const LOCALHOST_LIKE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
@@ -12,12 +17,14 @@ function trimOrigin(url: string): string {
   return upgradeHttpToHttps(url.trim()).replace(/\/+$/, '');
 }
 
-/** V produkci vždy www — apex z env přepíšeme. */
-function normalizeXxrealitOrigin(origin: string): string {
+/** Apex nebo chybějící www → vždy https://www.xxrealit.cz */
+export function normalizeXxrealitOrigin(origin: string): string {
   try {
     const u = new URL(origin);
-    if (u.hostname.toLowerCase() === 'xxrealit.cz') {
-      u.hostname = 'www.xxrealit.cz';
+    const host = u.hostname.toLowerCase();
+    if (host === APEX_HOST || host === CANONICAL_WWW_HOST) {
+      u.hostname = CANONICAL_WWW_HOST;
+      u.protocol = 'https:';
       return trimOrigin(u.toString());
     }
   } catch {
@@ -34,12 +41,16 @@ function isProductionRuntime(): boolean {
   );
 }
 
-/** Načte kanonický origin z env (jedna produkční doména). */
+function isHostingRuntime(): boolean {
+  return isProductionRuntime() || Boolean(process.env.RAILWAY_ENVIRONMENT?.trim());
+}
+
+/** Načte kanonický origin z env (jedna produkční doména — www). */
 export function readSiteOriginFromEnv(): string | null {
   const candidates = [
-    process.env.FRONTEND_URL?.trim(),
     process.env.NEXT_PUBLIC_SITE_URL?.trim(),
     process.env.NEXT_PUBLIC_APP_URL?.trim(),
+    process.env.FRONTEND_URL?.trim(),
     process.env.SITE_URL?.trim(),
     process.env.APP_URL?.trim(),
     process.env.NEXTAUTH_URL?.trim(),
@@ -47,49 +58,59 @@ export function readSiteOriginFromEnv(): string | null {
     process.env.BASE_URL?.trim(),
   ].filter((x): x is string => Boolean(x && x.length > 0));
 
-  const vercel = process.env.VERCEL_URL?.trim();
-  if (vercel) candidates.push(`https://${vercel.replace(/^https?:\/\//i, '')}`);
-
-  const railway = process.env.RAILWAY_PUBLIC_DOMAIN?.trim();
-  if (railway) candidates.push(`https://${railway.replace(/^https?:\/\//i, '')}`);
-
   const first = candidates[0];
-  return first ? trimOrigin(first.split(',')[0]!.trim()) : null;
+  if (!first) return null;
+
+  let origin = trimOrigin(first.split(',')[0]!.trim());
+  if (isHostingRuntime()) {
+    origin = normalizeXxrealitOrigin(origin);
+  }
+  return origin;
 }
 
 export function resolveSiteOrigin(): string {
-  const fromEnv = readSiteOriginFromEnv();
   const onRailway = Boolean(process.env.RAILWAY_ENVIRONMENT?.trim());
 
-  let raw =
-    fromEnv ??
-    (!isProductionRuntime() && !onRailway
-      ? LOCALHOST_FALLBACK
-      : PRODUCTION_SITE_ORIGIN_FALLBACK);
+  if (isHostingRuntime()) {
+    const fromEnv = readSiteOriginFromEnv();
+    if (fromEnv) return normalizeXxrealitOrigin(fromEnv);
+    return CANONICAL_WWW_ORIGIN;
+  }
 
+  const fromEnv = readSiteOriginFromEnv();
+  let raw = fromEnv ?? LOCALHOST_FALLBACK;
   raw = trimOrigin(raw);
 
-  if ((isProductionRuntime() || onRailway) && LOCALHOST_LIKE.test(raw)) {
-    raw = PRODUCTION_SITE_ORIGIN_FALLBACK;
+  if (LOCALHOST_LIKE.test(raw)) {
+    return raw;
   }
 
-  if (isProductionRuntime() || onRailway) {
-    raw = normalizeXxrealitOrigin(raw);
-  }
-
-  return raw;
+  return normalizeXxrealitOrigin(raw);
 }
 
 export function resolveCanonicalHostname(): string {
+  if (isHostingRuntime()) {
+    return CANONICAL_WWW_HOST;
+  }
   try {
-    return new URL(resolveSiteOrigin()).hostname.toLowerCase();
+    const host = new URL(resolveSiteOrigin()).hostname.toLowerCase();
+    return host === APEX_HOST ? CANONICAL_WWW_HOST : host;
   } catch {
-    return 'www.xxrealit.cz';
+    return CANONICAL_WWW_HOST;
   }
 }
 
 export function hostnameFromHostHeader(host: string | null | undefined): string {
-  return (host ?? '').split(':')[0]?.toLowerCase() ?? '';
+  return (host ?? '').split(',')[0]?.trim().split(':')[0]?.toLowerCase() ?? '';
+}
+
+export function resolveRequestHostname(
+  host: string | null | undefined,
+  forwardedHost: string | null | undefined,
+): string {
+  const forwarded = hostnameFromHostHeader(forwardedHost);
+  if (forwarded) return forwarded;
+  return hostnameFromHostHeader(host);
 }
 
 export function isKnownXxrealitHostname(host: string): boolean {

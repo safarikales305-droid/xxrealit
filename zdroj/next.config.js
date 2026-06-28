@@ -14,6 +14,16 @@ const nextConfig = {
   turbopack: {
     root: process.cwd(),
   },
+  async redirects() {
+    return [
+      {
+        source: '/:path*',
+        has: [{ type: 'host', value: 'xxrealit.cz' }],
+        destination: 'https://www.xxrealit.cz/:path*',
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       {
