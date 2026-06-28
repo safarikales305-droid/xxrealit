@@ -11,24 +11,48 @@ type Props = {
   onOpenLightbox: (index: number) => void;
 };
 
+type GallerySlot =
+  | { type: 'media'; item: MediaItem; index: number }
+  | { type: 'more' };
+
+function mediaIndexMap(media: MediaItem[]): Map<string, number> {
+  const map = new Map<string, number>();
+  media.forEach((m, i) => map.set(m.key, i));
+  return map;
+}
+
 export function ListingDetailGallery({ title, media, onOpenLightbox }: Props) {
   const [broken, setBroken] = useState<Record<string, boolean>>({});
+
+  const indexByKey = useMemo(() => mediaIndexMap(media), [media]);
 
   const images = useMemo(() => media.filter((m) => m.type === 'image'), [media]);
   const videos = useMemo(() => media.filter((m) => m.type === 'video'), [media]);
 
   const hero = images[0] ?? null;
-  const sideSlots = useMemo(() => {
-    const slots: Array<MediaItem | 'more' | 'video'> = [];
-    if (videos[0]) slots.push(videos[0]);
-    for (let i = 1; i < Math.min(4, images.length); i++) slots.push(images[i]);
-    while (slots.length < 4) slots.push('more');
-    if (images.length > 5) {
-      const idx = slots.findIndex((s) => s === 'more');
-      if (idx >= 0) slots[idx] = 'more';
+  const heroIndex = hero != null ? (indexByKey.get(hero.key) ?? 0) : 0;
+
+  const sideSlots = useMemo((): GallerySlot[] => {
+    const slots: GallerySlot[] = [];
+
+    const firstVideo = videos[0];
+    if (firstVideo) {
+      const idx = indexByKey.get(firstVideo.key) ?? 0;
+      slots.push({ type: 'media', item: firstVideo, index: idx });
     }
+
+    for (let i = 1; i < Math.min(4, images.length); i++) {
+      const item = images[i];
+      const idx = indexByKey.get(item.key) ?? 0;
+      slots.push({ type: 'media', item, index: idx });
+    }
+
+    while (slots.length < 4) {
+      slots.push({ type: 'more' });
+    }
+
     return slots.slice(0, 4);
-  }, [images, videos]);
+  }, [images, videos, indexByKey]);
 
   const extraCount = Math.max(0, images.length - 5);
 
@@ -40,29 +64,30 @@ export function ListingDetailGallery({ title, media, onOpenLightbox }: Props) {
     );
   }
 
-  function renderThumb(item: MediaItem, className: string, onClick: () => void) {
-    if (item.type === 'video') {
-      return (
-        <button
-          type="button"
-          onClick={onClick}
-          className={`group relative overflow-hidden bg-zinc-900 ${className}`}
-          aria-label="Přehrát video"
-        >
-          <video
-            src={mediaUrl(item.url)}
-            muted
-            playsInline
-            className="size-full object-cover opacity-80"
-          />
-          <span className="absolute inset-0 flex items-center justify-center bg-black/35 transition group-hover:bg-black/45">
-            <span className="flex size-12 items-center justify-center rounded-full bg-white/95 text-zinc-900 shadow-lg">
-              <Play className="ml-0.5 size-6 fill-current" aria-hidden />
-            </span>
+  function renderVideoThumb(item: MediaItem, className: string, index: number) {
+    return (
+      <button
+        type="button"
+        onClick={() => onOpenLightbox(index)}
+        className={`group relative overflow-hidden bg-zinc-900 ${className}`}
+        aria-label="Přehrát video"
+      >
+        <video
+          src={mediaUrl(item.url)}
+          muted
+          playsInline
+          className="size-full object-cover opacity-80"
+        />
+        <span className="absolute inset-0 flex items-center justify-center bg-black/35 transition group-hover:bg-black/45">
+          <span className="flex size-12 items-center justify-center rounded-full bg-white/95 text-zinc-900 shadow-lg">
+            <Play className="ml-0.5 size-6 fill-current" aria-hidden />
           </span>
-        </button>
-      );
-    }
+        </span>
+      </button>
+    );
+  }
+
+  function renderImageThumb(item: MediaItem, className: string, index: number) {
     if (broken[item.key]) {
       return (
         <div className={`flex items-center justify-center bg-zinc-200 text-xs text-zinc-500 ${className}`}>
@@ -71,7 +96,7 @@ export function ListingDetailGallery({ title, media, onOpenLightbox }: Props) {
       );
     }
     return (
-      <button type="button" onClick={onClick} className={`overflow-hidden ${className}`}>
+      <button type="button" onClick={() => onOpenLightbox(index)} className={`overflow-hidden ${className}`}>
         <img
           src={mediaUrl(item.url)}
           alt=""
@@ -84,12 +109,24 @@ export function ListingDetailGallery({ title, media, onOpenLightbox }: Props) {
     );
   }
 
+  function renderMediaThumb(slot: Extract<GallerySlot, { type: 'media' }>, className: string) {
+    const { item, index } = slot;
+    if (item.type === 'video') {
+      return renderVideoThumb(item, className, index);
+    }
+    return renderImageThumb(item, className, index);
+  }
+
+  const firstVideo = videos[0];
+  const firstVideoIndex =
+    firstVideo != null ? (indexByKey.get(firstVideo.key) ?? 0) : 0;
+
   return (
     <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1.85fr)_minmax(0,1fr)] md:gap-3">
       {hero ? (
         <button
           type="button"
-          onClick={() => onOpenLightbox(0)}
+          onClick={() => onOpenLightbox(heroIndex)}
           className="relative min-h-[220px] overflow-hidden rounded-2xl bg-zinc-900 shadow-md md:min-h-[380px] md:row-span-2"
           aria-label="Otevřít galerii"
         >
@@ -105,30 +142,30 @@ export function ListingDetailGallery({ title, media, onOpenLightbox }: Props) {
             <div className="flex size-full items-center justify-center text-sm text-zinc-400">Bez náhledu</div>
           )}
         </button>
-      ) : videos[0] ? (
-        renderThumb(
-          videos[0],
+      ) : firstVideo ? (
+        renderVideoThumb(
+          firstVideo,
           'relative min-h-[220px] overflow-hidden rounded-2xl shadow-md md:min-h-[380px] md:row-span-2',
-          () => onOpenLightbox(media.indexOf(videos[0])),
+          firstVideoIndex,
         )
       ) : null}
 
       <div className="grid grid-cols-2 gap-2 md:gap-3">
         {sideSlots.map((slot, i) => {
-          if (slot === 'more') {
+          if (slot.type === 'more') {
             if (extraCount <= 0) {
               return (
                 <div
-                  key={`empty-${i}`}
+                  key={`gallery-empty-${i}`}
                   className="hidden min-h-[90px] rounded-xl bg-zinc-100 md:block"
                 />
               );
             }
             return (
               <button
-                key="more"
+                key="gallery-more"
                 type="button"
-                onClick={() => onOpenLightbox(4)}
+                onClick={() => onOpenLightbox(Math.min(4, images.length - 1))}
                 className="flex min-h-[90px] flex-col items-center justify-center rounded-xl bg-zinc-900/90 text-white shadow-md transition hover:bg-zinc-800 md:min-h-[110px]"
               >
                 <span className="text-lg font-bold">+{extraCount}</span>
@@ -136,13 +173,12 @@ export function ListingDetailGallery({ title, media, onOpenLightbox }: Props) {
               </button>
             );
           }
-          const globalIndex = media.indexOf(slot);
+
           return (
-            <div key={slot.key}>
-              {renderThumb(
+            <div key={`gallery-side-${slot.item.key}`}>
+              {renderMediaThumb(
                 slot,
                 'min-h-[90px] w-full rounded-xl shadow-sm md:min-h-[110px]',
-                () => onOpenLightbox(globalIndex >= 0 ? globalIndex : 0),
               )}
             </div>
           );

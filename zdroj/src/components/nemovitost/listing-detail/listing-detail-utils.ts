@@ -196,7 +196,7 @@ export function buildParameterRows(
   add('Vlastnictví', extra.ownership);
   add('Konstrukce', extra.construction);
   add('Vybavení', extra.equipment);
-  add('Město', p.city ?? p.location);
+  add('Město', p.location);
   add('Adresa', p.address);
   add('Okres', p.district);
   add('Kraj', p.region);
@@ -205,7 +205,7 @@ export function buildParameterRows(
 }
 
 export function mapsQuery(p: PropertyFeedItem): string {
-  return [p.address, p.location, p.city].filter(Boolean).join(', ').trim();
+  return [p.address, p.location, p.district, p.region].filter(Boolean).join(', ').trim();
 }
 
 export function roleLabel(role?: string | null): string {
