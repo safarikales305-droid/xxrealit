@@ -465,6 +465,9 @@ model User {
   supportTickets      SupportTicket[] @relation("SupportTicketUser")
   assignedSupportTickets SupportTicket[] @relation("SupportTicketAssignee")
   verificationFilesUploaded VerificationFile[] @relation("VerificationFileUploader")
+  workerRecruitmentAssignments WorkerRecruitmentAssignment[] @relation("WorkerRecruitmentAssignmentWorker")
+  workerRecruitmentAssignmentsSent WorkerRecruitmentAssignment[] @relation("WorkerRecruitmentAssignmentAdmin")
+  workerRecruitmentDeliveriesSent WorkerRecruitmentDelivery[] @relation("WorkerRecruitmentDeliveryAdmin")
   supportTicketMessages SupportTicketMessage[] @relation("SupportTicketMessageAuthor")
   marketingPopupViews     MarketingPopupUserView[]
   analyticsSessions       AnalyticsSession[]
@@ -2655,6 +2658,7 @@ model WorkerInternalMessage {
 model WorkerBulkMessage {
   id              String    @id @default(cuid())
   campaignName    String
+  subject         String    @default("")
   body            String    @db.Text
   filterJson      Json?
   recipientCount  Int       @default(0)
@@ -2750,13 +2754,20 @@ model WorkerWorkGuideStep {
 
 /// Náborový cíl portálu (koho hledáme).
 model WorkerRecruitmentTarget {
-  id         String                    @id @default(cuid())
-  targetType WorkerRecruitmentTargetType @unique
-  isActive   Boolean                   @default(false)
-  sortOrder  Int                       @default(0)
-  updatedAt  DateTime                  @updatedAt
+  id          String                     @id @default(cuid())
+  slug        String                     @unique
+  targetType  WorkerRecruitmentTargetType? @unique
+  name        String                     @default("")
+  description String                     @default("") @db.Text
+  workerNote  String                     @default("") @db.Text
+  isActive    Boolean                    @default(false)
+  sortOrder   Int                        @default(0)
+  isCustom    Boolean                    @default(false)
+  updatedAt   DateTime                   @updatedAt
 
-  scenario WorkerRecruitmentScenario?
+  scenario     WorkerRecruitmentScenario?
+  assignments  WorkerRecruitmentAssignment[]
+  deliveries   WorkerRecruitmentDelivery[]
 }
 
 /// Scénář komunikace pro náborový cíl.
@@ -2767,6 +2778,38 @@ model WorkerRecruitmentScenario {
   stepsJson Json
 
   target WorkerRecruitmentTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+}
+
+/// Přiřazení náborového cíle konkrétnímu pracovníkovi.
+model WorkerRecruitmentAssignment {
+  id                String   @id @default(cuid())
+  targetId          String
+  workerId          String
+  assignedByAdminId String
+  assignedAt        DateTime @default(now())
+
+  target     WorkerRecruitmentTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  worker     User                    @relation("WorkerRecruitmentAssignmentWorker", fields: [workerId], references: [id], onDelete: Cascade)
+  assignedBy User                    @relation("WorkerRecruitmentAssignmentAdmin", fields: [assignedByAdminId], references: [id], onDelete: Cascade)
+
+  @@unique([targetId, workerId])
+  @@index([workerId, assignedAt])
+}
+
+/// Historie odeslání náborového cíle pracovníkům.
+model WorkerRecruitmentDelivery {
+  id              String   @id @default(cuid())
+  targetId        String
+  sentByAdminId   String
+  recipientCount  Int      @default(0)
+  emailsSent      Int      @default(0)
+  emailErrors     Int      @default(0)
+  sentAt          DateTime @default(now())
+
+  target   WorkerRecruitmentTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  sentBy   User                    @relation("WorkerRecruitmentDeliveryAdmin", fields: [sentByAdminId], references: [id], onDelete: Cascade)
+
+  @@index([targetId, sentAt])
 }
 
 /// Ověřovací soubor pro externí služby (TikTok, Google, Facebook…) — veřejně z kořene domény.

@@ -12,7 +12,7 @@ export default function WorkerGuidePage() {
   const router = useRouter();
   const { user, isLoading } = useAuth();
   const [guide, setGuide] = useState<{ enabled: boolean; steps: Array<{ sortOrder: number; title: string; body: string }> } | null>(null);
-  const [targets, setTargets] = useState<Array<{ label: string; title: string; steps: string[] }>>([]);
+  const [targets, setTargets] = useState<Array<{ id: string; label: string; name: string; description: string; workerNote: string; title: string; steps: string[] }>>([]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -64,9 +64,15 @@ export default function WorkerGuidePage() {
           <h2 className="font-semibold">Koho aktuálně hledáme</h2>
           <div className="mt-4 space-y-4">
             {targets.map((t) => (
-              <div key={t.label} className="rounded-lg border border-zinc-100 p-4">
-                <h3 className="font-semibold text-[#e85d00]">{t.label}</h3>
-                <p className="text-sm text-zinc-600">{t.title}</p>
+              <div key={t.id} className="rounded-lg border border-zinc-100 p-4">
+                <h3 className="font-semibold text-[#e85d00]">{t.name || t.label}</h3>
+                {t.description ? <p className="mt-1 text-sm text-zinc-700">{t.description}</p> : null}
+                {t.title && t.title !== (t.name || t.label) ? (
+                  <p className="text-sm text-zinc-600">{t.title}</p>
+                ) : null}
+                {t.workerNote ? (
+                  <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{t.workerNote}</p>
+                ) : null}
                 <ul className="mt-2 list-inside list-disc text-sm text-zinc-700">
                   {t.steps.map((step) => (
                     <li key={step}>{step}</li>

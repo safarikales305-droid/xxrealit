@@ -62,7 +62,11 @@ export default function AdminWorkerChatPage() {
       return;
     }
     setText('');
-    await load();
+    if (r.message) {
+      setMessages((prev) => [...prev, r.message as WorkerInternalMessageRow]);
+    } else {
+      await load();
+    }
   }
 
   return (
@@ -115,7 +119,7 @@ export default function AdminWorkerChatPage() {
               onClick={() => void send()}
               className="self-end rounded-lg bg-[#e85d00] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
-              Odeslat
+              {busy ? 'Odesílám…' : 'Odeslat'}
             </button>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import {
   Body,
+  Delete,
   Controller,
   Get,
   Header,
@@ -16,13 +17,14 @@ import { AdminGuard } from '../admin/guards/admin.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { WorkerRecruitmentTargetType } from '@prisma/client';
 import { PortalWorkerService } from './portal-worker.service';
 import { UpdateWorkerCommissionSettingsDto } from './dto/update-worker-commission-settings.dto';
 import { UpdateWorkerProfileAdminDto } from './dto/worker-crm.dto';
 import {
   ApplyWorkerWorkGuideTemplateDto,
+  CreateRecruitmentTargetDto,
   SaveWorkerBulkTemplateDto,
+  SendRecruitmentTargetDto,
   SendWorkerBulkMessageDto,
   SendWorkerInternalMessageDto,
   UpdateRecruitmentTargetDto,
@@ -168,13 +170,36 @@ export class PortalWorkerAdminController {
     return this.communication.listRecruitmentTargetsAdmin();
   }
 
-  @Patch('communications/recruitment-targets/:targetType')
+  @Post('communications/recruitment-targets')
+  createRecruitmentTarget(
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: CreateRecruitmentTargetDto,
+  ) {
+    return this.communication.createRecruitmentTargetAdmin(dto);
+  }
+
+  @Patch('communications/recruitment-targets/:id')
   updateRecruitmentTarget(
-    @Param('targetType') targetType: WorkerRecruitmentTargetType,
+    @Param('id') id: string,
     @Body(new ValidationPipe({ whitelist: true, transform: true }))
     dto: UpdateRecruitmentTargetDto,
   ) {
-    return this.communication.updateRecruitmentTargetAdmin(targetType, dto);
+    return this.communication.updateRecruitmentTargetAdmin(id, dto);
+  }
+
+  @Delete('communications/recruitment-targets/:id')
+  deleteRecruitmentTarget(@Param('id') id: string) {
+    return this.communication.deleteRecruitmentTargetAdmin(id);
+  }
+
+  @Post('communications/recruitment-targets/:id/send')
+  sendRecruitmentTarget(
+    @CurrentUser() admin: AuthUser,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: SendRecruitmentTargetDto,
+  ) {
+    return this.communication.sendRecruitmentTargetToWorkers(admin.id, id, dto);
   }
 
   @Get('communications/cooperation-cancels/pending')

@@ -173,7 +173,7 @@ export class PortalWorkerController {
 
   @Get('me/recruitment-targets')
   recruitmentTargets(@CurrentUser() user: AuthUser) {
-    return this.communication.listRecruitmentTargetsWorker();
+    return this.communication.listRecruitmentTargetsWorker(user.id);
   }
 
   @Get('me/cooperation-cancel')

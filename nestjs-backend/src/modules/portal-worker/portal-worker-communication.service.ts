@@ -20,8 +20,10 @@ import { PortalWorkerService } from './portal-worker.service';
 import { assessWorkerProfileCompleteness } from './portal-worker-profile.utils';
 import type {
   ApplyWorkerWorkGuideTemplateDto,
+  CreateRecruitmentTargetDto,
   ReplyWorkerInternalMessageDto,
   SaveWorkerBulkTemplateDto,
+  SendRecruitmentTargetDto,
   SendWorkerBulkMessageDto,
   SendWorkerInternalMessageDto,
   UpdateRecruitmentTargetDto,
@@ -58,15 +60,15 @@ export const DEFAULT_WORK_GUIDE_STEPS = [
 ] as const;
 
 export const RECRUITMENT_TARGET_LABELS: Record<WorkerRecruitmentTargetType, string> = {
-  AGENT: 'Makléře',
+  AGENT: 'Realitní makléři',
   REAL_ESTATE_AGENCY: 'Realitní kanceláře',
   CONSTRUCTION_COMPANY: 'Stavební firmy',
-  INVESTOR: 'Investory',
-  FINANCIAL_ADVISOR: 'Finanční poradce',
-  CRAFTSMAN: 'Řemeslníky',
-  TIPSTER: 'Tipáře',
-  PRIVATE_SELLER: 'Soukromé prodávající',
-  DEVELOPER: 'Developery',
+  INVESTOR: 'Investoři',
+  FINANCIAL_ADVISOR: 'Finanční poradci',
+  CRAFTSMAN: 'Řemeslníci',
+  TIPSTER: 'Tipaři',
+  PRIVATE_SELLER: 'Majitelé nemovitostí',
+  DEVELOPER: 'Developeři',
 };
 
 const DEFAULT_RECRUITMENT_SCENARIOS: Record<WorkerRecruitmentTargetType, string[]> = {
@@ -116,12 +118,11 @@ const RECRUITMENT_TARGET_ORDER: WorkerRecruitmentTargetType[] = [
   WorkerRecruitmentTargetType.AGENT,
   WorkerRecruitmentTargetType.REAL_ESTATE_AGENCY,
   WorkerRecruitmentTargetType.CONSTRUCTION_COMPANY,
+  WorkerRecruitmentTargetType.DEVELOPER,
   WorkerRecruitmentTargetType.INVESTOR,
   WorkerRecruitmentTargetType.FINANCIAL_ADVISOR,
-  WorkerRecruitmentTargetType.CRAFTSMAN,
-  WorkerRecruitmentTargetType.TIPSTER,
   WorkerRecruitmentTargetType.PRIVATE_SELLER,
-  WorkerRecruitmentTargetType.DEVELOPER,
+  WorkerRecruitmentTargetType.TIPSTER,
 ];
 
 @Injectable()
@@ -234,7 +235,7 @@ export class PortalWorkerCommunicationService {
         await this.emails.sendWorkerInternalMessageNotificationEmail({
           to: worker.email.trim(),
           workerName: worker.name || 'pracovníku',
-          messageUrl: this.frontendUrl('/pracovnik/zpravy'),
+          messageUrl: this.frontendUrl('/pracovnik'),
           workerId,
         });
       } catch (e) {
@@ -416,6 +417,8 @@ export class PortalWorkerCommunicationService {
   async sendBulkMessage(adminId: string, dto: SendWorkerBulkMessageDto) {
     const body = dto.body.trim();
     if (!body) throw new BadRequestException('Zpráva je prázdná.');
+    const subject = dto.subject?.trim() || dto.campaignName.trim();
+    const chatBody = subject ? `Předmět: ${subject}\n\n${body}` : body;
 
     const recipients = await this.resolveBulkRecipients(dto.filter);
     if (!recipients.length) {
@@ -425,6 +428,7 @@ export class PortalWorkerCommunicationService {
     const bulk = await this.prisma.workerBulkMessage.create({
       data: {
         campaignName: dto.campaignName.trim(),
+        subject,
         body,
         filterJson: dto.filter as unknown as object,
         isTemplate: false,
@@ -456,7 +460,7 @@ export class PortalWorkerCommunicationService {
           workerId: worker.id,
           senderRole: WorkerInternalMessageSender.ADMIN,
           senderUserId: adminId,
-          body,
+          body: chatBody,
           bulkMessageId: bulk.id,
         },
       });
@@ -963,19 +967,60 @@ export class PortalWorkerCommunicationService {
     };
   }
 
+  private serializeRecruitmentTarget(
+    r: {
+      id: string;
+      slug: string;
+      targetType: WorkerRecruitmentTargetType | null;
+      name: string;
+      description: string;
+      workerNote: string;
+      isActive: boolean;
+      sortOrder: number;
+      isCustom: boolean;
+      scenario: { title: string; stepsJson: unknown } | null;
+    },
+  ) {
+    const label =
+      r.name?.trim() ||
+      (r.targetType ? RECRUITMENT_TARGET_LABELS[r.targetType] : r.slug);
+    return {
+      id: r.id,
+      slug: r.slug,
+      targetType: r.targetType,
+      label,
+      name: label,
+      description: r.description,
+      workerNote: r.workerNote,
+      isActive: r.isActive,
+      sortOrder: r.sortOrder,
+      isCustom: r.isCustom,
+      title: r.scenario?.title ?? label,
+      steps: Array.isArray(r.scenario?.stepsJson)
+        ? (r.scenario!.stepsJson as string[])
+        : r.targetType
+          ? DEFAULT_RECRUITMENT_SCENARIOS[r.targetType]
+          : [],
+    };
+  }
+
   private async ensureRecruitmentTargets() {
     for (let i = 0; i < RECRUITMENT_TARGET_ORDER.length; i++) {
       const targetType = RECRUITMENT_TARGET_ORDER[i];
-      const existing = await this.prisma.workerRecruitmentTarget.findUnique({
-        where: { targetType },
+      const slug = targetType.toLowerCase();
+      const existing = await this.prisma.workerRecruitmentTarget.findFirst({
+        where: { OR: [{ targetType }, { slug }] },
         include: { scenario: true },
       });
       if (!existing) {
-        const target = await this.prisma.workerRecruitmentTarget.create({
+        await this.prisma.workerRecruitmentTarget.create({
           data: {
             targetType,
+            slug,
+            name: RECRUITMENT_TARGET_LABELS[targetType],
             isActive: false,
             sortOrder: i,
+            isCustom: false,
             scenario: {
               create: {
                 title: RECRUITMENT_TARGET_LABELS[targetType],
@@ -984,7 +1029,15 @@ export class PortalWorkerCommunicationService {
             },
           },
         });
-        void target;
+      } else if (!existing.name?.trim()) {
+        await this.prisma.workerRecruitmentTarget.update({
+          where: { id: existing.id },
+          data: {
+            name: RECRUITMENT_TARGET_LABELS[targetType],
+            slug: existing.slug || slug,
+            targetType: existing.targetType ?? targetType,
+          },
+        });
       }
     }
   }
@@ -995,66 +1048,188 @@ export class PortalWorkerCommunicationService {
       orderBy: { sortOrder: 'asc' },
       include: { scenario: true },
     });
-    return {
-      items: rows.map((r) => ({
-        id: r.id,
-        targetType: r.targetType,
-        label: RECRUITMENT_TARGET_LABELS[r.targetType],
-        isActive: r.isActive,
-        sortOrder: r.sortOrder,
-        title: r.scenario?.title ?? RECRUITMENT_TARGET_LABELS[r.targetType],
-        steps: Array.isArray(r.scenario?.stepsJson)
-          ? (r.scenario!.stepsJson as string[])
-          : DEFAULT_RECRUITMENT_SCENARIOS[r.targetType],
-      })),
-    };
+    return { items: rows.map((r) => this.serializeRecruitmentTarget(r)) };
   }
 
-  async updateRecruitmentTargetAdmin(targetType: WorkerRecruitmentTargetType, dto: UpdateRecruitmentTargetDto) {
+  async createRecruitmentTargetAdmin(dto: CreateRecruitmentTargetDto) {
+    const name = dto.name.trim();
+    if (!name) throw new BadRequestException('Název cíle je povinný.');
+    const slug = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const row = await this.prisma.workerRecruitmentTarget.create({
+      data: {
+        slug,
+        name,
+        description: dto.description?.trim() ?? '',
+        workerNote: dto.workerNote?.trim() ?? '',
+        isActive: dto.isActive ?? false,
+        sortOrder: dto.sortOrder ?? 100,
+        isCustom: true,
+        scenario: {
+          create: {
+            title: name,
+            stepsJson: dto.steps ?? [],
+          },
+        },
+      },
+      include: { scenario: true },
+    });
+    return { ok: true, item: this.serializeRecruitmentTarget(row) };
+  }
+
+  async updateRecruitmentTargetAdmin(id: string, dto: UpdateRecruitmentTargetDto) {
     await this.ensureRecruitmentTargets();
     const target = await this.prisma.workerRecruitmentTarget.findUnique({
-      where: { targetType },
+      where: { id },
       include: { scenario: true },
     });
     if (!target) throw new NotFoundException('Náborový cíl nenalezen.');
 
     await this.prisma.workerRecruitmentTarget.update({
-      where: { id: target.id },
-      data: { isActive: dto.isActive },
+      where: { id },
+      data: {
+        ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+        ...(dto.description !== undefined ? { description: dto.description.trim() } : {}),
+        ...(dto.workerNote !== undefined ? { workerNote: dto.workerNote.trim() } : {}),
+        ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
+      },
     });
 
-    await this.prisma.workerRecruitmentScenario.upsert({
-      where: { targetId: target.id },
-      create: {
-        targetId: target.id,
-        title: dto.title?.trim() || RECRUITMENT_TARGET_LABELS[targetType],
-        stepsJson: dto.steps,
-      },
-      update: {
-        title: dto.title?.trim() || RECRUITMENT_TARGET_LABELS[targetType],
-        stepsJson: dto.steps,
-      },
-    });
+    if (dto.steps || dto.title) {
+      const title =
+        dto.title?.trim() ||
+        dto.name?.trim() ||
+        target.name ||
+        (target.targetType ? RECRUITMENT_TARGET_LABELS[target.targetType] : target.slug);
+      await this.prisma.workerRecruitmentScenario.upsert({
+        where: { targetId: target.id },
+        create: {
+          targetId: target.id,
+          title,
+          stepsJson: dto.steps ?? [],
+        },
+        update: {
+          title,
+          ...(dto.steps ? { stepsJson: dto.steps } : {}),
+        },
+      });
+    }
 
     return this.listRecruitmentTargetsAdmin();
   }
 
-  async listRecruitmentTargetsWorker() {
+  async deleteRecruitmentTargetAdmin(id: string) {
+    const target = await this.prisma.workerRecruitmentTarget.findUnique({ where: { id } });
+    if (!target) throw new NotFoundException('Náborový cíl nenalezen.');
+    if (!target.isCustom) {
+      throw new BadRequestException('Výchozí náborové cíle nelze smazat.');
+    }
+    await this.prisma.workerRecruitmentTarget.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  async sendRecruitmentTargetToWorkers(
+    adminId: string,
+    targetId: string,
+    dto: SendRecruitmentTargetDto,
+  ) {
+    const workerIds = [...new Set(dto.workerIds.map((id) => id.trim()).filter(Boolean))];
+    if (!workerIds.length) throw new BadRequestException('Vyberte alespoň jednoho pracovníka.');
+
+    const target = await this.prisma.workerRecruitmentTarget.findUnique({
+      where: { id: targetId },
+      include: { scenario: true },
+    });
+    if (!target) throw new NotFoundException('Náborový cíl nenalezen.');
+
+    const serialized = this.serializeRecruitmentTarget(target);
+    let emailsSent = 0;
+    let emailErrors = 0;
+
+    for (const workerId of workerIds) {
+      const worker = await this.getWorkerOrThrow(workerId);
+
+      await this.prisma.workerRecruitmentAssignment.upsert({
+        where: { targetId_workerId: { targetId, workerId } },
+        create: { targetId, workerId, assignedByAdminId: adminId },
+        update: { assignedByAdminId: adminId, assignedAt: new Date() },
+      });
+
+      const internalBody = [
+        `Náborový cíl: ${serialized.name}`,
+        serialized.description ? `Popis: ${serialized.description}` : '',
+        serialized.workerNote ? `Poznámka: ${serialized.workerNote}` : '',
+        serialized.steps.length ? `Scénář:\n${serialized.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+
+      await this.prisma.workerInternalMessage.create({
+        data: {
+          workerId,
+          senderRole: WorkerInternalMessageSender.ADMIN,
+          senderUserId: adminId,
+          body: internalBody,
+        },
+      });
+
+      if (worker.email?.trim() && !(await this.workerBlocksCommunications(workerId))) {
+        try {
+          await this.emails.sendWorkerRecruitmentTargetEmail({
+            to: worker.email.trim(),
+            workerName: worker.name || 'pracovníku',
+            targetName: serialized.name,
+            workerId,
+            targetId,
+          });
+          emailsSent += 1;
+        } catch (e) {
+          emailErrors += 1;
+          this.logger.warn(
+            `Recruitment target email failed for ${workerId}: ${e instanceof Error ? e.message : e}`,
+          );
+        }
+      }
+    }
+
+    await this.prisma.workerRecruitmentDelivery.create({
+      data: {
+        targetId,
+        sentByAdminId: adminId,
+        recipientCount: workerIds.length,
+        emailsSent,
+        emailErrors,
+      },
+    });
+
+    return { ok: true, recipientCount: workerIds.length, emailsSent, emailErrors };
+  }
+
+  async listRecruitmentTargetsWorker(workerId: string) {
     await this.ensureRecruitmentTargets();
-    const rows = await this.prisma.workerRecruitmentTarget.findMany({
+
+    const assignments = await this.prisma.workerRecruitmentAssignment.findMany({
+      where: { workerId },
+      orderBy: { assignedAt: 'desc' },
+      include: { target: { include: { scenario: true } } },
+    });
+
+    const assignedItems = assignments.map((a) => this.serializeRecruitmentTarget(a.target));
+
+    const activeGlobals = await this.prisma.workerRecruitmentTarget.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: 'asc' },
       include: { scenario: true },
     });
-    return {
-      items: rows.map((r) => ({
-        targetType: r.targetType,
-        label: RECRUITMENT_TARGET_LABELS[r.targetType],
-        title: r.scenario?.title ?? RECRUITMENT_TARGET_LABELS[r.targetType],
-        steps: Array.isArray(r.scenario?.stepsJson)
-          ? (r.scenario!.stepsJson as string[])
-          : DEFAULT_RECRUITMENT_SCENARIOS[r.targetType],
-      })),
-    };
+
+    const globalItems = activeGlobals.map((r) => this.serializeRecruitmentTarget(r));
+    const seen = new Set<string>();
+    const items = [...assignedItems, ...globalItems].filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+
+    return { items };
   }
 }

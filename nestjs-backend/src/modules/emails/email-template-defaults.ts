@@ -65,6 +65,7 @@ export const EMAIL_TEMPLATE_VARIABLES: Record<string, string[]> = {
   worker_bulk_message: ['workerName', 'portalName', 'messageUrl', 'ctaUrl'],
   worker_profile_completion_reminder: ['workerName', 'portalName', 'profileUrl', 'ctaUrl'],
   worker_cooperation_cancel_confirmation: ['workerName', 'portalName', 'loginUrl'],
+  worker_recruitment_target: ['workerName', 'targetName', 'portalName', 'workerPanelUrl', 'ctaUrl'],
 };
 
 export const DEFAULT_EMAIL_TEMPLATES: EmailTemplateDefault[] = [
@@ -314,11 +315,11 @@ tým {{portalName}}`,
     key: 'worker_internal_message',
     name: 'Nová interní zpráva pracovníkovi',
     category: 'worker_crm',
-    subject: 'Nová interní zpráva na {{portalName}}',
+    subject: 'Nová interní zpráva na XXREALIT',
     htmlContent:
-      '<p>Dobrý den {{workerName}},</p><p>Máte novou interní zprávu na portálu {{portalName}}. Přihlaste se a přečtěte si ji.</p><p><a href="{{messageUrl}}" style="display:inline-block;background:#ff5a00;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:700">Otevřít zprávu</a></p>',
+      '<p>Dobrý den,</p><p>v administraci portálu {{portalName}} vám byla odeslána nová interní zpráva.</p><p>Přihlaste se do svého účtu a zprávu si přečtěte.</p><p><a href="{{messageUrl}}" style="display:inline-block;background:#ff5a00;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:700">Přejít na pracovní panel</a></p><p>S pozdravem<br/>Tým {{portalName}}</p>',
     textContent:
-      'Máte novou interní zprávu na portálu {{portalName}}. Přihlaste se a přečtěte si ji.\n\n{{messageUrl}}',
+      'Dobrý den,\n\nv administraci portálu {{portalName}} vám byla odeslána nová interní zpráva.\nPřihlaste se do svého účtu a zprávu si přečtěte.\n\n{{messageUrl}}\n\nS pozdravem\nTým {{portalName}}',
     variables: EMAIL_TEMPLATE_VARIABLES.worker_internal_message,
   },
   {
@@ -353,6 +354,17 @@ tým {{portalName}}`,
     textContent:
       'Přijali jsme vaši žádost o ukončení spolupráce s portálem {{portalName}}.\n\n{{loginUrl}}',
     variables: EMAIL_TEMPLATE_VARIABLES.worker_cooperation_cancel_confirmation,
+  },
+  {
+    key: 'worker_recruitment_target',
+    name: 'Nový náborový cíl pro pracovníka',
+    category: 'worker_crm',
+    subject: 'Nový náborový cíl na {{portalName}}',
+    htmlContent:
+      '<p>Dobrý den {{workerName}},</p><p>na portálu {{portalName}} máte nový náborový cíl: <strong>{{targetName}}</strong>.</p><p>Přihlaste se do pracovního panelu a podívejte se na doporučený postup.</p><p><a href="{{workerPanelUrl}}" style="display:inline-block;background:#ff5a00;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:700">Přejít na pracovní panel</a></p>',
+    textContent:
+      'Dobrý den {{workerName}},\n\nmáte nový náborový cíl: {{targetName}}.\n\n{{workerPanelUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.worker_recruitment_target,
   },
 ];
 

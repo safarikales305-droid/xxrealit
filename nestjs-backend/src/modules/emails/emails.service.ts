@@ -813,4 +813,27 @@ export class EmailsService implements OnModuleInit {
       metadata: { workerId: input.workerId },
     });
   }
+
+  async sendWorkerRecruitmentTargetEmail(input: {
+    to: string;
+    workerName: string;
+    targetName: string;
+    workerId: string;
+    targetId: string;
+  }) {
+    const workerPanelUrl = this.normalizePublicUrl(`${this.appUrl()}/pracovnik`);
+    return this.sendTemplatedEmail({
+      type: 'worker_recruitment_target',
+      templateKey: 'worker_recruitment_target',
+      to: input.to,
+      variables: {
+        workerName: input.workerName,
+        targetName: input.targetName,
+        portalName: this.portalName(),
+        workerPanelUrl,
+        ctaUrl: workerPanelUrl,
+      },
+      metadata: { workerId: input.workerId, targetId: input.targetId },
+    });
+  }
 }

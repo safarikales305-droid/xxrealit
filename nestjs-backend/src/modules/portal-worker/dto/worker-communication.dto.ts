@@ -39,6 +39,11 @@ export class SendWorkerBulkMessageDto {
   @MaxLength(200)
   campaignName!: string;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  subject?: string;
+
   @IsString()
   @MinLength(1)
   @MaxLength(20000)
@@ -63,6 +68,11 @@ export class SaveWorkerBulkTemplateDto {
   @MinLength(1)
   @MaxLength(200)
   templateName!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  subject?: string;
 
   @IsString()
   @MinLength(1)
@@ -127,17 +137,73 @@ export class ApplyWorkerWorkGuideTemplateDto {
 }
 
 export class UpdateRecruitmentTargetDto {
+  @IsOptional()
   @IsBoolean()
-  isActive!: boolean;
+  isActive?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  name?: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(200)
   title?: string;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  workerNote?: string;
+
+  @IsOptional()
+  @IsInt()
+  sortOrder?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  steps?: string[];
+}
+
+export class CreateRecruitmentTargetDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  workerNote?: string;
+
+  @IsOptional()
+  @IsInt()
+  sortOrder?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
   @IsArray()
   @IsString({ each: true })
   steps!: string[];
+}
+
+export class SendRecruitmentTargetDto {
+  @IsArray()
+  @IsString({ each: true })
+  workerIds!: string[];
 }
 
 export class ReorderRecruitmentTargetsDto {

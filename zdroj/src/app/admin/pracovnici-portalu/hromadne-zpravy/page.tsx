@@ -18,9 +18,10 @@ export default function AdminWorkerBulkMessagesPage() {
   const [templates, setTemplates] = useState<WorkerBulkTemplate[]>([]);
   const [history, setHistory] = useState<WorkerBulkHistoryRow[]>([]);
   const [campaignName, setCampaignName] = useState('');
+  const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [templateId, setTemplateId] = useState('');
-  const [activeOnly, setActiveOnly] = useState(false);
+  const [activeOnly, setActiveOnly] = useState(true);
   const [approvedOnly, setApprovedOnly] = useState(true);
   const [region, setRegion] = useState('');
   const [district, setDistrict] = useState('');
@@ -59,7 +60,8 @@ export default function AdminWorkerBulkMessagesPage() {
     setErr(null);
     setMsg(null);
     const r = await sendBulkMessage(apiAccessToken, {
-      campaignName: campaignName.trim() || 'Hromadná zpráva',
+      campaignName: campaignName.trim() || subject.trim() || 'Hromadná zpráva',
+      subject: subject.trim() || campaignName.trim(),
       body,
       filter: { activeOnly, approvedOnly, region: region.trim() || undefined, district: district.trim() || undefined },
       saveAsTemplate,
@@ -72,6 +74,7 @@ export default function AdminWorkerBulkMessagesPage() {
     }
     setMsg(`Odesláno ${r.recipientCount} pracovníkům (e-mailů: ${r.emailsSent}, chyb: ${r.emailErrors}).`);
     setCampaignName('');
+    setSubject('');
     setBody('');
     await load();
   }
@@ -82,7 +85,8 @@ export default function AdminWorkerBulkMessagesPage() {
         <Link href="/admin/pracovnici-portalu" className="text-sm font-semibold text-[#e85d00] hover:underline">
           ← Pracovníci portálu
         </Link>
-        <h1 className="mt-1 text-2xl font-bold">Hromadné zprávy</h1>
+        <h1 className="mt-1 text-2xl font-bold">Hromadné zprávy pracovníkům</h1>
+        <p className="text-sm text-zinc-600">Odeslání interní zprávy a e-mailové notifikace všem aktivním pracovníkům</p>
       </div>
 
       {msg ? <p className="rounded-xl bg-green-50 px-4 py-3 text-sm text-green-800">{msg}</p> : null}
@@ -91,7 +95,11 @@ export default function AdminWorkerBulkMessagesPage() {
       <section className="rounded-xl border border-zinc-200 bg-white p-5 space-y-4">
         <h2 className="font-semibold">Nová kampaň</h2>
         <label className="block text-sm">
-          Název kampaně
+          Předmět
+          <input value={subject} onChange={(e) => setSubject(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2" />
+        </label>
+        <label className="block text-sm">
+          Název kampaně (interní)
           <input value={campaignName} onChange={(e) => setCampaignName(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2" />
         </label>
         <label className="block text-sm">

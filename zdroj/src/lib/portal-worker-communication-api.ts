@@ -40,10 +40,15 @@ export type WorkerBulkHistoryRow = {
 
 export type RecruitmentTargetRow = {
   id: string;
-  targetType: string;
+  slug: string;
+  targetType: string | null;
   label: string;
+  name: string;
+  description: string;
+  workerNote: string;
   isActive: boolean;
   sortOrder: number;
+  isCustom: boolean;
   title: string;
   steps: string[];
 };
@@ -134,6 +139,7 @@ export async function sendBulkMessage(
   token: string | null,
   payload: {
     campaignName: string;
+    subject?: string;
     body: string;
     filter: { activeOnly?: boolean; approvedOnly?: boolean; region?: string; district?: string };
     saveAsTemplate?: boolean;
@@ -242,16 +248,72 @@ export async function fetchRecruitmentTargetsAdmin(token: string | null) {
 
 export async function updateRecruitmentTargetAdmin(
   token: string | null,
-  targetType: string,
-  payload: { isActive: boolean; title?: string; steps: string[] },
+  id: string,
+  payload: {
+    isActive?: boolean;
+    name?: string;
+    title?: string;
+    description?: string;
+    workerNote?: string;
+    sortOrder?: number;
+    steps?: string[];
+  },
 ) {
   const res = await fetch(
-    `${API_BASE}/admin/portal-workers/communications/recruitment-targets/${encodeURIComponent(targetType)}`,
+    `${API_BASE}/admin/portal-workers/communications/recruitment-targets/${encodeURIComponent(id)}`,
     {
       method: 'PATCH',
       credentials: 'include',
       headers: headers(token),
       body: JSON.stringify(payload),
+    },
+  );
+  if (!res.ok) return { ok: false as const, error: await parseError(res) };
+  return { ok: true as const, ...(await res.json()) };
+}
+
+export async function createRecruitmentTargetAdmin(
+  token: string | null,
+  payload: {
+    name: string;
+    description?: string;
+    workerNote?: string;
+    sortOrder?: number;
+    isActive?: boolean;
+    steps: string[];
+  },
+) {
+  const res = await fetch(`${API_BASE}/admin/portal-workers/communications/recruitment-targets`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: headers(token),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) return { ok: false as const, error: await parseError(res) };
+  return { ok: true as const, ...(await res.json()) };
+}
+
+export async function deleteRecruitmentTargetAdmin(token: string | null, id: string) {
+  const res = await fetch(
+    `${API_BASE}/admin/portal-workers/communications/recruitment-targets/${encodeURIComponent(id)}`,
+    { method: 'DELETE', credentials: 'include', headers: headers(token) },
+  );
+  if (!res.ok) return { ok: false as const, error: await parseError(res) };
+  return { ok: true as const };
+}
+
+export async function sendRecruitmentTargetToWorkers(
+  token: string | null,
+  targetId: string,
+  workerIds: string[],
+) {
+  const res = await fetch(
+    `${API_BASE}/admin/portal-workers/communications/recruitment-targets/${encodeURIComponent(targetId)}/send`,
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: headers(token),
+      body: JSON.stringify({ workerIds }),
     },
   );
   if (!res.ok) return { ok: false as const, error: await parseError(res) };
@@ -304,8 +366,8 @@ export async function fetchWorkerRecruitmentTargets() {
     headers: headers(),
     cache: 'no-store',
   });
-  if (!res.ok) return { items: [] as Array<{ targetType: string; label: string; title: string; steps: string[] }> };
-  return (await res.json()) as { items: Array<{ targetType: string; label: string; title: string; steps: string[] }> };
+  if (!res.ok) return { items: [] as Array<{ id: string; label: string; name: string; description: string; workerNote: string; title: string; steps: string[] }> };
+  return (await res.json()) as { items: Array<{ id: string; label: string; name: string; description: string; workerNote: string; title: string; steps: string[] }> };
 }
 
 export async function fetchWorkerCooperationCancel() {

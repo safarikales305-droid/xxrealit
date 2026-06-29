@@ -116,6 +116,8 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
     icon: '📨',
     children: [
       { id: 'support-center', label: 'Centrum podpory', href: '/admin/komunikace/centrum-podpory', icon: '🎫', tone: 'red' },
+      { id: 'workers-bulk-msg', label: 'Hromadné zprávy pracovníkům', href: '/admin/pracovnici-portalu/hromadne-zpravy', icon: '✉', tone: 'blue' },
+      { id: 'workers-recruitment', label: 'Náborové cíle', href: '/admin/pracovnici-portalu/naborove-cile', icon: '🎯', tone: 'green' },
       { id: 'wa-int', label: 'Integrace WhatsApp', href: '/admin/integrace/whatsapp', icon: '📱' },
       { id: 'fb-int', label: 'Integrace Facebook', href: '/admin/integrace/facebook', icon: '👤' },
       { id: 'fb-users', label: 'Facebook propojení', href: '/admin/facebook-propojeni', icon: '🔗' },
