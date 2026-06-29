@@ -52,18 +52,20 @@ export function SrealityPrefillSection({ token, onApply, onSourceImagesLoaded }:
     }
 
     setLoading(true);
-    const r = await nestPrefillListingFromUrl(token, url);
-    setLoading(false);
+    try {
+      const r = await nestPrefillListingFromUrl(token, url, { timeoutMs: 45_000 });
+      if (!r.ok) {
+        setPrefillData(null);
+        setError(r.error);
+        return;
+      }
 
-    if (!r.ok) {
-      setPrefillData(null);
-      setError(r.error);
-      return;
+      setPrefillData(r.data);
+      onApply({ data: r.data, sourceUrl: url });
+      setSuccess('Údaje byly předvyplněny. Zkontrolujte je a doplňte fotky.');
+    } finally {
+      setLoading(false);
     }
-
-    setPrefillData(r.data);
-    onApply({ data: r.data, sourceUrl: url });
-    setSuccess('Údaje byly předvyplněny. Zkontrolujte je a doplňte fotky.');
   }
 
   async function handleUseSourceImages() {

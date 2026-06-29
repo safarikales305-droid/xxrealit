@@ -2741,12 +2741,16 @@ export type ListingPrefillFromUrlData = {
 export async function nestPrefillListingFromUrl(
   token: string | null,
   sourceUrl: string,
+  options?: { timeoutMs?: number },
 ): Promise<
   { ok: true; data: ListingPrefillFromUrlData } | { ok: false; error: string }
 > {
   if (!API_BASE_URL || !token) {
     return { ok: false, error: 'API nebo token chybí' };
   }
+  const timeoutMs = options?.timeoutMs ?? 45_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(`${API_BASE_URL}/listings/prefill-from-url`, {
       method: 'POST',
@@ -2756,6 +2760,7 @@ export async function nestPrefillListingFromUrl(
         Accept: 'application/json',
       },
       body: JSON.stringify({ sourceUrl }),
+      signal: controller.signal,
     });
     const data = (await res.json().catch(() => ({}))) as {
       ok?: boolean;
@@ -2765,9 +2770,9 @@ export async function nestPrefillListingFromUrl(
     if (!res.ok || !data.ok || !data.data) {
       const statusHint =
         res.status === 403
-          ? 'Sreality odmítlo požadavek (HTTP 403).'
+          ? 'Sreality blokuje načtení (HTTP 403).'
           : res.status === 408 || res.status === 504
-            ? 'Vypršel časový limit načítání.'
+            ? 'Načtení trvalo příliš dlouho. Zkuste to později nebo vyplňte inzerát ručně.'
             : res.status >= 500
               ? `Chyba serveru (HTTP ${res.status}).`
               : null;
@@ -2781,21 +2786,35 @@ export async function nestPrefillListingFromUrl(
     }
     return { ok: true, data: data.data };
   } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return {
+        ok: false,
+        error: 'Načtení trvalo příliš dlouho. Zkuste to později nebo vyplňte inzerát ručně.',
+      };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     const hint = /timeout|aborted/i.test(msg)
-      ? 'Vypršel časový limit připojení k serveru.'
+      ? 'Načtení trvalo příliš dlouho. Zkuste to později nebo vyplňte inzerát ručně.'
       : /network|fetch/i.test(msg)
         ? 'Síťová chyba při komunikaci se serverem.'
         : `Chyba připojení: ${msg}`;
     return { ok: false, error: hint };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
 export type SrealityPrefillDebugLog = {
   url: string;
+  startedAt?: string;
+  endedAt?: string;
+  durationMs?: number;
   httpStatus: number | null;
   cloudflareDetected: boolean;
+  playwrightAttempted?: boolean;
   playwrightLoaded: boolean;
+  playwrightFailed?: boolean;
+  fetchFallbackUsed?: boolean;
   foundJsonLd: boolean;
   foundNextData: boolean;
   foundInitialState: boolean;

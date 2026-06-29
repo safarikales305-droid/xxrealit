@@ -602,3 +602,8 @@ export function hasMinimumPrefillData(data: SrealityListingPrefill): boolean {
   const hasCity = Boolean(data.city?.trim() || data.location?.trim());
   return (hasTitle || hasDescription) && hasCity;
 }
+
+/** Částečný úspěch po fetch fallbacku — název + popis bez města. */
+export function hasPartialPrefillData(data: SrealityListingPrefill): boolean {
+  return Boolean(data.title?.trim()) && Boolean(data.description?.trim());
+}

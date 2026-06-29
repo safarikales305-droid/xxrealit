@@ -19,6 +19,11 @@ type PlaywrightCookie = {
   path?: string;
 };
 
+const GOTO_TIMEOUT_MS = 20_000;
+const LOAD_STATE_TIMEOUT_MS = 10_000;
+const SELECTOR_TIMEOUT_MS = 8_000;
+const DEFAULT_TOTAL_TIMEOUT_MS = 40_000;
+
 const CHROMIUM_LAUNCH_ARGS = [
   '--no-sandbox',
   '--disable-setuid-sandbox',
@@ -50,13 +55,20 @@ export class SrealityPlaywrightService {
   ): Promise<SrealityPlaywrightRenderResult> {
     this.logger.log(`Sreality prefill: start Playwright diagnostika url=${url}`);
 
-    const timeoutMs = Math.max(15_000, options?.timeoutMs ?? 55_000);
-    const retries = Math.max(1, Math.min(3, options?.retries ?? 2));
+    const timeoutMs = Math.min(
+      40_000,
+      Math.max(15_000, options?.timeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS),
+    );
+    const retries = Math.max(1, Math.min(2, options?.retries ?? 1));
     let lastErr: unknown = null;
 
     for (let attempt = 1; attempt <= retries; attempt += 1) {
       try {
-        return await this.renderOnce(url, timeoutMs);
+        return await this.withTimeout(
+          this.renderOnce(url),
+          timeoutMs,
+          `Playwright timeout po ${timeoutMs} ms`,
+        );
       } catch (e) {
         lastErr = e;
         const errMsg = e instanceof Error ? e.message : String(e);
@@ -185,7 +197,7 @@ export class SrealityPlaywrightService {
     }
   }
 
-  private async renderOnce(url: string, timeoutMs: number): Promise<SrealityPlaywrightRenderResult> {
+  private async renderOnce(url: string): Promise<SrealityPlaywrightRenderResult> {
     const playwright = await this.loadPlaywrightModule();
     const storage = this.readStorageState();
     const browser = await this.launchChromiumBrowser(playwright);
@@ -224,13 +236,13 @@ export class SrealityPlaywrightService {
       });
 
       await page
-        .goto('https://www.sreality.cz/', { waitUntil: 'domcontentloaded', timeout: Math.min(20_000, timeoutMs) })
+        .goto('https://www.sreality.cz/', { waitUntil: 'domcontentloaded', timeout: GOTO_TIMEOUT_MS })
         .catch(() => undefined);
-      await this.delay(page, 600);
+      await this.delay(page, 400);
 
       const response = await page.goto(url, {
-        waitUntil: 'networkidle',
-        timeout: Math.max(timeoutMs, 120_000),
+        waitUntil: 'domcontentloaded',
+        timeout: GOTO_TIMEOUT_MS,
       });
       httpStatus = response?.status() ?? null;
 
@@ -247,17 +259,19 @@ export class SrealityPlaywrightService {
         };
       }
 
-      await this.handleSeznamConsent(page, url, timeoutMs, context);
-      await page.waitForLoadState('networkidle', { timeout: Math.min(25_000, timeoutMs) }).catch(() => undefined);
-      await this.delay(page, 3000);
+      await this.handleSeznamConsent(page, url, context);
+      await page
+        .waitForLoadState('domcontentloaded', { timeout: LOAD_STATE_TIMEOUT_MS })
+        .catch(() => undefined);
+      await this.delay(page, 1200);
 
       await page
         .waitForSelector('h1, script#__NEXT_DATA__, [data-e2e="detail-heading"], main', {
-          timeout: Math.min(20_000, timeoutMs / 2),
+          timeout: SELECTOR_TIMEOUT_MS,
         })
         .catch(() => undefined);
 
-      await this.delay(page, 1200);
+      await this.delay(page, 600);
 
       await page
         .evaluate(async () => {
@@ -317,6 +331,20 @@ export class SrealityPlaywrightService {
     }
   }
 
+  private async withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(message)), ms);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   private extractReturnUrl(pageUrl: string): string | null {
     try {
       const parsed = new URL(pageUrl);
@@ -330,7 +358,6 @@ export class SrealityPlaywrightService {
   private async handleSeznamConsent(
     page: PlaywrightPage,
     originalUrl: string,
-    timeoutMs: number,
     context: PlaywrightContext,
   ): Promise<void> {
     const returnUrl = this.extractReturnUrl(page.url()) ?? originalUrl;
@@ -380,7 +407,7 @@ export class SrealityPlaywrightService {
       }
 
       await page
-        .waitForURL(/sreality\.cz\/detail/i, { timeout: 12_000 })
+        .waitForURL(/sreality\.cz\/detail/i, { timeout: 8_000 })
         .catch(() => undefined);
       await this.delay(page, 600);
 
@@ -389,7 +416,7 @@ export class SrealityPlaywrightService {
 
     if (this.isCookieConsentPage(page.url(), '')) {
       await page
-        .goto(returnUrl, { waitUntil: 'networkidle', timeout: Math.max(timeoutMs, 120_000) })
+        .goto(returnUrl, { waitUntil: 'domcontentloaded', timeout: GOTO_TIMEOUT_MS })
         .catch(() => undefined);
       await this.dismissCookieBanners(page);
       await this.delay(page, 800);
