@@ -19,6 +19,25 @@ type PlaywrightCookie = {
   path?: string;
 };
 
+const CHROMIUM_LAUNCH_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-blink-features=AutomationControlled',
+];
+
+type PlaywrightModule = {
+  chromium: {
+    launch: (opts: Record<string, unknown>) => Promise<PlaywrightBrowser>;
+    executablePath: () => string;
+  };
+};
+
+type PlaywrightBrowser = {
+  newContext: (opts: Record<string, unknown>) => Promise<PlaywrightContext>;
+  close: () => Promise<void>;
+};
+
 @Injectable()
 export class SrealityPlaywrightService {
   private readonly logger = new Logger(SrealityPlaywrightService.name);
@@ -29,6 +48,8 @@ export class SrealityPlaywrightService {
     url: string,
     options?: { timeoutMs?: number; retries?: number },
   ): Promise<SrealityPlaywrightRenderResult> {
+    this.logger.log(`Sreality prefill: start Playwright diagnostika url=${url}`);
+
     const timeoutMs = Math.max(15_000, options?.timeoutMs ?? 55_000);
     const retries = Math.max(1, Math.min(3, options?.retries ?? 2));
     let lastErr: unknown = null;
@@ -38,10 +59,9 @@ export class SrealityPlaywrightService {
         return await this.renderOnce(url, timeoutMs);
       } catch (e) {
         lastErr = e;
+        const errMsg = e instanceof Error ? e.message : String(e);
         this.logger.warn(
-          `Sreality playwright retry ${attempt}/${retries} url=${url} err=${
-            e instanceof Error ? e.message : String(e)
-          }`,
+          `Sreality playwright retry ${attempt}/${retries} url=${url} err=${errMsg}`,
         );
       }
     }
@@ -58,7 +78,7 @@ export class SrealityPlaywrightService {
         errorDetail: `Playwright timeout po ${timeoutMs} ms: ${msg}`,
       };
     }
-    if (/playwright|Cannot find module/i.test(msg)) {
+    if (this.isPlaywrightUnavailableError(msg)) {
       return {
         html: '',
         finalUrl: url,
@@ -80,6 +100,74 @@ export class SrealityPlaywrightService {
     };
   }
 
+  private isPlaywrightUnavailableError(message: string): boolean {
+    return (
+      /cannot find module ['"]playwright['"]/i.test(message) ||
+      /playwright is not installed/i.test(message) ||
+      /executable doesn't exist/i.test(message) ||
+      /failed to launch.*chromium/i.test(message) ||
+      /browser.*not found/i.test(message) ||
+      /host system is missing dependencies/i.test(message)
+    );
+  }
+
+  private async loadPlaywrightModule(): Promise<PlaywrightModule> {
+    const dynamicImport = new Function('m', 'return import(m)') as (m: string) => Promise<unknown>;
+    try {
+      const playwright = (await dynamicImport('playwright')) as PlaywrightModule;
+      this.logger.log('Playwright nalezen');
+      return playwright;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.error(`Playwright nenalezen: ${msg}`);
+      throw new Error(`Cannot find module 'playwright': ${msg}`);
+    }
+  }
+
+  private resolveChromiumExecutable(playwright: PlaywrightModule): string {
+    let executablePath = '';
+    try {
+      executablePath = playwright.chromium.executablePath();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.error(`Chromium executablePath selhalo: ${msg}`);
+      throw new Error(`Chromium nenalezeno: ${msg}`);
+    }
+
+    if (!executablePath || !existsSync(executablePath)) {
+      const browsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH ?? '(default)';
+      const detail = `Chromium executable neexistuje: ${executablePath || 'prázdná cesta'} (PLAYWRIGHT_BROWSERS_PATH=${browsersPath}). Spusťte: npx playwright install chromium`;
+      this.logger.error(detail);
+      throw new Error(detail);
+    }
+
+    this.logger.log(`Chromium nalezeno: ${executablePath}`);
+    return executablePath;
+  }
+
+  private async launchChromiumBrowser(playwright: PlaywrightModule): Promise<PlaywrightBrowser> {
+    this.resolveChromiumExecutable(playwright);
+
+    const channel = this.config.get<string>('SREALITY_PLAYWRIGHT_CHANNEL')?.trim();
+    const launchOptions: Record<string, unknown> = {
+      headless: true,
+      args: CHROMIUM_LAUNCH_ARGS,
+    };
+    if (channel) {
+      launchOptions.channel = channel;
+    }
+
+    try {
+      const browser = await playwright.chromium.launch(launchOptions);
+      this.logger.log('Browser spuštěn');
+      return browser;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.error(`Browser launch failed: ${msg}`);
+      throw new Error(`Browser launch failed: ${msg}`);
+    }
+  }
+
   private readStorageState(): { path: string } | { cookies: PlaywrightCookie[] } | undefined {
     const storagePath = this.config.get<string>('SREALITY_PLAYWRIGHT_STORAGE_STATE_PATH')?.trim();
     if (storagePath && existsSync(storagePath)) {
@@ -98,22 +186,9 @@ export class SrealityPlaywrightService {
   }
 
   private async renderOnce(url: string, timeoutMs: number): Promise<SrealityPlaywrightRenderResult> {
-    const dynamicImport = new Function('m', 'return import(m)') as (m: string) => Promise<unknown>;
-    const playwright = (await dynamicImport('playwright')) as {
-      chromium: {
-        launch: (opts: Record<string, unknown>) => Promise<{
-          newContext: (opts: Record<string, unknown>) => Promise<PlaywrightContext>;
-          close: () => Promise<void>;
-        }>;
-      };
-    };
-
+    const playwright = await this.loadPlaywrightModule();
     const storage = this.readStorageState();
-    const browser = await playwright.chromium.launch({
-      headless: true,
-      channel: this.config.get<string>('SREALITY_PLAYWRIGHT_CHANNEL') || undefined,
-      args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled'],
-    });
+    const browser = await this.launchChromiumBrowser(playwright);
 
     let httpStatus: number | null = null;
 

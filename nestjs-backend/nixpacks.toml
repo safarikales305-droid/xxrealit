@@ -1,7 +1,30 @@
 [variables]
 NIXPACKS_NODE_VERSION = "20"
+# Chromium v node_modules — přežije deploy na Railway
+PLAYWRIGHT_BROWSERS_PATH = "0"
+PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true"
 
-# Systémový ffmpeg — když volitelný balíček `ffmpeg-static` při `npm ci` na platformě selže,
-# backend použije `ffmpeg` z PATH (viz `src/lib/ffmpeg-binary.ts`).
+# Systémový ffmpeg + knihovny pro headless Chromium
 [phases.setup]
 nixPkgs = ["...", "ffmpeg"]
+aptPkgs = [
+  "...",
+  "libnss3",
+  "libnspr4",
+  "libatk1.0-0",
+  "libatk-bridge2.0-0",
+  "libcups2",
+  "libdrm2",
+  "libxkbcommon0",
+  "libxcomposite1",
+  "libxdamage1",
+  "libxfixes3",
+  "libxrandr2",
+  "libgbm1",
+  "libasound2",
+  "libpango-1.0-0",
+  "libcairo2",
+  "libglib2.0-0",
+  "fonts-liberation",
+  "ca-certificates",
+]

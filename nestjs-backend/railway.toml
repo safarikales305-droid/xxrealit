@@ -1,5 +1,6 @@
 # Kořen služby v Railway UI nastav na tento adresář (nestjs-backend).
-# Nixpacks: npm install (postinstall → prisma generate), poté npm run build ze scriptů.
+# Build: npm run build (včetně playwright install chromium do node_modules).
+# Env: PLAYWRIGHT_BROWSERS_PATH=0 (viz nixpacks.toml).
 # Start: node dist/main.js
 
 [build]

@@ -240,7 +240,11 @@ export class ListingsPrefillService {
       case 'TIMEOUT':
         return `Vypršel časový limit načítání stránky. ${detail ?? ''}`.trim();
       case 'PLAYWRIGHT_UNAVAILABLE':
-        return 'Playwright není na serveru dostupný — kontaktujte administrátora.';
+        return detail
+          ? `Playwright není dostupný: ${detail}`
+          : 'Playwright není na serveru dostupný — kontaktujte administrátora.';
+      case 'PLAYWRIGHT_ERROR':
+        return detail ? `Playwright selhal: ${detail}` : 'Playwright selhal při spuštění prohlížeče.';
       case 'PARSER_NO_DATA':
         return `Parser nenašel dostatečná data v HTML. ${detail ?? 'Vyplňte inzerát ručně.'}`;
       case 'EMPTY_HTML':

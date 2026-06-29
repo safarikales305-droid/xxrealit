@@ -11,7 +11,8 @@
     "seed": "tsx prisma/seed.ts"
   },
   "scripts": {
-    "build": "prisma generate && nest build",
+    "build": "prisma generate && nest build && npm run playwright:install-chromium",
+    "playwright:install-chromium": "node scripts/install-playwright-chromium.mjs",
     "test:uniqueness": "tsx --test src/common/account-uniqueness.constants.test.ts",
     "test:credit-debt": "tsx --test src/modules/credits/credit-debt.util.test.ts",
     "test:sreality-prefill": "tsx --test src/modules/properties/sreality-prefill.smoke.test.ts",
@@ -45,11 +46,11 @@
     "rxjs": "^7.8.1",
     "sharp": "^0.33.5",
     "web-push": "^3.6.7",
-    "xml2js": "^0.6.2"
+    "xml2js": "^0.6.2",
+    "playwright": "^1.51.0"
   },
   "optionalDependencies": {
-    "ffmpeg-static": "^5.2.0",
-    "playwright": "^1.51.0"
+    "ffmpeg-static": "^5.2.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",
