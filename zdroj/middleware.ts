@@ -8,6 +8,7 @@ import {
   isKnownXxrealitHostname,
   resolveRequestHostname,
 } from '@/lib/site-origin';
+import { isPublicVerificationFilePath } from '@/lib/verification-files';
 
 type JwtAuthClaims = {
   role?: string;
@@ -69,6 +70,13 @@ export async function middleware(request: NextRequest) {
   if (canonical) return canonical;
 
   const { pathname } = request.nextUrl;
+  const verificationFilename = isPublicVerificationFilePath(pathname);
+  if (verificationFilename) {
+    const url = request.nextUrl.clone();
+    url.pathname = `/api/verification-file/${verificationFilename}`;
+    return NextResponse.rewrite(url);
+  }
+
   if (!isProtectedPath(pathname)) {
     return NextResponse.next();
   }

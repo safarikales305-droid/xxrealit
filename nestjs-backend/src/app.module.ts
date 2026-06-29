@@ -49,6 +49,7 @@ import { PortalTermsModule } from './modules/portal-terms/portal-terms.module';
 import { PortalPresentationModule } from './modules/portal-presentation/portal-presentation.module';
 import { SupportTicketsModule } from './modules/support-tickets/support-tickets.module';
 import { TiparPayoutModule } from './modules/tipar-payout/tipar-payout.module';
+import { VerificationFilesModule } from './modules/verification-files/verification-files.module';
 
 @Module({
   imports: [
@@ -104,6 +105,7 @@ import { TiparPayoutModule } from './modules/tipar-payout/tipar-payout.module';
     PortalPresentationModule,
     SupportTicketsModule,
     TiparPayoutModule,
+    VerificationFilesModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

@@ -464,6 +464,7 @@ model User {
   developerNotesUpdated DeveloperNote[] @relation("DeveloperNoteUpdatedBy")
   supportTickets      SupportTicket[] @relation("SupportTicketUser")
   assignedSupportTickets SupportTicket[] @relation("SupportTicketAssignee")
+  verificationFilesUploaded VerificationFile[] @relation("VerificationFileUploader")
   supportTicketMessages SupportTicketMessage[] @relation("SupportTicketMessageAuthor")
   marketingPopupViews     MarketingPopupUserView[]
   analyticsSessions       AnalyticsSession[]
@@ -2766,6 +2767,22 @@ model WorkerRecruitmentScenario {
   stepsJson Json
 
   target WorkerRecruitmentTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+}
+
+/// Ověřovací soubor pro externí služby (TikTok, Google, Facebook…) — veřejně z kořene domény.
+model VerificationFile {
+  id                String   @id @default(cuid())
+  filename          String   @unique
+  mimeType          String
+  content           String   @db.Text
+  isActive          Boolean  @default(true)
+  uploadedByAdminId String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  uploadedBy User @relation("VerificationFileUploader", fields: [uploadedByAdminId], references: [id], onDelete: Cascade)
+
+  @@index([filename, isActive])
 }
 
 enum SupportTicketStatus {
