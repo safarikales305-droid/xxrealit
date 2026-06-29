@@ -8,11 +8,12 @@ import {
   nestApiConfigured,
   nestListActiveShortsMusicTracks,
   nestTipCreateMultipart,
-  nestTipGenerateShortsFromPhotos,
   nestTipUpdateMultipart,
   type ShortsMusicTrackDto,
   type TiparPostRow,
 } from '@/lib/nest-client';
+import { ShortsFromPhotosDialog } from '@/components/listing/ShortsFromPhotosDialog';
+import { createDefaultOverlaySettings, type ShortsOverlaySettings } from '@/lib/shorts-overlay';
 
 const inputClass =
   'w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-[#ff6a00]/55 focus:ring-2 focus:ring-[#ff6a00]/15';
@@ -62,8 +63,12 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
   const [shortsMusicTracksLoading, setShortsMusicTracksLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playingMusicId, setPlayingMusicId] = useState<string | null>(null);
-  const [shortsTextOverlay, setShortsTextOverlay] = useState(true);
-  const [shortsGenerating, setShortsGenerating] = useState(false);
+  const [shortsDialogOpen, setShortsDialogOpen] = useState(false);
+  const [shortsImageFiles, setShortsImageFiles] = useState<File[]>([]);
+  const [shortsPreviewUrl, setShortsPreviewUrl] = useState<string | null>(null);
+  const [shortsOverlaySettings, setShortsOverlaySettings] = useState<ShortsOverlaySettings>(() =>
+    createDefaultOverlaySettings({ isTip: true }),
+  );
   const [shortsError, setShortsError] = useState<string | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
@@ -255,9 +260,8 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
     return files;
   }, [imageItems]);
 
-  const generateShortsFromPhotos = useCallback(async () => {
+  function openShortsDialog() {
     setShortsError(null);
-    stopMusic();
     if (!nestApiConfigured() || !apiAccessToken) {
       setShortsError('Přihlaste se a nastavte NEXT_PUBLIC_API_URL.');
       return;
@@ -266,58 +270,12 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
       setShortsError('Přidejte alespoň dvě fotky.');
       return;
     }
-    if (shortsTextOverlay) {
-      const t = title.trim();
-      const c = city.trim();
-      const priceNum = Math.round(Number(propertyPrice));
-      if (!t || !c || !Number.isFinite(priceNum) || priceNum < 0) {
-        setShortsError('Pro text ve videu vyplňte název, lokalitu a cenu.');
-        return;
-      }
-    }
-
-    const fd = new FormData();
-    fd.append('title', title.trim());
-    fd.append('city', city.trim());
-    fd.append('price', String(Math.round(Number(propertyPrice)) || 0));
-    fd.append('currency', 'CZK');
-    if (shortsMusicTrackId.trim()) {
-      fd.append('musicTrackId', shortsMusicTrackId.trim());
-    }
-    fd.append('musicKey', 'none');
-    fd.append('includeTextOverlay', String(shortsTextOverlay));
-
-    const imageFiles = await collectImageFilesForShorts();
-    for (const f of imageFiles) {
-      fd.append('images', f);
-    }
-
-    setShortsGenerating(true);
-    const r = await nestTipGenerateShortsFromPhotos(apiAccessToken, fd);
-    setShortsGenerating(false);
-    if (!r.ok) {
-      setShortsError(r.error ?? 'Generování selhalo.');
-      return;
-    }
-    if (videoPreviewUrl?.startsWith('blob:')) URL.revokeObjectURL(videoPreviewUrl);
-    setVideoFile(null);
-    setVideoPreviewUrl(null);
-    setGeneratedVideoUrl(r.videoUrl);
-    setGeneratedPreviewUrl(r.videoUrl);
-    setIsGeneratedVideoUsed(false);
-    setIsShorts(true);
-  }, [
-    apiAccessToken,
-    city,
-    collectImageFilesForShorts,
-    imageItems.length,
-    propertyPrice,
-    shortsMusicTrackId,
-    shortsTextOverlay,
-    stopMusic,
-    title,
-    videoPreviewUrl,
-  ]);
+    void collectImageFilesForShorts().then((files) => {
+      setShortsImageFiles(files);
+      setShortsPreviewUrl(imageItems[0]?.previewUrl ?? null);
+      setShortsDialogOpen(true);
+    });
+  }
 
   function useGeneratedVideo() {
     const url = (generatedPreviewUrl || generatedVideoUrl).trim();
@@ -506,6 +464,34 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
     (generatedVideoUrl.trim() ? generatedVideoUrl : null);
 
   return (
+    <>
+      <ShortsFromPhotosDialog
+        open={shortsDialogOpen}
+        onClose={() => setShortsDialogOpen(false)}
+        token={apiAccessToken}
+        imageFiles={shortsImageFiles}
+        previewUrl={shortsPreviewUrl}
+        offerType="tip"
+        isTip
+        apiMode="tip"
+        musicTrackId={shortsMusicTrackId}
+        musicTracks={shortsMusicTracks}
+        title={title}
+        city={city}
+        currency="CZK"
+        initialSettings={shortsOverlaySettings}
+        onSuccess={(url, settings) => {
+          stopMusic();
+          if (videoPreviewUrl?.startsWith('blob:')) URL.revokeObjectURL(videoPreviewUrl);
+          setVideoFile(null);
+          setVideoPreviewUrl(null);
+          setGeneratedVideoUrl(url);
+          setGeneratedPreviewUrl(url);
+          setIsGeneratedVideoUsed(false);
+          setIsShorts(true);
+          setShortsOverlaySettings(settings);
+        }}
+      />
     <form
       onSubmit={(e) => void handleSubmit(e)}
       className="mx-auto w-full max-w-2xl space-y-6 rounded-2xl border border-zinc-200 bg-white p-4 sm:p-6"
@@ -669,18 +655,13 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
               {shortsMusicTracksLoading ? <p className="text-xs text-zinc-500">Načítám hudbu…</p> : null}
             </fieldset>
             <audio ref={audioRef} className="hidden" onEnded={() => setPlayingMusicId(null)} />
-            <label className="flex items-center gap-2 text-xs">
-              <input type="checkbox" checked={shortsTextOverlay} onChange={(e) => setShortsTextOverlay(e.target.checked)} />
-              Text s názvem, lokalitou a cenou
-            </label>
             {shortsError ? <p className="text-xs text-red-600">{shortsError}</p> : null}
             <button
               type="button"
-              disabled={shortsGenerating}
-              onClick={() => void generateShortsFromPhotos()}
-              className="rounded-full bg-[#e85d00] px-4 py-2 text-xs font-semibold text-white disabled:opacity-60"
+              onClick={openShortsDialog}
+              className="rounded-full bg-[#e85d00] px-4 py-2 text-xs font-semibold text-white"
             >
-              {shortsGenerating ? 'Generuji video…' : 'Vygenerovat Shorts video'}
+              Vytvořit Shorts video z fotek
             </button>
           </>
         ) : (
@@ -695,7 +676,7 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
               <button type="button" onClick={useGeneratedVideo} className="rounded-full bg-[#e85d00] px-4 py-2 text-xs font-semibold text-white">
                 Použít video
               </button>
-              <button type="button" onClick={() => void generateShortsFromPhotos()} className="rounded-full border px-4 py-2 text-xs font-semibold">
+              <button type="button" onClick={openShortsDialog} className="rounded-full border px-4 py-2 text-xs font-semibold">
                 Přegenerovat
               </button>
               <button
@@ -750,5 +731,6 @@ export function TipCreateForm({ editTip, focusShorts = false, onSaved, onCancel 
         ) : null}
       </div>
     </form>
+    </>
   );
 }

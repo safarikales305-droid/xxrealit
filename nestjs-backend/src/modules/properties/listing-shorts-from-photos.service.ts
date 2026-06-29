@@ -12,6 +12,16 @@ import {
 import { quoteFfmpegArgv, runFfmpegCapture } from '../../lib/ffmpeg-run';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
 import { VideoOgThumbnailService } from './video-og-thumbnail.service';
+import {
+  buildShortsOverlayConfig,
+  type ShortsOverlayConfig,
+} from './shorts-overlay.types';
+import {
+  loadShortsLogoPng,
+  renderShortsTopOverlayPng,
+  SHORTS_HEIGHT,
+  SHORTS_WIDTH,
+} from './shorts-top-overlay.render';
 
 import sharp = require('sharp');
 
@@ -19,8 +29,6 @@ const ALLOWED_IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
 const MIN_IMAGES = 2;
 const MAX_IMAGES = 15;
 const FPS = 30;
-const SHORTS_WIDTH = 720;
-const SHORTS_HEIGHT = 1280;
 const VIDEO_BITRATE = '1800k';
 
 export type ShortsMusicKey = 'none' | 'demo_soft' | 'demo_warm' | 'demo_pulse';
@@ -37,7 +45,21 @@ export type GenerateShortsFromPhotosInput = {
   price: number | null;
   currency: string;
   music: ShortsMusicSelection;
-  includeTextOverlay: boolean;
+  /** @deprecated použijte overlay.showOverlayText */
+  includeTextOverlay?: boolean;
+  overlay?: Partial<{
+    overlayText: string;
+    overlayStyle: string;
+    overlayFont: string;
+    overlayColor: string;
+    overlayFontSize: number;
+    overlayPosition: string;
+    showLogo: boolean;
+    showOverlayText: boolean;
+    offerType: string;
+    isTip: boolean;
+    isTiparTip: boolean;
+  }>;
 };
 
 function clampTotalSeconds(imageCount: number): number {
@@ -378,6 +400,76 @@ export class ListingShortsFromPhotosService {
     }
   }
 
+  private resolveOverlayConfig(input: GenerateShortsFromPhotosInput): ShortsOverlayConfig | null {
+    const raw = input.overlay ?? {};
+    const showOverlayText =
+      raw.showOverlayText !== undefined
+        ? raw.showOverlayText !== false
+        : input.includeTextOverlay !== false;
+    const showLogo = raw.showLogo !== false;
+    if (!showOverlayText && !showLogo) return null;
+    return buildShortsOverlayConfig({
+      ...raw,
+      showOverlayText,
+      showLogo,
+      offerType: raw.offerType,
+      isTip: raw.isTip,
+      isTiparTip: raw.isTiparTip,
+    });
+  }
+
+  private async tryApplyTopOverlay(
+    ffmpegBin: string,
+    tmpRoot: string,
+    videoIn: string,
+    overlay: ShortsOverlayConfig,
+    outPath: string,
+  ): Promise<boolean> {
+    try {
+      const logo = overlay.showLogo ? loadShortsLogoPng() : null;
+      const overlayPng = await renderShortsTopOverlayPng(overlay, logo);
+      const overlayPath = join(tmpRoot, 'top-overlay.png');
+      await writeFile(overlayPath, overlayPng);
+      const args = [
+        '-hide_banner',
+        '-loglevel',
+        'warning',
+        '-y',
+        '-i',
+        videoIn,
+        '-i',
+        overlayPath,
+        '-filter_complex',
+        '[0:v][1:v]overlay=0:0:format=auto[outv]',
+        '-map',
+        '[outv]',
+        '-c:v',
+        'libx264',
+        '-preset',
+        'veryfast',
+        '-b:v',
+        VIDEO_BITRATE,
+        '-maxrate',
+        '2500k',
+        '-bufsize',
+        '5000k',
+        '-pix_fmt',
+        'yuv420p',
+        '-movflags',
+        '+faststart',
+        '-an',
+        outPath,
+      ];
+      await runFfmpegLogged(this.log, 'top-overlay', ffmpegBin, args);
+      return true;
+    } catch (e) {
+      this.log.warn(
+        `[shorts-generator] horní overlay selhal — použiji video bez overlay. ${e instanceof Error ? e.message : e}`,
+      );
+      return false;
+    }
+  }
+
   private async tryDrawTextOverlay(
     ffmpegBin: string,
     tmpRoot: string,
@@ -466,7 +558,7 @@ export class ListingShortsFromPhotosService {
       const totalSec = clampTotalSeconds(n);
       const slideDur = slideDurationSecUniform(n, totalSec);
       this.log.log(
-        `[shorts-generator] start: snímků=${n}, total≈${totalSec}s, slide≈${slideDur.toFixed(3)}s, hudba=${JSON.stringify(input.music)}, text=${input.includeTextOverlay}, tmp=${resolve(tmpRoot)}`,
+        `[shorts-generator] start: snímků=${n}, total≈${totalSec}s, slide≈${slideDur.toFixed(3)}s, hudba=${JSON.stringify(input.music)}, overlay=${JSON.stringify(input.overlay ?? null)}, tmp=${resolve(tmpRoot)}`,
       );
 
       const slideRelNames = await this.normalizeSlides(tmpRoot, input.images);
@@ -480,17 +572,18 @@ export class ListingShortsFromPhotosService {
 
       let currentPath = corePath;
 
-      if (input.includeTextOverlay) {
-        const title = input.title.trim().slice(0, 120);
-        const city = input.city.trim().slice(0, 120);
-        const priceLine =
-          typeof input.price === 'number' && Number.isFinite(input.price) && input.price > 0
-            ? `${input.price.toLocaleString('cs-CZ')} ${(input.currency || 'CZK').trim().slice(0, 8)}`
-            : 'Cena na dotaz';
-        const textOut = join(tmpRoot, 'with-text.mp4');
-        const ok = await this.tryDrawTextOverlay(ffmpegBin, tmpRoot, currentPath, title, city, priceLine, textOut);
+      const overlayConfig = this.resolveOverlayConfig(input);
+      if (overlayConfig) {
+        const overlayOut = join(tmpRoot, 'with-top-overlay.mp4');
+        const ok = await this.tryApplyTopOverlay(
+          ffmpegBin,
+          tmpRoot,
+          currentPath,
+          overlayConfig,
+          overlayOut,
+        );
         if (ok) {
-          currentPath = textOut;
+          currentPath = overlayOut;
         }
       }
 
@@ -572,5 +665,33 @@ export class ListingShortsFromPhotosService {
       return t === '1' || t === 'true' || t === 'yes' || t === 'on';
     }
     return false;
+  }
+
+  static parseOverlayBody(body: Record<string, unknown>): GenerateShortsFromPhotosInput['overlay'] {
+    const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+    const toInt = (v: unknown): number | undefined => {
+      if (typeof v === 'number' && Number.isFinite(v)) return Math.round(v);
+      if (typeof v === 'string' && v.trim()) {
+        const n = Number.parseInt(v.replace(/\s/g, ''), 10);
+        return Number.isFinite(n) ? n : undefined;
+      }
+      return undefined;
+    };
+    return {
+      overlayText: str(body.overlayText),
+      overlayStyle: str(body.overlayStyle),
+      overlayFont: str(body.overlayFont),
+      overlayColor: str(body.overlayColor),
+      overlayFontSize: toInt(body.overlayFontSize),
+      overlayPosition: str(body.overlayPosition),
+      showLogo: body.showLogo !== undefined ? ListingShortsFromPhotosService.parseBool(body.showLogo) : undefined,
+      showOverlayText:
+        body.showOverlayText !== undefined
+          ? ListingShortsFromPhotosService.parseBool(body.showOverlayText)
+          : undefined,
+      offerType: str(body.offerType) || str(body.type),
+      isTip: ListingShortsFromPhotosService.parseBool(body.isTip),
+      isTiparTip: ListingShortsFromPhotosService.parseBool(body.isTiparTip),
+    };
   }
 }

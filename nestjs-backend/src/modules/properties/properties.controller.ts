@@ -110,14 +110,7 @@ export class PropertiesController {
     const includeTextOverlay = ListingShortsFromPhotosService.parseBool(
       body.includeTextOverlay,
     );
-
-    if (includeTextOverlay) {
-      if (!title || !city || !Number.isFinite(priceRaw) || priceRaw < 0) {
-        throw new BadRequestException(
-          'Pro text ve videu vyplňte titulek, město a platnou cenu.',
-        );
-      }
-    }
+    const overlay = ListingShortsFromPhotosService.parseOverlayBody(body);
 
     return this.listingShortsFromPhotosService.generateAndUpload({
       images: imageFiles,
@@ -127,6 +120,10 @@ export class PropertiesController {
       currency,
       music,
       includeTextOverlay,
+      overlay: {
+        ...overlay,
+        offerType: overlay?.offerType || str(body.type),
+      },
     });
   }
 
@@ -449,6 +446,14 @@ export class PropertiesController {
       region: str(body.region).slice(0, 120),
       district: str(body.district).slice(0, 120),
       sourceUrl: str(body.sourceUrl).trim().slice(0, 2000) || undefined,
+      overlayText: str(body.overlayText).slice(0, 80),
+      overlayStyle: str(body.overlayStyle).slice(0, 64),
+      overlayFont: str(body.overlayFont).slice(0, 120),
+      overlayColor: str(body.overlayColor).slice(0, 32),
+      overlayFontSize: toInt(body.overlayFontSize),
+      overlayPosition: str(body.overlayPosition).slice(0, 16),
+      showLogo: toBool(body.showLogo),
+      showOverlayText: toBool(body.showOverlayText),
     };
 
     return this.propertiesService.create(user.id, dto, {

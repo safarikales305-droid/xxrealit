@@ -170,4 +170,44 @@ export class CreatePropertyDto {
   @IsString()
   @MaxLength(2000)
   sourceUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  overlayText?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  overlayStyle?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  overlayFont?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  overlayColor?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  overlayFontSize?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(16)
+  overlayPosition?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => toBool(value))
+  @IsBoolean()
+  showLogo?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => toBool(value))
+  @IsBoolean()
+  showOverlayText?: boolean;
 }

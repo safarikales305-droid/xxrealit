@@ -6,13 +6,18 @@ import {
   nestApiConfigured,
   nestCreatePropertyListingMultipart,
   nestFetchMe,
-  nestGeneratePropertyShortsFromPhotos,
   nestListActiveShortsMusicTracks,
   type PropertyCreationMeta,
   type ShortsMusicTrackDto,
 } from '@/lib/nest-client';
 import { buildListingContactPrefill } from '@/lib/listing-contact-prefill.util';
 import { ListingSuccessModal } from '@/components/listing/ListingSuccessModal';
+import { ShortsFromPhotosDialog } from '@/components/listing/ShortsFromPhotosDialog';
+import {
+  appendOverlayToFormData,
+  createDefaultOverlaySettings,
+  type ShortsOverlaySettings,
+} from '@/lib/shorts-overlay';
 import {
   SrealityPrefillSection,
   type SrealityPrefillApplyPayload,
@@ -101,8 +106,10 @@ export function ListingCreateForm() {
   const [shortsMusicTracks, setShortsMusicTracks] = useState<ShortsMusicTrackDto[]>([]);
   const [shortsMusicTracksLoading, setShortsMusicTracksLoading] = useState(false);
   const shortsPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
-  const [shortsTextOverlay, setShortsTextOverlay] = useState(true);
-  const [shortsGenerating, setShortsGenerating] = useState(false);
+  const [shortsDialogOpen, setShortsDialogOpen] = useState(false);
+  const [shortsOverlaySettings, setShortsOverlaySettings] = useState<ShortsOverlaySettings>(() =>
+    createDefaultOverlaySettings({ offerType: 'prodej' }),
+  );
   const [shortsError, setShortsError] = useState<string | null>(null);
   const [shortsSuccess, setShortsSuccess] = useState<string | null>(null);
 
@@ -251,71 +258,6 @@ export function ListingCreateForm() {
     });
   }, []);
 
-  const generateShortsFromPhotos = useCallback(async () => {
-    setShortsError(null);
-    setShortsSuccess(null);
-    if (!nestApiConfigured() || !apiAccessToken) {
-      setShortsError('Přihlaste se a nastavte NEXT_PUBLIC_API_URL.');
-      return;
-    }
-    if (imagePreviews.length < 2) {
-      setShortsError('Přidejte alespoň dvě fotky.');
-      return;
-    }
-    if (shortsTextOverlay) {
-      const t = title.trim();
-      const c = city.trim();
-      const priceNum = Math.round(Number(price));
-      if (!t || !c || !Number.isFinite(priceNum) || priceNum < 0) {
-        setShortsError(
-          'Pro text ve videu nejdřív vyplňte titulek, město a cenu v sekci výše.',
-        );
-        return;
-      }
-    }
-
-    const fd = new FormData();
-    fd.append('title', title.trim());
-    fd.append('city', city.trim());
-    fd.append('price', String(Math.round(Number(price)) || 0));
-    fd.append('currency', currency.trim() || 'CZK');
-    if (shortsMusicTrackId.trim()) {
-      fd.append('musicTrackId', shortsMusicTrackId.trim());
-      fd.append('musicKey', 'none');
-    } else {
-      fd.append('musicKey', 'none');
-    }
-    fd.append('includeTextOverlay', String(shortsTextOverlay));
-    for (const img of imagePreviews) {
-      fd.append('images', img.file);
-    }
-
-    setShortsGenerating(true);
-    const r = await nestGeneratePropertyShortsFromPhotos(apiAccessToken, fd);
-    setShortsGenerating(false);
-    if (!r.ok) {
-      setShortsError(r.error ?? 'Generování selhalo.');
-      return;
-    }
-    if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
-    setVideoFile(null);
-    setVideoPreviewUrl(null);
-    setVideoUrl(r.videoUrl);
-    setShortsSuccess(
-      'Shorts video je hotové a bude použito ve shorts feedu po uložení inzerátu.',
-    );
-  }, [
-    apiAccessToken,
-    city,
-    currency,
-    imagePreviews,
-    price,
-    shortsMusicTrackId,
-    shortsTextOverlay,
-    title,
-    videoPreviewUrl,
-  ]);
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -394,6 +336,7 @@ export function ListingCreateForm() {
     if (floor.trim()) fd.append('floor', floor.trim());
     if (totalFloors.trim()) fd.append('totalFloors', totalFloors.trim());
     if (savedSourceUrl.trim()) fd.append('sourceUrl', savedSourceUrl.trim());
+    appendOverlayToFormData(fd, shortsOverlaySettings);
 
     if (videoFile) {
       fd.append('video', videoFile);
@@ -462,6 +405,30 @@ export function ListingCreateForm() {
 
   return (
     <>
+      <ShortsFromPhotosDialog
+        open={shortsDialogOpen}
+        onClose={() => setShortsDialogOpen(false)}
+        token={apiAccessToken}
+        imageFiles={imagePreviews.map((x) => x.file)}
+        previewUrl={imagePreviews[0]?.previewUrl ?? null}
+        offerType={offerType}
+        musicTrackId={shortsMusicTrackId}
+        musicTracks={shortsMusicTracks}
+        title={title}
+        city={city}
+        currency={currency}
+        initialSettings={shortsOverlaySettings}
+        onSuccess={(url, settings) => {
+          if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+          setVideoFile(null);
+          setVideoPreviewUrl(null);
+          setVideoUrl(url);
+          setShortsOverlaySettings(settings);
+          setShortsSuccess(
+            'Shorts video je hotové a bude použito ve shorts feedu po uložení inzerátu.',
+          );
+        }}
+      />
       <ListingSuccessModal
         open={successModal != null}
         propertyId={successModal?.propertyId ?? ''}
@@ -852,8 +819,8 @@ export function ListingCreateForm() {
           >
             <p className="text-sm font-semibold text-zinc-900">Nemáte vlastní video?</p>
             <p className="mt-1 text-sm text-zinc-600">
-              Vytvoříme vám krátké vertikální shorts (9:16, MP4) z nahraných fotek — volitelná hudba z
-              knihovny spravované administrátorem a text s titulkem, lokalitou a cenou.
+              Vytvoříme krátké vertikální shorts (9:16, MP4) z nahraných fotek — logo XXREALIT a
+              vlastní horní nápis s výběrem stylu.
             </p>
             {videoFile ? (
               <p className="mt-2 text-xs text-zinc-500">
@@ -871,7 +838,7 @@ export function ListingCreateForm() {
                   id="shortsMusic"
                   value={shortsMusicTrackId}
                   onChange={(e) => setShortsMusicTrackId(e.target.value)}
-                  disabled={shortsGenerating || shortsMusicTracksLoading}
+                  disabled={shortsMusicTracksLoading}
                   className={inputClass}
                 >
                   <option value="">Bez hudby</option>
@@ -887,7 +854,7 @@ export function ListingCreateForm() {
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    disabled={!shortsMusicTrackId || shortsGenerating}
+                    disabled={!shortsMusicTrackId}
                     onClick={() => {
                       const t = shortsMusicTracks.find((x) => x.id === shortsMusicTrackId);
                       const el = shortsPreviewAudioRef.current;
@@ -910,19 +877,6 @@ export function ListingCreateForm() {
                   ) : null}
                 </div>
               </div>
-              <label className="flex cursor-pointer items-start gap-2 text-sm text-zinc-800 sm:col-span-2">
-                <input
-                  type="checkbox"
-                  checked={shortsTextOverlay}
-                  onChange={(e) => setShortsTextOverlay(e.target.checked)}
-                  disabled={shortsGenerating}
-                  className="mt-0.5 size-4 rounded border-zinc-300 text-[#ff6a00] focus:ring-[#ff6a00]/30"
-                />
-                <span>
-                  Přidat text do videa (název inzerátu, město, cena) — jednoduchý přehledný overlay
-                  dole u záběru.
-                </span>
-              </label>
             </div>
 
             {shortsError ? (
@@ -944,14 +898,21 @@ export function ListingCreateForm() {
 
             <button
               type="button"
-              onClick={() => void generateShortsFromPhotos()}
-              disabled={shortsGenerating}
-              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#ff6a00]/40 bg-white px-4 py-3 text-sm font-semibold text-[#ff3c00] shadow-sm transition hover:bg-orange-50 disabled:opacity-60 sm:w-auto"
+              onClick={() => {
+                if (!nestApiConfigured() || !apiAccessToken) {
+                  setShortsError('Přihlaste se a nastavte NEXT_PUBLIC_API_URL.');
+                  return;
+                }
+                if (imagePreviews.length < 2) {
+                  setShortsError('Přidejte alespoň dvě fotky.');
+                  return;
+                }
+                setShortsError(null);
+                setShortsDialogOpen(true);
+              }}
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#ff6a00]/40 bg-white px-4 py-3 text-sm font-semibold text-[#ff3c00] shadow-sm transition hover:bg-orange-50 sm:w-auto"
             >
-              {shortsGenerating ? (
-                <span className="inline-block size-4 animate-spin rounded-full border-2 border-[#ff6a00] border-t-transparent" />
-              ) : null}
-              {shortsGenerating ? 'Generuji video…' : 'Vygenerovat shorts video z fotek'}
+              Vytvořit Shorts video z fotek
             </button>
           </div>
         ) : null}

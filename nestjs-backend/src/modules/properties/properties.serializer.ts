@@ -173,6 +173,14 @@ export type PropertyRowForApi = {
   canGenerateShorts?: boolean;
   shortsGenerated?: boolean;
   shortsSourceType?: string | null;
+  overlayText?: string;
+  overlayStyle?: string;
+  overlayFont?: string;
+  overlayColor?: string;
+  overlayFontSize?: number;
+  overlayPosition?: string;
+  showLogo?: boolean;
+  showOverlayText?: boolean;
   createdAt: Date;
   userId: string;
   user: { id: string; city: string | null };
@@ -329,6 +337,14 @@ function serializePropertyEmergency(
     ownerContactConsent: Boolean(p.ownerContactConsent),
     region: safeTrim(p.region),
     district: safeTrim(p.district),
+    overlayText: safeTrim(p.overlayText),
+    overlayStyle: safeTrim(p.overlayStyle) || 'modern_real_estate',
+    overlayFont: safeTrim(p.overlayFont),
+    overlayColor: safeTrim(p.overlayColor) || '#FFFFFF',
+    overlayFontSize: typeof p.overlayFontSize === 'number' ? p.overlayFontSize : 48,
+    overlayPosition: safeTrim(p.overlayPosition) || 'center',
+    showLogo: p.showLogo !== false,
+    showOverlayText: p.showOverlayText !== false,
     directContactVisible: !redact,
     contactName: redact ? '' : split.contactName,
     companyName: redact ? null : split.companyName,
@@ -561,6 +577,14 @@ function serializePropertyCore(
     ownerContactConsent: Boolean(p.ownerContactConsent),
     region: safeTrim(p.region),
     district: safeTrim(p.district),
+    overlayText: safeTrim(p.overlayText),
+    overlayStyle: safeTrim(p.overlayStyle) || 'modern_real_estate',
+    overlayFont: safeTrim(p.overlayFont),
+    overlayColor: safeTrim(p.overlayColor) || '#FFFFFF',
+    overlayFontSize: typeof p.overlayFontSize === 'number' ? p.overlayFontSize : 48,
+    overlayPosition: safeTrim(p.overlayPosition) || 'center',
+    showLogo: p.showLogo !== false,
+    showOverlayText: p.showOverlayText !== false,
     directContactVisible: !redact,
     contactUnlocked: Boolean(opts?.contactUnlocked),
     sellerContactVisible: Boolean(opts?.sellerContactVisible),

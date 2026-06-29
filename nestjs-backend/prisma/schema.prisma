@@ -1015,6 +1015,16 @@ model Property {
   shortsGenerated     Boolean                   @default(false)
   shortsSourceType    PropertyShortsSourceType  @default(none)
 
+  /// Nastavení horního overlay ve shorts videu z fotek.
+  overlayText           String   @default("")
+  overlayStyle          String   @default("modern_real_estate")
+  overlayFont           String   @default("")
+  overlayColor          String   @default("#FFFFFF")
+  overlayFontSize       Int      @default(48)
+  overlayPosition       String   @default("center")
+  showLogo              Boolean  @default(true)
+  showOverlayText       Boolean  @default(true)
+
   /// Čas zveřejnění shorts (řazení feedu); klasické inzeráty mohou mít null.
   publishedAt DateTime?
 

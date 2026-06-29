@@ -465,11 +465,7 @@ export class TiparService {
       music = musicKey === 'none' ? { kind: 'none' } : { kind: 'builtin', key: musicKey };
     }
     const includeTextOverlay = ListingShortsFromPhotosService.parseBool(body.includeTextOverlay);
-    if (includeTextOverlay && (!title || !city || priceRaw == null || priceRaw < 0)) {
-      throw new BadRequestException(
-        'Pro text ve videu vyplňte titulek, lokalitu a platnou cenu.',
-      );
-    }
+    const overlay = ListingShortsFromPhotosService.parseOverlayBody(body);
 
     return this.shortsFromPhotos.generateAndUpload({
       images: imageFiles,
@@ -479,6 +475,11 @@ export class TiparService {
       currency,
       music,
       includeTextOverlay,
+      overlay: {
+        ...overlay,
+        isTip: true,
+        offerType: 'tip',
+      },
     });
   }
 

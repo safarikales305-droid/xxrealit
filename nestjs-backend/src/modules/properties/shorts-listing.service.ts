@@ -792,7 +792,18 @@ export class ShortsListingService {
             : null,
         currency: classic.currency,
         music,
-        includeTextOverlay: true,
+        overlay: {
+          overlayText: classic.overlayText,
+          overlayStyle: classic.overlayStyle,
+          overlayFont: classic.overlayFont,
+          overlayColor: classic.overlayColor,
+          overlayFontSize: classic.overlayFontSize,
+          overlayPosition: classic.overlayPosition,
+          showLogo: classic.showLogo,
+          showOverlayText: classic.showOverlayText,
+          offerType: classic.offerType,
+          isTiparTip: classic.isTiparTip,
+        },
       });
       const nextStatus =
         listing.status === ShortsListingStatus.published
@@ -882,7 +893,18 @@ export class ShortsListingService {
             : null,
         currency: classic.currency,
         music,
-        includeTextOverlay: true,
+        overlay: {
+          overlayText: classic.overlayText,
+          overlayStyle: classic.overlayStyle,
+          overlayFont: classic.overlayFont,
+          overlayColor: classic.overlayColor,
+          overlayFontSize: classic.overlayFontSize,
+          overlayPosition: classic.overlayPosition,
+          showLogo: classic.showLogo,
+          showOverlayText: classic.showOverlayText,
+          offerType: classic.offerType,
+          isTiparTip: classic.isTiparTip,
+        },
       });
       videoUrl = gen.videoUrl;
       generatedVideoThumbnail = gen.generatedVideoThumbnail ?? gen.thumbnailUrl;

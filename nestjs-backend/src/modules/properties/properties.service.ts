@@ -75,6 +75,7 @@ import { ShortsListingService } from './shorts-listing.service';
 import { ListingWatermarkSettingsService } from './listing-watermark-settings.service';
 import { ListingApprovalSettingsService } from './listing-approval-settings.service';
 import { resolveListingApprovalOnCreate, resolveListingApprovalOnEdit } from './listing-approval-settings.types';
+import { overlayFieldsForStorage } from './shorts-overlay.types';
 import { PropertySocialPublishSummaryService } from './property-social-publish-summary.service';
 import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
 
@@ -1149,6 +1150,18 @@ export class PropertiesService {
       isOwnerListing: dto.isOwnerListing ?? false,
     });
 
+    const overlayStored = overlayFieldsForStorage({
+      overlayText: dto.overlayText,
+      overlayStyle: dto.overlayStyle,
+      overlayFont: dto.overlayFont,
+      overlayColor: dto.overlayColor,
+      overlayFontSize: dto.overlayFontSize,
+      overlayPosition: dto.overlayPosition,
+      showLogo: dto.showLogo,
+      showOverlayText: dto.showOverlayText,
+      offerType: dto.type,
+    });
+
     try {
       const created = await this.prisma.property.create({
         data: {
@@ -1191,6 +1204,7 @@ export class PropertiesService {
           region: (dto.region ?? '').trim().slice(0, 120),
           district: (dto.district ?? '').trim().slice(0, 120),
           importSourceUrl: dto.sourceUrl?.trim().slice(0, 2000) || null,
+          ...overlayStored,
         },
       });
 
