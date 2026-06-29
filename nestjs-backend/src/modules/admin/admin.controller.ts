@@ -39,6 +39,8 @@ import { AccountUniquenessService } from '../../common/account-uniqueness.servic
 import { WhatsAppSettingsService } from '../whatsapp/whatsapp-settings.service';
 import { SaveSystemTemplatesDto } from '../whatsapp/dto/save-system-templates.dto';
 import { CreditsService } from '../credits/credits.service';
+import { ListingsPrefillService } from '../properties/listings-prefill.service';
+import { PrefillListingFromUrlDto } from '../properties/dto/prefill-listing-from-url.dto';
 
 type ChangePasswordBody = {
   oldPassword?: string;
@@ -78,6 +80,7 @@ export class AdminController {
     private readonly whatsAppSettings: WhatsAppSettingsService,
     private readonly accountUniqueness: AccountUniquenessService,
     private readonly credits: CreditsService,
+    private readonly listingsPrefill: ListingsPrefillService,
   ) {}
 
   @Get('social-facebook-connections')
@@ -615,6 +618,20 @@ export class AdminController {
       skip: Number.isFinite(skip) ? skip : 0,
       take: Number.isFinite(take) ? take : 40,
     });
+  }
+
+  @Post('listings/sreality-prefill-debug')
+  srealityPrefillDebug(
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: PrefillListingFromUrlDto,
+  ) {
+    return this.listingsPrefill.prefillFromUrl(dto.sourceUrl, { debug: true }).then((r) => ({
+      ok: r.ok,
+      error: r.ok ? undefined : r.error,
+      data: r.ok ? r.data : undefined,
+      log: r.log,
+      debug: r.debug,
+    }));
   }
 
   @Post('broker-contacts/bulk-update')

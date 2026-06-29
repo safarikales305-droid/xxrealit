@@ -2763,14 +2763,101 @@ export async function nestPrefillListingFromUrl(
       data?: ListingPrefillFromUrlData;
     };
     if (!res.ok || !data.ok || !data.data) {
+      const statusHint =
+        res.status === 403
+          ? 'Sreality odmítlo požadavek (HTTP 403).'
+          : res.status === 408 || res.status === 504
+            ? 'Vypršel časový limit načítání.'
+            : res.status >= 500
+              ? `Chyba serveru (HTTP ${res.status}).`
+              : null;
       return {
         ok: false,
-        error: data.error ?? 'Údaje se nepodařilo načíst. Vyplňte inzerát ručně.',
+        error:
+          data.error ??
+          statusHint ??
+          `Import selhal (HTTP ${res.status}). Vyplňte inzerát ručně.`,
       };
     }
     return { ok: true, data: data.data };
-  } catch {
-    return { ok: false, error: 'Údaje se nepodařilo načíst. Vyplňte inzerát ručně.' };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const hint = /timeout|aborted/i.test(msg)
+      ? 'Vypršel časový limit připojení k serveru.'
+      : /network|fetch/i.test(msg)
+        ? 'Síťová chyba při komunikaci se serverem.'
+        : `Chyba připojení: ${msg}`;
+    return { ok: false, error: hint };
+  }
+}
+
+export type SrealityPrefillDebugLog = {
+  url: string;
+  httpStatus: number | null;
+  cloudflareDetected: boolean;
+  playwrightLoaded: boolean;
+  foundJsonLd: boolean;
+  foundNextData: boolean;
+  foundInitialState: boolean;
+  foundOpenGraph: boolean;
+  foundHtmlParser: boolean;
+  fieldsFoundCount: number;
+  fieldsFound: string[];
+  parsersUsed: string[];
+  htmlLength: number;
+  finalUrl: string;
+  errorCode?: string;
+  errorDetail?: string;
+};
+
+export type SrealityPrefillDebugResult = {
+  ok: boolean;
+  error?: string;
+  data?: ListingPrefillFromUrlData;
+  log?: SrealityPrefillDebugLog;
+  debug?: {
+    foundJsonLd: boolean;
+    foundNextData: boolean;
+    foundInitialState: boolean;
+    foundOpenGraph: boolean;
+    foundHtmlParser: boolean;
+    parsersUsed: string[];
+    fieldsFound: string[];
+    fieldsFoundCount: number;
+  };
+};
+
+export async function nestAdminSrealityPrefillDebug(
+  token: string | null,
+  sourceUrl: string,
+): Promise<{ ok: boolean; error?: string; data?: SrealityPrefillDebugResult }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  try {
+    const res = await fetch(`${API_BASE_URL}/admin/listings/sreality-prefill-debug`, {
+      method: 'POST',
+      headers: {
+        ...nestAuthHeaders(token),
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ sourceUrl }),
+    });
+    const payload = (await res.json().catch(() => ({}))) as SrealityPrefillDebugResult;
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: payload.error ?? `Debug selhal (HTTP ${res.status}).`,
+        data: payload,
+      };
+    }
+    return { ok: true, data: payload };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Debug selhal.',
+    };
   }
 }
 

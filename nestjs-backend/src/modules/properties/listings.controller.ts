@@ -31,7 +31,10 @@ export class ListingsController {
     @Body(new ValidationPipe({ whitelist: true, transform: true }))
     dto: PrefillListingFromUrlDto,
   ) {
-    return this.listingsPrefill.prefillFromUrl(dto.sourceUrl);
+    return this.listingsPrefill.prefillFromUrl(dto.sourceUrl).then((r) => {
+      if (r.ok) return { ok: true as const, data: r.data };
+      return { ok: false as const, error: r.error };
+    });
   }
 
   @Post('fetch-source-images')

@@ -6,6 +6,7 @@ import { MessagesModule } from '../messages/messages.module';
 import { ContactMonetizationAdminController } from './contact-monetization-admin.controller';
 import { ListingsController } from './listings.controller';
 import { ListingsPrefillService } from './listings-prefill.service';
+import { SrealityPlaywrightService } from './sreality-playwright.service';
 import { PropertiesController } from './properties.controller';
 import { PropertiesService } from './properties.service';
 import { ListingShortsFromPhotosService } from './listing-shorts-from-photos.service';
@@ -59,6 +60,7 @@ import { SocialModule } from '../social/social.module';
     ListingPhotoWatermarkService,
     ListingWatermarkSettingsService,
     ListingsPrefillService,
+    SrealityPlaywrightService,
     ListingShortsFromPhotosService,
     ShortsListingService,
     VideoOgThumbnailService,
@@ -71,6 +73,7 @@ import { SocialModule } from '../social/social.module';
     ListingWatermarkSettingsService,
     ListingShortsFromPhotosService,
     ShortsListingService,
+    ListingsPrefillService,
     VideoOgThumbnailService,
     FacebookShareImageService,
   ],

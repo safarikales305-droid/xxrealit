@@ -14,6 +14,8 @@
     "build": "prisma generate && nest build",
     "test:uniqueness": "tsx --test src/common/account-uniqueness.constants.test.ts",
     "test:credit-debt": "tsx --test src/modules/credits/credit-debt.util.test.ts",
+    "test:sreality-prefill": "tsx --test src/modules/properties/sreality-prefill.smoke.test.ts",
+    "sreality-prefill:save-storage": "tsx src/modules/properties/sreality-prefill.save-storage.ts",
     "start": "node dist/main.js",
     "start:prod": "sh -c 'sh prisma/scripts/migrate-deploy-safe.sh; node dist/main.js'",
     "start:dev": "nest start --watch",
@@ -46,7 +48,8 @@
     "xml2js": "^0.6.2"
   },
   "optionalDependencies": {
-    "ffmpeg-static": "^5.2.0"
+    "ffmpeg-static": "^5.2.0",
+    "playwright": "^1.51.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",

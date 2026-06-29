@@ -27,6 +27,7 @@ import { PortalImportSection } from '@/components/admin/imports/PortalImportSect
 import { ImportSourceForm } from '@/components/admin/imports/ImportSourceForm';
 import { ImportLogsPanel } from '@/components/admin/imports/ImportLogsPanel';
 import { BulkShortsFromImportsSection } from '@/components/admin/imports/BulkShortsFromImportsSection';
+import { SrealityPrefillDebugPanel } from '@/components/admin/imports/SrealityPrefillDebugPanel';
 
 type FiltersState = {
   portalKey: string;
@@ -643,6 +644,8 @@ export default function AdminImportsPage() {
             onDeleteBranch={(id) => void deleteBranch(id)}
           />
         ))}
+
+        <SrealityPrefillDebugPanel token={token} />
 
         <BulkShortsFromImportsSection token={token} branches={branches} />
 
