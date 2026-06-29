@@ -19,6 +19,7 @@ import { FacebookShareImageService } from './facebook-share-image.service';
 import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
 import { computeStoredOgMediaFields } from './property-og-media.util';
 import { socialInclude } from './shorts-listing.social-include';
+import { overlayFieldsForStorage } from './shorts-overlay.types';
 import {
   serializeProperty,
   type PropertyViewerAccess,
@@ -255,7 +256,34 @@ export class ShortsListingService {
     if (!row) {
       throw new NotFoundException('Shorts záznam nebyl nalezen');
     }
-    return this.serializeDraft(row);
+    const source = await this.prisma.property.findUnique({
+      where: { id: row.sourceListingId },
+      select: {
+        offerType: true,
+        isTiparTip: true,
+        overlayText: true,
+        overlayStyle: true,
+        overlayFont: true,
+        overlayColor: true,
+        overlayFontSize: true,
+        overlayPosition: true,
+        showLogo: true,
+        showOverlayText: true,
+      },
+    });
+    return {
+      ...this.serializeDraft(row),
+      sourceOfferType: source?.offerType ?? 'prodej',
+      isTiparTip: source?.isTiparTip ?? false,
+      overlayText: source?.overlayText ?? '',
+      overlayStyle: source?.overlayStyle ?? 'modern_real_estate',
+      overlayFont: source?.overlayFont ?? '',
+      overlayColor: source?.overlayColor ?? '#FFFFFF',
+      overlayFontSize: source?.overlayFontSize ?? 48,
+      overlayPosition: source?.overlayPosition ?? 'center',
+      showLogo: source?.showLogo !== false,
+      showOverlayText: source?.showOverlayText !== false,
+    };
   }
 
   async createDraftFromClassic(
@@ -374,6 +402,14 @@ export class ShortsListingService {
       musicTrackId?: string | null;
       musicUrl?: string;
       musicBuiltinKey?: string;
+      overlayText?: string;
+      overlayStyle?: string;
+      overlayFont?: string;
+      overlayColor?: string;
+      overlayFontSize?: number;
+      overlayPosition?: string;
+      showLogo?: boolean;
+      showOverlayText?: boolean;
     },
   ) {
     const row = await this.prisma.shortsListing.findFirst({
@@ -427,6 +463,46 @@ export class ShortsListingService {
       where: { id },
       data: data as never,
     });
+
+    const hasOverlayPatch =
+      body.overlayText !== undefined ||
+      body.overlayStyle !== undefined ||
+      body.overlayFont !== undefined ||
+      body.overlayColor !== undefined ||
+      body.overlayFontSize !== undefined ||
+      body.overlayPosition !== undefined ||
+      body.showLogo !== undefined ||
+      body.showOverlayText !== undefined;
+
+    if (hasOverlayPatch) {
+      const source = await this.prisma.property.findUnique({
+        where: { id: row.sourceListingId },
+        select: { offerType: true, isTiparTip: true },
+      });
+      const stored = overlayFieldsForStorage({
+        overlayText: body.overlayText,
+        overlayStyle: body.overlayStyle,
+        overlayFont: body.overlayFont,
+        overlayColor: body.overlayColor,
+        overlayFontSize: body.overlayFontSize,
+        overlayPosition: body.overlayPosition,
+        showLogo: body.showLogo,
+        showOverlayText: body.showOverlayText,
+        offerType: source?.offerType,
+        isTiparTip: source?.isTiparTip,
+      });
+      await this.prisma.property.update({
+        where: { id: row.sourceListingId },
+        data: stored,
+      });
+      if (row.publishedPropertyId) {
+        await this.prisma.property.update({
+          where: { id: row.publishedPropertyId },
+          data: stored,
+        });
+      }
+    }
+
     await this.syncCoverFromMedia(id);
     if (wasPublished) {
       await this.syncPublishedMetadataToPropertyIfPublished(id);

@@ -3502,6 +3502,16 @@ export type NestShortsListingDraft = {
   createdAt: string;
   updatedAt: string;
   media: NestShortsMediaItem[];
+  sourceOfferType?: string;
+  isTiparTip?: boolean;
+  overlayText?: string;
+  overlayStyle?: string;
+  overlayFont?: string;
+  overlayColor?: string;
+  overlayFontSize?: number;
+  overlayPosition?: string;
+  showLogo?: boolean;
+  showOverlayText?: boolean;
 };
 
 /** GET /users/me/listings — vlastní inzeráty (JWT). */

@@ -22,6 +22,15 @@ import {
   type ShortsMusicTrackDto,
   type ShortVideo,
 } from '@/lib/nest-client';
+import { ShortsOverlayPreview } from '@/components/listing/ShortsOverlayPreview';
+import { ShortsOverlaySettingsPanel } from '@/components/listing/ShortsOverlaySettingsPanel';
+import {
+  SHORTS_OVERLAY_STYLE_PRESETS,
+  createDefaultOverlaySettings,
+  type ShortsOverlayAlignment,
+  type ShortsOverlaySettings,
+  type ShortsOverlayStyleKey,
+} from '@/lib/shorts-overlay';
 
 const MUSIC_BUILTIN = [
   { value: 'demo_soft', label: 'Demo jemná' },
@@ -42,6 +51,46 @@ function videoSrc(url: string): string {
   if (!u) return '';
   if (/^https?:\/\//i.test(u)) return u;
   return nestAbsoluteAssetUrl(u) || u;
+}
+
+function overlayFromDraft(row: NestShortsListingDraft): ShortsOverlaySettings {
+  const defaults = createDefaultOverlaySettings({
+    offerType: row.sourceOfferType,
+    isTip: row.isTiparTip,
+  });
+  const styleRaw = (row.overlayStyle ?? '').trim() as ShortsOverlayStyleKey;
+  const overlayStyle = SHORTS_OVERLAY_STYLE_PRESETS[styleRaw] ? styleRaw : defaults.overlayStyle;
+  const alignRaw = (row.overlayPosition ?? '').trim().toLowerCase();
+  const overlayPosition: ShortsOverlayAlignment =
+    alignRaw === 'left' || alignRaw === 'right' || alignRaw === 'center'
+      ? alignRaw
+      : defaults.overlayPosition;
+  return {
+    overlayText: (row.overlayText ?? '').trim() || defaults.overlayText,
+    overlayStyle,
+    overlayFont: (row.overlayFont ?? '').trim() || defaults.overlayFont,
+    overlayColor: (row.overlayColor ?? '').trim() || defaults.overlayColor,
+    overlayFontSize:
+      typeof row.overlayFontSize === 'number' && Number.isFinite(row.overlayFontSize)
+        ? row.overlayFontSize
+        : defaults.overlayFontSize,
+    overlayPosition,
+    showLogo: row.showLogo !== false,
+    showOverlayText: row.showOverlayText !== false,
+  };
+}
+
+function overlayToPatchBody(settings: ShortsOverlaySettings): Record<string, unknown> {
+  return {
+    overlayText: settings.overlayText,
+    overlayStyle: settings.overlayStyle,
+    overlayFont: settings.overlayFont,
+    overlayColor: settings.overlayColor,
+    overlayFontSize: settings.overlayFontSize,
+    overlayPosition: settings.overlayPosition,
+    showLogo: settings.showLogo,
+    showOverlayText: settings.showOverlayText,
+  };
 }
 
 export type ShortsEditorProps = {
@@ -69,6 +118,9 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const [previewTrackUrl, setPreviewTrackUrl] = useState<string | null>(null);
   const [musicSaving, setMusicSaving] = useState(false);
+  const [overlaySettings, setOverlaySettings] = useState<ShortsOverlaySettings>(() =>
+    createDefaultOverlaySettings({}),
+  );
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -84,6 +136,7 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
     setDescription(row.description);
     setMusicTrackId(row.musicTrackId ?? '');
     setMusicBuiltinKey(row.musicBuiltinKey || 'demo_soft');
+    setOverlaySettings(overlayFromDraft(row));
     setPendingRegen(false);
     setOkMsg(null);
   }, [apiAccessToken, id]);
@@ -163,6 +216,7 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
       musicTrackId: (musicTrackId ?? '').trim() || null,
       musicUrl: '',
       musicBuiltinKey,
+      ...overlayToPatchBody(overlaySettings),
     };
     if (data.status !== 'published') {
       body.status = 'draft';
@@ -177,6 +231,7 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
       setData(r.data);
       setMusicTrackId(r.data.musicTrackId ?? '');
       setMusicBuiltinKey(r.data.musicBuiltinKey || 'demo_soft');
+      setOverlaySettings(overlayFromDraft(r.data));
     }
     return true;
   }
@@ -197,6 +252,7 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
         setData(rg.data);
         setMusicTrackId(rg.data.musicTrackId ?? '');
         setMusicBuiltinKey(rg.data.musicBuiltinKey || 'demo_soft');
+        setOverlaySettings(overlayFromDraft(rg.data));
       }
       setPendingRegen(false);
       setOkMsg('Změny jsou uložené a video v feedu je aktualizované.');
@@ -240,6 +296,7 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
       setData(r.data);
       setMusicTrackId(r.data.musicTrackId ?? '');
       setMusicBuiltinKey(r.data.musicBuiltinKey || 'demo_soft');
+      setOverlaySettings(overlayFromDraft(r.data));
     }
     setPendingRegen(false);
     setOkMsg('Video je znovu vygenerované.');
@@ -357,6 +414,11 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
 
   const isPublished = data.status === 'published';
   const sortedMedia = [...data.media].sort((a, b) => a.order - b.order);
+  const overlayPreviewImage =
+    sortedMedia[0]?.imageUrl?.trim() ||
+    data.coverImage?.trim() ||
+    null;
+  const overlayPreviewUrl = overlayPreviewImage ? imgSrc(overlayPreviewImage) : null;
   const libraryTrackResolved =
     data.musicTrackId && tracks.find((x) => x.id === data.musicTrackId);
   const builtinLabel =
@@ -393,7 +455,7 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
         </p>
         {pendingRegen ? (
           <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-            Máte neuložené změny ovlivňující video (fotky, pořadí, cover, hudba, název v překryvu).
+            Máte neuložené změny ovlivňující video (fotky, pořadí, cover, hudba, nápis a logo ve videu).
             {isPublished
               ? ' U zveřejněného shorts stiskněte „Uložit změny“ — uloží se nastavení a spustí se přegenerování videa do feedu — nebo použijte „Přegenerovat shorts“.'
               : ' Po úpravách vygenerujte náhled videa tlačítkem níže.'}
@@ -446,6 +508,29 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
             rows={4}
             className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
           />
+        </section>
+
+        <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-semibold">Nápis a logo ve videu</h2>
+          <p className="mt-1 text-xs text-zinc-500">
+            Horní překryv ve vygenerovaném shorts videu. Nastavení se uloží s konceptem a použije při
+            přegenerování.
+          </p>
+          <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+            <ShortsOverlayPreview
+              previewImageUrl={overlayPreviewUrl}
+              settings={overlaySettings}
+            />
+            <ShortsOverlaySettingsPanel
+              showHeading={false}
+              settings={overlaySettings}
+              disabled={Boolean(busy)}
+              onChange={(next) => {
+                setOverlaySettings(next);
+                setPendingRegen(true);
+              }}
+            />
+          </div>
         </section>
 
         <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">

@@ -13,12 +13,20 @@ type Props = {
   settings: ShortsOverlaySettings;
   onChange: (next: ShortsOverlaySettings) => void;
   disabled?: boolean;
+  showHeading?: boolean;
 };
 
-export function ShortsOverlaySettingsPanel({ settings, onChange, disabled }: Props) {
+export function ShortsOverlaySettingsPanel({
+  settings,
+  onChange,
+  disabled,
+  showHeading = true,
+}: Props) {
   return (
     <div className="space-y-4 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4">
-      <h3 className="text-sm font-semibold text-zinc-900">Nápis ve videu</h3>
+      {showHeading ? (
+        <h3 className="text-sm font-semibold text-zinc-900">Nápis ve videu</h3>
+      ) : null}
 
       <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-800">
         <input
