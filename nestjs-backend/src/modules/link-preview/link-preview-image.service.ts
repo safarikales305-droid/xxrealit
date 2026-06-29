@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import sharp from 'sharp';
+import sharp from '../../lib/sharp-instance';
 import { v2 as cloudinary } from 'cloudinary';
 import { resolveAssetBaseUrl } from '../../lib/image-url';
 import { getUploadsPath } from '../../lib/uploads-path';

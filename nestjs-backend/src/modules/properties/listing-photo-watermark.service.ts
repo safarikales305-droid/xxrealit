@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'node:fs';
 import { join, resolve } from 'node:path';
-import sharp from 'sharp';
+import sharp from '../../lib/sharp-instance';
 import {
   ListingWatermarkSettingsService,
   type ListingWatermarkPosition,

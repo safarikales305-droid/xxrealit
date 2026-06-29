@@ -30,7 +30,7 @@ import {
   resolveShortsOverlayFontPath,
 } from './shorts-overlay-assets';
 
-import sharp = require('sharp');
+import sharp, { assertSharpReady } from '../../lib/sharp-instance';
 
 const ALLOWED_IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
 const MIN_IMAGES = 2;
@@ -438,14 +438,34 @@ export class ListingShortsFromPhotosService {
     const shortsId = logContext?.shortsId ?? '—';
     const fontPath = resolveShortsOverlayFontPath();
     const logoPathResolved = resolveShortsLogoPath();
-    const { buffer: logoBuffer, width: logoWidth, path: logoSource } =
-      await resolveShortsLogoBuffer(overlay.showLogo);
+
+    let logoBuffer: Buffer | null = null;
+    let logoWidth = 0;
+    let logoSource: string | null = null;
+    let barPng: Buffer;
+
+    try {
+      assertSharpReady('shorts overlay PNG');
+      const logoResolved = await resolveShortsLogoBuffer(overlay.showLogo);
+      logoBuffer = logoResolved.buffer;
+      logoWidth = logoResolved.width;
+      logoSource = logoResolved.path;
+      barPng = await renderShortsTopBarPng(overlay, logoBuffer);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.log.error(
+        `[shorts-regenerate] shortsId=${shortsId} vytvoření overlay PNG selhalo: ${msg}`,
+        e instanceof Error ? e.stack : undefined,
+      );
+      throw new BadRequestException(
+        `Overlay shorts videa se nepodařilo vytvořit (sharp): ${msg.slice(0, 400)}`,
+      );
+    }
 
     this.log.log(
-      `[shorts-regenerate] shortsId=${shortsId} showLogo=${overlay.showLogo} showOverlayText=${overlay.showOverlayText} overlayText=${JSON.stringify(overlay.text)} overlayStyle=${overlay.styleKey} overlayColor=${overlay.textColor} overlaySize=${overlay.fontSize} overlayAlign=${overlay.alignment} logoPath=${logoSource ?? logoPathResolved ?? '(fallback)'} fontPath=${fontPath ?? '(systémový výchozí ffmpeg)'}`,
+      `[shorts-regenerate] shortsId=${shortsId} showLogo=${overlay.showLogo} showOverlayText=${overlay.showOverlayText} overlayText=${JSON.stringify(overlay.text)} overlayStyle=${overlay.styleKey} overlayColor=${overlay.textColor} overlaySize=${overlay.fontSize} overlayAlign=${overlay.alignment} logoPath=${logoSource ?? logoPathResolved ?? '(fallback)'} fontPath=${fontPath ?? '(systémový výchozí ffmpeg)'} overlayPngBytes=${barPng.length}`,
     );
 
-    const barPng = await renderShortsTopBarPng(overlay, logoBuffer);
     const overlayPath = join(tmpRoot, 'top-overlay-bar.png');
     await writeFile(overlayPath, barPng);
 
@@ -594,6 +614,7 @@ export class ListingShortsFromPhotosService {
     thumbnailUrl: string | null;
   }> {
     validateImages(input.images);
+    assertSharpReady('shorts video generování');
     const { path: ffmpegBin, source: ffmpegSource } = this.getFfmpeg();
     await assertFfmpegAvailable(this.log, ffmpegBin, ffmpegSource);
 

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import sharp from 'sharp';
+import sharp, { assertSharpReady, type OverlayOptions } from '../../lib/sharp-instance';
 import {
   generateFallbackLogoPng,
   resolveShortsLogoPath,
@@ -55,6 +55,7 @@ export async function resolveShortsLogoBuffer(showLogo: boolean): Promise<{
   if (!showLogo) {
     return { buffer: null, width: 0, path: null };
   }
+  assertSharpReady('shorts logo resize');
   const path = resolveShortsLogoPath();
   let buffer = loadShortsLogoPng();
   if (!buffer) {
@@ -82,6 +83,7 @@ export async function renderShortsTopBarPng(
   config: ShortsOverlayConfig,
   logoBuffer: Buffer | null,
 ): Promise<Buffer> {
+  assertSharpReady('shorts overlay bar PNG');
   const preset = resolvedPreset(config);
   const barTop = SHORTS_TOP_SAFE_MARGIN;
   const barHeight = SHORTS_OVERLAY_BAR_HEIGHT;
@@ -94,7 +96,7 @@ export async function renderShortsTopBarPng(
 </svg>`;
 
   const barLayer = await sharp(Buffer.from(barSvg)).png().toBuffer();
-  const composites: sharp.OverlayOptions[] = [{ input: barLayer, left: 0, top: 0 }];
+  const composites: OverlayOptions[] = [{ input: barLayer, left: 0, top: 0 }];
 
   if (config.showLogo && logoBuffer) {
     const meta = await sharp(logoBuffer).metadata();

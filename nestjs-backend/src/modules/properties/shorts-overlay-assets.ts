@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import sharp from 'sharp';
+import sharp, { assertSharpReady } from '../../lib/sharp-instance';
 
 const FALLBACK_LOGO_CACHE: { buf: Buffer | null } = { buf: null };
 
@@ -75,6 +75,7 @@ export function resolveShortsOverlayFontPath(): string | null {
 /** Oranžový badge „XXREALIT“ pokud chybí soubor loga. */
 export async function generateFallbackLogoPng(): Promise<Buffer> {
   if (FALLBACK_LOGO_CACHE.buf) return FALLBACK_LOGO_CACHE.buf;
+  assertSharpReady('shorts fallback logo');
   const svg = `<svg width="168" height="44" xmlns="http://www.w3.org/2000/svg">
   <rect x="0" y="0" width="168" height="44" rx="8" fill="#FF6A00"/>
   <text x="84" y="30" font-family="Arial,Helvetica,sans-serif" font-size="18" font-weight="700" fill="#FFFFFF" text-anchor="middle">XXREALIT</text>

@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import sharp from '../../lib/sharp-instance';
 import {
   type OgImageSource,
   type PropertyOgMediaInput,
