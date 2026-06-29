@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ShortsListingStatus, ShortsVideoRenderStatus } from '@prisma/client';
@@ -19,7 +20,8 @@ import { FacebookShareImageService } from './facebook-share-image.service';
 import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
 import { computeStoredOgMediaFields } from './property-og-media.util';
 import { socialInclude } from './shorts-listing.social-include';
-import { overlayFieldsForStorage } from './shorts-overlay.types';
+import { overlayConfigFromProperty, overlayFieldsForStorage } from './shorts-overlay.types';
+import { resolveShortsLogoPath, resolveShortsOverlayFontPath } from './shorts-overlay-assets';
 import {
   serializeProperty,
   type PropertyViewerAccess,
@@ -122,6 +124,8 @@ function parseBuiltinKey(raw: string | null | undefined): ShortsMusicKey {
 
 @Injectable()
 export class ShortsListingService {
+  private readonly logger = new Logger(ShortsListingService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly listingShortsFromPhotos: ListingShortsFromPhotosService,
@@ -477,17 +481,28 @@ export class ShortsListingService {
     if (hasOverlayPatch) {
       const source = await this.prisma.property.findUnique({
         where: { id: row.sourceListingId },
-        select: { offerType: true, isTiparTip: true },
+        select: {
+          offerType: true,
+          isTiparTip: true,
+          overlayText: true,
+          overlayStyle: true,
+          overlayFont: true,
+          overlayColor: true,
+          overlayFontSize: true,
+          overlayPosition: true,
+          showLogo: true,
+          showOverlayText: true,
+        },
       });
       const stored = overlayFieldsForStorage({
-        overlayText: body.overlayText,
-        overlayStyle: body.overlayStyle,
-        overlayFont: body.overlayFont,
-        overlayColor: body.overlayColor,
-        overlayFontSize: body.overlayFontSize,
-        overlayPosition: body.overlayPosition,
-        showLogo: body.showLogo,
-        showOverlayText: body.showOverlayText,
+        overlayText: body.overlayText ?? source?.overlayText,
+        overlayStyle: body.overlayStyle ?? source?.overlayStyle,
+        overlayFont: body.overlayFont ?? source?.overlayFont,
+        overlayColor: body.overlayColor ?? source?.overlayColor,
+        overlayFontSize: body.overlayFontSize ?? source?.overlayFontSize ?? undefined,
+        overlayPosition: body.overlayPosition ?? source?.overlayPosition,
+        showLogo: body.showLogo ?? source?.showLogo,
+        showOverlayText: body.showOverlayText ?? source?.showOverlayText,
         offerType: source?.offerType,
         isTiparTip: source?.isTiparTip,
       });
@@ -855,6 +870,10 @@ export class ShortsListingService {
       if (!classic) {
         throw new NotFoundException('Zdrojový inzerát neexistuje');
       }
+      const overlayCfg = overlayConfigFromProperty(classic);
+      this.logger.log(
+        `[shorts-regenerate] shortsId=${id} sourcePropertyId=${listing.sourceListingId} showLogo=${overlayCfg.showLogo} showOverlayText=${overlayCfg.showOverlayText} overlayText=${JSON.stringify(overlayCfg.text)} overlayStyle=${overlayCfg.styleKey} overlayColor=${overlayCfg.textColor} overlaySize=${overlayCfg.fontSize} overlayAlign=${overlayCfg.alignment} logoPath=${resolveShortsLogoPath() ?? '(fallback)'} fontPath=${resolveShortsOverlayFontPath() ?? '(ffmpeg default)'}`,
+      );
       const { videoUrl, generatedVideoThumbnail, thumbnailUrl } =
         await this.listingShortsFromPhotos.generateAndUpload({
         images: files,
@@ -868,6 +887,7 @@ export class ShortsListingService {
             : null,
         currency: classic.currency,
         music,
+        shortsListingId: id,
         overlay: {
           overlayText: classic.overlayText,
           overlayStyle: classic.overlayStyle,

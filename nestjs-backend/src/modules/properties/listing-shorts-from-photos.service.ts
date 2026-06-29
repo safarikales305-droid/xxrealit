@@ -17,11 +17,18 @@ import {
   type ShortsOverlayConfig,
 } from './shorts-overlay.types';
 import {
-  loadShortsLogoPng,
-  renderShortsTopOverlayPng,
+  hexToFfmpegColor,
+  overlayTextDrawXExpr,
+  overlayTextDrawY,
+  renderShortsTopBarPng,
+  resolveShortsLogoBuffer,
   SHORTS_HEIGHT,
   SHORTS_WIDTH,
 } from './shorts-top-overlay.render';
+import {
+  resolveShortsLogoPath,
+  resolveShortsOverlayFontPath,
+} from './shorts-overlay-assets';
 
 import sharp = require('sharp');
 
@@ -45,6 +52,8 @@ export type GenerateShortsFromPhotosInput = {
   price: number | null;
   currency: string;
   music: ShortsMusicSelection;
+  /** Pro logování při regeneraci shorts editoru. */
+  shortsListingId?: string;
   /** @deprecated použijte overlay.showOverlayText */
   includeTextOverlay?: boolean;
   overlay?: Partial<{
@@ -418,56 +427,94 @@ export class ListingShortsFromPhotosService {
     });
   }
 
-  private async tryApplyTopOverlay(
+  private async applyTopOverlay(
     ffmpegBin: string,
     tmpRoot: string,
     videoIn: string,
     overlay: ShortsOverlayConfig,
     outPath: string,
-  ): Promise<boolean> {
-    try {
-      const logo = overlay.showLogo ? loadShortsLogoPng() : null;
-      const overlayPng = await renderShortsTopOverlayPng(overlay, logo);
-      const overlayPath = join(tmpRoot, 'top-overlay.png');
-      await writeFile(overlayPath, overlayPng);
-      const args = [
-        '-hide_banner',
-        '-loglevel',
-        'warning',
-        '-y',
-        '-i',
-        videoIn,
-        '-i',
-        overlayPath,
-        '-filter_complex',
-        '[0:v][1:v]overlay=0:0:format=auto[outv]',
-        '-map',
-        '[outv]',
-        '-c:v',
-        'libx264',
-        '-preset',
-        'veryfast',
-        '-b:v',
-        VIDEO_BITRATE,
-        '-maxrate',
-        '2500k',
-        '-bufsize',
-        '5000k',
-        '-pix_fmt',
-        'yuv420p',
-        '-movflags',
-        '+faststart',
-        '-an',
-        outPath,
-      ];
-      await runFfmpegLogged(this.log, 'top-overlay', ffmpegBin, args);
-      return true;
-    } catch (e) {
-      this.log.warn(
-        `[shorts-generator] horní overlay selhal — použiji video bez overlay. ${e instanceof Error ? e.message : e}`,
-      );
-      return false;
+    logContext?: { shortsId?: string },
+  ): Promise<void> {
+    const shortsId = logContext?.shortsId ?? '—';
+    const fontPath = resolveShortsOverlayFontPath();
+    const logoPathResolved = resolveShortsLogoPath();
+    const { buffer: logoBuffer, width: logoWidth, path: logoSource } =
+      await resolveShortsLogoBuffer(overlay.showLogo);
+
+    this.log.log(
+      `[shorts-regenerate] shortsId=${shortsId} showLogo=${overlay.showLogo} showOverlayText=${overlay.showOverlayText} overlayText=${JSON.stringify(overlay.text)} overlayStyle=${overlay.styleKey} overlayColor=${overlay.textColor} overlaySize=${overlay.fontSize} overlayAlign=${overlay.alignment} logoPath=${logoSource ?? logoPathResolved ?? '(fallback)'} fontPath=${fontPath ?? '(systémový výchozí ffmpeg)'}`,
+    );
+
+    const barPng = await renderShortsTopBarPng(overlay, logoBuffer);
+    const overlayPath = join(tmpRoot, 'top-overlay-bar.png');
+    await writeFile(overlayPath, barPng);
+
+    const textPath = join(tmpRoot, 'top-overlay-text.txt');
+    if (overlay.showOverlayText) {
+      await writeFile(textPath, overlay.text, 'utf8');
     }
+
+    const overlayPathEsc = escapePathForDrawtextFile(overlayPath);
+    const textPathEsc = escapePathForDrawtextFile(textPath);
+    const fontPathEsc = fontPath ? escapePathForDrawtextFile(fontPath) : '';
+
+    let filter: string;
+    if (overlay.showOverlayText) {
+      const fontSize = Math.max(24, Math.min(72, overlay.fontSize));
+      const fontColor = hexToFfmpegColor(overlay.textColor);
+      const xExpr = overlayTextDrawXExpr(overlay.alignment, overlay.showLogo, logoWidth);
+      const yPx = overlayTextDrawY();
+      const fontfilePart = fontPathEsc ? `fontfile='${fontPathEsc}':` : '';
+      const drawtext = `[vm]drawtext=${fontfilePart}textfile='${textPathEsc}':fontsize=${fontSize}:fontcolor=${fontColor}:borderw=2:bordercolor=black@0.72:shadowcolor=black@0.55:shadowx=2:shadowy=2:x=${xExpr}:y=${yPx}[outv]`;
+      filter = `[1:v]scale=${SHORTS_WIDTH}:${SHORTS_HEIGHT}[ov];[0:v][ov]overlay=0:0:shortest=1[vm];${drawtext}`;
+    } else {
+      filter = `[1:v]scale=${SHORTS_WIDTH}:${SHORTS_HEIGHT}[ov];[0:v][ov]overlay=0:0:shortest=1[outv]`;
+    }
+
+    const args = [
+      '-hide_banner',
+      '-loglevel',
+      'warning',
+      '-y',
+      '-i',
+      videoIn,
+      '-i',
+      overlayPath,
+      '-filter_complex',
+      filter,
+      '-map',
+      '[outv]',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-b:v',
+      VIDEO_BITRATE,
+      '-maxrate',
+      '2500k',
+      '-bufsize',
+      '5000k',
+      '-pix_fmt',
+      'yuv420p',
+      '-movflags',
+      '+faststart',
+      '-an',
+      outPath,
+    ];
+
+    const safeCmd = quoteFfmpegArgv([ffmpegBin, ...args]).replace(
+      /(cloudinary[^'"\s]*|api_key|api_secret)[^'"\s]*/gi,
+      '[redacted]',
+    );
+    this.log.log(
+      `[shorts-regenerate] shortsId=${shortsId} ffmpeg overlay příkaz: ${safeCmd}`,
+    );
+
+    await runFfmpegLogged(this.log, 'top-overlay', ffmpegBin, args);
+
+    this.log.log(
+      `[shorts-regenerate] shortsId=${shortsId} overlay video uloženo: ${resolve(outPath)}`,
+    );
   }
 
   private async tryDrawTextOverlay(
@@ -575,16 +622,15 @@ export class ListingShortsFromPhotosService {
       const overlayConfig = this.resolveOverlayConfig(input);
       if (overlayConfig) {
         const overlayOut = join(tmpRoot, 'with-top-overlay.mp4');
-        const ok = await this.tryApplyTopOverlay(
+        await this.applyTopOverlay(
           ffmpegBin,
           tmpRoot,
           currentPath,
           overlayConfig,
           overlayOut,
+          input.shortsListingId ? { shortsId: input.shortsListingId } : undefined,
         );
-        if (ok) {
-          currentPath = overlayOut;
-        }
+        currentPath = overlayOut;
       }
 
       let finalPath = currentPath;
@@ -632,7 +678,9 @@ export class ListingShortsFromPhotosService {
       const generatedVideoThumbnail =
         (await this.videoOgThumbnail.extractAndUploadFromFile(finalPath)) ??
         null;
-      this.log.log(`[shorts-generator] hotovo, upload ${mp4.length} B → Cloudinary`);
+      this.log.log(
+        `[shorts-generator] hotovo, upload ${mp4.length} B → Cloudinary → ${videoUrl}`,
+      );
       return {
         videoUrl,
         generatedVideoThumbnail,

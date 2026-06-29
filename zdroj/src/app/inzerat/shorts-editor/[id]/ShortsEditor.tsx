@@ -46,11 +46,15 @@ function imgSrc(url: string): string {
   return nestAbsoluteAssetUrl(u) || u;
 }
 
-function videoSrc(url: string): string {
+function videoSrc(url: string, cacheBust?: number): string {
   const u = url.trim();
   if (!u) return '';
-  if (/^https?:\/\//i.test(u)) return u;
-  return nestAbsoluteAssetUrl(u) || u;
+  let base = /^https?:\/\//i.test(u) ? u : nestAbsoluteAssetUrl(u) || u;
+  if (cacheBust != null && Number.isFinite(cacheBust)) {
+    const sep = base.includes('?') ? '&' : '?';
+    base = `${base}${sep}v=${cacheBust}`;
+  }
+  return base;
 }
 
 function overlayFromDraft(row: NestShortsListingDraft): ShortsOverlaySettings {
@@ -121,6 +125,7 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
   const [overlaySettings, setOverlaySettings] = useState<ShortsOverlaySettings>(() =>
     createDefaultOverlaySettings({}),
   );
+  const [videoCacheBust, setVideoCacheBust] = useState(() => Date.now());
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -187,7 +192,7 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
     data?.videoUrl && data.videoUrl.trim()
       ? {
           id: data.id,
-          videoUrl: videoSrc(data.videoUrl),
+          videoUrl: videoSrc(data.videoUrl, videoCacheBust),
           title: title || data.title,
           city: null,
           createdAt: data.updatedAt,
@@ -253,6 +258,7 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
         setMusicTrackId(rg.data.musicTrackId ?? '');
         setMusicBuiltinKey(rg.data.musicBuiltinKey || 'demo_soft');
         setOverlaySettings(overlayFromDraft(rg.data));
+        setVideoCacheBust(Date.now());
       }
       setPendingRegen(false);
       setOkMsg('Změny jsou uložené a video v feedu je aktualizované.');
@@ -297,6 +303,7 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
       setMusicTrackId(r.data.musicTrackId ?? '');
       setMusicBuiltinKey(r.data.musicBuiltinKey || 'demo_soft');
       setOverlaySettings(overlayFromDraft(r.data));
+      setVideoCacheBust(Date.now());
     }
     setPendingRegen(false);
     setOkMsg('Video je znovu vygenerované.');
@@ -804,7 +811,7 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
           <h2 className="text-lg font-semibold">Náhled videa</h2>
           {feedPreview?.videoUrl ? (
             <video
-              key={`${feedPreview.videoUrl}:${data.renderVersion ?? 0}`}
+              key={`${feedPreview.videoUrl}:${data.renderVersion ?? 0}:${videoCacheBust}`}
               src={feedPreview.videoUrl}
               controls
               className="mt-4 aspect-[9/16] w-full max-w-xs rounded-xl bg-black"
@@ -821,7 +828,7 @@ export function ShortsEditor({ listingId }: ShortsEditorProps) {
           {feedPreview?.videoUrl ? (
             <div className="mt-4 max-w-xs overflow-hidden rounded-xl border border-zinc-200 bg-black shadow-md">
               <video
-                key={`${feedPreview.videoUrl}:${data.renderVersion ?? 0}`}
+                key={`${feedPreview.videoUrl}:${data.renderVersion ?? 0}:${videoCacheBust}`}
                 src={feedPreview.videoUrl}
                 muted
                 playsInline
