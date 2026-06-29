@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { ListingPublishStatusPanel } from '@/components/listing/ListingPublishStatusPanel';
@@ -29,7 +29,6 @@ function pickStrList(v: unknown): string[] {
 export default function UpravitInzeratPage() {
   const params = useParams();
   const id = typeof params?.id === 'string' ? params.id : '';
-  const router = useRouter();
   const { apiAccessToken, isAuthenticated, isLoading } = useAuth();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
