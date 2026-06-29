@@ -2806,9 +2806,14 @@ export async function nestPrefillListingFromUrl(
 
 export type SrealityPrefillDebugLog = {
   url: string;
+  extractedListingId?: string | null;
+  strategyUsed?: string;
   startedAt?: string;
   endedAt?: string;
   durationMs?: number;
+  apiStatus?: number | null;
+  htmlStatus?: number | null;
+  playwrightStatus?: string | null;
   httpStatus: number | null;
   cloudflareDetected: boolean;
   playwrightAttempted?: boolean;

@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   hasMinimumPrefillData,
+  extractListingIdFromUrl,
   parseSrealityListingMulti,
 } from './sreality-listing-prefill.util';
+import { mapV1EstateToPrefill } from './sreality-api-prefill.util';
 import { ConfigService } from '@nestjs/config';
 import { SrealityPlaywrightService } from './sreality-playwright.service';
 
@@ -55,6 +57,34 @@ const RUN_LIVE =
   Boolean(process.env.SREALITY_PLAYWRIGHT_STORAGE_STATE_PATH || process.env.SREALITY_PLAYWRIGHT_COOKIES_JSON);
 
 describe('sreality prefill parsers (offline fixtures)', () => {
+  it('extracts listing id from detail URL', () => {
+    const id = extractListingIdFromUrl(
+      'https://www.sreality.cz/detail/prodej/komercni/restaurace/klamos-klamos/2017825612',
+    );
+    assert.equal(id, '2017825612');
+  });
+
+  it('maps v1 API payload to prefill', () => {
+    const data = mapV1EstateToPrefill(
+      {
+        advert_name: 'Prodej restaurace 865 m²',
+        advert_description: 'Popis restaurace v Klamoši.',
+        category_main_cb: { name: 'Komerční', value: 4 },
+        category_sub_cb: { name: 'Restaurace', value: 30 },
+        category_type_cb: { name: 'Prodej', value: 1 },
+        price_czk: 6490000,
+        usable_area: 865,
+        locality: { city: 'Klamoš', district: 'Hradec Králové', region: 'Královéhradecký kraj' },
+      },
+      'https://www.sreality.cz/detail/prodej/komercni/restaurace/klamos-klamos/2017825612',
+    );
+    assert.equal(data.title, 'Prodej restaurace 865 m²');
+    assert.equal(data.city, 'Klamoš');
+    assert.equal(data.offerType, 'prodej');
+    assert.equal(data.propertyType, 'komerční');
+    assert.ok(hasMinimumPrefillData(data));
+  });
+
   it('parses JSON-LD + NEXT_DATA sample HTML', () => {
     const html = `
       <html><head>

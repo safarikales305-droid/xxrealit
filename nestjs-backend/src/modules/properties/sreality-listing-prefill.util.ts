@@ -76,7 +76,7 @@ function toInt(v: unknown): number | null {
   return n == null ? null : Math.round(n);
 }
 
-function mapOfferType(raw: string | null): string | null {
+export function mapOfferType(raw: string | null): string | null {
   if (!raw) return null;
   const s = raw.toLowerCase();
   if (s.includes('pronájem') || s.includes('pronajem') || s.includes('rent')) return 'pronájem';
@@ -84,7 +84,7 @@ function mapOfferType(raw: string | null): string | null {
   return null;
 }
 
-function mapPropertyType(raw: string | null): string | null {
+export function mapPropertyType(raw: string | null): string | null {
   if (!raw) return null;
   const s = raw.toLowerCase();
   if (s.includes('byt') || s.includes('flat')) return 'byt';
@@ -541,6 +541,22 @@ function mergePartials(
   };
 }
 
+export function extractListingIdFromUrl(raw: string): string | null {
+  try {
+    const href = raw.trim();
+    const url = href.startsWith('http') ? new URL(href) : new URL(href, 'https://www.sreality.cz/');
+    const parts = url.pathname.split('/').filter(Boolean);
+    for (let i = parts.length - 1; i >= 0; i -= 1) {
+      const seg = decodeURIComponent(parts[i] ?? '');
+      if (/^\d{6,15}$/.test(seg)) return seg;
+    }
+  } catch {
+    /* fall through */
+  }
+  const m = raw.match(/\/(\d{6,15})(?:\/?$|[?#])/);
+  return m?.[1] ?? null;
+}
+
 export function assertSrealityListingUrl(raw: string): URL {
   let parsed: URL;
   try {
@@ -606,4 +622,22 @@ export function hasMinimumPrefillData(data: SrealityListingPrefill): boolean {
 /** Částečný úspěch po fetch fallbacku — název + popis bez města. */
 export function hasPartialPrefillData(data: SrealityListingPrefill): boolean {
   return Boolean(data.title?.trim()) && Boolean(data.description?.trim());
+}
+
+/** Minimální užitečná data pro částečné předvyplnění formuláře. */
+export function hasBasicPrefillData(data: SrealityListingPrefill): boolean {
+  return Boolean(
+    data.title?.trim() ||
+      data.description?.trim() ||
+      data.location?.trim() ||
+      data.city?.trim() ||
+      data.propertyType?.trim() ||
+      data.offerType?.trim(),
+  );
+}
+
+export function mergeSrealityListingPrefills(
+  sources: Array<{ name: string; partial: Partial<SrealityListingPrefill> | null }>,
+): { data: SrealityListingPrefill; debug: SrealityParseDebug } {
+  return mergePartials(sources);
 }

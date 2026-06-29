@@ -19,10 +19,10 @@ type PlaywrightCookie = {
   path?: string;
 };
 
-const GOTO_TIMEOUT_MS = 20_000;
-const LOAD_STATE_TIMEOUT_MS = 10_000;
-const SELECTOR_TIMEOUT_MS = 8_000;
-const DEFAULT_TOTAL_TIMEOUT_MS = 40_000;
+const GOTO_TIMEOUT_MS = 10_000;
+const LOAD_STATE_TIMEOUT_MS = 5_000;
+const SELECTOR_TIMEOUT_MS = 4_000;
+const DEFAULT_TOTAL_TIMEOUT_MS = 15_000;
 
 const CHROMIUM_LAUNCH_ARGS = [
   '--no-sandbox',
@@ -56,10 +56,10 @@ export class SrealityPlaywrightService {
     this.logger.log(`Sreality prefill: start Playwright diagnostika url=${url}`);
 
     const timeoutMs = Math.min(
-      40_000,
-      Math.max(15_000, options?.timeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS),
+      15_000,
+      Math.max(8_000, options?.timeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS),
     );
-    const retries = Math.max(1, Math.min(2, options?.retries ?? 1));
+    const retries = 1;
     let lastErr: unknown = null;
 
     for (let attempt = 1; attempt <= retries; attempt += 1) {
@@ -236,9 +236,9 @@ export class SrealityPlaywrightService {
       });
 
       await page
-        .goto('https://www.sreality.cz/', { waitUntil: 'domcontentloaded', timeout: GOTO_TIMEOUT_MS })
+        .goto('https://www.sreality.cz/', { waitUntil: 'domcontentloaded', timeout: 5_000 })
         .catch(() => undefined);
-      await this.delay(page, 400);
+      await this.delay(page, 200);
 
       const response = await page.goto(url, {
         waitUntil: 'domcontentloaded',
@@ -263,7 +263,7 @@ export class SrealityPlaywrightService {
       await page
         .waitForLoadState('domcontentloaded', { timeout: LOAD_STATE_TIMEOUT_MS })
         .catch(() => undefined);
-      await this.delay(page, 1200);
+      await this.delay(page, 500);
 
       await page
         .waitForSelector('h1, script#__NEXT_DATA__, [data-e2e="detail-heading"], main', {
@@ -271,16 +271,14 @@ export class SrealityPlaywrightService {
         })
         .catch(() => undefined);
 
-      await this.delay(page, 600);
+      await this.delay(page, 300);
 
       await page
         .evaluate(async () => {
           window.scrollTo(0, document.body.scrollHeight / 3);
-          await new Promise((r) => setTimeout(r, 400));
-          window.scrollTo(0, document.body.scrollHeight * 0.66);
         })
         .catch(() => undefined);
-      await this.delay(page, 800);
+      await this.delay(page, 200);
 
       const html = await page.evaluate(() => document.documentElement.outerHTML);
       const finalUrl = page.url();

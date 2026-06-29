@@ -1,9 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
+import { fetchSrealityEstateFromApi } from './sreality-api-prefill.util';
 import {
   assertSrealityListingUrl,
+  extractListingIdFromUrl,
+  hasBasicPrefillData,
   hasMinimumPrefillData,
   hasPartialPrefillData,
+  mergeSrealityListingPrefills,
   parseSrealityListingMulti,
   type SrealityListingPrefill,
   type SrealityParseDebug,
@@ -13,19 +17,33 @@ import { SrealityPlaywrightService } from './sreality-playwright.service';
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const PREFILL_TOTAL_TIMEOUT_MS = 40_000;
-const PLAYWRIGHT_TIMEOUT_MS = 35_000;
-const FETCH_HTML_TIMEOUT_MS = 15_000;
+const API_TIMEOUT_MS = 12_000;
+const FETCH_HTML_TIMEOUT_MS = 12_000;
+const PLAYWRIGHT_TIMEOUT_MS = 15_000;
 const PARSER_TIMEOUT_MS = 10_000;
 const MAX_HTML_BYTES = 3 * 1024 * 1024;
 
 const BROWSER_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
+export type SrealityPrefillStrategy =
+  | 'api-v1'
+  | 'api-v2'
+  | 'html-fetch'
+  | 'playwright'
+  | 'merged'
+  | 'none';
+
 export type SrealityPrefillLog = {
   url: string;
+  extractedListingId: string | null;
+  strategyUsed: SrealityPrefillStrategy;
   startedAt: string;
   endedAt: string;
   durationMs: number;
+  apiStatus: number | null;
+  htmlStatus: number | null;
+  playwrightStatus: string | null;
   httpStatus: number | null;
   cloudflareDetected: boolean;
   playwrightAttempted: boolean;
@@ -75,12 +93,17 @@ export class ListingsPrefillService {
       const endedAt = new Date();
       const failLog = this.buildBaseLog({
         url: sourceUrl,
+        extractedListingId: extractListingIdFromUrl(sourceUrl),
+        strategyUsed: 'none',
         startedAt,
         endedAt,
         startedMs,
-        playwrightAttempted: true,
+        apiStatus: null,
+        htmlStatus: null,
+        playwrightStatus: 'timeout',
+        playwrightAttempted: false,
         playwrightLoaded: false,
-        playwrightFailed: true,
+        playwrightFailed: false,
         fetchFallbackUsed: false,
         errorCode: err instanceof PrefillTimeoutError ? err.code : 'TIMEOUT',
         errorDetail: err instanceof Error ? err.message : String(err),
@@ -106,9 +129,14 @@ export class ListingsPrefillService {
       const endedAt = new Date();
       const failLog = this.buildBaseLog({
         url: sourceUrl,
+        extractedListingId: extractListingIdFromUrl(sourceUrl),
+        strategyUsed: 'none',
         startedAt,
         endedAt,
         startedMs,
+        apiStatus: null,
+        htmlStatus: null,
+        playwrightStatus: null,
         playwrightAttempted: false,
         playwrightLoaded: false,
         playwrightFailed: false,
@@ -122,153 +150,208 @@ export class ListingsPrefillService {
       return { ok: false, error: message, log: failLog };
     }
 
+    const listingId = extractListingIdFromUrl(requestUrl.href);
+    const mergeSources: Array<{ name: string; partial: Partial<SrealityListingPrefill> | null }> = [
+      { name: 'urlPath', partial: parseSrealityListingMulti('', requestUrl.href).data },
+    ];
+
+    let apiStatus: number | null = null;
+    let htmlStatus: number | null = null;
+    let playwrightStatus: string | null = null;
+    let strategyUsed: SrealityPrefillStrategy = 'none';
     let playwrightAttempted = false;
     let playwrightLoaded = false;
     let playwrightFailed = false;
     let fetchFallbackUsed = false;
-    let renderedHtml = '';
-    let renderedFinalUrl = requestUrl.href;
+    let htmlLength = 0;
+    let finalUrl = requestUrl.href;
     let httpStatus: number | null = null;
     let cloudflareDetected = false;
-    let lastErrorCode: string | undefined;
-    let lastErrorDetail: string | undefined;
+    let lastDebug: SrealityParseDebug | null = null;
+
+    if (listingId) {
+      const api = await fetchSrealityEstateFromApi(listingId, requestUrl.href, API_TIMEOUT_MS);
+      apiStatus = api.httpStatus;
+      if (api.ok && api.data) {
+        mergeSources.push({ name: api.strategy ?? 'api-v1', partial: api.data });
+        if (this.isAcceptablePrefill(api.data)) {
+          return this.successResult({
+            sourceUrl: requestUrl.href,
+            listingId,
+            strategyUsed: api.strategy ?? 'api-v1',
+            startedAt,
+            startedMs,
+            data: api.data,
+            debug: this.debugFromPrefill(api.data, [api.strategy ?? 'api-v1']),
+            apiStatus,
+            htmlStatus,
+            playwrightStatus,
+            playwrightAttempted,
+            playwrightLoaded,
+            playwrightFailed,
+            fetchFallbackUsed,
+            htmlLength: 0,
+            finalUrl,
+            httpStatus: api.httpStatus,
+            cloudflareDetected,
+            options,
+          });
+        }
+      }
+    }
+
+    fetchFallbackUsed = true;
+    const fetched = await this.fetchHtmlFallback(requestUrl.href);
+    htmlStatus = fetched.httpStatus;
+    httpStatus = fetched.httpStatus;
+    finalUrl = fetched.finalUrl;
+    if (fetched.html.trim()) {
+      htmlLength = fetched.html.length;
+      const parseResult = await this.parseWithTimeout(fetched.html, fetched.finalUrl);
+      if (parseResult) {
+        lastDebug = parseResult.debug;
+        mergeSources.push({ name: 'html-fetch', partial: parseResult.data });
+        if (this.isAcceptablePrefill(parseResult.data)) {
+          return this.successResult({
+            sourceUrl: requestUrl.href,
+            listingId,
+            strategyUsed: 'html-fetch',
+            startedAt,
+            startedMs,
+            data: parseResult.data,
+            debug: parseResult.debug,
+            apiStatus,
+            htmlStatus,
+            playwrightStatus,
+            playwrightAttempted,
+            playwrightLoaded,
+            playwrightFailed,
+            fetchFallbackUsed,
+            htmlLength,
+            finalUrl,
+            httpStatus,
+            cloudflareDetected,
+            options,
+          });
+        }
+      }
+    }
 
     playwrightAttempted = true;
     const rendered = await this.playwright.renderPage(requestUrl.href, {
       timeoutMs: PLAYWRIGHT_TIMEOUT_MS,
       retries: 1,
     });
-
     playwrightLoaded = rendered.playwrightLoaded;
-    httpStatus = rendered.httpStatus;
+    playwrightFailed = Boolean(rendered.errorCode);
+    playwrightStatus = rendered.errorCode
+      ? `failed:${rendered.errorCode}`
+      : rendered.playwrightLoaded
+        ? 'ok'
+        : 'skipped';
+    httpStatus = rendered.httpStatus ?? httpStatus;
     cloudflareDetected = rendered.cloudflareDetected;
-    renderedHtml = rendered.html;
-    renderedFinalUrl = rendered.finalUrl || requestUrl.href;
-    lastErrorCode = rendered.errorCode;
-    lastErrorDetail = rendered.errorDetail;
+    finalUrl = rendered.finalUrl || finalUrl;
 
-    if (rendered.errorCode) {
-      playwrightFailed = true;
-    }
-
-    const playwrightUsable =
-      !rendered.errorCode && rendered.html.trim().length > 0 && !cloudflareDetected;
-
-    if (playwrightUsable) {
-      const parseResult = await this.parseWithTimeout(rendered.html, renderedFinalUrl);
-      if (parseResult && this.isAcceptablePrefill(parseResult.data)) {
-        const endedAt = new Date();
-        const log = this.buildSuccessLog({
-          url: requestUrl.href,
-          startedAt,
-          endedAt,
-          startedMs,
-          httpStatus,
-          cloudflareDetected,
-          playwrightAttempted,
-          playwrightLoaded,
-          playwrightFailed,
-          fetchFallbackUsed,
-          htmlLength: rendered.html.length,
-          finalUrl: renderedFinalUrl,
-          debug: parseResult.debug,
-        });
-        this.writeLog(log);
-        return {
-          ok: true,
-          data: parseResult.data,
-          log,
-          debug: options?.debug ? parseResult.debug : undefined,
-        };
-      }
-      if (parseResult && !this.isAcceptablePrefill(parseResult.data)) {
-        lastErrorCode = 'PARSER_NO_DATA';
-        lastErrorDetail = `Playwright HTML bez dostatečných dat. Polí: ${parseResult.debug.fieldsFoundCount}.`;
-      }
-    }
-
-    if (!playwrightUsable || playwrightFailed || lastErrorCode === 'PARSER_NO_DATA') {
-      fetchFallbackUsed = true;
-      const fetched = await this.fetchHtmlFallback(requestUrl.href);
-      if (fetched.html.trim()) {
-        renderedHtml = fetched.html;
-        renderedFinalUrl = fetched.finalUrl;
-        httpStatus = fetched.httpStatus ?? httpStatus;
-        const parseResult = await this.parseWithTimeout(fetched.html, fetched.finalUrl);
-        if (parseResult && this.isAcceptablePrefill(parseResult.data)) {
-          const endedAt = new Date();
-          const log = this.buildSuccessLog({
-            url: requestUrl.href,
+    if (!rendered.errorCode && rendered.html.trim()) {
+      htmlLength = rendered.html.length;
+      const parseResult = await this.parseWithTimeout(rendered.html, rendered.finalUrl);
+      if (parseResult) {
+        lastDebug = parseResult.debug;
+        mergeSources.push({ name: 'playwright', partial: parseResult.data });
+        if (this.isAcceptablePrefill(parseResult.data)) {
+          return this.successResult({
+            sourceUrl: requestUrl.href,
+            listingId,
+            strategyUsed: 'playwright',
             startedAt,
-            endedAt,
             startedMs,
-            httpStatus,
-            cloudflareDetected: false,
+            data: parseResult.data,
+            debug: parseResult.debug,
+            apiStatus,
+            htmlStatus,
+            playwrightStatus,
             playwrightAttempted,
             playwrightLoaded,
             playwrightFailed,
             fetchFallbackUsed,
-            htmlLength: fetched.html.length,
-            finalUrl: fetched.finalUrl,
-            debug: parseResult.debug,
+            htmlLength,
+            finalUrl,
+            httpStatus,
+            cloudflareDetected,
+            options,
           });
-          this.writeLog(log);
-          return {
-            ok: true,
-            data: parseResult.data,
-            log,
-            debug: options?.debug ? parseResult.debug : undefined,
-          };
         }
-        if (parseResult) {
-          lastErrorCode = 'PARSER_NO_DATA';
-          lastErrorDetail = `Fetch fallback: parser nenašel minimum. Polí: ${parseResult.debug.fieldsFoundCount}. Parsery: ${parseResult.debug.parsersUsed.join(', ') || 'žádný'}.`;
-        }
-      } else if (fetched.errorCode) {
-        lastErrorCode = lastErrorCode ?? fetched.errorCode;
-        lastErrorDetail = lastErrorDetail ?? fetched.errorDetail;
       }
     }
 
+    const merged = mergeSrealityListingPrefills(mergeSources);
+    lastDebug = merged.debug;
+    if (hasBasicPrefillData(merged.data)) {
+      strategyUsed = 'merged';
+      return this.successResult({
+        sourceUrl: requestUrl.href,
+        listingId,
+        strategyUsed,
+        startedAt,
+        startedMs,
+        data: merged.data,
+        debug: merged.debug,
+        apiStatus,
+        htmlStatus,
+        playwrightStatus,
+        playwrightAttempted,
+        playwrightLoaded,
+        playwrightFailed,
+        fetchFallbackUsed,
+        htmlLength,
+        finalUrl,
+        httpStatus,
+        cloudflareDetected,
+        options,
+      });
+    }
+
     const endedAt = new Date();
-    const errorCode =
-      lastErrorCode ??
-      (renderedHtml.trim() ? 'PARSER_NO_DATA' : playwrightFailed ? 'PLAYWRIGHT_ERROR' : 'EMPTY_HTML');
-    const errorDetail =
-      lastErrorDetail ??
-      (renderedHtml.trim()
-        ? 'Parser nenašel dostatečná data v HTML.'
-        : 'Nepodařilo se načíst HTML stránky.');
+    const errorCode = this.resolveFailureCode({
+      apiStatus,
+      htmlStatus,
+      playwrightStatus,
+      cloudflareDetected,
+      listingId,
+    });
+    const errorDetail = this.resolveFailureDetail({
+      apiStatus,
+      htmlStatus,
+      playwrightStatus,
+      renderedError: rendered.errorDetail,
+      listingId,
+      fieldsFoundCount: merged.debug.fieldsFoundCount,
+    });
 
     const failLog = this.buildBaseLog({
       url: requestUrl.href,
+      extractedListingId: listingId,
+      strategyUsed: 'none',
       startedAt,
       endedAt,
       startedMs,
+      apiStatus,
+      htmlStatus,
+      playwrightStatus,
       httpStatus,
       cloudflareDetected,
       playwrightAttempted,
       playwrightLoaded,
       playwrightFailed,
       fetchFallbackUsed,
-      htmlLength: renderedHtml.length,
-      finalUrl: renderedFinalUrl,
+      htmlLength,
+      finalUrl,
       errorCode,
       errorDetail,
       errorMessage: errorDetail,
+      debug: merged.debug,
     });
-
-    if (renderedHtml.trim()) {
-      const { debug } = parseSrealityListingMulti(renderedHtml, renderedFinalUrl);
-      failLog.foundJsonLd = debug.foundJsonLd;
-      failLog.foundNextData = debug.foundNextData;
-      failLog.foundInitialState = debug.foundInitialState;
-      failLog.foundOpenGraph = debug.foundOpenGraph;
-      failLog.foundHtmlParser = debug.foundHtmlParser;
-      failLog.fieldsFoundCount = debug.fieldsFoundCount;
-      failLog.fieldsFound = debug.fieldsFound;
-      failLog.parsersUsed = debug.parsersUsed;
-    }
 
     const error = this.errorMessageFromCode(errorCode, errorDetail);
     this.writeLog(failLog, error);
@@ -276,12 +359,113 @@ export class ListingsPrefillService {
       ok: false,
       error,
       log: failLog,
-      debug: options?.debug ? this.debugFromLog(failLog) : undefined,
+      debug: options?.debug ? merged.debug : undefined,
+    };
+  }
+
+  private successResult(params: {
+    sourceUrl: string;
+    listingId: string | null;
+    strategyUsed: SrealityPrefillStrategy;
+    startedAt: Date;
+    startedMs: number;
+    data: SrealityListingPrefill;
+    debug: SrealityParseDebug;
+    apiStatus: number | null;
+    htmlStatus: number | null;
+    playwrightStatus: string | null;
+    playwrightAttempted: boolean;
+    playwrightLoaded: boolean;
+    playwrightFailed: boolean;
+    fetchFallbackUsed: boolean;
+    htmlLength: number;
+    finalUrl: string;
+    httpStatus: number | null;
+    cloudflareDetected: boolean;
+    options?: { debug?: boolean };
+  }): SrealityPrefillResult {
+    const endedAt = new Date();
+    const data = {
+      ...params.data,
+      rawSourceData: {
+        ...(params.data.rawSourceData ?? {}),
+        sourceUrl: params.sourceUrl,
+        listingId: params.listingId,
+        strategyUsed: params.strategyUsed,
+      },
+    };
+    const log = this.buildSuccessLog({
+      url: params.sourceUrl,
+      extractedListingId: params.listingId,
+      strategyUsed: params.strategyUsed,
+      startedAt: params.startedAt,
+      endedAt,
+      startedMs: params.startedMs,
+      apiStatus: params.apiStatus,
+      htmlStatus: params.htmlStatus,
+      playwrightStatus: params.playwrightStatus,
+      httpStatus: params.httpStatus,
+      cloudflareDetected: params.cloudflareDetected,
+      playwrightAttempted: params.playwrightAttempted,
+      playwrightLoaded: params.playwrightLoaded,
+      playwrightFailed: params.playwrightFailed,
+      fetchFallbackUsed: params.fetchFallbackUsed,
+      htmlLength: params.htmlLength,
+      finalUrl: params.finalUrl,
+      debug: params.debug,
+    });
+    this.writeLog(log);
+    return {
+      ok: true,
+      data,
+      log,
+      debug: params.options?.debug ? params.debug : undefined,
     };
   }
 
   private isAcceptablePrefill(data: SrealityListingPrefill): boolean {
-    return hasMinimumPrefillData(data) || hasPartialPrefillData(data);
+    return (
+      hasMinimumPrefillData(data) ||
+      hasPartialPrefillData(data) ||
+      hasBasicPrefillData(data)
+    );
+  }
+
+  private resolveFailureCode(params: {
+    apiStatus: number | null;
+    htmlStatus: number | null;
+    playwrightStatus: string | null;
+    cloudflareDetected: boolean;
+    listingId: string | null;
+  }): string {
+    if (!params.listingId) return 'INVALID_URL';
+    if (params.cloudflareDetected) return 'CLOUDFLARE';
+    if (params.playwrightStatus?.includes('COOKIE_CONSENT')) return 'COOKIE_CONSENT';
+    if (params.apiStatus === 403 || params.htmlStatus === 403) return 'HTTP_403';
+    if (params.playwrightStatus?.includes('TIMEOUT')) return 'TIMEOUT';
+    if (params.apiStatus && params.apiStatus >= 400 && params.htmlStatus && params.htmlStatus >= 400) {
+      return 'AUTO_BLOCKED';
+    }
+    return 'PARSER_NO_DATA';
+  }
+
+  private resolveFailureDetail(params: {
+    apiStatus: number | null;
+    htmlStatus: number | null;
+    playwrightStatus: string | null;
+    renderedError?: string;
+    listingId: string | null;
+    fieldsFoundCount: number;
+  }): string {
+    const parts = [
+      params.listingId ? `listingId=${params.listingId}` : null,
+      params.apiStatus != null ? `apiStatus=${params.apiStatus}` : null,
+      params.htmlStatus != null ? `htmlStatus=${params.htmlStatus}` : null,
+      params.playwrightStatus ? `playwrightStatus=${params.playwrightStatus}` : null,
+      params.renderedError ? `playwright=${params.renderedError}` : null,
+      `fieldsFound=${params.fieldsFoundCount}`,
+    ].filter(Boolean);
+    return parts.join(' | ');
   }
 
   private async parseWithTimeout(
@@ -350,16 +534,6 @@ export class ListingsPrefillService {
         };
       }
 
-      if (/cmp\.seznam\.cz/i.test(finalUrl)) {
-        return {
-          html,
-          finalUrl,
-          httpStatus: res.status,
-          errorCode: 'COOKIE_CONSENT',
-          errorDetail: 'Sreality přesměrovalo na souhlas cookies — fetch fallback bez Playwright.',
-        };
-      }
-
       return { html, finalUrl, httpStatus: res.status };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -368,16 +542,21 @@ export class ListingsPrefillService {
         finalUrl: url,
         httpStatus: null,
         errorCode: /timeout/i.test(msg) ? 'TIMEOUT' : 'FETCH_ERROR',
-        errorDetail: `Fetch fallback selhal: ${msg}`,
+        errorDetail: `HTML fetch selhal: ${msg}`,
       };
     }
   }
 
   private buildSuccessLog(params: {
     url: string;
+    extractedListingId: string | null;
+    strategyUsed: SrealityPrefillStrategy;
     startedAt: Date;
     endedAt: Date;
     startedMs: number;
+    apiStatus: number | null;
+    htmlStatus: number | null;
+    playwrightStatus: string | null;
     httpStatus: number | null;
     cloudflareDetected: boolean;
     playwrightAttempted: boolean;
@@ -390,9 +569,14 @@ export class ListingsPrefillService {
   }): SrealityPrefillLog {
     return {
       url: params.url,
+      extractedListingId: params.extractedListingId,
+      strategyUsed: params.strategyUsed,
       startedAt: params.startedAt.toISOString(),
       endedAt: params.endedAt.toISOString(),
       durationMs: params.endedAt.getTime() - params.startedMs,
+      apiStatus: params.apiStatus,
+      htmlStatus: params.htmlStatus,
+      playwrightStatus: params.playwrightStatus,
       httpStatus: params.httpStatus,
       cloudflareDetected: params.cloudflareDetected,
       playwrightAttempted: params.playwrightAttempted,
@@ -414,9 +598,14 @@ export class ListingsPrefillService {
 
   private buildBaseLog(params: {
     url: string;
+    extractedListingId: string | null;
+    strategyUsed: SrealityPrefillStrategy;
     startedAt: Date;
     endedAt: Date;
     startedMs: number;
+    apiStatus?: number | null;
+    htmlStatus?: number | null;
+    playwrightStatus?: string | null;
     httpStatus?: number | null;
     cloudflareDetected?: boolean;
     playwrightAttempted: boolean;
@@ -428,31 +617,56 @@ export class ListingsPrefillService {
     errorCode?: string;
     errorDetail?: string;
     errorMessage?: string;
+    debug?: SrealityParseDebug;
   }): SrealityPrefillLog {
     return {
       url: params.url,
+      extractedListingId: params.extractedListingId,
+      strategyUsed: params.strategyUsed,
       startedAt: params.startedAt.toISOString(),
       endedAt: params.endedAt.toISOString(),
       durationMs: params.endedAt.getTime() - params.startedMs,
+      apiStatus: params.apiStatus ?? null,
+      htmlStatus: params.htmlStatus ?? null,
+      playwrightStatus: params.playwrightStatus ?? null,
       httpStatus: params.httpStatus ?? null,
       cloudflareDetected: params.cloudflareDetected ?? false,
       playwrightAttempted: params.playwrightAttempted,
       playwrightLoaded: params.playwrightLoaded,
       playwrightFailed: params.playwrightFailed,
       fetchFallbackUsed: params.fetchFallbackUsed,
-      foundJsonLd: false,
-      foundNextData: false,
-      foundInitialState: false,
-      foundOpenGraph: false,
-      foundHtmlParser: false,
-      fieldsFoundCount: 0,
-      fieldsFound: [],
-      parsersUsed: [],
+      foundJsonLd: params.debug?.foundJsonLd ?? false,
+      foundNextData: params.debug?.foundNextData ?? false,
+      foundInitialState: params.debug?.foundInitialState ?? false,
+      foundOpenGraph: params.debug?.foundOpenGraph ?? false,
+      foundHtmlParser: params.debug?.foundHtmlParser ?? false,
+      fieldsFoundCount: params.debug?.fieldsFoundCount ?? 0,
+      fieldsFound: params.debug?.fieldsFound ?? [],
+      parsersUsed: params.debug?.parsersUsed ?? [],
       htmlLength: params.htmlLength ?? 0,
       finalUrl: params.finalUrl ?? params.url,
       errorCode: params.errorCode,
       errorDetail: params.errorDetail,
       errorMessage: params.errorMessage ?? params.errorDetail,
+    };
+  }
+
+  private debugFromPrefill(
+    data: SrealityListingPrefill,
+    parsersUsed: string[],
+  ): SrealityParseDebug {
+    const fields = Object.entries(data)
+      .filter(([, v]) => v != null && v !== '' && !(Array.isArray(v) && v.length === 0))
+      .map(([k]) => k);
+    return {
+      foundJsonLd: false,
+      foundNextData: false,
+      foundInitialState: false,
+      foundOpenGraph: false,
+      foundHtmlParser: false,
+      parsersUsed,
+      fieldsFound: fields,
+      fieldsFoundCount: fields.length,
     };
   }
 
@@ -529,16 +743,13 @@ export class ListingsPrefillService {
     this.log.log(
       [
         `Sreality prefill url=${entry.url}`,
-        `start=${entry.startedAt}`,
-        `end=${entry.endedAt}`,
+        `listingId=${entry.extractedListingId ?? 'n/a'}`,
+        `strategy=${entry.strategyUsed}`,
+        `apiStatus=${entry.apiStatus ?? 'n/a'}`,
+        `htmlStatus=${entry.htmlStatus ?? 'n/a'}`,
+        `playwrightStatus=${entry.playwrightStatus ?? 'n/a'}`,
+        `fieldsFound=${entry.fieldsFoundCount}`,
         `durationMs=${entry.durationMs}`,
-        `playwrightAttempted=${entry.playwrightAttempted}`,
-        `playwrightLoaded=${entry.playwrightLoaded}`,
-        `playwrightFailed=${entry.playwrightFailed}`,
-        `fetchFallback=${entry.fetchFallbackUsed}`,
-        `httpStatus=${entry.httpStatus ?? 'n/a'}`,
-        `cloudflare=${entry.cloudflareDetected}`,
-        `fields=${entry.fieldsFoundCount}`,
         entry.errorCode ? `errorCode=${entry.errorCode}` : null,
         errorMessage ?? entry.errorMessage ? `errorMessage=${errorMessage ?? entry.errorMessage}` : null,
       ]
@@ -552,58 +763,20 @@ export class ListingsPrefillService {
       case 'INVALID_URL':
         return detail ?? 'Neplatná URL — zkontrolujte odkaz ze Sreality.';
       case 'HTTP_403':
-        return 'Sreality blokuje načtení (HTTP 403). Vyplňte inzerát ručně.';
       case 'CLOUDFLARE':
-        return 'Sreality blokuje načtení (ochrana Cloudflare). Vyplňte inzerát ručně.';
       case 'COOKIE_CONSENT':
-        return 'Sreality blokuje načtení (souhlas cookies Seznam). Vyplňte inzerát ručně.';
-      case 'TIMEOUT':
-        return detail?.includes('40')
-          ? 'Vypršel časový limit načítání (40 s). Zkuste to později nebo vyplňte inzerát ručně.'
-          : `Vypršel časový limit načítání. ${detail ?? ''}`.trim();
-      case 'PLAYWRIGHT_UNAVAILABLE':
-        return detail
-          ? `Playwright není dostupný: ${detail}`
-          : 'Playwright není na serveru dostupný — kontaktujte administrátora.';
-      case 'PLAYWRIGHT_ERROR':
-        return detail
-          ? `Playwright selhal: ${detail}`
-          : 'Playwright selhal při spuštění prohlížeče.';
+      case 'AUTO_BLOCKED':
       case 'PARSER_NO_DATA':
-        return `Parser nenašel dostatečná data v HTML. ${detail ?? 'Vyplňte inzerát ručně.'}`;
       case 'EMPTY_HTML':
-        return 'Nepodařilo se načíst obsah stránky. Vyplňte inzerát ručně.';
       case 'FETCH_ERROR':
-        return detail ?? 'Záložní načtení HTML selhalo. Vyplňte inzerát ručně.';
+      case 'PLAYWRIGHT_UNAVAILABLE':
+      case 'PLAYWRIGHT_ERROR':
+        return 'Sreality blokuje automatické načtení. Zkopírujte prosím text ručně.';
+      case 'TIMEOUT':
+        return 'Načtení trvalo příliš dlouho. Zkuste to později nebo vyplňte inzerát ručně.';
       default:
-        return detail ?? `Import selhal (${code}). Vyplňte inzerát ručně.`;
+        return detail ?? 'Sreality blokuje automatické načtení. Zkopírujte prosím text ručně.';
     }
-  }
-
-  private emptyDebug(): SrealityParseDebug {
-    return {
-      foundJsonLd: false,
-      foundNextData: false,
-      foundInitialState: false,
-      foundOpenGraph: false,
-      foundHtmlParser: false,
-      parsersUsed: [],
-      fieldsFound: [],
-      fieldsFoundCount: 0,
-    };
-  }
-
-  private debugFromLog(entry: SrealityPrefillLog): SrealityParseDebug {
-    return {
-      foundJsonLd: entry.foundJsonLd,
-      foundNextData: entry.foundNextData,
-      foundInitialState: entry.foundInitialState,
-      foundOpenGraph: entry.foundOpenGraph,
-      foundHtmlParser: entry.foundHtmlParser,
-      parsersUsed: entry.parsersUsed,
-      fieldsFound: entry.fieldsFound,
-      fieldsFoundCount: entry.fieldsFoundCount,
-    };
   }
 }
 
