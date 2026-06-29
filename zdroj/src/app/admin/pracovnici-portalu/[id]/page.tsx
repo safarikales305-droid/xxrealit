@@ -11,12 +11,14 @@ import {
   nestUploadImageFile,
   type WorkerDetailAdmin,
 } from '@/lib/nest-client';
+import { WorkerAdminCommunicationPanel } from '@/components/portal-worker/worker-admin-communication-panel';
 
 const STATUS_LABEL: Record<string, string> = {
   PENDING_APPROVAL: 'Čeká na schválení',
   APPROVED: 'Schválen',
   REJECTED: 'Zamítnut',
   SUSPENDED: 'Pozastaven',
+  COOPERATION_CANCEL_REQUESTED: 'Ukončení spolupráce požádáno',
 };
 
 export default function AdminPortalWorkerDetailPage() {
@@ -286,6 +288,8 @@ export default function AdminPortalWorkerDetailPage() {
           />
         </label>
       </section>
+
+      <WorkerAdminCommunicationPanel workerId={userId} token={apiAccessToken} />
 
       <div className="flex flex-wrap items-center gap-3">
         <button

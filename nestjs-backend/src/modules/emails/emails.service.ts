@@ -731,4 +731,86 @@ export class EmailsService implements OnModuleInit {
       metadata: { userId: input.userId, requestId: input.requestId, amount: input.amount },
     });
   }
+
+  async sendWorkerInternalMessageNotificationEmail(input: {
+    to: string;
+    workerName: string;
+    messageUrl: string;
+    workerId: string;
+  }) {
+    const messageUrl = this.normalizePublicUrl(input.messageUrl);
+    return this.sendTemplatedEmail({
+      type: 'worker_internal_message',
+      templateKey: 'worker_internal_message',
+      to: input.to,
+      variables: {
+        workerName: input.workerName,
+        portalName: this.portalName(),
+        messageUrl,
+        ctaUrl: messageUrl,
+      },
+      metadata: { workerId: input.workerId },
+    });
+  }
+
+  async sendWorkerBulkMessageNotificationEmail(input: {
+    to: string;
+    workerName: string;
+    messageUrl: string;
+    workerId: string;
+    bulkMessageId: string;
+  }) {
+    const messageUrl = this.normalizePublicUrl(input.messageUrl);
+    return this.sendTemplatedEmail({
+      type: 'worker_bulk_message',
+      templateKey: 'worker_bulk_message',
+      to: input.to,
+      variables: {
+        workerName: input.workerName,
+        portalName: this.portalName(),
+        messageUrl,
+        ctaUrl: messageUrl,
+      },
+      metadata: { workerId: input.workerId, bulkMessageId: input.bulkMessageId },
+    });
+  }
+
+  async sendWorkerProfileCompletionReminderEmail(input: {
+    to: string;
+    workerName: string;
+    profileUrl: string;
+    workerId: string;
+  }) {
+    const profileUrl = this.normalizePublicUrl(input.profileUrl);
+    return this.sendTemplatedEmail({
+      type: 'worker_profile_completion_reminder',
+      templateKey: 'worker_profile_completion_reminder',
+      to: input.to,
+      variables: {
+        workerName: input.workerName,
+        portalName: this.portalName(),
+        profileUrl,
+        ctaUrl: profileUrl,
+      },
+      metadata: { workerId: input.workerId },
+    });
+  }
+
+  async sendWorkerCooperationCancelConfirmationEmail(input: {
+    to: string;
+    workerName: string;
+    workerId: string;
+  }) {
+    return this.sendTemplatedEmail({
+      type: 'worker_cooperation_cancel_confirmation',
+      templateKey: 'worker_cooperation_cancel_confirmation',
+      to: input.to,
+      variables: {
+        workerName: input.workerName,
+        portalName: this.portalName(),
+        loginUrl: this.loginUrl(),
+      },
+      metadata: { workerId: input.workerId },
+    });
+  }
 }

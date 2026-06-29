@@ -15,6 +15,7 @@ const STATUS_LABEL: Record<string, string> = {
   APPROVED: 'Schválen',
   REJECTED: 'Zamítnut',
   SUSPENDED: 'Pozastaven',
+  COOPERATION_CANCEL_REQUESTED: 'Ukončení spolupráce požádáno',
 };
 
 const ACTION_LABEL: Record<string, string> = {
@@ -34,6 +35,8 @@ function actionsForStatus(status: string): Array<'approve' | 'reject' | 'suspend
       return ['approve'];
     case 'SUSPENDED':
       return ['activate', 'reject'];
+    case 'COOPERATION_CANCEL_REQUESTED':
+      return ['suspend'];
     default:
       return ['approve', 'reject', 'suspend', 'activate'];
   }
@@ -92,6 +95,15 @@ export default function AdminPortalWorkersPage() {
             ← Administrace
           </Link>
           <h1 className="mt-1 text-xl font-bold">Pracovníci portálu</h1>
+          <div className="mt-2 flex flex-wrap gap-2 text-sm">
+            <Link href="/admin/pracovnici-portalu/hromadne-zpravy" className="font-semibold text-[#e85d00] hover:underline">
+              Hromadné zprávy
+            </Link>
+            <span className="text-zinc-300">·</span>
+            <Link href="/admin/pracovnici-portalu/naborove-cile" className="font-semibold text-[#e85d00] hover:underline">
+              Náborové cíle
+            </Link>
+          </div>
         </div>
       </header>
       <main className="mx-auto max-w-6xl space-y-4 px-4 py-8">
@@ -146,7 +158,13 @@ export default function AdminPortalWorkersPage() {
                   href={`/admin/pracovnici-portalu/${w.id}`}
                   className="rounded-lg border border-[#e85d00] px-3 py-1.5 text-sm font-semibold text-[#e85d00]"
                 >
-                  Detail / nastavení
+                  Detail
+                </Link>
+                <Link
+                  href={`/admin/pracovnici-portalu/${w.id}/chat`}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-semibold"
+                >
+                  Chat
                 </Link>
                 {actions.includes('approve') ? (
                   <button

@@ -13,11 +13,24 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { AdminGuard } from '../admin/guards/admin.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { WorkerRecruitmentTargetType } from '@prisma/client';
 import { PortalWorkerService } from './portal-worker.service';
 import { UpdateWorkerCommissionSettingsDto } from './dto/update-worker-commission-settings.dto';
 import { UpdateWorkerProfileAdminDto } from './dto/worker-crm.dto';
+import {
+  ApplyWorkerWorkGuideTemplateDto,
+  SaveWorkerBulkTemplateDto,
+  SendWorkerBulkMessageDto,
+  SendWorkerInternalMessageDto,
+  UpdateRecruitmentTargetDto,
+  UpdateWorkerProfileReminderDto,
+  UpdateWorkerWorkGuideDto,
+} from './dto/worker-communication.dto';
 import { PortalWorkerCrmService } from './portal-worker-crm.service';
+import { PortalWorkerCommunicationService } from './portal-worker-communication.service';
 
 @Controller('admin/portal-workers')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -25,6 +38,7 @@ export class PortalWorkerAdminController {
   constructor(
     private readonly portalWorker: PortalWorkerService,
     private readonly crm: PortalWorkerCrmService,
+    private readonly communication: PortalWorkerCommunicationService,
   ) {}
 
   @Get()
@@ -119,6 +133,125 @@ export class PortalWorkerAdminController {
     @Query('q') q?: string,
   ) {
     return this.crm.listAllClientsAdmin({ workerId, status, q });
+  }
+
+  @Get('communications/bulk-messages/templates')
+  listBulkTemplates() {
+    return this.communication.listBulkTemplates();
+  }
+
+  @Get('communications/bulk-messages/history')
+  listBulkHistory() {
+    return this.communication.listBulkHistory();
+  }
+
+  @Post('communications/bulk-messages/templates')
+  saveBulkTemplate(
+    @CurrentUser() admin: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: SaveWorkerBulkTemplateDto,
+  ) {
+    return this.communication.saveBulkTemplate(admin.id, dto);
+  }
+
+  @Post('communications/bulk-messages/send')
+  sendBulkMessage(
+    @CurrentUser() admin: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: SendWorkerBulkMessageDto,
+  ) {
+    return this.communication.sendBulkMessage(admin.id, dto);
+  }
+
+  @Get('communications/recruitment-targets')
+  listRecruitmentTargets() {
+    return this.communication.listRecruitmentTargetsAdmin();
+  }
+
+  @Patch('communications/recruitment-targets/:targetType')
+  updateRecruitmentTarget(
+    @Param('targetType') targetType: WorkerRecruitmentTargetType,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: UpdateRecruitmentTargetDto,
+  ) {
+    return this.communication.updateRecruitmentTargetAdmin(targetType, dto);
+  }
+
+  @Get('communications/cooperation-cancels/pending')
+  listPendingCooperationCancels() {
+    return this.communication.listPendingCooperationCancels();
+  }
+
+  @Get(':userId/messages')
+  listMessages(@Param('userId') userId: string) {
+    return this.communication.listMessagesAdmin(userId);
+  }
+
+  @Post(':userId/messages')
+  sendMessage(
+    @CurrentUser() admin: AuthUser,
+    @Param('userId') userId: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: SendWorkerInternalMessageDto,
+  ) {
+    return this.communication.sendMessageAdmin(admin.id, userId, dto);
+  }
+
+  @Post(':userId/messages/mark-read')
+  markMessagesRead(@Param('userId') userId: string) {
+    return this.communication.markMessagesReadAdmin(userId);
+  }
+
+  @Get(':userId/profile-reminder')
+  getProfileReminder(@Param('userId') userId: string) {
+    return this.communication.getProfileReminderAdmin(userId);
+  }
+
+  @Patch(':userId/profile-reminder')
+  updateProfileReminder(
+    @Param('userId') userId: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: UpdateWorkerProfileReminderDto,
+  ) {
+    return this.communication.updateProfileReminderAdmin(userId, dto);
+  }
+
+  @Get(':userId/cooperation-cancel')
+  getCooperationCancel(@Param('userId') userId: string) {
+    return this.communication.getCooperationCancelAdmin(userId);
+  }
+
+  @Post(':userId/cooperation-cancel/confirm')
+  confirmCooperationCancel(@CurrentUser() admin: AuthUser, @Param('userId') userId: string) {
+    return this.communication.confirmCooperationCancelAdmin(admin.id, userId);
+  }
+
+  @Post(':userId/cooperation-cancel/restore')
+  restoreCooperation(@CurrentUser() admin: AuthUser, @Param('userId') userId: string) {
+    return this.communication.restoreCooperationAdmin(admin.id, userId);
+  }
+
+  @Get(':userId/work-guide')
+  getWorkGuide(@Param('userId') userId: string) {
+    return this.communication.getWorkGuideAdmin(userId);
+  }
+
+  @Patch(':userId/work-guide')
+  updateWorkGuide(
+    @Param('userId') userId: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: UpdateWorkerWorkGuideDto,
+  ) {
+    return this.communication.updateWorkGuideAdmin(userId, dto);
+  }
+
+  @Post(':userId/work-guide/apply-template')
+  applyWorkGuideTemplate(
+    @Param('userId') userId: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: ApplyWorkerWorkGuideTemplateDto,
+  ) {
+    return this.communication.applyWorkGuideTemplateAdmin(userId, dto);
   }
 
   @Get(':userId/detail')

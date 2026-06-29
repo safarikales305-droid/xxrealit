@@ -51,6 +51,8 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
       { id: 'professionals', label: 'Ověření profesionálů', href: '/admin/overeni-profesionalu', icon: '✔' },
       { id: 'seekers', label: 'Hledající nemovitosti', href: '/admin/hledaci-nemovitosti', icon: '🔍' },
       { id: 'workers', label: 'Pracovníci portálu', href: '/admin/pracovnici-portalu', icon: '🛠' },
+      { id: 'workers-bulk', label: 'Hromadné zprávy', href: '/admin/pracovnici-portalu/hromadne-zpravy', icon: '✉', tone: 'blue' },
+      { id: 'workers-recruitment', label: 'Náborové cíle', href: '/admin/pracovnici-portalu/naborove-cile', icon: '🎯', tone: 'green' },
       { id: 'workers-crm', label: 'CRM klienti pracovníků', href: '/admin/pracovnici-portalu/crm', icon: '📋', tone: 'blue' },
       { id: 'tipsters', label: 'Tipaři', href: '/admin/tipar', icon: '💡' },
       { id: 'tipster-payouts', label: 'Výplaty tipařů', href: '/admin/tipar/vyplaty', icon: '💸', tone: 'green' },

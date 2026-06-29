@@ -58,6 +58,30 @@ enum PortalWorkerStatus {
   APPROVED
   REJECTED
   SUSPENDED
+  COOPERATION_CANCEL_REQUESTED
+}
+
+enum WorkerInternalMessageSender {
+  ADMIN
+  WORKER
+}
+
+enum WorkerCooperationCancelStatus {
+  PENDING
+  CONFIRMED
+  RESTORED
+}
+
+enum WorkerRecruitmentTargetType {
+  AGENT
+  REAL_ESTATE_AGENCY
+  CONSTRUCTION_COMPANY
+  INVESTOR
+  FINANCIAL_ADVISOR
+  CRAFTSMAN
+  TIPSTER
+  PRIVATE_SELLER
+  DEVELOPER
 }
 
 enum ClientPreregistrationStatus {
@@ -450,6 +474,14 @@ model User {
   clientPreregistrationsCreated ClientPreregistration[] @relation("ClientPreregistrationWorker")
   clientPreregistrationCompleted ClientPreregistration? @relation("ClientPreregistrationCompletedUser")
   workerProfile WorkerProfile?
+  workerInternalMessagesReceived WorkerInternalMessage[] @relation("WorkerInternalMessageWorker")
+  workerInternalMessagesSent WorkerInternalMessage[] @relation("WorkerInternalMessageSender")
+  workerBulkMessagesCreated WorkerBulkMessage[] @relation("WorkerBulkMessageCreator")
+  workerBulkMessageRecipients WorkerBulkMessageRecipient[] @relation("WorkerBulkMessageRecipientWorker")
+  workerProfileReminderSettings WorkerProfileReminderSettings?
+  workerCooperationCancelRequest WorkerCooperationCancelRequest? @relation("WorkerCooperationCancelWorker")
+  workerCooperationCancelsResolved WorkerCooperationCancelRequest[] @relation("WorkerCooperationCancelResolver")
+  workerWorkGuides WorkerWorkGuide[] @relation("WorkerWorkGuideWorker")
   workerClientNotesAuthored WorkerClientNote[] @relation("WorkerClientNoteAuthor")
   workerClientAudits WorkerClientAuditLog[] @relation("WorkerClientAuditActor")
   bonusClaims         BonusClaim[]
@@ -2597,6 +2629,143 @@ model WorkerCommission {
   @@index([workerId, createdAt])
   @@index([referredUserId, createdAt])
   @@index([status])
+}
+
+/// Interní zpráva admin ↔ pracovník portálu.
+model WorkerInternalMessage {
+  id           String                      @id @default(cuid())
+  workerId     String
+  senderRole   WorkerInternalMessageSender
+  senderUserId String
+  body         String                      @db.Text
+  readAt       DateTime?
+  bulkMessageId String?
+  createdAt    DateTime                    @default(now())
+
+  worker      User  @relation("WorkerInternalMessageWorker", fields: [workerId], references: [id], onDelete: Cascade)
+  sender      User  @relation("WorkerInternalMessageSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+  bulkMessage WorkerBulkMessage? @relation(fields: [bulkMessageId], references: [id], onDelete: SetNull)
+
+  @@index([workerId, createdAt])
+  @@index([workerId, readAt])
+}
+
+/// Hromadná zpráva / šablona pro pracovníky portálu.
+model WorkerBulkMessage {
+  id              String    @id @default(cuid())
+  campaignName    String
+  body            String    @db.Text
+  filterJson      Json?
+  recipientCount  Int       @default(0)
+  emailsSent      Int       @default(0)
+  emailErrors     Int       @default(0)
+  isTemplate      Boolean   @default(false)
+  templateName    String?
+  createdById     String
+  sentAt          DateTime?
+  createdAt       DateTime  @default(now())
+
+  createdBy    User                         @relation("WorkerBulkMessageCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  recipients   WorkerBulkMessageRecipient[]
+  internalMsgs WorkerInternalMessage[]
+
+  @@index([createdById, createdAt])
+  @@index([isTemplate, createdAt])
+}
+
+/// Příjemce hromadné zprávy.
+model WorkerBulkMessageRecipient {
+  id                String  @id @default(cuid())
+  bulkMessageId     String
+  workerId          String
+  internalMessageId String?
+  emailSent         Boolean @default(false)
+  emailError        String? @db.Text
+
+  bulkMessage WorkerBulkMessage @relation(fields: [bulkMessageId], references: [id], onDelete: Cascade)
+  worker      User              @relation("WorkerBulkMessageRecipientWorker", fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@unique([bulkMessageId, workerId])
+  @@index([workerId])
+}
+
+/// Nastavení denních výzev k dokončení profilu pracovníka.
+model WorkerProfileReminderSettings {
+  userId             String    @id
+  enabled            Boolean   @default(false)
+  lastReminderSentAt DateTime?
+  remindersSentCount Int       @default(0)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Žádost pracovníka o ukončení spolupráce.
+model WorkerCooperationCancelRequest {
+  id           String                        @id @default(cuid())
+  workerId     String                        @unique
+  reason       String?                       @db.Text
+  status       WorkerCooperationCancelStatus @default(PENDING)
+  requestedAt  DateTime                      @default(now())
+  resolvedAt   DateTime?
+  resolvedById String?
+
+  worker     User  @relation("WorkerCooperationCancelWorker", fields: [workerId], references: [id], onDelete: Cascade)
+  resolvedBy User? @relation("WorkerCooperationCancelResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([status, requestedAt])
+}
+
+/// Pracovní postup (návod) pro pracovníka nebo šablona.
+model WorkerWorkGuide {
+  id           String   @id @default(cuid())
+  workerId     String?
+  templateName String?
+  enabled      Boolean  @default(false)
+  isTemplate   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  worker User?                 @relation("WorkerWorkGuideWorker", fields: [workerId], references: [id], onDelete: Cascade)
+  steps  WorkerWorkGuideStep[]
+
+  @@index([workerId])
+  @@index([isTemplate])
+}
+
+/// Krok pracovního postupu.
+model WorkerWorkGuideStep {
+  id        String @id @default(cuid())
+  guideId   String
+  sortOrder Int
+  title     String @default("")
+  body      String @db.Text
+
+  guide WorkerWorkGuide @relation(fields: [guideId], references: [id], onDelete: Cascade)
+
+  @@index([guideId, sortOrder])
+}
+
+/// Náborový cíl portálu (koho hledáme).
+model WorkerRecruitmentTarget {
+  id         String                    @id @default(cuid())
+  targetType WorkerRecruitmentTargetType @unique
+  isActive   Boolean                   @default(false)
+  sortOrder  Int                       @default(0)
+  updatedAt  DateTime                  @updatedAt
+
+  scenario WorkerRecruitmentScenario?
+}
+
+/// Scénář komunikace pro náborový cíl.
+model WorkerRecruitmentScenario {
+  id        String @id @default(cuid())
+  targetId  String @unique
+  title     String @default("")
+  stepsJson Json
+
+  target WorkerRecruitmentTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
 }
 
 enum SupportTicketStatus {

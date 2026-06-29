@@ -3,6 +3,7 @@ export type PortalWorkerStatus =
   | 'APPROVED'
   | 'REJECTED'
   | 'SUSPENDED'
+  | 'COOPERATION_CANCEL_REQUESTED'
   | null
   | undefined;
 
@@ -11,6 +12,7 @@ export function portalWorkerHomePath(status: PortalWorkerStatus): string {
   if (status === 'PENDING_APPROVAL' || status === 'REJECTED') {
     return '/pracovnik/cekam-na-schvaleni';
   }
+  if (status === 'COOPERATION_CANCEL_REQUESTED') return '/pracovnik';
   return '/pracovnik';
 }
 
@@ -49,7 +51,7 @@ export function shouldRedirectPortalWorker(
   if (status === 'PENDING_APPROVAL' || status === 'REJECTED') {
     return p.startsWith('/pracovnik/cekam-na-schvaleni') ? null : '/pracovnik/cekam-na-schvaleni';
   }
-  if (status === 'APPROVED') {
+  if (status === 'APPROVED' || status === 'COOPERATION_CANCEL_REQUESTED') {
     if (p.startsWith('/pracovnik/cekam-na-schvaleni') || p.startsWith('/pracovnik/pozastaven')) {
       return '/pracovnik';
     }

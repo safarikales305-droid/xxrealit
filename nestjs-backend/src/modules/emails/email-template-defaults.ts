@@ -61,6 +61,10 @@ export const EMAIL_TEMPLATE_VARIABLES: Record<string, string[]> = {
   system_notification: ['title', 'messageHtml', 'messageText', 'ctaUrl', 'portalName'],
   custom_message: ['subject', 'bodyHtml', 'bodyText', 'portalName'],
   whatsapp_followup_email: ['userName', 'messageHtml', 'messageText', 'ctaUrl', 'portalName'],
+  worker_internal_message: ['workerName', 'portalName', 'messageUrl', 'ctaUrl'],
+  worker_bulk_message: ['workerName', 'portalName', 'messageUrl', 'ctaUrl'],
+  worker_profile_completion_reminder: ['workerName', 'portalName', 'profileUrl', 'ctaUrl'],
+  worker_cooperation_cancel_confirmation: ['workerName', 'portalName', 'loginUrl'],
 };
 
 export const DEFAULT_EMAIL_TEMPLATES: EmailTemplateDefault[] = [
@@ -305,6 +309,50 @@ tým {{portalName}}`,
     textContent:
       'Výplata {{amount}} Kč odeslána.\n\n{{adminNote}}\n\n{{loginUrl}}',
     variables: EMAIL_TEMPLATE_VARIABLES.tipar_payout_paid,
+  },
+  {
+    key: 'worker_internal_message',
+    name: 'Nová interní zpráva pracovníkovi',
+    category: 'worker_crm',
+    subject: 'Nová interní zpráva na {{portalName}}',
+    htmlContent:
+      '<p>Dobrý den {{workerName}},</p><p>Máte novou interní zprávu na portálu {{portalName}}. Přihlaste se a přečtěte si ji.</p><p><a href="{{messageUrl}}" style="display:inline-block;background:#ff5a00;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:700">Otevřít zprávu</a></p>',
+    textContent:
+      'Máte novou interní zprávu na portálu {{portalName}}. Přihlaste se a přečtěte si ji.\n\n{{messageUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.worker_internal_message,
+  },
+  {
+    key: 'worker_bulk_message',
+    name: 'Hromadná zpráva pracovníkům',
+    category: 'worker_crm',
+    subject: 'Nová zpráva od administrace {{portalName}}',
+    htmlContent:
+      '<p>Dobrý den {{workerName}},</p><p>Máte novou interní zprávu na portálu {{portalName}}. Přihlaste se a přečtěte si ji.</p><p><a href="{{messageUrl}}" style="display:inline-block;background:#ff5a00;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:700">Otevřít zprávu</a></p>',
+    textContent:
+      'Máte novou interní zprávu na portálu {{portalName}}. Přihlaste se a přečtěte si ji.\n\n{{messageUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.worker_bulk_message,
+  },
+  {
+    key: 'worker_profile_completion_reminder',
+    name: 'Výzva k dokončení profilu',
+    category: 'worker_crm',
+    subject: 'Dokončete svůj profil na {{portalName}}',
+    htmlContent:
+      '<p>Dobrý den {{workerName}},</p><p>Váš profil pracovníka portálu není dokončený. Doplňte prosím chybějící údaje, aby bylo možné plně využívat pracovní nástroje.</p><p><a href="{{profileUrl}}" style="display:inline-block;background:#ff5a00;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:700">Dokončit profil</a></p>',
+    textContent:
+      'Váš profil pracovníka portálu není dokončený. Doplňte prosím chybějící údaje.\n\n{{profileUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.worker_profile_completion_reminder,
+  },
+  {
+    key: 'worker_cooperation_cancel_confirmation',
+    name: 'Potvrzení žádosti o ukončení spolupráce',
+    category: 'worker_crm',
+    subject: 'Přijali jsme vaši žádost o ukončení spolupráce',
+    htmlContent:
+      '<p>Dobrý den {{workerName}},</p><p>přijali jsme vaši žádost o ukončení spolupráce s portálem {{portalName}}. Administrátor ji nyní zpracuje.</p><p><a href="{{loginUrl}}">Přejít na portál</a></p>',
+    textContent:
+      'Přijali jsme vaši žádost o ukončení spolupráce s portálem {{portalName}}.\n\n{{loginUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.worker_cooperation_cancel_confirmation,
   },
 ];
 

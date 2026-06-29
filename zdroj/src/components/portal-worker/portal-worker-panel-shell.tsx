@@ -6,6 +6,8 @@ import { useAuth } from '@/hooks/use-auth';
 
 const NAV = [
   { href: '/pracovnik', label: 'Přehled' },
+  { href: '/pracovnik/zpravy', label: 'Zprávy' },
+  { href: '/pracovnik/postup', label: 'Postup práce' },
   { href: '/pracovnik/klienti', label: 'Moji klienti' },
   { href: '/pracovnik/registrace', label: 'Zahájené registrace' },
   { href: '/pracovnik/pozvanky', label: 'Pozvánky' },

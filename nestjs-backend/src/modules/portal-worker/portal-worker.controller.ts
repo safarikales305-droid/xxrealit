@@ -21,7 +21,12 @@ import {
   UpdateWorkerSelfSettingsDto,
   WorkerCrmMessageDto,
 } from './dto/worker-crm.dto';
+import {
+  ReplyWorkerInternalMessageDto,
+  WorkerCooperationCancelDto,
+} from './dto/worker-communication.dto';
 import { PortalWorkerCrmService } from './portal-worker-crm.service';
+import { PortalWorkerCommunicationService } from './portal-worker-communication.service';
 import { PortalWorkerService } from './portal-worker.service';
 
 @Controller('portal-worker')
@@ -30,6 +35,7 @@ export class PortalWorkerController {
   constructor(
     private readonly portalWorker: PortalWorkerService,
     private readonly crm: PortalWorkerCrmService,
+    private readonly communication: PortalWorkerCommunicationService,
   ) {}
 
   @Get('me/dashboard')
@@ -134,5 +140,53 @@ export class PortalWorkerController {
     dto: Omit<WorkerCrmMessageDto, 'preregistrationId'>,
   ) {
     return this.crm.sendWhatsAppAction(user.id, { ...dto, preregistrationId: id });
+  }
+
+  @Get('me/messages')
+  listMessages(@CurrentUser() user: AuthUser) {
+    return this.communication.listMessagesWorker(user.id);
+  }
+
+  @Post('me/messages/reply')
+  replyMessage(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: ReplyWorkerInternalMessageDto,
+  ) {
+    return this.communication.replyMessageWorker(user.id, dto);
+  }
+
+  @Post('me/messages/mark-read')
+  markMessagesRead(@CurrentUser() user: AuthUser) {
+    return this.communication.markMessagesReadWorker(user.id);
+  }
+
+  @Get('me/profile-completion')
+  profileCompletion(@CurrentUser() user: AuthUser) {
+    return this.communication.getProfileCompletionWorker(user.id);
+  }
+
+  @Get('me/work-guide')
+  workGuide(@CurrentUser() user: AuthUser) {
+    return this.communication.getWorkGuideWorker(user.id);
+  }
+
+  @Get('me/recruitment-targets')
+  recruitmentTargets(@CurrentUser() user: AuthUser) {
+    return this.communication.listRecruitmentTargetsWorker();
+  }
+
+  @Get('me/cooperation-cancel')
+  cooperationCancel(@CurrentUser() user: AuthUser) {
+    return this.communication.getCooperationCancelWorker(user.id);
+  }
+
+  @Post('me/cooperation-cancel')
+  requestCooperationCancel(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: WorkerCooperationCancelDto,
+  ) {
+    return this.communication.requestCooperationCancelWorker(user.id, dto);
   }
 }
