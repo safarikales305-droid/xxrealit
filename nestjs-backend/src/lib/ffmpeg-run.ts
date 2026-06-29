@@ -39,6 +39,20 @@ export function parseDurationSecondsFromFfmpegStderr(stderr: string): number | n
   return Math.round(hours * 3600 + min * 60 + sec);
 }
 
+/** Zjistí, zda ffmpeg build obsahuje filtr drawtext (volitelné — shorts overlay ho nevyžaduje). */
+export async function probeFfmpegSupportsDrawtext(executable: string): Promise<boolean> {
+  try {
+    const { code, stderr } = await runFfmpegCapture(executable, [
+      '-hide_banner',
+      '-filters',
+    ]);
+    if (code !== 0) return false;
+    return /\bdrawtext\b/.test(stderr);
+  } catch {
+    return false;
+  }
+}
+
 export function quoteFfmpegArgv(argv: string[]): string {
   return argv
     .map((a) => {

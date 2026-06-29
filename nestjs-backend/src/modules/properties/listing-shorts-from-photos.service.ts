@@ -9,7 +9,11 @@ import {
   type FfmpegBinarySource,
   resolveFfmpegBinary,
 } from '../../lib/ffmpeg-binary';
-import { quoteFfmpegArgv, runFfmpegCapture } from '../../lib/ffmpeg-run';
+import {
+  probeFfmpegSupportsDrawtext,
+  quoteFfmpegArgv,
+  runFfmpegCapture,
+} from '../../lib/ffmpeg-run';
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
 import { VideoOgThumbnailService } from './video-og-thumbnail.service';
 import {
@@ -17,18 +21,13 @@ import {
   type ShortsOverlayConfig,
 } from './shorts-overlay.types';
 import {
-  hexToFfmpegColor,
-  overlayTextDrawXExpr,
-  overlayTextDrawY,
-  renderShortsTopBarPng,
+  renderShortsTopOverlayPng,
   resolveShortsLogoBuffer,
   SHORTS_HEIGHT,
+  SHORTS_OVERLAY_STRIP_HEIGHT,
   SHORTS_WIDTH,
 } from './shorts-top-overlay.render';
-import {
-  resolveShortsLogoPath,
-  resolveShortsOverlayFontPath,
-} from './shorts-overlay-assets';
+import { resolveShortsLogoPath } from './shorts-overlay-assets';
 
 import sharp, { assertSharpReady } from '../../lib/sharp-instance';
 
@@ -224,6 +223,7 @@ async function writeFfconcatDemuxerList(
 export class ListingShortsFromPhotosService {
   private readonly log = new Logger(ListingShortsFromPhotosService.name);
   private loggedFfmpegResolution = false;
+  private drawtextProbeCache: boolean | null = null;
 
   constructor(
     private readonly cloudinary: PropertyMediaCloudinaryService,
@@ -409,6 +409,14 @@ export class ListingShortsFromPhotosService {
     }
   }
 
+  private async ffmpegSupportsDrawtext(ffmpegBin: string): Promise<boolean> {
+    if (this.drawtextProbeCache !== null) {
+      return this.drawtextProbeCache;
+    }
+    this.drawtextProbeCache = await probeFfmpegSupportsDrawtext(ffmpegBin);
+    return this.drawtextProbeCache;
+  }
+
   private resolveOverlayConfig(input: GenerateShortsFromPhotosInput): ShortsOverlayConfig | null {
     const raw = input.overlay ?? {};
     const showOverlayText =
@@ -436,13 +444,13 @@ export class ListingShortsFromPhotosService {
     logContext?: { shortsId?: string },
   ): Promise<void> {
     const shortsId = logContext?.shortsId ?? '—';
-    const fontPath = resolveShortsOverlayFontPath();
     const logoPathResolved = resolveShortsLogoPath();
+    const ffmpegSupportsDrawtext = await this.ffmpegSupportsDrawtext(ffmpegBin);
 
     let logoBuffer: Buffer | null = null;
     let logoWidth = 0;
     let logoSource: string | null = null;
-    let barPng: Buffer;
+    let overlayPng: Buffer;
 
     try {
       assertSharpReady('shorts overlay PNG');
@@ -450,7 +458,7 @@ export class ListingShortsFromPhotosService {
       logoBuffer = logoResolved.buffer;
       logoWidth = logoResolved.width;
       logoSource = logoResolved.path;
-      barPng = await renderShortsTopBarPng(overlay, logoBuffer);
+      overlayPng = await renderShortsTopOverlayPng(overlay, logoBuffer, logoWidth);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.log.error(
@@ -462,34 +470,15 @@ export class ListingShortsFromPhotosService {
       );
     }
 
+    const overlayPngPath = join(tmpRoot, 'top-overlay.png');
+    await writeFile(overlayPngPath, overlayPng);
+
+    const logoExists = Boolean(logoBuffer && logoBuffer.length > 0);
+    const filter = `[0:v]scale=${SHORTS_WIDTH}:${SHORTS_HEIGHT},setsar=1[v];[v][1:v]overlay=0:0:format=auto[outv]`;
+
     this.log.log(
-      `[shorts-regenerate] shortsId=${shortsId} showLogo=${overlay.showLogo} showOverlayText=${overlay.showOverlayText} overlayText=${JSON.stringify(overlay.text)} overlayStyle=${overlay.styleKey} overlayColor=${overlay.textColor} overlaySize=${overlay.fontSize} overlayAlign=${overlay.alignment} logoPath=${logoSource ?? logoPathResolved ?? '(fallback)'} fontPath=${fontPath ?? '(systémový výchozí ffmpeg)'} overlayPngBytes=${barPng.length}`,
+      `[shorts-regenerate] shortsId=${shortsId} ffmpegSupportsDrawtext=${ffmpegSupportsDrawtext} (overlay používá pouze PNG, ne drawtext) showLogo=${overlay.showLogo} showOverlayText=${overlay.showOverlayText} overlayText=${JSON.stringify(overlay.text)} overlayStyle=${overlay.styleKey} overlayColor=${overlay.textColor} overlaySize=${overlay.fontSize} overlayAlign=${overlay.alignment} logoExists=${logoExists} logoPath=${logoSource ?? logoPathResolved ?? '(fallback)'} overlayPngPath=${resolve(overlayPngPath)} overlayPngBytes=${overlayPng.length} overlayStrip=${SHORTS_WIDTH}x${SHORTS_OVERLAY_STRIP_HEIGHT} outputPath=${resolve(outPath)} filter_complex=${filter}`,
     );
-
-    const overlayPath = join(tmpRoot, 'top-overlay-bar.png');
-    await writeFile(overlayPath, barPng);
-
-    const textPath = join(tmpRoot, 'top-overlay-text.txt');
-    if (overlay.showOverlayText) {
-      await writeFile(textPath, overlay.text, 'utf8');
-    }
-
-    const overlayPathEsc = escapePathForDrawtextFile(overlayPath);
-    const textPathEsc = escapePathForDrawtextFile(textPath);
-    const fontPathEsc = fontPath ? escapePathForDrawtextFile(fontPath) : '';
-
-    let filter: string;
-    if (overlay.showOverlayText) {
-      const fontSize = Math.max(24, Math.min(72, overlay.fontSize));
-      const fontColor = hexToFfmpegColor(overlay.textColor);
-      const xExpr = overlayTextDrawXExpr(overlay.alignment, overlay.showLogo, logoWidth);
-      const yPx = overlayTextDrawY();
-      const fontfilePart = fontPathEsc ? `fontfile='${fontPathEsc}':` : '';
-      const drawtext = `[vm]drawtext=${fontfilePart}textfile='${textPathEsc}':fontsize=${fontSize}:fontcolor=${fontColor}:borderw=2:bordercolor=black@0.72:shadowcolor=black@0.55:shadowx=2:shadowy=2:x=${xExpr}:y=${yPx}[outv]`;
-      filter = `[1:v]scale=${SHORTS_WIDTH}:${SHORTS_HEIGHT}[ov];[0:v][ov]overlay=0:0:shortest=1[vm];${drawtext}`;
-    } else {
-      filter = `[1:v]scale=${SHORTS_WIDTH}:${SHORTS_HEIGHT}[ov];[0:v][ov]overlay=0:0:shortest=1[outv]`;
-    }
 
     const args = [
       '-hide_banner',
@@ -499,7 +488,7 @@ export class ListingShortsFromPhotosService {
       '-i',
       videoIn,
       '-i',
-      overlayPath,
+      overlayPngPath,
       '-filter_complex',
       filter,
       '-map',
@@ -527,10 +516,20 @@ export class ListingShortsFromPhotosService {
       '[redacted]',
     );
     this.log.log(
-      `[shorts-regenerate] shortsId=${shortsId} ffmpeg overlay příkaz: ${safeCmd}`,
+      `[shorts-regenerate] shortsId=${shortsId} ffmpeg příkaz: ${safeCmd}`,
     );
 
-    await runFfmpegLogged(this.log, 'top-overlay', ffmpegBin, args);
+    try {
+      await runFfmpegLogged(this.log, 'top-overlay', ffmpegBin, args);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.log.error(
+        `[shorts-regenerate] shortsId=${shortsId} ffmpeg overlay selhal: ${msg}`,
+      );
+      throw new BadRequestException(
+        `Vložení overlay do shorts videa selhalo (ffmpeg): ${msg.slice(0, 450)}`,
+      );
+    }
 
     this.log.log(
       `[shorts-regenerate] shortsId=${shortsId} overlay video uloženo: ${resolve(outPath)}`,
