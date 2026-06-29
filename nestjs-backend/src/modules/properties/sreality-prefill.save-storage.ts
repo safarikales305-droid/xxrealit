@@ -5,6 +5,17 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
+type SaveStoragePage = {
+  goto: (url: string, opts: { waitUntil?: string; timeout?: number }) => Promise<void>;
+  waitForTimeout: (ms: number) => Promise<void>;
+};
+
+type SaveStorageContext = {
+  newPage: () => Promise<SaveStoragePage>;
+  storageState: (opts: { path: string }) => Promise<void>;
+  close: () => Promise<void>;
+};
+
 async function main() {
   const outPath = resolve(process.argv[2] ?? './sreality-playwright-storage.json');
   mkdirSync(dirname(outPath), { recursive: true });
@@ -12,11 +23,7 @@ async function main() {
   const playwright = (await dynamicImport('playwright')) as {
     chromium: {
       launch: (opts: Record<string, unknown>) => Promise<{
-        newContext: (opts: Record<string, unknown>) => Promise<{
-          newPage: () => Promise<{ goto: (u: string, o: Record<string, unknown>) => Promise<void> }>;
-          storageState: (opts: { path: string }) => Promise<void>;
-          close: () => Promise<void>;
-        }>;
+        newContext: (opts: Record<string, unknown>) => Promise<SaveStorageContext>;
         close: () => Promise<void>;
       }>;
     };
@@ -27,7 +34,8 @@ async function main() {
   const sample =
     'https://www.sreality.cz/detail/prodej/byt/3+kk/praha-liben-na-kopecku/951038028';
   console.log('Otevřen prohlížeč — odsouhlaste cookies a počkejte na detail inzerátu.');
-  await page.goto(sample, { waitUntil: 'load', timeout: 120_000 });
+  await page.goto(sample, { waitUntil: 'networkidle', timeout: 120_000 });
+  await page.waitForTimeout(3_000);
   await page.waitForTimeout(120_000);
   await context.storageState({ path: outPath });
   console.log(`Uloženo: ${outPath}`);

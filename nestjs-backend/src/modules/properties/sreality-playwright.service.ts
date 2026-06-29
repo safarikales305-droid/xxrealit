@@ -151,11 +151,11 @@ export class SrealityPlaywrightService {
       await page
         .goto('https://www.sreality.cz/', { waitUntil: 'domcontentloaded', timeout: Math.min(20_000, timeoutMs) })
         .catch(() => undefined);
-      await page.waitForTimeout(600);
+      await this.delay(page, 600);
 
       const response = await page.goto(url, {
-        waitUntil: 'domcontentloaded',
-        timeout: timeoutMs,
+        waitUntil: 'networkidle',
+        timeout: Math.max(timeoutMs, 120_000),
       });
       httpStatus = response?.status() ?? null;
 
@@ -174,6 +174,7 @@ export class SrealityPlaywrightService {
 
       await this.handleSeznamConsent(page, url, timeoutMs, context);
       await page.waitForLoadState('networkidle', { timeout: Math.min(25_000, timeoutMs) }).catch(() => undefined);
+      await this.delay(page, 3000);
 
       await page
         .waitForSelector('h1, script#__NEXT_DATA__, [data-e2e="detail-heading"], main', {
@@ -181,7 +182,7 @@ export class SrealityPlaywrightService {
         })
         .catch(() => undefined);
 
-      await page.waitForTimeout(1200);
+      await this.delay(page, 1200);
 
       await page
         .evaluate(async () => {
@@ -190,7 +191,7 @@ export class SrealityPlaywrightService {
           window.scrollTo(0, document.body.scrollHeight * 0.66);
         })
         .catch(() => undefined);
-      await page.waitForTimeout(800);
+      await this.delay(page, 800);
 
       const html = await page.evaluate(() => document.documentElement.outerHTML);
       const finalUrl = page.url();
@@ -262,7 +263,7 @@ export class SrealityPlaywrightService {
     for (let round = 0; round < 4; round += 1) {
       if (!this.isCookieConsentPage(page.url(), '')) break;
 
-      await page.waitForTimeout(round === 0 ? 2500 : 1500);
+      await this.delay(page, round === 0 ? 2500 : 1500);
 
       const selectors = [
         'button:has-text("Souhlasím se vším")',
@@ -306,18 +307,26 @@ export class SrealityPlaywrightService {
       await page
         .waitForURL(/sreality\.cz\/detail/i, { timeout: 12_000 })
         .catch(() => undefined);
-      await page.waitForTimeout(600);
+      await this.delay(page, 600);
 
       if (!this.isCookieConsentPage(page.url(), '')) return;
     }
 
     if (this.isCookieConsentPage(page.url(), '')) {
       await page
-        .goto(returnUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
+        .goto(returnUrl, { waitUntil: 'networkidle', timeout: Math.max(timeoutMs, 120_000) })
         .catch(() => undefined);
       await this.dismissCookieBanners(page);
-      await page.waitForTimeout(800);
+      await this.delay(page, 800);
     }
+  }
+
+  private async delay(page: PlaywrightPage, ms: number): Promise<void> {
+    if (page.waitForTimeout) {
+      await page.waitForTimeout(ms);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private isCookieConsentPage(finalUrl: string, html: string): boolean {
@@ -355,7 +364,7 @@ export class SrealityPlaywrightService {
         const el = page.locator(selector).first();
         if ((await el.count()) > 0) {
           await el.click({ timeout: 900 }).catch(() => undefined);
-          await page.waitForTimeout(300);
+          await this.delay(page, 300);
           return;
         }
       } catch {
@@ -381,7 +390,7 @@ type PlaywrightPage = {
   waitForSelector: (sel: string, opts: Record<string, unknown>) => Promise<void>;
   waitForLoadState: (state: string, opts: Record<string, unknown>) => Promise<void>;
   waitForURL: (pattern: RegExp | string, opts: Record<string, unknown>) => Promise<void>;
-  waitForTimeout: (ms: number) => Promise<void>;
+  waitForTimeout?: (ms: number) => Promise<void>;
   evaluate: <T>(fn: () => T | Promise<T>) => Promise<T>;
   locator: (sel: string) => {
     first: () => { count: () => Promise<number>; click: (opts: Record<string, unknown>) => Promise<void> };
