@@ -4,10 +4,14 @@ import type { UserRole } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { TokenEncryptionService } from '../token-encryption.service';
 import {
+  DEFAULT_FACEBOOK_AUTOPOST,
+  DEFAULT_PLATFORM_PLACEHOLDER,
+  DEFAULT_SOCIAL_AUTOPOST_GLOBAL,
   DEFAULT_SOCIAL_AUTOPOST_SETTINGS,
   maskAccessToken,
   type FacebookAutopostSettings,
   type SocialApiLogEntry,
+  type SocialAutopostGlobalSettings,
   type SocialAutopostSettings,
   type SocialAutopostSettingsPublic,
 } from './social-autopost.types';
@@ -37,6 +41,34 @@ export class SocialAutopostSettingsService implements OnModuleInit {
   private roles(v: unknown): UserRole[] {
     if (!Array.isArray(v)) return [];
     return v.filter((x): x is UserRole => typeof x === 'string');
+  }
+
+  private platformSettings(
+    raw: unknown,
+    fallback: typeof DEFAULT_PLATFORM_PLACEHOLDER,
+  ) {
+    const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    return {
+      enabled: o.enabled === true,
+      publishListings: o.publishListings === true,
+      publishPosts: o.publishPosts === true,
+      publishShortsAsReels: o.publishShortsAsReels === true,
+      repeatPublishing: o.repeatPublishing === true,
+      preparedForFuture: o.preparedForFuture !== false,
+    };
+  }
+
+  private globalSettings(raw: unknown): SocialAutopostGlobalSettings {
+    const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    const d = DEFAULT_SOCIAL_AUTOPOST_GLOBAL;
+    return {
+      autoPublishNewListings: o.autoPublishNewListings !== false,
+      autoPublishNewPosts: o.autoPublishNewPosts !== false,
+      publishShortsAsReels: o.publishShortsAsReels !== false,
+      publishClassicAsPhotoPost: o.publishClassicAsPhotoPost !== false,
+      hidePublicPrice: o.hidePublicPrice !== false,
+      repeatPublishingEnabled: o.repeatPublishingEnabled !== false,
+    };
   }
 
   normalize(raw: unknown): SocialAutopostSettings {
@@ -83,6 +115,7 @@ export class SocialAutopostSettingsService implements OnModuleInit {
       publicPostsOnly: fbRaw.publicPostsOnly !== false,
       professionalsOnly: fbRaw.professionalsOnly === true,
       allowedRoles: this.roles(fbRaw.allowedRoles),
+      repeatPublishing: fbRaw.repeatPublishing !== false,
     };
 
     const logsRaw = Array.isArray(o.lastApiResponses) ? o.lastApiResponses : [];
@@ -91,10 +124,11 @@ export class SocialAutopostSettingsService implements OnModuleInit {
       .slice(0, MAX_API_LOGS) as SocialApiLogEntry[];
 
     return {
+      global: this.globalSettings(o.global),
       facebook,
-      instagram: { enabled: false },
-      youtube: { enabled: false },
-      tiktok: { enabled: false },
+      instagram: this.platformSettings(o.instagram, DEFAULT_PLATFORM_PLACEHOLDER),
+      youtube: this.platformSettings(o.youtube, DEFAULT_PLATFORM_PLACEHOLDER),
+      tiktok: this.platformSettings(o.tiktok, DEFAULT_PLATFORM_PLACEHOLDER),
       lastApiResponses,
     };
   }
@@ -193,6 +227,7 @@ export class SocialAutopostSettingsService implements OnModuleInit {
       ...fbRest
     } = settings.facebook;
     return {
+      global: settings.global,
       facebook: {
         ...fbRest,
         facebookEnabled: settings.facebook.enabled,
@@ -214,10 +249,14 @@ export class SocialAutopostSettingsService implements OnModuleInit {
 
   async updateSettings(
     patch: {
+      global?: Partial<SocialAutopostGlobalSettings>;
       facebook?: Partial<FacebookAutopostSettings> & {
         pageAccessToken?: string;
         userAccessToken?: string;
       };
+      instagram?: Partial<typeof DEFAULT_PLATFORM_PLACEHOLDER>;
+      youtube?: Partial<typeof DEFAULT_PLATFORM_PLACEHOLDER>;
+      tiktok?: Partial<typeof DEFAULT_PLATFORM_PLACEHOLDER>;
       lastApiResponses?: SocialAutopostSettings['lastApiResponses'];
     },
   ) {
@@ -239,6 +278,7 @@ export class SocialAutopostSettingsService implements OnModuleInit {
 
     const next: SocialAutopostSettings = {
       ...current,
+      global: { ...current.global, ...(patch.global ?? {}) },
       facebook: {
         ...current.facebook,
         ...fbPatch,
@@ -247,6 +287,9 @@ export class SocialAutopostSettingsService implements OnModuleInit {
         allowedRoles: fbPatch.allowedRoles ?? current.facebook.allowedRoles,
         tokenScopes: fbPatch.tokenScopes ?? current.facebook.tokenScopes,
       },
+      instagram: { ...current.instagram, ...(patch.instagram ?? {}) },
+      youtube: { ...current.youtube, ...(patch.youtube ?? {}) },
+      tiktok: { ...current.tiktok, ...(patch.tiktok ?? {}) },
       lastApiResponses: patch.lastApiResponses ?? current.lastApiResponses,
     };
 

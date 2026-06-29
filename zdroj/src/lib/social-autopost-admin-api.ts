@@ -30,16 +30,36 @@ export type FacebookAutopostSettingsPublic = {
   publicPostsOnly: boolean;
   professionalsOnly: boolean;
   allowedRoles: string[];
+  repeatPublishing?: boolean;
   connected: boolean;
   maskedToken: string | null;
   tokenSet: boolean;
 };
 
+export type SocialAutopostGlobalSettings = {
+  autoPublishNewListings: boolean;
+  autoPublishNewPosts: boolean;
+  publishShortsAsReels: boolean;
+  publishClassicAsPhotoPost: boolean;
+  hidePublicPrice: boolean;
+  repeatPublishingEnabled: boolean;
+};
+
+export type PlatformPlaceholderSettings = {
+  enabled: boolean;
+  publishListings?: boolean;
+  publishPosts?: boolean;
+  publishShortsAsReels?: boolean;
+  repeatPublishing?: boolean;
+  preparedForFuture?: boolean;
+};
+
 export type SocialAutopostSettingsPublic = {
+  global: SocialAutopostGlobalSettings;
   facebook: FacebookAutopostSettingsPublic;
-  instagram: { enabled: boolean };
-  youtube: { enabled: boolean };
-  tiktok: { enabled: boolean };
+  instagram: PlatformPlaceholderSettings;
+  youtube: PlatformPlaceholderSettings;
+  tiktok: PlatformPlaceholderSettings;
   lastApiResponses: SocialApiLogEntry[];
 };
 
@@ -237,6 +257,31 @@ export function nestAdminSocialAutopostFacebookPatch(
     method: 'PATCH',
     body: JSON.stringify(body),
   });
+}
+
+export function nestAdminSocialAutopostGlobalPatch(
+  token: string,
+  body: Partial<SocialAutopostGlobalSettings>,
+) {
+  return adminFetch<SocialAutopostSettingsPublic>(token, '/social/autopost/admin/settings/global', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export function nestAdminSocialAutopostPlatformPatch(
+  token: string,
+  platform: 'instagram' | 'youtube' | 'tiktok',
+  body: Partial<PlatformPlaceholderSettings>,
+) {
+  return adminFetch<SocialAutopostSettingsPublic>(
+    token,
+    `/social/autopost/admin/settings/${platform}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 export function nestAdminSocialAutopostTestConnection(token: string) {

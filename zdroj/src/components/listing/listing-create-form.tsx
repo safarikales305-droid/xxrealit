@@ -5,10 +5,14 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   nestApiConfigured,
   nestCreatePropertyListingMultipart,
+  nestFetchMe,
   nestGeneratePropertyShortsFromPhotos,
   nestListActiveShortsMusicTracks,
+  type PropertyCreationMeta,
   type ShortsMusicTrackDto,
 } from '@/lib/nest-client';
+import { buildListingContactPrefill } from '@/lib/listing-contact-prefill.util';
+import { ListingSuccessModal } from '@/components/listing/ListingSuccessModal';
 import {
   SrealityPrefillSection,
   type SrealityPrefillApplyPayload,
@@ -64,8 +68,33 @@ export function ListingCreateForm() {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
   const [bonusMessage, setBonusMessage] = useState<string | null>(null);
+  const [successModal, setSuccessModal] = useState<PropertyCreationMeta | null>(null);
+  const contactTouched = useRef(new Set<string>());
+  const profilePrefillApplied = useRef(false);
+
+  const applyContactPrefill = useCallback((force = false) => {
+    if (!apiAccessToken) return;
+    void nestFetchMe(apiAccessToken).then((profile) => {
+      const prefill = buildListingContactPrefill(profile);
+      const touched = contactTouched.current;
+      if ((force || !touched.has('contactName')) && prefill.contactName) setContactName(prefill.contactName);
+      if ((force || !touched.has('contactPhone')) && prefill.contactPhone) setContactPhone(prefill.contactPhone);
+      if ((force || !touched.has('contactEmail')) && prefill.contactEmail) setContactEmail(prefill.contactEmail);
+      if ((force || !touched.has('region')) && prefill.region) setRegion(prefill.region);
+      if ((force || !touched.has('district')) && prefill.district) setDistrict(prefill.district);
+      profilePrefillApplied.current = true;
+    });
+  }, [apiAccessToken]);
+
+  useEffect(() => {
+    if (!apiAccessToken || profilePrefillApplied.current) return;
+    applyContactPrefill();
+  }, [apiAccessToken, applyContactPrefill]);
+
+  const markContactTouched = useCallback((field: string) => {
+    contactTouched.current.add(field);
+  }, []);
 
   /** Prázdné = bez hudby; jinak ID skladby z admin knihovny. */
   const [shortsMusicTrackId, setShortsMusicTrackId] = useState('');
@@ -183,8 +212,14 @@ export function ListingCreateForm() {
     if (data.subType) setSubType(data.subType);
     if (data.address) setAddress(data.address);
     if (data.city) setCity(data.city);
-    if (data.region) setRegion(data.region);
-    if (data.district) setDistrict(data.district);
+    if (data.region) {
+      markContactTouched('region');
+      setRegion(data.region);
+    }
+    if (data.district) {
+      markContactTouched('district');
+      setDistrict(data.district);
+    }
     if (data.area != null) setArea(String(data.area));
     if (data.landArea != null) setLandArea(String(data.landArea));
     if (data.floor != null) setFloor(String(data.floor));
@@ -197,7 +232,7 @@ export function ListingCreateForm() {
     if (data.price != null && data.price > 0) setPrice(String(data.price));
     if (data.currency) setCurrency(data.currency);
     setError(null);
-  }, []);
+  }, [markContactTouched]);
 
   const loadSourceImages = useCallback((files: File[]) => {
     if (!files.length) return;
@@ -284,7 +319,6 @@ export function ListingCreateForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    setSuccess(false);
     setBonusMessage(null);
 
     if (!nestApiConfigured() || !apiAccessToken) {
@@ -380,9 +414,16 @@ export function ListingCreateForm() {
       setError(r.error ?? 'Uložení selhalo');
       return;
     }
-    setSuccess(true);
     if (r.bonusGranted?.message) setBonusMessage(r.bonusGranted.message);
     await refresh();
+    if (r.creationMeta) {
+      setSuccessModal(r.creationMeta);
+    }
+  }
+
+  function resetFormForNewListing() {
+    setSuccessModal(null);
+    setBonusMessage(null);
     setTitle('');
     setDescription('');
     setPrice('');
@@ -413,12 +454,32 @@ export function ListingCreateForm() {
     setCellar(false);
     setIsOwnerListing(false);
     setOwnerContactConsent(false);
-    setRegion('');
-    setDistrict('');
     setSavedSourceUrl('');
+    contactTouched.current.clear();
+    profilePrefillApplied.current = false;
+    applyContactPrefill(true);
   }
 
   return (
+    <>
+      <ListingSuccessModal
+        open={successModal != null}
+        propertyId={successModal?.propertyId ?? ''}
+        requiresApproval={successModal?.requiresApproval ?? true}
+        listingStatus={successModal?.listingStatus ?? 'PENDING'}
+        bonusMessage={bonusMessage}
+        socialPublish={
+          successModal?.socialPublish ?? {
+            autoPublishEnabled: false,
+            publishedNetworks: [],
+            disabledMessage: 'Publikování na sociální sítě je vypnuté.',
+            networks: [],
+            logs: [],
+          }
+        }
+        onAddAnother={resetFormForNewListing}
+        onClose={() => setSuccessModal(null)}
+      />
     <form
       onSubmit={(e) => void handleSubmit(e)}
       className="mx-auto w-full max-w-3xl space-y-10 pb-16"
@@ -428,19 +489,6 @@ export function ListingCreateForm() {
         onApply={applySrealityPrefill}
         onSourceImagesLoaded={loadSourceImages}
       />
-
-      {success ? (
-        <div className="space-y-2" role="status">
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-medium text-emerald-900">
-            Inzerát čeká na schválení administrátorem. Po schválení se zobrazí na hlavní stránce.
-          </div>
-          {bonusMessage ? (
-            <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-4 text-sm font-semibold text-orange-900">
-              {bonusMessage}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
 
       {error ? (
         <div
@@ -951,7 +999,10 @@ export function ListingCreateForm() {
             <input
               id="contactName"
               value={contactName}
-              onChange={(e) => setContactName(e.target.value)}
+              onChange={(e) => {
+                markContactTouched('contactName');
+                setContactName(e.target.value);
+              }}
               className={inputClass}
               required
             />
@@ -964,7 +1015,10 @@ export function ListingCreateForm() {
               id="contactPhone"
               type="tel"
               value={contactPhone}
-              onChange={(e) => setContactPhone(e.target.value)}
+              onChange={(e) => {
+                markContactTouched('contactPhone');
+                setContactPhone(e.target.value);
+              }}
               className={inputClass}
               required
               minLength={3}
@@ -978,7 +1032,10 @@ export function ListingCreateForm() {
               id="contactEmail"
               type="email"
               value={contactEmail}
-              onChange={(e) => setContactEmail(e.target.value)}
+              onChange={(e) => {
+                markContactTouched('contactEmail');
+                setContactEmail(e.target.value);
+              }}
               className={inputClass}
               required
             />
@@ -1032,7 +1089,10 @@ export function ListingCreateForm() {
             <input
               id="region"
               value={region}
-              onChange={(e) => setRegion(e.target.value)}
+              onChange={(e) => {
+                markContactTouched('region');
+                setRegion(e.target.value);
+              }}
               className={inputClass}
               placeholder="např. Středočeský kraj"
               maxLength={120}
@@ -1045,7 +1105,10 @@ export function ListingCreateForm() {
             <input
               id="district"
               value={district}
-              onChange={(e) => setDistrict(e.target.value)}
+              onChange={(e) => {
+                markContactTouched('district');
+                setDistrict(e.target.value);
+              }}
               className={inputClass}
               placeholder="např. Praha-západ"
               maxLength={120}
@@ -1065,5 +1128,6 @@ export function ListingCreateForm() {
         {submitting ? 'Ukládám...' : 'Vložit inzerát'}
       </button>
     </form>
+    </>
   );
 }

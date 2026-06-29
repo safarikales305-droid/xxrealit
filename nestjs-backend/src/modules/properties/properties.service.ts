@@ -73,6 +73,9 @@ import type { CreateShortsFromClassicDto } from './dto/create-shorts-from-classi
 import { socialInclude } from './shorts-listing.social-include';
 import { ShortsListingService } from './shorts-listing.service';
 import { ListingWatermarkSettingsService } from './listing-watermark-settings.service';
+import { ListingApprovalSettingsService } from './listing-approval-settings.service';
+import { resolveListingApprovalOnCreate, resolveListingApprovalOnEdit } from './listing-approval-settings.types';
+import { PropertySocialPublishSummaryService } from './property-social-publish-summary.service';
 import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
 
 @Injectable()
@@ -92,6 +95,8 @@ export class PropertiesService {
     private readonly registrationGate: RegistrationGateService,
     private readonly listingContactUnlock: ListingContactUnlockService,
     private readonly seo: SeoService,
+    private readonly listingApprovalSettings: ListingApprovalSettingsService,
+    private readonly propertySocialSummary: PropertySocialPublishSummaryService,
     private readonly socialPublishEnqueue: SocialPublishEnqueueService,
   ) {}
 
@@ -1137,6 +1142,13 @@ export class PropertiesService {
 
     const ogMedia = computeStoredOgMediaFields({ images, videoUrl });
 
+    const approvalSettings = await this.listingApprovalSettings.getSettings();
+    const approvalDecision = resolveListingApprovalOnCreate(approvalSettings, {
+      role: user.role,
+      professionalVerificationStatus: user.professionalVerificationStatus,
+      isOwnerListing: dto.isOwnerListing ?? false,
+    });
+
     try {
       const created = await this.prisma.property.create({
         data: {
@@ -1169,8 +1181,10 @@ export class PropertiesService {
           contactPhone: dto.contactPhone.trim(),
           contactEmail: dto.contactEmail.trim().toLowerCase(),
           userId: ownerId,
-          approved: false,
-          status: 'PENDING',
+          approved: approvalDecision.approved,
+          status: approvalDecision.status,
+          isActive: true,
+          isVisible: approvalDecision.approved,
           listingType: videoUrl ? 'SHORTS' : 'CLASSIC',
           isOwnerListing: dto.isOwnerListing ?? false,
           ownerContactConsent: dto.ownerContactConsent ?? false,
@@ -1244,6 +1258,10 @@ export class PropertiesService {
         full.id,
       );
       this.socialPublishEnqueue.firePropertyCreated(full.id);
+      if (approvalDecision.approved) {
+        this.socialPublishEnqueue.firePropertyApproved(full.id);
+      }
+      const socialPublish = await this.propertySocialSummary.buildForProperty(full.id);
       const serialized = serializeProperty(
         {
           ...full,
@@ -1257,6 +1275,20 @@ export class PropertiesService {
       return {
         ...serialized,
         bonusGranted: bonusGranted.granted ? bonusGranted : undefined,
+        creationMeta: {
+          propertyId: full.id,
+          requiresApproval: approvalDecision.requiresApproval,
+          listingStatus: computeListingPublicStatus({
+            approved: full.approved,
+            status: full.status,
+            isActive: full.isActive,
+            isVisible: full.isVisible,
+            deletedAt: full.deletedAt,
+            activeFrom: full.activeFrom,
+            activeUntil: full.activeUntil,
+          }),
+          socialPublish,
+        },
       };
     } catch (e) {
       if (
@@ -1517,6 +1549,17 @@ export class PropertiesService {
     return this.shortsListingService.createDraftFromClassic(ownerId, classicId, dto);
   }
 
+  async getSocialPublishSummaryForOwner(ownerId: string, propertyId: string) {
+    const existing = await this.prisma.property.findUnique({ where: { id: propertyId } });
+    if (!existing || existing.deletedAt) {
+      throw new NotFoundException(`Property "${propertyId}" not found`);
+    }
+    if (existing.userId !== ownerId) {
+      throw new ForbiddenException('Tento inzerát nemůžete zobrazit.');
+    }
+    return this.propertySocialSummary.buildForProperty(propertyId);
+  }
+
   async updateByOwner(ownerId: string, propertyId: string, dto: OwnerUpdatePropertyDto) {
     const existing = await this.prisma.property.findUnique({
       where: { id: propertyId },
@@ -1569,6 +1612,15 @@ export class PropertiesService {
       const nextVideoUrl = (dto.videoUrl ?? '').trim();
       data.listingType = nextVideoUrl ? 'SHORTS' : 'CLASSIC';
     }
+
+    const approvalSettings = await this.listingApprovalSettings.getSettings();
+    const editApproval = resolveListingApprovalOnEdit(approvalSettings, existing.approved);
+    if (editApproval) {
+      data.approved = editApproval.approved;
+      data.status = editApproval.status;
+      data.isVisible = false;
+    }
+
     const updated = await this.prisma.property.update({
       where: { id: propertyId },
       data,

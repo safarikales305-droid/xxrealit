@@ -17,6 +17,7 @@ export function buildPostDetailUrl(postId: string): string {
 export function buildPropertyFacebookMessage(
   p: Pick<Property, 'title' | 'city' | 'address' | 'area' | 'landArea'>,
   publicUrl: string,
+  options?: { hidePublicPrice?: boolean },
 ): string {
   const location = [p.address?.trim(), p.city?.trim()].filter(Boolean).join(', ') || 'Neuvedeno';
 
@@ -33,6 +34,10 @@ export function buildPropertyFacebookMessage(
   }
   if (p.landArea != null && Number.isFinite(p.landArea)) {
     lines.push('', `🌳 Pozemek:\n${p.landArea} m²`);
+  }
+
+  if (options?.hidePublicPrice !== false) {
+    lines.push('', '💰 Cena je dostupná po přihlášení na portálu XXREALIT.');
   }
 
   lines.push(

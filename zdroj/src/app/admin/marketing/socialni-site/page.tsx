@@ -7,6 +7,8 @@ import { AdminFacebookAutopostOAuth } from '@/components/admin/AdminFacebookAuto
 import {
   formatGraphErrorDetail,
   nestAdminSocialAutopostFacebookPatch,
+  nestAdminSocialAutopostGlobalPatch,
+  nestAdminSocialAutopostPlatformPatch,
   nestAdminSocialAutopostSettingsGet,
   nestAdminSocialAutopostTestConnection,
   nestAdminSocialAutopostTestPublish,
@@ -16,6 +18,8 @@ import {
   SOCIAL_CONTENT_TYPE_LABELS,
   SOCIAL_PUBLISH_STATUS_LABELS,
   USER_ROLE_LABELS,
+  type PlatformPlaceholderSettings,
+  type SocialAutopostGlobalSettings,
   type SocialAutopostSettingsPublic,
   type SocialQueueRow,
 } from '@/lib/social-autopost-admin-api';
@@ -23,6 +27,24 @@ import {
 type Tab = 'facebook' | 'instagram' | 'youtube' | 'tiktok';
 
 const ROLE_OPTIONS = Object.keys(USER_ROLE_LABELS);
+
+const DEFAULT_GLOBAL: SocialAutopostGlobalSettings = {
+  autoPublishNewListings: true,
+  autoPublishNewPosts: true,
+  publishShortsAsReels: true,
+  publishClassicAsPhotoPost: true,
+  hidePublicPrice: true,
+  repeatPublishingEnabled: true,
+};
+
+const GLOBAL_FIELDS: Array<{ key: keyof SocialAutopostGlobalSettings; label: string }> = [
+  { key: 'autoPublishNewListings', label: 'Publikovat nové inzeráty automaticky na sociální sítě' },
+  { key: 'autoPublishNewPosts', label: 'Publikovat nové uživatelské příspěvky automaticky na sociální sítě' },
+  { key: 'publishShortsAsReels', label: 'Publikovat Shorts/video inzeráty jako Reels/Shorts' },
+  { key: 'publishClassicAsPhotoPost', label: 'Publikovat klasické inzeráty jako foto příspěvek' },
+  { key: 'hidePublicPrice', label: 'Nepublikovat cenu veřejně' },
+  { key: 'repeatPublishingEnabled', label: 'Povolit opakované publikování (globálně)' },
+];
 
 export default function AdminSocialAutopostPage() {
   const { user, isLoading, apiAccessToken } = useAuth();
@@ -64,6 +86,21 @@ export default function AdminSocialAutopostPage() {
   }
 
   const fb = settings?.facebook;
+  const global = settings?.global ?? DEFAULT_GLOBAL;
+
+  async function saveGlobal() {
+    if (!token || !settings) return;
+    setBusy(true);
+    setMsg(null);
+    const next = await nestAdminSocialAutopostGlobalPatch(token, global);
+    setBusy(false);
+    if (!next) {
+      setMsg('Uložení globálních nastavení se nezdařilo.');
+      return;
+    }
+    setSettings(next);
+    setMsg('Globální nastavení uloženo.');
+  }
 
   async function saveFacebook() {
     if (!token || !fb) return;
@@ -78,6 +115,7 @@ export default function AdminSocialAutopostPage() {
       publishShortsAsReels: fb.publishShortsAsReels !== false,
       reelsFallbackToVideoPost: fb.reelsFallbackToVideoPost !== false,
       reelsFallbackToPhotoPost: fb.reelsFallbackToPhotoPost !== false,
+      repeatPublishing: fb.repeatPublishing !== false,
       approvedOnly: fb.approvedOnly,
       publicPostsOnly: fb.publicPostsOnly,
       professionalsOnly: fb.professionalsOnly,
@@ -91,6 +129,45 @@ export default function AdminSocialAutopostPage() {
     }
     setSettings(next);
     setMsg('Nastavení uloženo.');
+  }
+
+  async function savePlatform(platform: 'instagram' | 'youtube' | 'tiktok') {
+    if (!token || !settings) return;
+    const platformSettings = settings[platform];
+    setBusy(true);
+    setMsg(null);
+    const next = await nestAdminSocialAutopostPlatformPatch(token, platform, platformSettings);
+    setBusy(false);
+    if (!next) {
+      setMsg('Uložení se nezdařilo.');
+      return;
+    }
+    setSettings(next);
+    setMsg('Nastavení uloženo.');
+  }
+
+  function platformField(
+    platform: 'instagram' | 'youtube' | 'tiktok',
+    key: keyof PlatformPlaceholderSettings,
+    label: string,
+  ) {
+    const platformSettings = settings?.[platform];
+    if (!platformSettings) return null;
+    return (
+      <label key={key} className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={Boolean(platformSettings[key])}
+          disabled={key !== 'enabled' && !platformSettings.enabled}
+          onChange={(e) =>
+            setSettings((s) =>
+              s ? { ...s, [platform]: { ...s[platform], [key]: e.target.checked } } : s,
+            )
+          }
+        />
+        {label}
+      </label>
+    );
   }
 
   async function runTestConnection() {
@@ -169,6 +246,39 @@ export default function AdminSocialAutopostPage() {
         </div>
       ) : null}
 
+      <section className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-zinc-900">Globální nastavení</h2>
+        <p className="text-sm text-zinc-600">
+          Ceny se na veřejné sociální sítě nikdy neposílají — místo toho se použije text „Cena je dostupná po přihlášení na portálu XXREALIT.“
+        </p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {GLOBAL_FIELDS.map(({ key, label }) => (
+            <label key={key} className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={global[key] !== false}
+                onChange={(e) =>
+                  setSettings((s) =>
+                    s
+                      ? { ...s, global: { ...global, [key]: e.target.checked } }
+                      : s,
+                  )
+                }
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void saveGlobal()}
+          className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+        >
+          Uložit globální nastavení
+        </button>
+      </section>
+
       <div className="flex flex-wrap gap-2 border-b border-zinc-200 pb-2">
         {(
           [
@@ -225,6 +335,7 @@ export default function AdminSocialAutopostPage() {
                 ['publishPosts', 'Příspěvky uživatelů'],
                 ['publishProperties', 'Klasické inzeráty'],
                 ['publishShorts', 'Shorts / video inzeráty'],
+                ['repeatPublishing', 'Opakované publikování'],
                 ['approvedOnly', 'Pouze schválené inzeráty'],
                 ['publicPostsOnly', 'Pouze veřejné příspěvky (ne FB import)'],
                 ['professionalsOnly', 'Jen profesionálové'],
@@ -356,10 +467,27 @@ export default function AdminSocialAutopostPage() {
       ) : null}
 
       {tab !== 'facebook' ? (
-        <section className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-8 text-center text-sm text-zinc-600">
-          {tab === 'instagram' && 'Instagram — připraveno později'}
-          {tab === 'youtube' && 'YouTube — připraveno později'}
-          {tab === 'tiktok' && 'TikTok — připraveno později'}
+        <section className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-amber-800">
+            {tab === 'instagram' && 'Instagram — připraveno pro budoucí integraci'}
+            {tab === 'youtube' && 'YouTube — připraveno pro budoucí integraci'}
+            {tab === 'tiktok' && 'TikTok — připraveno pro budoucí integraci'}
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {platformField(tab, 'enabled', 'Zapnuto')}
+            {platformField(tab, 'publishListings', 'Publikovat inzeráty')}
+            {platformField(tab, 'publishPosts', 'Publikovat příspěvky')}
+            {platformField(tab, 'publishShortsAsReels', 'Publikovat Shorts jako Reels')}
+            {platformField(tab, 'repeatPublishing', 'Opakované publikování')}
+          </div>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void savePlatform(tab)}
+            className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+          >
+            Uložit
+          </button>
         </section>
       ) : null}
 

@@ -32,6 +32,8 @@ import {
   ListingWatermarkSettingsService,
   type ListingWatermarkPosition,
 } from '../properties/listing-watermark-settings.service';
+import { ListingApprovalSettingsService } from '../properties/listing-approval-settings.service';
+import type { ListingApprovalSettings } from '../properties/listing-approval-settings.types';
 import {
   ShareTextsSettingsService,
   type ShareTextsSettings,
@@ -145,6 +147,7 @@ export class AdminService {
     private readonly propertiesService: PropertiesService,
     private readonly shortsListing: ShortsListingService,
     private readonly watermarkSettings: ListingWatermarkSettingsService,
+    private readonly listingApprovalSettings: ListingApprovalSettingsService,
     private readonly tipar: TiparService,
     private readonly shareTextsSettings: ShareTextsSettingsService,
     private readonly socialPublishEnqueue: SocialPublishEnqueueService,
@@ -160,6 +163,14 @@ export class AdminService {
 
   async getListingPhotoWatermarkSettings() {
     return this.watermarkSettings.getSettings();
+  }
+
+  async getListingApprovalSettings() {
+    return this.listingApprovalSettings.getSettings();
+  }
+
+  async updateListingApprovalSettings(patch: Partial<ListingApprovalSettings>) {
+    return this.listingApprovalSettings.updateSettings(patch);
   }
 
   async updateListingPhotoWatermarkSettings(input: {

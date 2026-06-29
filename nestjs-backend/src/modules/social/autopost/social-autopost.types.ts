@@ -50,13 +50,30 @@ export type FacebookAutopostSettings = {
   publicPostsOnly: boolean;
   professionalsOnly: boolean;
   allowedRoles: UserRole[];
+  /** Opakované publikování inzerátů na Facebook. */
+  repeatPublishing: boolean;
 };
 
 export type PlatformPlaceholderSettings = {
   enabled: boolean;
+  publishListings?: boolean;
+  publishPosts?: boolean;
+  publishShortsAsReels?: boolean;
+  repeatPublishing?: boolean;
+  preparedForFuture?: boolean;
+};
+
+export type SocialAutopostGlobalSettings = {
+  autoPublishNewListings: boolean;
+  autoPublishNewPosts: boolean;
+  publishShortsAsReels: boolean;
+  publishClassicAsPhotoPost: boolean;
+  hidePublicPrice: boolean;
+  repeatPublishingEnabled: boolean;
 };
 
 export type SocialAutopostSettings = {
+  global: SocialAutopostGlobalSettings;
   facebook: FacebookAutopostSettings;
   instagram: PlatformPlaceholderSettings;
   youtube: PlatformPlaceholderSettings;
@@ -76,11 +93,21 @@ export type FacebookAutopostSettingsPublic = Omit<
 };
 
 export type SocialAutopostSettingsPublic = {
+  global: SocialAutopostGlobalSettings;
   facebook: FacebookAutopostSettingsPublic;
   instagram: PlatformPlaceholderSettings;
   youtube: PlatformPlaceholderSettings;
   tiktok: PlatformPlaceholderSettings;
   lastApiResponses: SocialApiLogEntry[];
+};
+
+export const DEFAULT_SOCIAL_AUTOPOST_GLOBAL: SocialAutopostGlobalSettings = {
+  autoPublishNewListings: true,
+  autoPublishNewPosts: true,
+  publishShortsAsReels: true,
+  publishClassicAsPhotoPost: true,
+  hidePublicPrice: true,
+  repeatPublishingEnabled: true,
 };
 
 export const DEFAULT_FACEBOOK_AUTOPOST: FacebookAutopostSettings = {
@@ -105,13 +132,24 @@ export const DEFAULT_FACEBOOK_AUTOPOST: FacebookAutopostSettings = {
   publicPostsOnly: true,
   professionalsOnly: false,
   allowedRoles: [],
+  repeatPublishing: true,
+};
+
+export const DEFAULT_PLATFORM_PLACEHOLDER: PlatformPlaceholderSettings = {
+  enabled: false,
+  publishListings: false,
+  publishPosts: false,
+  publishShortsAsReels: false,
+  repeatPublishing: false,
+  preparedForFuture: true,
 };
 
 export const DEFAULT_SOCIAL_AUTOPOST_SETTINGS: SocialAutopostSettings = {
+  global: { ...DEFAULT_SOCIAL_AUTOPOST_GLOBAL },
   facebook: { ...DEFAULT_FACEBOOK_AUTOPOST },
-  instagram: { enabled: false },
-  youtube: { enabled: false },
-  tiktok: { enabled: false },
+  instagram: { ...DEFAULT_PLATFORM_PLACEHOLDER },
+  youtube: { ...DEFAULT_PLATFORM_PLACEHOLDER },
+  tiktok: { ...DEFAULT_PLATFORM_PLACEHOLDER },
   lastApiResponses: [],
 };
 

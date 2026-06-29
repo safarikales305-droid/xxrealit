@@ -210,6 +210,12 @@ export class PropertiesController {
     });
   }
 
+  @Get(':id/social-publish-summary')
+  @UseGuards(JwtAuthGuard)
+  socialPublishSummary(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.propertiesService.getSocialPublishSummaryForOwner(user.id, id);
+  }
+
   @Get(':id/og-meta')
   findOneOgMeta(
     @Param('id') id: string,

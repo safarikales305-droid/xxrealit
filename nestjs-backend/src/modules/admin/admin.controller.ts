@@ -140,6 +140,26 @@ export class AdminController {
     });
   }
 
+  @Get('listing-approval-settings')
+  getListingApprovalSettings() {
+    return this.adminService.getListingApprovalSettings();
+  }
+
+  @Patch('listing-approval-settings')
+  updateListingApprovalSettings(
+    @Body()
+    body: {
+      requireNewListingApproval?: boolean;
+      requireEditApproval?: boolean;
+      autoPublishOnCreate?: boolean;
+      autoPublishVerifiedUsersOnly?: boolean;
+      autoPublishProfessionalsOnly?: boolean;
+      privateListingsAlwaysPending?: boolean;
+    },
+  ) {
+    return this.adminService.updateListingApprovalSettings(body);
+  }
+
   @Get('share-texts')
   getShareTexts() {
     return this.adminService.getShareTextsSettings();

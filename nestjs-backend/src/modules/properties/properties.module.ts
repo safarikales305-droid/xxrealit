@@ -13,6 +13,8 @@ import { ListingShortsFromPhotosService } from './listing-shorts-from-photos.ser
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
 import { ListingPhotoWatermarkService } from './listing-photo-watermark.service';
 import { ListingWatermarkSettingsService } from './listing-watermark-settings.service';
+import { ListingApprovalSettingsService } from './listing-approval-settings.service';
+import { PropertySocialPublishSummaryService } from './property-social-publish-summary.service';
 import { SeedController } from './seed.controller';
 import { ShortsListingController } from './shorts-listing.controller';
 import { ShortsListingService } from './shorts-listing.service';
@@ -59,6 +61,8 @@ import { SocialModule } from '../social/social.module';
     PropertyMediaCloudinaryService,
     ListingPhotoWatermarkService,
     ListingWatermarkSettingsService,
+    ListingApprovalSettingsService,
+    PropertySocialPublishSummaryService,
     ListingsPrefillService,
     SrealityPlaywrightService,
     ListingShortsFromPhotosService,
@@ -71,6 +75,8 @@ import { SocialModule } from '../social/social.module';
     PropertiesService,
     PropertyMediaCloudinaryService,
     ListingWatermarkSettingsService,
+    ListingApprovalSettingsService,
+    PropertySocialPublishSummaryService,
     ListingShortsFromPhotosService,
     ShortsListingService,
     ListingsPrefillService,

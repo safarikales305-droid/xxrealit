@@ -4,7 +4,13 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { nestFetchPropertyDetailJson, nestPatchMyProperty } from '@/lib/nest-client';
+import { ListingPublishStatusPanel } from '@/components/listing/ListingPublishStatusPanel';
+import {
+  nestFetchPropertyDetailJson,
+  nestFetchPropertySocialPublishSummary,
+  nestPatchMyProperty,
+  type PropertySocialPublishSummary,
+} from '@/lib/nest-client';
 
 function pickStr(v: unknown): string {
   return typeof v === 'string' ? v : '';
@@ -58,6 +64,7 @@ export default function UpravitInzeratPage() {
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [socialSummary, setSocialSummary] = useState<PropertySocialPublishSummary | null>(null);
 
   const load = useCallback(async () => {
     if (!id || !apiAccessToken) return;
@@ -104,6 +111,8 @@ export default function UpravitInzeratPage() {
     setVideoUrl(pickStr(o.videoUrl));
     setImagesText(pickStrList(o.images).join('\n'));
     setIsActive(pickBool(o.isActive) !== false);
+    const summary = await nestFetchPropertySocialPublishSummary(apiAccessToken, id);
+    setSocialSummary(summary);
   }, [id, apiAccessToken]);
 
   useEffect(() => {
@@ -135,7 +144,35 @@ export default function UpravitInzeratPage() {
       <Link href="/profil" className="text-sm font-semibold text-[#e85d00] hover:underline">
         ← Profil
       </Link>
-      <h1 className="mt-4 text-2xl font-bold text-zinc-900">Upravit inzerát</h1>
+      <h1 className="mt-4 text-2xl font-bold text-zinc-900">Správa inzerátu</h1>
+      <p className="mt-1 text-sm text-zinc-600">
+        Upravte text, média, kontakt a sledujte stav publikování na sociální sítě.
+      </p>
+      {socialSummary ? (
+        <div className="mt-6">
+          <ListingPublishStatusPanel summary={socialSummary} />
+        </div>
+      ) : null}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Link
+          href={`/inzerat/shorts-editor/${id}`}
+          className="rounded-full border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100"
+        >
+          Vytvořit Shorts video z fotek
+        </Link>
+        <Link
+          href={`/nemovitost/${id}`}
+          className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+        >
+          Zobrazit inzerát
+        </Link>
+        <Link
+          href="/moje-inzeraty"
+          className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+        >
+          Moje inzeráty
+        </Link>
+      </div>
       {loadErr ? (
         <p className="mt-4 text-sm text-red-600">{loadErr}</p>
       ) : (
@@ -197,14 +234,14 @@ export default function UpravitInzeratPage() {
               images,
               videoUrl: videoUrl.trim(),
               isActive,
-            }).then((r) => {
+            }).then(async (r) => {
               setSaving(false);
               if (!r.ok) {
                 setSaveErr(r.error ?? 'Uložení se nezdařilo.');
                 return;
               }
-              router.push('/profil');
-              router.refresh();
+              const summary = await nestFetchPropertySocialPublishSummary(apiAccessToken, id);
+              setSocialSummary(summary);
             });
           }}
         >

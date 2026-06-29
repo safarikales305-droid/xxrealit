@@ -590,7 +590,10 @@ export class SocialPublishProcessorService {
 
     const forcedType = contentType === SocialPublishContentType.SHORT ? 'shorts' : 'classic';
     const meta = await this.shareMetadata.resolveForProperty(contentId, forcedType);
-    const message = buildPropertyFacebookMessage(property, meta.shareUrl);
+    const global = this.settings.getSettings().global;
+    const message = buildPropertyFacebookMessage(property, meta.shareUrl, {
+      hidePublicPrice: global.hidePublicPrice !== false,
+    });
     const imageUrl = resolvePropertyShareImage(property);
     const videoUrl = toAbsoluteMediaUrl(property.videoUrl);
     const isShortsVideo = isShortsVideoProperty(property);

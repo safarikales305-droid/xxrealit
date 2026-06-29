@@ -72,6 +72,10 @@ export class UpdateFacebookAutopostDto {
   @IsArray()
   @IsEnum(UserRole, { each: true })
   allowedRoles?: UserRole[];
+
+  @IsOptional()
+  @IsBoolean()
+  repeatPublishing?: boolean;
 }
 
 export class ManualSocialEnqueueDto {

@@ -56,6 +56,21 @@ export class SocialAutopostAdminController {
     return this.settings.getPublicSettings();
   }
 
+  @Patch('settings/global')
+  updateGlobal(
+    @Body()
+    body: {
+      autoPublishNewListings?: boolean;
+      autoPublishNewPosts?: boolean;
+      publishShortsAsReels?: boolean;
+      publishClassicAsPhotoPost?: boolean;
+      hidePublicPrice?: boolean;
+      repeatPublishingEnabled?: boolean;
+    },
+  ) {
+    return this.settings.updateSettings({ global: body });
+  }
+
   @Patch('settings/facebook')
   updateFacebook(
     @Body(new ValidationPipe({ whitelist: true, transform: true }))
@@ -69,6 +84,48 @@ export class SocialAutopostAdminController {
     return this.settings.updateSettings({
       facebook: patch,
     });
+  }
+
+  @Patch('settings/instagram')
+  updateInstagram(
+    @Body()
+    body: {
+      enabled?: boolean;
+      publishListings?: boolean;
+      publishPosts?: boolean;
+      publishShortsAsReels?: boolean;
+      repeatPublishing?: boolean;
+    },
+  ) {
+    return this.settings.updateSettings({ instagram: body });
+  }
+
+  @Patch('settings/youtube')
+  updateYoutube(
+    @Body()
+    body: {
+      enabled?: boolean;
+      publishListings?: boolean;
+      publishPosts?: boolean;
+      publishShortsAsReels?: boolean;
+      repeatPublishing?: boolean;
+    },
+  ) {
+    return this.settings.updateSettings({ youtube: body });
+  }
+
+  @Patch('settings/tiktok')
+  updateTiktok(
+    @Body()
+    body: {
+      enabled?: boolean;
+      publishListings?: boolean;
+      publishPosts?: boolean;
+      publishShortsAsReels?: boolean;
+      repeatPublishing?: boolean;
+    },
+  ) {
+    return this.settings.updateSettings({ tiktok: body });
   }
 
   @Post('facebook/test-connection')

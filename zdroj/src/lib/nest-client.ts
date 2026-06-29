@@ -946,6 +946,61 @@ export async function nestAdminUpdateShareTextsSettings(
   return { ok: true, data };
 }
 
+export type ListingApprovalSettings = {
+  requireNewListingApproval: boolean;
+  requireEditApproval: boolean;
+  autoPublishOnCreate: boolean;
+  autoPublishVerifiedUsersOnly: boolean;
+  autoPublishProfessionalsOnly: boolean;
+  privateListingsAlwaysPending: boolean;
+};
+
+export async function nestAdminListingApprovalSettingsGet(
+  token: string | null,
+): Promise<ListingApprovalSettings | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/listing-approval-settings`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as ListingApprovalSettings | null;
+}
+
+export async function nestAdminListingApprovalSettingsPatch(
+  token: string | null,
+  body: Partial<ListingApprovalSettings>,
+): Promise<{ ok: boolean; data?: ListingApprovalSettings; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/listing-approval-settings`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string };
+    return { ok: false, error: err.message || `HTTP ${res.status}` };
+  }
+  const data = (await res.json().catch(() => null)) as ListingApprovalSettings | null;
+  if (!data) return { ok: false, error: 'Neplatná odpověď serveru.' };
+  return { ok: true, data };
+}
+
+export async function nestFetchPropertySocialPublishSummary(
+  token: string | null,
+  propertyId: string,
+): Promise<PropertySocialPublishSummary | null> {
+  if (!API_BASE_URL || !token || !propertyId) return null;
+  const res = await fetch(`${API_BASE_URL}/properties/${encodeURIComponent(propertyId)}/social-publish-summary`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as PropertySocialPublishSummary | null;
+}
+
 export async function nestAdminUpdateListingPhotoWatermarkSettings(
   token: string | null,
   body: Partial<AdminListingPhotoWatermarkSettings>,
@@ -2668,11 +2723,47 @@ export async function nestCreatePropertyListing(
   }
 }
 
+export type PropertySocialNetworkStatus = {
+  platform: 'facebook' | 'instagram' | 'youtube' | 'tiktok';
+  label: string;
+  enabled: boolean;
+  configured: boolean;
+  status: 'NOT_PUBLISHED' | 'PENDING' | 'PUBLISHED' | 'FAILED' | 'REPEAT_ACTIVE' | 'DISABLED';
+  publishedUrl: string | null;
+  lastError: string | null;
+  lastAt: string | null;
+};
+
+export type PropertySocialPublishSummary = {
+  autoPublishEnabled: boolean;
+  publishedNetworks: string[];
+  disabledMessage: string | null;
+  networks: PropertySocialNetworkStatus[];
+  logs: Array<{
+    id: string;
+    createdAt: string;
+    platform: string;
+    publishKind: string | null;
+    status: string;
+    publishedUrl: string | null;
+    lastError: string | null;
+    triggeredBy: string | null;
+  }>;
+};
+
+export type PropertyCreationMeta = {
+  propertyId: string;
+  requiresApproval: boolean;
+  listingStatus: string;
+  socialPublish: PropertySocialPublishSummary;
+};
+
 export async function nestCreatePropertyListingMultipart(
   token: string | null,
   formData: FormData,
 ): Promise<
-  { ok: true; bonusGranted?: BonusGrantedDto } | { ok: false; error?: string }
+  | { ok: true; bonusGranted?: BonusGrantedDto; creationMeta?: PropertyCreationMeta }
+  | { ok: false; error?: string }
 > {
   if (!API_BASE_URL || !token) {
     return { ok: false, error: 'API nebo token chybí' };
@@ -2690,6 +2781,8 @@ export async function nestCreatePropertyListingMultipart(
       message?: string | string[];
       error?: string;
       bonusGranted?: BonusGrantedDto;
+      creationMeta?: PropertyCreationMeta;
+      id?: string;
     };
     if (!res.ok) {
       const msg =
@@ -2705,6 +2798,7 @@ export async function nestCreatePropertyListingMultipart(
     return {
       ok: true,
       bonusGranted: data.bonusGranted?.granted ? data.bonusGranted : undefined,
+      creationMeta: data.creationMeta,
     };
   } catch {
     return { ok: false, error: 'Síťová chyba' };
