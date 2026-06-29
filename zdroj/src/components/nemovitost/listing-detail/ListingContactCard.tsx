@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { MessageCircle, ShieldCheck } from 'lucide-react';
 import { WhatsAppContactButton } from '@/components/whatsapp/WhatsAppContactButton';
 import { roleLabel } from './listing-detail-utils';
@@ -18,6 +17,7 @@ type Props = {
   onMessage: () => void;
   messageDisabled: boolean;
   profileHref?: string;
+  onProfileClick?: () => void;
   propertyId: string;
   listingTitle: string;
   shareUrl: string;
@@ -38,6 +38,7 @@ export function ListingContactCard({
   onMessage,
   messageDisabled,
   profileHref,
+  onProfileClick,
   propertyId,
   listingTitle,
   shareUrl,
@@ -48,28 +49,58 @@ export function ListingContactCard({
   const displayName = nameContact || author.name?.trim() || 'Inzerent';
   const showWhatsapp =
     contactRevealed && !sellerContactLocked && Boolean(author.whatsappEnabled);
+  const profileInteractive = Boolean(profileHref && onProfileClick);
+
+  const avatarBlock = (
+    <div className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100 text-3xl font-bold text-zinc-500 shadow-inner">
+      {avatarSrc ? (
+        <img src={avatarSrc} alt="" width={80} height={80} className="size-full object-cover" />
+      ) : (
+        (displayName.charAt(0) || 'U').toUpperCase()
+      )}
+    </div>
+  );
+
+  const nameBlock = (
+    <div className="flex flex-wrap items-center gap-2">
+      <p className="text-lg font-bold text-zinc-900">{displayName}</p>
+      {author.professionalVerified ? (
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+          <ShieldCheck className="size-3.5" aria-hidden />
+          Ověřený účet
+        </span>
+      ) : null}
+    </div>
+  );
 
   return (
     <section className="rounded-2xl border border-zinc-200/80 bg-white p-5 shadow-sm">
       <h2 className="text-lg font-semibold text-zinc-900">Kontakt na inzerenta</h2>
       <div className={`mt-4 flex flex-col gap-4 ${compact ? '' : 'sm:flex-row sm:items-start'}`}>
-        <div className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100 text-3xl font-bold text-zinc-500 shadow-inner">
-          {avatarSrc ? (
-            <img src={avatarSrc} alt="" width={80} height={80} className="size-full object-cover" />
-          ) : (
-            (displayName.charAt(0) || 'U').toUpperCase()
-          )}
-        </div>
+        {profileInteractive ? (
+          <button
+            type="button"
+            onClick={onProfileClick}
+            className="shrink-0 rounded-2xl transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e85d00]"
+            aria-label="Zobrazit profil inzerenta"
+          >
+            {avatarBlock}
+          </button>
+        ) : (
+          avatarBlock
+        )}
         <div className="min-w-0 flex-1 space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-lg font-bold text-zinc-900">{displayName}</p>
-            {author.professionalVerified ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
-                <ShieldCheck className="size-3.5" aria-hidden />
-                Ověřený účet
-              </span>
-            ) : null}
-          </div>
+          {profileInteractive ? (
+            <button
+              type="button"
+              onClick={onProfileClick}
+              className="block w-full text-left transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e85d00]"
+            >
+              {nameBlock}
+            </button>
+          ) : (
+            nameBlock
+          )}
           <p className="text-sm text-zinc-600">{roleLabel(author.role)}</p>
           {companyName ? <p className="text-sm font-medium text-zinc-700">{companyName}</p> : null}
 
@@ -132,13 +163,14 @@ export function ListingContactCard({
                 Zavolat
               </a>
             ) : null}
-            {profileHref ? (
-              <Link
-                href={profileHref}
+            {profileInteractive ? (
+              <button
+                type="button"
+                onClick={onProfileClick}
                 className="inline-flex min-h-[44px] flex-1 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-800 hover:border-orange-200"
               >
                 Zobrazit profil
-              </Link>
+              </button>
             ) : null}
           </div>
         </div>

@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import sharp, { assertSharpReady, type OverlayOptions } from '../../lib/sharp-instance';
 import {
-  generateFallbackLogoPng,
-  resolveShortsLogoPath,
+  loadShortsPortalLogo,
   resolveShortsOverlayFontPath,
+  type ShortsPortalLogoLoadResult,
 } from './shorts-overlay-assets';
 import {
   SHORTS_OVERLAY_STYLE_PRESETS,
@@ -80,44 +80,36 @@ function embedFontFaceCss(): { css: string; fontFamily: string } {
   return { css: '', fontFamily: 'Arial, Helvetica, sans-serif' };
 }
 
-export function loadShortsLogoPng(): Buffer | null {
-  const path = resolveShortsLogoPath();
-  if (!path) return null;
-  try {
-    const buf = readFileSync(path);
-    return buf.length > 0 ? buf : null;
-  } catch {
-    return null;
-  }
-}
-
 export async function resolveShortsLogoBuffer(showLogo: boolean): Promise<{
   buffer: Buffer | null;
   width: number;
   path: string | null;
+  logoExists: boolean;
+  logoLoaded: boolean;
+  logoUsedAsImage: boolean;
 }> {
   if (!showLogo) {
-    return { buffer: null, width: 0, path: null };
+    return {
+      buffer: null,
+      width: 0,
+      path: null,
+      logoExists: false,
+      logoLoaded: false,
+      logoUsedAsImage: false,
+    };
   }
-  assertSharpReady('shorts logo resize');
-  const path = resolveShortsLogoPath();
-  let buffer = loadShortsLogoPng();
-  if (!buffer) {
-    buffer = await generateFallbackLogoPng();
-  }
-  const meta = await sharp(buffer).metadata();
-  const logoH = Math.min(
-    SHORTS_LOGO_MAX_HEIGHT,
-    Math.max(28, meta.height ?? SHORTS_LOGO_MAX_HEIGHT),
-  );
-  const logoW = Math.round(
-    ((meta.width ?? logoH) / Math.max(1, meta.height ?? logoH)) * logoH,
-  );
-  const resized = await sharp(buffer)
-    .resize(logoW, logoH, { fit: 'inside' })
-    .png()
-    .toBuffer();
-  return { buffer: resized, width: logoW, path: path ?? '(fallback-generated)' };
+  const loaded: ShortsPortalLogoLoadResult = await loadShortsPortalLogo();
+  const meta = await sharp(loaded.buffer).metadata();
+  const logoH = meta.height ?? SHORTS_LOGO_MAX_HEIGHT;
+  const logoW = meta.width ?? SHORTS_LOGO_MAX_HEIGHT;
+  return {
+    buffer: loaded.buffer,
+    width: logoW,
+    path: loaded.path,
+    logoExists: loaded.logoExists,
+    logoLoaded: loaded.logoLoaded,
+    logoUsedAsImage: loaded.logoUsedAsImage,
+  };
 }
 
 /**

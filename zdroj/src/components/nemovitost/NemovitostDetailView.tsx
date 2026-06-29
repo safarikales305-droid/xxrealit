@@ -4,6 +4,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { ContactGateModals, useContactGate } from '@/components/listing/ContactGate';
+import {
+  AdvertiserProfileGateModals,
+  useAdvertiserProfileGate,
+} from '@/components/listing/AdvertiserProfileGate';
 import { MessageSellerModal } from '@/components/messages/MessageSellerModal';
 import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
@@ -130,12 +134,26 @@ export function NemovitostDetailView({
   );
   const mapQuery = mapsQuery(p);
 
+  const isAdmin = user?.role === 'ADMIN';
+  const canViewAdvertiserProfile = isOwner || isAdmin || contactRevealed;
+
+  const profileGate = useAdvertiserProfileGate({
+    canViewProfile: canViewAdvertiserProfile,
+    isAuthenticated,
+  });
+
   const profileHref =
     author.role === 'AGENT' && author.id
       ? `/profile/${encodeURIComponent(author.id)}`
       : author.id
         ? `/profil/${encodeURIComponent(author.id)}`
         : undefined;
+
+  function handleAdvertiserProfileClick() {
+    if (!profileHref) return;
+    const target = `${profileHref}?fromListing=${encodeURIComponent(propertyId)}`;
+    profileGate.requestProfileNavigation(() => router.push(target));
+  }
 
   useEffect(() => {
     setLiked(Boolean(p.liked));
@@ -350,6 +368,7 @@ export function NemovitostDetailView({
                   onMessage={handleWriteSeller}
                   messageDisabled={sellerContactLocked}
                   profileHref={profileHref}
+                  onProfileClick={handleAdvertiserProfileClick}
                   propertyId={propertyId}
                   listingTitle={p.title}
                   shareUrl={shareUrl}
@@ -422,6 +441,7 @@ export function NemovitostDetailView({
                   onMessage={handleWriteSeller}
                   messageDisabled={sellerContactLocked}
                   profileHref={profileHref}
+                  onProfileClick={handleAdvertiserProfileClick}
                   propertyId={propertyId}
                   listingTitle={p.title}
                   shareUrl={shareUrl}
@@ -539,6 +559,8 @@ export function NemovitostDetailView({
         defaultEmail={user?.email ?? ''}
         defaultPhone={user?.phone ?? ''}
       />
+
+      <AdvertiserProfileGateModals gate={profileGate} />
 
       <MessageSellerModal
         open={sellerModalOpen}

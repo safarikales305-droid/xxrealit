@@ -1,6 +1,6 @@
 'use client';
 
-import Logo from '@/components/Logo';
+import { PortalLogoImage } from '@/components/PortalLogoImage';
 import {
   presetForSettings,
   type ShortsOverlaySettings,
@@ -62,7 +62,7 @@ export function ShortsOverlayPreview({ previewImageUrl, settings }: Props) {
           >
             {settings.showLogo ? (
               <div className="shrink-0 rounded bg-white/90 px-1 py-0.5">
-                <Logo className="h-5 w-auto" />
+                <PortalLogoImage className="h-5 w-auto max-w-[72px] object-contain" />
               </div>
             ) : null}
             {settings.showOverlayText ? (

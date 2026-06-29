@@ -450,6 +450,9 @@ export class ListingShortsFromPhotosService {
     let logoBuffer: Buffer | null = null;
     let logoWidth = 0;
     let logoSource: string | null = null;
+    let logoExists = false;
+    let logoLoaded = false;
+    let logoUsedAsImage = false;
     let overlayPng: Buffer;
 
     try {
@@ -458,6 +461,9 @@ export class ListingShortsFromPhotosService {
       logoBuffer = logoResolved.buffer;
       logoWidth = logoResolved.width;
       logoSource = logoResolved.path;
+      logoExists = logoResolved.logoExists;
+      logoLoaded = logoResolved.logoLoaded;
+      logoUsedAsImage = logoResolved.logoUsedAsImage;
       overlayPng = await renderShortsTopOverlayPng(overlay, logoBuffer, logoWidth);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -473,11 +479,10 @@ export class ListingShortsFromPhotosService {
     const overlayPngPath = join(tmpRoot, 'top-overlay.png');
     await writeFile(overlayPngPath, overlayPng);
 
-    const logoExists = Boolean(logoBuffer && logoBuffer.length > 0);
     const filter = `[0:v]scale=${SHORTS_WIDTH}:${SHORTS_HEIGHT},setsar=1[v];[v][1:v]overlay=0:0:format=auto[outv]`;
 
     this.log.log(
-      `[shorts-regenerate] shortsId=${shortsId} ffmpegSupportsDrawtext=${ffmpegSupportsDrawtext} (overlay používá pouze PNG, ne drawtext) showLogo=${overlay.showLogo} showOverlayText=${overlay.showOverlayText} overlayText=${JSON.stringify(overlay.text)} overlayStyle=${overlay.styleKey} overlayColor=${overlay.textColor} overlaySize=${overlay.fontSize} overlayAlign=${overlay.alignment} logoExists=${logoExists} logoPath=${logoSource ?? logoPathResolved ?? '(fallback)'} overlayPngPath=${resolve(overlayPngPath)} overlayPngBytes=${overlayPng.length} overlayStrip=${SHORTS_WIDTH}x${SHORTS_OVERLAY_STRIP_HEIGHT} outputPath=${resolve(outPath)} filter_complex=${filter}`,
+      `[shorts-regenerate] shortsId=${shortsId} ffmpegSupportsDrawtext=${ffmpegSupportsDrawtext} showLogo=${overlay.showLogo} showOverlayText=${overlay.showOverlayText} overlayText=${JSON.stringify(overlay.text)} logoPath=${logoSource ?? logoPathResolved ?? '(none)'} logoExists=${logoExists} logoLoaded=${logoLoaded} logoUsedAsImage=${logoUsedAsImage} overlayPngPath=${resolve(overlayPngPath)} overlayPngBytes=${overlayPng.length} outputPath=${resolve(outPath)} filter_complex=${filter}`,
     );
 
     const args = [

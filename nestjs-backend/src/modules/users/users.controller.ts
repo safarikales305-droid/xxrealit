@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Headers,
   BadRequestException,
@@ -9,6 +10,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
   ValidationPipe,
 } from '@nestjs/common';
@@ -334,12 +336,18 @@ export class UsersController {
   @Get(':id')
   async getProfile(
     @Param('id') id: string,
+    @Query('fromListingId') fromListingId?: string,
     @Headers('authorization') auth?: string,
   ) {
     const viewerId = parseBearerUserId(this.jwt, auth);
     try {
-      return await this.usersService.getPublicProfile(id, viewerId);
+      return await this.usersService.getPublicProfile(id, viewerId, {
+        fromListingId: fromListingId?.trim() || undefined,
+      });
     } catch (err) {
+      if (err instanceof ForbiddenException) {
+        throw err;
+      }
       if (err instanceof NotFoundException) {
         return { user: null, videos: [], posts: [], properties: [] };
       }

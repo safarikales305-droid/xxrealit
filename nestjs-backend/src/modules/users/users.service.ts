@@ -35,6 +35,7 @@ import {
   type PropertyViewerAccess,
 } from '../properties/properties.serializer';
 import { NotificationsService } from '../premium-broker/notifications.service';
+import { ListingContactUnlockService } from '../properties/listing-contact-unlock.service';
 import { UpdateBrokerPublicProfileDto } from './dto/update-broker-public-profile.dto';
 import { isValidWhatsAppPhone, normalizeToE164 } from '../whatsapp/whatsapp-phone.util';
 import type { ImageCropDto } from './dto/image-crop.dto';
@@ -65,6 +66,7 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly accountUniqueness: AccountUniquenessService,
+    private readonly listingContactUnlock: ListingContactUnlockService,
   ) {}
 
   private normalizeCrop(crop?: ImageCropDto | null): Prisma.InputJsonValue | undefined {
@@ -939,8 +941,59 @@ export class UsersService {
     return bySlug?.id ?? null;
   }
 
-  async getPublicProfile(userId: string, viewerId?: string) {
+  /**
+   * Profil inzerenta z detailu inzerátu — vyžaduje přihlášení a odemčený kontakt
+   * (nebo vlastník inzerátu / admin / vlastní profil).
+   */
+  private async assertAdvertiserProfileFromListingAccess(
+    profileUserId: string,
+    listingId: string,
+    viewerId?: string,
+  ): Promise<void> {
+    const listing = await this.prisma.property.findUnique({
+      where: { id: listingId },
+      select: { userId: true, isTiparTip: true, deletedAt: true },
+    });
+    if (!listing || listing.deletedAt) {
+      throw new NotFoundException('Inzerát nebyl nalezen');
+    }
+    if (listing.userId !== profileUserId) {
+      throw new ForbiddenException('Profil nepatří k tomuto inzerátu.');
+    }
+    if (!viewerId) {
+      throw new ForbiddenException('Pro zobrazení profilu inzerenta se prosím přihlaste.');
+    }
+    if (viewerId === profileUserId) {
+      return;
+    }
+    const viewer = await this.prisma.user.findUnique({
+      where: { id: viewerId },
+      select: { role: true },
+    });
+    if (viewer?.role === UserRole.ADMIN) {
+      return;
+    }
+    const hasUnlock = await this.listingContactUnlock.hasUnlocked(
+      viewerId,
+      listingId,
+      Boolean(listing.isTiparTip),
+    );
+    if (!hasUnlock) {
+      throw new ForbiddenException('Profil inzerenta se zobrazí po odemčení kontaktu.');
+    }
+  }
+
+  async getPublicProfile(
+    userId: string,
+    viewerId?: string,
+    options?: { fromListingId?: string },
+  ) {
     const resolvedId = (await this.resolvePublicProfileUserId(userId)) ?? userId;
+
+    const fromListingId = options?.fromListingId?.trim();
+    if (fromListingId) {
+      await this.assertAdvertiserProfileFromListingAccess(resolvedId, fromListingId, viewerId);
+    }
     const professionalRoles = new Set<UserRole>([
       UserRole.AGENT,
       UserRole.COMPANY,

@@ -70,12 +70,32 @@ async function fetchJson<T>(url: string, auth?: string): Promise<T | null> {
   return (await res.json()) as T;
 }
 
+async function fetchProfile(
+  url: string,
+  auth?: string,
+): Promise<{ profile: PublicProfile | null; forbidden: boolean }> {
+  const res = await fetch(url, {
+    cache: 'no-store',
+    headers: auth ? { Authorization: auth } : {},
+  });
+  if (res.status === 403) {
+    return { profile: null, forbidden: true };
+  }
+  if (!res.ok) {
+    return { profile: null, forbidden: false };
+  }
+  return { profile: (await res.json()) as PublicProfile, forbidden: false };
+}
+
 export default async function ProfilePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ fromListing?: string }>;
 }) {
   const { id } = await params;
+  const fromListing = (await searchParams).fromListing?.trim() ?? '';
   const base = getServerSideApiBaseUrl();
   if (!base) {
     return (
@@ -90,12 +110,12 @@ export default async function ProfilePage({
   }
 
   const auth = await getServerAuthorizationHeader();
+  const profileUrl = fromListing
+    ? `${base}/users/${encodeURIComponent(id)}?fromListingId=${encodeURIComponent(fromListing)}`
+    : `${base}/users/${encodeURIComponent(id)}`;
 
-  const [profile, me, propertiesRaw, recommendedRaw] = await Promise.all([
-    fetchJson<PublicProfile>(
-      `${base}/users/${encodeURIComponent(id)}`,
-      auth,
-    ),
+  const [profileResult, me, propertiesRaw, recommendedRaw] = await Promise.all([
+    fetchProfile(profileUrl, auth),
     auth
       ? fetchJson<{ id: string }>(`${base}/auth/me`, auth)
       : Promise.resolve(null),
@@ -105,6 +125,22 @@ export default async function ProfilePage({
     ),
     fetchJson<unknown[]>(`${base}/properties?limit=3`, auth),
   ]);
+
+  const profile = profileResult.profile;
+
+  if (profileResult.forbidden) {
+    return (
+      <main className="mx-auto max-w-lg px-4 py-16 text-center">
+        <h1 className="text-xl font-bold text-zinc-900">Profil inzerenta</h1>
+        <p className="mt-2 text-sm text-zinc-600">
+          Profil inzerenta se zobrazí po odemčení kontaktu.
+        </p>
+        <Link href="/" className="mt-6 inline-block text-sm font-semibold text-[#e85d00] hover:underline">
+          Zpět na úvod
+        </Link>
+      </main>
+    );
+  }
 
   if (!profile?.user && !profile?.id) {
     return (

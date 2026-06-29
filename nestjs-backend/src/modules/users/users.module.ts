@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { AuthModule } from '../auth/auth.module';
 import { PropertiesModule } from '../properties/properties.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
+import { ListingContactUnlockModule } from '../properties/listing-contact-unlock.module';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 
@@ -12,6 +13,7 @@ import { UsersService } from './users.service';
     forwardRef(() => AuthModule),
     forwardRef(() => PropertiesModule),
     forwardRef(() => WhatsAppModule),
+    ListingContactUnlockModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
