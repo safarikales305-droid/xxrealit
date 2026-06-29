@@ -6,13 +6,14 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   fetchWorkerRecruitmentTargets,
   fetchWorkerWorkGuide,
+  type WorkerRecruitmentTargetWorkerRow,
 } from '@/lib/portal-worker-communication-api';
 
 export default function WorkerGuidePage() {
   const router = useRouter();
   const { user, isLoading } = useAuth();
   const [guide, setGuide] = useState<{ enabled: boolean; steps: Array<{ sortOrder: number; title: string; body: string }> } | null>(null);
-  const [targets, setTargets] = useState<Array<{ id: string; label: string; name: string; description: string; workerNote: string; title: string; steps: string[] }>>([]);
+  const [targets, setTargets] = useState<WorkerRecruitmentTargetWorkerRow[]>([]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -27,7 +28,7 @@ export default function WorkerGuidePage() {
     void (async () => {
       const [g, t] = await Promise.all([fetchWorkerWorkGuide(), fetchWorkerRecruitmentTargets()]);
       setGuide(g);
-      setTargets(t.items ?? []);
+      setTargets(t.items);
     })();
   }, [user, isLoading, router]);
 

@@ -62,11 +62,7 @@ export default function AdminWorkerChatPage() {
       return;
     }
     setText('');
-    if (r.message) {
-      setMessages((prev) => [...prev, r.message as WorkerInternalMessageRow]);
-    } else {
-      await load();
-    }
+    setMessages((prev) => [...prev, r.message]);
   }
 
   return (

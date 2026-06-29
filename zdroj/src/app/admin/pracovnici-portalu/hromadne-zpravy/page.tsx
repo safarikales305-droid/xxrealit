@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   fetchBulkHistory,
   fetchBulkTemplates,
+  hasApiError,
   sendBulkMessage,
   type WorkerBulkHistoryRow,
   type WorkerBulkTemplate,
@@ -36,8 +37,10 @@ export default function AdminWorkerBulkMessagesPage() {
       fetchBulkTemplates(apiAccessToken),
       fetchBulkHistory(apiAccessToken),
     ]);
-    setTemplates(t.items ?? []);
-    setHistory(h.items ?? []);
+    setTemplates(t.items);
+    setHistory(h.items);
+    const loadErr = hasApiError(t) ? t.error : hasApiError(h) ? h.error : null;
+    if (loadErr) setErr(loadErr);
   }, [apiAccessToken]);
 
   useEffect(() => {

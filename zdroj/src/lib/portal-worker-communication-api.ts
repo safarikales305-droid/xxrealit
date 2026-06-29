@@ -16,6 +16,18 @@ async function parseError(res: Response): Promise<string> {
   return msg ?? `HTTP ${res.status}`;
 }
 
+/** Seznam položek z API – `error` je vyplněno jen při chybě načtení. */
+export type ApiItemsResponse<T> = {
+  items: T[];
+  error?: string;
+};
+
+export type ApiMutationError = { ok: false; error: string };
+
+export function hasApiError(response: { error?: string }): response is { error: string } {
+  return typeof response.error === 'string' && response.error.length > 0;
+}
+
 export type WorkerInternalMessageRow = {
   id: string;
   body: string;
@@ -37,6 +49,8 @@ export type WorkerBulkHistoryRow = {
   sentAt: string | null;
   admin: { id: string; name: string; email: string };
 };
+export type WorkerBulkTemplatesListResponse = ApiItemsResponse<WorkerBulkTemplate>;
+export type WorkerBulkHistoryListResponse = ApiItemsResponse<WorkerBulkHistoryRow>;
 
 export type RecruitmentTargetRow = {
   id: string;
@@ -52,6 +66,63 @@ export type RecruitmentTargetRow = {
   title: string;
   steps: string[];
 };
+
+export type RecruitmentTargetsListResponse = ApiItemsResponse<RecruitmentTargetRow>;
+
+export type WorkerRecruitmentTargetWorkerRow = Pick<
+  RecruitmentTargetRow,
+  'id' | 'label' | 'name' | 'description' | 'workerNote' | 'title' | 'steps'
+>;
+
+export type WorkerRecruitmentTargetsListResponse = ApiItemsResponse<WorkerRecruitmentTargetWorkerRow>;
+
+export type AdminWorkerMessagesResponse = {
+  messages: WorkerInternalMessageRow[];
+  unreadFromWorker: number;
+  error?: string;
+};
+
+export type SendAdminWorkerMessageSuccess = {
+  ok: true;
+  message: WorkerInternalMessageRow;
+};
+
+export type SendAdminWorkerMessageResult = ApiMutationError | SendAdminWorkerMessageSuccess;
+
+export type SendBulkMessageSuccess = {
+  ok: true;
+  bulkMessageId: string;
+  recipientCount: number;
+  emailsSent: number;
+  emailErrors: number;
+};
+
+export type SendBulkMessageResult = ApiMutationError | SendBulkMessageSuccess;
+
+export type UpdateRecruitmentTargetSuccess = {
+  ok: true;
+  items: RecruitmentTargetRow[];
+};
+
+export type UpdateRecruitmentTargetResult = ApiMutationError | UpdateRecruitmentTargetSuccess;
+
+export type CreateRecruitmentTargetSuccess = {
+  ok: true;
+  item: RecruitmentTargetRow;
+};
+
+export type CreateRecruitmentTargetResult = ApiMutationError | CreateRecruitmentTargetSuccess;
+
+export type DeleteRecruitmentTargetResult = ApiMutationError | { ok: true };
+
+export type SendRecruitmentTargetSuccess = {
+  ok: true;
+  recipientCount: number;
+  emailsSent: number;
+  emailErrors: number;
+};
+
+export type SendRecruitmentTargetResult = ApiMutationError | SendRecruitmentTargetSuccess;
 
 export type WorkerProfileReminderInfo = {
   enabled: boolean;
@@ -86,25 +157,39 @@ export type WorkerWorkGuideAdmin = {
   }>;
 };
 
-export async function fetchAdminWorkerMessages(token: string | null, workerId: string) {
+export async function fetchAdminWorkerMessages(
+  token: string | null,
+  workerId: string,
+): Promise<AdminWorkerMessagesResponse> {
   const res = await fetch(`${API_BASE}/admin/portal-workers/${encodeURIComponent(workerId)}/messages`, {
     credentials: 'include',
     headers: headers(token),
     cache: 'no-store',
   });
-  if (!res.ok) return { messages: [] as WorkerInternalMessageRow[], unreadFromWorker: 0, error: await parseError(res) };
-  return (await res.json()) as { messages: WorkerInternalMessageRow[]; unreadFromWorker: number };
+  if (!res.ok) {
+    return { messages: [], unreadFromWorker: 0, error: await parseError(res) };
+  }
+  const data = (await res.json()) as { messages?: WorkerInternalMessageRow[]; unreadFromWorker?: number };
+  return {
+    messages: data.messages ?? [],
+    unreadFromWorker: data.unreadFromWorker ?? 0,
+  };
 }
 
-export async function sendAdminWorkerMessage(token: string | null, workerId: string, body: string) {
+export async function sendAdminWorkerMessage(
+  token: string | null,
+  workerId: string,
+  body: string,
+): Promise<SendAdminWorkerMessageResult> {
   const res = await fetch(`${API_BASE}/admin/portal-workers/${encodeURIComponent(workerId)}/messages`, {
     method: 'POST',
     credentials: 'include',
     headers: headers(token),
     body: JSON.stringify({ body }),
   });
-  if (!res.ok) return { ok: false as const, error: await parseError(res) };
-  return { ok: true as const, ...(await res.json()) };
+  if (!res.ok) return { ok: false, error: await parseError(res) };
+  const data = (await res.json()) as { message: WorkerInternalMessageRow };
+  return { ok: true, message: data.message };
 }
 
 export async function markAdminWorkerMessagesRead(token: string | null, workerId: string) {
@@ -115,24 +200,26 @@ export async function markAdminWorkerMessagesRead(token: string | null, workerId
   return res.ok;
 }
 
-export async function fetchBulkTemplates(token: string | null) {
+export async function fetchBulkTemplates(token: string | null): Promise<WorkerBulkTemplatesListResponse> {
   const res = await fetch(`${API_BASE}/admin/portal-workers/communications/bulk-messages/templates`, {
     credentials: 'include',
     headers: headers(token),
     cache: 'no-store',
   });
-  if (!res.ok) return { items: [] as WorkerBulkTemplate[], error: await parseError(res) };
-  return (await res.json()) as { items: WorkerBulkTemplate[] };
+  if (!res.ok) return { items: [], error: await parseError(res) };
+  const data = (await res.json()) as { items?: WorkerBulkTemplate[] };
+  return { items: data.items ?? [] };
 }
 
-export async function fetchBulkHistory(token: string | null) {
+export async function fetchBulkHistory(token: string | null): Promise<WorkerBulkHistoryListResponse> {
   const res = await fetch(`${API_BASE}/admin/portal-workers/communications/bulk-messages/history`, {
     credentials: 'include',
     headers: headers(token),
     cache: 'no-store',
   });
-  if (!res.ok) return { items: [] as WorkerBulkHistoryRow[], error: await parseError(res) };
-  return (await res.json()) as { items: WorkerBulkHistoryRow[] };
+  if (!res.ok) return { items: [], error: await parseError(res) };
+  const data = (await res.json()) as { items?: WorkerBulkHistoryRow[] };
+  return { items: data.items ?? [] };
 }
 
 export async function sendBulkMessage(
@@ -145,15 +232,27 @@ export async function sendBulkMessage(
     saveAsTemplate?: boolean;
     templateName?: string;
   },
-) {
+): Promise<SendBulkMessageResult> {
   const res = await fetch(`${API_BASE}/admin/portal-workers/communications/bulk-messages/send`, {
     method: 'POST',
     credentials: 'include',
     headers: headers(token),
     body: JSON.stringify(payload),
   });
-  if (!res.ok) return { ok: false as const, error: await parseError(res) };
-  return { ok: true as const, ...(await res.json()) };
+  if (!res.ok) return { ok: false, error: await parseError(res) };
+  const data = (await res.json()) as {
+    bulkMessageId: string;
+    recipientCount: number;
+    emailsSent: number;
+    emailErrors: number;
+  };
+  return {
+    ok: true,
+    bulkMessageId: data.bulkMessageId,
+    recipientCount: data.recipientCount,
+    emailsSent: data.emailsSent,
+    emailErrors: data.emailErrors,
+  };
 }
 
 export async function fetchProfileReminder(token: string | null, workerId: string) {
@@ -236,14 +335,17 @@ export async function updateWorkGuideAdmin(
   return { ok: true as const, ...(await res.json()) };
 }
 
-export async function fetchRecruitmentTargetsAdmin(token: string | null) {
+export async function fetchRecruitmentTargetsAdmin(
+  token: string | null,
+): Promise<RecruitmentTargetsListResponse> {
   const res = await fetch(`${API_BASE}/admin/portal-workers/communications/recruitment-targets`, {
     credentials: 'include',
     headers: headers(token),
     cache: 'no-store',
   });
-  if (!res.ok) return { items: [] as RecruitmentTargetRow[], error: await parseError(res) };
-  return (await res.json()) as { items: RecruitmentTargetRow[] };
+  if (!res.ok) return { items: [], error: await parseError(res) };
+  const data = (await res.json()) as { items?: RecruitmentTargetRow[] };
+  return { items: data.items ?? [] };
 }
 
 export async function updateRecruitmentTargetAdmin(
@@ -258,7 +360,7 @@ export async function updateRecruitmentTargetAdmin(
     sortOrder?: number;
     steps?: string[];
   },
-) {
+): Promise<UpdateRecruitmentTargetResult> {
   const res = await fetch(
     `${API_BASE}/admin/portal-workers/communications/recruitment-targets/${encodeURIComponent(id)}`,
     {
@@ -268,8 +370,9 @@ export async function updateRecruitmentTargetAdmin(
       body: JSON.stringify(payload),
     },
   );
-  if (!res.ok) return { ok: false as const, error: await parseError(res) };
-  return { ok: true as const, ...(await res.json()) };
+  if (!res.ok) return { ok: false, error: await parseError(res) };
+  const data = (await res.json()) as { items?: RecruitmentTargetRow[] };
+  return { ok: true, items: data.items ?? [] };
 }
 
 export async function createRecruitmentTargetAdmin(
@@ -282,31 +385,35 @@ export async function createRecruitmentTargetAdmin(
     isActive?: boolean;
     steps: string[];
   },
-) {
+): Promise<CreateRecruitmentTargetResult> {
   const res = await fetch(`${API_BASE}/admin/portal-workers/communications/recruitment-targets`, {
     method: 'POST',
     credentials: 'include',
     headers: headers(token),
     body: JSON.stringify(payload),
   });
-  if (!res.ok) return { ok: false as const, error: await parseError(res) };
-  return { ok: true as const, ...(await res.json()) };
+  if (!res.ok) return { ok: false, error: await parseError(res) };
+  const data = (await res.json()) as { item: RecruitmentTargetRow };
+  return { ok: true, item: data.item };
 }
 
-export async function deleteRecruitmentTargetAdmin(token: string | null, id: string) {
+export async function deleteRecruitmentTargetAdmin(
+  token: string | null,
+  id: string,
+): Promise<DeleteRecruitmentTargetResult> {
   const res = await fetch(
     `${API_BASE}/admin/portal-workers/communications/recruitment-targets/${encodeURIComponent(id)}`,
     { method: 'DELETE', credentials: 'include', headers: headers(token) },
   );
-  if (!res.ok) return { ok: false as const, error: await parseError(res) };
-  return { ok: true as const };
+  if (!res.ok) return { ok: false, error: await parseError(res) };
+  return { ok: true };
 }
 
 export async function sendRecruitmentTargetToWorkers(
   token: string | null,
   targetId: string,
   workerIds: string[],
-) {
+): Promise<SendRecruitmentTargetResult> {
   const res = await fetch(
     `${API_BASE}/admin/portal-workers/communications/recruitment-targets/${encodeURIComponent(targetId)}/send`,
     {
@@ -316,8 +423,18 @@ export async function sendRecruitmentTargetToWorkers(
       body: JSON.stringify({ workerIds }),
     },
   );
-  if (!res.ok) return { ok: false as const, error: await parseError(res) };
-  return { ok: true as const, ...(await res.json()) };
+  if (!res.ok) return { ok: false, error: await parseError(res) };
+  const data = (await res.json()) as {
+    recipientCount: number;
+    emailsSent: number;
+    emailErrors: number;
+  };
+  return {
+    ok: true,
+    recipientCount: data.recipientCount,
+    emailsSent: data.emailsSent,
+    emailErrors: data.emailErrors,
+  };
 }
 
 export async function fetchWorkerMessages() {
@@ -360,14 +477,15 @@ export async function fetchWorkerWorkGuide() {
   return (await res.json()) as { enabled: boolean; steps: Array<{ sortOrder: number; title: string; body: string }> };
 }
 
-export async function fetchWorkerRecruitmentTargets() {
+export async function fetchWorkerRecruitmentTargets(): Promise<WorkerRecruitmentTargetsListResponse> {
   const res = await fetch(`${API_BASE}/portal-worker/me/recruitment-targets`, {
     credentials: 'include',
     headers: headers(),
     cache: 'no-store',
   });
-  if (!res.ok) return { items: [] as Array<{ id: string; label: string; name: string; description: string; workerNote: string; title: string; steps: string[] }> };
-  return (await res.json()) as { items: Array<{ id: string; label: string; name: string; description: string; workerNote: string; title: string; steps: string[] }> };
+  if (!res.ok) return { items: [], error: await parseError(res) };
+  const data = (await res.json()) as { items?: WorkerRecruitmentTargetWorkerRow[] };
+  return { items: data.items ?? [] };
 }
 
 export async function fetchWorkerCooperationCancel() {

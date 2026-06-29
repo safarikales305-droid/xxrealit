@@ -8985,9 +8985,15 @@ export type PortalWorkerDashboard = {
   }>;
 };
 
+export type PortalWorkersListResponse = {
+  items: PortalWorkerRow[];
+  total: number;
+  error?: string;
+};
+
 export async function nestAdminListPortalWorkers(
   token: string | null,
-): Promise<{ items: PortalWorkerRow[]; total: number; error?: string }> {
+): Promise<PortalWorkersListResponse> {
   if (typeof window !== 'undefined') {
     const res = await fetch('/api/nest/admin/portal-workers', {
       credentials: 'include',

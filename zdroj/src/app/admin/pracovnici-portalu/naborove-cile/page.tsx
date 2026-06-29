@@ -9,6 +9,7 @@ import {
   createRecruitmentTargetAdmin,
   deleteRecruitmentTargetAdmin,
   fetchRecruitmentTargetsAdmin,
+  hasApiError,
   sendRecruitmentTargetToWorkers,
   updateRecruitmentTargetAdmin,
   type RecruitmentTargetRow,
@@ -44,10 +45,13 @@ export default function AdminRecruitmentTargetsPage() {
       fetchRecruitmentTargetsAdmin(apiAccessToken),
       nestAdminListPortalWorkers(apiAccessToken),
     ]);
-    setItems(targets.items ?? []);
-    setWorkers(workerList.items ?? []);
-    if (targets.error) setErr(targets.error);
-    if (workerList.error && !targets.error) setErr(workerList.error);
+    setItems(targets.items);
+    setWorkers(workerList.items);
+    if (hasApiError(targets)) {
+      setErr(targets.error);
+    } else if (hasApiError(workerList)) {
+      setErr(workerList.error);
+    }
     setLoading(false);
   }, [apiAccessToken]);
 
