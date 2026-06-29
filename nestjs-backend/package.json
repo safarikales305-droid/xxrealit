@@ -8,10 +8,11 @@
     "node": ">=20"
   },
   "prisma": {
+    "schema": "prisma/schema.prisma",
     "seed": "tsx prisma/seed.ts"
   },
   "scripts": {
-    "build": "prisma generate && nest build && npm run playwright:install-chromium",
+    "build": "node scripts/prisma-cli.mjs generate && nest build && npm run playwright:install-chromium && node scripts/build-info.mjs",
     "playwright:install-chromium": "node scripts/install-playwright-chromium.mjs",
     "test:uniqueness": "tsx --test src/common/account-uniqueness.constants.test.ts",
     "test:credit-debt": "tsx --test src/modules/credits/credit-debt.util.test.ts",
@@ -20,7 +21,7 @@
     "start": "node dist/main.js",
     "start:prod": "sh -c 'sh prisma/scripts/migrate-deploy-safe.sh; node dist/main.js'",
     "start:dev": "nest start --watch",
-    "postinstall": "prisma generate",
+    "postinstall": "node scripts/prisma-postinstall.mjs",
     "seed": "tsx prisma/seed.ts",
     "seed:all": "tsx prisma/seed.ts"
   },

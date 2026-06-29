@@ -1,7 +1,10 @@
-# Kořen služby v Railway UI nastav na tento adresář (nestjs-backend).
-# Build: npm run build (včetně playwright install chromium do node_modules).
-# Env: PLAYWRIGHT_BROWSERS_PATH=0 (viz nixpacks.toml).
-# Start: node dist/main.js
+# Railway: Root Directory služby MUSÍ být nestjs-backend (ne kořen monorepa).
+# V UI: Service → Settings → Root Directory → nestjs-backend
+# Nebo použijte railway.json v kořeni repa (rootDirectory: nestjs-backend).
+#
+# Build: npm run build (prisma generate --schema=prisma/schema.prisma)
+# Env: PLAYWRIGHT_BROWSERS_PATH=0 (viz nixpacks.toml)
+# Start: npm run start:prod
 
 [build]
 builder = "NIXPACKS"

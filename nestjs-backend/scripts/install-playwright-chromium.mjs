@@ -23,6 +23,7 @@ const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 const result = spawnSync(npxCmd, args, {
   stdio: 'inherit',
   env: process.env,
+  shell: process.platform === 'win32',
 });
 
 if (result.status !== 0) {
