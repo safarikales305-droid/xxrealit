@@ -22,9 +22,43 @@ import {
   toAbsoluteMediaUrl,
 } from './social-publish-format.util';
 import { isShortsVideoProperty } from './social-facebook-reel.util';
-import { PROFESSIONAL_ROLES } from './social-autopost.types';
+import { PROFESSIONAL_ROLES, type FacebookPublishResult } from './social-autopost.types';
 import { SocialPublishTemplatesService } from './social-publish-templates.service';
 import { PostSocialPublishService } from './post-social-publish.service';
+
+function resolveFacebookPublishFormatLabel(
+  facebookPostType?: FacebookPostType | null,
+  publishKind?: string | null,
+): string {
+  if (facebookPostType === FacebookPostType.FACEBOOK_REEL) return 'Facebook Reel';
+  if (facebookPostType === FacebookPostType.FACEBOOK_VIDEO) return 'Facebook video příspěvek';
+  if (facebookPostType === FacebookPostType.FACEBOOK_POST) return 'Facebook příspěvek';
+  if (publishKind === 'VIDEO_REEL') return 'Facebook Reel';
+  return facebookPostType ?? publishKind ?? 'Facebook';
+}
+
+function buildPublishLogGraphResponse(result: FacebookPublishResult): object {
+  const format = resolveFacebookPublishFormatLabel(
+    result.facebookPostType ?? null,
+    result.publishKind ?? null,
+  );
+  return {
+    ...(typeof result.raw === 'object' && result.raw != null ? (result.raw as object) : {}),
+    publishSummary: {
+      format,
+      facebookPostType: result.facebookPostType ?? null,
+      publishKind: result.publishKind ?? null,
+      teaserDurationSec: result.teaserDurationSec ?? null,
+      teaserLocalPath: result.teaserLocalPath ?? null,
+      teaserUrl: result.teaserUrl ?? null,
+      teaserDrawtextUsed: result.teaserDrawtextUsed ?? null,
+      teaserDrawtextSkippedReason: result.teaserDrawtextSkippedReason ?? null,
+      originalVideoDurationSec: result.originalVideoDurationSec ?? null,
+      externalReelId: result.externalReelId ?? null,
+      reelPublishedUrl: result.reelPublishedUrl ?? null,
+    },
+  };
+}
 
 const MAX_ATTEMPTS = 5;
 
@@ -535,6 +569,14 @@ export class SocialPublishProcessorService {
         },
       });
 
+      const formatLabel = resolveFacebookPublishFormatLabel(
+        result.facebookPostType ?? item.facebookPostType ?? null,
+        result.publishKind ?? null,
+      );
+      this.logger.log(
+        `Publikováno (${formatLabel}): contentId=${item.contentId}, teaser=${result.teaserDurationSec ?? '—'}s, soubor=${result.teaserLocalPath ?? '—'}`,
+      );
+
       await this.logService.writeLog({
         contentType: item.contentType,
         contentId: item.contentId,
@@ -550,8 +592,8 @@ export class SocialPublishProcessorService {
         contentTitle: result.contentTitle ?? null,
         teaserDurationSec: result.teaserDurationSec ?? null,
         originalVideoDurationSec: result.originalVideoDurationSec ?? null,
-        graphApiResponse: result.raw,
-        lastError: result.teaserError ?? null,
+        graphApiResponse: buildPublishLogGraphResponse(result),
+        lastError: result.teaserError ?? result.teaserDrawtextSkippedReason ?? null,
         triggerSource: item.triggerSource,
         triggeredByUserId: item.triggeredByUserId,
       });
@@ -577,6 +619,11 @@ export class SocialPublishProcessorService {
         },
       });
 
+      const formatLabel = resolveFacebookPublishFormatLabel(item.facebookPostType ?? null, null);
+      this.logger.error(
+        `Publikování selhalo (${formatLabel}, contentId=${item.contentId}): ${message}`,
+      );
+
       await this.logService.writeLog({
         contentType: item.contentType,
         contentId: item.contentId,
@@ -585,7 +632,15 @@ export class SocialPublishProcessorService {
         status: SocialPublishStatus.FAILED,
         lastError: message,
         facebookPostType: item.facebookPostType ?? null,
-        graphApiResponse: graphErr ?? undefined,
+        graphApiResponse: {
+          publishSummary: {
+            format: formatLabel,
+            facebookPostType: item.facebookPostType ?? null,
+            failed: true,
+            error: message,
+          },
+          ...(graphErr ? { graphError: graphErr } : {}),
+        },
         triggerSource: item.triggerSource,
         triggeredByUserId: item.triggeredByUserId,
       });

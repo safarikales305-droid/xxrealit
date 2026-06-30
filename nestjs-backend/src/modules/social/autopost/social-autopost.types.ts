@@ -21,6 +21,10 @@ export type FacebookPublishResult = {
   teaserDurationSec?: number | null;
   originalVideoDurationSec?: number | null;
   teaserError?: string | null;
+  teaserUrl?: string | null;
+  teaserLocalPath?: string | null;
+  teaserDrawtextUsed?: boolean | null;
+  teaserDrawtextSkippedReason?: string | null;
   raw: unknown;
 };
 

@@ -137,45 +137,40 @@ export class SocialPublisherService {
     if (wantsReel && videoUrl) {
       const reelMessage = buildVideoReelFacebookMessage(publicUrl, input.description);
       try {
+        this.logger.log(`Příprava video teaseru pro Facebook Reel (uživatelský příspěvek)`);
         const shareVideo = await this.teaserService.prepareVideoForSocialShare(videoUrl);
+        this.logger.log(
+          `Teaser pro Reel: délka=${shareVideo.teaserDurationSec}s, drawtext=${shareVideo.drawtextUsed === true}, soubor=${shareVideo.teaserLocalPath ?? '—'}, url=${shareVideo.teaserUrl}`,
+        );
+        if (shareVideo.drawtextSkippedReason) {
+          this.logger.log(`drawtext přeskočen: ${shareVideo.drawtextSkippedReason}`);
+        }
         const reel = await this.publishPropertyAsFacebookReel({
           videoUrl: shareVideo.teaserUrl,
           message: reelMessage,
           title: contentTitle ?? undefined,
         });
+        this.logger.log(
+          `Facebook Reel publikován: reelId=${reel.externalReelId ?? reel.externalPostId}, url=${reel.publishedUrl}`,
+        );
         return {
           ...reel,
           publishKind: SocialPublishKind.VIDEO_REEL,
+          facebookPostType: FacebookPostType.FACEBOOK_REEL,
           contentTitle,
           externalReelId: reel.externalReelId ?? reel.externalPostId,
           reelPublishedUrl: reel.publishedUrl,
           teaserDurationSec: shareVideo.teaserDurationSec || null,
           originalVideoDurationSec: shareVideo.originalDurationSec,
+          teaserUrl: shareVideo.teaserUrl,
+          teaserLocalPath: shareVideo.teaserLocalPath ?? null,
+          teaserDrawtextUsed: shareVideo.drawtextUsed ?? false,
+          teaserDrawtextSkippedReason: shareVideo.drawtextSkippedReason ?? null,
         };
       } catch (err) {
         const teaserError = err instanceof Error ? err.message : String(err);
-        this.logger.warn(`User post reel failed: ${teaserError}`);
-        if (fb.reelsFallbackToVideoPost !== false) {
-          try {
-            const shareVideo = await this.teaserService.prepareVideoForSocialShare(videoUrl);
-            const video = await this.publishVideoPost(reelMessage, shareVideo.teaserUrl);
-            return {
-              ...video,
-              publishKind: SocialPublishKind.VIDEO_REEL,
-              contentTitle,
-              teaserDurationSec: shareVideo.teaserDurationSec || null,
-              originalVideoDurationSec: shareVideo.originalDurationSec,
-              teaserError,
-            };
-          } catch (videoErr) {
-            this.logger.warn(
-              `User post video fallback failed: ${videoErr instanceof Error ? videoErr.message : videoErr}`,
-            );
-          }
-        }
-        throw new Error(
-          `Facebook Reel se nepodařilo publikovat: ${teaserError}`,
-        );
+        this.logger.error(`Facebook Reel (video příspěvek) selhal: ${teaserError}`);
+        throw new Error(`Facebook Reel se nepodařilo publikovat: ${teaserError}`);
       }
     }
 
@@ -971,9 +966,7 @@ export class SocialPublisherService {
           },
           {
             forceFormat: videoUrl
-              ? opts.forceReel
-                ? FacebookPostType.FACEBOOK_REEL
-                : undefined
+              ? FacebookPostType.FACEBOOK_REEL
               : FacebookPostType.FACEBOOK_POST,
           },
         );
