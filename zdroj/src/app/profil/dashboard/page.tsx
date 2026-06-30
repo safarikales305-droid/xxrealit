@@ -28,6 +28,7 @@ import {
   type NestCompanyAdRow,
 } from '@/lib/nest-client';
 import { dashboardPathForRole } from '@/lib/roles';
+import { afterPublicProfileSaved } from '@/lib/public-profile-session';
 import {
   collectVerificationBlockingIssues,
   collectVerificationRecommendations,
@@ -76,7 +77,7 @@ function parseTab(raw: string | null, facebook: string | null): Tab {
 export default function ProfileDashboardPage() {
   const router = useRouter();
   const params = useSearchParams();
-  const { isAuthenticated, isLoading, apiAccessToken, user, refresh } = useAuth();
+  const { isAuthenticated, isLoading, apiAccessToken, user, refresh, setUser } = useAuth();
   const unreadMessages = useMessagesUnreadCount(apiAccessToken);
   const tab = parseTab(params.get('tab'), params.get('facebook'));
   const facebookJustConnected = params.get('facebook') === 'connected';
@@ -363,14 +364,19 @@ export default function ProfileDashboardPage() {
                 <label className="inline-flex items-center gap-2 text-sm text-zinc-800">
                   <input
                     type="checkbox"
-                    checked={Boolean(me?.isPublicProfile)}
+                    checked={Boolean(me?.publicProfile)}
                     onChange={(e) => {
                       if (!apiAccessToken) return;
-                      void nestPatchMePublicProfile(apiAccessToken, e.target.checked).then((r) => {
+                      const next = e.target.checked;
+                      void nestPatchMePublicProfile(apiAccessToken, next).then(async (r) => {
                         if (!r.ok) {
                           setError(r.error ?? 'Změna veřejného profilu se nezdařila.');
                           return;
                         }
+                        setMe((prev) => (prev ? { ...prev, publicProfile: next } : prev));
+                        setUser((prev) => (prev ? { ...prev, publicProfile: next } : prev));
+                        await afterPublicProfileSaved(refresh);
+                        router.refresh();
                         void loadMe();
                       });
                     }}

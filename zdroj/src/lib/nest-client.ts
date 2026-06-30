@@ -262,7 +262,7 @@ export type NestMeProfile = {
   brokerFreeLeads?: number;
   brokerProgress?: NestBrokerProgress;
   isPublicBrokerProfile?: boolean;
-  isPublicProfile?: boolean;
+  publicProfile?: boolean;
   professionalVerified?: boolean;
   professionalVerificationStatus?: 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED';
   publicProfessionalProfile?: boolean;
@@ -638,7 +638,12 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     brokerProgress: brokerProgress ?? undefined,
     isPublicBrokerProfile:
       typeof o.isPublicBrokerProfile === 'boolean' ? o.isPublicBrokerProfile : undefined,
-    isPublicProfile: typeof o.isPublicProfile === 'boolean' ? o.isPublicProfile : undefined,
+    publicProfile:
+      typeof o.publicProfile === 'boolean'
+        ? o.publicProfile
+        : typeof o.isPublicProfile === 'boolean'
+          ? o.isPublicProfile
+          : undefined,
     professionalVerified: o.professionalVerified === true,
     professionalVerificationStatus:
       o.professionalVerificationStatus === 'NONE' ||
@@ -850,7 +855,7 @@ export type AdminUserRow = {
   isPromoProfile?: boolean;
   promoProfileActive?: boolean;
   isPublicBrokerProfile?: boolean;
-  isPublicProfile?: boolean;
+  publicProfile?: boolean;
   publicProfessionalProfile?: boolean;
   brokerPoints?: number;
   brokerFreeLeads?: number;
@@ -1730,8 +1735,8 @@ export async function nestAdminUpdateUserRole(
 export async function nestAdminSetUserPublicProfile(
   token: string | null,
   userId: string,
-  isPublicProfile: boolean,
-): Promise<{ ok: boolean; error?: string; isPublicProfile?: boolean }> {
+  publicProfile: boolean,
+): Promise<{ ok: boolean; error?: string; publicProfile?: boolean }> {
   if (!API_BASE_URL || !token) {
     return { ok: false, error: 'API nebo token chybí' };
   }
@@ -1744,12 +1749,13 @@ export async function nestAdminSetUserPublicProfile(
         Accept: 'application/json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ isPublicProfile }),
+      body: JSON.stringify({ publicProfile }),
     },
   );
   const data = (await res.json().catch(() => ({}))) as {
     message?: string | string[];
     error?: string;
+    publicProfile?: boolean;
     isPublicProfile?: boolean;
   };
   if (!res.ok) {
@@ -1763,7 +1769,13 @@ export async function nestAdminSetUserPublicProfile(
             : `HTTP ${res.status}`;
     return { ok: false, error: msg };
   }
-  return { ok: true, isPublicProfile: data.isPublicProfile };
+  return {
+    ok: true,
+    publicProfile:
+      typeof data.publicProfile === 'boolean'
+        ? data.publicProfile
+        : data.isPublicProfile === true,
+  };
 }
 
 export async function nestAdminPatchPremiumBroker(
@@ -6581,8 +6593,8 @@ export async function nestFetchCommunityPosts(
 
 export async function nestPatchMePublicProfile(
   token: string | null,
-  isPublicProfile: boolean,
-): Promise<{ ok: boolean; error?: string; isPublicProfile?: boolean }> {
+  publicProfile: boolean,
+): Promise<{ ok: boolean; error?: string; publicProfile?: boolean }> {
   if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
   const res = await fetch(`${API_BASE_URL}/users/me/public-profile`, {
     method: 'PATCH',
@@ -6592,11 +6604,20 @@ export async function nestPatchMePublicProfile(
       Accept: 'application/json',
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ isPublicProfile }),
+    body: JSON.stringify({ publicProfile }),
   });
   if (!res.ok) return { ok: false, error: await nestError(res) };
-  const data = (await res.json().catch(() => ({}))) as { isPublicProfile?: boolean };
-  return { ok: true, isPublicProfile: data.isPublicProfile };
+  const data = (await res.json().catch(() => ({}))) as {
+    publicProfile?: boolean;
+    isPublicProfile?: boolean;
+  };
+  return {
+    ok: true,
+    publicProfile:
+      typeof data.publicProfile === 'boolean'
+        ? data.publicProfile
+        : data.isPublicProfile === true,
+  };
 }
 
 export async function nestSetPostReaction(
@@ -6685,20 +6706,8 @@ export async function nestDeleteAvatar(
 export async function nestPatchProfileVisibility(
   token: string | null,
   isPublic: boolean,
-): Promise<{ ok: boolean; error?: string }> {
-  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
-  const res = await fetch(`${API_BASE_URL}/users/me/profile-visibility`, {
-    method: 'PATCH',
-    cache: 'no-store',
-    headers: {
-      ...nestAuthHeaders(token),
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ isPublic }),
-  });
-  if (!res.ok) return { ok: false, error: await nestError(res) };
-  return { ok: true };
+): Promise<{ ok: boolean; error?: string; publicProfile?: boolean }> {
+  return nestPatchMePublicProfile(token, isPublic);
 }
 
 export async function nestChangeMyPassword(
@@ -9177,7 +9186,7 @@ export type WorkerDetailAdmin = {
   phoneVerified: boolean;
   whatsappVerified: boolean;
   portalWorkerStatus: string;
-  isPublicProfile?: boolean;
+  publicProfile?: boolean;
   clientCount: number;
   clientsPaidTopUp: number;
   totalCommissionRecorded: number;

@@ -279,8 +279,8 @@ function UserDetail({
           {u.isPromoProfile ? (
             <div className="mt-3 flex flex-wrap gap-1">
               <Badge tone="purple">Promo profil</Badge>
-              <Badge tone={u.isPublicProfile ? 'green' : 'gray'}>
-                {u.isPublicProfile ? 'Veřejný' : 'Neveřejný'}
+              <Badge tone={u.publicProfile ? 'green' : 'gray'}>
+                {u.publicProfile ? 'Veřejný' : 'Neveřejný'}
               </Badge>
               <Badge tone={u.promoProfileActive !== false ? 'blue' : 'yellow'}>
                 {u.promoProfileActive !== false ? 'Aktivní' : 'Vypnutý'}

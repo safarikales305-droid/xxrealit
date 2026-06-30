@@ -83,7 +83,7 @@ export class UsersController {
     @Body(new ValidationPipe({ whitelist: true, transform: true }))
     dto: UpdateMePublicProfileDto,
   ) {
-    return this.usersService.setMePublicProfile(user.id, dto.isPublicProfile);
+    return this.usersService.setMePublicProfile(user.id, dto.publicProfile);
   }
 
   @UseGuards(JwtAuthGuard)

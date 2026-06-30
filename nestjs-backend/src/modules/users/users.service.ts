@@ -580,7 +580,7 @@ export class UsersService {
       brokerFreeLeads: true,
       isPublicBrokerProfile: true,
       publicProfessionalProfile: true,
-      isPublicProfile: true,
+      publicProfile: true,
       professionalVerified: true,
       professionalVerificationStatus: true,
       professionalVerificationRequestedAt: true,
@@ -783,7 +783,7 @@ export class UsersService {
       brokerPoints: u.brokerPoints,
       brokerFreeLeads: u.brokerFreeLeads,
       isPublicBrokerProfile: u.isPublicBrokerProfile,
-      isPublicProfile: Boolean(u.isPublicProfile),
+      publicProfile: Boolean(u.publicProfile),
       professionalVerified: Boolean(u.professionalVerified),
       professionalVerificationStatus: u.professionalVerificationStatus,
       publicProfessionalProfile: Boolean(u.publicProfessionalProfile),
@@ -1330,14 +1330,14 @@ export class UsersService {
     return { ok: true, followersCount };
   }
 
-  async setMePublicProfile(userId: string, isPublicProfile: boolean) {
+  async setMePublicProfile(userId: string, publicProfile: boolean) {
     const u = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, role: true },
     });
     if (!u) throw new NotFoundException('User not found');
 
-    const data = userPublicProfileWriteData(isPublicProfile);
+    const data = userPublicProfileWriteData(publicProfile);
     await this.prisma.user.update({
       where: { id: userId },
       data,
@@ -1346,31 +1346,31 @@ export class UsersService {
     if (u.role === UserRole.AGENT) {
       await this.prisma.agentProfile.updateMany({
         where: { userId },
-        data: { isPublic: isPublicProfile },
+        data: { isPublic: publicProfile },
       });
     } else if (u.role === UserRole.COMPANY) {
       await this.prisma.companyProfile.updateMany({
         where: { userId },
-        data: { isPublic: isPublicProfile },
+        data: { isPublic: publicProfile },
       });
     } else if (u.role === UserRole.AGENCY) {
       await this.prisma.agencyProfile.updateMany({
         where: { userId },
-        data: { isPublic: isPublicProfile },
+        data: { isPublic: publicProfile },
       });
     } else if (u.role === UserRole.FINANCIAL_ADVISOR) {
       await this.prisma.financialAdvisorProfile.updateMany({
         where: { userId },
-        data: { isPublic: isPublicProfile },
+        data: { isPublic: publicProfile },
       });
     } else if (u.role === UserRole.INVESTOR) {
       await this.prisma.investorProfile.updateMany({
         where: { userId },
-        data: { isPublic: isPublicProfile },
+        data: { isPublic: publicProfile },
       });
     }
 
-    return { isPublicProfile };
+    return { publicProfile };
   }
 
   async updateProfessionalProfileVisibility(userId: string, isPublic: boolean) {
@@ -1400,7 +1400,7 @@ export class UsersService {
         this.prisma.user.update({
           where: { id: userId },
           data: userPublicProfileWriteData(isPublic),
-          select: { isPublicProfile: true },
+          select: { publicProfile: true },
         }),
         this.prisma.agentProfile.updateMany({
           where: { userId },
@@ -1409,7 +1409,7 @@ export class UsersService {
       ]);
       return {
         role: 'AGENT',
-        isPublic: Boolean(userUpdate.isPublicProfile),
+        isPublic: Boolean(userUpdate.publicProfile),
         hasProfile: profileUpdate.count > 0,
       };
     }
@@ -1455,7 +1455,7 @@ export class UsersService {
       where: { id: userId },
       data: userPublicProfileWriteData(isPublic),
     });
-    return { isPublic, isPublicProfile: isPublic };
+    return { isPublic, publicProfile: isPublic };
   }
 
   async changePassword(userId: string, currentPassword: string, nextPassword: string) {
@@ -1582,7 +1582,7 @@ export class UsersService {
     const data: Prisma.UserUpdateInput = {};
     if (dto.isPublicBrokerProfile !== undefined) {
       data.isPublicBrokerProfile = dto.isPublicBrokerProfile;
-      data.isPublicProfile = dto.isPublicBrokerProfile;
+      data.publicProfile = dto.isPublicBrokerProfile;
       data.publicProfessionalProfile = dto.isPublicBrokerProfile;
     }
     if (dto.allowBrokerReviews !== undefined) {

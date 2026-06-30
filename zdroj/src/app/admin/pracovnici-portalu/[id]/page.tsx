@@ -40,7 +40,7 @@ export default function AdminPortalWorkerDetailPage() {
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [whatsappVerified, setWhatsappVerified] = useState(false);
   const [adminNotes, setAdminNotes] = useState('');
-  const [isPublicProfile, setIsPublicProfile] = useState(false);
+  const [publicProfile, setPublicProfile] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -60,7 +60,7 @@ export default function AdminPortalWorkerDetailPage() {
     setPhoneVerified(w.phoneVerified);
     setWhatsappVerified(w.whatsappVerified);
     setAdminNotes(w.profile.adminNotes ?? '');
-    setIsPublicProfile(Boolean(w.isPublicProfile));
+    setPublicProfile(Boolean(w.publicProfile));
   }, []);
 
   const load = useCallback(async () => {
@@ -196,10 +196,10 @@ export default function AdminPortalWorkerDetailPage() {
             <input
               type="radio"
               name="worker-public-profile"
-              checked={isPublicProfile}
+              checked={publicProfile}
               disabled={busy}
               onChange={() => {
-                if (!apiAccessToken || !userId || isPublicProfile) return;
+                if (!apiAccessToken || !userId || publicProfile) return;
                 setBusy(true);
                 void nestAdminSetUserPublicProfile(apiAccessToken, userId, true).then((r) => {
                   setBusy(false);
@@ -207,7 +207,7 @@ export default function AdminPortalWorkerDetailPage() {
                     setErr(r.error ?? 'Změna selhala');
                     return;
                   }
-                  setIsPublicProfile(true);
+                  setPublicProfile(true);
                   setMsg('Veřejný profil zapnut.');
                 });
               }}
@@ -218,10 +218,10 @@ export default function AdminPortalWorkerDetailPage() {
             <input
               type="radio"
               name="worker-public-profile"
-              checked={!isPublicProfile}
+              checked={!publicProfile}
               disabled={busy}
               onChange={() => {
-                if (!apiAccessToken || !userId || !isPublicProfile) return;
+                if (!apiAccessToken || !userId || !publicProfile) return;
                 setBusy(true);
                 void nestAdminSetUserPublicProfile(apiAccessToken, userId, false).then((r) => {
                   setBusy(false);
@@ -229,7 +229,7 @@ export default function AdminPortalWorkerDetailPage() {
                     setErr(r.error ?? 'Změna selhala');
                     return;
                   }
-                  setIsPublicProfile(false);
+                  setPublicProfile(false);
                   setMsg('Veřejný profil vypnut.');
                 });
               }}

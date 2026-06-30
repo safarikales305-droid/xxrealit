@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image as ImageIcon, Send, Video } from 'lucide-react';
+import Link from 'next/link';
 import { API_BASE_URL } from '@/lib/api';
+import { useAuth } from '@/hooks/use-auth';
 import { extractFirstUrl } from '@/lib/extract-first-url';
 import { buildClientLinkPreviewFallback } from '@/lib/link-preview-client';
 import {
@@ -18,6 +20,7 @@ import {
   canUserPublishPosts,
   POST_PUBLISH_REQUIRES_PUBLIC_PROFILE_MSG,
 } from '@/lib/post-publish-eligibility';
+import { invalidatePublicProfileAndPostsCache } from '@/lib/public-profile-session';
 import { PostUploadProgress } from '@/components/community/PostUploadProgress';
 import { LinkPreviewCard } from '@/components/community/LinkPreviewCard';
 import { captureFileVideoPoster } from '@/lib/video-poster';
@@ -46,6 +49,7 @@ export function CreateCommunityPostCard({
   longitude,
   onPublished,
 }: Props) {
+  const { user, refresh } = useAuth();
   const [description, setDescription] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -69,20 +73,49 @@ export function CreateCommunityPostCard({
 
   const detectedUrl = extractFirstUrl(description);
 
-  useEffect(() => {
+  const syncPublishEligibility = useCallback(async () => {
+    const sessionPublic = user?.publicProfile === true;
     if (!apiAccessToken || !nestApiConfigured()) {
       setPublishAllowed(false);
+      if (process.env.NODE_ENV === 'development') {
+        console.debug('[posts] publish eligibility', {
+          userId: user?.id,
+          role: user?.role,
+          sessionPublicProfile: user?.publicProfile,
+          apiPublicProfile: null,
+          canPublishPost: false,
+          reason: 'missing token or API',
+        });
+      }
       return;
     }
-    let cancelled = false;
-    void nestFetchMe(apiAccessToken).then((me) => {
-      if (cancelled) return;
-      setPublishAllowed(canUserPublishPosts(me));
-    });
-    return () => {
-      cancelled = true;
+    const me = await nestFetchMe(apiAccessToken);
+    const apiPublic = me?.publicProfile === true;
+    const canPublish = canUserPublishPosts(me) || sessionPublic;
+    setPublishAllowed(canPublish);
+    if (process.env.NODE_ENV === 'development') {
+      console.debug('[posts] publish eligibility', {
+        userId: user?.id ?? me?.id,
+        role: user?.role ?? me?.role,
+        sessionPublicProfile: user?.publicProfile,
+        apiPublicProfile: me?.publicProfile,
+        canPublishPost: canPublish,
+        reason: canPublish ? null : 'publicProfile is false',
+      });
+    }
+  }, [apiAccessToken, user?.id, user?.role, user?.publicProfile]);
+
+  useEffect(() => {
+    void syncPublishEligibility();
+  }, [syncPublishEligibility]);
+
+  useEffect(() => {
+    const onProfileUpdated = () => {
+      void refresh().then(() => syncPublishEligibility());
     };
-  }, [apiAccessToken]);
+    window.addEventListener('xxrealit:user-profile-updated', onProfileUpdated);
+    return () => window.removeEventListener('xxrealit:user-profile-updated', onProfileUpdated);
+  }, [refresh, syncPublishEligibility]);
 
   useEffect(() => {
     if (!videoFile) {
@@ -283,6 +316,14 @@ export function CreateCommunityPostCard({
       return;
     }
     if (publishAllowed === false) {
+      if (process.env.NODE_ENV === 'development') {
+        const me = await nestFetchMe(apiAccessToken);
+        console.debug('[posts] publish blocked', {
+          sessionPublicProfile: user?.publicProfile,
+          apiPublicProfile: me?.publicProfile,
+          reason: POST_PUBLISH_REQUIRES_PUBLIC_PROFILE_MSG,
+        });
+      }
       setError(POST_PUBLISH_REQUIRES_PUBLIC_PROFILE_MSG);
       return;
     }
@@ -386,6 +427,7 @@ export function CreateCommunityPostCard({
       previewRequestIdRef.current += 1;
       setSelectedSoundId('');
       await onPublished();
+      invalidatePublicProfileAndPostsCache();
     } finally {
       setLoading(false);
     }
@@ -412,7 +454,10 @@ export function CreateCommunityPostCard({
           className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
           role="status"
         >
-          {POST_PUBLISH_REQUIRES_PUBLIC_PROFILE_MSG}
+          {POST_PUBLISH_REQUIRES_PUBLIC_PROFILE_MSG}{' '}
+          <Link href="/profil/dashboard" className="font-semibold underline">
+            Zapnout v nastavení profilu
+          </Link>
         </p>
       ) : null}
       <textarea

@@ -2,5 +2,5 @@ import { IsBoolean } from 'class-validator';
 
 export class PatchUserPublicProfileDto {
   @IsBoolean()
-  isPublicProfile!: boolean;
+  publicProfile!: boolean;
 }

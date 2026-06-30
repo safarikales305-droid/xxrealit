@@ -10,6 +10,7 @@ export const runtime = 'nodejs';
 type NestMeUser = {
   id?: string;
   email?: string;
+  name?: string | null;
   role?: string;
   avatar?: string | null;
   avatarCrop?: { x?: number; y?: number; zoom?: number } | null;
@@ -17,7 +18,20 @@ type NestMeUser = {
   coverCrop?: { x?: number; y?: number; zoom?: number } | null;
   bio?: string | null;
   createdAt?: string;
+  publicProfile?: boolean;
+  isPublicProfile?: boolean;
+  portalWorkerStatus?: string | null;
+  firstContentCompleted?: boolean;
+  requireFirstContent?: boolean;
+  termsReacceptRequired?: boolean;
+  currentTermsVersion?: number | null;
 };
+
+function resolvePublicProfile(u: NestMeUser): boolean {
+  if (u.publicProfile === true) return true;
+  if (u.isPublicProfile === true) return true;
+  return false;
+}
 
 export async function GET(request: Request) {
   try {
@@ -51,12 +65,20 @@ export async function GET(request: Request) {
               user: {
                 id: u.id,
                 email: u.email,
+                name: u.name ?? null,
                 role: u.role,
                 avatar: u.avatar ?? null,
                 avatarCrop: u.avatarCrop ?? null,
                 coverImage: u.coverImage ?? null,
                 coverCrop: u.coverCrop ?? null,
                 bio: u.bio ?? null,
+                publicProfile: resolvePublicProfile(u),
+                portalWorkerStatus: u.portalWorkerStatus ?? null,
+                firstContentCompleted: u.firstContentCompleted === true,
+                requireFirstContent: u.requireFirstContent === true,
+                termsReacceptRequired: u.termsReacceptRequired === true,
+                currentTermsVersion:
+                  typeof u.currentTermsVersion === 'number' ? u.currentTermsVersion : null,
                 createdAt:
                   typeof u.createdAt === 'string'
                     ? u.createdAt
@@ -80,6 +102,7 @@ export async function GET(request: Request) {
       select: {
         id: true,
         email: true,
+        name: true,
         role: true,
         avatar: true,
         coverImage: true,
@@ -97,6 +120,7 @@ export async function GET(request: Request) {
         ...user,
         avatarCrop: null,
         coverCrop: null,
+        publicProfile: false,
         createdAt: user.createdAt.toISOString(),
       },
     });

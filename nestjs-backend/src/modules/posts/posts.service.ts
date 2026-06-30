@@ -3,7 +3,6 @@ import { MarketingBonusActionType, PostCategory, Prisma, ReactionType } from '@p
 import {
   isUserPublicProfileEnabled,
   POST_PUBLISH_REQUIRES_PUBLIC_PROFILE_MSG,
-  POST_PUBLISH_ROLES,
 } from '../../common/user-public-profile.util';
 import { PrismaService } from '../../database/prisma.service';
 import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
@@ -101,15 +100,11 @@ export class PostsService {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
-        role: true,
-        isPublicProfile: true,
+        publicProfile: true,
       },
     });
     if (!user) {
       throw new NotFoundException('Uživatel nenalezen.');
-    }
-    if (!POST_PUBLISH_ROLES.includes(user.role)) {
-      throw new ForbiddenException('Tato role nemůže publikovat příspěvky.');
     }
     if (!isUserPublicProfileEnabled(user)) {
       throw new ForbiddenException(POST_PUBLISH_REQUIRES_PUBLIC_PROFILE_MSG);
@@ -449,7 +444,7 @@ export class PostsService {
       SELECT p.id
       FROM "Post" p
       INNER JOIN "User" u ON u.id = p."userId"
-      WHERE u."isPublicProfile" = true
+      WHERE u."publicProfile" = true
         AND p.type <> 'short'
         ${categoryClause}
       ORDER BY

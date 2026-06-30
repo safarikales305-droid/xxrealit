@@ -223,7 +223,7 @@ export class AuthController {
       emailVerified: profile.emailVerified,
       whatsappVerified: profile.whatsappVerified,
       portalWorkerStatus: profile.portalWorkerStatus ?? null,
-      isPublicProfile: Boolean(profile.isPublicProfile),
+      publicProfile: Boolean(profile.publicProfile),
       isTipar: profile.isTipar,
       profileRequirements: profile.profileRequirements,
       createdAt: profile.createdAt.toISOString(),

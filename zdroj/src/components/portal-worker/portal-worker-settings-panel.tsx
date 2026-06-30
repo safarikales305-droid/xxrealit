@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
+import { afterPublicProfileSaved } from '@/lib/public-profile-session';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import {
   nestConfirmWhatsAppVerification,
@@ -30,9 +31,9 @@ function VerifyBadge({ ok, label }: { ok: boolean; label: string }) {
 }
 
 export function PortalWorkerSettingsPanel() {
-  const { apiAccessToken } = useAuth();
+  const { apiAccessToken, refresh } = useAuth();
   const [settings, setSettings] = useState<WorkerSelfSettings | null>(null);
-  const [isPublicProfile, setIsPublicProfile] = useState(false);
+  const [publicProfile, setPublicProfile] = useState(false);
   const [phone, setPhone] = useState('');
   const [whatsappPhone, setWhatsappPhone] = useState('');
   const [waCode, setWaCode] = useState('');
@@ -50,7 +51,7 @@ export function PortalWorkerSettingsPanel() {
     }
     if (apiAccessToken) {
       const me = await nestFetchMe(apiAccessToken);
-      if (me) setIsPublicProfile(Boolean(me.isPublicProfile));
+      if (me) setPublicProfile(Boolean(me.publicProfile));
     }
   }, [apiAccessToken]);
 
@@ -183,21 +184,22 @@ export function PortalWorkerSettingsPanel() {
         <label className="mt-3 flex items-start gap-3 text-sm">
           <input
             type="checkbox"
-            checked={isPublicProfile}
+            checked={publicProfile}
             disabled={busy || !apiAccessToken}
             onChange={(e) => {
               if (!apiAccessToken) return;
               const next = e.target.checked;
               setBusy(true);
               setErr(null);
-              void nestPatchMePublicProfile(apiAccessToken, next).then((r) => {
+              void nestPatchMePublicProfile(apiAccessToken, next).then(async (r) => {
                 setBusy(false);
                 if (!r.ok) {
                   setErr(r.error ?? 'Uložení selhalo');
                   return;
                 }
-                setIsPublicProfile(next);
+                setPublicProfile(next);
                 setMsg(next ? 'Veřejný profil zapnut.' : 'Veřejný profil vypnut.');
+                await afterPublicProfileSaved(refresh);
               });
             }}
             className="mt-0.5"

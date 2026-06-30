@@ -9,6 +9,7 @@ import { TestAccountBanner } from '@/components/profile/TestAccountBanner';
 import { WhatsAppProfileStatus } from '@/components/profile/WhatsAppProfileStatus';
 import { PropertyGrid } from '@/components/property-grid';
 import { useAuth } from '@/hooks/use-auth';
+import { afterPublicProfileSaved } from '@/lib/public-profile-session';
 import { useMessagesUnreadCount } from '@/hooks/use-messages-unread';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import {
@@ -277,7 +278,7 @@ export default function ProfilPage() {
     setTiparBankDraft((me.tiparPayoutBankAccount ?? '').trim());
     setProfilePhoneDraft((me.phone ?? '').trim());
     setProfilePhonePublicDraft(Boolean(me.phonePublic));
-    setIsProfilePublic(Boolean(me.isPublicProfile));
+    setIsProfilePublic(Boolean(me.publicProfile));
   }, [apiAccessToken]);
 
   const loadNotifications = useCallback(async () => {
@@ -640,6 +641,8 @@ export default function ProfilPage() {
       return;
     }
     setIsProfilePublic(next);
+    setUser((prev) => (prev ? { ...prev, publicProfile: next } : prev));
+    await afterPublicProfileSaved(refresh);
     showSuccess(next ? 'Profil je nyní veřejný.' : 'Profil je nyní neveřejný.');
   }
 
