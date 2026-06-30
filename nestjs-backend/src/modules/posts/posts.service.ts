@@ -1,8 +1,9 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { MarketingBonusActionType, PostCategory, ReactionType } from '@prisma/client';
+import { MarketingBonusActionType, PostCategory, Prisma, ReactionType } from '@prisma/client';
 import {
   isUserPublicProfileEnabled,
   POST_PUBLISH_REQUIRES_PUBLIC_PROFILE_MSG,
+  POST_PUBLISH_ROLES,
 } from '../../common/user-public-profile.util';
 import { PrismaService } from '../../database/prisma.service';
 import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
@@ -11,13 +12,9 @@ import { PostWhatsAppNotifyService } from '../whatsapp/post-whatsapp-notify.serv
 import { WebPushService } from '../web-push/web-push.service';
 import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
 import {
-  buildCommunityPostsWhere,
   dedupeCommunityPosts,
   isPublicMediaUrl,
   postHasFeedVisibility,
-  PROFESSIONAL_POST_ROLES,
-  sortCommunityPostsByDate,
-  sortCommunityPostsWithFollowPriority,
 } from './community-posts.util';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
@@ -105,19 +102,13 @@ export class PostsService {
       where: { id: userId },
       select: {
         role: true,
-        isPublicBrokerProfile: true,
-        publicProfessionalProfile: true,
-        agentProfile: { select: { isPublic: true } },
-        companyProfile: { select: { isPublic: true } },
-        agencyProfile: { select: { isPublic: true } },
-        financialAdvisorProfile: { select: { isPublic: true } },
-        investorProfile: { select: { isPublic: true } },
+        isPublicProfile: true,
       },
     });
     if (!user) {
       throw new NotFoundException('Uživatel nenalezen.');
     }
-    if (!PROFESSIONAL_POST_ROLES.includes(user.role)) {
+    if (!POST_PUBLISH_ROLES.includes(user.role)) {
       throw new ForbiddenException('Tato role nemůže publikovat příspěvky.');
     }
     if (!isUserPublicProfileEnabled(user)) {
@@ -429,10 +420,53 @@ export class PostsService {
     lat?: number,
     lng?: number,
     viewerUserId?: string,
+    page = 0,
+    limit = 30,
   ) {
+    const safeLimit = Math.min(100, Math.max(1, Math.trunc(limit) || 30));
+    const safePage = Math.max(0, Math.trunc(page) || 0);
+    const offset = safePage * safeLimit;
+
+    let followedIds: string[] = [];
+    if (viewerUserId?.trim()) {
+      const follows = await this.prisma.follow.findMany({
+        where: { followerId: viewerUserId.trim() },
+        select: { followingId: true },
+      });
+      followedIds = follows.map((f) => f.followingId);
+    }
+
+    const priorityOrder =
+      followedIds.length > 0
+        ? Prisma.sql`CASE WHEN p."userId" IN (${Prisma.join(followedIds)}) THEN 0 ELSE 1 END`
+        : Prisma.sql`1`;
+
+    const categoryClause = category
+      ? Prisma.sql`AND p.category = ${category}::"PostCategory" AND NOT (p.source = 'FACEBOOK'::"PostSource" AND p."professionalProfileId" IS NULL)`
+      : Prisma.empty;
+
+    const idRows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT p.id
+      FROM "Post" p
+      INNER JOIN "User" u ON u.id = p."userId"
+      WHERE u."isPublicProfile" = true
+        AND p.type <> 'short'
+        ${categoryClause}
+      ORDER BY
+        ${priorityOrder} ASC,
+        COALESCE(p."publishedAt", p."createdAt") DESC
+      LIMIT ${safeLimit}
+      OFFSET ${offset}
+    `;
+
+    const orderedIds = idRows.map((r) => r.id);
+    if (orderedIds.length === 0) {
+      return { items: [], page: safePage, limit: safeLimit, hasMore: false };
+    }
+
+    const followedSet = new Set(followedIds);
     const rows = await this.prisma.post.findMany({
-      where: buildCommunityPostsWhere(category),
-      orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
+      where: { id: { in: orderedIds } },
       include: {
         media: { orderBy: { order: 'asc' } },
         reactions: true,
@@ -448,8 +482,12 @@ export class PostsService {
         },
       },
     });
+
+    const rowById = new Map(rows.map((r) => [r.id, r]));
     const deduped = dedupeCommunityPosts(
-      rows
+      orderedIds
+        .map((id) => rowById.get(id))
+        .filter((row): row is NonNullable<typeof row> => Boolean(row))
         .map((row) => ({
           ...row,
           media: row.media.filter((m) => isPublicMediaUrl(m.url)),
@@ -457,39 +495,35 @@ export class PostsService {
         .filter((row) => postHasFeedVisibility(row)),
     );
 
-    let followedIds = new Set<string>();
-    if (viewerUserId?.trim()) {
-      const follows = await this.prisma.follow.findMany({
-        where: { followerId: viewerUserId.trim() },
-        select: { followingId: true },
-      });
-      followedIds = new Set(follows.map((f) => f.followingId));
-    }
+    const items = deduped.map((row) => ({
+      ...row,
+      isFollowedAuthor: followedSet.has(row.userId),
+    }));
 
-    const publicRows =
-      followedIds.size > 0
-        ? sortCommunityPostsWithFollowPriority(deduped, followedIds)
-        : sortCommunityPostsByDate(deduped);
     const userLat = toNumberOrNull(lat);
     const userLng = toNumberOrNull(lng);
     const radiusNum = toNumberOrNull(radiusKm);
-    if (userLat === null || userLng === null || radiusNum === null) {
-      return publicRows;
+    let filtered = items;
+    if (userLat !== null && userLng !== null && radiusNum !== null) {
+      const maxKm = Math.max(1, radiusNum);
+      filtered = items
+        .map((row) => {
+          const rowLat = toNumberOrNull(row.latitude);
+          const rowLng = toNumberOrNull(row.longitude);
+          if (rowLat === null || rowLng === null) return row;
+          const distanceKm = haversineKm(userLat, userLng, rowLat, rowLng);
+          if (distanceKm > maxKm) return null;
+          return { ...row, distanceKm: Number(distanceKm.toFixed(1)) };
+        })
+        .filter((row): row is NonNullable<typeof row> => row !== null);
     }
-    const maxKm = Math.max(1, radiusNum);
-    return publicRows
-      .map((row) => {
-        const rowLat = toNumberOrNull(row.latitude);
-        const rowLng = toNumberOrNull(row.longitude);
-        if (rowLat === null || rowLng === null) {
-          // Keep posts without geolocation visible in category feed.
-          return row;
-        }
-        const distanceKm = haversineKm(userLat, userLng, rowLat, rowLng);
-        if (distanceKm > maxKm) return null;
-        return { ...row, distanceKm: Number(distanceKm.toFixed(1)) };
-      })
-      .filter((row): row is NonNullable<typeof row> => row !== null);
+
+    return {
+      items: filtered,
+      page: safePage,
+      limit: safeLimit,
+      hasMore: orderedIds.length >= safeLimit,
+    };
   }
 
   async toggleReaction(postId: string, userId: string, type: ReactionType) {

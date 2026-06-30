@@ -34,6 +34,7 @@ export type AuthUser = {
   registrationRequirements?: import('@/lib/marketing-bonus').RegistrationRequirementsStatus | null;
   termsReacceptRequired?: boolean;
   currentTermsVersion?: number | null;
+  isPublicProfile?: boolean;
 };
 
 type AuthContextValue = {
@@ -123,6 +124,7 @@ function normalizeMeUser(raw: unknown): AuthUser | null {
     termsReacceptRequired: o.termsReacceptRequired === true,
     currentTermsVersion:
       typeof o.currentTermsVersion === 'number' ? o.currentTermsVersion : null,
+    isPublicProfile: o.isPublicProfile === true,
   };
 }
 

@@ -64,6 +64,8 @@ export class PostsController {
     @Query('radiusKm') radiusKm?: string,
     @Query('lat') lat?: string,
     @Query('lng') lng?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
     const value = (category ?? '').trim();
     const cat = ([
@@ -81,12 +83,16 @@ export class PostsController {
     const radius = Number(radiusKm);
     const userLat = Number(lat);
     const userLng = Number(lng);
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
     return this.postsService.listCommunityPosts(
       cat,
       Number.isFinite(radius) ? radius : undefined,
       Number.isFinite(userLat) ? userLat : undefined,
       Number.isFinite(userLng) ? userLng : undefined,
       viewer?.id,
+      Number.isFinite(pageNum) ? pageNum : 0,
+      Number.isFinite(limitNum) ? limitNum : 30,
     );
   }
 

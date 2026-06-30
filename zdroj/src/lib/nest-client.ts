@@ -262,6 +262,7 @@ export type NestMeProfile = {
   brokerFreeLeads?: number;
   brokerProgress?: NestBrokerProgress;
   isPublicBrokerProfile?: boolean;
+  isPublicProfile?: boolean;
   professionalVerified?: boolean;
   professionalVerificationStatus?: 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED';
   publicProfessionalProfile?: boolean;
@@ -637,6 +638,7 @@ export function parseNestMeProfileJson(raw: unknown): NestMeProfile | null {
     brokerProgress: brokerProgress ?? undefined,
     isPublicBrokerProfile:
       typeof o.isPublicBrokerProfile === 'boolean' ? o.isPublicBrokerProfile : undefined,
+    isPublicProfile: typeof o.isPublicProfile === 'boolean' ? o.isPublicProfile : undefined,
     professionalVerified: o.professionalVerified === true,
     professionalVerificationStatus:
       o.professionalVerificationStatus === 'NONE' ||
@@ -848,6 +850,7 @@ export type AdminUserRow = {
   isPromoProfile?: boolean;
   promoProfileActive?: boolean;
   isPublicBrokerProfile?: boolean;
+  isPublicProfile?: boolean;
   publicProfessionalProfile?: boolean;
   brokerPoints?: number;
   brokerFreeLeads?: number;
@@ -1727,8 +1730,8 @@ export async function nestAdminUpdateUserRole(
 export async function nestAdminSetUserPublicProfile(
   token: string | null,
   userId: string,
-  isPublic: boolean,
-): Promise<{ ok: boolean; error?: string; isPublic?: boolean }> {
+  isPublicProfile: boolean,
+): Promise<{ ok: boolean; error?: string; isPublicProfile?: boolean }> {
   if (!API_BASE_URL || !token) {
     return { ok: false, error: 'API nebo token chybí' };
   }
@@ -1741,13 +1744,13 @@ export async function nestAdminSetUserPublicProfile(
         Accept: 'application/json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ isPublic }),
+      body: JSON.stringify({ isPublicProfile }),
     },
   );
   const data = (await res.json().catch(() => ({}))) as {
     message?: string | string[];
     error?: string;
-    isPublic?: boolean;
+    isPublicProfile?: boolean;
   };
   if (!res.ok) {
     const msg =
@@ -1760,7 +1763,7 @@ export async function nestAdminSetUserPublicProfile(
             : `HTTP ${res.status}`;
     return { ok: false, error: msg };
   }
-  return { ok: true, isPublic: data.isPublic };
+  return { ok: true, isPublicProfile: data.isPublicProfile };
 }
 
 export async function nestAdminPatchPremiumBroker(
@@ -6057,6 +6060,14 @@ export type ListingPost = {
     previewUrl?: string | null;
     durationSec?: number | null;
   } | null;
+  isFollowedAuthor?: boolean;
+};
+
+export type CommunityPostsFeedResult = {
+  items: ListingPost[];
+  page: number;
+  limit: number;
+  hasMore: boolean;
 };
 
 export type LinkPreviewResponse = {
@@ -6528,23 +6539,64 @@ export async function nestFetchCommunityPosts(
     | 'REALITNI_KANCELARE'
     | 'FINANCNI_PORADCI'
     | 'INVESTORI',
-  options?: { radiusKm?: number; lat?: number; lng?: number },
+  options?: {
+    radiusKm?: number;
+    lat?: number;
+    lng?: number;
+    page?: number;
+    limit?: number;
+  },
   token?: string | null,
-): Promise<ListingPost[]> {
-  if (!API_BASE_URL) return [];
+): Promise<CommunityPostsFeedResult> {
+  const empty: CommunityPostsFeedResult = { items: [], page: 0, limit: 30, hasMore: false };
+  if (!API_BASE_URL) return empty;
   const params = new URLSearchParams();
   if (category) params.set('category', category);
   if (Number.isFinite(options?.radiusKm)) params.set('radiusKm', String(options?.radiusKm));
   if (Number.isFinite(options?.lat)) params.set('lat', String(options?.lat));
   if (Number.isFinite(options?.lng)) params.set('lng', String(options?.lng));
+  if (Number.isFinite(options?.page)) params.set('page', String(options?.page));
+  if (Number.isFinite(options?.limit)) params.set('limit', String(options?.limit));
   const qs = params.toString() ? `?${params.toString()}` : '';
   const res = await fetch(`${postsApiBase()}/posts${qs}`, {
     cache: 'no-store',
     headers: { Accept: 'application/json', ...nestAuthHeaders(token ?? null) },
   });
-  if (!res.ok) return [];
+  if (!res.ok) return empty;
   const data = (await res.json()) as unknown;
-  return Array.isArray(data) ? (data as ListingPost[]) : [];
+  if (Array.isArray(data)) {
+    return { items: data as ListingPost[], page: 0, limit: data.length, hasMore: false };
+  }
+  if (data && typeof data === 'object' && Array.isArray((data as { items?: unknown }).items)) {
+    const o = data as { items: ListingPost[]; page?: number; limit?: number; hasMore?: boolean };
+    return {
+      items: o.items,
+      page: typeof o.page === 'number' ? o.page : 0,
+      limit: typeof o.limit === 'number' ? o.limit : o.items.length,
+      hasMore: o.hasMore === true,
+    };
+  }
+  return empty;
+}
+
+export async function nestPatchMePublicProfile(
+  token: string | null,
+  isPublicProfile: boolean,
+): Promise<{ ok: boolean; error?: string; isPublicProfile?: boolean }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/users/me/public-profile`, {
+    method: 'PATCH',
+    cache: 'no-store',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ isPublicProfile }),
+  });
+  if (!res.ok) return { ok: false, error: await nestError(res) };
+  const data = (await res.json().catch(() => ({}))) as { isPublicProfile?: boolean };
+  return { ok: true, isPublicProfile: data.isPublicProfile };
 }
 
 export async function nestSetPostReaction(
@@ -9125,6 +9177,7 @@ export type WorkerDetailAdmin = {
   phoneVerified: boolean;
   whatsappVerified: boolean;
   portalWorkerStatus: string;
+  isPublicProfile?: boolean;
   clientCount: number;
   clientsPaidTopUp: number;
   totalCommissionRecorded: number;

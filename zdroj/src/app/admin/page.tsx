@@ -249,8 +249,7 @@ export default function AdminPage() {
 
   async function onPublicProfileToggle(u: AdminUserRow) {
     if (!token) return;
-    const currentlyPublic =
-      Boolean(u.publicProfessionalProfile) || Boolean(u.isPublicBrokerProfile);
+    const currentlyPublic = Boolean(u.isPublicProfile);
     setBusyUserId(u.id);
     const r = await nestAdminSetUserPublicProfile(token, u.id, !currentlyPublic);
     setBusyUserId(null);

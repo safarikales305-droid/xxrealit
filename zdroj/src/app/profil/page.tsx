@@ -27,7 +27,7 @@ import {
   nestPatchBrokerPublicProfile,
   nestPatchAvatarCrop,
   nestPatchCoverCrop,
-  nestPatchProfileVisibility,
+  nestPatchMePublicProfile,
   nestPatchProfessionalVisibility,
   nestListMyCompanyAds,
   nestPatchProfileBio,
@@ -277,24 +277,7 @@ export default function ProfilPage() {
     setTiparBankDraft((me.tiparPayoutBankAccount ?? '').trim());
     setProfilePhoneDraft((me.phone ?? '').trim());
     setProfilePhonePublicDraft(Boolean(me.phonePublic));
-    const visibility =
-      me.role === 'AGENT'
-        ? Boolean(me.isPublicBrokerProfile)
-        : me.role === 'COMPANY'
-          ? Boolean(me.companyProfile?.isPublic)
-          : me.role === 'AGENCY'
-            ? Boolean(me.agencyProfile?.isPublic)
-            : me.role === 'FINANCIAL_ADVISOR'
-              ? Boolean(me.financialAdvisorProfile?.isPublic)
-              : me.role === 'INVESTOR'
-                ? Boolean(me.investorProfile?.isPublic)
-            : false;
-    setProfessionalVisibility(visibility);
-    setIsProfilePublic(
-      typeof me.isPublicBrokerProfile === 'boolean'
-        ? me.isPublicBrokerProfile
-        : visibility,
-    );
+    setIsProfilePublic(Boolean(me.isPublicProfile));
   }, [apiAccessToken]);
 
   const loadNotifications = useCallback(async () => {
@@ -650,7 +633,7 @@ export default function ProfilPage() {
   async function onToggleProfileVisibility(next: boolean) {
     if (!apiAccessToken) return;
     setProfileVisibilitySaving(true);
-    const res = await nestPatchProfileVisibility(apiAccessToken, next);
+    const res = await nestPatchMePublicProfile(apiAccessToken, next);
     setProfileVisibilitySaving(false);
     if (!res.ok) {
       showSuccess(res.error ?? 'Uložení veřejnosti profilu se nezdařilo.');

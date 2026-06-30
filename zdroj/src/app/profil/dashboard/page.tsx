@@ -17,7 +17,7 @@ import {
   nestPatchBrokerLeadPrefs,
   nestPatchBrokerPublicProfile,
   nestPatchProfileBio,
-  nestPatchProfileVisibility,
+  nestPatchMePublicProfile,
   nestPatchProfessionalVisibility,
   nestRequestProfessionalVerification,
   nestResetMyTestAccount,
@@ -363,14 +363,23 @@ export default function ProfileDashboardPage() {
                 <label className="inline-flex items-center gap-2 text-sm text-zinc-800">
                   <input
                     type="checkbox"
-                    checked={Boolean(me?.isPublicBrokerProfile)}
+                    checked={Boolean(me?.isPublicProfile)}
                     onChange={(e) => {
                       if (!apiAccessToken) return;
-                      void nestPatchProfileVisibility(apiAccessToken, e.target.checked).then(() => void loadMe());
+                      void nestPatchMePublicProfile(apiAccessToken, e.target.checked).then((r) => {
+                        if (!r.ok) {
+                          setError(r.error ?? 'Změna veřejného profilu se nezdařila.');
+                          return;
+                        }
+                        void loadMe();
+                      });
                     }}
                   />
                   Veřejný profil
                 </label>
+                <p className="text-xs text-zinc-500 md:col-span-2">
+                  Po zapnutí se váš profil může zobrazovat na portálu a můžete publikovat veřejné příspěvky.
+                </p>
                 {isProfessional ? (
                   <div className="md:col-span-2 space-y-3 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
                     <p className="text-sm font-semibold text-zinc-900">Ověření profesionálního profilu</p>

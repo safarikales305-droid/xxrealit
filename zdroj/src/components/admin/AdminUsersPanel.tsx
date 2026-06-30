@@ -8,7 +8,6 @@ import {
   type AdminUserRow,
 } from '@/lib/nest-client';
 import {
-  canRolePublishPosts,
   isAdminUserPublicProfileEnabled,
 } from '@/lib/post-publish-eligibility';
 
@@ -200,7 +199,6 @@ function UserDetail({
 }) {
   const status = accountStatus(u);
   const publicProfileEnabled = isAdminUserPublicProfileEnabled(u);
-  const canTogglePublicProfile = canRolePublishPosts(u.role);
   const realDebt =
     u.accountLimited && (u.creditDebt ?? 0) > 0 && !isFakeDebt(u) ? u.creditDebt : 0;
 
@@ -266,25 +264,23 @@ function UserDetail({
               Premium makléř: {u.isPremiumBroker ? 'ano' : 'ne'} (přepnout)
             </button>
           ) : null}
-          {canTogglePublicProfile ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onPublicProfileToggle}
-              className={`mt-3 w-full rounded-lg border px-3 py-2 text-sm font-semibold transition ${
-                publicProfileEnabled
-                  ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
-                  : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50'
-              }`}
-            >
-              Veřejný profil: {publicProfileEnabled ? 'zapnutý' : 'vypnutý'} (přepnout)
-            </button>
-          ) : null}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onPublicProfileToggle}
+            className={`mt-3 w-full rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+              publicProfileEnabled
+                ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
+                : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50'
+            }`}
+          >
+            Veřejný profil: {publicProfileEnabled ? 'zapnutý' : 'vypnutý'} (přepnout)
+          </button>
           {u.isPromoProfile ? (
             <div className="mt-3 flex flex-wrap gap-1">
               <Badge tone="purple">Promo profil</Badge>
-              <Badge tone={u.isPublicBrokerProfile ? 'green' : 'gray'}>
-                {u.isPublicBrokerProfile ? 'Veřejný' : 'Neveřejný'}
+              <Badge tone={u.isPublicProfile ? 'green' : 'gray'}>
+                {u.isPublicProfile ? 'Veřejný' : 'Neveřejný'}
               </Badge>
               <Badge tone={u.promoProfileActive !== false ? 'blue' : 'yellow'}>
                 {u.promoProfileActive !== false ? 'Aktivní' : 'Vypnutý'}

@@ -193,6 +193,7 @@ export class PortalWorkerCrmService {
       phoneVerified: user.phoneVerified,
       whatsappVerified: user.whatsappVerified,
       portalWorkerStatus: user.portalWorkerStatus,
+      isPublicProfile: Boolean(user.isPublicProfile),
       clientCount: user._count.portalWorkerClients,
       clientsPaidTopUp: paidTopUp,
       totalCommissionRecorded: commissionSum._sum.commissionAmount ?? 0,

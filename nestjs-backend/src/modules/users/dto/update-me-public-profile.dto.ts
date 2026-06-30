@@ -1,6 +1,6 @@
 import { IsBoolean } from 'class-validator';
 
-export class PatchUserPublicProfileDto {
+export class UpdateMePublicProfileDto {
   @IsBoolean()
   isPublicProfile!: boolean;
 }

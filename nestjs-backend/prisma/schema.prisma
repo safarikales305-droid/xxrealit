@@ -338,6 +338,8 @@ model User {
 
   /// Veřejná stránka makléře v katalogu /makleri.
   isPublicBrokerProfile Boolean  @default(false)
+  /// Jednotný přepínač veřejného profilu (příspěvky, feed, nastavení).
+  isPublicProfile       Boolean  @default(false)
   /// Zobrazit sekci hodnocení a přijímat nové recenze.
   allowBrokerReviews    Boolean  @default(false)
   /// Jedinečný slug pro URL /makler/[slug].

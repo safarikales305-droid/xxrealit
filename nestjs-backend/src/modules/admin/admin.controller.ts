@@ -338,7 +338,7 @@ export class AdminController {
     @Body(new ValidationPipe({ whitelist: true, transform: true }))
     dto: PatchUserPublicProfileDto,
   ) {
-    return this.adminService.setUserPublicProfile(user.id, id, dto.isPublic);
+    return this.adminService.setUserPublicProfile(user.id, id, dto.isPublicProfile);
   }
 
   @Patch('users/:id/credit')

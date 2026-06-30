@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import {
   nestAdminGetWorkerDetail,
+  nestAdminSetUserPublicProfile,
   nestAdminUpdateWorkerProfile,
   nestUploadImageFile,
   type WorkerDetailAdmin,
@@ -39,6 +40,7 @@ export default function AdminPortalWorkerDetailPage() {
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [whatsappVerified, setWhatsappVerified] = useState(false);
   const [adminNotes, setAdminNotes] = useState('');
+  const [isPublicProfile, setIsPublicProfile] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -58,6 +60,7 @@ export default function AdminPortalWorkerDetailPage() {
     setPhoneVerified(w.phoneVerified);
     setWhatsappVerified(w.whatsappVerified);
     setAdminNotes(w.profile.adminNotes ?? '');
+    setIsPublicProfile(Boolean(w.isPublicProfile));
   }, []);
 
   const load = useCallback(async () => {
@@ -183,6 +186,56 @@ export default function AdminPortalWorkerDetailPage() {
           >
             Nahrát fotku
           </button>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-zinc-200 bg-white p-5">
+        <h2 className="font-semibold">Veřejný profil</h2>
+        <div className="mt-3 flex flex-wrap gap-4 text-sm">
+          <label className="inline-flex items-center gap-2">
+            <input
+              type="radio"
+              name="worker-public-profile"
+              checked={isPublicProfile}
+              disabled={busy}
+              onChange={() => {
+                if (!apiAccessToken || !userId || isPublicProfile) return;
+                setBusy(true);
+                void nestAdminSetUserPublicProfile(apiAccessToken, userId, true).then((r) => {
+                  setBusy(false);
+                  if (!r.ok) {
+                    setErr(r.error ?? 'Změna selhala');
+                    return;
+                  }
+                  setIsPublicProfile(true);
+                  setMsg('Veřejný profil zapnut.');
+                });
+              }}
+            />
+            zapnuto
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input
+              type="radio"
+              name="worker-public-profile"
+              checked={!isPublicProfile}
+              disabled={busy}
+              onChange={() => {
+                if (!apiAccessToken || !userId || !isPublicProfile) return;
+                setBusy(true);
+                void nestAdminSetUserPublicProfile(apiAccessToken, userId, false).then((r) => {
+                  setBusy(false);
+                  if (!r.ok) {
+                    setErr(r.error ?? 'Změna selhala');
+                    return;
+                  }
+                  setIsPublicProfile(false);
+                  setMsg('Veřejný profil vypnut.');
+                });
+              }}
+            />
+            vypnuto
+          </label>
         </div>
       </section>
 

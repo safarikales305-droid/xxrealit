@@ -221,6 +221,11 @@ export function HomeLayout({
   const [shortsFallbackItems, setShortsFallbackItems] = useState<PropertyFeedItem[]>([]);
   const [shortsTotal, setShortsTotal] = useState<number | null>(null);
   const [postFeed, setPostFeed] = useState<Array<Record<string, unknown>>>([]);
+  const [postsHasMore, setPostsHasMore] = useState(false);
+  const [postsLoadingMore, setPostsLoadingMore] = useState(false);
+  const postsPageRef = useRef(0);
+  const postsLoadMoreRef = useRef<HTMLDivElement>(null);
+  const POSTS_PAGE_SIZE = 30;
   const [loadingFeed, setLoadingFeed] = useState(false);
   const shortsLoadedRef = useRef(false);
   const shortsAuthKeyRef = useRef('');
@@ -259,27 +264,14 @@ export function HomeLayout({
     return '';
   }, [items]);
 
-  async function refreshPostsFeed() {
-    if (!API_BASE_URL) return;
-    const list = await nestFetchCommunityPosts(
-      activeCategory,
-      {
-        radiusKm,
-        lat: userCoords?.lat,
-        lng: userCoords?.lng,
-      },
-      apiAccessToken,
-    );
-    setPostFeed(list as Array<Record<string, unknown>>);
+  function mergePostReactionMaps(list: ListingPost[], userId?: string) {
     setLikeCountByPostId((prev) => {
       const next = { ...prev };
       for (const p of list) {
         const id = String(p.id ?? '');
         if (!id) continue;
         const likes = Number(
-          ((p as { reactions?: Array<{ type?: string }> }).reactions ?? []).filter(
-            (r) => r.type === 'LIKE',
-          ).length,
+          (p.reactions ?? []).filter((r) => r.type === 'LIKE').length,
         );
         next[id] = Number.isFinite(likes) ? likes : 0;
       }
@@ -291,23 +283,19 @@ export function HomeLayout({
         const id = String(p.id ?? '');
         if (!id) continue;
         const dislikes = Number(
-          ((p as { reactions?: Array<{ type?: string }> }).reactions ?? []).filter(
-            (r) => r.type === 'DISLIKE',
-          ).length,
+          (p.reactions ?? []).filter((r) => r.type === 'DISLIKE').length,
         );
         next[id] = Number.isFinite(dislikes) ? dislikes : 0;
       }
       return next;
     });
-    if (user?.id) {
+    if (userId) {
       setLikedByPostId((prev) => {
         const next = { ...prev };
         for (const p of list) {
           const id = String(p.id ?? '');
           if (!id) continue;
-          const mine = ((p as { reactions?: Array<{ userId?: string; type?: string }> }).reactions ?? []).find(
-            (r) => String(r.userId ?? '') === user.id,
-          );
+          const mine = (p.reactions ?? []).find((r) => String(r.userId ?? '') === userId);
           next[id] = mine?.type === 'LIKE';
         }
         return next;
@@ -317,13 +305,55 @@ export function HomeLayout({
         for (const p of list) {
           const id = String(p.id ?? '');
           if (!id) continue;
-          const mine = ((p as { reactions?: Array<{ userId?: string; type?: string }> }).reactions ?? []).find(
-            (r) => String(r.userId ?? '') === user.id,
-          );
+          const mine = (p.reactions ?? []).find((r) => String(r.userId ?? '') === userId);
           next[id] = mine?.type === 'DISLIKE';
         }
         return next;
       });
+    }
+  }
+
+  async function refreshPostsFeed() {
+    if (!API_BASE_URL) return;
+    postsPageRef.current = 0;
+    const result = await nestFetchCommunityPosts(
+      activeCategory,
+      {
+        radiusKm,
+        lat: userCoords?.lat,
+        lng: userCoords?.lng,
+        page: 0,
+        limit: POSTS_PAGE_SIZE,
+      },
+      apiAccessToken,
+    );
+    setPostFeed(result.items as Array<Record<string, unknown>>);
+    setPostsHasMore(result.hasMore);
+    mergePostReactionMaps(result.items, user?.id);
+  }
+
+  async function loadMorePosts() {
+    if (!API_BASE_URL || postsLoadingMore || !postsHasMore) return;
+    const nextPage = postsPageRef.current + 1;
+    setPostsLoadingMore(true);
+    try {
+      const result = await nestFetchCommunityPosts(
+        activeCategory,
+        {
+          radiusKm,
+          lat: userCoords?.lat,
+          lng: userCoords?.lng,
+          page: nextPage,
+          limit: POSTS_PAGE_SIZE,
+        },
+        apiAccessToken,
+      );
+      postsPageRef.current = nextPage;
+      setPostsHasMore(result.hasMore);
+      setPostFeed((prev) => [...prev, ...(result.items as Array<Record<string, unknown>>)]);
+      mergePostReactionMaps(result.items, user?.id);
+    } finally {
+      setPostsLoadingMore(false);
     }
   }
 
@@ -635,71 +665,29 @@ export function HomeLayout({
     if (viewMode !== 'posts') return;
     let cancelled = false;
     setLoadingFeed(true);
+    postsPageRef.current = 0;
     void (async () => {
       try {
-        const list = await nestFetchCommunityPosts(activeCategory, {
-          radiusKm,
-          lat: userCoords?.lat,
-          lng: userCoords?.lng,
-        });
+        const result = await nestFetchCommunityPosts(
+          activeCategory,
+          {
+            radiusKm,
+            lat: userCoords?.lat,
+            lng: userCoords?.lng,
+            page: 0,
+            limit: POSTS_PAGE_SIZE,
+          },
+          apiAccessToken,
+        );
         if (cancelled) return;
-        setPostFeed(list as Array<Record<string, unknown>>);
-        setLikeCountByPostId((prev) => {
-          const next = { ...prev };
-          for (const p of list as Array<Record<string, unknown>>) {
-            const id = String(p.id ?? '');
-            if (!id) continue;
-            const likes = Number(
-              ((p as { reactions?: Array<{ type?: string }> }).reactions ?? []).filter(
-                (r) => r.type === 'LIKE',
-              ).length,
-            );
-            next[id] = Number.isFinite(likes) ? likes : 0;
-          }
-          return next;
-        });
-        setDislikeCountByPostId((prev) => {
-          const next = { ...prev };
-          for (const p of list as Array<Record<string, unknown>>) {
-            const id = String(p.id ?? '');
-            if (!id) continue;
-            const dislikes = Number(
-              ((p as { reactions?: Array<{ type?: string }> }).reactions ?? []).filter(
-                (r) => r.type === 'DISLIKE',
-              ).length,
-            );
-            next[id] = Number.isFinite(dislikes) ? dislikes : 0;
-          }
-          return next;
-        });
-        if (user?.id) {
-          setLikedByPostId((prev) => {
-            const next = { ...prev };
-            for (const p of list as Array<Record<string, unknown>>) {
-              const id = String(p.id ?? '');
-              if (!id) continue;
-              const mine = ((p as { reactions?: Array<{ userId?: string; type?: string }> }).reactions ?? []).find(
-                (r) => String(r.userId ?? '') === user.id,
-              );
-              next[id] = mine?.type === 'LIKE';
-            }
-            return next;
-          });
-          setDislikedByPostId((prev) => {
-            const next = { ...prev };
-            for (const p of list as Array<Record<string, unknown>>) {
-              const id = String(p.id ?? '');
-              if (!id) continue;
-              const mine = ((p as { reactions?: Array<{ userId?: string; type?: string }> }).reactions ?? []).find(
-                (r) => String(r.userId ?? '') === user.id,
-              );
-              next[id] = mine?.type === 'DISLIKE';
-            }
-            return next;
-          });
-        }
+        setPostFeed(result.items as Array<Record<string, unknown>>);
+        setPostsHasMore(result.hasMore);
+        mergePostReactionMaps(result.items, user?.id);
       } catch {
-        if (!cancelled) setPostFeed([]);
+        if (!cancelled) {
+          setPostFeed([]);
+          setPostsHasMore(false);
+        }
       } finally {
         if (!cancelled) setLoadingFeed(false);
       }
@@ -707,7 +695,23 @@ export function HomeLayout({
     return () => {
       cancelled = true;
     };
-  }, [viewMode, activeCategory, radiusKm, userCoords?.lat, userCoords?.lng, user?.id]);
+  }, [viewMode, activeCategory, radiusKm, userCoords?.lat, userCoords?.lng, user?.id, apiAccessToken]);
+
+  useEffect(() => {
+    if (viewMode !== 'posts' || !postsHasMore) return;
+    const el = postsLoadMoreRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          void loadMorePosts();
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [viewMode, postsHasMore, postsLoadingMore, activeCategory, radiusKm, userCoords?.lat, userCoords?.lng, apiAccessToken]);
 
   useEffect(() => {
     if (!sharedVideoId) {
@@ -1161,42 +1165,6 @@ export function HomeLayout({
                           </div>
                         ) : null}
 
-                        {!isAuthenticated ? (
-                          <div
-                            role="dialog"
-                            aria-modal="true"
-                            aria-label="Přihlášení k příspěvkům"
-                            className="pointer-events-none fixed inset-x-0 bottom-0 top-16 z-[90] flex items-center justify-center px-4 md:top-20"
-                          >
-                            <div
-                              className="pointer-events-none absolute inset-0 bg-black/35 backdrop-blur-[2px]"
-                              aria-hidden
-                            />
-                            <div className="pointer-events-auto relative w-full max-w-md rounded-3xl border border-orange-200 bg-white/95 p-6 text-center shadow-xl">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                                Příspěvky
-                              </p>
-                              <h2 className="mt-1 text-xl font-bold text-zinc-900">
-                                Přihlaste se
-                              </h2>
-                              <p className="mt-2 text-sm text-zinc-600">
-                                Přihlaste se, jinak neuvidíte příspěvky.
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  router.push(
-                                    `/prihlaseni?redirect=${encodeURIComponent('/?tab=posts')}`,
-                                  )
-                                }
-                                className="mt-4 inline-flex w-full items-center justify-center rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
-                              >
-                                Přihlaste se
-                              </button>
-                            </div>
-                          </div>
-                        ) : null}
-
                         {storiesLoading || storyCards.length > 0 ? (
                           <div className="mt-4 w-full">
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -1303,6 +1271,11 @@ export function HomeLayout({
                         );
                       })
                     )}
+                    {postsHasMore ? (
+                      <div ref={postsLoadMoreRef} className="py-6 text-center text-sm text-zinc-500">
+                        {postsLoadingMore ? 'Načítám další příspěvky…' : 'Načíst další'}
+                      </div>
+                    ) : null}
                         </div>
                         </div>
                       </main>

@@ -5,6 +5,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { nestAbsoluteAssetUrl } from '@/lib/api';
 import {
   nestConfirmWhatsAppVerification,
+  nestFetchMe,
+  nestPatchMePublicProfile,
   nestRequestWhatsAppVerification,
   nestSendEmailVerification,
   nestUploadAvatar,
@@ -30,6 +32,7 @@ function VerifyBadge({ ok, label }: { ok: boolean; label: string }) {
 export function PortalWorkerSettingsPanel() {
   const { apiAccessToken } = useAuth();
   const [settings, setSettings] = useState<WorkerSelfSettings | null>(null);
+  const [isPublicProfile, setIsPublicProfile] = useState(false);
   const [phone, setPhone] = useState('');
   const [whatsappPhone, setWhatsappPhone] = useState('');
   const [waCode, setWaCode] = useState('');
@@ -45,7 +48,11 @@ export function PortalWorkerSettingsPanel() {
       setPhone(s.phone ?? '');
       setWhatsappPhone(s.whatsappPhone ?? '');
     }
-  }, []);
+    if (apiAccessToken) {
+      const me = await nestFetchMe(apiAccessToken);
+      if (me) setIsPublicProfile(Boolean(me.isPublicProfile));
+    }
+  }, [apiAccessToken]);
 
   useEffect(() => {
     void load();
@@ -169,6 +176,36 @@ export function PortalWorkerSettingsPanel() {
         <p className="mt-3 text-sm text-zinc-600">
           E-mail: <strong>{settings.email}</strong>
         </p>
+      </section>
+
+      <section className="rounded-xl border border-zinc-200 bg-white p-5">
+        <h3 className="font-semibold">Veřejný profil</h3>
+        <label className="mt-3 flex items-start gap-3 text-sm">
+          <input
+            type="checkbox"
+            checked={isPublicProfile}
+            disabled={busy || !apiAccessToken}
+            onChange={(e) => {
+              if (!apiAccessToken) return;
+              const next = e.target.checked;
+              setBusy(true);
+              setErr(null);
+              void nestPatchMePublicProfile(apiAccessToken, next).then((r) => {
+                setBusy(false);
+                if (!r.ok) {
+                  setErr(r.error ?? 'Uložení selhalo');
+                  return;
+                }
+                setIsPublicProfile(next);
+                setMsg(next ? 'Veřejný profil zapnut.' : 'Veřejný profil vypnut.');
+              });
+            }}
+            className="mt-0.5"
+          />
+          <span>
+            Po zapnutí se váš profil může zobrazovat na portálu a můžete publikovat veřejné příspěvky.
+          </span>
+        </label>
       </section>
 
       <section className="rounded-xl border border-zinc-200 bg-white p-5 space-y-3">

@@ -1,13 +1,14 @@
-import { PostCategory, PostSource, UserRole } from '@prisma/client';
+import { PostCategory, PostSource } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
 
-export const PROFESSIONAL_POST_ROLES: UserRole[] = [
-  UserRole.AGENT,
-  UserRole.COMPANY,
-  UserRole.AGENCY,
-  UserRole.FINANCIAL_ADVISOR,
-  UserRole.INVESTOR,
-];
+export const PROFESSIONAL_POST_ROLES = [
+  'AGENT',
+  'COMPANY',
+  'AGENCY',
+  'FINANCIAL_ADVISOR',
+  'INVESTOR',
+  'PORTAL_WORKER',
+] as const;
 
 export function isPublicMediaUrl(url: string | null | undefined): boolean {
   const v = (url ?? '').trim();
@@ -47,16 +48,7 @@ export function buildCommunityPostsWhere(category?: PostCategory): Prisma.PostWh
   return {
     type: { not: 'short' },
     user: {
-      role: { in: PROFESSIONAL_POST_ROLES },
-      OR: [
-        { isPublicBrokerProfile: true },
-        { publicProfessionalProfile: true },
-        { agentProfile: { isPublic: true } },
-        { companyProfile: { isPublic: true } },
-        { agencyProfile: { isPublic: true } },
-        { financialAdvisorProfile: { isPublic: true } },
-        { investorProfile: { isPublic: true } },
-      ],
+      isPublicProfile: true,
     },
     ...(category
       ? {

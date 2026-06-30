@@ -12,6 +12,7 @@ import { normalizeCreditDebtState } from '../credits/credit-debt.util';
 import { PrismaService } from '../../database/prisma.service';
 import { AccountUniquenessService } from '../../common/account-uniqueness.service';
 import { normalizeProfileIco } from '../../common/account-uniqueness.constants';
+import { userPublicProfileWriteData } from '../../common/user-public-profile.util';
 import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 import { ensureUserRole } from '../auth/user-role.util';
 import { classicPublicListingWhere } from '../properties/property-listing-scope';
@@ -578,9 +579,10 @@ export class UsersService {
       brokerPoints: true,
       brokerFreeLeads: true,
       isPublicBrokerProfile: true,
+      publicProfessionalProfile: true,
+      isPublicProfile: true,
       professionalVerified: true,
       professionalVerificationStatus: true,
-      publicProfessionalProfile: true,
       professionalVerificationRequestedAt: true,
       professionalVerifiedAt: true,
       professionalRejectedAt: true,
@@ -781,6 +783,7 @@ export class UsersService {
       brokerPoints: u.brokerPoints,
       brokerFreeLeads: u.brokerFreeLeads,
       isPublicBrokerProfile: u.isPublicBrokerProfile,
+      isPublicProfile: Boolean(u.isPublicProfile),
       professionalVerified: Boolean(u.professionalVerified),
       professionalVerificationStatus: u.professionalVerificationStatus,
       publicProfessionalProfile: Boolean(u.publicProfessionalProfile),
@@ -1327,6 +1330,49 @@ export class UsersService {
     return { ok: true, followersCount };
   }
 
+  async setMePublicProfile(userId: string, isPublicProfile: boolean) {
+    const u = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+    if (!u) throw new NotFoundException('User not found');
+
+    const data = userPublicProfileWriteData(isPublicProfile);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data,
+    });
+
+    if (u.role === UserRole.AGENT) {
+      await this.prisma.agentProfile.updateMany({
+        where: { userId },
+        data: { isPublic: isPublicProfile },
+      });
+    } else if (u.role === UserRole.COMPANY) {
+      await this.prisma.companyProfile.updateMany({
+        where: { userId },
+        data: { isPublic: isPublicProfile },
+      });
+    } else if (u.role === UserRole.AGENCY) {
+      await this.prisma.agencyProfile.updateMany({
+        where: { userId },
+        data: { isPublic: isPublicProfile },
+      });
+    } else if (u.role === UserRole.FINANCIAL_ADVISOR) {
+      await this.prisma.financialAdvisorProfile.updateMany({
+        where: { userId },
+        data: { isPublic: isPublicProfile },
+      });
+    } else if (u.role === UserRole.INVESTOR) {
+      await this.prisma.investorProfile.updateMany({
+        where: { userId },
+        data: { isPublic: isPublicProfile },
+      });
+    }
+
+    return { isPublicProfile };
+  }
+
   async updateProfessionalProfileVisibility(userId: string, isPublic: boolean) {
     const u = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -1353,8 +1399,8 @@ export class UsersService {
       const [userUpdate, profileUpdate] = await Promise.all([
         this.prisma.user.update({
           where: { id: userId },
-          data: { isPublicBrokerProfile: isPublic, publicProfessionalProfile: isPublic },
-          select: { isPublicBrokerProfile: true },
+          data: userPublicProfileWriteData(isPublic),
+          select: { isPublicProfile: true },
         }),
         this.prisma.agentProfile.updateMany({
           where: { userId },
@@ -1363,7 +1409,7 @@ export class UsersService {
       ]);
       return {
         role: 'AGENT',
-        isPublic: Boolean(userUpdate.isPublicBrokerProfile),
+        isPublic: Boolean(userUpdate.isPublicProfile),
         hasProfile: profileUpdate.count > 0,
       };
     }
@@ -1407,9 +1453,9 @@ export class UsersService {
   async updateUserProfileVisibility(userId: string, isPublic: boolean) {
     await this.prisma.user.update({
       where: { id: userId },
-      data: { isPublicBrokerProfile: isPublic },
+      data: userPublicProfileWriteData(isPublic),
     });
-    return { isPublic };
+    return { isPublic, isPublicProfile: isPublic };
   }
 
   async changePassword(userId: string, currentPassword: string, nextPassword: string) {
@@ -1536,6 +1582,8 @@ export class UsersService {
     const data: Prisma.UserUpdateInput = {};
     if (dto.isPublicBrokerProfile !== undefined) {
       data.isPublicBrokerProfile = dto.isPublicBrokerProfile;
+      data.isPublicProfile = dto.isPublicBrokerProfile;
+      data.publicProfessionalProfile = dto.isPublicBrokerProfile;
     }
     if (dto.allowBrokerReviews !== undefined) {
       data.allowBrokerReviews = dto.allowBrokerReviews;

@@ -28,6 +28,7 @@ import { UpdateBrokerLeadPrefsDto } from './dto/update-broker-lead-prefs.dto';
 import { UpdateBrokerPublicProfileDto } from './dto/update-broker-public-profile.dto';
 import { UpdateProfileVisibilityDto } from './dto/update-profile-visibility.dto';
 import { UpdateProfessionalVisibilityDto } from './dto/update-professional-visibility.dto';
+import { UpdateMePublicProfileDto } from './dto/update-me-public-profile.dto';
 import { UpdateWhatsAppSettingsDto } from './dto/update-whatsapp-settings.dto';
 import { RequestWhatsAppVerificationDto } from './dto/request-whatsapp-verification.dto';
 import { ConfirmWhatsAppVerificationDto } from './dto/confirm-whatsapp-verification.dto';
@@ -73,6 +74,16 @@ export class UsersController {
   @Get('me/listings')
   myListings(@CurrentUser() user: AuthUser) {
     return this.propertiesService.findDashboardListingsByOwner(user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('me/public-profile')
+  patchMePublicProfile(
+    @CurrentUser() user: AuthUser,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: UpdateMePublicProfileDto,
+  ) {
+    return this.usersService.setMePublicProfile(user.id, dto.isPublicProfile);
   }
 
   @UseGuards(JwtAuthGuard)

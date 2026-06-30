@@ -180,7 +180,7 @@ export async function loadAuthPortalPreviewItems(max = 14): Promise<AuthPortalPr
 
   const properties =
     propertiesResult.status === 'fulfilled' ? propertiesResult.value.items : [];
-  const posts = postsResult.status === 'fulfilled' ? postsResult.value : [];
+  const posts = postsResult.status === 'fulfilled' ? postsResult.value.items : [];
   const stories = storiesResult.status === 'fulfilled' ? (storiesResult.value ?? []) : [];
   const promoProfiles =
     promoResult.status === 'fulfilled' ? promoResult.value : [];
