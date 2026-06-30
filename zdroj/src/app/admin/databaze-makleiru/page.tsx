@@ -11,7 +11,9 @@ import {
   nestAdminPatchBrokerContact,
   nestApiConfigured,
   type AdminImportedBrokerContactRow,
+  type EmailCampaignAudience,
 } from '@/lib/nest-client';
+import { EmailCampaignEditorModal } from '@/components/admin/EmailCampaignEditorModal';
 
 type DetailRow = AdminImportedBrokerContactRow & {
   listings?: Array<{
@@ -61,6 +63,10 @@ export default function AdminImportedBrokersPage() {
   const [detail, setDetail] = useState<DetailRow | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [notesDraft, setNotesDraft] = useState('');
+  const [campaignOpen, setCampaignOpen] = useState(false);
+  const [campaignAudience, setCampaignAudience] = useState<EmailCampaignAudience>({
+    mode: 'all_imported',
+  });
 
   const apiOk = useMemo(() => nestApiConfigured(), []);
 
@@ -129,6 +135,31 @@ export default function AdminImportedBrokersPage() {
     () => Object.entries(selected).filter(([, v]) => v).map(([k]) => k),
     [selected],
   );
+
+  const currentFilter = useMemo(
+    () => ({
+      search: search.trim() || undefined,
+      portal: portal.trim() || undefined,
+      hasEmail,
+      hasPhone,
+      profileCreated,
+      outreachStatus: outreachStatus.trim() || undefined,
+      sort,
+    }),
+    [search, portal, hasEmail, hasPhone, profileCreated, outreachStatus, sort],
+  );
+
+  function openCampaignEditor(mode: EmailCampaignAudience['mode']) {
+    if (mode === 'selected_ids') {
+      if (selectedIds.length === 0) return;
+      setCampaignAudience({ mode, selectedContactIds: selectedIds });
+    } else if (mode === 'filtered') {
+      setCampaignAudience({ mode, filter: currentFilter });
+    } else {
+      setCampaignAudience({ mode: 'all_imported' });
+    }
+    setCampaignOpen(true);
+  }
 
   if (!token || !user || user.role !== 'ADMIN') {
     return (
@@ -311,7 +342,21 @@ export default function AdminImportedBrokersPage() {
           </button>
           <button
             type="button"
-            className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1.5 font-semibold text-emerald-900 hover:bg-emerald-100"
+            className="rounded-full border border-emerald-400 bg-emerald-50 px-3 py-1.5 font-semibold text-emerald-900 hover:bg-emerald-100"
+            onClick={() => openCampaignEditor(selectedIds.length > 0 ? 'selected_ids' : 'filtered')}
+          >
+            Vytvořit e-mailovou kampaň
+          </button>
+          <button
+            type="button"
+            className="rounded-full border border-emerald-300 bg-white px-3 py-1.5 font-semibold text-emerald-800 hover:bg-emerald-50"
+            onClick={() => openCampaignEditor('all_imported')}
+          >
+            Kampaň — všichni s e-mailem
+          </button>
+          <button
+            type="button"
+            className="rounded-full border border-orange-300 bg-orange-50 px-3 py-1.5 font-semibold text-orange-900 hover:bg-orange-100"
             onClick={async () => {
               if (!token || selectedIds.length === 0) return;
               const r = await nestAdminBrokerContactsBulkUpdate(token, {
@@ -320,7 +365,7 @@ export default function AdminImportedBrokersPage() {
               });
               if (r.ok) {
                 setSelected({});
-                void load();
+                openCampaignEditor('selected_ids');
               }
             }}
           >
@@ -542,6 +587,16 @@ export default function AdminImportedBrokersPage() {
             ) : null}
           </div>
         </div>
+      ) : null}
+
+      {campaignOpen && token ? (
+        <EmailCampaignEditorModal
+          token={token}
+          adminEmail={user.email ?? undefined}
+          initial={{ audience: campaignAudience, title: 'Oslovení makléřů z databáze' }}
+          onClose={() => setCampaignOpen(false)}
+          onSaved={() => void load()}
+        />
       ) : null}
     </div>
   );

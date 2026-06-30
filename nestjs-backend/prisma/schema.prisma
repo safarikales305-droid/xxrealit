@@ -185,8 +185,27 @@ enum EmailLogStatus {
 enum EmailCampaignStatus {
   draft
   scheduled
+  running
+  paused
+  completed
   sent
   failed
+}
+
+enum EmailCampaignRecipientStatus {
+  pending
+  sent
+  opened
+  clicked
+  registered
+  unsubscribed
+  failed
+  skipped
+}
+
+enum EmailCampaignRecipientSource {
+  imported_broker
+  portal_user
 }
 
 enum ListingImportMethod {
@@ -637,20 +656,113 @@ model EmailTemplate {
 }
 
 model EmailCampaign {
-  id          String              @id @default(cuid())
-  type        String
-  title       String
-  subject     String
-  templateKey String?
-  htmlContent String              @db.Text
-  status      EmailCampaignStatus @default(draft)
-  audienceJson Json?
-  createdAt   DateTime            @default(now())
-  scheduledAt DateTime?
-  sentAt      DateTime?
+  id                  String              @id @default(cuid())
+  type                String
+  title               String
+  subject             String
+  templateKey         String?
+  htmlContent         String              @db.Text
+  textContent         String              @default("") @db.Text
+  status              EmailCampaignStatus @default(draft)
+  audienceJson        Json?
+  senderName          String              @default("")
+  minDaysBetweenSends Int                 @default(7)
+  createdById         String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  scheduledAt         DateTime?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  sentAt              DateTime?
+  pausedAt            DateTime?
+
+  steps       EmailCampaignStep[]
+  recipients  EmailCampaignRecipient[]
+  campaignLogs EmailCampaignLog[]
 
   @@index([status, createdAt])
   @@index([type, createdAt])
+}
+
+model EmailCampaignStep {
+  id          String   @id @default(cuid())
+  campaignId  String
+  stepOrder   Int
+  name        String   @default("")
+  subject     String
+  htmlContent String   @db.Text
+  textContent String   @default("") @db.Text
+  delayDays   Int      @default(0)
+  delayHours  Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  campaign EmailCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  logs     EmailCampaignLog[]
+
+  @@unique([campaignId, stepOrder])
+  @@index([campaignId])
+}
+
+model EmailCampaignRecipient {
+  id                   String                       @id @default(cuid())
+  campaignId           String
+  email                String
+  fullName             String                       @default("")
+  firstName            String                       @default("")
+  company              String                       @default("")
+  phone                String                       @default("")
+  role                 String                       @default("")
+  source               EmailCampaignRecipientSource
+  sourceId             String?
+  status               EmailCampaignRecipientStatus @default(pending)
+  lastCompletedStepOrder Int                        @default(-1)
+  nextStepAt           DateTime?
+  lastSentAt           DateTime?
+  registeredAt         DateTime?
+  unsubscribedAt       DateTime?
+  errorMessage         String?
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
+
+  campaign EmailCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  logs     EmailCampaignLog[]
+
+  @@unique([campaignId, email])
+  @@index([campaignId, status])
+  @@index([nextStepAt])
+  @@index([email])
+}
+
+model EmailCampaignLog {
+  id           String         @id @default(cuid())
+  campaignId   String
+  recipientId  String
+  stepId       String?
+  stepOrder    Int            @default(0)
+  email        String
+  subject      String
+  status       EmailLogStatus @default(queued)
+  errorMessage String?
+  sentAt       DateTime?
+  createdAt    DateTime       @default(now())
+
+  campaign  EmailCampaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  recipient EmailCampaignRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  step      EmailCampaignStep?     @relation(fields: [stepId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId, createdAt])
+  @@index([recipientId])
+  @@index([email, createdAt])
+}
+
+/// Globální odhlášení z marketingových e-mailů kampaní.
+model EmailMarketingUnsubscribe {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  unsubscribedAt DateTime @default(now())
+  source         String   @default("campaign")
 }
 
 model AgencyProfile {

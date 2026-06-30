@@ -51,6 +51,7 @@ import { SupportTicketsModule } from './modules/support-tickets/support-tickets.
 import { TiparPayoutModule } from './modules/tipar-payout/tipar-payout.module';
 import { VerificationFilesModule } from './modules/verification-files/verification-files.module';
 import { StatisticsModule } from './modules/statistics/statistics.module';
+import { EmailCampaignsModule } from './modules/email-campaigns/email-campaigns.module';
 
 @Module({
   imports: [
@@ -108,6 +109,7 @@ import { StatisticsModule } from './modules/statistics/statistics.module';
     TiparPayoutModule,
     VerificationFilesModule,
     StatisticsModule,
+    EmailCampaignsModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

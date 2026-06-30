@@ -6537,6 +6537,202 @@ export async function nestAdminCreateEmailCampaign(
   }
 }
 
+export type EmailCampaignAudience = {
+  mode: 'selected_ids' | 'filtered' | 'all_imported' | 'portal_roles';
+  selectedContactIds?: string[];
+  filter?: Record<string, unknown>;
+  portalRoles?: string[];
+};
+
+export type EmailCampaignStepRow = {
+  id?: string;
+  stepOrder: number;
+  name: string;
+  subject: string;
+  htmlContent: string;
+  textContent: string;
+  delayDays: number;
+  delayHours: number;
+  isActive: boolean;
+};
+
+export type EmailCampaignDetail = {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  subject: string;
+  htmlContent: string;
+  textContent: string;
+  senderName: string;
+  minDaysBetweenSends: number;
+  templateKey?: string | null;
+  audience: EmailCampaignAudience;
+  recipientCount: number;
+  stepCount: number;
+  logCount: number;
+  steps: EmailCampaignStepRow[];
+  recipients: Array<{
+    id: string;
+    email: string;
+    fullName: string;
+    status: string;
+    lastCompletedStepOrder: number;
+    nextStepAt: string | null;
+    lastSentAt: string | null;
+    errorMessage: string | null;
+  }>;
+  createdAt: string;
+  updatedAt?: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+};
+
+export type EmailCampaignTemplate = {
+  key: string;
+  name: string;
+  description: string;
+  steps: EmailCampaignStepRow[];
+  variables: string[];
+};
+
+async function emailCampaignsFetch<T>(
+  token: string | null,
+  path: string,
+  init?: RequestInit,
+): Promise<{ data: T | null; error?: string }> {
+  if (!API_BASE_URL || !token) return { data: null, error: 'API nebo token chybí' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/admin/email-campaigns${path}`, {
+      ...init,
+      cache: 'no-store',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        ...(init?.headers ?? {}),
+      },
+    });
+    const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return { data: null, error: nestErrorMessage(raw, `HTTP ${res.status}`) };
+    }
+    return { data: raw as T };
+  } catch {
+    return { data: null, error: 'Síťová chyba' };
+  }
+}
+
+export async function nestAdminEmailCampaignTemplates(
+  token: string | null,
+): Promise<EmailCampaignTemplate[]> {
+  const r = await emailCampaignsFetch<EmailCampaignTemplate[]>(token, '/templates');
+  return r.data ?? [];
+}
+
+export async function nestAdminEmailCampaignDetail(
+  token: string | null,
+  id: string,
+): Promise<{ campaign: EmailCampaignDetail | null; error?: string }> {
+  const r = await emailCampaignsFetch<EmailCampaignDetail>(token, `/${encodeURIComponent(id)}`);
+  return { campaign: r.data, error: r.error };
+}
+
+export async function nestAdminEmailCampaignRecipientCount(
+  token: string | null,
+  body: { audience: EmailCampaignAudience; minDaysBetweenSends?: number },
+): Promise<{ total: number; error?: string }> {
+  const r = await emailCampaignsFetch<{ total: number }>(token, '/recipients/count', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (r.error) return { total: 0, error: r.error };
+  return { total: r.data?.total ?? 0 };
+}
+
+export async function nestAdminCreateEmailCampaignFull(
+  token: string | null,
+  body: {
+    title: string;
+    type?: string;
+    senderName?: string;
+    minDaysBetweenSends?: number;
+    audience?: EmailCampaignAudience;
+    templateKey?: string;
+    steps?: EmailCampaignStepRow[];
+  },
+): Promise<{ campaign: EmailCampaignDetail | null; error?: string }> {
+  const r = await emailCampaignsFetch<EmailCampaignDetail>(token, '', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return { campaign: r.data, error: r.error };
+}
+
+export async function nestAdminUpdateEmailCampaign(
+  token: string | null,
+  id: string,
+  body: Partial<{
+    title: string;
+    senderName: string;
+    minDaysBetweenSends: number;
+    audience: EmailCampaignAudience;
+    status: string;
+    steps: EmailCampaignStepRow[];
+  }>,
+): Promise<{ campaign: EmailCampaignDetail | null; error?: string }> {
+  const r = await emailCampaignsFetch<EmailCampaignDetail>(token, `/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return { campaign: r.data, error: r.error };
+}
+
+export async function nestAdminEmailCampaignPreview(
+  token: string | null,
+  id: string,
+  stepOrder = 0,
+): Promise<{
+  preview: { subject: string; htmlContent: string; textContent: string } | null;
+  error?: string;
+}> {
+  const r = await emailCampaignsFetch<{ subject: string; htmlContent: string; textContent: string }>(
+    token,
+    `/${encodeURIComponent(id)}/preview?stepOrder=${stepOrder}`,
+  );
+  return { preview: r.data, error: r.error };
+}
+
+export async function nestAdminEmailCampaignTestSend(
+  token: string | null,
+  id: string,
+  toEmail: string,
+  stepOrder = 0,
+): Promise<{ ok: boolean; error?: string }> {
+  const r = await emailCampaignsFetch<{ ok: boolean }>(token, `/${encodeURIComponent(id)}/test-send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ toEmail, stepOrder }),
+  });
+  if (r.error) return { ok: false, error: r.error };
+  return { ok: true };
+}
+
+export async function nestAdminEmailCampaignStart(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; error?: string; recipients?: number }> {
+  const r = await emailCampaignsFetch<{ ok: boolean; recipients?: number }>(
+    token,
+    `/${encodeURIComponent(id)}/start`,
+    { method: 'POST' },
+  );
+  if (r.error) return { ok: false, error: r.error };
+  return { ok: true, recipients: r.data?.recipients };
+}
+
 export async function nestFetchPostDetail(postId: string): Promise<ListingPost | null> {
   if (!API_BASE_URL) return null;
   const res = await fetch(`${postsApiBase()}/posts/${encodeURIComponent(postId)}`, {
