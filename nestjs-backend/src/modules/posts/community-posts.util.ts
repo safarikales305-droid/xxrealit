@@ -1,5 +1,6 @@
 import { PortalWorkerStatus, PostCategory, PostSource, UserRole } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
+import { PROFESSIONAL_PUBLIC_ROLES_LIST } from '../../common/public-visibility.util';
 
 export const PROFESSIONAL_POST_ROLES = [
   'AGENT',
@@ -48,7 +49,7 @@ export function communityPostAuthorUserWhere(): Prisma.UserWhereInput {
   return {
     accountLimited: false,
     publicProfile: true,
-    canPublishPosts: true,
+    role: { in: PROFESSIONAL_PUBLIC_ROLES_LIST },
     OR: [
       { role: { not: UserRole.PORTAL_WORKER } },
       { portalWorkerStatus: PortalWorkerStatus.APPROVED },

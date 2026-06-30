@@ -4,7 +4,14 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { AgentVerificationStatus, Prisma, ProfessionalVerificationStatus, UserRole } from '@prisma/client';
+import {
+  AgentVerificationStatus,
+  PortalWorkerStatus,
+  Prisma,
+  ProfessionalVerificationStatus,
+  UserRole,
+} from '@prisma/client';
+import { shouldShowUserInPortalCarousel } from '../../common/public-visibility.util';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { ProfileImagesService } from '../upload/profile-images.service';
@@ -67,13 +74,22 @@ export class PromoProfilesService {
     const take = Math.min(Math.max(limit, 1), 100);
     const rows = await this.prisma.user.findMany({
       where: {
-        role: { in: PORTAL_CAROUSEL_ROLES },
+        accountLimited: false,
         avatar: { not: null },
         OR: [
           {
             isPromoProfile: true,
             promoProfileActive: true,
             isPublicBrokerProfile: true,
+            role: { in: PORTAL_CAROUSEL_ROLES },
+          },
+          {
+            isPromoProfile: false,
+            publicProfile: true,
+            OR: [
+              { role: { not: UserRole.PORTAL_WORKER } },
+              { portalWorkerStatus: PortalWorkerStatus.APPROVED },
+            ],
           },
           {
             isPromoProfile: false,
@@ -81,6 +97,7 @@ export class PromoProfilesService {
               { isPublicBrokerProfile: true },
               { publicProfessionalProfile: true },
             ],
+            role: { in: PORTAL_CAROUSEL_ROLES },
           },
         ],
       },
@@ -104,6 +121,10 @@ export class PromoProfilesService {
         promoProfileActive: true,
         isPublicBrokerProfile: true,
         publicProfessionalProfile: true,
+        publicProfile: true,
+        showInProfessionals: true,
+        accountLimited: true,
+        portalWorkerStatus: true,
         professionalVerified: true,
         professionalVerificationStatus: true,
         brokerOfficeName: true,
@@ -158,7 +179,7 @@ export class PromoProfilesService {
         if (row.isPromoProfile) {
           return row.promoProfileActive && row.isPublicBrokerProfile;
         }
-        return row.isPublicBrokerProfile || row.publicProfessionalProfile;
+        return shouldShowUserInPortalCarousel(row);
       })
       .slice(0, take)
       .map((row) => {

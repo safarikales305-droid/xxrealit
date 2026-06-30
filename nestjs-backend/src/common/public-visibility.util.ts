@@ -12,6 +12,8 @@ export const PROFESSIONAL_PUBLIC_ROLES: ReadonlySet<UserRole> = new Set([
   UserRole.PORTAL_WORKER,
 ]);
 
+export const PROFESSIONAL_PUBLIC_ROLES_LIST: UserRole[] = [...PROFESSIONAL_PUBLIC_ROLES];
+
 export type PublicVisibilityUser = {
   role: UserRole;
   publicProfile?: boolean | null;
@@ -38,6 +40,13 @@ export function isPortalWorkerApproved(
   return user.portalWorkerStatus === PortalWorkerStatus.APPROVED;
 }
 
+/** Admin ručně skryl z katalogu / carouselu. */
+export function isExplicitlyHiddenFromPublic(
+  user: Pick<PublicVisibilityUser, 'showInProfessionals'>,
+): boolean {
+  return user.showInProfessionals === false;
+}
+
 /** Veřejná stránka profilu (/profile/{id}). */
 export function isUserPublicProfilePageVisible(user: PublicVisibilityUser): boolean {
   if (!isAccountPubliclyAccessible(user)) return false;
@@ -45,30 +54,40 @@ export function isUserPublicProfilePageVisible(user: PublicVisibilityUser): bool
   return isUserPublicProfileEnabled(user);
 }
 
-/** Autor může vytvářet veřejné příspěvky. */
+/** Autor může vytvářet nové veřejné příspěvky. */
 export function canUserPublishPosts(user: PublicVisibilityUser): boolean {
   if (!isUserPublicProfilePageVisible(user)) return false;
   return user.canPublishPosts === true;
 }
 
-/** Příspěvky autora ve feedu Příspěvky. */
+/** Příspěvky autora ve feedu Příspěvky (zobrazení, ne vytváření). */
 export function isCommunityPostAuthorVisible(user: PublicVisibilityUser): boolean {
-  return canUserPublishPosts(user);
+  if (!isAccountPubliclyAccessible(user)) return false;
+  if (!isPortalWorkerApproved(user)) return false;
+  if (!PROFESSIONAL_PUBLIC_ROLES.has(user.role)) return false;
+  return isUserPublicProfileEnabled(user);
 }
 
-/** Katalog Profesionálové / sidebar. */
+/** Katalog Profesionálové / sidebar / carousel Profily na portálu. */
 export function shouldShowUserInProfessionals(user: PublicVisibilityUser): boolean {
   if (!isAccountPubliclyAccessible(user)) return false;
   if (!PROFESSIONAL_PUBLIC_ROLES.has(user.role)) return false;
   if (!isPortalWorkerApproved(user)) return false;
-  if (user.showInProfessionals === true) return true;
+  if (isExplicitlyHiddenFromPublic(user)) return false;
+
   if (user.role === UserRole.PORTAL_WORKER) {
     return isUserPublicProfileEnabled(user);
   }
+
   return (
-    user.publicProfessionalProfile === true || user.isPublicBrokerProfile === true
+    isUserPublicProfileEnabled(user) ||
+    user.publicProfessionalProfile === true ||
+    user.isPublicBrokerProfile === true
   );
 }
+
+/** Alias — stejná pravidla jako katalog profesionálů. */
+export const shouldShowUserInPortalCarousel = shouldShowUserInProfessionals;
 
 export function isProfessionalRoleForDirectory(role: UserRole): boolean {
   return PROFESSIONAL_PUBLIC_ROLES.has(role);

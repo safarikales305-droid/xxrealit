@@ -603,7 +603,7 @@ export class PostsService {
       WHERE u."accountLimited" = false
         AND (u.role <> 'PORTAL_WORKER' OR u."portalWorkerStatus" = 'APPROVED')
         AND u."publicProfile" = true
-        AND u."canPublishPosts" = true
+        AND u.role IN ('AGENT', 'AGENCY', 'COMPANY', 'CRAFTSMAN', 'FINANCIAL_ADVISOR', 'INVESTOR', 'PORTAL_WORKER')
         AND p.type <> 'short'
         ${categoryClause}
       ORDER BY

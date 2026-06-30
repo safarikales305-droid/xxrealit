@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { PortalWorkerStatus, UserRole } from '@prisma/client';
 import {
   canUserPublishPosts,
+  isCommunityPostAuthorVisible,
   isUserPublicProfilePageVisible,
   shouldShowUserInProfessionals,
 } from './public-visibility.util';
@@ -61,12 +62,18 @@ test('portal worker without approval is hidden from professionals and feed', () 
   assert.equal(canUserPublishPosts(pending), false);
 });
 
-test('portal worker with public profile but showInProfessionals false uses publicProfile fallback', () => {
+test('portal worker explicitly hidden via showInProfessionals=false', () => {
   const worker = {
     ...approvedWorker,
     showInProfessionals: false,
   };
-  assert.equal(shouldShowUserInProfessionals(worker), true);
+  assert.equal(shouldShowUserInProfessionals(worker), false);
+});
+
+test('community post author visible with publicProfile even without canPublishPosts', () => {
+  const worker = { ...approvedWorker, canPublishPosts: false };
+  assert.equal(isCommunityPostAuthorVisible(worker), true);
+  assert.equal(canUserPublishPosts(worker), false);
 });
 
 test('property seeker never appears in professionals even with flags', () => {
@@ -88,9 +95,4 @@ test('limited account is hidden everywhere', () => {
   assert.equal(isUserPublicProfilePageVisible(limited), false);
   assert.equal(canUserPublishPosts(limited), false);
   assert.equal(shouldShowUserInProfessionals(limited), false);
-});
-
-test('portal worker cannot publish without canPublishPosts', () => {
-  const worker = { ...approvedWorker, canPublishPosts: false };
-  assert.equal(canUserPublishPosts(worker), false);
 });
