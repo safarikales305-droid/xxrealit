@@ -15,14 +15,15 @@ import { SocialPublisherService } from './social-publisher.service';
 import { FacebookGraphPublishError } from './facebook-graph-autopost.util';
 import { SocialPublishLogService } from './social-publish-log.service';
 import {
-  buildPropertyFacebookMessage,
   buildPostDetailUrl,
   resolvePostShareImage,
+  resolvePostShareVideo,
   resolvePropertyShareImage,
   toAbsoluteMediaUrl,
 } from './social-publish-format.util';
 import { isShortsVideoProperty } from './social-facebook-reel.util';
 import { PROFESSIONAL_ROLES } from './social-autopost.types';
+import { SocialPublishTemplatesService } from './social-publish-templates.service';
 
 const MAX_ATTEMPTS = 5;
 
@@ -269,14 +270,14 @@ export class SocialPublishEnqueueService {
       where: { id: postId },
       include: {
         user: { select: { id: true, role: true, accountLimited: true, name: true } },
-        media: { orderBy: { order: 'asc' }, take: 1 },
+        media: { orderBy: { order: 'asc' } },
       },
     });
     if (!post) return { ok: false, error: 'Příspěvek nenalezen' };
 
     const text = (post.content ?? post.description ?? post.title ?? '').trim();
-    const imageUrl = post.imageUrl ?? post.media[0]?.url ?? post.previewImage;
-    const videoUrl = post.videoUrl;
+    const imageUrl = resolvePostShareImage(post);
+    const videoUrl = resolvePostShareVideo(post);
 
     const skip = await this.shouldSkipContent(
       {
@@ -288,7 +289,7 @@ export class SocialPublishEnqueueService {
         isPublic: true,
         approved: true,
         deleted: false,
-        hasMedia: Boolean(imageUrl?.trim() || videoUrl?.trim()),
+        hasMedia: Boolean(imageUrl || videoUrl),
         hasText: Boolean(text),
         isFacebookImport: post.isFacebookPagePost || post.source === 'FACEBOOK',
       },
@@ -453,6 +454,7 @@ export class SocialPublishProcessorService {
     private readonly publisher: SocialPublisherService,
     private readonly shareMetadata: ShareMetadataService,
     private readonly logService: SocialPublishLogService,
+    private readonly templates: SocialPublishTemplatesService,
   ) {}
 
   async processDueBatch(limit = 5) {
@@ -572,6 +574,7 @@ export class SocialPublishProcessorService {
         status: SocialPublishStatus.FAILED,
         lastError: message,
         facebookPostType: item.facebookPostType ?? null,
+        graphApiResponse: graphErr ?? undefined,
         triggerSource: item.triggerSource,
         triggeredByUserId: item.triggeredByUserId,
       });
@@ -585,13 +588,23 @@ export class SocialPublishProcessorService {
     contentType: SocialPublishContentType,
     forceFormat?: FacebookPostType | null,
   ) {
-    const property = await this.prisma.property.findUnique({ where: { id: contentId } });
+    const property = await this.prisma.property.findUnique({
+      where: { id: contentId },
+      include: { user: { select: { id: true, role: true, name: true } } },
+    });
     if (!property || property.deletedAt) throw new Error('Inzerát není k dispozici');
 
     const forcedType = contentType === SocialPublishContentType.SHORT ? 'shorts' : 'classic';
     const meta = await this.shareMetadata.resolveForProperty(contentId, forcedType);
     const global = this.settings.getSettings().global;
-    const message = buildPropertyFacebookMessage(property, meta.shareUrl, {
+    const message = await this.templates.buildPropertyFacebookMessage({
+      role: property.user?.role,
+      authorName: property.user?.name,
+      title: property.title,
+      city: property.city,
+      address: property.address,
+      description: property.description,
+      portalUrl: meta.shareUrl,
       hidePublicPrice: global.hidePublicPrice !== false,
     });
     const imageUrl = resolvePropertyShareImage(property);
@@ -631,7 +644,7 @@ export class SocialPublishProcessorService {
     const publicUrl = buildPostDetailUrl(post.id);
     const text = (post.content ?? post.description ?? post.title ?? '').trim();
     const imageUrl = resolvePostShareImage(post);
-    const videoUrl = toAbsoluteMediaUrl(post.videoUrl);
+    const videoUrl = resolvePostShareVideo(post);
     const title = post.title?.trim() || text.slice(0, 80) || undefined;
 
     return this.publisher.publishUserPostToFacebook({

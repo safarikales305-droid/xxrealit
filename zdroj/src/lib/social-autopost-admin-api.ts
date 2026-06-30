@@ -43,6 +43,12 @@ export type SocialAutopostGlobalSettings = {
   publishClassicAsPhotoPost: boolean;
   hidePublicPrice: boolean;
   repeatPublishingEnabled: boolean;
+  videoTeaserMaxSeconds: number;
+  videoTeaserEndSlideText: string;
+  videoTeaserEndSlideEnabled: boolean;
+  publishVideosAsReels: boolean;
+  publishImagesAsPhotoPost: boolean;
+  fallbackToLinkOnMediaFailure: boolean;
 };
 
 export type PlatformPlaceholderSettings = {
@@ -264,6 +270,39 @@ export function nestAdminSocialAutopostGlobalPatch(
   body: Partial<SocialAutopostGlobalSettings>,
 ) {
   return adminFetch<SocialAutopostSettingsPublic>(token, '/social/autopost/admin/settings/global', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export type SocialPublishTemplateRole =
+  | 'AGENT'
+  | 'COMPANY'
+  | 'AGENCY'
+  | 'FINANCIAL_ADVISOR'
+  | 'INVESTOR'
+  | 'PRIVATE_SELLER';
+
+export type SocialPublishTemplatesSettings = Record<SocialPublishTemplateRole, string>;
+
+export const SOCIAL_PUBLISH_TEMPLATE_ROLE_LABELS: Record<SocialPublishTemplateRole, string> = {
+  AGENT: 'Makléř',
+  COMPANY: 'Stavební firma',
+  AGENCY: 'Realitní kancelář',
+  FINANCIAL_ADVISOR: 'Finanční poradce',
+  INVESTOR: 'Investor',
+  PRIVATE_SELLER: 'Soukromý prodejce',
+};
+
+export function nestAdminSocialPublishTemplatesGet(token: string) {
+  return adminFetch<SocialPublishTemplatesSettings>(token, '/social/autopost/admin/templates');
+}
+
+export function nestAdminSocialPublishTemplatesPatch(
+  token: string,
+  body: Partial<SocialPublishTemplatesSettings>,
+) {
+  return adminFetch<SocialPublishTemplatesSettings>(token, '/social/autopost/admin/templates', {
     method: 'PATCH',
     body: JSON.stringify(body),
   });

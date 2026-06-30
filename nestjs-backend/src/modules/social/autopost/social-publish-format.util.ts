@@ -147,3 +147,19 @@ export function resolvePostShareImage(post: {
     null
   );
 }
+
+/** Video z příspěvku (videoUrl nebo media typu video). */
+export function resolvePostShareVideo(post: {
+  videoUrl?: string | null;
+  media?: Array<{ url?: string | null; type?: string | null }>;
+}): string | null {
+  const direct = toAbsoluteMediaUrl(post.videoUrl);
+  if (direct) return direct;
+  for (const m of post.media ?? []) {
+    const type = String(m.type ?? '').toLowerCase();
+    if (type !== 'video') continue;
+    const url = toAbsoluteMediaUrl(m.url);
+    if (url) return url;
+  }
+  return null;
+}

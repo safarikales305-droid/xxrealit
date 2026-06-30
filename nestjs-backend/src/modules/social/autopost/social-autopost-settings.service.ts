@@ -58,6 +58,12 @@ export class SocialAutopostSettingsService implements OnModuleInit {
     };
   }
 
+  private num(v: unknown, fallback: number, min: number, max: number): number {
+    const n = typeof v === 'number' ? v : Number.parseInt(String(v ?? ''), 10);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, Math.trunc(n)));
+  }
+
   private globalSettings(raw: unknown): SocialAutopostGlobalSettings {
     const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
     const d = DEFAULT_SOCIAL_AUTOPOST_GLOBAL;
@@ -68,6 +74,15 @@ export class SocialAutopostSettingsService implements OnModuleInit {
       publishClassicAsPhotoPost: o.publishClassicAsPhotoPost !== false,
       hidePublicPrice: o.hidePublicPrice !== false,
       repeatPublishingEnabled: o.repeatPublishingEnabled !== false,
+      videoTeaserMaxSeconds: this.num(o.videoTeaserMaxSeconds, d.videoTeaserMaxSeconds, 1, 60),
+      videoTeaserEndSlideText:
+        typeof o.videoTeaserEndSlideText === 'string' && o.videoTeaserEndSlideText.trim()
+          ? o.videoTeaserEndSlideText.trim()
+          : d.videoTeaserEndSlideText,
+      videoTeaserEndSlideEnabled: o.videoTeaserEndSlideEnabled !== false,
+      publishVideosAsReels: o.publishVideosAsReels !== false,
+      publishImagesAsPhotoPost: o.publishImagesAsPhotoPost !== false,
+      fallbackToLinkOnMediaFailure: o.fallbackToLinkOnMediaFailure !== false,
     };
   }
 

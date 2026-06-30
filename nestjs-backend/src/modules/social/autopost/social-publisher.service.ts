@@ -103,10 +103,12 @@ export class SocialPublisherService {
     videoUrl: string | null;
     title?: string;
   }): Promise<FacebookPublishResult> {
+    await this.settings.reload();
+    const { facebook: fb, global } = this.settings.getSettings();
     const publicUrl = input.publicUrl.replace(/\/+$/, '');
     const contentTitle = input.title?.trim() || null;
 
-    if (input.videoUrl?.trim()) {
+    if (input.videoUrl?.trim() && global.publishVideosAsReels !== false && fb.publishShortsAsReels !== false) {
       const reelMessage = buildVideoReelFacebookMessage(publicUrl);
       try {
         const teaser = await this.teaserService.createTeaserFromVideoUrl(input.videoUrl.trim());
@@ -126,19 +128,44 @@ export class SocialPublisherService {
         };
       } catch (err) {
         const teaserError = err instanceof Error ? err.message : String(err);
-        this.logger.warn(`User post reel/teaser failed, fallback to link: ${teaserError}`);
-        const linkMessage = buildPostFacebookMessage(input.description, publicUrl);
-        const fallback = await this.publishLinkOnly(linkMessage, publicUrl);
-        return {
-          ...fallback,
-          publishKind: SocialPublishKind.USER_POST,
-          contentTitle,
-          teaserError,
-        };
+        this.logger.warn(`User post reel/teaser failed: ${teaserError}`);
+        if (fb.reelsFallbackToVideoPost !== false) {
+          try {
+            const teaser = await this.teaserService.createTeaserFromVideoUrl(input.videoUrl.trim());
+            const video = await this.publishVideoPost(reelMessage, teaser.teaserUrl);
+            return {
+              ...video,
+              publishKind: SocialPublishKind.VIDEO_REEL,
+              contentTitle,
+              teaserDurationSec: teaser.teaserDurationSec,
+              originalVideoDurationSec: teaser.originalDurationSec,
+              teaserError,
+            };
+          } catch (videoErr) {
+            this.logger.warn(
+              `User post video fallback failed: ${videoErr instanceof Error ? videoErr.message : videoErr}`,
+            );
+          }
+        }
+        if (global.fallbackToLinkOnMediaFailure !== false) {
+          const linkMessage = buildPostFacebookMessage(input.description, publicUrl);
+          const fallback = await this.publishLinkOnly(linkMessage, publicUrl);
+          return {
+            ...fallback,
+            publishKind: SocialPublishKind.USER_POST,
+            contentTitle,
+            teaserError,
+          };
+        }
+        throw err;
       }
     }
 
-    if (input.imageUrl?.trim()) {
+    if (
+      input.imageUrl?.trim() &&
+      global.publishImagesAsPhotoPost !== false &&
+      global.publishClassicAsPhotoPost !== false
+    ) {
       const message = buildPostFacebookMessage(input.description, publicUrl);
       try {
         const photo = await this.publishPhotoPost(message, input.imageUrl.trim());
@@ -150,6 +177,7 @@ export class SocialPublisherService {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         this.logger.warn(`User post photo failed, fallback to link: ${msg}`);
+        if (global.fallbackToLinkOnMediaFailure === false) throw err;
       }
     }
 
@@ -160,6 +188,23 @@ export class SocialPublisherService {
       publishKind: SocialPublishKind.USER_POST,
       contentTitle,
     };
+  }
+
+  private async publishVideoPost(
+    message: string,
+    videoUrl: string,
+  ): Promise<FacebookPublishResult> {
+    const { pageId, accessToken } = await this.resolveAccessTokenForPublish();
+    const videoApi = this.graphVideoApiBase();
+    const result = await this.postVideo(
+      `${videoApi}/${pageId}/videos`,
+      pageId,
+      accessToken,
+      videoUrl,
+      message,
+    );
+    await this.settings.appendApiLog({ action: 'publish_video', ok: true, body: result.raw });
+    return { ...result, facebookPostType: FacebookPostType.FACEBOOK_VIDEO };
   }
 
   private async publishPhotoPost(
@@ -739,14 +784,41 @@ export class SocialPublisherService {
     opts: { forceFormat?: FacebookPostType } = {},
   ): Promise<FacebookPublishResult> {
     await this.settings.reload();
+    const { facebook: fb, global } = this.settings.getSettings();
     const publicUrl = input.link.replace(/\/+$/, '');
     const contentTitle = input.title?.trim() || null;
-    const forceReel =
-      opts.forceFormat === FacebookPostType.FACEBOOK_REEL ||
-      (propertyHasPublishableVideo({ videoUrl: input.videoUrl }) &&
-        opts.forceFormat !== FacebookPostType.FACEBOOK_POST);
 
-    if (forceReel && input.videoUrl?.trim()) {
+    const wantsVideoPost =
+      opts.forceFormat === FacebookPostType.FACEBOOK_VIDEO && Boolean(input.videoUrl?.trim());
+
+    const wantsReel =
+      !wantsVideoPost &&
+      (opts.forceFormat === FacebookPostType.FACEBOOK_REEL ||
+        (propertyHasPublishableVideo({ videoUrl: input.videoUrl }) &&
+          opts.forceFormat !== FacebookPostType.FACEBOOK_POST &&
+          fb.publishShortsAsReels !== false &&
+          global.publishShortsAsReels !== false &&
+          global.publishVideosAsReels !== false));
+
+    if (wantsVideoPost && input.videoUrl?.trim()) {
+      try {
+        const teaser = await this.teaserService.createTeaserFromVideoUrl(input.videoUrl.trim());
+        const video = await this.publishVideoPost(input.message, teaser.teaserUrl);
+        return {
+          ...video,
+          publishKind: SocialPublishKind.LISTING,
+          contentTitle,
+          teaserDurationSec: teaser.teaserDurationSec,
+          originalVideoDurationSec: teaser.originalDurationSec,
+        };
+      } catch (err) {
+        const teaserError = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Property video post failed: ${teaserError}`);
+        if (global.fallbackToLinkOnMediaFailure === false) throw err;
+      }
+    }
+
+    if (wantsReel && input.videoUrl?.trim()) {
       const reelMessage = buildVideoReelFacebookMessage(publicUrl);
       try {
         const teaser = await this.teaserService.createTeaserFromVideoUrl(input.videoUrl.trim());
@@ -766,18 +838,63 @@ export class SocialPublisherService {
         };
       } catch (err) {
         const teaserError = err instanceof Error ? err.message : String(err);
-        this.logger.warn(`Property reel/teaser failed, fallback to link: ${teaserError}`);
-        const fallback = await this.publishLinkOnly(input.message, publicUrl);
-        return {
-          ...fallback,
-          publishKind: SocialPublishKind.LISTING,
-          contentTitle,
-          teaserError,
-        };
+        this.logger.warn(`Property reel/teaser failed: ${teaserError}`);
+        if (fb.reelsFallbackToVideoPost !== false && input.videoUrl?.trim()) {
+          try {
+            const teaser = await this.teaserService.createTeaserFromVideoUrl(input.videoUrl.trim());
+            const video = await this.publishVideoPost(reelMessage, teaser.teaserUrl);
+            return {
+              ...video,
+              publishKind: SocialPublishKind.LISTING,
+              contentTitle,
+              teaserDurationSec: teaser.teaserDurationSec,
+              originalVideoDurationSec: teaser.originalDurationSec,
+              teaserError,
+            };
+          } catch (videoErr) {
+            this.logger.warn(
+              `Property video fallback failed: ${videoErr instanceof Error ? videoErr.message : videoErr}`,
+            );
+          }
+        }
+        if (
+          fb.reelsFallbackToPhotoPost !== false &&
+          input.imageUrl?.trim() &&
+          global.publishImagesAsPhotoPost !== false &&
+          global.publishClassicAsPhotoPost !== false
+        ) {
+          try {
+            const photo = await this.publishPhotoPost(input.message, input.imageUrl.trim());
+            return {
+              ...photo,
+              publishKind: SocialPublishKind.LISTING,
+              contentTitle,
+              teaserError,
+            };
+          } catch (photoErr) {
+            this.logger.warn(
+              `Property photo fallback failed: ${photoErr instanceof Error ? photoErr.message : photoErr}`,
+            );
+          }
+        }
+        if (global.fallbackToLinkOnMediaFailure !== false) {
+          const fallback = await this.publishLinkOnly(input.message, publicUrl);
+          return {
+            ...fallback,
+            publishKind: SocialPublishKind.LISTING,
+            contentTitle,
+            teaserError,
+          };
+        }
+        throw err;
       }
     }
 
-    if (input.imageUrl?.trim()) {
+    if (
+      input.imageUrl?.trim() &&
+      global.publishImagesAsPhotoPost !== false &&
+      global.publishClassicAsPhotoPost !== false
+    ) {
       try {
         const photo = await this.publishPhotoPost(input.message, input.imageUrl.trim());
         return {
@@ -788,6 +905,7 @@ export class SocialPublisherService {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         this.logger.warn(`Property photo failed, fallback to link: ${msg}`);
+        if (global.fallbackToLinkOnMediaFailure === false) throw err;
       }
     }
 

@@ -557,6 +557,17 @@ export default function AdminListingsPage() {
           </p>
         ) : null}
 
+        <FacebookScheduledPlannerPanel
+          token={token}
+          onNotify={(msg, successUrl) => {
+            setFbMsg(msg);
+            setFbSuccessUrl(successUrl ?? null);
+          }}
+          onDataChange={() => {
+            void refreshFacebookStatus(rows.map((r) => r.id));
+          }}
+        />
+
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="mt-2 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <div>
@@ -726,17 +737,6 @@ export default function AdminListingsPage() {
           onFacebookSetRepeat={onFacebookSetRepeat}
           onFacebookCancelRepeat={(row) => void onFacebookCancelRepeat(row)}
           onFacebookShowLog={(row) => void openPublishLog(row)}
-        />
-
-        <FacebookScheduledPlannerPanel
-          token={token}
-          onNotify={(msg, successUrl) => {
-            setFbMsg(msg);
-            setFbSuccessUrl(successUrl ?? null);
-          }}
-          onDataChange={() => {
-            void refreshFacebookStatus(rows.map((r) => r.id));
-          }}
         />
 
       <FacebookScheduleModal

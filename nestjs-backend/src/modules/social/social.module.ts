@@ -39,6 +39,7 @@ import { SocialAutopostFacebookOAuthService } from './autopost/social-autopost-f
 import { SocialAutopostTokenService } from './autopost/social-autopost-token.service';
 import { SocialFacebookReelPublisherService } from './autopost/social-facebook-reel-publisher.service';
 import { FacebookVideoTeaserService } from './autopost/facebook-video-teaser.service';
+import { SocialPublishTemplatesService } from './autopost/social-publish-templates.service';
 
 @Module({
   imports: [
@@ -84,6 +85,7 @@ import { FacebookVideoTeaserService } from './autopost/facebook-video-teaser.ser
     SocialAutopostTokenService,
     SocialFacebookReelPublisherService,
     FacebookVideoTeaserService,
+    SocialPublishTemplatesService,
   ],
   exports: [
     FacebookConfigService,

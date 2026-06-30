@@ -35,15 +35,25 @@ const DEFAULT_GLOBAL: SocialAutopostGlobalSettings = {
   publishClassicAsPhotoPost: true,
   hidePublicPrice: true,
   repeatPublishingEnabled: true,
+  videoTeaserMaxSeconds: 5,
+  videoTeaserEndSlideText: 'Více na XXREALIT.cz',
+  videoTeaserEndSlideEnabled: true,
+  publishVideosAsReels: true,
+  publishImagesAsPhotoPost: true,
+  fallbackToLinkOnMediaFailure: true,
 };
 
 const GLOBAL_FIELDS: Array<{ key: keyof SocialAutopostGlobalSettings; label: string }> = [
   { key: 'autoPublishNewListings', label: 'Publikovat nové inzeráty automaticky na sociální sítě' },
   { key: 'autoPublishNewPosts', label: 'Publikovat nové uživatelské příspěvky automaticky na sociální sítě' },
   { key: 'publishShortsAsReels', label: 'Publikovat Shorts/video inzeráty jako Reels/Shorts' },
+  { key: 'publishVideosAsReels', label: 'Publikovat videa (příspěvky i inzeráty) jako Reels' },
   { key: 'publishClassicAsPhotoPost', label: 'Publikovat klasické inzeráty jako foto příspěvek' },
+  { key: 'publishImagesAsPhotoPost', label: 'Publikovat obrázky jako foto příspěvek' },
   { key: 'hidePublicPrice', label: 'Nepublikovat cenu veřejně' },
   { key: 'repeatPublishingEnabled', label: 'Povolit opakované publikování (globálně)' },
+  { key: 'videoTeaserEndSlideEnabled', label: 'Zapnout závěrečný slide „Více na XXREALIT.cz“ ve videu' },
+  { key: 'fallbackToLinkOnMediaFailure', label: 'Při selhání uploadu média publikovat pouze odkaz' },
 ];
 
 export default function AdminSocialAutopostPage() {
@@ -227,6 +237,14 @@ export default function AdminSocialAutopostPage() {
         <p className="mt-1 text-sm text-zinc-600">
           Automatické publikování příspěvků a inzerátů na Facebook stránku portálu XXREALIT.
         </p>
+        <p className="mt-2">
+          <Link
+            href="/admin/marketing/socialni-site/sablony"
+            className="text-sm font-semibold text-orange-600 hover:underline"
+          >
+            Šablony publikování →
+          </Link>
+        </p>
       </div>
 
       {loadError ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{loadError}</p> : null}
@@ -268,6 +286,51 @@ export default function AdminSocialAutopostPage() {
               {label}
             </label>
           ))}
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium text-zinc-700">
+              Maximální délka video ukázky (sekundy)
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={60}
+              value={global.videoTeaserMaxSeconds ?? 5}
+              onChange={(e) =>
+                setSettings((s) =>
+                  s
+                    ? {
+                        ...s,
+                        global: {
+                          ...global,
+                          videoTeaserMaxSeconds: Number.parseInt(e.target.value, 10) || 5,
+                        },
+                      }
+                    : s,
+                )
+              }
+              className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+            />
+          </label>
+          <label className="block text-sm sm:col-span-2">
+            <span className="mb-1 block font-medium text-zinc-700">Text na konci videa</span>
+            <input
+              type="text"
+              value={global.videoTeaserEndSlideText ?? 'Více na XXREALIT.cz'}
+              onChange={(e) =>
+                setSettings((s) =>
+                  s
+                    ? {
+                        ...s,
+                        global: { ...global, videoTeaserEndSlideText: e.target.value },
+                      }
+                    : s,
+                )
+              }
+              className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+            />
+          </label>
         </div>
         <button
           type="button"

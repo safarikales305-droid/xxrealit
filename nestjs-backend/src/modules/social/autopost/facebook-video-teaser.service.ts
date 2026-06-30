@@ -11,6 +11,7 @@ import {
   runFfmpegCapture,
 } from '../../../lib/ffmpeg-run';
 import { PropertyMediaCloudinaryService } from '../../properties/property-media-cloudinary.service';
+import { SocialAutopostSettingsService } from './social-autopost-settings.service';
 
 export const FACEBOOK_TEASER_MAX_SECONDS = 5;
 
@@ -20,16 +21,30 @@ export type FacebookVideoTeaserResult = {
   originalDurationSec: number | null;
 };
 
+function escapeFfmpegDrawtext(text: string): string {
+  return text
+    .replace(/\\/g, '\\\\')
+    .replace(/:/g, '\\:')
+    .replace(/'/g, "\\'")
+    .replace(/%/g, '\\%');
+}
+
 @Injectable()
 export class FacebookVideoTeaserService {
   private readonly log = new Logger(FacebookVideoTeaserService.name);
 
-  constructor(private readonly cloudinary: PropertyMediaCloudinaryService) {}
+  constructor(
+    private readonly cloudinary: PropertyMediaCloudinaryService,
+    private readonly settings: SocialAutopostSettingsService,
+  ) {}
 
-  async createTeaserFromVideoUrl(
-    videoUrl: string,
-    maxSeconds = FACEBOOK_TEASER_MAX_SECONDS,
-  ): Promise<FacebookVideoTeaserResult> {
+  async createTeaserFromVideoUrl(videoUrl: string): Promise<FacebookVideoTeaserResult> {
+    await this.settings.reload();
+    const global = this.settings.getSettings().global;
+    const maxSeconds = global.videoTeaserMaxSeconds ?? FACEBOOK_TEASER_MAX_SECONDS;
+    const endSlideEnabled = global.videoTeaserEndSlideEnabled !== false;
+    const endSlideText = global.videoTeaserEndSlideText?.trim() || 'Více na XXREALIT.cz';
+
     const ffmpeg = resolveFfmpegBinary();
     if (!ffmpeg.path) {
       throw new Error('ffmpeg není dostupný — nelze vytvořit teaser videa.');
@@ -48,7 +63,16 @@ export class FacebookVideoTeaserService {
           ? Math.min(maxSeconds, Math.max(0.5, originalDurationSec))
           : maxSeconds;
 
-      const { code, stderr } = await runFfmpegCapture(ffmpeg.path, [
+      const vfParts: string[] = [];
+      if (endSlideEnabled && endSlideText) {
+        const slideStart = Math.max(0, teaserDurationSec - 1.5);
+        const escaped = escapeFfmpegDrawtext(endSlideText);
+        vfParts.push(
+          `drawtext=enable='gte(t,${slideStart.toFixed(2)})':text='${escaped}':fontsize=28:fontcolor=white:x=(w-text_w)/2:y=h-100:box=1:boxcolor=black@0.55:boxborderw=8`,
+        );
+      }
+
+      const ffmpegArgs = [
         '-hide_banner',
         '-y',
         '-loglevel',
@@ -57,6 +81,7 @@ export class FacebookVideoTeaserService {
         sourcePath,
         '-t',
         String(teaserDurationSec),
+        ...(vfParts.length ? ['-vf', vfParts.join(',')] : []),
         '-c:v',
         'libx264',
         '-preset',
@@ -70,7 +95,9 @@ export class FacebookVideoTeaserService {
         '-movflags',
         '+faststart',
         teaserPath,
-      ]);
+      ];
+
+      const { code, stderr } = await runFfmpegCapture(ffmpeg.path, ffmpegArgs);
 
       if (code !== 0) {
         throw new Error(`ffmpeg teaser selhal: ${stderr.slice(-500)}`);
@@ -105,11 +132,7 @@ export class FacebookVideoTeaserService {
   }
 
   private async probeDuration(ffmpegPath: string, videoPath: string): Promise<number | null> {
-    const { stderr } = await runFfmpegCapture(ffmpegPath, [
-      '-hide_banner',
-      '-i',
-      videoPath,
-    ]);
+    const { stderr } = await runFfmpegCapture(ffmpegPath, ['-hide_banner', '-i', videoPath]);
     return parseDurationSecondsFromFfmpegStderr(stderr);
   }
 }

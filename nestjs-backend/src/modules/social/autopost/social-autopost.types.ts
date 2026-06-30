@@ -70,6 +70,18 @@ export type SocialAutopostGlobalSettings = {
   publishClassicAsPhotoPost: boolean;
   hidePublicPrice: boolean;
   repeatPublishingEnabled: boolean;
+  /** Maximální délka video ukázky pro sociální sítě (sekundy). */
+  videoTeaserMaxSeconds: number;
+  /** Text na konci video ukázky. */
+  videoTeaserEndSlideText: string;
+  /** Přidat závěrečný slide s textem na konec videa. */
+  videoTeaserEndSlideEnabled: boolean;
+  /** Publikovat videa jako Reels (Facebook). */
+  publishVideosAsReels: boolean;
+  /** Publikovat obrázky jako foto příspěvek. */
+  publishImagesAsPhotoPost: boolean;
+  /** Při selhání uploadu média publikovat pouze odkaz. */
+  fallbackToLinkOnMediaFailure: boolean;
 };
 
 export type SocialAutopostSettings = {
@@ -108,6 +120,12 @@ export const DEFAULT_SOCIAL_AUTOPOST_GLOBAL: SocialAutopostGlobalSettings = {
   publishClassicAsPhotoPost: true,
   hidePublicPrice: true,
   repeatPublishingEnabled: true,
+  videoTeaserMaxSeconds: 5,
+  videoTeaserEndSlideText: 'Více na XXREALIT.cz',
+  videoTeaserEndSlideEnabled: true,
+  publishVideosAsReels: true,
+  publishImagesAsPhotoPost: true,
+  fallbackToLinkOnMediaFailure: true,
 };
 
 export const DEFAULT_FACEBOOK_AUTOPOST: FacebookAutopostSettings = {

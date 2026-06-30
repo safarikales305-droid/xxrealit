@@ -37,6 +37,10 @@ import {
   UpdateScheduleDto,
 } from './dto/social-autopost-admin.dto';
 import { SocialAutopostFacebookOAuthService } from './social-autopost-facebook-oauth.service';
+import {
+  SocialPublishTemplatesService,
+  type SocialPublishTemplatesSettings,
+} from './social-publish-templates.service';
 
 @Controller('social/autopost/admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -49,11 +53,22 @@ export class SocialAutopostAdminController {
     private readonly scheduleService: SocialPublishScheduleService,
     private readonly prisma: PrismaService,
     private readonly autopostOAuth: SocialAutopostFacebookOAuthService,
+    private readonly publishTemplates: SocialPublishTemplatesService,
   ) {}
 
   @Get('settings')
   getSettings() {
     return this.settings.getPublicSettings();
+  }
+
+  @Get('templates')
+  getPublishTemplates() {
+    return this.publishTemplates.getSettings();
+  }
+
+  @Patch('templates')
+  updatePublishTemplates(@Body() body: Partial<SocialPublishTemplatesSettings>) {
+    return this.publishTemplates.updateSettings(body);
   }
 
   @Patch('settings/global')
@@ -66,6 +81,12 @@ export class SocialAutopostAdminController {
       publishClassicAsPhotoPost?: boolean;
       hidePublicPrice?: boolean;
       repeatPublishingEnabled?: boolean;
+      videoTeaserMaxSeconds?: number;
+      videoTeaserEndSlideText?: string;
+      videoTeaserEndSlideEnabled?: boolean;
+      publishVideosAsReels?: boolean;
+      publishImagesAsPhotoPost?: boolean;
+      fallbackToLinkOnMediaFailure?: boolean;
     },
   ) {
     return this.settings.updateSettings({ global: body });

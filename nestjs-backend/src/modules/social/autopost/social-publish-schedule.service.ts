@@ -430,24 +430,42 @@ export class SocialPublishScheduleService {
       };
     }
 
-    const dup = await this.logService.wasPublishedToday({
-      contentType: schedule.contentType,
-      contentId: schedule.contentId,
-    });
-    if (dup) {
-      await this.advanceScheduleAfterRun(
-        schedule.id,
-        SocialPublishScheduleLastStatus.SKIPPED,
-        'Dnes již publikováno',
-      );
-      return {
-        outcome: 'skipped',
-        detail: { ...baseDetail, outcome: 'skipped', error: 'Dnes již publikováno' },
-      };
+    await this.settings.reload();
+    const isRepeating = schedule.repeatType !== SocialPublishRepeatType.NONE;
+    const globalRepeat =
+      this.settings.getSettings().global.repeatPublishingEnabled !== false &&
+      this.settings.getSettings().facebook.repeatPublishing !== false;
+    const allowRepublish = isRepeating || globalRepeat;
+
+    if (!allowRepublish) {
+      const dup = await this.logService.wasPublishedToday({
+        contentType: schedule.contentType,
+        contentId: schedule.contentId,
+      });
+      if (dup) {
+        const err = 'Dnes již publikováno';
+        await this.logService.writeLog({
+          contentType: schedule.contentType,
+          contentId: schedule.contentId,
+          scheduleId: schedule.id,
+          status: SocialPublishStatus.SKIPPED,
+          lastError: err,
+          triggerSource: SocialPublishTriggerSource.SCHEDULE,
+        });
+        await this.advanceScheduleAfterRun(
+          schedule.id,
+          SocialPublishScheduleLastStatus.SKIPPED,
+          err,
+        );
+        return {
+          outcome: 'skipped',
+          detail: { ...baseDetail, outcome: 'skipped', error: err },
+        };
+      }
     }
 
     const enq = await this.enqueue.enqueuePropertyManual(schedule.contentId, {
-      force: false,
+      force: allowRepublish,
       triggerSource: SocialPublishTriggerSource.SCHEDULE,
       scheduleId: schedule.id,
       scheduledAt: schedule.nextRunAt,
@@ -455,7 +473,16 @@ export class SocialPublishScheduleService {
     });
 
     if (!enq.ok) {
-      await this.markScheduleFailed(schedule.id, enq.reason ?? enq.error ?? 'Zařazení selhalo');
+      const err = enq.reason ?? enq.error ?? 'Zařazení selhalo';
+      await this.logService.writeLog({
+        contentType: schedule.contentType,
+        contentId: schedule.contentId,
+        scheduleId: schedule.id,
+        status: SocialPublishStatus.SKIPPED,
+        lastError: err,
+        triggerSource: SocialPublishTriggerSource.SCHEDULE,
+      });
+      await this.markScheduleFailed(schedule.id, err);
       return {
         outcome: 'failed',
         detail: {
@@ -493,6 +520,16 @@ export class SocialPublishScheduleService {
 
     if (queue?.status === SocialPublishStatus.FAILED) {
       const err = queue.lastError ?? 'Publikace selhala';
+      await this.logService.writeLog({
+        contentType: schedule.contentType,
+        contentId: schedule.contentId,
+        scheduleId: schedule.id,
+        queueId: enq.queueId,
+        status: SocialPublishStatus.FAILED,
+        lastError: err,
+        graphApiResponse: queue.lastApiResponse ?? undefined,
+        triggerSource: SocialPublishTriggerSource.SCHEDULE,
+      });
       await this.markScheduleFailed(schedule.id, err);
       return {
         outcome: 'failed',
