@@ -836,4 +836,74 @@ export class EmailsService implements OnModuleInit {
       metadata: { workerId: input.workerId, targetId: input.targetId },
     });
   }
+
+  postPublicUrl(postId: string): string {
+    return this.normalizePublicUrl(
+      `${this.appUrl()}/?view=posts&post=${encodeURIComponent(postId)}`,
+    );
+  }
+
+  async sendPostLikeNotificationEmail(input: {
+    to: string;
+    authorName: string;
+    actorName: string;
+    postPreview: string;
+    postId: string;
+    authorUserId: string;
+    actorUserId: string;
+  }) {
+    const postUrl = this.postPublicUrl(input.postId);
+    return this.sendTemplatedEmail({
+      type: 'post_like_notification',
+      templateKey: 'post_like_notification',
+      to: input.to.trim().toLowerCase(),
+      variables: {
+        authorName: input.authorName,
+        actorName: input.actorName,
+        postPreview: input.postPreview.slice(0, 200),
+        postUrl,
+        ctaUrl: postUrl,
+        portalName: this.portalName(),
+      },
+      metadata: {
+        postId: input.postId,
+        authorUserId: input.authorUserId,
+        actorUserId: input.actorUserId,
+      },
+    });
+  }
+
+  async sendPostCommentNotificationEmail(input: {
+    to: string;
+    authorName: string;
+    actorName: string;
+    postPreview: string;
+    commentPreview: string;
+    postId: string;
+    authorUserId: string;
+    actorUserId: string;
+    commentId: string;
+  }) {
+    const postUrl = this.postPublicUrl(input.postId);
+    return this.sendTemplatedEmail({
+      type: 'post_comment_notification',
+      templateKey: 'post_comment_notification',
+      to: input.to.trim().toLowerCase(),
+      variables: {
+        authorName: input.authorName,
+        actorName: input.actorName,
+        postPreview: input.postPreview.slice(0, 200),
+        commentPreview: input.commentPreview.slice(0, 300),
+        postUrl,
+        ctaUrl: postUrl,
+        portalName: this.portalName(),
+      },
+      metadata: {
+        postId: input.postId,
+        commentId: input.commentId,
+        authorUserId: input.authorUserId,
+        actorUserId: input.actorUserId,
+      },
+    });
+  }
 }

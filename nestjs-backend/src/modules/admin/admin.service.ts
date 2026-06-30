@@ -603,15 +603,22 @@ export class AdminService {
       data.listingType = dto.listingType;
     }
     if (dto.viewsCount !== undefined) {
-      data.viewsCount = Math.max(0, Math.trunc(dto.viewsCount));
+      const manual = Math.max(0, Math.trunc(dto.viewsCount));
+      data.manualViews = manual;
+      const real = Math.max(0, existing.realViews ?? 0);
+      const autopilot = Math.max(0, existing.autopilotViews ?? 0);
+      data.viewsCount = real + manual + autopilot;
     }
     if (dto.autoViewsEnabled !== undefined) {
       data.autoViewsEnabled = dto.autoViewsEnabled;
+      data.viewsAutopilotEnabled = dto.autoViewsEnabled;
       if (dto.autoViewsEnabled) {
         data.lastAutoViewsAt = new Date();
+        data.lastAutopilotViewsAt = new Date();
       }
       if (!dto.autoViewsEnabled) {
         data.lastAutoViewsAt = null;
+        data.lastAutopilotViewsAt = null;
       }
     }
     if (dto.autoViewsIncrement !== undefined) {

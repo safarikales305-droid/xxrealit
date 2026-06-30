@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
+import { recordListingView } from '@/lib/listing-view-tracker';
 import { ContactGateModals, useContactGate } from '@/components/listing/ContactGate';
 import {
   AdvertiserProfileGateModals,
@@ -97,6 +98,11 @@ export function NemovitostDetailView({
   const isAgentViewer = user?.role === 'AGENT';
   const showOwnerBadges = Boolean(p.isOwnerListing);
   const isTip = isTipListing(p);
+
+  useEffect(() => {
+    const source = p.videoUrl ? 'DETAIL' : 'CLASSIC';
+    void recordListingView(propertyId, source, { accessToken: apiAccessToken });
+  }, [propertyId, apiAccessToken, p.videoUrl]);
 
   function redirectToLoginForMessages() {
     router.push(`/login?redirect=${encodeURIComponent(`/nemovitost/${encodeURIComponent(propertyId)}`)}`);

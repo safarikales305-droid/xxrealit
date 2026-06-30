@@ -1059,6 +1059,9 @@ export class ShortsListingService {
           district: classic.district,
           derivedFromPropertyId: classic.id,
           publishedAt,
+          viewsAutopilotEnabled: true,
+          lastAutopilotViewsAt: publishedAt,
+          lastAutoViewsAt: publishedAt,
         },
       });
 

@@ -1079,6 +1079,10 @@ export type AdminListingRow = {
   createdAt?: string;
   userId?: string;
   viewsCount?: number;
+  realViews?: number;
+  manualViews?: number;
+  autopilotViews?: number;
+  viewsAutopilotEnabled?: boolean;
   autoViewsEnabled?: boolean;
   autoViewsIncrement?: number;
   autoViewsIntervalMinutes?: number;
@@ -10619,5 +10623,63 @@ export async function nestAdminSeoBackfillSlugs(
   });
   if (!res.ok) return null;
   return (await res.json().catch(() => null)) as { processed: number } | null;
+}
+
+export type StatisticsSettings = {
+  id: string;
+  shortsViewsAutopilotEnabled: boolean;
+  shortsViewsRatePerHour: number;
+  shortsViewsRateMin: number;
+  shortsViewsRateMax: number;
+  shortsViewsIntervalMinutes: number;
+  shortsViewsMaxPerDay: number;
+  shortsViewsMaxTotal: number;
+  classicViewsAutopilotEnabled: boolean;
+  classicViewsRatePerHour: number;
+  classicViewsRateMin: number;
+  classicViewsRateMax: number;
+  classicViewsIntervalMinutes: number;
+  classicViewsMaxPerDay: number;
+  classicViewsMaxTotal: number;
+  newListingBoostHours: number;
+  newListingBoostMultiplier: number;
+  postsLikesAutopilotEnabled: boolean;
+  postsLikesRatePerHour: number;
+  postsLikesRateMin: number;
+  postsLikesRateMax: number;
+  postsLikesIntervalMinutes: number;
+  postsLikesMaxPerDay: number;
+  postsLikesMaxTotal: number;
+  postsLikesAfter24hMax: number;
+  viewDedupHours: number;
+};
+
+export async function nestAdminGetStatisticsSettings(
+  token: string | null,
+): Promise<StatisticsSettings | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/statistics-settings`, {
+    headers: nestAuthHeaders(token),
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as StatisticsSettings | null;
+}
+
+export async function nestAdminUpdateStatisticsSettings(
+  token: string | null,
+  patch: Partial<StatisticsSettings>,
+): Promise<{ ok: true; data: StatisticsSettings } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'Chybí API nebo token' };
+  const res = await fetch(`${API_BASE_URL}/admin/statistics-settings`, {
+    method: 'PUT',
+    headers: { ...nestAuthHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const err = await res.text().catch(() => '');
+    return { ok: false, error: err || `HTTP ${res.status}` };
+  }
+  const data = (await res.json()) as StatisticsSettings;
+  return { ok: true, data };
 }
 

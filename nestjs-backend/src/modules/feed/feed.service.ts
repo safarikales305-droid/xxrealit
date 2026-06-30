@@ -3,7 +3,6 @@ import { UserRole } from '@prisma/client';
 import { SEED_DEMO_VIDEO_MP4 } from '../../database/seed.constants';
 import { PrismaService } from '../../database/prisma.service';
 import { PostsService } from '../posts/posts.service';
-import { ShortsViewsAutopilotService } from './shorts-views-autopilot.service';
 import {
   classicPublicListingWhere,
   publicShortPropertyWhere,
@@ -51,7 +50,6 @@ export class FeedService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly posts: PostsService,
-    private readonly _autoViewsAutopilot: ShortsViewsAutopilotService,
     private readonly listingContactUnlock: ListingContactUnlockService,
   ) {}
 

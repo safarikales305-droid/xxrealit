@@ -137,6 +137,8 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
       { id: 'stats-sources', label: 'Zdroje návštěvnosti', href: '/admin/statistiky/zdroje', icon: '🔗' },
       { id: 'stats-locations', label: 'Lokace', href: '/admin/statistiky/lokace', icon: '🌍' },
       { id: 'stats-devices', label: 'Zařízení', href: '/admin/statistiky/zarizeni', icon: '📱' },
+      { id: 'stats-views-autopilot', label: 'Autopilot zobrazení', href: '/admin/statistiky/autopilot-zobrazeni', icon: '👁', tone: 'orange' },
+      { id: 'stats-posts-autopilot', label: 'Autopilot příspěvků', href: '/admin/statistiky/autopilot-prispevky', icon: '👍', tone: 'purple' },
     ],
   },
   {

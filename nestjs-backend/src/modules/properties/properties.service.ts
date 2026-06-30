@@ -1204,6 +1204,9 @@ export class PropertiesService {
           region: (dto.region ?? '').trim().slice(0, 120),
           district: (dto.district ?? '').trim().slice(0, 120),
           importSourceUrl: dto.sourceUrl?.trim().slice(0, 2000) || null,
+          viewsAutopilotEnabled: true,
+          lastAutopilotViewsAt: new Date(),
+          lastAutoViewsAt: new Date(),
           ...overlayStored,
         },
       });

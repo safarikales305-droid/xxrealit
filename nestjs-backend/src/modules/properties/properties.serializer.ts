@@ -7,6 +7,7 @@ import {
 } from '../../lib/image-url';
 import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 import { computeListingPublicStatus } from './property-public-visibility';
+import { propertyTotalViews } from '../../common/listing-statistics.util';
 
 function secureAssetUrl(url: string | null | undefined): string {
   if (url == null) return '';
@@ -144,6 +145,10 @@ export type PropertyRowForApi = {
   isContactPaid?: boolean;
   contactUnlockPrice?: number;
   viewsCount?: number;
+  realViews?: number;
+  manualViews?: number;
+  autopilotViews?: number;
+  viewsAutopilotEnabled?: boolean;
   autoViewsEnabled?: boolean;
   autoViewsIncrement?: number;
   autoViewsIntervalMinutes?: number;
@@ -610,8 +615,12 @@ function serializePropertyCore(
     isTiparTip: Boolean(p.isTiparTip),
     isTip: Boolean(p.isTiparTip),
     tiparBadge: p.isTiparTip ? 'Tip na nemovitost' : null,
-    viewsCount: Math.max(0, Math.trunc(Number(p.viewsCount ?? 0))),
-    autoViewsEnabled: Boolean(p.autoViewsEnabled),
+    viewsCount: propertyTotalViews(p),
+    realViews: Math.max(0, Math.trunc(Number(p.realViews ?? 0))),
+    manualViews: Math.max(0, Math.trunc(Number(p.manualViews ?? 0))),
+    autopilotViews: Math.max(0, Math.trunc(Number(p.autopilotViews ?? 0))),
+    viewsAutopilotEnabled: p.viewsAutopilotEnabled ?? p.autoViewsEnabled ?? true,
+    autoViewsEnabled: Boolean(p.autoViewsEnabled ?? p.viewsAutopilotEnabled),
     autoViewsIncrement: Math.max(0, Math.trunc(Number(p.autoViewsIncrement ?? 0))),
     autoViewsIntervalMinutes: Math.max(0, Math.trunc(Number(p.autoViewsIntervalMinutes ?? 0))),
     lastAutoViewsAt: safeDateIso(p.lastAutoViewsAt),

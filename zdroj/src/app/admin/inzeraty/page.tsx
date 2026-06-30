@@ -179,7 +179,7 @@ export default function AdminListingsPage() {
     setEditListingType(r.listingType === 'SHORTS' ? 'SHORTS' : 'CLASSIC');
     setEditApproved(Boolean(r.approved));
     setEditIsActive(r.isActive !== false);
-    setEditViewsCount(String(Math.max(0, Math.trunc(r.viewsCount ?? 0))));
+    setEditViewsCount(String(Math.max(0, Math.trunc(r.manualViews ?? r.viewsCount ?? 0))));
     setEditAutoViewsEnabled(Boolean(r.autoViewsEnabled));
     setEditAutoViewsIncrement(String(Math.max(1, Math.trunc(r.autoViewsIncrement ?? 100))));
     setEditAutoViewsIntervalMinutes(String(Math.max(1, Math.trunc(r.autoViewsIntervalMinutes ?? 1))));
@@ -856,11 +856,19 @@ export default function AdminListingsPage() {
               </div>
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  Views systém
+                  Zobrazení — rozpad
                 </p>
+                {editRow ? (
+                  <p className="mt-1 text-xs text-zinc-600">
+                    Reálná: {(editRow.realViews ?? 0).toLocaleString('cs-CZ')} · Ruční:{' '}
+                    {(editRow.manualViews ?? editViewsCount).toLocaleString('cs-CZ')} · Autopilot:{' '}
+                    {(editRow.autopilotViews ?? 0).toLocaleString('cs-CZ')} · Celkem:{' '}
+                    {(editRow.viewsCount ?? 0).toLocaleString('cs-CZ')}
+                  </p>
+                ) : null}
                 <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <label className="text-sm font-medium text-zinc-700">
-                    Počáteční / aktuální views
+                    Ruční základ (manualViews)
                     <input
                       value={editViewsCount}
                       onChange={(e) => setEditViewsCount(e.target.value)}

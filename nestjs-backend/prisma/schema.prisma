@@ -304,6 +304,7 @@ model User {
   postFavorites Favorite[]
   postComments  Comment[]
   likes        PropertyLike[]
+  listingViews ListingView[]
   comments     PropertyComment[]
 
   following    Follow[]   @relation("UserFollowing")
@@ -842,6 +843,18 @@ model Post {
   favorites   Favorite[]
   comments    Comment[]
   whatsappMessages WhatsAppMessage[]
+  /// Reálné like (sync s PostReaction LIKE).
+  realLikes         Int      @default(0)
+  /// Ručně nastavené like.
+  manualLikes       Int      @default(0)
+  /// Autopilot like.
+  autopilotLikes    Int      @default(0)
+  likesAutopilotEnabled Boolean @default(true)
+  likesAutopilotRatePerHour Int?
+  likesAutopilotMaxTotal Int?
+  lastAutopilotLikesAt DateTime?
+  autopilotLikesDayKey String @default("")
+  autopilotLikesAddedToday Int @default(0)
   createdAt   DateTime @default(now())
 
   @@index([userId])
@@ -849,6 +862,66 @@ model Post {
   @@index([source, createdAt])
   @@index([latitude, longitude])
   @@index([soundTrackId])
+}
+
+enum ListingViewSource {
+  SHORTS
+  CLASSIC
+  DETAIL
+}
+
+model ListingView {
+  id         String            @id @default(cuid())
+  listingId  String
+  userId     String?
+  visitorId  String?
+  source     ListingViewSource
+  createdAt  DateTime          @default(now())
+
+  listing Property @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([listingId, userId, createdAt])
+  @@index([listingId, visitorId, createdAt])
+  @@index([createdAt])
+}
+
+/// Globální nastavení autopilota zobrazení a like u příspěvků (singleton).
+model StatisticsSettings {
+  id String @id @default("default")
+
+  shortsViewsAutopilotEnabled Boolean @default(true)
+  shortsViewsRatePerHour Int @default(10)
+  shortsViewsRateMin Int @default(8)
+  shortsViewsRateMax Int @default(13)
+  shortsViewsIntervalMinutes Int @default(60)
+  shortsViewsMaxPerDay Int @default(240)
+  shortsViewsMaxTotal Int @default(10000)
+
+  classicViewsAutopilotEnabled Boolean @default(true)
+  classicViewsRatePerHour Int @default(10)
+  classicViewsRateMin Int @default(8)
+  classicViewsRateMax Int @default(13)
+  classicViewsIntervalMinutes Int @default(60)
+  classicViewsMaxPerDay Int @default(240)
+  classicViewsMaxTotal Int @default(10000)
+
+  newListingBoostHours Int @default(24)
+  newListingBoostMultiplier Float @default(1.5)
+
+  postsLikesAutopilotEnabled Boolean @default(true)
+  postsLikesRatePerHour Int @default(5)
+  postsLikesRateMin Int @default(3)
+  postsLikesRateMax Int @default(8)
+  postsLikesIntervalMinutes Int @default(60)
+  postsLikesMaxPerDay Int @default(30)
+  postsLikesMaxTotal Int @default(500)
+  postsLikesAfter24hMax Int @default(30)
+
+  viewDedupHours Int @default(24)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model PostReaction {
@@ -1006,9 +1079,26 @@ model Property {
   listingType     String   @default("CLASSIC")
   /// Tip od tipaře ve Shorts feedu (kontakt jen po odemčení kreditem).
   isTiparTip      Boolean  @default(false)
-  /// Reálný počet zhlédnutí shorts/video.
+  /// Celkový počet zobrazení (real + manual + autopilot) — denormalizováno pro zpětnou kompatibilitu.
   viewsCount      Int      @default(0)
-  /// Admin autopilot views.
+  /// Reálná zhlédnutí / zobrazení od návštěvníků.
+  realViews       Int      @default(0)
+  /// Ručně nastavený základ (dříve viewsCount).
+  manualViews     Int      @default(0)
+  /// Autopilotem přidaná zobrazení.
+  autopilotViews  Int      @default(0)
+  /// Autopilot zobrazení zapnutý u tohoto inzerátu.
+  viewsAutopilotEnabled Boolean @default(true)
+  viewsAutopilotRatePerHour Int?
+  viewsAutopilotRateMin Int?
+  viewsAutopilotRateMax Int?
+  viewsAutopilotIntervalMinutes Int?
+  viewsAutopilotMaxPerDay Int?
+  viewsAutopilotMaxTotal Int?
+  lastAutopilotViewsAt DateTime?
+  autopilotViewsDayKey String @default("")
+  autopilotViewsAddedToday Int @default(0)
+  /// Legacy autopilot (mapováno na viewsAutopilot* v aplikaci).
   autoViewsEnabled Boolean @default(false)
   autoViewsIncrement Int   @default(100)
   autoViewsIntervalMinutes Int @default(1)
@@ -1075,6 +1165,7 @@ model Property {
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   likes     PropertyLike[]
+  listingViews ListingView[]
   comments  PropertyComment[]
   media     PropertyMedia[]
   conversations PropertyConversation[]

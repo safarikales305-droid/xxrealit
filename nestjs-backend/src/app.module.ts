@@ -50,6 +50,7 @@ import { PortalPresentationModule } from './modules/portal-presentation/portal-p
 import { SupportTicketsModule } from './modules/support-tickets/support-tickets.module';
 import { TiparPayoutModule } from './modules/tipar-payout/tipar-payout.module';
 import { VerificationFilesModule } from './modules/verification-files/verification-files.module';
+import { StatisticsModule } from './modules/statistics/statistics.module';
 
 @Module({
   imports: [
@@ -106,6 +107,7 @@ import { VerificationFilesModule } from './modules/verification-files/verificati
     SupportTicketsModule,
     TiparPayoutModule,
     VerificationFilesModule,
+    StatisticsModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

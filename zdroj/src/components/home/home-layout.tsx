@@ -1227,6 +1227,7 @@ export function HomeLayout({
                             disliked={Boolean(dislikedByPostId[pid])}
                             likeCount={
                               likeCountByPostId[pid] ??
+                              Number((p as { likeCount?: number }).likeCount) ??
                               Number((p.reactions ?? []).filter((r) => r.type === 'LIKE').length)
                             }
                             dislikeCount={dislikeCountByPostId[pid] ?? 0}

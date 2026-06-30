@@ -4,11 +4,10 @@ import { ListingContactUnlockModule } from '../properties/listing-contact-unlock
 import { PostsModule } from '../posts/posts.module';
 import { FeedController } from './feed.controller';
 import { FeedService } from './feed.service';
-import { ShortsViewsAutopilotService } from './shorts-views-autopilot.service';
 
 @Module({
   imports: [AuthModule, PostsModule, ListingContactUnlockModule],
   controllers: [FeedController],
-  providers: [FeedService, ShortsViewsAutopilotService],
+  providers: [FeedService],
 })
 export class FeedModule {}

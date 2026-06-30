@@ -66,6 +66,23 @@ export const EMAIL_TEMPLATE_VARIABLES: Record<string, string[]> = {
   worker_profile_completion_reminder: ['workerName', 'portalName', 'profileUrl', 'ctaUrl'],
   worker_cooperation_cancel_confirmation: ['workerName', 'portalName', 'loginUrl'],
   worker_recruitment_target: ['workerName', 'targetName', 'portalName', 'workerPanelUrl', 'ctaUrl'],
+  post_like_notification: [
+    'authorName',
+    'actorName',
+    'postPreview',
+    'postUrl',
+    'ctaUrl',
+    'portalName',
+  ],
+  post_comment_notification: [
+    'authorName',
+    'actorName',
+    'postPreview',
+    'commentPreview',
+    'postUrl',
+    'ctaUrl',
+    'portalName',
+  ],
 };
 
 export const DEFAULT_EMAIL_TEMPLATES: EmailTemplateDefault[] = [
@@ -365,6 +382,28 @@ tým {{portalName}}`,
     textContent:
       'Dobrý den {{workerName}},\n\nmáte nový náborový cíl: {{targetName}}.\n\n{{workerPanelUrl}}',
     variables: EMAIL_TEMPLATE_VARIABLES.worker_recruitment_target,
+  },
+  {
+    key: 'post_like_notification',
+    name: 'Notifikace — like u příspěvku',
+    category: 'marketing',
+    subject: '{{actorName}} reagoval na váš příspěvek na {{portalName}}',
+    htmlContent:
+      '<p>Dobrý den {{authorName}},</p><p><strong>{{actorName}}</strong> dal like vašemu příspěvku:</p><p><em>{{postPreview}}</em></p><p><a href="{{postUrl}}" style="display:inline-block;background:#ff5a00;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:700">Zobrazit příspěvek</a></p>',
+    textContent:
+      'Dobrý den {{authorName}},\n\n{{actorName}} dal like vašemu příspěvku:\n{{postPreview}}\n\n{{postUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.post_like_notification,
+  },
+  {
+    key: 'post_comment_notification',
+    name: 'Notifikace — komentář u příspěvku',
+    category: 'marketing',
+    subject: '{{actorName}} okomentoval váš příspěvek na {{portalName}}',
+    htmlContent:
+      '<p>Dobrý den {{authorName}},</p><p><strong>{{actorName}}</strong> přidal komentář k vašemu příspěvku:</p><p><em>{{postPreview}}</em></p><p>Komentář: {{commentPreview}}</p><p><a href="{{postUrl}}" style="display:inline-block;background:#ff5a00;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:700">Zobrazit příspěvek</a></p>',
+    textContent:
+      'Dobrý den {{authorName}},\n\n{{actorName}} okomentoval váš příspěvek:\n{{postPreview}}\n\nKomentář: {{commentPreview}}\n\n{{postUrl}}',
+    variables: EMAIL_TEMPLATE_VARIABLES.post_comment_notification,
   },
 ];
 

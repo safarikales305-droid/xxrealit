@@ -21,6 +21,7 @@ import { isTipListing } from '@/lib/is-tip-listing';
 import { resolveShortsPosterUrl } from '@/lib/feed/shorts-poster-url';
 import { parseApiListingPrice } from '@/types/property';
 import { logListingDetailNavigation } from '@/lib/listing-detail-debug';
+import { recordListingView } from '@/lib/listing-view-tracker';
 
 type VideoCardProps = {
   video: ShortVideo;
@@ -214,6 +215,11 @@ export default function VideoCard({
 
     return () => observer.disconnect();
   }, [muted, video.id, error, desktopPreviewUrl, isAuthenticated, onGuestVideoViewed]);
+
+  useEffect(() => {
+    if (!isActive || error || desktopPreviewUrl) return;
+    void recordListingView(video.id, 'SHORTS', { accessToken: apiAccessToken });
+  }, [isActive, video.id, error, desktopPreviewUrl, apiAccessToken]);
 
   if (!src) {
     return (

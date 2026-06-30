@@ -4,8 +4,10 @@ import {
   isUserPublicProfileEnabled,
   POST_PUBLISH_REQUIRES_PUBLIC_PROFILE_MSG,
 } from '../../common/user-public-profile.util';
+import { postTotalLikes } from '../../common/listing-statistics.util';
 import { PrismaService } from '../../database/prisma.service';
 import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
+import { EmailsService } from '../emails/emails.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { PostWhatsAppNotifyService } from '../whatsapp/post-whatsapp-notify.service';
 import { WebPushService } from '../web-push/web-push.service';
@@ -94,6 +96,7 @@ export class PostsService {
     private readonly postWhatsAppNotify: PostWhatsAppNotifyService,
     private readonly webPush: WebPushService,
     private readonly socialPublishEnqueue: SocialPublishEnqueueService,
+    private readonly emails: EmailsService,
   ) {}
 
   private async assertCanPublishPublicPost(userId: string): Promise<void> {
@@ -123,6 +126,119 @@ export class PostsService {
       );
     });
     this.socialPublishEnqueue.firePostCreated(postId);
+  }
+
+  private postPreviewText(post: {
+    title?: string | null;
+    description?: string | null;
+    content?: string | null;
+    previewTitle?: string | null;
+  }): string {
+    const text =
+      (post.previewTitle ?? '').trim() ||
+      (post.title ?? '').trim() ||
+      (post.description ?? '').trim() ||
+      (post.content ?? '').trim();
+    return text || 'Váš příspěvek';
+  }
+
+  private firePostLikeEmail(postId: string, actorUserId: string) {
+    void (async () => {
+      const post = await this.prisma.post.findUnique({
+        where: { id: postId },
+        include: {
+          user: { select: { id: true, email: true, name: true } },
+        },
+      });
+      if (!post?.user?.email?.trim()) return;
+      if (post.userId === actorUserId) return;
+
+      const actor = await this.prisma.user.findUnique({
+        where: { id: actorUserId },
+        select: { name: true },
+      });
+
+      await this.emails.sendPostLikeNotificationEmail({
+        to: post.user.email,
+        authorName: post.user.name?.trim() || 'Uživateli',
+        actorName: actor?.name?.trim() || 'Někdo',
+        postPreview: this.postPreviewText(post),
+        postId,
+        authorUserId: post.userId,
+        actorUserId,
+      });
+    })().catch((err) => {
+      this.log.warn(
+        `[post-like-email] failed post=${postId}: ${err instanceof Error ? err.message : err}`,
+      );
+    });
+  }
+
+  private firePostCommentEmail(
+    postId: string,
+    actorUserId: string,
+    commentPreview: string,
+    commentId: string,
+  ) {
+    void (async () => {
+      const post = await this.prisma.post.findUnique({
+        where: { id: postId },
+        include: {
+          user: { select: { id: true, email: true, name: true } },
+        },
+      });
+      if (!post?.user?.email?.trim()) return;
+      if (post.userId === actorUserId) return;
+
+      const actor = await this.prisma.user.findUnique({
+        where: { id: actorUserId },
+        select: { name: true },
+      });
+
+      await this.emails.sendPostCommentNotificationEmail({
+        to: post.user.email,
+        authorName: post.user.name?.trim() || 'Uživateli',
+        actorName: actor?.name?.trim() || 'Někdo',
+        postPreview: this.postPreviewText(post),
+        commentPreview,
+        postId,
+        authorUserId: post.userId,
+        actorUserId,
+        commentId,
+      });
+    })().catch((err) => {
+      this.log.warn(
+        `[post-comment-email] failed post=${postId}: ${err instanceof Error ? err.message : err}`,
+      );
+    });
+  }
+
+  private async syncPostRealLikes(postId: string): Promise<number> {
+    const count = await this.prisma.postReaction.count({
+      where: { postId, type: ReactionType.LIKE },
+    });
+    await this.prisma.post.update({
+      where: { id: postId },
+      data: { realLikes: count },
+    });
+    return count;
+  }
+
+  private async postLikeCountResponse(postId: string, userId: string) {
+    const realCount = await this.syncPostRealLikes(postId);
+    const post = await this.prisma.post.findUnique({
+      where: { id: postId },
+      select: { manualLikes: true, autopilotLikes: true },
+    });
+    const likeCount = postTotalLikes(post ?? {}, realCount);
+    const dislikeCount = await this.prisma.postReaction.count({
+      where: { postId, type: ReactionType.DISLIKE },
+    });
+    const mine = await this.prisma.postReaction.findUnique({
+      where: { userId_postId: { userId, postId } },
+      select: { type: true },
+    });
+    return { likeCount, dislikeCount, reaction: mine?.type ?? null };
   }
 
   async deletePost(id: string) {
@@ -191,8 +307,8 @@ export class PostsService {
     return { liked: true, likeCount };
   }
 
-  addComment(postId: string, userId: string, content: string) {
-    return this.prisma.comment.create({
+  async addComment(postId: string, userId: string, content: string) {
+    const created = await this.prisma.comment.create({
       data: {
         content,
         userId,
@@ -208,6 +324,8 @@ export class PostsService {
         },
       },
     });
+    this.firePostCommentEmail(postId, userId, content.trim().slice(0, 300), created.id);
+    return created;
   }
 
   getComments(postId: string) {
@@ -240,6 +358,8 @@ export class PostsService {
         userId,
         content: text || null,
         description: text || '',
+        lastAutopilotLikesAt: new Date(),
+        likesAutopilotEnabled: true,
         ...preview,
       },
       include: {
@@ -283,6 +403,8 @@ export class PostsService {
         previewImage: opts.previewImage?.trim() || null,
         soundTrackId: opts.soundTrackId?.trim() || null,
         userId,
+        lastAutopilotLikesAt: new Date(),
+        likesAutopilotEnabled: true,
         media: {
           create: [
             {
@@ -349,6 +471,8 @@ export class PostsService {
         previewImage: input.previewImage?.trim() || null,
         soundTrackId: input.soundTrackId?.trim() || null,
         userId,
+        lastAutopilotLikesAt: new Date(),
+        likesAutopilotEnabled: true,
         media: {
           create: input.media,
         },
@@ -490,10 +614,16 @@ export class PostsService {
         .filter((row) => postHasFeedVisibility(row)),
     );
 
-    const items = deduped.map((row) => ({
-      ...row,
-      isFollowedAuthor: followedSet.has(row.userId),
-    }));
+    const items = deduped.map((row) => {
+      const r = row as (typeof rows)[number];
+      const realLikes = r.reactions.filter((x) => x.type === ReactionType.LIKE).length;
+      return {
+        ...r,
+        isFollowedAuthor: followedSet.has(r.userId),
+        likeCount: postTotalLikes(r, realLikes),
+        dislikeCount: r.reactions.filter((x) => x.type === ReactionType.DISLIKE).length,
+      };
+    });
 
     const userLat = toNumberOrNull(lat);
     const userLng = toNumberOrNull(lng);
@@ -525,6 +655,7 @@ export class PostsService {
     const existing = await this.prisma.postReaction.findUnique({
       where: { userId_postId: { userId, postId } },
     });
+    let addedLike = false;
     if (existing && existing.type === type) {
       await this.prisma.postReaction.delete({ where: { id: existing.id } });
     } else if (existing) {
@@ -532,19 +663,16 @@ export class PostsService {
         where: { id: existing.id },
         data: { type },
       });
+      addedLike = type === ReactionType.LIKE;
     } else {
       await this.prisma.postReaction.create({
         data: { postId, userId, type },
       });
+      addedLike = type === ReactionType.LIKE;
     }
-    const [likeCount, dislikeCount] = await Promise.all([
-      this.prisma.postReaction.count({ where: { postId, type: ReactionType.LIKE } }),
-      this.prisma.postReaction.count({ where: { postId, type: ReactionType.DISLIKE } }),
-    ]);
-    const mine = await this.prisma.postReaction.findUnique({
-      where: { userId_postId: { userId, postId } },
-      select: { type: true },
-    });
-    return { likeCount, dislikeCount, reaction: mine?.type ?? null };
+    if (addedLike) {
+      this.firePostLikeEmail(postId, userId);
+    }
+    return this.postLikeCountResponse(postId, userId);
   }
 }
