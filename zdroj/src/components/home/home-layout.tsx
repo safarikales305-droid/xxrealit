@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { ComponentType } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Briefcase, Building2, Globe, Home, Landmark, TrendingUp } from 'lucide-react';
+import { Briefcase, Building2, Globe, Home, Landmark, TrendingUp, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
 import { loadPropertyFeedItems } from '@/lib/load-feed';
@@ -72,6 +72,7 @@ const COMMUNITY_CATEGORIES = [
     queryValue: 'financial-advisors',
   },
   { key: 'INVESTORI', label: 'Investoři', icon: TrendingUp, queryValue: 'investors' },
+  { key: 'PRACOVNICI_PORTALU', label: 'Pracovníci portálu', icon: Users, queryValue: 'portal-workers' },
 ] as const;
 const RADIUS_OPTIONS_KM = [10, 20, 30, 50, 100] as const;
 type CommunityCategory = (typeof COMMUNITY_CATEGORIES)[number]['key'];
@@ -88,6 +89,8 @@ function parseCategoryFromQuery(raw: string | null): CommunityCategory {
       return 'FINANCNI_PORADCI';
     case 'investors':
       return 'INVESTORI';
+    case 'portal-workers':
+      return 'PRACOVNICI_PORTALU';
     case 'agents':
       return 'MAKLERI';
     default:
@@ -252,7 +255,10 @@ export function HomeLayout({
   const [sidebarAdImageBroken, setSidebarAdImageBroken] = useState(false);
   const activeCategoryLabel =
     COMMUNITY_CATEGORIES.find((x) => x.key === activeCategory)?.label ?? 'Zobrazit vše';
-  const createPostCategory = activeCategory === 'VSE' ? 'MAKLERI' : activeCategory;
+  const createPostCategory =
+    activeCategory === 'VSE' || activeCategory === 'PRACOVNICI_PORTALU'
+      ? 'MAKLERI'
+      : activeCategory;
 
   const storyCards = useMemo(() => stories.slice(0, 20), [stories]);
   const activeStory = storyCards[storyViewerIndex] ?? null;

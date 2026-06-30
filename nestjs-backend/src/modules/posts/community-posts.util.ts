@@ -1,6 +1,10 @@
 import { PortalWorkerStatus, PostCategory, PostSource, UserRole } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
-import { PROFESSIONAL_PUBLIC_ROLES_LIST } from '../../common/public-visibility.util';
+import {
+  isCommunityPostAuthorVisible,
+  PROFESSIONAL_PUBLIC_ROLES_LIST,
+  type PublicVisibilityUser,
+} from '../../common/public-visibility.util';
 
 export const PROFESSIONAL_POST_ROLES = [
   'AGENT',
@@ -43,6 +47,18 @@ export function postHasFeedVisibility(row: CommunityPostRow): boolean {
   if (text) return true;
   if (row.source === PostSource.FACEBOOK || row.isFacebookPagePost) return true;
   return false;
+}
+
+/** Role autora povolené ve veřejném feedu příspěvků (stejný seznam jako katalog profesionálů). */
+export function communityPostAuthorRoles(): readonly UserRole[] {
+  return PROFESSIONAL_PUBLIC_ROLES_LIST;
+}
+
+export function isCommunityPostAuthorVisibleUser(
+  user: PublicVisibilityUser | null | undefined,
+): boolean {
+  if (!user) return false;
+  return isCommunityPostAuthorVisible(user);
 }
 
 export function communityPostAuthorUserWhere(): Prisma.UserWhereInput {

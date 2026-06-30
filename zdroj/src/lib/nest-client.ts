@@ -6743,14 +6743,17 @@ export async function nestFetchPostDetail(postId: string): Promise<ListingPost |
   return (await res.json()) as ListingPost;
 }
 
+export type CommunityPostsCategory =
+  | 'VSE'
+  | 'MAKLERI'
+  | 'STAVEBNI_FIRMY'
+  | 'REALITNI_KANCELARE'
+  | 'FINANCNI_PORADCI'
+  | 'INVESTORI'
+  | 'PRACOVNICI_PORTALU';
+
 export async function nestFetchCommunityPosts(
-  category?:
-    | 'VSE'
-    | 'MAKLERI'
-    | 'STAVEBNI_FIRMY'
-    | 'REALITNI_KANCELARE'
-    | 'FINANCNI_PORADCI'
-    | 'INVESTORI',
+  category?: CommunityPostsCategory,
   options?: {
     radiusKm?: number;
     lat?: number;
@@ -6763,7 +6766,11 @@ export async function nestFetchCommunityPosts(
   const empty: CommunityPostsFeedResult = { items: [], page: 0, limit: 30, hasMore: false };
   if (!API_BASE_URL) return empty;
   const params = new URLSearchParams();
-  if (category) params.set('category', category);
+  if (category === 'PRACOVNICI_PORTALU') {
+    params.set('authorRole', 'PORTAL_WORKER');
+  } else if (category && category !== 'VSE') {
+    params.set('category', category);
+  }
   if (Number.isFinite(options?.radiusKm)) params.set('radiusKm', String(options?.radiusKm));
   if (Number.isFinite(options?.lat)) params.set('lat', String(options?.lat));
   if (Number.isFinite(options?.lng)) params.set('lng', String(options?.lng));

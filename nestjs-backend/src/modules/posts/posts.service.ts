@@ -1,5 +1,11 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { MarketingBonusActionType, PostCategory, Prisma, ReactionType } from '@prisma/client';
+import {
+  MarketingBonusActionType,
+  PostCategory,
+  Prisma,
+  ReactionType,
+  UserRole,
+} from '@prisma/client';
 import {
   POST_PUBLISH_REQUIRES_PUBLIC_PROFILE_MSG,
 } from '../../common/user-public-profile.util';
@@ -17,8 +23,10 @@ import { SocialPublishEnqueueService } from '../social/autopost/social-publish-e
 import { SeoService } from '../seo/seo.service';
 import { SeoIndexQueueService } from '../seo/seo-index-queue.service';
 import {
+  communityPostAuthorRoles,
   communityPostAuthorUserWhere,
   dedupeCommunityPosts,
+  isCommunityPostAuthorVisibleUser,
   isPublicMediaUrl,
   postHasFeedVisibility,
 } from './community-posts.util';
@@ -573,6 +581,7 @@ export class PostsService {
     viewerUserId?: string,
     page = 0,
     limit = 30,
+    authorRole?: UserRole,
   ) {
     const safeLimit = Math.min(100, Math.max(1, Math.trunc(limit) || 30));
     const safePage = Math.max(0, Math.trunc(page) || 0);
@@ -596,6 +605,16 @@ export class PostsService {
       ? Prisma.sql`AND p.category = ${category}::"PostCategory" AND NOT (p.source = 'FACEBOOK'::"PostSource" AND p."professionalProfileId" IS NULL)`
       : Prisma.empty;
 
+    const allowedRoles = communityPostAuthorRoles();
+    const roleInClause = Prisma.join(
+      allowedRoles.map((role) => Prisma.sql`${role}::"UserRole"`),
+    );
+    const authorRoleClause =
+      authorRole != null
+        ? Prisma.sql`AND u.role = ${authorRole}::"UserRole"`
+        : Prisma.empty;
+
+    const fetchBatchSize = Math.min(100, safeLimit * 3);
     const idRows = await this.prisma.$queryRaw<Array<{ id: string }>>`
       SELECT p.id
       FROM "Post" p
@@ -603,13 +622,14 @@ export class PostsService {
       WHERE u."accountLimited" = false
         AND (u.role <> 'PORTAL_WORKER' OR u."portalWorkerStatus" = 'APPROVED')
         AND u."publicProfile" = true
-        AND u.role IN ('AGENT', 'AGENCY', 'COMPANY', 'CRAFTSMAN', 'FINANCIAL_ADVISOR', 'INVESTOR', 'PORTAL_WORKER')
+        AND u.role IN (${roleInClause})
         AND p.type <> 'short'
         ${categoryClause}
+        ${authorRoleClause}
       ORDER BY
         ${priorityOrder} ASC,
         COALESCE(p."publishedAt", p."createdAt") DESC
-      LIMIT ${safeLimit}
+      LIMIT ${fetchBatchSize}
       OFFSET ${offset}
     `;
 
@@ -632,6 +652,9 @@ export class PostsService {
             name: true,
             avatar: true,
             role: true,
+            publicProfile: true,
+            accountLimited: true,
+            portalWorkerStatus: true,
           },
         },
       },
@@ -642,12 +665,13 @@ export class PostsService {
       orderedIds
         .map((id) => rowById.get(id))
         .filter((row): row is NonNullable<typeof row> => Boolean(row))
+        .filter((row) => isCommunityPostAuthorVisibleUser(row.user))
         .map((row) => ({
           ...row,
           media: row.media.filter((m) => isPublicMediaUrl(m.url)),
         }))
         .filter((row) => postHasFeedVisibility(row)),
-    );
+    ).slice(0, safeLimit);
 
     const items = deduped.map((row) => {
       const r = row as (typeof rows)[number];
@@ -682,7 +706,7 @@ export class PostsService {
       items: filtered,
       page: safePage,
       limit: safeLimit,
-      hasMore: orderedIds.length >= safeLimit,
+      hasMore: orderedIds.length >= fetchBatchSize,
     };
   }
 

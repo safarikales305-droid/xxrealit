@@ -16,7 +16,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { assertUserCanCreateProfessionalContent } from '../auth/assert-professional-content';
-import { PostCategory, ReactionType } from '@prisma/client';
+import { PostCategory, ReactionType, UserRole } from '@prisma/client';
 import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -61,6 +61,7 @@ export class PostsController {
   list(
     @CurrentUser() viewer: AuthUser | null,
     @Query('category') category?: string,
+    @Query('authorRole') authorRoleRaw?: string,
     @Query('radiusKm') radiusKm?: string,
     @Query('lat') lat?: string,
     @Query('lng') lng?: string,
@@ -80,6 +81,9 @@ export class PostsController {
         ? undefined
         : (value as PostCategory)
       : undefined);
+    const authorRoleValue = (authorRoleRaw ?? '').trim().toUpperCase();
+    const authorRole =
+      authorRoleValue === 'PORTAL_WORKER' ? UserRole.PORTAL_WORKER : undefined;
     const radius = Number(radiusKm);
     const userLat = Number(lat);
     const userLng = Number(lng);
@@ -93,6 +97,7 @@ export class PostsController {
       viewer?.id,
       Number.isFinite(pageNum) ? pageNum : 0,
       Number.isFinite(limitNum) ? limitNum : 30,
+      authorRole,
     );
   }
 
