@@ -70,6 +70,8 @@ export function verifiedBadgeLabelForRole(role: string | null | undefined): stri
       return 'Ověřený investor';
     case 'CRAFTSMAN':
       return 'Ověřený řemeslník';
+    case 'PORTAL_WORKER':
+      return 'Pracovník portálu';
     default:
       return 'Ověřený profesionál';
   }

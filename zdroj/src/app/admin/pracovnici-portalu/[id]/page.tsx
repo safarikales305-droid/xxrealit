@@ -41,6 +41,8 @@ export default function AdminPortalWorkerDetailPage() {
   const [whatsappVerified, setWhatsappVerified] = useState(false);
   const [adminNotes, setAdminNotes] = useState('');
   const [publicProfile, setPublicProfile] = useState(false);
+  const [canPublishPosts, setCanPublishPosts] = useState(false);
+  const [showInProfessionals, setShowInProfessionals] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -61,6 +63,8 @@ export default function AdminPortalWorkerDetailPage() {
     setWhatsappVerified(w.whatsappVerified);
     setAdminNotes(w.profile.adminNotes ?? '');
     setPublicProfile(Boolean(w.publicProfile));
+    setCanPublishPosts(Boolean(w.canPublishPosts));
+    setShowInProfessionals(Boolean(w.showInProfessionals));
   }, []);
 
   const load = useCallback(async () => {
@@ -208,6 +212,8 @@ export default function AdminPortalWorkerDetailPage() {
                     return;
                   }
                   setPublicProfile(true);
+                  setCanPublishPosts(true);
+                  setShowInProfessionals(true);
                   setMsg('Veřejný profil zapnut.');
                 });
               }}
@@ -230,11 +236,73 @@ export default function AdminPortalWorkerDetailPage() {
                     return;
                   }
                   setPublicProfile(false);
+                  setCanPublishPosts(false);
+                  setShowInProfessionals(false);
                   setMsg('Veřejný profil vypnut.');
                 });
               }}
             />
             vypnuto
+          </label>
+        </div>
+        {publicProfile ? (
+          <p className="mt-2 text-xs text-zinc-500">
+            Veřejná URL:{' '}
+            <Link href={`/profile/${worker.id}`} className="font-semibold text-[#e85d00] hover:underline">
+              /profile/{worker.id}
+            </Link>
+          </p>
+        ) : null}
+      </section>
+
+      <section className="rounded-xl border border-zinc-200 bg-white p-5">
+        <h2 className="font-semibold">Viditelnost na portálu</h2>
+        <div className="mt-3 space-y-3 text-sm">
+          <label className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              checked={canPublishPosts}
+              disabled={busy || !publicProfile}
+              onChange={(e) => {
+                if (!apiAccessToken || !userId) return;
+                const next = e.target.checked;
+                setBusy(true);
+                void nestAdminUpdateWorkerProfile(apiAccessToken, userId, { canPublishPosts: next }).then((r) => {
+                  setBusy(false);
+                  if (!r.ok) {
+                    setErr(r.error ?? 'Změna selhala');
+                    return;
+                  }
+                  if (r.worker) applyWorker(r.worker);
+                  setMsg(next ? 'Publikování příspěvků povoleno.' : 'Publikování příspěvků zakázáno.');
+                });
+              }}
+              className="mt-0.5"
+            />
+            <span>Povolit publikování veřejných příspěvků ve feedu Příspěvky</span>
+          </label>
+          <label className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              checked={showInProfessionals}
+              disabled={busy || !publicProfile}
+              onChange={(e) => {
+                if (!apiAccessToken || !userId) return;
+                const next = e.target.checked;
+                setBusy(true);
+                void nestAdminUpdateWorkerProfile(apiAccessToken, userId, { showInProfessionals: next }).then((r) => {
+                  setBusy(false);
+                  if (!r.ok) {
+                    setErr(r.error ?? 'Změna selhala');
+                    return;
+                  }
+                  if (r.worker) applyWorker(r.worker);
+                  setMsg(next ? 'Zobrazení mezi profesionály zapnuto.' : 'Zobrazení mezi profesionály vypnuto.');
+                });
+              }}
+              className="mt-0.5"
+            />
+            <span>Zobrazovat v sekci Profesionálové / profily</span>
           </label>
         </div>
       </section>

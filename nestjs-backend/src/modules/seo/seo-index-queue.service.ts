@@ -3,6 +3,7 @@ import { SeoIndexContentType, SeoIndexStatus } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { getSiteOriginForOg } from '../properties/property-og-media.util';
 import { GoogleIndexingService } from './google-indexing.service';
+import { isCommunityPostAuthorVisible } from '../../common/public-visibility.util';
 import {
   buildListingPublicSeoUrl,
   buildPostPublicUrl,
@@ -27,10 +28,18 @@ export class SeoIndexQueueService {
       where: { id: postId },
       include: {
         media: { orderBy: { order: 'asc' } },
-        user: { select: { publicProfile: true } },
+        user: {
+          select: {
+            role: true,
+            publicProfile: true,
+            canPublishPosts: true,
+            accountLimited: true,
+            portalWorkerStatus: true,
+          },
+        },
       },
     });
-    if (!post || !post.user?.publicProfile || !post.slug) return null;
+    if (!post || !isCommunityPostAuthorVisible(post.user) || !post.slug) return null;
 
     const hasVideo = postHasVideo(post);
     const url = buildPostPublicUrl(this.origin(), post);

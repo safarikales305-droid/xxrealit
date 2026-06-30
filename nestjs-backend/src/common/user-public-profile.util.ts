@@ -15,6 +15,8 @@ export function userPublicProfileWriteData(isPublic: boolean) {
     publicProfile: isPublic,
     isPublicBrokerProfile: isPublic,
     publicProfessionalProfile: isPublic,
+    canPublishPosts: isPublic,
+    showInProfessionals: isPublic,
   };
 }
 

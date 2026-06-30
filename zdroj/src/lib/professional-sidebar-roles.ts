@@ -6,6 +6,7 @@ export const PROFESSIONAL_SIDEBAR_ROLES = [
   'CRAFTSMAN',
   'FINANCIAL_ADVISOR',
   'INVESTOR',
+  'PORTAL_WORKER',
 ] as const;
 
 export type ProfessionalSidebarRole = (typeof PROFESSIONAL_SIDEBAR_ROLES)[number];
@@ -28,6 +29,8 @@ export function professionalRoleLabel(role: string | null | undefined): string {
       return 'Finanční poradce';
     case 'INVESTOR':
       return 'Investor';
+    case 'PORTAL_WORKER':
+      return 'Pracovník portálu';
     default:
       return 'Profesionál';
   }

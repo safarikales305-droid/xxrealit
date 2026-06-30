@@ -341,6 +341,10 @@ model User {
   isPublicBrokerProfile Boolean  @default(false)
   /// Jednotný přepínač veřejného profilu (příspěvky, feed, nastavení).
   publicProfile         Boolean  @default(false)
+  /// Povolit publikování veřejných příspěvků ve feedu.
+  canPublishPosts       Boolean  @default(false)
+  /// Zobrazit v katalogu Profesionálové / profily (nezávisle na URL profilu).
+  showInProfessionals   Boolean  @default(false)
   /// Zobrazit sekci hodnocení a přijímat nové recenze.
   allowBrokerReviews    Boolean  @default(false)
   /// Jedinečný slug pro URL /makler/[slug].

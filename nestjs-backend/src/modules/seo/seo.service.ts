@@ -20,6 +20,8 @@ import {
   postSeoPath,
   listingSeoPath,
 } from './post-seo.util';
+import { communityPostAuthorUserWhere } from '../posts/community-posts.util';
+import { isCommunityPostAuthorVisible } from '../../common/public-visibility.util';
 
 export type SitemapEntry = {
   loc: string;
@@ -114,7 +116,7 @@ export class SeoService {
         where: {
           slug: { not: null },
           type: { not: 'short' },
-          user: { publicProfile: true },
+          user: communityPostAuthorUserWhere(),
         },
         select: {
           id: true,
@@ -327,7 +329,7 @@ export class SeoService {
 
   async findPostBySlug(slug: string) {
     const post = await this.prisma.post.findFirst({
-      where: { slug, user: { publicProfile: true } },
+      where: { slug, user: communityPostAuthorUserWhere() },
       select: { id: true, slug: true, videoUrl: true, media: { select: { type: true } } },
     });
     if (!post?.slug) throw new NotFoundException('Příspěvek nenalezen.');
@@ -344,17 +346,35 @@ export class SeoService {
       where: { id: postId },
       include: {
         media: { orderBy: { order: 'asc' } },
-        user: { select: { name: true, publicProfile: true } },
+        user: {
+          select: {
+            name: true,
+            role: true,
+            publicProfile: true,
+            canPublishPosts: true,
+            accountLimited: true,
+            portalWorkerStatus: true,
+          },
+        },
       },
     });
-    if (!post || !post.user?.publicProfile) throw new NotFoundException('Příspěvek není veřejný.');
+    if (!post || !isCommunityPostAuthorVisible(post.user)) throw new NotFoundException('Příspěvek není veřejný.');
     if (!post.slug) {
       await this.ensurePostSeoFields(postId);
       post = await this.prisma.post.findUnique({
         where: { id: postId },
         include: {
           media: { orderBy: { order: 'asc' } },
-          user: { select: { name: true, publicProfile: true } },
+          user: {
+          select: {
+            name: true,
+            role: true,
+            publicProfile: true,
+            canPublishPosts: true,
+            accountLimited: true,
+            portalWorkerStatus: true,
+          },
+        },
         },
       });
     }
@@ -404,10 +424,19 @@ export class SeoService {
       where: { id: postId },
       include: {
         media: { select: { type: true } },
-        user: { select: { name: true, publicProfile: true } },
+        user: {
+          select: {
+            name: true,
+            role: true,
+            publicProfile: true,
+            canPublishPosts: true,
+            accountLimited: true,
+            portalWorkerStatus: true,
+          },
+        },
       },
     });
-    if (!post || !post.user?.publicProfile) return null;
+    if (!post || !isCommunityPostAuthorVisible(post.user)) return null;
 
     const hasVideo = postHasVideo(post);
     const baseSlug = generatePostSlug(
@@ -444,7 +473,7 @@ export class SeoService {
 
   async backfillPostSlugs(limit = 500) {
     const rows = await this.prisma.post.findMany({
-      where: { slug: null, user: { publicProfile: true } },
+      where: { slug: null, user: communityPostAuthorUserWhere() },
       select: { id: true },
       take: limit,
       orderBy: { createdAt: 'desc' },

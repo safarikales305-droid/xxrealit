@@ -83,6 +83,7 @@ export const PROFESSIONAL_SIDEBAR_ROLES: UserRole[] = [
   UserRole.CRAFTSMAN,
   UserRole.FINANCIAL_ADVISOR,
   UserRole.INVESTOR,
+  UserRole.PORTAL_WORKER,
 ];
 
 export function parseBrokerCatalogRoles(raw?: string): UserRole[] | undefined {
@@ -116,6 +117,8 @@ export function verifiedBadgeLabelForRole(role: UserRole | string | null | undef
       return 'Ověřený investor';
     case UserRole.CRAFTSMAN:
       return 'Ověřený řemeslník';
+    case UserRole.PORTAL_WORKER:
+      return 'Pracovník portálu';
     default:
       return 'Ověřený profesionál';
   }

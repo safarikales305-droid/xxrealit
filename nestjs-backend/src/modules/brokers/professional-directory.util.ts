@@ -1,8 +1,12 @@
 import {
   AgentVerificationStatus,
+  PortalWorkerStatus,
   ProfessionalVerificationStatus,
   UserRole,
 } from '@prisma/client';
+import {
+  shouldShowUserInProfessionals,
+} from '../../common/public-visibility.util';
 import {
   isProfessionalVerified,
   parseBrokerCatalogRoles,
@@ -30,6 +34,11 @@ export type ProfessionalDirectoryUser = {
   professionalVerified: boolean;
   professionalVerificationStatus: ProfessionalVerificationStatus;
   publicProfessionalProfile: boolean;
+  publicProfile?: boolean;
+  canPublishPosts?: boolean;
+  showInProfessionals?: boolean;
+  accountLimited?: boolean;
+  portalWorkerStatus?: PortalWorkerStatus | null;
   isPublicBrokerProfile: boolean;
   brokerProfileSlug: string | null;
   brokerOfficeName: string;
@@ -67,13 +76,14 @@ export function roleProfilePublic(user: ProfessionalDirectoryUser): RoleProfileP
 
 /** isPublic OR publicProfile OR showInDirectory */
 export function isProfessionalDirectoryPublic(user: ProfessionalDirectoryUser): boolean {
-  if (user.publicProfessionalProfile === true) return true;
-  if (user.isPublicBrokerProfile === true) return true;
-  return roleProfilePublic(user)?.isPublic === true;
+  return shouldShowUserInProfessionals(user);
 }
 
-/** isVerified OR verified */
+/** isVerified OR verified — pracovník portálu: schválení přes portalWorkerStatus. */
 export function isProfessionalDirectoryVerified(user: ProfessionalDirectoryUser): boolean {
+  if (user.role === UserRole.PORTAL_WORKER) {
+    return user.portalWorkerStatus === PortalWorkerStatus.APPROVED;
+  }
   const profileUser = user as UserWithProfiles;
   if (
     user.professionalVerified === true &&
@@ -96,9 +106,12 @@ export function professionalDirectoryFilterReasons(
   if (!allowedRoles.has(user.role)) {
     reasons.push(`role_not_allowed:${user.role}`);
   }
+  if (user.accountLimited) {
+    reasons.push('account_limited');
+  }
   if (!isProfessionalDirectoryPublic(user)) {
     reasons.push(
-      'not_public(publicProfessionalProfile,isPublicBrokerProfile,roleProfile.isPublic)',
+      'not_public(publicProfile,showInProfessionals,publicProfessionalProfile,isPublicBrokerProfile)',
     );
   }
   if (!isProfessionalDirectoryVerified(user)) {

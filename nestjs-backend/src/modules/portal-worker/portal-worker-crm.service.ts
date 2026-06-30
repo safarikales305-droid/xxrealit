@@ -118,6 +118,12 @@ export class PortalWorkerCrmService {
       userData.whatsappVerified = dto.whatsappVerified;
       userData.whatsappVerifiedAt = dto.whatsappVerified ? new Date() : null;
     }
+    if (dto.canPublishPosts !== undefined) {
+      userData.canPublishPosts = dto.canPublishPosts;
+    }
+    if (dto.showInProfessionals !== undefined) {
+      userData.showInProfessionals = dto.showInProfessionals;
+    }
 
     if (Object.keys(userData).length > 0) {
       await this.prisma.user.update({ where: { id: workerId }, data: userData });
@@ -194,6 +200,8 @@ export class PortalWorkerCrmService {
       whatsappVerified: user.whatsappVerified,
       portalWorkerStatus: user.portalWorkerStatus,
       publicProfile: Boolean(user.publicProfile),
+      canPublishPosts: Boolean(user.canPublishPosts),
+      showInProfessionals: Boolean(user.showInProfessionals),
       clientCount: user._count.portalWorkerClients,
       clientsPaidTopUp: paidTopUp,
       totalCommissionRecorded: commissionSum._sum.commissionAmount ?? 0,

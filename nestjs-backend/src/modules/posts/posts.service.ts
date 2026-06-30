@@ -1,9 +1,11 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { MarketingBonusActionType, PostCategory, Prisma, ReactionType } from '@prisma/client';
 import {
-  isUserPublicProfileEnabled,
   POST_PUBLISH_REQUIRES_PUBLIC_PROFILE_MSG,
 } from '../../common/user-public-profile.util';
+import {
+  canUserPublishPosts,
+} from '../../common/public-visibility.util';
 import { postTotalLikes } from '../../common/listing-statistics.util';
 import { PrismaService } from '../../database/prisma.service';
 import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
@@ -15,6 +17,7 @@ import { SocialPublishEnqueueService } from '../social/autopost/social-publish-e
 import { SeoService } from '../seo/seo.service';
 import { SeoIndexQueueService } from '../seo/seo-index-queue.service';
 import {
+  communityPostAuthorUserWhere,
   dedupeCommunityPosts,
   isPublicMediaUrl,
   postHasFeedVisibility,
@@ -107,13 +110,17 @@ export class PostsService {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
+        role: true,
         publicProfile: true,
+        canPublishPosts: true,
+        accountLimited: true,
+        portalWorkerStatus: true,
       },
     });
     if (!user) {
       throw new NotFoundException('Uživatel nenalezen.');
     }
-    if (!isUserPublicProfileEnabled(user)) {
+    if (!canUserPublishPosts(user)) {
       throw new ForbiddenException(POST_PUBLISH_REQUIRES_PUBLIC_PROFILE_MSG);
     }
   }
@@ -551,7 +558,7 @@ export class PostsService {
 
   async getPostDetailBySlug(slug: string) {
     const row = await this.prisma.post.findFirst({
-      where: { slug, user: { publicProfile: true } },
+      where: { slug, user: communityPostAuthorUserWhere() },
       select: { id: true },
     });
     if (!row) return null;
@@ -593,7 +600,10 @@ export class PostsService {
       SELECT p.id
       FROM "Post" p
       INNER JOIN "User" u ON u.id = p."userId"
-      WHERE u."publicProfile" = true
+      WHERE u."accountLimited" = false
+        AND (u.role <> 'PORTAL_WORKER' OR u."portalWorkerStatus" = 'APPROVED')
+        AND u."publicProfile" = true
+        AND u."canPublishPosts" = true
         AND p.type <> 'short'
         ${categoryClause}
       ORDER BY

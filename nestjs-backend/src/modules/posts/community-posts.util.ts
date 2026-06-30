@@ -1,4 +1,4 @@
-import { PostCategory, PostSource } from '@prisma/client';
+import { PortalWorkerStatus, PostCategory, PostSource, UserRole } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
 
 export const PROFESSIONAL_POST_ROLES = [
@@ -44,12 +44,22 @@ export function postHasFeedVisibility(row: CommunityPostRow): boolean {
   return false;
 }
 
+export function communityPostAuthorUserWhere(): Prisma.UserWhereInput {
+  return {
+    accountLimited: false,
+    publicProfile: true,
+    canPublishPosts: true,
+    OR: [
+      { role: { not: UserRole.PORTAL_WORKER } },
+      { portalWorkerStatus: PortalWorkerStatus.APPROVED },
+    ],
+  };
+}
+
 export function buildCommunityPostsWhere(category?: PostCategory): Prisma.PostWhereInput {
   return {
     type: { not: 'short' },
-    user: {
-      publicProfile: true,
-    },
+    user: communityPostAuthorUserWhere(),
     ...(category
       ? {
           category,

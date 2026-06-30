@@ -9191,6 +9191,8 @@ export type WorkerDetailAdmin = {
   whatsappVerified: boolean;
   portalWorkerStatus: string;
   publicProfile?: boolean;
+  canPublishPosts?: boolean;
+  showInProfessionals?: boolean;
   clientCount: number;
   clientsPaidTopUp: number;
   totalCommissionRecorded: number;

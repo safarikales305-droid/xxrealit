@@ -235,6 +235,14 @@ export class UpdateWorkerProfileAdminDto {
   @IsOptional()
   @IsBoolean()
   whatsappVerified?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  canPublishPosts?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  showInProfessionals?: boolean;
 }
 
 export class UpdateWorkerSelfSettingsDto {

@@ -13,6 +13,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { AccountUniquenessService } from '../../common/account-uniqueness.service';
 import { normalizeProfileIco } from '../../common/account-uniqueness.constants';
 import { userPublicProfileWriteData } from '../../common/user-public-profile.util';
+import { isUserPublicProfilePageVisible } from '../../common/public-visibility.util';
 import { upgradeHttpToHttpsForApi } from '../../lib/secure-url';
 import { ensureUserRole } from '../auth/user-role.util';
 import { classicPublicListingWhere } from '../properties/property-listing-scope';
@@ -1005,6 +1006,7 @@ export class UsersService {
       UserRole.AGENCY,
       UserRole.FINANCIAL_ADVISOR,
       UserRole.INVESTOR,
+      UserRole.PORTAL_WORKER,
     ]);
     const baseSelect = {
       id: true,
@@ -1017,6 +1019,11 @@ export class UsersService {
       facebookUrl: true,
       role: true,
       isPublicBrokerProfile: true,
+      publicProfile: true,
+      canPublishPosts: true,
+      showInProfessionals: true,
+      accountLimited: true,
+      portalWorkerStatus: true,
       isPromoProfile: true,
       promoProfileActive: true,
       professionalVerified: true,
@@ -1150,12 +1157,8 @@ export class UsersService {
         if (!isActivePublicPromo) {
           throw new NotFoundException('User not found');
         }
-      } else {
-        const portalVisible =
-          Boolean(user.publicProfessionalProfile) || Boolean(user.isPublicBrokerProfile);
-        if (!portalVisible) {
-          throw new NotFoundException('User not found');
-        }
+      } else if (!isUserPublicProfilePageVisible(user)) {
+        throw new NotFoundException('User not found');
       }
     }
 
