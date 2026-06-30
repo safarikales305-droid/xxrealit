@@ -7,6 +7,11 @@ import { TermsConsentCheckbox } from '@/components/auth/TermsConsentCheckbox';
 import { PasswordField } from '@/components/ui/PasswordField';
 import { useAuth } from '@/hooks/use-auth';
 import { getBrowserAuthLoginUrl } from '@/lib/api';
+import {
+  extractTokenFromLoginResponse,
+  persistClientAuthToken,
+} from '@/lib/auth-client';
+import { normalizeAuthUser } from '@/lib/auth-user';
 import { setWindowLocationHref } from '@/lib/navigation-debug';
 import { closeGuestRegistrationGate } from '@/lib/guest-registration-gate-store';
 import { storeFacebookOAuthReturnPath } from '@/lib/facebook-oauth-return';
@@ -29,7 +34,7 @@ type Props = {
 };
 
 export function GuestGateAuthPanel({ mode, returnTo, onClose, onSwitchMode }: Props) {
-  const { refresh } = useAuth();
+  const { refresh, setUser } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -71,18 +76,20 @@ export function GuestGateAuthPanel({ mode, returnTo, onClose, onSwitchMode }: Pr
         token?: string;
         accessToken?: string;
         access_token?: string;
+        user?: Record<string, unknown>;
+        session?: { user?: Record<string, unknown> };
       };
       if (!res.ok) {
         setError(typeof data.error === 'string' ? data.error : 'Přihlášení se nezdařilo.');
         return;
       }
-      const token =
-        data.token?.trim() || data.accessToken?.trim() || data.access_token?.trim() || '';
+      const token = extractTokenFromLoginResponse(data);
       if (token) {
-        const encoded = encodeURIComponent(token);
-        document.cookie = `token=${encoded}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`;
-        document.cookie = `access_token=${encoded}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`;
+        persistClientAuthToken(token);
       }
+      const sessionUser = data.user ?? data.session?.user;
+      const normalized = sessionUser ? normalizeAuthUser(sessionUser) : null;
+      if (normalized) setUser(normalized);
       await finishAuth();
     } catch {
       setError('Nelze se spojit se serverem.');
@@ -117,18 +124,15 @@ export function GuestGateAuthPanel({ mode, returnTo, onClose, onSwitchMode }: Pr
         token?: string;
         accessToken?: string;
         access_token?: string;
+        user?: Record<string, unknown>;
+        session?: { user?: Record<string, unknown> };
       };
       if (loginRes.ok) {
-        const token =
-          loginData.token?.trim() ||
-          loginData.accessToken?.trim() ||
-          loginData.access_token?.trim() ||
-          '';
-        if (token) {
-          const encoded = encodeURIComponent(token);
-          document.cookie = `token=${encoded}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`;
-          document.cookie = `access_token=${encoded}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`;
-        }
+        const token = extractTokenFromLoginResponse(loginData);
+        if (token) persistClientAuthToken(token);
+        const sessionUser = loginData.user ?? loginData.session?.user;
+        const normalized = sessionUser ? normalizeAuthUser(sessionUser) : null;
+        if (normalized) setUser(normalized);
         await finishAuth();
         return;
       }

@@ -9,6 +9,11 @@ import { PortalIntroLink } from '@/components/auth/PortalIntroLink';
 import { PasswordField } from '@/components/ui/PasswordField';
 import { useAuth } from '@/hooks/use-auth';
 import { getBrowserAuthLoginUrl } from '@/lib/api';
+import {
+  extractTokenFromLoginResponse,
+  persistClientAuthToken,
+} from '@/lib/auth-client';
+import { normalizeAuthUser } from '@/lib/auth-user';
 import { setWindowLocationHref } from '@/lib/navigation-debug';
 import { postLoginHomePath } from '@/lib/post-login-routing';
 import { clearPwaInstallDismissed } from '@/lib/pwa-install-storage';
@@ -28,7 +33,7 @@ import {
 
 export function LoginForm() {
   const searchParams = useSearchParams();
-  const { refresh } = useAuth();
+  const { refresh, setUser } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -102,15 +107,20 @@ export function LoginForm() {
         return;
       }
 
-      const token =
-        (typeof data.token === 'string' && data.token) ||
-        (typeof data.accessToken === 'string' && data.accessToken) ||
-        (typeof data.access_token === 'string' && data.access_token) ||
-        '';
+      if (process.env.NODE_ENV === 'development') {
+        // eslint-disable-next-line no-console
+        console.debug('[auth] login success');
+      }
+
+      const token = extractTokenFromLoginResponse(data);
       if (token.length > 0) {
-        const encoded = encodeURIComponent(token);
-        document.cookie = `token=${encoded}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`;
-        document.cookie = `access_token=${encoded}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`;
+        persistClientAuthToken(token);
+      }
+
+      const sessionUser = data.user ?? data.session?.user;
+      const normalized = sessionUser ? normalizeAuthUser(sessionUser) : null;
+      if (normalized) {
+        setUser(normalized);
       }
 
       await refresh();
@@ -123,7 +133,6 @@ export function LoginForm() {
         markJustLoggedIn();
       }
 
-      const sessionUser = data.user ?? data.session?.user;
       const role = sessionUser?.role;
 
       if (role === 'ADMIN') {

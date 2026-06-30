@@ -41,7 +41,8 @@ export async function GET(request: Request) {
       token = authHeader.slice(7).trim();
     }
     if (!token) {
-      token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value ?? null;
+      const jar = await cookies();
+      token = jar.get(ACCESS_TOKEN_COOKIE)?.value ?? jar.get('token')?.value ?? null;
     }
     if (!token) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });

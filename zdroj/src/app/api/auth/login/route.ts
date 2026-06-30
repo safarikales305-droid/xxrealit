@@ -92,7 +92,10 @@ export async function POST(request: Request) {
 
           const res = NextResponse.json({
             success: true,
+            token: nestData.accessToken,
+            accessToken: nestData.accessToken,
             access_token: nestData.accessToken,
+            user: sessionUser,
             session: { user: sessionUser },
           });
           setAuthCookies(res, nestData.accessToken);
@@ -153,7 +156,10 @@ export async function POST(request: Request) {
 
     const res = NextResponse.json({
       success: true,
+      token,
+      accessToken: token,
       access_token: token,
+      user: sessionUser,
       session: { user: sessionUser },
     });
 
