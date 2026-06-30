@@ -29,6 +29,7 @@ import {
   isCommunityPostAuthorVisibleUser,
   isPublicMediaUrl,
   postHasFeedVisibility,
+  sortCommunityPostsWithFollowPriority,
 } from './community-posts.util';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
@@ -585,7 +586,7 @@ export class PostsService {
   ) {
     const safeLimit = Math.min(100, Math.max(1, Math.trunc(limit) || 30));
     const safePage = Math.max(0, Math.trunc(page) || 0);
-    const offset = safePage * safeLimit;
+    const fetchBatchSize = Math.min(100, safeLimit * 3);
 
     let followedIds: string[] = [];
     if (viewerUserId?.trim()) {
@@ -595,50 +596,44 @@ export class PostsService {
       });
       followedIds = follows.map((f) => f.followingId);
     }
+    const followedSet = new Set(followedIds);
 
-    const priorityOrder =
-      followedIds.length > 0
-        ? Prisma.sql`CASE WHEN p."userId" IN (${Prisma.join(followedIds)}) THEN 0 ELSE 1 END`
-        : Prisma.sql`1`;
+    let orderedIds: string[] = [];
+    if (safePage === 0 && followedIds.length > 0) {
+      const followedPostIds = await this.queryCommunityFeedPostIds({
+        category,
+        authorRole,
+        followedUserIds: followedIds,
+        onlyFollowedAuthors: true,
+        limit: safeLimit,
+        offset: 0,
+      });
+      orderedIds.push(...followedPostIds);
 
-    const categoryClause = category
-      ? Prisma.sql`AND p.category = ${category}::"PostCategory" AND NOT (p.source = 'FACEBOOK'::"PostSource" AND p."professionalProfileId" IS NULL)`
-      : Prisma.empty;
+      const generalIds = await this.queryCommunityFeedPostIds({
+        category,
+        authorRole,
+        followedUserIds: followedIds,
+        excludeIds: orderedIds,
+        limit: fetchBatchSize,
+        offset: 0,
+      });
+      orderedIds.push(...generalIds);
+    } else {
+      orderedIds = await this.queryCommunityFeedPostIds({
+        category,
+        authorRole,
+        followedUserIds: followedIds,
+        prioritizeFollowed: followedIds.length > 0,
+        limit: fetchBatchSize,
+        offset: safePage * fetchBatchSize,
+      });
+    }
 
-    const allowedRoles = communityPostAuthorRoles();
-    const roleInClause = Prisma.join(
-      allowedRoles.map((role) => Prisma.sql`${role}::"UserRole"`),
-    );
-    const authorRoleClause =
-      authorRole != null
-        ? Prisma.sql`AND u.role = ${authorRole}::"UserRole"`
-        : Prisma.empty;
-
-    const fetchBatchSize = Math.min(100, safeLimit * 3);
-    const idRows = await this.prisma.$queryRaw<Array<{ id: string }>>`
-      SELECT p.id
-      FROM "Post" p
-      INNER JOIN "User" u ON u.id = p."userId"
-      WHERE u."accountLimited" = false
-        AND (u.role <> 'PORTAL_WORKER' OR u."portalWorkerStatus" = 'APPROVED')
-        AND u."publicProfile" = true
-        AND u.role IN (${roleInClause})
-        AND p.type <> 'short'
-        ${categoryClause}
-        ${authorRoleClause}
-      ORDER BY
-        ${priorityOrder} ASC,
-        COALESCE(p."publishedAt", p."createdAt") DESC
-      LIMIT ${fetchBatchSize}
-      OFFSET ${offset}
-    `;
-
-    const orderedIds = idRows.map((r) => r.id);
     if (orderedIds.length === 0) {
       return { items: [], page: safePage, limit: safeLimit, hasMore: false };
     }
 
-    const followedSet = new Set(followedIds);
     const rows = await this.prisma.post.findMany({
       where: { id: { in: orderedIds } },
       include: {
@@ -671,9 +666,11 @@ export class PostsService {
           media: row.media.filter((m) => isPublicMediaUrl(m.url)),
         }))
         .filter((row) => postHasFeedVisibility(row)),
-    ).slice(0, safeLimit);
+    );
 
-    const items = deduped.map((row) => {
+    const sorted = sortCommunityPostsWithFollowPriority(deduped, followedSet).slice(0, safeLimit);
+
+    const items = sorted.map((row) => {
       const r = row as (typeof rows)[number];
       const realLikes = r.reactions.filter((x) => x.type === ReactionType.LIKE).length;
       return {
@@ -692,6 +689,7 @@ export class PostsService {
       const maxKm = Math.max(1, radiusNum);
       filtered = items
         .map((row) => {
+          if (followedSet.has(row.userId)) return row;
           const rowLat = toNumberOrNull(row.latitude);
           const rowLng = toNumberOrNull(row.longitude);
           if (rowLat === null || rowLng === null) return row;
@@ -708,6 +706,64 @@ export class PostsService {
       limit: safeLimit,
       hasMore: orderedIds.length >= fetchBatchSize,
     };
+  }
+
+  private async queryCommunityFeedPostIds(options: {
+    category?: PostCategory;
+    authorRole?: UserRole;
+    followedUserIds?: string[];
+    onlyFollowedAuthors?: boolean;
+    prioritizeFollowed?: boolean;
+    excludeIds?: string[];
+    limit: number;
+    offset: number;
+  }): Promise<string[]> {
+    const followedUserIds = options.followedUserIds ?? [];
+    const allowedRoles = communityPostAuthorRoles();
+    const roleInClause = Prisma.join(
+      allowedRoles.map((role) => Prisma.sql`${role}::"UserRole"`),
+    );
+    const categoryClause = options.category
+      ? Prisma.sql`AND p.category = ${options.category}::"PostCategory" AND NOT (p.source = 'FACEBOOK'::"PostSource" AND p."professionalProfileId" IS NULL)`
+      : Prisma.empty;
+    const authorRoleClause =
+      options.authorRole != null
+        ? Prisma.sql`AND u.role = ${options.authorRole}::"UserRole"`
+        : Prisma.empty;
+    const followedOnlyClause =
+      options.onlyFollowedAuthors && followedUserIds.length > 0
+        ? Prisma.sql`AND p."userId" IN (${Prisma.join(followedUserIds)})`
+        : Prisma.empty;
+    const excludeClause =
+      options.excludeIds && options.excludeIds.length > 0
+        ? Prisma.sql`AND p.id NOT IN (${Prisma.join(options.excludeIds)})`
+        : Prisma.empty;
+    const priorityOrder =
+      options.prioritizeFollowed && followedUserIds.length > 0
+        ? Prisma.sql`CASE WHEN p."userId" IN (${Prisma.join(followedUserIds)}) THEN 0 ELSE 1 END`
+        : Prisma.sql`1`;
+
+    const idRows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT p.id
+      FROM "Post" p
+      INNER JOIN "User" u ON u.id = p."userId"
+      WHERE u."accountLimited" = false
+        AND (u.role <> 'PORTAL_WORKER' OR u."portalWorkerStatus" = 'APPROVED')
+        AND u."publicProfile" = true
+        AND u.role IN (${roleInClause})
+        AND p.type <> 'short'
+        ${categoryClause}
+        ${authorRoleClause}
+        ${followedOnlyClause}
+        ${excludeClause}
+      ORDER BY
+        ${priorityOrder} ASC,
+        COALESCE(p."publishedAt", p."createdAt") DESC
+      LIMIT ${options.limit}
+      OFFSET ${options.offset}
+    `;
+
+    return idRows.map((r) => r.id);
   }
 
   async toggleReaction(postId: string, userId: string, type: ReactionType) {

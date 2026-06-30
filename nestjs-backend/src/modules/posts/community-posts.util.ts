@@ -17,7 +17,9 @@ export const PROFESSIONAL_POST_ROLES = [
 
 export function isPublicMediaUrl(url: string | null | undefined): boolean {
   const v = (url ?? '').trim();
-  return /^https?:\/\//i.test(v);
+  if (!v) return false;
+  if (/^https?:\/\//i.test(v)) return true;
+  return v.startsWith('/');
 }
 
 export type CommunityPostRow = {

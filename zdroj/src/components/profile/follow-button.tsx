@@ -67,9 +67,7 @@ export function FollowButton({
       }
       onFollowChange?.(nextFollowing);
       router.refresh();
-      if (nextFollowing) {
-        window.dispatchEvent(new Event('xxrealit:posts-refresh'));
-      }
+      window.dispatchEvent(new Event('xxrealit:posts-refresh'));
     } finally {
       setLoading(false);
     }

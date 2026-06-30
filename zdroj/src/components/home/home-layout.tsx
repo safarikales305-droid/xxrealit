@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { ComponentType } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Briefcase, Building2, Globe, Home, Landmark, TrendingUp, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
@@ -319,7 +319,7 @@ export function HomeLayout({
     }
   }
 
-  async function refreshPostsFeed() {
+  const refreshPostsFeed = useCallback(async () => {
     if (!API_BASE_URL) return;
     postsPageRef.current = 0;
     const result = await nestFetchCommunityPosts(
@@ -336,7 +336,14 @@ export function HomeLayout({
     setPostFeed(result.items as Array<Record<string, unknown>>);
     setPostsHasMore(result.hasMore);
     mergePostReactionMaps(result.items, user?.id);
-  }
+  }, [
+    activeCategory,
+    radiusKm,
+    userCoords?.lat,
+    userCoords?.lng,
+    apiAccessToken,
+    user?.id,
+  ]);
 
   async function loadMorePosts() {
     if (!API_BASE_URL || postsLoadingMore || !postsHasMore) return;
@@ -369,7 +376,7 @@ export function HomeLayout({
     };
     window.addEventListener('xxrealit:posts-refresh', onPostsRefresh);
     return () => window.removeEventListener('xxrealit:posts-refresh', onPostsRefresh);
-  });
+  }, [refreshPostsFeed]);
 
   async function deletePost(postId: string) {
     if (!API_BASE_URL || !apiAccessToken) return;
