@@ -32,13 +32,22 @@ export class PostSocialPublishService {
     const publishType = this.resolvePublishType(hasVideo);
 
     const platforms: Array<{ platform: SocialPlatform; enabled: boolean }> = [
-      { platform: SocialPlatform.FACEBOOK, enabled: s.facebook.enabled && s.facebook.publishPosts },
+      {
+        platform: SocialPlatform.FACEBOOK,
+        enabled: Boolean(s.facebook.enabled && s.facebook.publishPosts),
+      },
       {
         platform: SocialPlatform.INSTAGRAM,
-        enabled: s.instagram.enabled && s.instagram.publishPosts,
+        enabled: Boolean(s.instagram.enabled && s.instagram.publishPosts),
       },
-      { platform: SocialPlatform.TIKTOK, enabled: s.tiktok.enabled && s.tiktok.publishPosts },
-      { platform: SocialPlatform.YOUTUBE, enabled: s.youtube.enabled && s.youtube.publishPosts },
+      {
+        platform: SocialPlatform.TIKTOK,
+        enabled: Boolean(s.tiktok.enabled && s.tiktok.publishPosts),
+      },
+      {
+        platform: SocialPlatform.YOUTUBE,
+        enabled: Boolean(s.youtube.enabled && s.youtube.publishPosts),
+      },
     ];
 
     const rows = [];

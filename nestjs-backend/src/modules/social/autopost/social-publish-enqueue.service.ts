@@ -24,7 +24,6 @@ import {
 import { isShortsVideoProperty } from './social-facebook-reel.util';
 import { PROFESSIONAL_ROLES } from './social-autopost.types';
 import { SocialPublishTemplatesService } from './social-publish-templates.service';
-import { SocialPostPublisherService } from './social-post-publisher.service';
 import { PostSocialPublishService } from './post-social-publish.service';
 
 const MAX_ATTEMPTS = 5;
@@ -467,7 +466,6 @@ export class SocialPublishProcessorService {
     private readonly shareMetadata: ShareMetadataService,
     private readonly logService: SocialPublishLogService,
     private readonly templates: SocialPublishTemplatesService,
-    private readonly postPublisher: SocialPostPublisherService,
   ) {}
 
   async processDueBatch(limit = 5) {
@@ -654,7 +652,7 @@ export class SocialPublishProcessorService {
     });
     if (!post) throw new Error('Příspěvek není k dispozici');
     const videoUrl = resolvePostShareVideo(post);
-    const result = await this.postPublisher.publishPostToPlatform(
+    const result = await this.publisher.publishPostToPlatform(
       contentId,
       SocialPlatform.FACEBOOK,
       { forceReel: Boolean(videoUrl) },
