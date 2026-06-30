@@ -67,6 +67,7 @@ import {
 } from './properties.serializer';
 import { ListingContactUnlockService } from './listing-contact-unlock.service';
 import { SeoService } from '../seo/seo.service';
+import { SeoIndexQueueService } from '../seo/seo-index-queue.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { OwnerListingNotifyService } from '../premium-broker/owner-listing-notify.service';
 import type { CreateShortsFromClassicDto } from './dto/create-shorts-from-classic.dto';
@@ -96,6 +97,7 @@ export class PropertiesService {
     private readonly registrationGate: RegistrationGateService,
     private readonly listingContactUnlock: ListingContactUnlockService,
     private readonly seo: SeoService,
+    private readonly seoIndexQueue: SeoIndexQueueService,
     private readonly listingApprovalSettings: ListingApprovalSettingsService,
     private readonly propertySocialSummary: PropertySocialPublishSummaryService,
     private readonly socialPublishEnqueue: SocialPublishEnqueueService,
@@ -1245,6 +1247,13 @@ export class PropertiesService {
 
       try {
         await this.seo.ensurePropertySeoFields(created.id);
+        if (created.approved && created.isActive && created.isVisible) {
+          void this.seoIndexQueue.enqueueProperty(created.id).catch((err) => {
+            this.log.warn(
+              `SEO index enqueue ${created.id}: ${err instanceof Error ? err.message : err}`,
+            );
+          });
+        }
       } catch (err) {
         this.log.warn(`SEO fields po vytvoření ${created.id}: ${String(err)}`);
       }

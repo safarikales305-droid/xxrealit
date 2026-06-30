@@ -176,6 +176,15 @@ export class PostsController {
     return this.postsService.toggleReaction(postId, user.id, reaction);
   }
 
+  @Get('by-slug/:slug')
+  async getPostDetailBySlug(@Param('slug') slug: string) {
+    const post = await this.postsService.getPostDetailBySlug(slug);
+    if (!post) {
+      throw new NotFoundException('Příspěvek nebyl nalezen.');
+    }
+    return post;
+  }
+
   @Get(':id')
   async getPostDetail(@Param('id') id: string) {
     const post = await this.postsService.getPostDetail(id);

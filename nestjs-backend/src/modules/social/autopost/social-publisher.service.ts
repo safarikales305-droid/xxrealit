@@ -945,7 +945,7 @@ export class SocialPublisherService {
     const videoUrl = resolvePostShareVideo(post);
     const imageUrl = resolvePostShareImage(post);
     const text = (post.content ?? post.description ?? post.title ?? '').trim();
-    const publicUrl = buildPostDetailUrl(post.id);
+    const publicUrl = buildPostDetailUrl(post.id, post);
     const publishType = videoUrl ? PostSocialPublishType.REEL : PostSocialPublishType.POST;
 
     await this.postSocialPublish.markStatus(postId, platform, {

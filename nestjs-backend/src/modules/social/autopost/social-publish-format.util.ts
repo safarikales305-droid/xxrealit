@@ -4,13 +4,22 @@ import { resolvePropertyOgImageWithSource } from '../../properties/property-og-m
 import { getPortalLogoFallbackUrl } from '../../properties/property-og-media.util';
 import { resolveAssetBaseUrl } from '../../../lib/image-url';
 import { upgradeHttpToHttpsForApi } from '../../../lib/secure-url';
+import {
+  buildPostPublicUrl,
+} from '../../seo/post-seo.util';
 
 /** Veřejná URL portálu — vždy https://www.xxrealit.cz (nebo env override). */
 export function getPublicPortalUrl(): string {
   return getSiteOriginForOg();
 }
 
-export function buildPostDetailUrl(postId: string): string {
+export function buildPostDetailUrl(
+  postId: string,
+  post?: { slug?: string | null; videoUrl?: string | null; media?: Array<{ type?: string | null }> },
+): string {
+  if (post?.slug) {
+    return buildPostPublicUrl(getPublicPortalUrl(), { id: postId, ...post });
+  }
   return `${getPublicPortalUrl()}/prispevky/${encodeURIComponent(postId)}`;
 }
 
@@ -81,7 +90,7 @@ export function buildVideoReelFacebookMessage(publicUrl: string, postText?: stri
     lines.push('Podívejte se na krátkou ukázku.', '');
   }
   lines.push(
-    'Celé video a kontakt najdete na portálu XXREALIT:',
+    '👉 Celý příspěvek a kontakt najdete na portálu XXREALIT:',
     '',
     publicUrl,
     '',

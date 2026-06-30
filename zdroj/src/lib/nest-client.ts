@@ -10625,6 +10625,63 @@ export async function nestAdminSeoBackfillSlugs(
   return (await res.json().catch(() => null)) as { processed: number } | null;
 }
 
+export type SeoIndexationRow = {
+  id: string;
+  contentType: string;
+  contentId: string;
+  url: string;
+  inSitemap: boolean;
+  status: string;
+  lastSubmittedAt: string | null;
+  lastIndexedAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function nestAdminSeoIndexationList(
+  token: string | null,
+  opts?: { q?: string; status?: string; limit?: number; offset?: number },
+): Promise<{ items: SeoIndexationRow[]; total: number } | null> {
+  if (!API_BASE_URL || !token) return null;
+  const params = new URLSearchParams();
+  if (opts?.q) params.set('q', opts.q);
+  if (opts?.status) params.set('status', opts.status);
+  if (opts?.limit != null) params.set('limit', String(opts.limit));
+  if (opts?.offset != null) params.set('offset', String(opts.offset));
+  const qs = params.toString();
+  const res = await fetch(`${API_BASE_URL}/admin/seo/indexation${qs ? `?${qs}` : ''}`, {
+    headers: nestAuthHeaders(token),
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as { items: SeoIndexationRow[]; total: number } | null;
+}
+
+export async function nestAdminSeoIndexationReindex(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; status?: string } | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/seo/indexation/${encodeURIComponent(id)}/reindex`, {
+    method: 'POST',
+    headers: nestAuthHeaders(token),
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as { ok: boolean; status?: string } | null;
+}
+
+export async function nestAdminSeoIndexationProcessPending(
+  token: string | null,
+): Promise<{ processed: number; submitted: number } | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/seo/indexation/process-pending`, {
+    method: 'POST',
+    headers: nestAuthHeaders(token),
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as { processed: number; submitted: number } | null;
+}
+
 export type StatisticsSettings = {
   id: string;
   shortsViewsAutopilotEnabled: boolean;

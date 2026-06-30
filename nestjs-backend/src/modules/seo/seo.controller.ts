@@ -1,7 +1,9 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards, ValidationPipe } from '@nestjs/common';
+import { SeoIndexStatus } from '@prisma/client';
 import { AdminGuard } from '../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UpdatePropertySeoDto, UpdateSeoSettingsDto } from './dto/seo.dto';
+import { SeoIndexQueueService } from './seo-index-queue.service';
 import { SeoService } from './seo.service';
 
 @Controller('seo')
@@ -23,12 +25,25 @@ export class SeoPublicController {
   findBySlug(@Param('slug') slug: string) {
     return this.seo.findPropertyBySlug(slug);
   }
+
+  @Get('posts/by-slug/:slug')
+  findPostBySlug(@Param('slug') slug: string) {
+    return this.seo.findPostBySlug(slug);
+  }
+
+  @Get('posts/:id/og-meta')
+  getPostOgMeta(@Param('id') id: string) {
+    return this.seo.getPostOgMeta(id);
+  }
 }
 
 @Controller('admin/seo')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class SeoAdminController {
-  constructor(private readonly seo: SeoService) {}
+  constructor(
+    private readonly seo: SeoService,
+    private readonly indexQueue: SeoIndexQueueService,
+  ) {}
 
   @Get('settings')
   getSettings() {
@@ -50,6 +65,36 @@ export class SeoAdminController {
   @Post('backfill-slugs')
   backfillSlugs() {
     return this.seo.backfillPropertySlugs();
+  }
+
+  @Post('backfill-post-slugs')
+  backfillPostSlugs() {
+    return this.seo.backfillPostSlugs();
+  }
+
+  @Get('indexation')
+  listIndexation(
+    @Query('q') q?: string,
+    @Query('status') status?: SeoIndexStatus,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.indexQueue.listAdmin({
+      q,
+      status,
+      limit: limit ? Number.parseInt(limit, 10) : undefined,
+      offset: offset ? Number.parseInt(offset, 10) : undefined,
+    });
+  }
+
+  @Post('indexation/:id/reindex')
+  requestReindex(@Param('id') id: string) {
+    return this.indexQueue.requestReindex(id);
+  }
+
+  @Post('indexation/process-pending')
+  processPending(@Query('limit') limit?: string) {
+    return this.indexQueue.processPendingBatch(limit ? Number.parseInt(limit, 10) : 10);
   }
 
   @Get('properties/:id/suggest')

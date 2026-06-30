@@ -856,10 +856,15 @@ model Post {
   autopilotLikesDayKey String @default("")
   autopilotLikesAddedToday Int @default(0)
   postSocialPublishes PostSocialPublish[]
+  /// SEO slug: např. nazev-prispevku-abc12
+  slug            String?  @unique
+  seoTitle        String?
+  seoDescription  String?  @db.Text
   createdAt   DateTime @default(now())
 
   @@index([userId])
   @@index([createdAt])
+  @@index([slug])
   @@index([source, createdAt])
   @@index([latitude, longitude])
   @@index([soundTrackId])
@@ -2420,7 +2425,43 @@ model SeoSettings {
   linkedInInsightId               String?
   cookieConsentEnabled            Boolean  @default(true)
   hreflangLocales                 String[] @default(["cs", "en", "de", "pl"])
+  googleIndexingApiEnabled        Boolean  @default(false)
+  /// JSON service account pro Google Indexing API (šifrovat v produkci).
+  googleIndexingServiceAccountJson String? @db.Text
   updatedAt                       DateTime @updatedAt
+}
+
+enum SeoIndexContentType {
+  POST
+  VIDEO_POST
+  PROPERTY
+  SHORTS
+}
+
+enum SeoIndexStatus {
+  PENDING
+  SUBMITTED
+  INDEXED
+  FAILED
+}
+
+/// Fronta URL k odeslání do Google Indexing API.
+model SeoIndexQueue {
+  id              String             @id @default(cuid())
+  contentType     SeoIndexContentType
+  contentId       String
+  url             String             @db.Text
+  inSitemap       Boolean            @default(true)
+  status          SeoIndexStatus     @default(PENDING)
+  lastSubmittedAt DateTime?
+  lastIndexedAt   DateTime?
+  lastError       String?            @db.Text
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@unique([contentType, contentId])
+  @@index([status])
+  @@index([contentId])
 }
 
 model MarketingPopupUserView {

@@ -10,6 +10,16 @@ import {
   ensureUniquePropertySlug,
   generatePropertySlug,
 } from './property-seo.util';
+import { getSiteOriginForOg } from '../properties/property-og-media.util';
+import {
+  buildPostSeoDescription,
+  buildPostSeoTitle,
+  ensureUniquePostSlug,
+  generatePostSlug,
+  postHasVideo,
+  postSeoPath,
+  listingSeoPath,
+} from './post-seo.util';
 
 export type SitemapEntry = {
   loc: string;
@@ -74,7 +84,7 @@ export class SeoService {
       { loc: `${base}/terms`, changefreq: 'yearly', priority: 0.3, lastmod: now },
     ];
 
-    const [properties, brokers, articles] = await Promise.all([
+    const [properties, brokers, articles, posts] = await Promise.all([
       this.prisma.property.findMany({
         where: {
           deletedAt: null,
@@ -83,7 +93,7 @@ export class SeoService {
           isVisible: true,
           slug: { not: null },
         },
-        select: { slug: true, createdAt: true },
+        select: { slug: true, createdAt: true, listingType: true, videoUrl: true },
         take: 50000,
         orderBy: { createdAt: 'desc' },
       }),
@@ -100,16 +110,50 @@ export class SeoService {
         select: { id: true, updatedAt: true },
         take: 5000,
       }),
+      this.prisma.post.findMany({
+        where: {
+          slug: { not: null },
+          type: { not: 'short' },
+          user: { publicProfile: true },
+        },
+        select: {
+          id: true,
+          slug: true,
+          videoUrl: true,
+          createdAt: true,
+          publishedAt: true,
+          media: { select: { type: true }, take: 5 },
+        },
+        take: 50000,
+        orderBy: { createdAt: 'desc' },
+      }),
     ]);
 
     const propertyEntries: SitemapEntry[] = properties
       .filter((p) => p.slug)
-      .map((p) => ({
-        loc: `${base}/nemovitosti/${p.slug}`,
-        lastmod: p.createdAt.toISOString(),
-        changefreq: 'weekly' as const,
-        priority: 0.7,
-      }));
+      .flatMap((p) => {
+        const lastmod = p.createdAt.toISOString();
+        const isShorts =
+          String(p.listingType ?? '').toUpperCase() === 'SHORTS' || Boolean(p.videoUrl?.trim());
+        const slug = p.slug!;
+        const entries: SitemapEntry[] = [
+          {
+            loc: `${base}${listingSeoPath(slug, isShorts ? 'shorts' : 'classic')}`,
+            lastmod,
+            changefreq: 'weekly' as const,
+            priority: isShorts ? 0.75 : 0.7,
+          },
+        ];
+        if (!isShorts) {
+          entries.push({
+            loc: `${base}/nemovitosti/${slug}`,
+            lastmod,
+            changefreq: 'weekly' as const,
+            priority: 0.65,
+          });
+        }
+        return entries;
+      });
 
     const brokerEntries: SitemapEntry[] = brokers
       .filter((b) => b.brokerProfileSlug)
@@ -127,7 +171,20 @@ export class SeoService {
       priority: 0.5,
     }));
 
-    return [...staticPages, ...propertyEntries, ...brokerEntries, ...articleEntries];
+    const postEntries: SitemapEntry[] = posts
+      .filter((p) => p.slug)
+      .map((p) => {
+        const hasVideo = postHasVideo(p);
+        const lastmod = (p.publishedAt ?? p.createdAt).toISOString();
+        return {
+          loc: `${base}${postSeoPath(p.slug!, hasVideo)}`,
+          lastmod,
+          changefreq: 'weekly' as const,
+          priority: hasVideo ? 0.72 : 0.68,
+        };
+      });
+
+    return [...staticPages, ...propertyEntries, ...brokerEntries, ...articleEntries, ...postEntries];
   }
 
   async getAdminHealth() {
@@ -264,6 +321,136 @@ export class SeoService {
     });
     for (const row of rows) {
       await this.ensurePropertySeoFields(row.id);
+    }
+    return { processed: rows.length };
+  }
+
+  async findPostBySlug(slug: string) {
+    const post = await this.prisma.post.findFirst({
+      where: { slug, user: { publicProfile: true } },
+      select: { id: true, slug: true, videoUrl: true, media: { select: { type: true } } },
+    });
+    if (!post?.slug) throw new NotFoundException('Příspěvek nenalezen.');
+    return {
+      id: post.id,
+      slug: post.slug,
+      hasVideo: postHasVideo(post),
+      canonicalPath: postSeoPath(post.slug, postHasVideo(post)),
+    };
+  }
+
+  async getPostOgMeta(postId: string) {
+    let post = await this.prisma.post.findUnique({
+      where: { id: postId },
+      include: {
+        media: { orderBy: { order: 'asc' } },
+        user: { select: { name: true, publicProfile: true } },
+      },
+    });
+    if (!post || !post.user?.publicProfile) throw new NotFoundException('Příspěvek není veřejný.');
+    if (!post.slug) {
+      await this.ensurePostSeoFields(postId);
+      post = await this.prisma.post.findUnique({
+        where: { id: postId },
+        include: {
+          media: { orderBy: { order: 'asc' } },
+          user: { select: { name: true, publicProfile: true } },
+        },
+      });
+    }
+    if (!post?.slug) throw new NotFoundException('Příspěvek nemá SEO slug.');
+
+    const hasVideo = postHasVideo(post);
+    const origin = getSiteOriginForOg();
+    const canonicalPath = postSeoPath(post.slug, hasVideo);
+    const image =
+      post.previewImage ??
+      post.imageUrl ??
+      post.media.find((m) => String(m.type).toLowerCase() !== 'video')?.url ??
+      post.facebookVideoThumbnail ??
+      null;
+    return {
+      id: post.id,
+      slug: post.slug,
+      hasVideo,
+      canonicalPath,
+      canonicalUrl: `${origin}${canonicalPath}`,
+      seoTitle:
+        post.seoTitle ??
+        buildPostSeoTitle({
+          title: post.title,
+          description: post.description,
+          hasVideo,
+        }),
+      seoDescription:
+        post.seoDescription ??
+        buildPostSeoDescription({
+          title: post.title,
+          description: post.description,
+          content: post.content,
+          authorName: post.user?.name,
+          hasVideo,
+        }),
+      imageUrl: image,
+      videoUrl: post.videoUrl,
+      videoDurationSec: post.facebookVideoDurationSec,
+      publishedAt: (post.publishedAt ?? post.createdAt).toISOString(),
+      authorName: post.user?.name ?? null,
+    };
+  }
+
+  async ensurePostSeoFields(postId: string) {
+    const post = await this.prisma.post.findUnique({
+      where: { id: postId },
+      include: {
+        media: { select: { type: true } },
+        user: { select: { name: true, publicProfile: true } },
+      },
+    });
+    if (!post || !post.user?.publicProfile) return null;
+
+    const hasVideo = postHasVideo(post);
+    const baseSlug = generatePostSlug(
+      post.title?.trim() || post.description?.trim() || post.content?.trim() || 'prispevek',
+      post.id,
+    );
+    const slug = post.slug ?? (await ensureUniquePostSlug(this.prisma, baseSlug, post.id));
+
+    const updated = await this.prisma.post.update({
+      where: { id: postId },
+      data: {
+        slug,
+        seoTitle:
+          post.seoTitle ??
+          buildPostSeoTitle({
+            title: post.title,
+            description: post.description,
+            hasVideo,
+          }),
+        seoDescription:
+          post.seoDescription ??
+          buildPostSeoDescription({
+            title: post.title,
+            description: post.description,
+            content: post.content,
+            authorName: post.user?.name,
+            hasVideo,
+          }),
+        publishedAt: post.publishedAt ?? post.createdAt,
+      },
+    });
+    return updated;
+  }
+
+  async backfillPostSlugs(limit = 500) {
+    const rows = await this.prisma.post.findMany({
+      where: { slug: null, user: { publicProfile: true } },
+      select: { id: true },
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+    });
+    for (const row of rows) {
+      await this.ensurePostSeoFields(row.id);
     }
     return { processed: rows.length };
   }

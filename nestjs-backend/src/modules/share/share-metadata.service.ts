@@ -16,6 +16,7 @@ import {
   propertyHasListingMedia,
   resolvePropertyOgImageWithSource,
 } from '../properties/property-og-media.util';
+import { buildListingPublicSeoUrl } from '../seo/post-seo.util';
 import {
   DEFAULT_SHARE_TEXTS,
   type ShareContentType,
@@ -47,7 +48,14 @@ export class ShareMetadataService {
     );
   }
 
-  listingShareUrl(id: string, contentType: 'classic' | 'shorts'): string {
+  listingShareUrl(
+    id: string,
+    contentType: 'classic' | 'shorts',
+    property?: { slug?: string | null; listingType?: string | null; videoUrl?: string | null },
+  ): string {
+    if (property?.slug) {
+      return buildListingPublicSeoUrl(getSiteOriginForOg(), { id, ...property }, contentType);
+    }
     const origin = getSiteOriginForOg();
     return contentType === 'shorts'
       ? `${origin}/shorts/${encodeURIComponent(id)}`
@@ -69,6 +77,7 @@ export class ShareMetadataService {
       where: { id: propertyId.trim(), deletedAt: null },
       select: {
         id: true,
+        slug: true,
         listingType: true,
         videoUrl: true,
         thumbnailUrl: true,
@@ -111,7 +120,7 @@ export class ShareMetadataService {
         : null;
 
     return {
-      shareUrl: this.listingShareUrl(property.id, contentType),
+      shareUrl: this.listingShareUrl(property.id, contentType, property),
       ogTitle: title,
       ogDescription: description.slice(0, 160),
       ogImage,

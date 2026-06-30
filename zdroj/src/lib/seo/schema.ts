@@ -173,3 +173,40 @@ export function faqJsonLd(items: Array<{ question: string; answer: string }>) {
     })),
   };
 }
+
+export function videoObjectJsonLd(input: {
+  name: string;
+  description?: string | null;
+  thumbnailUrl?: string | null;
+  contentUrl?: string | null;
+  embedUrl?: string | null;
+  uploadDate?: string | null;
+  durationSec?: number | null;
+  authorName?: string | null;
+  url: string;
+}) {
+  const duration =
+    input.durationSec != null && input.durationSec > 0
+      ? `PT${Math.max(1, Math.round(input.durationSec))}S`
+      : undefined;
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'VideoObject',
+    name: input.name,
+    description: input.description ?? undefined,
+    thumbnailUrl: input.thumbnailUrl ?? undefined,
+    contentUrl: input.contentUrl ?? undefined,
+    embedUrl: input.embedUrl ?? input.url,
+    uploadDate: input.uploadDate ?? undefined,
+    duration,
+    author: input.authorName
+      ? { '@type': 'Person', name: input.authorName }
+      : { '@type': 'Organization', name: SITE_NAME },
+    publisher: {
+      '@type': 'Organization',
+      name: SITE_NAME,
+      logo: { '@type': 'ImageObject', url: `${getAppOrigin()}/icons/icon-192.png` },
+    },
+    mainEntityOfPage: input.url,
+  };
+}

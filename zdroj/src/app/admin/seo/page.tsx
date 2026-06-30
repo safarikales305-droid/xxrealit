@@ -59,6 +59,11 @@ export default function AdminSeoPage() {
       <p className="mt-2 text-sm text-zinc-600">
         Globální metadata, analytika, webmaster nástroje a SEO zdraví portálu XXREALIT.
       </p>
+      <p className="mt-2">
+        <Link href="/admin/seo/indexace" className="text-sm font-semibold text-orange-600 hover:underline">
+          Přehled indexace veřejného obsahu →
+        </Link>
+      </p>
 
       {health ? (
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

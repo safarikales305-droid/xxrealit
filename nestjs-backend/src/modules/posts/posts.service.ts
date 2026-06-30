@@ -12,6 +12,8 @@ import { BrokerPointsService } from '../premium-broker/broker-points.service';
 import { PostWhatsAppNotifyService } from '../whatsapp/post-whatsapp-notify.service';
 import { WebPushService } from '../web-push/web-push.service';
 import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
+import { SeoService } from '../seo/seo.service';
+import { SeoIndexQueueService } from '../seo/seo-index-queue.service';
 import {
   dedupeCommunityPosts,
   isPublicMediaUrl,
@@ -96,6 +98,8 @@ export class PostsService {
     private readonly postWhatsAppNotify: PostWhatsAppNotifyService,
     private readonly webPush: WebPushService,
     private readonly socialPublishEnqueue: SocialPublishEnqueueService,
+    private readonly seoService: SeoService,
+    private readonly seoIndexQueue: SeoIndexQueueService,
     private readonly emails: EmailsService,
   ) {}
 
@@ -126,6 +130,14 @@ export class PostsService {
       );
     });
     this.socialPublishEnqueue.firePostCreated(postId);
+    void this.seoService
+      .ensurePostSeoFields(postId)
+      .then(() => this.seoIndexQueue.enqueuePost(postId))
+      .catch((err) => {
+        this.log.warn(
+          `[post-seo] slug/index failed post=${postId}: ${err instanceof Error ? err.message : err}`,
+        );
+      });
   }
 
   private postPreviewText(post: {
@@ -524,6 +536,7 @@ export class PostsService {
             name: true,
             avatar: true,
             role: true,
+            publicProfile: true,
           },
         },
       },
@@ -534,6 +547,15 @@ export class PostsService {
       ...post,
       media,
     };
+  }
+
+  async getPostDetailBySlug(slug: string) {
+    const row = await this.prisma.post.findFirst({
+      where: { slug, user: { publicProfile: true } },
+      select: { id: true },
+    });
+    if (!row) return null;
+    return this.getPostDetail(row.id);
   }
 
   async listCommunityPosts(

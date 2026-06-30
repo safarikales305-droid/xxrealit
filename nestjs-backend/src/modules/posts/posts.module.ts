@@ -5,6 +5,7 @@ import { PrismaModule } from '../../database/prisma.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { EmailsModule } from '../emails/emails.module';
 import { SocialModule } from '../social/social.module';
+import { SeoModule } from '../seo/seo.module';
 import { PostsController } from './posts.controller';
 import { PostsService } from './posts.service';
 
@@ -16,6 +17,7 @@ import { PostsService } from './posts.service';
     forwardRef(() => SocialModule),
     forwardRef(() => AuthModule),
     EmailsModule,
+    SeoModule,
   ],
   controllers: [PostsController],
   providers: [PostsService],

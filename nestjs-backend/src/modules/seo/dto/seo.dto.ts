@@ -71,6 +71,14 @@ export class UpdateSeoSettingsDto {
   @IsArray()
   @IsString({ each: true })
   hreflangLocales?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  googleIndexingApiEnabled?: boolean;
+
+  @IsOptional()
+  @IsString()
+  googleIndexingServiceAccountJson?: string;
 }
 
 export class UpdatePropertySeoDto {
