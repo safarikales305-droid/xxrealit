@@ -50,6 +50,10 @@ export class UpdateFacebookAutopostDto {
 
   @IsOptional()
   @IsBoolean()
+  publishPostVideosAsReels?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   reelsFallbackToVideoPost?: boolean;
 
   @IsOptional()

@@ -83,6 +83,12 @@ export class SocialAutopostSettingsService implements OnModuleInit {
       publishVideosAsReels: o.publishVideosAsReels !== false,
       publishImagesAsPhotoPost: o.publishImagesAsPhotoPost !== false,
       fallbackToLinkOnMediaFailure: o.fallbackToLinkOnMediaFailure !== false,
+      socialVideoUsePortalTeaserRule: o.socialVideoUsePortalTeaserRule !== false,
+      socialVideoTeaserSeconds:
+        o.socialVideoTeaserSeconds === null || o.socialVideoTeaserSeconds === undefined
+          ? d.socialVideoTeaserSeconds
+          : this.num(o.socialVideoTeaserSeconds, d.videoTeaserMaxSeconds, 1, 120),
+      socialVideoPublishFull: o.socialVideoPublishFull === true,
     };
   }
 
@@ -124,6 +130,7 @@ export class SocialAutopostSettingsService implements OnModuleInit {
       publishProperties: fbRaw.publishProperties !== false,
       publishShorts: fbRaw.publishShorts !== false,
       publishShortsAsReels: fbRaw.publishShortsAsReels !== false,
+      publishPostVideosAsReels: fbRaw.publishPostVideosAsReels !== false,
       reelsFallbackToVideoPost: fbRaw.reelsFallbackToVideoPost !== false,
       reelsFallbackToPhotoPost: fbRaw.reelsFallbackToPhotoPost !== false,
       approvedOnly: fbRaw.approvedOnly !== false,

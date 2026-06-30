@@ -38,10 +38,16 @@ export class FacebookVideoTeaserService {
     private readonly settings: SocialAutopostSettingsService,
   ) {}
 
-  async createTeaserFromVideoUrl(videoUrl: string): Promise<FacebookVideoTeaserResult> {
+  async createTeaserFromVideoUrl(
+    videoUrl: string,
+    maxSecondsOverride?: number,
+  ): Promise<FacebookVideoTeaserResult> {
     await this.settings.reload();
     const global = this.settings.getSettings().global;
-    const maxSeconds = global.videoTeaserMaxSeconds ?? FACEBOOK_TEASER_MAX_SECONDS;
+    const maxSeconds =
+      maxSecondsOverride ??
+      global.videoTeaserMaxSeconds ??
+      FACEBOOK_TEASER_MAX_SECONDS;
     const endSlideEnabled = global.videoTeaserEndSlideEnabled !== false;
     const endSlideText = global.videoTeaserEndSlideText?.trim() || 'Více na XXREALIT.cz';
 
@@ -134,5 +140,32 @@ export class FacebookVideoTeaserService {
   private async probeDuration(ffmpegPath: string, videoPath: string): Promise<number | null> {
     const { stderr } = await runFfmpegCapture(ffmpegPath, ['-hide_banner', '-i', videoPath]);
     return parseDurationSecondsFromFfmpegStderr(stderr);
+  }
+
+  /** Připraví video pro publikování na sociální sítě (teaser nebo celé video). */
+  async prepareVideoForSocialShare(videoUrl: string): Promise<FacebookVideoTeaserResult> {
+    await this.settings.reload();
+    const global = this.settings.getSettings().global;
+    const absolute = videoUrl.trim();
+    if (!absolute) {
+      throw new Error('Chybí URL videa.');
+    }
+
+    if (global.socialVideoPublishFull) {
+      return {
+        teaserUrl: absolute,
+        teaserDurationSec: 0,
+        originalDurationSec: null,
+      };
+    }
+
+    const maxSeconds =
+      global.socialVideoUsePortalTeaserRule !== false
+        ? (global.videoTeaserMaxSeconds ?? FACEBOOK_TEASER_MAX_SECONDS)
+        : (global.socialVideoTeaserSeconds ??
+          global.videoTeaserMaxSeconds ??
+          FACEBOOK_TEASER_MAX_SECONDS);
+
+    return this.createTeaserFromVideoUrl(absolute, maxSeconds);
   }
 }

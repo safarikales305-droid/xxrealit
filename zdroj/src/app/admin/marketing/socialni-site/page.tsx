@@ -15,16 +15,21 @@ import {
   nestAdminSocialQueueList,
   nestAdminSocialQueueRetry,
   nestAdminSocialQueueSkip,
+  nestAdminPostSocialPublishStatus,
+  nestAdminPostsPublishNow,
+  POST_SOCIAL_PLATFORM_LABELS,
+  POST_SOCIAL_PUBLISH_TYPE_LABELS,
   SOCIAL_CONTENT_TYPE_LABELS,
   SOCIAL_PUBLISH_STATUS_LABELS,
   USER_ROLE_LABELS,
+  type PostSocialPublishRow,
   type PlatformPlaceholderSettings,
   type SocialAutopostGlobalSettings,
   type SocialAutopostSettingsPublic,
   type SocialQueueRow,
 } from '@/lib/social-autopost-admin-api';
 
-type Tab = 'facebook' | 'instagram' | 'youtube' | 'tiktok';
+type Tab = 'facebook' | 'instagram' | 'youtube' | 'tiktok' | 'video';
 
 const ROLE_OPTIONS = Object.keys(USER_ROLE_LABELS);
 
@@ -40,7 +45,10 @@ const DEFAULT_GLOBAL: SocialAutopostGlobalSettings = {
   videoTeaserEndSlideEnabled: true,
   publishVideosAsReels: true,
   publishImagesAsPhotoPost: true,
-  fallbackToLinkOnMediaFailure: true,
+  fallbackToLinkOnMediaFailure: false,
+  socialVideoUsePortalTeaserRule: true,
+  socialVideoTeaserSeconds: null,
+  socialVideoPublishFull: false,
 };
 
 const GLOBAL_FIELDS: Array<{ key: keyof SocialAutopostGlobalSettings; label: string }> = [
@@ -66,6 +74,9 @@ export default function AdminSocialAutopostPage() {
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [lastPublishedUrl, setLastPublishedUrl] = useState<string | null>(null);
+  const [lookupPostId, setLookupPostId] = useState('');
+  const [postPublishRows, setPostPublishRows] = useState<PostSocialPublishRow[] | null>(null);
+  const [postLookupError, setPostLookupError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -112,6 +123,83 @@ export default function AdminSocialAutopostPage() {
     setMsg('Globální nastavení uloženo.');
   }
 
+  async function loadPostPublishStatus() {
+    if (!token || !lookupPostId.trim()) return;
+    setBusy(true);
+    setPostLookupError(null);
+    setPostPublishRows(null);
+    const res = await nestAdminPostSocialPublishStatus(token, lookupPostId.trim());
+    setBusy(false);
+    if (!res?.ok) {
+      setPostLookupError(res?.error ?? 'Příspěvek nenalezen nebo chyba API.');
+      return;
+    }
+    setPostPublishRows(res.platforms ?? []);
+    setMsg(`Stav publikování pro příspěvek ${lookupPostId.trim()}.`);
+  }
+
+  async function retryPostPublish(postId: string) {
+    if (!token) return;
+    setBusy(true);
+    setMsg(null);
+    const res = await nestAdminPostsPublishNow(token, [postId], { force: true });
+    setBusy(false);
+    if (!res?.ok) {
+      setMsg('Opakované publikování se nezdařilo.');
+      return;
+    }
+    setMsg('Příspěvek zařazen do fronty publikování.');
+    await loadPostPublishStatus();
+    await refresh();
+  }
+
+  async function saveVideoPublishing() {
+    if (!token || !settings) return;
+    setBusy(true);
+    setMsg(null);
+    const nextGlobal = await nestAdminSocialAutopostGlobalPatch(token, {
+      socialVideoUsePortalTeaserRule: global.socialVideoUsePortalTeaserRule,
+      socialVideoTeaserSeconds: global.socialVideoTeaserSeconds,
+      socialVideoPublishFull: global.socialVideoPublishFull,
+      publishVideosAsReels: global.publishVideosAsReels,
+    });
+    const fbPatch: Record<string, unknown> = {
+      publishPostVideosAsReels: fb?.publishPostVideosAsReels !== false,
+    };
+    const nextFb = fb ? await nestAdminSocialAutopostFacebookPatch(token, fbPatch) : null;
+    const ig = settings.instagram;
+    const yt = settings.youtube;
+    const tt = settings.tiktok;
+    const [nextIg, nextYt, nextTt] = await Promise.all([
+      nestAdminSocialAutopostPlatformPatch(token, 'instagram', {
+        ...ig,
+        publishShortsAsReels: ig.publishShortsAsReels,
+      }),
+      nestAdminSocialAutopostPlatformPatch(token, 'youtube', {
+        ...yt,
+        publishShortsAsReels: yt.publishShortsAsReels,
+      }),
+      nestAdminSocialAutopostPlatformPatch(token, 'tiktok', {
+        ...tt,
+        publishShortsAsReels: tt.publishShortsAsReels,
+      }),
+    ]);
+    setBusy(false);
+    if (!nextGlobal) {
+      setMsg('Uložení nastavení videí se nezdařilo.');
+      return;
+    }
+    setSettings({
+      ...settings,
+      global: nextGlobal.global,
+      ...(nextFb ? { facebook: nextFb.facebook } : {}),
+      ...(nextIg ? { instagram: nextIg.instagram } : {}),
+      ...(nextYt ? { youtube: nextYt.youtube } : {}),
+      ...(nextTt ? { tiktok: nextTt.tiktok } : {}),
+    });
+    setMsg('Nastavení publikování videí uloženo.');
+  }
+
   async function saveFacebook() {
     if (!token || !fb) return;
     setBusy(true);
@@ -123,6 +211,7 @@ export default function AdminSocialAutopostPage() {
       publishProperties: fb.publishProperties,
       publishShorts: fb.publishShorts,
       publishShortsAsReels: fb.publishShortsAsReels !== false,
+      publishPostVideosAsReels: fb.publishPostVideosAsReels !== false,
       reelsFallbackToVideoPost: fb.reelsFallbackToVideoPost !== false,
       reelsFallbackToPhotoPost: fb.reelsFallbackToPhotoPost !== false,
       repeatPublishing: fb.repeatPublishing !== false,
@@ -346,6 +435,7 @@ export default function AdminSocialAutopostPage() {
         {(
           [
             ['facebook', 'Facebook'],
+            ['video', 'Publikování videí'],
             ['instagram', 'Instagram'],
             ['youtube', 'YouTube'],
             ['tiktok', 'TikTok'],
@@ -421,6 +511,23 @@ export default function AdminSocialAutopostPage() {
 
           <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-4 space-y-2">
             <p className="text-sm font-semibold text-violet-900">Facebook Reels (shorts / video)</p>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={fb.publishPostVideosAsReels !== false}
+                onChange={(e) =>
+                  setSettings((s) =>
+                    s
+                      ? {
+                          ...s,
+                          facebook: { ...s.facebook, publishPostVideosAsReels: e.target.checked },
+                        }
+                      : s,
+                  )
+                }
+              />
+              Video příspěvky uživatelů publikovat jako Facebook Reels
+            </label>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -529,7 +636,227 @@ export default function AdminSocialAutopostPage() {
         </section>
       ) : null}
 
-      {tab !== 'facebook' ? (
+      {tab === 'video' ? (
+        <section className="space-y-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-900">Publikování videí na sociální sítě</h2>
+            <p className="mt-1 text-sm text-zinc-600">
+              Video příspěvky se publikují jako Reel/Short. Textové a foto příspěvky zůstávají běžnými posty.
+              Na sociální sítě se nahrává ukázka videa podle pravidel portálu, pokud není zapnuto celé video.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={fb?.publishPostVideosAsReels !== false}
+                onChange={(e) =>
+                  setSettings((s) =>
+                    s
+                      ? { ...s, facebook: { ...s.facebook, publishPostVideosAsReels: e.target.checked } }
+                      : s,
+                  )
+                }
+              />
+              Facebook Reels (video příspěvky)
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={global.publishVideosAsReels !== false}
+                onChange={(e) =>
+                  setSettings((s) =>
+                    s ? { ...s, global: { ...global, publishVideosAsReels: e.target.checked } } : s,
+                  )
+                }
+              />
+              Globálně publikovat videa jako Reels/Shorts
+            </label>
+            {(['instagram', 'youtube', 'tiktok'] as const).map((platform) => (
+              <label key={platform} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={settings?.[platform]?.publishShortsAsReels === true}
+                  disabled={!settings?.[platform]?.enabled}
+                  onChange={(e) =>
+                    setSettings((s) =>
+                      s
+                        ? {
+                            ...s,
+                            [platform]: { ...s[platform], publishShortsAsReels: e.target.checked },
+                          }
+                        : s,
+                    )
+                  }
+                />
+                {POST_SOCIAL_PLATFORM_LABELS[platform.toUpperCase()] ?? platform} Reels/Shorts
+                {!settings?.[platform]?.enabled ? (
+                  <span className="text-xs text-zinc-500">(síť není zapnutá)</span>
+                ) : null}
+              </label>
+            ))}
+          </div>
+
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+            <p className="text-sm font-semibold text-amber-900">Ukázka videa (teaser)</p>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={global.socialVideoUsePortalTeaserRule !== false}
+                onChange={(e) =>
+                  setSettings((s) =>
+                    s
+                      ? {
+                          ...s,
+                          global: { ...global, socialVideoUsePortalTeaserRule: e.target.checked },
+                        }
+                      : s,
+                  )
+                }
+              />
+              Použít stejné pravidlo ukázky jako na portálu
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={global.socialVideoPublishFull === true}
+                onChange={(e) =>
+                  setSettings((s) =>
+                    s ? { ...s, global: { ...global, socialVideoPublishFull: e.target.checked } } : s,
+                  )
+                }
+              />
+              Publikovat celé video (bez zkrácení)
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium text-zinc-700">
+                Vlastní délka ukázky pro sociální sítě (sekundy, prázdné = z portálu)
+              </span>
+              <input
+                type="number"
+                min={1}
+                max={120}
+                disabled={global.socialVideoUsePortalTeaserRule !== false}
+                value={global.socialVideoTeaserSeconds ?? ''}
+                onChange={(e) => {
+                  const raw = e.target.value.trim();
+                  setSettings((s) =>
+                    s
+                      ? {
+                          ...s,
+                          global: {
+                            ...global,
+                            socialVideoTeaserSeconds: raw ? Number.parseInt(raw, 10) || null : null,
+                          },
+                        }
+                      : s,
+                  );
+                }}
+                className="w-full max-w-xs rounded-lg border border-zinc-200 px-3 py-2 disabled:opacity-50"
+              />
+            </label>
+          </div>
+
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void saveVideoPublishing()}
+            className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+          >
+            Uložit nastavení videí
+          </button>
+
+          <div className="border-t border-zinc-200 pt-5 space-y-3">
+            <h3 className="text-base font-semibold">Stav publikování příspěvku</h3>
+            <div className="flex flex-wrap gap-2">
+              <input
+                type="text"
+                value={lookupPostId}
+                onChange={(e) => setLookupPostId(e.target.value)}
+                placeholder="ID příspěvku (UUID)"
+                className="min-w-[240px] flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+              />
+              <button
+                type="button"
+                disabled={busy || !lookupPostId.trim()}
+                onClick={() => void loadPostPublishStatus()}
+                className="rounded-xl border px-4 py-2 text-sm font-semibold"
+              >
+                Načíst stav
+              </button>
+            </div>
+            {postLookupError ? (
+              <p className="text-sm text-red-700">{postLookupError}</p>
+            ) : null}
+            {postPublishRows?.length ? (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b text-xs uppercase text-zinc-500">
+                      <th className="py-2 pr-3">Síť</th>
+                      <th className="py-2 pr-3">Formát</th>
+                      <th className="py-2 pr-3">Stav</th>
+                      <th className="py-2 pr-3">Ukázka (s)</th>
+                      <th className="py-2 pr-3">Odkaz</th>
+                      <th className="py-2 pr-3">Akce</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {postPublishRows.map((row) => (
+                      <tr key={row.id} className="border-b border-zinc-100 align-top">
+                        <td className="py-2 pr-3">
+                          {POST_SOCIAL_PLATFORM_LABELS[row.platform] ?? row.platform}
+                        </td>
+                        <td className="py-2 pr-3">
+                          {POST_SOCIAL_PUBLISH_TYPE_LABELS[row.publishType] ?? row.publishType}
+                        </td>
+                        <td className="py-2 pr-3">
+                          {SOCIAL_PUBLISH_STATUS_LABELS[row.status] ?? row.status}
+                          {row.errorMessage ? (
+                            <p className="mt-1 text-xs text-red-600">{row.errorMessage}</p>
+                          ) : null}
+                        </td>
+                        <td className="py-2 pr-3">{row.videoPreviewSeconds ?? '—'}</td>
+                        <td className="py-2 pr-3">
+                          {row.externalUrl ? (
+                            <a
+                              href={row.externalUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-orange-600 hover:underline"
+                            >
+                              Otevřít Reel/Short
+                            </a>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                        <td className="py-2 pr-3">
+                          {row.platform === 'FACEBOOK' ? (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void retryPostPublish(row.postId)}
+                              className="text-xs font-semibold text-orange-600"
+                            >
+                              Zopakovat
+                            </button>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {tab !== 'facebook' && tab !== 'video' ? (
         <section className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-amber-800">
             {tab === 'instagram' && 'Instagram — připraveno pro budoucí integraci'}

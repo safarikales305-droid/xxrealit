@@ -86,6 +86,8 @@ import { SocialPublishTemplatesService } from './autopost/social-publish-templat
     SocialFacebookReelPublisherService,
     FacebookVideoTeaserService,
     SocialPublishTemplatesService,
+    PostSocialPublishService,
+    SocialPostPublisherService,
   ],
   exports: [
     FacebookConfigService,

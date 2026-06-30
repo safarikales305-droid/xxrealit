@@ -41,6 +41,7 @@ import {
   SocialPublishTemplatesService,
   type SocialPublishTemplatesSettings,
 } from './social-publish-templates.service';
+import { PostSocialPublishService } from './post-social-publish.service';
 
 @Controller('social/autopost/admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -54,6 +55,7 @@ export class SocialAutopostAdminController {
     private readonly prisma: PrismaService,
     private readonly autopostOAuth: SocialAutopostFacebookOAuthService,
     private readonly publishTemplates: SocialPublishTemplatesService,
+    private readonly postSocialPublish: PostSocialPublishService,
   ) {}
 
   @Get('settings')
@@ -87,6 +89,9 @@ export class SocialAutopostAdminController {
       publishVideosAsReels?: boolean;
       publishImagesAsPhotoPost?: boolean;
       fallbackToLinkOnMediaFailure?: boolean;
+      socialVideoUsePortalTeaserRule?: boolean;
+      socialVideoTeaserSeconds?: number | null;
+      socialVideoPublishFull?: boolean;
     },
   ) {
     return this.settings.updateSettings({ global: body });
@@ -317,6 +322,57 @@ export class SocialAutopostAdminController {
   @Get('properties/:id/publish-log')
   propertyPublishLog(@Param('id') id: string) {
     return this.scheduleService.getPublishLog(id).then((items) => ({ items }));
+  }
+
+  @Get('posts/:id/social-publish')
+  async postSocialPublishStatus(@Param('id') id: string) {
+    const post = await this.prisma.post.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        description: true,
+        videoUrl: true,
+        facebookPermalink: true,
+        facebookPostType: true,
+        media: { orderBy: { order: 'asc' } },
+      },
+    });
+    if (!post) return { ok: false, error: 'Příspěvek nenalezen' };
+    const platforms = await this.postSocialPublish.listForPost(id);
+    const queue = await this.prisma.socialPublishQueue.findUnique({
+      where: {
+        platform_contentType_contentId: {
+          platform: 'FACEBOOK',
+          contentType: 'POST',
+          contentId: id,
+        },
+      },
+    });
+    const logs = await this.prisma.socialPublishLog.findMany({
+      where: { contentType: 'POST', contentId: id },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    });
+    return { ok: true, post, platforms, queue, logs };
+  }
+
+  @Post('posts/publish-now')
+  async postsPublishNow(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { postIds: string[]; force?: boolean; publishAsReel?: boolean },
+  ) {
+    const ids = Array.isArray(body.postIds) ? body.postIds.map((x) => String(x).trim()).filter(Boolean) : [];
+    const results = [];
+    for (const postId of ids) {
+      const r = await this.publishEnqueue.enqueueManual({
+        contentType: 'POST',
+        contentId: postId,
+        force: body.force ?? true,
+        triggeredByUserId: user?.id,
+      });
+      results.push({ postId, ...r });
+    }
+    return { ok: true, results };
   }
 
   @Post('queue/:id/retry')

@@ -96,24 +96,35 @@ export class SocialPublisherService {
   }
 
   /** Publikuje uživatelský příspěvek — foto / Reel (teaser) / odkaz. */
-  async publishUserPostToFacebook(input: {
-    description: string;
-    publicUrl: string;
-    imageUrl: string | null;
-    videoUrl: string | null;
-    title?: string;
-  }): Promise<FacebookPublishResult> {
+  async publishUserPostToFacebook(
+    input: {
+      description: string;
+      publicUrl: string;
+      imageUrl: string | null;
+      videoUrl: string | null;
+      title?: string;
+    },
+    opts: { forceFormat?: FacebookPostType } = {},
+  ): Promise<FacebookPublishResult> {
     await this.settings.reload();
     const { facebook: fb, global } = this.settings.getSettings();
     const publicUrl = input.publicUrl.replace(/\/+$/, '');
     const contentTitle = input.title?.trim() || null;
+    const videoUrl = input.videoUrl?.trim() || null;
 
-    if (input.videoUrl?.trim() && global.publishVideosAsReels !== false && fb.publishShortsAsReels !== false) {
-      const reelMessage = buildVideoReelFacebookMessage(publicUrl);
+    const wantsReel =
+      opts.forceFormat === FacebookPostType.FACEBOOK_REEL ||
+      (Boolean(videoUrl) &&
+        opts.forceFormat !== FacebookPostType.FACEBOOK_POST &&
+        global.publishVideosAsReels !== false &&
+        fb.publishPostVideosAsReels !== false);
+
+    if (wantsReel && videoUrl) {
+      const reelMessage = buildVideoReelFacebookMessage(publicUrl, input.description);
       try {
-        const teaser = await this.teaserService.createTeaserFromVideoUrl(input.videoUrl.trim());
+        const shareVideo = await this.teaserService.prepareVideoForSocialShare(videoUrl);
         const reel = await this.publishPropertyAsFacebookReel({
-          videoUrl: teaser.teaserUrl,
+          videoUrl: shareVideo.teaserUrl,
           message: reelMessage,
           title: contentTitle ?? undefined,
         });
@@ -123,22 +134,22 @@ export class SocialPublisherService {
           contentTitle,
           externalReelId: reel.externalReelId ?? reel.externalPostId,
           reelPublishedUrl: reel.publishedUrl,
-          teaserDurationSec: teaser.teaserDurationSec,
-          originalVideoDurationSec: teaser.originalDurationSec,
+          teaserDurationSec: shareVideo.teaserDurationSec || null,
+          originalVideoDurationSec: shareVideo.originalDurationSec,
         };
       } catch (err) {
         const teaserError = err instanceof Error ? err.message : String(err);
-        this.logger.warn(`User post reel/teaser failed: ${teaserError}`);
+        this.logger.warn(`User post reel failed: ${teaserError}`);
         if (fb.reelsFallbackToVideoPost !== false) {
           try {
-            const teaser = await this.teaserService.createTeaserFromVideoUrl(input.videoUrl.trim());
-            const video = await this.publishVideoPost(reelMessage, teaser.teaserUrl);
+            const shareVideo = await this.teaserService.prepareVideoForSocialShare(videoUrl);
+            const video = await this.publishVideoPost(reelMessage, shareVideo.teaserUrl);
             return {
               ...video,
               publishKind: SocialPublishKind.VIDEO_REEL,
               contentTitle,
-              teaserDurationSec: teaser.teaserDurationSec,
-              originalVideoDurationSec: teaser.originalDurationSec,
+              teaserDurationSec: shareVideo.teaserDurationSec || null,
+              originalVideoDurationSec: shareVideo.originalDurationSec,
               teaserError,
             };
           } catch (videoErr) {
@@ -147,22 +158,15 @@ export class SocialPublisherService {
             );
           }
         }
-        if (global.fallbackToLinkOnMediaFailure !== false) {
-          const linkMessage = buildPostFacebookMessage(input.description, publicUrl);
-          const fallback = await this.publishLinkOnly(linkMessage, publicUrl);
-          return {
-            ...fallback,
-            publishKind: SocialPublishKind.USER_POST,
-            contentTitle,
-            teaserError,
-          };
-        }
-        throw err;
+        throw new Error(
+          `Facebook Reel se nepodařilo publikovat: ${teaserError}`,
+        );
       }
     }
 
     if (
       input.imageUrl?.trim() &&
+      !videoUrl &&
       global.publishImagesAsPhotoPost !== false &&
       global.publishClassicAsPhotoPost !== false
     ) {
@@ -802,14 +806,14 @@ export class SocialPublisherService {
 
     if (wantsVideoPost && input.videoUrl?.trim()) {
       try {
-        const teaser = await this.teaserService.createTeaserFromVideoUrl(input.videoUrl.trim());
-        const video = await this.publishVideoPost(input.message, teaser.teaserUrl);
+        const shareVideo = await this.teaserService.prepareVideoForSocialShare(input.videoUrl.trim());
+        const video = await this.publishVideoPost(input.message, shareVideo.teaserUrl);
         return {
           ...video,
           publishKind: SocialPublishKind.LISTING,
           contentTitle,
-          teaserDurationSec: teaser.teaserDurationSec,
-          originalVideoDurationSec: teaser.originalDurationSec,
+          teaserDurationSec: shareVideo.teaserDurationSec,
+          originalVideoDurationSec: shareVideo.originalDurationSec,
         };
       } catch (err) {
         const teaserError = err instanceof Error ? err.message : String(err);
@@ -821,9 +825,9 @@ export class SocialPublisherService {
     if (wantsReel && input.videoUrl?.trim()) {
       const reelMessage = buildVideoReelFacebookMessage(publicUrl);
       try {
-        const teaser = await this.teaserService.createTeaserFromVideoUrl(input.videoUrl.trim());
+        const shareVideo = await this.teaserService.prepareVideoForSocialShare(input.videoUrl.trim());
         const reel = await this.publishPropertyAsFacebookReel({
-          videoUrl: teaser.teaserUrl,
+          videoUrl: shareVideo.teaserUrl,
           message: reelMessage,
           title: contentTitle ?? undefined,
         });
@@ -833,22 +837,22 @@ export class SocialPublisherService {
           contentTitle,
           externalReelId: reel.externalReelId ?? reel.externalPostId,
           reelPublishedUrl: reel.publishedUrl,
-          teaserDurationSec: teaser.teaserDurationSec,
-          originalVideoDurationSec: teaser.originalDurationSec,
+          teaserDurationSec: shareVideo.teaserDurationSec,
+          originalVideoDurationSec: shareVideo.originalDurationSec,
         };
       } catch (err) {
         const teaserError = err instanceof Error ? err.message : String(err);
         this.logger.warn(`Property reel/teaser failed: ${teaserError}`);
         if (fb.reelsFallbackToVideoPost !== false && input.videoUrl?.trim()) {
           try {
-            const teaser = await this.teaserService.createTeaserFromVideoUrl(input.videoUrl.trim());
-            const video = await this.publishVideoPost(reelMessage, teaser.teaserUrl);
+            const shareVideo = await this.teaserService.prepareVideoForSocialShare(input.videoUrl.trim());
+            const video = await this.publishVideoPost(reelMessage, shareVideo.teaserUrl);
             return {
               ...video,
               publishKind: SocialPublishKind.LISTING,
               contentTitle,
-              teaserDurationSec: teaser.teaserDurationSec,
-              originalVideoDurationSec: teaser.originalDurationSec,
+              teaserDurationSec: shareVideo.teaserDurationSec,
+              originalVideoDurationSec: shareVideo.originalDurationSec,
               teaserError,
             };
           } catch (videoErr) {

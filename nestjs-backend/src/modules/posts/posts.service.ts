@@ -400,6 +400,7 @@ export class PostsService {
         city: '',
         description: text || '',
         content: text || null,
+        videoUrl: isVideo ? opts.url.trim() : null,
         previewImage: opts.previewImage?.trim() || null,
         soundTrackId: opts.soundTrackId?.trim() || null,
         userId,
@@ -457,6 +458,7 @@ export class PostsService {
     },
   ) {
     await this.assertCanPublishPublicPost(userId);
+    const videoMedia = input.media.find((m) => m.type === 'video');
     const created = await this.prisma.post.create({
       data: {
         title: input.title,
@@ -468,6 +470,7 @@ export class PostsService {
         latitude: Number.isFinite(input.latitude) ? input.latitude : null,
         longitude: Number.isFinite(input.longitude) ? input.longitude : null,
         content: input.description,
+        videoUrl: videoMedia?.url?.trim() || null,
         previewImage: input.previewImage?.trim() || null,
         soundTrackId: input.soundTrackId?.trim() || null,
         userId,

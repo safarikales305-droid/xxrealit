@@ -69,13 +69,19 @@ export function buildPostFacebookMessage(text: string, publicUrl: string): strin
   ].join('\n');
 }
 
-export function buildVideoReelFacebookMessage(publicUrl: string): string {
-  return [
+export function buildVideoReelFacebookMessage(publicUrl: string, postText?: string): string {
+  const snippet = (postText ?? '').trim().slice(0, 280);
+  const lines = [
     '🎬 Nové video na XXREALIT',
     '',
-    'Podívejte se na krátkou ukázku.',
-    '',
-    'Celé video najdete na portálu:',
+  ];
+  if (snippet) {
+    lines.push(snippet, '');
+  } else {
+    lines.push('Podívejte se na krátkou ukázku.', '');
+  }
+  lines.push(
+    'Celé video a kontakt najdete na portálu XXREALIT:',
     '',
     publicUrl,
     '',
@@ -84,7 +90,8 @@ export function buildVideoReelFacebookMessage(publicUrl: string): string {
     '#nemovitosti',
     '#reels',
     '#video',
-  ].join('\n');
+  );
+  return lines.join('\n');
 }
 
 export function toAbsoluteMediaUrl(raw: string | null | undefined): string | null {

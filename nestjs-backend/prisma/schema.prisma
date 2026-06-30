@@ -855,6 +855,7 @@ model Post {
   lastAutopilotLikesAt DateTime?
   autopilotLikesDayKey String @default("")
   autopilotLikesAddedToday Int @default(0)
+  postSocialPublishes PostSocialPublish[]
   createdAt   DateTime @default(now())
 
   @@index([userId])
@@ -3071,6 +3072,41 @@ enum SocialPlatform {
   INSTAGRAM
   YOUTUBE
   TIKTOK
+}
+
+enum PostSocialPublishType {
+  POST
+  REEL
+  SHORT
+}
+
+enum PostSocialPublishStatus {
+  PENDING
+  UPLOADING
+  PUBLISHED
+  FAILED
+}
+
+/// Stav publikování příspěvku na jednotlivé sociální sítě.
+model PostSocialPublish {
+  id                  String                  @id @default(cuid())
+  postId              String
+  platform            SocialPlatform
+  publishType         PostSocialPublishType   @default(POST)
+  status              PostSocialPublishStatus @default(PENDING)
+  externalId          String?
+  externalUrl         String?
+  errorMessage        String?                 @db.Text
+  videoPreviewSeconds Int?
+  publishedAt         DateTime?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, platform])
+  @@index([postId])
+  @@index([status])
 }
 
 enum SocialPublishContentType {

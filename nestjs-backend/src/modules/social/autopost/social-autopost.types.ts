@@ -42,6 +42,8 @@ export type FacebookAutopostSettings = {
   publishShorts: boolean;
   /** Shorts/video inzeráty publikovat jako Facebook Reels. */
   publishShortsAsReels: boolean;
+  /** Video příspěvky uživatelů publikovat jako Facebook Reels. */
+  publishPostVideosAsReels: boolean;
   /** Při selhání Reels zkusit běžný video příspěvek. */
   reelsFallbackToVideoPost: boolean;
   /** Při nedostupném videu publikovat klasický příspěvek s fotkou. */
@@ -82,6 +84,12 @@ export type SocialAutopostGlobalSettings = {
   publishImagesAsPhotoPost: boolean;
   /** Při selhání uploadu média publikovat pouze odkaz. */
   fallbackToLinkOnMediaFailure: boolean;
+  /** Pro sociální sítě použít stejné pravidlo ukázky videa jako na portálu. */
+  socialVideoUsePortalTeaserRule: boolean;
+  /** Vlastní délka ukázky videa pro sociální sítě (null = z portálu). */
+  socialVideoTeaserSeconds: number | null;
+  /** Publikovat celé video na sociální sítě (bez teaseru). */
+  socialVideoPublishFull: boolean;
 };
 
 export type SocialAutopostSettings = {
@@ -125,7 +133,10 @@ export const DEFAULT_SOCIAL_AUTOPOST_GLOBAL: SocialAutopostGlobalSettings = {
   videoTeaserEndSlideEnabled: true,
   publishVideosAsReels: true,
   publishImagesAsPhotoPost: true,
-  fallbackToLinkOnMediaFailure: true,
+  fallbackToLinkOnMediaFailure: false,
+  socialVideoUsePortalTeaserRule: true,
+  socialVideoTeaserSeconds: null,
+  socialVideoPublishFull: false,
 };
 
 export const DEFAULT_FACEBOOK_AUTOPOST: FacebookAutopostSettings = {
@@ -144,6 +155,7 @@ export const DEFAULT_FACEBOOK_AUTOPOST: FacebookAutopostSettings = {
   publishProperties: true,
   publishShorts: true,
   publishShortsAsReels: true,
+  publishPostVideosAsReels: true,
   reelsFallbackToVideoPost: true,
   reelsFallbackToPhotoPost: true,
   approvedOnly: true,

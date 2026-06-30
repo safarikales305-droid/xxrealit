@@ -24,6 +24,7 @@ export type FacebookAutopostSettingsPublic = {
   publishProperties: boolean;
   publishShorts: boolean;
   publishShortsAsReels?: boolean;
+  publishPostVideosAsReels?: boolean;
   reelsFallbackToVideoPost?: boolean;
   reelsFallbackToPhotoPost?: boolean;
   approvedOnly: boolean;
@@ -49,6 +50,9 @@ export type SocialAutopostGlobalSettings = {
   publishVideosAsReels: boolean;
   publishImagesAsPhotoPost: boolean;
   fallbackToLinkOnMediaFailure: boolean;
+  socialVideoUsePortalTeaserRule: boolean;
+  socialVideoTeaserSeconds: number | null;
+  socialVideoPublishFull: boolean;
 };
 
 export type PlatformPlaceholderSettings = {
@@ -541,11 +545,25 @@ export const PROPERTY_FACEBOOK_STATUS_LABELS: Record<PropertyFacebookDisplayStat
 };
 
 export const SOCIAL_PUBLISH_STATUS_LABELS: Record<string, string> = {
-  PENDING: 'Čeká',
+  PENDING: 'Čeká na publikování',
+  UPLOADING: 'Nahrává se',
   PROCESSING: 'Zpracovává se',
   PUBLISHED: 'Publikováno',
   FAILED: 'Chyba',
   SKIPPED: 'Přeskočeno',
+};
+
+export const POST_SOCIAL_PLATFORM_LABELS: Record<string, string> = {
+  FACEBOOK: 'Facebook',
+  INSTAGRAM: 'Instagram',
+  TIKTOK: 'TikTok',
+  YOUTUBE: 'YouTube',
+};
+
+export const POST_SOCIAL_PUBLISH_TYPE_LABELS: Record<string, string> = {
+  POST: 'Běžný příspěvek',
+  REEL: 'Reel',
+  SHORT: 'Short',
 };
 
 export const SOCIAL_TRIGGER_SOURCE_LABELS: Record<string, string> = {
@@ -716,6 +734,49 @@ export function nestAdminScheduleDelete(token: string, scheduleId: string) {
     token,
     `/social/autopost/admin/schedules/${encodeURIComponent(scheduleId)}`,
     { method: 'DELETE' },
+  );
+}
+
+export type PostSocialPublishRow = {
+  id: string;
+  postId: string;
+  platform: string;
+  publishType: string;
+  status: string;
+  externalId: string | null;
+  externalUrl: string | null;
+  errorMessage: string | null;
+  videoPreviewSeconds: number | null;
+  publishedAt: string | null;
+};
+
+export function nestAdminPostSocialPublishStatus(token: string, postId: string) {
+  return adminFetch<{
+    ok: boolean;
+    post?: unknown;
+    platforms?: PostSocialPublishRow[];
+    queue?: unknown;
+    logs?: unknown[];
+    error?: string;
+  }>(token, `/social/autopost/admin/posts/${encodeURIComponent(postId)}/social-publish`);
+}
+
+export function nestAdminPostsPublishNow(
+  token: string,
+  postIds: string[],
+  opts?: { force?: boolean; publishAsReel?: boolean },
+) {
+  return adminFetch<{ ok: boolean; results: unknown[] }>(
+    token,
+    '/social/autopost/admin/posts/publish-now',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        postIds,
+        force: opts?.force ?? true,
+        publishAsReel: opts?.publishAsReel,
+      }),
+    },
   );
 }
 

@@ -24,6 +24,8 @@ import {
 import { isShortsVideoProperty } from './social-facebook-reel.util';
 import { PROFESSIONAL_ROLES } from './social-autopost.types';
 import { SocialPublishTemplatesService } from './social-publish-templates.service';
+import { SocialPostPublisherService } from './social-post-publisher.service';
+import { PostSocialPublishService } from './post-social-publish.service';
 
 const MAX_ATTEMPTS = 5;
 
@@ -35,6 +37,7 @@ export class SocialPublishEnqueueService {
     private readonly prisma: PrismaService,
     private readonly settings: SocialAutopostSettingsService,
     private readonly logService: SocialPublishLogService,
+    private readonly postSocialPublish: PostSocialPublishService,
   ) {}
 
   firePropertyCreated(propertyId: string) {
@@ -114,8 +117,10 @@ export class SocialPublishEnqueueService {
 
   private async tryEnqueuePost(postId: string) {
     await this.settings.reload();
+    const global = this.settings.getSettings().global;
     const fb = this.settings.getSettings().facebook;
     if (!fb.enabled || !fb.publishPosts) return;
+    if (!global.autoPublishNewPosts) return;
     await this.enqueuePost(postId, { manual: false });
   }
 
@@ -316,6 +321,10 @@ export class SocialPublishEnqueueService {
       opts.triggerSource ??
       (opts.manual ? SocialPublishTriggerSource.MANUAL : SocialPublishTriggerSource.AUTO);
 
+    const facebookPostType = videoUrl ? FacebookPostType.FACEBOOK_REEL : FacebookPostType.FACEBOOK_POST;
+
+    await this.postSocialPublish.ensureJobsForPost(postId);
+
     const row = await this.prisma.socialPublishQueue.upsert({
       where: {
         platform_contentType_contentId: {
@@ -334,6 +343,7 @@ export class SocialPublishEnqueueService {
         scheduledAt: new Date(),
         triggerSource,
         triggeredByUserId: opts.triggeredByUserId ?? null,
+        facebookPostType,
       },
       update: opts.force
         ? {
@@ -343,12 +353,14 @@ export class SocialPublishEnqueueService {
             attempts: 0,
             triggerSource,
             triggeredByUserId: opts.triggeredByUserId ?? null,
+            facebookPostType,
           }
         : {
             status: SocialPublishStatus.PENDING,
             scheduledAt: new Date(),
             triggerSource,
             triggeredByUserId: opts.triggeredByUserId ?? null,
+            facebookPostType,
           },
     });
     return { ok: true, queueId: row.id };
@@ -455,6 +467,7 @@ export class SocialPublishProcessorService {
     private readonly shareMetadata: ShareMetadataService,
     private readonly logService: SocialPublishLogService,
     private readonly templates: SocialPublishTemplatesService,
+    private readonly postPublisher: SocialPostPublisherService,
   ) {}
 
   async processDueBatch(limit = 5) {
@@ -640,19 +653,15 @@ export class SocialPublishProcessorService {
       include: { media: { orderBy: { order: 'asc' } } },
     });
     if (!post) throw new Error('Příspěvek není k dispozici');
-
-    const publicUrl = buildPostDetailUrl(post.id);
-    const text = (post.content ?? post.description ?? post.title ?? '').trim();
-    const imageUrl = resolvePostShareImage(post);
     const videoUrl = resolvePostShareVideo(post);
-    const title = post.title?.trim() || text.slice(0, 80) || undefined;
-
-    return this.publisher.publishUserPostToFacebook({
-      description: text,
-      publicUrl,
-      imageUrl,
-      videoUrl,
-      title,
-    });
+    const result = await this.postPublisher.publishPostToPlatform(
+      contentId,
+      SocialPlatform.FACEBOOK,
+      { forceReel: Boolean(videoUrl) },
+    );
+    if ('skipped' in result) {
+      throw new Error(result.reason);
+    }
+    return result;
   }
 }
