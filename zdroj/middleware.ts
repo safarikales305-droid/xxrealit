@@ -33,14 +33,21 @@ function handleCanonicalRedirect(request: NextRequest): NextResponse | null {
 
   if (!isKnownXxrealitHostname(host)) return null;
 
+  const pathname = request.nextUrl.pathname;
+  const search = request.nextUrl.search;
+
   // www + https → žádný redirect (hlavní doména)
   if (host === CANONICAL_WWW_HOST && proto === 'https') {
     return null;
   }
 
-  const pathname = request.nextUrl.pathname;
-  const search = request.nextUrl.search;
   const destination = `https://${CANONICAL_WWW_HOST}${pathname}${search}`;
+
+  // Bezpečnost: nikdy nepresměrovávat www → jinam, pokud už jsme na cíli
+  const currentHttps = `https://${host}${pathname}${search}`;
+  if (destination === currentHttps) {
+    return null;
+  }
 
   // eslint-disable-next-line no-console
   console.log('[middleware] canonical redirect', {

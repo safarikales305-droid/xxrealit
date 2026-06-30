@@ -108,9 +108,14 @@ export function resolveRequestHostname(
   host: string | null | undefined,
   forwardedHost: string | null | undefined,
 ): string {
-  const forwarded = hostnameFromHostHeader(forwardedHost);
-  if (forwarded) return forwarded;
-  return hostnameFromHostHeader(host);
+  const fromHost = hostnameFromHostHeader(host);
+  const fromForwarded = hostnameFromHostHeader(forwardedHost);
+
+  // Veřejný Host z prohlížeče má přednost před X-Forwarded-Host (Railway / CDN).
+  if (fromHost && isKnownXxrealitHostname(fromHost)) return fromHost;
+  if (fromForwarded && isKnownXxrealitHostname(fromForwarded)) return fromForwarded;
+
+  return fromHost || fromForwarded;
 }
 
 export function isKnownXxrealitHostname(host: string): boolean {
