@@ -196,6 +196,7 @@ export class PostsController {
     @UploadedFile() file?: Express.Multer.File,
     @Body('description') description?: string,
   ) {
+    assertUserCanCreateProfessionalContent(user);
     if (!file) {
       throw new BadRequestException('Vyberte soubor videa nebo obrázku.');
     }

@@ -211,7 +211,7 @@ export class RegistrationRequirementsService {
         this.prisma.post.count({ where: { userId } }),
         this.prisma.user.findUnique({
           where: { id: userId },
-          select: { emailVerified: true, phoneVerified: true },
+          select: { emailVerified: true, phone: true, whatsappPhone: true },
         }),
         this.computeProfileCompletionPercent(userId, role),
         settings.requireFacebookPage
@@ -244,7 +244,9 @@ export class RegistrationRequirementsService {
         {
           key: 'PHONE_VERIFIED',
           required: settings.requirePhoneVerified,
-          completed: Boolean(userFlags?.phoneVerified),
+          completed: Boolean(
+            String(userFlags?.whatsappPhone ?? userFlags?.phone ?? '').trim(),
+          ),
         },
         {
           key: 'EMAIL_VERIFIED',

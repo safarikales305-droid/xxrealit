@@ -48,6 +48,15 @@ export function buildCommunityPostsWhere(category?: PostCategory): Prisma.PostWh
     type: { not: 'short' },
     user: {
       role: { in: PROFESSIONAL_POST_ROLES },
+      OR: [
+        { isPublicBrokerProfile: true },
+        { publicProfessionalProfile: true },
+        { agentProfile: { isPublic: true } },
+        { companyProfile: { isPublic: true } },
+        { agencyProfile: { isPublic: true } },
+        { financialAdvisorProfile: { isPublic: true } },
+        { investorProfile: { isPublic: true } },
+      ],
     },
     ...(category
       ? {

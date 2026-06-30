@@ -1,5 +1,9 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { MarketingBonusActionType, PostCategory, ReactionType } from '@prisma/client';
+import {
+  isUserPublicProfileEnabled,
+  POST_PUBLISH_REQUIRES_PUBLIC_PROFILE_MSG,
+} from '../../common/user-public-profile.util';
 import { PrismaService } from '../../database/prisma.service';
 import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
 import { BrokerPointsService } from '../premium-broker/broker-points.service';
@@ -11,6 +15,7 @@ import {
   dedupeCommunityPosts,
   isPublicMediaUrl,
   postHasFeedVisibility,
+  PROFESSIONAL_POST_ROLES,
   sortCommunityPostsByDate,
   sortCommunityPostsWithFollowPriority,
 } from './community-posts.util';
@@ -94,6 +99,31 @@ export class PostsService {
     private readonly webPush: WebPushService,
     private readonly socialPublishEnqueue: SocialPublishEnqueueService,
   ) {}
+
+  private async assertCanPublishPublicPost(userId: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        role: true,
+        isPublicBrokerProfile: true,
+        publicProfessionalProfile: true,
+        agentProfile: { select: { isPublic: true } },
+        companyProfile: { select: { isPublic: true } },
+        agencyProfile: { select: { isPublic: true } },
+        financialAdvisorProfile: { select: { isPublic: true } },
+        investorProfile: { select: { isPublic: true } },
+      },
+    });
+    if (!user) {
+      throw new NotFoundException('Uživatel nenalezen.');
+    }
+    if (!PROFESSIONAL_POST_ROLES.includes(user.role)) {
+      throw new ForbiddenException('Tato role nemůže publikovat příspěvky.');
+    }
+    if (!isUserPublicProfileEnabled(user)) {
+      throw new ForbiddenException(POST_PUBLISH_REQUIRES_PUBLIC_PROFILE_MSG);
+    }
+  }
 
   private firePostPublishedNotify(userId: string, postId: string) {
     void this.postWhatsAppNotify.onPostPublished(userId, postId).catch((err) => {
@@ -211,6 +241,7 @@ export class PostsService {
   }
 
   async create(userId: string, dto: CreatePostDto) {
+    await this.assertCanPublishPublicPost(userId);
     const text = (dto.text ?? dto.description ?? dto.content ?? '').trim();
     const preview = linkPreviewDataFromDto(dto);
     const created = await this.prisma.post.create({
@@ -252,6 +283,7 @@ export class PostsService {
       soundTrackId?: string;
     },
   ) {
+    await this.assertCanPublishPublicPost(userId);
     const text = opts.description.trim();
     const isVideo = opts.kind === 'video';
     const created = await this.prisma.post.create({
@@ -316,6 +348,7 @@ export class PostsService {
       soundTrackId?: string;
     },
   ) {
+    await this.assertCanPublishPublicPost(userId);
     const created = await this.prisma.post.create({
       data: {
         title: input.title,

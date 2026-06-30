@@ -17,6 +17,7 @@ import {
   nestAdminImportXml,
   nestAdminImportProperties,
   nestAdminPatchPremiumBroker,
+  nestAdminSetUserPublicProfile,
   nestAdminPendingProperties,
   nestAdminRejectProfessionalProfile,
   nestAdminStats,
@@ -244,6 +245,17 @@ export default function AdminPage() {
     setBusyUserId(null);
     if (r.ok) await refresh();
     else setLoadError(r.error ?? 'Změna premium makléře selhala');
+  }
+
+  async function onPublicProfileToggle(u: AdminUserRow) {
+    if (!token) return;
+    const currentlyPublic =
+      Boolean(u.publicProfessionalProfile) || Boolean(u.isPublicBrokerProfile);
+    setBusyUserId(u.id);
+    const r = await nestAdminSetUserPublicProfile(token, u.id, !currentlyPublic);
+    setBusyUserId(null);
+    if (r.ok) await refresh();
+    else setLoadError(r.error ?? 'Změna veřejného profilu selhala');
   }
 
   async function onUserRoleChange(userId: string, newRole: string) {
@@ -756,6 +768,7 @@ export default function AdminPage() {
             onVerifyWhatsApp={onAdminVerifyUserWhatsApp}
             onResetWhatsApp={onAdminResetUserWhatsApp}
             onPremiumBrokerToggle={onPremiumBrokerToggle}
+            onPublicProfileToggle={onPublicProfileToggle}
             onDeleteUser={onDeleteUserRow}
           />
         </section>

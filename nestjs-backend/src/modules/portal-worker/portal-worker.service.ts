@@ -492,6 +492,8 @@ export class PortalWorkerService {
           whatsappPhone: row.whatsappPhone || row.phone,
           emailVerified: false,
           phoneVerified: false,
+          isPublicBrokerProfile: false,
+          publicProfessionalProfile: false,
         },
       });
       await tx.clientPreregistration.update({

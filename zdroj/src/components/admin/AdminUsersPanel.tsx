@@ -7,6 +7,10 @@ import {
   type AdminListingRow,
   type AdminUserRow,
 } from '@/lib/nest-client';
+import {
+  canRolePublishPosts,
+  isAdminUserPublicProfileEnabled,
+} from '@/lib/post-publish-eligibility';
 
 const ROLE_OPTIONS = [
   'USER',
@@ -102,6 +106,7 @@ type Props = {
   onVerifyWhatsApp: (userId: string) => void;
   onResetWhatsApp: (userId: string) => void;
   onPremiumBrokerToggle: (u: AdminUserRow) => void;
+  onPublicProfileToggle: (u: AdminUserRow) => void;
   onDeleteUser: (u: AdminUserRow) => void;
 };
 
@@ -172,6 +177,7 @@ function UserDetail({
   onVerifyWhatsApp,
   onResetWhatsApp,
   onPremiumBrokerToggle,
+  onPublicProfileToggle,
   onDeleteUser,
   token,
 }: {
@@ -189,9 +195,12 @@ function UserDetail({
   onVerifyWhatsApp: () => void;
   onResetWhatsApp: () => void;
   onPremiumBrokerToggle: () => void;
+  onPublicProfileToggle: () => void;
   onDeleteUser: () => void;
 }) {
   const status = accountStatus(u);
+  const publicProfileEnabled = isAdminUserPublicProfileEnabled(u);
+  const canTogglePublicProfile = canRolePublishPosts(u.role);
   const realDebt =
     u.accountLimited && (u.creditDebt ?? 0) > 0 && !isFakeDebt(u) ? u.creditDebt : 0;
 
@@ -255,6 +264,20 @@ function UserDetail({
               }`}
             >
               Premium makléř: {u.isPremiumBroker ? 'ano' : 'ne'} (přepnout)
+            </button>
+          ) : null}
+          {canTogglePublicProfile ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onPublicProfileToggle}
+              className={`mt-3 w-full rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                publicProfileEnabled
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
+                  : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50'
+              }`}
+            >
+              Veřejný profil: {publicProfileEnabled ? 'zapnutý' : 'vypnutý'} (přepnout)
             </button>
           ) : null}
           {u.isPromoProfile ? (
@@ -628,6 +651,7 @@ export function AdminUsersPanel({
   onVerifyWhatsApp,
   onResetWhatsApp,
   onPremiumBrokerToggle,
+  onPublicProfileToggle,
   onDeleteUser,
 }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -828,6 +852,7 @@ export function AdminUsersPanel({
                   onVerifyWhatsApp={() => onVerifyWhatsApp(u.id)}
                   onResetWhatsApp={() => onResetWhatsApp(u.id)}
                   onPremiumBrokerToggle={() => onPremiumBrokerToggle(u)}
+                  onPublicProfileToggle={() => onPublicProfileToggle(u)}
                   onDeleteUser={() => onDeleteUser(u)}
                 />
               ) : null}
@@ -894,6 +919,7 @@ export function AdminUsersPanel({
                     onVerifyWhatsApp={() => onVerifyWhatsApp(u.id)}
                     onResetWhatsApp={() => onResetWhatsApp(u.id)}
                     onPremiumBrokerToggle={() => onPremiumBrokerToggle(u)}
+                    onPublicProfileToggle={() => onPublicProfileToggle(u)}
                     onDeleteUser={() => onDeleteUser(u)}
                   />
                 ) : null}

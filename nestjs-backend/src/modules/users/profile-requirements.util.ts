@@ -8,6 +8,8 @@ export type ProfileRequirementsInput = {
   lastName?: string | null;
   email?: string | null;
   emailVerified?: boolean;
+  whatsappPhone?: string | null;
+  phone?: string | null;
   whatsappVerified?: boolean;
   city?: string | null;
   address?: string | null;
@@ -129,9 +131,9 @@ export function buildProfileRequirementsChecklist(
   items.push(
     checklistItem(
       'whatsapp',
-      'WhatsApp číslo ověřeno',
-      'WhatsApp číslo není ověřeno',
-      input.whatsappVerified === true,
+      'WhatsApp / telefonní číslo vyplněno',
+      'Chybí WhatsApp nebo telefonní číslo',
+      Boolean(String(input.whatsappPhone ?? input.phone ?? '').trim()),
     ),
     checklistItem(
       'name',

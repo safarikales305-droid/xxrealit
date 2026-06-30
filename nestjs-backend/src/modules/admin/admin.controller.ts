@@ -20,6 +20,7 @@ import { AdminService } from './admin.service';
 import { AdminUpdatePropertyDto } from './dto/admin-update-property.dto';
 import { PatchBrokerReviewVisibilityDto } from './dto/patch-broker-review-visibility.dto';
 import { PatchPremiumBrokerDto } from './dto/patch-premium-broker.dto';
+import { PatchUserPublicProfileDto } from './dto/patch-user-public-profile.dto';
 import { PatchUserCreditDto } from './dto/patch-user-credit.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { AdminChangeUserEmailDto } from './dto/admin-change-user-email.dto';
@@ -328,6 +329,16 @@ export class AdminController {
     @Body(new ValidationPipe({ whitelist: true, transform: true })) dto: PatchPremiumBrokerDto,
   ) {
     return this.adminService.updateUserPremiumBroker(user.id, id, dto.isPremiumBroker);
+  }
+
+  @Patch('users/:id/public-profile')
+  setUserPublicProfile(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    dto: PatchUserPublicProfileDto,
+  ) {
+    return this.adminService.setUserPublicProfile(user.id, id, dto.isPublic);
   }
 
   @Patch('users/:id/credit')

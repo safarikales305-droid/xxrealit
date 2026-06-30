@@ -2,7 +2,7 @@ import type { User } from '@prisma/client';
 
 export type WorkerProfileField =
   | 'emailVerified'
-  | 'phoneVerified'
+  | 'whatsappPhone'
   | 'avatar'
   | 'name'
   | 'location'
@@ -10,7 +10,7 @@ export type WorkerProfileField =
 
 export const WORKER_PROFILE_FIELD_LABELS: Record<WorkerProfileField, string> = {
   emailVerified: 'Ověřený e-mail',
-  phoneVerified: 'Ověřené telefonní číslo',
+  whatsappPhone: 'WhatsApp / telefonní číslo',
   avatar: 'Profilová fotka',
   name: 'Jméno',
   location: 'Lokalita / kraj',
@@ -25,14 +25,24 @@ export type WorkerProfileAssessment = {
 
 type WorkerProfileUser = Pick<
   User,
-  'emailVerified' | 'phoneVerified' | 'avatar' | 'firstName' | 'lastName' | 'name' | 'city' | 'brokerRegionLabel' | 'termsAccepted'
+  | 'emailVerified'
+  | 'phone'
+  | 'whatsappPhone'
+  | 'avatar'
+  | 'firstName'
+  | 'lastName'
+  | 'name'
+  | 'city'
+  | 'brokerRegionLabel'
+  | 'termsAccepted'
 >;
 
 export function assessWorkerProfileCompleteness(user: WorkerProfileUser): WorkerProfileAssessment {
   const missingFields: WorkerProfileField[] = [];
 
   if (!user.emailVerified) missingFields.push('emailVerified');
-  if (!user.phoneVerified) missingFields.push('phoneVerified');
+  const contactPhone = String(user.whatsappPhone ?? user.phone ?? '').trim();
+  if (!contactPhone) missingFields.push('whatsappPhone');
   if (!String(user.avatar ?? '').trim()) missingFields.push('avatar');
 
   const displayName =

@@ -8,11 +8,16 @@ import { buildClientLinkPreviewFallback } from '@/lib/link-preview-client';
 import {
   nestApiConfigured,
   nestFetchLinkPreview,
+  nestFetchMe,
   nestFetchPostSounds,
   type LinkPreviewResponse,
   type PostSoundTrackDto,
 } from '@/lib/nest-client';
 import { enqueuePostUpload } from '@/lib/post-upload-queue';
+import {
+  canUserPublishPosts,
+  POST_PUBLISH_REQUIRES_PUBLIC_PROFILE_MSG,
+} from '@/lib/post-publish-eligibility';
 import { PostUploadProgress } from '@/components/community/PostUploadProgress';
 import { LinkPreviewCard } from '@/components/community/LinkPreviewCard';
 import { captureFileVideoPoster } from '@/lib/video-poster';
@@ -56,12 +61,28 @@ export function CreateCommunityPostCard({
   const [postSounds, setPostSounds] = useState<PostSoundTrackDto[]>([]);
   const [selectedSoundId, setSelectedSoundId] = useState('');
   const [soundsLoading, setSoundsLoading] = useState(false);
+  const [publishAllowed, setPublishAllowed] = useState<boolean | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previewRequestIdRef = useRef(0);
 
   const detectedUrl = extractFirstUrl(description);
+
+  useEffect(() => {
+    if (!apiAccessToken || !nestApiConfigured()) {
+      setPublishAllowed(false);
+      return;
+    }
+    let cancelled = false;
+    void nestFetchMe(apiAccessToken).then((me) => {
+      if (cancelled) return;
+      setPublishAllowed(canUserPublishPosts(me));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiAccessToken]);
 
   useEffect(() => {
     if (!videoFile) {
@@ -261,6 +282,10 @@ export function CreateCommunityPostCard({
       setError('Přihlaste se a nastavte API.');
       return;
     }
+    if (publishAllowed === false) {
+      setError(POST_PUBLISH_REQUIRES_PUBLIC_PROFILE_MSG);
+      return;
+    }
     if (!text && !imageFile && !videoFile && !urlInText) {
       setError('Napište text nebo přidejte foto / video.');
       return;
@@ -367,8 +392,11 @@ export function CreateCommunityPostCard({
   }
 
   const canSubmit = Boolean(
-    description.trim() || imageFile || videoFile || detectedUrl,
+    publishAllowed &&
+      (description.trim() || imageFile || videoFile || detectedUrl),
   );
+
+  const formDisabled = publishAllowed === false;
 
   const showLinkCard =
     Boolean(linkPreview) && !imageFile && !videoFile && !linkPreviewDismissed;
@@ -379,10 +407,19 @@ export function CreateCommunityPostCard({
       onSubmit={(e) => void handleSubmit(e)}
       className="w-full rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
     >
+      {formDisabled ? (
+        <p
+          className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          role="status"
+        >
+          {POST_PUBLISH_REQUIRES_PUBLIC_PROFILE_MSG}
+        </p>
+      ) : null}
       <textarea
         ref={textareaRef}
         rows={1}
         value={description}
+        disabled={formDisabled}
         onChange={(e) => {
           setLinkPreviewDismissed(false);
           setDescription(e.target.value);
@@ -486,7 +523,7 @@ export function CreateCommunityPostCard({
           <button
             type="button"
             onClick={() => imageInputRef.current?.click()}
-            disabled={Boolean(videoFile)}
+            disabled={formDisabled || Boolean(videoFile)}
             className="inline-flex size-10 items-center justify-center rounded-2xl border border-zinc-200 bg-zinc-50 text-orange-600 transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="Přidat fotku"
             title="Fotka"
@@ -496,7 +533,7 @@ export function CreateCommunityPostCard({
           <button
             type="button"
             onClick={() => videoInputRef.current?.click()}
-            disabled={Boolean(imageFile)}
+            disabled={formDisabled || Boolean(imageFile)}
             className="inline-flex size-10 items-center justify-center rounded-2xl border border-zinc-200 bg-zinc-50 text-orange-600 transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="Přidat video"
             title="Video"
@@ -506,7 +543,7 @@ export function CreateCommunityPostCard({
         </div>
         <button
           type="submit"
-          disabled={loading || !canSubmit}
+          disabled={loading || !canSubmit || publishAllowed !== true}
           className="inline-flex h-10 items-center gap-2 rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-5 text-sm font-semibold text-white shadow-sm transition disabled:opacity-50"
         >
           <Send className="size-4" />

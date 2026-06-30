@@ -892,6 +892,8 @@ export class UsersService {
       lastName: u.lastName,
       email: u.email,
       emailVerified: u.emailVerified === true,
+      whatsappPhone: u.whatsappPhone,
+      phone: u.phone,
       whatsappVerified: u.whatsappVerified === true,
       city: u.city,
       address: u.address,

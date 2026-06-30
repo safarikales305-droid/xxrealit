@@ -848,6 +848,7 @@ export type AdminUserRow = {
   isPromoProfile?: boolean;
   promoProfileActive?: boolean;
   isPublicBrokerProfile?: boolean;
+  publicProfessionalProfile?: boolean;
   brokerPoints?: number;
   brokerFreeLeads?: number;
   creditBalance?: number;
@@ -1720,7 +1721,46 @@ export async function nestAdminUpdateUserRole(
     typeof data.message === 'string' && data.message.trim()
       ? data.message.trim()
       : 'Role uživatele byla změněna.';
-  return { ok: true, message: successMessage };
+  return { ok: true };
+}
+
+export async function nestAdminSetUserPublicProfile(
+  token: string | null,
+  userId: string,
+  isPublic: boolean,
+): Promise<{ ok: boolean; error?: string; isPublic?: boolean }> {
+  if (!API_BASE_URL || !token) {
+    return { ok: false, error: 'API nebo token chybí' };
+  }
+  const res = await fetch(
+    `${API_BASE_URL}/admin/users/${encodeURIComponent(userId)}/public-profile`,
+    {
+      method: 'PATCH',
+      headers: {
+        ...nestAuthHeaders(token),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ isPublic }),
+    },
+  );
+  const data = (await res.json().catch(() => ({}))) as {
+    message?: string | string[];
+    error?: string;
+    isPublic?: boolean;
+  };
+  if (!res.ok) {
+    const msg =
+      typeof data.message === 'string'
+        ? data.message
+        : Array.isArray(data.message)
+          ? data.message.join(', ')
+          : typeof data.error === 'string'
+            ? data.error
+            : `HTTP ${res.status}`;
+    return { ok: false, error: msg };
+  }
+  return { ok: true, isPublic: data.isPublic };
 }
 
 export async function nestAdminPatchPremiumBroker(

@@ -695,6 +695,7 @@ export class AdminService {
         isPromoProfile: true,
         promoProfileActive: true,
         isPublicBrokerProfile: true,
+        publicProfessionalProfile: true,
         brokerPoints: true,
         brokerFreeLeads: true,
         creditBalance: true,
@@ -725,6 +726,7 @@ export class AdminService {
       isPromoProfile: u.isPromoProfile,
       promoProfileActive: u.promoProfileActive,
       isPublicBrokerProfile: u.isPublicBrokerProfile,
+      publicProfessionalProfile: u.publicProfessionalProfile,
       brokerPoints: u.brokerPoints,
       brokerFreeLeads: u.brokerFreeLeads,
       creditBalance: u.creditBalance,
@@ -743,6 +745,78 @@ export class AdminService {
       phone: u.phone,
       profileIco: u.profileIco,
     }));
+  }
+
+  async setUserPublicProfile(_actorId: string, targetId: string, isPublic: boolean) {
+    const u = await this.prisma.user.findUnique({
+      where: { id: targetId },
+      select: { id: true, role: true },
+    });
+    if (!u) {
+      throw new NotFoundException('Uživatel nenalezen');
+    }
+
+    if (u.role === UserRole.AGENT) {
+      await this.prisma.user.update({
+        where: { id: targetId },
+        data: { isPublicBrokerProfile: isPublic, publicProfessionalProfile: isPublic },
+      });
+      await this.prisma.agentProfile.updateMany({
+        where: { userId: targetId },
+        data: { isPublic },
+      });
+      return { ok: true, isPublic };
+    }
+    if (u.role === UserRole.COMPANY) {
+      await this.prisma.companyProfile.updateMany({
+        where: { userId: targetId },
+        data: { isPublic },
+      });
+      await this.prisma.user.update({
+        where: { id: targetId },
+        data: { isPublicBrokerProfile: isPublic },
+      });
+      return { ok: true, isPublic };
+    }
+    if (u.role === UserRole.AGENCY) {
+      await this.prisma.agencyProfile.updateMany({
+        where: { userId: targetId },
+        data: { isPublic },
+      });
+      await this.prisma.user.update({
+        where: { id: targetId },
+        data: { isPublicBrokerProfile: isPublic },
+      });
+      return { ok: true, isPublic };
+    }
+    if (u.role === UserRole.FINANCIAL_ADVISOR) {
+      await this.prisma.financialAdvisorProfile.updateMany({
+        where: { userId: targetId },
+        data: { isPublic },
+      });
+      await this.prisma.user.update({
+        where: { id: targetId },
+        data: { isPublicBrokerProfile: isPublic },
+      });
+      return { ok: true, isPublic };
+    }
+    if (u.role === UserRole.INVESTOR) {
+      await this.prisma.investorProfile.updateMany({
+        where: { userId: targetId },
+        data: { isPublic },
+      });
+      await this.prisma.user.update({
+        where: { id: targetId },
+        data: { isPublicBrokerProfile: isPublic },
+      });
+      return { ok: true, isPublic };
+    }
+
+    await this.prisma.user.update({
+      where: { id: targetId },
+      data: { isPublicBrokerProfile: isPublic, publicProfessionalProfile: isPublic },
+    });
+    return { ok: true, isPublic };
   }
 
   async updateUserCreditBalance(_actorId: string, targetId: string, creditBalance: number) {
