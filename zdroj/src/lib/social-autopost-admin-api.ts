@@ -912,23 +912,48 @@ export type IntroComposeTestResult = {
 export function nestAdminTestIntroCompose(
   token: string,
   body: { propertyType: string; propertyId?: string },
-) {
+): Promise<IntroComposeTestResult> {
   return adminFetchJson<IntroComposeTestResult>(
     token,
     '/social/autopost/admin/intro-videos/test-compose',
     { method: 'POST', body: JSON.stringify(body) },
-  );
+  ).then(({ data, status, body: errBody }) => {
+    if (data) return data;
+    const err = errBody as { message?: string; error?: string };
+    return {
+      ok: false,
+      error:
+        typeof err?.error === 'string'
+          ? err.error
+          : typeof err?.message === 'string'
+            ? err.message
+            : `HTTP ${status}`,
+    };
+  });
 }
 
-export function nestAdminRegenerateScheduleFinalVideo(token: string, scheduleId: string) {
+export function nestAdminRegenerateScheduleFinalVideo(
+  token: string,
+  scheduleId: string,
+): Promise<{ ok: boolean; result?: { finalVideoUrl: string; introVideoUsed: boolean }; error?: string }> {
   return adminFetchJson<{ ok: boolean; result?: { finalVideoUrl: string; introVideoUsed: boolean } }>(
     token,
     `/social/autopost/admin/schedules/${encodeURIComponent(scheduleId)}/regenerate-final-video`,
     { method: 'POST' },
-  );
+  ).then(({ data, status, body: errBody }) => {
+    if (data) return data;
+    const err = errBody as { message?: string; error?: string };
+    return { ok: false, error: err?.error ?? err?.message ?? `HTTP ${status}` };
+  });
 }
 
-export function nestAdminRegenerateAllScheduleFinalVideos(token: string) {
+export function nestAdminRegenerateAllScheduleFinalVideos(token: string): Promise<{
+  ok: boolean;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  error?: string;
+}> {
   return adminFetchJson<{
     ok: boolean;
     processed: number;
@@ -936,6 +961,16 @@ export function nestAdminRegenerateAllScheduleFinalVideos(token: string) {
     failed: number;
   }>(token, '/social/autopost/admin/schedules/regenerate-all-final-videos', {
     method: 'POST',
+  }).then(({ data, status, body: errBody }) => {
+    if (data) return data;
+    const err = errBody as { message?: string; error?: string };
+    return {
+      ok: false,
+      processed: 0,
+      succeeded: 0,
+      failed: 0,
+      error: err?.error ?? err?.message ?? `HTTP ${status}`,
+    };
   });
 }
 

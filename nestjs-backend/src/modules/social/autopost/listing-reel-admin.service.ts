@@ -139,7 +139,7 @@ export class ListingReelAdminService {
         videoUrl: { not: null },
         approved: true,
       },
-      orderBy: { updatedAt: 'desc' },
+      orderBy: { createdAt: 'desc' },
       take: 80,
     });
 
