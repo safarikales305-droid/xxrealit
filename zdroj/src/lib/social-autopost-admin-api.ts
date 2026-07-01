@@ -431,6 +431,11 @@ export type PropertyPublishLogRow = {
   reelPublishedUrl?: string | null;
   teaserDurationSec?: number | null;
   originalVideoDurationSec?: number | null;
+  introVideoUsed?: boolean | null;
+  introVideoPropertyType?: string | null;
+  introVideoDurationSec?: number | null;
+  totalReelDurationSec?: number | null;
+  introVideoError?: string | null;
   lastError: string | null;
   lastApiResponse?: unknown;
   processedAt?: string | null;
@@ -777,6 +782,100 @@ export function nestAdminPostsPublishNow(
         publishAsReel: opts?.publishAsReel,
       }),
     },
+  );
+}
+
+export type SocialIntroVideoRow = {
+  id: string;
+  title: string;
+  propertyType: string;
+  videoUrl: string;
+  thumbnailUrl?: string | null;
+  durationSeconds?: number | null;
+  active: boolean;
+  priority: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export const SOCIAL_INTRO_PROPERTY_TYPE_LABELS: Record<string, string> = {
+  BYT: 'Byt',
+  DUM: 'Dům',
+  POZEMEK: 'Pozemek',
+  KOMERCNI: 'Komerční prostor',
+  GARAZ: 'Garáž',
+  NOVOSTAVBA: 'Novostavba',
+  PRONAJEM: 'Pronájem',
+  OSTATNI: 'Ostatní',
+};
+
+export async function nestAdminListIntroVideos(token: string) {
+  return adminFetch<{ items?: SocialIntroVideoRow[] } | SocialIntroVideoRow[]>(
+    token,
+    '/social/autopost/admin/intro-videos',
+  ).then((data) => (Array.isArray(data) ? data : []));
+}
+
+export async function nestAdminCreateIntroVideo(
+  token: string,
+  form: FormData,
+): Promise<{ ok: boolean; item?: SocialIntroVideoRow; error?: string }> {
+  const res = await fetch(resolveSocialAdminApiUrl('/social/autopost/admin/intro-videos'), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { ok: false, error: (data as { message?: string }).message ?? 'Nahrání selhalo' };
+  }
+  return { ok: true, item: (data as { item: SocialIntroVideoRow }).item };
+}
+
+export async function nestAdminUpdateIntroVideo(
+  token: string,
+  id: string,
+  body: Partial<{
+    title: string;
+    propertyType: string;
+    active: boolean;
+    priority: number;
+    thumbnailUrl: string | null;
+    durationSeconds: number | null;
+  }>,
+) {
+  return adminFetchJson<{ ok: boolean; item: SocialIntroVideoRow }>(
+    token,
+    `/social/autopost/admin/intro-videos/${encodeURIComponent(id)}`,
+    { method: 'PATCH', body: JSON.stringify(body) },
+  );
+}
+
+export async function nestAdminReplaceIntroVideo(
+  token: string,
+  id: string,
+  form: FormData,
+): Promise<{ ok: boolean; item?: SocialIntroVideoRow; error?: string }> {
+  const res = await fetch(
+    resolveSocialAdminApiUrl(`/social/autopost/admin/intro-videos/${encodeURIComponent(id)}/video`),
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    },
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { ok: false, error: (data as { message?: string }).message ?? 'Nahrání selhalo' };
+  }
+  return { ok: true, item: (data as { item: SocialIntroVideoRow }).item };
+}
+
+export async function nestAdminDeleteIntroVideo(token: string, id: string) {
+  return adminFetchJson<{ ok: boolean }>(
+    token,
+    `/social/autopost/admin/intro-videos/${encodeURIComponent(id)}`,
+    { method: 'DELETE' },
   );
 }
 

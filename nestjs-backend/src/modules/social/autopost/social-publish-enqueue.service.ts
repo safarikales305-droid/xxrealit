@@ -23,6 +23,7 @@ import {
 } from './social-publish-format.util';
 import { isShortsVideoProperty } from './social-facebook-reel.util';
 import { PROFESSIONAL_ROLES, type FacebookPublishResult } from './social-autopost.types';
+import { SocialIntroPropertyType } from '@prisma/client';
 import { SocialPublishTemplatesService } from './social-publish-templates.service';
 import { PostSocialPublishService } from './post-social-publish.service';
 
@@ -56,6 +57,11 @@ function buildPublishLogGraphResponse(result: FacebookPublishResult): object {
       originalVideoDurationSec: result.originalVideoDurationSec ?? null,
       externalReelId: result.externalReelId ?? null,
       reelPublishedUrl: result.reelPublishedUrl ?? null,
+      introVideoUsed: result.introVideoUsed ?? null,
+      introVideoPropertyType: result.introVideoPropertyType ?? null,
+      introVideoDurationSec: result.introVideoDurationSec ?? null,
+      totalReelDurationSec: result.totalReelDurationSec ?? null,
+      introVideoError: result.introVideoError ?? null,
     },
   };
 }
@@ -592,6 +598,12 @@ export class SocialPublishProcessorService {
         contentTitle: result.contentTitle ?? null,
         teaserDurationSec: result.teaserDurationSec ?? null,
         originalVideoDurationSec: result.originalVideoDurationSec ?? null,
+        introVideoUsed: result.introVideoUsed === true,
+        introVideoPropertyType:
+          (result.introVideoPropertyType as SocialIntroPropertyType | null) ?? null,
+        introVideoDurationSec: result.introVideoDurationSec ?? null,
+        totalReelDurationSec: result.totalReelDurationSec ?? null,
+        introVideoError: result.introVideoError ?? null,
         graphApiResponse: buildPublishLogGraphResponse(result),
         lastError: result.teaserError ?? result.teaserDrawtextSkippedReason ?? null,
         triggerSource: item.triggerSource,
@@ -685,6 +697,13 @@ export class SocialPublishProcessorService {
         videoUrl,
         title: property.title?.trim() || undefined,
         isShortsVideo,
+        listingContext: {
+          propertyTypeKey: property.propertyTypeKey,
+          propertyType: property.propertyType,
+          offerType: property.offerType,
+          title: property.title,
+          description: property.description,
+        },
       },
       forceFormat ? { forceFormat } : {},
     );

@@ -79,6 +79,11 @@ import { resolveListingApprovalOnCreate, resolveListingApprovalOnEdit } from './
 import { overlayFieldsForStorage } from './shorts-overlay.types';
 import { PropertySocialPublishSummaryService } from './property-social-publish-summary.service';
 import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
+import { anyPublicListingWhere } from './property-listing-scope';
+import {
+  listingLocationSlug,
+  type PublicListingLocationRow,
+} from './listing-locations.util';
 
 @Injectable()
 export class PropertiesService {
@@ -1710,6 +1715,55 @@ export class PropertiesService {
       },
     });
     return { ok: true, activeUntil: boostedUntil.toISOString() };
+  }
+
+  /** Dynamické lokality z aktivních veřejných inzerátů (Klasik + Shorts). */
+  async getPublicListingLocations(query?: { q?: string; limit?: number }): Promise<{
+    items: PublicListingLocationRow[];
+  }> {
+    const rows = await this.prisma.property.findMany({
+      where: anyPublicListingWhere,
+      select: { city: true, district: true, region: true },
+      take: 20000,
+    });
+
+    const bucket = new Map<string, PublicListingLocationRow>();
+    for (const row of rows) {
+      const city = (row.city ?? '').trim();
+      if (!city) continue;
+      const district = (row.district ?? '').trim();
+      const region = (row.region ?? '').trim();
+      const key = `${city.toLowerCase()}|${district.toLowerCase()}|${region.toLowerCase()}`;
+      const existing = bucket.get(key);
+      if (existing) {
+        existing.count += 1;
+        continue;
+      }
+      bucket.set(key, {
+        city,
+        district,
+        region,
+        label: city,
+        count: 1,
+        slug: listingLocationSlug(city),
+      });
+    }
+
+    let items = [...bucket.values()].sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return a.label.localeCompare(b.label, 'cs');
+    });
+
+    const q = (query?.q ?? '').trim().toLowerCase();
+    if (q) {
+      items = items.filter((item) => {
+        const blob = `${item.city} ${item.district} ${item.region}`.toLowerCase();
+        return blob.includes(q);
+      });
+    }
+
+    const limit = Math.min(500, Math.max(1, Math.trunc(query?.limit ?? 200) || 200));
+    return { items: items.slice(0, limit) };
   }
 
   /** Hodnoty pro filtry veřejného klasického katalogu (Klasik). */

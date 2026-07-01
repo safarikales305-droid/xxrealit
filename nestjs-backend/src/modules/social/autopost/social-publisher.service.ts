@@ -794,6 +794,13 @@ export class SocialPublisherService {
       videoUrl: string | null;
       title?: string;
       isShortsVideo?: boolean;
+      listingContext?: {
+        propertyTypeKey?: string | null;
+        propertyType?: string | null;
+        offerType?: string | null;
+        title?: string | null;
+        description?: string | null;
+      };
     },
     opts: { forceFormat?: FacebookPostType } = {},
   ): Promise<FacebookPublishResult> {
@@ -835,7 +842,13 @@ export class SocialPublisherService {
     if (wantsReel && input.videoUrl?.trim()) {
       const reelMessage = buildVideoReelFacebookMessage(publicUrl);
       try {
-        const shareVideo = await this.teaserService.prepareVideoForSocialShare(input.videoUrl.trim());
+        const shareVideo = await this.teaserService.prepareListingReelForSocialShare(
+          input.videoUrl.trim(),
+          input.listingContext,
+        );
+        this.logger.log(
+          `Reel inzerátu: ukázka=${shareVideo.teaserDurationSec}s, úvod=${shareVideo.introVideoUsed ? `${shareVideo.introVideoDurationSec ?? '—'}s (${shareVideo.introVideoPropertyType})` : 'ne'}, celkem=${shareVideo.totalReelDurationSec ?? shareVideo.teaserDurationSec}s`,
+        );
         const reel = await this.publishPropertyAsFacebookReel({
           videoUrl: shareVideo.teaserUrl,
           message: reelMessage,
@@ -849,6 +862,17 @@ export class SocialPublisherService {
           reelPublishedUrl: reel.publishedUrl,
           teaserDurationSec: shareVideo.teaserDurationSec,
           originalVideoDurationSec: shareVideo.originalDurationSec,
+          teaserUrl: shareVideo.teaserUrl,
+          teaserLocalPath: shareVideo.teaserLocalPath ?? null,
+          teaserDrawtextUsed: shareVideo.drawtextUsed ?? false,
+          teaserDrawtextSkippedReason: shareVideo.drawtextSkippedReason ?? null,
+          introVideoUsed: shareVideo.introVideoUsed ?? false,
+          introVideoPropertyType: shareVideo.introVideoPropertyType ?? null,
+          introVideoDurationSec: shareVideo.introVideoDurationSec ?? null,
+          totalReelDurationSec: shareVideo.totalReelDurationSec ?? null,
+          introVideoError: shareVideo.introVideoError ?? null,
+          introVideoId: shareVideo.introVideoId ?? null,
+          introVideoTitle: shareVideo.introVideoTitle ?? null,
         };
       } catch (err) {
         const teaserError = err instanceof Error ? err.message : String(err);

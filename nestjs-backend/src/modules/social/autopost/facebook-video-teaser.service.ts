@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { SocialIntroPropertyType } from '@prisma/client';
 import { createWriteStream } from 'node:fs';
 import { mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -12,7 +13,13 @@ import {
   runFfmpegCapture,
 } from '../../../lib/ffmpeg-run';
 import { PropertyMediaCloudinaryService } from '../../properties/property-media-cloudinary.service';
+import { ReelVideoComposerService } from './reel-video-composer.service';
 import { SocialAutopostSettingsService } from './social-autopost-settings.service';
+import { SocialIntroVideoService } from './social-intro-video.service';
+import {
+  type ListingIntroContext,
+  resolveSocialIntroPropertyType,
+} from './social-intro-property-type.util';
 
 export const FACEBOOK_TEASER_MAX_SECONDS = 5;
 
@@ -26,6 +33,13 @@ export type FacebookVideoTeaserResult = {
   drawtextUsed?: boolean;
   /** Důvod, proč drawtext nebyl použit (text je v popisu Reelu). */
   drawtextSkippedReason?: string | null;
+  introVideoUsed?: boolean;
+  introVideoPropertyType?: SocialIntroPropertyType | null;
+  introVideoDurationSec?: number | null;
+  introVideoId?: string | null;
+  introVideoTitle?: string | null;
+  totalReelDurationSec?: number | null;
+  introVideoError?: string | null;
 };
 
 function escapeFfmpegDrawtext(text: string): string {
@@ -55,12 +69,48 @@ export class FacebookVideoTeaserService {
   constructor(
     private readonly cloudinary: PropertyMediaCloudinaryService,
     private readonly settings: SocialAutopostSettingsService,
+    private readonly introVideos: SocialIntroVideoService,
+    private readonly reelComposer: ReelVideoComposerService,
   ) {}
 
   async createTeaserFromVideoUrl(
     videoUrl: string,
     maxSecondsOverride?: number,
   ): Promise<FacebookVideoTeaserResult> {
+    const rendered = await this.renderTeaserArtifacts(videoUrl, maxSecondsOverride);
+    try {
+      const buffer = await readFile(rendered.teaserPath);
+      if (!buffer.length) {
+        throw new Error('Teaser video je prázdné.');
+      }
+      const teaserUrl = await this.cloudinary.uploadVideoBuffer(buffer, 'facebook-teaser.mp4');
+      this.log.log(
+        `Teaser připraven: délka=${rendered.teaserDurationSec}s, drawtext=${rendered.drawtextUsed}, soubor=${rendered.teaserPath}, url=${teaserUrl}`,
+      );
+      return {
+        teaserUrl,
+        teaserDurationSec: rendered.teaserDurationSec,
+        originalDurationSec: rendered.originalDurationSec,
+        teaserLocalPath: rendered.teaserPath,
+        drawtextUsed: rendered.drawtextUsed,
+        drawtextSkippedReason: rendered.drawtextSkippedReason,
+      };
+    } finally {
+      await rm(rendered.tmpRoot, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  private async renderTeaserArtifacts(
+    videoUrl: string,
+    maxSecondsOverride?: number,
+  ): Promise<{
+    tmpRoot: string;
+    teaserPath: string;
+    teaserDurationSec: number;
+    originalDurationSec: number | null;
+    drawtextUsed: boolean;
+    drawtextSkippedReason: string | null;
+  }> {
     await this.settings.reload();
     const global = this.settings.getSettings().global;
     const maxSeconds =
@@ -170,26 +220,17 @@ export class FacebookVideoTeaserService {
         );
       }
 
-      const buffer = await readFile(teaserPath);
-      if (!buffer.length) {
-        throw new Error('Teaser video je prázdné.');
-      }
-
-      const teaserUrl = await this.cloudinary.uploadVideoBuffer(buffer, 'facebook-teaser.mp4');
-      this.log.log(
-        `Teaser připraven: délka=${teaserDurationSec}s, drawtext=${drawtextUsed}, soubor=${teaserPath}, url=${teaserUrl}`,
-      );
-
       return {
-        teaserUrl,
+        tmpRoot,
+        teaserPath,
         teaserDurationSec,
         originalDurationSec,
-        teaserLocalPath: teaserPath,
         drawtextUsed,
         drawtextSkippedReason,
       };
-    } finally {
+    } catch (err) {
       await rm(tmpRoot, { recursive: true, force: true }).catch(() => undefined);
+      throw err;
     }
   }
 
@@ -279,6 +320,7 @@ export class FacebookVideoTeaserService {
         originalDurationSec: null,
         drawtextUsed: false,
         drawtextSkippedReason: 'publikováno celé video bez teaseru',
+        introVideoUsed: false,
       };
     }
 
@@ -290,5 +332,108 @@ export class FacebookVideoTeaserService {
           FACEBOOK_TEASER_MAX_SECONDS);
 
     return this.createTeaserFromVideoUrl(absolute, maxSeconds);
+  }
+
+  /** Reel inzerátu: úvodní video podle typu nemovitosti + ukázka inzerátu. */
+  async prepareListingReelForSocialShare(
+    videoUrl: string,
+    listingContext?: ListingIntroContext,
+  ): Promise<FacebookVideoTeaserResult> {
+    await this.settings.reload();
+    const global = this.settings.getSettings().global;
+    const absolute = videoUrl.trim();
+    if (!absolute) {
+      throw new Error('Chybí URL videa.');
+    }
+
+    if (global.socialVideoPublishFull) {
+      return {
+        teaserUrl: absolute,
+        teaserDurationSec: 0,
+        originalDurationSec: null,
+        drawtextUsed: false,
+        drawtextSkippedReason: 'publikováno celé video bez teaseru',
+        introVideoUsed: false,
+      };
+    }
+
+    const maxSeconds =
+      global.socialVideoUsePortalTeaserRule !== false
+        ? (global.videoTeaserMaxSeconds ?? FACEBOOK_TEASER_MAX_SECONDS)
+        : (global.socialVideoTeaserSeconds ??
+          global.videoTeaserMaxSeconds ??
+          FACEBOOK_TEASER_MAX_SECONDS);
+
+    const rendered = await this.renderTeaserArtifacts(absolute, maxSeconds);
+    let composeResult: Awaited<ReturnType<ReelVideoComposerService['composeIntroAndListing']>> | null =
+      null;
+
+    try {
+      const propertyType = listingContext
+        ? resolveSocialIntroPropertyType(listingContext)
+        : null;
+      const intro =
+        propertyType != null
+          ? await this.introVideos.findActiveForPropertyType(propertyType)
+          : null;
+
+      let uploadBuffer: Buffer;
+      let teaserUrl: string;
+      let introVideoUsed = false;
+      let introVideoDurationSec: number | null = null;
+      let totalReelDurationSec: number | null = null;
+      let introVideoError: string | null = null;
+
+      if (intro) {
+        try {
+          composeResult = await this.reelComposer.composeIntroAndListing(
+            intro.videoUrl,
+            rendered.teaserPath,
+          );
+          uploadBuffer = await this.reelComposer.readOutputBuffer(composeResult);
+          introVideoUsed = true;
+          introVideoDurationSec =
+            intro.durationSeconds ??
+            (composeResult.durationSec != null
+              ? Math.max(0, composeResult.durationSec - rendered.teaserDurationSec)
+              : null);
+          totalReelDurationSec = composeResult.durationSec;
+        } catch (err) {
+          introVideoError = err instanceof Error ? err.message : String(err);
+          this.log.warn(
+            `Spojení úvodního videa (${propertyType}) s Reel inzerátu selhalo, publikuji jen ukázku: ${introVideoError}`,
+          );
+          uploadBuffer = await readFile(rendered.teaserPath);
+        }
+      } else {
+        uploadBuffer = await readFile(rendered.teaserPath);
+      }
+
+      teaserUrl = await this.cloudinary.uploadVideoBuffer(
+        uploadBuffer,
+        introVideoUsed ? 'facebook-reel-composed.mp4' : 'facebook-teaser.mp4',
+      );
+
+      return {
+        teaserUrl,
+        teaserDurationSec: rendered.teaserDurationSec,
+        originalDurationSec: rendered.originalDurationSec,
+        teaserLocalPath: rendered.teaserPath,
+        drawtextUsed: rendered.drawtextUsed,
+        drawtextSkippedReason: rendered.drawtextSkippedReason,
+        introVideoUsed,
+        introVideoPropertyType: propertyType,
+        introVideoDurationSec,
+        introVideoId: intro?.id ?? null,
+        introVideoTitle: intro?.title ?? null,
+        totalReelDurationSec,
+        introVideoError,
+      };
+    } finally {
+      if (composeResult) {
+        await this.reelComposer.cleanup(composeResult);
+      }
+      await rm(rendered.tmpRoot, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 }

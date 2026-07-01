@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,11 +10,17 @@ import {
   Query,
   Req,
   Res,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
   ValidationPipe,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { SocialPublishStatus } from '@prisma/client';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { memoryStorage } from 'multer';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { SocialIntroPropertyType, SocialPublishStatus } from '@prisma/client';
 import { AdminGuard } from '../../admin/guards/admin.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { CurrentUser, type AuthUser } from '../../auth/decorators/current-user.decorator';
@@ -42,6 +49,11 @@ import {
   type SocialPublishTemplatesSettings,
 } from './social-publish-templates.service';
 import { PostSocialPublishService } from './post-social-publish.service';
+import { SocialIntroVideoService } from './social-intro-video.service';
+import { PropertyMediaCloudinaryService } from '../../properties/property-media-cloudinary.service';
+import { SOCIAL_INTRO_PROPERTY_TYPE_LABELS } from './social-intro-property-type.util';
+import { parseDurationSecondsFromFfmpegStderr, runFfmpegCapture } from '../../../lib/ffmpeg-run';
+import { resolveFfmpegBinary } from '../../../lib/ffmpeg-binary';
 
 @Controller('social/autopost/admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -56,6 +68,8 @@ export class SocialAutopostAdminController {
     private readonly autopostOAuth: SocialAutopostFacebookOAuthService,
     private readonly publishTemplates: SocialPublishTemplatesService,
     private readonly postSocialPublish: PostSocialPublishService,
+    private readonly introVideos: SocialIntroVideoService,
+    private readonly propertyMedia: PropertyMediaCloudinaryService,
   ) {}
 
   @Get('settings')
@@ -388,5 +402,129 @@ export class SocialAutopostAdminController {
   @Post('queue/:id/process')
   processNow(@Param('id') id: string) {
     return this.processor.processItem(id);
+  }
+
+  @Get('intro-videos/meta')
+  introVideosMeta() {
+    return {
+      propertyTypes: Object.entries(SOCIAL_INTRO_PROPERTY_TYPE_LABELS).map(([id, label]) => ({
+        id,
+        label,
+      })),
+    };
+  }
+
+  @Get('intro-videos')
+  listIntroVideos() {
+    return this.introVideos.listAll();
+  }
+
+  @Post('intro-videos')
+  @UseInterceptors(
+    FileInterceptor('video', {
+      storage: memoryStorage(),
+      limits: { fileSize: 120 * 1024 * 1024 },
+    }),
+  )
+  async createIntroVideo(
+    @UploadedFile() file: Express.Multer.File,
+    @Body()
+    body: {
+      title?: string;
+      propertyType?: string;
+      active?: string | boolean;
+      priority?: string | number;
+      thumbnailUrl?: string;
+      durationSeconds?: string | number;
+    },
+  ) {
+    const propertyType = (body.propertyType ?? '').trim().toUpperCase() as SocialIntroPropertyType;
+    if (!Object.values(SocialIntroPropertyType).includes(propertyType)) {
+      throw new BadRequestException('Neplatný typ nemovitosti pro úvodní video.');
+    }
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Video soubor je povinný.');
+    }
+    const videoUrl = await this.propertyMedia.uploadVideo(file);
+    let durationSeconds =
+      body.durationSeconds != null && body.durationSeconds !== ''
+        ? Number(body.durationSeconds)
+        : null;
+    if (!Number.isFinite(durationSeconds)) {
+      durationSeconds = await this.probeUploadedVideoDuration(file.buffer);
+    }
+    const row = await this.introVideos.create({
+      title: (body.title ?? '').trim() || SOCIAL_INTRO_PROPERTY_TYPE_LABELS[propertyType],
+      propertyType,
+      videoUrl,
+      thumbnailUrl: body.thumbnailUrl?.trim() || null,
+      durationSeconds,
+      active: body.active === false || body.active === 'false' ? false : true,
+      priority: Number(body.priority) || 0,
+    });
+    return { ok: true, item: row };
+  }
+
+  @Patch('intro-videos/:id')
+  updateIntroVideo(
+    @Param('id') id: string,
+    @Body()
+    body: Partial<{
+      title: string;
+      propertyType: SocialIntroPropertyType;
+      active: boolean;
+      priority: number;
+      thumbnailUrl: string | null;
+      durationSeconds: number | null;
+    }>,
+  ) {
+    return this.introVideos.update(id, body).then((item) => ({ ok: true, item }));
+  }
+
+  @Post('intro-videos/:id/video')
+  @UseInterceptors(
+    FileInterceptor('video', {
+      storage: memoryStorage(),
+      limits: { fileSize: 120 * 1024 * 1024 },
+    }),
+  )
+  async replaceIntroVideo(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { durationSeconds?: string | number },
+  ) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Video soubor je povinný.');
+    }
+    const videoUrl = await this.propertyMedia.uploadVideo(file);
+    let durationSeconds =
+      body.durationSeconds != null && body.durationSeconds !== ''
+        ? Number(body.durationSeconds)
+        : null;
+    if (!Number.isFinite(durationSeconds)) {
+      durationSeconds = await this.probeUploadedVideoDuration(file.buffer);
+    }
+    const item = await this.introVideos.update(id, { videoUrl, durationSeconds });
+    return { ok: true, item };
+  }
+
+  @Delete('intro-videos/:id')
+  async deleteIntroVideo(@Param('id') id: string) {
+    await this.introVideos.delete(id);
+    return { ok: true };
+  }
+
+  private async probeUploadedVideoDuration(buffer: Buffer): Promise<number | null> {
+    const ffmpeg = resolveFfmpegBinary();
+    if (!ffmpeg.path) return null;
+    const tmp = join(tmpdir(), `intro-probe-${Date.now()}.mp4`);
+    const { writeFile, rm } = await import('node:fs/promises');
+    try {
+      await writeFile(tmp, buffer);
+      const { stderr } = await runFfmpegCapture(ffmpeg.path, ['-hide_banner', '-i', tmp]);
+      return parseDurationSecondsFromFfmpegStderr(stderr);
+    } finally {
+      await rm(tmp, { force: true }).catch(() => undefined);
+    }
   }
 }

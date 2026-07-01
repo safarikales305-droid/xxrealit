@@ -3390,6 +3390,11 @@ model SocialPublishLog {
   contentTitle             String?
   teaserDurationSec        Float?
   originalVideoDurationSec Float?
+  introVideoUsed           Boolean                @default(false)
+  introVideoPropertyType   SocialIntroPropertyType?
+  introVideoDurationSec    Float?
+  totalReelDurationSec     Float?
+  introVideoError          String?                @db.Text
   graphApiResponse         Json?
   triggerSource            SocialPublishTriggerSource
   triggeredByUserId        String?
@@ -3418,4 +3423,31 @@ model SocialPublishSchedulerLog {
   createdAt      DateTime @default(now())
 
   @@index([checkedAt])
+}
+
+enum SocialIntroPropertyType {
+  BYT
+  DUM
+  POZEMEK
+  KOMERCNI
+  GARAZ
+  NOVOSTAVBA
+  PRONAJEM
+  OSTATNI
+}
+
+/// Úvodní reklamní video před Reel inzerátu na sociálních sítích.
+model SocialIntroVideo {
+  id              String                 @id @default(cuid())
+  title           String
+  propertyType    SocialIntroPropertyType
+  videoUrl        String
+  thumbnailUrl    String?
+  durationSeconds Float?
+  active          Boolean                @default(true)
+  priority        Int                    @default(0)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@index([propertyType, active, priority])
 }

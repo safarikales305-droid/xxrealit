@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Get,
   Param,
   Post,
+  Query,
   UseGuards,
   ValidationPipe,
 } from '@nestjs/common';
@@ -16,13 +18,24 @@ import {
 import { UnlockListingContactDto } from './dto/unlock-listing-contact.dto';
 import { ListingContactUnlockService } from './listing-contact-unlock.service';
 import { ListingsPrefillService } from './listings-prefill.service';
+import { PropertiesService } from './properties.service';
 
 @Controller('listings')
 export class ListingsController {
   constructor(
     private readonly listingContactUnlock: ListingContactUnlockService,
     private readonly listingsPrefill: ListingsPrefillService,
+    private readonly propertiesService: PropertiesService,
   ) {}
+
+  @Get('locations')
+  listLocations(@Query('q') q?: string, @Query('limit') limit?: string) {
+    const limitNum = Number(limit);
+    return this.propertiesService.getPublicListingLocations({
+      q,
+      limit: Number.isFinite(limitNum) ? limitNum : undefined,
+    });
+  }
 
   @Post('prefill-from-url')
   @UseGuards(JwtAuthGuard)

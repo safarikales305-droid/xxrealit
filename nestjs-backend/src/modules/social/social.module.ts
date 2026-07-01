@@ -39,6 +39,8 @@ import { SocialAutopostFacebookOAuthService } from './autopost/social-autopost-f
 import { SocialAutopostTokenService } from './autopost/social-autopost-token.service';
 import { SocialFacebookReelPublisherService } from './autopost/social-facebook-reel-publisher.service';
 import { FacebookVideoTeaserService } from './autopost/facebook-video-teaser.service';
+import { ReelVideoComposerService } from './autopost/reel-video-composer.service';
+import { SocialIntroVideoService } from './autopost/social-intro-video.service';
 import { SocialPublishTemplatesService } from './autopost/social-publish-templates.service';
 import { PostSocialPublishService } from './autopost/post-social-publish.service';
 
@@ -88,6 +90,8 @@ import { PostSocialPublishService } from './autopost/post-social-publish.service
     FacebookVideoTeaserService,
     SocialPublishTemplatesService,
     PostSocialPublishService,
+    SocialIntroVideoService,
+    ReelVideoComposerService,
   ],
   exports: [
     FacebookConfigService,

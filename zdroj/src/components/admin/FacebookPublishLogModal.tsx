@@ -3,6 +3,7 @@
 import {
   FACEBOOK_POST_TYPE_LABELS,
   PROPERTY_FACEBOOK_STATUS_LABELS,
+  SOCIAL_INTRO_PROPERTY_TYPE_LABELS,
   SOCIAL_PUBLISH_STATUS_LABELS,
   SOCIAL_TRIGGER_SOURCE_LABELS,
   type PropertyPublishLogRow,
@@ -67,7 +68,9 @@ export function FacebookPublishLogModal({ open, title, loading, rows, onClose }:
                     <th className="pb-2 pr-3">Zdroj</th>
                     <th className="pb-2 pr-3">Kdo</th>
                     <th className="pb-2 pr-3">Čas zprac.</th>
-                    <th className="pb-2 pr-3">Graph API</th>
+                    <th className="pb-2 pr-3">Ukázka</th>
+                    <th className="pb-2 pr-3">Úvod</th>
+                    <th className="pb-2 pr-3">Celkem</th>
                     <th className="pb-2">Chyba</th>
                   </tr>
                 </thead>
@@ -107,10 +110,24 @@ export function FacebookPublishLogModal({ open, title, loading, rows, onClose }:
                       <td className="py-2 pr-3 whitespace-nowrap text-xs">
                         {formatDt(row.processedAt ?? row.createdAt)}
                       </td>
-                      <td className="py-2 pr-3 max-w-[200px] truncate font-mono text-[10px] text-zinc-600" title={formatApiResponse(row.lastApiResponse)}>
-                        {formatApiResponse(row.lastApiResponse)}
+                      <td className="py-2 pr-3 whitespace-nowrap text-xs">
+                        {row.teaserDurationSec != null ? `${row.teaserDurationSec}s` : '—'}
                       </td>
-                      <td className="py-2 text-xs text-red-700">{row.lastError ?? '—'}</td>
+                      <td className="py-2 pr-3 text-xs">
+                        {row.introVideoUsed
+                          ? `${SOCIAL_INTRO_PROPERTY_TYPE_LABELS[String(row.introVideoPropertyType ?? '')] ?? row.introVideoPropertyType ?? '—'}${row.introVideoDurationSec != null ? ` (${row.introVideoDurationSec}s)` : ''}`
+                          : row.introVideoError
+                            ? `Ne (${row.introVideoError})`
+                            : 'Ne'}
+                      </td>
+                      <td className="py-2 pr-3 whitespace-nowrap text-xs">
+                        {row.totalReelDurationSec != null
+                          ? `${row.totalReelDurationSec}s`
+                          : row.teaserDurationSec != null
+                            ? `${row.teaserDurationSec}s`
+                            : '—'}
+                      </td>
+                      <td className="py-2 text-xs text-red-700">{row.lastError ?? row.introVideoError ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Briefcase, Building2, Globe, Home, Landmark, TrendingUp, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { API_BASE_URL, nestAbsoluteAssetUrl } from '@/lib/api';
+import { fetchListingLocations, type ListingLocationOption } from '@/lib/listing-locations';
 import { loadPropertyFeedItems } from '@/lib/load-feed';
 import {
   nestAddPostComment,
@@ -188,6 +189,28 @@ export function HomeLayout({
 
   const [viewMode, setViewMode] = useState<ViewMode>('shorts');
   const [searchQuery, setSearchQuery] = useState('');
+  const [listingLocations, setListingLocations] = useState<ListingLocationOption[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchListingLocations(API_BASE_URL, { limit: 500 }).then((items) => {
+      if (!cancelled) setListingLocations(items);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const searchLocationHints = useMemo(() => {
+    const s = searchQuery.trim().toLowerCase();
+    if (!s) return listingLocations.slice(0, 12);
+    return listingLocations
+      .filter((loc) => {
+        const blob = `${loc.city} ${loc.district} ${loc.region}`.toLowerCase();
+        return blob.includes(s);
+      })
+      .slice(0, 12);
+  }, [listingLocations, searchQuery]);
 
   const sharedVideoId = useMemo(
     () => searchParams.get('video')?.trim() || null,
@@ -453,12 +476,24 @@ export function HomeLayout({
     if (tipsOnlyActive) list = tipListingsOnly(list);
     const s = searchQuery.trim().toLowerCase();
     if (!s) return list;
-    return list.filter(
-      (p) =>
-        p.title.toLowerCase().includes(s) ||
-        p.location.toLowerCase().includes(s),
+    const matchedCities = new Set(
+      listingLocations
+        .filter((loc) => {
+          const blob = `${loc.city} ${loc.district} ${loc.region}`.toLowerCase();
+          return blob.includes(s);
+        })
+        .map((loc) => loc.city.toLowerCase()),
     );
-  }, [classicGridItems, searchQuery, tipsOnlyActive]);
+    return list.filter((p) => {
+      const title = p.title.toLowerCase();
+      const location = p.location.toLowerCase();
+      if (title.includes(s) || location.includes(s)) return true;
+      if (matchedCities.size > 0) {
+        return matchedCities.has(location) || [...matchedCities].some((c) => location.includes(c));
+      }
+      return false;
+    });
+  }, [classicGridItems, searchQuery, tipsOnlyActive, listingLocations]);
 
   const classicShortsFallbackGrid = useMemo(
     () => classicListingsOnly(shortsFallbackItems),
@@ -470,12 +505,24 @@ export function HomeLayout({
     if (tipsOnlyActive) list = tipListingsOnly(list);
     const s = searchQuery.trim().toLowerCase();
     if (!s) return list;
-    return list.filter(
-      (p) =>
-        p.title.toLowerCase().includes(s) ||
-        p.location.toLowerCase().includes(s),
+    const matchedCities = new Set(
+      listingLocations
+        .filter((loc) => {
+          const blob = `${loc.city} ${loc.district} ${loc.region}`.toLowerCase();
+          return blob.includes(s);
+        })
+        .map((loc) => loc.city.toLowerCase()),
     );
-  }, [classicShortsFallbackGrid, searchQuery, tipsOnlyActive]);
+    return list.filter((p) => {
+      const title = p.title.toLowerCase();
+      const location = p.location.toLowerCase();
+      if (title.includes(s) || location.includes(s)) return true;
+      if (matchedCities.size > 0) {
+        return matchedCities.has(location) || [...matchedCities].some((c) => location.includes(c));
+      }
+      return false;
+    });
+  }, [classicShortsFallbackGrid, searchQuery, tipsOnlyActive, listingLocations]);
 
   const videosForFeed = useMemo(() => {
     function sortKey(v: ShortVideo): number {

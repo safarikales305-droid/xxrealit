@@ -44,12 +44,14 @@ async function proxy(req: NextRequest, pathSegments: string[]) {
   const url = new URL(req.url);
   const target = `${nestBase}${nestPath}${url.search}`;
 
+  const isMultipart = req.headers.get('content-type')?.includes('multipart/form-data');
+
   const init: RequestInit = {
     method: req.method,
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: 'application/json',
-      ...(req.method !== 'GET' && req.method !== 'HEAD'
+      ...(req.method !== 'GET' && req.method !== 'HEAD' && !isMultipart
         ? { 'Content-Type': 'application/json' }
         : {}),
     },
@@ -57,7 +59,15 @@ async function proxy(req: NextRequest, pathSegments: string[]) {
   };
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {
-    init.body = await req.text();
+    if (isMultipart) {
+      init.body = await req.arrayBuffer();
+      init.headers = {
+        ...init.headers,
+        'Content-Type': req.headers.get('content-type') ?? 'multipart/form-data',
+      };
+    } else {
+      init.body = await req.text();
+    }
   }
 
   const r = await fetch(target, init);

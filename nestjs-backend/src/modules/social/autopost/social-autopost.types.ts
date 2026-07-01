@@ -25,6 +25,13 @@ export type FacebookPublishResult = {
   teaserLocalPath?: string | null;
   teaserDrawtextUsed?: boolean | null;
   teaserDrawtextSkippedReason?: string | null;
+  introVideoUsed?: boolean | null;
+  introVideoPropertyType?: string | null;
+  introVideoDurationSec?: number | null;
+  totalReelDurationSec?: number | null;
+  introVideoError?: string | null;
+  introVideoId?: string | null;
+  introVideoTitle?: string | null;
   raw: unknown;
 };
 

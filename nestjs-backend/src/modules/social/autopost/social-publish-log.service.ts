@@ -6,6 +6,7 @@ import {
   SocialPublishTriggerSource,
   FacebookPostType,
   SocialPublishKind,
+  SocialIntroPropertyType,
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { pragueDateKey } from './social-publish-schedule.util';
@@ -50,6 +51,11 @@ export class SocialPublishLogService {
     contentTitle?: string | null;
     teaserDurationSec?: number | null;
     originalVideoDurationSec?: number | null;
+    introVideoUsed?: boolean | null;
+    introVideoPropertyType?: SocialIntroPropertyType | null;
+    introVideoDurationSec?: number | null;
+    totalReelDurationSec?: number | null;
+    introVideoError?: string | null;
     graphApiResponse?: unknown;
     triggerSource: SocialPublishTriggerSource;
     triggeredByUserId?: string | null;
@@ -73,6 +79,11 @@ export class SocialPublishLogService {
         contentTitle: input.contentTitle ?? null,
         teaserDurationSec: input.teaserDurationSec ?? null,
         originalVideoDurationSec: input.originalVideoDurationSec ?? null,
+        introVideoUsed: input.introVideoUsed === true,
+        introVideoPropertyType: input.introVideoPropertyType ?? null,
+        introVideoDurationSec: input.introVideoDurationSec ?? null,
+        totalReelDurationSec: input.totalReelDurationSec ?? null,
+        introVideoError: input.introVideoError ?? null,
         graphApiResponse:
           input.graphApiResponse != null ? (input.graphApiResponse as object) : undefined,
         triggerSource: input.triggerSource,
@@ -127,6 +138,11 @@ export class SocialPublishLogService {
       contentTitle: row.contentTitle,
       teaserDurationSec: row.teaserDurationSec,
       originalVideoDurationSec: row.originalVideoDurationSec,
+      introVideoUsed: row.introVideoUsed,
+      introVideoPropertyType: row.introVideoPropertyType,
+      introVideoDurationSec: row.introVideoDurationSec,
+      totalReelDurationSec: row.totalReelDurationSec,
+      introVideoError: row.introVideoError,
       triggerSource: row.triggerSource,
       triggeredBy: row.triggeredBy,
       lastApiResponse: row.graphApiResponse ?? row.queue?.lastApiResponse ?? null,

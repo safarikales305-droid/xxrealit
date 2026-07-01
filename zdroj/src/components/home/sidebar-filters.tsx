@@ -1,8 +1,10 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { appMobilePanel } from '@/components/ui/app-mobile-panel-styles';
+import { API_BASE_URL } from '@/lib/api';
+import { fetchListingLocations, type ListingLocationOption } from '@/lib/listing-locations';
 
 type Props = {
   className?: string;
@@ -24,15 +26,15 @@ const PROPERTY_TYPE_OPTIONS = [
   { label: 'Pozemek', value: 'pozemek' },
 ] as const;
 
-const CITY_OPTIONS = ['Praha', 'Brno', 'Ostrava', 'Olomouc'] as const;
+const FALLBACK_CITY_OPTIONS = ['Praha', 'Brno', 'Ostrava', 'Olomouc'] as const;
 
-function parseCitiesCsv(raw: string | null): Record<string, boolean> {
+function parseCitiesCsv(raw: string | null, knownCities: string[]): Record<string, boolean> {
   const next: Record<string, boolean> = {};
-  for (const c of CITY_OPTIONS) next[c] = false;
+  for (const c of knownCities) next[c] = false;
   if (!raw?.trim()) return next;
   for (const part of raw.split(',')) {
     const t = part.trim();
-    if (t && (CITY_OPTIONS as readonly string[]).includes(t)) next[t] = true;
+    if (t && knownCities.includes(t)) next[t] = true;
   }
   return next;
 }
@@ -46,24 +48,44 @@ export function SidebarFilters({
   const router = useRouter();
   const searchParams = useSearchParams();
   const isDark = variant === 'dark';
+  const [locationOptions, setLocationOptions] = useState<ListingLocationOption[]>([]);
+  const cityOptions = useMemo(() => {
+    const fromApi = locationOptions.map((x) => x.city).filter(Boolean);
+    const merged = [...new Set([...fromApi, ...FALLBACK_CITY_OPTIONS])];
+    return merged;
+  }, [locationOptions]);
   const [propertyType, setPropertyType] = useState('');
   const [priceMin, setPriceMin] = useState('');
   const [priceMax, setPriceMax] = useState('');
-  const [cities, setCities] = useState<Record<string, boolean>>(() => {
-    const z: Record<string, boolean> = {};
-    for (const c of CITY_OPTIONS) z[c] = false;
-    return z;
-  });
+  const [cities, setCities] = useState<Record<string, boolean>>({});
   const [tipsOnly, setTipsOnly] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchListingLocations(API_BASE_URL, { limit: 200 }).then((items) => {
+      if (!cancelled) setLocationOptions(items);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setPropertyType(searchParams.get('ptype')?.trim() ?? '');
     setPriceMin(searchParams.get('priceMin')?.trim() ?? '');
     setPriceMax(searchParams.get('priceMax')?.trim() ?? '');
-    setCities(parseCitiesCsv(searchParams.get('cities')));
+    setCities(parseCitiesCsv(searchParams.get('cities'), cityOptions));
     const tipRaw = searchParams.get('tipsOnly')?.trim().toLowerCase();
     setTipsOnly(tipRaw === '1' || tipRaw === 'true');
-  }, [searchParams]);
+  }, [searchParams, cityOptions]);
+
+  const cityCountByName = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const loc of locationOptions) {
+      map.set(loc.city, (map.get(loc.city) ?? 0) + loc.count);
+    }
+    return map;
+  }, [locationOptions]);
 
   const toggleCity = useCallback((city: string) => {
     setCities((prev) => ({ ...prev, [city]: !prev[city] }));
@@ -82,7 +104,7 @@ export function SidebarFilters({
     if (pt) next.set('ptype', pt);
     else next.delete('ptype');
 
-    const selected = CITY_OPTIONS.filter((c) => cities[c]);
+    const selected = cityOptions.filter((c) => cities[c]);
     if (selected.length > 0) next.set('cities', selected.join(','));
     else next.delete('cities');
 
@@ -109,6 +131,7 @@ export function SidebarFilters({
     router,
     searchParams,
     tipsOnly,
+    cityOptions,
   ]);
 
   const clearFilters = useCallback(() => {
@@ -189,9 +212,10 @@ export function SidebarFilters({
           Lokalita
         </p>
         {isDark ? (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {CITY_OPTIONS.map((city) => {
+          <div className="mt-3 flex max-h-48 flex-wrap gap-2 overflow-y-auto">
+            {cityOptions.map((city) => {
               const active = Boolean(cities[city]);
+              const count = cityCountByName.get(city);
               return (
                 <button
                   key={city}
@@ -201,13 +225,16 @@ export function SidebarFilters({
                   aria-pressed={active}
                 >
                   {city}
+                  {count ? ` (${count})` : ''}
                 </button>
               );
             })}
           </div>
         ) : (
-          <fieldset className="mt-3 space-y-3">
-            {CITY_OPTIONS.map((city) => (
+          <fieldset className="mt-3 max-h-56 space-y-2 overflow-y-auto">
+            {cityOptions.map((city) => {
+              const count = cityCountByName.get(city);
+              return (
               <label
                 key={city}
                 className="flex cursor-pointer items-center gap-3 rounded-xl border border-transparent px-1 py-1 transition hover:border-zinc-100 hover:bg-zinc-50"
@@ -218,9 +245,13 @@ export function SidebarFilters({
                   onChange={() => toggleCity(city)}
                   className="size-4 rounded border-zinc-300 accent-[#ff6a00] focus:ring-2 focus:ring-[#ff6a00]/25"
                 />
-                <span className="text-[15px] font-medium tracking-tight text-zinc-800">{city}</span>
+                <span className="text-[15px] font-medium tracking-tight text-zinc-800">
+                  {city}
+                  {count ? <span className="text-zinc-400"> ({count})</span> : null}
+                </span>
               </label>
-            ))}
+            );
+            })}
           </fieldset>
         )}
       </div>
