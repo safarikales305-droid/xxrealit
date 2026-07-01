@@ -29,6 +29,7 @@ import {
   type PropertyPublishLogRow,
   type SocialPublishRepeatType,
 } from '@/lib/social-autopost-admin-api';
+import { nestTikTokCreateJob } from '@/lib/tiktok-admin-api';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'Všechny stavy' },
@@ -463,6 +464,16 @@ export default function AdminListingsPage() {
     await runCancelRepeat([row.id]);
   }
 
+  async function onTikTokPublish(row: AdminListingRow) {
+    if (!token) return;
+    const r = await nestTikTokCreateJob(token, row.id);
+    if (!r?.ok) {
+      setFbMsg('TikTok publikování selhalo.');
+      return;
+    }
+    setFbMsg('Inzerát zařazen do fronty TikTok.');
+  }
+
   async function onSoftDelete(id: string) {
     if (!token) return;
     if (
@@ -737,6 +748,7 @@ export default function AdminListingsPage() {
           onFacebookSetRepeat={onFacebookSetRepeat}
           onFacebookCancelRepeat={(row) => void onFacebookCancelRepeat(row)}
           onFacebookShowLog={(row) => void openPublishLog(row)}
+          onTikTokPublish={(row) => void onTikTokPublish(row)}
         />
 
       <FacebookScheduleModal

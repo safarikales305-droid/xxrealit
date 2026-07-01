@@ -20,6 +20,16 @@ import { FacebookService } from './facebook/facebook.service';
 import { InstagramController } from './instagram/instagram.controller';
 import { SocialPlatformStubService } from './social-platform.stub';
 import { TiktokController } from './tiktok/tiktok.controller';
+import { TikTokPublicVideoController } from './tiktok/tiktok-public-video.controller';
+import { TikTokConfigService } from './tiktok/tiktok.config.service';
+import { TikTokOAuthService } from './tiktok/tiktok-oauth.service';
+import { TikTokApiClient } from './tiktok/tiktok-api.client';
+import { TikTokTokenService } from './tiktok/tiktok-token.service';
+import { TikTokSettingsService } from './tiktok/tiktok-settings.service';
+import { TikTokVideoUrlService } from './tiktok/tiktok-video-url.service';
+import { TikTokPublisherService } from './tiktok/tiktok-publisher.service';
+import { TikTokQueueService } from './tiktok/tiktok-queue.service';
+import { TikTokQueueCronService } from './tiktok/tiktok-queue.cron.service';
 import { TokenEncryptionService } from './token-encryption.service';
 import { YoutubeController } from './youtube/youtube.controller';
 import { SocialAutopostAdminController } from './autopost/social-autopost-admin.controller';
@@ -60,6 +70,7 @@ import { PostSocialPublishService } from './autopost/post-social-publish.service
     SocialAutopostAdminController,
     FacebookAdminController,
     TiktokController,
+    TikTokPublicVideoController,
     YoutubeController,
     InstagramController,
   ],
@@ -92,6 +103,15 @@ import { PostSocialPublishService } from './autopost/post-social-publish.service
     PostSocialPublishService,
     SocialIntroVideoService,
     ReelVideoComposerService,
+    TikTokConfigService,
+    TikTokOAuthService,
+    TikTokApiClient,
+    TikTokTokenService,
+    TikTokSettingsService,
+    TikTokVideoUrlService,
+    TikTokPublisherService,
+    TikTokQueueService,
+    TikTokQueueCronService,
   ],
   exports: [
     FacebookConfigService,
@@ -102,6 +122,7 @@ import { PostSocialPublishService } from './autopost/post-social-publish.service
     SocialAutopostSettingsService,
     SocialPublishEnqueueService,
     SocialPublisherService,
+    TikTokQueueService,
   ],
 })
 export class SocialModule {}

@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { SocialPublishStatus } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { SocialAutopostSettingsService } from '../social/autopost/social-autopost-settings.service';
+import { TikTokOAuthService } from '../social/tiktok/tiktok-oauth.service';
+import { TikTokSettingsService } from '../social/tiktok/tiktok-settings.service';
 
 export type PropertySocialNetworkStatus = {
   platform: 'facebook' | 'instagram' | 'youtube' | 'tiktok';
@@ -43,16 +45,19 @@ export class PropertySocialPublishSummaryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly socialSettings: SocialAutopostSettingsService,
+    private readonly tiktokOAuth: TikTokOAuthService,
+    private readonly tiktokSettings: TikTokSettingsService,
   ) {}
 
   async buildForProperty(propertyId: string): Promise<PropertySocialPublishSummary> {
+    await this.tiktokSettings.reload();
     const settings = this.socialSettings.getSettings();
     const global = settings.global ?? {
       autoPublishNewListings: true,
       hidePublicPrice: true,
     };
 
-    const [logs, queueRows, schedules] = await Promise.all([
+    const [logs, queueRows, schedules, tiktokJobs, tiktokConn] = await Promise.all([
       this.prisma.socialPublishLog.findMany({
         where: { contentId: propertyId, contentType: { in: ['PROPERTY', 'SHORT'] } },
         orderBy: { createdAt: 'desc' },
@@ -68,6 +73,12 @@ export class PropertySocialPublishSummaryService {
         where: { contentId: propertyId, enabled: true },
         take: 5,
       }),
+      this.prisma.tikTokPublishJob.findMany({
+        where: { listingId: propertyId },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      }),
+      this.tiktokOAuth.getActiveConnection(),
     ]);
 
     const fb = settings.facebook;
@@ -83,10 +94,13 @@ export class PropertySocialPublishSummaryService {
       const configured =
         platform === 'facebook'
           ? Boolean(fb.pageId && (fb.pageAccessTokenEncrypted || fb.connectedViaOAuth))
-          : false;
+          : platform === 'tiktok'
+            ? Boolean(tiktokConn?.isActive)
+            : false;
 
       const platformLogs = logs.filter((l) => l.platform.toLowerCase() === platform);
       const latest = platformLogs[0];
+      const latestTiktokJob = platform === 'tiktok' ? tiktokJobs[0] : undefined;
       const pendingQueue = queueRows.find(
         (q) =>
           q.platform.toLowerCase() === platform &&
@@ -95,7 +109,34 @@ export class PropertySocialPublishSummaryService {
       const repeatActive = schedules.some((s) => s.platform.toLowerCase() === platform);
 
       let status: PropertySocialNetworkStatus['status'] = 'DISABLED';
-      if (!enabled || !global.autoPublishNewListings) {
+      const tiktokEnabled =
+        platform === 'tiktok' &&
+        platformSettings.enabled &&
+        this.tiktokSettings.getSettings().autoPublish;
+
+      if (platform === 'tiktok') {
+        if (!platformSettings.enabled) {
+          status = 'DISABLED';
+        } else if (!configured) {
+          status = 'NOT_PUBLISHED';
+        } else if (latestTiktokJob?.status === 'UPLOADED') {
+          status = 'PUBLISHED';
+        } else if (
+          latestTiktokJob?.status === 'WAITING' ||
+          latestTiktokJob?.status === 'UPLOADING'
+        ) {
+          status = 'PENDING';
+        } else if (
+          latestTiktokJob?.status === 'FAILED' ||
+          latestTiktokJob?.status === 'NEEDS_REAUTH'
+        ) {
+          status = 'FAILED';
+        } else if (tiktokEnabled) {
+          status = 'NOT_PUBLISHED';
+        } else {
+          status = 'NOT_PUBLISHED';
+        }
+      } else if (!enabled || !global.autoPublishNewListings) {
         status = 'DISABLED';
       } else if (platform === 'facebook' && !fb.publishProperties) {
         status = 'DISABLED';
@@ -121,9 +162,20 @@ export class PropertySocialPublishSummaryService {
         enabled,
         configured,
         status,
-        publishedUrl: latest?.publishedUrl ?? latest?.reelPublishedUrl ?? null,
-        lastError: latest?.lastError ?? null,
-        lastAt: latest?.createdAt?.toISOString() ?? null,
+        publishedUrl:
+          platform === 'tiktok'
+            ? (latestTiktokJob?.tiktokVideoUrl ?? null)
+            : (latest?.publishedUrl ?? latest?.reelPublishedUrl ?? null),
+        lastError:
+          platform === 'tiktok'
+            ? (latestTiktokJob?.errorMessage ?? null)
+            : (latest?.lastError ?? null),
+        lastAt:
+          platform === 'tiktok'
+            ? (latestTiktokJob?.publishedAt?.toISOString() ??
+              latestTiktokJob?.createdAt?.toISOString() ??
+              null)
+            : (latest?.createdAt?.toISOString() ?? null),
       };
     });
 

@@ -3451,3 +3451,77 @@ model SocialIntroVideo {
 
   @@index([propertyType, active, priority])
 }
+
+enum TikTokPublishJobStatus {
+  WAITING
+  UPLOADING
+  UPLOADED
+  FAILED
+  NEEDS_REAUTH
+}
+
+/// Propojení oficiálního TikTok účtu portálu XXREALIT.
+model TikTokConnection {
+  id               String   @id @default(cuid())
+  openId           String   @unique
+  accessToken      String   @db.Text
+  refreshToken     String   @db.Text
+  scope            String
+  expiresAt        DateTime
+  refreshExpiresAt DateTime?
+  accountName      String?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+/// Dočasná OAuth session (PKCE state + code_verifier).
+model TikTokOAuthSession {
+  id           String   @id
+  adminUserId  String
+  codeVerifier String
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([adminUserId])
+  @@index([expiresAt])
+}
+
+/// Fronta publikování inzerátů na TikTok.
+model TikTokPublishJob {
+  id              String                 @id @default(cuid())
+  listingId       String
+  videoUrl        String
+  caption         String                 @db.Text
+  hashtags        String                 @db.Text
+  status          TikTokPublishJobStatus @default(WAITING)
+  tiktokPublishId String?
+  tiktokVideoUrl  String?
+  errorMessage    String?                @db.Text
+  attempts        Int                    @default(0)
+  isDraftInbox    Boolean                @default(false)
+  publishedAt     DateTime?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  logs TikTokPublishLog[]
+
+  @@index([status, createdAt])
+  @@index([listingId, createdAt])
+}
+
+/// Log pokusů o publikování na TikTok.
+model TikTokPublishLog {
+  id          String   @id @default(cuid())
+  jobId       String
+  listingId   String
+  status      String
+  message     String?  @db.Text
+  rawResponse Json?
+  createdAt   DateTime @default(now())
+
+  job TikTokPublishJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, createdAt])
+  @@index([listingId, createdAt])
+}

@@ -1,0 +1,9 @@
+export const TIKTOK_OAUTH_AUTHORIZE = 'https://www.tiktok.com/v2/auth/authorize/';
+export const TIKTOK_OAUTH_SCOPES = 'user.info.basic,video.upload,video.publish';
+export const TIKTOK_TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
+export const TIKTOK_MAX_ATTEMPTS = 3;
+export const TIKTOK_RETRY_DELAY_MS = 30_000;
+export const TIKTOK_RATE_LIMIT_PER_MINUTE = 6;
+export const TIKTOK_STATUS_POLL_INTERVAL_MS = 3000;
+export const TIKTOK_STATUS_POLL_MAX = 20;
+export const TIKTOK_SETTINGS_KEY = 'tiktok_portal_settings';

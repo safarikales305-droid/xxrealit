@@ -29,6 +29,7 @@ import { ImportedBrokerContactService } from '../imported-broker-contacts/import
 import { userPublicProfileWriteData } from '../../common/user-public-profile.util';
 import { TiparService } from '../tipar/tipar.service';
 import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
+import { TikTokQueueService } from '../social/tiktok/tiktok-queue.service';
 import {
   ListingWatermarkSettingsService,
   type ListingWatermarkPosition,
@@ -152,6 +153,7 @@ export class AdminService {
     private readonly tipar: TiparService,
     private readonly shareTextsSettings: ShareTextsSettingsService,
     private readonly socialPublishEnqueue: SocialPublishEnqueueService,
+    private readonly tiktokQueue: TikTokQueueService,
   ) {}
 
   async getShareTextsSettings() {
@@ -873,6 +875,7 @@ export class AdminService {
       });
     }
     this.socialPublishEnqueue.firePropertyApproved(propertyId);
+    this.tiktokQueue.firePropertyApproved(propertyId);
     return updated;
   }
 

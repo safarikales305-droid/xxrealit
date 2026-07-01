@@ -18,6 +18,7 @@ import {
 import { PropertyMediaCloudinaryService } from './property-media-cloudinary.service';
 import { FacebookShareImageService } from './facebook-share-image.service';
 import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
+import { TikTokQueueService } from '../social/tiktok/tiktok-queue.service';
 import { computeStoredOgMediaFields } from './property-og-media.util';
 import { socialInclude } from './shorts-listing.social-include';
 import { overlayConfigFromProperty, overlayFieldsForStorage } from './shorts-overlay.types';
@@ -133,6 +134,7 @@ export class ShortsListingService {
     private readonly propertyMediaCloudinary: PropertyMediaCloudinaryService,
     private readonly facebookShareImage: FacebookShareImageService,
     private readonly socialPublishEnqueue: SocialPublishEnqueueService,
+    private readonly tiktokQueue: TikTokQueueService,
   ) {}
 
   private async viewerAccess(viewerId: string): Promise<PropertyViewerAccess> {
@@ -1155,6 +1157,7 @@ export class ShortsListingService {
     );
 
     this.socialPublishEnqueue.firePropertyCreated(String(serialized.id));
+    this.tiktokQueue.firePropertyCreated(String(serialized.id));
 
     return {
       property: serialized,

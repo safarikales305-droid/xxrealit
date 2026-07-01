@@ -79,6 +79,7 @@ import { resolveListingApprovalOnCreate, resolveListingApprovalOnEdit } from './
 import { overlayFieldsForStorage } from './shorts-overlay.types';
 import { PropertySocialPublishSummaryService } from './property-social-publish-summary.service';
 import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
+import { TikTokQueueService } from '../social/tiktok/tiktok-queue.service';
 import { anyPublicListingWhere } from './property-listing-scope';
 import {
   listingLocationSlug,
@@ -106,6 +107,7 @@ export class PropertiesService {
     private readonly listingApprovalSettings: ListingApprovalSettingsService,
     private readonly propertySocialSummary: PropertySocialPublishSummaryService,
     private readonly socialPublishEnqueue: SocialPublishEnqueueService,
+    private readonly tiktokQueue: TikTokQueueService,
   ) {}
 
   /** Předgeneruje statický JPG 1200×630 pro Facebook og:image. */
@@ -1289,8 +1291,10 @@ export class PropertiesService {
         full.id,
       );
       this.socialPublishEnqueue.firePropertyCreated(full.id);
+      this.tiktokQueue.firePropertyCreated(full.id);
       if (approvalDecision.approved) {
         this.socialPublishEnqueue.firePropertyApproved(full.id);
+        this.tiktokQueue.firePropertyApproved(full.id);
       }
       const socialPublish = await this.propertySocialSummary.buildForProperty(full.id);
       const serialized = serializeProperty(

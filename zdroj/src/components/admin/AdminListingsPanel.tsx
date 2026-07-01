@@ -94,6 +94,7 @@ type ActionHandlers = {
   onFacebookSetRepeat?: (r: AdminListingRow) => void;
   onFacebookCancelRepeat?: (r: AdminListingRow) => void;
   onFacebookShowLog?: (r: AdminListingRow) => void;
+  onTikTokPublish?: (r: AdminListingRow) => void;
 };
 
 function ListingDetail({ r }: { r: AdminListingRow }) {
@@ -338,6 +339,15 @@ function ActionsMenu({
                 onClick={() => run(() => handlers.onFacebookShowLog?.(r))}
               >
                 Zobrazit log publikování
+              </button>
+            ) : null}
+            {!deleted && handlers.onTikTokPublish && rowHasShortsVideo(r) ? (
+              <button
+                type="button"
+                className="block w-full px-3 py-2 text-left text-sm text-black hover:bg-zinc-100"
+                onClick={() => run(() => handlers.onTikTokPublish?.(r))}
+              >
+                Publikovat na TikTok
               </button>
             ) : null}
             {!deleted && r.isActive !== false ? (
