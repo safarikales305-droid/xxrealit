@@ -28,10 +28,12 @@ import { AdvertiserListingLeadsController } from './advertiser-listing-leads.con
 import { ListingContactUnlockModule } from './listing-contact-unlock.module';
 import { SeoModule } from '../seo/seo.module';
 import { SocialModule } from '../social/social.module';
+import { TikTokModule } from '../social/tiktok/tiktok.module';
 
 @Module({
   imports: [
     ShareModule,
+    TikTokModule,
     forwardRef(() => SocialModule),
     forwardRef(() => CreditsModule),
     forwardRef(() => BonusCampaignModule),
