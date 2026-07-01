@@ -1,9 +1,11 @@
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { ACCESS_TOKEN_COOKIE } from '@/lib/auth-cookie';
+import { rebuildFormDataForNest } from '@/lib/nest-multipart-proxy';
 import { getOptionalInternalApiBaseUrl } from '@/lib/server-api';
 
 export const runtime = 'nodejs';
+export const maxDuration = 300;
 
 async function resolveAuthToken(req: NextRequest): Promise<string | null> {
   const header = req.headers.get('Authorization')?.trim();
@@ -60,11 +62,9 @@ async function proxy(req: NextRequest, pathSegments: string[]) {
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     if (isMultipart) {
-      init.body = await req.arrayBuffer();
-      init.headers = {
-        ...init.headers,
-        'Content-Type': req.headers.get('content-type') ?? 'multipart/form-data',
-      };
+      // Nepřeposílat raw body + starý boundary — Nest by dostal zkrácený stream.
+      // FormData znovu sestaví multipart; Content-Type nastaví fetch automaticky.
+      init.body = await rebuildFormDataForNest(req);
     } else {
       init.body = await req.text();
     }

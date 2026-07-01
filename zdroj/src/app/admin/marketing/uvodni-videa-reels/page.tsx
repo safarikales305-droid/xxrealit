@@ -14,7 +14,7 @@ import {
 } from '@/lib/social-autopost-admin-api';
 
 /** Stejný limit jako na backendu (FileInterceptor limits.fileSize). */
-const INTRO_VIDEO_MAX_BYTES = 120 * 1024 * 1024;
+const INTRO_VIDEO_MAX_BYTES = 150 * 1024 * 1024;
 
 const ACCEPTED_VIDEO_TYPES = new Set([
   'video/mp4',

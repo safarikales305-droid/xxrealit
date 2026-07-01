@@ -41,6 +41,7 @@ import { SocialFacebookReelPublisherService } from './autopost/social-facebook-r
 import { FacebookVideoTeaserService } from './autopost/facebook-video-teaser.service';
 import { ReelVideoComposerService } from './autopost/reel-video-composer.service';
 import { SocialIntroVideoService } from './autopost/social-intro-video.service';
+import { IntroVideoUploadExceptionFilter } from './autopost/intro-video-upload.exception-filter';
 import { SocialPublishTemplatesService } from './autopost/social-publish-templates.service';
 import { PostSocialPublishService } from './autopost/post-social-publish.service';
 
@@ -92,6 +93,7 @@ import { PostSocialPublishService } from './autopost/post-social-publish.service
     PostSocialPublishService,
     SocialIntroVideoService,
     ReelVideoComposerService,
+    IntroVideoUploadExceptionFilter,
   ],
   exports: [
     FacebookConfigService,

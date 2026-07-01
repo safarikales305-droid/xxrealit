@@ -11,6 +11,7 @@ import {
   Req,
   Res,
   UploadedFile,
+  UseFilters,
   UseGuards,
   UseInterceptors,
   ValidationPipe,
@@ -18,7 +19,6 @@ import {
 import type { Request, Response } from 'express';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { memoryStorage } from 'multer';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { SocialIntroPropertyType, SocialPublishStatus } from '@prisma/client';
 import { AdminGuard } from '../../admin/guards/admin.guard';
@@ -52,6 +52,10 @@ import { PostSocialPublishService } from './post-social-publish.service';
 import { SocialIntroVideoService } from './social-intro-video.service';
 import { PropertyMediaCloudinaryService } from '../../properties/property-media-cloudinary.service';
 import { SOCIAL_INTRO_PROPERTY_TYPE_LABELS } from './social-intro-property-type.util';
+import { introVideoMulterOptions } from './intro-video-upload.config';
+import {
+  IntroVideoUploadExceptionFilter,
+} from './intro-video-upload.exception-filter';
 import { parseDurationSecondsFromFfmpegStderr, runFfmpegCapture } from '../../../lib/ffmpeg-run';
 import { resolveFfmpegBinary } from '../../../lib/ffmpeg-binary';
 
@@ -420,13 +424,10 @@ export class SocialAutopostAdminController {
   }
 
   @Post('intro-videos')
-  @UseInterceptors(
-    FileInterceptor('video', {
-      storage: memoryStorage(),
-      limits: { fileSize: 120 * 1024 * 1024 },
-    }),
-  )
+  @UseFilters(IntroVideoUploadExceptionFilter)
+  @UseInterceptors(FileInterceptor('video', introVideoMulterOptions))
   async createIntroVideo(
+    @Req() req: Request,
     @UploadedFile() file: Express.Multer.File,
     @Body()
     body: {
@@ -438,12 +439,20 @@ export class SocialAutopostAdminController {
       durationSeconds?: string | number;
     },
   ) {
+    console.log('[intro-videos][create] content-type:', req.headers['content-type']);
+    console.log('[intro-videos][create] file:', file
+      ? { fieldname: file.fieldname, originalname: file.originalname, mimetype: file.mimetype, size: file.size }
+      : null);
+    console.log('[intro-videos][create] body:', body);
+
     const propertyType = (body.propertyType ?? '').trim().toUpperCase() as SocialIntroPropertyType;
     if (!Object.values(SocialIntroPropertyType).includes(propertyType)) {
       throw new BadRequestException('Neplatný typ nemovitosti pro úvodní video.');
     }
     if (!file?.buffer?.length) {
-      throw new BadRequestException('Video soubor je povinný.');
+      throw new BadRequestException(
+        'Video soubor je povinný (pole „video“). Server neobdržel žádná data — zkontrolujte velikost souboru a proxy limit.',
+      );
     }
     const videoUrl = await this.propertyMedia.uploadVideo(file);
     let durationSeconds =
@@ -482,19 +491,24 @@ export class SocialAutopostAdminController {
   }
 
   @Post('intro-videos/:id/video')
-  @UseInterceptors(
-    FileInterceptor('video', {
-      storage: memoryStorage(),
-      limits: { fileSize: 120 * 1024 * 1024 },
-    }),
-  )
+  @UseFilters(IntroVideoUploadExceptionFilter)
+  @UseInterceptors(FileInterceptor('video', introVideoMulterOptions))
   async replaceIntroVideo(
+    @Req() req: Request,
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
     @Body() body: { durationSeconds?: string | number },
   ) {
+    console.log('[intro-videos][replace] content-type:', req.headers['content-type']);
+    console.log('[intro-videos][replace] file:', file
+      ? { fieldname: file.fieldname, originalname: file.originalname, mimetype: file.mimetype, size: file.size }
+      : null);
+    console.log('[intro-videos][replace] body:', body);
+
     if (!file?.buffer?.length) {
-      throw new BadRequestException('Video soubor je povinný.');
+      throw new BadRequestException(
+        'Video soubor je povinný (pole „video“). Server neobdržel žádná data — zkontrolujte velikost souboru a proxy limit.',
+      );
     }
     const videoUrl = await this.propertyMedia.uploadVideo(file);
     let durationSeconds =

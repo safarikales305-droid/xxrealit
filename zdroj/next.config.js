@@ -1,6 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Next 15.5+ truncates request bodies at 10 MB when middleware/proxy is used.
+  // Intro Reel videos up to 150 MB must pass through /api/facebook/* intact.
+  experimental: {
+    proxyClientMaxBodySize: '160mb',
+  },
   images: {
     remotePatterns: [
       {
