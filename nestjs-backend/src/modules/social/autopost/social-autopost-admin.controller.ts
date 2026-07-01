@@ -58,6 +58,7 @@ import {
 } from './intro-video-upload.exception-filter';
 import { parseDurationSecondsFromFfmpegStderr, runFfmpegCapture } from '../../../lib/ffmpeg-run';
 import { resolveFfmpegBinary } from '../../../lib/ffmpeg-binary';
+import { ListingReelAdminService } from './listing-reel-admin.service';
 
 @Controller('social/autopost/admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -74,6 +75,7 @@ export class SocialAutopostAdminController {
     private readonly postSocialPublish: PostSocialPublishService,
     private readonly introVideos: SocialIntroVideoService,
     private readonly propertyMedia: PropertyMediaCloudinaryService,
+    private readonly listingReelAdmin: ListingReelAdminService,
   ) {}
 
   @Get('settings')
@@ -526,6 +528,30 @@ export class SocialAutopostAdminController {
   async deleteIntroVideo(@Param('id') id: string) {
     await this.introVideos.delete(id);
     return { ok: true };
+  }
+
+  @Post('intro-videos/test-compose')
+  testIntroCompose(
+    @Body()
+    body: { propertyType: SocialIntroPropertyType; propertyId?: string },
+  ) {
+    if (!body?.propertyType) {
+      throw new BadRequestException('Chybí propertyType.');
+    }
+    return this.listingReelAdmin.testIntroCompose({
+      propertyType: body.propertyType,
+      propertyId: body.propertyId,
+    });
+  }
+
+  @Post('schedules/:id/regenerate-final-video')
+  regenerateScheduleFinalVideo(@Param('id') id: string) {
+    return this.listingReelAdmin.regenerateScheduleFinalVideo(id);
+  }
+
+  @Post('schedules/regenerate-all-final-videos')
+  regenerateAllScheduleFinalVideos() {
+    return this.listingReelAdmin.regenerateAllScheduledFinalVideos();
   }
 
   private async probeUploadedVideoDuration(buffer: Buffer): Promise<number | null> {

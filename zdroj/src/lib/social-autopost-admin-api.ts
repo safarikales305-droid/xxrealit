@@ -436,6 +436,11 @@ export type PropertyPublishLogRow = {
   introVideoDurationSec?: number | null;
   totalReelDurationSec?: number | null;
   introVideoError?: string | null;
+  introVideoIdUsed?: string | null;
+  introVideoTitle?: string | null;
+  sourceListingVideoUrl?: string | null;
+  finalVideoUrl?: string | null;
+  finalVideoGeneratedAt?: string | null;
   lastError: string | null;
   lastApiResponse?: unknown;
   processedAt?: string | null;
@@ -638,6 +643,11 @@ export type SchedulePlannerRow = {
   requireActive: boolean;
   requireApproved: boolean;
   shortsPublishAsReel: boolean | null;
+  introVideoUsed?: boolean;
+  introVideoTitle?: string | null;
+  finalVideoUrl?: string | null;
+  finalVideoGeneratedAt?: string | null;
+  totalReelDurationSec?: number | null;
   queue: {
     status: string;
     publishedUrl: string | null;
@@ -881,6 +891,52 @@ export async function nestAdminDeleteIntroVideo(token: string, id: string) {
     `/social/autopost/admin/intro-videos/${encodeURIComponent(id)}`,
     { method: 'DELETE' },
   );
+}
+
+export type IntroComposeTestResult = {
+  ok: boolean;
+  propertyId?: string;
+  propertyTitle?: string;
+  result?: {
+    finalVideoUrl: string;
+    introVideoUsed: boolean;
+    introVideoTitle?: string | null;
+    totalReelDurationSec?: number | null;
+    introVideoError?: string | null;
+    finalVideoGeneratedAt?: string;
+    fromCache?: boolean;
+  };
+  error?: string;
+};
+
+export function nestAdminTestIntroCompose(
+  token: string,
+  body: { propertyType: string; propertyId?: string },
+) {
+  return adminFetchJson<IntroComposeTestResult>(
+    token,
+    '/social/autopost/admin/intro-videos/test-compose',
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+}
+
+export function nestAdminRegenerateScheduleFinalVideo(token: string, scheduleId: string) {
+  return adminFetchJson<{ ok: boolean; result?: { finalVideoUrl: string; introVideoUsed: boolean } }>(
+    token,
+    `/social/autopost/admin/schedules/${encodeURIComponent(scheduleId)}/regenerate-final-video`,
+    { method: 'POST' },
+  );
+}
+
+export function nestAdminRegenerateAllScheduleFinalVideos(token: string) {
+  return adminFetchJson<{
+    ok: boolean;
+    processed: number;
+    succeeded: number;
+    failed: number;
+  }>(token, '/social/autopost/admin/schedules/regenerate-all-final-videos', {
+    method: 'POST',
+  });
 }
 
 export const SOCIAL_CONTENT_TYPE_LABELS: Record<string, string> = {

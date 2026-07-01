@@ -667,6 +667,13 @@ export class SocialPublishScheduleService {
       lastPublishedAt: Date | null;
       lastStatus: SocialPublishScheduleLastStatus | null;
       lastError: string | null;
+      lastIntroVideoUsed?: boolean;
+      lastIntroVideoIdUsed?: string | null;
+      lastIntroVideoTitle?: string | null;
+      lastSourceListingVideoUrl?: string | null;
+      lastFinalVideoUrl?: string | null;
+      lastFinalVideoGeneratedAt?: Date | null;
+      lastTotalReelDurationSec?: number | null;
       createdAt: Date;
       createdByUserId: string | null;
       createdBy?: { id: string; name: string | null; email: string } | null;
@@ -723,6 +730,11 @@ export class SocialPublishScheduleService {
       requireActive: schedule.requireActive,
       requireApproved: schedule.requireApproved,
       shortsPublishAsReel: schedule.shortsPublishAsReel,
+      introVideoUsed: schedule.lastIntroVideoUsed === true,
+      introVideoTitle: schedule.lastIntroVideoTitle ?? null,
+      finalVideoUrl: schedule.lastFinalVideoUrl ?? null,
+      finalVideoGeneratedAt: schedule.lastFinalVideoGeneratedAt?.toISOString() ?? null,
+      totalReelDurationSec: schedule.lastTotalReelDurationSec ?? null,
       queue: queue
         ? {
             status: queue.status,

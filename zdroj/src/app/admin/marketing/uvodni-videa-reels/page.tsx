@@ -9,6 +9,7 @@ import {
   nestAdminDeleteIntroVideo,
   nestAdminListIntroVideos,
   nestAdminReplaceIntroVideo,
+  nestAdminTestIntroCompose,
   nestAdminUpdateIntroVideo,
   type SocialIntroVideoRow,
 } from '@/lib/social-autopost-admin-api';
@@ -62,6 +63,9 @@ export default function AdminReelIntroVideosPage() {
   const [propertyType, setPropertyType] = useState('DUM');
   const [priority, setPriority] = useState('0');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [testPreviewUrl, setTestPreviewUrl] = useState<string | null>(null);
+  const [testBusy, setTestBusy] = useState(false);
+  const [testInfo, setTestInfo] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!apiAccessToken) return;
@@ -172,6 +176,28 @@ export default function AdminReelIntroVideosPage() {
     await load();
   }
 
+  async function runTestCompose() {
+    if (!apiAccessToken) return;
+    setTestBusy(true);
+    setTestInfo(null);
+    setTestPreviewUrl(null);
+    setErr(null);
+    const r = await nestAdminTestIntroCompose(apiAccessToken, { propertyType });
+    setTestBusy(false);
+    if (!r?.ok || !r.result?.finalVideoUrl) {
+      setErr(r?.error ?? 'Test spojení selhal.');
+      return;
+    }
+    setTestPreviewUrl(r.result.finalVideoUrl);
+    setTestInfo(
+      `Test inzerát: ${r.propertyTitle ?? r.propertyId ?? '—'} · úvod: ${
+        r.result.introVideoUsed ? (r.result.introVideoTitle ?? 'ano') : 'ne'
+      } · délka: ${r.result.totalReelDurationSec?.toFixed(1) ?? '—'} s${
+        r.result.introVideoError ? ` · varování: ${r.result.introVideoError}` : ''
+      }`,
+    );
+  }
+
   if (!user || user.role !== 'ADMIN') {
     return <p className="p-8 text-sm text-zinc-600">Pouze pro administrátory.</p>;
   }
@@ -280,6 +306,47 @@ export default function AdminReelIntroVideosPage() {
         </button>
         {msg ? <p className="mt-3 text-sm text-green-700">{msg}</p> : null}
         {err ? <p className="mt-3 text-sm text-red-600">{err}</p> : null}
+      </section>
+
+      <section className="mb-8 rounded-2xl border border-violet-200 bg-violet-50/40 p-6 shadow-sm">
+        <h2 className="text-lg font-semibold text-zinc-900">▶ Test spojení</h2>
+        <p className="mt-2 text-sm text-zinc-600">
+          Vybere testovací inzerát stejného typu, spojí úvodní video s ukázkou a přehraje náhled
+          výsledného videa (final.mp4).
+        </p>
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <label className="block text-sm">
+            <span className="font-medium text-zinc-700">Typ nemovitosti</span>
+            <select
+              value={propertyType}
+              onChange={(e) => setPropertyType(e.target.value)}
+              className="mt-1 rounded-xl border border-zinc-200 bg-white px-3 py-2"
+            >
+              {Object.entries(SOCIAL_INTRO_PROPERTY_TYPE_LABELS).map(([id, label]) => (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            disabled={testBusy}
+            onClick={() => void runTestCompose()}
+            className="rounded-full bg-violet-700 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+          >
+            {testBusy ? 'Spojuji…' : '▶ Test spojení'}
+          </button>
+        </div>
+        {testInfo ? <p className="mt-3 text-sm text-violet-900">{testInfo}</p> : null}
+        {testPreviewUrl ? (
+          <video
+            src={testPreviewUrl}
+            controls
+            playsInline
+            className="mt-4 max-h-80 w-full rounded-xl border border-zinc-200 bg-black"
+          />
+        ) : null}
       </section>
 
       <section className="rounded-2xl border border-zinc-200 bg-white shadow-sm">

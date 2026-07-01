@@ -24,6 +24,7 @@ import { SocialAutopostSettingsService } from './social-autopost-settings.servic
 import { SocialAutopostTokenService } from './social-autopost-token.service';
 import { SocialFacebookReelPublisherService } from './social-facebook-reel-publisher.service';
 import { FacebookVideoTeaserService } from './facebook-video-teaser.service';
+import { ListingReelFinalVideoService } from './listing-reel-final-video.service';
 import { PostSocialPublishService } from './post-social-publish.service';
 import { propertyHasPublishableVideo, validateRemoteVideoForFacebook } from './social-facebook-reel.util';
 import { maskAccessToken, type FacebookPublishResult } from './social-autopost.types';
@@ -80,6 +81,7 @@ export class SocialPublisherService {
     private readonly tokenService: SocialAutopostTokenService,
     private readonly reelPublisher: SocialFacebookReelPublisherService,
     private readonly teaserService: FacebookVideoTeaserService,
+    private readonly listingReelFinalVideo: ListingReelFinalVideoService,
     private readonly postSocialPublish: PostSocialPublishService,
     private readonly platformStub: SocialPlatformStubService,
   ) {}
@@ -842,12 +844,32 @@ export class SocialPublisherService {
     if (wantsReel && input.videoUrl?.trim()) {
       const reelMessage = buildVideoReelFacebookMessage(publicUrl);
       try {
-        const shareVideo = await this.teaserService.prepareListingReelForSocialShare(
-          input.videoUrl.trim(),
-          input.listingContext,
-        );
+        const finalVideo = await this.listingReelFinalVideo.buildFinalVideo({
+          sourceVideoUrl: input.videoUrl.trim(),
+          listingContext: input.listingContext,
+        });
+        const shareVideo = {
+          teaserUrl: finalVideo.finalVideoUrl,
+          teaserDurationSec: finalVideo.teaserDurationSec,
+          originalDurationSec: finalVideo.originalDurationSec,
+          teaserLocalPath: finalVideo.teaserLocalPath ?? null,
+          drawtextUsed: finalVideo.drawtextUsed ?? false,
+          drawtextSkippedReason: finalVideo.drawtextSkippedReason ?? null,
+          introVideoUsed: finalVideo.introVideoUsed,
+          introVideoPropertyType: finalVideo.introVideoPropertyType,
+          introVideoDurationSec: finalVideo.introVideoDurationSec,
+          totalReelDurationSec: finalVideo.totalReelDurationSec,
+          introVideoError: finalVideo.introVideoError,
+          introVideoId: finalVideo.introVideoIdUsed,
+          introVideoTitle: finalVideo.introVideoTitle,
+          sourceListingVideoUrl: finalVideo.sourceListingVideoUrl,
+          finalVideoUrl: finalVideo.finalVideoUrl,
+          finalVideoGeneratedAt: finalVideo.finalVideoGeneratedAt,
+          finalVideoSizeBytes: finalVideo.finalVideoSizeBytes,
+          composeLog: finalVideo.composeLog,
+        };
         this.logger.log(
-          `Reel inzerátu: ukázka=${shareVideo.teaserDurationSec}s, úvod=${shareVideo.introVideoUsed ? `${shareVideo.introVideoDurationSec ?? '—'}s (${shareVideo.introVideoPropertyType})` : 'ne'}, celkem=${shareVideo.totalReelDurationSec ?? shareVideo.teaserDurationSec}s`,
+          `Reel inzerátu: ukázka=${shareVideo.teaserDurationSec}s, úvod=${shareVideo.introVideoUsed ? `${shareVideo.introVideoTitle ?? shareVideo.introVideoId} (${shareVideo.introVideoPropertyType})` : 'ne'}, celkem=${shareVideo.totalReelDurationSec ?? shareVideo.teaserDurationSec}s, final=${shareVideo.finalVideoUrl}`,
         );
         const reel = await this.publishPropertyAsFacebookReel({
           videoUrl: shareVideo.teaserUrl,
@@ -873,6 +895,12 @@ export class SocialPublisherService {
           introVideoError: shareVideo.introVideoError ?? null,
           introVideoId: shareVideo.introVideoId ?? null,
           introVideoTitle: shareVideo.introVideoTitle ?? null,
+          introVideoIdUsed: shareVideo.introVideoId ?? null,
+          sourceListingVideoUrl: shareVideo.sourceListingVideoUrl ?? null,
+          finalVideoUrl: shareVideo.finalVideoUrl ?? null,
+          finalVideoGeneratedAt: shareVideo.finalVideoGeneratedAt ?? null,
+          finalVideoSizeBytes: shareVideo.finalVideoSizeBytes ?? null,
+          composeLog: shareVideo.composeLog ?? null,
         };
       } catch (err) {
         const teaserError = err instanceof Error ? err.message : String(err);

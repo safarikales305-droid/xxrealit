@@ -56,6 +56,11 @@ export class SocialPublishLogService {
     introVideoDurationSec?: number | null;
     totalReelDurationSec?: number | null;
     introVideoError?: string | null;
+    introVideoIdUsed?: string | null;
+    introVideoTitle?: string | null;
+    sourceListingVideoUrl?: string | null;
+    finalVideoUrl?: string | null;
+    finalVideoGeneratedAt?: Date | string | null;
     graphApiResponse?: unknown;
     triggerSource: SocialPublishTriggerSource;
     triggeredByUserId?: string | null;
@@ -84,6 +89,13 @@ export class SocialPublishLogService {
         introVideoDurationSec: input.introVideoDurationSec ?? null,
         totalReelDurationSec: input.totalReelDurationSec ?? null,
         introVideoError: input.introVideoError ?? null,
+        introVideoIdUsed: input.introVideoIdUsed ?? null,
+        introVideoTitle: input.introVideoTitle ?? null,
+        sourceListingVideoUrl: input.sourceListingVideoUrl ?? null,
+        finalVideoUrl: input.finalVideoUrl ?? null,
+        finalVideoGeneratedAt: input.finalVideoGeneratedAt
+          ? new Date(input.finalVideoGeneratedAt)
+          : null,
         graphApiResponse:
           input.graphApiResponse != null ? (input.graphApiResponse as object) : undefined,
         triggerSource: input.triggerSource,
@@ -143,6 +155,11 @@ export class SocialPublishLogService {
       introVideoDurationSec: row.introVideoDurationSec,
       totalReelDurationSec: row.totalReelDurationSec,
       introVideoError: row.introVideoError,
+      introVideoIdUsed: row.introVideoIdUsed,
+      introVideoTitle: row.introVideoTitle,
+      sourceListingVideoUrl: row.sourceListingVideoUrl,
+      finalVideoUrl: row.finalVideoUrl,
+      finalVideoGeneratedAt: row.finalVideoGeneratedAt?.toISOString() ?? null,
       triggerSource: row.triggerSource,
       triggeredBy: row.triggeredBy,
       lastApiResponse: row.graphApiResponse ?? row.queue?.lastApiResponse ?? null,

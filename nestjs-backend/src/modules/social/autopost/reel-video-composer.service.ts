@@ -19,6 +19,10 @@ export type ReelComposeResult = {
   outputPath: string;
   durationSec: number | null;
   tmpRoot: string;
+  ffmpegCommands: string[];
+  introLocalPath: string;
+  listingLocalPath: string;
+  outputSizeBytes: number | null;
 };
 
 @Injectable()
@@ -51,23 +55,40 @@ export class ReelVideoComposerService {
     const introPath = join(tmpRoot, 'intro-source.mp4');
     const introNorm = join(tmpRoot, 'intro-norm.mp4');
     const listingNorm = join(tmpRoot, 'listing-norm.mp4');
-    const outputPath = join(tmpRoot, 'composed-reel.mp4');
+    const outputPath = join(tmpRoot, 'final.mp4');
+    const ffmpegCommands: string[] = [];
 
     try {
+      this.log.log(`[compose] Stahuji úvodní video: ${introUrl}`);
       await this.downloadToFile(introUrl, introPath);
-      await this.normalizeSegment(ffmpeg.path, introPath, introNorm);
-      await this.normalizeSegment(ffmpeg.path, listingLocalPath, listingNorm);
-      await this.concatNormalized(ffmpeg.path, introNorm, listingNorm, outputPath);
+      this.log.log(`[compose] Normalizuji intro: ${introPath} → ${introNorm}`);
+      const introNormCmd = await this.normalizeSegment(ffmpeg.path, introPath, introNorm);
+      ffmpegCommands.push(introNormCmd);
+      this.log.log(`[compose] Normalizuji ukázku inzerátu: ${listingLocalPath} → ${listingNorm}`);
+      const listingNormCmd = await this.normalizeSegment(ffmpeg.path, listingLocalPath, listingNorm);
+      ffmpegCommands.push(listingNormCmd);
+      this.log.log(`[compose] Spojuji intro + inzerát → ${outputPath}`);
+      const concatCmd = await this.concatNormalized(ffmpeg.path, introNorm, listingNorm, outputPath);
+      ffmpegCommands.push(concatCmd);
 
       if (!(await this.isValidFile(outputPath))) {
         throw new Error('Výsledné spojené video je neplatné.');
       }
 
       const durationSec = await this.probeDuration(ffmpeg.path, outputPath);
+      const outputSizeBytes = await this.fileSize(outputPath);
       this.log.log(
-        `Reel složen: intro + ukázka inzerátu, délka=${durationSec ?? '—'}s, soubor=${outputPath}`,
+        `[compose] final.mp4 hotovo: délka=${durationSec ?? '—'}s, velikost=${outputSizeBytes ?? '—'} B, intro=${introPath}, listing=${listingLocalPath}`,
       );
-      return { outputPath, durationSec, tmpRoot };
+      return {
+        outputPath,
+        durationSec,
+        tmpRoot,
+        ffmpegCommands,
+        introLocalPath: introPath,
+        listingLocalPath,
+        outputSizeBytes,
+      };
     } catch (err) {
       await rm(tmpRoot, { recursive: true, force: true }).catch(() => undefined);
       throw err;
@@ -86,7 +107,7 @@ export class ReelVideoComposerService {
     ffmpegPath: string,
     inputPath: string,
     outputPath: string,
-  ): Promise<void> {
+  ): Promise<string> {
     const filter = [
       `[0:v]scale=${REEL_WIDTH}:${REEL_HEIGHT}:force_original_aspect_ratio=decrease,`,
       `pad=${REEL_WIDTH}:${REEL_HEIGHT}:(ow-iw)/2:(oh-ih)/2,`,
@@ -125,7 +146,9 @@ export class ReelVideoComposerService {
     ];
 
     let { code, stderr } = await runFfmpegCapture(ffmpegPath, withAudioArgs);
-    if (code === 0 && (await this.isValidFile(outputPath))) return;
+    if (code === 0 && (await this.isValidFile(outputPath))) {
+      return this.formatFfmpegCommand(ffmpegPath, withAudioArgs);
+    }
 
     const silentFilter = [
       `[0:v]scale=${REEL_WIDTH}:${REEL_HEIGHT}:force_original_aspect_ratio=decrease,`,
@@ -172,6 +195,20 @@ export class ReelVideoComposerService {
     if (code !== 0 || !(await this.isValidFile(outputPath))) {
       throw new Error(`Normalizace videa selhala: ${stderr.slice(-600) || 'neznámá chyba'}`);
     }
+    return this.formatFfmpegCommand(ffmpegPath, silentArgs);
+  }
+
+  private formatFfmpegCommand(ffmpegPath: string, args: string[]): string {
+    return `${ffmpegPath} ${args.join(' ')}`;
+  }
+
+  private async fileSize(filePath: string): Promise<number | null> {
+    try {
+      const info = await stat(filePath);
+      return info.isFile() ? info.size : null;
+    } catch {
+      return null;
+    }
   }
 
   private async concatNormalized(
@@ -179,7 +216,7 @@ export class ReelVideoComposerService {
     firstPath: string,
     secondPath: string,
     outputPath: string,
-  ): Promise<void> {
+  ): Promise<string> {
     const filter = [
       '[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[v][a]',
     ].join('');
@@ -220,6 +257,7 @@ export class ReelVideoComposerService {
     if (code !== 0 || !(await this.isValidFile(outputPath))) {
       throw new Error(`Spojení videí selhalo: ${stderr.slice(-600) || 'neznámá chyba'}`);
     }
+    return this.formatFfmpegCommand(ffmpegPath, args);
   }
 
   private async isValidFile(filePath: string): Promise<boolean> {

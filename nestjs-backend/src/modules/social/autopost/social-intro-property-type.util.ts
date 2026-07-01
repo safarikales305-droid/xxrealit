@@ -19,15 +19,10 @@ export type ListingIntroContext = {
   description?: string | null;
 };
 
-/** Mapuje inzerát na kategorii úvodního videa pro Reel. */
-export function resolveSocialIntroPropertyType(
+/** Mapuje inzerát na strukturální kategorii (Byt, Dům, …) bez přepsání na Pronájem. */
+export function resolveStructuralSocialIntroPropertyType(
   input: ListingIntroContext,
 ): SocialIntroPropertyType {
-  const offer = (input.offerType ?? '').trim().toLowerCase();
-  if (offer.includes('pron')) {
-    return SocialIntroPropertyType.PRONAJEM;
-  }
-
   const key = (input.propertyTypeKey ?? input.propertyType ?? '').trim().toLowerCase();
   const blob = `${key} ${(input.title ?? '')} ${(input.description ?? '')}`.toLowerCase();
 
@@ -56,4 +51,35 @@ export function resolveSocialIntroPropertyType(
     return SocialIntroPropertyType.KOMERCNI;
   }
   return SocialIntroPropertyType.OSTATNI;
+}
+
+/**
+ * Pořadí hledání aktivního úvodního videa.
+ * Nejdřív typ nemovitosti (Byt, Dům, …), pak volitelně Novostavba / Pronájem.
+ */
+export function buildIntroVideoLookupOrder(
+  input: ListingIntroContext,
+): SocialIntroPropertyType[] {
+  const primary = resolveStructuralSocialIntroPropertyType(input);
+  const order: SocialIntroPropertyType[] = [primary];
+  const offer = (input.offerType ?? '').trim().toLowerCase();
+  const textBlob = `${(input.title ?? '')} ${(input.description ?? '')}`.toLowerCase();
+
+  if (
+    primary !== SocialIntroPropertyType.NOVOSTAVBA &&
+    textBlob.includes('novostavb')
+  ) {
+    order.push(SocialIntroPropertyType.NOVOSTAVBA);
+  }
+  if (offer.includes('pron')) {
+    order.push(SocialIntroPropertyType.PRONAJEM);
+  }
+  return [...new Set(order)];
+}
+
+/** Primární typ pro logy (strukturální kategorie inzerátu). */
+export function resolveSocialIntroPropertyType(
+  input: ListingIntroContext,
+): SocialIntroPropertyType {
+  return resolveStructuralSocialIntroPropertyType(input);
 }

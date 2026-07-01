@@ -3358,6 +3358,13 @@ model SocialPublishSchedule {
   lastPublishedAt    DateTime?
   lastStatus         SocialPublishScheduleLastStatus?
   lastError          String?                       @db.Text
+  lastIntroVideoUsed        Boolean                @default(false)
+  lastIntroVideoIdUsed      String?
+  lastIntroVideoTitle       String?
+  lastSourceListingVideoUrl String?
+  lastFinalVideoUrl         String?
+  lastFinalVideoGeneratedAt DateTime?
+  lastTotalReelDurationSec  Float?
   createdByUserId    String?
   createdAt          DateTime                      @default(now())
   updatedAt          DateTime                      @updatedAt
@@ -3395,6 +3402,11 @@ model SocialPublishLog {
   introVideoDurationSec    Float?
   totalReelDurationSec     Float?
   introVideoError          String?                @db.Text
+  introVideoIdUsed         String?
+  introVideoTitle          String?
+  sourceListingVideoUrl    String?
+  finalVideoUrl            String?
+  finalVideoGeneratedAt    DateTime?
   graphApiResponse         Json?
   triggerSource            SocialPublishTriggerSource
   triggeredByUserId        String?
@@ -3449,7 +3461,29 @@ model SocialIntroVideo {
   createdAt       DateTime               @default(now())
   updatedAt       DateTime               @updatedAt
 
+  compositionCaches SocialReelCompositionCache[]
+
   @@index([propertyType, active, priority])
+}
+
+/// Cache spojeného Reel videa (úvod + inzerát) — zneplatní se při změně úvodního nebo zdrojového videa.
+model SocialReelCompositionCache {
+  id                    String   @id @default(cuid())
+  cacheKey              String   @unique
+  introVideoId          String
+  introVideoUpdatedAt   DateTime
+  sourceListingVideoUrl String
+  listingTeaserSeconds  Float
+  finalVideoUrl         String
+  finalVideoSizeBytes   Int?
+  totalDurationSec      Float?
+  ffmpegCommand         String?  @db.Text
+  createdAt             DateTime @default(now())
+
+  introVideo SocialIntroVideo @relation(fields: [introVideoId], references: [id], onDelete: Cascade)
+
+  @@index([introVideoId])
+  @@index([sourceListingVideoUrl])
 }
 
 enum TikTokPublishJobStatus {

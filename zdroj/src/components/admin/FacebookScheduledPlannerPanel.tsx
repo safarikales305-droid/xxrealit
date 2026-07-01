@@ -18,6 +18,8 @@ import {
   nestAdminSchedulePublishNow,
   nestAdminScheduleResume,
   nestAdminScheduleUpdate,
+  nestAdminRegenerateAllScheduleFinalVideos,
+  nestAdminRegenerateScheduleFinalVideo,
   nestAdminSchedulesList,
   type SchedulePlannerDashboard,
   type SchedulePlannerDetail,
@@ -89,6 +91,7 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
   const [detailLoading, setDetailLoading] = useState(false);
   const [editRow, setEditRow] = useState<SchedulePlannerRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [bulkRegenBusy, setBulkRegenBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -182,12 +185,53 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
     }
   }
 
+  async function regenerateFinalVideo(scheduleId: string) {
+    if (!token) return;
+    setBusyId(scheduleId);
+    const r = await nestAdminRegenerateScheduleFinalVideo(token, scheduleId);
+    setBusyId(null);
+    if (r?.ok) {
+      onNotify?.(
+        r.result?.introVideoUsed
+          ? `✅ Výsledné video přegenerováno s úvodem.\n${r.result.finalVideoUrl}`
+          : `Výsledné video přegenerováno bez úvodního videa.`,
+        r.result?.finalVideoUrl ?? null,
+      );
+      await refresh();
+      if (detail?.schedule.id === scheduleId) void openDetail(detail.schedule);
+    } else {
+      onNotify?.('Přegenerování videa selhalo.');
+    }
+  }
+
+  async function regenerateAllFinalVideos() {
+    if (!token) return;
+    if (!window.confirm('Přegenerovat výsledná videa u všech aktivních plánů?')) return;
+    setBulkRegenBusy(true);
+    const r = await nestAdminRegenerateAllScheduleFinalVideos(token);
+    setBulkRegenBusy(false);
+    if (r?.ok) {
+      onNotify?.(`Přegenerováno ${r.succeeded}/${r.processed} plánů.`);
+      await refresh();
+    } else {
+      onNotify?.('Hromadné přegenerování selhalo.');
+    }
+  }
+
   const dash = dashboard;
 
   return (
     <section className="mt-8 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-bold text-zinc-900">📅 Naplánované publikace</h2>
+        <button
+          type="button"
+          onClick={() => void regenerateAllFinalVideos()}
+          disabled={bulkRegenBusy || loading}
+          className="text-sm font-semibold text-violet-700 hover:underline disabled:opacity-50"
+        >
+          {bulkRegenBusy ? 'Přegenerovávám…' : '▶ Přegenerovat všechny Reely s úvodním videem'}
+        </button>
         <button
           type="button"
           onClick={() => void refresh()}
@@ -225,6 +269,7 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
             <tr className="border-b text-[10px] font-bold uppercase tracking-wide text-zinc-500">
               <th className="py-2 pr-3">Inzerát</th>
               <th className="py-2 pr-3">Typ</th>
+              <th className="py-2 pr-3">Úvodní video</th>
               <th className="py-2 pr-3">Vytvořeno</th>
               <th className="py-2 pr-3">Plánováno</th>
               <th className="py-2 pr-3">Opakování</th>
@@ -251,6 +296,13 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
                   ) : null}
                 </td>
                 <td className="py-2 pr-3 whitespace-nowrap text-xs">{row.publishType}</td>
+                <td className="py-2 pr-3 whitespace-nowrap text-xs font-medium">
+                  {row.introVideoUsed ? (
+                    <span className="text-emerald-700">ANO</span>
+                  ) : (
+                    <span className="text-zinc-500">NE</span>
+                  )}
+                </td>
                 <td className="py-2 pr-3 whitespace-nowrap text-xs">{formatDt(row.planCreatedAt)}</td>
                 <td className="py-2 pr-3 whitespace-nowrap text-xs">{formatDt(row.scheduledAt)}</td>
                 <td className="py-2 pr-3 text-xs">
@@ -278,6 +330,14 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
                 </td>
                 <td className="py-2" onClick={(e) => e.stopPropagation()}>
                   <div className="flex flex-col gap-1 min-w-[7rem]">
+                    <button
+                      type="button"
+                      disabled={busyId === row.id}
+                      className="text-left text-xs font-semibold text-violet-700"
+                      onClick={() => void regenerateFinalVideo(row.id)}
+                    >
+                      ▶ Přegenerovat video
+                    </button>
                     <button
                       type="button"
                       disabled={busyId === row.id}
@@ -365,6 +425,41 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
                       <dt className="text-zinc-500">Facebook stránka</dt>
                       <dd>{detail.schedule.facebookPageName}</dd>
                     </div>
+                    <div>
+                      <dt className="text-zinc-500">Úvodní video</dt>
+                      <dd>{detail.schedule.introVideoUsed ? 'ANO' : 'NE'}</dd>
+                    </div>
+                    {detail.schedule.introVideoTitle ? (
+                      <div className="sm:col-span-2">
+                        <dt className="text-zinc-500">Název úvodního videa</dt>
+                        <dd>{detail.schedule.introVideoTitle}</dd>
+                      </div>
+                    ) : null}
+                    {detail.schedule.finalVideoGeneratedAt ? (
+                      <div>
+                        <dt className="text-zinc-500">Výsledné video vytvořeno</dt>
+                        <dd>{formatDt(detail.schedule.finalVideoGeneratedAt)}</dd>
+                      </div>
+                    ) : null}
+                    {detail.schedule.totalReelDurationSec != null ? (
+                      <div>
+                        <dt className="text-zinc-500">Délka výsledného videa</dt>
+                        <dd>{detail.schedule.totalReelDurationSec.toFixed(1)} s</dd>
+                      </div>
+                    ) : null}
+                    {detail.schedule.finalVideoUrl ? (
+                      <div className="sm:col-span-2">
+                        <dt className="text-zinc-500">Náhled výsledného videa</dt>
+                        <dd className="mt-1">
+                          <video
+                            src={detail.schedule.finalVideoUrl}
+                            controls
+                            playsInline
+                            className="max-h-64 w-full rounded-lg border border-zinc-200 bg-black"
+                          />
+                        </dd>
+                      </div>
+                    ) : null}
                   </dl>
 
                   <div>

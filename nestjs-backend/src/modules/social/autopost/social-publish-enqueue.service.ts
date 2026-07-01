@@ -26,6 +26,7 @@ import { PROFESSIONAL_ROLES, type FacebookPublishResult } from './social-autopos
 import { SocialIntroPropertyType } from '@prisma/client';
 import { SocialPublishTemplatesService } from './social-publish-templates.service';
 import { PostSocialPublishService } from './post-social-publish.service';
+import { ListingReelFinalVideoService } from './listing-reel-final-video.service';
 
 function resolveFacebookPublishFormatLabel(
   facebookPostType?: FacebookPostType | null,
@@ -62,6 +63,12 @@ function buildPublishLogGraphResponse(result: FacebookPublishResult): object {
       introVideoDurationSec: result.introVideoDurationSec ?? null,
       totalReelDurationSec: result.totalReelDurationSec ?? null,
       introVideoError: result.introVideoError ?? null,
+      introVideoIdUsed: result.introVideoIdUsed ?? result.introVideoId ?? null,
+      introVideoTitle: result.introVideoTitle ?? null,
+      sourceListingVideoUrl: result.sourceListingVideoUrl ?? null,
+      finalVideoUrl: result.finalVideoUrl ?? result.teaserUrl ?? null,
+      finalVideoGeneratedAt: result.finalVideoGeneratedAt ?? null,
+      composeLog: result.composeLog ?? null,
     },
   };
 }
@@ -506,6 +513,7 @@ export class SocialPublishProcessorService {
     private readonly shareMetadata: ShareMetadataService,
     private readonly logService: SocialPublishLogService,
     private readonly templates: SocialPublishTemplatesService,
+    private readonly listingReelFinalVideo: ListingReelFinalVideoService,
   ) {}
 
   async processDueBatch(limit = 5) {
@@ -604,11 +612,38 @@ export class SocialPublishProcessorService {
         introVideoDurationSec: result.introVideoDurationSec ?? null,
         totalReelDurationSec: result.totalReelDurationSec ?? null,
         introVideoError: result.introVideoError ?? null,
+        introVideoIdUsed: result.introVideoIdUsed ?? result.introVideoId ?? null,
+        introVideoTitle: result.introVideoTitle ?? null,
+        sourceListingVideoUrl: result.sourceListingVideoUrl ?? null,
+        finalVideoUrl: result.finalVideoUrl ?? result.teaserUrl ?? null,
+        finalVideoGeneratedAt: result.finalVideoGeneratedAt ?? null,
         graphApiResponse: buildPublishLogGraphResponse(result),
         lastError: result.teaserError ?? result.teaserDrawtextSkippedReason ?? null,
         triggerSource: item.triggerSource,
         triggeredByUserId: item.triggeredByUserId,
       });
+
+      if (item.scheduleId && result.finalVideoUrl) {
+        await this.listingReelFinalVideo.updateScheduleFinalVideoSnapshot(item.scheduleId, {
+          finalVideoUrl: result.finalVideoUrl,
+          sourceListingVideoUrl: result.sourceListingVideoUrl ?? '',
+          teaserDurationSec: result.teaserDurationSec ?? 0,
+          originalDurationSec: result.originalVideoDurationSec ?? null,
+          introVideoUsed: result.introVideoUsed === true,
+          introVideoIdUsed: result.introVideoIdUsed ?? result.introVideoId ?? null,
+          introVideoTitle: result.introVideoTitle ?? null,
+          introVideoPropertyType:
+            (result.introVideoPropertyType as SocialIntroPropertyType | null) ?? null,
+          introVideoDurationSec: result.introVideoDurationSec ?? null,
+          totalReelDurationSec: result.totalReelDurationSec ?? null,
+          introVideoError: result.introVideoError ?? null,
+          finalVideoGeneratedAt: result.finalVideoGeneratedAt
+            ? new Date(result.finalVideoGeneratedAt)
+            : new Date(),
+          finalVideoSizeBytes: result.finalVideoSizeBytes ?? null,
+          fromCache: false,
+        });
+      }
 
       return updated;
     } catch (err) {

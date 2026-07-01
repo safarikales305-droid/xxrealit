@@ -13,13 +13,7 @@ import {
   runFfmpegCapture,
 } from '../../../lib/ffmpeg-run';
 import { PropertyMediaCloudinaryService } from '../../properties/property-media-cloudinary.service';
-import { ReelVideoComposerService } from './reel-video-composer.service';
 import { SocialAutopostSettingsService } from './social-autopost-settings.service';
-import { SocialIntroVideoService } from './social-intro-video.service';
-import {
-  type ListingIntroContext,
-  resolveSocialIntroPropertyType,
-} from './social-intro-property-type.util';
 
 export const FACEBOOK_TEASER_MAX_SECONDS = 5;
 
@@ -69,8 +63,6 @@ export class FacebookVideoTeaserService {
   constructor(
     private readonly cloudinary: PropertyMediaCloudinaryService,
     private readonly settings: SocialAutopostSettingsService,
-    private readonly introVideos: SocialIntroVideoService,
-    private readonly reelComposer: ReelVideoComposerService,
   ) {}
 
   async createTeaserFromVideoUrl(
@@ -334,106 +326,8 @@ export class FacebookVideoTeaserService {
     return this.createTeaserFromVideoUrl(absolute, maxSeconds);
   }
 
-  /** Reel inzerátu: úvodní video podle typu nemovitosti + ukázka inzerátu. */
-  async prepareListingReelForSocialShare(
-    videoUrl: string,
-    listingContext?: ListingIntroContext,
-  ): Promise<FacebookVideoTeaserResult> {
-    await this.settings.reload();
-    const global = this.settings.getSettings().global;
-    const absolute = videoUrl.trim();
-    if (!absolute) {
-      throw new Error('Chybí URL videa.');
-    }
-
-    if (global.socialVideoPublishFull) {
-      return {
-        teaserUrl: absolute,
-        teaserDurationSec: 0,
-        originalDurationSec: null,
-        drawtextUsed: false,
-        drawtextSkippedReason: 'publikováno celé video bez teaseru',
-        introVideoUsed: false,
-      };
-    }
-
-    const maxSeconds =
-      global.socialVideoUsePortalTeaserRule !== false
-        ? (global.videoTeaserMaxSeconds ?? FACEBOOK_TEASER_MAX_SECONDS)
-        : (global.socialVideoTeaserSeconds ??
-          global.videoTeaserMaxSeconds ??
-          FACEBOOK_TEASER_MAX_SECONDS);
-
-    const rendered = await this.renderTeaserArtifacts(absolute, maxSeconds);
-    let composeResult: Awaited<ReturnType<ReelVideoComposerService['composeIntroAndListing']>> | null =
-      null;
-
-    try {
-      const propertyType = listingContext
-        ? resolveSocialIntroPropertyType(listingContext)
-        : null;
-      const intro =
-        propertyType != null
-          ? await this.introVideos.findActiveForPropertyType(propertyType)
-          : null;
-
-      let uploadBuffer: Buffer;
-      let teaserUrl: string;
-      let introVideoUsed = false;
-      let introVideoDurationSec: number | null = null;
-      let totalReelDurationSec: number | null = null;
-      let introVideoError: string | null = null;
-
-      if (intro) {
-        try {
-          composeResult = await this.reelComposer.composeIntroAndListing(
-            intro.videoUrl,
-            rendered.teaserPath,
-          );
-          uploadBuffer = await this.reelComposer.readOutputBuffer(composeResult);
-          introVideoUsed = true;
-          introVideoDurationSec =
-            intro.durationSeconds ??
-            (composeResult.durationSec != null
-              ? Math.max(0, composeResult.durationSec - rendered.teaserDurationSec)
-              : null);
-          totalReelDurationSec = composeResult.durationSec;
-        } catch (err) {
-          introVideoError = err instanceof Error ? err.message : String(err);
-          this.log.warn(
-            `Spojení úvodního videa (${propertyType}) s Reel inzerátu selhalo, publikuji jen ukázku: ${introVideoError}`,
-          );
-          uploadBuffer = await readFile(rendered.teaserPath);
-        }
-      } else {
-        uploadBuffer = await readFile(rendered.teaserPath);
-      }
-
-      teaserUrl = await this.cloudinary.uploadVideoBuffer(
-        uploadBuffer,
-        introVideoUsed ? 'facebook-reel-composed.mp4' : 'facebook-teaser.mp4',
-      );
-
-      return {
-        teaserUrl,
-        teaserDurationSec: rendered.teaserDurationSec,
-        originalDurationSec: rendered.originalDurationSec,
-        teaserLocalPath: rendered.teaserPath,
-        drawtextUsed: rendered.drawtextUsed,
-        drawtextSkippedReason: rendered.drawtextSkippedReason,
-        introVideoUsed,
-        introVideoPropertyType: propertyType,
-        introVideoDurationSec,
-        introVideoId: intro?.id ?? null,
-        introVideoTitle: intro?.title ?? null,
-        totalReelDurationSec,
-        introVideoError,
-      };
-    } finally {
-      if (composeResult) {
-        await this.reelComposer.cleanup(composeResult);
-      }
-      await rm(rendered.tmpRoot, { recursive: true, force: true }).catch(() => undefined);
-    }
+  /** Vytvoří lokální ukázku videa inzerátu (caller uklidí tmpRoot). */
+  async createListingTeaserLocal(videoUrl: string, maxSecondsOverride?: number) {
+    return this.renderTeaserArtifacts(videoUrl, maxSecondsOverride);
   }
 }

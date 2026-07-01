@@ -32,6 +32,12 @@ export type FacebookPublishResult = {
   introVideoError?: string | null;
   introVideoId?: string | null;
   introVideoTitle?: string | null;
+  introVideoIdUsed?: string | null;
+  sourceListingVideoUrl?: string | null;
+  finalVideoUrl?: string | null;
+  finalVideoGeneratedAt?: Date | string | null;
+  finalVideoSizeBytes?: number | null;
+  composeLog?: Record<string, unknown> | null;
   raw: unknown;
 };
 

@@ -115,7 +115,7 @@ export function FacebookPublishLogModal({ open, title, loading, rows, onClose }:
                       </td>
                       <td className="py-2 pr-3 text-xs">
                         {row.introVideoUsed
-                          ? `${SOCIAL_INTRO_PROPERTY_TYPE_LABELS[String(row.introVideoPropertyType ?? '')] ?? row.introVideoPropertyType ?? '—'}${row.introVideoDurationSec != null ? ` (${row.introVideoDurationSec}s)` : ''}`
+                          ? `${row.introVideoTitle ?? SOCIAL_INTRO_PROPERTY_TYPE_LABELS[String(row.introVideoPropertyType ?? '')] ?? row.introVideoPropertyType ?? '—'}${row.totalReelDurationSec != null ? ` (${row.totalReelDurationSec}s)` : ''}`
                           : row.introVideoError
                             ? `Ne (${row.introVideoError})`
                             : 'Ne'}
