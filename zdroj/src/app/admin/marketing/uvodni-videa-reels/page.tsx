@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import {
   SOCIAL_INTRO_PROPERTY_TYPE_LABELS,
@@ -13,8 +13,47 @@ import {
   type SocialIntroVideoRow,
 } from '@/lib/social-autopost-admin-api';
 
+/** Stejný limit jako na backendu (FileInterceptor limits.fileSize). */
+const INTRO_VIDEO_MAX_BYTES = 120 * 1024 * 1024;
+
+const ACCEPTED_VIDEO_TYPES = new Set([
+  'video/mp4',
+  'video/webm',
+  'video/quicktime',
+  'video/x-msvideo',
+  'video/avi',
+  'video/mpeg',
+]);
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function validateVideoFile(file: File): string | null {
+  const type = file.type.trim().toLowerCase();
+  const name = file.name.toLowerCase();
+  const looksLikeVideo =
+    type.startsWith('video/') ||
+    ACCEPTED_VIDEO_TYPES.has(type) ||
+    /\.(mp4|webm|mov|m4v|avi|mkv)$/i.test(name);
+
+  if (!looksLikeVideo) {
+    return 'Vyberte platný video soubor (MP4, WebM, MOV nebo jiné běžné video).';
+  }
+  if (file.size > INTRO_VIDEO_MAX_BYTES) {
+    return `Soubor je příliš velký (max. ${formatFileSize(INTRO_VIDEO_MAX_BYTES)}).`;
+  }
+  if (file.size <= 0) {
+    return 'Soubor je prázdný.';
+  }
+  return null;
+}
+
 export default function AdminReelIntroVideosPage() {
   const { user, apiAccessToken, isLoading } = useAuth();
+  const fileInputId = useId();
+  const fileRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<SocialIntroVideoRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -22,7 +61,7 @@ export default function AdminReelIntroVideosPage() {
   const [title, setTitle] = useState('');
   const [propertyType, setPropertyType] = useState('DUM');
   const [priority, setPriority] = useState('0');
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const load = useCallback(async () => {
     if (!apiAccessToken) return;
@@ -36,29 +75,67 @@ export default function AdminReelIntroVideosPage() {
     void load();
   }, [user, isLoading, load]);
 
+  function onFileInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null;
+    e.target.value = '';
+    if (!file) {
+      setSelectedFile(null);
+      return;
+    }
+    const validationError = validateVideoFile(file);
+    if (validationError) {
+      setSelectedFile(null);
+      setErr(validationError);
+      return;
+    }
+    setSelectedFile(file);
+    setErr(null);
+  }
+
+  function openFilePicker() {
+    fileRef.current?.click();
+  }
+
+  function clearSelectedFile() {
+    setSelectedFile(null);
+    if (fileRef.current) fileRef.current.value = '';
+  }
+
   async function onUpload() {
-    if (!apiAccessToken || !fileRef.current?.files?.[0]) {
+    if (!apiAccessToken) return;
+    if (!selectedFile) {
       setErr('Vyberte video soubor.');
       return;
     }
+    const validationError = validateVideoFile(selectedFile);
+    if (validationError) {
+      setErr(validationError);
+      return;
+    }
+
     setBusy(true);
     setErr(null);
     setMsg(null);
+
     const form = new FormData();
-    form.set('video', fileRef.current.files[0]);
+    form.set('video', selectedFile);
     form.set('title', title.trim() || (SOCIAL_INTRO_PROPERTY_TYPE_LABELS[propertyType] ?? propertyType));
     form.set('propertyType', propertyType);
     form.set('priority', priority);
     form.set('active', 'true');
+
     const r = await nestAdminCreateIntroVideo(apiAccessToken, form);
     setBusy(false);
+
     if (!r.ok) {
       setErr(r.error ?? 'Nahrání selhalo');
       return;
     }
+
     setMsg('Úvodní video uloženo.');
     setTitle('');
-    if (fileRef.current) fileRef.current.value = '';
+    setPriority('0');
+    clearSelectedFile();
     await load();
   }
 
@@ -76,7 +153,13 @@ export default function AdminReelIntroVideosPage() {
 
   async function replaceVideo(row: SocialIntroVideoRow, file: File) {
     if (!apiAccessToken) return;
+    const validationError = validateVideoFile(file);
+    if (validationError) {
+      setErr(validationError);
+      return;
+    }
     setBusy(true);
+    setErr(null);
     const form = new FormData();
     form.set('video', file);
     const r = await nestAdminReplaceIntroVideo(apiAccessToken, row.id, form);
@@ -145,14 +228,51 @@ export default function AdminReelIntroVideosPage() {
               className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2"
             />
           </label>
-          <label className="block text-sm">
+          <div className="block text-sm">
             <span className="font-medium text-zinc-700">Video (MP4)</span>
-            <input ref={fileRef} type="file" accept="video/mp4,video/*" className="mt-1 block w-full text-sm" />
-          </label>
+            <input
+              id={fileInputId}
+              ref={fileRef}
+              type="file"
+              accept="video/mp4,video/webm,video/quicktime,video/*,.mp4,.webm,.mov"
+              className="sr-only"
+              onChange={onFileInputChange}
+            />
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={openFilePicker}
+                disabled={busy}
+                className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+              >
+                Vybrat soubor
+              </button>
+              {selectedFile ? (
+                <>
+                  <span className="text-sm text-zinc-700">
+                    {selectedFile.name}{' '}
+                    <span className="text-zinc-500">({formatFileSize(selectedFile.size)})</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearSelectedFile}
+                    className="text-xs text-red-600 underline"
+                  >
+                    Odebrat
+                  </button>
+                </>
+              ) : (
+                <span className="text-sm text-zinc-500">Zatím není vybrán žádný soubor</span>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-zinc-500">
+              MP4, WebM nebo MOV · max. {formatFileSize(INTRO_VIDEO_MAX_BYTES)}
+            </p>
+          </div>
         </div>
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || !selectedFile}
           onClick={() => void onUpload()}
           className="mt-4 rounded-full bg-gradient-to-r from-[#ff6a00] to-[#ff3c00] px-6 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
         >
@@ -215,19 +335,10 @@ export default function AdminReelIntroVideosPage() {
                         >
                           {row.active ? 'Deaktivovat' : 'Aktivovat'}
                         </button>
-                        <label className="cursor-pointer rounded-lg border border-zinc-200 px-3 py-1.5 text-center text-xs font-semibold hover:bg-zinc-50">
-                          Nahradit video
-                          <input
-                            type="file"
-                            accept="video/mp4,video/*"
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) void replaceVideo(row, file);
-                              e.currentTarget.value = '';
-                            }}
-                          />
-                        </label>
+                        <ReplaceVideoButton
+                          disabled={busy}
+                          onPick={(file) => void replaceVideo(row, file)}
+                        />
                         <button
                           type="button"
                           onClick={() => void removeRow(row.id)}
@@ -245,5 +356,40 @@ export default function AdminReelIntroVideosPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+function ReplaceVideoButton({
+  disabled,
+  onPick,
+}: {
+  disabled: boolean;
+  onPick: (file: File) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="video/mp4,video/webm,video/quicktime,video/*,.mp4,.webm,.mov"
+        className="sr-only"
+        disabled={disabled}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) onPick(file);
+        }}
+      />
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => inputRef.current?.click()}
+        className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-50"
+      >
+        Nahradit video
+      </button>
+    </>
   );
 }

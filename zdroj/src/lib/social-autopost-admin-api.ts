@@ -827,7 +827,9 @@ export async function nestAdminCreateIntroVideo(
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    return { ok: false, error: (data as { message?: string }).message ?? 'Nahrání selhalo' };
+    const message = (data as { message?: string | string[] }).message;
+    const errorText = Array.isArray(message) ? message.join(' ') : message;
+    return { ok: false, error: errorText ?? 'Nahrání selhalo' };
   }
   return { ok: true, item: (data as { item: SocialIntroVideoRow }).item };
 }
@@ -866,7 +868,9 @@ export async function nestAdminReplaceIntroVideo(
   );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    return { ok: false, error: (data as { message?: string }).message ?? 'Nahrání selhalo' };
+    const message = (data as { message?: string | string[] }).message;
+    const errorText = Array.isArray(message) ? message.join(' ') : message;
+    return { ok: false, error: errorText ?? 'Nahrání selhalo' };
   }
   return { ok: true, item: (data as { item: SocialIntroVideoRow }).item };
 }
