@@ -203,11 +203,15 @@ export class EmailsService implements OnModuleInit {
     html: string;
     text: string;
     metadata?: Record<string, unknown>;
+    /** Kampaňové e-maily mají vlastní layout — neobalovat buildLayout. */
+    skipLayout?: boolean;
   }) {
     const payloadJson =
       input.metadata == null
         ? Prisma.JsonNull
         : (JSON.parse(JSON.stringify(input.metadata)) as Prisma.InputJsonValue);
+
+    const finalHtml = input.skipLayout ? input.html : this.buildLayout(input.html, '');
 
     const log = await this.prisma.emailLog.create({
       data: {
@@ -234,7 +238,7 @@ export class EmailsService implements OnModuleInit {
         from: this.senderAddress(),
         to: input.to,
         subject: input.subject,
-        html: this.buildLayout(input.html, ''),
+        html: finalHtml,
         text: input.text,
       });
       if (response.error) {
@@ -245,15 +249,16 @@ export class EmailsService implements OnModuleInit {
         });
         throw new Error(msg);
       }
+      const providerMessageId = response.data?.id ?? null;
       await this.prisma.emailLog.update({
         where: { id: log.id },
         data: {
           status: EmailLogStatus.sent,
           sentAt: new Date(),
-          providerMessageId: response.data?.id ?? null,
+          providerMessageId,
         },
       });
-      return { ok: true, logId: log.id };
+      return { ok: true, logId: log.id, providerMessageId, finalHtml };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       await this.prisma.emailLog.update({

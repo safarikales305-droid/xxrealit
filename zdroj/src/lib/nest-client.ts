@@ -6723,14 +6723,171 @@ export async function nestAdminEmailCampaignTestSend(
 export async function nestAdminEmailCampaignStart(
   token: string | null,
   id: string,
-): Promise<{ ok: boolean; error?: string; recipients?: number }> {
-  const r = await emailCampaignsFetch<{ ok: boolean; recipients?: number }>(
-    token,
-    `/${encodeURIComponent(id)}/start`,
-    { method: 'POST' },
-  );
+): Promise<{
+  ok: boolean;
+  error?: string;
+  recipients?: number;
+  sentCount?: number;
+  failedCount?: number;
+  skippedCount?: number;
+  processed?: number;
+}> {
+  const r = await emailCampaignsFetch<{
+    ok: boolean;
+    recipients?: number;
+    sentCount?: number;
+    failedCount?: number;
+    skippedCount?: number;
+    processed?: number;
+  }>(token, `/${encodeURIComponent(id)}/start`, { method: 'POST' });
   if (r.error) return { ok: false, error: r.error };
-  return { ok: true, recipients: r.data?.recipients };
+  return {
+    ok: true,
+    recipients: r.data?.recipients,
+    sentCount: r.data?.sentCount,
+    failedCount: r.data?.failedCount,
+    skippedCount: r.data?.skippedCount,
+    processed: r.data?.processed,
+  };
+}
+
+export type EmailCampaignHistoryRow = {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  subject: string;
+  recipientCount: number;
+  stepCount: number;
+  logCount: number;
+  sentCount: number;
+  failedCount: number;
+  pendingCount?: number;
+  createdAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  sentAt?: string | null;
+};
+
+export async function nestAdminEmailCampaignsList(
+  token: string | null,
+): Promise<EmailCampaignHistoryRow[]> {
+  const r = await emailCampaignsFetch<EmailCampaignHistoryRow[]>(token, '');
+  return r.data ?? [];
+}
+
+export type EmailCampaignRecipientRow = {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  company: string;
+  role: string;
+  source: string;
+  sourceLabel: string;
+  status: string;
+  lastSentAt: string | null;
+  errorMessage: string | null;
+  latestLogId: string | null;
+  latestLogStatus: string | null;
+  latestLogSentAt: string | null;
+};
+
+export async function nestAdminEmailCampaignRecipients(
+  token: string | null,
+  campaignId: string,
+  query?: { status?: string; page?: number; limit?: number },
+): Promise<{
+  items: EmailCampaignRecipientRow[];
+  page: number;
+  limit: number;
+  total: number;
+  hasMore: boolean;
+  error?: string;
+}> {
+  const params = new URLSearchParams();
+  if (query?.status) params.set('status', query.status);
+  if (query?.page != null) params.set('page', String(query.page));
+  if (query?.limit != null) params.set('limit', String(query.limit));
+  const qs = params.toString();
+  const r = await emailCampaignsFetch<{
+    items: EmailCampaignRecipientRow[];
+    page: number;
+    limit: number;
+    total: number;
+    hasMore: boolean;
+  }>(token, `/${encodeURIComponent(campaignId)}/recipients${qs ? `?${qs}` : ''}`);
+  if (r.error) {
+    return { items: [], page: 0, limit: 50, total: 0, hasMore: false, error: r.error };
+  }
+  return r.data ?? { items: [], page: 0, limit: 50, total: 0, hasMore: false };
+}
+
+export type EmailCampaignSentEmail = {
+  id: string;
+  campaignId: string;
+  recipientId: string;
+  email: string;
+  subject: string;
+  htmlBody: string;
+  textBody: string;
+  status: string;
+  providerMessageId: string | null;
+  errorMessage: string | null;
+  sentAt: string | null;
+  createdAt: string;
+};
+
+export async function nestAdminEmailCampaignSentEmail(
+  token: string | null,
+  campaignId: string,
+  query?: { logId?: string; recipientId?: string },
+): Promise<{ email: EmailCampaignSentEmail | null; error?: string }> {
+  const params = new URLSearchParams();
+  if (query?.logId) params.set('logId', query.logId);
+  if (query?.recipientId) params.set('recipientId', query.recipientId);
+  const qs = params.toString();
+  const r = await emailCampaignsFetch<EmailCampaignSentEmail>(
+    token,
+    `/${encodeURIComponent(campaignId)}/sent-email${qs ? `?${qs}` : ''}`,
+  );
+  return { email: r.data, error: r.error };
+}
+
+export async function nestAdminDuplicateEmailCampaign(
+  token: string | null,
+  id: string,
+): Promise<{ campaign: EmailCampaignDetail | null; error?: string }> {
+  const r = await emailCampaignsFetch<EmailCampaignDetail>(token, `/${encodeURIComponent(id)}/duplicate`, {
+    method: 'POST',
+  });
+  return { campaign: r.data, error: r.error };
+}
+
+export async function nestAdminEmailCampaignUploadImage(
+  token: string | null,
+  file: File,
+): Promise<{ publicUrl: string; url: string; error?: string }> {
+  if (!API_BASE_URL || !token) return { publicUrl: '', url: '', error: 'API nebo token chybí' };
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`${API_BASE_URL}/admin/email-campaigns/upload-image`, {
+      method: 'POST',
+      headers: nestAuthHeaders(token),
+      body: form,
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return { publicUrl: '', url: '', error: nestErrorMessage(data, `HTTP ${res.status}`) };
+    }
+    return {
+      publicUrl: String(data.publicUrl ?? ''),
+      url: String(data.url ?? ''),
+    };
+  } catch {
+    return { publicUrl: '', url: '', error: 'Síťová chyba' };
+  }
 }
 
 export async function nestFetchPostDetail(postId: string): Promise<ListingPost | null> {

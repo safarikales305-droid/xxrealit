@@ -5,6 +5,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { extname, join } from 'node:path';
 import {
   EmailCampaignRecipientSource,
   EmailCampaignRecipientStatus,
@@ -14,6 +17,7 @@ import {
   UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { getUploadsPath } from '../../lib/uploads-path';
 import { EmailsService } from '../emails/emails.service';
 import {
   ImportedBrokerContactService,
@@ -25,6 +29,7 @@ import {
   splitFirstName,
 } from './email-campaign-variable.util';
 import { DEFAULT_SEQUENCE_STEPS, listCampaignTemplates } from './email-campaign-templates';
+import { resolvePublicHttpsImageUrl } from '../whatsapp/whatsapp-image-url.util';
 
 export type AudienceConfig = {
   mode: 'selected_ids' | 'filtered' | 'all_imported' | 'portal_roles';
@@ -78,7 +83,31 @@ export class EmailCampaignsService {
         _count: { select: { recipients: true, steps: true, campaignLogs: true } },
       },
     });
-    return rows.map((r) => this.serializeCampaignSummary(r));
+    const ids = rows.map((r) => r.id);
+    const logStats = ids.length
+      ? await this.prisma.emailCampaignLog.groupBy({
+          by: ['campaignId', 'status'],
+          where: { campaignId: { in: ids } },
+          _count: true,
+        })
+      : [];
+    const statsMap = new Map<string, { sent: number; failed: number; queued: number }>();
+    for (const g of logStats) {
+      const cur = statsMap.get(g.campaignId) ?? { sent: 0, failed: 0, queued: 0 };
+      if (g.status === EmailLogStatus.sent) cur.sent = g._count;
+      else if (g.status === EmailLogStatus.failed) cur.failed = g._count;
+      else cur.queued = g._count;
+      statsMap.set(g.campaignId, cur);
+    }
+    return rows.map((r) => {
+      const stats = statsMap.get(r.id);
+      return {
+        ...this.serializeCampaignSummary(r),
+        sentCount: stats?.sent ?? 0,
+        failedCount: stats?.failed ?? 0,
+        pendingCount: Math.max(0, r._count.recipients - (stats?.sent ?? 0) - (stats?.failed ?? 0)),
+      };
+    });
   }
 
   async getOne(id: string) {
@@ -292,6 +321,7 @@ export class EmailCampaignsService {
       html: preview.htmlContent,
       text: preview.textContent,
       metadata: { campaignId, stepOrder, isTest: true },
+      skipLayout: this.isFullEmailHtml(preview.htmlContent),
     });
 
     return { ok: true, to: email };
@@ -357,6 +387,8 @@ export class EmailCampaignsService {
       });
     }
 
+    const skippedCount = await this.createSkippedRecipients(campaignId, audience);
+
     await this.prisma.emailCampaign.update({
       where: { id: campaignId },
       data: {
@@ -366,8 +398,194 @@ export class EmailCampaignsService {
       },
     });
 
-    const sent = await this.processDueRecipients(campaignId, 50);
-    return { ok: true, recipients: resolved.length, processed: sent };
+    const processed = await this.processDueRecipients(campaignId, 50);
+    const [sentCount, failedCount] = await Promise.all([
+      this.prisma.emailCampaignLog.count({
+        where: { campaignId, status: EmailLogStatus.sent },
+      }),
+      this.prisma.emailCampaignLog.count({
+        where: { campaignId, status: EmailLogStatus.failed },
+      }),
+    ]);
+    return {
+      ok: true,
+      recipients: resolved.length,
+      skippedCount,
+      sentCount,
+      failedCount,
+      processed,
+    };
+  }
+
+  async duplicate(campaignId: string, createdById?: string) {
+    const src = await this.prisma.emailCampaign.findUnique({
+      where: { id: campaignId },
+      include: { steps: { orderBy: { stepOrder: 'asc' } } },
+    });
+    if (!src) throw new NotFoundException('Kampaň nenalezena.');
+    return this.create(
+      {
+        title: `${src.title} (kopie)`,
+        type: src.type,
+        senderName: src.senderName,
+        minDaysBetweenSends: src.minDaysBetweenSends,
+        audience: this.parseAudience(src.audienceJson),
+        templateKey: src.templateKey ?? undefined,
+        steps: src.steps.map((s) => ({
+          stepOrder: s.stepOrder,
+          name: s.name,
+          subject: s.subject,
+          htmlContent: s.htmlContent,
+          textContent: s.textContent,
+          delayDays: s.delayDays,
+          delayHours: s.delayHours,
+          isActive: s.isActive,
+        })),
+      },
+      createdById,
+    );
+  }
+
+  async listRecipients(
+    campaignId: string,
+    query: { status?: string; page?: number; limit?: number },
+  ) {
+    const campaign = await this.prisma.emailCampaign.findUnique({
+      where: { id: campaignId },
+      select: { id: true },
+    });
+    if (!campaign) throw new NotFoundException('Kampaň nenalezena.');
+
+    const page = Math.max(0, query.page ?? 0);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 50));
+    const where: Prisma.EmailCampaignRecipientWhereInput = { campaignId };
+    const statusFilter = (query.status ?? '').trim().toLowerCase();
+    if (statusFilter === 'sent') {
+      where.status = EmailCampaignRecipientStatus.sent;
+    } else if (statusFilter === 'failed') {
+      where.status = EmailCampaignRecipientStatus.failed;
+    } else if (statusFilter === 'pending' || statusFilter === 'waiting') {
+      where.status = EmailCampaignRecipientStatus.pending;
+    } else if (statusFilter === 'opened') {
+      where.status = EmailCampaignRecipientStatus.opened;
+    } else if (statusFilter === 'skipped') {
+      where.status = EmailCampaignRecipientStatus.skipped;
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.emailCampaignRecipient.findMany({
+        where,
+        orderBy: [{ lastSentAt: 'desc' }, { createdAt: 'desc' }],
+        skip: page * limit,
+        take: limit,
+      }),
+      this.prisma.emailCampaignRecipient.count({ where }),
+    ]);
+
+    const brokerIds = items
+      .filter((i) => i.source === EmailCampaignRecipientSource.imported_broker && i.sourceId)
+      .map((i) => i.sourceId as string);
+    const brokers =
+      brokerIds.length > 0
+        ? await this.prisma.importedBrokerContact.findMany({
+            where: { id: { in: brokerIds } },
+            select: { id: true, sourcePortal: true, companyName: true },
+          })
+        : [];
+    const brokerMap = new Map(brokers.map((b) => [b.id, b]));
+
+    const recipientIds = items.map((i) => i.id);
+    const logs =
+      recipientIds.length > 0
+        ? await this.prisma.emailCampaignLog.findMany({
+            where: { recipientId: { in: recipientIds } },
+            orderBy: { createdAt: 'desc' },
+          })
+        : [];
+    const latestLogByRecipient = new Map<string, (typeof logs)[number]>();
+    for (const log of logs) {
+      if (!latestLogByRecipient.has(log.recipientId)) {
+        latestLogByRecipient.set(log.recipientId, log);
+      }
+    }
+
+    return {
+      items: items.map((r) => {
+        const broker = r.sourceId ? brokerMap.get(r.sourceId) : undefined;
+        const latestLog = latestLogByRecipient.get(r.id);
+        return {
+          id: r.id,
+          fullName: r.fullName,
+          email: r.email.includes('@skipped.local') ? '' : r.email,
+          phone: r.phone,
+          company: r.company,
+          role: r.role,
+          source: r.source,
+          sourceLabel:
+            r.source === EmailCampaignRecipientSource.portal_user
+              ? 'Portál'
+              : broker?.sourcePortal || 'Import',
+          status: r.status,
+          lastSentAt: r.lastSentAt?.toISOString() ?? null,
+          errorMessage: r.errorMessage ?? latestLog?.errorMessage ?? null,
+          latestLogId: latestLog?.id ?? null,
+          latestLogStatus: latestLog?.status ?? null,
+          latestLogSentAt: latestLog?.sentAt?.toISOString() ?? null,
+        };
+      }),
+      page,
+      limit,
+      total,
+      hasMore: (page + 1) * limit < total,
+    };
+  }
+
+  async getSentEmail(
+    campaignId: string,
+    opts: { logId?: string; recipientId?: string },
+  ) {
+    const log = await this.prisma.emailCampaignLog.findFirst({
+      where: {
+        campaignId,
+        ...(opts.logId ? { id: opts.logId } : {}),
+        ...(opts.recipientId ? { recipientId: opts.recipientId } : {}),
+      },
+      orderBy: [{ sentAt: 'desc' }, { createdAt: 'desc' }],
+    });
+    if (!log?.htmlBody) {
+      throw new NotFoundException('Odeslaný e-mail nenalezen nebo nemá uložený náhled.');
+    }
+    return {
+      id: log.id,
+      campaignId: log.campaignId,
+      recipientId: log.recipientId,
+      email: log.email,
+      subject: log.subject,
+      htmlBody: log.htmlBody,
+      textBody: log.textBody ?? '',
+      status: log.status,
+      providerMessageId: log.providerMessageId,
+      errorMessage: log.errorMessage,
+      sentAt: log.sentAt?.toISOString() ?? null,
+      createdAt: log.createdAt.toISOString(),
+    };
+  }
+
+  uploadCampaignImage(file: Express.Multer.File) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Chybí soubor obrázku kampaně.');
+    }
+    const ext = extname(file.originalname || '').toLowerCase();
+    if (!['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext)) {
+      throw new BadRequestException('Povolené formáty: JPG, PNG, WEBP, GIF.');
+    }
+    const dir = join(getUploadsPath(), 'email-campaigns');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const name = `kampan-${randomUUID()}${ext}`;
+    fs.writeFileSync(join(dir, name), file.buffer);
+    const relative = `/uploads/email-campaigns/${name}`;
+    const publicUrl = resolvePublicHttpsImageUrl(relative);
+    return { url: relative, publicUrl };
   }
 
   async pause(campaignId: string) {
@@ -427,6 +645,18 @@ export class EmailCampaignsService {
     if (!campaign || !recipient) return false;
     if (campaign.status !== EmailCampaignStatus.running) return false;
 
+    if (!recipient.email.includes('@')) {
+      await this.prisma.emailCampaignRecipient.update({
+        where: { id: recipientId },
+        data: {
+          status: EmailCampaignRecipientStatus.skipped,
+          errorMessage: 'bez e-mailu',
+          nextStepAt: null,
+        },
+      });
+      return false;
+    }
+
     if (await this.isUnsubscribed(recipient.email)) {
       await this.prisma.emailCampaignRecipient.update({
         where: { id: recipientId },
@@ -462,6 +692,16 @@ export class EmailCampaignsService {
       return false;
     }
 
+    const alreadySent = await this.prisma.emailCampaignLog.findFirst({
+      where: {
+        campaignId,
+        recipientId,
+        stepId: nextStep.id,
+        status: EmailLogStatus.sent,
+      },
+    });
+    if (alreadySent) return false;
+
     const vars = buildRecipientVariables(
       {
         fullName: recipient.fullName,
@@ -480,6 +720,7 @@ export class EmailCampaignsService {
     const subject = renderCampaignContent(nextStep.subject, vars);
     const html = renderCampaignContent(nextStep.htmlContent, vars);
     const text = renderCampaignContent(nextStep.textContent, vars);
+    const skipLayout = this.isFullEmailHtml(html);
 
     const log = await this.prisma.emailCampaignLog.create({
       data: {
@@ -489,17 +730,20 @@ export class EmailCampaignsService {
         stepOrder: nextStep.stepOrder,
         email: recipient.email,
         subject,
+        htmlBody: html,
+        textBody: text,
         status: EmailLogStatus.queued,
       },
     });
 
     try {
-      await this.emails.sendRawEmail({
+      const sendResult = await this.emails.sendRawEmail({
         type: 'email_campaign:step',
         to: recipient.email,
         subject,
         html,
         text,
+        skipLayout,
         metadata: {
           campaignId,
           recipientId,
@@ -511,7 +755,12 @@ export class EmailCampaignsService {
 
       await this.prisma.emailCampaignLog.update({
         where: { id: log.id },
-        data: { status: EmailLogStatus.sent, sentAt: new Date() },
+        data: {
+          status: EmailLogStatus.sent,
+          sentAt: new Date(),
+          htmlBody: sendResult.finalHtml ?? html,
+          providerMessageId: sendResult.providerMessageId ?? null,
+        },
       });
 
       const following = campaign.steps.find((s) => s.stepOrder > nextStep.stepOrder);
@@ -761,6 +1010,54 @@ export class EmailCampaignsService {
       select: { id: true },
     });
     return Boolean(user);
+  }
+
+  private isFullEmailHtml(html: string): boolean {
+    const t = html.trim().toLowerCase();
+    return t.startsWith('<!doctype') || t.startsWith('<html');
+  }
+
+  private async createSkippedRecipients(
+    campaignId: string,
+    audience: AudienceConfig,
+  ): Promise<number> {
+    if (audience.mode !== 'selected_ids' || !audience.selectedContactIds?.length) {
+      return 0;
+    }
+    const ids = [...new Set(audience.selectedContactIds)];
+    const contacts = await this.prisma.importedBrokerContact.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, fullName: true, email: true, phone: true, companyName: true },
+    });
+    let skipped = 0;
+    for (const c of contacts) {
+      const email = (c.email ?? '').trim().toLowerCase();
+      if (email.includes('@')) continue;
+      await this.prisma.emailCampaignRecipient.upsert({
+        where: { campaignId_email: { campaignId, email: `no-email-${c.id}@skipped.local` } },
+        create: {
+          campaignId,
+          email: `no-email-${c.id}@skipped.local`,
+          fullName: c.fullName || '',
+          firstName: splitFirstName(c.fullName || ''),
+          company: c.companyName || '',
+          phone: c.phone || '',
+          role: 'Makléř',
+          source: EmailCampaignRecipientSource.imported_broker,
+          sourceId: c.id,
+          status: EmailCampaignRecipientStatus.skipped,
+          errorMessage: 'bez e-mailu',
+          nextStepAt: null,
+        },
+        update: {
+          status: EmailCampaignRecipientStatus.skipped,
+          errorMessage: 'bez e-mailu',
+          nextStepAt: null,
+        },
+      });
+      skipped += 1;
+    }
+    return skipped;
   }
 
   private async sampleRecipient(

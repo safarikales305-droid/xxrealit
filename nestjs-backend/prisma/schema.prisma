@@ -736,17 +736,20 @@ model EmailCampaignRecipient {
 }
 
 model EmailCampaignLog {
-  id           String         @id @default(cuid())
-  campaignId   String
-  recipientId  String
-  stepId       String?
-  stepOrder    Int            @default(0)
-  email        String
-  subject      String
-  status       EmailLogStatus @default(queued)
-  errorMessage String?
-  sentAt       DateTime?
-  createdAt    DateTime       @default(now())
+  id                String         @id @default(cuid())
+  campaignId        String
+  recipientId       String
+  stepId            String?
+  stepOrder         Int            @default(0)
+  email             String
+  subject           String
+  htmlBody          String?        @db.Text
+  textBody          String?        @db.Text
+  status            EmailLogStatus @default(queued)
+  providerMessageId String?
+  errorMessage      String?
+  sentAt            DateTime?
+  createdAt         DateTime       @default(now())
 
   campaign  EmailCampaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   recipient EmailCampaignRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)

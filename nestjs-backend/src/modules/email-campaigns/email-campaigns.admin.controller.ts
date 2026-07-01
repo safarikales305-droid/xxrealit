@@ -1,4 +1,17 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { EmailCampaignStatus } from '@prisma/client';
 import { CurrentUser, type AuthUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -20,6 +33,17 @@ export class EmailCampaignsAdminController {
     return this.campaigns.getTemplates();
   }
 
+  @Post('upload-image')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 },
+    }),
+  )
+  uploadImage(@UploadedFile() file: Express.Multer.File) {
+    return this.campaigns.uploadCampaignImage(file);
+  }
+
   @Post('recipients/count')
   countRecipients(
     @Body()
@@ -37,6 +61,34 @@ export class EmailCampaignsAdminController {
   @Get(':id')
   getOne(@Param('id') id: string) {
     return this.campaigns.getOne(id);
+  }
+
+  @Get(':id/recipients')
+  listRecipients(
+    @Param('id') id: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.campaigns.listRecipients(id, {
+      status,
+      page: page != null ? Number(page) : 0,
+      limit: limit != null ? Number(limit) : 50,
+    });
+  }
+
+  @Get(':id/sent-email')
+  getSentEmail(
+    @Param('id') id: string,
+    @Query('logId') logId?: string,
+    @Query('recipientId') recipientId?: string,
+  ) {
+    return this.campaigns.getSentEmail(id, { logId, recipientId });
+  }
+
+  @Post(':id/duplicate')
+  duplicate(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.campaigns.duplicate(id, user.id);
   }
 
   @Post()

@@ -14,6 +14,7 @@ import {
   type EmailCampaignAudience,
 } from '@/lib/nest-client';
 import { EmailCampaignEditorModal } from '@/components/admin/EmailCampaignEditorModal';
+import { EmailCampaignHistoryPanel } from '@/components/admin/EmailCampaignHistoryPanel';
 
 type DetailRow = AdminImportedBrokerContactRow & {
   listings?: Array<{
@@ -64,6 +65,7 @@ export default function AdminImportedBrokersPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [notesDraft, setNotesDraft] = useState('');
   const [campaignOpen, setCampaignOpen] = useState(false);
+  const [campaignHistoryRefresh, setCampaignHistoryRefresh] = useState(0);
   const [campaignAudience, setCampaignAudience] = useState<EmailCampaignAudience>({
     mode: 'all_imported',
   });
@@ -595,7 +597,18 @@ export default function AdminImportedBrokersPage() {
           adminEmail={user.email ?? undefined}
           initial={{ audience: campaignAudience, title: 'Oslovení makléřů z databáze' }}
           onClose={() => setCampaignOpen(false)}
-          onSaved={() => void load()}
+          onSaved={() => {
+            void load();
+            setCampaignHistoryRefresh((n) => n + 1);
+          }}
+        />
+      ) : null}
+
+      {token ? (
+        <EmailCampaignHistoryPanel
+          token={token}
+          adminEmail={user?.email ?? undefined}
+          refreshKey={campaignHistoryRefresh}
         />
       ) : null}
     </div>

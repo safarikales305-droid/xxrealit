@@ -3,17 +3,25 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   nestAdminCreateEmailCampaignFull,
+  nestAdminEmailCampaignDetail,
   nestAdminEmailCampaignPreview,
   nestAdminEmailCampaignRecipientCount,
   nestAdminEmailCampaignStart,
   nestAdminEmailCampaignTemplates,
   nestAdminEmailCampaignTestSend,
+  nestAdminEmailCampaignUploadImage,
   nestAdminUpdateEmailCampaign,
   type EmailCampaignAudience,
   type EmailCampaignDetail,
   type EmailCampaignStepRow,
   type EmailCampaignTemplate,
 } from '@/lib/nest-client';
+import {
+  compileStepFromBlocks,
+  defaultEditorBlocks,
+  type EmailCampaignEditorBlocks,
+} from '@/lib/email-campaign-html-builder';
+import { EmailCampaignBlockEditor } from './EmailCampaignBlockEditor';
 
 const PORTAL_ROLE_OPTIONS = [
   { id: 'AGENT', label: 'Makléři' },
@@ -29,10 +37,10 @@ const PORTAL_ROLE_OPTIONS = [
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Koncept',
   scheduled: 'Naplánováno',
-  running: 'Běží',
+  running: 'Odesílá se',
   paused: 'Pozastaveno',
   completed: 'Dokončeno',
-  sent: 'Odesláno',
+  sent: 'Dokončeno',
   failed: 'Chyba',
 };
 
@@ -65,6 +73,7 @@ export function EmailCampaignEditorModal({
   const [audienceMode, setAudienceMode] = useState<EmailCampaignAudience['mode']>(initial.audience.mode);
   const [portalRoles, setPortalRoles] = useState<string[]>(initial.audience.portalRoles ?? []);
   const [steps, setSteps] = useState<EmailCampaignStepRow[]>([]);
+  const [stepBlocks, setStepBlocks] = useState<EmailCampaignEditorBlocks[]>([]);
   const [templates, setTemplates] = useState<EmailCampaignTemplate[]>([]);
   const [status, setStatus] = useState('draft');
   const [recipientCount, setRecipientCount] = useState<number | null>(null);
@@ -72,10 +81,12 @@ export function EmailCampaignEditorModal({
   const [previewHtml, setPreviewHtml] = useState('');
   const [previewSubject, setPreviewSubject] = useState('');
   const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
+  const [editorMode, setEditorMode] = useState<'visual' | 'html'>('visual');
   const [testEmail, setTestEmail] = useState(adminEmail ?? '');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [confirmStart, setConfirmStart] = useState(false);
 
   const audience = useMemo((): EmailCampaignAudience => {
     if (audienceMode === 'portal_roles') {
@@ -88,13 +99,41 @@ export function EmailCampaignEditorModal({
     };
   }, [audienceMode, portalRoles, initial.audience]);
 
+  const syncStepFromBlocks = useCallback((idx: number, blocks: EmailCampaignEditorBlocks, subject: string) => {
+    const compiled = compileStepFromBlocks(blocks, subject);
+    setSteps((prev) =>
+      prev.map((s, i) =>
+        i === idx
+          ? { ...s, subject: compiled.subject, htmlContent: compiled.htmlContent, textContent: compiled.textContent }
+          : s,
+      ),
+    );
+  }, []);
+
   const loadTemplates = useCallback(async () => {
     const rows = await nestAdminEmailCampaignTemplates(token);
     setTemplates(rows);
     if (!steps.length && rows[0]?.steps?.length) {
-      setSteps(rows[0].steps.map((s) => ({ ...s })));
+      const nextSteps = rows[0].steps.map((s) => ({ ...s }));
+      setSteps(nextSteps);
+      setStepBlocks(nextSteps.map(() => defaultEditorBlocks()));
     }
   }, [token, steps.length]);
+
+  const loadExistingCampaign = useCallback(async () => {
+    if (!initialCampaignId) return;
+    const r = await nestAdminEmailCampaignDetail(token, initialCampaignId);
+    if (!r.campaign) return;
+    const c = r.campaign;
+    setTitle(c.title);
+    setSenderName(c.senderName);
+    setMinDaysBetweenSends(c.minDaysBetweenSends);
+    setStatus(c.status);
+    setSteps(c.steps);
+    setStepBlocks(c.steps.map(() => defaultEditorBlocks()));
+    if (c.audience?.mode) setAudienceMode(c.audience.mode);
+    if (c.audience?.portalRoles) setPortalRoles(c.audience.portalRoles);
+  }, [token, initialCampaignId]);
 
   const refreshRecipientCount = useCallback(async () => {
     const r = await nestAdminEmailCampaignRecipientCount(token, {
@@ -122,7 +161,8 @@ export function EmailCampaignEditorModal({
 
   useEffect(() => {
     void loadTemplates();
-  }, [loadTemplates]);
+    void loadExistingCampaign();
+  }, [loadTemplates, loadExistingCampaign]);
 
   useEffect(() => {
     void refreshRecipientCount();
@@ -131,6 +171,17 @@ export function EmailCampaignEditorModal({
   useEffect(() => {
     void refreshPreview();
   }, [refreshPreview]);
+
+  async function uploadImage(file: File): Promise<string | null> {
+    setBusy(true);
+    const r = await nestAdminEmailCampaignUploadImage(token, file);
+    setBusy(false);
+    if (r.error) {
+      setErr(r.error);
+      return null;
+    }
+    return r.publicUrl || r.url || null;
+  }
 
   async function ensureCampaign(): Promise<string | null> {
     if (campaignId) return campaignId;
@@ -141,7 +192,7 @@ export function EmailCampaignEditorModal({
       senderName,
       minDaysBetweenSends,
       audience,
-      templateKey: 'broker_outreach_sequence',
+      templateKey: 'credit_bonus_10000',
       steps,
     });
     setBusy(false);
@@ -173,6 +224,7 @@ export function EmailCampaignEditorModal({
     }
     setMsg('Kampaň uložena jako koncept.');
     onSaved?.(r.campaign);
+    void refreshPreview();
   }
 
   async function sendTest() {
@@ -193,22 +245,34 @@ export function EmailCampaignEditorModal({
     await nestAdminUpdateEmailCampaign(token, id, { title, senderName, minDaysBetweenSends, audience, steps });
     const r = await nestAdminEmailCampaignStart(token, id);
     setBusy(false);
+    setConfirmStart(false);
     if (!r.ok) {
       setErr(r.error ?? 'Spuštění selhalo');
       return;
     }
     setStatus('running');
-    setMsg(`Kampaň spuštěna — ${r.recipients ?? recipientCount ?? 0} příjemců.`);
+    setMsg(
+      `Odesláno ${r.sentCount ?? 0}, chyba ${r.failedCount ?? 0}` +
+        (r.skippedCount ? `, bez e-mailu ${r.skippedCount}` : '') +
+        ` — celkem ${r.recipients ?? recipientCount ?? 0} příjemců.`,
+    );
+    onSaved?.({ id } as EmailCampaignDetail);
   }
 
   function applyTemplate(key: string) {
     const t = templates.find((x) => x.key === key);
     if (!t) return;
-    setSteps(t.steps.map((s) => ({ ...s })));
+    const nextSteps = t.steps.map((s) => ({ ...s }));
+    setSteps(nextSteps);
+    setStepBlocks(nextSteps.map(() => defaultEditorBlocks()));
     setActiveStep(0);
+    setEditorMode('visual');
+    setPreviewSubject(nextSteps[0]?.subject ?? '');
+    setPreviewHtml(nextSteps[0]?.htmlContent ?? '');
   }
 
   const currentStep = steps[activeStep];
+  const currentBlocks = stepBlocks[activeStep] ?? defaultEditorBlocks();
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 p-2 sm:items-center sm:p-4">
@@ -339,6 +403,26 @@ export function EmailCampaignEditorModal({
               </div>
               {currentStep ? (
                 <div className="mt-3 space-y-2 text-sm">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditorMode('visual')}
+                      className={`rounded px-2 py-1 text-xs font-semibold ${
+                        editorMode === 'visual' ? 'bg-orange-600 text-white' : 'border'
+                      }`}
+                    >
+                      Grafický editor
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditorMode('html')}
+                      className={`rounded px-2 py-1 text-xs font-semibold ${
+                        editorMode === 'html' ? 'bg-orange-600 text-white' : 'border'
+                      }`}
+                    >
+                      HTML kód
+                    </button>
+                  </div>
                   <input
                     value={currentStep.subject}
                     onChange={(e) =>
@@ -349,19 +433,37 @@ export function EmailCampaignEditorModal({
                     className="w-full rounded-lg border px-2 py-1.5"
                     placeholder="Předmět"
                   />
-                  <textarea
-                    value={currentStep.htmlContent}
-                    onChange={(e) =>
-                      setSteps((prev) =>
-                        prev.map((s, i) =>
-                          i === activeStep ? { ...s, htmlContent: e.target.value } : s,
-                        ),
-                      )
-                    }
-                    rows={8}
-                    className="w-full rounded-lg border px-2 py-1.5 font-mono text-xs"
-                    placeholder="HTML obsah — proměnné: {{fullName}}, {{firstName}}, {{email}}…"
-                  />
+                  {editorMode === 'visual' ? (
+                    <EmailCampaignBlockEditor
+                      blocks={currentBlocks}
+                      busy={busy}
+                      onUploadImage={uploadImage}
+                      onChange={(blocks) => {
+                        setStepBlocks((prev) => {
+                          const next = [...prev];
+                          next[activeStep] = blocks;
+                          return next;
+                        });
+                        const subject = steps[activeStep]?.subject ?? '';
+                        syncStepFromBlocks(activeStep, blocks, subject);
+                        setPreviewHtml(compileStepFromBlocks(blocks, subject).htmlContent);
+                      }}
+                    />
+                  ) : (
+                    <textarea
+                      value={currentStep.htmlContent}
+                      onChange={(e) =>
+                        setSteps((prev) =>
+                          prev.map((s, i) =>
+                            i === activeStep ? { ...s, htmlContent: e.target.value } : s,
+                          ),
+                        )
+                      }
+                      rows={8}
+                      className="w-full rounded-lg border px-2 py-1.5 font-mono text-xs"
+                      placeholder="HTML obsah"
+                    />
+                  )}
                   <label className="flex items-center gap-2 text-xs">
                     <input
                       type="checkbox"
@@ -412,14 +514,20 @@ export function EmailCampaignEditorModal({
             </div>
             <p className="text-sm font-semibold text-zinc-800">{previewSubject || 'Předmět náhledu'}</p>
             <div
-              className={`min-h-[240px] flex-1 overflow-auto rounded-xl border bg-zinc-50 p-4 ${
-                previewMode === 'mobile' ? 'mx-auto max-w-[320px]' : ''
+              className={`min-h-[240px] flex-1 overflow-auto rounded-xl border bg-zinc-50 p-2 ${
+                previewMode === 'mobile' ? 'mx-auto w-full max-w-[375px]' : 'w-full'
               }`}
             >
-              <div
-                className="prose prose-sm max-w-none"
-                dangerouslySetInnerHTML={{ __html: previewHtml || '<p>Náhled se načte po uložení nebo po výběru kroku.</p>' }}
-              />
+              {previewHtml ? (
+                <iframe
+                  title="Náhled e-mailu"
+                  srcDoc={previewHtml}
+                  className="w-full border-0 bg-white"
+                  style={{ minHeight: previewMode === 'mobile' ? 480 : 400 }}
+                />
+              ) : (
+                <p className="p-4 text-sm text-zinc-500">Náhled se načte po uložení nebo po výběru kroku.</p>
+              )}
             </div>
             <div className="flex flex-wrap gap-2">
               <input
@@ -452,7 +560,7 @@ export function EmailCampaignEditorModal({
           <button
             type="button"
             disabled={busy || status === 'running'}
-            onClick={() => void startCampaign()}
+            onClick={() => setConfirmStart(true)}
             className="rounded-lg bg-[#e85d00] px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
             Spustit kampaň
@@ -461,6 +569,34 @@ export function EmailCampaignEditorModal({
           {err ? <span className="text-sm text-red-600">{err}</span> : null}
         </footer>
       </div>
+
+      {confirmStart ? (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-bold text-zinc-900">Spustit kampaň?</h3>
+            <p className="mt-2 text-sm text-zinc-600">
+              Kampaň bude odeslána <strong>{recipientCount ?? 0}</strong> příjemcům.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmStart(false)}
+                className="rounded-lg border px-4 py-2 text-sm font-semibold"
+              >
+                Zrušit
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void startCampaign()}
+                className="rounded-lg bg-[#e85d00] px-4 py-2 text-sm font-semibold text-white"
+              >
+                Odeslat
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
