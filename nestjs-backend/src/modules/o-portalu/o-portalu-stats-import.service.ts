@@ -4,7 +4,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { GRAPH_API } from '../social/facebook/facebook-page.constants';
 import { SocialAutopostSettingsService } from '../social/autopost/social-autopost-settings.service';
 import { DEFAULT_STAT_VALUE_SOURCES } from './o-portalu.defaults';
-import { computeDisplayedValue } from './o-portalu-stat.util';
+import { computeDisplayedValue, toPrismaJson } from './o-portalu-stat.util';
 
 export type StatValueSourceLabel = 'manual' | 'database' | 'api';
 
@@ -365,7 +365,7 @@ export class OPortaluStatsImportService {
           statKey,
           source,
           fetchedValue: realValue,
-          detail: detail ?? undefined,
+          ...(detail != null ? { detail: toPrismaJson(detail) } : {}),
         },
       }),
       this.prisma.publicPortalStat.update({

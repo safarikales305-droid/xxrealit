@@ -42,6 +42,8 @@ export class UpdatePublicPortalStatDto {
   @IsString()
   valueSource?: 'manual' | 'database' | 'api';
 }
+
+export class UpdatePublicPortalStatsDto {
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
