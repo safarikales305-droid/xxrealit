@@ -28,7 +28,7 @@ export function AdminShell({ children }: Props) {
   const [portalHits, setPortalHits] = useState<AdminPortalSearchResult | null>(null);
   const [fabOpen, setFabOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [supportNewCount, setSupportNewCount] = useState(0);
+  const [supportBadgeCount, setSupportBadgeCount] = useState(0);
 
   useEffect(() => {
     if (isLoading) return;
@@ -39,9 +39,9 @@ export function AdminShell({ children }: Props) {
 
   useEffect(() => {
     if (!apiAccessToken || user?.role !== 'ADMIN') return;
-    void nestAdminSupportStats(apiAccessToken).then((s) => setSupportNewCount(s.newCount));
+    void nestAdminSupportStats(apiAccessToken).then((s) => setSupportBadgeCount(s.badgeCount));
     const interval = window.setInterval(() => {
-      void nestAdminSupportStats(apiAccessToken).then((s) => setSupportNewCount(s.newCount));
+      void nestAdminSupportStats(apiAccessToken).then((s) => setSupportBadgeCount(s.badgeCount));
     }, 60_000);
     return () => window.clearInterval(interval);
   }, [apiAccessToken, user?.role]);
@@ -143,9 +143,9 @@ export function AdminShell({ children }: Props) {
                 >
                   <span className="flex items-center gap-2">
                     {group.icon} {group.label}
-                    {group.id === 'communication' && supportNewCount > 0 ? (
+                    {group.id === 'communication' && supportBadgeCount > 0 ? (
                       <span className="rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                        {supportNewCount > 99 ? '99+' : supportNewCount}
+                        {supportBadgeCount > 99 ? '99+' : supportBadgeCount}
                       </span>
                     ) : null}
                   </span>
@@ -157,7 +157,7 @@ export function AdminShell({ children }: Props) {
                       <NavLink
                         key={child.id}
                         item={child}
-                        badge={child.id === 'support-center' ? supportNewCount : undefined}
+                        badge={child.id === 'support-center' ? supportBadgeCount : undefined}
                         onClick={() => setSidebarOpen(false)}
                       />
                     ))}

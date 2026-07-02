@@ -61,6 +61,16 @@ export class CreateSupportMessageDto {
   body!: string;
 }
 
+export class AdminReplySupportMessageDto extends CreateSupportMessageDto {
+  @IsOptional()
+  @IsBoolean()
+  isInternalNote?: boolean;
+
+  @IsOptional()
+  @IsString()
+  mailboxId?: string;
+}
+
 export class AdminUpdateSupportTicketDto {
   @IsOptional()
   @IsEnum(['NEW', 'WAITING_REPLY', 'IN_PROGRESS', 'WAITING_CUSTOMER', 'RESOLVED', 'CLOSED'])

@@ -8,20 +8,28 @@ import {
   Prisma,
   SupportMessageAuthorType,
   SupportTicketCategory,
+  SupportTicketEmailDeliveryStatus,
   SupportTicketStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import type {
+  AdminReplySupportMessageDto,
   AdminUpdateSupportTicketDto,
   CreateSupportMessageDto,
   CreateSupportTicketDto,
 } from './dto/support-tickets.dto';
+import { SupportEmailMailboxService } from './support-email-mailbox.service';
+import { SupportTicketMailService } from './support-ticket-mail.service';
 
 type RequestMeta = { ip?: string; userAgent?: string };
 
 @Injectable()
 export class SupportTicketsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mailboxes: SupportEmailMailboxService,
+    private readonly mail: SupportTicketMailService,
+  ) {}
 
   private async nextPublicId(): Promise<string> {
     const year = new Date().getFullYear();
@@ -38,8 +46,26 @@ export class SupportTicketsService {
     authorUserId: string | null;
     body: string;
     isInternalNote: boolean;
+    source: string;
+    emailMessageId: string | null;
+    emailInReplyTo: string | null;
+    emailReferences: string | null;
+    smtpMessageId: string | null;
+    emailDeliveryStatus: SupportTicketEmailDeliveryStatus | null;
+    emailSentAt: Date | null;
+    emailDeliveredAt: Date | null;
+    mailboxId: string | null;
     createdAt: Date;
     authorUser?: { id: string; name: string; email: string; role: string } | null;
+    mailbox?: { id: string; label: string; email: string } | null;
+    attachments?: Array<{
+      id: string;
+      fileName: string;
+      mimeType: string;
+      sizeBytes: number;
+      storagePath: string;
+      createdAt: Date;
+    }>;
   }) {
     return {
       id: row.id,
@@ -47,10 +73,30 @@ export class SupportTicketsService {
       authorUserId: row.authorUserId,
       body: row.body,
       isInternalNote: row.isInternalNote,
+      source: row.source,
+      emailMessageId: row.emailMessageId,
+      emailInReplyTo: row.emailInReplyTo,
+      emailReferences: row.emailReferences,
+      smtpMessageId: row.smtpMessageId,
+      emailDeliveryStatus: row.emailDeliveryStatus,
+      emailSentAt: row.emailSentAt?.toISOString() ?? null,
+      emailDeliveredAt: row.emailDeliveredAt?.toISOString() ?? null,
+      mailboxId: row.mailboxId,
+      mailbox: row.mailbox
+        ? { id: row.mailbox.id, label: row.mailbox.label, email: row.mailbox.email }
+        : null,
       createdAt: row.createdAt.toISOString(),
       authorName: row.authorUser?.name ?? null,
       authorEmail: row.authorUser?.email ?? null,
       authorRole: row.authorUser?.role ?? null,
+      attachments: (row.attachments ?? []).map((a) => ({
+        id: a.id,
+        fileName: a.fileName,
+        mimeType: a.mimeType,
+        sizeBytes: a.sizeBytes,
+        url: a.storagePath,
+        createdAt: a.createdAt.toISOString(),
+      })),
     };
   }
 
@@ -107,6 +153,8 @@ export class SupportTicketsService {
       messages: {
         include: {
           authorUser: { select: { id: true, name: true, email: true, role: true } },
+          mailbox: { select: { id: true, label: true, email: true } },
+          attachments: true,
         },
         orderBy: { createdAt: 'asc' as const },
       },
@@ -178,6 +226,11 @@ export class SupportTicketsService {
       }
     }
 
+    const defaultMailbox = await this.mailboxes.getDefaultMailbox();
+    if (defaultMailbox) {
+      void this.mail.sendAutoReply(ticket, defaultMailbox).catch(() => undefined);
+    }
+
     return this.serializeTicket(ticket, false);
   }
 
@@ -224,9 +277,17 @@ export class SupportTicketsService {
         status:
           ticket.status === SupportTicketStatus.RESOLVED
             ? SupportTicketStatus.WAITING_REPLY
-            : ticket.status,
+            : SupportTicketStatus.WAITING_REPLY,
       },
     });
+
+    void this.mail
+      .sendAdminNotification({
+        ticket,
+        preview: dto.body.trim().slice(0, 500),
+      })
+      .catch(() => undefined);
+
     return this.getMyTicket(userId, ticketId);
   }
 
@@ -237,7 +298,17 @@ export class SupportTicketsService {
     const waitingReply = await this.prisma.supportTicket.count({
       where: { status: SupportTicketStatus.WAITING_REPLY },
     });
-    return { newCount, waitingReply, totalOpen: newCount + waitingReply };
+    const inProgress = await this.prisma.supportTicket.count({
+      where: { status: SupportTicketStatus.IN_PROGRESS },
+    });
+    const badgeCount = newCount + waitingReply + inProgress;
+    return {
+      newCount,
+      waitingReply,
+      inProgress,
+      badgeCount,
+      totalOpen: badgeCount,
+    };
   }
 
   async adminList(query: {
@@ -339,26 +410,88 @@ export class SupportTicketsService {
   async adminReply(
     staffUserId: string,
     ticketId: string,
-    dto: CreateSupportMessageDto & { isInternalNote?: boolean },
+    dto: AdminReplySupportMessageDto,
   ) {
     const ticket = await this.prisma.supportTicket.findUnique({ where: { id: ticketId } });
     if (!ticket) throw new NotFoundException('Ticket nenalezen');
 
+    const isInternal = dto.isInternalNote === true;
     const now = new Date();
-    await this.prisma.supportTicketMessage.create({
+
+    const staffUser = await this.prisma.user.findUnique({
+      where: { id: staffUserId },
+      select: { name: true },
+    });
+
+    let mailbox = !isInternal
+      ? dto.mailboxId
+        ? await this.mailboxes.getMailboxById(dto.mailboxId)
+        : await this.mailboxes.getDefaultMailbox()
+      : null;
+
+    if (mailbox && !mailbox.active) {
+      mailbox = await this.mailboxes.getDefaultMailbox();
+    }
+
+    const message = await this.prisma.supportTicketMessage.create({
       data: {
         ticketId,
         authorType: SupportMessageAuthorType.STAFF,
         authorUserId: staffUserId,
         body: dto.body.trim(),
-        isInternalNote: dto.isInternalNote === true,
+        isInternalNote: isInternal,
+        source: 'web',
+        emailDeliveryStatus:
+          !isInternal && mailbox
+            ? SupportTicketEmailDeliveryStatus.QUEUED
+            : undefined,
       },
     });
 
-    const nextStatus =
-      dto.isInternalNote === true
-        ? ticket.status
-        : SupportTicketStatus.WAITING_CUSTOMER;
+    if (!isInternal && mailbox) {
+      try {
+          const priorIds = await this.prisma.supportTicketMessage.findMany({
+            where: {
+              ticketId,
+              emailMessageId: { not: null },
+              isInternalNote: false,
+            },
+            orderBy: { createdAt: 'asc' },
+            select: { emailMessageId: true },
+          });
+          const refs = priorIds
+            .map((r) => r.emailMessageId)
+            .filter((id): id is string => Boolean(id));
+          const inReplyTo = refs.length ? refs[refs.length - 1] : null;
+
+          const { emailMessageId, smtpMessageId } = await this.mail.sendStaffReply({
+            ticket,
+            messageId: message.id,
+            body: dto.body.trim(),
+            mailbox,
+            staffName: staffUser?.name,
+          });
+
+          await this.mail.markMessageDelivery(message.id, {
+            emailMessageId,
+            emailInReplyTo: inReplyTo,
+            emailReferences: [...refs, emailMessageId].join(' '),
+            smtpMessageId,
+            status: SupportTicketEmailDeliveryStatus.SENT,
+            mailboxId: mailbox.id,
+          });
+        } catch {
+          await this.mail.markMessageDelivery(message.id, {
+            status: SupportTicketEmailDeliveryStatus.FAILED,
+            mailboxId: mailbox.id,
+          });
+          throw new BadRequestException(
+            'Odpověď byla uložena do ticketu, ale odeslání e-mailu selhalo. Zkontrolujte SMTP nastavení.',
+          );
+        }
+    }
+
+    const nextStatus = isInternal ? ticket.status : SupportTicketStatus.WAITING_CUSTOMER;
 
     await this.prisma.supportTicket.update({
       where: { id: ticketId },

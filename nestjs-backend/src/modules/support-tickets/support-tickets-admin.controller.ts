@@ -14,7 +14,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import {
   AdminUpdateSupportTicketDto,
-  CreateSupportMessageDto,
+  AdminReplySupportMessageDto,
 } from './dto/support-tickets.dto';
 import { SupportTicketsService } from './support-tickets.service';
 
@@ -54,7 +54,7 @@ export class SupportTicketsAdminController {
   reply(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
-    @Body() dto: CreateSupportMessageDto & { isInternalNote?: boolean },
+    @Body() dto: AdminReplySupportMessageDto,
   ) {
     return this.support.adminReply(user.id, id, dto);
   }

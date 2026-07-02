@@ -70,16 +70,22 @@ export type AdminSupportTicketRow = {
   isRegistered: boolean;
 };
 
-export async function nestAdminSupportStats(token: string): Promise<{ newCount: number }> {
+export async function nestAdminSupportStats(
+  token: string,
+): Promise<{ newCount: number; badgeCount: number }> {
   const base = apiBase();
-  if (!base || !token) return { newCount: 0 };
+  if (!base || !token) return { newCount: 0, badgeCount: 0 };
   const res = await fetch(`${base}/admin/support-tickets/stats`, {
     headers: authHeaders(token),
     credentials: 'include',
     cache: 'no-store',
   });
-  if (!res.ok) return { newCount: 0 };
-  return (await res.json()) as { newCount: number };
+  if (!res.ok) return { newCount: 0, badgeCount: 0 };
+  const data = (await res.json()) as { newCount: number; badgeCount?: number; totalOpen?: number };
+  return {
+    newCount: data.newCount,
+    badgeCount: data.badgeCount ?? data.totalOpen ?? data.newCount,
+  };
 }
 
 export async function nestAdminListSupportTickets(
@@ -136,16 +142,20 @@ export async function nestAdminReplySupportTicket(
   id: string,
   body: string,
   isInternalNote = false,
-): Promise<{ ok: boolean; ticket?: SupportTicket }> {
+  mailboxId?: string,
+): Promise<{ ok: boolean; ticket?: SupportTicket; error?: string }> {
   const base = apiBase();
   if (!base || !token) return { ok: false };
   const res = await fetch(`${base}/admin/support-tickets/${encodeURIComponent(id)}/messages`, {
     method: 'POST',
     headers: authHeaders(token),
     credentials: 'include',
-    body: JSON.stringify({ body, isInternalNote }),
+    body: JSON.stringify({ body, isInternalNote, mailboxId }),
   });
-  if (!res.ok) return { ok: false };
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    return { ok: false, error: (err as { message?: string }).message };
+  }
   const ticket = (await res.json()) as SupportTicket;
   return { ok: true, ticket };
 }

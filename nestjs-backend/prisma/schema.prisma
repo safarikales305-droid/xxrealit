@@ -3111,6 +3111,14 @@ enum SupportMessageAuthorType {
   SYSTEM
 }
 
+enum SupportTicketEmailDeliveryStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+  RECEIVED
+}
+
 /// Interní ticket zákaznické podpory portálu.
 model SupportTicket {
   id               String               @id @default(cuid())
@@ -3154,12 +3162,78 @@ model SupportTicketMessage {
   authorUserId   String?
   body           String                 @db.Text
   isInternalNote Boolean                @default(false)
+  source         String                 @default("web")
+  emailMessageId String?
+  emailInReplyTo String?
+  emailReferences String?               @db.Text
+  smtpMessageId  String?
+  emailDeliveryStatus SupportTicketEmailDeliveryStatus?
+  emailSentAt    DateTime?
+  emailDeliveredAt DateTime?
+  mailboxId      String?
   createdAt      DateTime               @default(now())
 
   ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   authorUser User?         @relation("SupportTicketMessageAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  mailbox    SupportEmailMailbox? @relation(fields: [mailboxId], references: [id], onDelete: SetNull)
+  attachments SupportTicketAttachment[]
 
   @@index([ticketId, createdAt])
+  @@index([emailMessageId])
+}
+
+model SupportTicketAttachment {
+  id         String   @id @default(cuid())
+  messageId  String
+  fileName   String
+  mimeType   String
+  sizeBytes  Int
+  storagePath String  @db.Text
+  createdAt  DateTime @default(now())
+
+  message SupportTicketMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
+
+/// Globální nastavení e-mailové podpory (singleton).
+model SupportEmailSettings {
+  id               String   @id @default("default")
+  adminNotifyEmail String?
+  updatedAt        DateTime @updatedAt
+}
+
+/// E-mailová schránka pro odesílání/příjem ticketů.
+model SupportEmailMailbox {
+  id                    String   @id @default(cuid())
+  label                 String
+  email                 String   @unique
+  replyToEmail          String?
+  smtpHost              String
+  smtpPort              Int      @default(587)
+  smtpSecure            Boolean  @default(false)
+  smtpUser              String
+  smtpPasswordEncrypted String   @db.Text
+  imapHost              String?
+  imapPort              Int?
+  imapSecure            Boolean  @default(true)
+  imapUser              String?
+  imapPasswordEncrypted String?  @db.Text
+  signatureHtml         String   @default("") @db.Text
+  signatureText         String   @default("") @db.Text
+  autoReplyEnabled      Boolean  @default(false)
+  autoReplySubject      String?
+  autoReplyHtml         String?  @db.Text
+  autoReplyText         String?  @db.Text
+  isDefault             Boolean  @default(false)
+  active                Boolean  @default(true)
+  sortOrder             Int      @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  messages SupportTicketMessage[]
+
+  @@index([active, sortOrder])
 }
 
 /// Nastavení interní analytiky portálu (singleton).

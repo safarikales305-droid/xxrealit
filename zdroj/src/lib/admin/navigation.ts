@@ -154,6 +154,7 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
     tone: 'blue',
     children: [
       { id: 'reg-settings', label: 'Registrace', href: '/admin/nastaveni-registrace', icon: '📝' },
+      { id: 'support-email', label: 'E-mailové adresy', href: '/admin/nastaveni/emailove-adresy', icon: '✉', tone: 'blue' },
       { id: 'listing-settings', label: 'Inzeráty', href: '/admin/nastaveni-inzeraty', icon: '🏘' },
       { id: 'verification-files', label: 'Ověřovací soubory', href: '/admin/overovaci-soubory', icon: '📄', tone: 'green' },
       { id: 'portal-about', label: 'O portálu', href: '/admin/o-portalu', icon: '🌐' },

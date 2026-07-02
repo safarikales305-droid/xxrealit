@@ -9,6 +9,11 @@ import {
   nestAdminReplySupportTicket,
   nestAdminUpdateSupportTicket,
 } from '@/lib/support-tickets-api';
+import {
+  nestAdminListSupportMailboxesForReply,
+  type SupportMailboxForReply,
+} from '@/lib/support-email-admin-api';
+import { getNestPublicOrigin } from '@/lib/api';
 import { nestAdminListPortalWorkers, type PortalWorkerRow } from '@/lib/nest-client';
 import type { SupportTicket } from '@/lib/support-tickets';
 import {
@@ -42,18 +47,24 @@ export default function AdminSupportTicketDetailPage() {
   const [loading, setLoading] = useState(true);
   const [reply, setReply] = useState('');
   const [internalNote, setInternalNote] = useState('');
+  const [mailboxes, setMailboxes] = useState<SupportMailboxForReply[]>([]);
+  const [mailboxId, setMailboxId] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!apiAccessToken || !id) return;
     setLoading(true);
-    const [t, w] = await Promise.all([
+    const [t, w, mb] = await Promise.all([
       nestAdminGetSupportTicket(apiAccessToken, id),
       nestAdminListPortalWorkers(apiAccessToken),
+      nestAdminListSupportMailboxesForReply(apiAccessToken),
     ]);
     setTicket(t);
     setWorkers(w.items ?? []);
+    setMailboxes(mb);
+    const defaultMb = mb.find((m) => m.isDefault) ?? mb[0];
+    if (defaultMb) setMailboxId(defaultMb.id);
     setLoading(false);
     if (!t) setError('Ticket nenalezen.');
   }, [apiAccessToken, id]);
@@ -94,15 +105,39 @@ export default function AdminSupportTicketDetailPage() {
     const body = isInternal ? internalNote.trim() : reply.trim();
     if (!body) return;
     setBusy(true);
-    const r = await nestAdminReplySupportTicket(apiAccessToken, ticket.id, body, isInternal);
+    const r = await nestAdminReplySupportTicket(
+      apiAccessToken,
+      ticket.id,
+      body,
+      isInternal,
+      isInternal ? undefined : mailboxId || undefined,
+    );
     setBusy(false);
     if (r.ticket) {
       setTicket(r.ticket);
       if (isInternal) setInternalNote('');
       else setReply('');
     } else {
-      setError('Odpověď se nepodařilo odeslat.');
+      setError(r.error ?? 'Odpověď se nepodařilo odeslat.');
     }
+  }
+
+  function attachmentHref(url: string): string {
+    if (url.startsWith('http')) return url;
+    const origin = getNestPublicOrigin();
+    return origin ? `${origin}${url}` : url;
+  }
+
+  function deliveryLabel(status: string | null | undefined): string | null {
+    if (!status) return null;
+    const map: Record<string, string> = {
+      QUEUED: 'Ve frontě',
+      SENT: 'Odesláno',
+      DELIVERED: 'Doručeno',
+      FAILED: 'Selhalo',
+      RECEIVED: 'Přijato e-mailem',
+    };
+    return map[status] ?? status;
   }
 
   if (loading) {
@@ -227,31 +262,71 @@ export default function AdminSupportTicketDetailPage() {
 
       <section className="mt-8">
         <h2 className="text-lg font-bold text-zinc-900">Historie komunikace</h2>
-        <ul className="mt-4 space-y-3">
+        <ul className="mt-4 space-y-4">
           {ticket.messages
             .filter((m) => !m.isInternalNote)
             .map((m) => (
               <li
                 key={m.id}
-                className={`rounded-2xl border p-4 ${
-                  m.authorType === 'STAFF'
-                    ? 'border-orange-200 bg-orange-50/60'
-                    : m.authorType === 'SYSTEM'
-                      ? 'border-zinc-200 bg-zinc-50'
-                      : 'border-zinc-200 bg-white'
-                }`}
+                className={`flex ${m.authorType === 'STAFF' ? 'justify-end' : 'justify-start'}`}
               >
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
-                  <span className="font-semibold text-zinc-800">
-                    {m.authorType === 'STAFF'
-                      ? `Podpora${m.authorName ? `: ${m.authorName}` : ''}`
-                      : m.authorType === 'CUSTOMER'
-                        ? `${ticket.firstName} (zákazník)`
-                        : 'Systém'}
-                  </span>
-                  <time>{formatWhen(m.createdAt)}</time>
+                <div
+                  className={`max-w-[85%] rounded-2xl border p-4 ${
+                    m.authorType === 'STAFF'
+                      ? 'border-orange-200 bg-orange-50/80'
+                      : m.authorType === 'SYSTEM'
+                        ? 'border-zinc-200 bg-zinc-50'
+                        : 'border-zinc-200 bg-white'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
+                    <span className="font-semibold text-zinc-800">
+                      {m.authorType === 'STAFF'
+                        ? `Administrátor${m.authorName ? `: ${m.authorName}` : ''}`
+                        : m.authorType === 'CUSTOMER'
+                          ? `${ticket.firstName} (zákazník)`
+                          : 'Systém'}
+                      {m.source === 'email' ? ' · e-mail' : m.source === 'web' ? ' · portál' : ''}
+                    </span>
+                    <time>{formatWhen(m.createdAt)}</time>
+                  </div>
+                  {m.mailbox ? (
+                    <p className="mt-1 text-xs text-zinc-500">Odesláno jako: {m.mailbox.email}</p>
+                  ) : null}
+                  <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-800">{m.body}</p>
+                  {m.attachments && m.attachments.length > 0 ? (
+                    <ul className="mt-3 space-y-1 border-t border-zinc-200/80 pt-2">
+                      {m.attachments.map((a) => (
+                        <li key={a.id}>
+                          <a
+                            href={attachmentHref(a.url)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-[#e85d00] hover:underline"
+                          >
+                            📎 {a.fileName} ({Math.round(a.sizeBytes / 1024)} kB)
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {m.emailDeliveryStatus || m.emailMessageId ? (
+                    <details className="mt-2 text-xs text-zinc-500">
+                      <summary className="cursor-pointer">E-mail metadata</summary>
+                      <dl className="mt-1 space-y-0.5 font-mono">
+                        {m.emailDeliveryStatus ? (
+                          <div>
+                            Stav: {deliveryLabel(m.emailDeliveryStatus)}
+                            {m.emailSentAt ? ` · odesláno ${formatWhen(m.emailSentAt)}` : ''}
+                          </div>
+                        ) : null}
+                        {m.emailMessageId ? <div>Message-ID: {m.emailMessageId}</div> : null}
+                        {m.emailInReplyTo ? <div>In-Reply-To: {m.emailInReplyTo}</div> : null}
+                        {m.smtpMessageId ? <div>SMTP ID: {m.smtpMessageId}</div> : null}
+                      </dl>
+                    </details>
+                  ) : null}
                 </div>
-                <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-800">{m.body}</p>
               </li>
             ))}
         </ul>
@@ -259,6 +334,29 @@ export default function AdminSupportTicketDetailPage() {
 
       <section className="mt-8 rounded-xl border border-zinc-200 bg-white p-4">
         <h2 className="font-semibold text-zinc-900">Odpověď zákazníkovi</h2>
+        {mailboxes.length > 0 ? (
+          <label className="mt-3 block text-sm text-zinc-700">
+            Odeslat jako
+            <select
+              value={mailboxId}
+              onChange={(e) => setMailboxId(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+            >
+              {mailboxes.map((mb) => (
+                <option key={mb.id} value={mb.id}>
+                  {mb.email} ({mb.label})
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <p className="mt-2 text-sm text-amber-800">
+            E-mailové schránky nejsou nastaveny — odpověď zůstane pouze v portálu.{' '}
+            <Link href="/admin/nastaveni/emailove-adresy" className="text-[#e85d00] hover:underline">
+              Nastavit schránky
+            </Link>
+          </p>
+        )}
         <textarea
           value={reply}
           onChange={(e) => setReply(e.target.value)}

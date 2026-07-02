@@ -103,8 +103,8 @@ export default function AdminSupportCenterPage() {
         </Link>
         <h1 className="mt-2 text-2xl font-bold text-zinc-900">Centrum podpory</h1>
         <p className="mt-1 text-sm text-zinc-600">
-          Všechny dotazy z formuláře podpory portálu. Komunikace probíhá výhradně interně — bez
-          odesílání e-mailů.
+          Všechny dotazy z formuláře podpory portálu. Odpovědi lze odesílat e-mailem i sledovat v
+          historii ticketu.
         </p>
       </div>
 

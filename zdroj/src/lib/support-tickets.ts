@@ -21,14 +21,23 @@ export type SupportOpenOptions = {
 
 export const SUPPORT_TICKET_STATUSES = [
   { value: 'NEW', label: 'Nový' },
-  { value: 'WAITING_REPLY', label: 'Čeká na odpověď' },
+  { value: 'WAITING_REPLY', label: 'Čeká na odpověď administrátora' },
   { value: 'IN_PROGRESS', label: 'Vyřizuje se' },
-  { value: 'WAITING_CUSTOMER', label: 'Čeká na zákazníka' },
-  { value: 'RESOLVED', label: 'Vyřešeno' },
-  { value: 'CLOSED', label: 'Uzavřeno' },
+  { value: 'WAITING_CUSTOMER', label: 'Čeká na odpověď zákazníka' },
+  { value: 'RESOLVED', label: 'Vyřešený' },
+  { value: 'CLOSED', label: 'Uzavřený' },
 ] as const;
 
 export type SupportTicketStatus = (typeof SUPPORT_TICKET_STATUSES)[number]['value'];
+
+export type SupportTicketAttachment = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  url: string;
+  createdAt: string;
+};
 
 export type SupportTicketMessage = {
   id: string;
@@ -37,6 +46,17 @@ export type SupportTicketMessage = {
   createdAt: string;
   authorName?: string | null;
   isInternalNote?: boolean;
+  source?: string;
+  emailMessageId?: string | null;
+  emailInReplyTo?: string | null;
+  emailReferences?: string | null;
+  smtpMessageId?: string | null;
+  emailDeliveryStatus?: string | null;
+  emailSentAt?: string | null;
+  emailDeliveredAt?: string | null;
+  mailboxId?: string | null;
+  mailbox?: { id: string; label: string; email: string } | null;
+  attachments?: SupportTicketAttachment[];
 };
 
 export type SupportTicket = {
