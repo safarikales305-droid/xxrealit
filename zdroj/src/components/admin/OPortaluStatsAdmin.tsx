@@ -4,11 +4,20 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import {
   computeDisplayedPreview,
+  formatStatFetchedAt,
   nestAdminOPortaluMonthlyDelete,
+  nestAdminOPortaluRecalculate,
+  nestAdminOPortaluRefreshDatabase,
+  nestAdminOPortaluRefreshFacebook,
+  nestAdminOPortaluRefreshInstagram,
+  nestAdminOPortaluRefreshStat,
   nestAdminOPortaluStatsGet,
   nestAdminOPortaluStatsPut,
+  VALUE_SOURCE_LABELS,
   type AdminPortalMonthlyStat,
   type AdminPortalStat,
+  type AdminPortalStatImportLog,
+  type StatValueSource,
 } from '@/lib/o-portalu-admin-api';
 
 type StatFormRow = AdminPortalStat & { manualValueInput: string };
@@ -41,11 +50,21 @@ function emptyMonthly(): MonthlyFormRow {
   };
 }
 
+function applyStatsToForm(stats: AdminPortalStat[]): StatFormRow[] {
+  return stats.map((s) => ({
+    ...s,
+    manualValueInput: s.manualValue != null ? String(s.manualValue) : '',
+  }));
+}
+
 export function OPortaluStatsAdmin({ token }: Props) {
   const [stats, setStats] = useState<StatFormRow[]>([]);
   const [monthly, setMonthly] = useState<MonthlyFormRow[]>([]);
+  const [importLogs, setImportLogs] = useState<AdminPortalStatImportLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [rowRefreshBusy, setRowRefreshBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,13 +76,9 @@ export function OPortaluStatsAdmin({ token }: Props) {
       setError('Nepodařilo se načíst statistiky.');
       return;
     }
-    setStats(
-      data.stats.map((s) => ({
-        ...s,
-        manualValueInput: s.manualValue != null ? String(s.manualValue) : '',
-      })),
-    );
+    setStats(applyStatsToForm(data.stats));
     setMonthly(data.monthly);
+    setImportLogs(data.importLogs ?? []);
     setError(null);
   }, [token]);
 
@@ -121,6 +136,7 @@ export function OPortaluStatsAdmin({ token }: Props) {
             : Number.parseFloat(s.manualValueInput.replace(',', '.')),
         enabled: s.enabled,
         order: s.order,
+        valueSource: s.valueSource,
       })),
       monthly: monthly.map((m) => ({
         id: m.isNew ? undefined : m.id,
@@ -138,14 +154,51 @@ export function OPortaluStatsAdmin({ token }: Props) {
       setError('Uložení selhalo.');
       return;
     }
-    setStats(
-      r.stats.map((s) => ({
-        ...s,
-        manualValueInput: s.manualValue != null ? String(s.manualValue) : '',
-      })),
-    );
+    setStats(applyStatsToForm(r.stats));
     setMonthly(r.monthly);
     setMsg('Statistiky byly uloženy.');
+  }
+
+  async function runAction(
+    key: string,
+    fn: () => Promise<{
+      ok?: boolean;
+      error?: string;
+      errors?: string[];
+      updated?: string[] | number;
+      stats?: AdminPortalStat[];
+      importLogs?: AdminPortalStatImportLog[];
+    }>,
+    successMessage: string,
+  ) {
+    setActionBusy(key);
+    setMsg(null);
+    setError(null);
+    const r = await fn();
+    setActionBusy(null);
+    if (r.stats) setStats(applyStatsToForm(r.stats));
+    if (r.importLogs) setImportLogs(r.importLogs);
+    if (r.ok === false || r.error || (r.errors && r.errors.length > 0)) {
+      const detail = r.error ?? r.errors?.join('\n');
+      setError(detail ? `${successMessage} — chyba:\n${detail}` : 'Akce selhala.');
+      if (r.stats) setMsg('Částečně aktualizováno — staré hodnoty zůstaly zachovány.');
+      return;
+    }
+    setMsg(successMessage);
+  }
+
+  async function refreshRow(statId: string) {
+    setRowRefreshBusy(statId);
+    setError(null);
+    const r = await nestAdminOPortaluRefreshStat(token, statId);
+    setRowRefreshBusy(null);
+    if (r.stats) setStats(applyStatsToForm(r.stats));
+    if (r.importLogs) setImportLogs(r.importLogs);
+    if (!r.ok) {
+      setError(r.error ?? 'Načtení statistiky selhalo. Stará hodnota zůstala zachována.');
+      return;
+    }
+    setMsg('Statistika byla načtena ze zdroje.');
   }
 
   async function removeMonthly(row: MonthlyFormRow) {
@@ -168,7 +221,7 @@ export function OPortaluStatsAdmin({ token }: Props) {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">Statistiky veřejné stránky</h1>
           <p className="mt-1 text-sm text-zinc-600">
@@ -177,31 +230,93 @@ export function OPortaluStatsAdmin({ token }: Props) {
               /o-portalu
             </Link>
           </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            Veřejně: ruční hodnota má přednost, jinak reálná × násobič. Při chybě API zůstávají poslední uložené hodnoty.
+          </p>
         </div>
         <button
           type="button"
           onClick={() => void save()}
-          disabled={saving}
+          disabled={saving || actionBusy != null}
           className="rounded-xl bg-orange-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50"
         >
           {saving ? 'Ukládám…' : 'Uložit vše'}
         </button>
       </div>
 
-      {msg ? <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{msg}</p> : null}
-      {error ? <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800">{error}</p> : null}
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={actionBusy != null}
+          onClick={() =>
+            void runAction(
+              'db',
+              () => nestAdminOPortaluRefreshDatabase(token),
+              'Interní statistiky byly načteny z databáze.',
+            )
+          }
+          className="rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 disabled:opacity-50"
+        >
+          {actionBusy === 'db' ? 'Načítám…' : 'Načíst z databáze'}
+        </button>
+        <button
+          type="button"
+          disabled={actionBusy != null}
+          onClick={() =>
+            void runAction(
+              'fb',
+              () => nestAdminOPortaluRefreshFacebook(token),
+              'Facebook statistiky byly načteny.',
+            )
+          }
+          className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 disabled:opacity-50"
+        >
+          {actionBusy === 'fb' ? 'Načítám…' : 'Načíst Facebook statistiky'}
+        </button>
+        <button
+          type="button"
+          disabled={actionBusy != null}
+          onClick={() =>
+            void runAction(
+              'ig',
+              () => nestAdminOPortaluRefreshInstagram(token),
+              'Instagram statistiky byly načteny.',
+            )
+          }
+          className="rounded-xl border border-pink-200 bg-pink-50 px-4 py-2 text-sm font-semibold text-pink-800 disabled:opacity-50"
+        >
+          {actionBusy === 'ig' ? 'Načítám…' : 'Načíst Instagram statistiky'}
+        </button>
+        <button
+          type="button"
+          disabled={actionBusy != null}
+          onClick={() =>
+            void runAction(
+              'recalc',
+              () => nestAdminOPortaluRecalculate(token),
+              'Veřejné hodnoty byly přepočítány.',
+            )
+          }
+          className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-50"
+        >
+          {actionBusy === 'recalc' ? 'Počítám…' : 'Přepočítat veřejné hodnoty'}
+        </button>
+      </div>
+
+      {msg ? <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800 whitespace-pre-line">{msg}</p> : null}
+      {error ? <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800 whitespace-pre-line">{error}</p> : null}
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-4 sm:p-6">
         <h2 className="text-lg font-bold text-zinc-900">Aktuální hodnoty</h2>
-        <p className="mt-1 text-sm text-zinc-500">
-          Zobrazovaná hodnota = reálná × násobič. Ruční přepsání má přednost.
-        </p>
         <div className="mt-6 overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
+          <table className="min-w-[1100px] w-full text-left text-sm">
             <thead>
               <tr className="border-b border-zinc-200 text-xs uppercase text-zinc-500">
-                <th className="py-2 pr-3">Zapnuto</th>
+                <th className="py-2 pr-3">Zap.</th>
                 <th className="py-2 pr-3">Položka</th>
+                <th className="py-2 pr-3">Zdroj</th>
+                <th className="py-2 pr-3">Poslední načtení</th>
+                <th className="py-2 pr-3">Načíst</th>
                 <th className="py-2 pr-3">Reálná</th>
                 <th className="py-2 pr-3">Násobič</th>
                 <th className="py-2 pr-3">Ruční</th>
@@ -210,7 +325,7 @@ export function OPortaluStatsAdmin({ token }: Props) {
             </thead>
             <tbody>
               {stats.map((row) => (
-                <tr key={row.id} className="border-b border-zinc-100">
+                <tr key={row.id} className="border-b border-zinc-100 align-top">
                   <td className="py-3 pr-3">
                     <input
                       type="checkbox"
@@ -218,9 +333,52 @@ export function OPortaluStatsAdmin({ token }: Props) {
                       onChange={(e) => updateStat(row.id, { enabled: e.target.checked })}
                     />
                   </td>
-                  <td className="py-3 pr-3 font-medium text-zinc-900">
-                    {row.icon ? `${row.icon} ` : ''}
-                    {row.label}
+                  <td className="py-3 pr-3">
+                    <div className="font-medium text-zinc-900">
+                      {row.icon ? `${row.icon} ` : ''}
+                      {row.label}
+                    </div>
+                    {row.lastFetchError ? (
+                      <p className="mt-1 max-w-xs text-xs text-red-600" title={row.lastFetchError}>
+                        {row.lastFetchError}
+                      </p>
+                    ) : null}
+                  </td>
+                  <td className="py-3 pr-3">
+                    <select
+                      className="rounded-lg border border-zinc-200 px-2 py-1 text-xs"
+                      value={row.valueSource}
+                      onChange={(e) =>
+                        updateStat(row.id, { valueSource: e.target.value as StatValueSource })
+                      }
+                    >
+                      {(Object.keys(VALUE_SOURCE_LABELS) as StatValueSource[]).map((src) => (
+                        <option key={src} value={src}>
+                          {VALUE_SOURCE_LABELS[src]}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="py-3 pr-3 text-xs text-zinc-500 whitespace-nowrap">
+                    {formatStatFetchedAt(row.lastFetchedAt)}
+                  </td>
+                  <td className="py-3 pr-3">
+                    {row.valueSource !== 'manual' ? (
+                      <button
+                        type="button"
+                        disabled={rowRefreshBusy === row.id || actionBusy != null}
+                        onClick={() => void refreshRow(row.id)}
+                        className="text-xs font-semibold text-violet-700 hover:underline disabled:opacity-50"
+                      >
+                        {rowRefreshBusy === row.id
+                          ? '…'
+                          : row.valueSource === 'database'
+                            ? 'Načíst z DB'
+                            : 'Načíst z API'}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-zinc-400">—</span>
+                    )}
                   </td>
                   <td className="py-3 pr-3">
                     <input
@@ -252,7 +410,7 @@ export function OPortaluStatsAdmin({ token }: Props) {
                       onChange={(e) => updateStat(row.id, { manualValueInput: e.target.value })}
                     />
                   </td>
-                  <td className="py-3 pr-3 font-bold text-orange-600">
+                  <td className="py-3 pr-3 font-bold text-orange-600 whitespace-nowrap">
                     {row.displayedValue.toLocaleString('cs-CZ')}
                   </td>
                 </tr>
@@ -261,6 +419,38 @@ export function OPortaluStatsAdmin({ token }: Props) {
           </table>
         </div>
       </section>
+
+      {importLogs.length > 0 ? (
+        <section className="rounded-2xl border border-zinc-200 bg-white p-4 sm:p-6">
+          <h2 className="text-lg font-bold text-zinc-900">Log importů</h2>
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-zinc-200 text-zinc-500">
+                  <th className="py-2 pr-3">Čas</th>
+                  <th className="py-2 pr-3">Statistika</th>
+                  <th className="py-2 pr-3">Zdroj</th>
+                  <th className="py-2 pr-3">Hodnota</th>
+                  <th className="py-2 pr-3">Chyba</th>
+                </tr>
+              </thead>
+              <tbody>
+                {importLogs.map((log) => (
+                  <tr key={log.id} className="border-b border-zinc-100">
+                    <td className="py-2 pr-3 whitespace-nowrap">{formatStatFetchedAt(log.createdAt)}</td>
+                    <td className="py-2 pr-3">{log.statKey}</td>
+                    <td className="py-2 pr-3">{log.source}</td>
+                    <td className="py-2 pr-3">
+                      {log.fetchedValue != null ? log.fetchedValue.toLocaleString('cs-CZ') : '—'}
+                    </td>
+                    <td className="py-2 pr-3 text-red-600">{log.error ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-4 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">

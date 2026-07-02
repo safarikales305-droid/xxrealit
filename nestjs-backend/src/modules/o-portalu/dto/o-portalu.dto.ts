@@ -37,9 +37,11 @@ export class UpdatePublicPortalStatDto {
   @IsOptional()
   @IsInt()
   order?: number;
-}
 
-export class UpdatePublicPortalStatsDto {
+  @IsOptional()
+  @IsString()
+  valueSource?: 'manual' | 'database' | 'api';
+}
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

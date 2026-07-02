@@ -1,12 +1,12 @@
 import { API_BASE_URL } from '@/lib/api';
 
-async function adminFetch<T>(
+async function adminFetchRaw<T>(
   token: string,
   path: string,
   init?: RequestInit,
-): Promise<T | null> {
+): Promise<{ data: T | null; status: number; body: unknown }> {
   const base = API_BASE_URL?.endsWith('/api') ? API_BASE_URL : API_BASE_URL ? `${API_BASE_URL}/api` : null;
-  if (!base) return null;
+  if (!base) return { data: null, status: 0, body: null };
   try {
     const res = await fetch(`${base}${path}`, {
       ...init,
@@ -17,12 +17,24 @@ async function adminFetch<T>(
         ...(init?.headers ?? {}),
       },
     });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
-  } catch {
-    return null;
+    const body = await res.json().catch(() => null);
+    if (!res.ok) return { data: null, status: res.status, body };
+    return { data: body as T, status: res.status, body };
+  } catch (err) {
+    return { data: null, status: 0, body: err instanceof Error ? err.message : String(err) };
   }
 }
+
+async function adminFetch<T>(
+  token: string,
+  path: string,
+  init?: RequestInit,
+): Promise<T | null> {
+  const { data } = await adminFetchRaw<T>(token, path, init);
+  return data;
+}
+
+export type StatValueSource = 'manual' | 'database' | 'api';
 
 export type AdminPortalStat = {
   id: string;
@@ -36,7 +48,20 @@ export type AdminPortalStat = {
   order: number;
   category: string | null;
   icon: string | null;
+  valueSource: StatValueSource;
+  lastFetchedAt: string | null;
+  lastFetchError: string | null;
   updatedAt: string;
+};
+
+export type AdminPortalStatImportLog = {
+  id: string;
+  statKey: string;
+  source: string;
+  fetchedValue: number | null;
+  error: string | null;
+  detail: unknown;
+  createdAt: string;
 };
 
 export type AdminPortalMonthlyStat = {
@@ -69,9 +94,16 @@ export type AdminLeadPrice = {
   updatedAt: string;
 };
 
+export const VALUE_SOURCE_LABELS: Record<StatValueSource, string> = {
+  manual: 'Ruční',
+  database: 'Databáze',
+  api: 'API',
+};
+
 export function nestAdminOPortaluStatsGet(token: string): Promise<{
   stats: AdminPortalStat[];
   monthly: AdminPortalMonthlyStat[];
+  importLogs: AdminPortalStatImportLog[];
 } | null> {
   return adminFetch(token, '/admin/o-portalu/stats');
 }
@@ -87,6 +119,7 @@ export function nestAdminOPortaluStatsPut(
       manualValue?: number | null;
       enabled?: boolean;
       order?: number;
+      valueSource?: StatValueSource;
     }>;
     monthly?: Array<{
       id?: string;
@@ -104,6 +137,56 @@ export function nestAdminOPortaluStatsPut(
     method: 'PUT',
     body: JSON.stringify(body),
   });
+}
+
+export async function nestAdminOPortaluRefreshDatabase(token: string) {
+  const { data, body } = await adminFetchRaw<{
+    ok: boolean;
+    updated: string[];
+    errors: string[];
+    stats: AdminPortalStat[];
+    importLogs: AdminPortalStatImportLog[];
+  }>(token, '/admin/o-portalu/stats/refresh-database', { method: 'POST' });
+  return data ?? { ok: false, error: String(body) };
+}
+
+export async function nestAdminOPortaluRefreshFacebook(token: string) {
+  const { data, body } = await adminFetchRaw<{
+    ok: boolean;
+    error?: string;
+    stats: AdminPortalStat[];
+    importLogs: AdminPortalStatImportLog[];
+  }>(token, '/admin/o-portalu/stats/refresh-facebook', { method: 'POST' });
+  return data ?? { ok: false, error: String(body), stats: [], importLogs: [] };
+}
+
+export async function nestAdminOPortaluRefreshInstagram(token: string) {
+  const { data, body } = await adminFetchRaw<{
+    ok: boolean;
+    error?: string;
+    stats: AdminPortalStat[];
+    importLogs: AdminPortalStatImportLog[];
+  }>(token, '/admin/o-portalu/stats/refresh-instagram', { method: 'POST' });
+  return data ?? { ok: false, error: String(body), stats: [], importLogs: [] };
+}
+
+export async function nestAdminOPortaluRecalculate(token: string) {
+  const { data, body } = await adminFetchRaw<{
+    ok: boolean;
+    updated: number;
+    stats: AdminPortalStat[];
+  }>(token, '/admin/o-portalu/stats/recalculate', { method: 'POST' });
+  return data ?? { ok: false, error: String(body), updated: 0, stats: [] };
+}
+
+export async function nestAdminOPortaluRefreshStat(token: string, statId: string) {
+  const { data, body } = await adminFetchRaw<{
+    ok: boolean;
+    error?: string;
+    stats: AdminPortalStat[];
+    importLogs: AdminPortalStatImportLog[];
+  }>(token, `/admin/o-portalu/stats/${encodeURIComponent(statId)}/refresh`, { method: 'POST' });
+  return data ?? { ok: false, error: String(body), stats: [], importLogs: [] };
 }
 
 export function nestAdminOPortaluMonthlyDelete(
@@ -175,3 +258,14 @@ export function computeDisplayedPreview(
   if (manualValue != null && Number.isFinite(manualValue)) return Math.round(manualValue);
   return Math.round(realValue * multiplier);
 }
+
+function formatDt(iso: string | null): string {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('cs-CZ');
+  } catch {
+    return iso;
+  }
+}
+
+export { formatDt as formatStatFetchedAt };

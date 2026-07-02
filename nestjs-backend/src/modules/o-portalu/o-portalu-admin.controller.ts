@@ -14,7 +14,6 @@ import {
   CreateLeadPriceDto,
   UpdateLeadPriceDto,
   UpdatePublicPortalStatsDto,
-  UpsertPublicPortalMonthlyStatDto,
 } from './dto/o-portalu.dto';
 import { OPortaluService } from './o-portalu.service';
 
@@ -34,6 +33,31 @@ export class OPortaluAdminController {
       stats: body.stats,
       monthly: body.monthly,
     });
+  }
+
+  @Post('o-portalu/stats/refresh-database')
+  refreshDatabase() {
+    return this.oPortalu.refreshDatabaseStats();
+  }
+
+  @Post('o-portalu/stats/refresh-facebook')
+  refreshFacebook() {
+    return this.oPortalu.refreshFacebookStats();
+  }
+
+  @Post('o-portalu/stats/refresh-instagram')
+  refreshInstagram() {
+    return this.oPortalu.refreshInstagramStats();
+  }
+
+  @Post('o-portalu/stats/recalculate')
+  recalculate() {
+    return this.oPortalu.recalculatePublicValues();
+  }
+
+  @Post('o-portalu/stats/:id/refresh')
+  refreshStat(@Param('id') id: string) {
+    return this.oPortalu.refreshStatById(id);
   }
 
   @Delete('o-portalu/stats/monthly/:id')

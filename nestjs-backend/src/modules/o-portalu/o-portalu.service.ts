@@ -8,17 +8,15 @@ import {
   UpsertPublicPortalMonthlyStatDto,
 } from './dto/o-portalu.dto';
 import { DEFAULT_LEAD_PRICES, DEFAULT_PUBLIC_PORTAL_STATS } from './o-portalu.defaults';
+import {
+  labelToPrismaSource,
+  OPortaluStatsImportService,
+  prismaSourceToLabel,
+  type StatValueSourceLabel,
+} from './o-portalu-stats-import.service';
+import { computeDisplayedValue } from './o-portalu-stat.util';
 
-export function computeDisplayedValue(input: {
-  realValue: number;
-  multiplier: number;
-  manualValue: number | null;
-}): number {
-  if (input.manualValue != null && Number.isFinite(input.manualValue)) {
-    return Math.round(input.manualValue);
-  }
-  return Math.round(input.realValue * input.multiplier);
-}
+export { computeDisplayedValue } from './o-portalu-stat.util';
 
 function monthLabel(month: string): string {
   const [year, mon] = month.split('-');
@@ -43,10 +41,14 @@ function monthLabel(month: string): string {
 
 @Injectable()
 export class OPortaluService implements OnModuleInit {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly statsImport: OPortaluStatsImportService,
+  ) {}
 
   async onModuleInit(): Promise<void> {
     await this.ensureDefaults();
+    await this.statsImport.ensureStatValueSources();
   }
 
   async ensureDefaults(): Promise<void> {
@@ -70,6 +72,7 @@ export class OPortaluService implements OnModuleInit {
             realValue: stat.realValue ?? 0,
             multiplier: stat.multiplier ?? 1,
             displayedValue,
+            valueSource: labelToPrismaSource(stat.valueSource ?? 'manual'),
           },
         });
       }
@@ -106,6 +109,9 @@ export class OPortaluService implements OnModuleInit {
       order: stat.order,
       category: stat.category,
       icon: stat.icon,
+      valueSource: prismaSourceToLabel(stat.valueSource),
+      lastFetchedAt: stat.lastFetchedAt?.toISOString() ?? null,
+      lastFetchError: stat.lastFetchError,
       updatedAt: stat.updatedAt.toISOString(),
     };
   }
@@ -225,13 +231,26 @@ export class OPortaluService implements OnModuleInit {
   }
 
   async getAdminStats() {
-    const [stats, monthly] = await Promise.all([
+    const [stats, monthly, importLogs] = await Promise.all([
       this.prisma.publicPortalStat.findMany({ orderBy: { order: 'asc' } }),
       this.prisma.publicPortalMonthlyStat.findMany({ orderBy: { month: 'asc' } }),
+      this.prisma.publicPortalStatImportLog.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+      }),
     ]);
     return {
       stats: stats.map((s) => this.serializeStatAdmin(s)),
       monthly: monthly.map((m) => this.serializeMonthlyAdmin(m)),
+      importLogs: importLogs.map((log) => ({
+        id: log.id,
+        statKey: log.statKey,
+        source: log.source,
+        fetchedValue: log.fetchedValue,
+        error: log.error,
+        detail: log.detail,
+        createdAt: log.createdAt.toISOString(),
+      })),
     };
   }
 
@@ -251,6 +270,9 @@ export class OPortaluService implements OnModuleInit {
         const manualValue =
           patch.manualValue !== undefined ? patch.manualValue : current.manualValue;
         const displayedValue = computeDisplayedValue({ realValue, multiplier, manualValue });
+        const valueSource = patch.valueSource
+          ? labelToPrismaSource(patch.valueSource as StatValueSourceLabel)
+          : current.valueSource;
 
         await this.prisma.publicPortalStat.update({
           where: { id: patch.id },
@@ -262,6 +284,7 @@ export class OPortaluService implements OnModuleInit {
             displayedValue,
             enabled: patch.enabled ?? current.enabled,
             order: patch.order ?? current.order,
+            valueSource,
           },
         });
       }
@@ -368,5 +391,37 @@ export class OPortaluService implements OnModuleInit {
       throw new NotFoundException('Položka ceníku nenalezena');
     });
     return { ok: true };
+  }
+
+  async refreshDatabaseStats() {
+    const result = await this.statsImport.collectDatabaseStats();
+    const stats = await this.getAdminStats();
+    return { ...result, stats: stats.stats, importLogs: stats.importLogs };
+  }
+
+  async refreshFacebookStats() {
+    const result = await this.statsImport.collectFacebookStats();
+    const stats = await this.getAdminStats();
+    return { ...result, stats: stats.stats, importLogs: stats.importLogs };
+  }
+
+  async refreshInstagramStats() {
+    const result = await this.statsImport.collectInstagramStats();
+    const stats = await this.getAdminStats();
+    return { ...result, stats: stats.stats, importLogs: stats.importLogs };
+  }
+
+  async refreshStatById(statId: string) {
+    const stat = await this.prisma.publicPortalStat.findUnique({ where: { id: statId } });
+    if (!stat) throw new NotFoundException('Statistika nenalezena');
+    const result = await this.statsImport.refreshStatFromSource(stat.key);
+    const stats = await this.getAdminStats();
+    return { ...result, stats: stats.stats, importLogs: stats.importLogs };
+  }
+
+  async recalculatePublicValues() {
+    const result = await this.statsImport.recalculateDisplayedValues();
+    const stats = await this.getAdminStats();
+    return { ok: true, ...result, stats: stats.stats };
   }
 }

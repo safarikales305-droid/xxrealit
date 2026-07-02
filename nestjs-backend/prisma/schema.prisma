@@ -3569,22 +3569,45 @@ model TikTokPublishLog {
 }
 
 /// Veřejné marketingové statistiky pro stránku O portálu.
+enum PublicPortalStatValueSource {
+  MANUAL
+  DATABASE
+  API
+}
+
 model PublicPortalStat {
-  id             String   @id @default(cuid())
-  key            String   @unique
+  id             String                      @id @default(cuid())
+  key            String                      @unique
   label          String
-  realValue      Float    @default(0)
-  multiplier     Float    @default(1)
+  realValue      Float                       @default(0)
+  multiplier     Float                       @default(1)
   manualValue    Float?
-  displayedValue Float    @default(0)
-  enabled        Boolean  @default(true)
-  order          Int      @default(0)
+  displayedValue Float                       @default(0)
+  enabled        Boolean                     @default(true)
+  order          Int                         @default(0)
   category       String?
   icon           String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  valueSource    PublicPortalStatValueSource @default(MANUAL)
+  lastFetchedAt  DateTime?
+  lastFetchError String?                     @db.Text
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
 
   @@index([enabled, order])
+}
+
+/// Log importů statistik O portálu.
+model PublicPortalStatImportLog {
+  id           String   @id @default(cuid())
+  statKey      String
+  source       String
+  fetchedValue Float?
+  error        String?  @db.Text
+  detail       Json?
+  createdAt    DateTime @default(now())
+
+  @@index([statKey, createdAt])
+  @@index([createdAt])
 }
 
 /// Měsíční data pro graf na stránce O portálu.
