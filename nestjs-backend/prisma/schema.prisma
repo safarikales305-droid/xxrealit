@@ -1320,39 +1320,49 @@ model Property {
 
 /// Kontakt makléře / RK extrahovaný z importovaných inzerátů (dedupe e-mail → telefon).
 model ImportedBrokerContact {
-  id             String    @id @default(cuid())
-  fullName       String    @default("")
-  companyName    String    @default("")
-  email          String?
-  phone          String?
-  website        String?
-  /// Klíč portálu / enum hodnota (např. reality_cz)
-  sourcePortal   String?
-  /// Poslední známá URL inzerátu (zdroj)
-  sourceUrl      String?
-  city           String?
-  notes          String?   @db.Text
-  firstSeenAt    DateTime  @default(now())
-  lastSeenAt     DateTime  @default(now())
-  listingCount   Int       @default(0)
-  /// ACTIVE | INCOMPLETE | ARCHIVED
-  status         String    @default("ACTIVE")
-  profileCreated Boolean   @default(false)
-  invitedAt      DateTime?
+  id              String    @id @default(cuid())
+  fullName        String    @default("")
+  companyName     String    @default("")
+  email           String?
+  phone           String?
+  /// E.164 pro WhatsApp (+420XXXXXXXXX)
+  normalizedPhone String?
+  website         String?
+  address         String?
+  /// Klíč portálu / enum hodnota (např. reality_cz, realitnieso.cz)
+  sourcePortal    String?
+  /// Poslední známá URL profilu / inzerátu (zdroj)
+  sourceUrl       String?
+  city            String?
+  notes           String?   @db.Text
+  firstSeenAt     DateTime  @default(now())
+  lastSeenAt      DateTime  @default(now())
+  importedAt      DateTime?
+  lastCheckedAt   DateTime?
+  listingCount    Int       @default(0)
+  /// ACTIVE | INCOMPLETE | ARCHIVED (kvalita dat)
+  status          String    @default("ACTIVE")
+  /// NEW | VERIFIED | CONTACTED | EMAILED | WHATSAPP_SENT | UNSUBSCRIBED | INVALID | BLOCKED
+  contactStatus   String    @default("NEW")
+  profileCreated  Boolean   @default(false)
+  invitedAt       DateTime?
   /// none | contacted | emailed | prepared_mail | …
-  outreachStatus String    @default("none")
-  outreachNote   String?   @db.Text
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  outreachStatus  String    @default("none")
+  outreachNote    String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   listings ImportedBrokerContactListing[]
 
   @@index([email])
   @@index([phone])
+  @@index([normalizedPhone])
+  @@index([sourceUrl])
   @@index([sourcePortal])
   @@index([lastSeenAt(sort: Desc)])
   @@index([listingCount(sort: Desc)])
   @@index([outreachStatus])
+  @@index([contactStatus])
   @@index([profileCreated])
 }
 

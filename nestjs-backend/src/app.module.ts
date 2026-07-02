@@ -53,6 +53,7 @@ import { TiparPayoutModule } from './modules/tipar-payout/tipar-payout.module';
 import { VerificationFilesModule } from './modules/verification-files/verification-files.module';
 import { StatisticsModule } from './modules/statistics/statistics.module';
 import { EmailCampaignsModule } from './modules/email-campaigns/email-campaigns.module';
+import { BrokerDatabaseModule } from './modules/broker-database/broker-database.module';
 
 @Module({
   imports: [
@@ -112,6 +113,7 @@ import { EmailCampaignsModule } from './modules/email-campaigns/email-campaigns.
     VerificationFilesModule,
     StatisticsModule,
     EmailCampaignsModule,
+    BrokerDatabaseModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

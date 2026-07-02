@@ -621,6 +621,7 @@ export class AdminController {
     @Query('hasPhone') hasPhone?: string,
     @Query('profileCreated') profileCreated?: string,
     @Query('outreachStatus') outreachStatus?: string,
+    @Query('contactStatus') contactStatus?: string,
     @Query('sort') sort?: string,
     @Query('skip') skipRaw?: string,
     @Query('take') takeRaw?: string,
@@ -639,6 +640,7 @@ export class AdminController {
       hasPhone: parseBool(hasPhone),
       profileCreated: parseBool(profileCreated),
       outreachStatus: typeof outreachStatus === 'string' ? outreachStatus : undefined,
+      contactStatus: typeof contactStatus === 'string' ? contactStatus : undefined,
       sort:
         sort === 'lastSeen_asc' ||
         sort === 'listings_desc' ||
@@ -673,6 +675,7 @@ export class AdminController {
     return this.importedBrokerContacts.bulkUpdate(dto.ids, {
       outreachStatus: dto.outreachStatus,
       status: dto.status,
+      contactStatus: dto.contactStatus,
       profileCreated: dto.profileCreated,
     });
   }
@@ -686,6 +689,7 @@ export class AdminController {
     @Query('hasPhone') hasPhone?: string,
     @Query('profileCreated') profileCreated?: string,
     @Query('outreachStatus') outreachStatus?: string,
+    @Query('contactStatus') contactStatus?: string,
   ) {
     const parseBool = (v?: string): boolean | undefined => {
       if (v === '1' || v === 'true') return true;
@@ -699,6 +703,7 @@ export class AdminController {
       hasPhone: parseBool(hasPhone),
       profileCreated: parseBool(profileCreated),
       outreachStatus: typeof outreachStatus === 'string' ? outreachStatus : undefined,
+      contactStatus: typeof contactStatus === 'string' ? contactStatus : undefined,
       sort: 'lastSeen_desc',
     });
     const svc = this.importedBrokerContacts;
@@ -726,6 +731,7 @@ export class AdminController {
       outreachStatus?: string | null;
       outreachNote?: string | null;
       status?: string | null;
+      contactStatus?: string | null;
       profileCreated?: boolean;
       invitedAt?: string | null;
       fullName?: string | null;

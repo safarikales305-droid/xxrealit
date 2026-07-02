@@ -7,12 +7,20 @@ import {
   nestAdminBrokerContacts,
   nestAdminBrokerContactDetail,
   nestAdminBrokerContactsBulkUpdate,
+  nestAdminBrokerDatabaseImportPreview,
+  nestAdminBrokerDatabaseImportRun,
+  nestAdminBrokerDatabaseWhatsAppCampaign,
+  nestAdminBrokerDatabaseWhatsAppCount,
   nestAdminDownloadBrokerContactsCsv,
   nestAdminPatchBrokerContact,
   nestApiConfigured,
   type AdminImportedBrokerContactRow,
+  type BrokerDatabaseWhatsAppAudience,
+  type BrokerDirectoryImportPreview,
+  type BrokerDirectoryImportResult,
   type EmailCampaignAudience,
 } from '@/lib/nest-client';
+import { nestAdminWhatsAppTemplatesList } from '@/lib/whatsapp-admin-api';
 import { EmailCampaignEditorModal } from '@/components/admin/EmailCampaignEditorModal';
 import { EmailCampaignHistoryPanel } from '@/components/admin/EmailCampaignHistoryPanel';
 
@@ -56,6 +64,7 @@ export default function AdminImportedBrokersPage() {
   const [hasPhone, setHasPhone] = useState<boolean | undefined>(undefined);
   const [profileCreated, setProfileCreated] = useState<boolean | undefined>(undefined);
   const [outreachStatus, setOutreachStatus] = useState('');
+  const [contactStatus, setContactStatus] = useState('');
   const [sort, setSort] = useState('lastSeen_desc');
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -70,6 +79,23 @@ export default function AdminImportedBrokersPage() {
     mode: 'all_imported',
   });
 
+  const [importOpen, setImportOpen] = useState(false);
+  const [importUrl, setImportUrl] = useState('https://www.realitnieso.cz/adresar-rk');
+  const [importSource, setImportSource] = useState('realitnieso.cz');
+  const [importPreview, setImportPreview] = useState<BrokerDirectoryImportPreview | null>(null);
+  const [importResult, setImportResult] = useState<BrokerDirectoryImportResult | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importErr, setImportErr] = useState<string | null>(null);
+
+  const [waOpen, setWaOpen] = useState(false);
+  const [waAudience, setWaAudience] = useState<BrokerDatabaseWhatsAppAudience>({ mode: 'all_imported' });
+  const [waCount, setWaCount] = useState<number | null>(null);
+  const [waTemplateId, setWaTemplateId] = useState('');
+  const [waTemplates, setWaTemplates] = useState<Array<{ id: string; templateName: string; language: string }>>([]);
+  const [waConfirm, setWaConfirm] = useState(false);
+  const [waBusy, setWaBusy] = useState(false);
+  const [waErr, setWaErr] = useState<string | null>(null);
+
   const apiOk = useMemo(() => nestApiConfigured(), []);
 
   const load = useCallback(async () => {
@@ -83,6 +109,7 @@ export default function AdminImportedBrokersPage() {
       hasPhone,
       profileCreated,
       outreachStatus: outreachStatus.trim() || undefined,
+      contactStatus: contactStatus.trim() || undefined,
       sort,
       skip,
       take,
@@ -104,6 +131,7 @@ export default function AdminImportedBrokersPage() {
     hasPhone,
     profileCreated,
     outreachStatus,
+    contactStatus,
     sort,
     skip,
     take,
@@ -146,9 +174,10 @@ export default function AdminImportedBrokersPage() {
       hasPhone,
       profileCreated,
       outreachStatus: outreachStatus.trim() || undefined,
+      contactStatus: contactStatus.trim() || undefined,
       sort,
     }),
-    [search, portal, hasEmail, hasPhone, profileCreated, outreachStatus, sort],
+    [search, portal, hasEmail, hasPhone, profileCreated, outreachStatus, contactStatus, sort],
   );
 
   function openCampaignEditor(mode: EmailCampaignAudience['mode']) {
@@ -161,6 +190,38 @@ export default function AdminImportedBrokersPage() {
       setCampaignAudience({ mode: 'all_imported' });
     }
     setCampaignOpen(true);
+  }
+
+  function buildWhatsAppAudience(mode: BrokerDatabaseWhatsAppAudience['mode']): BrokerDatabaseWhatsAppAudience {
+    if (mode === 'selected_ids') {
+      return { mode, selectedContactIds: selectedIds };
+    }
+    if (mode === 'filtered') {
+      return { mode, filter: currentFilter };
+    }
+    return { mode: 'all_imported' };
+  }
+
+  async function openWhatsAppCampaign(mode: BrokerDatabaseWhatsAppAudience['mode']) {
+    if (mode === 'selected_ids' && selectedIds.length === 0) return;
+    const audience = buildWhatsAppAudience(mode);
+    setWaAudience(audience);
+    setWaConfirm(false);
+    setWaErr(null);
+    setWaOpen(true);
+    if (token) {
+      const tpl = await nestAdminWhatsAppTemplatesList(token);
+      const approved =
+        tpl?.templates?.filter((t) => t.status === 'APPROVED').map((t) => ({
+          id: t.id,
+          templateName: t.templateName,
+          language: t.language,
+        })) ?? [];
+      setWaTemplates(approved);
+      if (approved[0]) setWaTemplateId(approved[0].id);
+      const cnt = await nestAdminBrokerDatabaseWhatsAppCount(token, audience);
+      setWaCount(cnt?.count ?? 0);
+    }
   }
 
   if (!token || !user || user.role !== 'ADMIN') {
@@ -185,9 +246,23 @@ export default function AdminImportedBrokersPage() {
             </Link>
             <span className="text-sm font-semibold text-zinc-800">Databáze makléřů (import)</span>
           </div>
-          <Link href="/admin/importy" className="text-sm font-semibold text-zinc-600 hover:text-zinc-900">
-            Importy
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setImportOpen(true);
+                setImportPreview(null);
+                setImportResult(null);
+                setImportErr(null);
+              }}
+              className="rounded-full border border-orange-300 bg-orange-50 px-4 py-2 text-xs font-bold text-orange-900 hover:bg-orange-100"
+            >
+              Import z RealitníEso
+            </button>
+            <Link href="/admin/importy" className="text-sm font-semibold text-zinc-600 hover:text-zinc-900">
+              Importy
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -242,6 +317,24 @@ export default function AdminImportedBrokersPage() {
               <option value="contacted">contacted</option>
               <option value="emailed">emailed</option>
               <option value="prepared_mail">prepared_mail</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-semibold text-zinc-600">
+            Stav kontaktu
+            <select
+              value={contactStatus}
+              onChange={(e) => setContactStatus(e.target.value)}
+              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+            >
+              <option value="">(vše)</option>
+              <option value="NEW">NEW</option>
+              <option value="VERIFIED">VERIFIED</option>
+              <option value="CONTACTED">CONTACTED</option>
+              <option value="EMAILED">EMAILED</option>
+              <option value="WHATSAPP_SENT">WHATSAPP_SENT</option>
+              <option value="UNSUBSCRIBED">UNSUBSCRIBED</option>
+              <option value="INVALID">INVALID</option>
+              <option value="BLOCKED">BLOCKED</option>
             </select>
           </label>
         </div>
@@ -316,6 +409,7 @@ export default function AdminImportedBrokersPage() {
               const r = await nestAdminBrokerContactsBulkUpdate(token, {
                 ids: selectedIds,
                 outreachStatus: 'contacted',
+                contactStatus: 'CONTACTED',
               });
               if (r.ok) {
                 setSelected({});
@@ -333,6 +427,7 @@ export default function AdminImportedBrokersPage() {
               const r = await nestAdminBrokerContactsBulkUpdate(token, {
                 ids: selectedIds,
                 outreachStatus: 'emailed',
+                contactStatus: 'EMAILED',
               });
               if (r.ok) {
                 setSelected({});
@@ -355,6 +450,20 @@ export default function AdminImportedBrokersPage() {
             onClick={() => openCampaignEditor('all_imported')}
           >
             Kampaň — všichni s e-mailem
+          </button>
+          <button
+            type="button"
+            className="rounded-full border border-emerald-400 bg-emerald-50 px-3 py-1.5 font-semibold text-emerald-900 hover:bg-emerald-100"
+            onClick={() => void openWhatsAppCampaign(selectedIds.length > 0 ? 'selected_ids' : 'filtered')}
+          >
+            Vytvořit WhatsApp kampaň
+          </button>
+          <button
+            type="button"
+            className="rounded-full border border-emerald-300 bg-white px-3 py-1.5 font-semibold text-emerald-800 hover:bg-emerald-50"
+            onClick={() => void openWhatsAppCampaign('all_imported')}
+          >
+            WhatsApp — všichni s telefonem
           </button>
           <button
             type="button"
@@ -434,7 +543,7 @@ export default function AdminImportedBrokersPage() {
                   <td className="whitespace-nowrap px-3 py-2">{row.phone || '—'}</td>
                   <td className="px-3 py-2 text-xs text-zinc-600">{row.sourcePortal || '—'}</td>
                   <td className="px-3 py-2 tabular-nums">{row.listingCount}</td>
-                  <td className="px-3 py-2 text-xs">{row.status}</td>
+                  <td className="px-3 py-2 text-xs">{row.contactStatus || row.status}</td>
                   <td className="px-3 py-2">{row.profileCreated ? 'Ano' : 'Ne'}</td>
                   <td className="px-3 py-2 text-xs">{row.outreachStatus}</td>
                   <td className="whitespace-nowrap px-3 py-2 text-xs text-zinc-500">
@@ -504,7 +613,7 @@ export default function AdminImportedBrokersPage() {
               <Dt label="Telefon" value={detail.phone} />
               <Dt label="Portál" value={detail.sourcePortal} />
               <Dt label="Město" value={detail.city} />
-              <Dt label="Stav" value={detail.status} />
+              <Dt label="Stav" value={detail.contactStatus || detail.status} />
               <Dt label="Oslovení" value={detail.outreachStatus} />
               <Dt label="Inzerátů" value={String(detail.listingCount)} />
               <Dt label="Profil založen" value={detail.profileCreated ? 'Ano' : 'Ne'} />
@@ -516,7 +625,10 @@ export default function AdminImportedBrokersPage() {
                 className="rounded-full bg-orange-600 px-4 py-2 text-xs font-bold text-white"
                 onClick={async () => {
                   if (!token) return;
-                  await nestAdminPatchBrokerContact(token, detail.id, { outreachStatus: 'contacted' });
+                  await nestAdminPatchBrokerContact(token, detail.id, {
+                    outreachStatus: 'contacted',
+                    contactStatus: 'CONTACTED',
+                  });
                   void load();
                   setDetailOpen(false);
                 }}
@@ -587,6 +699,235 @@ export default function AdminImportedBrokersPage() {
                 </ul>
               </div>
             ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {importOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center" role="dialog">
+          <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-lg font-bold">Import kontaktů z adresáře RK</h2>
+              <button
+                type="button"
+                className="rounded-full border border-zinc-200 px-3 py-1 text-sm font-semibold"
+                onClick={() => setImportOpen(false)}
+              >
+                Zavřít
+              </button>
+            </div>
+            <div className="mt-4 space-y-3">
+              <label className="block text-xs font-bold text-zinc-600">
+                URL adresáře
+                <input
+                  value={importUrl}
+                  onChange={(e) => setImportUrl(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="block text-xs font-bold text-zinc-600">
+                Zdroj
+                <input
+                  value={importSource}
+                  onChange={(e) => setImportSource(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                />
+              </label>
+              {importErr ? (
+                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{importErr}</p>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={importBusy || !token}
+                  className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-bold disabled:opacity-50"
+                  onClick={async () => {
+                    if (!token) return;
+                    setImportBusy(true);
+                    setImportErr(null);
+                    setImportResult(null);
+                    const r = await nestAdminBrokerDatabaseImportPreview(token, {
+                      directoryUrl: importUrl,
+                      source: importSource,
+                    });
+                    setImportBusy(false);
+                    if (!r.ok || !r.data) {
+                      setImportErr(r.error ?? 'Náhled se nepodařil.');
+                      setImportPreview(null);
+                      return;
+                    }
+                    setImportPreview(r.data);
+                  }}
+                >
+                  {importBusy ? 'Načítám…' : 'Načíst náhled'}
+                </button>
+                <button
+                  type="button"
+                  disabled={importBusy || !token}
+                  className="rounded-full bg-orange-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+                  onClick={async () => {
+                    if (!token) return;
+                    setImportBusy(true);
+                    setImportErr(null);
+                    const r = await nestAdminBrokerDatabaseImportRun(token, {
+                      directoryUrl: importUrl,
+                      source: importSource,
+                    });
+                    setImportBusy(false);
+                    if (!r.ok || !r.data) {
+                      setImportErr(r.error ?? 'Import selhal.');
+                      return;
+                    }
+                    setImportResult(r.data);
+                    void load();
+                  }}
+                >
+                  {importBusy ? 'Importuji…' : 'Spustit import'}
+                </button>
+              </div>
+              {importPreview ? (
+                <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-3 text-sm">
+                  <p>
+                    Náhled: <strong>{importPreview.profilesFound}</strong> profilů (
+                    {importPreview.pagesScanned} stránek)
+                  </p>
+                  <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-xs">
+                    {importPreview.sample.map((s) => (
+                      <li key={s.sourceUrl}>
+                        {s.companyName} — {s.email || 'bez e-mailu'} / {s.phone || 'bez tel.'}
+                      </li>
+                    ))}
+                  </ul>
+                  {importPreview.errors.length > 0 ? (
+                    <p className="mt-2 text-xs text-amber-800">{importPreview.errors.join(' · ')}</p>
+                  ) : null}
+                </div>
+              ) : null}
+              {importResult ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">
+                  <p className="font-bold">Výsledek importu</p>
+                  <ul className="mt-2 grid grid-cols-2 gap-1 text-xs">
+                    <li>Nalezeno profilů: {importResult.profilesFound}</li>
+                    <li>Uloženo nových: {importResult.created}</li>
+                    <li>Aktualizováno: {importResult.updated}</li>
+                    <li>Duplicity: {importResult.duplicates}</li>
+                    <li>Bez e-mailu: {importResult.withoutEmail}</li>
+                    <li>Bez telefonu: {importResult.withoutPhone}</li>
+                    <li>Chyby: {importResult.errors.length}</li>
+                  </ul>
+                  {importResult.errors.length > 0 ? (
+                    <p className="mt-2 max-h-24 overflow-y-auto text-xs text-amber-900">
+                      {importResult.errors.slice(0, 8).join(' · ')}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {waOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center" role="dialog">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-lg font-bold">WhatsApp kampaň — databáze makléřů</h2>
+              <button
+                type="button"
+                className="rounded-full border border-zinc-200 px-3 py-1 text-sm font-semibold"
+                onClick={() => setWaOpen(false)}
+              >
+                Zavřít
+              </button>
+            </div>
+            <p className="mt-2 text-sm text-zinc-600">
+              Příjemci:{' '}
+              {waAudience.mode === 'selected_ids'
+                ? 'označené kontakty s telefonem'
+                : waAudience.mode === 'filtered'
+                  ? 'aktuálně vyfiltrované s telefonem'
+                  : 'všichni importovaní s telefonem'}
+              {waCount != null ? (
+                <>
+                  {' '}
+                  — <strong>{waCount}</strong> kontaktů
+                </>
+              ) : null}
+            </p>
+            <label className="mt-4 block text-xs font-bold text-zinc-600">
+              WhatsApp šablona
+              <select
+                value={waTemplateId}
+                onChange={(e) => setWaTemplateId(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+              >
+                {waTemplates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.templateName} ({t.language})
+                  </option>
+                ))}
+              </select>
+            </label>
+            {waErr ? (
+              <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{waErr}</p>
+            ) : null}
+            {!waConfirm ? (
+              <button
+                type="button"
+                disabled={waBusy || !token || waCount === 0}
+                className="mt-4 rounded-full bg-emerald-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+                onClick={() => setWaConfirm(true)}
+              >
+                Pokračovat k potvrzení
+              </button>
+            ) : (
+              <div className="mt-4 space-y-2">
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                  Opravdu chcete spustit WhatsApp kampaň pro {waCount ?? 0} kontaktů?
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-bold"
+                    onClick={() => setWaConfirm(false)}
+                  >
+                    Zpět
+                  </button>
+                  <button
+                    type="button"
+                    disabled={waBusy || !token}
+                    className="rounded-full bg-emerald-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+                    onClick={async () => {
+                      if (!token) return;
+                      const tpl = waTemplates.find((t) => t.id === waTemplateId);
+                      if (!tpl) {
+                        setWaErr('Vyberte šablonu.');
+                        return;
+                      }
+                      setWaBusy(true);
+                      setWaErr(null);
+                      const r = await nestAdminBrokerDatabaseWhatsAppCampaign(token, {
+                        audience: waAudience,
+                        waMetaTemplateId: tpl.id,
+                        waTemplateName: tpl.templateName,
+                        waTemplateLanguage: tpl.language,
+                        confirmed: true,
+                      });
+                      setWaBusy(false);
+                      if (!r.ok) {
+                        setWaErr(r.error ?? 'Kampaň se nepodařila spustit.');
+                        return;
+                      }
+                      setWaOpen(false);
+                      setWaConfirm(false);
+                      void load();
+                    }}
+                  >
+                    {waBusy ? 'Spouštím…' : 'Ano, spustit kampaň'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       ) : null}

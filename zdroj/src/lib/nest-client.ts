@@ -2511,19 +2511,24 @@ export type AdminImportedBrokerContactRow = {
   companyName: string;
   email: string | null;
   phone: string | null;
+  normalizedPhone: string | null;
   website: string | null;
+  address: string | null;
   sourcePortal: string | null;
   sourceUrl: string | null;
   city: string | null;
   notes: string | null;
   listingCount: number;
   status: string;
+  contactStatus: string;
   profileCreated: boolean;
   invitedAt: string | null;
   outreachStatus: string;
   outreachNote: string | null;
   firstSeenAt: string;
   lastSeenAt: string;
+  importedAt: string | null;
+  lastCheckedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -2609,7 +2614,7 @@ export async function nestAdminPatchBrokerContact(
 
 export async function nestAdminBrokerContactsBulkUpdate(
   token: string | null,
-  body: { ids: string[]; outreachStatus?: string; status?: string; profileCreated?: boolean },
+  body: { ids: string[]; outreachStatus?: string; contactStatus?: string; status?: string; profileCreated?: boolean },
 ): Promise<{ ok: boolean; updated?: number; error?: string }> {
   if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
   const res = await fetch(`${API_BASE_URL}/admin/broker-contacts/bulk-update`, {
@@ -2649,6 +2654,138 @@ export async function nestAdminDownloadBrokerContactsCsv(
   }
   const blob = await res.blob();
   return { ok: true, blob };
+}
+
+export type BrokerDirectoryImportPreview = {
+  profilesFound: number;
+  sample: Array<{
+    companyName: string;
+    email: string | null;
+    phone: string | null;
+    normalizedPhone: string | null;
+    website: string | null;
+    city: string | null;
+    address: string | null;
+    sourceUrl: string;
+    listingCount: number;
+  }>;
+  pagesScanned: number;
+  errors: string[];
+};
+
+export type BrokerDirectoryImportResult = {
+  profilesFound: number;
+  created: number;
+  updated: number;
+  duplicates: number;
+  withoutEmail: number;
+  withoutPhone: number;
+  errors: string[];
+  pagesScanned: number;
+};
+
+export type BrokerDatabaseWhatsAppAudience = {
+  mode: 'selected_ids' | 'filtered' | 'all_imported';
+  selectedContactIds?: string[];
+  filter?: {
+    search?: string;
+    portal?: string;
+    hasEmail?: boolean;
+    hasPhone?: boolean;
+    profileCreated?: boolean;
+    outreachStatus?: string;
+    contactStatus?: string;
+    sort?: string;
+  };
+};
+
+export async function nestAdminBrokerDatabaseImportPreview(
+  token: string | null,
+  body: { directoryUrl?: string; source?: string },
+): Promise<{ ok: boolean; data?: BrokerDirectoryImportPreview; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/broker-database/import-preview`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true, data: data as unknown as BrokerDirectoryImportPreview };
+}
+
+export async function nestAdminBrokerDatabaseImportRun(
+  token: string | null,
+  body: { directoryUrl?: string; source?: string },
+): Promise<{ ok: boolean; data?: BrokerDirectoryImportResult; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/broker-database/import-run`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true, data: data as unknown as BrokerDirectoryImportResult };
+}
+
+export async function nestAdminBrokerDatabaseWhatsAppCount(
+  token: string | null,
+  audience: BrokerDatabaseWhatsAppAudience,
+): Promise<{ count: number } | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/broker-database/whatsapp-campaign/count`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ audience }),
+  });
+  if (!res.ok) return null;
+  const data = (await res.json().catch(() => null)) as { count?: number } | null;
+  return { count: typeof data?.count === 'number' ? data.count : 0 };
+}
+
+export async function nestAdminBrokerDatabaseWhatsAppCampaign(
+  token: string | null,
+  body: {
+    audience: BrokerDatabaseWhatsAppAudience;
+    name?: string;
+    waMetaTemplateId?: string;
+    waTemplateName?: string;
+    waTemplateLanguage?: string;
+    confirmed?: boolean;
+  },
+): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/broker-database/whatsapp-campaign`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true, data };
 }
 
 export async function nestUploadPropertyImages(

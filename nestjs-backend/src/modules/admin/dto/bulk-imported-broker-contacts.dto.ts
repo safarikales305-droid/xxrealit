@@ -14,6 +14,10 @@ export class BulkImportedBrokerContactsDto {
   status?: string;
 
   @IsOptional()
+  @IsString()
+  contactStatus?: string;
+
+  @IsOptional()
   @IsBoolean()
   profileCreated?: boolean;
 }
