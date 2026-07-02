@@ -243,13 +243,15 @@ export class SupportTicketInboundService {
       const lock = await client.getMailboxLock('INBOX');
       try {
         const unseen = await client.search({ seen: false });
-        for (const uid of unseen) {
-          const msg = await client.fetchOne(uid, { source: true });
-          if (!msg?.source) continue;
-          const raw = msg.source.toString();
-          const result = await this.processInboundMime(raw, mailbox);
-          if (result.processed) fetched += 1;
-          await client.messageFlagsAdd(uid, ['\\Seen']);
+        if (unseen) {
+          for (const uid of unseen) {
+            const msg = await client.fetchOne(uid, { source: true });
+            if (msg === false || !msg.source) continue;
+            const raw = msg.source.toString();
+            const result = await this.processInboundMime(raw, mailbox);
+            if (result.processed) fetched += 1;
+            await client.messageFlagsAdd(uid, ['\\Seen']);
+          }
         }
       } finally {
         lock.release();
