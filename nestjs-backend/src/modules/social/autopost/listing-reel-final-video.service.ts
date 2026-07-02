@@ -371,7 +371,7 @@ export class ListingReelFinalVideoService {
 
   async updateScheduleFinalVideoSnapshot(
     scheduleId: string,
-    result: ListingReelFinalVideoResult,
+    result: Partial<ListingReelFinalVideoResult>,
   ): Promise<void> {
     await this.prisma.socialPublishSchedule.update({
       where: { id: scheduleId },

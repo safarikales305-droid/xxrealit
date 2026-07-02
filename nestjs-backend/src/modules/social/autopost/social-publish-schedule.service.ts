@@ -795,6 +795,7 @@ export class SocialPublishScheduleService {
       predictedIntroId: string | null;
     },
   ) {
+    const page = this.facebookPageMeta();
     const now = new Date();
     const displayStatus = resolveSchedulePlannerStatus({
       enabled: schedule.enabled,
