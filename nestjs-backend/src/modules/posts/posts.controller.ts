@@ -24,7 +24,7 @@ import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { uploadPostMedia } from './cloudinary-upload';
-import { CreateListingPostDto } from './dto/create-listing-post.dto';
+import { parseCommunityFeedAuthorRole } from './community-author-role.util';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import {
@@ -68,36 +68,20 @@ export class PostsController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    const value = (category ?? '').trim();
-    const cat = ([
-      'VSE',
-      'MAKLERI',
-      'STAVEBNI_FIRMY',
-      'REALITNI_KANCELARE',
-      'FINANCNI_PORADCI',
-      'INVESTORI',
-    ].includes(value)
-      ? value === 'VSE'
-        ? undefined
-        : (value as PostCategory)
-      : undefined);
-    const authorRoleValue = (authorRoleRaw ?? '').trim().toUpperCase();
-    const authorRole =
-      authorRoleValue === 'PORTAL_WORKER' ? UserRole.PORTAL_WORKER : undefined;
+    const authorRole = parseCommunityFeedAuthorRole(category, authorRoleRaw);
     const radius = Number(radiusKm);
     const userLat = Number(lat);
     const userLng = Number(lng);
     const pageNum = Number(page);
     const limitNum = Number(limit);
     return this.postsService.listCommunityPosts(
-      cat,
+      authorRole,
       Number.isFinite(radius) ? radius : undefined,
       Number.isFinite(userLat) ? userLat : undefined,
       Number.isFinite(userLng) ? userLng : undefined,
       viewer?.id,
       Number.isFinite(pageNum) ? pageNum : 0,
       Number.isFinite(limitNum) ? limitNum : 30,
-      authorRole,
     );
   }
 

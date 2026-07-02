@@ -182,6 +182,7 @@ export class PropertiesController {
     @Headers('authorization') auth?: string,
     @Query('city') city?: string,
     @Query('cities') cities?: string,
+    @Query('location') location?: string,
     @Query('propertyTypeKey') propertyTypeKey?: string,
     @Query('importCategoryKey') importCategoryKey?: string,
     @Query('sourcePortalKey') sourcePortalKey?: string,
@@ -198,6 +199,7 @@ export class PropertiesController {
     return this.propertiesService.findAllPublic(viewerId, {
       city,
       cities,
+      location,
       propertyTypeKey,
       importCategoryKey,
       sourcePortalKey,

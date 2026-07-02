@@ -33,6 +33,8 @@ function buildPropertiesQueryString(sp: SearchParamsInput): string {
   if (ptype) out.set('propertyTypeKey', ptype.toLowerCase());
   const cities = firstQuery(sp, 'cities')?.trim();
   if (cities) out.set('cities', cities);
+  const location = firstQuery(sp, 'location')?.trim();
+  if (location) out.set('location', location);
   const priceMin = firstQuery(sp, 'priceMin')?.trim();
   if (priceMin) out.set('priceMin', priceMin);
   const priceMax = firstQuery(sp, 'priceMax')?.trim();

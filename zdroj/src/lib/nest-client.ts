@@ -1,5 +1,6 @@
 'use client';
 
+import { communityCategoryToAuthorRole, type CommunityCategoryKey } from './community-category-roles';
 import { API_BASE_URL, getClientTokenFromCookie, getLinkPreviewApiUrl } from '@/lib/api';
 
 function getStoredToken(): string | null {
@@ -4277,7 +4278,7 @@ export async function nestListMyCompanyAds(
 export type NestPublicBrokerCard = {
   id: string;
   slug: string | null;
-  role: 'AGENT' | 'COMPANY' | 'AGENCY' | 'CRAFTSMAN' | 'FINANCIAL_ADVISOR' | 'INVESTOR';
+  role: 'AGENT' | 'COMPANY' | 'AGENCY' | 'CRAFTSMAN' | 'FINANCIAL_ADVISOR' | 'INVESTOR' | 'PORTAL_WORKER';
   name: string | null;
   avatarUrl: string | null;
   officeName: string;
@@ -4304,6 +4305,7 @@ function normalizeNestPublicBrokerCard(raw: unknown): NestPublicBrokerCard | nul
     'CRAFTSMAN',
     'FINANCIAL_ADVISOR',
     'INVESTOR',
+    'PORTAL_WORKER',
   ] as const;
   if (!allowed.includes(role as (typeof allowed)[number])) return null;
   const vsRaw = o.verificationStatus;
@@ -6900,6 +6902,7 @@ export async function nestFetchPostDetail(postId: string): Promise<ListingPost |
   return (await res.json()) as ListingPost;
 }
 
+
 export type CommunityPostsCategory =
   | 'VSE'
   | 'MAKLERI'
@@ -6923,9 +6926,9 @@ export async function nestFetchCommunityPosts(
   const empty: CommunityPostsFeedResult = { items: [], page: 0, limit: 30, hasMore: false };
   if (!API_BASE_URL) return empty;
   const params = new URLSearchParams();
-  if (category === 'PRACOVNICI_PORTALU') {
-    params.set('authorRole', 'PORTAL_WORKER');
-  } else if (category && category !== 'VSE') {
+  if (category && category !== 'VSE') {
+    const role = communityCategoryToAuthorRole(category as CommunityCategoryKey);
+    if (role) params.set('authorRole', role);
     params.set('category', category);
   }
   if (Number.isFinite(options?.radiusKm)) params.set('radiusKm', String(options?.radiusKm));

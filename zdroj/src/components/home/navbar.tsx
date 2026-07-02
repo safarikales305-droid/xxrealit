@@ -19,9 +19,13 @@ import { canAccessCommunication } from '@/lib/communication-roles';
 
 export type ViewMode = 'shorts' | 'classic' | 'posts';
 
+import type { ListingLocationOption } from '@/lib/listing-locations';
+
 type NavbarProps = {
   searchQuery: string;
   onSearchChange: (value: string) => void;
+  locationHints?: ListingLocationOption[];
+  onLocationHintSelect?: (label: string) => void;
   viewMode?: ViewMode;
   onViewModeChange?: (mode: ViewMode) => void;
   onMobileFiltersOpen?: () => void;
@@ -34,6 +38,8 @@ const mobileMenuBtn =
 export function Navbar({
   searchQuery,
   onSearchChange,
+  locationHints = [],
+  onLocationHintSelect,
   viewMode,
   onViewModeChange,
   onMobileFiltersOpen,
@@ -42,6 +48,7 @@ export function Navbar({
   const router = useRouter();
   const { user, isAuthenticated, isLoading, logout, apiAccessToken } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [locationOpen, setLocationOpen] = useState(false);
   const unreadMessages = useMessagesUnreadCount(apiAccessToken);
   const unreadNotifications = useNotificationsUnreadCount(apiAccessToken);
   const totalUnreadBadge = unreadMessages + unreadNotifications;
@@ -276,7 +283,12 @@ export function Navbar({
           <input
             type="search"
             value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
+            onChange={(e) => {
+              onSearchChange(e.target.value);
+              setLocationOpen(true);
+            }}
+            onFocus={() => setLocationOpen(true)}
+            onBlur={() => window.setTimeout(() => setLocationOpen(false), 180)}
             placeholder="Hledat lokality, projekty…"
             className={`w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 pl-8 text-xs font-medium text-zinc-900 placeholder:text-zinc-400 outline-none transition hover:border-zinc-300 hover:bg-white focus:border-[#ff6a00]/55 focus:bg-white focus:ring-2 focus:ring-[#ff6a00]/15 md:px-3 md:py-2 md:pl-9 md:text-sm lg:text-base ${
               isShortsMobileCompact
@@ -285,6 +297,26 @@ export function Navbar({
             }`}
             aria-label="Hledat"
           />
+          {locationOpen && locationHints.length > 0 && searchQuery.trim() ? (
+            <ul className="absolute left-0 right-0 top-[calc(100%+6px)] z-50 max-h-64 overflow-y-auto rounded-xl border border-zinc-200 bg-white py-1 shadow-lg">
+              {locationHints.map((hint) => (
+                <li key={`${hint.city}-${hint.district}-${hint.region}`}>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-zinc-800 hover:bg-orange-50"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      onLocationHintSelect?.(hint.label || hint.city);
+                      setLocationOpen(false);
+                    }}
+                  >
+                    <span>{hint.label}</span>
+                    <span className="text-xs text-zinc-500">{hint.count}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
 
         <div className="flex shrink-0 flex-nowrap items-center gap-2 md:flex-wrap md:gap-3">

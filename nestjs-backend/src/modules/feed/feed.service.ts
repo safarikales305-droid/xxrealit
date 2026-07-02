@@ -3,10 +3,9 @@ import { UserRole } from '@prisma/client';
 import { SEED_DEMO_VIDEO_MP4 } from '../../database/seed.constants';
 import { PrismaService } from '../../database/prisma.service';
 import { PostsService } from '../posts/posts.service';
-import {
-  classicPublicListingWhere,
-  publicShortPropertyWhere,
-} from '../properties/property-listing-scope';
+import type { PublicPropertyListFilters } from '../properties/properties.service';
+import { PropertiesService } from '../properties/properties.service';
+import { classicPublicListingWhere } from '../properties/property-listing-scope';
 import { publiclyVisiblePropertyWhere } from '../properties/property-public-visibility';
 import { ListingContactUnlockService } from '../properties/listing-contact-unlock.service';
 import {
@@ -51,6 +50,7 @@ export class FeedService {
     private readonly prisma: PrismaService,
     private readonly posts: PostsService,
     private readonly listingContactUnlock: ListingContactUnlockService,
+    private readonly properties: PropertiesService,
   ) {}
 
   async getPersonalizedForUser(viewerId: string) {
@@ -128,7 +128,7 @@ export class FeedService {
    * Shorts = jen schválené inzeráty s videem (`publicShortPropertyWhere`: PropertyMedia
    * typu video nebo neprázdné `videoUrl`).
    */
-  async listShorts(viewerId?: string) {
+  async listShorts(viewerId?: string, filters?: PublicPropertyListFilters) {
     const viewer = viewerId
       ? await this.prisma.user.findUnique({
           where: { id: viewerId },
@@ -143,10 +143,12 @@ export class FeedService {
         }
       : undefined;
 
+    const where = this.properties.buildShortsPublicWhere(filters);
+
     const rows = await this.prisma.property.findMany({
-      where: publicShortPropertyWhere,
+      where,
       orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
-      take: 40,
+      take: 80,
       include: {
         media: { orderBy: { sortOrder: 'asc' } },
         tiparPostPublished: { select: { id: true, contactUnlockPrice: true } },
@@ -167,7 +169,7 @@ export class FeedService {
       r.media.some((m) => m.type === 'video'),
     ).length;
     this.log.log(
-      `[feed/shorts] DB rows=${sorted.length} (videoUrl=${withVideoUrl}, mediaVideo=${withVideoMedia}) listingType=SHORTS+approved+visible`,
+      `[feed/shorts] DB rows=${sorted.length} (videoUrl=${withVideoUrl}, mediaVideo=${withVideoMedia}) filters=${JSON.stringify(filters ?? {})}`,
     );
 
     const serialized: Record<string, unknown>[] = await Promise.all(

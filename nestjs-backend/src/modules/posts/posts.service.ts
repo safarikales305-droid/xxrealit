@@ -575,14 +575,13 @@ export class PostsService {
   }
 
   async listCommunityPosts(
-    category?: PostCategory,
+    authorRole?: UserRole,
     radiusKm?: number,
     lat?: number,
     lng?: number,
     viewerUserId?: string,
     page = 0,
     limit = 30,
-    authorRole?: UserRole,
   ) {
     const safeLimit = Math.min(100, Math.max(1, Math.trunc(limit) || 30));
     const safePage = Math.max(0, Math.trunc(page) || 0);
@@ -601,7 +600,6 @@ export class PostsService {
     let orderedIds: string[] = [];
     if (safePage === 0 && followedIds.length > 0) {
       const followedPostIds = await this.queryCommunityFeedPostIds({
-        category,
         authorRole,
         followedUserIds: followedIds,
         onlyFollowedAuthors: true,
@@ -611,7 +609,6 @@ export class PostsService {
       orderedIds.push(...followedPostIds);
 
       const generalIds = await this.queryCommunityFeedPostIds({
-        category,
         authorRole,
         followedUserIds: followedIds,
         excludeIds: orderedIds,
@@ -621,7 +618,6 @@ export class PostsService {
       orderedIds.push(...generalIds);
     } else {
       orderedIds = await this.queryCommunityFeedPostIds({
-        category,
         authorRole,
         followedUserIds: followedIds,
         prioritizeFollowed: followedIds.length > 0,
@@ -709,7 +705,6 @@ export class PostsService {
   }
 
   private async queryCommunityFeedPostIds(options: {
-    category?: PostCategory;
     authorRole?: UserRole;
     followedUserIds?: string[];
     onlyFollowedAuthors?: boolean;
@@ -723,9 +718,6 @@ export class PostsService {
     const roleInClause = Prisma.join(
       allowedRoles.map((role) => Prisma.sql`${role}::"UserRole"`),
     );
-    const categoryClause = options.category
-      ? Prisma.sql`AND p.category = ${options.category}::"PostCategory" AND NOT (p.source = 'FACEBOOK'::"PostSource" AND p."professionalProfileId" IS NULL)`
-      : Prisma.empty;
     const authorRoleClause =
       options.authorRole != null
         ? Prisma.sql`AND u.role = ${options.authorRole}::"UserRole"`
@@ -752,7 +744,6 @@ export class PostsService {
         AND u."publicProfile" = true
         AND u.role IN (${roleInClause})
         AND p.type <> 'short'
-        ${categoryClause}
         ${authorRoleClause}
         ${followedOnlyClause}
         ${excludeClause}

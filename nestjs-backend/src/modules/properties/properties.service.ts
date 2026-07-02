@@ -29,7 +29,7 @@ import {
   isImportedListingPubliclyVisible,
   isImportedProperty,
 } from './property-import-branch-visibility';
-import { classicPublicListingWhere } from './property-listing-scope';
+import { anyPublicListingWhere, classicPublicListingWhere, publicShortPropertyWhere } from './property-listing-scope';
 import { BonusCampaignService } from '../bonus-campaign/bonus-campaign.service';
 import { RegistrationGateService } from '../registration-gate/registration-gate.service';
 import { BonusSourceType } from '@prisma/client';
@@ -47,8 +47,10 @@ const CANONICAL_PROPERTY_TYPE_KEYS = new Set([
 
 export type PublicPropertyListFilters = {
   city?: string;
-  /** Čárkou oddělená města — OR (kdekoli v `city`). */
+  /** Čárkou oddělená města — OR (kdekoli v adresních polích). */
   cities?: string;
+  /** Volný text lokality (město, okres, kraj, ulice, PSČ). */
+  location?: string;
   propertyTypeKey?: string;
   importCategoryKey?: string;
   sourcePortalKey?: string;
@@ -80,11 +82,15 @@ import { overlayFieldsForStorage } from './shorts-overlay.types';
 import { PropertySocialPublishSummaryService } from './property-social-publish-summary.service';
 import { SocialPublishEnqueueService } from '../social/autopost/social-publish-enqueue.service';
 import { TikTokQueueService } from '../social/tiktok/tiktok-queue.service';
-import { anyPublicListingWhere } from './property-listing-scope';
 import {
   listingLocationSlug,
   type PublicListingLocationRow,
 } from './listing-locations.util';
+import {
+  buildPropertyLocationMatchWhere,
+  buildPropertyLocationsWhere,
+  locationSearchScore,
+} from './property-location-filter.util';
 
 @Injectable()
 export class PropertiesService {
@@ -226,29 +232,30 @@ export class PropertiesService {
     return { OR };
   }
 
-  private buildClassicPublicWhere(
+  private appendPublicListFilters(
+    parts: Prisma.PropertyWhereInput[],
     filters?: PublicPropertyListFilters,
-  ): Prisma.PropertyWhereInput {
-    const parts: Prisma.PropertyWhereInput[] = [classicPublicListingWhere];
+  ) {
     if (filters?.tipsOnly) {
       parts.push({ isTiparTip: true });
     }
+
+    const locationTerm = filters?.location?.trim();
     const citiesCsv = filters?.cities?.trim();
-    if (citiesCsv) {
+    if (locationTerm) {
+      parts.push(buildPropertyLocationMatchWhere(locationTerm));
+    } else if (citiesCsv) {
       const list = [...new Set(citiesCsv.split(',').map((s) => s.trim()).filter(Boolean))];
-      if (list.length === 1) {
-        parts.push({ city: { contains: list[0], mode: 'insensitive' } });
-      } else if (list.length > 1) {
-        parts.push({
-          OR: list.map((c) => ({ city: { contains: c, mode: 'insensitive' as const } })),
-        });
+      if (list.length > 0) {
+        parts.push(buildPropertyLocationsWhere(list));
       }
     } else {
       const city = filters?.city?.trim();
       if (city) {
-        parts.push({ city: { contains: city, mode: 'insensitive' } });
+        parts.push(buildPropertyLocationMatchWhere(city));
       }
     }
+
     const ptk = filters?.propertyTypeKey?.trim();
     if (ptk) {
       const ptw = this.buildPublicPropertyTypeFilterWhere(ptk);
@@ -270,6 +277,19 @@ export class PropertiesService {
     if (typeof pMax === 'number' && Number.isFinite(pMax) && pMax >= 0) {
       parts.push({ price: { lte: Math.trunc(pMax) } });
     }
+  }
+
+  buildShortsPublicWhere(filters?: PublicPropertyListFilters): Prisma.PropertyWhereInput {
+    const parts: Prisma.PropertyWhereInput[] = [publicShortPropertyWhere];
+    this.appendPublicListFilters(parts, filters);
+    return parts.length === 1 ? parts[0] : { AND: parts };
+  }
+
+  private buildClassicPublicWhere(
+    filters?: PublicPropertyListFilters,
+  ): Prisma.PropertyWhereInput {
+    const parts: Prisma.PropertyWhereInput[] = [classicPublicListingWhere];
+    this.appendPublicListFilters(parts, filters);
     return parts.length === 1 ? parts[0] : { AND: parts };
   }
 
@@ -1727,7 +1747,7 @@ export class PropertiesService {
   }> {
     const rows = await this.prisma.property.findMany({
       where: anyPublicListingWhere,
-      select: { city: true, district: true, region: true },
+      select: { city: true, district: true, region: true, address: true },
       take: 20000,
     });
 
@@ -1737,8 +1757,11 @@ export class PropertiesService {
       if (!city) continue;
       const district = (row.district ?? '').trim();
       const region = (row.region ?? '').trim();
+      const address = (row.address ?? '').trim();
       const key = `${city.toLowerCase()}|${district.toLowerCase()}|${region.toLowerCase()}`;
       const existing = bucket.get(key);
+      const labelParts = [city, district, region].filter(Boolean);
+      const label = labelParts.join(', ');
       if (existing) {
         existing.count += 1;
         continue;
@@ -1747,7 +1770,7 @@ export class PropertiesService {
         city,
         district,
         region,
-        label: city,
+        label,
         count: 1,
         slug: listingLocationSlug(city),
       });
@@ -1758,11 +1781,14 @@ export class PropertiesService {
       return a.label.localeCompare(b.label, 'cs');
     });
 
-    const q = (query?.q ?? '').trim().toLowerCase();
+    const q = (query?.q ?? '').trim();
     if (q) {
-      items = items.filter((item) => {
-        const blob = `${item.city} ${item.district} ${item.region}`.toLowerCase();
-        return blob.includes(q);
+      items = items.filter((item) => locationSearchScore(item, q) > 0);
+      items.sort((a, b) => {
+        const scoreDiff = locationSearchScore(b, q) - locationSearchScore(a, q);
+        if (scoreDiff !== 0) return scoreDiff;
+        if (b.count !== a.count) return b.count - a.count;
+        return a.label.localeCompare(b.label, 'cs');
       });
     }
 

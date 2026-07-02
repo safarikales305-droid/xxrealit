@@ -36,6 +36,49 @@ import { RightSidebar } from './right-sidebar';
 import { SidebarFilters } from './sidebar-filters';
 import { PortalProfilesCarousel } from './PortalProfilesCarousel';
 import { FeedSkeletonRows } from '@/components/ui/page-loading';
+import type { CommunityCategoryKey } from '@/lib/community-category-roles';
+
+function buildListingFilterQuery(
+  searchParams: { get: (key: string) => string | null },
+  searchQuery: string,
+): string {
+  const params = new URLSearchParams();
+  const cities = searchParams.get('cities')?.trim();
+  if (cities) params.set('cities', cities);
+  const ptype = searchParams.get('ptype')?.trim();
+  if (ptype) params.set('propertyTypeKey', ptype.toLowerCase());
+  const priceMin = searchParams.get('priceMin')?.trim();
+  if (priceMin) params.set('priceMin', priceMin);
+  const priceMax = searchParams.get('priceMax')?.trim();
+  if (priceMax) params.set('priceMax', priceMax);
+  const tipsOnly = searchParams.get('tipsOnly')?.trim().toLowerCase();
+  if (tipsOnly === '1' || tipsOnly === 'true') params.set('tipsOnly', '1');
+  const loc = searchQuery.trim();
+  if (loc) params.set('location', loc);
+  return params.toString();
+}
+
+function foldSearch(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function locationHintScore(loc: ListingLocationOption, query: string): number {
+  const q = query.trim().toLowerCase();
+  const qFold = foldSearch(q);
+  if (!q) return 0;
+  const parts = [loc.city, loc.district, loc.region, loc.label].map((p) => p.toLowerCase());
+  let best = 0;
+  for (const part of parts) {
+    const fold = foldSearch(part);
+    if (part === q || fold === qFold) best = Math.max(best, 100);
+    else if (part.startsWith(q) || fold.startsWith(qFold)) best = Math.max(best, 80);
+    else if (part.includes(q) || fold.includes(qFold)) best = Math.max(best, 50);
+  }
+  return best;
+}
 
 type Props = {
   items: PropertyFeedItem[];
@@ -193,24 +236,46 @@ export function HomeLayout({
 
   useEffect(() => {
     let cancelled = false;
-    void fetchListingLocations(API_BASE_URL, { limit: 500 }).then((items) => {
-      if (!cancelled) setListingLocations(items);
-    });
+    const q = searchQuery.trim();
+    const handle = window.setTimeout(() => {
+      void fetchListingLocations(API_BASE_URL, {
+        q: q || undefined,
+        limit: 500,
+      }).then((items) => {
+        if (!cancelled) setListingLocations(items);
+      });
+    }, q ? 220 : 0);
     return () => {
       cancelled = true;
+      window.clearTimeout(handle);
     };
-  }, []);
+  }, [searchQuery]);
 
   const searchLocationHints = useMemo(() => {
-    const s = searchQuery.trim().toLowerCase();
+    const s = searchQuery.trim();
     if (!s) return listingLocations.slice(0, 12);
-    return listingLocations
-      .filter((loc) => {
-        const blob = `${loc.city} ${loc.district} ${loc.region}`.toLowerCase();
-        return blob.includes(s);
+    return [...listingLocations]
+      .filter((loc) => locationHintScore(loc, s) > 0)
+      .sort((a, b) => {
+        const scoreDiff = locationHintScore(b, s) - locationHintScore(a, s);
+        if (scoreDiff !== 0) return scoreDiff;
+        if (b.count !== a.count) return b.count - a.count;
+        return a.label.localeCompare(b.label, 'cs');
       })
       .slice(0, 12);
   }, [listingLocations, searchQuery]);
+
+  const listingFilterQuery = useMemo(
+    () => buildListingFilterQuery(searchParams, searchQuery),
+    [searchParams, searchQuery],
+  );
+
+  const activeLocationLabel = useMemo(() => {
+    const cities = searchParams.get('cities')?.trim();
+    if (cities) return cities;
+    const loc = searchQuery.trim();
+    return loc || null;
+  }, [searchParams, searchQuery]);
 
   const sharedVideoId = useMemo(
     () => searchParams.get('video')?.trim() || null,
@@ -253,8 +318,6 @@ export function HomeLayout({
   const postsLoadMoreRef = useRef<HTMLDivElement>(null);
   const POSTS_PAGE_SIZE = 30;
   const [loadingFeed, setLoadingFeed] = useState(false);
-  const shortsLoadedRef = useRef(false);
-  const shortsAuthKeyRef = useRef('');
   const [activeCategory, setActiveCategory] = useState<CommunityCategory>('VSE');
   const [postsCategoryOpen, setPostsCategoryOpen] = useState(false);
   const [radiusKm, setRadiusKm] = useState<(typeof RADIUS_OPTIONS_KM)[number]>(30);
@@ -579,12 +642,19 @@ export function HomeLayout({
   }, [viewMode, classicTotal, shortsTotal]);
   const showNoSearchHits =
     viewMode === 'classic' && hasData && filteredItems.length === 0;
+  const showNoSearchHitsShorts =
+    viewMode === 'shorts' &&
+    !shortsBootstrapBusy &&
+    videosForFeed.length === 0 &&
+    (activeLocationLabel != null || listingFilterQuery.length > 0);
+
   const showNoSearchHitsShortsFallback =
     viewMode === 'shorts' &&
     !shortsBootstrapBusy &&
     videosForFeed.length === 0 &&
     classicShortsFallbackGrid.length > 0 &&
-    filteredShortsFallback.length === 0;
+    filteredShortsFallback.length === 0 &&
+    !showNoSearchHitsShorts;
 
   const communityFeedPosts = useMemo(
     () =>
@@ -617,8 +687,6 @@ export function HomeLayout({
 
   useEffect(() => {
     if (!API_BASE_URL || viewMode !== 'shorts') return;
-    const authKey = apiAccessToken ?? '';
-    if (shortsLoadedRef.current && shortsAuthKeyRef.current === authKey) return;
     let cancelled = false;
     setLoadingFeed(true);
 
@@ -626,7 +694,8 @@ export function HomeLayout({
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 12_000);
       try {
-        const shortsUrl = `${API_BASE_URL}/feed/shorts`;
+        const qs = listingFilterQuery;
+        const shortsUrl = `${API_BASE_URL}/feed/shorts${qs ? `?${qs}` : ''}`;
         const res = await fetch(shortsUrl, {
           cache: 'no-store',
           signal: controller.signal,
@@ -684,13 +753,12 @@ export function HomeLayout({
         if (list.length === 0) {
           const classic = await loadPropertyFeedItems(API_BASE_URL, {
             path: '/properties',
+            query: qs || undefined,
           });
           if (!cancelled) setShortsFallbackItems(classic.items);
         } else if (!cancelled) {
           setShortsFallbackItems([]);
         }
-        shortsLoadedRef.current = true;
-        shortsAuthKeyRef.current = authKey;
       } catch (err) {
         if (process.env.NODE_ENV === 'development') {
           // eslint-disable-next-line no-console
@@ -702,13 +770,12 @@ export function HomeLayout({
           try {
             const classic = await loadPropertyFeedItems(API_BASE_URL, {
               path: '/properties',
+              query: listingFilterQuery || undefined,
             });
             if (!cancelled) setShortsFallbackItems(classic.items);
           } catch {
             if (!cancelled) setShortsFallbackItems([]);
           }
-          shortsLoadedRef.current = true;
-          shortsAuthKeyRef.current = authKey;
         }
       } finally {
         window.clearTimeout(timeout);
@@ -719,7 +786,7 @@ export function HomeLayout({
     return () => {
       cancelled = true;
     };
-  }, [viewMode, apiAccessToken]);
+  }, [viewMode, apiAccessToken, listingFilterQuery]);
 
   useEffect(() => {
     if (viewMode !== 'posts') return;
@@ -743,6 +810,12 @@ export function HomeLayout({
         setPostFeed(result.items as Array<Record<string, unknown>>);
         setPostsHasMore(result.hasMore);
         mergePostReactionMaps(result.items, user?.id);
+        // eslint-disable-next-line no-console
+        console.debug('[posts] feed loaded', {
+          category: activeCategory,
+          profilesCategory: activeCategory,
+          postsCount: result.items.length,
+        });
       } catch {
         if (!cancelled) {
           setPostFeed([]);
@@ -946,6 +1019,8 @@ export function HomeLayout({
       <Navbar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
+        locationHints={searchLocationHints}
+        onLocationHintSelect={(label) => setSearchQuery(label)}
         viewMode={viewMode}
         onViewModeChange={onChangeViewMode}
         onMobileFiltersOpen={
@@ -1030,14 +1105,15 @@ export function HomeLayout({
                 </button>
               </div>
             </div>
-          ) : showNoSearchHits || showNoSearchHitsShortsFallback ? (
+          ) : showNoSearchHits || showNoSearchHitsShortsFallback || showNoSearchHitsShorts ? (
             <div className="flex min-h-[min(24rem,50vh)] flex-1 flex-col items-center justify-center gap-3 px-6 py-12 text-center">
               <p className="text-lg font-semibold text-zinc-800">
-                Žádné výsledky pro „{searchQuery.trim()}“
+                {showNoSearchHitsShorts
+                  ? 'Ve vybrané lokalitě nebyly nalezeny žádné inzeráty.'
+                  : `Žádné výsledky pro „${searchQuery.trim() || activeLocationLabel}“`}
               </p>
               <p className="max-w-sm text-sm text-zinc-500">
-                Zkuste jiný výraz nebo přepněte zpět na zobrazení Shorts /
-                Klasicky.
+                Zkuste jinou lokalitu nebo upravte filtry v postranním panelu.
               </p>
               <button
                 type="button"
@@ -1066,15 +1142,22 @@ export function HomeLayout({
                     </p>
                   </div>
                 ) : videosForFeed.length > 0 ? (
-                  <VideoFeed
-                    key={sharedVideoId ?? 'feed'}
-                    videos={videosForFeed}
-                    onMobileFiltersOpen={
-                      viewMode === 'shorts'
-                        ? () => setMobileFiltersOpen(true)
-                        : undefined
-                    }
-                  />
+                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                    {activeLocationLabel ? (
+                      <p className="shrink-0 border-b border-zinc-200 bg-white px-4 py-2 text-center text-sm text-zinc-700">
+                        Aktivní lokalita: <span className="font-semibold">{activeLocationLabel}</span>
+                      </p>
+                    ) : null}
+                    <VideoFeed
+                      key={sharedVideoId ?? 'feed'}
+                      videos={videosForFeed}
+                      onMobileFiltersOpen={
+                        viewMode === 'shorts'
+                          ? () => setMobileFiltersOpen(true)
+                          : undefined
+                      }
+                    />
+                  </div>
                 ) : filteredShortsFallback.length > 0 ? (
                   <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain">
                     <p className="shrink-0 border-b border-zinc-200 bg-white px-4 py-2.5 text-center text-[13px] text-zinc-600">
@@ -1135,7 +1218,7 @@ export function HomeLayout({
 
                       <main className="min-w-0 xl:col-span-6">
                         <div className="mx-auto w-full max-w-[650px]">
-                        <PortalProfilesCarousel />
+                        <PortalProfilesCarousel category={activeCategory as CommunityCategoryKey} />
                         <div className="sticky top-0 z-20 w-full rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur md:p-3">
                           <div className="flex w-full min-w-0 items-center justify-between gap-2 md:gap-3">
                             <div className="relative min-w-0 flex-1">
@@ -1270,7 +1353,9 @@ export function HomeLayout({
                     {loadingFeed ? (
                       <FeedSkeletonRows count={3} />
                     ) : communityFeedPosts.length === 0 ? (
-                      <p className="text-sm text-zinc-600">Zatím žádné příspěvky.</p>
+                      <p className="text-sm text-zinc-600">
+                        V této kategorii zatím nejsou žádné příspěvky.
+                      </p>
                     ) : (
                       communityFeedPosts.map((row) => {
                         const p = row as ListingPost;

@@ -1,4 +1,4 @@
-import { PortalWorkerStatus, PostCategory, PostSource, UserRole } from '@prisma/client';
+import { PortalWorkerStatus, PostSource, UserRole } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
 import {
   isCommunityPostAuthorVisible,
@@ -75,18 +75,13 @@ export function communityPostAuthorUserWhere(): Prisma.UserWhereInput {
   };
 }
 
-export function buildCommunityPostsWhere(category?: PostCategory): Prisma.PostWhereInput {
+export function buildCommunityPostsWhere(authorRole?: import('@prisma/client').UserRole): Prisma.PostWhereInput {
   return {
     type: { not: 'short' },
-    user: communityPostAuthorUserWhere(),
-    ...(category
-      ? {
-          category,
-          NOT: {
-            AND: [{ source: PostSource.FACEBOOK }, { professionalProfileId: null }],
-          },
-        }
-      : {}),
+    user: {
+      ...communityPostAuthorUserWhere(),
+      ...(authorRole ? { role: authorRole } : {}),
+    },
   };
 }
 
