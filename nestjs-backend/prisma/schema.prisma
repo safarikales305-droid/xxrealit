@@ -3364,6 +3364,11 @@ model SocialPublishSchedule {
   lastIntroVideoUsed        Boolean                @default(false)
   lastIntroVideoIdUsed      String?
   lastIntroVideoTitle       String?
+  lastIntroVideoAttemptId   String?
+  lastIntroVideoError       String?                @db.Text
+  lastRawPropertyType       String?
+  lastNormalizedPropertyType String?
+  lastMatchedIntroPropertyType SocialIntroPropertyType?
   lastSourceListingVideoUrl String?
   lastFinalVideoUrl         String?
   lastFinalVideoGeneratedAt DateTime?

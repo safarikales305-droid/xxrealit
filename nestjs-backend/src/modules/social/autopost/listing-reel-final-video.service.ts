@@ -13,6 +13,8 @@ import { SocialAutopostSettingsService } from './social-autopost-settings.servic
 import { SocialIntroVideoService } from './social-intro-video.service';
 import {
   type ListingIntroContext,
+  resolveListingNormalizedType,
+  resolveListingRawPropertyType,
   resolveSocialIntroPropertyType,
 } from './social-intro-property-type.util';
 import { FACEBOOK_REEL_MAX_SECONDS } from './social-facebook-reel.util';
@@ -24,11 +26,15 @@ export type ListingReelFinalVideoResult = {
   originalDurationSec: number | null;
   introVideoUsed: boolean;
   introVideoIdUsed: string | null;
+  introVideoAttemptId: string | null;
   introVideoTitle: string | null;
   introVideoPropertyType: SocialIntroPropertyType | null;
   introVideoDurationSec: number | null;
   totalReelDurationSec: number | null;
   introVideoError: string | null;
+  rawPropertyType: string | null;
+  normalizedPropertyType: string | null;
+  matchedIntroPropertyType: SocialIntroPropertyType | null;
   finalVideoGeneratedAt: Date;
   finalVideoSizeBytes: number | null;
   fromCache: boolean;
@@ -95,11 +101,19 @@ export class ListingReelFinalVideoService {
         originalDurationSec: null,
         introVideoUsed: false,
         introVideoIdUsed: null,
+        introVideoAttemptId: null,
         introVideoTitle: null,
         introVideoPropertyType: null,
         introVideoDurationSec: null,
         totalReelDurationSec: null,
         introVideoError: null,
+        rawPropertyType: input.listingContext
+          ? resolveListingRawPropertyType(input.listingContext)
+          : null,
+        normalizedPropertyType: input.listingContext
+          ? resolveListingNormalizedType(input.listingContext)
+          : null,
+        matchedIntroPropertyType: null,
         finalVideoGeneratedAt: generatedAt,
         finalVideoSizeBytes: null,
         fromCache: false,
@@ -122,6 +136,12 @@ export class ListingReelFinalVideoService {
     const structuralType = input.listingContext
       ? resolveSocialIntroPropertyType(input.listingContext)
       : null;
+    const rawPropertyType = input.listingContext
+      ? resolveListingRawPropertyType(input.listingContext)
+      : null;
+    const normalizedPropertyType = input.listingContext
+      ? resolveListingNormalizedType(input.listingContext)
+      : null;
 
     const introMatch =
       input.listingContext != null
@@ -129,11 +149,11 @@ export class ListingReelFinalVideoService {
         : null;
 
     this.log.log(
-      `[final-video] Typ nemovitosti=${structuralType ?? '—'}, úvodní video=${
+      `[final-video] listingId/context raw=${rawPropertyType ?? '—'} normalized=${normalizedPropertyType ?? '—'} structural=${structuralType ?? '—'} intro=${
         introMatch
-          ? `${introMatch.intro.title} (${introMatch.matchedPropertyType}, id=${introMatch.intro.id})`
+          ? `${introMatch.intro.title} (enum=${introMatch.matchedPropertyType}, normalized=${introMatch.normalizedPropertyType}, id=${introMatch.intro.id})`
           : 'nenalezeno'
-      }, zdroj=${sourceListingVideoUrl}`,
+      } source=${sourceListingVideoUrl}`,
     );
 
     let composeResult: Awaited<
@@ -149,7 +169,7 @@ export class ListingReelFinalVideoService {
         );
         const size = uploadBuffer.length;
         this.log.log(
-          `[final-video] Bez úvodního videa — ukázka inzerátu (${size} B): ${finalVideoUrl}`,
+          `[final-video] Bez úvodního videa — ukázka inzerátu (${size} B): ${finalVideoUrl} | raw=${rawPropertyType} normalized=${normalizedPropertyType}`,
         );
         return {
           finalVideoUrl,
@@ -158,11 +178,15 @@ export class ListingReelFinalVideoService {
           originalDurationSec: rendered.originalDurationSec,
           introVideoUsed: false,
           introVideoIdUsed: null,
+          introVideoAttemptId: null,
           introVideoTitle: null,
           introVideoPropertyType: structuralType,
           introVideoDurationSec: null,
           totalReelDurationSec: rendered.teaserDurationSec,
-          introVideoError: null,
+          introVideoError: 'Nenalezeno aktivní úvodní video pro kategorii',
+          rawPropertyType,
+          normalizedPropertyType,
+          matchedIntroPropertyType: null,
           finalVideoGeneratedAt: generatedAt,
           finalVideoSizeBytes: size,
           fromCache: false,
@@ -195,6 +219,7 @@ export class ListingReelFinalVideoService {
             originalDurationSec: rendered.originalDurationSec,
             introVideoUsed: true,
             introVideoIdUsed: intro.id,
+            introVideoAttemptId: intro.id,
             introVideoTitle: intro.title,
             introVideoPropertyType: structType,
             introVideoDurationSec:
@@ -204,6 +229,9 @@ export class ListingReelFinalVideoService {
                 : null),
             totalReelDurationSec: cached.totalDurationSec,
             introVideoError: null,
+            rawPropertyType,
+            normalizedPropertyType,
+            matchedIntroPropertyType: matchedPropertyType,
             finalVideoGeneratedAt: cached.createdAt,
             finalVideoSizeBytes: cached.finalVideoSizeBytes,
             fromCache: true,
@@ -269,7 +297,7 @@ export class ListingReelFinalVideoService {
         introVideoError = err instanceof Error ? err.message : String(err);
         composeLog = { ...composeLog, composeError: introVideoError };
         this.log.error(
-          `[final-video] Spojení selhalo (${matchedPropertyType}), fallback na ukázku: ${introVideoError}`,
+          `[final-video] Spojení selhalo (${matchedPropertyType}), fallback na ukázku: ${introVideoError} | introId=${intro.id}`,
         );
         uploadBuffer = await readFile(rendered.teaserPath);
       }
@@ -316,11 +344,15 @@ export class ListingReelFinalVideoService {
         originalDurationSec: rendered.originalDurationSec,
         introVideoUsed,
         introVideoIdUsed: introVideoUsed ? intro.id : null,
-        introVideoTitle: introVideoUsed ? intro.title : null,
+        introVideoAttemptId: intro.id,
+        introVideoTitle: introVideoUsed ? intro.title : intro.title,
         introVideoPropertyType: structType,
         introVideoDurationSec,
         totalReelDurationSec: totalReelDurationSec ?? rendered.teaserDurationSec,
         introVideoError,
+        rawPropertyType,
+        normalizedPropertyType,
+        matchedIntroPropertyType: matchedPropertyType,
         finalVideoGeneratedAt: generatedAt,
         finalVideoSizeBytes,
         fromCache: false,
@@ -346,7 +378,12 @@ export class ListingReelFinalVideoService {
       data: {
         lastIntroVideoUsed: result.introVideoUsed,
         lastIntroVideoIdUsed: result.introVideoIdUsed,
+        lastIntroVideoAttemptId: result.introVideoAttemptId,
         lastIntroVideoTitle: result.introVideoTitle,
+        lastIntroVideoError: result.introVideoError,
+        lastRawPropertyType: result.rawPropertyType,
+        lastNormalizedPropertyType: result.normalizedPropertyType,
+        lastMatchedIntroPropertyType: result.matchedIntroPropertyType,
         lastSourceListingVideoUrl: result.sourceListingVideoUrl,
         lastFinalVideoUrl: result.finalVideoUrl,
         lastFinalVideoGeneratedAt: result.finalVideoGeneratedAt,

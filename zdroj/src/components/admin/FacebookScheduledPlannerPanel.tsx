@@ -20,7 +20,9 @@ import {
   nestAdminScheduleUpdate,
   nestAdminRegenerateAllScheduleFinalVideos,
   nestAdminRegenerateScheduleFinalVideo,
+  nestAdminScheduleIntroDiagnostics,
   nestAdminSchedulesList,
+  type ScheduleIntroDiagnostics,
   type SchedulePlannerDashboard,
   type SchedulePlannerDetail,
   type SchedulePlannerRow,
@@ -32,6 +34,32 @@ function formatDt(iso: string | null | undefined): string {
   return Number.isFinite(d.getTime())
     ? d.toLocaleString('cs-CZ', { dateStyle: 'short', timeStyle: 'short' })
     : '—';
+}
+
+function introStatusLabel(row: SchedulePlannerRow): 'ANO' | 'NE' | 'CHYBA' {
+  if (row.introVideoStatus === 'YES' || row.introVideoUsed) return 'ANO';
+  if (row.introVideoStatus === 'ERROR' || row.introVideoError) return 'CHYBA';
+  return 'NE';
+}
+
+function introStatusClass(status: 'ANO' | 'NE' | 'CHYBA'): string {
+  if (status === 'ANO') return 'text-emerald-700';
+  if (status === 'CHYBA') return 'text-red-700';
+  return 'text-zinc-500';
+}
+
+function introTooltip(row: SchedulePlannerRow): string {
+  const lines = [
+    row.introVideoTitle ? `Název: ${row.introVideoTitle}` : null,
+    row.predictedIntroPropertyType ? `Typ intro: ${row.predictedIntroPropertyType}` : null,
+    row.introVideoIdUsed ? `introVideoIdUsed: ${row.introVideoIdUsed}` : null,
+    row.introVideoAttemptId ? `introVideoAttemptId: ${row.introVideoAttemptId}` : null,
+    row.finalVideoUrl ? `finalVideoUrl: ${row.finalVideoUrl}` : null,
+    row.finalVideoGeneratedAt ? `finalVideoGeneratedAt: ${formatDt(row.finalVideoGeneratedAt)}` : null,
+    row.introVideoStatusReason ? `Důvod: ${row.introVideoStatusReason}` : null,
+    row.introVideoError ? `Chyba: ${row.introVideoError}` : null,
+  ].filter(Boolean);
+  return lines.join('\n');
 }
 
 function scheduleToForm(row: SchedulePlannerRow): FacebookScheduleFormValues {
@@ -92,6 +120,9 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
   const [editRow, setEditRow] = useState<SchedulePlannerRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [bulkRegenBusy, setBulkRegenBusy] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<ScheduleIntroDiagnostics | null>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -190,18 +221,59 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
     setBusyId(scheduleId);
     const r = await nestAdminRegenerateScheduleFinalVideo(token, scheduleId);
     setBusyId(null);
-    if (r?.ok) {
+    if (r?.ok && r.result) {
+      const introStatus: SchedulePlannerRow['introVideoStatus'] = r.result.introVideoUsed
+        ? 'YES'
+        : r.result.introVideoError
+          ? 'ERROR'
+          : 'NO';
+      setRows((prev) =>
+        prev.map((row) =>
+          row.id === scheduleId
+            ? {
+                ...row,
+                introVideoUsed: r.result!.introVideoUsed,
+                introVideoStatus: introStatus,
+                introVideoIdUsed: r.result!.introVideoIdUsed ?? null,
+                introVideoAttemptId: r.result!.introVideoAttemptId ?? null,
+                introVideoTitle: r.result!.introVideoTitle ?? row.introVideoTitle,
+                introVideoError: r.result!.introVideoError ?? null,
+                introVideoStatusReason: r.result!.introVideoError
+                  ? r.result!.introVideoError
+                  : r.result!.introVideoUsed
+                    ? 'Úvodní video bylo spojeno do finálního videa'
+                    : 'Nenalezeno aktivní úvodní video pro kategorii',
+                propertyTypeRaw: r.result!.rawPropertyType ?? row.propertyTypeRaw,
+                propertyTypeNormalized: r.result!.normalizedPropertyType ?? row.propertyTypeNormalized,
+                finalVideoUrl: r.result!.finalVideoUrl,
+                finalVideoGeneratedAt: r.result!.finalVideoGeneratedAt ?? new Date().toISOString(),
+                totalReelDurationSec: r.result!.totalReelDurationSec ?? row.totalReelDurationSec,
+              }
+            : row,
+        ),
+      );
       onNotify?.(
-        r.result?.introVideoUsed
-          ? `✅ Výsledné video přegenerováno s úvodem.\n${r.result.finalVideoUrl}`
-          : `Výsledné video přegenerováno bez úvodního videa.`,
-        r.result?.finalVideoUrl ?? null,
+        r.result.introVideoUsed
+          ? `✅ Přegenerováno s úvodním videem.\n${r.result.finalVideoUrl}`
+          : r.result.introVideoError
+            ? `⚠️ Přegenerováno s chybou úvodního videa.\n${r.result.introVideoError}`
+            : `Výsledné video přegenerováno bez úvodního videa.`,
+        r.result.finalVideoUrl ?? null,
       );
       await refresh();
       if (detail?.schedule.id === scheduleId) void openDetail(detail.schedule);
     } else {
-      onNotify?.('Přegenerování videa selhalo.');
+      onNotify?.(`Přegenerování videa selhalo.${r?.error ? `\n${r.error}` : ''}`);
     }
+  }
+
+  async function openDiagnostics(scheduleId: string) {
+    if (!token) return;
+    setDiagnosticsLoading(true);
+    setDiagnostics(null);
+    const r = await nestAdminScheduleIntroDiagnostics(token, scheduleId);
+    setDiagnostics(r);
+    setDiagnosticsLoading(false);
   }
 
   async function regenerateAllFinalVideos() {
@@ -211,10 +283,12 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
     const r = await nestAdminRegenerateAllScheduleFinalVideos(token);
     setBulkRegenBusy(false);
     if (r?.ok) {
-      onNotify?.(`Přegenerováno ${r.succeeded}/${r.processed} plánů.`);
+      onNotify?.(
+        `Celkem ${r.total} · úspěšně ${r.succeeded} · bez intro videa ${r.withoutIntro} · chyba ${r.failed}`,
+      );
       await refresh();
     } else {
-      onNotify?.('Hromadné přegenerování selhalo.');
+      onNotify?.(`Hromadné přegenerování selhalo.${r?.error ? `\n${r.error}` : ''}`);
     }
   }
 
@@ -264,10 +338,11 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
       ) : null}
 
       <div className="mt-4 overflow-x-auto">
-        <table className="min-w-[960px] w-full text-left text-sm">
+        <table className="min-w-[1100px] w-full text-left text-sm">
           <thead>
             <tr className="border-b text-[10px] font-bold uppercase tracking-wide text-zinc-500">
               <th className="py-2 pr-3">Inzerát</th>
+              <th className="py-2 pr-3">Kategorie</th>
               <th className="py-2 pr-3">Typ</th>
               <th className="py-2 pr-3">Úvodní video</th>
               <th className="py-2 pr-3">Vytvořeno</th>
@@ -295,13 +370,35 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
                     <p className="mt-0.5 line-clamp-2 text-xs text-red-600">{row.lastError}</p>
                   ) : null}
                 </td>
+                <td className="py-2 pr-3 text-xs">
+                  <div className="font-semibold text-zinc-900">
+                    {row.propertyCategoryLabel ?? '—'}
+                  </div>
+                  <div className="text-[10px] text-zinc-500">
+                    DB: {row.propertyTypeRaw ?? '—'}
+                  </div>
+                  <div className="text-[10px] text-zinc-500">
+                    Match: {row.propertyTypeNormalized ?? '—'}
+                  </div>
+                </td>
                 <td className="py-2 pr-3 whitespace-nowrap text-xs">{row.publishType}</td>
                 <td className="py-2 pr-3 whitespace-nowrap text-xs font-medium">
-                  {row.introVideoUsed ? (
-                    <span className="text-emerald-700">ANO</span>
-                  ) : (
-                    <span className="text-zinc-500">NE</span>
-                  )}
+                  {(() => {
+                    const status = introStatusLabel(row);
+                    return (
+                      <span
+                        className={introStatusClass(status)}
+                        title={introTooltip(row)}
+                      >
+                        {status}
+                      </span>
+                    );
+                  })()}
+                  {row.predictedIntroTitle && !row.introVideoUsed ? (
+                    <p className="mt-0.5 max-w-[140px] truncate text-[10px] font-normal text-zinc-500" title={row.predictedIntroTitle}>
+                      → {row.predictedIntroTitle}
+                    </p>
+                  ) : null}
                 </td>
                 <td className="py-2 pr-3 whitespace-nowrap text-xs">{formatDt(row.planCreatedAt)}</td>
                 <td className="py-2 pr-3 whitespace-nowrap text-xs">{formatDt(row.scheduledAt)}</td>
@@ -337,6 +434,22 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
                       onClick={() => void regenerateFinalVideo(row.id)}
                     >
                       ▶ Přegenerovat video
+                    </button>
+                    {row.finalVideoUrl ? (
+                      <button
+                        type="button"
+                        className="text-left text-xs font-semibold text-emerald-700"
+                        onClick={() => setPreviewVideoUrl(row.finalVideoUrl!)}
+                      >
+                        Náhled finálního videa
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="text-left text-xs font-semibold text-amber-800"
+                      onClick={() => void openDiagnostics(row.id)}
+                    >
+                      Diagnostika
                     </button>
                     <button
                       type="button"
@@ -426,8 +539,25 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
                       <dd>{detail.schedule.facebookPageName}</dd>
                     </div>
                     <div>
+                      <dt className="text-zinc-500">Kategorie inzerátu</dt>
+                      <dd>
+                        {detail.schedule.propertyCategoryLabel ?? '—'}
+                        <span className="block text-xs text-zinc-500">
+                          DB: {detail.schedule.propertyTypeRaw ?? '—'} · Match:{' '}
+                          {detail.schedule.propertyTypeNormalized ?? '—'}
+                        </span>
+                      </dd>
+                    </div>
+                    <div>
                       <dt className="text-zinc-500">Úvodní video</dt>
-                      <dd>{detail.schedule.introVideoUsed ? 'ANO' : 'NE'}</dd>
+                      <dd>
+                        {introStatusLabel(detail.schedule)}
+                        {detail.schedule.introVideoStatusReason ? (
+                          <span className="block text-xs text-zinc-500">
+                            {detail.schedule.introVideoStatusReason}
+                          </span>
+                        ) : null}
+                      </dd>
                     </div>
                     {detail.schedule.introVideoTitle ? (
                       <div className="sm:col-span-2">
@@ -518,6 +648,84 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
           </div>
         </div>
       )}
+
+      {(diagnosticsLoading || diagnostics) && (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 p-4 sm:items-center">
+          <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl">
+            <div className="border-b px-6 py-4">
+              <h3 className="text-lg font-semibold">Diagnostika úvodního videa</h3>
+              {diagnostics ? (
+                <p className="mt-1 text-sm text-zinc-600">{diagnostics.listingTitle}</p>
+              ) : null}
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4 text-sm">
+              {diagnosticsLoading ? (
+                <p className="text-zinc-500">Načítám…</p>
+              ) : diagnostics ? (
+                <dl className="grid gap-2 sm:grid-cols-2">
+                  <div><dt className="text-zinc-500">ID inzerátu</dt><dd className="font-mono text-xs">{diagnostics.listingId}</dd></div>
+                  <div><dt className="text-zinc-500">ID plánu</dt><dd className="font-mono text-xs">{diagnostics.scheduleId}</dd></div>
+                  <div className="sm:col-span-2"><dt className="text-zinc-500">Typ v DB</dt><dd>{diagnostics.rawPropertyType}</dd></div>
+                  <div><dt className="text-zinc-500">Normalizovaný typ</dt><dd>{diagnostics.normalizedPropertyTypeLabel} ({diagnostics.normalizedPropertyType})</dd></div>
+                  <div><dt className="text-zinc-500">Stav úvodního videa</dt><dd>{diagnostics.introVideoStatus}</dd></div>
+                  <div className="sm:col-span-2"><dt className="text-zinc-500">Důvod</dt><dd>{diagnostics.introVideoStatusReason}</dd></div>
+                  <div className="sm:col-span-2">
+                    <dt className="text-zinc-500">Nalezené aktivní intro video</dt>
+                    <dd>
+                      {diagnostics.predictedIntro
+                        ? `${diagnostics.predictedIntro.title} (${diagnostics.predictedIntro.propertyTypeLabel})`
+                        : '—'}
+                    </dd>
+                  </div>
+                  <div className="sm:col-span-2"><dt className="text-zinc-500">Cesta k intro videu</dt><dd className="break-all text-xs">{diagnostics.predictedIntro?.videoUrl ?? '—'}</dd></div>
+                  <div className="sm:col-span-2"><dt className="text-zinc-500">Cesta k videu inzerátu</dt><dd className="break-all text-xs">{diagnostics.sourceVideoUrl ?? '—'}</dd></div>
+                  <div className="sm:col-span-2"><dt className="text-zinc-500">Výsledné video</dt><dd className="break-all text-xs">{diagnostics.finalVideoUrl ?? '—'}</dd></div>
+                  <div><dt className="text-zinc-500">Délka výsledného videa</dt><dd>{diagnostics.totalReelDurationSec != null ? `${diagnostics.totalReelDurationSec.toFixed(1)} s` : '—'}</dd></div>
+                  <div><dt className="text-zinc-500">introVideoIdUsed</dt><dd className="font-mono text-xs">{diagnostics.introVideoIdUsed ?? '—'}</dd></div>
+                  <div className="sm:col-span-2"><dt className="text-zinc-500">Poslední FFmpeg chyba</dt><dd className="text-red-700">{diagnostics.lastFfmpegError ?? '—'}</dd></div>
+                  <div className="sm:col-span-2"><dt className="text-zinc-500">Poslední Facebook chyba</dt><dd className="text-red-700">{diagnostics.lastFacebookError ?? '—'}</dd></div>
+                </dl>
+              ) : (
+                <p className="text-red-600">Diagnostiku se nepodařilo načíst.</p>
+              )}
+            </div>
+            <div className="border-t px-6 py-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setDiagnostics(null);
+                  setDiagnosticsLoading(false);
+                }}
+                className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-semibold"
+              >
+                Zavřít
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {previewVideoUrl ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-zinc-200 bg-white p-4 shadow-xl">
+            <h3 className="mb-3 text-lg font-semibold">Náhled finálního videa</h3>
+            <video
+              src={previewVideoUrl}
+              controls
+              autoPlay
+              playsInline
+              className="max-h-[70vh] w-full rounded-lg bg-black"
+            />
+            <button
+              type="button"
+              onClick={() => setPreviewVideoUrl(null)}
+              className="mt-4 rounded-lg border border-zinc-200 px-4 py-2 text-sm font-semibold"
+            >
+              Zavřít
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <FacebookScheduleModal
         open={editRow != null}

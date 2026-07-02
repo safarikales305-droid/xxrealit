@@ -3,8 +3,11 @@ import { SocialIntroPropertyType } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import {
   type ListingIntroContext,
+  type NormalizedPropertyType,
   buildIntroVideoLookupOrder,
+  resolveListingNormalizedType,
   resolveSocialIntroPropertyType,
+  socialIntroEnumToNormalized,
 } from './social-intro-property-type.util';
 
 export type ActiveIntroVideo = {
@@ -13,6 +16,7 @@ export type ActiveIntroVideo = {
   videoUrl: string;
   durationSeconds: number | null;
   updatedAt: Date;
+  propertyType: SocialIntroPropertyType;
 };
 
 @Injectable()
@@ -28,8 +32,15 @@ export class SocialIntroVideoService {
   async findActiveForPropertyType(
     propertyType: SocialIntroPropertyType,
   ): Promise<ActiveIntroVideo | null> {
-    const row = await this.prisma.socialIntroVideo.findFirst({
-      where: { propertyType, active: true },
+    return this.findActiveForNormalizedType(socialIntroEnumToNormalized(propertyType));
+  }
+
+  /** Hledá aktivní intro podle normalizovaného typu (house = HOUSE = DUM = Dům). */
+  async findActiveForNormalizedType(
+    normalized: NormalizedPropertyType,
+  ): Promise<ActiveIntroVideo | null> {
+    const rows = await this.prisma.socialIntroVideo.findMany({
+      where: { active: true, videoUrl: { not: '' } },
       orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
       select: {
         id: true,
@@ -37,10 +48,15 @@ export class SocialIntroVideoService {
         videoUrl: true,
         durationSeconds: true,
         updatedAt: true,
+        propertyType: true,
       },
     });
-    if (!row?.videoUrl?.trim()) return null;
-    return row;
+
+    const match = rows.find(
+      (row) => socialIntroEnumToNormalized(row.propertyType) === normalized,
+    );
+    if (!match?.videoUrl?.trim()) return null;
+    return match;
   }
 
   /** Najde aktivní úvodní video pro inzerát (s fallbacky Novostavba / Pronájem). */
@@ -48,17 +64,79 @@ export class SocialIntroVideoService {
     intro: ActiveIntroVideo;
     matchedPropertyType: SocialIntroPropertyType;
     structuralPropertyType: SocialIntroPropertyType;
+    normalizedPropertyType: NormalizedPropertyType;
   } | null> {
     const structuralPropertyType = resolveSocialIntroPropertyType(listingContext);
+    const normalizedPropertyType = resolveListingNormalizedType(listingContext);
     const lookupOrder = buildIntroVideoLookupOrder(listingContext);
+    const tried = new Set<NormalizedPropertyType>();
 
     for (const propertyType of lookupOrder) {
-      const intro = await this.findActiveForPropertyType(propertyType);
+      const normalized = socialIntroEnumToNormalized(propertyType);
+      if (tried.has(normalized)) continue;
+      tried.add(normalized);
+
+      const intro = await this.findActiveForNormalizedType(normalized);
       if (intro) {
-        return { intro, matchedPropertyType: propertyType, structuralPropertyType };
+        return {
+          intro,
+          matchedPropertyType: intro.propertyType,
+          structuralPropertyType,
+          normalizedPropertyType,
+        };
       }
     }
     return null;
+  }
+
+  /** Rychlá predikce z přednačteného katalogu (pro seznam plánů). */
+  predictIntroForListingFromCatalog(
+    listingContext: ListingIntroContext,
+    catalog: ActiveIntroVideo[],
+  ): {
+    intro: ActiveIntroVideo;
+    matchedPropertyType: SocialIntroPropertyType;
+    structuralPropertyType: SocialIntroPropertyType;
+    normalizedPropertyType: NormalizedPropertyType;
+  } | null {
+    const structuralPropertyType = resolveSocialIntroPropertyType(listingContext);
+    const normalizedPropertyType = resolveListingNormalizedType(listingContext);
+    const lookupOrder = buildIntroVideoLookupOrder(listingContext);
+    const tried = new Set<NormalizedPropertyType>();
+
+    for (const propertyType of lookupOrder) {
+      const normalized = socialIntroEnumToNormalized(propertyType);
+      if (tried.has(normalized)) continue;
+      tried.add(normalized);
+
+      const intro = catalog.find(
+        (row) => socialIntroEnumToNormalized(row.propertyType) === normalized,
+      );
+      if (intro) {
+        return {
+          intro,
+          matchedPropertyType: intro.propertyType,
+          structuralPropertyType,
+          normalizedPropertyType,
+        };
+      }
+    }
+    return null;
+  }
+
+  async loadActiveIntroCatalog(): Promise<ActiveIntroVideo[]> {
+    return this.prisma.socialIntroVideo.findMany({
+      where: { active: true, videoUrl: { not: '' } },
+      orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
+      select: {
+        id: true,
+        title: true,
+        videoUrl: true,
+        durationSeconds: true,
+        updatedAt: true,
+        propertyType: true,
+      },
+    });
   }
 
   async invalidateCompositionCacheForIntro(introVideoId: string): Promise<void> {

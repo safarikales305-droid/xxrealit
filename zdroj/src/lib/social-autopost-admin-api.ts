@@ -645,6 +645,18 @@ export type SchedulePlannerRow = {
   shortsPublishAsReel: boolean | null;
   introVideoUsed?: boolean;
   introVideoTitle?: string | null;
+  introVideoIdUsed?: string | null;
+  introVideoAttemptId?: string | null;
+  introVideoError?: string | null;
+  introVideoStatus?: 'YES' | 'NO' | 'ERROR';
+  introVideoStatusReason?: string | null;
+  propertyCategoryLabel?: string | null;
+  propertyTypeRaw?: string | null;
+  propertyTypeNormalized?: string | null;
+  predictedIntroTitle?: string | null;
+  predictedIntroPropertyType?: string | null;
+  matchedIntroPropertyType?: string | null;
+  sourceListingVideoUrl?: string | null;
   finalVideoUrl?: string | null;
   finalVideoGeneratedAt?: string | null;
   totalReelDurationSec?: number | null;
@@ -935,8 +947,37 @@ export function nestAdminTestIntroCompose(
 export function nestAdminRegenerateScheduleFinalVideo(
   token: string,
   scheduleId: string,
-): Promise<{ ok: boolean; result?: { finalVideoUrl: string; introVideoUsed: boolean }; error?: string }> {
-  return adminFetchJson<{ ok: boolean; result?: { finalVideoUrl: string; introVideoUsed: boolean } }>(
+): Promise<{
+  ok: boolean;
+  result?: {
+    finalVideoUrl: string;
+    introVideoUsed: boolean;
+    introVideoIdUsed?: string | null;
+    introVideoAttemptId?: string | null;
+    introVideoTitle?: string | null;
+    introVideoError?: string | null;
+    rawPropertyType?: string | null;
+    normalizedPropertyType?: string | null;
+    totalReelDurationSec?: number | null;
+    finalVideoGeneratedAt?: string;
+  };
+  error?: string;
+}> {
+  return adminFetchJson<{
+    ok: boolean;
+    result?: {
+      finalVideoUrl: string;
+      introVideoUsed: boolean;
+      introVideoIdUsed?: string | null;
+      introVideoAttemptId?: string | null;
+      introVideoTitle?: string | null;
+      introVideoError?: string | null;
+      rawPropertyType?: string | null;
+      normalizedPropertyType?: string | null;
+      totalReelDurationSec?: number | null;
+      finalVideoGeneratedAt?: string;
+    };
+  }>(
     token,
     `/social/autopost/admin/schedules/${encodeURIComponent(scheduleId)}/regenerate-final-video`,
     { method: 'POST' },
@@ -947,18 +988,67 @@ export function nestAdminRegenerateScheduleFinalVideo(
   });
 }
 
+export type ScheduleIntroDiagnostics = {
+  scheduleId: string;
+  listingId: string;
+  listingTitle: string;
+  rawPropertyType: string;
+  normalizedPropertyType: string;
+  normalizedPropertyTypeLabel: string;
+  structuralPropertyType: string;
+  structuralPropertyTypeLabel: string;
+  lookupOrder: string[];
+  predictedIntro: {
+    id: string;
+    title: string;
+    propertyType: string;
+    propertyTypeLabel: string;
+    videoUrl: string;
+  } | null;
+  introVideoStatus: 'YES' | 'NO' | 'ERROR';
+  introVideoStatusReason: string;
+  introVideoIdUsed: string | null;
+  introVideoAttemptId: string | null;
+  introVideoTitle: string | null;
+  matchedIntroPropertyType: string | null;
+  sourceVideoUrl: string | null;
+  finalVideoUrl: string | null;
+  finalVideoGeneratedAt: string | null;
+  totalReelDurationSec: number | null;
+  lastIntroVideoError: string | null;
+  lastFfmpegError: string | null;
+  lastFacebookError: string | null;
+  lastLogId: string | null;
+};
+
+export function nestAdminScheduleIntroDiagnostics(
+  token: string,
+  scheduleId: string,
+): Promise<ScheduleIntroDiagnostics | null> {
+  return adminFetch<ScheduleIntroDiagnostics>(
+    token,
+    `/social/autopost/admin/schedules/${encodeURIComponent(scheduleId)}/intro-diagnostics`,
+  );
+}
+
 export function nestAdminRegenerateAllScheduleFinalVideos(token: string): Promise<{
   ok: boolean;
+  total: number;
   processed: number;
   succeeded: number;
   failed: number;
+  withoutIntro: number;
+  withIntro: number;
   error?: string;
 }> {
   return adminFetchJson<{
     ok: boolean;
+    total: number;
     processed: number;
     succeeded: number;
     failed: number;
+    withoutIntro: number;
+    withIntro: number;
   }>(token, '/social/autopost/admin/schedules/regenerate-all-final-videos', {
     method: 'POST',
   }).then(({ data, status, body: errBody }) => {
@@ -966,9 +1056,12 @@ export function nestAdminRegenerateAllScheduleFinalVideos(token: string): Promis
     const err = errBody as { message?: string; error?: string };
     return {
       ok: false,
+      total: 0,
       processed: 0,
       succeeded: 0,
       failed: 0,
+      withoutIntro: 0,
+      withIntro: 0,
       error: err?.error ?? err?.message ?? `HTTP ${status}`,
     };
   });

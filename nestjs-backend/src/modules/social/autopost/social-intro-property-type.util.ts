@@ -11,6 +11,24 @@ export const SOCIAL_INTRO_PROPERTY_TYPE_LABELS: Record<SocialIntroPropertyType, 
   OSTATNI: 'Ostatní',
 };
 
+/** Kanonický typ pro párování inzerátu s úvodním videem. */
+export type NormalizedPropertyType =
+  | 'house'
+  | 'apartment'
+  | 'land'
+  | 'commercial'
+  | 'garage'
+  | 'other';
+
+export const NORMALIZED_PROPERTY_TYPE_LABELS: Record<NormalizedPropertyType, string> = {
+  house: 'Dům',
+  apartment: 'Byt',
+  land: 'Pozemek',
+  commercial: 'Komerční',
+  garage: 'Garáž',
+  other: 'Ostatní',
+};
+
 export type ListingIntroContext = {
   propertyTypeKey?: string | null;
   propertyType?: string | null;
@@ -19,62 +37,183 @@ export type ListingIntroContext = {
   description?: string | null;
 };
 
-/** Mapuje inzerát na strukturální kategorii (Byt, Dům, …) bez přepsání na Pronájem. */
-export function resolveStructuralSocialIntroPropertyType(
-  input: ListingIntroContext,
-): SocialIntroPropertyType {
-  const key = (input.propertyTypeKey ?? input.propertyType ?? '').trim().toLowerCase();
-  const blob = `${key} ${(input.title ?? '')} ${(input.description ?? '')}`.toLowerCase();
-
-  if (blob.includes('novostavb')) {
-    return SocialIntroPropertyType.NOVOSTAVBA;
-  }
-  if (key === 'byt' || key.includes('byt')) {
-    return SocialIntroPropertyType.BYT;
-  }
-  if (
-    key === 'dum' ||
-    key.includes('dum') ||
-    key.includes('dům') ||
-    key === 'chata_chalupa' ||
-    key.includes('chata')
-  ) {
-    return SocialIntroPropertyType.DUM;
-  }
-  if (key === 'pozemek' || key.includes('pozem')) {
-    return SocialIntroPropertyType.POZEMEK;
-  }
-  if (key === 'garaz' || key.includes('gar')) {
-    return SocialIntroPropertyType.GARAZ;
-  }
-  if (key === 'komercni' || key.includes('komer')) {
-    return SocialIntroPropertyType.KOMERCNI;
-  }
-  return SocialIntroPropertyType.OSTATNI;
+function stripDiacritics(value: string): string {
+  return value.normalize('NFD').replace(/\p{M}/gu, '');
 }
 
 /**
- * Pořadí hledání aktivního úvodního videa.
- * Nejdřív typ nemovitosti (Byt, Dům, …), pak volitelně Novostavba / Pronájem.
+ * Společná normalizace typu nemovitosti — používej při uploadu intro videa,
+ * výběru intro videa, přegenerování i publikování.
+ */
+export function normalizePropertyType(value: string | null | undefined): NormalizedPropertyType {
+  const raw = (value ?? '').trim().toLowerCase();
+  if (!raw) return 'other';
+
+  const ascii = stripDiacritics(raw);
+
+  if (
+    raw === 'house' ||
+    raw === 'dum' ||
+    raw === 'dům' ||
+    ascii === 'dum' ||
+    ascii.includes('rodinny') ||
+    ascii.includes('rodinny_dum') ||
+    raw.includes('dum') ||
+    raw.includes('dům') ||
+    raw === 'chata_chalupa' ||
+    raw.includes('chata') ||
+    raw === 'novostavba' ||
+    ascii.includes('novostavb')
+  ) {
+    return 'house';
+  }
+
+  if (
+    raw === 'apartment' ||
+    raw === 'byt' ||
+    raw.includes('byt') ||
+    ascii.includes('apartman')
+  ) {
+    return 'apartment';
+  }
+
+  if (
+    raw === 'land' ||
+    raw === 'pozemek' ||
+    raw.includes('pozem') ||
+    ascii === 'pozemek'
+  ) {
+    return 'land';
+  }
+
+  if (
+    raw === 'commercial' ||
+    raw === 'komercni' ||
+    raw === 'komerční' ||
+    raw.includes('komer') ||
+    ascii.includes('komerc')
+  ) {
+    return 'commercial';
+  }
+
+  if (
+    raw === 'garage' ||
+    raw === 'garaz' ||
+    raw === 'garáž' ||
+    raw.includes('gar') ||
+    ascii === 'garaz'
+  ) {
+    return 'garage';
+  }
+
+  if (
+    raw === 'other' ||
+    raw === 'ostatni' ||
+    raw === 'ostatní' ||
+    ascii === 'ostatni'
+  ) {
+    return 'other';
+  }
+
+  return 'other';
+}
+
+export function socialIntroEnumToNormalized(
+  type: SocialIntroPropertyType,
+): NormalizedPropertyType {
+  switch (type) {
+    case SocialIntroPropertyType.BYT:
+      return 'apartment';
+    case SocialIntroPropertyType.DUM:
+    case SocialIntroPropertyType.NOVOSTAVBA:
+      return 'house';
+    case SocialIntroPropertyType.POZEMEK:
+      return 'land';
+    case SocialIntroPropertyType.KOMERCNI:
+      return 'commercial';
+    case SocialIntroPropertyType.GARAZ:
+      return 'garage';
+    case SocialIntroPropertyType.PRONAJEM:
+    case SocialIntroPropertyType.OSTATNI:
+    default:
+      return 'other';
+  }
+}
+
+export function normalizedToSocialIntroEnum(
+  normalized: NormalizedPropertyType,
+): SocialIntroPropertyType {
+  switch (normalized) {
+    case 'apartment':
+      return SocialIntroPropertyType.BYT;
+    case 'house':
+      return SocialIntroPropertyType.DUM;
+    case 'land':
+      return SocialIntroPropertyType.POZEMEK;
+    case 'commercial':
+      return SocialIntroPropertyType.KOMERCNI;
+    case 'garage':
+      return SocialIntroPropertyType.GARAZ;
+    case 'other':
+    default:
+      return SocialIntroPropertyType.OSTATNI;
+  }
+}
+
+export function resolveListingRawPropertyType(input: ListingIntroContext): string {
+  const key = (input.propertyTypeKey ?? '').trim();
+  const type = (input.propertyType ?? '').trim();
+  if (key && type && key.toLowerCase() !== type.toLowerCase()) {
+    return `${key} / ${type}`;
+  }
+  return key || type || '—';
+}
+
+export function resolveListingNormalizedType(input: ListingIntroContext): NormalizedPropertyType {
+  const key = (input.propertyTypeKey ?? '').trim();
+  const type = (input.propertyType ?? '').trim();
+
+  const fromKey = key ? normalizePropertyType(key) : 'other';
+  if (fromKey !== 'other') return fromKey;
+
+  const fromType = type ? normalizePropertyType(type) : 'other';
+  if (fromType !== 'other') return fromType;
+
+  const blob = `${key} ${type} ${input.title ?? ''} ${input.description ?? ''}`;
+  return normalizePropertyType(blob);
+}
+
+/** Mapuje inzerát na strukturální kategorii (Byt, Dům, …). */
+export function resolveStructuralSocialIntroPropertyType(
+  input: ListingIntroContext,
+): SocialIntroPropertyType {
+  return normalizedToSocialIntroEnum(resolveListingNormalizedType(input));
+}
+
+/**
+ * Pořadí hledání aktivního úvodního videa podle normalizovaného typu.
  */
 export function buildIntroVideoLookupOrder(
   input: ListingIntroContext,
 ): SocialIntroPropertyType[] {
-  const primary = resolveStructuralSocialIntroPropertyType(input);
-  const order: SocialIntroPropertyType[] = [primary];
+  const normalizedOrder: NormalizedPropertyType[] = [
+    resolveListingNormalizedType(input),
+  ];
   const offer = (input.offerType ?? '').trim().toLowerCase();
   const textBlob = `${(input.title ?? '')} ${(input.description ?? '')}`.toLowerCase();
 
   if (
-    primary !== SocialIntroPropertyType.NOVOSTAVBA &&
-    textBlob.includes('novostavb')
+    normalizedOrder[0] !== 'house' &&
+    (textBlob.includes('novostavb') || normalizePropertyType(textBlob) === 'house')
   ) {
-    order.push(SocialIntroPropertyType.NOVOSTAVBA);
+    normalizedOrder.push('house');
   }
   if (offer.includes('pron')) {
-    order.push(SocialIntroPropertyType.PRONAJEM);
+    normalizedOrder.push('other');
   }
-  return [...new Set(order)];
+
+  const uniqueNormalized = [...new Set(normalizedOrder)];
+  return uniqueNormalized.map((n) => normalizedToSocialIntroEnum(n));
 }
 
 /** Primární typ pro logy (strukturální kategorie inzerátu). */

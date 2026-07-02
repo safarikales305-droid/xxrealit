@@ -24,6 +24,13 @@ import {
   shouldDisableSchedule,
 } from './social-publish-schedule.util';
 import { isShortsVideoProperty } from './social-facebook-reel.util';
+import { SocialIntroVideoService } from './social-intro-video.service';
+import {
+  NORMALIZED_PROPERTY_TYPE_LABELS,
+  SOCIAL_INTRO_PROPERTY_TYPE_LABELS,
+  resolveListingNormalizedType,
+  resolveListingRawPropertyType,
+} from './social-intro-property-type.util';
 
 export type PropertyScheduleInput = {
   propertyIds: string[];
@@ -47,6 +54,7 @@ export class SocialPublishScheduleService {
     private readonly logService: SocialPublishLogService,
     private readonly settings: SocialAutopostSettingsService,
     private readonly schedulerLog: SocialPublishSchedulerLogService,
+    private readonly introVideos: SocialIntroVideoService,
   ) {}
 
   private resolvePropertyContentType(property: {
@@ -648,6 +656,80 @@ export class SocialPublishScheduleService {
     return 'Facebook příspěvek';
   }
 
+  private buildIntroMetaForRow(
+    property: {
+      propertyType?: string | null;
+      propertyTypeKey?: string | null;
+      offerType?: string | null;
+      title?: string | null;
+      description?: string | null;
+    },
+    schedule: {
+      lastIntroVideoUsed?: boolean;
+      lastIntroVideoError?: string | null;
+      lastIntroVideoAttemptId?: string | null;
+      lastFinalVideoUrl?: string | null;
+      lastRawPropertyType?: string | null;
+      lastNormalizedPropertyType?: string | null;
+    },
+    introCatalog: Awaited<ReturnType<SocialIntroVideoService['loadActiveIntroCatalog']>>,
+  ) {
+    const listingContext = {
+      propertyTypeKey: property.propertyTypeKey,
+      propertyType: property.propertyType,
+      offerType: property.offerType,
+      title: property.title,
+      description: property.description,
+    };
+    const rawPropertyType =
+      schedule.lastRawPropertyType ?? resolveListingRawPropertyType(listingContext);
+    const normalizedPropertyType =
+      schedule.lastNormalizedPropertyType ?? resolveListingNormalizedType(listingContext);
+    const normalizedPropertyTypeLabel =
+      NORMALIZED_PROPERTY_TYPE_LABELS[
+        normalizedPropertyType as keyof typeof NORMALIZED_PROPERTY_TYPE_LABELS
+      ] ?? normalizedPropertyType;
+
+    const predicted = this.introVideos.predictIntroForListingFromCatalog(
+      listingContext,
+      introCatalog,
+    );
+
+    let introVideoStatus: 'YES' | 'NO' | 'ERROR' = 'NO';
+    let introVideoStatusReason = 'Úvodní video nebylo použito';
+
+    if (schedule.lastIntroVideoError) {
+      introVideoStatus = 'ERROR';
+      introVideoStatusReason = schedule.lastIntroVideoError;
+    } else if (schedule.lastIntroVideoUsed) {
+      introVideoStatus = 'YES';
+      introVideoStatusReason = 'Úvodní video bylo spojeno do finálního videa';
+    } else if (schedule.lastIntroVideoAttemptId && schedule.lastFinalVideoUrl) {
+      introVideoStatus = 'ERROR';
+      introVideoStatusReason =
+        'Úvodní video bylo nalezeno, ale spojení selhalo — použita jen ukázka inzerátu';
+    } else if (!predicted) {
+      introVideoStatus = 'NO';
+      introVideoStatusReason = 'Nenalezeno aktivní úvodní video pro normalizovanou kategorii';
+    } else if (!schedule.lastFinalVideoUrl) {
+      introVideoStatus = 'NO';
+      introVideoStatusReason = `Nalezeno „${predicted.intro.title}“, ale finální video ještě nebylo přegenerováno`;
+    }
+
+    return {
+      rawPropertyType,
+      normalizedPropertyType,
+      normalizedPropertyTypeLabel,
+      introVideoStatus,
+      introVideoStatusReason,
+      predictedIntroTitle: predicted?.intro.title ?? null,
+      predictedIntroPropertyType: predicted
+        ? SOCIAL_INTRO_PROPERTY_TYPE_LABELS[predicted.matchedPropertyType]
+        : null,
+      predictedIntroId: predicted?.intro.id ?? null,
+    };
+  }
+
   private serializeScheduleRow(
     schedule: {
       id: string;
@@ -669,7 +751,12 @@ export class SocialPublishScheduleService {
       lastError: string | null;
       lastIntroVideoUsed?: boolean;
       lastIntroVideoIdUsed?: string | null;
+      lastIntroVideoAttemptId?: string | null;
       lastIntroVideoTitle?: string | null;
+      lastIntroVideoError?: string | null;
+      lastRawPropertyType?: string | null;
+      lastNormalizedPropertyType?: string | null;
+      lastMatchedIntroPropertyType?: import('@prisma/client').SocialIntroPropertyType | null;
       lastSourceListingVideoUrl?: string | null;
       lastFinalVideoUrl?: string | null;
       lastFinalVideoGeneratedAt?: Date | null;
@@ -678,7 +765,17 @@ export class SocialPublishScheduleService {
       createdByUserId: string | null;
       createdBy?: { id: string; name: string | null; email: string } | null;
     },
-    property: { id: string; title: string; listingType?: string | null; videoUrl?: string | null } | null,
+    property: {
+      id: string;
+      title: string;
+      listingType?: string | null;
+      videoUrl?: string | null;
+      propertyType?: string | null;
+      propertyTypeKey?: string | null;
+      propertyTypeLabel?: string | null;
+      offerType?: string | null;
+      description?: string | null;
+    } | null,
     queue: {
       status: SocialPublishStatus;
       facebookPostType?: FacebookPostType | null;
@@ -687,8 +784,17 @@ export class SocialPublishScheduleService {
       lastError?: string | null;
       lastApiResponse?: unknown;
     } | null,
+    introMeta?: {
+      rawPropertyType: string;
+      normalizedPropertyType: string;
+      normalizedPropertyTypeLabel: string;
+      introVideoStatus: 'YES' | 'NO' | 'ERROR';
+      introVideoStatusReason: string;
+      predictedIntroTitle: string | null;
+      predictedIntroPropertyType: string | null;
+      predictedIntroId: string | null;
+    },
   ) {
-    const page = this.facebookPageMeta();
     const now = new Date();
     const displayStatus = resolveSchedulePlannerStatus({
       enabled: schedule.enabled,
@@ -731,7 +837,19 @@ export class SocialPublishScheduleService {
       requireApproved: schedule.requireApproved,
       shortsPublishAsReel: schedule.shortsPublishAsReel,
       introVideoUsed: schedule.lastIntroVideoUsed === true,
-      introVideoTitle: schedule.lastIntroVideoTitle ?? null,
+      introVideoTitle: schedule.lastIntroVideoTitle ?? introMeta?.predictedIntroTitle ?? null,
+      introVideoIdUsed: schedule.lastIntroVideoIdUsed ?? null,
+      introVideoAttemptId: schedule.lastIntroVideoAttemptId ?? introMeta?.predictedIntroId ?? null,
+      introVideoError: schedule.lastIntroVideoError ?? null,
+      introVideoStatus: introMeta?.introVideoStatus ?? (schedule.lastIntroVideoUsed ? 'YES' : schedule.lastIntroVideoError ? 'ERROR' : 'NO'),
+      introVideoStatusReason: introMeta?.introVideoStatusReason ?? null,
+      propertyCategoryLabel: introMeta?.normalizedPropertyTypeLabel ?? null,
+      propertyTypeRaw: introMeta?.rawPropertyType ?? schedule.lastRawPropertyType ?? null,
+      propertyTypeNormalized: introMeta?.normalizedPropertyType ?? schedule.lastNormalizedPropertyType ?? null,
+      predictedIntroTitle: introMeta?.predictedIntroTitle ?? null,
+      predictedIntroPropertyType: introMeta?.predictedIntroPropertyType ?? null,
+      matchedIntroPropertyType: schedule.lastMatchedIntroPropertyType ?? null,
+      sourceListingVideoUrl: schedule.lastSourceListingVideoUrl ?? null,
       finalVideoUrl: schedule.lastFinalVideoUrl ?? null,
       finalVideoGeneratedAt: schedule.lastFinalVideoGeneratedAt?.toISOString() ?? null,
       totalReelDurationSec: schedule.lastTotalReelDurationSec ?? null,
@@ -762,9 +880,20 @@ export class SocialPublishScheduleService {
     const contentIds = schedules.map((s) => s.contentId);
     const properties = await this.prisma.property.findMany({
       where: { id: { in: contentIds } },
-      select: { id: true, title: true, listingType: true, videoUrl: true },
+      select: {
+        id: true,
+        title: true,
+        listingType: true,
+        videoUrl: true,
+        propertyType: true,
+        propertyTypeKey: true,
+        propertyTypeLabel: true,
+        offerType: true,
+        description: true,
+      },
     });
     const propertyById = new Map(properties.map((p) => [p.id, p]));
+    const introCatalog = await this.introVideos.loadActiveIntroCatalog();
 
     const queues = await this.prisma.socialPublishQueue.findMany({
       where: {
@@ -775,13 +904,18 @@ export class SocialPublishScheduleService {
     });
     const queueByContent = new Map(queues.map((q) => [q.contentId, q]));
 
-    const items = schedules.map((s) =>
-      this.serializeScheduleRow(
+    const items = schedules.map((s) => {
+      const property = propertyById.get(s.contentId) ?? null;
+      const introMeta = property
+        ? this.buildIntroMetaForRow(property, s, introCatalog)
+        : undefined;
+      return this.serializeScheduleRow(
         s,
-        propertyById.get(s.contentId) ?? null,
+        property,
         queueByContent.get(s.contentId) ?? null,
-      ),
-    );
+        introMeta,
+      );
+    });
 
     return { items, dashboard: this.buildDashboard(items, schedules) };
   }
@@ -852,7 +986,17 @@ export class SocialPublishScheduleService {
 
     const property = await this.prisma.property.findUnique({
       where: { id: schedule.contentId },
-      select: { id: true, title: true, listingType: true, videoUrl: true },
+      select: {
+        id: true,
+        title: true,
+        listingType: true,
+        videoUrl: true,
+        propertyType: true,
+        propertyTypeKey: true,
+        propertyTypeLabel: true,
+        offerType: true,
+        description: true,
+      },
     });
 
     const queue = await this.prisma.socialPublishQueue.findUnique({
@@ -869,8 +1013,13 @@ export class SocialPublishScheduleService {
 
     const schedulerTicks = await this.schedulerLog.listRecent(20);
 
+    const introCatalog = await this.introVideos.loadActiveIntroCatalog();
+    const introMeta = property
+      ? this.buildIntroMetaForRow(property, schedule, introCatalog)
+      : undefined;
+
     return {
-      schedule: this.serializeScheduleRow(schedule, property, queue),
+      schedule: this.serializeScheduleRow(schedule, property, queue, introMeta),
       history,
       schedulerTicks: schedulerTicks.map((t) => ({
         id: t.id,

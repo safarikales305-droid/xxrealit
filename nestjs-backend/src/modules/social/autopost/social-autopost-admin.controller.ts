@@ -554,6 +554,11 @@ export class SocialAutopostAdminController {
     return this.listingReelAdmin.regenerateAllScheduledFinalVideos();
   }
 
+  @Get('schedules/:id/intro-diagnostics')
+  getScheduleIntroDiagnostics(@Param('id') id: string) {
+    return this.listingReelAdmin.getScheduleIntroDiagnostics(id);
+  }
+
   private async probeUploadedVideoDuration(buffer: Buffer): Promise<number | null> {
     const ffmpeg = resolveFfmpegBinary();
     if (!ffmpeg.path) return null;
