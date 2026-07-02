@@ -40,6 +40,7 @@ import { SocialAutopostTokenService } from './autopost/social-autopost-token.ser
 import { SocialFacebookReelPublisherService } from './autopost/social-facebook-reel-publisher.service';
 import { FacebookVideoTeaserService } from './autopost/facebook-video-teaser.service';
 import { ReelVideoComposerService } from './autopost/reel-video-composer.service';
+import { ReelRegenerateJobService } from './autopost/reel-regenerate-job.service';
 import { ListingReelFinalVideoService } from './autopost/listing-reel-final-video.service';
 import { ListingReelAdminService } from './autopost/listing-reel-admin.service';
 import { SocialIntroVideoService } from './autopost/social-intro-video.service';
@@ -95,6 +96,7 @@ import { PostSocialPublishService } from './autopost/post-social-publish.service
     PostSocialPublishService,
     SocialIntroVideoService,
     ReelVideoComposerService,
+    ReelRegenerateJobService,
     ListingReelFinalVideoService,
     ListingReelAdminService,
     IntroVideoUploadExceptionFilter,

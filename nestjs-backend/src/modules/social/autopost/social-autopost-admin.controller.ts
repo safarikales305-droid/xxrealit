@@ -546,12 +546,17 @@ export class SocialAutopostAdminController {
 
   @Post('schedules/:id/regenerate-final-video')
   regenerateScheduleFinalVideo(@Param('id') id: string) {
-    return this.listingReelAdmin.regenerateScheduleFinalVideo(id);
+    return this.listingReelAdmin.startRegenerateScheduleFinalVideo(id);
   }
 
   @Post('schedules/regenerate-all-final-videos')
   regenerateAllScheduleFinalVideos() {
-    return this.listingReelAdmin.regenerateAllScheduledFinalVideos();
+    return this.listingReelAdmin.startRegenerateAllScheduledFinalVideos();
+  }
+
+  @Get('regenerate-jobs/:jobId')
+  getRegenerateJob(@Param('jobId') jobId: string) {
+    return this.listingReelAdmin.getRegenerateJob(jobId);
   }
 
   @Get('schedules/:id/intro-diagnostics')

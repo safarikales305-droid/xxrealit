@@ -48,6 +48,7 @@ export type BuildListingReelFinalVideoInput = {
   sourceVideoUrl: string;
   listingContext?: ListingIntroContext;
   forceRebuild?: boolean;
+  onProgress?: (percent: number, stage?: string) => void;
 };
 
 @Injectable()
@@ -132,6 +133,7 @@ export class ListingReelFinalVideoService {
       sourceListingVideoUrl,
       maxSeconds,
     );
+    input.onProgress?.(20, 'teaser');
 
     const structuralType = input.listingContext
       ? resolveSocialIntroPropertyType(input.listingContext)
@@ -264,6 +266,10 @@ export class ListingReelFinalVideoService {
         composeResult = await this.reelComposer.composeIntroAndListing(
           intro.videoUrl,
           rendered.teaserPath,
+          (stage, stagePercent) => {
+            const mapped = 25 + Math.round(stagePercent * 0.6);
+            input.onProgress?.(mapped, stage);
+          },
         );
         composeLog = {
           ...composeLog,
@@ -271,7 +277,14 @@ export class ListingReelFinalVideoService {
           introLocalPath: composeResult.introLocalPath,
           listingLocalPath: composeResult.listingLocalPath,
           outputPath: composeResult.outputPath,
+          introHasAudio: composeResult.introHasAudio,
+          listingHasAudio: composeResult.listingHasAudio,
+          outputHasAudio: composeResult.outputHasAudio,
+          outputDurationSec: composeResult.durationSec,
         };
+        this.log.log(
+          `[final-video] Audio: intro=${composeResult.introHasAudio ? 'ANO' : 'NE'}, listing=${composeResult.listingHasAudio ? 'ANO' : 'NE'}, výstup=${composeResult.outputHasAudio ? 'ANO' : 'NE'}, délka=${composeResult.durationSec ?? '—'}s`,
+        );
         this.log.log(
           `[final-video] FFmpeg příkazy:\n${composeResult.ffmpegCommands.join('\n')}`,
         );
@@ -286,6 +299,7 @@ export class ListingReelFinalVideoService {
         }
 
         uploadBuffer = await this.reelComposer.readOutputBuffer(composeResult);
+        input.onProgress?.(90, 'upload');
         introVideoUsed = true;
         introVideoDurationSec =
           intro.durationSeconds ??

@@ -944,28 +944,24 @@ export function nestAdminTestIntroCompose(
   });
 }
 
-export function nestAdminRegenerateScheduleFinalVideo(
-  token: string,
-  scheduleId: string,
-): Promise<{
-  ok: boolean;
-  result?: {
-    finalVideoUrl: string;
-    introVideoUsed: boolean;
-    introVideoIdUsed?: string | null;
-    introVideoAttemptId?: string | null;
-    introVideoTitle?: string | null;
-    introVideoError?: string | null;
-    rawPropertyType?: string | null;
-    normalizedPropertyType?: string | null;
-    totalReelDurationSec?: number | null;
-    finalVideoGeneratedAt?: string;
-  };
-  error?: string;
-}> {
-  return adminFetchJson<{
-    ok: boolean;
-    result?: {
+export type ReelRegenerateJobStatus = 'pending' | 'running' | 'done' | 'error';
+
+export type ReelRegenerateJob = {
+  jobId: string;
+  kind: 'single' | 'bulk';
+  status: ReelRegenerateJobStatus;
+  scheduleId: string | null;
+  total: number;
+  processed: number;
+  percent: number;
+  currentListingTitle: string | null;
+  successCount: number;
+  errorCount: number;
+  skippedCount: number;
+  errorMessage: string | null;
+  result: {
+    scheduleId: string;
+    result: {
       finalVideoUrl: string;
       introVideoUsed: boolean;
       introVideoIdUsed?: string | null;
@@ -977,7 +973,16 @@ export function nestAdminRegenerateScheduleFinalVideo(
       totalReelDurationSec?: number | null;
       finalVideoGeneratedAt?: string;
     };
-  }>(
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export function nestAdminRegenerateScheduleFinalVideo(
+  token: string,
+  scheduleId: string,
+): Promise<{ ok: boolean; jobId?: string; error?: string }> {
+  return adminFetchJson<{ ok: boolean; jobId: string }>(
     token,
     `/social/autopost/admin/schedules/${encodeURIComponent(scheduleId)}/regenerate-final-video`,
     { method: 'POST' },
@@ -986,6 +991,16 @@ export function nestAdminRegenerateScheduleFinalVideo(
     const err = errBody as { message?: string; error?: string };
     return { ok: false, error: err?.error ?? err?.message ?? `HTTP ${status}` };
   });
+}
+
+export function nestAdminRegenerateJobStatus(
+  token: string,
+  jobId: string,
+): Promise<ReelRegenerateJob | null> {
+  return adminFetch<ReelRegenerateJob>(
+    token,
+    `/social/autopost/admin/regenerate-jobs/${encodeURIComponent(jobId)}`,
+  );
 }
 
 export type ScheduleIntroDiagnostics = {
@@ -1033,35 +1048,20 @@ export function nestAdminScheduleIntroDiagnostics(
 
 export function nestAdminRegenerateAllScheduleFinalVideos(token: string): Promise<{
   ok: boolean;
-  total: number;
-  processed: number;
-  succeeded: number;
-  failed: number;
-  withoutIntro: number;
-  withIntro: number;
+  jobId?: string;
   error?: string;
 }> {
-  return adminFetchJson<{
-    ok: boolean;
-    total: number;
-    processed: number;
-    succeeded: number;
-    failed: number;
-    withoutIntro: number;
-    withIntro: number;
-  }>(token, '/social/autopost/admin/schedules/regenerate-all-final-videos', {
-    method: 'POST',
-  }).then(({ data, status, body: errBody }) => {
+  return adminFetchJson<{ ok: boolean; jobId: string }>(
+    token,
+    '/social/autopost/admin/schedules/regenerate-all-final-videos',
+    {
+      method: 'POST',
+    },
+  ).then(({ data, status, body: errBody }) => {
     if (data) return data;
     const err = errBody as { message?: string; error?: string };
     return {
       ok: false,
-      total: 0,
-      processed: 0,
-      succeeded: 0,
-      failed: 0,
-      withoutIntro: 0,
-      withIntro: 0,
       error: err?.error ?? err?.message ?? `HTTP ${status}`,
     };
   });

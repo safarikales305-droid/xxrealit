@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FacebookScheduleModal,
   type FacebookScheduleFormValues,
@@ -19,9 +19,11 @@ import {
   nestAdminScheduleResume,
   nestAdminScheduleUpdate,
   nestAdminRegenerateAllScheduleFinalVideos,
+  nestAdminRegenerateJobStatus,
   nestAdminRegenerateScheduleFinalVideo,
   nestAdminScheduleIntroDiagnostics,
   nestAdminSchedulesList,
+  type ReelRegenerateJob,
   type ScheduleIntroDiagnostics,
   type SchedulePlannerDashboard,
   type SchedulePlannerDetail,
@@ -105,6 +107,66 @@ function scheduleFormToPatch(form: FacebookScheduleFormValues) {
   };
 }
 
+type RowRegenState = {
+  jobId: string;
+  status: ReelRegenerateJob['status'];
+  percent: number;
+  errorMessage: string | null;
+};
+
+function applyRegenResultToRow(
+  row: SchedulePlannerRow,
+  result: NonNullable<ReelRegenerateJob['result']>['result'],
+): SchedulePlannerRow {
+  const introStatus: SchedulePlannerRow['introVideoStatus'] = result.introVideoUsed
+    ? 'YES'
+    : result.introVideoError
+      ? 'ERROR'
+      : 'NO';
+  return {
+    ...row,
+    introVideoUsed: result.introVideoUsed,
+    introVideoStatus: introStatus,
+    introVideoIdUsed: result.introVideoIdUsed ?? null,
+    introVideoAttemptId: result.introVideoAttemptId ?? null,
+    introVideoTitle: result.introVideoTitle ?? row.introVideoTitle,
+    introVideoError: result.introVideoError ?? null,
+    introVideoStatusReason: result.introVideoError
+      ? result.introVideoError
+      : result.introVideoUsed
+        ? 'Úvodní video bylo spojeno do finálního videa'
+        : 'Nenalezeno aktivní úvodní video pro kategorii',
+    propertyTypeRaw: result.rawPropertyType ?? row.propertyTypeRaw,
+    propertyTypeNormalized: result.normalizedPropertyType ?? row.propertyTypeNormalized,
+    finalVideoUrl: result.finalVideoUrl,
+    finalVideoGeneratedAt: result.finalVideoGeneratedAt ?? new Date().toISOString(),
+    totalReelDurationSec: result.totalReelDurationSec ?? row.totalReelDurationSec,
+  };
+}
+
+async function pollRegenerateJob(
+  token: string,
+  jobId: string,
+  onUpdate: (job: ReelRegenerateJob) => void,
+): Promise<ReelRegenerateJob | null> {
+  while (true) {
+    const job = await nestAdminRegenerateJobStatus(token, jobId);
+    if (!job) return null;
+    onUpdate(job);
+    if (job.status === 'done' || job.status === 'error') return job;
+    await new Promise((resolve) => window.setTimeout(resolve, 2000));
+  }
+}
+
+function RegenSpinner() {
+  return (
+    <span
+      className="inline-block size-3 animate-spin rounded-full border-2 border-violet-700 border-t-transparent"
+      aria-hidden
+    />
+  );
+}
+
 type Props = {
   token: string | null;
   onNotify?: (msg: string, successUrl?: string | null) => void;
@@ -119,7 +181,9 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
   const [detailLoading, setDetailLoading] = useState(false);
   const [editRow, setEditRow] = useState<SchedulePlannerRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [bulkRegenBusy, setBulkRegenBusy] = useState(false);
+  const [rowRegen, setRowRegen] = useState<Record<string, RowRegenState>>({});
+  const [bulkRegen, setBulkRegen] = useState<ReelRegenerateJob | null>(null);
+  const pollAbortRef = useRef(0);
   const [diagnostics, setDiagnostics] = useState<ScheduleIntroDiagnostics | null>(null);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
@@ -218,52 +282,76 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
 
   async function regenerateFinalVideo(scheduleId: string) {
     if (!token) return;
-    setBusyId(scheduleId);
-    const r = await nestAdminRegenerateScheduleFinalVideo(token, scheduleId);
-    setBusyId(null);
-    if (r?.ok && r.result) {
-      const introStatus: SchedulePlannerRow['introVideoStatus'] = r.result.introVideoUsed
-        ? 'YES'
-        : r.result.introVideoError
-          ? 'ERROR'
-          : 'NO';
+    const pollToken = ++pollAbortRef.current;
+
+    setRowRegen((prev) => ({
+      ...prev,
+      [scheduleId]: {
+        jobId: '',
+        status: 'running',
+        percent: 0,
+        errorMessage: null,
+      },
+    }));
+
+    const start = await nestAdminRegenerateScheduleFinalVideo(token, scheduleId);
+    if (!start?.ok || !start.jobId) {
+      setRowRegen((prev) => ({
+        ...prev,
+        [scheduleId]: {
+          jobId: '',
+          status: 'error',
+          percent: 0,
+          errorMessage: start?.error ?? 'Nepodařilo se spustit přegenerování.',
+        },
+      }));
+      return;
+    }
+
+    setRowRegen((prev) => ({
+      ...prev,
+      [scheduleId]: {
+        jobId: start.jobId!,
+        status: 'running',
+        percent: 0,
+        errorMessage: null,
+      },
+    }));
+
+    const finalJob = await pollRegenerateJob(token, start.jobId, (job) => {
+      if (pollToken !== pollAbortRef.current) return;
+      setRowRegen((prev) => ({
+        ...prev,
+        [scheduleId]: {
+          jobId: job.jobId,
+          status: job.status,
+          percent: job.percent,
+          errorMessage: job.errorMessage,
+        },
+      }));
+    });
+
+    if (pollToken !== pollAbortRef.current || !finalJob) return;
+
+    if (finalJob.status === 'done' && finalJob.result?.result) {
+      const result = finalJob.result.result;
       setRows((prev) =>
         prev.map((row) =>
-          row.id === scheduleId
-            ? {
-                ...row,
-                introVideoUsed: r.result!.introVideoUsed,
-                introVideoStatus: introStatus,
-                introVideoIdUsed: r.result!.introVideoIdUsed ?? null,
-                introVideoAttemptId: r.result!.introVideoAttemptId ?? null,
-                introVideoTitle: r.result!.introVideoTitle ?? row.introVideoTitle,
-                introVideoError: r.result!.introVideoError ?? null,
-                introVideoStatusReason: r.result!.introVideoError
-                  ? r.result!.introVideoError
-                  : r.result!.introVideoUsed
-                    ? 'Úvodní video bylo spojeno do finálního videa'
-                    : 'Nenalezeno aktivní úvodní video pro kategorii',
-                propertyTypeRaw: r.result!.rawPropertyType ?? row.propertyTypeRaw,
-                propertyTypeNormalized: r.result!.normalizedPropertyType ?? row.propertyTypeNormalized,
-                finalVideoUrl: r.result!.finalVideoUrl,
-                finalVideoGeneratedAt: r.result!.finalVideoGeneratedAt ?? new Date().toISOString(),
-                totalReelDurationSec: r.result!.totalReelDurationSec ?? row.totalReelDurationSec,
-              }
-            : row,
+          row.id === scheduleId ? applyRegenResultToRow(row, result) : row,
         ),
       );
       onNotify?.(
-        r.result.introVideoUsed
-          ? `✅ Přegenerováno s úvodním videem.\n${r.result.finalVideoUrl}`
-          : r.result.introVideoError
-            ? `⚠️ Přegenerováno s chybou úvodního videa.\n${r.result.introVideoError}`
-            : `Výsledné video přegenerováno bez úvodního videa.`,
-        r.result.finalVideoUrl ?? null,
+        result.introVideoUsed
+          ? `✅ Hotovo — přegenerováno s úvodním videem.\n${result.finalVideoUrl}`
+          : result.introVideoError
+            ? `⚠️ Hotovo s chybou úvodního videa.\n${result.introVideoError}`
+            : 'Hotovo — výsledné video přegenerováno bez úvodního videa.',
+        result.finalVideoUrl ?? null,
       );
       await refresh();
       if (detail?.schedule.id === scheduleId) void openDetail(detail.schedule);
-    } else {
-      onNotify?.(`Přegenerování videa selhalo.${r?.error ? `\n${r.error}` : ''}`);
+    } else if (finalJob.status === 'error') {
+      onNotify?.(`Přegenerování videa selhalo.\n${finalJob.errorMessage ?? 'neznámá chyba'}`);
     }
   }
 
@@ -279,18 +367,68 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
   async function regenerateAllFinalVideos() {
     if (!token) return;
     if (!window.confirm('Přegenerovat výsledná videa u všech aktivních plánů?')) return;
-    setBulkRegenBusy(true);
-    const r = await nestAdminRegenerateAllScheduleFinalVideos(token);
-    setBulkRegenBusy(false);
-    if (r?.ok) {
+
+    const pollToken = ++pollAbortRef.current;
+    setBulkRegen({
+      jobId: '',
+      kind: 'bulk',
+      status: 'running',
+      scheduleId: null,
+      total: 0,
+      processed: 0,
+      percent: 0,
+      currentListingTitle: null,
+      successCount: 0,
+      errorCount: 0,
+      skippedCount: 0,
+      errorMessage: null,
+      result: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const start = await nestAdminRegenerateAllScheduleFinalVideos(token);
+    if (!start?.ok || !start.jobId) {
+      setBulkRegen({
+        jobId: '',
+        kind: 'bulk',
+        status: 'error',
+        scheduleId: null,
+        total: 0,
+        processed: 0,
+        percent: 0,
+        currentListingTitle: null,
+        successCount: 0,
+        errorCount: 0,
+        skippedCount: 0,
+        errorMessage: start?.error ?? 'Nepodařilo se spustit hromadné přegenerování.',
+        result: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      return;
+    }
+
+    const finalJob = await pollRegenerateJob(token, start.jobId, (job) => {
+      if (pollToken !== pollAbortRef.current) return;
+      setBulkRegen(job);
+    });
+
+    if (pollToken !== pollAbortRef.current || !finalJob) return;
+
+    if (finalJob.status === 'done') {
       onNotify?.(
-        `Celkem ${r.total} · úspěšně ${r.succeeded} · bez intro videa ${r.withoutIntro} · chyba ${r.failed}`,
+        `Hotovo ${finalJob.processed}/${finalJob.total} · úspěšně ${finalJob.successCount} · bez intro ${finalJob.skippedCount} · chyba ${finalJob.errorCount}`,
       );
       await refresh();
     } else {
-      onNotify?.(`Hromadné přegenerování selhalo.${r?.error ? `\n${r.error}` : ''}`);
+      onNotify?.(
+        `Hromadné přegenerování selhalo.${finalJob.errorMessage ? `\n${finalJob.errorMessage}` : ''}`,
+      );
     }
   }
+
+  const bulkRegenBusy = bulkRegen?.status === 'pending' || bulkRegen?.status === 'running';
 
   const dash = dashboard;
 
@@ -298,14 +436,36 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
     <section className="mt-8 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-bold text-zinc-900">📅 Naplánované publikace</h2>
-        <button
-          type="button"
-          onClick={() => void regenerateAllFinalVideos()}
-          disabled={bulkRegenBusy || loading}
-          className="text-sm font-semibold text-violet-700 hover:underline disabled:opacity-50"
-        >
-          {bulkRegenBusy ? 'Přegenerovávám…' : '▶ Přegenerovat všechny Reely s úvodním videem'}
-        </button>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            type="button"
+            onClick={() => void regenerateAllFinalVideos()}
+            disabled={bulkRegenBusy || loading}
+            className="inline-flex items-center gap-2 text-sm font-semibold text-violet-700 hover:underline disabled:opacity-50"
+          >
+            {bulkRegenBusy ? (
+              <>
+                <RegenSpinner />
+                Přegenerovávám… {bulkRegen?.percent ?? 0}%
+              </>
+            ) : bulkRegen?.status === 'done' ? (
+              'Hotovo'
+            ) : bulkRegen?.status === 'error' ? (
+              `Chyba: ${bulkRegen.errorMessage ?? 'neznámá chyba'}`
+            ) : (
+              '▶ Přegenerovat všechny Reely s úvodním videem'
+            )}
+          </button>
+          {bulkRegen && (bulkRegenBusy || bulkRegen.status === 'done' || bulkRegen.status === 'error') ? (
+            <p className="max-w-md text-right text-xs text-zinc-600">
+              {bulkRegen.processed}/{bulkRegen.total} ({bulkRegen.percent}%)
+              {bulkRegen.currentListingTitle ? ` · ${bulkRegen.currentListingTitle}` : ''}
+              {' · '}
+              úspěšně {bulkRegen.successCount} · chyba {bulkRegen.errorCount} · bez intro{' '}
+              {bulkRegen.skippedCount}
+            </p>
+          ) : null}
+        </div>
         <button
           type="button"
           onClick={() => void refresh()}
@@ -429,11 +589,29 @@ export function FacebookScheduledPlannerPanel({ token, onNotify, onDataChange }:
                   <div className="flex flex-col gap-1 min-w-[7rem]">
                     <button
                       type="button"
-                      disabled={busyId === row.id}
-                      className="text-left text-xs font-semibold text-violet-700"
+                      disabled={
+                        busyId === row.id ||
+                        rowRegen[row.id]?.status === 'running' ||
+                        rowRegen[row.id]?.status === 'pending'
+                      }
+                      className="inline-flex items-center gap-1.5 text-left text-xs font-semibold text-violet-700 disabled:opacity-50"
                       onClick={() => void regenerateFinalVideo(row.id)}
                     >
-                      ▶ Přegenerovat video
+                      {rowRegen[row.id]?.status === 'running' ||
+                      rowRegen[row.id]?.status === 'pending' ? (
+                        <>
+                          <RegenSpinner />
+                          Přegenerovávám… {rowRegen[row.id]?.percent ?? 0}%
+                        </>
+                      ) : rowRegen[row.id]?.status === 'done' ? (
+                        'Hotovo'
+                      ) : rowRegen[row.id]?.status === 'error' ? (
+                        <span className="text-red-700" title={rowRegen[row.id]?.errorMessage ?? undefined}>
+                          Chyba: {rowRegen[row.id]?.errorMessage ?? 'neznámá chyba'}
+                        </span>
+                      ) : (
+                        '▶ Přegenerovat video'
+                      )}
                     </button>
                     {row.finalVideoUrl ? (
                       <button

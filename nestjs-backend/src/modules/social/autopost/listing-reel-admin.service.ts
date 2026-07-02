@@ -5,6 +5,10 @@ import { toAbsoluteMediaUrl } from './social-publish-format.util';
 import { ListingReelFinalVideoService } from './listing-reel-final-video.service';
 import { SocialIntroVideoService } from './social-intro-video.service';
 import {
+  ReelRegenerateJob,
+  ReelRegenerateJobService,
+} from './reel-regenerate-job.service';
+import {
   NORMALIZED_PROPERTY_TYPE_LABELS,
   SOCIAL_INTRO_PROPERTY_TYPE_LABELS,
   buildIntroVideoLookupOrder,
@@ -19,6 +23,7 @@ export class ListingReelAdminService {
     private readonly prisma: PrismaService,
     private readonly finalVideo: ListingReelFinalVideoService,
     private readonly introVideos: SocialIntroVideoService,
+    private readonly regenerateJobs: ReelRegenerateJobService,
   ) {}
 
   async testIntroCompose(input: {
@@ -53,7 +58,158 @@ export class ListingReelAdminService {
     };
   }
 
-  async regenerateScheduleFinalVideo(scheduleId: string) {
+  startRegenerateScheduleFinalVideo(scheduleId: string) {
+    const jobId = this.regenerateJobs.createJob({ kind: 'single', scheduleId });
+    void this.runSingleRegenerateJob(jobId, scheduleId);
+    return { ok: true, jobId };
+  }
+
+  startRegenerateAllScheduledFinalVideos() {
+    const jobId = this.regenerateJobs.createJob({ kind: 'bulk' });
+    void this.runBulkRegenerateJob(jobId);
+    return { ok: true, jobId };
+  }
+
+  getRegenerateJob(jobId: string): ReelRegenerateJob {
+    return this.regenerateJobs.getJob(jobId);
+  }
+
+  private async runSingleRegenerateJob(jobId: string, scheduleId: string): Promise<void> {
+    this.regenerateJobs.updateJob(jobId, {
+      status: 'running',
+      percent: 5,
+      total: 1,
+      processed: 0,
+      currentListingTitle: null,
+    });
+
+    try {
+      const { propertyTitle, result } = await this.regenerateScheduleFinalVideoCore(
+        scheduleId,
+        (percent, title) => {
+          this.regenerateJobs.updateJob(jobId, {
+            percent: Math.min(99, Math.max(5, percent)),
+            currentListingTitle: title ?? null,
+          });
+        },
+      );
+
+      const counters = this.classifyRegenerateOutcome(result);
+      this.regenerateJobs.updateJob(jobId, {
+        status: 'done',
+        percent: 100,
+        processed: 1,
+        currentListingTitle: propertyTitle,
+        successCount: counters.successCount,
+        errorCount: counters.errorCount,
+        skippedCount: counters.skippedCount,
+        errorMessage: result.introVideoError,
+        result: { scheduleId, result },
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.regenerateJobs.updateJob(jobId, {
+        status: 'error',
+        percent: 100,
+        processed: 1,
+        errorCount: 1,
+        errorMessage,
+      });
+    }
+  }
+
+  private async runBulkRegenerateJob(jobId: string): Promise<void> {
+    const schedules = await this.prisma.socialPublishSchedule.findMany({
+      where: {
+        enabled: true,
+        platform: 'FACEBOOK',
+        contentType: { in: ['PROPERTY', 'SHORT'] },
+      },
+      take: 200,
+    });
+
+    this.regenerateJobs.updateJob(jobId, {
+      status: 'running',
+      total: schedules.length,
+      processed: 0,
+      percent: schedules.length === 0 ? 100 : 0,
+    });
+
+    let successCount = 0;
+    let errorCount = 0;
+    let skippedCount = 0;
+
+    for (let index = 0; index < schedules.length; index += 1) {
+      const schedule = schedules[index]!;
+      const property = await this.prisma.property.findUnique({
+        where: { id: schedule.contentId },
+      });
+      const listingTitle = property?.title ?? schedule.contentId;
+
+      this.regenerateJobs.updateJob(jobId, {
+        currentListingTitle: listingTitle,
+        processed: index,
+        percent:
+          schedules.length === 0
+            ? 100
+            : Math.round((index / schedules.length) * 100),
+      });
+
+      try {
+        const { result } = await this.regenerateScheduleFinalVideoCore(schedule.id);
+        const counters = this.classifyRegenerateOutcome(result);
+        successCount += counters.successCount;
+        errorCount += counters.errorCount;
+        skippedCount += counters.skippedCount;
+      } catch (err) {
+        errorCount += 1;
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        this.regenerateJobs.updateJob(jobId, {
+          errorMessage,
+        });
+      }
+
+      this.regenerateJobs.updateJob(jobId, {
+        processed: index + 1,
+        percent: Math.round(((index + 1) / schedules.length) * 100),
+        successCount,
+        errorCount,
+        skippedCount,
+      });
+    }
+
+    this.regenerateJobs.updateJob(jobId, {
+      status: 'done',
+      percent: 100,
+      processed: schedules.length,
+      successCount,
+      errorCount,
+      skippedCount,
+      currentListingTitle: null,
+    });
+  }
+
+  private classifyRegenerateOutcome(result: {
+    introVideoUsed: boolean;
+    introVideoError: string | null;
+    introVideoAttemptId: string | null;
+  }): { successCount: number; errorCount: number; skippedCount: number } {
+    if (result.introVideoError) {
+      return { successCount: 0, errorCount: 1, skippedCount: 0 };
+    }
+    if (result.introVideoUsed) {
+      return { successCount: 1, errorCount: 0, skippedCount: 0 };
+    }
+    if (!result.introVideoAttemptId) {
+      return { successCount: 0, errorCount: 0, skippedCount: 1 };
+    }
+    return { successCount: 0, errorCount: 0, skippedCount: 1 };
+  }
+
+  private async regenerateScheduleFinalVideoCore(
+    scheduleId: string,
+    onProgress?: (percent: number, listingTitle?: string) => void,
+  ) {
     const schedule = await this.prisma.socialPublishSchedule.findUnique({
       where: { id: scheduleId },
     });
@@ -69,6 +225,8 @@ export class ListingReelAdminService {
     const videoUrl = toAbsoluteMediaUrl(property.videoUrl);
     if (!videoUrl) throw new BadRequestException('Video inzerátu není dostupné.');
 
+    onProgress?.(10, property.title);
+
     const listingContext = {
       propertyTypeKey: property.propertyTypeKey,
       propertyType: property.propertyType,
@@ -81,6 +239,7 @@ export class ListingReelAdminService {
       sourceVideoUrl: videoUrl,
       listingContext,
       forceRebuild: true,
+      onProgress: (percent) => onProgress?.(10 + Math.round(percent * 0.85), property.title),
     });
 
     await this.finalVideo.updateScheduleFinalVideoSnapshot(scheduleId, result);
@@ -100,66 +259,7 @@ export class ListingReelAdminService {
       }),
     );
 
-    return { ok: true, scheduleId, result };
-  }
-
-  async regenerateAllScheduledFinalVideos() {
-    const schedules = await this.prisma.socialPublishSchedule.findMany({
-      where: {
-        enabled: true,
-        platform: 'FACEBOOK',
-        contentType: { in: ['PROPERTY', 'SHORT'] },
-      },
-      take: 200,
-    });
-
-    const results: Array<{
-      scheduleId: string;
-      propertyId: string;
-      ok: boolean;
-      error?: string;
-      finalVideoUrl?: string;
-      introVideoUsed?: boolean;
-      noIntro?: boolean;
-    }> = [];
-
-    for (const schedule of schedules) {
-      try {
-        const r = await this.regenerateScheduleFinalVideo(schedule.id);
-        const noIntro = !r.result.introVideoAttemptId;
-        results.push({
-          scheduleId: schedule.id,
-          propertyId: schedule.contentId,
-          ok: true,
-          finalVideoUrl: r.result.finalVideoUrl,
-          introVideoUsed: r.result.introVideoUsed,
-          noIntro,
-        });
-      } catch (err) {
-        results.push({
-          scheduleId: schedule.id,
-          propertyId: schedule.contentId,
-          ok: false,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-
-    const succeeded = results.filter((r) => r.ok).length;
-    const failed = results.filter((r) => !r.ok).length;
-    const withoutIntro = results.filter((r) => r.ok && r.noIntro).length;
-    const withIntro = results.filter((r) => r.ok && r.introVideoUsed).length;
-
-    return {
-      ok: true,
-      total: results.length,
-      processed: results.length,
-      succeeded,
-      failed,
-      withoutIntro,
-      withIntro,
-      results,
-    };
+    return { scheduleId, propertyTitle: property.title, result };
   }
 
   async getScheduleIntroDiagnostics(scheduleId: string) {

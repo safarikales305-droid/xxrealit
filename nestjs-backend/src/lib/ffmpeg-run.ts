@@ -28,6 +28,11 @@ export function runFfmpegCapture(
   });
 }
 
+/** Zjistí ze stderr `ffmpeg -i …`, zda soubor obsahuje audio stopu. */
+export function probeHasAudioStreamFromFfmpegStderr(stderr: string): boolean {
+  return /\n\s*Stream #\d+:\d+[^:]*: Audio:/m.test(stderr);
+}
+
 /** Parsuje řádek `Duration: HH:MM:SS.xx` ze stderr `ffmpeg -i …`. */
 export function parseDurationSecondsFromFfmpegStderr(stderr: string): number | null {
   const m = /Duration:\s*(\d{2}):(\d{2}):(\d{2}\.\d{2})/.exec(stderr);
