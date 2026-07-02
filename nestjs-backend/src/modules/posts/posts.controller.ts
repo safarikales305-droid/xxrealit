@@ -26,6 +26,7 @@ import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { uploadPostMedia } from './cloudinary-upload';
 import { parseCommunityFeedAuthorRole } from './community-author-role.util';
 import { CreatePostDto } from './dto/create-post.dto';
+import { CreateListingPostDto } from './dto/create-listing-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import {
   isAllowedPostMediaMime,

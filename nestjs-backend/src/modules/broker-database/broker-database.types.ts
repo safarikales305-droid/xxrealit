@@ -1,1 +1,1 @@
-export * from './directory-import.types';
+export * from '../imported-broker-contacts/directory-import.types';
