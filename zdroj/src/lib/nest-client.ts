@@ -2540,19 +2540,22 @@ export type AdminImportedBrokerContactsList = {
   take: number;
 };
 
+export type AdminImportedBrokerContactsQuery = {
+  search?: string;
+  portal?: string;
+  hasEmail?: boolean;
+  hasPhone?: boolean;
+  profileCreated?: boolean;
+  outreachStatus?: string;
+  contactStatus?: string;
+  sort?: string;
+  skip?: number;
+  take?: number;
+};
+
 export async function nestAdminBrokerContacts(
   token: string | null,
-  query?: {
-    search?: string;
-    portal?: string;
-    hasEmail?: boolean;
-    hasPhone?: boolean;
-    profileCreated?: boolean;
-    outreachStatus?: string;
-    sort?: string;
-    skip?: number;
-    take?: number;
-  },
+  query?: AdminImportedBrokerContactsQuery,
 ): Promise<AdminImportedBrokerContactsList | null> {
   if (!API_BASE_URL || !token) return null;
   const sp = new URLSearchParams();
@@ -2565,6 +2568,7 @@ export async function nestAdminBrokerContacts(
   if (query?.profileCreated === true) sp.set('profileCreated', '1');
   if (query?.profileCreated === false) sp.set('profileCreated', '0');
   if (query?.outreachStatus) sp.set('outreachStatus', query.outreachStatus);
+  if (query?.contactStatus) sp.set('contactStatus', query.contactStatus);
   if (query?.sort) sp.set('sort', query.sort);
   if (query?.skip != null) sp.set('skip', String(query.skip));
   if (query?.take != null) sp.set('take', String(query.take));
@@ -2635,7 +2639,10 @@ export async function nestAdminBrokerContactsBulkUpdate(
 
 export async function nestAdminDownloadBrokerContactsCsv(
   token: string | null,
-  query?: { search?: string; portal?: string; hasEmail?: boolean; hasPhone?: boolean },
+  query?: Pick<
+    AdminImportedBrokerContactsQuery,
+    'search' | 'portal' | 'hasEmail' | 'hasPhone' | 'contactStatus' | 'outreachStatus' | 'profileCreated'
+  >,
 ): Promise<{ ok: boolean; blob?: Blob; error?: string }> {
   if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
   const sp = new URLSearchParams();
@@ -2645,6 +2652,10 @@ export async function nestAdminDownloadBrokerContactsCsv(
   if (query?.hasEmail === false) sp.set('hasEmail', '0');
   if (query?.hasPhone === true) sp.set('hasPhone', '1');
   if (query?.hasPhone === false) sp.set('hasPhone', '0');
+  if (query?.profileCreated === true) sp.set('profileCreated', '1');
+  if (query?.profileCreated === false) sp.set('profileCreated', '0');
+  if (query?.outreachStatus) sp.set('outreachStatus', query.outreachStatus);
+  if (query?.contactStatus) sp.set('contactStatus', query.contactStatus);
   const qs = sp.toString() ? `?${sp.toString()}` : '';
   const res = await fetch(`${API_BASE_URL}/admin/broker-contacts/export${qs}`, {
     headers: { ...nestAuthHeaders(token), Accept: 'text/csv' },
@@ -2687,16 +2698,7 @@ export type BrokerDirectoryImportResult = {
 export type BrokerDatabaseWhatsAppAudience = {
   mode: 'selected_ids' | 'filtered' | 'all_imported';
   selectedContactIds?: string[];
-  filter?: {
-    search?: string;
-    portal?: string;
-    hasEmail?: boolean;
-    hasPhone?: boolean;
-    profileCreated?: boolean;
-    outreachStatus?: string;
-    contactStatus?: string;
-    sort?: string;
-  };
+  filter?: AdminImportedBrokerContactsQuery;
 };
 
 export async function nestAdminBrokerDatabaseImportPreview(
@@ -6679,7 +6681,7 @@ export async function nestAdminCreateEmailCampaign(
 export type EmailCampaignAudience = {
   mode: 'selected_ids' | 'filtered' | 'all_imported' | 'portal_roles';
   selectedContactIds?: string[];
-  filter?: Record<string, unknown>;
+  filter?: AdminImportedBrokerContactsQuery;
   portalRoles?: string[];
 };
 
