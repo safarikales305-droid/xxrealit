@@ -47,6 +47,7 @@ import { PortalWorkerModule } from './modules/portal-worker/portal-worker.module
 import { PropertySeekerModule } from './modules/property-seeker/property-seeker.module';
 import { PortalTermsModule } from './modules/portal-terms/portal-terms.module';
 import { PortalPresentationModule } from './modules/portal-presentation/portal-presentation.module';
+import { OPortaluModule } from './modules/o-portalu/o-portalu.module';
 import { SupportTicketsModule } from './modules/support-tickets/support-tickets.module';
 import { TiparPayoutModule } from './modules/tipar-payout/tipar-payout.module';
 import { VerificationFilesModule } from './modules/verification-files/verification-files.module';
@@ -105,6 +106,7 @@ import { EmailCampaignsModule } from './modules/email-campaigns/email-campaigns.
     PropertySeekerModule,
     PortalTermsModule,
     PortalPresentationModule,
+    OPortaluModule,
     SupportTicketsModule,
     TiparPayoutModule,
     VerificationFilesModule,

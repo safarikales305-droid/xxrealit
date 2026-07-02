@@ -460,6 +460,14 @@ export function PortalPresentationAdminEditor({ token }: Props) {
             </Link>
             . Změny se projeví po uložení (cache cca 60 s).
           </p>
+          <p className="mt-2 flex flex-wrap gap-3 text-sm">
+            <Link href="/admin/o-portalu/statistiky" className="font-semibold text-violet-700 hover:underline">
+              Statistiky veřejné stránky
+            </Link>
+            <Link href="/admin/marketing/cenik-leadu" className="font-semibold text-violet-700 hover:underline">
+              Ceník leadů
+            </Link>
+          </p>
         </div>
         <span
           className={`rounded-full px-3 py-1 text-xs font-bold uppercase ${

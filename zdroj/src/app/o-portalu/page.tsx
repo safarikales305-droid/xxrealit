@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { PresentationLanding } from '@/components/presentation/PresentationLanding';
 import { fetchPortalPresentation } from '@/lib/portal-presentation';
+import { fetchOPortaluPublic } from '@/lib/o-portalu-public';
 import { getAppOrigin } from '@/lib/app-url';
 
 export const revalidate = 60;
@@ -105,7 +106,10 @@ function buildJsonLd(page: NonNullable<Awaited<ReturnType<typeof fetchPortalPres
 }
 
 export default async function OPortaluPage() {
-  const page = await fetchPortalPresentation('cs');
+  const [page, marketing] = await Promise.all([
+    fetchPortalPresentation('cs'),
+    fetchOPortaluPublic(),
+  ]);
   if (!page) notFound();
 
   const jsonLd = buildJsonLd(page);
@@ -116,7 +120,7 @@ export default async function OPortaluPage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <PresentationLanding page={page} />
+      <PresentationLanding page={page} marketing={marketing} />
     </>
   );
 }

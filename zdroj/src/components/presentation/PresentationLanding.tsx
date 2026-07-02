@@ -7,10 +7,13 @@ import { PortalTermsHtml } from '@/components/legal/PortalTermsHtml';
 import { PresentationHeader } from '@/components/presentation/PresentationHeader';
 import { PresentationSectionBlock } from '@/components/presentation/PresentationSection';
 import type { PortalPresentationPage } from '@/lib/portal-presentation';
+import type { OPortaluPublicPayload } from '@/lib/o-portalu-public';
+import { PortalReachSection } from '@/components/presentation/PortalReachSection';
 import { API_BASE_URL } from '@/lib/api';
 
 type Props = {
   page: PortalPresentationPage;
+  marketing?: OPortaluPublicPayload | null;
 };
 
 function visitorId(): string {
@@ -55,7 +58,7 @@ async function track(eventType: string, payload?: Record<string, unknown>) {
   }
 }
 
-export function PresentationLanding({ page }: Props) {
+export function PresentationLanding({ page, marketing }: Props) {
   const [openFaq, setOpenFaq] = useState<string | null>(null);
 
   const navSections = useMemo(
@@ -126,6 +129,8 @@ export function PresentationLanding({ page }: Props) {
           </div>
         </div>
       </section>
+
+      {marketing ? <PortalReachSection data={marketing} /> : null}
 
       {page.sections.map((section, index) => (
         <PresentationSectionBlock

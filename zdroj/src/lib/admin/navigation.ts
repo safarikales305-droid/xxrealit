@@ -87,6 +87,7 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
       { id: 'topups', label: 'Dobití', href: '/admin/dobiti-kreditu', icon: '💰' },
       { id: 'credit-settings', label: 'Tarify / platby', href: '/admin/nastaveni-plateb-kreditu', icon: '⚙', tone: 'blue' },
       { id: 'commissions', label: 'Provize a kontakty', href: '/admin/provize-a-kontakty', icon: '📋' },
+      { id: 'lead-prices', label: 'Ceník leadů', href: '/admin/marketing/cenik-leadu', icon: '💶' },
       { id: 'worker-comm', label: 'Provize pracovníků', href: '/admin/provize-pracovniku', icon: '💼' },
       { id: 'recalc', label: 'Přepočet kreditů', href: '/admin#uzivatele', icon: '🧮', tone: 'blue' },
     ],
@@ -101,6 +102,7 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
     children: [
       { id: 'bonus', label: 'Bonusové akce', href: '/admin/bonusove-akce', icon: '🎁', tone: 'purple' },
       { id: 'presentation', label: 'O portálu', href: '/admin/o-portalu', icon: '🌐' },
+      { id: 'presentation-stats', label: 'Statistiky O portálu', href: '/admin/o-portalu/statistiky', icon: '📊' },
       { id: 'popups', label: 'Popup okna', href: '/admin/marketing/popup-okna', icon: '💬' },
       { id: 'push', label: 'Push notifikace', href: '/admin/marketing/push-notifikace', icon: '🔔' },
       { id: 'wa-campaigns', label: 'WhatsApp kampaně', href: '/admin/marketing/whatsapp-kampane', icon: '📱' },
