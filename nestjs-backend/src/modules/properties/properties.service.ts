@@ -1681,6 +1681,7 @@ export class PropertiesService {
       data,
       include: socialInclude(ownerId),
     });
+    void this.markMetaCatalogDirty(propertyId);
     if (dto.images !== undefined || dto.videoUrl !== undefined) {
       void this.ensureFacebookShareImage(propertyId, true).catch(() => undefined);
     }
@@ -1850,5 +1851,17 @@ export class PropertiesService {
         .map(([key, label]) => ({ key, label }))
         .sort((a, b) => a.label.localeCompare(b.label, 'cs')),
     };
+  }
+
+  private async markMetaCatalogDirty(propertyId: string) {
+    try {
+      await this.prisma.metaCatalogExportItem.upsert({
+        where: { propertyId },
+        create: { propertyId, exportStatus: 'pending', lastChangedAt: new Date() },
+        update: { exportStatus: 'pending', lastChangedAt: new Date(), synced: false },
+      });
+    } catch {
+      // Meta katalog tabulka nemusí být nasazena
+    }
   }
 }

@@ -5650,11 +5650,102 @@ export type MetaCatalogAdminSettings = {
   lastGeneratedAt: string | null;
   lastError: string | null;
   carouselListingIds: string[];
+  allowContactExport: boolean;
+  exportFieldFlags: Record<string, boolean>;
+  syncIntervalMinutes: number;
+  lastSyncAt: string | null;
+  nextSyncAt: string | null;
+  syncRunning: boolean;
   feedCsvUrl: string;
   feedXmlUrl?: string;
   feedJsonUrl?: string;
   carouselJsonUrl: string;
   updatedAt: string;
+};
+
+export type MetaCatalogFieldConfig = {
+  key: string;
+  label: string;
+  category: 'required' | 'optional' | 'sensitive';
+  defaultEnabled: boolean;
+  enabled: boolean;
+};
+
+export type MetaCatalogDashboard = {
+  counts: {
+    exported: number;
+    pending: number;
+    errors: number;
+    hidden: number;
+    active: number;
+    lastItemCount: number;
+  };
+  sync: {
+    lastSyncAt: string | null;
+    nextSyncAt: string | null;
+    syncRunning: boolean;
+    syncIntervalMinutes: number;
+    lastRun: {
+      id: string;
+      startedAt: string;
+      result: string;
+      exportedCount: number;
+      errorCount: number;
+    } | null;
+  };
+  services: Record<string, string>;
+  settings: {
+    enabled: boolean;
+    allowContactExport: boolean;
+    lastError: string | null;
+    lastGeneratedAt: string | null;
+  };
+};
+
+export type MetaCatalogExportedListing = {
+  propertyId: string;
+  title: string;
+  city: string;
+  price: number | null;
+  currency: string;
+  image: string | null;
+  exportStatus: string;
+  lastExportedAt: string | null;
+  metaProductId: string | null;
+  pixelStatus: string | null;
+  synced: boolean;
+  lastChangedAt: string | null;
+  lastError: string | null;
+};
+
+export type MetaCatalogSyncRun = {
+  id: string;
+  startedAt: string;
+  finishedAt: string | null;
+  exportedCount: number;
+  changedCount: number;
+  errorCount: number;
+  durationMs: number | null;
+  result: string;
+  mode: string;
+};
+
+export type MetaCatalogPreviewField = {
+  key: string;
+  label: string;
+  category: 'required' | 'optional' | 'sensitive';
+  enabled: boolean;
+  exported: boolean;
+  value: string;
+};
+
+export type MetaCatalogItemPreview = {
+  propertyId: string;
+  fields: MetaCatalogPreviewField[];
+  xml: string;
+  csv: string;
+  json: string;
+  validation: { ok: boolean; errors: string[]; warnings: string[] };
 };
 
 export type MetaCatalogListingPreview = {
@@ -5682,7 +5773,12 @@ export async function nestAdminMetaCatalogGet(
 
 export async function nestAdminMetaCatalogPatch(
   token: string | null,
-  body: Partial<Pick<MetaCatalogAdminSettings, 'enabled' | 'carouselListingIds'>>,
+  body: Partial<
+    Pick<
+      MetaCatalogAdminSettings,
+      'enabled' | 'carouselListingIds' | 'allowContactExport' | 'exportFieldFlags' | 'syncIntervalMinutes'
+    >
+  >,
 ): Promise<{ ok: true; settings: MetaCatalogAdminSettings } | { ok: false; error?: string }> {
   if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
   const res = await fetch(`${API_BASE_URL}/admin/meta-catalog/settings`, {
@@ -5736,6 +5832,118 @@ export async function nestAdminMetaCatalogPreviewCount(
   });
   if (!res.ok) return null;
   return (await res.json().catch(() => null)) as { total: number; withImage: number };
+}
+
+async function metaCatalogAdminFetch<T>(
+  token: string | null,
+  path: string,
+  init?: RequestInit,
+): Promise<T | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/meta-catalog${path}`, {
+    ...init,
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      ...init?.headers,
+    },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as T | null;
+}
+
+export async function nestAdminMetaCatalogDashboard(
+  token: string | null,
+): Promise<MetaCatalogDashboard | null> {
+  return metaCatalogAdminFetch<MetaCatalogDashboard>(token, '/dashboard');
+}
+
+export async function nestAdminMetaCatalogExportFields(
+  token: string | null,
+): Promise<{
+  fields: MetaCatalogFieldConfig[];
+  allowContactExport: boolean;
+  contactExportWarning: string;
+} | null> {
+  return metaCatalogAdminFetch(token, '/export-fields');
+}
+
+export async function nestAdminMetaCatalogPreviewItem(
+  token: string | null,
+  propertyId: string,
+): Promise<MetaCatalogItemPreview | null> {
+  return metaCatalogAdminFetch(token, `/preview/${encodeURIComponent(propertyId)}`);
+}
+
+export async function nestAdminMetaCatalogExportedListings(
+  token: string | null,
+  filter?: string,
+): Promise<{ items: MetaCatalogExportedListing[] } | null> {
+  const qs = filter ? `?filter=${encodeURIComponent(filter)}` : '';
+  return metaCatalogAdminFetch(token, `/exported-listings${qs}`);
+}
+
+export async function nestAdminMetaCatalogSyncHistory(
+  token: string | null,
+): Promise<{ items: MetaCatalogSyncRun[] } | null> {
+  return metaCatalogAdminFetch(token, '/sync-history');
+}
+
+export async function nestAdminMetaCatalogSyncRun(
+  token: string | null,
+  mode: string,
+): Promise<{ ok: boolean; error?: string; exportedCount?: number; runId?: string } | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/meta-catalog/sync`, {
+    method: 'POST',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ mode }),
+  });
+  return (await res.json().catch(() => null)) as {
+    ok: boolean;
+    error?: string;
+    exportedCount?: number;
+    runId?: string;
+  };
+}
+
+export async function nestAdminMetaCatalogQuality(
+  token: string | null,
+): Promise<{
+  score: number;
+  checks: Array<{ key: string; label: string; level: string; message: string }>;
+  summary: { ok: number; warning: number; error: number };
+} | null> {
+  return metaCatalogAdminFetch(token, '/quality');
+}
+
+export async function nestAdminMetaCatalogStatistics(
+  token: string | null,
+): Promise<Record<string, unknown> | null> {
+  return metaCatalogAdminFetch(token, '/statistics');
+}
+
+export async function nestAdminMetaCatalogTestMeta(
+  token: string | null,
+): Promise<Record<string, unknown> | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/meta-catalog/test-meta`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as Record<string, unknown>;
+}
+
+export async function nestAdminMetaCatalogLogs(
+  token: string | null,
+): Promise<Array<{ id: string; eventType: string; message: string | null; createdAt: string }> | null> {
+  return metaCatalogAdminFetch(token, '/logs');
 }
 
 export type MetaDiagnosticLevel = 'ok' | 'warning' | 'error';

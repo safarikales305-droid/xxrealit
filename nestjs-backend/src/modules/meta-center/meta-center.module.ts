@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MetaCatalogModule } from '../meta-catalog/meta-catalog.module';
 import { SocialModule } from '../social/social.module';
 import { MetaCenterAdminController } from './meta-center-admin.controller';
@@ -14,7 +14,7 @@ import { MetaConnectSyncCronService } from './meta-connect-sync.cron.service';
 import { MetaGraphClientService } from './meta-graph-client.service';
 
 @Module({
-  imports: [MetaCatalogModule, SocialModule],
+  imports: [forwardRef(() => MetaCatalogModule), SocialModule],
   controllers: [
     MetaCenterAdminController,
     MetaCenterPublicController,

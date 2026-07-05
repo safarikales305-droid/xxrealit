@@ -2433,14 +2433,63 @@ model RegistrationGamificationLead {
 
 /// Nastavení Meta katalogového feedu inzerátů.
 model MetaCatalogSetting {
-  id                 String    @id @default("default")
-  enabled            Boolean   @default(false)
-  lastItemCount      Int       @default(0)
-  lastGeneratedAt    DateTime?
-  lastError          String?   @db.Text
-  carouselListingIds String[]  @default([])
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  id                   String    @id @default("default")
+  enabled              Boolean   @default(false)
+  lastItemCount        Int       @default(0)
+  lastGeneratedAt      DateTime?
+  lastError            String?   @db.Text
+  carouselListingIds   String[]  @default([])
+  allowContactExport   Boolean   @default(false)
+  exportFieldFlags     Json?
+  syncIntervalMinutes  Int       @default(15)
+  lastSyncAt           DateTime?
+  nextSyncAt           DateTime?
+  syncRunning          Boolean   @default(false)
+  feedCacheClearedAt   DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+model MetaCatalogSyncRun {
+  id             String    @id @default(cuid())
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  exportedCount  Int       @default(0)
+  changedCount   Int       @default(0)
+  errorCount     Int       @default(0)
+  durationMs     Int?
+  result         String    @default("running")
+  mode           String    @default("full")
+  errorMessage   String?   @db.Text
+  details        Json?
+  @@index([startedAt(sort: Desc)])
+}
+
+model MetaCatalogExportItem {
+  id              String    @id @default(cuid())
+  propertyId      String    @unique
+  metaProductId   String?
+  exportStatus    String    @default("pending")
+  lastExportedAt  DateTime?
+  lastChangedAt   DateTime?
+  lastError       String?
+  pixelStatus     String?
+  synced          Boolean   @default(false)
+  payloadHash     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  @@index([exportStatus])
+}
+
+model MetaCatalogLog {
+  id         String   @id @default(cuid())
+  eventType  String
+  message    String?  @db.Text
+  propertyId String?
+  details    Json?
+  createdAt  DateTime @default(now())
+  @@index([createdAt(sort: Desc)])
+  @@index([eventType])
 }
 
 /// Centrální nastavení Meta Centra (Pixel, CAPI, Commerce, feedy).
