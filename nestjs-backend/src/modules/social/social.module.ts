@@ -103,6 +103,7 @@ import { PostSocialPublishService } from './autopost/post-social-publish.service
   ],
   exports: [
     FacebookConfigService,
+    FacebookAuthService,
     FacebookService,
     FacebookPageService,
     FacebookPageSyncService,
