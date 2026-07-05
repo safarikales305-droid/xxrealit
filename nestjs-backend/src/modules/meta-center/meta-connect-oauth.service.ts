@@ -60,9 +60,7 @@ export class MetaConnectOAuthService {
   }
 
   resolveRedirectUri(): string {
-    const explicit = this.config.get<string>('META_CENTER_OAUTH_REDIRECT_URI')?.trim();
-    if (explicit) return explicit.replace(/\/+$/, '');
-    return `${this.frontendUrl()}/api/social/facebook/meta-connect-callback`;
+    return this.fbConfig.resolveMetaConnectRedirectUri();
   }
 
   private assertConfigured() {
@@ -79,6 +77,13 @@ export class MetaConnectOAuthService {
 
   async buildConnectUrl(adminUserId: string): Promise<string> {
     this.assertConfigured();
+    this.fbConfig.assertPagesAppIdValid();
+
+    const pagesAppId = this.fbConfig.getPagesAppId();
+    if (!pagesAppId) {
+      throw new ServiceUnavailableException(this.fbConfig.pagesConfigurationErrorMessage());
+    }
+
     const state = `${META_CENTER_OAUTH_STATE_PREFIX}${randomBytes(23).toString('hex')}`;
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
     await this.cleanupSession(adminUserId);
@@ -93,7 +98,7 @@ export class MetaConnectOAuthService {
     });
 
     const redirectUri = encodeURIComponent(this.resolveRedirectUri());
-    const appId = encodeURIComponent(this.fbConfig.getPagesAppId()!);
+    const appId = encodeURIComponent(pagesAppId);
     const scope = encodeURIComponent(META_CENTER_CONNECT_SCOPES);
     return (
       `${this.graph.oauthDialogUrl()}?` +
@@ -180,9 +185,12 @@ export class MetaConnectOAuthService {
   private async persistEnvAppCredentials() {
     const pagesAppId = this.fbConfig.getPagesAppId();
     const pagesSecret = this.fbConfig.getPagesAppSecret();
-    const loginAppId = this.fbConfig.getAppId();
-    const loginSecret = this.fbConfig.getAppSecret();
+    const loginAppId = this.fbConfig.getLoginAppId();
+    const loginSecret = this.fbConfig.getLoginAppSecret();
     const encryptionKey = process.env.SOCIAL_TOKEN_ENCRYPTION_KEY?.trim() || null;
+    const metaConnectRedirect = this.resolveRedirectUri();
+    const frontendUrl = this.fbConfig.resolveFrontendUrl();
+    const backendUrl = this.fbConfig.resolveBackendUrl();
 
     await this.prisma.metaCenterSetting.upsert({
       where: { id: SETTINGS_ID },
@@ -194,8 +202,10 @@ export class MetaConnectOAuthService {
         facebookPagesSecret: pagesSecret,
         encryptionKey,
         graphApiVersion: this.fbConfig.getGraphApiVersion(),
-        redirectUri: this.resolveRedirectUri(),
-        callbackUrl: this.resolveRedirectUri(),
+        frontendUrl,
+        backendUrl,
+        redirectUri: metaConnectRedirect,
+        callbackUrl: metaConnectRedirect,
       },
       update: {
         facebookAppId: loginAppId ?? undefined,
@@ -204,8 +214,10 @@ export class MetaConnectOAuthService {
         facebookPagesSecret: pagesSecret ?? undefined,
         encryptionKey: encryptionKey ?? undefined,
         graphApiVersion: this.fbConfig.getGraphApiVersion(),
-        redirectUri: this.resolveRedirectUri(),
-        callbackUrl: this.resolveRedirectUri(),
+        frontendUrl: frontendUrl ?? undefined,
+        backendUrl: backendUrl ?? undefined,
+        redirectUri: metaConnectRedirect,
+        callbackUrl: metaConnectRedirect,
       },
     });
   }

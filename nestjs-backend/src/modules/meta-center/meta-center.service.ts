@@ -94,26 +94,30 @@ export class MetaCenterService {
 
   private resolveUrls(row: Awaited<ReturnType<MetaCenterService['getOrCreateSettings']>>) {
     const origin = getPublicPortalUrl();
-    const frontend = row.frontendUrl?.trim() || origin;
+    const frontend = row.frontendUrl?.trim() || this.fbConfig.resolveFrontendUrl();
     const backend =
       row.backendUrl?.trim() ||
+      this.fbConfig.resolveBackendUrl() ||
       process.env.API_URL?.trim() ||
       process.env.NEXT_PUBLIC_API_URL?.trim() ||
       '';
-    const redirect =
-      row.redirectUri?.trim() || this.fbConfig.resolveOAuthRedirectUriOptional() || '';
-    const callback = row.callbackUrl?.trim() || redirect;
-    return { frontend, backend, redirect, callback, origin };
+    const metaConnect =
+      row.redirectUri?.trim() || this.fbConfig.resolveMetaConnectRedirectUriOptional() || '';
+    const callback = row.callbackUrl?.trim() || metaConnect;
+    return { frontend, backend, redirect: metaConnect, callback, origin };
   }
 
   serializeSettings(row: Awaited<ReturnType<MetaCenterService['getOrCreateSettings']>>) {
     const urls = this.resolveUrls(row);
+    const apps = this.fbConfig.getAppsConfig();
     return {
       id: row.id,
-      facebookAppId: row.facebookAppId,
-      facebookAppSecretMasked: this.maskSecret(row.facebookAppSecret),
-      facebookPagesAppId: row.facebookPagesAppId,
-      facebookPagesSecretMasked: this.maskSecret(row.facebookPagesSecret),
+      facebookAppId: row.facebookAppId ?? apps.login.appId,
+      facebookAppSecretMasked:
+        this.maskSecret(row.facebookAppSecret) ?? apps.login.appSecretMasked,
+      facebookPagesAppId: row.facebookPagesAppId ?? apps.pages.appId,
+      facebookPagesSecretMasked:
+        this.maskSecret(row.facebookPagesSecret) ?? apps.pages.appSecretMasked,
       businessManagerId: row.businessManagerId,
       commerceManagerId: row.commerceManagerId,
       catalogId: row.catalogId,
@@ -124,9 +128,13 @@ export class MetaCenterService {
       webhookVerifyTokenMasked: this.maskSecret(row.webhookVerifyToken),
       webhookSecretMasked: this.maskSecret(row.webhookSecret),
       frontendUrl: urls.frontend,
-      backendUrl: urls.backend,
-      redirectUri: urls.redirect,
-      callbackUrl: urls.callback,
+      backendUrl: urls.backend || apps.backendUrl || '',
+      redirectUri: urls.redirect || apps.pages.metaConnectRedirectUri || '',
+      callbackUrl: urls.callback || apps.pages.metaConnectRedirectUri || '',
+      loginOAuthRedirectUri: apps.login.oauthRedirectUri,
+      metaConnectRedirectUri: apps.pages.metaConnectRedirectUri,
+      pageConnectRedirectUri: apps.pages.pageConnectRedirectUri,
+      facebookApps: apps,
       encryptionKeyMasked: this.maskSecret(row.encryptionKey),
       graphApiVersion: row.graphApiVersion || GRAPH_API_VERSION_DEFAULT,
       domainVerification: row.domainVerification,
@@ -368,11 +376,31 @@ export class MetaCenterService {
     const row = await this.getOrCreateSettings();
     const urls = this.resolveUrls(row);
     const fbStatus = this.fbConfig.getConfigStatus();
+    const apps = this.fbConfig.getAppsConfig();
     const items: DiagnosticItem[] = [];
+
+    items.push({
+      key: 'login_app_id',
+      label: 'Facebook Login App ID',
+      level: this.levelFromBool(apps.login.idValidation.ok),
+      message:
+        apps.login.idValidation.error ??
+        (apps.login.appId ? `Login App: ${apps.login.appId}` : 'Login App ID chybí'),
+    });
+
+    items.push({
+      key: 'pages_app_id',
+      label: 'Pages / Marketing App ID',
+      level: this.levelFromBool(apps.pages.idValidation.ok),
+      message:
+        apps.pages.idValidation.error ??
+        (apps.pages.appId ? `Pages App: ${apps.pages.appId}` : 'Pages App ID chybí'),
+    });
 
     items.push(await this.checkHttps(urls.frontend, 'Frontend URL'));
     items.push(await this.checkHttps(urls.backend, 'Backend URL'));
-    items.push(await this.checkHttps(urls.callback, 'Callback URL'));
+    items.push(await this.checkHttps(apps.login.oauthRedirectUri, 'Login OAuth Redirect'));
+    items.push(await this.checkHttps(apps.pages.metaConnectRedirectUri, 'Meta Connect Redirect'));
 
     items.push({
       key: 'graph_api',
@@ -442,9 +470,11 @@ export class MetaCenterService {
 
     items.push({
       key: 'login',
-      label: 'Login',
+      label: 'Facebook Login',
       level: fbStatus.configured ? 'ok' : 'error',
-      message: fbStatus.configured ? 'Facebook Login připraven' : `Chybí: ${fbStatus.missing.join(', ')}`,
+      message: fbStatus.configured
+        ? `Připraveno (${apps.login.oauthRedirectUri})`
+        : `Chybí: ${fbStatus.missing.join(', ')}${apps.login.idValidation.error ? ` — ${apps.login.idValidation.error}` : ''}`,
     });
 
     items.push({
@@ -463,11 +493,11 @@ export class MetaCenterService {
 
     items.push({
       key: 'pages',
-      label: 'Facebook Pages API',
+      label: 'Facebook Pages / Marketing API',
       level: fbStatus.pagesConfigured ? 'ok' : 'warning',
       message: fbStatus.pagesConfigured
-        ? 'Pages OAuth připraven'
-        : `Chybí: ${fbStatus.pagesMissing.join(', ')}`,
+        ? `Meta Connect: ${apps.pages.metaConnectRedirectUri}`
+        : `Chybí: ${fbStatus.pagesMissing.join(', ')}${apps.pages.idValidation.error ? ` — ${apps.pages.idValidation.error}` : ''}`,
     });
 
     const summary = { ok: 0, warning: 0, error: 0 };
@@ -782,6 +812,7 @@ export class MetaCenterService {
   async getConnectionStatus() {
     const row = await this.getOrCreateSettings();
     const settings = this.serializeSettings(row);
+    const apps = this.fbConfig.getAppsConfig();
     const checks = this.parseJson<Array<{
       key: string;
       label: string;
@@ -807,6 +838,7 @@ export class MetaCenterService {
 
     return {
       settings,
+      apps,
       checklist,
       diagnostics: checks,
       connectedAt: settings.metaConnectedAt,

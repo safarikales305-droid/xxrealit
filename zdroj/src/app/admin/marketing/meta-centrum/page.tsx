@@ -7,6 +7,8 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   nestAdminMetaCenterApiLogs,
   nestAdminMetaCenterConnectUrl,
+  nestAdminMetaCenterApps,
+  nestAdminMetaCenterLoginOAuthUrl,
   nestAdminMetaCenterConnectionStatus,
   nestAdminMetaCenterDashboard,
   nestAdminMetaCenterDiagnostics,
@@ -26,6 +28,7 @@ import {
   type MetaCenterSettings,
   type MetaConnectionCheck,
   type MetaDiagnosticLevel,
+  type FacebookAppsConfig,
 } from '@/lib/nest-client';
 
 const TABS = [
@@ -124,11 +127,12 @@ export default function MetaCentrumPage() {
   const [logFilter, setLogFilter] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [appsConfig, setAppsConfig] = useState<FacebookAppsConfig | null>(null);
   const [testReport, setTestReport] = useState<unknown>(null);
 
   const refresh = useCallback(async () => {
     if (!token) return;
-    const [d, l, c, api] = await Promise.all([
+    const [d, l, c, api, apps] = await Promise.all([
       nestAdminMetaCenterDashboard(token),
       nestAdminMetaCenterLogs(token, {
         eventType: logFilter || undefined,
@@ -136,11 +140,13 @@ export default function MetaCentrumPage() {
       }),
       nestAdminMetaCenterConnectionStatus(token),
       nestAdminMetaCenterApiLogs(token, 80),
+      nestAdminMetaCenterApps(token),
     ]);
     if (d) setDash(d);
     setLogs(l?.items ?? []);
     if (c) setConnection({ checklist: c.checklist, diagnostics: c.diagnostics });
     setApiLogs(api?.items ?? []);
+    setAppsConfig(apps ?? c?.apps ?? d?.settings.facebookApps ?? null);
   }, [token, logFilter]);
 
   useEffect(() => {
@@ -205,6 +211,10 @@ export default function MetaCentrumPage() {
     setBusy(false);
     if (!r?.url) {
       setMsg('Nepodařilo se získat OAuth URL.');
+      return;
+    }
+    if (r.appId && appsConfig?.login.appId && r.appId === appsConfig.login.appId) {
+      setMsg('Chyba: Meta Connect používá Login App ID místo Pages App ID. Zkontrolujte FACEBOOK_PAGES_APP_ID v Railway.');
       return;
     }
     window.location.href = r.url;
@@ -509,27 +519,114 @@ export default function MetaCentrumPage() {
         ) : null}
 
         {tab === 'settings' && dash ? (
-          <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
-            <h2 className="mb-2 text-lg font-bold">Meta nastavení (automaticky načteno)</h2>
-            <p className="mb-4 text-sm text-zinc-500">
-              Hodnoty se načítají po připojení Meta účtu. Ruční editace ID není potřeba.
-            </p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {settingsFields.map(([key, label]) => {
-                const raw = (dash.settings as Record<string, unknown>)[key];
-                const display =
-                  key === 'metaConnectedAt' || key === 'lastAutoSyncAt'
-                    ? raw
-                      ? new Date(String(raw)).toLocaleString('cs-CZ')
-                      : '—'
-                    : String(raw ?? '—');
-                return (
-                  <div key={key} className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+          <section className="space-y-6">
+            <div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-6 shadow-sm">
+              <h2 className="text-lg font-bold text-blue-900">A) Facebook Login</h2>
+              <p className="mt-1 text-sm text-blue-800">
+                Aplikace <strong>{appsConfig?.login.appName ?? 'xxrealitpage'}</strong> — registrace a přihlášení uživatelů
+              </p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {[
+                  ['Login App ID', appsConfig?.login.appId ?? dash.settings.facebookAppId],
+                  ['Login App Secret', appsConfig?.login.appSecretConfigured ? appsConfig.login.appSecretMasked : 'chybí'],
+                  ['Login Redirect URI', appsConfig?.login.oauthRedirectUri ?? dash.settings.loginOAuthRedirectUri],
+                  ['Stav OAuth loginu', appsConfig?.login.configured ? 'nastaveno' : 'chybí ENV'],
+                ].map(([label, val]) => (
+                  <div key={String(label)} className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm">
                     <p className="text-xs font-medium text-zinc-500">{label}</p>
-                    <p className="mt-1 break-all font-mono text-xs">{display}</p>
+                    <p className="mt-1 break-all font-mono text-xs">{String(val ?? '—')}</p>
                   </div>
-                );
-              })}
+                ))}
+              </div>
+              {appsConfig?.login.idValidation.error ? (
+                <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                  {appsConfig.login.idValidation.error}
+                </p>
+              ) : null}
+              <button
+                type="button"
+                disabled={busy}
+                className="mt-4 rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-semibold"
+                onClick={async () => {
+                  if (!token) return;
+                  setBusy(true);
+                  const r = await nestAdminMetaCenterLoginOAuthUrl(token);
+                  setBusy(false);
+                  if (r?.url) window.open(r.url, '_blank', 'noopener,noreferrer');
+                  else setMsg('Login OAuth URL nelze vytvořit — zkontrolujte FACEBOOK_LOGIN_APP_ID.');
+                }}
+              >
+                Test loginu (otevřít OAuth)
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-purple-200 bg-purple-50/50 p-6 shadow-sm">
+              <h2 className="text-lg font-bold text-purple-900">B) Facebook Pages / Marketing</h2>
+              <p className="mt-1 text-sm text-purple-800">
+                Aplikace <strong>{appsConfig?.pages.appName ?? 'testovací stránka xxrealit'}</strong> — Meta Connect, Pages API, Pixel, katalog
+              </p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {[
+                  ['Pages App ID', appsConfig?.pages.appId ?? dash.settings.facebookPagesAppId],
+                  ['Pages App Secret', appsConfig?.pages.appSecretConfigured ? appsConfig.pages.appSecretMasked : 'chybí'],
+                  ['Meta Connect Redirect URI', appsConfig?.pages.metaConnectRedirectUri ?? dash.settings.metaConnectRedirectUri],
+                  ['Page ID', dash.settings.pageId],
+                  ['Ad Account ID', dash.settings.adAccountId],
+                  ['Business Manager ID', dash.settings.businessManagerId],
+                  ['Dataset ID', dash.settings.datasetId],
+                  ['Pixel ID', dash.settings.pixelId],
+                  ['Catalog ID', dash.settings.catalogId],
+                  ['Commerce Manager ID', dash.settings.commerceManagerId],
+                  ['Conversions API Token', dash.settings.conversionsApiTokenMasked ? 'nastaveno' : 'chybí'],
+                  ['Webhook Verify Token', dash.settings.webhookVerifyTokenMasked ? 'nastaveno' : 'chybí'],
+                  ['Webhook Secret', dash.settings.webhookSecretMasked ? 'nastaveno' : 'chybí'],
+                ].map(([label, val]) => (
+                  <div key={String(label)} className="rounded-lg border border-purple-200 bg-white px-3 py-2 text-sm">
+                    <p className="text-xs font-medium text-zinc-500">{label}</p>
+                    <p className="mt-1 break-all font-mono text-xs">{String(val ?? '—')}</p>
+                  </div>
+                ))}
+              </div>
+              {appsConfig?.pages.idValidation.error ? (
+                <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                  {appsConfig.pages.idValidation.error}
+                </p>
+              ) : null}
+              <p className="mt-3 text-xs text-purple-800">
+                Tlačítko „Připojit Meta účet“ používá výhradně Pages App ID (
+                {appsConfig?.pages.appId ?? '—'}) a redirect{' '}
+                {appsConfig?.pages.metaConnectRedirectUri ?? '—'}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+              <h2 className="mb-4 text-lg font-bold">Načtené po připojení Meta účtu</h2>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {settingsFields
+                  .filter(([key]) =>
+                    ![
+                      'facebookAppId',
+                      'facebookPagesAppId',
+                      'redirectUri',
+                      'callbackUrl',
+                    ].includes(key),
+                  )
+                  .map(([key, label]) => {
+                    const raw = (dash.settings as Record<string, unknown>)[key];
+                    const display =
+                      key === 'metaConnectedAt' || key === 'lastAutoSyncAt'
+                        ? raw
+                          ? new Date(String(raw)).toLocaleString('cs-CZ')
+                          : '—'
+                        : String(raw ?? '—');
+                    return (
+                      <div key={key} className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+                        <p className="text-xs font-medium text-zinc-500">{label}</p>
+                        <p className="mt-1 break-all font-mono text-xs">{display}</p>
+                      </div>
+                    );
+                  })}
+              </div>
             </div>
           </section>
         ) : null}

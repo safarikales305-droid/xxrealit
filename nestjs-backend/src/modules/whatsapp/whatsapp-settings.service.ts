@@ -429,7 +429,10 @@ export class WhatsAppSettingsService implements OnModuleInit {
   }
 
   private envMetaAppId(): string {
-    return this.config.get<string>('FACEBOOK_APP_ID')?.trim() || '';
+    return this.config.get<string>('FACEBOOK_PAGES_APP_ID')?.trim()
+      || this.config.get<string>('FACEBOOK_LOGIN_APP_ID')?.trim()
+      || this.config.get<string>('FACEBOOK_APP_ID')?.trim()
+      || '';
   }
 
   private envMetaBusinessId(): string {

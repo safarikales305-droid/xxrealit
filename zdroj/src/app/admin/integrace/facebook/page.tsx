@@ -123,6 +123,11 @@ export default function AdminFacebookIntegrationPage() {
             >
               {loginConfigured ? 'Nakonfigurováno' : 'Není nakonfigurováno'}
             </p>
+            {config?.loginAppId ? (
+              <p className="mt-2 text-sm text-zinc-600">
+                Login App ID: <code className="rounded bg-zinc-100 px-1 text-xs">{config.loginAppId}</code>
+              </p>
+            ) : null}
             {!loginConfigured && config?.missing?.length ? (
               <div className="mt-3">
                 <p className="text-sm font-medium text-zinc-800">Chybějící povinné proměnné:</p>
@@ -373,7 +378,17 @@ export default function AdminFacebookIntegrationPage() {
                 </dd>
                 <dd className="mt-1 text-xs text-zinc-500">
                   Odvozeno z <code className="rounded bg-zinc-100 px-1">FRONTEND_URL</code> +{' '}
-                  <code className="rounded bg-zinc-100 px-1">/api/social/facebook/callback</code>
+                  <code className="rounded bg-zinc-100 px-1">/api/auth/facebook/callback</code>
+                </dd>
+              </div>
+              <div>
+                <dt className="font-medium text-zinc-800">Meta Connect Redirect URI (Marketing)</dt>
+                <dd className="mt-1 break-all font-mono text-xs text-zinc-600">
+                  {config?.metaConnectRedirectUri ?? '— nastavte FRONTEND_URL —'}
+                </dd>
+                <dd className="mt-1 text-xs text-zinc-500">
+                  Pro tlačítko „Připojit Meta účet“ — Pages App ID +{' '}
+                  <code className="rounded bg-zinc-100 px-1">/api/social/facebook/meta-connect-callback</code>
                 </dd>
               </div>
               <div>

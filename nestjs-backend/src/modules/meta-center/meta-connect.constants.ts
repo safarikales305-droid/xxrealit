@@ -39,6 +39,10 @@ export const META_TEST_EVENT_NAMES = [
 ] as const;
 
 export type MetaConnectionCheckKey =
+  | 'login_app'
+  | 'login_app_secret'
+  | 'login_oauth'
+  | 'meta_connected'
   | 'app'
   | 'app_secret'
   | 'oauth'

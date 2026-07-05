@@ -2,19 +2,30 @@ import { Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@
 import { ConfigService } from '@nestjs/config';
 import { UserRole } from '@prisma/client';
 import { resolveFrontendUrl } from '../../../common/resolve-frontend-url';
+import {
+  FACEBOOK_KNOWN_LOGIN_APP_ID,
+  FACEBOOK_KNOWN_PAGES_APP_ID,
+  FACEBOOK_LOGIN_APP_NAME,
+  FACEBOOK_PAGES_APP_NAME,
+} from './facebook-app.constants';
 
-const LOGIN_REQUIRED_ENV_KEYS = ['FACEBOOK_APP_ID', 'FACEBOOK_APP_SECRET'] as const;
+const LOGIN_ENV_KEYS = ['FACEBOOK_LOGIN_APP_ID', 'FACEBOOK_LOGIN_APP_SECRET'] as const;
+const LOGIN_LEGACY_KEYS = ['FACEBOOK_APP_ID', 'FACEBOOK_APP_SECRET'] as const;
 
-const PAGES_REQUIRED_ENV_KEYS = [
-  'FACEBOOK_PAGES_APP_ID',
-  'FACEBOOK_PAGES_APP_SECRET',
-] as const;
+const PAGES_ENV_KEYS = ['FACEBOOK_PAGES_APP_ID', 'FACEBOOK_PAGES_APP_SECRET'] as const;
 
 const RECOMMENDED_ENV_KEYS = [
   'FACEBOOK_WEBHOOK_VERIFY_TOKEN',
   'SOCIAL_TOKEN_ENCRYPTION_KEY',
   'FACEBOOK_GRAPH_API_VERSION',
+  'FRONTEND_URL',
+  'BACKEND_URL',
 ] as const;
+
+export type FacebookAppIdValidation = {
+  ok: boolean;
+  error: string | null;
+};
 
 export type FacebookEnvCheck = {
   key: string;
@@ -22,15 +33,43 @@ export type FacebookEnvCheck = {
   required: boolean;
 };
 
+export type FacebookAppsConfigDto = {
+  login: {
+    appName: string;
+    appId: string | null;
+    appSecretConfigured: boolean;
+    appSecretMasked: string | null;
+    oauthRedirectUri: string | null;
+    configured: boolean;
+    missing: string[];
+    idValidation: FacebookAppIdValidation;
+  };
+  pages: {
+    appName: string;
+    appId: string | null;
+    appSecretConfigured: boolean;
+    appSecretMasked: string | null;
+    pageConnectRedirectUri: string | null;
+    metaConnectRedirectUri: string | null;
+    configured: boolean;
+    missing: string[];
+    idValidation: FacebookAppIdValidation;
+  };
+  graphApiVersion: string;
+  frontendUrl: string | null;
+  backendUrl: string | null;
+  webhookUri: string | null;
+};
+
 export type FacebookConfigStatusDto = {
-  /** Facebook Login (registrace / přihlášení). */
   configured: boolean;
   missing: string[];
-  /** Facebook Pages API (propojení stránky). */
   pagesConfigured: boolean;
   pagesMissing: string[];
+  loginAppId: string | null;
   pagesAppId: string | null;
   oauthRedirectUri: string | null;
+  metaConnectRedirectUri: string | null;
   pageConnectRedirectUri: string | null;
   pageConnectRequiresReview: boolean;
   pageConnectScopesAvailable: boolean;
@@ -54,20 +93,28 @@ export class FacebookConfigService implements OnModuleInit {
         `[Facebook Login] Integrace není kompletní. Chybí: ${loginMissing.join(', ')}.`,
       );
     } else {
+      const loginValidation = this.validateLoginAppId();
       this.logger.log(
-        `[Facebook Login] Připraveno. OAuth redirect: ${this.resolveOAuthRedirectUri()}`,
+        `[Facebook Login] Připraveno (${FACEBOOK_LOGIN_APP_NAME}). App ID: ${this.getLoginAppId()}. Redirect: ${this.resolveLoginOAuthRedirectUriOptional()}`,
       );
+      if (!loginValidation.ok) {
+        this.logger.error(`[Facebook Login] ${loginValidation.error}`);
+      }
     }
 
     const pagesMissing = this.getPagesMissingRequired();
     if (pagesMissing.length > 0) {
       this.logger.warn(
-        `[Facebook Pages] Propojení stránek není kompletní. Chybí: ${pagesMissing.join(', ')}.`,
+        `[Facebook Pages] Marketing integrace není kompletní. Chybí: ${pagesMissing.join(', ')}.`,
       );
     } else {
+      const pagesValidation = this.validatePagesAppId();
       this.logger.log(
-        `[Facebook Pages] Připraveno. App ID: ${this.getPagesAppId()}. Redirect: ${this.resolvePageConnectRedirectUri()}`,
+        `[Facebook Pages] Připraveno (${FACEBOOK_PAGES_APP_NAME}). App ID: ${this.getPagesAppId()}. Meta Connect: ${this.resolveMetaConnectRedirectUriOptional()}`,
       );
+      if (!pagesValidation.ok) {
+        this.logger.error(`[Facebook Pages] ${pagesValidation.error}`);
+      }
     }
 
     const recommended = this.getRecommendedMissing();
@@ -78,7 +125,6 @@ export class FacebookConfigService implements OnModuleInit {
     }
   }
 
-  /** Railway / runtime env má prioritu před ConfigService (kvůli .env souborům v deployi). */
   private readEnv(name: string): string | null {
     const fromProcess = process.env[name];
     const fromConfig = this.config.get<string>(name);
@@ -99,11 +145,20 @@ export class FacebookConfigService implements OnModuleInit {
     return this.readEnv(name) != null;
   }
 
+  private maskSecret(value: string | null): string | null {
+    if (!value?.trim()) return null;
+    const v = value.trim();
+    if (v.length <= 4) return '••••';
+    return `••••${v.slice(-4)}`;
+  }
+
   private logEnvStatusAtStartup() {
     const allKeys = [
       'FRONTEND_URL',
-      ...LOGIN_REQUIRED_ENV_KEYS,
-      ...PAGES_REQUIRED_ENV_KEYS,
+      'BACKEND_URL',
+      ...LOGIN_ENV_KEYS,
+      ...LOGIN_LEGACY_KEYS,
+      ...PAGES_ENV_KEYS,
       ...RECOMMENDED_ENV_KEYS,
     ];
     for (const key of allKeys) {
@@ -111,19 +166,32 @@ export class FacebookConfigService implements OnModuleInit {
       this.logger.log(`[Facebook] ${key}: ${ok ? 'OK' : 'chybí'}`);
     }
     this.logger.log(
-      `[Facebook] OAuth redirect (login): ${this.resolveOAuthRedirectUriOptional() ?? 'nelze odvodit'}`,
+      `[Facebook] Login OAuth redirect: ${this.resolveLoginOAuthRedirectUriOptional() ?? 'nelze odvodit'}`,
     );
     this.logger.log(
-      `[Facebook] OAuth redirect (pages): ${this.resolvePageConnectRedirectUriOptional() ?? 'nelze odvodit'}`,
+      `[Facebook] Meta Connect redirect: ${this.resolveMetaConnectRedirectUriOptional() ?? 'nelze odvodit'}`,
+    );
+    this.logger.log(
+      `[Facebook] Page Connect redirect: ${this.resolvePageConnectRedirectUriOptional() ?? 'nelze odvodit'}`,
     );
   }
 
-  getAppId(): string | null {
-    return this.readEnv('FACEBOOK_APP_ID');
+  getLoginAppId(): string | null {
+    return this.readEnv('FACEBOOK_LOGIN_APP_ID') ?? this.readEnv('FACEBOOK_APP_ID');
   }
 
+  getLoginAppSecret(): string | null {
+    return this.readEnv('FACEBOOK_LOGIN_APP_SECRET') ?? this.readEnv('FACEBOOK_APP_SECRET');
+  }
+
+  /** @deprecated Použijte getLoginAppId */
+  getAppId(): string | null {
+    return this.getLoginAppId();
+  }
+
+  /** @deprecated Použijte getLoginAppSecret */
   getAppSecret(): string | null {
-    return this.readEnv('FACEBOOK_APP_SECRET');
+    return this.getLoginAppSecret();
   }
 
   getPagesAppId(): string | null {
@@ -134,42 +202,45 @@ export class FacebookConfigService implements OnModuleInit {
     return this.readEnv('FACEBOOK_PAGES_APP_SECRET');
   }
 
-  /** Volitelný explicitní override; výchozí je FRONTEND_URL + /api/social/facebook/callback */
-  getOAuthRedirectUriRaw(): string | null {
-    return (
-      this.readEnv('FACEBOOK_OAUTH_REDIRECT_URI') ?? this.readEnv('FACEBOOK_CALLBACK_URL')
-    );
-  }
-
   getGraphApiVersion(): string {
     const raw = this.readEnv('FACEBOOK_GRAPH_API_VERSION') ?? 'v25.0';
     return raw.startsWith('v') ? raw : `v${raw}`;
   }
 
-  /** Veřejná API base na frontend doméně — OAuth redirecty jdou přes Next.js proxy. */
+  resolveFrontendUrl(): string {
+    return resolveFrontendUrl(this.config, this.logger);
+  }
+
+  resolveBackendUrl(): string | null {
+    return (
+      this.readEnv('BACKEND_URL')?.replace(/\/+$/, '') ||
+      this.readEnv('API_URL')?.replace(/\/+$/, '') ||
+      this.readEnv('NEXT_PUBLIC_API_URL')?.replace(/\/+$/, '') ||
+      null
+    );
+  }
+
   resolveFrontendApiBase(): string {
-    return `${resolveFrontendUrl(this.config, this.logger)}/api`;
+    return `${this.resolveFrontendUrl()}/api`;
   }
 
   getLoginMissingRequired(): string[] {
     const missing: string[] = [];
-    for (const key of LOGIN_REQUIRED_ENV_KEYS) {
-      if (!this.isEnvPresent(key)) missing.push(key);
+    if (!this.getLoginAppId()) {
+      missing.push('FACEBOOK_LOGIN_APP_ID (nebo FACEBOOK_APP_ID)');
+    }
+    if (!this.getLoginAppSecret()) {
+      missing.push('FACEBOOK_LOGIN_APP_SECRET (nebo FACEBOOK_APP_SECRET)');
     }
     return missing;
   }
 
   getPagesMissingRequired(): string[] {
     const missing: string[] = [];
-    for (const key of PAGES_REQUIRED_ENV_KEYS) {
+    for (const key of PAGES_ENV_KEYS) {
       if (!this.isEnvPresent(key)) missing.push(key);
     }
     return missing;
-  }
-
-  /** @deprecated Použijte getLoginMissingRequired */
-  getMissingRequired(): string[] {
-    return this.getLoginMissingRequired();
   }
 
   getRecommendedMissing(): string[] {
@@ -182,22 +253,19 @@ export class FacebookConfigService implements OnModuleInit {
 
   buildEnvChecks(): FacebookEnvCheck[] {
     return [
+      { key: 'FRONTEND_URL', present: this.isEnvPresent('FRONTEND_URL'), required: true },
+      { key: 'BACKEND_URL', present: this.isEnvPresent('BACKEND_URL'), required: false },
+      { key: 'FACEBOOK_LOGIN_APP_ID', present: Boolean(this.getLoginAppId()), required: true },
       {
-        key: 'FRONTEND_URL',
-        present: this.isEnvPresent('FRONTEND_URL'),
+        key: 'FACEBOOK_LOGIN_APP_SECRET',
+        present: Boolean(this.getLoginAppSecret()),
         required: true,
       },
-      ...LOGIN_REQUIRED_ENV_KEYS.map((key) => ({
-        key,
-        present: this.isEnvPresent(key),
-        required: true,
-      })),
-      ...PAGES_REQUIRED_ENV_KEYS.map((key) => ({
-        key,
-        present: this.isEnvPresent(key),
-        required: true,
-      })),
-      ...RECOMMENDED_ENV_KEYS.map((key) => ({
+      { key: 'FACEBOOK_PAGES_APP_ID', present: Boolean(this.getPagesAppId()), required: true },
+      { key: 'FACEBOOK_PAGES_APP_SECRET', present: Boolean(this.getPagesAppSecret()), required: true },
+      ...RECOMMENDED_ENV_KEYS.filter(
+        (k) => !['FRONTEND_URL', 'BACKEND_URL'].includes(k),
+      ).map((key) => ({
         key,
         present: this.isEnvPresent(key),
         required: false,
@@ -205,28 +273,87 @@ export class FacebookConfigService implements OnModuleInit {
     ];
   }
 
+  validateLoginAppId(): FacebookAppIdValidation {
+    const id = this.getLoginAppId();
+    if (!id) return { ok: false, error: 'Login App ID chybí v ENV.' };
+    const pagesId = this.getPagesAppId();
+    if (pagesId && id === pagesId) {
+      return {
+        ok: false,
+        error: 'Používáte Pages App ID pro Facebook Login.',
+      };
+    }
+    if (id === FACEBOOK_KNOWN_PAGES_APP_ID) {
+      return {
+        ok: false,
+        error: 'Používáte Pages App ID pro Facebook Login.',
+      };
+    }
+    return { ok: true, error: null };
+  }
+
+  validatePagesAppId(): FacebookAppIdValidation {
+    const id = this.getPagesAppId();
+    if (!id) return { ok: false, error: 'Pages App ID chybí v ENV.' };
+    const loginId = this.getLoginAppId();
+    if (loginId && id === loginId) {
+      return {
+        ok: false,
+        error: 'Používáte Login App ID pro Meta Marketing připojení.',
+      };
+    }
+    if (id === FACEBOOK_KNOWN_LOGIN_APP_ID) {
+      return {
+        ok: false,
+        error: 'Používáte Login App ID pro Meta Marketing připojení.',
+      };
+    }
+    return { ok: true, error: null };
+  }
+
+  assertLoginAppIdValid() {
+    const v = this.validateLoginAppId();
+    if (!v.ok) throw new ServiceUnavailableException(v.error);
+  }
+
+  assertPagesAppIdValid() {
+    const v = this.validatePagesAppId();
+    if (!v.ok) throw new ServiceUnavailableException(v.error);
+  }
+
   isLoginConfigured(): boolean {
-    return this.getLoginMissingRequired().length === 0;
+    return this.getLoginMissingRequired().length === 0 && this.validateLoginAppId().ok;
   }
 
   isPagesConfigured(): boolean {
-    return this.getPagesMissingRequired().length === 0;
+    return this.getPagesMissingRequired().length === 0 && this.validatePagesAppId().ok;
   }
 
-  /** Facebook Login — registrace a přihlášení. */
   isConfigured(): boolean {
     return this.isLoginConfigured();
   }
 
   configurationErrorMessage(): string {
-    return 'Facebook propojení není nakonfigurováno administrátorem.';
+    const missing = this.getLoginMissingRequired();
+    if (missing.length) {
+      return `Facebook Login není nakonfigurován (chybí ${missing.join(', ')}).`;
+    }
+    const v = this.validateLoginAppId();
+    return v.error ?? 'Facebook propojení není nakonfigurováno administrátorem.';
   }
 
   pagesConfigurationErrorMessage(): string {
-    return 'Propojení Facebook stránky není nakonfigurováno administrátorem (chybí FACEBOOK_PAGES_APP_ID).';
+    const missing = this.getPagesMissingRequired();
+    if (missing.length) {
+      return `Meta Marketing není nakonfigurován (chybí ${missing.join(', ')}).`;
+    }
+    const v = this.validatePagesAppId();
+    return v.error ?? 'Propojení Facebook Pages / Marketing není nakonfigurováno.';
   }
 
   resolveApiPublicBase(): string | null {
+    const backend = this.resolveBackendUrl();
+    if (backend) return backend.endsWith('/api') ? backend : `${backend}/api`;
     const raw =
       this.readEnv('API_PUBLIC_URL')?.replace(/\/+$/, '') ||
       this.readEnv('NEXT_PUBLIC_API_URL')?.replace(/\/+$/, '') ||
@@ -240,20 +367,52 @@ export class FacebookConfigService implements OnModuleInit {
     return base ? `${base}/social/facebook/webhook` : null;
   }
 
-  resolveOAuthRedirectUriOptional(): string | null {
-    const explicit = this.getOAuthRedirectUriRaw();
+  /** Facebook Login — /api/auth/facebook/callback */
+  resolveLoginOAuthRedirectUriOptional(): string | null {
+    const explicit =
+      this.readEnv('FACEBOOK_LOGIN_OAUTH_REDIRECT_URI') ??
+      this.readEnv('FACEBOOK_OAUTH_REDIRECT_URI') ??
+      this.readEnv('FACEBOOK_CALLBACK_URL');
     if (explicit) return explicit.replace(/\/+$/, '');
     return `${this.resolveFrontendApiBase()}/auth/facebook/callback`;
   }
 
-  resolveOAuthRedirectUri(): string {
-    const uri = this.resolveOAuthRedirectUriOptional();
+  resolveLoginOAuthRedirectUri(): string {
+    const uri = this.resolveLoginOAuthRedirectUriOptional();
     if (!uri) {
       throw new ServiceUnavailableException(this.configurationErrorMessage());
     }
     return uri;
   }
 
+  /** @deprecated Použijte resolveLoginOAuthRedirectUri */
+  resolveOAuthRedirectUriOptional(): string | null {
+    return this.resolveLoginOAuthRedirectUriOptional();
+  }
+
+  /** @deprecated Použijte resolveLoginOAuthRedirectUri */
+  resolveOAuthRedirectUri(): string {
+    return this.resolveLoginOAuthRedirectUri();
+  }
+
+  /** Meta Centrum — Připojit Meta účet */
+  resolveMetaConnectRedirectUriOptional(): string | null {
+    const explicit =
+      this.readEnv('META_CENTER_OAUTH_REDIRECT_URI') ??
+      this.readEnv('FACEBOOK_META_CONNECT_REDIRECT_URI');
+    if (explicit) return explicit.replace(/\/+$/, '');
+    return `${this.resolveFrontendApiBase()}/social/facebook/meta-connect-callback`;
+  }
+
+  resolveMetaConnectRedirectUri(): string {
+    const uri = this.resolveMetaConnectRedirectUriOptional();
+    if (!uri) {
+      throw new ServiceUnavailableException(this.pagesConfigurationErrorMessage());
+    }
+    return uri;
+  }
+
+  /** Propojení Facebook stránky uživatele (profil) */
   resolvePageConnectRedirectUriOptional(): string | null {
     const explicit = this.readEnv('FACEBOOK_PAGE_CONNECT_REDIRECT_URI');
     if (explicit) return explicit.replace(/\/+$/, '');
@@ -290,17 +449,51 @@ export class FacebookConfigService implements OnModuleInit {
       .filter(Boolean);
   }
 
+  getAppsConfig(): FacebookAppsConfigDto {
+    const loginSecret = this.getLoginAppSecret();
+    const pagesSecret = this.getPagesAppSecret();
+    return {
+      login: {
+        appName: FACEBOOK_LOGIN_APP_NAME,
+        appId: this.getLoginAppId(),
+        appSecretConfigured: Boolean(loginSecret),
+        appSecretMasked: this.maskSecret(loginSecret),
+        oauthRedirectUri: this.resolveLoginOAuthRedirectUriOptional(),
+        configured: this.isLoginConfigured(),
+        missing: this.getLoginMissingRequired(),
+        idValidation: this.validateLoginAppId(),
+      },
+      pages: {
+        appName: FACEBOOK_PAGES_APP_NAME,
+        appId: this.getPagesAppId(),
+        appSecretConfigured: Boolean(pagesSecret),
+        appSecretMasked: this.maskSecret(pagesSecret),
+        pageConnectRedirectUri: this.resolvePageConnectRedirectUriOptional(),
+        metaConnectRedirectUri: this.resolveMetaConnectRedirectUriOptional(),
+        configured: this.isPagesConfigured(),
+        missing: this.getPagesMissingRequired(),
+        idValidation: this.validatePagesAppId(),
+      },
+      graphApiVersion: this.getGraphApiVersion(),
+      frontendUrl: this.readEnv('FRONTEND_URL'),
+      backendUrl: this.resolveBackendUrl(),
+      webhookUri: this.buildWebhookUri(),
+    };
+  }
+
   getConfigStatus(): FacebookConfigStatusDto {
     const missing = this.getLoginMissingRequired();
     const pagesMissing = this.getPagesMissingRequired();
 
     return {
-      configured: missing.length === 0,
+      configured: this.isLoginConfigured(),
       missing,
-      pagesConfigured: pagesMissing.length === 0,
+      pagesConfigured: this.isPagesConfigured(),
       pagesMissing,
+      loginAppId: this.getLoginAppId(),
       pagesAppId: this.getPagesAppId(),
-      oauthRedirectUri: this.resolveOAuthRedirectUriOptional(),
+      oauthRedirectUri: this.resolveLoginOAuthRedirectUriOptional(),
+      metaConnectRedirectUri: this.resolveMetaConnectRedirectUriOptional(),
       pageConnectRedirectUri: this.resolvePageConnectRedirectUriOptional(),
       pageConnectRequiresReview: this.isPageConnectReviewPending(),
       pageConnectScopesAvailable: this.arePageConnectScopesAvailable(),

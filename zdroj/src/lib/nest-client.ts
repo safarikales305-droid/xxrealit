@@ -5957,12 +5957,44 @@ export type MetaCenterServiceCard = {
   graphApiVersion: string;
 };
 
+export type FacebookAppsConfig = {
+  login: {
+    appName: string;
+    appId: string | null;
+    appSecretConfigured: boolean;
+    appSecretMasked: string | null;
+    oauthRedirectUri: string | null;
+    configured: boolean;
+    missing: string[];
+    idValidation: { ok: boolean; error: string | null };
+  };
+  pages: {
+    appName: string;
+    appId: string | null;
+    appSecretConfigured: boolean;
+    appSecretMasked: string | null;
+    pageConnectRedirectUri: string | null;
+    metaConnectRedirectUri: string | null;
+    configured: boolean;
+    missing: string[];
+    idValidation: { ok: boolean; error: string | null };
+  };
+  graphApiVersion: string;
+  frontendUrl: string | null;
+  backendUrl: string | null;
+  webhookUri: string | null;
+};
+
 export type MetaCenterSettings = {
   id: string;
   facebookAppId: string | null;
   facebookAppSecretMasked: string | null;
   facebookPagesAppId: string | null;
   facebookPagesSecretMasked: string | null;
+  loginOAuthRedirectUri?: string | null;
+  metaConnectRedirectUri?: string | null;
+  pageConnectRedirectUri?: string | null;
+  facebookApps?: FacebookAppsConfig;
   businessManagerId: string | null;
   commerceManagerId: string | null;
   catalogId: string | null;
@@ -6214,14 +6246,32 @@ export async function nestAdminMetaCenterGetCommerce(token: string | null) {
 
 export async function nestAdminMetaCenterConnectUrl(
   token: string | null,
-): Promise<{ url: string } | null> {
-  const r = await metaCenterFetch<{ url: string }>(token, '/connect/url');
+): Promise<{ url: string; appId?: string | null; redirectUri?: string | null } | null> {
+  const r = await metaCenterFetch<{ url: string; appId?: string; redirectUri?: string }>(
+    token,
+    '/connect/url',
+  );
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterApps(
+  token: string | null,
+): Promise<FacebookAppsConfig | null> {
+  const r = await metaCenterFetch<FacebookAppsConfig>(token, '/apps');
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterLoginOAuthUrl(
+  token: string | null,
+): Promise<{ url: string; redirectUri?: string | null } | null> {
+  const r = await metaCenterFetch<{ url: string; redirectUri?: string }>(token, '/login/oauth-url');
   return r.ok ? r.data : null;
 }
 
 export async function nestAdminMetaCenterConnectionStatus(token: string | null) {
   const r = await metaCenterFetch<{
     settings: MetaCenterSettings;
+    apps?: FacebookAppsConfig;
     checklist: Array<{ key: string; label: string; connected: boolean }>;
     diagnostics: MetaConnectionCheck[];
     connectedAt: string | null;
@@ -9530,8 +9580,10 @@ export type FacebookConfigStatus = {
   missing: string[];
   pagesConfigured?: boolean;
   pagesMissing?: string[];
+  loginAppId?: string | null;
   pagesAppId?: string | null;
   oauthRedirectUri?: string | null;
+  metaConnectRedirectUri?: string | null;
   pageConnectRedirectUri?: string | null;
   pageConnectRequiresReview?: boolean;
   pageConnectScopesAvailable?: boolean;

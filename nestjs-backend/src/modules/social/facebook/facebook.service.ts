@@ -3,10 +3,10 @@ import {
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../database/prisma.service';
 import type { FacebookConnectDto } from '../dto/facebook-connect.dto';
 import type { FacebookUploadVideoDto } from '../dto/facebook-upload-video.dto';
+import { FacebookConfigService } from './facebook-config.service';
 import { GRAPH_API, GRAPH_VIDEO_API } from './facebook-page.constants';
 
 type GraphMeResponse = { id?: string; name?: string };
@@ -25,27 +25,27 @@ type GraphVideoResponse = { id?: string; error?: { message?: string; code?: numb
 export class FacebookService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
+    private readonly fbConfig: FacebookConfigService,
   ) {}
 
   getAppId(): string | null {
-    const id = this.config.get<string>('FACEBOOK_APP_ID')?.trim();
-    return id || null;
+    return this.fbConfig.getLoginAppId();
   }
 
   getAppSecret(): string | null {
-    const secret = this.config.get<string>('FACEBOOK_APP_SECRET')?.trim();
-    return secret || null;
+    return this.fbConfig.getLoginAppSecret();
   }
 
   isConfigured(): boolean {
-    return Boolean(this.getAppId() && this.getAppSecret());
+    return this.fbConfig.isLoginConfigured();
   }
 
   getPublicConfig() {
     return {
       configured: this.isConfigured(),
       appId: this.getAppId(),
+      loginAppId: this.getAppId(),
+      pagesAppId: this.fbConfig.getPagesAppId(),
     };
   }
 
@@ -70,7 +70,7 @@ export class FacebookService {
   async connect(userId: string, dto: FacebookConnectDto) {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException(
-        'Facebook upload není na serveru nakonfigurován (chybí FACEBOOK_APP_ID / FACEBOOK_APP_SECRET).',
+        'Facebook upload není na serveru nakonfigurován (chybí FACEBOOK_LOGIN_APP_ID / FACEBOOK_LOGIN_APP_SECRET).',
       );
     }
 
@@ -129,7 +129,7 @@ export class FacebookService {
   async uploadVideo(userId: string, dto: FacebookUploadVideoDto) {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException(
-        'Facebook upload není na serveru nakonfigurován (chybí FACEBOOK_APP_ID / FACEBOOK_APP_SECRET).',
+        'Facebook upload není na serveru nakonfigurován (chybí FACEBOOK_LOGIN_APP_ID / FACEBOOK_LOGIN_APP_SECRET).',
       );
     }
 

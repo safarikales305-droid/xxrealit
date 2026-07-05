@@ -25,6 +25,8 @@ import { MetaConnectDiagnosticsService } from './meta-connect-diagnostics.servic
 import { MetaConnectProvisionService } from './meta-connect-provision.service';
 import { MetaConnectEventsService } from './meta-connect-events.service';
 import { MetaConnectSyncCronService } from './meta-connect-sync.cron.service';
+import { FacebookConfigService } from '../social/facebook/facebook-config.service';
+import { FacebookAuthService } from '../social/facebook/facebook-auth.service';
 
 @Controller('admin/meta-center')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -36,12 +38,29 @@ export class MetaCenterAdminController {
     private readonly connectProvision: MetaConnectProvisionService,
     private readonly connectEvents: MetaConnectEventsService,
     private readonly connectSync: MetaConnectSyncCronService,
+    private readonly fbConfig: FacebookConfigService,
+    private readonly facebookAuth: FacebookAuthService,
   ) {}
+
+  @Get('apps')
+  getAppsConfig() {
+    return this.fbConfig.getAppsConfig();
+  }
+
+  @Get('login/oauth-url')
+  async loginOAuthUrl() {
+    const url = await this.facebookAuth.buildLoginUrl();
+    return { url, redirectUri: this.fbConfig.resolveLoginOAuthRedirectUriOptional() };
+  }
 
   @Get('connect/url')
   async connectUrl(@CurrentUser() user: AuthUser) {
     const url = await this.connectOAuth.buildConnectUrl(user.id);
-    return { url };
+    return {
+      url,
+      appId: this.fbConfig.getPagesAppId(),
+      redirectUri: this.fbConfig.resolveMetaConnectRedirectUriOptional(),
+    };
   }
 
   @Get('connection/status')

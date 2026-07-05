@@ -59,11 +59,17 @@ export class FacebookAuthService {
   }
 
   private oauthRedirectUri(): string {
-    return this.facebookConfig.resolveOAuthRedirectUri();
+    return this.facebookConfig.resolveLoginOAuthRedirectUri();
   }
 
   async buildLoginUrl(): Promise<string> {
-    if (!this.facebookConfig.isConfigured()) {
+    if (!this.facebookConfig.isLoginConfigured()) {
+      throw new ServiceUnavailableException(this.facebookConfig.configurationErrorMessage());
+    }
+    this.facebookConfig.assertLoginAppIdValid();
+
+    const loginAppId = this.facebookConfig.getLoginAppId();
+    if (!loginAppId) {
       throw new ServiceUnavailableException(this.facebookConfig.configurationErrorMessage());
     }
 
@@ -79,7 +85,7 @@ export class FacebookAuthService {
     });
 
     const redirectUri = encodeURIComponent(this.oauthRedirectUri());
-    const appId = encodeURIComponent(this.facebookConfig.getAppId()!);
+    const appId = encodeURIComponent(loginAppId);
     const scope = encodeURIComponent(FACEBOOK_LOGIN_SCOPES);
     return (
       `${FACEBOOK_OAUTH_DIALOG}?` +
@@ -300,8 +306,8 @@ export class FacebookAuthService {
   }
 
   private async exchangeCodeForToken(code: string): Promise<string> {
-    const appId = this.facebookConfig.getAppId()!;
-    const appSecret = this.facebookConfig.getAppSecret()!;
+    const appId = this.facebookConfig.getLoginAppId()!;
+    const appSecret = this.facebookConfig.getLoginAppSecret()!;
     const redirectUri = encodeURIComponent(this.oauthRedirectUri());
     const url =
       `${GRAPH_API}/oauth/access_token?` +
@@ -316,8 +322,8 @@ export class FacebookAuthService {
   }
 
   private async exchangeForLongLivedToken(shortToken: string): Promise<GraphTokenResponse> {
-    const appId = this.facebookConfig.getAppId()!;
-    const appSecret = this.facebookConfig.getAppSecret()!;
+    const appId = this.facebookConfig.getLoginAppId()!;
+    const appSecret = this.facebookConfig.getLoginAppSecret()!;
     const url =
       `${GRAPH_API}/oauth/access_token?` +
       `grant_type=fb_exchange_token&client_id=${encodeURIComponent(appId)}` +

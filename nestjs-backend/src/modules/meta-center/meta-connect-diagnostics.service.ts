@@ -24,6 +24,7 @@ export class MetaConnectDiagnosticsService {
   async runFullDiagnostics(): Promise<MetaConnectionCheck[]> {
     const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
     const checks: MetaConnectionCheck[] = [];
+    const apps = this.fbConfig.getAppsConfig();
 
     const push = (
       key: MetaConnectionCheckKey,
@@ -35,27 +36,63 @@ export class MetaConnectDiagnosticsService {
       checks.push({ key, label, connected, error, fixAction });
     };
 
+    push(
+      'login_app',
+      'Facebook Login App ID',
+      Boolean(apps.login.appId) && apps.login.idValidation.ok,
+      apps.login.idValidation.error ??
+        (apps.login.appId ? null : 'FACEBOOK_LOGIN_APP_ID chybí v ENV.'),
+      apps.login.idValidation.ok ? null : 'fix_env',
+    );
+    push(
+      'login_app_secret',
+      'Facebook Login App Secret',
+      apps.login.appSecretConfigured,
+      apps.login.appSecretConfigured ? null : 'FACEBOOK_LOGIN_APP_SECRET chybí v ENV.',
+      'fix_env',
+    );
+    push(
+      'login_oauth',
+      'Login OAuth Redirect URI',
+      Boolean(apps.login.oauthRedirectUri),
+      apps.login.oauthRedirectUri
+        ? null
+        : 'Login redirect URI nelze odvodit (chybí FRONTEND_URL).',
+      'fix_env',
+    );
+
     const pagesAppId = row?.facebookPagesAppId ?? this.fbConfig.getPagesAppId();
     const pagesSecret = row?.facebookPagesSecret ?? this.fbConfig.getPagesAppSecret();
+    const pagesValidation = this.fbConfig.validatePagesAppId();
     push(
       'app',
-      'Meta aplikace',
-      Boolean(pagesAppId),
-      pagesAppId ? null : 'Facebook Pages App ID chybí v konfiguraci.',
-      'reconnect',
+      'Pages / Marketing App ID',
+      Boolean(pagesAppId) && pagesValidation.ok,
+      pagesValidation.error ??
+        (pagesAppId ? null : 'FACEBOOK_PAGES_APP_ID chybí v konfiguraci.'),
+      pagesValidation.ok ? null : 'fix_env',
     );
     push(
       'app_secret',
-      'App Secret',
+      'Pages App Secret',
       Boolean(pagesSecret),
-      pagesSecret ? null : 'Facebook Pages App Secret chybí.',
-      'reconnect',
+      pagesSecret ? null : 'FACEBOOK_PAGES_APP_SECRET chybí.',
+      'fix_env',
     );
     push(
       'oauth',
-      'OAuth připojení',
+      'Meta Connect Redirect URI',
+      Boolean(apps.pages.metaConnectRedirectUri),
+      apps.pages.metaConnectRedirectUri
+        ? null
+        : 'Meta Connect redirect URI nelze odvodit.',
+      'fix_env',
+    );
+    push(
+      'meta_connected',
+      'Meta Marketing OAuth připojení',
       Boolean(row?.metaConnectedAt && row.metaUserAccessTokenEncrypted),
-      row?.metaConnectedAt ? null : 'Meta účet ještě nebyl připojen přes OAuth.',
+      row?.metaConnectedAt ? null : 'Meta účet ještě nebyl připojen přes „Připojit Meta účet“.',
       'reconnect',
     );
 
@@ -66,7 +103,7 @@ export class MetaConnectDiagnosticsService {
       const expired = debug.expires_at > 0 && debug.expires_at * 1000 < Date.now();
       push(
         'access_token',
-        'Access Token',
+        'Marketing Access Token',
         debug.is_valid && !expired,
         !debug.is_valid
           ? 'Token není platný.'
@@ -78,7 +115,7 @@ export class MetaConnectDiagnosticsService {
     } catch (err) {
       push(
         'access_token',
-        'Access Token',
+        'Marketing Access Token',
         false,
         err instanceof Error ? err.message : 'Token chybí.',
         'reconnect',

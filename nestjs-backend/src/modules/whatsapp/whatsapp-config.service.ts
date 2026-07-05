@@ -55,9 +55,14 @@ export class WhatsAppConfigService {
     return this.config.get<string>('WHATSAPP_API_VERSION')?.trim() || 'v23.0';
   }
 
-  /** Meta App ID — pouze pro zobrazení, není WABA ID. */
+  /** Meta App ID (Pages / Marketing aplikace) — pouze pro zobrazení. */
   getMetaAppId(): string | null {
-    return this.config.get<string>('FACEBOOK_APP_ID')?.trim() || null;
+    return (
+      this.config.get<string>('FACEBOOK_PAGES_APP_ID')?.trim() ||
+      this.config.get<string>('FACEBOOK_LOGIN_APP_ID')?.trim() ||
+      this.config.get<string>('FACEBOOK_APP_ID')?.trim() ||
+      null
+    );
   }
 
   /** Meta Business ID — pouze pro zobrazení, není WABA ID. */
