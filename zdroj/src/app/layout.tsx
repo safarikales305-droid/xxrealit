@@ -12,6 +12,7 @@ import { FirstContentGuard } from "@/components/registration/FirstContentGuard";
 import { RegistrationRequirementsGuard } from "@/components/registration/RegistrationRequirementsGuard";
 import { TermsReacceptGuard } from "@/components/registration/TermsReacceptGuard";
 import { GuestRegistrationGateHost } from "@/components/registration/GuestRegistrationGateHost";
+import { RegistrationGamificationHost } from "@/components/registration-gamification/RegistrationGamificationHost";
 import { PwaInstallPrompt } from "@/components/pwa/PwaInstallPrompt";
 import { ProfileOnboardingPopupHost } from "@/components/onboarding/ProfileOnboardingPopupHost";
 import { PwaPushOnboarding } from "@/components/pwa/PwaPushOnboarding";
@@ -127,6 +128,9 @@ export default async function RootLayout({
           </Suspense>
           <Suspense fallback={null}>
             <GuestRegistrationGateHost />
+          </Suspense>
+          <Suspense fallback={null}>
+            <RegistrationGamificationHost />
           </Suspense>
           <Suspense fallback={null}>
             <PortalAnalyticsTracker />

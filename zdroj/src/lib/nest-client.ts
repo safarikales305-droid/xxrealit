@@ -5303,6 +5303,245 @@ export async function nestAdminRegistrationGateUploadBanner(
   return { ok: true, settings: data };
 }
 
+export type RegistrationGamificationConfig = {
+  gameTitle: string;
+  introText: string;
+  colors: { primary: string; secondary: string; background: string; accent: string };
+  offers: Array<{
+    id: string;
+    emoji: string;
+    title: string;
+    city: string;
+    price: string;
+    description: string;
+    imageUrl?: string;
+  }>;
+  buttons: { buy: string; invest: string; sell: string; build: string; skip: string };
+  resultPages: Record<string, { title: string; subtitle: string; bullets: string[] }>;
+  rewardTitle: string;
+  rewardDescription: string;
+  formTitle: string;
+  formSubtitle: string;
+  thankYouTitle: string;
+  thankYouSubtitle: string;
+  soundsEnabled: boolean;
+};
+
+export type RegistrationGamificationPublicSettings = {
+  enabled: boolean;
+  gameType: string;
+  audience: string;
+  showOnHome: boolean;
+  showOnShorts: boolean;
+  showOnClassic: boolean;
+  showOnPosts: boolean;
+  showOnProfessionalProfile: boolean;
+  triggerType: string;
+  triggerShortsViews: number;
+  triggerSecondsOnSite: number;
+  triggerPagesVisited: number;
+  frequency: string;
+  decisionsCount: number;
+  offerIntervalSec: number;
+  bonusCredits: number;
+  bonusDescription: string;
+  config: RegistrationGamificationConfig;
+};
+
+export type RegistrationGamificationAdminSettings = RegistrationGamificationPublicSettings & {
+  id: string;
+  autoEmailMarketing: boolean;
+  autoWhatsAppCampaign: boolean;
+  autoCrm: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RegistrationGamificationLeadRow = {
+  id: string;
+  email: string;
+  phone: string | null;
+  fullName: string | null;
+  companyName: string | null;
+  visitorType: string;
+  score: number;
+  gameDurationSec: number | null;
+  visitSource: string | null;
+  landingPage: string | null;
+  utmSource: string | null;
+  utmCampaign: string | null;
+  registered: boolean;
+  userId: string | null;
+  createdAt: string;
+};
+
+export async function nestRegistrationGamificationSettings(): Promise<RegistrationGamificationPublicSettings | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/registration-gamification/settings`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => null);
+  if (!data || data.enabled !== true) return null;
+  return data as RegistrationGamificationPublicSettings;
+}
+
+export async function nestRegistrationGamificationCheckEmail(
+  email: string,
+): Promise<{ exists: boolean; suggestLogin: boolean } | null> {
+  if (!API_BASE_URL) return null;
+  const res = await fetch(`${API_BASE_URL}/registration-gamification/check-email`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) return null;
+  return res.json().catch(() => null);
+}
+
+export async function nestRegistrationGamificationSubmitLead(body: Record<string, unknown>): Promise<{
+  ok: boolean;
+  suggestLogin?: boolean;
+  message?: string;
+  bonusCredits?: number;
+  bonusDescription?: string;
+  thankYouTitle?: string;
+  thankYouSubtitle?: string;
+  error?: string;
+}> {
+  if (!API_BASE_URL) return { ok: false, error: 'API není nastaveno' };
+  const res = await fetch(`${API_BASE_URL}/registration-gamification/submit-lead`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`),
+    };
+  }
+  return data as {
+    ok: boolean;
+    suggestLogin?: boolean;
+    message?: string;
+    bonusCredits?: number;
+    bonusDescription?: string;
+  };
+}
+
+export async function nestRegistrationGamificationEvent(body: Record<string, unknown>): Promise<void> {
+  if (!API_BASE_URL) return;
+  void fetch(`${API_BASE_URL}/registration-gamification/event`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).catch(() => undefined);
+}
+
+export async function nestAdminRegistrationGamificationGet(
+  token: string | null,
+): Promise<RegistrationGamificationAdminSettings | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/registration-gamification/settings`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as RegistrationGamificationAdminSettings | null;
+}
+
+export async function nestAdminRegistrationGamificationPatch(
+  token: string | null,
+  body: Partial<RegistrationGamificationAdminSettings>,
+): Promise<{ ok: true; settings: RegistrationGamificationAdminSettings } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/registration-gamification/settings`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true, settings: data as RegistrationGamificationAdminSettings };
+}
+
+export async function nestAdminRegistrationGamificationStats(
+  token: string | null,
+): Promise<Record<string, unknown> | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/registration-gamification/stats`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return res.json().catch(() => null);
+}
+
+export async function nestAdminRegistrationGamificationLeads(
+  token: string | null,
+  query?: { search?: string; visitorType?: string; registered?: boolean; skip?: number; take?: number },
+): Promise<{ items: RegistrationGamificationLeadRow[]; total: number } | null> {
+  if (!API_BASE_URL || !token) return null;
+  const sp = new URLSearchParams();
+  if (query?.search) sp.set('search', query.search);
+  if (query?.visitorType) sp.set('visitorType', query.visitorType);
+  if (query?.registered === true) sp.set('registered', '1');
+  if (query?.registered === false) sp.set('registered', '0');
+  if (query?.skip != null) sp.set('skip', String(query.skip));
+  if (query?.take != null) sp.set('take', String(query.take));
+  const qs = sp.toString() ? `?${sp.toString()}` : '';
+  const res = await fetch(`${API_BASE_URL}/admin/registration-gamification/leads${qs}`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return res.json().catch(() => null);
+}
+
+export async function nestAdminRegistrationGamificationDeleteLeads(
+  token: string | null,
+  ids: string[],
+): Promise<{ ok: boolean; deleted?: number; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/registration-gamification/leads`, {
+    method: 'DELETE',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ ids }),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true, deleted: typeof data.deleted === 'number' ? data.deleted : 0 };
+}
+
+export async function nestAdminRegistrationGamificationExportCsv(
+  token: string | null,
+  query?: { search?: string; visitorType?: string; registered?: boolean },
+): Promise<{ ok: boolean; blob?: Blob; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const sp = new URLSearchParams();
+  if (query?.search) sp.set('search', query.search);
+  if (query?.visitorType) sp.set('visitorType', query.visitorType);
+  if (query?.registered === true) sp.set('registered', '1');
+  if (query?.registered === false) sp.set('registered', '0');
+  const qs = sp.toString() ? `?${sp.toString()}` : '';
+  const res = await fetch(`${API_BASE_URL}/admin/registration-gamification/leads/export-csv${qs}`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'text/csv' },
+  });
+  if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+  return { ok: true, blob: await res.blob() };
+}
+
 export async function nestAdminBonusCampaignDelete(
   token: string | null,
   id: string,

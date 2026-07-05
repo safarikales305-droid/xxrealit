@@ -104,6 +104,8 @@ export const ADMIN_SIDEBAR_GROUPS: AdminNavGroup[] = [
       { id: 'presentation', label: 'O portálu', href: '/admin/o-portalu', icon: '🌐' },
       { id: 'presentation-stats', label: 'Statistiky O portálu', href: '/admin/o-portalu/statistiky', icon: '📊' },
       { id: 'popups', label: 'Popup okna', href: '/admin/marketing/popup-okna', icon: '💬' },
+      { id: 'gamification', label: 'Gamifikace registrace', href: '/admin/marketing/gamifikace-registrace', icon: '🎮' },
+      { id: 'gamification-leads', label: 'Leady z her', href: '/admin/marketing/leady-z-her', icon: '📋' },
       { id: 'push', label: 'Push notifikace', href: '/admin/marketing/push-notifikace', icon: '🔔' },
       { id: 'wa-campaigns', label: 'WhatsApp kampaně', href: '/admin/marketing/whatsapp-kampane', icon: '📱' },
       { id: 'social-autopost', label: 'Sociální sítě', href: '/admin/marketing/socialni-site', icon: '📣' },

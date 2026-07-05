@@ -54,6 +54,7 @@ import { VerificationFilesModule } from './modules/verification-files/verificati
 import { StatisticsModule } from './modules/statistics/statistics.module';
 import { EmailCampaignsModule } from './modules/email-campaigns/email-campaigns.module';
 import { BrokerDatabaseModule } from './modules/broker-database/broker-database.module';
+import { RegistrationGamificationModule } from './modules/registration-gamification/registration-gamification.module';
 
 @Module({
   imports: [
@@ -114,6 +115,7 @@ import { BrokerDatabaseModule } from './modules/broker-database/broker-database.
     StatisticsModule,
     EmailCampaignsModule,
     BrokerDatabaseModule,
+    RegistrationGamificationModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

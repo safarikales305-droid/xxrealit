@@ -17,6 +17,7 @@ import {
   subscribeGuestRegistrationGate,
 } from '@/lib/guest-registration-gate-store';
 import { fetchRegistrationGateSettings } from '@/lib/registration-gate';
+import { reportGamificationShortsView } from '@/components/registration-gamification/RegistrationGamificationHost';
 
 /**
  * Sdílená logika výzvy k registraci pro hosty (Shorts i Klasik).
@@ -61,6 +62,7 @@ export function useGuestRegistrationGate() {
       markGuestListingReported(listingId);
       const gateEvery = settings.shortsGateAfterViews || 4;
       const views = incrementGuestShortsView();
+      reportGamificationShortsView();
 
       if (views >= gateEvery) {
         resetGuestShortsViews();

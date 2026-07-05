@@ -496,6 +496,7 @@ model User {
   workerRecruitmentDeliveriesSent WorkerRecruitmentDelivery[] @relation("WorkerRecruitmentDeliveryAdmin")
   supportTicketMessages SupportTicketMessage[] @relation("SupportTicketMessageAuthor")
   marketingPopupViews     MarketingPopupUserView[]
+  registrationGamificationLeads RegistrationGamificationLead[]
   analyticsSessions       AnalyticsSession[]
   portalTermsVersionsCreated PortalTermsVersion[] @relation("PortalTermsAuthor")
   creditTopUpTransactions CreditTopUpTransaction[]
@@ -2351,6 +2352,92 @@ model RegistrationGateSetting {
   skipAfterSeconds    Int      @default(5)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
+}
+
+/// Gamifikace registrace — nastavení hry pro návštěvníky (singleton id=default).
+model RegistrationGamificationSetting {
+  id                         String   @id @default("default")
+  enabled                    Boolean  @default(false)
+  gameType                   String   @default("real_estate_magnate")
+  /// GUESTS_ONLY | UNAUTHENTICATED | ALL
+  audience                   String   @default("UNAUTHENTICATED")
+  showOnHome                 Boolean  @default(true)
+  showOnShorts               Boolean  @default(true)
+  showOnClassic              Boolean  @default(true)
+  showOnPosts                Boolean  @default(false)
+  showOnProfessionalProfile  Boolean  @default(false)
+  /// SHORTS_VIEWS | SECONDS_ON_SITE | PAGES_VISITED
+  triggerType                String   @default("SHORTS_VIEWS")
+  triggerShortsViews         Int      @default(3)
+  triggerSecondsOnSite       Int      @default(45)
+  triggerPagesVisited        Int      @default(2)
+  /// ONCE | DAILY | WEEKLY | EVERY_VISIT
+  frequency                  String   @default("ONCE")
+  decisionsCount             Int      @default(8)
+  offerIntervalSec           Int      @default(3)
+  bonusCredits               Int      @default(500)
+  bonusDescription           String   @default("Bonusové kredity po registraci")
+  autoEmailMarketing         Boolean  @default(true)
+  autoWhatsAppCampaign       Boolean  @default(true)
+  autoCrm                    Boolean  @default(true)
+  /// Texty, barvy, nabídky, tlačítka, personalizace
+  config                     Json?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+}
+
+/// Lead z gamifikační hry registrace.
+model RegistrationGamificationLead {
+  id              String    @id @default(cuid())
+  email           String
+  phone           String?
+  fullName        String?
+  companyName     String?
+  /// BUYER | INVESTOR | AGENT | DEVELOPER | MIXED
+  visitorType     String    @default("MIXED")
+  score           Int       @default(0)
+  gameDurationSec Int?
+  decisions       Json?
+  gameResult      Json?
+  ipAddress       String?
+  country         String?
+  city            String?
+  utmSource       String?
+  utmMedium       String?
+  utmCampaign     String?
+  utmContent      String?
+  utmTerm         String?
+  referer         String?   @db.Text
+  landingPage     String?   @db.Text
+  visitSource     String?
+  gameSessionId   String?
+  userId          String?
+  registeredAt    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([email])
+  @@index([visitorType])
+  @@index([createdAt(sort: Desc)])
+  @@index([userId])
+  @@index([gameSessionId])
+}
+
+/// Statistiky spuštění hry (agregace + session log).
+model RegistrationGamificationEvent {
+  id          String   @id @default(cuid())
+  eventType   String
+  visitorKey  String?
+  sessionId   String?
+  pagePath    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([eventType, createdAt(sort: Desc)])
+  @@index([visitorKey])
+  @@index([sessionId])
 }
 
 /// Povinné kroky po registraci podle role.
