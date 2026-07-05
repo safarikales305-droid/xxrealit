@@ -5777,8 +5777,46 @@ export type MetaCenterSettings = {
   remarketingAudiences: unknown;
   autoCampaignRules: unknown;
   adFormatFlags: Record<string, boolean>;
+  metaConnectedAt: string | null;
+  metaConnectedUserId: string | null;
+  metaConnectedUserName: string | null;
+  adAccountId: string | null;
+  adAccountName: string | null;
+  pageId: string | null;
+  pageName: string | null;
+  instagramBusinessId: string | null;
+  instagramUsername: string | null;
+  catalogName: string | null;
+  commerceAccountId: string | null;
+  testEventCode: string | null;
+  whatsappBusinessAccountId: string | null;
+  whatsappPhoneNumberId: string | null;
+  lastAutoSyncAt: string | null;
+  syncEnabled: boolean;
+  isMetaConnected: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+export type MetaConnectionCheck = {
+  key: string;
+  label: string;
+  connected: boolean;
+  error: string | null;
+  fixAction: string | null;
+};
+
+export type MetaCenterApiLogRow = {
+  id: string;
+  createdAt: string;
+  endpoint: string;
+  method: string;
+  request: unknown;
+  response: unknown;
+  httpStatus: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  durationMs: number | null;
 };
 
 export type MetaCenterDashboard = {
@@ -5963,6 +6001,72 @@ export async function nestAdminMetaCenterLogs(
 
 export async function nestAdminMetaCenterGetCommerce(token: string | null) {
   const r = await metaCenterFetch<unknown>(token, '/commerce');
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterConnectUrl(
+  token: string | null,
+): Promise<{ url: string } | null> {
+  const r = await metaCenterFetch<{ url: string }>(token, '/connect/url');
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterConnectionStatus(token: string | null) {
+  const r = await metaCenterFetch<{
+    settings: MetaCenterSettings;
+    checklist: Array<{ key: string; label: string; connected: boolean }>;
+    diagnostics: MetaConnectionCheck[];
+    connectedAt: string | null;
+    lastSyncAt: string | null;
+  }>(token, '/connection/status');
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterSync(token: string | null) {
+  const r = await metaCenterFetch<{ ok: boolean; error?: string }>(token, '/connection/sync', {
+    method: 'POST',
+  });
+  return r.ok ? r.data : { ok: false, error: r.error };
+}
+
+export async function nestAdminMetaCenterFix(
+  token: string | null,
+  action: string,
+): Promise<{ ok: boolean; error?: string; message?: string }> {
+  const r = await metaCenterFetch<{ ok: boolean; error?: string; message?: string }>(
+    token,
+    `/connection/fix/${encodeURIComponent(action)}`,
+    { method: 'POST' },
+  );
+  return r.ok ? r.data : { ok: false, error: r.error };
+}
+
+export async function nestAdminMetaCenterProvision(
+  token: string | null,
+  resource: string,
+): Promise<{ ok: boolean; error?: string; pixelId?: string; catalogId?: string }> {
+  const r = await metaCenterFetch<{
+    ok: boolean;
+    error?: string;
+    pixelId?: string;
+    catalogId?: string;
+  }>(token, `/provision/${encodeURIComponent(resource)}`, { method: 'POST' });
+  return r.ok ? r.data : { ok: false, error: r.error };
+}
+
+export async function nestAdminMetaCenterApiLogs(token: string | null, take = 80) {
+  const r = await metaCenterFetch<{ items: MetaCenterApiLogRow[] }>(
+    token,
+    `/api-logs?take=${take}`,
+  );
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterTestAllEvents(token: string | null) {
+  const r = await metaCenterFetch<{
+    ok: boolean;
+    results: Array<{ event: string; ok: boolean; error?: string }>;
+  }>(token, '/events/test-all', { method: 'POST' });
   return r.ok ? r.data : null;
 }
 

@@ -2473,8 +2473,46 @@ model MetaCenterSetting {
   autoCampaignRules    Json?
   adFormatFlags        Json?
   catalogFeedEnabled   Boolean  @default(true)
+  metaUserAccessTokenEncrypted String?
+  metaUserTokenExpiresAt       DateTime?
+  metaConnectedUserId          String?
+  metaConnectedUserName        String?
+  metaConnectedAt              DateTime?
+  adAccountId                  String?
+  adAccountName                String?
+  pageId                       String?
+  pageName                     String?
+  pageAccessTokenEncrypted     String?
+  instagramBusinessId          String?
+  instagramUsername            String?
+  catalogName                  String?
+  commerceAccountId            String?
+  testEventCode                String?
+  whatsappBusinessAccountId    String?
+  whatsappPhoneNumberId        String?
+  connectionSnapshot           Json?
+  diagnosticsSnapshot          Json?
+  lastAutoSyncAt               DateTime?
+  syncEnabled                  Boolean  @default(true)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
+}
+
+/// Log komunikace s Meta Graph API.
+model MetaCenterApiLog {
+  id           String   @id @default(cuid())
+  endpoint     String
+  method       String   @default("GET")
+  request      Json?
+  response     Json?
+  httpStatus   Int?
+  errorCode    String?
+  errorMessage String?
+  durationMs   Int?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+  @@index([endpoint])
 }
 
 /// Log událostí Meta Centra (Pixel, CAPI, diagnostika, feed).

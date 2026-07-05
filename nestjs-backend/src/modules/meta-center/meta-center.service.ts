@@ -136,6 +136,23 @@ export class MetaCenterService {
       remarketingAudiences: this.parseJson(row.remarketingAudiences, DEFAULT_REMARKETING_AUDIENCES),
       autoCampaignRules: this.parseJson(row.autoCampaignRules, DEFAULT_AUTO_CAMPAIGN_RULES),
       adFormatFlags: this.parseJson(row.adFormatFlags, DEFAULT_AD_FORMAT_FLAGS),
+      metaConnectedAt: row.metaConnectedAt?.toISOString() ?? null,
+      metaConnectedUserId: row.metaConnectedUserId,
+      metaConnectedUserName: row.metaConnectedUserName,
+      adAccountId: row.adAccountId,
+      adAccountName: row.adAccountName,
+      pageId: row.pageId,
+      pageName: row.pageName,
+      instagramBusinessId: row.instagramBusinessId,
+      instagramUsername: row.instagramUsername,
+      catalogName: row.catalogName,
+      commerceAccountId: row.commerceAccountId,
+      testEventCode: row.testEventCode,
+      whatsappBusinessAccountId: row.whatsappBusinessAccountId,
+      whatsappPhoneNumberId: row.whatsappPhoneNumberId,
+      lastAutoSyncAt: row.lastAutoSyncAt?.toISOString() ?? null,
+      syncEnabled: row.syncEnabled,
+      isMetaConnected: Boolean(row.metaConnectedAt && row.metaUserAccessTokenEncrypted),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
@@ -760,6 +777,62 @@ export class MetaCenterService {
       data: { adFormatFlags: this.toInputJsonValue(merged) },
     });
     return { ok: true, flags: merged };
+  }
+
+  async getConnectionStatus() {
+    const row = await this.getOrCreateSettings();
+    const settings = this.serializeSettings(row);
+    const checks = this.parseJson<Array<{
+      key: string;
+      label: string;
+      connected: boolean;
+      error: string | null;
+      fixAction: string | null;
+    }>>(row.diagnosticsSnapshot, []);
+
+    const checklist = [
+      { key: 'app', label: 'Meta aplikace připojena', connected: Boolean(settings.facebookPagesAppId) },
+      { key: 'page', label: 'Facebook stránka připojena', connected: Boolean(settings.pageId) },
+      { key: 'ad', label: 'Reklamní účet připojen', connected: Boolean(settings.adAccountId) },
+      { key: 'commerce', label: 'Commerce Manager připojen', connected: Boolean(settings.commerceManagerId) },
+      { key: 'catalog', label: 'Catalog připojen', connected: Boolean(settings.catalogId) },
+      { key: 'dataset', label: 'Dataset připojen', connected: Boolean(settings.datasetId) },
+      { key: 'pixel', label: 'Pixel připojen', connected: Boolean(settings.pixelId) },
+      { key: 'capi', label: 'Conversions API aktivní', connected: Boolean(settings.conversionsApiTokenMasked) },
+      { key: 'webhook', label: 'Webhook aktivní', connected: Boolean(settings.webhookVerifyTokenMasked) },
+      { key: 'instagram', label: 'Instagram připojen', connected: Boolean(settings.instagramBusinessId) },
+      { key: 'whatsapp', label: 'WhatsApp připojen', connected: Boolean(settings.whatsappBusinessAccountId) },
+      { key: 'sync', label: 'Synchronizace aktivní', connected: settings.syncEnabled && settings.isMetaConnected },
+    ];
+
+    return {
+      settings,
+      checklist,
+      diagnostics: checks,
+      connectedAt: settings.metaConnectedAt,
+      lastSyncAt: settings.lastAutoSyncAt,
+    };
+  }
+
+  async listApiLogs(take = 50) {
+    const items = await this.prisma.metaCenterApiLog.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(200, Math.max(1, take)),
+    });
+    return {
+      items: items.map((r) => ({
+        id: r.id,
+        createdAt: r.createdAt.toISOString(),
+        endpoint: r.endpoint,
+        method: r.method,
+        request: r.request,
+        response: r.response,
+        httpStatus: r.httpStatus,
+        errorCode: r.errorCode,
+        errorMessage: r.errorMessage,
+        durationMs: r.durationMs,
+      })),
+    };
   }
 
   async getPixelMapping() {

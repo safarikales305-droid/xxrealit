@@ -11,6 +11,8 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../admin/guards/admin.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../auth/decorators/current-user.decorator';
 import { MetaCenterService } from './meta-center.service';
 import {
   MetaCenterPixelTestDto,
@@ -18,11 +20,75 @@ import {
 } from './dto/meta-center.dto';
 import type { MetaServiceKey } from './meta-center.defaults';
 import { META_SERVICE_KEYS } from './meta-center.defaults';
+import { MetaConnectOAuthService } from './meta-connect-oauth.service';
+import { MetaConnectDiagnosticsService } from './meta-connect-diagnostics.service';
+import { MetaConnectProvisionService } from './meta-connect-provision.service';
+import { MetaConnectEventsService } from './meta-connect-events.service';
+import { MetaConnectSyncCronService } from './meta-connect-sync.cron.service';
 
 @Controller('admin/meta-center')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class MetaCenterAdminController {
-  constructor(private readonly service: MetaCenterService) {}
+  constructor(
+    private readonly service: MetaCenterService,
+    private readonly connectOAuth: MetaConnectOAuthService,
+    private readonly connectDiagnostics: MetaConnectDiagnosticsService,
+    private readonly connectProvision: MetaConnectProvisionService,
+    private readonly connectEvents: MetaConnectEventsService,
+    private readonly connectSync: MetaConnectSyncCronService,
+  ) {}
+
+  @Get('connect/url')
+  async connectUrl(@CurrentUser() user: AuthUser) {
+    const url = await this.connectOAuth.buildConnectUrl(user.id);
+    return { url };
+  }
+
+  @Get('connection/status')
+  connectionStatus() {
+    return this.service.getConnectionStatus();
+  }
+
+  @Post('connection/sync')
+  async connectionSync() {
+    return this.connectSync.runSyncNow();
+  }
+
+  @Post('connection/fix/:action')
+  fixConnection(@Param('action') action: string) {
+    return this.connectDiagnostics.applyFix(action);
+  }
+
+  @Post('provision/:resource')
+  async provision(@Param('resource') resource: string) {
+    switch (resource) {
+      case 'pixel':
+        return this.connectProvision.createPixel();
+      case 'catalog':
+        return this.connectProvision.createCatalog();
+      case 'dataset':
+        return this.connectProvision.createDataset();
+      case 'commerce':
+        return this.connectProvision.createCommerce();
+      case 'audience':
+        return this.connectProvision.createRemarketingAudience();
+      case 'capi':
+        return this.connectProvision.activateConversionsApi();
+      default:
+        return { ok: false, error: 'Neznámý prostředek' };
+    }
+  }
+
+  @Get('api-logs')
+  apiLogs(@Query('take') takeRaw?: string) {
+    const take = Number(takeRaw);
+    return this.service.listApiLogs(Number.isFinite(take) ? take : 50);
+  }
+
+  @Post('events/test-all')
+  testAllEvents() {
+    return this.connectEvents.testAllEvents();
+  }
 
   @Get('dashboard')
   getDashboard() {
@@ -52,12 +118,20 @@ export class MetaCenterAdminController {
 
   @Post('diagnostics')
   runDiagnostics() {
-    return this.service.runDiagnostics();
+    return this.connectDiagnostics.runFullDiagnostics();
   }
 
   @Post('test-all')
-  testAll() {
-    return this.service.testAll();
+  async testAll() {
+    const [diagnostics, events] = await Promise.all([
+      this.connectDiagnostics.runFullDiagnostics(),
+      this.connectEvents.testAllEvents(),
+    ]);
+    return {
+      diagnostics,
+      events,
+      testedAt: new Date().toISOString(),
+    };
   }
 
   @Get('pixel')
@@ -70,7 +144,7 @@ export class MetaCenterAdminController {
     @Body(new ValidationPipe({ whitelist: true, transform: true }))
     dto: MetaCenterPixelTestDto,
   ) {
-    return this.service.sendPixelTestEvent(dto.eventType, dto.listingId);
+    return this.connectEvents.sendTestEvent(dto.eventType, dto.listingId);
   }
 
   @Get('capi')

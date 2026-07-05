@@ -1,23 +1,30 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import {
+  nestAdminMetaCenterApiLogs,
+  nestAdminMetaCenterConnectUrl,
+  nestAdminMetaCenterConnectionStatus,
   nestAdminMetaCenterDashboard,
   nestAdminMetaCenterDiagnostics,
+  nestAdminMetaCenterFix,
   nestAdminMetaCenterLogs,
   nestAdminMetaCenterPatchCapi,
-  nestAdminMetaCenterPatchSettings,
+  nestAdminMetaCenterProvision,
   nestAdminMetaCenterPixelTest,
   nestAdminMetaCenterRegenerateFeeds,
+  nestAdminMetaCenterSync,
   nestAdminMetaCenterTestAll,
   nestAdminMetaCenterTestService,
   nestAdminMetaCenterValidateFeed,
+  type MetaCenterApiLogRow,
   type MetaCenterDashboard,
   type MetaCenterEventLogRow,
   type MetaCenterSettings,
+  type MetaConnectionCheck,
   type MetaDiagnosticLevel,
 } from '@/lib/nest-client';
 
@@ -28,7 +35,8 @@ const TABS = [
   { id: 'capi', label: 'Conversions API' },
   { id: 'commerce', label: 'Commerce' },
   { id: 'feeds', label: 'Feedy' },
-  { id: 'logs', label: 'Logy' },
+  { id: 'logs', label: 'Logy událostí' },
+  { id: 'api-logs', label: 'Meta API logy' },
   { id: 'remarketing', label: 'Remarketing' },
   { id: 'campaigns', label: 'Kampaně' },
   { id: 'mapping', label: 'Mapování' },
@@ -101,13 +109,18 @@ function formatBytes(n: number) {
 
 export default function MetaCentrumPage() {
   const router = useRouter();
+  const params = useSearchParams();
   const { user, isLoading, apiAccessToken } = useAuth();
   const token = apiAccessToken;
 
   const [tab, setTab] = useState<TabId>('dashboard');
   const [dash, setDash] = useState<MetaCenterDashboard | null>(null);
-  const [form, setForm] = useState<Partial<MetaCenterSettings>>({});
+  const [connection, setConnection] = useState<{
+    checklist: Array<{ key: string; label: string; connected: boolean }>;
+    diagnostics: MetaConnectionCheck[];
+  } | null>(null);
   const [logs, setLogs] = useState<MetaCenterEventLogRow[]>([]);
+  const [apiLogs, setApiLogs] = useState<MetaCenterApiLogRow[]>([]);
   const [logFilter, setLogFilter] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -115,19 +128,28 @@ export default function MetaCentrumPage() {
 
   const refresh = useCallback(async () => {
     if (!token) return;
-    const [d, l] = await Promise.all([
+    const [d, l, c, api] = await Promise.all([
       nestAdminMetaCenterDashboard(token),
       nestAdminMetaCenterLogs(token, {
         eventType: logFilter || undefined,
         take: 80,
       }),
+      nestAdminMetaCenterConnectionStatus(token),
+      nestAdminMetaCenterApiLogs(token, 80),
     ]);
-    if (d) {
-      setDash(d);
-      setForm(d.settings);
-    }
+    if (d) setDash(d);
     setLogs(l?.items ?? []);
+    if (c) setConnection({ checklist: c.checklist, diagnostics: c.diagnostics });
+    setApiLogs(api?.items ?? []);
   }, [token, logFilter]);
+
+  useEffect(() => {
+    const meta = params.get('meta');
+    if (meta === 'connected') setMsg('Meta účet byl úspěšně připojen a konfigurace načtena.');
+    if (meta === 'error') {
+      setMsg(`Chyba připojení: ${params.get('reason') ?? 'neznámá'}`);
+    }
+  }, [params]);
 
   useEffect(() => {
     if (!isLoading && (!token || !user || user.role !== 'ADMIN')) {
@@ -146,74 +168,63 @@ export default function MetaCentrumPage() {
     () =>
       [
         ['facebookAppId', 'Facebook App ID'],
-        ['facebookAppSecret', 'Facebook App Secret', true],
         ['facebookPagesAppId', 'Facebook Pages App ID'],
-        ['facebookPagesSecret', 'Facebook Pages Secret', true],
         ['businessManagerId', 'Business Manager ID'],
         ['commerceManagerId', 'Commerce Manager ID'],
         ['catalogId', 'Catalog ID'],
+        ['catalogName', 'Catalog Name'],
         ['datasetId', 'Dataset ID'],
         ['pixelId', 'Pixel ID'],
         ['pixelName', 'Název Pixelu'],
-        ['conversionsApiToken', 'Conversions API Token', true],
-        ['webhookVerifyToken', 'Webhook Verify Token', true],
-        ['webhookSecret', 'Webhook Secret', true],
+        ['adAccountId', 'Ad Account ID'],
+        ['adAccountName', 'Ad Account Name'],
+        ['pageId', 'Page ID'],
+        ['pageName', 'Page Name'],
+        ['instagramBusinessId', 'Instagram Business ID'],
+        ['instagramUsername', 'Instagram'],
+        ['whatsappBusinessAccountId', 'WhatsApp Business ID'],
+        ['whatsappPhoneNumberId', 'WhatsApp Phone ID'],
+        ['testEventCode', 'Test Event Code'],
         ['frontendUrl', 'Frontend URL'],
         ['backendUrl', 'Backend URL'],
         ['redirectUri', 'Redirect URI'],
         ['callbackUrl', 'Callback URL'],
-        ['encryptionKey', 'Encryption Key', true],
         ['graphApiVersion', 'Graph API Version'],
         ['domainVerification', 'Domain Verification'],
+        ['metaConnectedUserName', 'Připojený uživatel'],
+        ['metaConnectedAt', 'Připojeno'],
+        ['lastAutoSyncAt', 'Poslední synchronizace'],
       ] as const,
     [],
   );
 
-  async function saveSettings() {
+  async function connectMeta() {
     if (!token) return;
     setBusy(true);
-    setMsg(null);
-    const patch: Record<string, unknown> = {};
-    const copyKeys = [
-      'facebookAppId',
-      'facebookPagesAppId',
-      'businessManagerId',
-      'commerceManagerId',
-      'catalogId',
-      'datasetId',
-      'pixelId',
-      'pixelName',
-      'frontendUrl',
-      'backendUrl',
-      'redirectUri',
-      'callbackUrl',
-      'graphApiVersion',
-      'domainVerification',
-      'catalogFeedEnabled',
-    ] as const;
-    for (const k of copyKeys) {
-      if (form[k] !== undefined) patch[k] = form[k];
-    }
-    const secrets = [
-      'facebookAppSecret',
-      'facebookPagesSecret',
-      'conversionsApiToken',
-      'webhookVerifyToken',
-      'webhookSecret',
-      'encryptionKey',
-    ] as const;
-    for (const k of secrets) {
-      const v = (form as Record<string, unknown>)[k];
-      if (typeof v === 'string' && v.trim()) patch[k] = v.trim();
-    }
-    const r = await nestAdminMetaCenterPatchSettings(token, patch);
+    const r = await nestAdminMetaCenterConnectUrl(token);
     setBusy(false);
-    if (!r.ok) {
-      setMsg(r.error ?? 'Uložení selhalo.');
+    if (!r?.url) {
+      setMsg('Nepodařilo se získat OAuth URL.');
       return;
     }
-    setForm(r.settings);
-    setMsg('Nastavení uloženo.');
+    window.location.href = r.url;
+  }
+
+  async function applyFix(action: string) {
+    if (!token) return;
+    setBusy(true);
+    const r = await nestAdminMetaCenterFix(token, action);
+    setBusy(false);
+    setMsg(r.ok ? r.message ?? 'Oprava dokončena.' : r.error ?? 'Oprava selhala.');
+    void refresh();
+  }
+
+  async function provision(resource: string) {
+    if (!token) return;
+    setBusy(true);
+    const r = await nestAdminMetaCenterProvision(token, resource);
+    setBusy(false);
+    setMsg(r.ok ? `Vytvořeno (${resource}).` : r.error ?? 'Vytvoření selhalo.');
     void refresh();
   }
 
@@ -230,8 +241,7 @@ export default function MetaCentrumPage() {
   async function runDiagnostics() {
     if (!token) return;
     setBusy(true);
-    const d = await nestAdminMetaCenterDiagnostics(token);
-    if (d && dash) setDash({ ...dash, diagnostics: d });
+    await nestAdminMetaCenterDiagnostics(token);
     setBusy(false);
     void refresh();
   }
@@ -253,10 +263,25 @@ export default function MetaCentrumPage() {
             <button
               type="button"
               disabled={busy}
-              onClick={() => void runDiagnostics()}
+              onClick={() => void connectMeta()}
+              className="rounded-lg bg-[#1877f2] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#166fe5] disabled:opacity-50"
+            >
+              Připojit Meta účet
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={async () => {
+                if (!token) return;
+                setBusy(true);
+                const r = await nestAdminMetaCenterSync(token);
+                setBusy(false);
+                setMsg(r.ok ? 'Synchronizace dokončena.' : r.error ?? 'Sync selhal.');
+                void refresh();
+              }}
               className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-50"
             >
-              Diagnostika
+              Synchronizovat
             </button>
             <button
               type="button"
@@ -293,6 +318,104 @@ export default function MetaCentrumPage() {
 
         {tab === 'dashboard' ? (
           <>
+            {connection?.checklist ? (
+              <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+                <h2 className="mb-3 text-lg font-bold">Stav připojení</h2>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {connection.checklist.map((item) => (
+                    <div
+                      key={item.key}
+                      className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${
+                        item.connected
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                          : 'border-red-200 bg-red-50 text-red-900'
+                      }`}
+                    >
+                      <span>{item.connected ? '✓' : '✗'}</span>
+                      <span>{item.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {connection?.diagnostics?.length ? (
+              <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+                <h2 className="mb-3 text-lg font-bold">Diagnostika připojení</h2>
+                <div className="space-y-2">
+                  {connection.diagnostics.map((item) => (
+                    <div
+                      key={item.key}
+                      className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm ${
+                        item.connected
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                          : 'border-red-200 bg-red-50 text-red-900'
+                      }`}
+                    >
+                      <div>
+                        <strong>{item.label}</strong>
+                        <span className="ml-2">
+                          {item.connected ? 'Připojeno' : item.error ?? 'Chybí'}
+                        </span>
+                      </div>
+                      {!item.connected && item.fixAction ? (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void applyFix(item.fixAction!)}
+                          className="rounded-lg border border-current px-3 py-1 text-xs font-semibold"
+                        >
+                          Opravit
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void provision('pixel')}
+                    className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold"
+                  >
+                    Vytvořit Pixel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void provision('catalog')}
+                    className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold"
+                  >
+                    Vytvořit Catalog
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void provision('dataset')}
+                    className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold"
+                  >
+                    Vytvořit Dataset
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void provision('audience')}
+                    className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold"
+                  >
+                    Vytvořit Remarketing Audience
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void provision('capi')}
+                    className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold"
+                  >
+                    Aktivovat Conversions API
+                  </button>
+                </div>
+              </section>
+            ) : null}
+
             {diagnostics ? (
               <section className="grid gap-3 sm:grid-cols-3">
                 {(['ok', 'warning', 'error'] as const).map((k) => (
@@ -385,53 +508,29 @@ export default function MetaCentrumPage() {
           </>
         ) : null}
 
-        {tab === 'settings' ? (
+        {tab === 'settings' && dash ? (
           <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
-            <h2 className="mb-4 text-lg font-bold">Meta nastavení</h2>
+            <h2 className="mb-2 text-lg font-bold">Meta nastavení (automaticky načteno)</h2>
+            <p className="mb-4 text-sm text-zinc-500">
+              Hodnoty se načítají po připojení Meta účtu. Ruční editace ID není potřeba.
+            </p>
             <div className="grid gap-4 sm:grid-cols-2">
-              {settingsFields.map(([key, label, secret]) => {
-                const maskedKey = secret ? `${key}Masked` : null;
-                const masked = maskedKey
-                  ? String((form as Record<string, unknown>)[maskedKey] ?? '')
-                  : '';
+              {settingsFields.map(([key, label]) => {
+                const raw = (dash.settings as Record<string, unknown>)[key];
+                const display =
+                  key === 'metaConnectedAt' || key === 'lastAutoSyncAt'
+                    ? raw
+                      ? new Date(String(raw)).toLocaleString('cs-CZ')
+                      : '—'
+                    : String(raw ?? '—');
                 return (
-                  <label key={key} className="block text-sm">
-                    <span className="mb-1 block font-medium text-zinc-700">{label}</span>
-                    <input
-                      type={secret ? 'password' : 'text'}
-                      className="w-full rounded-lg border border-zinc-300 px-3 py-2"
-                      placeholder={secret && masked ? masked : undefined}
-                      value={secret ? '' : String((form as Record<string, unknown>)[key] ?? '')}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setForm((f) => ({
-                          ...f,
-                          ...(secret ? { [key]: val || undefined } : { [key]: val || null }),
-                        }));
-                      }}
-                    />
-                  </label>
+                  <div key={key} className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+                    <p className="text-xs font-medium text-zinc-500">{label}</p>
+                    <p className="mt-1 break-all font-mono text-xs">{display}</p>
+                  </div>
                 );
               })}
-              <label className="flex items-center gap-2 text-sm sm:col-span-2">
-                <input
-                  type="checkbox"
-                  checked={Boolean(form.catalogFeedEnabled)}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, catalogFeedEnabled: e.target.checked }))
-                  }
-                />
-                Povolit katalogový feed (aktivuje export inzerátů)
-              </label>
             </div>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void saveSettings()}
-              className="mt-6 rounded-lg bg-[#1877f2] px-6 py-2 text-sm font-semibold text-white hover:bg-[#166fe5] disabled:opacity-50"
-            >
-              Uložit nastavení
-            </button>
           </section>
         ) : null}
 
@@ -716,6 +815,40 @@ export default function MetaCentrumPage() {
                   </span>
                 ))}
               </div>
+            </div>
+          </section>
+        ) : null}
+
+        {tab === 'api-logs' ? (
+          <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+            <h2 className="mb-4 text-lg font-bold">Meta Graph API logy</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] text-left text-sm">
+                <thead>
+                  <tr className="border-b text-xs text-zinc-500">
+                    <th className="py-2 pr-2">Čas</th>
+                    <th className="py-2 pr-2">Endpoint</th>
+                    <th className="py-2 pr-2">HTTP</th>
+                    <th className="py-2 pr-2">Error</th>
+                    <th className="py-2 pr-2">ms</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {apiLogs.map((row) => (
+                    <tr key={row.id} className="border-b border-zinc-100">
+                      <td className="py-2 pr-2 whitespace-nowrap">
+                        {new Date(row.createdAt).toLocaleString('cs-CZ')}
+                      </td>
+                      <td className="py-2 pr-2 font-mono text-xs">
+                        {row.method} {row.endpoint}
+                      </td>
+                      <td className="py-2 pr-2">{row.httpStatus ?? '—'}</td>
+                      <td className="py-2 pr-2 text-xs">{row.errorMessage ?? '—'}</td>
+                      <td className="py-2 pr-2">{row.durationMs ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </section>
         ) : null}

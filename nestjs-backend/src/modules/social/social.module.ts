@@ -107,6 +107,7 @@ import { PostSocialPublishService } from './autopost/post-social-publish.service
     FacebookPageService,
     FacebookPageSyncService,
     FacebookUrlImportService,
+    TokenEncryptionService,
     SocialAutopostSettingsService,
     SocialPublishEnqueueService,
     SocialPublisherService,
