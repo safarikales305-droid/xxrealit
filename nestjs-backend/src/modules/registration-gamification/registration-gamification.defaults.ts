@@ -14,6 +14,13 @@ export type GamificationResultPageConfig = {
   bullets: string[];
 };
 
+export type GamificationCloseModalConfig = {
+  title: string;
+  subtitle: string;
+  benefits: string[];
+  motivationText: string;
+};
+
 export type GamificationConfig = {
   gameTitle: string;
   introText: string;
@@ -39,13 +46,41 @@ export type GamificationConfig = {
   thankYouTitle: string;
   thankYouSubtitle: string;
   soundsEnabled: boolean;
-  closeModal?: {
-    title: string;
-    subtitle: string;
-    benefits: string[];
-    motivationText: string;
-  };
+  closeModal: GamificationCloseModalConfig;
 };
+
+export const DEFAULT_GAMIFICATION_CLOSE_MODAL: GamificationCloseModalConfig = {
+  title: 'Připojte se k XXREALIT zdarma',
+  subtitle: 'Zaregistrujte se nebo se přihlaste a využijte všechny funkce portálu.',
+  benefits: [
+    'Přidávání inzerátů zdarma',
+    'Sdílení na sociální sítě',
+    'Tipařský program',
+    'Bonusové akce',
+  ],
+  motivationText: 'Po registraci získáte přístup ke všem funkcím portálu.',
+};
+
+export function mergeCloseModalConfig(partial: unknown): GamificationCloseModalConfig {
+  const base = DEFAULT_GAMIFICATION_CLOSE_MODAL;
+  if (!partial || typeof partial !== 'object' || Array.isArray(partial)) {
+    return { ...base };
+  }
+  const p = partial as Partial<GamificationCloseModalConfig>;
+  const benefits = Array.isArray(p.benefits)
+    ? p.benefits.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : base.benefits;
+  return {
+    title: typeof p.title === 'string' && p.title.trim() ? p.title.trim() : base.title,
+    subtitle:
+      typeof p.subtitle === 'string' && p.subtitle.trim() ? p.subtitle.trim() : base.subtitle,
+    benefits: benefits.length > 0 ? benefits : [...base.benefits],
+    motivationText:
+      typeof p.motivationText === 'string' && p.motivationText.trim()
+        ? p.motivationText.trim()
+        : base.motivationText,
+  };
+}
 
 export const DEFAULT_GAMIFICATION_CONFIG: GamificationConfig = {
   gameTitle: '🏙️ Staň se realitním magnátem',
@@ -168,18 +203,7 @@ export const DEFAULT_GAMIFICATION_CONFIG: GamificationConfig = {
   thankYouTitle: '🎉 Děkujeme!',
   thankYouSubtitle: 'Na váš e-mail jsme zaregistrovali odměnu. Dokončete registraci a využijte portál naplno.',
   soundsEnabled: true,
-  closeModal: {
-    title: 'Připojte se k XXREALIT zdarma',
-    subtitle: 'Máte několik možností:',
-    benefits: [
-      'Přidávání inzerátů zdarma',
-      'Sdílení na sociální sítě',
-      'Tipařský program',
-      'Bonusové akce',
-      'Komunita profesionálů',
-    ],
-    motivationText: '🎁 Po registraci získáte přístup ke všem funkcím portálu.',
-  },
+  closeModal: DEFAULT_GAMIFICATION_CLOSE_MODAL,
 };
 
 export const DEFAULT_GAMIFICATION_SETTINGS = {

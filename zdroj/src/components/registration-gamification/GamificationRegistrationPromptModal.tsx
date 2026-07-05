@@ -18,19 +18,6 @@ type Props = {
   onClose: () => void;
 };
 
-const DEFAULT_CLOSE_MODAL = {
-  title: 'Připojte se k XXREALIT zdarma',
-  subtitle: 'Máte několik možností:',
-  benefits: [
-    'Přidávání inzerátů zdarma',
-    'Sdílení na sociální sítě',
-    'Tipařský program',
-    'Bonusové akce',
-    'Komunita profesionálů',
-  ],
-  motivationText: '🎁 Po registraci získáte přístup ke všem funkcím portálu.',
-};
-
 export function GamificationRegistrationPromptModal({ settings, onClose }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -40,7 +27,7 @@ export function GamificationRegistrationPromptModal({ settings, onClose }: Props
   const [authMode, setAuthMode] = useState<AuthMode>(null);
   const [navigating, setNavigating] = useState<AuthMode>(null);
 
-  const closeModal = settings.config.closeModal ?? DEFAULT_CLOSE_MODAL;
+  const closeModal = settings.config.closeModal;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

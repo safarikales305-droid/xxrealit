@@ -5325,7 +5325,7 @@ export type RegistrationGamificationConfig = {
   thankYouTitle: string;
   thankYouSubtitle: string;
   soundsEnabled: boolean;
-  closeModal?: {
+  closeModal: {
     title: string;
     subtitle: string;
     benefits: string[];

@@ -11,6 +11,7 @@ import { normalizeToE164 } from '../whatsapp/whatsapp-phone.util';
 import {
   DEFAULT_GAMIFICATION_CONFIG,
   DEFAULT_GAMIFICATION_SETTINGS,
+  mergeCloseModalConfig,
   type GamificationConfig,
 } from './registration-gamification.defaults';
 import type {
@@ -44,10 +45,7 @@ export class RegistrationGamificationService {
         ...base.resultPages,
         ...(o.resultPages as GamificationConfig['resultPages']),
       },
-      closeModal: {
-        ...base.closeModal,
-        ...(o.closeModal as object),
-      },
+      closeModal: mergeCloseModalConfig(o.closeModal),
     };
   }
 
