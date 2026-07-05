@@ -39,13 +39,31 @@ export function setRegistrationGamificationSettings(settings: RegistrationGamifi
   emit();
 }
 
+function unlockPageScroll() {
+  if (typeof document === 'undefined') return;
+  document.body.style.overflow = '';
+  document.body.style.paddingRight = '';
+  document.documentElement.style.overflow = '';
+}
+
+export function unlockPageScrollForGamification() {
+  unlockPageScroll();
+}
+
+export function lockPageScrollForGamification() {
+  if (typeof document === 'undefined') return;
+  document.body.style.overflow = 'hidden';
+}
+
 export function openRegistrationGamification() {
+  lockPageScrollForGamification();
   snapshot = { ...snapshot, open: true };
   markShown();
   emit();
 }
 
 export function closeRegistrationGamification() {
+  unlockPageScroll();
   snapshot = { ...snapshot, open: false };
   emit();
 }

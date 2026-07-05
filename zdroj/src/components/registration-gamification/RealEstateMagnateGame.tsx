@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   nestRegistrationGamificationCheckEmail,
@@ -13,6 +13,7 @@ import {
   getGamificationVisitorKey,
   getUtmAndReferer,
   markGamificationCompleted,
+  unlockPageScrollForGamification,
 } from '@/lib/registration-gamification-store';
 
 type DecisionAction = 'buy' | 'invest' | 'sell' | 'build' | 'skip';
@@ -52,7 +53,10 @@ const ACTION_POINTS: Record<DecisionAction, number> = {
   skip: 0,
 };
 
+type NavTarget = 'register' | 'login';
+
 export function RealEstateMagnateGame({ settings, onClose }: Props) {
+  const router = useRouter();
   const cfg = settings.config;
   const colors = cfg.colors;
   const decisionsTarget = settings.decisionsCount;
@@ -79,6 +83,7 @@ export function RealEstateMagnateGame({ settings, onClose }: Props) {
   const [formErr, setFormErr] = useState<string | null>(null);
   const [suggestLogin, setSuggestLogin] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [navigating, setNavigating] = useState<NavTarget | null>(null);
   const [bonusCredits, setBonusCredits] = useState(settings.bonusCredits);
   const [thankYou, setThankYou] = useState({ title: cfg.thankYouTitle, subtitle: cfg.thankYouSubtitle });
 
@@ -96,7 +101,55 @@ export function RealEstateMagnateGame({ settings, onClose }: Props) {
       sessionId,
       pagePath: typeof window !== 'undefined' ? window.location.pathname : '',
     });
+    return () => {
+      unlockPageScrollForGamification();
+    };
   }, [sessionId, visitorKey]);
+
+  const buildAuthUrl = useCallback(
+    (target: NavTarget) => {
+      const trimmed = email.trim();
+      const params = new URLSearchParams();
+      if (trimmed) params.set('email', trimmed);
+      params.set('source', 'game');
+      if (target === 'register') params.set('visitorType', visitorType);
+      const path = target === 'register' ? '/registrace' : '/prihlaseni';
+      return `${path}?${params.toString()}`;
+    },
+    [email, visitorType],
+  );
+
+  const navigateAway = useCallback(
+    (target: NavTarget) => {
+      if (navigating) return;
+      setNavigating(target);
+      const targetUrl = buildAuthUrl(target);
+      const startUrl = typeof window !== 'undefined' ? window.location.pathname + window.location.search : '';
+      unlockPageScrollForGamification();
+      onClose();
+      window.requestAnimationFrame(() => {
+        try {
+          router.push(targetUrl);
+        } catch {
+          window.location.href = targetUrl;
+          return;
+        }
+        window.setTimeout(() => {
+          if (typeof window === 'undefined') return;
+          const currentUrl = window.location.pathname + window.location.search;
+          if (currentUrl === startUrl) {
+            window.location.href = targetUrl;
+          }
+        }, 750);
+      });
+    },
+    [buildAuthUrl, navigating, onClose, router],
+  );
+
+  const handleClose = useCallback(() => {
+    unlockPageScrollForGamification();
+    onClose();
+  }, [onClose]);
 
   const finishGame = useCallback(() => {
     setShowConfetti(true);
@@ -186,15 +239,16 @@ export function RealEstateMagnateGame({ settings, onClose }: Props) {
     <div
       className="fixed inset-0 z-[100] flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4"
       role="dialog"
-      aria-modal
+      aria-modal="true"
+      aria-labelledby="gamification-game-title"
     >
       <div
-        className="relative flex max-h-[100dvh] w-full max-w-lg flex-col overflow-hidden rounded-none shadow-2xl sm:max-h-[92vh] sm:rounded-3xl"
+        className="relative z-[101] flex max-h-[100dvh] w-full max-w-lg flex-col overflow-hidden rounded-none shadow-2xl sm:max-h-[92vh] sm:rounded-3xl"
         style={{ background: `linear-gradient(160deg, ${colors.background} 0%, ${colors.secondary} 100%)` }}
       >
         <button
           type="button"
-          onClick={onClose}
+          onClick={handleClose}
           className="absolute right-3 top-3 z-20 rounded-full bg-white/10 px-3 py-1 text-sm font-semibold text-white backdrop-blur hover:bg-white/20"
         >
           Zavřít
@@ -220,7 +274,7 @@ export function RealEstateMagnateGame({ settings, onClose }: Props) {
 
         <div className="border-b border-white/10 px-5 pb-3 pt-5 text-white">
           <div className="flex items-center justify-between gap-3 pr-16">
-            <h2 className="text-lg font-bold leading-tight sm:text-xl">{cfg.gameTitle}</h2>
+            <h2 id="gamification-game-title" className="text-lg font-bold leading-tight sm:text-xl">{cfg.gameTitle}</h2>
             <div
               className="rounded-full px-3 py-1 text-xs font-bold tabular-nums"
               style={{ background: colors.accent, color: colors.background }}
@@ -402,12 +456,14 @@ export function RealEstateMagnateGame({ settings, onClose }: Props) {
                 </p>
               ) : null}
               {suggestLogin ? (
-                <Link
-                  href="/prihlaseni"
-                  className="block rounded-xl bg-white px-4 py-3 text-center font-bold text-zinc-900"
+                <button
+                  type="button"
+                  onClick={() => navigateAway('login')}
+                  disabled={navigating === 'login'}
+                  className="w-full rounded-xl bg-white px-4 py-3 text-center font-bold text-zinc-900 disabled:opacity-70"
                 >
-                  Přihlásit se
-                </Link>
+                  {navigating === 'login' ? 'Přesměrovávám…' : 'Přihlásit se'}
+                </button>
               ) : (
                 <button
                   type="submit"
@@ -430,19 +486,23 @@ export function RealEstateMagnateGame({ settings, onClose }: Props) {
                 Bonus: <strong>{bonusCredits}</strong> kreditů · {settings.bonusDescription}
               </p>
               <div className="grid gap-2">
-                <Link
-                  href="/registrace"
-                  className="rounded-2xl px-4 py-3 font-bold text-white"
+                <button
+                  type="button"
+                  onClick={() => navigateAway('register')}
+                  disabled={navigating !== null}
+                  className="rounded-2xl px-4 py-3 font-bold text-white transition hover:opacity-95 disabled:opacity-70"
                   style={{ background: colors.primary }}
                 >
-                  Dokončit registraci
-                </Link>
-                <Link
-                  href="/prihlaseni"
-                  className="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 font-semibold"
+                  {navigating === 'register' ? 'Přesměrovávám…' : 'Dokončit registraci'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigateAway('login')}
+                  disabled={navigating !== null}
+                  className="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 font-semibold transition hover:bg-white/15 disabled:opacity-70"
                 >
-                  Přihlásit se
-                </Link>
+                  {navigating === 'login' ? 'Přesměrovávám…' : 'Přihlásit se'}
+                </button>
               </div>
               <p className="text-xs text-white/50">
                 Google / Facebook / Apple — přihlášení na stránce registrace

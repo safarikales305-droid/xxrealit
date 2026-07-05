@@ -15,10 +15,12 @@ import {
   incrementGamificationShorts,
   isGamificationCompleted,
   isPageAllowed,
+  lockPageScrollForGamification,
   openRegistrationGamification,
   pageKindFromPath,
   setRegistrationGamificationSettings,
   subscribeRegistrationGamification,
+  unlockPageScrollForGamification,
 } from '@/lib/registration-gamification-store';
 import { RealEstateMagnateGame } from './RealEstateMagnateGame';
 
@@ -100,6 +102,14 @@ export function RegistrationGamificationHost() {
     }, 5000);
     return () => window.clearInterval(t);
   }, [snap.settings, tryOpen]);
+
+  useEffect(() => {
+    if (!snap.open) return;
+    lockPageScrollForGamification();
+    return () => {
+      unlockPageScrollForGamification();
+    };
+  }, [snap.open]);
 
   if (!snap.open || !snap.settings) return null;
 

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AuthPageShell } from '@/components/auth/auth-page-shell';
 import { FacebookAuthButton } from '@/components/auth/FacebookAuthButton';
 import { PortalIntroLink } from '@/components/auth/PortalIntroLink';
@@ -89,6 +89,15 @@ export default function RegistracePage() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const prefillEmail = searchParams.get('email')?.trim();
+    if (prefillEmail) setEmail(prefillEmail);
+    const visitorType = searchParams.get('visitorType')?.trim();
+    if (visitorType === 'INVESTOR') setRole('INVESTOR');
+    else if (visitorType === 'AGENT') setRole('AGENT');
+    else if (visitorType === 'DEVELOPER') setRole('DEVELOPER');
+  }, [searchParams]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();

@@ -52,6 +52,11 @@ export function LoginForm() {
     }
   }, [searchParams]);
 
+  useEffect(() => {
+    const prefillEmail = searchParams.get('email')?.trim();
+    if (prefillEmail) setEmail(prefillEmail);
+  }, [searchParams]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
