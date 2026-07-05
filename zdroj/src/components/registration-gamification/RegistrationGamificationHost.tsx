@@ -1,14 +1,19 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { nestRegistrationGamificationSettings } from '@/lib/nest-client';
+import {
+  nestRegistrationGamificationEvent,
+  nestRegistrationGamificationSettings,
+} from '@/lib/nest-client';
 import {
   canShowByFrequency,
+  closeGamificationRegistrationPrompt,
   closeRegistrationGamification,
   getGamificationPagesVisited,
   getGamificationShortsViews,
+  getGamificationVisitorKey,
   getRegistrationGamificationSnapshot,
   getSecondsOnSite,
   incrementGamificationPages,
@@ -16,15 +21,24 @@ import {
   isGamificationCompleted,
   isPageAllowed,
   lockPageScrollForGamification,
+  openGamificationRegistrationPrompt,
   openRegistrationGamification,
   pageKindFromPath,
   setRegistrationGamificationSettings,
   subscribeRegistrationGamification,
   unlockPageScrollForGamification,
 } from '@/lib/registration-gamification-store';
+import { GamificationRegistrationPromptModal } from './GamificationRegistrationPromptModal';
 import { RealEstateMagnateGame } from './RealEstateMagnateGame';
 
 const AUTH_PATHS = ['/prihlaseni', '/registrace', '/login', '/register', '/admin'];
+
+const EMPTY_SNAPSHOT = {
+  open: false,
+  settings: null,
+  promptOpen: false,
+  promptSettings: null,
+} as const;
 
 function audienceMatches(
   audience: string,
@@ -53,11 +67,12 @@ function triggerMet(
 
 export function RegistrationGamificationHost() {
   const pathname = usePathname();
+  const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
   const snap = useSyncExternalStore(
     subscribeRegistrationGamification,
     getRegistrationGamificationSnapshot,
-    () => ({ open: false, settings: null }),
+    () => EMPTY_SNAPSHOT,
   );
 
   useEffect(() => {
@@ -90,6 +105,43 @@ export function RegistrationGamificationHost() {
     openRegistrationGamification();
   }, [isAuthenticated, pathname]);
 
+  const handleGameDismiss = useCallback(() => {
+    const settings = getRegistrationGamificationSnapshot().settings;
+    closeRegistrationGamification();
+    unlockPageScrollForGamification();
+
+    void nestRegistrationGamificationEvent({
+      eventType: 'game_dismissed',
+      visitorKey: getGamificationVisitorKey(),
+      pagePath: pathname,
+    });
+
+    if (!settings || isAuthenticated) return;
+
+    const action = settings.onCloseAction ?? 'OPEN_REGISTRATION_MODAL';
+    if (action === 'OPEN_REGISTRATION_MODAL') {
+      openGamificationRegistrationPrompt(settings);
+      return;
+    }
+    if (action === 'REDIRECT_REGISTER') {
+      const targetUrl = '/registrace?source=game';
+      try {
+        router.push(targetUrl);
+      } catch {
+        window.location.href = targetUrl;
+      }
+      return;
+    }
+    if (action === 'REDIRECT_LOGIN') {
+      const targetUrl = '/prihlaseni?source=game';
+      try {
+        router.push(targetUrl);
+      } catch {
+        window.location.href = targetUrl;
+      }
+    }
+  }, [isAuthenticated, pathname, router]);
+
   useEffect(() => {
     if (isLoading || !snap.settings) return;
     tryOpen();
@@ -104,20 +156,27 @@ export function RegistrationGamificationHost() {
   }, [snap.settings, tryOpen]);
 
   useEffect(() => {
-    if (!snap.open) return;
+    if (!snap.open && !snap.promptOpen) return;
     lockPageScrollForGamification();
     return () => {
-      unlockPageScrollForGamification();
+      if (!getRegistrationGamificationSnapshot().open && !getRegistrationGamificationSnapshot().promptOpen) {
+        unlockPageScrollForGamification();
+      }
     };
-  }, [snap.open]);
-
-  if (!snap.open || !snap.settings) return null;
+  }, [snap.open, snap.promptOpen]);
 
   return (
-    <RealEstateMagnateGame
-      settings={snap.settings}
-      onClose={() => closeRegistrationGamification()}
-    />
+    <>
+      {snap.open && snap.settings ? (
+        <RealEstateMagnateGame settings={snap.settings} onClose={handleGameDismiss} />
+      ) : null}
+      {snap.promptOpen && snap.promptSettings ? (
+        <GamificationRegistrationPromptModal
+          settings={snap.promptSettings}
+          onClose={() => closeGamificationRegistrationPrompt()}
+        />
+      ) : null}
+    </>
   );
 }
 

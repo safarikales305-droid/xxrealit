@@ -250,6 +250,56 @@ export default function AdminRegistrationGamificationPage() {
             />
           </label>
 
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 space-y-3">
+            <p className="text-sm font-bold text-zinc-800">Po zavření hry (tlačítko Zavřít)</p>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="onCloseAction"
+                checked={settings.onCloseAction === 'OPEN_REGISTRATION_MODAL'}
+                onChange={() => setSettings({ ...settings, onCloseAction: 'OPEN_REGISTRATION_MODAL' })}
+              />
+              Automaticky otevřít registrační dialog
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="onCloseAction"
+                checked={settings.onCloseAction === 'REDIRECT_REGISTER'}
+                onChange={() => setSettings({ ...settings, onCloseAction: 'REDIRECT_REGISTER' })}
+              />
+              Přesměrovat na registraci
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="onCloseAction"
+                checked={settings.onCloseAction === 'REDIRECT_LOGIN'}
+                onChange={() => setSettings({ ...settings, onCloseAction: 'REDIRECT_LOGIN' })}
+              />
+              Přesměrovat na přihlášení
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="onCloseAction"
+                checked={settings.onCloseAction === 'CLOSE_ONLY'}
+                onChange={() => setSettings({ ...settings, onCloseAction: 'CLOSE_ONLY' })}
+              />
+              Nechat pouze zavřít hru
+            </label>
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={settings.closeModalPromoEnabled}
+                onChange={(e) =>
+                  setSettings({ ...settings, closeModalPromoEnabled: e.target.checked })
+                }
+              />
+              Zobrazit marketingovou akci v registračním dialogu
+            </label>
+          </div>
+
           <div className="flex flex-wrap gap-4 text-sm">
             <label className="flex items-center gap-2">
               <input

@@ -5325,7 +5325,19 @@ export type RegistrationGamificationConfig = {
   thankYouTitle: string;
   thankYouSubtitle: string;
   soundsEnabled: boolean;
+  closeModal?: {
+    title: string;
+    subtitle: string;
+    benefits: string[];
+    motivationText: string;
+  };
 };
+
+export type GamificationOnCloseAction =
+  | 'OPEN_REGISTRATION_MODAL'
+  | 'REDIRECT_REGISTER'
+  | 'REDIRECT_LOGIN'
+  | 'CLOSE_ONLY';
 
 export type RegistrationGamificationPublicSettings = {
   enabled: boolean;
@@ -5345,6 +5357,8 @@ export type RegistrationGamificationPublicSettings = {
   offerIntervalSec: number;
   bonusCredits: number;
   bonusDescription: string;
+  onCloseAction: GamificationOnCloseAction;
+  closeModalPromoEnabled: boolean;
   config: RegistrationGamificationConfig;
 };
 

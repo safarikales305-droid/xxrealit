@@ -2377,6 +2377,9 @@ model RegistrationGamificationSetting {
   offerIntervalSec           Int      @default(3)
   bonusCredits               Int      @default(500)
   bonusDescription           String   @default("Bonusové kredity po registraci")
+  /// OPEN_REGISTRATION_MODAL | REDIRECT_REGISTER | REDIRECT_LOGIN | CLOSE_ONLY
+  onCloseAction              String   @default("OPEN_REGISTRATION_MODAL")
+  closeModalPromoEnabled     Boolean  @default(true)
   autoEmailMarketing         Boolean  @default(true)
   autoWhatsAppCampaign       Boolean  @default(true)
   autoCrm                    Boolean  @default(true)

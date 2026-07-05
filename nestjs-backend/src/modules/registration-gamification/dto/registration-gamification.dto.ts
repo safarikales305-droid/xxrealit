@@ -106,6 +106,15 @@ export class UpdateRegistrationGamificationDto {
   bonusDescription?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  onCloseAction?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  closeModalPromoEnabled?: boolean;
+
+  @IsOptional()
   @IsBoolean()
   autoEmailMarketing?: boolean;
 

@@ -17,9 +17,16 @@ const listeners = new Set<Listener>();
 export type GamificationStoreSnapshot = {
   open: boolean;
   settings: RegistrationGamificationPublicSettings | null;
+  promptOpen: boolean;
+  promptSettings: RegistrationGamificationPublicSettings | null;
 };
 
-let snapshot: GamificationStoreSnapshot = { open: false, settings: null };
+let snapshot: GamificationStoreSnapshot = {
+  open: false,
+  settings: null,
+  promptOpen: false,
+  promptSettings: null,
+};
 
 function emit() {
   for (const l of listeners) l();
@@ -65,6 +72,24 @@ export function openRegistrationGamification() {
 export function closeRegistrationGamification() {
   unlockPageScroll();
   snapshot = { ...snapshot, open: false };
+  emit();
+}
+
+export function openGamificationRegistrationPrompt(
+  settings: RegistrationGamificationPublicSettings,
+) {
+  lockPageScrollForGamification();
+  snapshot = {
+    ...snapshot,
+    promptOpen: true,
+    promptSettings: settings,
+  };
+  emit();
+}
+
+export function closeGamificationRegistrationPrompt() {
+  unlockPageScroll();
+  snapshot = { ...snapshot, promptOpen: false, promptSettings: null };
   emit();
 }
 

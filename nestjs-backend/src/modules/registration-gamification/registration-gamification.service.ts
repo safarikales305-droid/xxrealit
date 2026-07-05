@@ -44,6 +44,10 @@ export class RegistrationGamificationService {
         ...base.resultPages,
         ...(o.resultPages as GamificationConfig['resultPages']),
       },
+      closeModal: {
+        ...base.closeModal,
+        ...(o.closeModal as object),
+      },
     };
   }
 
@@ -66,6 +70,8 @@ export class RegistrationGamificationService {
     offerIntervalSec: number;
     bonusCredits: number;
     bonusDescription: string;
+    onCloseAction: string;
+    closeModalPromoEnabled: boolean;
     autoEmailMarketing: boolean;
     autoWhatsAppCampaign: boolean;
     autoCrm: boolean;
@@ -92,6 +98,8 @@ export class RegistrationGamificationService {
       offerIntervalSec: row.offerIntervalSec,
       bonusCredits: row.bonusCredits,
       bonusDescription: row.bonusDescription,
+      onCloseAction: row.onCloseAction,
+      closeModalPromoEnabled: row.closeModalPromoEnabled,
       autoEmailMarketing: row.autoEmailMarketing,
       autoWhatsAppCampaign: row.autoWhatsAppCampaign,
       autoCrm: row.autoCrm,
@@ -142,6 +150,8 @@ export class RegistrationGamificationService {
       offerIntervalSec: serialized.offerIntervalSec,
       bonusCredits: serialized.bonusCredits,
       bonusDescription: serialized.bonusDescription,
+      onCloseAction: serialized.onCloseAction,
+      closeModalPromoEnabled: serialized.closeModalPromoEnabled,
       config: serialized.config,
     };
   }
@@ -170,6 +180,10 @@ export class RegistrationGamificationService {
     if (dto.offerIntervalSec !== undefined) data.offerIntervalSec = dto.offerIntervalSec;
     if (dto.bonusCredits !== undefined) data.bonusCredits = dto.bonusCredits;
     if (dto.bonusDescription !== undefined) data.bonusDescription = dto.bonusDescription.trim();
+    if (dto.onCloseAction !== undefined) data.onCloseAction = dto.onCloseAction.trim();
+    if (dto.closeModalPromoEnabled !== undefined) {
+      data.closeModalPromoEnabled = dto.closeModalPromoEnabled;
+    }
     if (dto.autoEmailMarketing !== undefined) data.autoEmailMarketing = dto.autoEmailMarketing;
     if (dto.autoWhatsAppCampaign !== undefined) {
       data.autoWhatsAppCampaign = dto.autoWhatsAppCampaign;

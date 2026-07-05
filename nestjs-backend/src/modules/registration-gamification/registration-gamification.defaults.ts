@@ -39,6 +39,12 @@ export type GamificationConfig = {
   thankYouTitle: string;
   thankYouSubtitle: string;
   soundsEnabled: boolean;
+  closeModal?: {
+    title: string;
+    subtitle: string;
+    benefits: string[];
+    motivationText: string;
+  };
 };
 
 export const DEFAULT_GAMIFICATION_CONFIG: GamificationConfig = {
@@ -162,6 +168,18 @@ export const DEFAULT_GAMIFICATION_CONFIG: GamificationConfig = {
   thankYouTitle: '🎉 Děkujeme!',
   thankYouSubtitle: 'Na váš e-mail jsme zaregistrovali odměnu. Dokončete registraci a využijte portál naplno.',
   soundsEnabled: true,
+  closeModal: {
+    title: 'Připojte se k XXREALIT zdarma',
+    subtitle: 'Máte několik možností:',
+    benefits: [
+      'Přidávání inzerátů zdarma',
+      'Sdílení na sociální sítě',
+      'Tipařský program',
+      'Bonusové akce',
+      'Komunita profesionálů',
+    ],
+    motivationText: '🎁 Po registraci získáte přístup ke všem funkcím portálu.',
+  },
 };
 
 export const DEFAULT_GAMIFICATION_SETTINGS = {
@@ -182,6 +200,8 @@ export const DEFAULT_GAMIFICATION_SETTINGS = {
   offerIntervalSec: 3,
   bonusCredits: 500,
   bonusDescription: 'Bonusové kredity po registraci',
+  onCloseAction: 'OPEN_REGISTRATION_MODAL',
+  closeModalPromoEnabled: true,
   autoEmailMarketing: true,
   autoWhatsAppCampaign: true,
   autoCrm: true,
