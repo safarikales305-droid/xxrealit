@@ -56,6 +56,7 @@ import { EmailCampaignsModule } from './modules/email-campaigns/email-campaigns.
 import { BrokerDatabaseModule } from './modules/broker-database/broker-database.module';
 import { RegistrationGamificationModule } from './modules/registration-gamification/registration-gamification.module';
 import { MetaCatalogModule } from './modules/meta-catalog/meta-catalog.module';
+import { MetaCenterModule } from './modules/meta-center/meta-center.module';
 
 @Module({
   imports: [
@@ -118,6 +119,7 @@ import { MetaCatalogModule } from './modules/meta-catalog/meta-catalog.module';
     BrokerDatabaseModule,
     RegistrationGamificationModule,
     MetaCatalogModule,
+    MetaCenterModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

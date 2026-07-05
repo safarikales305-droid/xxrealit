@@ -2443,6 +2443,58 @@ model MetaCatalogSetting {
   updatedAt          DateTime  @updatedAt
 }
 
+/// Centrální nastavení Meta Centra (Pixel, CAPI, Commerce, feedy).
+model MetaCenterSetting {
+  id                   String   @id @default("default")
+  facebookAppId        String?
+  facebookAppSecret    String?
+  facebookPagesAppId   String?
+  facebookPagesSecret  String?
+  businessManagerId    String?
+  commerceManagerId    String?
+  catalogId            String?
+  datasetId            String?
+  pixelId              String?
+  pixelName            String?
+  conversionsApiToken  String?
+  webhookVerifyToken   String?
+  webhookSecret        String?
+  frontendUrl          String?
+  backendUrl           String?
+  redirectUri          String?
+  callbackUrl          String?
+  encryptionKey        String?
+  graphApiVersion      String   @default("v21.0")
+  domainVerification   String?
+  capiEventToggles     Json?
+  pixelMapping         Json?
+  serviceStatus        Json?
+  remarketingAudiences Json?
+  autoCampaignRules    Json?
+  adFormatFlags        Json?
+  catalogFeedEnabled   Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+/// Log událostí Meta Centra (Pixel, CAPI, diagnostika, feed).
+model MetaCenterEventLog {
+  id        String   @id @default(cuid())
+  eventType String
+  listingId String?
+  userId    String?
+  result    String   @default("ok")
+  status    String?
+  response  Json?
+  request   Json?
+  source    String?
+  createdAt DateTime @default(now())
+
+  @@index([eventType])
+  @@index([createdAt(sort: Desc)])
+  @@index([source])
+}
+
 /// Statistiky spuštění hry (agregace + session log).
 model RegistrationGamificationEvent {
   id          String   @id @default(cuid())

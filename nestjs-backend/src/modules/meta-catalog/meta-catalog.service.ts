@@ -13,6 +13,42 @@ import type { UpdateMetaCatalogSettingDto } from './dto/meta-catalog.dto';
 
 const SETTINGS_ID = 'default';
 
+export type MetaCatalogFullItem = {
+  id: string;
+  title: string;
+  description: string;
+  price: number | null;
+  priceFormatted: string;
+  currency: string;
+  offerType: string;
+  propertyType: string;
+  category: string;
+  city: string;
+  gps: string | null;
+  url: string;
+  mainImage: string;
+  gallery: string[];
+  video: string | null;
+  broker: string;
+  phone: string;
+  email: string;
+  premium: boolean;
+  developer: boolean;
+  project: string;
+  createdAt: string;
+  active: boolean;
+};
+
+export type MetaFeedStats = {
+  itemCount: number;
+  photoCount: number;
+  videoCount: number;
+  sizeBytes: number;
+  lastExport: string | null;
+  lastError: string | null;
+  generationMs: number;
+};
+
 type CatalogProperty = {
   id: string;
   slug: string | null;
@@ -26,6 +62,7 @@ type CatalogProperty = {
   propertyType: string;
   propertyTypeKey: string | null;
   propertyTypeLabel: string | null;
+  importCategoryLabel: string | null;
   city: string;
   listingType: string | null;
   videoUrl: string | null;
@@ -35,6 +72,22 @@ type CatalogProperty = {
   facebookShareImageUrl: string | null;
   facebookShareImageAt: Date | null;
   generatedVideoThumbnail: string | null;
+  contactName: string;
+  contactPhone: string;
+  contactEmail: string;
+  isActive: boolean;
+  approved: boolean;
+  createdAt: Date;
+  user: {
+    role: string;
+    isPromoProfile: boolean;
+    isPremiumBroker: boolean;
+    brokerOfficeName: string;
+    brokerPhonePublic: string;
+    brokerEmailPublic: string;
+    firstName: string;
+    lastName: string;
+  };
 };
 
 @Injectable()
@@ -59,7 +112,9 @@ export class MetaCatalogService {
     updatedAt: Date;
   }) {
     const origin = getPublicPortalUrl();
-    const feedCsvUrl = `${origin}/api/public/meta-catalog-feed.csv`;
+    const feedCsvUrl = `${origin}/meta/feed.csv`;
+    const feedXmlUrl = `${origin}/meta/feed.xml`;
+    const feedJsonUrl = `${origin}/meta/feed.json`;
     const carouselJsonUrl = `${origin}/api/public/meta-carousel-listings.json`;
     return {
       id: row.id,
@@ -69,6 +124,8 @@ export class MetaCatalogService {
       lastError: row.lastError,
       carouselListingIds: row.carouselListingIds,
       feedCsvUrl,
+      feedXmlUrl,
+      feedJsonUrl,
       carouselJsonUrl,
       updatedAt: row.updatedAt.toISOString(),
     };
@@ -149,6 +206,7 @@ export class MetaCatalogService {
         propertyType: true,
         propertyTypeKey: true,
         propertyTypeLabel: true,
+        importCategoryLabel: true,
         city: true,
         listingType: true,
         videoUrl: true,
@@ -158,8 +216,76 @@ export class MetaCatalogService {
         facebookShareImageUrl: true,
         facebookShareImageAt: true,
         generatedVideoThumbnail: true,
+        contactName: true,
+        contactPhone: true,
+        contactEmail: true,
+        isActive: true,
+        approved: true,
+        createdAt: true,
+        user: {
+          select: {
+            role: true,
+            isPromoProfile: true,
+            isPremiumBroker: true,
+            brokerOfficeName: true,
+            brokerPhonePublic: true,
+            brokerEmailPublic: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
       },
     });
+  }
+
+  private mapListingFull(p: CatalogProperty): MetaCatalogFullItem | null {
+    const image = resolvePropertyShareImage(p);
+    if (!image) return null;
+
+    const origin = getPublicPortalUrl();
+    const title = (p.seoTitle?.trim() || p.title?.trim() || 'Nemovitost').slice(0, 150);
+    const description = (p.seoDescription?.trim() || p.description || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 5000);
+    const link = buildListingPublicSeoUrl(origin, p, 'classic');
+    const gallery = (p.images ?? []).filter(Boolean);
+    const brokerName =
+      p.contactName?.trim() ||
+      p.user.brokerOfficeName?.trim() ||
+      [p.user.firstName, p.user.lastName].filter(Boolean).join(' ').trim() ||
+      '';
+    const phone = p.contactPhone?.trim() || p.user.brokerPhonePublic?.trim() || '';
+    const email = p.contactEmail?.trim() || p.user.brokerEmailPublic?.trim() || '';
+    const premium = Boolean(p.user.isPromoProfile || p.user.isPremiumBroker);
+    const developer = p.user.role === 'DEVELOPER';
+    const project = developer ? p.user.brokerOfficeName || title : '';
+
+    return {
+      id: p.id,
+      title,
+      description,
+      price: p.price,
+      priceFormatted: p.price != null ? `${p.price} ${p.currency || 'CZK'}` : '',
+      currency: p.currency || 'CZK',
+      offerType: p.offerType,
+      propertyType: p.propertyTypeLabel || p.propertyType || p.propertyTypeKey || '',
+      category: p.importCategoryLabel || p.propertyTypeKey || p.propertyType,
+      city: p.city,
+      gps: null,
+      url: link,
+      mainImage: image,
+      gallery,
+      video: p.videoUrl?.trim() || null,
+      broker: brokerName,
+      phone,
+      email,
+      premium,
+      developer,
+      project,
+      createdAt: p.createdAt.toISOString(),
+      active: Boolean(p.isActive && p.approved),
+    };
   }
 
   private mapListing(p: CatalogProperty) {
@@ -208,53 +334,199 @@ export class MetaCatalogService {
     });
   }
 
-  async buildCsvFeed(): Promise<string> {
+  private async assertFeedEnabled() {
     const settings = await this.getOrCreateSettings();
     if (!settings.enabled) {
       throw new NotFoundException('Meta katalog feed je vypnutý.');
     }
+  }
 
+  async buildFullItems(): Promise<MetaCatalogFullItem[]> {
+    await this.assertFeedEnabled();
+    const rows = await this.fetchCatalogProperties();
+    return rows
+      .map((p) => this.mapListingFull(p))
+      .filter((r): r is MetaCatalogFullItem => r != null);
+  }
+
+  async buildCsvFeed(): Promise<string> {
     try {
-      const rows = await this.fetchCatalogProperties();
-      const mapped = rows.map((p) => this.mapListing(p)).filter((r): r is NonNullable<typeof r> => r != null);
-
+      const items = await this.buildFullItems();
       const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
       const header = [
         'id',
         'title',
         'description',
-        'availability',
-        'condition',
         'price',
-        'link',
-        'image_link',
-        'brand',
-        'google_product_category',
-        'fb_product_category',
+        'offer_type',
+        'property_type',
+        'category',
+        'city',
+        'gps',
+        'url',
+        'main_image',
+        'gallery',
+        'video',
+        'broker',
+        'phone',
+        'email',
+        'premium',
+        'developer',
+        'project',
+        'created_at',
+        'active',
       ].join(',');
 
-      const lines = mapped.map((r) =>
+      const lines = items.map((r) =>
         [
           esc(r.id),
           esc(r.title),
           esc(r.description),
-          esc(r.availability),
-          esc(r.condition),
-          esc(r.price),
-          esc(r.link),
-          esc(r.image_link),
-          esc(r.brand),
-          esc(r.google_product_category),
-          esc(r.fb_product_category),
+          esc(r.priceFormatted),
+          esc(r.offerType),
+          esc(r.propertyType),
+          esc(r.category),
+          esc(r.city),
+          esc(r.gps ?? ''),
+          esc(r.url),
+          esc(r.mainImage),
+          esc(r.gallery.join('|')),
+          esc(r.video ?? ''),
+          esc(r.broker),
+          esc(r.phone),
+          esc(r.email),
+          esc(r.premium ? '1' : '0'),
+          esc(r.developer ? '1' : '0'),
+          esc(r.project),
+          esc(r.createdAt),
+          esc(r.active ? '1' : '0'),
         ].join(','),
       );
 
-      await this.persistFeedMeta(mapped.length, null);
+      await this.persistFeedMeta(items.length, null);
       return `\uFEFF${header}\n${lines.join('\n')}\n`;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       await this.persistFeedMeta(0, message);
       throw e;
+    }
+  }
+
+  async buildJsonFeed(): Promise<string> {
+    try {
+      const items = await this.buildFullItems();
+      const body = JSON.stringify(
+        { generatedAt: new Date().toISOString(), count: items.length, items },
+        null,
+        2,
+      );
+      await this.persistFeedMeta(items.length, null);
+      return body;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      await this.persistFeedMeta(0, message);
+      throw e;
+    }
+  }
+
+  async buildXmlFeed(): Promise<string> {
+    try {
+      const items = await this.buildFullItems();
+      const origin = getPublicPortalUrl();
+      const esc = (v: string) =>
+        v
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+
+      const itemXml = items
+        .map(
+          (r) => `    <item>
+      <g:id>${esc(r.id)}</g:id>
+      <g:title>${esc(r.title)}</g:title>
+      <g:description>${esc(r.description)}</g:description>
+      <g:price>${esc(r.priceFormatted)}</g:price>
+      <g:availability>in stock</g:availability>
+      <g:condition>new</g:condition>
+      <g:link>${esc(r.url)}</g:link>
+      <g:image_link>${esc(r.mainImage)}</g:image_link>
+      <g:brand>XXREALIT</g:brand>
+      <g:google_product_category>Real Estate</g:google_product_category>
+      <g:custom_label_0>${esc(r.city)}</g:custom_label_0>
+      <g:custom_label_1>${esc(r.propertyType)}</g:custom_label_1>
+      <g:custom_label_2>${esc(r.premium ? 'premium' : 'standard')}</g:custom_label_2>
+    </item>`,
+        )
+        .join('\n');
+
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
+  <channel>
+    <title>XXREALIT Meta Catalog</title>
+    <link>${esc(origin)}</link>
+    <description>Facebook Catalog feed nemovitostí</description>
+    <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
+${itemXml}
+  </channel>
+</rss>
+`;
+      await this.persistFeedMeta(items.length, null);
+      return xml;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      await this.persistFeedMeta(0, message);
+      throw e;
+    }
+  }
+
+  async computeFeedStats(format: 'csv' | 'json' | 'xml'): Promise<MetaFeedStats> {
+    const settings = await this.getOrCreateSettings();
+    const started = Date.now();
+    let body = '';
+    let items: MetaCatalogFullItem[] = [];
+    try {
+      if (format === 'csv') body = await this.buildCsvFeed();
+      else if (format === 'json') body = await this.buildJsonFeed();
+      else body = await this.buildXmlFeed();
+      items = await this.buildFullItems();
+    } catch {
+      return {
+        itemCount: settings.lastItemCount,
+        photoCount: 0,
+        videoCount: 0,
+        sizeBytes: 0,
+        lastExport: settings.lastGeneratedAt?.toISOString() ?? null,
+        lastError: settings.lastError,
+        generationMs: Date.now() - started,
+      };
+    }
+    const photoCount = items.reduce((s, i) => s + i.gallery.length + 1, 0);
+    const videoCount = items.filter((i) => Boolean(i.video)).length;
+    return {
+      itemCount: items.length,
+      photoCount,
+      videoCount,
+      sizeBytes: Buffer.byteLength(body, 'utf8'),
+      lastExport: new Date().toISOString(),
+      lastError: null,
+      generationMs: Date.now() - started,
+    };
+  }
+
+  async validateFeed(): Promise<{ ok: boolean; errors: string[]; itemCount: number }> {
+    const errors: string[] = [];
+    try {
+      const items = await this.buildFullItems();
+      if (items.length === 0) errors.push('Feed neobsahuje žádné aktivní inzeráty s fotografií.');
+      for (const item of items.slice(0, 20)) {
+        if (!item.url.startsWith('http')) errors.push(`Neplatná URL u ${item.id}`);
+        if (!item.mainImage.startsWith('http')) errors.push(`Chybí hlavní fotografie u ${item.id}`);
+      }
+      return { ok: errors.length === 0, errors, itemCount: items.length };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      return { ok: false, errors: [message], itemCount: 0 };
     }
   }
 

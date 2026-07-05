@@ -5651,6 +5651,8 @@ export type MetaCatalogAdminSettings = {
   lastError: string | null;
   carouselListingIds: string[];
   feedCsvUrl: string;
+  feedXmlUrl?: string;
+  feedJsonUrl?: string;
   carouselJsonUrl: string;
   updatedAt: string;
 };
@@ -5734,6 +5736,234 @@ export async function nestAdminMetaCatalogPreviewCount(
   });
   if (!res.ok) return null;
   return (await res.json().catch(() => null)) as { total: number; withImage: number };
+}
+
+export type MetaDiagnosticLevel = 'ok' | 'warning' | 'error';
+
+export type MetaCenterServiceCard = {
+  key: string;
+  label: string;
+  status: 'online' | 'offline';
+  lastSyncAt: string | null;
+  createdAt: string;
+  graphApiVersion: string;
+};
+
+export type MetaCenterSettings = {
+  id: string;
+  facebookAppId: string | null;
+  facebookAppSecretMasked: string | null;
+  facebookPagesAppId: string | null;
+  facebookPagesSecretMasked: string | null;
+  businessManagerId: string | null;
+  commerceManagerId: string | null;
+  catalogId: string | null;
+  datasetId: string | null;
+  pixelId: string | null;
+  pixelName: string | null;
+  conversionsApiTokenMasked: string | null;
+  webhookVerifyTokenMasked: string | null;
+  webhookSecretMasked: string | null;
+  frontendUrl: string;
+  backendUrl: string;
+  redirectUri: string;
+  callbackUrl: string;
+  encryptionKeyMasked: string | null;
+  graphApiVersion: string;
+  domainVerification: string | null;
+  catalogFeedEnabled: boolean;
+  capiEventToggles: Record<string, boolean>;
+  pixelMapping: Record<string, string>;
+  remarketingAudiences: unknown;
+  autoCampaignRules: unknown;
+  adFormatFlags: Record<string, boolean>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MetaCenterDashboard = {
+  settings: MetaCenterSettings;
+  services: MetaCenterServiceCard[];
+  diagnostics: {
+    items: { key: string; label: string; level: MetaDiagnosticLevel; message: string }[];
+    summary: Record<MetaDiagnosticLevel, number>;
+  };
+  catalog: MetaCatalogAdminSettings;
+  feedStats: {
+    itemCount: number;
+    photoCount: number;
+    videoCount: number;
+    sizeBytes: number;
+    lastExport: string | null;
+    lastError: string | null;
+    generationMs: number;
+  } | null;
+  pixel: {
+    pixelId: string | null;
+    pixelName: string | null;
+    lastEventAt: string | null;
+    eventsToday: number;
+    eventsMonth: number;
+    status: string;
+  };
+  capi: {
+    datasetId: string | null;
+    tokenConfigured: boolean;
+    toggles: Record<string, boolean>;
+    status: string;
+  };
+};
+
+export type MetaCenterEventLogRow = {
+  id: string;
+  createdAt: string;
+  eventType: string;
+  listingId: string | null;
+  userId: string | null;
+  result: string;
+  status: string | null;
+  response: unknown;
+  request: unknown;
+  source: string | null;
+};
+
+async function metaCenterFetch<T>(
+  token: string | null,
+  path: string,
+  init?: RequestInit,
+): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/meta-center${path}`, {
+    ...init,
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      ...init?.headers,
+    },
+  });
+  const data = (await res.json().catch(() => ({}))) as T & Record<string, unknown>;
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: nestApiErrorBodyMessage(res.status, data as Record<string, unknown>, `HTTP ${res.status}`),
+    };
+  }
+  return { ok: true, data };
+}
+
+export async function nestAdminMetaCenterDashboard(
+  token: string | null,
+): Promise<MetaCenterDashboard | null> {
+  const r = await metaCenterFetch<MetaCenterDashboard>(token, '/dashboard');
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterGetSettings(
+  token: string | null,
+): Promise<MetaCenterSettings | null> {
+  const r = await metaCenterFetch<MetaCenterSettings>(token, '/settings');
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterPatchSettings(
+  token: string | null,
+  body: Record<string, unknown>,
+): Promise<{ ok: true; settings: MetaCenterSettings } | { ok: false; error?: string }> {
+  const r = await metaCenterFetch<{ ok: boolean; settings: MetaCenterSettings }>(token, '/settings', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) return r;
+  return { ok: true, settings: r.data.settings };
+}
+
+export async function nestAdminMetaCenterTestService(
+  token: string | null,
+  key: string,
+): Promise<{ key: string; online: boolean; result: string; message: string } | null> {
+  const r = await metaCenterFetch<{ key: string; online: boolean; result: string; message: string }>(
+    token,
+    `/test-service/${encodeURIComponent(key)}`,
+    { method: 'POST' },
+  );
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterDiagnostics(token: string | null) {
+  const r = await metaCenterFetch<MetaCenterDashboard['diagnostics']>(token, '/diagnostics', {
+    method: 'POST',
+  });
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterTestAll(token: string | null) {
+  const r = await metaCenterFetch<unknown>(token, '/test-all', { method: 'POST' });
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterPixelTest(
+  token: string | null,
+  eventType: string,
+  listingId?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const r = await metaCenterFetch<{ ok: boolean }>(token, '/pixel/test-event', {
+    method: 'POST',
+    body: JSON.stringify({ eventType, listingId }),
+  });
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
+}
+
+export async function nestAdminMetaCenterPatchCapi(
+  token: string | null,
+  toggles: Record<string, boolean>,
+): Promise<{ ok: boolean; error?: string }> {
+  const r = await metaCenterFetch<{ ok: boolean }>(token, '/capi', {
+    method: 'PATCH',
+    body: JSON.stringify({ toggles }),
+  });
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
+}
+
+export async function nestAdminMetaCenterRegenerateFeeds(
+  token: string | null,
+): Promise<{ ok: boolean; error?: string; stats?: unknown }> {
+  const r = await metaCenterFetch<{ ok: boolean; stats?: unknown; error?: string }>(
+    token,
+    '/feeds/regenerate',
+    { method: 'POST' },
+  );
+  return r.ok ? { ok: r.data.ok, stats: r.data.stats, error: r.data.error } : { ok: false, error: r.error };
+}
+
+export async function nestAdminMetaCenterValidateFeed(token: string | null) {
+  const r = await metaCenterFetch<{ ok: boolean; errors: string[]; itemCount: number }>(
+    token,
+    '/feeds/validate',
+    { method: 'POST' },
+  );
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterLogs(
+  token: string | null,
+  query?: { eventType?: string; source?: string; take?: number },
+): Promise<{ total: number; items: MetaCenterEventLogRow[] } | null> {
+  const sp = new URLSearchParams();
+  if (query?.eventType) sp.set('eventType', query.eventType);
+  if (query?.source) sp.set('source', query.source);
+  if (query?.take) sp.set('take', String(query.take));
+  const qs = sp.toString() ? `?${sp.toString()}` : '';
+  const r = await metaCenterFetch<{ total: number; items: MetaCenterEventLogRow[] }>(
+    token,
+    `/logs${qs}`,
+  );
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterGetCommerce(token: string | null) {
+  const r = await metaCenterFetch<unknown>(token, '/commerce');
+  return r.ok ? r.data : null;
 }
 
 export async function nestAdminBonusCampaignDelete(
