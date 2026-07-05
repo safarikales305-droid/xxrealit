@@ -57,6 +57,23 @@ export class MetaCenterService {
     return raw as T;
   }
 
+  private toInputJsonValue(value: unknown): Prisma.InputJsonValue {
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+  }
+
+  private toNullableJsonUpdate(
+    value: unknown | undefined,
+  ): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined {
+    if (value === undefined) return undefined;
+    if (value === null) return Prisma.JsonNull;
+    return this.toInputJsonValue(value);
+  }
+
+  private optionalJsonLogValue(value: unknown | undefined): Prisma.InputJsonValue | undefined {
+    if (value === undefined) return undefined;
+    return this.toInputJsonValue(value);
+  }
+
   private async getOrCreateSettings() {
     const existing = await this.prisma.metaCenterSetting.findUnique({
       where: { id: SETTINGS_ID },
@@ -65,12 +82,12 @@ export class MetaCenterService {
     return this.prisma.metaCenterSetting.create({
       data: {
         id: SETTINGS_ID,
-        capiEventToggles: DEFAULT_CAPI_TOGGLES,
-        pixelMapping: DEFAULT_PIXEL_MAPPING,
-        remarketingAudiences: DEFAULT_REMARKETING_AUDIENCES,
-        autoCampaignRules: DEFAULT_AUTO_CAMPAIGN_RULES,
-        adFormatFlags: DEFAULT_AD_FORMAT_FLAGS,
-        serviceStatus: {},
+        capiEventToggles: this.toInputJsonValue(DEFAULT_CAPI_TOGGLES),
+        pixelMapping: this.toInputJsonValue(DEFAULT_PIXEL_MAPPING),
+        remarketingAudiences: this.toInputJsonValue(DEFAULT_REMARKETING_AUDIENCES),
+        autoCampaignRules: this.toInputJsonValue(DEFAULT_AUTO_CAMPAIGN_RULES),
+        adFormatFlags: this.toInputJsonValue(DEFAULT_AD_FORMAT_FLAGS),
+        serviceStatus: this.toInputJsonValue({}),
       },
     });
   }
@@ -159,11 +176,21 @@ export class MetaCenterService {
     if (dto.webhookVerifyToken !== undefined) data.webhookVerifyToken = dto.webhookVerifyToken || null;
     if (dto.webhookSecret !== undefined) data.webhookSecret = dto.webhookSecret || null;
     if (dto.encryptionKey !== undefined) data.encryptionKey = dto.encryptionKey || null;
-    if (dto.capiEventToggles !== undefined) data.capiEventToggles = dto.capiEventToggles;
-    if (dto.pixelMapping !== undefined) data.pixelMapping = dto.pixelMapping;
-    if (dto.remarketingAudiences !== undefined) data.remarketingAudiences = dto.remarketingAudiences;
-    if (dto.autoCampaignRules !== undefined) data.autoCampaignRules = dto.autoCampaignRules;
-    if (dto.adFormatFlags !== undefined) data.adFormatFlags = dto.adFormatFlags;
+    if (dto.capiEventToggles !== undefined) {
+      data.capiEventToggles = this.toNullableJsonUpdate(dto.capiEventToggles);
+    }
+    if (dto.pixelMapping !== undefined) {
+      data.pixelMapping = this.toNullableJsonUpdate(dto.pixelMapping);
+    }
+    if (dto.remarketingAudiences !== undefined) {
+      data.remarketingAudiences = this.toNullableJsonUpdate(dto.remarketingAudiences);
+    }
+    if (dto.autoCampaignRules !== undefined) {
+      data.autoCampaignRules = this.toNullableJsonUpdate(dto.autoCampaignRules);
+    }
+    if (dto.adFormatFlags !== undefined) {
+      data.adFormatFlags = this.toNullableJsonUpdate(dto.adFormatFlags);
+    }
 
     const row = await this.prisma.metaCenterSetting.update({
       where: { id: SETTINGS_ID },
@@ -249,7 +276,7 @@ export class MetaCenterService {
     };
     await this.prisma.metaCenterSetting.update({
       where: { id: SETTINGS_ID },
-      data: { serviceStatus: stored },
+      data: { serviceStatus: this.toInputJsonValue(stored) },
     });
   }
 
@@ -270,8 +297,8 @@ export class MetaCenterService {
         userId: input.userId ?? null,
         result: input.result ?? 'ok',
         status: input.status ?? null,
-        response: input.response as Prisma.InputJsonValue,
-        request: input.request as Prisma.InputJsonValue,
+        response: this.optionalJsonLogValue(input.response),
+        request: this.optionalJsonLogValue(input.request),
         source: input.source ?? null,
       },
     });
@@ -568,7 +595,7 @@ export class MetaCenterService {
     const merged = { ...current, ...toggles };
     await this.prisma.metaCenterSetting.update({
       where: { id: SETTINGS_ID },
-      data: { capiEventToggles: merged },
+      data: { capiEventToggles: this.toInputJsonValue(merged) },
     });
     return { ok: true, toggles: merged };
   }
@@ -583,7 +610,7 @@ export class MetaCenterService {
       createdAt: settings.createdAt,
       lastSyncAt: lastSync,
       status: id ? 'ready' : 'not_configured',
-      graphApiVersion,
+      graphApiVersion: graphVersion,
     });
     return {
       businessManager: mk(settings.businessManagerId, 'Business Manager', null),
@@ -597,7 +624,7 @@ export class MetaCenterService {
         createdAt: settings.createdAt,
         lastSyncAt: catalog.lastGeneratedAt,
         status: catalog.enabled ? 'ready' : 'disabled',
-        graphApiVersion,
+        graphApiVersion: graphVersion,
         urls: {
           xml: catalog.feedXmlUrl,
           csv: catalog.feedCsvUrl,
@@ -702,7 +729,7 @@ export class MetaCenterService {
   async updateRemarketing(audiences: unknown) {
     await this.prisma.metaCenterSetting.update({
       where: { id: SETTINGS_ID },
-      data: { remarketingAudiences: audiences as Prisma.InputJsonValue },
+      data: { remarketingAudiences: this.toNullableJsonUpdate(audiences) },
     });
     return { ok: true };
   }
@@ -715,7 +742,7 @@ export class MetaCenterService {
   async updateCampaignRules(rules: unknown) {
     await this.prisma.metaCenterSetting.update({
       where: { id: SETTINGS_ID },
-      data: { autoCampaignRules: rules as Prisma.InputJsonValue },
+      data: { autoCampaignRules: this.toNullableJsonUpdate(rules) },
     });
     return { ok: true };
   }
@@ -730,7 +757,7 @@ export class MetaCenterService {
     const merged = { ...this.parseJson(row.adFormatFlags, DEFAULT_AD_FORMAT_FLAGS), ...flags };
     await this.prisma.metaCenterSetting.update({
       where: { id: SETTINGS_ID },
-      data: { adFormatFlags: merged },
+      data: { adFormatFlags: this.toInputJsonValue(merged) },
     });
     return { ok: true, flags: merged };
   }
@@ -743,7 +770,7 @@ export class MetaCenterService {
   async updatePixelMapping(mapping: Record<string, string>) {
     await this.prisma.metaCenterSetting.update({
       where: { id: SETTINGS_ID },
-      data: { pixelMapping: mapping },
+      data: { pixelMapping: this.toInputJsonValue(mapping) },
     });
     return { ok: true };
   }
