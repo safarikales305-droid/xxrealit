@@ -4,10 +4,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { buildListingPublicSeoUrl } from '../seo/post-seo.util';
 import { classicPublicListingWhere } from '../properties/property-listing-scope';
-import {
-  getPublicPortalUrl,
-  resolvePropertyShareImage,
-} from '../social/autopost/social-publish-format.util';
+import { getPublicPortalUrl } from '../social/autopost/social-publish-format.util';
 import {
   DEFAULT_EXPORT_FIELD_FLAGS,
   META_CATALOG_FIELDS,
@@ -16,6 +13,10 @@ import {
   type MetaCatalogFieldCategory,
 } from './meta-catalog.fields';
 import { MetaCatalogLogService } from './meta-catalog-log.service';
+import {
+  resolveCatalogGalleryImages,
+  resolveCatalogMainImage,
+} from './meta-catalog-image.util';
 
 const SETTINGS_ID = 'default';
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
@@ -248,7 +249,7 @@ export class MetaCatalogFeedService {
   }
 
   buildFullRawRecord(p: CatalogPropertyRow): MetaCatalogExportRecord | null {
-    const image = resolvePropertyShareImage(p);
+    const image = resolveCatalogMainImage(p);
     if (!image) return null;
 
     const origin = getPublicPortalUrl();
@@ -258,7 +259,7 @@ export class MetaCatalogFeedService {
       .trim()
       .slice(0, 5000);
     const link = buildListingPublicSeoUrl(origin, p, 'classic');
-    const gallery = (p.images ?? []).filter(Boolean);
+    const additionalImages = resolveCatalogGalleryImages(p, image);
     const brokerName =
       p.contactName?.trim() ||
       p.user.brokerOfficeName?.trim() ||
@@ -283,7 +284,8 @@ export class MetaCatalogFeedService {
       main_image: image,
       image_link: image,
       availability: 'in stock',
-      gallery,
+      additional_image_link: additionalImages,
+      gallery: additionalImages,
       video: p.videoUrl?.trim() || null,
       offer_type: p.offerType,
       property_type: p.propertyTypeLabel || p.propertyType || p.propertyTypeKey || '',
@@ -338,6 +340,13 @@ export class MetaCatalogFeedService {
       }
     }
     if (!out.availability) out.availability = 'in stock';
+
+    const galleryVal = out.gallery ?? out.additional_image_link;
+    if (Array.isArray(galleryVal) && galleryVal.length > 0) {
+      out.additional_image_link = galleryVal;
+      out.gallery = galleryVal;
+    }
+
     return out;
   }
 
@@ -362,8 +371,19 @@ export class MetaCatalogFeedService {
     if (!title.trim()) errors.push('Chybí název');
     if (!price.trim()) errors.push('Chybí cena');
     if (!url.startsWith('http')) errors.push('Neplatná URL detailu');
-    if (!image.startsWith('http')) errors.push('Chybí hlavní fotografie');
+    if (!image.startsWith('https://')) errors.push('Hlavní fotografie musí být veřejná HTTPS URL');
     if (availability !== 'in stock') errors.push('Neplatná dostupnost (musí být in stock)');
+
+    const additional =
+      (Array.isArray(record.additional_image_link) ? record.additional_image_link : null) ??
+      (Array.isArray(record.gallery) ? record.gallery : []);
+    for (const raw of additional) {
+      const u = String(raw ?? '').trim();
+      if (!u) continue;
+      if (!u.startsWith('https://')) {
+        errors.push(`Doplňková fotografie musí být HTTPS: ${u.slice(0, 60)}`);
+      }
+    }
 
     if (!ctx.allowContactExport) {
       const scanKeys = new Set([
@@ -472,33 +492,46 @@ export class MetaCatalogFeedService {
 
   recordToXmlItem(record: MetaCatalogExportRecord): string {
     const lines: string[] = ['    <item>'];
-    const map: Record<string, string> = {
-      id: 'g:id',
-      title: 'g:title',
-      description: 'g:description',
-      price: 'g:price',
-      availability: 'g:availability',
-      link: 'g:link',
-      url: 'g:link',
-      image_link: 'g:image_link',
-      main_image: 'g:image_link',
-    };
-    const written = new Set<string>();
-    for (const [key, val] of Object.entries(record)) {
-      const tag = map[key] ?? `g:${key}`;
-      if (written.has(tag)) continue;
-      written.add(tag);
-      if (Array.isArray(val)) {
-        for (const img of val) {
-          lines.push(`      <g:additional_image_link>${this.escXml(String(img))}</g:additional_image_link>`);
-        }
-      } else if (val !== null && val !== undefined && val !== '') {
-        lines.push(`      <${tag}>${this.escXml(String(val))}</${tag}>`);
-      }
+    const esc = (v: string) => this.escXml(v);
+
+    const scalarFields: Array<[string, string]> = [
+      ['id', 'g:id'],
+      ['title', 'g:title'],
+      ['description', 'g:description'],
+      ['price', 'g:price'],
+      ['availability', 'g:availability'],
+      ['link', 'g:link'],
+      ['url', 'g:link'],
+      ['image_link', 'g:image_link'],
+      ['main_image', 'g:image_link'],
+      ['offer_type', 'g:custom_label_0'],
+      ['city', 'g:custom_label_1'],
+      ['property_type', 'g:custom_label_2'],
+    ];
+
+    const writtenTags = new Set<string>();
+    for (const [key, tag] of scalarFields) {
+      if (writtenTags.has(tag)) continue;
+      const val = record[key];
+      if (val === null || val === undefined || val === '' || Array.isArray(val)) continue;
+      writtenTags.add(tag);
+      lines.push(`      <${tag}>${esc(String(val))}</${tag}>`);
     }
-    if (!written.has('g:availability')) {
+
+    if (!writtenTags.has('g:availability')) {
       lines.push('      <g:availability>in stock</g:availability>');
     }
+
+    const additional =
+      (Array.isArray(record.additional_image_link) ? record.additional_image_link : null) ??
+      (Array.isArray(record.gallery) ? record.gallery : []);
+    const mainImage = String(record.image_link ?? record.main_image ?? '');
+    for (const img of additional) {
+      const url = String(img ?? '').trim();
+      if (!url || url === mainImage) continue;
+      lines.push(`      <g:additional_image_link>${esc(url)}</g:additional_image_link>`);
+    }
+
     lines.push('    </item>');
     return lines.join('\n');
   }
@@ -549,11 +582,34 @@ ${items}
   }
 
   buildJsonFeed(records: MetaCatalogExportRecord[]): string {
+    const items = records.map((r) => this.toMetaCatalogJsonItem(r));
     return JSON.stringify(
-      { generatedAt: new Date().toISOString(), count: records.length, items: records },
+      { generatedAt: new Date().toISOString(), count: items.length, items },
       null,
       2,
     );
+  }
+
+  toMetaCatalogJsonItem(record: MetaCatalogExportRecord) {
+    const imageLink = String(record.image_link ?? record.main_image ?? '');
+    const additional =
+      (Array.isArray(record.additional_image_link) ? record.additional_image_link : null) ??
+      (Array.isArray(record.gallery) ? record.gallery : []);
+    const additionalFiltered = additional
+      .map((u) => String(u).trim())
+      .filter((u) => u && u !== imageLink);
+
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(record)) {
+      if (k === 'gallery' || k === 'main_image') continue;
+      if (Array.isArray(v)) continue;
+      if (v !== null && v !== undefined && v !== '') out[k] = v;
+    }
+    out.image_link = imageLink;
+    if (additionalFiltered.length > 0) {
+      out.additional_image_link = additionalFiltered;
+    }
+    return out;
   }
 
   async getFeedContext(): Promise<FeedBuildContext> {

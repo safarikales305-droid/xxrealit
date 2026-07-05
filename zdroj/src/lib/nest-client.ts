@@ -5922,6 +5922,56 @@ export async function nestAdminMetaCatalogQuality(
   return metaCatalogAdminFetch(token, '/quality');
 }
 
+export type MetaCatalogImageProbeResult = {
+  propertyId: string;
+  title: string;
+  role: 'image_link' | 'additional_image_link';
+  url: string;
+  httpStatus: number | null;
+  contentType: string | null;
+  contentLength: number | null;
+  width: number | null;
+  height: number | null;
+  durationMs: number;
+  ok: boolean;
+  error: string | null;
+};
+
+export type MetaCatalogImageListingDiagnostic = {
+  propertyId: string;
+  title: string;
+  imageLink: string | null;
+  additionalCount: number;
+  firstImageUrl: string | null;
+  imageLinkOk: boolean;
+};
+
+export async function nestAdminMetaCatalogImageDiagnostics(
+  token: string | null,
+): Promise<{ listings: MetaCatalogImageListingDiagnostic[] } | null> {
+  return metaCatalogAdminFetch(token, '/image-diagnostics');
+}
+
+export async function nestAdminMetaCatalogVerifyImages(
+  token: string | null,
+): Promise<{
+  summary: { totalUrls: number; ok: number; failed: number; listings: number };
+  items: MetaCatalogImageProbeResult[];
+  listings: MetaCatalogImageListingDiagnostic[];
+} | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/meta-catalog/verify-images`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as {
+    summary: { totalUrls: number; ok: number; failed: number; listings: number };
+    items: MetaCatalogImageProbeResult[];
+    listings: MetaCatalogImageListingDiagnostic[];
+  } | null;
+}
+
 export async function nestAdminMetaCatalogStatistics(
   token: string | null,
 ): Promise<Record<string, unknown> | null> {

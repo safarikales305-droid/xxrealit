@@ -15,6 +15,7 @@ import { MetaCatalogSyncDto, UpdateMetaCatalogSettingDto } from './dto/meta-cata
 import { MetaCatalogLogService } from './meta-catalog-log.service';
 import { MetaCatalogService } from './meta-catalog.service';
 import { MetaCatalogFeedService } from './meta-catalog-feed.service';
+import { MetaCatalogImageVerifyService } from './meta-catalog-image-verify.service';
 import { MetaCatalogSyncService, type SyncMode } from './meta-catalog-sync.service';
 
 @Controller('admin/meta-catalog')
@@ -25,6 +26,7 @@ export class MetaCatalogAdminController {
     private readonly feed: MetaCatalogFeedService,
     private readonly sync: MetaCatalogSyncService,
     private readonly logService: MetaCatalogLogService,
+    private readonly imageVerify: MetaCatalogImageVerifyService,
   ) {}
 
   @Get('settings')
@@ -153,6 +155,16 @@ export class MetaCatalogAdminController {
   @Get('quality')
   qualityReport() {
     return this.sync.getQualityReport();
+  }
+
+  @Get('image-diagnostics')
+  imageDiagnostics() {
+    return this.imageVerify.getListingImageDiagnostics();
+  }
+
+  @Post('verify-images')
+  verifyImages() {
+    return this.imageVerify.verifyAllFeedImages();
   }
 
   @Get('statistics')

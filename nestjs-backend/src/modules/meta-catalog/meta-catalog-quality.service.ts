@@ -27,18 +27,41 @@ export class MetaCatalogQualityService {
       const r = item.record;
       const prefix = item.id;
 
-      const mainImage = String(r.main_image ?? r.image_link ?? '');
+      const mainImage = String(r.image_link ?? r.main_image ?? '');
       checks.push(
-        mainImage.startsWith('http')
-          ? { key: `${prefix}_main_image`, label: 'Hlavní fotografie', level: 'ok', message: 'OK' }
-          : { key: `${prefix}_main_image`, label: 'Hlavní fotografie', level: 'error', message: 'Chybí' },
+        mainImage.startsWith('https://')
+          ? { key: `${prefix}_image_link`, label: 'image_link', level: 'ok', message: mainImage.slice(0, 80) }
+          : mainImage.startsWith('http://')
+            ? {
+                key: `${prefix}_image_link`,
+                label: 'image_link',
+                level: 'error',
+                message: 'Musí být HTTPS (Meta neakceptuje HTTP)',
+              }
+            : { key: `${prefix}_image_link`, label: 'image_link', level: 'error', message: 'Chybí veřejná HTTPS URL' },
       );
 
-      const gallery = r.gallery;
+      const additional =
+        (Array.isArray(r.additional_image_link) ? r.additional_image_link : null) ??
+        (Array.isArray(r.gallery) ? r.gallery : []);
+      const additionalHttps = additional.filter((u) => String(u).startsWith('https://'));
       checks.push(
-        Array.isArray(gallery) && gallery.length > 0
-          ? { key: `${prefix}_gallery`, label: 'Galerie', level: 'ok', message: `${gallery.length} fotek` }
-          : { key: `${prefix}_gallery`, label: 'Galerie', level: 'warning', message: 'Prázdná galerie' },
+        additionalHttps.length > 0
+          ? {
+              key: `${prefix}_additional_image_link`,
+              label: 'additional_image_link',
+              level: additionalHttps.length === additional.length ? 'ok' : 'warning',
+              message:
+                additionalHttps.length === additional.length
+                  ? `${additional.length} fotek`
+                  : `${additionalHttps.length}/${additional.length} HTTPS`,
+            }
+          : {
+              key: `${prefix}_additional_image_link`,
+              label: 'additional_image_link',
+              level: 'warning',
+              message: 'Žádné doplňkové fotografie',
+            },
       );
 
       const video = String(r.video ?? '');

@@ -9,6 +9,7 @@ import {
   nestAdminMetaCatalogExportFields,
   nestAdminMetaCatalogExportedListings,
   nestAdminMetaCatalogGet,
+  nestAdminMetaCatalogImageDiagnostics,
   nestAdminMetaCatalogListings,
   nestAdminMetaCatalogLogs,
   nestAdminMetaCatalogPatch,
@@ -19,7 +20,10 @@ import {
   nestAdminMetaCatalogSyncHistory,
   nestAdminMetaCatalogSyncRun,
   nestAdminMetaCatalogTestMeta,
+  nestAdminMetaCatalogVerifyImages,
   type MetaCatalogAdminSettings,
+  type MetaCatalogImageListingDiagnostic,
+  type MetaCatalogImageProbeResult,
   type MetaCatalogDashboard,
   type MetaCatalogExportedListing,
   type MetaCatalogFieldConfig,
@@ -74,6 +78,12 @@ export default function AdminMetaCatalogPage() {
   } | null>(null);
   const [statistics, setStatistics] = useState<Record<string, unknown> | null>(null);
   const [diagnostics, setDiagnostics] = useState<Record<string, unknown> | null>(null);
+  const [imageDiagnostics, setImageDiagnostics] = useState<MetaCatalogImageListingDiagnostic[]>([]);
+  const [imageVerifyResult, setImageVerifyResult] = useState<{
+    summary: { totalUrls: number; ok: number; failed: number; listings: number };
+    items: MetaCatalogImageProbeResult[];
+  } | null>(null);
+  const [imageVerifyFilter, setImageVerifyFilter] = useState<'all' | 'failed'>('failed');
   const [logs, setLogs] = useState<Array<{ id: string; eventType: string; message: string | null; createdAt: string }>>([]);
   const [itemPreview, setItemPreview] = useState<MetaCatalogItemPreview | null>(null);
   const [previewPropertyId, setPreviewPropertyId] = useState('');
@@ -90,7 +100,7 @@ export default function AdminMetaCatalogPage() {
 
   const refresh = useCallback(async () => {
     if (!token) return;
-    const [s, dash, fields, list, count, exp, hist, qual, stats, lg] = await Promise.all([
+    const [s, dash, fields, list, count, exp, hist, qual, stats, lg, imgDiag] = await Promise.all([
       nestAdminMetaCatalogGet(token),
       nestAdminMetaCatalogDashboard(token),
       nestAdminMetaCatalogExportFields(token),
@@ -112,6 +122,7 @@ export default function AdminMetaCatalogPage() {
       nestAdminMetaCatalogQuality(token),
       nestAdminMetaCatalogStatistics(token),
       nestAdminMetaCatalogLogs(token),
+      nestAdminMetaCatalogImageDiagnostics(token),
     ]);
     setSettings(s);
     setDashboard(dash);
@@ -124,6 +135,7 @@ export default function AdminMetaCatalogPage() {
     setQuality(qual);
     setStatistics(stats);
     setLogs(lg ?? []);
+    setImageDiagnostics(imgDiag?.listings ?? []);
   }, [token, city, propertyType, priceMin, priceMax, search, exportFilter]);
 
   useEffect(() => {
@@ -183,9 +195,34 @@ export default function AdminMetaCatalogPage() {
     setTab('diagnostics');
   }
 
+  async function verifyAllImages() {
+    if (!token) return;
+    setBusy(true);
+    setMsg(null);
+    const r = await nestAdminMetaCatalogVerifyImages(token);
+    setBusy(false);
+    if (!r) {
+      setMsg('Ověření obrázků selhalo (timeout nebo chyba API).');
+      return;
+    }
+    setImageVerifyResult({ summary: r.summary, items: r.items });
+    setImageDiagnostics(r.listings);
+    setImageVerifyFilter(r.summary.failed > 0 ? 'failed' : 'all');
+    setMsg(
+      `Ověřeno ${r.summary.totalUrls} URL: ${r.summary.ok} OK, ${r.summary.failed} chyb.`,
+    );
+    setTab('quality');
+  }
+
   const chosenIds = Object.entries(selectedIds)
     .filter(([, v]) => v)
     .map(([k]) => k);
+
+  const filteredProbeItems = useMemo(() => {
+    if (!imageVerifyResult) return [];
+    if (imageVerifyFilter === 'failed') return imageVerifyResult.items.filter((i) => !i.ok);
+    return imageVerifyResult.items;
+  }, [imageVerifyResult, imageVerifyFilter]);
 
   const fieldGroups = useMemo(() => ({
     required: exportFields.filter((f) => f.category === 'required'),
@@ -224,6 +261,14 @@ export default function AdminMetaCatalogPage() {
               className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-bold"
             >
               Otestovat Meta
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void verifyAllImages()}
+              className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-bold disabled:opacity-50"
+            >
+              Ověřit všechny obrázky
             </button>
             <button
               type="button"
@@ -630,63 +675,256 @@ export default function AdminMetaCatalogPage() {
         ) : null}
 
         {tab === 'quality' && quality ? (
-          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm space-y-4">
-            <div className="flex items-center gap-4">
-              <div
-                className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-emerald-500 text-2xl font-bold"
-                style={{
-                  borderColor:
-                    quality.score >= 80 ? '#10b981' : quality.score >= 50 ? '#f59e0b' : '#ef4444',
-                }}
-              >
-                {quality.score}%
+          <section className="space-y-4">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="font-bold">Kvalita exportu</h2>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void verifyAllImages()}
+                  className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-bold disabled:opacity-50"
+                >
+                  Ověřit všechny obrázky
+                </button>
               </div>
-              <div className="text-sm">
-                <p>OK: {quality.summary.ok}</p>
-                <p>Upozornění: {quality.summary.warning}</p>
-                <p>Chyby: {quality.summary.error}</p>
+              <div className="flex items-center gap-4">
+                <div
+                  className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-emerald-500 text-2xl font-bold"
+                  style={{
+                    borderColor:
+                      quality.score >= 80 ? '#10b981' : quality.score >= 50 ? '#f59e0b' : '#ef4444',
+                  }}
+                >
+                  {quality.score}%
+                </div>
+                <div className="text-sm">
+                  <p>OK: {quality.summary.ok}</p>
+                  <p>Upozornění: {quality.summary.warning}</p>
+                  <p>Chyby: {quality.summary.error}</p>
+                </div>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {quality.checks.slice(0, 60).map((c) => (
+                  <div
+                    key={c.key}
+                    className={`rounded-lg border px-3 py-2 text-xs ${
+                      c.level === 'ok'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                        : c.level === 'warning'
+                          ? 'border-amber-200 bg-amber-50 text-amber-900'
+                          : 'border-red-200 bg-red-50 text-red-900'
+                    }`}
+                  >
+                    <p className="font-bold">{c.label}</p>
+                    <p className="break-all">{c.message}</p>
+                  </div>
+                ))}
               </div>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {quality.checks.slice(0, 60).map((c) => (
-                <div
-                  key={c.key}
-                  className={`rounded-lg border px-3 py-2 text-xs ${
-                    c.level === 'ok'
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                      : c.level === 'warning'
-                        ? 'border-amber-200 bg-amber-50 text-amber-900'
-                        : 'border-red-200 bg-red-50 text-red-900'
-                  }`}
-                >
-                  <p className="font-bold">{c.label}</p>
-                  <p>{c.message}</p>
+
+            {imageVerifyResult ? (
+              <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h2 className="font-bold">HTTP ověření obrázků</h2>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setImageVerifyFilter('failed')}
+                      className={`rounded-full px-3 py-1.5 text-xs font-bold ${
+                        imageVerifyFilter === 'failed' ? 'bg-zinc-900 text-white' : 'border border-zinc-300'
+                      }`}
+                    >
+                      Chyby ({imageVerifyResult.summary.failed})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setImageVerifyFilter('all')}
+                      className={`rounded-full px-3 py-1.5 text-xs font-bold ${
+                        imageVerifyFilter === 'all' ? 'bg-zinc-900 text-white' : 'border border-zinc-300'
+                      }`}
+                    >
+                      Vše ({imageVerifyResult.summary.totalUrls})
+                    </button>
+                  </div>
                 </div>
-              ))}
+                <p className="text-sm text-zinc-600">
+                  OK: <strong>{imageVerifyResult.summary.ok}</strong> · Chyby:{' '}
+                  <strong>{imageVerifyResult.summary.failed}</strong> · Nemovitostí:{' '}
+                  {imageVerifyResult.summary.listings}
+                </p>
+                <div className="overflow-x-auto rounded-xl border border-zinc-200">
+                  <table className="min-w-full text-left text-xs">
+                    <thead className="bg-zinc-50 font-bold uppercase text-zinc-500">
+                      <tr>
+                        <th className="px-3 py-2">Nemovitost</th>
+                        <th className="px-3 py-2">Pole</th>
+                        <th className="px-3 py-2">HTTP</th>
+                        <th className="px-3 py-2">Content-Type</th>
+                        <th className="px-3 py-2">Velikost</th>
+                        <th className="px-3 py-2">Rozměr</th>
+                        <th className="px-3 py-2">Doba</th>
+                        <th className="px-3 py-2">Chyba</th>
+                        <th className="px-3 py-2">URL</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredProbeItems.slice(0, 200).map((row, idx) => (
+                        <tr key={`${row.propertyId}-${row.role}-${idx}`} className="border-t border-zinc-100">
+                          <td className="px-3 py-2 max-w-[10rem] truncate" title={row.title}>
+                            {row.title}
+                          </td>
+                          <td className="px-3 py-2">{row.role}</td>
+                          <td className="px-3 py-2">{row.httpStatus ?? '—'}</td>
+                          <td className="px-3 py-2">{row.contentType ?? '—'}</td>
+                          <td className="px-3 py-2 tabular-nums">
+                            {row.contentLength != null ? `${Math.round(row.contentLength / 1024)} KB` : '—'}
+                          </td>
+                          <td className="px-3 py-2 tabular-nums">
+                            {row.width && row.height ? `${row.width}×${row.height}` : '—'}
+                          </td>
+                          <td className="px-3 py-2 tabular-nums">{row.durationMs} ms</td>
+                          <td className="px-3 py-2 text-red-700">{row.error ?? (row.ok ? 'OK' : '—')}</td>
+                          <td className="px-3 py-2">
+                            <a
+                              href={row.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="break-all font-mono text-[#e85d00] hover:underline"
+                            >
+                              otevřít
+                            </a>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm space-y-4">
+              <h2 className="font-bold">Diagnostika prvního obrázku (image_link)</h2>
+              <p className="text-sm text-zinc-500">
+                Kliknutím na URL ověříte, že obrázek je veřejně dostupný bez přihlášení.
+              </p>
+              <div className="overflow-x-auto rounded-xl border border-zinc-200">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="bg-zinc-50 text-xs font-bold uppercase text-zinc-500">
+                    <tr>
+                      <th className="px-3 py-2">Název</th>
+                      <th className="px-3 py-2">Doplňkové</th>
+                      <th className="px-3 py-2">HTTPS</th>
+                      <th className="px-3 py-2">První obrázek (image_link)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {imageDiagnostics.slice(0, 100).map((row) => (
+                      <tr key={row.propertyId} className="border-t border-zinc-100">
+                        <td className="px-3 py-2">
+                          <button
+                            type="button"
+                            className="text-left hover:underline"
+                            onClick={() => void loadPreview(row.propertyId)}
+                          >
+                            {row.title}
+                          </button>
+                        </td>
+                        <td className="px-3 py-2 tabular-nums">{row.additionalCount}</td>
+                        <td className="px-3 py-2">{row.imageLinkOk ? '✓' : '✗'}</td>
+                        <td className="px-3 py-2">
+                          {row.firstImageUrl ? (
+                            <a
+                              href={row.firstImageUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="break-all font-mono text-xs text-[#e85d00] hover:underline"
+                            >
+                              {row.firstImageUrl}
+                            </a>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </section>
         ) : null}
 
         {tab === 'diagnostics' ? (
-          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <h2 className="font-bold">Diagnostika Meta</h2>
-            {!diagnostics ? (
-              <p className="mt-3 text-sm text-zinc-500">Klikněte na „Otestovat Meta“ v hlavičce.</p>
-            ) : (
-              <ul className="mt-4 space-y-2 text-sm">
-                {(
-                  (diagnostics.diagnostics as { items?: Array<{ key: string; label: string; level: string; message: string }> })
-                    ?.items ?? []
-                ).map((item) => (
-                  <li key={item.key} className="flex justify-between gap-2 rounded-lg bg-zinc-50 px-3 py-2">
-                    <span>{item.label}</span>
-                    <span>
-                      {statusDot(item.level)} {item.message}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
+          <section className="space-y-4">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <h2 className="font-bold">Diagnostika Meta</h2>
+              {!diagnostics ? (
+                <p className="mt-3 text-sm text-zinc-500">Klikněte na „Otestovat Meta“ v hlavičce.</p>
+              ) : (
+                <ul className="mt-4 space-y-2 text-sm">
+                  {(
+                    (diagnostics.diagnostics as { items?: Array<{ key: string; label: string; level: string; message: string }> })
+                      ?.items ?? []
+                  ).map((item) => (
+                    <li key={item.key} className="flex justify-between gap-2 rounded-lg bg-zinc-50 px-3 py-2">
+                      <span>{item.label}</span>
+                      <span>
+                        {statusDot(item.level)} {item.message}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="font-bold">Diagnostika obrázků ve feedu</h2>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void verifyAllImages()}
+                  className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-bold disabled:opacity-50"
+                >
+                  Ověřit všechny obrázky
+                </button>
+              </div>
+              <p className="text-sm text-zinc-500">
+                URL prvního obrázku každé exportované nemovitosti — vhodné pro rychlou kontrolu v prohlížeči.
+              </p>
+              <div className="overflow-x-auto rounded-xl border border-zinc-200">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="bg-zinc-50 text-xs font-bold uppercase text-zinc-500">
+                    <tr>
+                      <th className="px-3 py-2">Název</th>
+                      <th className="px-3 py-2">image_link</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {imageDiagnostics.map((row) => (
+                      <tr key={row.propertyId} className="border-t border-zinc-100">
+                        <td className="px-3 py-2">{row.title}</td>
+                        <td className="px-3 py-2">
+                          {row.firstImageUrl ? (
+                            <a
+                              href={row.firstImageUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="break-all font-mono text-xs text-[#e85d00] hover:underline"
+                            >
+                              {row.firstImageUrl}
+                            </a>
+                          ) : (
+                            <span className="text-red-600">Chybí image_link</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </section>
         ) : null}
 

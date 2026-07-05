@@ -8,6 +8,7 @@ import { MetaCatalogQualityService } from './meta-catalog-quality.service';
 import { MetaCatalogSyncCronService } from './meta-catalog-sync.cron.service';
 import { MetaCatalogSyncService } from './meta-catalog-sync.service';
 import { MetaCatalogService } from './meta-catalog.service';
+import { MetaCatalogImageVerifyService } from './meta-catalog-image-verify.service';
 
 @Module({
   imports: [forwardRef(() => MetaCenterModule)],
@@ -19,6 +20,7 @@ import { MetaCatalogService } from './meta-catalog.service';
     MetaCatalogQualityService,
     MetaCatalogSyncService,
     MetaCatalogSyncCronService,
+    MetaCatalogImageVerifyService,
   ],
   exports: [MetaCatalogService, MetaCatalogSyncService],
 })
