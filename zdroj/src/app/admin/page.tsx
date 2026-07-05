@@ -21,6 +21,7 @@ import {
   nestAdminPendingProperties,
   nestAdminRejectProfessionalProfile,
   nestAdminStats,
+  nestAdminGameLeadsStats,
   nestAdminListingPhotoWatermarkSettings,
   nestAdminShareTextsSettings,
   nestAdminUpdateListingPhotoWatermarkSettings,
@@ -38,6 +39,7 @@ import {
   type AdminShareTextsSettings,
   type AdminStats,
   type AdminUserRow,
+  type GameLeadStats,
   type NestAdminProfessionalProfileRow,
 } from '@/lib/nest-client';
 
@@ -66,6 +68,7 @@ export default function AdminPage() {
   const token = apiAccessToken;
 
   const [stats, setStats] = useState<AdminStats | null>(null);
+  const [gameLeadStats, setGameLeadStats] = useState<GameLeadStats | null>(null);
   const [properties, setProperties] = useState<PropertyRow[]>([]);
   const [usersList, setUsersList] = useState<AdminUserRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -103,12 +106,13 @@ export default function AdminPage() {
   const refresh = useCallback(async () => {
     if (!token) return;
     setLoadError(null);
-    const [s, p, u, wm, st] = await Promise.all([
+    const [s, p, u, wm, st, gls] = await Promise.all([
       nestAdminStats(token),
       nestAdminPendingProperties(token),
       nestAdminUsers(token),
       nestAdminListingPhotoWatermarkSettings(token),
       nestAdminShareTextsSettings(token),
+      nestAdminGameLeadsStats(token),
     ]);
     const a = await nestAdminProfessionalProfiles(token, professionalType, 'pending');
     if (!s || !p || !u) {
@@ -119,6 +123,7 @@ export default function AdminPage() {
       setLoadError(null);
     }
     setStats(s);
+    setGameLeadStats(gls);
     setProperties(
       (p ?? []).filter((x): x is PropertyRow => x != null && typeof x === 'object'),
     );
@@ -439,6 +444,7 @@ export default function AdminPage() {
           stats={stats}
           pendingListings={properties.length}
           pendingProfessionals={agentRequests.length}
+          gameLeadStats={gameLeadStats}
           loading={stats === null}
         />
 

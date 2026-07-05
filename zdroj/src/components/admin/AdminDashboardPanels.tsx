@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import type { AdminStats } from '@/lib/nest-client';
+import type { AdminStats, GameLeadStats } from '@/lib/nest-client';
 import {
   ADMIN_SIDEBAR_GROUPS,
   TONE_CLASSES,
@@ -59,10 +59,17 @@ type Props = {
   stats: AdminStats | null;
   pendingListings: number;
   pendingProfessionals: number;
+  gameLeadStats?: GameLeadStats | null;
   loading?: boolean;
 };
 
-export function AdminDashboardPanels({ stats, pendingListings, pendingProfessionals, loading }: Props) {
+export function AdminDashboardPanels({
+  stats,
+  pendingListings,
+  pendingProfessionals,
+  gameLeadStats,
+  loading,
+}: Props) {
   const users = stats?.users ?? 0;
   const properties = stats?.properties ?? 0;
   const visits = stats?.visits ?? 0;
@@ -157,6 +164,49 @@ export function AdminDashboardPanels({ stats, pendingListings, pendingProfession
         {kpis.map((k) => (
           <KpiCardView key={k.id} card={k} />
         ))}
+      </div>
+
+      <div className="rounded-2xl border border-purple-200 bg-gradient-to-br from-purple-50 to-white p-5 shadow-sm dark:border-purple-900 dark:from-purple-950/40 dark:to-zinc-900">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-bold">🎮 Nové leady z her</h2>
+            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+              Kontakty z gamifikační registrace „Staň se realitním magnátem“
+            </p>
+          </div>
+          <Link
+            href="/admin/marketing/leady-z-her"
+            className="rounded-full bg-purple-600 px-4 py-2 text-sm font-bold text-white hover:bg-purple-700"
+          >
+            Zobrazit leady
+          </Link>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-4">
+          <div className="rounded-xl bg-white/80 px-4 py-3 dark:bg-zinc-900/80">
+            <p className="text-xs font-bold uppercase text-zinc-500">Nové</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums text-red-600">
+              {loading ? '…' : (gameLeadStats?.newCount ?? 0)}
+            </p>
+          </div>
+          <div className="rounded-xl bg-white/80 px-4 py-3 dark:bg-zinc-900/80">
+            <p className="text-xs font-bold uppercase text-zinc-500">Dnes</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums">
+              {loading ? '…' : (gameLeadStats?.todayCount ?? 0)}
+            </p>
+          </div>
+          <div className="rounded-xl bg-white/80 px-4 py-3 dark:bg-zinc-900/80">
+            <p className="text-xs font-bold uppercase text-zinc-500">7 dní</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums">
+              {loading ? '…' : (gameLeadStats?.weekCount ?? 0)}
+            </p>
+          </div>
+          <div className="rounded-xl bg-white/80 px-4 py-3 dark:bg-zinc-900/80">
+            <p className="text-xs font-bold uppercase text-zinc-500">Celkem</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums">
+              {loading ? '…' : (gameLeadStats?.totalCount ?? 0)}
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

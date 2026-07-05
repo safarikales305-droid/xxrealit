@@ -55,6 +55,7 @@ import { StatisticsModule } from './modules/statistics/statistics.module';
 import { EmailCampaignsModule } from './modules/email-campaigns/email-campaigns.module';
 import { BrokerDatabaseModule } from './modules/broker-database/broker-database.module';
 import { RegistrationGamificationModule } from './modules/registration-gamification/registration-gamification.module';
+import { MetaCatalogModule } from './modules/meta-catalog/meta-catalog.module';
 
 @Module({
   imports: [
@@ -116,6 +117,7 @@ import { RegistrationGamificationModule } from './modules/registration-gamificat
     EmailCampaignsModule,
     BrokerDatabaseModule,
     RegistrationGamificationModule,
+    MetaCatalogModule,
   ],
   controllers: [HealthController, RegisterApiController, LoginApiController],
 })

@@ -5378,6 +5378,7 @@ export type RegistrationGamificationLeadRow = {
   fullName: string | null;
   companyName: string | null;
   visitorType: string;
+  status: GameLeadStatus;
   score: number;
   gameDurationSec: number | null;
   visitSource: string | null;
@@ -5387,6 +5388,15 @@ export type RegistrationGamificationLeadRow = {
   registered: boolean;
   userId: string | null;
   createdAt: string;
+};
+
+export type GameLeadStatus = 'NEW' | 'SEEN' | 'CONTACTED' | 'REGISTERED' | 'INVALID';
+
+export type GameLeadStats = {
+  newCount: number;
+  todayCount: number;
+  weekCount: number;
+  totalCount: number;
 };
 
 export async function nestRegistrationGamificationSettings(): Promise<RegistrationGamificationPublicSettings | null> {
@@ -5554,6 +5564,176 @@ export async function nestAdminRegistrationGamificationExportCsv(
   });
   if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
   return { ok: true, blob: await res.blob() };
+}
+
+export async function nestAdminGameLeadsStats(token: string | null): Promise<GameLeadStats | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/game-leads/stats`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as GameLeadStats | null;
+}
+
+export async function nestAdminGameLeads(
+  token: string | null,
+  query?: {
+    search?: string;
+    visitorType?: string;
+    status?: GameLeadStatus;
+    registered?: boolean;
+    skip?: number;
+    take?: number;
+  },
+): Promise<{ items: RegistrationGamificationLeadRow[]; total: number } | null> {
+  if (!API_BASE_URL || !token) return null;
+  const sp = new URLSearchParams();
+  if (query?.search) sp.set('search', query.search);
+  if (query?.visitorType) sp.set('visitorType', query.visitorType);
+  if (query?.status) sp.set('status', query.status);
+  if (query?.registered === true) sp.set('registered', '1');
+  if (query?.registered === false) sp.set('registered', '0');
+  if (query?.skip != null) sp.set('skip', String(query.skip));
+  if (query?.take != null) sp.set('take', String(query.take));
+  const qs = sp.toString() ? `?${sp.toString()}` : '';
+  const res = await fetch(`${API_BASE_URL}/admin/game-leads${qs}`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as {
+    items: RegistrationGamificationLeadRow[];
+    total: number;
+  } | null;
+}
+
+export async function nestAdminGameLeadUpdateStatus(
+  token: string | null,
+  id: string,
+  status: GameLeadStatus,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/game-leads/${encodeURIComponent(id)}/status`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ status }),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true };
+}
+
+export async function nestAdminGameLeadsMarkSeen(
+  token: string | null,
+): Promise<{ ok: boolean; updated?: number; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/game-leads/mark-seen`, {
+    method: 'POST',
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true, updated: typeof data.updated === 'number' ? data.updated : 0 };
+}
+
+export type MetaCatalogAdminSettings = {
+  id: string;
+  enabled: boolean;
+  lastItemCount: number;
+  lastGeneratedAt: string | null;
+  lastError: string | null;
+  carouselListingIds: string[];
+  feedCsvUrl: string;
+  carouselJsonUrl: string;
+  updatedAt: string;
+};
+
+export type MetaCatalogListingPreview = {
+  id: string;
+  title: string;
+  city: string;
+  price: number | null;
+  currency: string;
+  propertyType: string;
+  hasImage: boolean;
+  link: string | null;
+  image: string | null;
+};
+
+export async function nestAdminMetaCatalogGet(
+  token: string | null,
+): Promise<MetaCatalogAdminSettings | null> {
+  if (!API_BASE_URL || !token) return null;
+  const res = await fetch(`${API_BASE_URL}/admin/meta-catalog/settings`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as MetaCatalogAdminSettings | null;
+}
+
+export async function nestAdminMetaCatalogPatch(
+  token: string | null,
+  body: Partial<Pick<MetaCatalogAdminSettings, 'enabled' | 'carouselListingIds'>>,
+): Promise<{ ok: true; settings: MetaCatalogAdminSettings } | { ok: false; error?: string }> {
+  if (!API_BASE_URL || !token) return { ok: false, error: 'API nebo token chybí' };
+  const res = await fetch(`${API_BASE_URL}/admin/meta-catalog/settings`, {
+    method: 'PATCH',
+    headers: {
+      ...nestAuthHeaders(token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return { ok: false, error: nestApiErrorBodyMessage(res.status, data, `HTTP ${res.status}`) };
+  }
+  return { ok: true, settings: data.settings as MetaCatalogAdminSettings };
+}
+
+export async function nestAdminMetaCatalogListings(
+  token: string | null,
+  query?: { city?: string; propertyType?: string; priceMin?: string; priceMax?: string; search?: string },
+): Promise<{ items: MetaCatalogListingPreview[] } | null> {
+  if (!API_BASE_URL || !token) return null;
+  const sp = new URLSearchParams();
+  if (query?.city) sp.set('city', query.city);
+  if (query?.propertyType) sp.set('propertyType', query.propertyType);
+  if (query?.priceMin) sp.set('priceMin', query.priceMin);
+  if (query?.priceMax) sp.set('priceMax', query.priceMax);
+  if (query?.search) sp.set('search', query.search);
+  const qs = sp.toString() ? `?${sp.toString()}` : '';
+  const res = await fetch(`${API_BASE_URL}/admin/meta-catalog/listings${qs}`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as { items: MetaCatalogListingPreview[] };
+}
+
+export async function nestAdminMetaCatalogPreviewCount(
+  token: string | null,
+  query?: { city?: string; propertyType?: string; priceMin?: string; priceMax?: string },
+): Promise<{ total: number; withImage: number } | null> {
+  if (!API_BASE_URL || !token) return null;
+  const sp = new URLSearchParams();
+  if (query?.city) sp.set('city', query.city);
+  if (query?.propertyType) sp.set('propertyType', query.propertyType);
+  if (query?.priceMin) sp.set('priceMin', query.priceMin);
+  if (query?.priceMax) sp.set('priceMax', query.priceMax);
+  const qs = sp.toString() ? `?${sp.toString()}` : '';
+  const res = await fetch(`${API_BASE_URL}/admin/meta-catalog/preview-count${qs}`, {
+    headers: { ...nestAuthHeaders(token), Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as { total: number; withImage: number };
 }
 
 export async function nestAdminBonusCampaignDelete(

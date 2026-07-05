@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { nestAdminPortalSearch, type AdminPortalSearchResult } from '@/lib/nest-client';
+import { nestAdminPortalSearch, nestAdminGameLeadsStats, type AdminPortalSearchResult } from '@/lib/nest-client';
 import { nestAdminSupportStats } from '@/lib/support-tickets-api';
 import {
   ADMIN_QUICK_ACTIONS,
@@ -29,6 +29,8 @@ export function AdminShell({ children }: Props) {
   const [fabOpen, setFabOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [supportBadgeCount, setSupportBadgeCount] = useState(0);
+  const [gameLeadsBadgeCount, setGameLeadsBadgeCount] = useState(0);
+  const [lastGameLeadsNewCount, setLastGameLeadsNewCount] = useState<number | null>(null);
 
   useEffect(() => {
     if (isLoading) return;
@@ -43,6 +45,25 @@ export function AdminShell({ children }: Props) {
     const interval = window.setInterval(() => {
       void nestAdminSupportStats(apiAccessToken).then((s) => setSupportBadgeCount(s.badgeCount));
     }, 60_000);
+    return () => window.clearInterval(interval);
+  }, [apiAccessToken, user?.role]);
+
+  useEffect(() => {
+    if (!apiAccessToken || user?.role !== 'ADMIN') return;
+    const poll = () => {
+      void nestAdminGameLeadsStats(apiAccessToken).then((stats) => {
+        if (!stats) return;
+        setGameLeadsBadgeCount(stats.newCount);
+        setLastGameLeadsNewCount((prev) => {
+          if (prev !== null && stats.newCount > prev) {
+            setToast('Nový lead z registrační hry');
+          }
+          return stats.newCount;
+        });
+      });
+    };
+    poll();
+    const interval = window.setInterval(poll, 30_000);
     return () => window.clearInterval(interval);
   }, [apiAccessToken, user?.role]);
 
@@ -148,6 +169,11 @@ export function AdminShell({ children }: Props) {
                         {supportBadgeCount > 99 ? '99+' : supportBadgeCount}
                       </span>
                     ) : null}
+                    {group.id === 'marketing' && gameLeadsBadgeCount > 0 ? (
+                      <span className="rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                        {gameLeadsBadgeCount > 99 ? '99+' : gameLeadsBadgeCount}
+                      </span>
+                    ) : null}
                   </span>
                   <span className="text-xs text-zinc-400">{expanded[group.id] ? '▾' : '▸'}</span>
                 </button>
@@ -157,7 +183,13 @@ export function AdminShell({ children }: Props) {
                       <NavLink
                         key={child.id}
                         item={child}
-                        badge={child.id === 'support-center' ? supportBadgeCount : undefined}
+                        badge={
+                          child.id === 'support-center'
+                            ? supportBadgeCount
+                            : child.id === 'gamification-leads'
+                              ? gameLeadsBadgeCount
+                              : undefined
+                        }
                         onClick={() => setSidebarOpen(false)}
                       />
                     ))}
@@ -223,9 +255,14 @@ export function AdminShell({ children }: Props) {
                   <Link
                     key={item.id}
                     href={item.href}
-                    className="rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    className="relative rounded-lg px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
                   >
                     {item.icon} {item.label}
+                    {item.id === 'marketing' && gameLeadsBadgeCount > 0 ? (
+                      <span className="absolute -right-1 -top-1 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                        {gameLeadsBadgeCount > 99 ? '99+' : gameLeadsBadgeCount}
+                      </span>
+                    ) : null}
                   </Link>
                 ))}
               </nav>

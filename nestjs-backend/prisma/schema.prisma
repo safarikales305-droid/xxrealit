@@ -2398,6 +2398,8 @@ model RegistrationGamificationLead {
   companyName     String?
   /// BUYER | INVESTOR | AGENT | DEVELOPER | MIXED
   visitorType     String    @default("MIXED")
+  /// NEW | SEEN | CONTACTED | REGISTERED | INVALID
+  status          String    @default("NEW")
   score           Int       @default(0)
   gameDurationSec Int?
   decisions       Json?
@@ -2423,9 +2425,22 @@ model RegistrationGamificationLead {
 
   @@index([email])
   @@index([visitorType])
+  @@index([status])
   @@index([createdAt(sort: Desc)])
   @@index([userId])
   @@index([gameSessionId])
+}
+
+/// Nastavení Meta katalogového feedu inzerátů.
+model MetaCatalogSetting {
+  id                 String    @id @default("default")
+  enabled            Boolean   @default(false)
+  lastItemCount      Int       @default(0)
+  lastGeneratedAt    DateTime?
+  lastError          String?   @db.Text
+  carouselListingIds String[]  @default([])
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 }
 
 /// Statistiky spuštění hry (agregace + session log).

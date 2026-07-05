@@ -14,6 +14,7 @@ import {
   mergeCloseModalConfig,
   type GamificationConfig,
 } from './registration-gamification.defaults';
+import { isGameLeadStatus, type GameLeadStatus } from './game-lead-status';
 import type {
   RecordGamificationEventDto,
   SubmitGamificationLeadDto,
@@ -337,6 +338,61 @@ export class RegistrationGamificationService {
     return { ok: true };
   }
 
+  async getGameLeadStats() {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const [newCount, todayCount, weekCount, totalCount] = await this.prisma.$transaction([
+      this.prisma.registrationGamificationLead.count({ where: { status: 'NEW' } }),
+      this.prisma.registrationGamificationLead.count({
+        where: { createdAt: { gte: startOfToday } },
+      }),
+      this.prisma.registrationGamificationLead.count({
+        where: { createdAt: { gte: weekAgo } },
+      }),
+      this.prisma.registrationGamificationLead.count(),
+    ]);
+
+    return { newCount, todayCount, weekCount, totalCount };
+  }
+
+  async updateLeadStatus(id: string, status: GameLeadStatus) {
+    if (!isGameLeadStatus(status)) {
+      throw new BadRequestException('Neplatný stav leadu.');
+    }
+    const existing = await this.prisma.registrationGamificationLead.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      throw new BadRequestException('Lead nenalezen.');
+    }
+    const data: Prisma.RegistrationGamificationLeadUpdateInput = { status };
+    if (status === 'REGISTERED' && !existing.registeredAt) {
+      data.registeredAt = new Date();
+    }
+    const updated = await this.prisma.registrationGamificationLead.update({
+      where: { id },
+      data,
+    });
+    return {
+      ok: true,
+      lead: {
+        id: updated.id,
+        status: updated.status,
+        registeredAt: updated.registeredAt?.toISOString() ?? null,
+      },
+    };
+  }
+
+  async markNewLeadsAsSeen() {
+    const res = await this.prisma.registrationGamificationLead.updateMany({
+      where: { status: 'NEW' },
+      data: { status: 'SEEN' },
+    });
+    return { updated: res.count };
+  }
+
   async getStats() {
     const [starts, completions, leads, registered] = await this.prisma.$transaction([
       this.prisma.registrationGamificationEvent.count({
@@ -375,6 +431,7 @@ export class RegistrationGamificationService {
   async listLeads(q: {
     search?: string;
     visitorType?: string;
+    status?: string;
     registered?: boolean;
     skip?: number;
     take?: number;
@@ -384,6 +441,9 @@ export class RegistrationGamificationService {
     const where: Prisma.RegistrationGamificationLeadWhereInput = {};
 
     if (q.visitorType?.trim()) where.visitorType = q.visitorType.trim();
+    if (q.status?.trim() && isGameLeadStatus(q.status.trim())) {
+      where.status = q.status.trim();
+    }
     if (q.registered === true) where.userId = { not: null };
     if (q.registered === false) where.userId = null;
 
@@ -418,6 +478,7 @@ export class RegistrationGamificationService {
         fullName: r.fullName,
         companyName: r.companyName,
         visitorType: r.visitorType,
+        status: r.status,
         score: r.score,
         gameDurationSec: r.gameDurationSec,
         visitSource: r.visitSource,
@@ -453,6 +514,7 @@ export class RegistrationGamificationService {
       'phone',
       'companyName',
       'visitorType',
+      'status',
       'score',
       'gameDurationSec',
       'visitSource',
@@ -469,6 +531,7 @@ export class RegistrationGamificationService {
         esc(r.phone),
         esc(r.companyName),
         esc(r.visitorType),
+        esc(r.status),
         r.score,
         r.gameDurationSec ?? '',
         esc(r.visitSource),
