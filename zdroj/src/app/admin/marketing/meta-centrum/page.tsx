@@ -47,6 +47,9 @@ import {
   nestAdminMetaCenterCampaignProducts,
   nestAdminMetaCenterListCampaignDrafts,
   nestAdminMetaCenterCreateCampaign,
+  nestAdminMetaCenterRemarketingAudiences,
+  nestAdminMetaCenterCreateRemarketingAudience,
+  nestAdminMetaCenterSyncRemarketingAudience,
   type MetaAdAccountPanel,
   type MetaAdAccountListResponse,
   type MetaCampaignDraft,
@@ -62,11 +65,14 @@ import {
   type MetaConnectionCheck,
   type MetaConnectionStatusLevel,
   type MetaDiagnosticLevel,
+  type MetaLiveDiagnostics,
   type MetaOAuthDebugLogRow,
   type MetaOAuthFlowKey,
   type MetaOAuthFlowDiagnostic,
   type MetaOAuthPreview,
   type MetaPermissionsCheckResult,
+  type MetaRemarketingAudience,
+  type MetaRemarketingAudienceTypeOption,
   type FacebookAppsConfig,
   metaCenterEndpointWarning,
 } from '@/lib/nest-client';
@@ -105,6 +111,21 @@ const CAMPAIGN_STATUS_LABELS: Record<string, string> = {
   active: 'Aktivní',
   error: 'Chyba',
 };
+
+const CREATIVE_TYPE_LABELS: Record<string, string> = {
+  catalog_products: 'Katalogové produkty',
+  listing: 'Inzerát',
+  social_post: 'Příspěvek (Facebook)',
+  custom_creative: 'Vlastní reklama',
+};
+
+const TARGETING_MODE_LABELS: Record<string, string> = {
+  map: 'Mapa (lokalita)',
+  remarketing: 'Remarketing publikum',
+  map_remarketing: 'Mapa + remarketing',
+};
+
+const RETENTION_DAY_OPTIONS = [7, 14, 30, 60, 90, 180] as const;
 
 type TabId = (typeof TABS)[number]['id'];
 
@@ -319,6 +340,219 @@ function SettingsValue({ value }: { value: unknown }) {
   return <p className="mt-1 break-all font-mono text-xs">{safeDisplayValue(value)}</p>;
 }
 
+function liveStatusIcon(ok: boolean) {
+  return ok ? '✔' : '○';
+}
+
+function LiveDiagnosticsPanel({ live }: { live: MetaLiveDiagnostics }) {
+  const syncLabel = live.lastSyncAt
+    ? new Date(live.lastSyncAt).toLocaleString('cs-CZ')
+    : '—';
+
+  return (
+    <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-bold">Živá diagnostika Meta</h2>
+        <p className="text-xs text-zinc-500">
+          Aktualizováno: {new Date(live.checkedAt).toLocaleString('cs-CZ')}
+        </p>
+      </div>
+
+      <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
+          <p className="font-semibold text-emerald-900">Dataset</p>
+          <p>{live.dataset.connected ? '✔ Připojen' : live.dataset.message}</p>
+          {live.dataset.id ? (
+            <p className="font-mono text-[10px] text-emerald-800">{live.dataset.id}</p>
+          ) : null}
+        </div>
+        {[
+          ['Remarketing připraven', live.remarketingReady],
+          ['Conversions API', live.capiReady],
+          ['Catalog', live.catalogReady],
+          ['Commerce', live.commerceReady],
+          ['Feed', live.feedReady],
+        ].map(([label, ok]) => (
+          <div
+            key={String(label)}
+            className={`rounded-xl border px-3 py-2 text-sm ${
+              ok ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-zinc-200 bg-zinc-50'
+            }`}
+          >
+            <p className="font-semibold">{label}</p>
+            <p>{liveStatusIcon(Boolean(ok))}</p>
+          </div>
+        ))}
+      </div>
+
+      <p className="mb-3 text-sm text-zinc-600">
+        Poslední synchronizace: <strong>{syncLabel}</strong>
+      </p>
+
+      <h3 className="mb-2 text-sm font-bold text-zinc-800">Pixel / Dataset Events</h3>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {live.events.map((ev) => (
+          <div
+            key={ev.eventType}
+            className={`rounded-xl border px-3 py-2 text-sm ${
+              ev.status === 'ok'
+                ? 'border-emerald-200 bg-emerald-50'
+                : ev.status === 'warning'
+                  ? 'border-amber-200 bg-amber-50'
+                  : 'border-zinc-200 bg-zinc-50'
+            }`}
+          >
+            <p className="font-semibold">{ev.label}</p>
+            <p className="text-lg font-bold tabular-nums">{ev.countToday.toLocaleString('cs-CZ')}</p>
+            {ev.lastAgoLabel ? (
+              <p className="text-xs text-zinc-600">Poslední {ev.lastAgoLabel}</p>
+            ) : (
+              <p className="text-xs text-zinc-400">Dnes bez událostí</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CampaignAdPreview({
+  creativeType,
+  campaignDraft,
+  selectedProducts,
+  remarketingAudiences,
+}: {
+  creativeType: string;
+  campaignDraft: {
+    name: string;
+    goal: string;
+    cityName: string;
+    locationLabel: string;
+    radiusKm: number;
+    budgetDaily: number;
+    startDate: string;
+    endDate: string;
+    targetingMode: string;
+    audienceId: string;
+    creativePayload: Record<string, unknown>;
+  };
+  selectedProducts: MetaCampaignProductItem[];
+  remarketingAudiences: MetaRemarketingAudience[];
+}) {
+  const audience = remarketingAudiences.find((a) => a.id === campaignDraft.audienceId);
+  const payload = campaignDraft.creativePayload ?? {};
+  const text = String(payload.text ?? campaignDraft.name ?? '');
+  const image = typeof payload.image === 'string' ? payload.image : null;
+  const video = typeof payload.video === 'string' ? payload.video : null;
+  const author = typeof payload.author === 'string' ? payload.author : null;
+  const cta = typeof payload.cta === 'string' ? payload.cta : 'Zjistit více';
+
+  return (
+    <div className="mt-4 space-y-4">
+      <dl className="grid gap-1 text-sm sm:grid-cols-2">
+        <div>
+          <dt className="text-xs text-zinc-500">Typ kreativy</dt>
+          <dd>{CREATIVE_TYPE_LABELS[creativeType] ?? creativeType}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-zinc-500">Cílení</dt>
+          <dd>
+            {TARGETING_MODE_LABELS[campaignDraft.targetingMode] ?? campaignDraft.targetingMode}
+            {audience ? ` · ${audience.name}` : ''}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-zinc-500">Lokalita</dt>
+          <dd>
+            {campaignDraft.cityName || campaignDraft.locationLabel || '—'} · {campaignDraft.radiusKm} km
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-zinc-500">Rozpočet</dt>
+          <dd>{campaignDraft.budgetDaily} Kč / den</dd>
+        </div>
+      </dl>
+
+      {creativeType === 'social_post' ? (
+        <div className="mx-auto max-w-sm overflow-hidden rounded-xl border border-zinc-300 bg-white shadow-md">
+          <div className="border-b border-zinc-200 px-3 py-2 text-xs text-zinc-600">
+            {author ?? 'XXREALIT'} · Facebook náhled
+          </div>
+          {text ? <p className="px-3 py-2 text-sm text-zinc-800">{text}</p> : null}
+          {video ? (
+            <video src={video} className="aspect-video w-full bg-black object-cover" controls muted />
+          ) : image ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={image} alt="" className="aspect-[4/3] w-full object-cover" />
+          ) : (
+            <div className="flex aspect-[4/3] items-center justify-center bg-zinc-100 text-xs text-zinc-400">
+              Bez média
+            </div>
+          )}
+          <div className="border-t border-zinc-200 px-3 py-2">
+            <span className="rounded bg-[#1877f2] px-3 py-1 text-xs font-semibold text-white">
+              {cta}
+            </span>
+          </div>
+        </div>
+      ) : null}
+
+      {creativeType === 'listing' && selectedProducts[0] ? (
+        <article className="mx-auto max-w-sm overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+          {selectedProducts[0].imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={selectedProducts[0].imageUrl}
+              alt={selectedProducts[0].title}
+              className="aspect-[4/3] w-full object-cover"
+            />
+          ) : null}
+          <div className="p-3 text-sm">
+            <p className="font-semibold">{selectedProducts[0].title}</p>
+            <p className="text-zinc-600">
+              {selectedProducts[0].price != null
+                ? `${selectedProducts[0].price.toLocaleString('cs-CZ')} ${selectedProducts[0].currency}`
+                : ''}
+            </p>
+            <p className="text-xs text-zinc-500">{selectedProducts[0].city}</p>
+          </div>
+        </article>
+      ) : null}
+
+      {(creativeType === 'catalog_products' || creativeType === 'custom_creative') &&
+      selectedProducts.length > 0 ? (
+        <div className="flex gap-3 overflow-x-auto pb-2">
+          {selectedProducts.map((p) => (
+            <div
+              key={p.id}
+              className="w-44 shrink-0 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm"
+            >
+              {p.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={p.imageUrl} alt={p.title} className="aspect-square w-full object-cover" />
+              ) : (
+                <div className="flex aspect-square items-center justify-center bg-zinc-100 text-xs text-zinc-400">
+                  —
+                </div>
+              )}
+              <div className="p-2 text-xs">
+                <p className="line-clamp-2 font-medium">{p.title}</p>
+                <p className="text-zinc-600">
+                  {p.price != null ? `${p.price.toLocaleString('cs-CZ')} ${p.currency}` : ''}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {selectedProducts.length === 0 && creativeType !== 'social_post' ? (
+        <p className="text-sm text-amber-800">Vyberte alespoň jeden katalogový inzerát.</p>
+      ) : null}
+    </div>
+  );
+}
+
 export default function MetaCentrumPage() {
   const router = useRouter();
   const params = useSearchParams();
@@ -354,6 +588,23 @@ export default function MetaCentrumPage() {
   const [catalogProducts, setCatalogProducts] = useState<MetaCatalogProductPreview[]>([]);
   const [campaignProducts, setCampaignProducts] = useState<MetaCampaignProductItem[]>([]);
   const [campaignDrafts, setCampaignDrafts] = useState<MetaCampaignDraft[]>([]);
+  const [remarketingAudiences, setRemarketingAudiences] = useState<MetaRemarketingAudience[]>([]);
+  const [remarketingAudienceTypes, setRemarketingAudienceTypes] = useState<
+    MetaRemarketingAudienceTypeOption[]
+  >([]);
+  const [remarketingForm, setRemarketingForm] = useState({
+    name: '',
+    audienceType: 'visited_web',
+    retentionDays: 30,
+    city: '',
+    district: '',
+    region: '',
+    propertyType: '',
+    priceFrom: '',
+    priceTo: '',
+    offerType: '',
+    listingId: '',
+  });
   const [showCampaignPreview, setShowCampaignPreview] = useState(true);
   const [adAccount, setAdAccount] = useState<MetaAdAccountPanel | null>(null);
   const [catalogList, setCatalogList] = useState<MetaCatalogListResponse | null>(null);
@@ -373,11 +624,15 @@ export default function MetaCentrumPage() {
     latitude: '',
     longitude: '',
     selectedProductIds: [] as string[],
+    creativeType: 'catalog_products',
+    targetingMode: 'map',
+    audienceId: '',
+    creativePayload: {} as Record<string, unknown>,
   });
 
   const refresh = useCallback(async () => {
     if (!token) return;
-    const [d, l, c, api, apps, ds, cp, products, ad, cats, adList, campProducts, campDrafts] =
+    const [d, l, c, api, apps, ds, cp, products, ad, cats, adList, campProducts, campDrafts, remarketing] =
       await Promise.all([
       nestAdminMetaCenterDashboard(token),
       nestAdminMetaCenterLogs(token, {
@@ -395,6 +650,7 @@ export default function MetaCentrumPage() {
       nestAdminMetaCenterListAdAccounts(token),
       nestAdminMetaCenterCampaignProducts(token),
       nestAdminMetaCenterListCampaignDrafts(token),
+      nestAdminMetaCenterRemarketingAudiences(token),
     ]);
     if (d) setDash(d);
     setLogs(l?.items ?? []);
@@ -409,6 +665,8 @@ export default function MetaCentrumPage() {
     setAdAccountList(adList);
     setCampaignProducts(campProducts?.items ?? []);
     setCampaignDrafts(campDrafts?.items ?? []);
+    setRemarketingAudiences(remarketing?.items ?? []);
+    setRemarketingAudienceTypes(remarketing?.audienceTypes ?? []);
 
     const warnings = [
       metaCenterEndpointWarning('Dashboard', d),
@@ -440,6 +698,47 @@ export default function MetaCentrumPage() {
           ? `Chyba připojení: ${reason}\n\nPřidejte do Meta Developers (Pages App) tuto Valid OAuth Redirect URI:\n${redirectUri}`
           : `Chyba připojení: ${reason}`,
       );
+    }
+
+    const tabParam = params.get('tab');
+    if (
+      tabParam &&
+      TABS.some((t) => t.id === tabParam)
+    ) {
+      setTab(tabParam as TabId);
+    }
+
+    if (params.get('promote') === 'social_post') {
+      const name = params.get('name') ?? '';
+      const text = params.get('text') ?? '';
+      const image = params.get('image') ?? '';
+      const video = params.get('video') ?? '';
+      const author = params.get('author') ?? '';
+      const cta = params.get('cta') ?? 'LEARN_MORE';
+      const budget = params.get('budget');
+      const cityName = params.get('cityName') ?? '';
+      const startDate = params.get('startDate') ?? '';
+      setCampaignDraft((d) => ({
+        ...d,
+        name: name || d.name,
+        creativeType: 'social_post',
+        goal: 'traffic',
+        cityName: cityName || d.cityName,
+        locationLabel: cityName || d.locationLabel,
+        budgetDaily: budget ? Number(budget) || d.budgetDaily : d.budgetDaily,
+        startDate: startDate || d.startDate,
+        creativePayload: {
+          text,
+          image: image || undefined,
+          video: video || undefined,
+          author: author || undefined,
+          cta,
+          postId: params.get('postId') ?? undefined,
+          link: params.get('link') ?? undefined,
+        },
+      }));
+      setTab('campaigns');
+      setShowCampaignPreview(true);
     }
   }, [params]);
 
@@ -498,6 +797,13 @@ export default function MetaCentrumPage() {
     ) {
       blockers.push('Datum ukončení musí být po datu spuštění.');
     }
+    if (
+      (campaignDraft.targetingMode === 'remarketing' ||
+        campaignDraft.targetingMode === 'map_remarketing') &&
+      !campaignDraft.audienceId
+    ) {
+      blockers.push('Vyberte remarketing publikum nebo zvolte cílení mapa.');
+    }
     return blockers;
   }, [campaignDraft, hasAdsApi, hasAdAccount, hasCatalog, hasDataset]);
 
@@ -532,6 +838,10 @@ export default function MetaCentrumPage() {
         startDate: campaignDraft.startDate,
         endDate: campaignDraft.endDate,
         selectedProductIds: campaignDraft.selectedProductIds,
+        creativeType: campaignDraft.creativeType,
+        targetingMode: campaignDraft.targetingMode,
+        audienceId: campaignDraft.audienceId || undefined,
+        creativePayload: campaignDraft.creativePayload,
       },
       mode,
     );
@@ -878,6 +1188,10 @@ export default function MetaCentrumPage() {
               <section className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm">
                 <p>{dash.catalogListWarning}</p>
               </section>
+            ) : null}
+
+            {dash?.liveDiagnostics ? (
+              <LiveDiagnosticsPanel live={dash.liveDiagnostics} />
             ) : null}
 
             {oauthRedirect || activeOAuthPreview ? (
@@ -2100,7 +2414,12 @@ export default function MetaCentrumPage() {
             </div>
             <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
               <h3 className="mb-3 font-bold">Výběr Datasetu (Graph API)</h3>
-              {datasets?.error ? (
+              {datasets?.datasetInfo ? (
+                <p className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                  {datasets.datasetInfo}
+                </p>
+              ) : null}
+              {datasets?.error && !datasets?.activeDatasetId && !datasets?.datasetInfo ? (
                 <MetaApiErrorBlock error={datasets.error} className="mb-3 text-sm text-amber-800" />
               ) : null}
               <p className="mb-3 text-xs text-zinc-500">
@@ -2143,7 +2462,7 @@ export default function MetaCentrumPage() {
                     </button>
                   </div>
                 ))}
-                {!datasets?.items?.length ? (
+                {!datasets?.items?.length && !datasets?.activeDatasetId ? (
                   <p className="text-sm text-zinc-500">
                     Žádné datasety z Graph API — nejdřív připojte Commerce / Catalog OAuth.
                   </p>
@@ -2606,34 +2925,261 @@ export default function MetaCentrumPage() {
         ) : null}
 
         {tab === 'remarketing' && dash ? (
-          <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-4 text-lg font-bold">Remarketing publika</h2>
-            <ul className="space-y-2">
-              {(Array.isArray(dash.settings.remarketingAudiences)
-                ? dash.settings.remarketingAudiences
-                : []
-              ).map((a: { id?: string; label?: string; enabled?: boolean; description?: string }) => (
-                <li
-                  key={a.id}
-                  className="flex items-start justify-between gap-3 rounded-xl border border-zinc-200 px-4 py-3"
-                >
-                  <div>
-                    <p className="font-semibold">{a.label}</p>
-                    <p className="text-sm text-zinc-500">{a.description}</p>
-                  </div>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-bold ${
-                      a.enabled ? 'bg-emerald-100 text-emerald-800' : 'bg-zinc-200'
-                    }`}
+          <section className="space-y-6">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <h2 className="mb-4 text-lg font-bold">Vytvořit remarketing publikum</h2>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+                  <span className="font-medium">Název publika</span>
+                  <input
+                    value={remarketingForm.name}
+                    onChange={(e) => setRemarketingForm((f) => ({ ...f, name: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                    placeholder="např. Návštěvníci bytů Praha"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Typ publika</span>
+                  <select
+                    value={remarketingForm.audienceType}
+                    onChange={(e) =>
+                      setRemarketingForm((f) => ({ ...f, audienceType: e.target.value }))
+                    }
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
                   >
-                    {a.enabled ? 'Aktivní' : 'Neaktivní'}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-4 text-sm text-zinc-500">
-              Publika se synchronizují do Meta po doplnění Business Manager ID a access tokenu.
-            </p>
+                    {(remarketingAudienceTypes.length
+                      ? remarketingAudienceTypes
+                      : [{ type: 'visited_web', label: 'Návštěvníci webu' }]
+                    ).map((opt) => (
+                      <option key={opt.type} value={opt.type}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Počet dní</span>
+                  <select
+                    value={remarketingForm.retentionDays}
+                    onChange={(e) =>
+                      setRemarketingForm((f) => ({
+                        ...f,
+                        retentionDays: Number(e.target.value) || 30,
+                      }))
+                    }
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                  >
+                    {RETENTION_DAY_OPTIONS.map((d) => (
+                      <option key={d} value={d}>
+                        {d} dní
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Lokalita (město)</span>
+                  <input
+                    value={remarketingForm.city}
+                    onChange={(e) => setRemarketingForm((f) => ({ ...f, city: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Okres</span>
+                  <input
+                    value={remarketingForm.district}
+                    onChange={(e) =>
+                      setRemarketingForm((f) => ({ ...f, district: e.target.value }))
+                    }
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Kraj</span>
+                  <input
+                    value={remarketingForm.region}
+                    onChange={(e) => setRemarketingForm((f) => ({ ...f, region: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Typ nemovitosti</span>
+                  <input
+                    value={remarketingForm.propertyType}
+                    onChange={(e) =>
+                      setRemarketingForm((f) => ({ ...f, propertyType: e.target.value }))
+                    }
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Cena od</span>
+                  <input
+                    type="number"
+                    value={remarketingForm.priceFrom}
+                    onChange={(e) =>
+                      setRemarketingForm((f) => ({ ...f, priceFrom: e.target.value }))
+                    }
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Cena do</span>
+                  <input
+                    type="number"
+                    value={remarketingForm.priceTo}
+                    onChange={(e) =>
+                      setRemarketingForm((f) => ({ ...f, priceTo: e.target.value }))
+                    }
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Pronájem / prodej</span>
+                  <select
+                    value={remarketingForm.offerType}
+                    onChange={(e) =>
+                      setRemarketingForm((f) => ({ ...f, offerType: e.target.value }))
+                    }
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                  >
+                    <option value="">—</option>
+                    <option value="sale">Prodej</option>
+                    <option value="rent">Pronájem</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">ID inzerátu (volitelné)</span>
+                  <input
+                    value={remarketingForm.listingId}
+                    onChange={(e) =>
+                      setRemarketingForm((f) => ({ ...f, listingId: e.target.value }))
+                    }
+                    className="rounded-lg border border-zinc-300 px-3 py-2 font-mono text-xs"
+                  />
+                </label>
+              </div>
+              <button
+                type="button"
+                disabled={busy || !remarketingForm.name.trim()}
+                onClick={async () => {
+                  if (!token) return;
+                  setBusy(true);
+                  const r = await nestAdminMetaCenterCreateRemarketingAudience(token, {
+                    name: remarketingForm.name.trim(),
+                    audienceType: remarketingForm.audienceType,
+                    retentionDays: remarketingForm.retentionDays,
+                    filters: {
+                      city: remarketingForm.city || null,
+                      district: remarketingForm.district || null,
+                      region: remarketingForm.region || null,
+                      propertyType: remarketingForm.propertyType || null,
+                      priceFrom: remarketingForm.priceFrom
+                        ? Number(remarketingForm.priceFrom)
+                        : null,
+                      priceTo: remarketingForm.priceTo ? Number(remarketingForm.priceTo) : null,
+                      offerType: remarketingForm.offerType || null,
+                      listingId: remarketingForm.listingId || null,
+                      retentionDays: remarketingForm.retentionDays,
+                    },
+                  });
+                  setBusy(false);
+                  if (r.ok) {
+                    setMsg(`Publikum „${remarketingForm.name}“ vytvořeno.`);
+                    setRemarketingForm((f) => ({ ...f, name: '' }));
+                    void refresh();
+                  } else {
+                    setMsg(r.message ?? 'Vytvoření publika selhalo.');
+                  }
+                }}
+                className="mt-4 rounded-lg bg-[#1877f2] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                Vytvořit publikum
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <h2 className="mb-4 text-lg font-bold">Remarketing publika (XXREALIT)</h2>
+              {!remarketingAudiences.length ? (
+                <p className="text-sm text-zinc-500">Zatím žádná publika — vytvořte první výše.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {remarketingAudiences.map((a) => (
+                    <li
+                      key={a.id}
+                      className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-zinc-200 px-4 py-3 text-sm"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold">{a.name}</p>
+                        <p className="text-xs text-zinc-500">{a.audienceTypeLabel}</p>
+                        <p className="mt-1 text-xs text-zinc-600">
+                          Odhad: {(a.estimatedCount ?? 0).toLocaleString('cs-CZ')} · Meta:{' '}
+                          {(a.metaEstimate ?? 0).toLocaleString('cs-CZ')}
+                        </p>
+                        {a.lastSyncedAt ? (
+                          <p className="text-[10px] text-zinc-400">
+                            Sync: {new Date(a.lastSyncedAt).toLocaleString('cs-CZ')}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-col items-end gap-2">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                            a.status === 'ready'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-zinc-200 text-zinc-700'
+                          }`}
+                        >
+                          {a.status}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={async () => {
+                            if (!token) return;
+                            setBusy(true);
+                            const r = await nestAdminMetaCenterSyncRemarketingAudience(token, a.id);
+                            setBusy(false);
+                            setMsg(r.ok ? `Publikum „${a.name}“ synchronizováno.` : r.message ?? 'Sync selhal.');
+                            void refresh();
+                          }}
+                          className="text-xs text-[#1877f2] underline disabled:opacity-50"
+                        >
+                          Synchronizovat
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <h2 className="mb-3 text-lg font-bold">Přednastavená publika (konfigurace)</h2>
+              <ul className="space-y-2">
+                {(Array.isArray(dash.settings.remarketingAudiences)
+                  ? dash.settings.remarketingAudiences
+                  : []
+                ).map((a: { id?: string; label?: string; enabled?: boolean; description?: string }) => (
+                  <li
+                    key={a.id}
+                    className="flex items-start justify-between gap-3 rounded-xl border border-zinc-200 px-4 py-3"
+                  >
+                    <div>
+                      <p className="font-semibold">{a.label}</p>
+                      <p className="text-sm text-zinc-500">{a.description}</p>
+                    </div>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                        a.enabled ? 'bg-emerald-100 text-emerald-800' : 'bg-zinc-200'
+                      }`}
+                    >
+                      {a.enabled ? 'Aktivní' : 'Neaktivní'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </section>
         ) : null}
 
@@ -2664,6 +3210,57 @@ export default function MetaCentrumPage() {
                     <option value="catalog">Katalogový prodej</option>
                   </select>
                 </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Zdroj kreativy</span>
+                  <select
+                    value={campaignDraft.creativeType}
+                    onChange={(e) =>
+                      setCampaignDraft((d) => ({ ...d, creativeType: e.target.value }))
+                    }
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                  >
+                    {Object.entries(CREATIVE_TYPE_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Cílení kampaně</span>
+                  <select
+                    value={campaignDraft.targetingMode}
+                    onChange={(e) =>
+                      setCampaignDraft((d) => ({ ...d, targetingMode: e.target.value }))
+                    }
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                  >
+                    {Object.entries(TARGETING_MODE_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {campaignDraft.targetingMode !== 'map' ? (
+                  <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+                    <span className="font-medium">Remarketing publikum</span>
+                    <select
+                      value={campaignDraft.audienceId}
+                      onChange={(e) =>
+                        setCampaignDraft((d) => ({ ...d, audienceId: e.target.value }))
+                      }
+                      className="rounded-lg border border-zinc-300 px-3 py-2"
+                    >
+                      <option value="">— Nové publikum (mapa) —</option>
+                      {remarketingAudiences.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name} ({(a.estimatedCount ?? 0).toLocaleString('cs-CZ')})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium">Typ nemovitosti</span>
                   <select
@@ -2761,7 +3358,11 @@ export default function MetaCentrumPage() {
               </div>
 
               <div className="mt-6">
-                <h3 className="mb-3 text-sm font-bold">Katalogové inzeráty (feed XXREALIT)</h3>
+                <h3 className="mb-3 text-sm font-bold">
+                  {campaignDraft.creativeType === 'catalog_products'
+                    ? 'Katalogové produkty (feed XXREALIT)'
+                    : 'Produkty / inzeráty pro kampaň'}
+                </h3>
                 {!campaignProducts.length ? (
                   <p className="text-sm text-zinc-500">
                     Feed zatím neobsahuje položky — synchronizujte katalog.
@@ -2819,21 +3420,26 @@ export default function MetaCentrumPage() {
                               >
                                 Detail inzerátu
                               </a>
-                              <label className="flex items-center gap-1.5 text-xs font-medium">
-                                <input
-                                  type="checkbox"
-                                  checked={selected}
-                                  onChange={(e) => {
-                                    setCampaignDraft((d) => ({
-                                      ...d,
-                                      selectedProductIds: e.target.checked
-                                        ? [...d.selectedProductIds, p.id]
-                                        : d.selectedProductIds.filter((id) => id !== p.id),
-                                    }));
-                                  }}
-                                />
-                                Vybrat do kampaně
-                              </label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCampaignDraft((d) => ({
+                                    ...d,
+                                    selectedProductIds: selected
+                                      ? d.selectedProductIds.filter((id) => id !== p.id)
+                                      : [...d.selectedProductIds, p.id],
+                                    creativeType:
+                                      d.creativeType === 'social_post' ? 'listing' : d.creativeType,
+                                  }));
+                                }}
+                                className={`rounded-lg px-2 py-1 text-xs font-semibold ${
+                                  selected
+                                    ? 'bg-[#1877f2] text-white'
+                                    : 'border border-zinc-300 text-zinc-700'
+                                }`}
+                              >
+                                {selected ? 'Vybráno' : 'Vybrat'}
+                              </button>
                             </div>
                           </div>
                         </article>
@@ -2846,7 +3452,7 @@ export default function MetaCentrumPage() {
               {showCampaignPreview ? (
                 <div className="mt-6 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-4">
                   <div className="mb-3 flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-bold text-zinc-800">Náhled reklamy</h3>
+                    <h3 className="text-sm font-bold text-zinc-800">Živý náhled reklamy</h3>
                     <button
                       type="button"
                       onClick={() => setShowCampaignPreview(false)}
@@ -2855,7 +3461,7 @@ export default function MetaCentrumPage() {
                       Skrýt
                     </button>
                   </div>
-                  <dl className="grid gap-1 text-sm sm:grid-cols-2">
+                  <dl className="mb-2 grid gap-1 text-sm sm:grid-cols-2">
                     <div>
                       <dt className="text-xs text-zinc-500">Název kampaně</dt>
                       <dd className="font-medium">{campaignDraft.name || '—'}</dd>
@@ -2863,17 +3469,6 @@ export default function MetaCentrumPage() {
                     <div>
                       <dt className="text-xs text-zinc-500">Cíl</dt>
                       <dd>{CAMPAIGN_GOAL_LABELS[campaignDraft.goal] ?? campaignDraft.goal}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-zinc-500">Lokalita</dt>
-                      <dd>
-                        {campaignDraft.cityName || campaignDraft.locationLabel || '—'} ·{' '}
-                        {campaignDraft.radiusKm} km
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-zinc-500">Rozpočet</dt>
-                      <dd>{campaignDraft.budgetDaily} Kč / den</dd>
                     </div>
                     <div>
                       <dt className="text-xs text-zinc-500">Období</dt>
@@ -2886,42 +3481,12 @@ export default function MetaCentrumPage() {
                       <dd>{campaignDraft.selectedProductIds.length}</dd>
                     </div>
                   </dl>
-                  {selectedCampaignProducts.length === 0 ? (
-                    <p className="mt-4 text-sm text-amber-800">
-                      Vyberte alespoň jeden katalogový inzerát.
-                    </p>
-                  ) : (
-                    <div className="mt-4 flex gap-3 overflow-x-auto pb-2">
-                      {selectedCampaignProducts.map((p) => (
-                        <div
-                          key={p.id}
-                          className="w-44 shrink-0 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm"
-                        >
-                          {p.imageUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={p.imageUrl}
-                              alt={p.title}
-                              className="aspect-square w-full object-cover"
-                            />
-                          ) : (
-                            <div className="flex aspect-square items-center justify-center bg-zinc-100 text-xs text-zinc-400">
-                              —
-                            </div>
-                          )}
-                          <div className="p-2 text-xs">
-                            <p className="line-clamp-2 font-medium">{p.title}</p>
-                            <p className="text-zinc-600">
-                              {p.price != null
-                                ? `${p.price.toLocaleString('cs-CZ')} ${p.currency}`
-                                : ''}
-                            </p>
-                            <p className="text-zinc-500">{p.city ?? ''}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <CampaignAdPreview
+                    creativeType={campaignDraft.creativeType}
+                    campaignDraft={campaignDraft}
+                    selectedProducts={selectedCampaignProducts}
+                    remarketingAudiences={remarketingAudiences}
+                  />
                 </div>
               ) : (
                 <button

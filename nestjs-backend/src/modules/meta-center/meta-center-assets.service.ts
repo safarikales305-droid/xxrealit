@@ -8,6 +8,7 @@ import {
   META_CATALOG_LIST_DASHBOARD_WARNING,
   META_CATALOG_LIST_FEED_INFO,
 } from './meta-graph-permissions.util';
+import { META_DATASET_CONFIGURED_INFO } from './meta-marketing-platform.constants';
 import { MetaCenterGraphDiagnosticsService } from './meta-center-graph-diagnostics.service';
 import { MetaConnectOAuthService } from './meta-connect-oauth.service';
 import { MetaConnectProvisionService } from './meta-connect-provision.service';
@@ -329,7 +330,28 @@ export class MetaCenterAssetsService {
     const ids = resolveMetaCenterIds(row ?? ({} as never));
     const activeDatasetId = ids.datasetId ?? row?.datasetId ?? null;
 
-    if (!activeDatasetId && !process.env.META_DATASET_ID?.trim()) {
+    if (activeDatasetId) {
+      return metaListOk(
+        [
+          {
+            id: activeDatasetId,
+            name: row?.pixelName ?? activeDatasetId,
+            isActive: true,
+            lastFiredTime: null,
+            sourceApp: null,
+          },
+        ],
+        {
+          activeDatasetId,
+          businessId: ids.businessId ?? row?.businessManagerId ?? null,
+          canSelect: true,
+          listStatus: 'from_config',
+          datasetInfo: META_DATASET_CONFIGURED_INFO,
+        },
+      );
+    }
+
+    if (!process.env.META_DATASET_ID?.trim()) {
       return metaListNotConfigured('Dataset není vybraný.', {
         activeDatasetId: null,
         businessId: ids.businessId ?? row?.businessManagerId ?? null,
@@ -386,9 +408,7 @@ export class MetaCenterAssetsService {
         ...(items.length
           ? {}
           : {
-              ok: false as const,
-              status: 'not_configured' as const,
-              message: 'Dataset není vybraný.',
+              datasetInfo: META_DATASET_CONFIGURED_INFO,
             }),
       });
     } catch (err) {

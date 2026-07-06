@@ -7,6 +7,12 @@ import { MetaConnectOAuthService } from './meta-connect-oauth.service';
 import { MetaGraphClientService } from './meta-graph-client.service';
 import { isMarketingAdsTokenActive } from './meta-marketing-token.util';
 import type { CreateMetaCampaignDto } from './dto/create-meta-campaign.dto';
+import {
+  META_CAMPAIGN_TARGETING_MODES,
+  META_CREATIVE_TYPES,
+  type MetaCampaignTargetingMode,
+  type MetaCreativeType,
+} from './meta-marketing-platform.constants';
 
 const SETTINGS_ID = 'default';
 
@@ -254,6 +260,15 @@ export class MetaCenterCampaignsService {
       return { ok: false as const, status: 'error' as const, message: msg, campaign: null };
     }
 
+    const row = await this.getSettingsRow();
+    let audienceMetaId: string | null = null;
+    if (dto.audienceId?.trim()) {
+      const audience = await this.prisma.metaRemarketingAudience
+        .findUnique({ where: { id: dto.audienceId.trim() } })
+        .catch(() => null);
+      audienceMetaId = audience?.metaAudienceId ?? null;
+    }
+
     const objective = this.mapObjective(dto.objective);
     const campaignRes = await this.graph.post<{ id?: string }>(
       `/act_${actId}/campaigns`,
@@ -275,7 +290,7 @@ export class MetaCenterCampaignsService {
     }
 
     const metaCampaignId = campaignRes.data.id;
-    const targeting = this.buildTargeting(dto);
+    const targeting = await this.buildTargeting(dto, audienceMetaId);
     const dailyBudgetMinor = Math.round(dto.dailyBudgetCzk * 100);
     const startTime = this.parseDate(dto.startDate)?.toISOString() ?? undefined;
     const endTime = this.parseDate(dto.endDate)?.toISOString() ?? undefined;
@@ -308,18 +323,161 @@ export class MetaCenterCampaignsService {
     }
 
     const metaAdSetId = adSetRes.data.id;
+
+    let metaProductSetId: string | null = null;
+    let metaCreativeId: string | null = null;
+    let metaAdId: string | null = null;
+
+    const creativeType = this.resolveCreativeType(dto.creativeType);
+    const catalogId = ids.catalogId;
+
+    if (
+      catalogId &&
+      dto.selectedProductIds?.length &&
+      (creativeType === 'catalog_products' || dto.objective === 'catalog')
+    ) {
+      const productSetRes = await this.graph.post<{ id?: string }>(
+        `/${catalogId}/product_sets`,
+        token,
+        {
+          name: `${dto.name.trim()} — produkty`,
+          filter: JSON.stringify({
+            retailer_id: { is_any: dto.selectedProductIds },
+          }),
+        },
+      );
+      if (productSetRes.ok && productSetRes.data.id) {
+        metaProductSetId = productSetRes.data.id;
+        this.logger.log(`[meta-campaign] product_set=${metaProductSetId} draft=${draftId}`);
+      } else {
+        this.logger.warn(
+          `[meta-campaign] product_set failed draft=${draftId}: ${
+            !productSetRes.ok ? productSetRes.errorMessage : 'no id'
+          }`,
+        );
+      }
+    }
+
+    const pageId = row?.pageId?.trim() ?? process.env.FACEBOOK_PAGE_ID?.trim() ?? null;
+    const creativePayload = dto.creativePayload ?? {};
+    const linkUrl =
+      (typeof creativePayload.link === 'string' && creativePayload.link) ||
+      (typeof creativePayload.detailUrl === 'string' && creativePayload.detailUrl) ||
+      this.frontendBase();
+    const message =
+      (typeof creativePayload.text === 'string' && creativePayload.text) ||
+      dto.name.trim();
+    const imageUrl =
+      typeof creativePayload.image === 'string' ? creativePayload.image : undefined;
+    const ctaType =
+      (typeof creativePayload.cta === 'string' && creativePayload.cta) || 'LEARN_MORE';
+
+    const creativeBody: Record<string, string> = {
+      name: `${dto.name.trim()} — kreativa`,
+    };
+
+    if (metaProductSetId && pageId) {
+      creativeBody.product_set_id = metaProductSetId;
+      creativeBody.object_story_spec = JSON.stringify({
+        page_id: pageId,
+        template_data: {
+          link: linkUrl,
+          message,
+          call_to_action: { type: ctaType },
+        },
+      });
+    } else if (pageId) {
+      creativeBody.object_story_spec = JSON.stringify({
+        page_id: pageId,
+        link_data: {
+          link: linkUrl,
+          message,
+          ...(imageUrl ? { picture: imageUrl } : {}),
+          call_to_action: { type: ctaType, value: { link: linkUrl } },
+        },
+      });
+    } else {
+      creativeBody.object_story_spec = JSON.stringify({
+        link_data: {
+          link: linkUrl,
+          message,
+          ...(imageUrl ? { picture: imageUrl } : {}),
+        },
+      });
+    }
+
+    const creativeRes = await this.graph.post<{ id?: string }>(
+      `/act_${actId}/adcreatives`,
+      token,
+      creativeBody,
+    );
+
+    if (creativeRes.ok && creativeRes.data.id) {
+      metaCreativeId = creativeRes.data.id;
+      this.logger.log(`[meta-campaign] creative=${metaCreativeId} draft=${draftId}`);
+    } else {
+      const msg =
+        (!creativeRes.ok ? creativeRes.errorMessage : null) ||
+        'Vytvoření kreativy v Meta selhalo.';
+      await this.prisma.metaMarketingCampaignDraft.update({
+        where: { id: draftId },
+        data: {
+          metaCampaignId,
+          metaAdSetId,
+          metaProductSetId,
+          status: 'error',
+          errorMessage: msg,
+        },
+      });
+      return { ok: false as const, status: 'error' as const, message: msg, campaign: null };
+    }
+
+    const adRes = await this.graph.post<{ id?: string }>(
+      `/act_${actId}/ads`,
+      token,
+      {
+        name: `${dto.name.trim()} — reklama`,
+        adset_id: metaAdSetId,
+        creative: JSON.stringify({ creative_id: metaCreativeId }),
+        status: 'PAUSED',
+      },
+    );
+
+    if (!adRes.ok || !adRes.data.id) {
+      const msg =
+        (!adRes.ok ? adRes.errorMessage : null) || 'Vytvoření reklamy v Meta selhalo.';
+      await this.prisma.metaMarketingCampaignDraft.update({
+        where: { id: draftId },
+        data: {
+          metaCampaignId,
+          metaAdSetId,
+          metaProductSetId,
+          metaCreativeId,
+          status: 'error',
+          errorMessage: msg,
+        },
+      });
+      return { ok: false as const, status: 'error' as const, message: msg, campaign: null };
+    }
+
+    metaAdId = adRes.data.id;
+    this.logger.log(`[meta-campaign] ad=${metaAdId} draft=${draftId}`);
+
     const updated = await this.prisma.metaMarketingCampaignDraft.update({
       where: { id: draftId },
       data: {
         metaCampaignId,
         metaAdSetId,
+        metaProductSetId,
+        metaCreativeId,
+        metaAdId,
         status: 'active',
         errorMessage: null,
       },
     });
 
     this.logger.log(
-      `[meta-campaign] live created campaign=${metaCampaignId} adset=${metaAdSetId} draft=${draftId}`,
+      `[meta-campaign] live created campaign=${metaCampaignId} adset=${metaAdSetId} product_set=${metaProductSetId ?? '—'} creative=${metaCreativeId} ad=${metaAdId} draft=${draftId}`,
     );
 
     return {
@@ -330,11 +488,30 @@ export class MetaCenterCampaignsService {
     };
   }
 
-  private buildTargeting(dto: CreateMetaCampaignDto): Record<string, unknown> {
+  private resolveCreativeType(value: string | undefined): MetaCreativeType {
+    if (value && (META_CREATIVE_TYPES as readonly string[]).includes(value)) {
+      return value as MetaCreativeType;
+    }
+    return 'catalog_products';
+  }
+
+  private resolveTargetingMode(value: string | undefined): MetaCampaignTargetingMode {
+    if (value && (META_CAMPAIGN_TARGETING_MODES as readonly string[]).includes(value)) {
+      return value as MetaCampaignTargetingMode;
+    }
+    return 'map';
+  }
+
+  private async buildTargeting(
+    dto: CreateMetaCampaignDto,
+    audienceMetaId?: string | null,
+  ): Promise<Record<string, unknown>> {
+    const mode = this.resolveTargetingMode(dto.targetingMode);
     const lat = dto.latitude;
     const lng = dto.longitude;
+    let geo: Record<string, unknown> = {};
     if (lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)) {
-      return {
+      geo = {
         geo_locations: {
           custom_locations: [
             {
@@ -346,12 +523,24 @@ export class MetaCenterCampaignsService {
           ],
         },
       };
+    } else if (dto.cityName?.trim()) {
+      geo = {
+        geo_locations: {
+          cities: [{ key: dto.cityName.trim(), radius: dto.radiusKm, distance_unit: 'kilometer' }],
+        },
+      };
     }
-    return {
-      geo_locations: {
-        cities: [{ key: dto.cityName.trim(), radius: dto.radiusKm, distance_unit: 'kilometer' }],
-      },
-    };
+
+    if (mode === 'remarketing' && audienceMetaId) {
+      return { custom_audiences: [{ id: audienceMetaId }] };
+    }
+    if (mode === 'map_remarketing' && audienceMetaId) {
+      return {
+        ...geo,
+        custom_audiences: [{ id: audienceMetaId }],
+      };
+    }
+    return geo;
   }
 
   private mapObjective(objective: string): string {
@@ -393,6 +582,12 @@ export class MetaCenterCampaignsService {
       name: dto.name.trim(),
       objective: dto.objective,
       status: 'draft',
+      creativeType: this.resolveCreativeType(dto.creativeType),
+      targetingMode: this.resolveTargetingMode(dto.targetingMode),
+      audienceId: dto.audienceId?.trim() ?? null,
+      creativePayload: dto.creativePayload
+        ? (dto.creativePayload as Prisma.InputJsonValue)
+        : undefined,
       adAccountId: ids.adAccountId,
       catalogId: ids.catalogId,
       datasetId: ids.datasetId ?? ids.pixelId,
@@ -413,6 +608,10 @@ export class MetaCenterCampaignsService {
     name: string;
     objective: string;
     status: string;
+    creativeType?: string | null;
+    targetingMode?: string | null;
+    audienceId?: string | null;
+    creativePayload?: unknown;
     adAccountId: string | null;
     catalogId: string | null;
     datasetId: string | null;
@@ -428,6 +627,8 @@ export class MetaCenterCampaignsService {
     metaCampaignId: string | null;
     metaAdSetId: string | null;
     metaAdId: string | null;
+    metaProductSetId?: string | null;
+    metaCreativeId?: string | null;
     errorMessage: string | null;
     createdAt: Date;
     updatedAt: Date;
@@ -440,6 +641,10 @@ export class MetaCenterCampaignsService {
       name: row.name,
       objective: row.objective,
       status: row.status,
+      creativeType: row.creativeType ?? 'catalog_products',
+      targetingMode: row.targetingMode ?? 'map',
+      audienceId: row.audienceId ?? null,
+      creativePayload: row.creativePayload ?? null,
       adAccountId: row.adAccountId,
       catalogId: row.catalogId,
       datasetId: row.datasetId,
@@ -455,6 +660,8 @@ export class MetaCenterCampaignsService {
       metaCampaignId: row.metaCampaignId,
       metaAdSetId: row.metaAdSetId,
       metaAdId: row.metaAdId,
+      metaProductSetId: row.metaProductSetId ?? null,
+      metaCreativeId: row.metaCreativeId ?? null,
       errorMessage: row.errorMessage,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),

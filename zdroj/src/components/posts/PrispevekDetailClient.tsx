@@ -17,6 +17,10 @@ import {
   isFacebookImportPost,
   resolveFacebookPostMedia,
 } from '@/lib/facebook-post-media';
+import {
+  buildMetaCentrumPromoteUrlFromPost,
+  isPromotablePost,
+} from '@/lib/meta-centrum-promote';
 
 type Props = {
   postId: string;
@@ -25,7 +29,7 @@ type Props = {
 
 export function PrispevekDetailClient({ postId, sharePath }: Props) {
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [post, setPost] = useState<ListingPost | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -101,7 +105,17 @@ export function PrispevekDetailClient({ postId, sharePath }: Props) {
           ← Zpět
         </button>
         {post ? (
-          <ShareButtons title={shareTitle} url={shareUrl} variant="pill" label="Sdílet" />
+          <div className="flex flex-wrap items-center gap-2">
+            {user?.role === 'ADMIN' && isPromotablePost(post) ? (
+              <Link
+                href={buildMetaCentrumPromoteUrlFromPost(post)}
+                className="inline-flex items-center rounded-full border border-[#1877f2]/40 bg-[#1877f2]/10 px-4 py-2 text-sm font-semibold text-[#1877f2]"
+              >
+                Propagovat
+              </Link>
+            ) : null}
+            <ShareButtons title={shareTitle} url={shareUrl} variant="pill" label="Sdílet" />
+          </div>
         ) : null}
       </div>
 

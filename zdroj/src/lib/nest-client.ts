@@ -6398,6 +6398,50 @@ export type MetaCenterDashboard = MetaCenterSafeResponse & {
     status: string;
   };
   catalogListWarning?: string | null;
+  liveDiagnostics?: MetaLiveDiagnostics | null;
+};
+
+export type MetaLiveEventStat = {
+  eventType: string;
+  label: string;
+  countToday: number;
+  lastAt: string | null;
+  lastAgoLabel: string | null;
+  status: 'ok' | 'warning' | 'inactive';
+};
+
+export type MetaLiveDiagnostics = {
+  checkedAt: string;
+  dataset: { connected: boolean; id: string | null; message: string };
+  remarketingReady: boolean;
+  capiReady: boolean;
+  catalogReady: boolean;
+  commerceReady: boolean;
+  feedReady: boolean;
+  lastSyncAt: string | null;
+  events: MetaLiveEventStat[];
+  futureFeatures: string[];
+};
+
+export type MetaRemarketingAudience = {
+  id: string;
+  name: string;
+  audienceType: string;
+  audienceTypeLabel: string;
+  filters: unknown;
+  estimatedCount: number | null;
+  metaEstimate: number | null;
+  metaAudienceId: string | null;
+  status: string;
+  lastSyncedAt: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MetaRemarketingAudienceTypeOption = {
+  type: string;
+  label: string;
 };
 
 export type MetaCenterEventLogRow = {
@@ -6426,6 +6470,8 @@ export type MetaDatasetListResponse = MetaCenterSafeResponse & {
   activeDatasetId: string | null;
   businessId?: string | null;
   canSelect?: boolean;
+  listStatus?: 'ok' | 'from_config' | 'graph_unavailable' | 'error';
+  datasetInfo?: string | null;
   error?: string | null;
 };
 
@@ -6494,6 +6540,10 @@ export type MetaCampaignDraft = {
   name: string;
   objective: string;
   status: string;
+  creativeType?: string;
+  targetingMode?: string;
+  audienceId?: string | null;
+  creativePayload?: unknown;
   adAccountId: string | null;
   catalogId: string | null;
   datasetId: string | null;
@@ -6509,6 +6559,8 @@ export type MetaCampaignDraft = {
   metaCampaignId: string | null;
   metaAdSetId: string | null;
   metaAdId: string | null;
+  metaProductSetId?: string | null;
+  metaCreativeId?: string | null;
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
@@ -6571,6 +6623,15 @@ export function metaCenterEndpointWarning(
   if (
     label.includes('Katalog (seznam)') &&
     (catalogList.listUnavailable || catalogList.listStatus === 'graph_unavailable')
+  ) {
+    return null;
+  }
+  const datasetList = data as MetaDatasetListResponse;
+  if (
+    label.includes('Datasety') &&
+    (datasetList.listStatus === 'from_config' ||
+      datasetList.datasetInfo ||
+      datasetList.activeDatasetId)
   ) {
     return null;
   }
@@ -7050,6 +7111,10 @@ export async function nestAdminMetaCenterCreateCampaign(
     startDate: string;
     endDate: string;
     selectedProductIds: string[];
+    creativeType?: string;
+    targetingMode?: string;
+    audienceId?: string;
+    creativePayload?: Record<string, unknown>;
   },
   mode: 'draft' | 'launch' = 'draft',
 ): Promise<MetaCampaignCreateResponse> {
@@ -7061,6 +7126,62 @@ export async function nestAdminMetaCenterCreateCampaign(
   return r.ok
     ? r.data
     : { ok: false, status: 'error', message: r.error, campaign: null };
+}
+
+export async function nestAdminMetaCenterRemarketingAudiences(
+  token: string | null,
+): Promise<{
+  ok: true;
+  items: MetaRemarketingAudience[];
+  audienceTypes: MetaRemarketingAudienceTypeOption[];
+  retentionDayOptions: number[];
+  message?: string;
+}> {
+  const r = await metaCenterFetch<{
+    ok: true;
+    items: MetaRemarketingAudience[];
+    audienceTypes: MetaRemarketingAudienceTypeOption[];
+    retentionDayOptions: number[];
+    message?: string;
+  }>(token, '/remarketing/audiences');
+  return r.ok
+    ? r.data
+    : {
+        ok: true,
+        items: [],
+        audienceTypes: [],
+        retentionDayOptions: [7, 14, 30, 60, 90, 180],
+        message: r.error,
+      };
+}
+
+export async function nestAdminMetaCenterCreateRemarketingAudience(
+  token: string | null,
+  body: {
+    name: string;
+    audienceType: string;
+    retentionDays?: number;
+    filters?: Record<string, unknown>;
+  },
+): Promise<{ ok: boolean; audience?: MetaRemarketingAudience; message?: string }> {
+  const r = await metaCenterFetch<{
+    ok: boolean;
+    audience?: MetaRemarketingAudience;
+    message?: string;
+  }>(token, '/remarketing/audiences', { method: 'POST', body: JSON.stringify(body) });
+  return r.ok ? r.data : { ok: false, message: r.error };
+}
+
+export async function nestAdminMetaCenterSyncRemarketingAudience(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; audience?: MetaRemarketingAudience; message?: string }> {
+  const r = await metaCenterFetch<{
+    ok: boolean;
+    audience?: MetaRemarketingAudience;
+    message?: string;
+  }>(token, `/remarketing/audiences/${encodeURIComponent(id)}/sync`, { method: 'POST' });
+  return r.ok ? r.data : { ok: false, message: r.error };
 }
 
 export async function nestAdminBonusCampaignDelete(

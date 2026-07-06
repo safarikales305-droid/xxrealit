@@ -31,7 +31,9 @@ import { FacebookAuthService } from '../social/facebook/facebook-auth.service';
 import { MetaCenterApiLogService } from './meta-center-api-log.service';
 import { MetaMarketingDiagnosticsService } from './meta-marketing-diagnostics.service';
 import { MetaCenterCampaignsService } from './meta-center-campaigns.service';
+import { MetaCenterRemarketingService } from './meta-center-remarketing.service';
 import { CreateMetaCampaignDto } from './dto/create-meta-campaign.dto';
+import { CreateMetaRemarketingAudienceDto } from './dto/create-meta-remarketing-audience.dto';
 import { extractSafeMetaError, metaPanelNotConfigured } from './meta-center-safe-response.util';
 import { resolveMetaOAuthFlow } from './meta-oauth-flows';
 import { META_EXTERNAL_LINKS } from './meta-graph-permissions.util';
@@ -52,6 +54,7 @@ export class MetaCenterAdminController {
     private readonly apiLog: MetaCenterApiLogService,
     private readonly marketingOAuthDiagnostics: MetaMarketingDiagnosticsService,
     private readonly campaigns: MetaCenterCampaignsService,
+    private readonly remarketing: MetaCenterRemarketingService,
   ) {}
 
   private async safeEndpoint<T extends Record<string, unknown>>(
@@ -506,6 +509,50 @@ export class MetaCenterAdminController {
   @Patch('remarketing')
   updateRemarketing(@Body() body: { audiences: unknown }) {
     return this.service.updateRemarketing(body.audiences);
+  }
+
+  @Get('remarketing/audiences')
+  listRemarketingAudiences() {
+    return this.safeEndpoint(
+      'remarketing/audiences',
+      () => this.remarketing.listAudiences(),
+      (message) => ({
+        ok: true as const,
+        items: [],
+        audienceTypes: [],
+        retentionDayOptions: [7, 14, 30, 60, 90, 180],
+        message,
+      }),
+    );
+  }
+
+  @Post('remarketing/audiences')
+  async createRemarketingAudience(
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    body: CreateMetaRemarketingAudienceDto,
+  ) {
+    try {
+      return await this.remarketing.createAudience({
+        name: body.name,
+        audienceType: body.audienceType,
+        filters: {
+          ...(body.filters ?? {}),
+          retentionDays: body.retentionDays ?? body.filters?.retentionDays ?? 30,
+        },
+      });
+    } catch (err) {
+      const detail = await this.apiLog.logInternalError('remarketing/audiences', err);
+      return { ok: false as const, message: detail.message };
+    }
+  }
+
+  @Post('remarketing/audiences/:id/sync')
+  syncRemarketingAudience(@Param('id') id: string) {
+    return this.safeEndpoint(
+      'remarketing/audiences/sync',
+      () => this.remarketing.syncAudience(id),
+      (message) => ({ ok: false as const, message, audience: undefined }),
+    );
   }
 
   @Get('campaign-products')

@@ -49,4 +49,19 @@ export class CreateMetaCampaignDto {
   @IsArray()
   @IsString({ each: true })
   selectedProductIds!: string[];
+
+  @IsOptional()
+  @IsString()
+  creativeType?: string;
+
+  @IsOptional()
+  @IsString()
+  targetingMode?: string;
+
+  @IsOptional()
+  @IsString()
+  audienceId?: string;
+
+  @IsOptional()
+  creativePayload?: Record<string, unknown>;
 }

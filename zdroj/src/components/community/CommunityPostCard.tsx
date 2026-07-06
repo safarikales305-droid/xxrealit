@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { Heart, MessageCircle, Pencil, ThumbsDown, Trash2 } from 'lucide-react';
+import { Heart, MessageCircle, Megaphone, Pencil, ThumbsDown, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { absoluteShareUrl } from '@/lib/public-share-url';
 import { ShareButtons } from '@/components/share/ShareButtons';
@@ -42,6 +42,8 @@ export type CommunityPostCardProps = {
   onChangeEditingText: (v: string) => void;
   onToggleMute: () => void;
   onOpenDetail: () => void;
+  canPromote?: boolean;
+  promoteHref?: string;
 };
 
 export function CommunityPostCard({
@@ -70,6 +72,8 @@ export function CommunityPostCard({
   onChangeEditingText,
   onToggleMute,
   onOpenDetail,
+  canPromote = false,
+  promoteHref,
 }: CommunityPostCardProps) {
   const router = useRouter();
   const id = String(p.id ?? '');
@@ -167,6 +171,15 @@ export function CommunityPostCard({
       ) : (
         <ShareButtons title={shareTitle} url={shareUrl} variant="pill" label="Sdílet" />
       )}
+      {canPromote && promoteHref ? (
+        <Link
+          href={promoteHref}
+          className="inline-flex items-center gap-1 rounded-full border border-[#1877f2]/30 bg-[#1877f2]/10 px-3 py-2 text-sm font-semibold text-[#1877f2] hover:bg-[#1877f2]/15"
+        >
+          <Megaphone className="size-4" />
+          Propagovat
+        </Link>
+      ) : null}
     </div>
   );
 

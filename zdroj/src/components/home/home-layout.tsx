@@ -25,6 +25,10 @@ import {
 import { CreateCommunityPostCard } from '@/components/community/CreateCommunityPostCard';
 import { PostUploadQueueRunner } from '@/components/community/PostUploadProgress';
 import { CommunityPostCard } from '@/components/community/CommunityPostCard';
+import {
+  buildMetaCentrumPromoteUrlFromPost,
+  isPromotablePost,
+} from '@/lib/meta-centrum-promote';
 import { MobileClassicSwipeFeed } from '@/components/home/MobileClassicSwipeFeed';
 import { MobileFiltersSheet } from '@/components/home/MobileFiltersSheet';
 import { PropertyGrid } from '@/components/property-grid';
@@ -1413,6 +1417,12 @@ export function HomeLayout({
                               }))
                             }
                             onOpenDetail={() => router.push(`/prispevky/${encodeURIComponent(pid)}`)}
+                            canPromote={user?.role === 'ADMIN' && isPromotablePost(p)}
+                            promoteHref={
+                              user?.role === 'ADMIN' && isPromotablePost(p)
+                                ? buildMetaCentrumPromoteUrlFromPost(p)
+                                : undefined
+                            }
                           />
                         );
                       })

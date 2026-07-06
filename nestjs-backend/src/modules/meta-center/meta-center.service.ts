@@ -36,6 +36,7 @@ import {
   type MetaCatalogGraphDiagnostics,
 } from './meta-center-graph-diagnostics.service';
 import { MetaCenterIntegrationStatusService } from './meta-center-integration-status.service';
+import { MetaCenterLiveDiagnosticsService } from './meta-center-live-diagnostics.service';
 import { diagnosticLevelFromIssue } from './meta-graph-permissions.util';
 
 const SETTINGS_ID = 'default';
@@ -66,6 +67,7 @@ export class MetaCenterService {
     private readonly catalog: MetaCatalogService,
     private readonly graphDiagnostics: MetaCenterGraphDiagnosticsService,
     private readonly integration: MetaCenterIntegrationStatusService,
+    private readonly liveDiagnostics: MetaCenterLiveDiagnosticsService,
     private readonly waConfig: WhatsAppConfigService,
   ) {}
 
@@ -937,7 +939,8 @@ export class MetaCenterService {
     };
     const warnings: string[] = [];
 
-    const [settings, services, diagnostics, catalog, feedStats, catalogGraph] = await Promise.all([
+    const [settings, services, diagnostics, catalog, feedStats, catalogGraph, liveDiagnostics] =
+      await Promise.all([
       this.getSettings().catch((err) => {
         warnings.push(err instanceof Error ? err.message : 'Nastavení Meta Centra nelze načíst.');
         return this.buildEmptySettings();
@@ -953,6 +956,7 @@ export class MetaCenterService {
         warnings.push(err instanceof Error ? err.message : 'Catalog Graph diagnostika selhala.');
         return this.buildEmptyCatalogGraph();
       }),
+      this.liveDiagnostics.buildLiveDiagnostics().catch(() => null),
     ]);
 
     const row = await this.prisma.metaCenterSetting
@@ -990,6 +994,7 @@ export class MetaCenterService {
       catalog,
       feedStats,
       catalogGraph,
+      liveDiagnostics,
       oauthRedirect,
       pixel: {
         pixelId: ids.pixelId,
@@ -1151,6 +1156,7 @@ export class MetaCenterService {
         capiMessage: null,
       },
       catalogListWarning: null,
+      liveDiagnostics: null,
       error: { message, type: 'internal', endpoint: 'dashboard' },
     };
   }

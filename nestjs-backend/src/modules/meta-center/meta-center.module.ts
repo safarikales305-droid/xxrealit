@@ -18,6 +18,8 @@ import { MetaGraphClientService } from './meta-graph-client.service';
 import { MetaCenterApiLogService } from './meta-center-api-log.service';
 import { MetaMarketingDiagnosticsService } from './meta-marketing-diagnostics.service';
 import { MetaCenterCampaignsService } from './meta-center-campaigns.service';
+import { MetaCenterLiveDiagnosticsService } from './meta-center-live-diagnostics.service';
+import { MetaCenterRemarketingService } from './meta-center-remarketing.service';
 
 @Module({
   imports: [forwardRef(() => MetaCatalogModule), forwardRef(() => SocialModule), WhatsAppModule],
@@ -40,6 +42,8 @@ import { MetaCenterCampaignsService } from './meta-center-campaigns.service';
     MetaCenterApiLogService,
     MetaMarketingDiagnosticsService,
     MetaCenterCampaignsService,
+    MetaCenterLiveDiagnosticsService,
+    MetaCenterRemarketingService,
   ],
   exports: [MetaCenterService, MetaConnectOAuthService, MetaMarketingDiagnosticsService],
 })

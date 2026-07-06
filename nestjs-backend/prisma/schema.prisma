@@ -2498,6 +2498,10 @@ model MetaMarketingCampaignDraft {
   name               String
   objective          String
   status             String    @default("draft")
+  creativeType       String    @default("catalog_products")
+  targetingMode      String    @default("map")
+  audienceId         String?
+  creativePayload    Json?
   adAccountId        String?
   catalogId          String?
   datasetId          String?
@@ -2513,11 +2517,32 @@ model MetaMarketingCampaignDraft {
   metaCampaignId     String?
   metaAdSetId        String?
   metaAdId           String?
+  metaProductSetId   String?
+  metaCreativeId     String?
   errorMessage       String?   @db.Text
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   @@index([status])
   @@index([createdAt(sort: Desc)])
+}
+
+/// Remarketing publika spravovaná z Meta Centra XXREALIT.
+model MetaRemarketingAudience {
+  id              String    @id @default(cuid())
+  name            String
+  audienceType    String
+  filters         Json      @default("{}")
+  estimatedCount  Int?
+  metaEstimate    Int?
+  metaAudienceId  String?
+  status          String    @default("draft")
+  lastSyncedAt    DateTime?
+  errorMessage    String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  @@index([audienceType])
+  @@index([status])
+  @@index([updatedAt(sort: Desc)])
 }
 
 /// Centrální nastavení Meta Centra (Pixel, CAPI, Commerce, feedy).
