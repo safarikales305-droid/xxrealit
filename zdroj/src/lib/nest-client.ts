@@ -6164,11 +6164,33 @@ export type MetaOAuthRedirectDiagnostics = {
   metaDevelopersInstruction: string | null;
 };
 
+export type MetaOAuthFlowKey =
+  | 'login'
+  | 'pages'
+  | 'catalog'
+  | 'instagram'
+  | 'whatsapp'
+  | 'ads';
+
+export type MetaOAuthFlowDiagnostic = {
+  key: MetaOAuthFlowKey;
+  label: string;
+  description: string;
+  scopes: string[];
+  scopeString: string;
+  usesLoginApp: boolean;
+  usesPagesApp: boolean;
+  sessionMode: string;
+};
+
 export type MetaOAuthPreview = {
   facebookOAuthUrl: string;
   client_id: string;
   redirect_uri: string;
   scope: string;
+  scopesList?: string[];
+  oauthFlow?: MetaOAuthFlowKey | string;
+  oauthFlowLabel?: string;
   response_type: string;
   state: string;
   prompt: string;
@@ -6285,6 +6307,7 @@ export type MetaCenterDashboard = {
   oauthPreview: MetaOAuthPreview | null;
   lastOAuthCallback?: MetaOAuthLastCallback | null;
   oauthCompleted?: MetaOAuthCompletedStatus | null;
+  oauthFlows?: MetaOAuthFlowDiagnostic[];
   pixel: {
     pixelId: string | null;
     pixelName: string | null;
@@ -6470,10 +6493,29 @@ export async function nestAdminMetaCenterGetCommerce(token: string | null) {
 
 export async function nestAdminMetaCenterTestOAuth(
   token: string | null,
+  flow: MetaOAuthFlowKey = 'pages',
 ): Promise<MetaOAuthPreview | null> {
-  const r = await metaCenterFetch<MetaOAuthPreview>(token, '/connect/test-oauth', {
-    method: 'POST',
-  });
+  const r = await metaCenterFetch<MetaOAuthPreview>(
+    token,
+    `/connect/test-oauth?flow=${encodeURIComponent(flow)}`,
+    { method: 'POST' },
+  );
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterOAuthFlowUrl(
+  token: string | null,
+  flow: MetaOAuthFlowKey,
+): Promise<(MetaOAuthPreview & { url: string }) | null> {
+  const r = await metaCenterFetch<MetaOAuthPreview & { url: string }>(
+    token,
+    `/oauth/${encodeURIComponent(flow)}`,
+  );
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterOAuthFlows(token: string | null) {
+  const r = await metaCenterFetch<{ flows: MetaOAuthFlowDiagnostic[] }>(token, '/oauth/flows');
   return r.ok ? r.data : null;
 }
 

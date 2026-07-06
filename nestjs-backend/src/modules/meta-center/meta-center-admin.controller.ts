@@ -27,6 +27,7 @@ import { MetaConnectEventsService } from './meta-connect-events.service';
 import { MetaConnectSyncCronService } from './meta-connect-sync.cron.service';
 import { FacebookConfigService } from '../social/facebook/facebook-config.service';
 import { FacebookAuthService } from '../social/facebook/facebook-auth.service';
+import { resolveMetaOAuthFlow } from './meta-oauth-flows';
 
 @Controller('admin/meta-center')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -53,6 +54,55 @@ export class MetaCenterAdminController {
     return { url, redirectUri: this.fbConfig.resolveLoginOAuthRedirectUriOptional() };
   }
 
+  @Get('oauth/flows')
+  oauthFlows() {
+    return { flows: this.connectOAuth.getOAuthFlowsDiagnostics() };
+  }
+
+  @Get('oauth/login')
+  async oauthLogin() {
+    const url = await this.facebookAuth.buildLoginUrl();
+    const flow = this.connectOAuth.getOAuthFlowsDiagnostics().find((f) => f.key === 'login');
+    return {
+      url,
+      oauthFlow: 'login',
+      oauthFlowLabel: flow?.label ?? 'Facebook Login',
+      scopes: flow?.scopes ?? ['public_profile', 'email'],
+      scope: flow?.scopeString ?? 'public_profile,email',
+      redirectUri: this.fbConfig.resolveLoginOAuthRedirectUriOptional(),
+    };
+  }
+
+  @Get('oauth/pages')
+  async oauthPages(@CurrentUser() user: AuthUser) {
+    const preview = await this.connectOAuth.buildOAuthUrl(user.id, 'pages', false);
+    return { url: preview.facebookOAuthUrl, ...preview };
+  }
+
+  @Get('oauth/catalog')
+  async oauthCatalog(@CurrentUser() user: AuthUser) {
+    const preview = await this.connectOAuth.buildOAuthUrl(user.id, 'catalog', false);
+    return { url: preview.facebookOAuthUrl, ...preview };
+  }
+
+  @Get('oauth/instagram')
+  async oauthInstagram(@CurrentUser() user: AuthUser) {
+    const preview = await this.connectOAuth.buildOAuthUrl(user.id, 'instagram', false);
+    return { url: preview.facebookOAuthUrl, ...preview };
+  }
+
+  @Get('oauth/whatsapp')
+  async oauthWhatsapp(@CurrentUser() user: AuthUser) {
+    const preview = await this.connectOAuth.buildOAuthUrl(user.id, 'whatsapp', false);
+    return { url: preview.facebookOAuthUrl, ...preview };
+  }
+
+  @Get('oauth/ads')
+  async oauthAds(@CurrentUser() user: AuthUser) {
+    const preview = await this.connectOAuth.buildOAuthUrl(user.id, 'ads', false);
+    return { url: preview.facebookOAuthUrl, ...preview };
+  }
+
   @Get('oauth/redirect-diagnostics')
   oauthRedirectDiagnostics() {
     return this.fbConfig.getMetaOAuthRedirectDiagnostics();
@@ -61,13 +111,14 @@ export class MetaCenterAdminController {
   @Get('connect/url')
   async connectUrl(@CurrentUser() user: AuthUser) {
     const [url, oauthRedirect, oauthPreview] = await Promise.all([
-      this.connectOAuth.buildConnectUrl(user.id),
+      this.connectOAuth.buildConnectUrl(user.id, 'pages'),
       Promise.resolve(this.fbConfig.getMetaOAuthRedirectDiagnostics()),
-      this.connectOAuth.buildOAuthPreview(user.id, true).catch(() => null),
+      this.connectOAuth.buildOAuthPreview(user.id, true, 'pages').catch(() => null),
     ]);
     const reauthorize = await this.connectOAuth.isConnectedForReauthorize(user.id);
     return {
       url,
+      oauthFlow: 'pages',
       appId: this.fbConfig.getPagesAppId(),
       redirectUri: oauthRedirect.oauthRedirectUsedByApp,
       oauthRedirect,
@@ -77,8 +128,12 @@ export class MetaCenterAdminController {
   }
 
   @Post('connect/test-oauth')
-  async testOAuth(@CurrentUser() user: AuthUser) {
-    return this.connectOAuth.buildOAuthPreview(user.id, true);
+  async testOAuth(
+    @CurrentUser() user: AuthUser,
+    @Query('flow') flowRaw?: string,
+  ) {
+    const flow = resolveMetaOAuthFlow(flowRaw) ?? 'pages';
+    return this.connectOAuth.buildOAuthPreview(user.id, true, flow);
   }
 
   @Get('connection/status')
@@ -144,13 +199,14 @@ export class MetaCenterAdminController {
 
   @Get('dashboard')
   async getDashboard(@CurrentUser() user: AuthUser) {
-    const [dash, oauthPreview, oauthLast, oauthCompleted] = await Promise.all([
+    const [dash, oauthPreview, oauthLast, oauthCompleted, oauthFlows] = await Promise.all([
       this.service.getDashboard(),
-      this.connectOAuth.buildOAuthPreview(user.id, true).catch(() => null),
+      this.connectOAuth.buildOAuthPreview(user.id, true, 'pages').catch(() => null),
       this.connectOAuth.getLastOAuthCallback(),
       this.connectOAuth.getOAuthCompletedStatus(),
+      Promise.resolve(this.connectOAuth.getOAuthFlowsDiagnostics()),
     ]);
-    return { ...dash, oauthPreview, lastOAuthCallback: oauthLast, oauthCompleted };
+    return { ...dash, oauthPreview, lastOAuthCallback: oauthLast, oauthCompleted, oauthFlows };
   }
 
   @Get('settings')

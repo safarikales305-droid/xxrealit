@@ -17,10 +17,17 @@ import { SocialAutopostSettingsService } from '../social/autopost/social-autopos
 import { SocialAutopostFacebookOAuthService } from '../social/autopost/social-autopost-facebook-oauth.service';
 import {
   META_CENTER_ADMIN_URL,
-  META_CENTER_CONNECT_SCOPES,
-  META_CENTER_OAUTH_MODE,
   META_CENTER_OAUTH_STATE_PREFIX,
 } from './meta-connect.constants';
+import {
+  META_CENTER_DEFAULT_FLOW,
+  META_CENTER_SESSION_MODES,
+  META_OAUTH_FLOWS,
+  isMetaCenterSessionMode,
+  listMetaOAuthFlowDiagnostics,
+  scopesForFlow,
+  type MetaOAuthFlowKey,
+} from './meta-oauth-flows';
 import { MetaConnectDiscoveryService } from './meta-connect-discovery.service';
 import { MetaGraphClientService } from './meta-graph-client.service';
 
@@ -396,14 +403,20 @@ export class MetaConnectOAuthService {
     return parts.join(' | ');
   }
 
+  getOAuthFlowsDiagnostics() {
+    return listMetaOAuthFlowDiagnostics();
+  }
+
   private composeOAuthPreview(input: {
     clientId: string;
     redirectUri: string;
     state: string;
+    flow: MetaOAuthFlowKey;
     reauthorize: boolean;
     dryRun: boolean;
   }): MetaOAuthPreviewDto {
-    const scope = META_CENTER_CONNECT_SCOPES;
+    const flowDef = META_OAUTH_FLOWS[input.flow];
+    const scope = scopesForFlow(input.flow);
     const params = new URLSearchParams({
       client_id: input.clientId,
       redirect_uri: input.redirectUri,
@@ -425,6 +438,9 @@ export class MetaConnectOAuthService {
       client_id: input.clientId,
       redirect_uri: input.redirectUri,
       scope,
+      scopesList: [...flowDef.scopes],
+      oauthFlow: input.flow,
+      oauthFlowLabel: flowDef.label,
       response_type: 'code',
       state: input.state,
       prompt: 'consent',
@@ -437,18 +453,39 @@ export class MetaConnectOAuthService {
   }
 
   /** Náhled OAuth parametrů bez přesměrování (ladění). */
-  async buildOAuthPreview(adminUserId: string, dryRun = true): Promise<MetaOAuthPreviewDto> {
+  async buildOAuthPreview(
+    adminUserId: string,
+    dryRun = true,
+    flow: MetaOAuthFlowKey = META_CENTER_DEFAULT_FLOW,
+  ): Promise<MetaOAuthPreviewDto> {
+    return this.buildOAuthForFlow(adminUserId, flow, dryRun);
+  }
+
+  async buildOAuthUrl(
+    adminUserId: string,
+    flow: MetaOAuthFlowKey,
+    dryRun = false,
+  ): Promise<MetaOAuthPreviewDto> {
+    return this.buildOAuthForFlow(adminUserId, flow, dryRun);
+  }
+
+  private async buildOAuthForFlow(
+    adminUserId: string,
+    flow: MetaOAuthFlowKey,
+    dryRun: boolean,
+  ): Promise<MetaOAuthPreviewDto> {
     this.assertConfigured();
     this.fbConfig.assertPagesAppIdValid();
     const pagesAppId = this.fbConfig.getPagesAppId();
     if (!pagesAppId) {
       throw new ServiceUnavailableException(this.fbConfig.pagesConfigurationErrorMessage());
     }
+    const flowDef = META_OAUTH_FLOWS[flow];
     const redirectUri = this.resolveRedirectUri();
     const reauthorize = dryRun ? false : await this.isAlreadyConnected(adminUserId);
     const state = dryRun
-      ? `${META_CENTER_OAUTH_STATE_PREFIX}preview_${randomBytes(12).toString('hex')}`
-      : `${META_CENTER_OAUTH_STATE_PREFIX}${randomBytes(23).toString('hex')}`;
+      ? `${META_CENTER_OAUTH_STATE_PREFIX}preview_${flow}_${randomBytes(12).toString('hex')}`
+      : `${META_CENTER_OAUTH_STATE_PREFIX}${flow}_${randomBytes(20).toString('hex')}`;
 
     if (!dryRun) {
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
@@ -457,7 +494,7 @@ export class MetaConnectOAuthService {
         data: {
           id: state,
           userId: adminUserId,
-          mode: META_CENTER_OAUTH_MODE,
+          mode: flowDef.sessionMode,
           userAccessToken: this.crypto.encrypt('pending'),
           expiresAt,
         },
@@ -468,11 +505,12 @@ export class MetaConnectOAuthService {
       clientId: pagesAppId,
       redirectUri,
       state,
+      flow,
       reauthorize,
       dryRun,
     });
 
-    this.logger.log(`META OAuth URL: ${preview.facebookOAuthUrl}`);
+    this.logger.log(`META OAuth flow=${flow} URL: ${preview.facebookOAuthUrl}`);
     this.logger.log(`META OAuth redirect_uri: ${preview.redirect_uri}`);
     this.logger.log(`META OAuth state: ${preview.state}`);
     this.logger.log(`META OAuth scope: ${preview.scope}`);
@@ -481,9 +519,12 @@ export class MetaConnectOAuthService {
       void this.logOAuthPhase({
         phase: 'OAuth Request',
         request: {
+          oauthFlow: flow,
+          oauthFlowLabel: flowDef.label,
           client_id: preview.client_id,
           redirect_uri: preview.redirect_uri,
           scope: preview.scope,
+          scopesList: preview.scopesList,
           response_type: preview.response_type,
           state: preview.state,
           facebookOAuthUrl: preview.facebookOAuthUrl,
@@ -494,6 +535,13 @@ export class MetaConnectOAuthService {
     }
 
     return preview;
+  }
+
+  private sessionModeToFlow(mode: string): MetaOAuthFlowKey {
+    const entry = Object.values(META_OAUTH_FLOWS).find((f) => f.sessionMode === mode);
+    if (entry) return entry.key;
+    if (mode === 'meta_center_connect') return 'pages';
+    return META_CENTER_DEFAULT_FLOW;
   }
 
   private formatOAuthErrorRedirect(
@@ -533,12 +581,15 @@ export class MetaConnectOAuthService {
 
   private async cleanupSession(userId: string) {
     await this.prisma.socialFacebookOAuthSession.deleteMany({
-      where: { userId, mode: META_CENTER_OAUTH_MODE },
+      where: { userId, mode: { in: [...META_CENTER_SESSION_MODES] } },
     });
   }
 
-  async buildConnectUrl(adminUserId: string): Promise<string> {
-    const preview = await this.buildOAuthPreview(adminUserId, false);
+  async buildConnectUrl(
+    adminUserId: string,
+    flow: MetaOAuthFlowKey = META_CENTER_DEFAULT_FLOW,
+  ): Promise<string> {
+    const preview = await this.buildOAuthUrl(adminUserId, flow, false);
     return preview.facebookOAuthUrl;
   }
 
@@ -693,7 +744,7 @@ export class MetaConnectOAuthService {
     });
     if (
       !session?.userId ||
-      session.mode !== META_CENTER_OAUTH_MODE ||
+      !isMetaCenterSessionMode(session.mode) ||
       session.expiresAt.getTime() < Date.now()
     ) {
       const reason = 'OAuth session vypršela nebo neexistuje — zkuste připojení znovu.';
@@ -713,10 +764,18 @@ export class MetaConnectOAuthService {
     }
 
     const exchangeStarted = Date.now();
+    const oauthFlow = this.sessionModeToFlow(session.mode);
+    const flowDef = META_OAUTH_FLOWS[oauthFlow];
     try {
       await this.logOAuthPhase({
         phase: 'OAuth Exchange',
-        request: { state, redirect_uri: redirectUri, codePresent: true },
+        request: {
+          state,
+          redirect_uri: redirectUri,
+          codePresent: true,
+          oauthFlow,
+          sessionMode: session.mode,
+        },
         response: { status: 'started' },
       });
 
@@ -762,8 +821,10 @@ export class MetaConnectOAuthService {
 
       await this.logOAuthPhase({
         phase: 'OAuth Success',
-        request: { state, userId: session.userId },
+        request: { state, userId: session.userId, oauthFlow, sessionMode: session.mode },
         response: {
+          oauthFlowLabel: flowDef.label,
+          scopesRequested: [...flowDef.scopes],
           businessId: discovered.business?.id ?? null,
           pageId: discovered.page?.id ?? null,
           catalogId: discovered.catalog?.id ?? null,
@@ -775,8 +836,8 @@ export class MetaConnectOAuthService {
 
       return {
         ok: true,
-        redirectUrl: `${adminUrl}?meta=connected`,
-        message: 'Meta účet byl úspěšně připojen.',
+        redirectUrl: `${adminUrl}?meta=connected&flow=${oauthFlow}`,
+        message: `${flowDef.label}: Meta oprávnění byla úspěšně připojena.`,
       };
     } catch (err) {
       await this.cleanupSession(session.userId);

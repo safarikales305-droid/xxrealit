@@ -1,19 +1,12 @@
-export const META_CENTER_OAUTH_MODE = 'meta_center_connect';
+export const META_CENTER_OAUTH_MODE = 'meta_center_pages';
 export const META_CENTER_OAUTH_STATE_PREFIX = 'x';
 
+/** @deprecated Použijte meta-oauth-flows.ts — scopes podle flow */
 export const META_CENTER_CONNECT_SCOPES = [
   'pages_show_list',
   'pages_read_engagement',
   'pages_manage_posts',
   'pages_manage_metadata',
-  'business_management',
-  'catalog_management',
-  'ads_management',
-  'ads_read',
-  'instagram_basic',
-  'instagram_manage_messages',
-  'whatsapp_business_management',
-  'whatsapp_business_messaging',
 ].join(',');
 
 export const META_CONNECT_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;

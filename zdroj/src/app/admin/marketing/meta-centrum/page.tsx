@@ -17,6 +17,7 @@ import {
   nestAdminMetaCenterFix,
   nestAdminMetaCenterLogs,
   nestAdminMetaCenterOAuthDebug,
+  nestAdminMetaCenterOAuthFlowUrl,
   nestAdminMetaCenterPatchCapi,
   nestAdminMetaCenterProvision,
   nestAdminMetaCenterPixelTest,
@@ -33,6 +34,8 @@ import {
   type MetaConnectionStatusLevel,
   type MetaDiagnosticLevel,
   type MetaOAuthDebugLogRow,
+  type MetaOAuthFlowKey,
+  type MetaOAuthFlowDiagnostic,
   type MetaOAuthPreview,
   type MetaPermissionsCheckResult,
   type FacebookAppsConfig,
@@ -203,6 +206,7 @@ export default function MetaCentrumPage() {
   const [testReport, setTestReport] = useState<unknown>(null);
   const [permissionsCheck, setPermissionsCheck] = useState<MetaPermissionsCheckResult | null>(null);
   const [oauthTestPreview, setOauthTestPreview] = useState<MetaOAuthPreview | null>(null);
+  const [oauthTestFlow, setOauthTestFlow] = useState<MetaOAuthFlowKey>('pages');
   const [oauthDebugOpen, setOauthDebugOpen] = useState(false);
   const [oauthDebugLogs, setOauthDebugLogs] = useState<MetaOAuthDebugLogRow[]>([]);
 
@@ -227,7 +231,14 @@ export default function MetaCentrumPage() {
 
   useEffect(() => {
     const meta = params.get('meta');
-    if (meta === 'connected') setMsg('Meta účet byl úspěšně připojen a konfigurace načtena.');
+    if (meta === 'connected') {
+      const flow = params.get('flow');
+      setMsg(
+        flow
+          ? `Meta OAuth (${flow}) dokončeno — oprávnění byla připojena.`
+          : 'Meta účet byl úspěšně připojen a konfigurace načtena.',
+      );
+    }
     if (meta === 'error') {
       const reason = params.get('reason') ?? 'neznámá';
       const redirectUri = params.get('redirect_uri');
@@ -257,6 +268,7 @@ export default function MetaCentrumPage() {
   const activeOAuthPreview = oauthTestPreview ?? oauthPreview;
   const lastOAuthCallback = dash?.lastOAuthCallback ?? null;
   const oauthCompleted = dash?.oauthCompleted ?? null;
+  const oauthFlows = dash?.oauthFlows ?? [];
 
   const settingsFields = useMemo(
     () =>
@@ -326,6 +338,18 @@ export default function MetaCentrumPage() {
     window.location.href = r.url;
   }
 
+  async function connectMetaFlow(flow: MetaOAuthFlowKey) {
+    if (!token) return;
+    setBusy(true);
+    const r = await nestAdminMetaCenterOAuthFlowUrl(token, flow);
+    setBusy(false);
+    if (!r?.url) {
+      setMsg(`Nepodařilo se získat OAuth URL pro flow „${flow}".`);
+      return;
+    }
+    window.location.href = r.url;
+  }
+
   async function applyFix(action: string) {
     if (!token) return;
     setBusy(true);
@@ -366,13 +390,18 @@ export default function MetaCentrumPage() {
 
   const scopeRows = permissionsCheck?.scopes ?? catalogGraph?.requiredScopes ?? [];
 
-  async function testOAuth() {
+  async function testOAuth(flow: MetaOAuthFlowKey = oauthTestFlow) {
     if (!token) return;
     setBusy(true);
-    const preview = await nestAdminMetaCenterTestOAuth(token);
+    const preview = await nestAdminMetaCenterTestOAuth(token, flow);
     setOauthTestPreview(preview);
+    setOauthTestFlow(flow);
     setBusy(false);
-    setMsg(preview ? 'OAuth URL vygenerována (bez přesměrování).' : 'OAuth test selhal.');
+    setMsg(
+      preview
+        ? `OAuth náhled: ${preview.oauthFlowLabel ?? flow} — ${preview.scopesList?.join(', ') ?? preview.scope}`
+        : 'OAuth test selhal.',
+    );
   }
 
   async function copyRedirectUri() {
@@ -546,10 +575,21 @@ export default function MetaCentrumPage() {
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <h2 className="text-lg font-bold">META OAuth kontrola</h2>
                     <div className="flex flex-wrap gap-2">
+                      <select
+                        value={oauthTestFlow}
+                        onChange={(e) => setOauthTestFlow(e.target.value as MetaOAuthFlowKey)}
+                        className="rounded-lg border border-zinc-300 px-2 py-1.5 text-xs"
+                      >
+                        {oauthFlows.map((f) => (
+                          <option key={f.key} value={f.key}>
+                            {f.label}
+                          </option>
+                        ))}
+                      </select>
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => void testOAuth()}
+                        onClick={() => void testOAuth(oauthTestFlow)}
                         className="rounded-lg border border-[#1877f2] px-3 py-1.5 text-xs font-semibold text-[#1877f2] hover:bg-blue-50"
                       >
                         Otestovat OAuth
@@ -608,6 +648,53 @@ export default function MetaCentrumPage() {
                     ) : null}
                   </div>
 
+                  {oauthFlows.length > 0 ? (
+                    <div className="mb-4 rounded-2xl border border-blue-200 bg-blue-50 p-4 shadow-sm">
+                      <h3 className="mb-2 font-bold text-blue-950">OAuth toky a scopes</h3>
+                      <p className="mb-3 text-xs text-blue-900">
+                        Každý produkt má vlastní OAuth request — nikdy neposílejte všechna oprávnění
+                        najednou (Invalid Scopes).
+                      </p>
+                      <div className="space-y-3">
+                        {oauthFlows.map((flow) => (
+                          <div
+                            key={flow.key}
+                            className={`rounded-lg border bg-white p-3 text-sm ${
+                              activeOAuthPreview?.oauthFlow === flow.key
+                                ? 'border-[#1877f2] ring-1 ring-[#1877f2]'
+                                : 'border-blue-200'
+                            }`}
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <p className="font-bold text-zinc-900">
+                                  {flow.label}{' '}
+                                  <span className="font-mono text-xs font-normal text-zinc-500">
+                                    /oauth/{flow.key}
+                                  </span>
+                                </p>
+                                <p className="mt-1 text-xs text-zinc-600">{flow.description}</p>
+                                <p className="mt-2 break-all font-mono text-[11px] text-zinc-700">
+                                  {flow.scopeString}
+                                </p>
+                              </div>
+                              {flow.key !== 'login' ? (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void connectMetaFlow(flow.key)}
+                                  className="shrink-0 rounded-lg bg-[#1877f2] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#166fe5] disabled:opacity-50"
+                                >
+                                  Připojit
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
                   {lastOAuthCallback ? (
                     <div className="mb-4 rounded-2xl border border-violet-200 bg-violet-50 p-4 shadow-sm">
                       <h3 className="mb-3 font-bold text-violet-950">POSLEDNÍ CALLBACK</h3>
@@ -657,6 +744,15 @@ export default function MetaCentrumPage() {
 
                   {activeOAuthPreview ? (
                     <div className="space-y-3">
+                      <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+                        <p className="text-xs font-medium text-zinc-500">
+                          OAuth flow: {activeOAuthPreview.oauthFlowLabel ?? activeOAuthPreview.oauthFlow ?? '—'}
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-600">
+                          Scopes:{' '}
+                          {activeOAuthPreview.scopesList?.join(', ') ?? activeOAuthPreview.scope}
+                        </p>
+                      </div>
                       <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
                         <p className="text-xs font-medium text-zinc-500">Facebook OAuth URL</p>
                         <p className="mt-1 break-all font-mono text-xs">{activeOAuthPreview.facebookOAuthUrl}</p>
