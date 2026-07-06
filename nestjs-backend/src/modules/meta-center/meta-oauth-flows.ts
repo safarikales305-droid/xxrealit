@@ -26,6 +26,7 @@ export type MetaOAuthFlowDefinition = {
   sessionMode: string;
   usesLoginApp: boolean;
   usesPagesApp: boolean;
+  usesMarketingApp: boolean;
   oauthPath: string;
   envVarKey: string;
   /** Skrytý v Meta Centrum OAuth kontrole (např. WhatsApp má vlastní modul). */
@@ -65,6 +66,7 @@ export const META_OAUTH_FLOWS: Record<
     sessionMode: 'meta_center_login',
     usesLoginApp: true,
     usesPagesApp: false,
+    usesMarketingApp: false,
     oauthPath: '/api/social/facebook/oauth/login',
     envVarKey: META_OAUTH_FLOW_ENV_KEYS.login,
   },
@@ -76,6 +78,7 @@ export const META_OAUTH_FLOWS: Record<
     sessionMode: 'meta_center_pages',
     usesLoginApp: false,
     usesPagesApp: true,
+    usesMarketingApp: false,
     oauthPath: '/api/social/facebook/oauth/pages',
     envVarKey: META_OAUTH_FLOW_ENV_KEYS.pages,
   },
@@ -87,6 +90,7 @@ export const META_OAUTH_FLOWS: Record<
     sessionMode: 'meta_center_catalog',
     usesLoginApp: false,
     usesPagesApp: true,
+    usesMarketingApp: false,
     oauthPath: '/api/social/facebook/oauth/catalog',
     envVarKey: META_OAUTH_FLOW_ENV_KEYS.catalog,
   },
@@ -98,6 +102,7 @@ export const META_OAUTH_FLOWS: Record<
     sessionMode: 'meta_center_instagram',
     usesLoginApp: false,
     usesPagesApp: true,
+    usesMarketingApp: false,
     oauthPath: '/api/social/facebook/oauth/instagram',
     envVarKey: META_OAUTH_FLOW_ENV_KEYS.instagram,
   },
@@ -109,6 +114,7 @@ export const META_OAUTH_FLOWS: Record<
     sessionMode: 'meta_center_whatsapp',
     usesLoginApp: false,
     usesPagesApp: true,
+    usesMarketingApp: false,
     oauthPath: '/api/social/facebook/oauth/whatsapp',
     envVarKey: META_OAUTH_FLOW_ENV_KEYS.whatsapp,
     hiddenInMetaCenterOAuth: true,
@@ -120,7 +126,8 @@ export const META_OAUTH_FLOWS: Record<
     scopes: marketingScopes,
     sessionMode: 'meta_center_marketing',
     usesLoginApp: false,
-    usesPagesApp: true,
+    usesPagesApp: false,
+    usesMarketingApp: true,
     oauthPath: '/api/social/facebook/oauth/marketing',
     envVarKey: META_OAUTH_FLOW_ENV_KEYS.marketing,
   },

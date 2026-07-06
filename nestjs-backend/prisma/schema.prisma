@@ -2499,6 +2499,11 @@ model MetaCenterSetting {
   facebookAppSecret    String?
   facebookPagesAppId   String?
   facebookPagesSecret  String?
+  facebookMarketingAppId   String?
+  facebookMarketingSecret  String?
+  marketingAccessTokenEncrypted String?
+  marketingTokenExpiresAt       DateTime?
+  marketingRefreshTokenEncrypted String?
   businessManagerId    String?
   commerceManagerId    String?
   catalogId            String?

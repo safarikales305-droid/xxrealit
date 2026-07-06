@@ -26,6 +26,88 @@ export class MetaConnectDiscoveryService {
     return discovered;
   }
 
+  async discoverMarketingAndPersist(
+    accessToken: string,
+    refreshToken?: string | null,
+    tokenExpiresAt?: Date | null,
+  ): Promise<MetaDiscoveredResources> {
+    const discovered = await this.discoverMarketing(accessToken);
+    await this.persistMarketing(discovered, accessToken, refreshToken, tokenExpiresAt);
+    return discovered;
+  }
+
+  async discoverMarketing(accessToken: string): Promise<MetaDiscoveredResources> {
+    const warnings: string[] = [];
+    const result: MetaDiscoveredResources = {
+      user: null,
+      business: null,
+      adAccount: null,
+      page: null,
+      instagram: null,
+      catalog: null,
+      pixel: null,
+      dataset: null,
+      commerce: null,
+      whatsapp: null,
+      testEventCode: null,
+      warnings,
+    };
+
+    const me = await this.graph.get<{ id?: string; name?: string }>(
+      '/me',
+      accessToken,
+      { fields: 'id,name' },
+    );
+    if (me.ok && me.data.id) {
+      result.user = { id: me.data.id, name: me.data.name ?? me.data.id };
+    } else {
+      warnings.push(me.ok ? 'Nepodařilo se načíst uživatele.' : me.errorMessage);
+    }
+
+    const businesses = await this.graph.get<GraphList<{ id?: string; name?: string }>>(
+      '/me/businesses',
+      accessToken,
+      { fields: 'id,name', limit: '25' },
+    );
+    const business = businesses.ok ? businesses.data.data?.[0] : undefined;
+    if (business?.id) {
+      result.business = { id: business.id, name: business.name ?? business.id };
+    } else {
+      warnings.push('Business Manager nenalezen — zkontrolujte oprávnění business_management.');
+    }
+
+    if (result.business?.id) {
+      const bmId = result.business.id;
+      const adAccounts = await this.graph.get<
+        GraphList<{ id?: string; name?: string; account_id?: string }>
+      >(`/${bmId}/owned_ad_accounts`, accessToken, { fields: 'id,name,account_id', limit: '25' });
+      const ad = adAccounts.ok ? adAccounts.data.data?.[0] : undefined;
+      if (ad?.id) {
+        result.adAccount = {
+          id: ad.account_id ?? ad.id.replace(/^act_/, ''),
+          name: ad.name ?? ad.id,
+        };
+      }
+    }
+
+    if (!result.adAccount) {
+      const directAds = await this.graph.get<
+        GraphList<{ id?: string; name?: string; account_id?: string }>
+      >('/me/adaccounts', accessToken, { fields: 'id,name,account_id', limit: '25' });
+      const ad = directAds.ok ? directAds.data.data?.[0] : undefined;
+      if (ad?.id) {
+        result.adAccount = {
+          id: ad.account_id ?? ad.id.replace(/^act_/, ''),
+          name: ad.name ?? ad.id,
+        };
+      } else {
+        warnings.push('Reklamní účet nenalezen.');
+      }
+    }
+
+    return result;
+  }
+
   async discover(accessToken: string): Promise<MetaDiscoveredResources> {
     const warnings: string[] = [];
     const result: MetaDiscoveredResources = {
@@ -241,6 +323,40 @@ export class MetaConnectDiscoveryService {
 
     this.logger.log(
       `[meta-discovery] saved pixel=${discovered.pixel?.id ?? '—'} catalog=${discovered.catalog?.id ?? '—'}`,
+    );
+  }
+
+  private async persistMarketing(
+    discovered: MetaDiscoveredResources,
+    accessToken: string,
+    refreshToken?: string | null,
+    tokenExpiresAt?: Date | null,
+  ) {
+    const data: Prisma.MetaCenterSettingUpdateInput = {
+      businessManagerId: discovered.business?.id ?? null,
+      adAccountId: discovered.adAccount?.id
+        ? discovered.adAccount.id.startsWith('act_')
+          ? discovered.adAccount.id
+          : `act_${discovered.adAccount.id}`
+        : null,
+      adAccountName: discovered.adAccount?.name ?? null,
+      metaConnectedUserId: discovered.user?.id ?? null,
+      metaConnectedUserName: discovered.user?.name ?? null,
+      marketingAccessTokenEncrypted: this.crypto.encrypt(accessToken),
+      marketingTokenExpiresAt: tokenExpiresAt ?? null,
+      marketingRefreshTokenEncrypted: refreshToken?.trim()
+        ? this.crypto.encrypt(refreshToken.trim())
+        : null,
+      lastAutoSyncAt: new Date(),
+    };
+
+    await this.prisma.metaCenterSetting.update({
+      where: { id: SETTINGS_ID },
+      data,
+    });
+
+    this.logger.log(
+      `[meta-discovery] marketing saved adAccount=${discovered.adAccount?.id ?? '—'} business=${discovered.business?.id ?? '—'}`,
     );
   }
 

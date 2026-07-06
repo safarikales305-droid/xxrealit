@@ -143,6 +143,9 @@ export class MetaCenterService {
       facebookPagesAppId: row.facebookPagesAppId ?? apps.pages.appId,
       facebookPagesSecretMasked:
         this.maskSecret(row.facebookPagesSecret) ?? apps.pages.appSecretMasked,
+      facebookMarketingAppId: row.facebookMarketingAppId ?? apps.marketing.appId,
+      facebookMarketingSecretMasked:
+        this.maskSecret(row.facebookMarketingSecret) ?? apps.marketing.appSecretMasked,
       businessManagerId: row.businessManagerId,
       commerceManagerId: row.commerceManagerId,
       catalogId: row.catalogId,
@@ -186,6 +189,8 @@ export class MetaCenterService {
       lastAutoSyncAt: row.lastAutoSyncAt?.toISOString() ?? null,
       syncEnabled: row.syncEnabled,
       isMetaConnected: Boolean(row.metaConnectedAt && row.metaUserAccessTokenEncrypted),
+      isMarketingAdsConnected: Boolean(row.marketingAccessTokenEncrypted),
+      marketingRefreshTokenConfigured: Boolean(row.marketingRefreshTokenEncrypted),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
@@ -1268,7 +1273,7 @@ export class MetaCenterService {
       {
         key: 'app',
         label: 'Meta aplikace připojena',
-        connected: Boolean(settings.facebookPagesAppId),
+        connected: Boolean(settings.facebookPagesAppId || settings.facebookMarketingAppId),
         optional: false,
       },
       {
@@ -1280,7 +1285,13 @@ export class MetaCenterService {
       {
         key: 'ad',
         label: 'Reklamní účet připojen',
-        connected: Boolean(settings.adAccountId),
+        connected: Boolean(settings.adAccountId && settings.isMarketingAdsConnected),
+        optional: !settings.adAccountId,
+      },
+      {
+        key: 'ads_api',
+        label: 'Ads API aktivní',
+        connected: Boolean(settings.isMarketingAdsConnected),
         optional: !settings.adAccountId,
       },
       {

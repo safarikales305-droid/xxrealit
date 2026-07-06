@@ -2,6 +2,7 @@ import {
   META_FORBIDDEN_DEFAULT_SCOPES,
   resolveScopesForOAuthFlow,
 } from '../src/modules/meta-center/meta-oauth-scope-resolver';
+import { META_OAUTH_FLOWS } from '../src/modules/meta-center/meta-oauth-flows';
 
 const pages = resolveScopesForOAuthFlow('pages');
 const scopeSet = new Set(pages.approvedScopes);
@@ -61,6 +62,12 @@ const marketing = resolveScopesForOAuthFlow('marketing', {
 });
 if (marketing.approvedScopes.length !== 3) {
   console.error('FAIL: marketing flow scopes mismatch');
+  process.exit(1);
+}
+
+const marketingFlow = META_OAUTH_FLOWS.marketing;
+if (!marketingFlow.usesMarketingApp || marketingFlow.usesPagesApp) {
+  console.error('FAIL: marketing OAuth must use Marketing App, not Pages App');
   process.exit(1);
 }
 

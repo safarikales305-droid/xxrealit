@@ -12,8 +12,10 @@ import {
 } from '../../meta-center/meta-oauth-redirect-uri.util';
 import {
   FACEBOOK_KNOWN_LOGIN_APP_ID,
+  FACEBOOK_KNOWN_MARKETING_APP_ID,
   FACEBOOK_KNOWN_PAGES_APP_ID,
   FACEBOOK_LOGIN_APP_NAME,
+  FACEBOOK_MARKETING_APP_NAME,
   FACEBOOK_PAGES_APP_NAME,
 } from './facebook-app.constants';
 
@@ -21,6 +23,8 @@ const LOGIN_ENV_KEYS = ['FACEBOOK_LOGIN_APP_ID', 'FACEBOOK_LOGIN_APP_SECRET'] as
 const LOGIN_LEGACY_KEYS = ['FACEBOOK_APP_ID', 'FACEBOOK_APP_SECRET'] as const;
 
 const PAGES_ENV_KEYS = ['FACEBOOK_PAGES_APP_ID', 'FACEBOOK_PAGES_APP_SECRET'] as const;
+
+const MARKETING_ENV_KEYS = ['META_MARKETING_APP_ID', 'META_MARKETING_APP_SECRET'] as const;
 
 const RECOMMENDED_ENV_KEYS = [
   'FACEBOOK_WEBHOOK_VERIFY_TOKEN',
@@ -58,6 +62,16 @@ export type FacebookAppsConfigDto = {
     appSecretConfigured: boolean;
     appSecretMasked: string | null;
     pageConnectRedirectUri: string | null;
+    metaConnectRedirectUri: string | null;
+    configured: boolean;
+    missing: string[];
+    idValidation: FacebookAppIdValidation;
+  };
+  marketing: {
+    appName: string;
+    appId: string | null;
+    appSecretConfigured: boolean;
+    appSecretMasked: string | null;
     metaConnectRedirectUri: string | null;
     configured: boolean;
     missing: string[];
@@ -120,8 +134,11 @@ export type FacebookConfigStatusDto = {
   missing: string[];
   pagesConfigured: boolean;
   pagesMissing: string[];
+  marketingConfigured: boolean;
+  marketingMissing: string[];
   loginAppId: string | null;
   pagesAppId: string | null;
+  marketingAppId: string | null;
   oauthRedirectUri: string | null;
   metaConnectRedirectUri: string | null;
   pageConnectRedirectUri: string | null;
@@ -213,6 +230,7 @@ export class FacebookConfigService implements OnModuleInit {
       ...LOGIN_ENV_KEYS,
       ...LOGIN_LEGACY_KEYS,
       ...PAGES_ENV_KEYS,
+      ...MARKETING_ENV_KEYS,
       ...RECOMMENDED_ENV_KEYS,
     ];
     for (const key of allKeys) {
@@ -249,6 +267,14 @@ export class FacebookConfigService implements OnModuleInit {
 
   getPagesAppSecret(): string | null {
     return this.readEnv('FACEBOOK_PAGES_APP_SECRET');
+  }
+
+  getMarketingAppId(): string | null {
+    return this.readEnv('META_MARKETING_APP_ID');
+  }
+
+  getMarketingAppSecret(): string | null {
+    return this.readEnv('META_MARKETING_APP_SECRET');
   }
 
   getGraphApiVersion(): string {
@@ -292,6 +318,14 @@ export class FacebookConfigService implements OnModuleInit {
     return missing;
   }
 
+  getMarketingMissingRequired(): string[] {
+    const missing: string[] = [];
+    for (const key of MARKETING_ENV_KEYS) {
+      if (!this.isEnvPresent(key)) missing.push(key);
+    }
+    return missing;
+  }
+
   getRecommendedMissing(): string[] {
     const missing: string[] = [];
     for (const key of RECOMMENDED_ENV_KEYS) {
@@ -314,6 +348,12 @@ export class FacebookConfigService implements OnModuleInit {
       },
       { key: 'FACEBOOK_PAGES_APP_ID', present: Boolean(this.getPagesAppId()), required: true },
       { key: 'FACEBOOK_PAGES_APP_SECRET', present: Boolean(this.getPagesAppSecret()), required: true },
+      { key: 'META_MARKETING_APP_ID', present: Boolean(this.getMarketingAppId()), required: false },
+      {
+        key: 'META_MARKETING_APP_SECRET',
+        present: Boolean(this.getMarketingAppSecret()),
+        required: false,
+      },
       ...RECOMMENDED_ENV_KEYS.filter(
         (k) => !['FRONTEND_URL', 'BACKEND_URL'].includes(k),
       ).map((key) => ({
@@ -362,6 +402,38 @@ export class FacebookConfigService implements OnModuleInit {
     return { ok: true, error: null };
   }
 
+  validateMarketingAppId(): FacebookAppIdValidation {
+    const id = this.getMarketingAppId();
+    if (!id) return { ok: false, error: 'Marketing App ID chybí v ENV (META_MARKETING_APP_ID).' };
+    const loginId = this.getLoginAppId();
+    const pagesId = this.getPagesAppId();
+    if (loginId && id === loginId) {
+      return {
+        ok: false,
+        error: 'Používáte Login App ID pro Meta Marketing připojení.',
+      };
+    }
+    if (pagesId && id === pagesId) {
+      return {
+        ok: false,
+        error: 'Používáte Pages App ID pro Meta Marketing připojení — nastavte META_MARKETING_APP_ID.',
+      };
+    }
+    if (id === FACEBOOK_KNOWN_LOGIN_APP_ID) {
+      return {
+        ok: false,
+        error: 'Používáte Login App ID pro Meta Marketing připojení.',
+      };
+    }
+    if (id === FACEBOOK_KNOWN_PAGES_APP_ID) {
+      return {
+        ok: false,
+        error: 'Používáte Pages App ID pro Meta Marketing připojení.',
+      };
+    }
+    return { ok: true, error: null };
+  }
+
   assertLoginAppIdValid() {
     const v = this.validateLoginAppId();
     if (!v.ok) throw new ServiceUnavailableException(v.error);
@@ -372,12 +444,21 @@ export class FacebookConfigService implements OnModuleInit {
     if (!v.ok) throw new ServiceUnavailableException(v.error);
   }
 
+  assertMarketingAppIdValid() {
+    const v = this.validateMarketingAppId();
+    if (!v.ok) throw new ServiceUnavailableException(v.error);
+  }
+
   isLoginConfigured(): boolean {
     return this.getLoginMissingRequired().length === 0 && this.validateLoginAppId().ok;
   }
 
   isPagesConfigured(): boolean {
     return this.getPagesMissingRequired().length === 0 && this.validatePagesAppId().ok;
+  }
+
+  isMarketingConfigured(): boolean {
+    return this.getMarketingMissingRequired().length === 0 && this.validateMarketingAppId().ok;
   }
 
   isConfigured(): boolean {
@@ -396,10 +477,19 @@ export class FacebookConfigService implements OnModuleInit {
   pagesConfigurationErrorMessage(): string {
     const missing = this.getPagesMissingRequired();
     if (missing.length) {
-      return `Meta Marketing není nakonfigurován (chybí ${missing.join(', ')}).`;
+      return `Facebook Pages není nakonfigurován (chybí ${missing.join(', ')}).`;
     }
     const v = this.validatePagesAppId();
-    return v.error ?? 'Propojení Facebook Pages / Marketing není nakonfigurováno.';
+    return v.error ?? 'Propojení Facebook Pages není nakonfigurováno.';
+  }
+
+  marketingConfigurationErrorMessage(): string {
+    const missing = this.getMarketingMissingRequired();
+    if (missing.length) {
+      return `Meta Marketing App není nakonfigurována (chybí ${missing.join(', ')}).`;
+    }
+    const v = this.validateMarketingAppId();
+    return v.error ?? 'Propojení Meta Marketing App není nakonfigurováno.';
   }
 
   resolveApiPublicBase(): string | null {
@@ -570,9 +660,13 @@ export class FacebookConfigService implements OnModuleInit {
     return this.getMetaAllowedRedirectUris().some((allowed) => allowed === normalized);
   }
 
-  getMetaFacebookLoginSettingsUrl(): string | null {
-    const appId = this.getPagesAppId();
-    return appId ? `https://developers.facebook.com/apps/${appId}/fb-login/settings/` : null;
+  getMetaFacebookLoginSettingsUrl(appId?: string | null): string | null {
+    const resolved =
+      appId?.trim() ||
+      this.getPagesAppId() ||
+      this.getMarketingAppId() ||
+      this.getLoginAppId();
+    return resolved ? `https://developers.facebook.com/apps/${resolved}/fb-login/settings/` : null;
   }
 
   /** @deprecated Použijte getMetaRedirectUri() */
@@ -706,6 +800,7 @@ export class FacebookConfigService implements OnModuleInit {
   getAppsConfig(): FacebookAppsConfigDto {
     const loginSecret = this.getLoginAppSecret();
     const pagesSecret = this.getPagesAppSecret();
+    const marketingSecret = this.getMarketingAppSecret();
     return {
       login: {
         appName: FACEBOOK_LOGIN_APP_NAME,
@@ -728,6 +823,16 @@ export class FacebookConfigService implements OnModuleInit {
         missing: this.getPagesMissingRequired(),
         idValidation: this.validatePagesAppId(),
       },
+      marketing: {
+        appName: FACEBOOK_MARKETING_APP_NAME,
+        appId: this.getMarketingAppId(),
+        appSecretConfigured: Boolean(marketingSecret),
+        appSecretMasked: this.maskSecret(marketingSecret),
+        metaConnectRedirectUri: this.tryGetMetaRedirectUri(),
+        configured: this.isMarketingConfigured(),
+        missing: this.getMarketingMissingRequired(),
+        idValidation: this.validateMarketingAppId(),
+      },
       graphApiVersion: this.getGraphApiVersion(),
       frontendUrl: this.readEnv('FRONTEND_URL'),
       backendUrl: this.resolveBackendUrl(),
@@ -738,14 +843,18 @@ export class FacebookConfigService implements OnModuleInit {
   getConfigStatus(): FacebookConfigStatusDto {
     const missing = this.getLoginMissingRequired();
     const pagesMissing = this.getPagesMissingRequired();
+    const marketingMissing = this.getMarketingMissingRequired();
 
     return {
       configured: this.isLoginConfigured(),
       missing,
       pagesConfigured: this.isPagesConfigured(),
       pagesMissing,
+      marketingConfigured: this.isMarketingConfigured(),
+      marketingMissing,
       loginAppId: this.getLoginAppId(),
       pagesAppId: this.getPagesAppId(),
+      marketingAppId: this.getMarketingAppId(),
       oauthRedirectUri: this.resolveLoginOAuthRedirectUriOptional(),
       metaConnectRedirectUri: this.resolveMetaConnectRedirectUriOptional(),
       pageConnectRedirectUri: this.resolvePageConnectRedirectUriOptional(),

@@ -393,6 +393,7 @@ export default function MetaCentrumPage() {
       [
         ['facebookAppId', 'Facebook App ID'],
         ['facebookPagesAppId', 'Facebook Pages App ID'],
+        ['facebookMarketingAppId', 'Meta Marketing App ID'],
         ['businessManagerId', 'Business Manager ID'],
         ['commerceManagerId', 'Commerce Manager ID'],
         ['catalogId', 'Catalog ID'],
@@ -862,6 +863,13 @@ export default function MetaCentrumPage() {
                                 {flow.envVarKey ? (
                                   <p className="mt-1 font-mono text-[10px] text-zinc-500">
                                     ENV: {flow.envVarKey}
+                                    {flow.usesMarketingApp
+                                      ? ' · Marketing App'
+                                      : flow.usesPagesApp
+                                        ? ' · Pages App'
+                                        : flow.usesLoginApp
+                                          ? ' · Login App'
+                                          : ''}
                                   </p>
                                 ) : null}
                                 {flow.grantedScopes?.length ? (
@@ -1564,6 +1572,16 @@ export default function MetaCentrumPage() {
               <h2 className="mb-2 text-lg font-bold">Reklamní účet</h2>
               {adAccount?.connected ? (
                 <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 sm:col-span-2">
+                    <p className="font-semibold">✓ Reklamní účet připojen</p>
+                    {dash.settings.isMarketingAdsConnected ? (
+                      <p className="mt-1 text-xs">✓ Ads API aktivní</p>
+                    ) : (
+                      <p className="mt-1 text-xs text-amber-800">
+                        Ads API zatím neaktivní — dokončete Marketing OAuth.
+                      </p>
+                    )}
+                  </div>
                   {[
                     ['Stav', 'Připojeno'],
                     ['Ad Account ID', adAccount.adAccountId],

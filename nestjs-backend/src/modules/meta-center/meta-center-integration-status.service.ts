@@ -211,9 +211,17 @@ export class MetaCenterIntegrationStatusService {
       return { token: waToken, source: 'whatsapp_module', label: 'WhatsApp access token' };
     }
     try {
-      const marketingToken = await this.oauth.resolveAccessToken();
+      const marketingToken = await this.oauth.tryResolveMarketingAccessToken();
       if (marketingToken) {
-        return { token: marketingToken, source: 'meta_connect', label: 'Meta Marketing OAuth token' };
+        return {
+          token: marketingToken,
+          source: 'meta_connect',
+          label: 'Meta Marketing App OAuth token',
+        };
+      }
+      const pagesToken = await this.oauth.resolveAccessToken();
+      if (pagesToken) {
+        return { token: pagesToken, source: 'meta_connect', label: 'Meta Pages OAuth token' };
       }
     } catch {
       // no marketing token

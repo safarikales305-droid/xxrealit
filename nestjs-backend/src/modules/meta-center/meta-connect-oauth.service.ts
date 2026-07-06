@@ -50,6 +50,7 @@ export type MetaOAuthFlowGrant = {
   requestedScopes: string[];
   connectedAt: string;
   businessId?: string | null;
+  adAccountId?: string | null;
   catalogManagementGranted?: boolean;
   catalogPermissionsStatus?: 'granted' | 'missing' | 'partial' | 'not_required';
 };
@@ -102,7 +103,11 @@ export type MetaOAuthCompletedStatus = {
   at: string | null;
 };
 
-type GraphTokenResponse = { access_token?: string; expires_in?: number };
+type GraphTokenResponse = {
+  access_token?: string;
+  expires_in?: number;
+  refresh_token?: string;
+};
 type DebugTokenResponse = {
   data?: { is_valid?: boolean; expires_at?: number; scopes?: string[] };
 };
@@ -528,6 +533,7 @@ export class MetaConnectOAuthService {
         canConnect: resolved.approvedScopes.length > 0,
         usesLoginApp: flow.usesLoginApp,
         usesPagesApp: flow.usesPagesApp,
+        usesMarketingApp: flow.usesMarketingApp,
         sessionMode: flow.sessionMode,
         oauthEndpoint: flow.oauthPath,
         envVarKey: flow.envVarKey,
@@ -559,7 +565,7 @@ export class MetaConnectOAuthService {
     flow: MetaOAuthFlowKey,
     grantedScopes: string[],
     connectedAt: Date,
-    extra?: { businessId?: string | null },
+    extra?: { businessId?: string | null; adAccountId?: string | null },
   ) {
     const flowKey = normalizeMetaOAuthFlowKey(flow) ?? 'pages';
     const flowDef = getMetaOAuthFlowDefinition(flowKey);
@@ -578,6 +584,7 @@ export class MetaConnectOAuthService {
       requestedScopes: [...flowDef.scopes],
       connectedAt: connectedAt.toISOString(),
       businessId: extra?.businessId ?? grants[flowKey]?.businessId ?? null,
+      adAccountId: extra?.adAccountId ?? grants[flowKey]?.adAccountId ?? null,
       catalogManagementGranted,
       catalogPermissionsStatus:
         flowKey === 'catalog'
@@ -648,7 +655,7 @@ export class MetaConnectOAuthService {
       auth_type: input.reauthorize ? 'rerequest' : null,
       redirectUriInAllowedConfig,
       allowedRedirectUris,
-      facebookLoginSettingsUrl: this.fbConfig.getMetaFacebookLoginSettingsUrl(),
+      facebookLoginSettingsUrl: this.fbConfig.getMetaFacebookLoginSettingsUrl(input.clientId),
       dryRun: input.dryRun,
     };
   }
@@ -683,19 +690,28 @@ export class MetaConnectOAuthService {
         throw new ServiceUnavailableException(this.fbConfig.configurationErrorMessage());
       }
       this.fbConfig.assertLoginAppIdValid();
+    } else if (flowDef.usesMarketingApp) {
+      if (!this.fbConfig.isMarketingConfigured()) {
+        throw new ServiceUnavailableException(this.fbConfig.marketingConfigurationErrorMessage());
+      }
+      this.fbConfig.assertMarketingAppIdValid();
     } else {
-      this.assertConfigured();
+      this.assertPagesConfigured();
       this.fbConfig.assertPagesAppIdValid();
     }
 
     const clientId = flowDef.usesLoginApp
       ? this.fbConfig.getLoginAppId()
-      : this.fbConfig.getPagesAppId();
+      : flowDef.usesMarketingApp
+        ? this.fbConfig.getMarketingAppId()
+        : this.fbConfig.getPagesAppId();
     if (!clientId) {
       throw new ServiceUnavailableException(
         flowDef.usesLoginApp
           ? this.fbConfig.configurationErrorMessage()
-          : this.fbConfig.pagesConfigurationErrorMessage(),
+          : flowDef.usesMarketingApp
+            ? this.fbConfig.marketingConfigurationErrorMessage()
+            : this.fbConfig.pagesConfigurationErrorMessage(),
       );
     }
 
@@ -812,7 +828,7 @@ export class MetaConnectOAuthService {
     return this.isAlreadyConnected(adminUserId);
   }
 
-  private assertConfigured() {
+  private assertPagesConfigured() {
     if (!this.fbConfig.isPagesConfigured()) {
       throw new ServiceUnavailableException(this.fbConfig.pagesConfigurationErrorMessage());
     }
@@ -1022,9 +1038,10 @@ export class MetaConnectOAuthService {
         response: { status: 'started' },
       });
 
-      const shortToken = await this.exchangeCodeForToken(code);
-      const longLived = await this.exchangeForLongLivedToken(shortToken);
+      const shortToken = await this.exchangeCodeForToken(code, oauthFlow);
+      const longLived = await this.exchangeForLongLivedToken(shortToken, oauthFlow);
       const userToken = longLived.access_token?.trim() || shortToken;
+      const refreshToken = longLived.refresh_token?.trim() || null;
       const expiresIn = longLived.expires_in;
       const tokenExpiresAt =
         expiresIn != null && Number.isFinite(expiresIn)
@@ -1033,26 +1050,38 @@ export class MetaConnectOAuthService {
 
       await this.logOAuthPhase({
         phase: 'OAuth Exchange',
-        request: { state, redirect_uri: redirectUri },
+        request: { state, redirect_uri: redirectUri, oauthFlow },
         response: {
           status: 'token_received',
           expiresIn: expiresIn ?? null,
+          hasRefreshToken: Boolean(refreshToken),
         },
         durationMs: Date.now() - exchangeStarted,
       });
 
       await this.persistEnvAppCredentials();
-      await this.saveUserToken(userToken, tokenExpiresAt, session.userId);
 
       const grantedFromCallback = (facebookParams.granted_scopes ?? ctx.query.granted_scopes ?? '')
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
-      const tokenDebug = await this.debugToken(userToken);
+      const tokenDebug = await this.debugToken(userToken, oauthFlow);
       const grantedScopes =
         tokenDebug.scopes.length > 0 ? tokenDebug.scopes : grantedFromCallback;
 
-      if (oauthFlow !== 'login') {
+      let discovered: Awaited<ReturnType<MetaConnectDiscoveryService['discoverAndPersist']>> | null =
+        null;
+
+      if (oauthFlow === 'login') {
+        await this.saveUserToken(userToken, tokenExpiresAt, session.userId);
+      } else if (oauthFlow === 'marketing') {
+        discovered = await this.discovery.discoverMarketingAndPersist(
+          userToken,
+          refreshToken,
+          tokenExpiresAt,
+        );
+      } else {
+        await this.saveUserToken(userToken, tokenExpiresAt, session.userId);
         await this.autopostOAuth.persistSharedPagesUserToken(
           session.userId,
           userToken,
@@ -1065,15 +1094,12 @@ export class MetaConnectOAuthService {
             tokenWarning: null,
           },
         });
+        discovered = await this.discovery.discoverAndPersist(userToken);
       }
-
-      const discovered =
-        oauthFlow === 'login'
-          ? null
-          : await this.discovery.discoverAndPersist(userToken);
 
       await this.persistOAuthFlowGrant(oauthFlow, grantedScopes, new Date(), {
         businessId: discovered?.business?.id ?? null,
+        adAccountId: discovered?.adAccount?.id ?? null,
       });
       await this.cleanupSession(session.userId);
 
@@ -1133,6 +1159,8 @@ export class MetaConnectOAuthService {
   private async persistEnvAppCredentials() {
     const pagesAppId = this.fbConfig.getPagesAppId();
     const pagesSecret = this.fbConfig.getPagesAppSecret();
+    const marketingAppId = this.fbConfig.getMarketingAppId();
+    const marketingSecret = this.fbConfig.getMarketingAppSecret();
     const loginAppId = this.fbConfig.getLoginAppId();
     const loginSecret = this.fbConfig.getLoginAppSecret();
     const encryptionKey = process.env.SOCIAL_TOKEN_ENCRYPTION_KEY?.trim() || null;
@@ -1148,6 +1176,8 @@ export class MetaConnectOAuthService {
         facebookAppSecret: loginSecret,
         facebookPagesAppId: pagesAppId,
         facebookPagesSecret: pagesSecret,
+        facebookMarketingAppId: marketingAppId,
+        facebookMarketingSecret: marketingSecret,
         encryptionKey,
         graphApiVersion: this.fbConfig.getGraphApiVersion(),
         frontendUrl,
@@ -1160,6 +1190,8 @@ export class MetaConnectOAuthService {
         facebookAppSecret: loginSecret ?? undefined,
         facebookPagesAppId: pagesAppId ?? undefined,
         facebookPagesSecret: pagesSecret ?? undefined,
+        facebookMarketingAppId: marketingAppId ?? undefined,
+        facebookMarketingSecret: marketingSecret ?? undefined,
         encryptionKey: encryptionKey ?? undefined,
         graphApiVersion: this.fbConfig.getGraphApiVersion(),
         frontendUrl: frontendUrl ?? undefined,
@@ -1204,6 +1236,35 @@ export class MetaConnectOAuthService {
     });
 
     void adminUserId;
+  }
+
+  async resolveMarketingAccessToken(): Promise<string> {
+    const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
+    if (row?.marketingAccessTokenEncrypted) {
+      if (row.marketingTokenExpiresAt && row.marketingTokenExpiresAt.getTime() < Date.now()) {
+        throw new BadRequestException(
+          'Meta Marketing token expiroval — znovu připojte reklamní účet.',
+        );
+      }
+      return this.crypto.decrypt(row.marketingAccessTokenEncrypted);
+    }
+    throw new BadRequestException(
+      'Reklamní účet není připojen. Klikněte na „Připojit reklamní účet“ (Marketing OAuth).',
+    );
+  }
+
+  async tryResolveMarketingAccessToken(): Promise<string | null> {
+    try {
+      return await this.resolveMarketingAccessToken();
+    } catch {
+      return null;
+    }
+  }
+
+  async resolveAdsAccessToken(): Promise<string> {
+    const marketing = await this.tryResolveMarketingAccessToken();
+    if (marketing) return marketing;
+    return this.resolveAccessToken();
   }
 
   async resolveAccessToken(): Promise<string> {
@@ -1267,13 +1328,12 @@ export class MetaConnectOAuthService {
     }
   }
 
-  async debugToken(accessToken: string) {
-    const appId = this.fbConfig.getPagesAppId();
-    const appSecret = this.fbConfig.getPagesAppSecret();
-    if (!appId || !appSecret) {
+  async debugToken(accessToken: string, flow: MetaOAuthFlowKey = 'pages') {
+    const creds = this.resolveOAuthAppCredentials(flow);
+    if (!creds) {
       return { is_valid: true, expires_at: 0, scopes: [] as string[] };
     }
-    const appToken = `${appId}|${appSecret}`;
+    const appToken = `${creds.appId}|${creds.appSecret}`;
     const res = await this.facebookPage.fetchGraphJson<DebugTokenResponse>(
       `${this.graph.legacyGraphApi()}/debug_token?input_token=${encodeURIComponent(accessToken)}&access_token=${encodeURIComponent(appToken)}`,
     );
@@ -1284,15 +1344,43 @@ export class MetaConnectOAuthService {
     };
   }
 
-  private async exchangeCodeForToken(code: string): Promise<string> {
-    const appId = this.fbConfig.getPagesAppId()!;
-    const appSecret = this.fbConfig.getPagesAppSecret()!;
+  private resolveOAuthAppCredentials(
+    flow: MetaOAuthFlowKey,
+  ): { appId: string; appSecret: string } | null {
+    const flowKey = normalizeMetaOAuthFlowKey(flow) ?? 'pages';
+    const flowDef = getMetaOAuthFlowDefinition(flowKey);
+    if (flowDef.usesLoginApp) {
+      const appId = this.fbConfig.getLoginAppId();
+      const appSecret = this.fbConfig.getLoginAppSecret();
+      if (!appId || !appSecret) return null;
+      return { appId, appSecret };
+    }
+    if (flowDef.usesMarketingApp) {
+      const appId = this.fbConfig.getMarketingAppId();
+      const appSecret = this.fbConfig.getMarketingAppSecret();
+      if (!appId || !appSecret) return null;
+      return { appId, appSecret };
+    }
+    const appId = this.fbConfig.getPagesAppId();
+    const appSecret = this.fbConfig.getPagesAppSecret();
+    if (!appId || !appSecret) return null;
+    return { appId, appSecret };
+  }
+
+  private async exchangeCodeForToken(
+    code: string,
+    flow: MetaOAuthFlowKey = 'pages',
+  ): Promise<string> {
+    const creds = this.resolveOAuthAppCredentials(flow);
+    if (!creds) {
+      throw new BadRequestException('Facebook OAuth aplikace není nakonfigurována.');
+    }
     const redirectUri = encodeURIComponent(this.resolveRedirectUri());
     const url =
       `${this.graph.legacyGraphApi()}/oauth/access_token?` +
-      `client_id=${encodeURIComponent(appId)}` +
+      `client_id=${encodeURIComponent(creds.appId)}` +
       `&redirect_uri=${redirectUri}` +
-      `&client_secret=${encodeURIComponent(appSecret)}` +
+      `&client_secret=${encodeURIComponent(creds.appSecret)}` +
       `&code=${encodeURIComponent(code)}`;
     const data = await this.facebookPage.fetchGraphJson<GraphTokenResponse>(url);
     const token = data.access_token?.trim();
@@ -1300,13 +1388,18 @@ export class MetaConnectOAuthService {
     return token;
   }
 
-  private async exchangeForLongLivedToken(shortToken: string): Promise<GraphTokenResponse> {
-    const appId = this.fbConfig.getPagesAppId()!;
-    const appSecret = this.fbConfig.getPagesAppSecret()!;
+  private async exchangeForLongLivedToken(
+    shortToken: string,
+    flow: MetaOAuthFlowKey = 'pages',
+  ): Promise<GraphTokenResponse> {
+    const creds = this.resolveOAuthAppCredentials(flow);
+    if (!creds) {
+      throw new BadRequestException('Facebook OAuth aplikace není nakonfigurována.');
+    }
     const url =
       `${this.graph.legacyGraphApi()}/oauth/access_token?` +
-      `grant_type=fb_exchange_token&client_id=${encodeURIComponent(appId)}` +
-      `&client_secret=${encodeURIComponent(appSecret)}` +
+      `grant_type=fb_exchange_token&client_id=${encodeURIComponent(creds.appId)}` +
+      `&client_secret=${encodeURIComponent(creds.appSecret)}` +
       `&fb_exchange_token=${encodeURIComponent(shortToken)}`;
     return this.facebookPage.fetchGraphJson<GraphTokenResponse>(url);
   }

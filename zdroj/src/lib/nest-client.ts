@@ -6048,6 +6048,16 @@ export type FacebookAppsConfig = {
     missing: string[];
     idValidation: { ok: boolean; error: string | null };
   };
+  marketing: {
+    appName: string;
+    appId: string | null;
+    appSecretConfigured: boolean;
+    appSecretMasked: string | null;
+    metaConnectRedirectUri: string | null;
+    configured: boolean;
+    missing: string[];
+    idValidation: { ok: boolean; error: string | null };
+  };
   graphApiVersion: string;
   frontendUrl: string | null;
   backendUrl: string | null;
@@ -6060,6 +6070,8 @@ export type MetaCenterSettings = {
   facebookAppSecretMasked: string | null;
   facebookPagesAppId: string | null;
   facebookPagesSecretMasked: string | null;
+  facebookMarketingAppId?: string | null;
+  facebookMarketingSecretMasked?: string | null;
   loginOAuthRedirectUri?: string | null;
   metaConnectRedirectUri?: string | null;
   pageConnectRedirectUri?: string | null;
@@ -6103,6 +6115,8 @@ export type MetaCenterSettings = {
   lastAutoSyncAt: string | null;
   syncEnabled: boolean;
   isMetaConnected: boolean;
+  isMarketingAdsConnected?: boolean;
+  marketingRefreshTokenConfigured?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -6197,6 +6211,7 @@ export type MetaOAuthFlowDiagnostic = {
   canConnect: boolean;
   usesLoginApp: boolean;
   usesPagesApp: boolean;
+  usesMarketingApp?: boolean;
   sessionMode: string;
   oauthEndpoint?: string;
   envVarKey?: string;

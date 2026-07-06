@@ -42,6 +42,7 @@ export type MetaConnectionCheckKey =
   | 'access_token'
   | 'business'
   | 'ad_account'
+  | 'ads_api'
   | 'page'
   | 'facebook_pages_api'
   | 'user_facebook_pages'

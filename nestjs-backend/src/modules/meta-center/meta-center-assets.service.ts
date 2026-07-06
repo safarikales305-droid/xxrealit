@@ -29,7 +29,7 @@ export class MetaCenterAssetsService {
   }
 
   private async resolveToken(): Promise<string> {
-    return this.oauth.resolveAccessToken();
+    return this.oauth.resolveAdsAccessToken();
   }
 
   async listCatalogs() {
