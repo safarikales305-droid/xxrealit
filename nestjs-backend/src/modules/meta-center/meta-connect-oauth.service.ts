@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../database/prisma.service';
-import { FacebookConfigService } from '../social/facebook/facebook-config.service';
+import { FacebookConfigService, type MetaOAuthPreviewDto } from '../social/facebook/facebook-config.service';
 import { FacebookPageService } from '../social/facebook/facebook-page.service';
 import { TokenEncryptionService } from '../social/token-encryption.service';
 import { isFacebookPageScopeError } from '../social/facebook/facebook-page-scope.util';
@@ -64,11 +64,121 @@ export class MetaConnectOAuthService {
   }
 
   resolveRedirectUri(): string {
-    return this.fbConfig.resolveMetaConnectRedirectUri();
+    return this.fbConfig.getMetaRedirectUri();
   }
 
   getOAuthRedirectDiagnostics() {
     return this.fbConfig.getMetaOAuthRedirectDiagnostics();
+  }
+
+  private async logOAuthDialogEvent(input: {
+    request: Record<string, unknown>;
+    response: Record<string, unknown>;
+    errorCode?: string | null;
+    errorMessage?: string | null;
+  }) {
+    try {
+      await this.prisma.metaCenterApiLog.create({
+        data: {
+          endpoint: 'oauth/dialog',
+          method: 'GET',
+          request: this.toInputJson(input.request),
+          response: this.toInputJson(input.response),
+          httpStatus: null,
+          errorCode: input.errorCode ?? null,
+          errorMessage: input.errorMessage ?? null,
+          durationMs: null,
+        },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Meta OAuth log write failed: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  private composeOAuthPreview(input: {
+    clientId: string;
+    redirectUri: string;
+    state: string;
+    reauthorize: boolean;
+    dryRun: boolean;
+  }): MetaOAuthPreviewDto {
+    const scope = META_CENTER_CONNECT_SCOPES;
+    const params = new URLSearchParams({
+      client_id: input.clientId,
+      redirect_uri: input.redirectUri,
+      state: input.state,
+      scope,
+      response_type: 'code',
+      prompt: 'consent',
+    });
+    if (input.reauthorize) {
+      params.set('auth_type', 'rerequest');
+    }
+    const facebookOAuthUrl = `${this.graph.oauthDialogUrl()}?${params.toString()}`;
+    const allowedRedirectUris = this.fbConfig.getMetaAllowedRedirectUris();
+    const redirectUriInAllowedConfig = this.fbConfig.isMetaRedirectUriInAllowedConfig(
+      input.redirectUri,
+    );
+    return {
+      facebookOAuthUrl,
+      client_id: input.clientId,
+      redirect_uri: input.redirectUri,
+      scope,
+      response_type: 'code',
+      state: input.state,
+      prompt: 'consent',
+      auth_type: input.reauthorize ? 'rerequest' : null,
+      redirectUriInAllowedConfig,
+      allowedRedirectUris,
+      facebookLoginSettingsUrl: this.fbConfig.getMetaFacebookLoginSettingsUrl(),
+      dryRun: input.dryRun,
+    };
+  }
+
+  /** Náhled OAuth parametrů bez přesměrování (ladění). */
+  async buildOAuthPreview(adminUserId: string, dryRun = true): Promise<MetaOAuthPreviewDto> {
+    this.assertConfigured();
+    this.fbConfig.assertPagesAppIdValid();
+    const pagesAppId = this.fbConfig.getPagesAppId();
+    if (!pagesAppId) {
+      throw new ServiceUnavailableException(this.fbConfig.pagesConfigurationErrorMessage());
+    }
+    const redirectUri = this.resolveRedirectUri();
+    const reauthorize = dryRun ? false : await this.isAlreadyConnected(adminUserId);
+    const state = dryRun
+      ? `${META_CENTER_OAUTH_STATE_PREFIX}preview_${randomBytes(12).toString('hex')}`
+      : `${META_CENTER_OAUTH_STATE_PREFIX}${randomBytes(23).toString('hex')}`;
+
+    if (!dryRun) {
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+      await this.cleanupSession(adminUserId);
+      await this.prisma.socialFacebookOAuthSession.create({
+        data: {
+          id: state,
+          userId: adminUserId,
+          mode: META_CENTER_OAUTH_MODE,
+          userAccessToken: this.crypto.encrypt('pending'),
+          expiresAt,
+        },
+      });
+    }
+
+    const preview = this.composeOAuthPreview({
+      clientId: pagesAppId,
+      redirectUri,
+      state,
+      reauthorize,
+      dryRun,
+    });
+
+    this.logger.log(`META OAuth URL: ${preview.facebookOAuthUrl}`);
+    this.logger.log(`META OAuth redirect_uri: ${preview.redirect_uri}`);
+    this.logger.log(`META OAuth state: ${preview.state}`);
+    this.logger.log(`META OAuth scope: ${preview.scope}`);
+
+    return preview;
   }
 
   private formatOAuthErrorRedirect(
@@ -113,45 +223,8 @@ export class MetaConnectOAuthService {
   }
 
   async buildConnectUrl(adminUserId: string): Promise<string> {
-    this.assertConfigured();
-    this.fbConfig.assertPagesAppIdValid();
-
-    const pagesAppId = this.fbConfig.getPagesAppId();
-    if (!pagesAppId) {
-      throw new ServiceUnavailableException(this.fbConfig.pagesConfigurationErrorMessage());
-    }
-
-    const state = `${META_CENTER_OAUTH_STATE_PREFIX}${randomBytes(23).toString('hex')}`;
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
-    await this.cleanupSession(adminUserId);
-    await this.prisma.socialFacebookOAuthSession.create({
-      data: {
-        id: state,
-        userId: adminUserId,
-        mode: META_CENTER_OAUTH_MODE,
-        userAccessToken: this.crypto.encrypt('pending'),
-        expiresAt,
-      },
-    });
-
-    const redirectUri = this.resolveRedirectUri();
-    const reauthorize = await this.isAlreadyConnected(adminUserId);
-    const redirectUriEnc = encodeURIComponent(redirectUri);
-    const appId = encodeURIComponent(pagesAppId);
-    const scopeRaw = META_CENTER_CONNECT_SCOPES;
-    const scope = encodeURIComponent(scopeRaw);
-    const authType = reauthorize ? '&auth_type=rerequest' : '';
-    const oauthUrl =
-      `${this.graph.oauthDialogUrl()}?` +
-      `client_id=${appId}&redirect_uri=${redirectUriEnc}&state=${state}` +
-      `&scope=${scope}&response_type=code&prompt=consent${authType}`;
-
-    this.logger.log(`META OAuth URL: ${oauthUrl}`);
-    this.logger.log(`META OAuth redirect_uri: ${redirectUri}`);
-    this.logger.log(`META OAuth state: ${state}`);
-    this.logger.log(`META OAuth scope: ${scopeRaw}`);
-
-    return oauthUrl;
+    const preview = await this.buildOAuthPreview(adminUserId, false);
+    return preview.facebookOAuthUrl;
   }
 
   async handleCallback(
@@ -166,9 +239,32 @@ export class MetaConnectOAuthService {
 
     if (oauthError?.trim() || errorReason?.trim() || errorDescription?.trim()) {
       const fbReason = (errorDescription ?? errorReason ?? oauthError ?? 'oauth_denied').trim();
+      const oauthErrorJson = {
+        error: oauthError ?? null,
+        error_reason: errorReason ?? null,
+        error_description: errorDescription ?? null,
+        redirect_uri_used: redirectUri,
+        state: state ?? null,
+      };
       const isRedirectMismatch =
+        (errorReason ?? '').trim() === 'redirect_uri_mismatch' ||
         fbReason.toLowerCase().includes('redirect_uri') ||
-        fbReason.toLowerCase().includes("isn't whitelisted");
+        fbReason.toLowerCase().includes("isn't whitelisted") ||
+        fbReason.toLowerCase().includes('url je zablokovan') ||
+        fbReason.toLowerCase().includes('url blocked') ||
+        fbReason.toLowerCase().includes('blocked');
+      if (isRedirectMismatch || oauthError?.trim()) {
+        await this.logOAuthDialogEvent({
+          request: {
+            redirect_uri: redirectUri,
+            state: state ?? null,
+            phase: 'callback_error',
+          },
+          response: oauthErrorJson,
+          errorCode: errorReason ?? oauthError ?? 'oauth_error',
+          errorMessage: fbReason,
+        });
+      }
       const reason = isRedirectMismatch
         ? `${fbReason} — použitá redirect URI: ${redirectUri}`
         : fbReason.slice(0, 160);

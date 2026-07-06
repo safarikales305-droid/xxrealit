@@ -64,6 +64,7 @@ export type FacebookAppsConfigDto = {
 export type MetaOAuthRedirectDiagnosticsDto = {
   oauthRedirectUsedByApp: string | null;
   allowedRedirectUri: string | null;
+  allowedRedirectUris: string[];
   currentRedirectUri: string | null;
   canonicalRedirectUri: string | null;
   explicitRedirectUri: string | null;
@@ -71,9 +72,26 @@ export type MetaOAuthRedirectDiagnosticsDto = {
   apiPublicBase: string | null;
   frontendUrl: string | null;
   pagesAppId: string | null;
+  facebookLoginSettingsUrl: string | null;
   matchesAllowed: boolean;
+  redirectUriInAllowedConfig: boolean;
   mismatchMessage: string | null;
   metaDevelopersInstruction: string | null;
+};
+
+export type MetaOAuthPreviewDto = {
+  facebookOAuthUrl: string;
+  client_id: string;
+  redirect_uri: string;
+  scope: string;
+  response_type: string;
+  state: string;
+  prompt: string;
+  auth_type: string | null;
+  redirectUriInAllowedConfig: boolean;
+  allowedRedirectUris: string[];
+  facebookLoginSettingsUrl: string | null;
+  dryRun: boolean;
 };
 
 export type FacebookConfigStatusDto = {
@@ -125,7 +143,7 @@ export class FacebookConfigService implements OnModuleInit {
     } else {
       const pagesValidation = this.validatePagesAppId();
       this.logger.log(
-        `[Facebook Pages] Připraveno (${FACEBOOK_PAGES_APP_NAME}). App ID: ${this.getPagesAppId()}. Meta Connect: ${this.resolveMetaConnectRedirectUriOptional()}`,
+        `[Facebook Pages] Připraveno (${FACEBOOK_PAGES_APP_NAME}). App ID: ${this.getPagesAppId()}. Meta Connect: ${this.tryGetMetaRedirectUri()}`,
       );
       if (!pagesValidation.ok) {
         this.logger.error(`[Facebook Pages] ${pagesValidation.error}`);
@@ -184,7 +202,7 @@ export class FacebookConfigService implements OnModuleInit {
       `[Facebook] Login OAuth redirect: ${this.resolveLoginOAuthRedirectUriOptional() ?? 'nelze odvodit'}`,
     );
     this.logger.log(
-      `[Facebook] Meta Connect redirect: ${this.resolveMetaConnectRedirectUriOptional() ?? 'nelze odvodit'}`,
+      `[Facebook] Meta Connect redirect: ${this.tryGetMetaRedirectUri() ?? 'nelze odvodit'}`,
     );
     this.logger.log(
       `[Facebook] Page Connect redirect: ${this.resolvePageConnectRedirectUriOptional() ?? 'nelze odvodit'}`,
@@ -435,73 +453,111 @@ export class FacebookConfigService implements OnModuleInit {
   }
 
   /**
-   * Meta Centrum OAuth redirect — vždy z veřejné API báze backendu (BACKEND_URL / API_URL).
-   * Příklad: https://www.xxrealit.cz/api/social/facebook/meta-connect-callback
+   * Jediná centrální Meta OAuth redirect URI — vždy z BACKEND_URL / API_URL.
+   * Nikdy ji neskládejte ručně jinde v aplikaci.
    */
-  resolveMetaConnectRedirectUriFromBackendBaseOptional(): string | null {
+  getMetaRedirectUri(): string {
     const apiBase = this.resolveApiPublicBase();
-    if (!apiBase) return null;
+    if (!apiBase) {
+      throw new ServiceUnavailableException(
+        'Meta OAuth redirect nelze odvodit — nastavte BACKEND_URL nebo API_URL.',
+      );
+    }
     return `${apiBase}${this.metaConnectRedirectPath()}`;
   }
 
-  /** Meta Centrum — jediná redirect URI (META_REDIRECT_URI má přednost před dynamickou). */
-  resolveMetaConnectRedirectUriOptional(): string | null {
-    const explicit =
-      this.readEnv('META_REDIRECT_URI') ?? this.readEnv('META_CENTER_OAUTH_REDIRECT_URI');
-    if (explicit) return explicit.replace(/\/+$/, '');
-    return this.resolveMetaConnectRedirectUriFromBackendBaseOptional();
+  tryGetMetaRedirectUri(): string | null {
+    try {
+      return this.getMetaRedirectUri();
+    } catch {
+      return null;
+    }
   }
 
-  resolveMetaConnectRedirectUri(): string {
-    const uri = this.resolveMetaConnectRedirectUriOptional();
-    if (!uri) {
-      throw new ServiceUnavailableException(
-        'Meta Connect OAuth redirect nelze odvodit — nastavte BACKEND_URL nebo META_REDIRECT_URI.',
-      );
+  /**
+   * URI whitelistnuté v Meta Developers (META_ALLOWED_REDIRECT_URIS, čárkou oddělené).
+   * Pokud není nastaveno, použije se getMetaRedirectUri().
+   */
+  getMetaAllowedRedirectUris(): string[] {
+    const raw = this.readEnv('META_ALLOWED_REDIRECT_URIS');
+    if (raw?.trim()) {
+      return raw
+        .split(',')
+        .map((s) => s.trim().replace(/\/+$/, ''))
+        .filter(Boolean);
     }
-    return uri;
+    const uri = this.tryGetMetaRedirectUri();
+    return uri ? [uri] : [];
+  }
+
+  isMetaRedirectUriInAllowedConfig(uri: string): boolean {
+    const normalized = uri.trim().replace(/\/+$/, '');
+    return this.getMetaAllowedRedirectUris().some((allowed) => allowed === normalized);
+  }
+
+  getMetaFacebookLoginSettingsUrl(): string | null {
+    const appId = this.getPagesAppId();
+    return appId ? `https://developers.facebook.com/apps/${appId}/fb-login/settings/` : null;
+  }
+
+  /** @deprecated Použijte getMetaRedirectUri() */
+  resolveMetaConnectRedirectUriFromBackendBaseOptional(): string | null {
+    return this.tryGetMetaRedirectUri();
+  }
+
+  /** @deprecated Použijte getMetaRedirectUri() */
+  resolveMetaConnectRedirectUriOptional(): string | null {
+    return this.tryGetMetaRedirectUri();
+  }
+
+  /** @deprecated Použijte getMetaRedirectUri() */
+  resolveMetaConnectRedirectUri(): string {
+    return this.getMetaRedirectUri();
   }
 
   getMetaOAuthRedirectDiagnostics(): MetaOAuthRedirectDiagnosticsDto {
-    const canonical = this.resolveMetaConnectRedirectUriFromBackendBaseOptional();
-    const used = this.resolveMetaConnectRedirectUriOptional();
+    const used = this.tryGetMetaRedirectUri();
+    const allowedRedirectUris = this.getMetaAllowedRedirectUris();
     const explicit =
       this.readEnv('META_REDIRECT_URI') ?? this.readEnv('META_CENTER_OAUTH_REDIRECT_URI');
     const pagesAppId = this.getPagesAppId();
+    const redirectUriInAllowedConfig = used ? this.isMetaRedirectUriInAllowedConfig(used) : false;
 
     let mismatchMessage: string | null = null;
-    if (canonical && used && canonical !== used) {
+    if (!used) {
       mismatchMessage =
-        `OAuth Redirect používaný aplikací (${used}) se neshoduje s kanonickou URI z BACKEND_URL (${canonical}).`;
-    } else if (!used) {
+        'Redirect URI nelze odvodit — nastavte BACKEND_URL nebo API_URL.';
+    } else if (!redirectUriInAllowedConfig) {
       mismatchMessage =
-        'Redirect URI nelze odvodit — nastavte BACKEND_URL, API_URL nebo META_REDIRECT_URI.';
-    } else if (!canonical && used) {
+        'Tato Redirect URI není povolena v Meta Developers (chybí v META_ALLOWED_REDIRECT_URIS).';
+    } else if (explicit && explicit.replace(/\/+$/, '') !== used) {
       mismatchMessage =
-        'Chybí BACKEND_URL / API_URL — redirect URI je pouze z META_REDIRECT_URI.';
+        `META_REDIRECT_URI (${explicit}) se nepoužívá — aplikace posílá ${used}. Odstraňte override.`;
     }
 
-    const matchesAllowed = Boolean(used) && (!canonical || canonical === used);
-
-    const allowedRedirectUri = canonical ?? used;
+    const matchesAllowed = Boolean(used) && redirectUriInAllowedConfig;
+    const allowedRedirectUri = allowedRedirectUris[0] ?? used;
     const metaDevelopersInstruction =
-      allowedRedirectUri && pagesAppId
-        ? `Meta Developers → aplikace ${pagesAppId} (${FACEBOOK_PAGES_APP_NAME}) → Facebook Login → Settings → Valid OAuth Redirect URIs — přidejte přesně tuto URL (bez lomítka na konci):\n${allowedRedirectUri}`
-        : allowedRedirectUri
-          ? `Meta Developers → Facebook Login → Valid OAuth Redirect URIs — přidejte:\n${allowedRedirectUri}`
+      used && pagesAppId
+        ? `Meta Developers → aplikace ${pagesAppId} (${FACEBOOK_PAGES_APP_NAME}) → Facebook Login → Settings → Valid OAuth Redirect URIs — přidejte přesně tuto URL (bez lomítka na konci):\n${used}`
+        : used
+          ? `Meta Developers → Facebook Login → Valid OAuth Redirect URIs — přidejte:\n${used}`
           : null;
 
     return {
       oauthRedirectUsedByApp: used,
       allowedRedirectUri,
+      allowedRedirectUris,
       currentRedirectUri: used,
-      canonicalRedirectUri: canonical,
+      canonicalRedirectUri: used,
       explicitRedirectUri: explicit,
       backendBaseUrl: this.resolveBackendUrl(),
       apiPublicBase: this.resolveApiPublicBase(),
       frontendUrl: this.readEnv('FRONTEND_URL'),
       pagesAppId,
+      facebookLoginSettingsUrl: this.getMetaFacebookLoginSettingsUrl(),
       matchesAllowed,
+      redirectUriInAllowedConfig,
       mismatchMessage,
       metaDevelopersInstruction,
     };
@@ -564,7 +620,7 @@ export class FacebookConfigService implements OnModuleInit {
         appSecretConfigured: Boolean(pagesSecret),
         appSecretMasked: this.maskSecret(pagesSecret),
         pageConnectRedirectUri: this.resolvePageConnectRedirectUriOptional(),
-        metaConnectRedirectUri: this.resolveMetaConnectRedirectUriOptional(),
+        metaConnectRedirectUri: this.tryGetMetaRedirectUri(),
         configured: this.isPagesConfigured(),
         missing: this.getPagesMissingRequired(),
         idValidation: this.validatePagesAppId(),

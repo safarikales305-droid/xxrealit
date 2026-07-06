@@ -6146,6 +6146,7 @@ export type MetaScopeGrantStatus = {
 export type MetaOAuthRedirectDiagnostics = {
   oauthRedirectUsedByApp: string | null;
   allowedRedirectUri: string | null;
+  allowedRedirectUris?: string[];
   currentRedirectUri: string | null;
   canonicalRedirectUri: string | null;
   explicitRedirectUri: string | null;
@@ -6153,9 +6154,26 @@ export type MetaOAuthRedirectDiagnostics = {
   apiPublicBase: string | null;
   frontendUrl: string | null;
   pagesAppId: string | null;
+  facebookLoginSettingsUrl?: string | null;
   matchesAllowed: boolean;
+  redirectUriInAllowedConfig?: boolean;
   mismatchMessage: string | null;
   metaDevelopersInstruction: string | null;
+};
+
+export type MetaOAuthPreview = {
+  facebookOAuthUrl: string;
+  client_id: string;
+  redirect_uri: string;
+  scope: string;
+  response_type: string;
+  state: string;
+  prompt: string;
+  auth_type: string | null;
+  redirectUriInAllowedConfig: boolean;
+  allowedRedirectUris: string[];
+  facebookLoginSettingsUrl: string | null;
+  dryRun: boolean;
 };
 
 export type MetaCatalogGraphDiagnostics = {
@@ -6226,6 +6244,7 @@ export type MetaCenterDashboard = {
   } | null;
   catalogGraph: MetaCatalogGraphDiagnostics;
   oauthRedirect: MetaOAuthRedirectDiagnostics;
+  oauthPreview: MetaOAuthPreview | null;
   pixel: {
     pixelId: string | null;
     pixelName: string | null;
@@ -6409,6 +6428,15 @@ export async function nestAdminMetaCenterGetCommerce(token: string | null) {
   return r.ok ? r.data : null;
 }
 
+export async function nestAdminMetaCenterTestOAuth(
+  token: string | null,
+): Promise<MetaOAuthPreview | null> {
+  const r = await metaCenterFetch<MetaOAuthPreview>(token, '/connect/test-oauth', {
+    method: 'POST',
+  });
+  return r.ok ? r.data : null;
+}
+
 export async function nestAdminMetaCenterConnectUrl(
   token: string | null,
 ): Promise<{
@@ -6417,6 +6445,7 @@ export async function nestAdminMetaCenterConnectUrl(
   redirectUri?: string | null;
   reauthorize?: boolean;
   oauthRedirect?: MetaOAuthRedirectDiagnostics;
+  oauthPreview?: MetaOAuthPreview;
 } | null> {
   const r = await metaCenterFetch<{
     url: string;
@@ -6424,6 +6453,7 @@ export async function nestAdminMetaCenterConnectUrl(
     redirectUri?: string;
     reauthorize?: boolean;
     oauthRedirect?: MetaOAuthRedirectDiagnostics;
+    oauthPreview?: MetaOAuthPreview;
   }>(token, '/connect/url');
   return r.ok ? r.data : null;
 }

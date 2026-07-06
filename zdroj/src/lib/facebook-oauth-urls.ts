@@ -1,21 +1,15 @@
 import { getAppOrigin } from '@/lib/app-url';
 
-/** Meta Centrum OAuth callback — musí odpovídat BACKEND_URL + /api/social/facebook/meta-connect-callback */
+/**
+ * @deprecated Redirect URI pro Meta Centrum vždy řeší backend přes getMetaRedirectUri().
+ * Pro diagnostiku použijte Meta Centrum → META OAuth kontrola.
+ */
 export function getFacebookMetaConnectCallbackUrl(): string {
-  const apiBase =
-    process.env.BACKEND_URL?.trim().replace(/\/+$/, '') ||
-    process.env.API_URL?.trim().replace(/\/+$/, '') ||
-    process.env.NEXT_PUBLIC_API_URL?.trim().replace(/\/+$/, '') ||
-    '';
-  if (apiBase) {
-    const withApi = apiBase.endsWith('/api') ? apiBase : `${apiBase}/api`;
-    return `${withApi}/social/facebook/meta-connect-callback`;
-  }
   return `${getAppOrigin()}/api/social/facebook/meta-connect-callback`;
 }
 
 export function getFacebookSharedOAuthCallbackUrl(): string {
-  return getFacebookMetaConnectCallbackUrl();
+  return `${getAppOrigin()}/api/social/facebook/callback`;
 }
 
 /** Veřejná OAuth callback URL na frontend doméně (proxy na Nest). */
@@ -43,4 +37,8 @@ export function getFacebookLoginSuccessUrl(): string {
 
 export function getFacebookConnectedDashboardUrl(): string {
   return getFacebookLoginSuccessUrl();
+}
+
+export function getMetaFacebookLoginSettingsUrl(appId: string): string {
+  return `https://developers.facebook.com/apps/${appId}/fb-login/settings/`;
 }

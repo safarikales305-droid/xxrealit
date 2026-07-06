@@ -60,16 +60,25 @@ export class MetaCenterAdminController {
 
   @Get('connect/url')
   async connectUrl(@CurrentUser() user: AuthUser) {
-    const url = await this.connectOAuth.buildConnectUrl(user.id);
-    const oauthRedirect = this.fbConfig.getMetaOAuthRedirectDiagnostics();
+    const [url, oauthRedirect, oauthPreview] = await Promise.all([
+      this.connectOAuth.buildConnectUrl(user.id),
+      Promise.resolve(this.fbConfig.getMetaOAuthRedirectDiagnostics()),
+      this.connectOAuth.buildOAuthPreview(user.id, true).catch(() => null),
+    ]);
     const reauthorize = await this.connectOAuth.isConnectedForReauthorize(user.id);
     return {
       url,
       appId: this.fbConfig.getPagesAppId(),
       redirectUri: oauthRedirect.oauthRedirectUsedByApp,
       oauthRedirect,
+      oauthPreview,
       reauthorize,
     };
+  }
+
+  @Post('connect/test-oauth')
+  async testOAuth(@CurrentUser() user: AuthUser) {
+    return this.connectOAuth.buildOAuthPreview(user.id, true);
   }
 
   @Get('connection/status')
@@ -119,8 +128,12 @@ export class MetaCenterAdminController {
   }
 
   @Get('dashboard')
-  getDashboard() {
-    return this.service.getDashboard();
+  async getDashboard(@CurrentUser() user: AuthUser) {
+    const [dash, oauthPreview] = await Promise.all([
+      this.service.getDashboard(),
+      this.connectOAuth.buildOAuthPreview(user.id, true).catch(() => null),
+    ]);
+    return { ...dash, oauthPreview };
   }
 
   @Get('settings')

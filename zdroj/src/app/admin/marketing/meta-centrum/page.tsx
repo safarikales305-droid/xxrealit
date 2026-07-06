@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   nestAdminMetaCenterApiLogs,
   nestAdminMetaCenterCheckPermissions,
+  nestAdminMetaCenterTestOAuth,
   nestAdminMetaCenterConnectUrl,
   nestAdminMetaCenterApps,
   nestAdminMetaCenterLoginOAuthUrl,
@@ -30,6 +31,7 @@ import {
   type MetaConnectionCheck,
   type MetaConnectionStatusLevel,
   type MetaDiagnosticLevel,
+  type MetaOAuthPreview,
   type MetaPermissionsCheckResult,
   type FacebookAppsConfig,
 } from '@/lib/nest-client';
@@ -198,6 +200,7 @@ export default function MetaCentrumPage() {
   const [appsConfig, setAppsConfig] = useState<FacebookAppsConfig | null>(null);
   const [testReport, setTestReport] = useState<unknown>(null);
   const [permissionsCheck, setPermissionsCheck] = useState<MetaPermissionsCheckResult | null>(null);
+  const [oauthTestPreview, setOauthTestPreview] = useState<MetaOAuthPreview | null>(null);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -246,6 +249,8 @@ export default function MetaCentrumPage() {
   const diagnostics = dash?.diagnostics;
   const catalogGraph = dash?.catalogGraph;
   const oauthRedirect = dash?.oauthRedirect;
+  const oauthPreview = dash?.oauthPreview ?? null;
+  const activeOAuthPreview = oauthTestPreview ?? oauthPreview;
 
   const settingsFields = useMemo(
     () =>
@@ -292,6 +297,12 @@ export default function MetaCentrumPage() {
     }
     if (r.appId && appsConfig?.login.appId && r.appId === appsConfig.login.appId) {
       setMsg('Chyba: Meta Connect používá Login App ID místo Pages App ID. Zkontrolujte FACEBOOK_PAGES_APP_ID v Railway.');
+      return;
+    }
+    if (r.oauthRedirect && !r.oauthRedirect.redirectUriInAllowedConfig) {
+      setMsg(
+        `Tato Redirect URI není povolena v Meta Developers.\n\n${r.oauthRedirect.mismatchMessage ?? ''}\n\n${r.oauthRedirect.metaDevelopersInstruction ?? ''}`,
+      );
       return;
     }
     if (r.oauthRedirect && !r.oauthRedirect.matchesAllowed) {
@@ -342,6 +353,30 @@ export default function MetaCentrumPage() {
   }
 
   const scopeRows = permissionsCheck?.scopes ?? catalogGraph?.requiredScopes ?? [];
+
+  async function testOAuth() {
+    if (!token) return;
+    setBusy(true);
+    const preview = await nestAdminMetaCenterTestOAuth(token);
+    setOauthTestPreview(preview);
+    setBusy(false);
+    setMsg(preview ? 'OAuth URL vygenerována (bez přesměrování).' : 'OAuth test selhal.');
+  }
+
+  async function copyRedirectUri() {
+    const uri = activeOAuthPreview?.redirect_uri ?? oauthRedirect?.oauthRedirectUsedByApp;
+    if (!uri) return;
+    try {
+      await navigator.clipboard.writeText(uri);
+      setMsg('Redirect URI zkopírována do schránky.');
+    } catch {
+      setMsg(uri);
+    }
+  }
+
+  const oauthApiErrorLogs = apiLogs.filter(
+    (log) => log.endpoint === 'oauth/dialog' || log.errorCode?.includes('redirect'),
+  );
 
   async function runDiagnostics() {
     if (!token) return;
@@ -451,65 +486,144 @@ export default function MetaCentrumPage() {
               </section>
             ) : null}
 
-            {oauthRedirect ? (
-              <section
-                className={`rounded-2xl border p-4 shadow-sm ${
-                  oauthRedirect.matchesAllowed
-                    ? 'border-emerald-200 bg-white'
-                    : 'border-amber-200 bg-amber-50'
-                }`}
-              >
-                <h2 className="mb-3 text-lg font-bold">OAuth Redirect URI (Meta Connect)</h2>
-                {!oauthRedirect.matchesAllowed && oauthRedirect.mismatchMessage ? (
-                  <p className="mb-3 text-sm text-amber-900">{oauthRedirect.mismatchMessage}</p>
+            {oauthRedirect || activeOAuthPreview ? (
+              <section className="space-y-4">
+                {!oauthRedirect?.redirectUriInAllowedConfig &&
+                (oauthRedirect?.oauthRedirectUsedByApp || activeOAuthPreview?.redirect_uri) ? (
+                  <div className="rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-900 shadow-sm">
+                    <p className="font-bold">Tato Redirect URI není povolena v Meta Developers.</p>
+                    <p className="mt-2 break-all font-mono text-xs">
+                      {activeOAuthPreview?.redirect_uri ?? oauthRedirect?.oauthRedirectUsedByApp}
+                    </p>
+                    {oauthRedirect?.metaDevelopersInstruction ? (
+                      <pre className="mt-3 whitespace-pre-wrap text-xs">
+                        {oauthRedirect.metaDevelopersInstruction}
+                      </pre>
+                    ) : null}
+                  </div>
                 ) : null}
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {[
-                    ['OAuth Redirect používaný aplikací', oauthRedirect.oauthRedirectUsedByApp],
-                    ['Allowed Redirect URI (z BACKEND_URL)', oauthRedirect.allowedRedirectUri],
-                    ['Current Redirect URI', oauthRedirect.currentRedirectUri],
-                    ['Kanonická URI (bez override)', oauthRedirect.canonicalRedirectUri],
-                    ['META_REDIRECT_URI (override)', oauthRedirect.explicitRedirectUri ?? '—'],
-                    ['BACKEND_URL', oauthRedirect.backendBaseUrl],
-                    ['API public base', oauthRedirect.apiPublicBase],
-                    ['FRONTEND_URL', oauthRedirect.frontendUrl],
-                    ['Pages App ID', oauthRedirect.pagesAppId],
-                  ].map(([label, val]) => {
-                    const isMismatchRow =
-                      label === 'OAuth Redirect používaný aplikací' &&
-                      oauthRedirect.allowedRedirectUri &&
-                      oauthRedirect.oauthRedirectUsedByApp &&
-                      oauthRedirect.oauthRedirectUsedByApp !== oauthRedirect.allowedRedirectUri;
-                    return (
-                      <div
-                        key={String(label)}
-                        className={`rounded-lg border px-3 py-2 text-sm ${
-                          isMismatchRow
-                            ? 'border-amber-400 bg-amber-100'
-                            : 'border-zinc-200 bg-zinc-50'
-                        }`}
+
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <h2 className="text-lg font-bold">META OAuth kontrola</h2>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void testOAuth()}
+                        className="rounded-lg border border-[#1877f2] px-3 py-1.5 text-xs font-semibold text-[#1877f2] hover:bg-blue-50"
                       >
-                        <p className="text-xs font-medium text-zinc-500">{label}</p>
-                        <p className="mt-1 break-all font-mono text-xs">{String(val ?? '—')}</p>
+                        Otestovat OAuth
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!activeOAuthPreview?.redirect_uri && !oauthRedirect?.oauthRedirectUsedByApp}
+                        onClick={() => void copyRedirectUri()}
+                        className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold hover:bg-zinc-50"
+                      >
+                        Kopírovat Redirect URI
+                      </button>
+                      {(activeOAuthPreview?.facebookLoginSettingsUrl ??
+                        oauthRedirect?.facebookLoginSettingsUrl) ? (
+                        <a
+                          href={
+                            activeOAuthPreview?.facebookLoginSettingsUrl ??
+                            oauthRedirect?.facebookLoginSettingsUrl ??
+                            '#'
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold hover:bg-zinc-50"
+                        >
+                          Otevřít Facebook Login Settings
+                        </a>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {activeOAuthPreview ? (
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+                        <p className="text-xs font-medium text-zinc-500">Facebook OAuth URL</p>
+                        <p className="mt-1 break-all font-mono text-xs">{activeOAuthPreview.facebookOAuthUrl}</p>
                       </div>
-                    );
-                  })}
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {[
+                          ['client_id', activeOAuthPreview.client_id],
+                          ['redirect_uri', activeOAuthPreview.redirect_uri],
+                          ['scope', activeOAuthPreview.scope],
+                          ['response_type', activeOAuthPreview.response_type],
+                          ['state', activeOAuthPreview.state],
+                          ['prompt', activeOAuthPreview.prompt],
+                          ['auth_type', activeOAuthPreview.auth_type ?? '—'],
+                        ].map(([label, val]) => (
+                          <div
+                            key={String(label)}
+                            className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm"
+                          >
+                            <p className="text-xs font-medium text-zinc-500">{label}</p>
+                            <p className="mt-1 break-all font-mono text-xs">{String(val)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-zinc-500">
+                      Klikněte na „Otestovat OAuth“ pro náhled parametrů odesílaných do Meta.
+                    </p>
+                  )}
                 </div>
-                {!oauthRedirect.matchesAllowed && oauthRedirect.metaDevelopersInstruction ? (
-                  <pre className="mt-4 whitespace-pre-wrap rounded-lg border border-amber-300 bg-white p-3 text-xs text-amber-950">
-                    {oauthRedirect.metaDevelopersInstruction}
-                  </pre>
-                ) : null}
-                <div className="mt-3">
-                  <a
-                    href="https://developers.facebook.com/apps/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-zinc-50"
+
+                {oauthRedirect ? (
+                  <div
+                    className={`rounded-2xl border p-4 shadow-sm ${
+                      oauthRedirect.redirectUriInAllowedConfig
+                        ? 'border-emerald-200 bg-white'
+                        : 'border-amber-200 bg-amber-50'
+                    }`}
                   >
-                    Otevřít Meta App
-                  </a>
-                </div>
+                    <h2 className="mb-3 text-lg font-bold">OAuth Redirect URI (konfigurace)</h2>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {[
+                        ['OAuth Redirect používaný aplikací', oauthRedirect.oauthRedirectUsedByApp],
+                        ['Allowed Redirect URI', oauthRedirect.allowedRedirectUri],
+                        ['Allowed Redirect URIs (config)', oauthRedirect.allowedRedirectUris?.join(', ')],
+                        ['Current Redirect URI', oauthRedirect.currentRedirectUri],
+                        ['BACKEND_URL', oauthRedirect.backendBaseUrl],
+                        ['API public base', oauthRedirect.apiPublicBase],
+                        ['FRONTEND_URL', oauthRedirect.frontendUrl],
+                        ['Pages App ID', oauthRedirect.pagesAppId],
+                      ].map(([label, val]) => (
+                        <div
+                          key={String(label)}
+                          className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm"
+                        >
+                          <p className="text-xs font-medium text-zinc-500">{label}</p>
+                          <p className="mt-1 break-all font-mono text-xs">{String(val ?? '—')}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {oauthApiErrorLogs.length > 0 ? (
+                  <div className="rounded-2xl border border-red-200 bg-red-50 p-4 shadow-sm">
+                    <h3 className="mb-2 font-bold text-red-900">Poslední OAuth chyby (Meta API logy)</h3>
+                    <div className="space-y-2">
+                      {oauthApiErrorLogs.slice(0, 5).map((log) => (
+                        <div key={log.id} className="rounded-lg border border-red-200 bg-white p-3 text-xs">
+                          <p className="text-red-800">
+                            {new Date(log.createdAt).toLocaleString('cs-CZ')} · {log.errorCode ?? 'oauth'} ·{' '}
+                            {log.errorMessage ?? '—'}
+                          </p>
+                          <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-zinc-700">
+                            {JSON.stringify(log.response, null, 2)}
+                          </pre>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </section>
             ) : null}
 

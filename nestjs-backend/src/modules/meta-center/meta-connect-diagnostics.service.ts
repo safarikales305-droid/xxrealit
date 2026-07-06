@@ -127,7 +127,8 @@ export class MetaConnectDiagnosticsService {
         key: 'oauth',
         label: 'Meta Connect OAuth Redirect URI',
         connected:
-          oauthRedirectDiag.matchesAllowed && Boolean(oauthRedirectDiag.oauthRedirectUsedByApp),
+          oauthRedirectDiag.redirectUriInAllowedConfig &&
+          Boolean(oauthRedirectDiag.oauthRedirectUsedByApp),
         error:
           oauthRedirectDiag.mismatchMessage ??
           (oauthRedirectDiag.oauthRedirectUsedByApp
@@ -137,7 +138,9 @@ export class MetaConnectDiagnosticsService {
         fixAction: 'fix_env',
         fixHref: META_FIX_HREFS.metaCenter,
         source: 'meta_connect',
-        permissionWarning: Boolean(oauthRedirectDiag.mismatchMessage),
+        permissionWarning: Boolean(
+          oauthRedirectDiag.mismatchMessage && !oauthRedirectDiag.redirectUriInAllowedConfig,
+        ),
       }),
     );
     push(

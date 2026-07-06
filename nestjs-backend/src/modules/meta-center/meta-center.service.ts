@@ -122,7 +122,7 @@ export class MetaCenterService {
       process.env.NEXT_PUBLIC_API_URL?.trim() ||
       '';
     const metaConnect =
-      this.fbConfig.resolveMetaConnectRedirectUriOptional() ||
+      this.fbConfig.tryGetMetaRedirectUri() ||
       row.redirectUri?.trim() ||
       '';
     const callback = row.callbackUrl?.trim() || metaConnect;
@@ -640,7 +640,7 @@ export class MetaCenterService {
       key: 'meta_oauth_redirect_used',
       label: 'OAuth Redirect používaný aplikací',
       level: oauthRedirect.oauthRedirectUsedByApp
-        ? oauthRedirect.matchesAllowed
+        ? oauthRedirect.redirectUriInAllowedConfig
           ? 'ok'
           : 'warning'
         : 'error',
@@ -648,19 +648,23 @@ export class MetaCenterService {
     });
     items.push({
       key: 'meta_oauth_redirect_allowed',
-      label: 'Allowed Redirect URI (z BACKEND_URL)',
-      level: oauthRedirect.allowedRedirectUri ? 'ok' : 'warning',
-      message: oauthRedirect.allowedRedirectUri ?? 'Chybí BACKEND_URL / API_URL',
+      label: 'Allowed Redirect URI (config)',
+      level: oauthRedirect.allowedRedirectUris.length ? 'ok' : 'warning',
+      message: oauthRedirect.allowedRedirectUris.join(', ') || 'Prázdný whitelist',
     });
     items.push({
       key: 'meta_oauth_redirect_current',
       label: 'Current Redirect URI',
       level:
-        oauthRedirect.currentRedirectUri && oauthRedirect.matchesAllowed ? 'ok' : 'warning',
+        oauthRedirect.currentRedirectUri && oauthRedirect.redirectUriInAllowedConfig
+          ? 'ok'
+          : 'warning',
       message:
-        oauthRedirect.mismatchMessage ??
-        oauthRedirect.currentRedirectUri ??
-        'Nenastaveno',
+        !oauthRedirect.redirectUriInAllowedConfig && oauthRedirect.oauthRedirectUsedByApp
+          ? 'Tato Redirect URI není povolena v Meta Developers.'
+          : oauthRedirect.mismatchMessage ??
+            oauthRedirect.currentRedirectUri ??
+            'Nenastaveno',
     });
     if (oauthRedirect.mismatchMessage) {
       items.push({
@@ -670,12 +674,15 @@ export class MetaCenterService {
         message: oauthRedirect.mismatchMessage,
       });
     }
-    if (oauthRedirect.metaDevelopersInstruction && !oauthRedirect.matchesAllowed) {
+    if (
+      (oauthRedirect.metaDevelopersInstruction && !oauthRedirect.redirectUriInAllowedConfig) ||
+      oauthRedirect.mismatchMessage
+    ) {
       items.push({
         key: 'meta_oauth_redirect_instruction',
         label: 'Instrukce Meta Developers',
         level: 'warning',
-        message: oauthRedirect.metaDevelopersInstruction,
+        message: oauthRedirect.metaDevelopersInstruction ?? oauthRedirect.mismatchMessage ?? '',
       });
     }
 
