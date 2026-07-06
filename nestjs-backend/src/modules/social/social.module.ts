@@ -112,6 +112,7 @@ import { PostSocialPublishService } from './autopost/post-social-publish.service
     FacebookUrlImportService,
     TokenEncryptionService,
     SocialAutopostSettingsService,
+    SocialAutopostFacebookOAuthService,
     SocialPublishEnqueueService,
     SocialPublisherService,
     TikTokModule,
