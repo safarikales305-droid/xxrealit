@@ -44,8 +44,13 @@ import {
   nestAdminMetaCenterListAdAccounts,
   nestAdminMetaCenterSelectAdAccount,
   nestAdminMetaCenterMarketingDiagnostics,
+  nestAdminMetaCenterCampaignProducts,
+  nestAdminMetaCenterListCampaignDrafts,
+  nestAdminMetaCenterCreateCampaign,
   type MetaAdAccountPanel,
   type MetaAdAccountListResponse,
+  type MetaCampaignDraft,
+  type MetaCampaignProductItem,
   type MetaCatalogListResponse,
   type MetaCatalogPanel,
   type MetaCatalogProductPreview,
@@ -86,6 +91,20 @@ const TABS = [
   { id: 'campaigns', label: 'Kampaně' },
   { id: 'mapping', label: 'Mapování' },
 ] as const;
+
+const CAMPAIGN_GOAL_LABELS: Record<string, string> = {
+  traffic: 'Návštěvnost',
+  messages: 'Zprávy',
+  lead: 'Lead',
+  catalog: 'Katalogový prodej',
+};
+
+const CAMPAIGN_STATUS_LABELS: Record<string, string> = {
+  draft: 'Koncept',
+  ready: 'Připraveno',
+  active: 'Aktivní',
+  error: 'Chyba',
+};
 
 type TabId = (typeof TABS)[number]['id'];
 
@@ -333,6 +352,9 @@ export default function MetaCentrumPage() {
   const [datasets, setDatasets] = useState<MetaDatasetListResponse | null>(null);
   const [catalogPanel, setCatalogPanel] = useState<MetaCatalogPanel | null>(null);
   const [catalogProducts, setCatalogProducts] = useState<MetaCatalogProductPreview[]>([]);
+  const [campaignProducts, setCampaignProducts] = useState<MetaCampaignProductItem[]>([]);
+  const [campaignDrafts, setCampaignDrafts] = useState<MetaCampaignDraft[]>([]);
+  const [showCampaignPreview, setShowCampaignPreview] = useState(true);
   const [adAccount, setAdAccount] = useState<MetaAdAccountPanel | null>(null);
   const [catalogList, setCatalogList] = useState<MetaCatalogListResponse | null>(null);
   const [adAccountList, setAdAccountList] = useState<MetaAdAccountListResponse | null>(null);
@@ -355,7 +377,8 @@ export default function MetaCentrumPage() {
 
   const refresh = useCallback(async () => {
     if (!token) return;
-    const [d, l, c, api, apps, ds, cp, products, ad, cats, adList] = await Promise.all([
+    const [d, l, c, api, apps, ds, cp, products, ad, cats, adList, campProducts, campDrafts] =
+      await Promise.all([
       nestAdminMetaCenterDashboard(token),
       nestAdminMetaCenterLogs(token, {
         eventType: logFilter || undefined,
@@ -370,6 +393,8 @@ export default function MetaCentrumPage() {
       nestAdminMetaCenterAdAccount(token),
       nestAdminMetaCenterListCatalogs(token),
       nestAdminMetaCenterListAdAccounts(token),
+      nestAdminMetaCenterCampaignProducts(token),
+      nestAdminMetaCenterListCampaignDrafts(token),
     ]);
     if (d) setDash(d);
     setLogs(l?.items ?? []);
@@ -382,6 +407,8 @@ export default function MetaCentrumPage() {
     setAdAccount(ad);
     setCatalogList(cats);
     setAdAccountList(adList);
+    setCampaignProducts(campProducts?.items ?? []);
+    setCampaignDrafts(campDrafts?.items ?? []);
 
     const warnings = [
       metaCenterEndpointWarning('Dashboard', d),
@@ -443,9 +470,81 @@ export default function MetaCentrumPage() {
   const hasDataset = Boolean(
     dash?.pixel.datasetId ?? dash?.capi.datasetId ?? datasets?.activeDatasetId,
   );
-  const canLaunchCampaigns = Boolean(
-    adAccount?.connected && hasCatalog && hasDataset && marketingOAuthConnected,
+  const hasAdsApi = Boolean(dash?.settings.isMarketingAdsConnected);
+  const hasAdAccount = Boolean(adAccount?.adAccountId ?? dash?.settings.adAccountId);
+
+  const campaignLaunchBlockers = useMemo(() => {
+    const blockers: string[] = [];
+    if (!hasAdsApi) blockers.push('Ads API není připojeno.');
+    if (!hasAdAccount) blockers.push('Reklamní účet není připojen.');
+    if (!hasCatalog) blockers.push('Catalog ID chybí.');
+    if (!hasDataset) blockers.push('Dataset ID chybí.');
+    if (!campaignDraft.name.trim()) blockers.push('Název kampaně je prázdný.');
+    if (!campaignDraft.cityName.trim() && !campaignDraft.locationLabel.trim()) {
+      blockers.push('Lokalita (město) není zadaná.');
+    }
+    if (!campaignDraft.budgetDaily || campaignDraft.budgetDaily <= 0) {
+      blockers.push('Denní rozpočet musí být větší než 0.');
+    }
+    if (!campaignDraft.selectedProductIds.length) {
+      blockers.push('Vyberte alespoň jeden katalogový inzerát.');
+    }
+    if (!campaignDraft.startDate) blockers.push('Datum spuštění není zadané.');
+    if (!campaignDraft.endDate) blockers.push('Datum ukončení není zadané.');
+    if (
+      campaignDraft.startDate &&
+      campaignDraft.endDate &&
+      campaignDraft.endDate < campaignDraft.startDate
+    ) {
+      blockers.push('Datum ukončení musí být po datu spuštění.');
+    }
+    return blockers;
+  }, [campaignDraft, hasAdsApi, hasAdAccount, hasCatalog, hasDataset]);
+
+  const canLaunchCampaign = campaignLaunchBlockers.length === 0;
+
+  const selectedCampaignProducts = useMemo(
+    () =>
+      campaignProducts.filter((p) => campaignDraft.selectedProductIds.includes(p.id)),
+    [campaignProducts, campaignDraft.selectedProductIds],
   );
+
+  async function submitCampaign(mode: 'draft' | 'launch') {
+    if (!token) return;
+    setBusy(true);
+    const lat = campaignDraft.latitude.trim()
+      ? Number.parseFloat(campaignDraft.latitude)
+      : undefined;
+    const lng = campaignDraft.longitude.trim()
+      ? Number.parseFloat(campaignDraft.longitude)
+      : undefined;
+    const r = await nestAdminMetaCenterCreateCampaign(
+      token,
+      {
+        name: campaignDraft.name.trim(),
+        objective: campaignDraft.goal,
+        propertyType: campaignDraft.propertyType,
+        cityName: campaignDraft.cityName.trim() || campaignDraft.locationLabel.trim(),
+        latitude: Number.isFinite(lat) ? lat : undefined,
+        longitude: Number.isFinite(lng) ? lng : undefined,
+        radiusKm: campaignDraft.radiusKm,
+        dailyBudgetCzk: campaignDraft.budgetDaily,
+        startDate: campaignDraft.startDate,
+        endDate: campaignDraft.endDate,
+        selectedProductIds: campaignDraft.selectedProductIds,
+      },
+      mode,
+    );
+    setBusy(false);
+    if (r.ok) {
+      setMsg(r.message ?? (mode === 'draft' ? 'Koncept uložen.' : 'Kampaň odeslána.'));
+      void refresh();
+    } else {
+      const blockerText = r.blockers?.map((b) => b.message).join(' ') ?? '';
+      setMsg(r.message ?? blockerText ?? 'Uložení kampaně selhalo.');
+    }
+  }
+
 
   const settingsFields = useMemo(
     () =>
@@ -2246,6 +2345,9 @@ export default function MetaCentrumPage() {
               </div>
               <div className="mt-4">
                 <h3 className="mb-2 text-sm font-bold">Katalogy v Business Manageru</h3>
+                {catalogList?.catalogListInfo ? (
+                  <p className="mb-2 text-sm text-blue-800">{catalogList.catalogListInfo}</p>
+                ) : null}
                 {catalogList?.listUnavailable ? (
                   <p className="mb-2 text-sm text-amber-800">
                     Seznam katalogů: nelze načíst z Graph API
@@ -2537,13 +2639,8 @@ export default function MetaCentrumPage() {
 
         {tab === 'campaigns' && dash ? (
           <section className="space-y-6">
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-              První reklamy doporučujeme spustit ručně v Meta Ads Manageru. XXREALIT nyní připraví
-              katalog, dataset, feed, publika a návrh kampaně. Ostré spuštění z portálu zatím není
-              aktivní.
-            </div>
             <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-              <h2 className="mb-4 text-lg font-bold">Vytvořit kampaň (koncept)</h2>
+              <h2 className="mb-4 text-lg font-bold">Vytvořit kampaň</h2>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="flex flex-col gap-1 text-sm sm:col-span-2">
                   <span className="font-medium">Název kampaně</span>
@@ -2583,7 +2680,7 @@ export default function MetaCentrumPage() {
                   </select>
                 </label>
                 <label className="flex flex-col gap-1 text-sm sm:col-span-2">
-                  <span className="font-medium">Vyhledání města / adresy</span>
+                  <span className="font-medium">Město / lokalita</span>
                   <input
                     value={campaignDraft.cityName}
                     onChange={(e) =>
@@ -2598,7 +2695,7 @@ export default function MetaCentrumPage() {
                   />
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
-                  <span className="font-medium">Latitude (mapa — skeleton)</span>
+                  <span className="font-medium">Latitude</span>
                   <input
                     value={campaignDraft.latitude}
                     onChange={(e) => setCampaignDraft((d) => ({ ...d, latitude: e.target.value }))}
@@ -2613,17 +2710,6 @@ export default function MetaCentrumPage() {
                     onChange={(e) => setCampaignDraft((d) => ({ ...d, longitude: e.target.value }))}
                     className="rounded-lg border border-zinc-300 px-3 py-2 font-mono text-sm"
                     placeholder="14.4378"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-sm sm:col-span-2">
-                  <span className="font-medium">Bod na mapě (popis)</span>
-                  <input
-                    value={campaignDraft.locationLabel}
-                    onChange={(e) =>
-                      setCampaignDraft((d) => ({ ...d, locationLabel: e.target.value }))
-                    }
-                    className="rounded-lg border border-zinc-300 px-3 py-2"
-                    placeholder="Později výběr bodu na mapě / polygon"
                   />
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
@@ -2672,82 +2758,262 @@ export default function MetaCentrumPage() {
                     className="rounded-lg border border-zinc-300 px-3 py-2"
                   />
                 </label>
-                <div className="sm:col-span-2">
-                  <p className="mb-2 text-sm font-medium">Výběr katalogových produktů</p>
-                  <div className="max-h-48 overflow-y-auto rounded-lg border border-zinc-200 p-2">
-                    {catalogProducts.slice(0, 20).map((p) => (
-                      <label key={p.propertyId} className="flex items-center gap-2 py-1 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={campaignDraft.selectedProductIds.includes(p.propertyId)}
-                          onChange={(e) => {
-                            setCampaignDraft((d) => ({
-                              ...d,
-                              selectedProductIds: e.target.checked
-                                ? [...d.selectedProductIds, p.propertyId]
-                                : d.selectedProductIds.filter((id) => id !== p.propertyId),
-                            }));
-                          }}
-                        />
-                        <span className="truncate">{p.title}</span>
-                        <span className="text-xs text-zinc-500">{p.city ?? ''}</span>
-                      </label>
-                    ))}
-                    {!catalogProducts.length ? (
-                      <p className="text-xs text-zinc-500">Feed zatím nemá položky.</p>
-                    ) : null}
+              </div>
+
+              <div className="mt-6">
+                <h3 className="mb-3 text-sm font-bold">Katalogové inzeráty (feed XXREALIT)</h3>
+                {!campaignProducts.length ? (
+                  <p className="text-sm text-zinc-500">
+                    Feed zatím neobsahuje položky — synchronizujte katalog.
+                  </p>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {campaignProducts.map((p) => {
+                      const selected = campaignDraft.selectedProductIds.includes(p.id);
+                      return (
+                        <article
+                          key={p.id}
+                          className={`overflow-hidden rounded-xl border ${
+                            selected ? 'border-[#1877f2] ring-2 ring-[#1877f2]/30' : 'border-zinc-200'
+                          } bg-white shadow-sm`}
+                        >
+                          <div className="aspect-[4/3] bg-zinc-100">
+                            {p.imageUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={p.imageUrl}
+                                alt={p.title}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-full items-center justify-center text-xs text-zinc-400">
+                                Bez fotky
+                              </div>
+                            )}
+                          </div>
+                          <div className="space-y-1 p-3 text-sm">
+                            <p className="line-clamp-2 font-semibold">{p.title}</p>
+                            <p className="text-zinc-600">
+                              {p.price != null
+                                ? `${p.price.toLocaleString('cs-CZ')} ${p.currency}`
+                                : 'Cena na dotaz'}
+                            </p>
+                            <p className="text-xs text-zinc-500">
+                              {[p.city, p.propertyType].filter(Boolean).join(' · ')}
+                            </p>
+                            {p.address ? (
+                              <p className="text-xs text-zinc-500">{p.address}</p>
+                            ) : null}
+                            <p className="text-xs text-zinc-500">
+                              Dostupnost: {p.availability} · Export: {p.exportStatus}
+                            </p>
+                            <p className="truncate font-mono text-[10px] text-zinc-400">
+                              Catalog Item ID: {p.catalogItemId ?? p.id}
+                            </p>
+                            <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                              <a
+                                href={p.detailUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-[#1877f2] underline"
+                              >
+                                Detail inzerátu
+                              </a>
+                              <label className="flex items-center gap-1.5 text-xs font-medium">
+                                <input
+                                  type="checkbox"
+                                  checked={selected}
+                                  onChange={(e) => {
+                                    setCampaignDraft((d) => ({
+                                      ...d,
+                                      selectedProductIds: e.target.checked
+                                        ? [...d.selectedProductIds, p.id]
+                                        : d.selectedProductIds.filter((id) => id !== p.id),
+                                    }));
+                                  }}
+                                />
+                                Vybrat do kampaně
+                              </label>
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
                   </div>
+                )}
+              </div>
+
+              {showCampaignPreview ? (
+                <div className="mt-6 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-bold text-zinc-800">Náhled reklamy</h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowCampaignPreview(false)}
+                      className="text-xs text-zinc-500 underline"
+                    >
+                      Skrýt
+                    </button>
+                  </div>
+                  <dl className="grid gap-1 text-sm sm:grid-cols-2">
+                    <div>
+                      <dt className="text-xs text-zinc-500">Název kampaně</dt>
+                      <dd className="font-medium">{campaignDraft.name || '—'}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-zinc-500">Cíl</dt>
+                      <dd>{CAMPAIGN_GOAL_LABELS[campaignDraft.goal] ?? campaignDraft.goal}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-zinc-500">Lokalita</dt>
+                      <dd>
+                        {campaignDraft.cityName || campaignDraft.locationLabel || '—'} ·{' '}
+                        {campaignDraft.radiusKm} km
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-zinc-500">Rozpočet</dt>
+                      <dd>{campaignDraft.budgetDaily} Kč / den</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-zinc-500">Období</dt>
+                      <dd>
+                        {campaignDraft.startDate || '—'} → {campaignDraft.endDate || '—'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-zinc-500">Vybrané produkty</dt>
+                      <dd>{campaignDraft.selectedProductIds.length}</dd>
+                    </div>
+                  </dl>
+                  {selectedCampaignProducts.length === 0 ? (
+                    <p className="mt-4 text-sm text-amber-800">
+                      Vyberte alespoň jeden katalogový inzerát.
+                    </p>
+                  ) : (
+                    <div className="mt-4 flex gap-3 overflow-x-auto pb-2">
+                      {selectedCampaignProducts.map((p) => (
+                        <div
+                          key={p.id}
+                          className="w-44 shrink-0 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm"
+                        >
+                          {p.imageUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={p.imageUrl}
+                              alt={p.title}
+                              className="aspect-square w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex aspect-square items-center justify-center bg-zinc-100 text-xs text-zinc-400">
+                              —
+                            </div>
+                          )}
+                          <div className="p-2 text-xs">
+                            <p className="line-clamp-2 font-medium">{p.title}</p>
+                            <p className="text-zinc-600">
+                              {p.price != null
+                                ? `${p.price.toLocaleString('cs-CZ')} ${p.currency}`
+                                : ''}
+                            </p>
+                            <p className="text-zinc-500">{p.city ?? ''}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
-              <div className="mt-4 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">
-                <p className="font-semibold text-zinc-800">Náhled reklamy</p>
-                <p className="mt-2">
-                  {campaignDraft.name || 'Nová kampaň'} ·{' '}
-                  {campaignDraft.goal === 'catalog'
-                    ? 'Dynamické katalogové produkty'
-                    : campaignDraft.goal}{' '}
-                  · {campaignDraft.cityName || campaignDraft.locationLabel || 'lokalita'}{' '}
-                  {campaignDraft.radiusKm} km
-                  {campaignDraft.latitude && campaignDraft.longitude
-                    ? ` (${campaignDraft.latitude}, ${campaignDraft.longitude})`
-                    : ''}{' '}
-                  · {campaignDraft.budgetDaily} Kč/den
-                </p>
-                <p className="mt-1 text-xs text-zinc-500">
-                  Katalogové produkty:{' '}
-                  {campaignDraft.selectedProductIds.length || catalogPanel?.feedItemCount || 0}{' '}
-                  vybráno / ve feedu
-                </p>
-              </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowCampaignPreview(true)}
+                  className="mt-4 text-sm font-medium text-[#1877f2] underline"
+                >
+                  Zobrazit náhled
+                </button>
+              )}
+
+              {campaignLaunchBlockers.length > 0 ? (
+                <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                  <p className="font-medium">Spuštění zatím není možné:</p>
+                  <ul className="mt-1 list-disc pl-5">
+                    {campaignLaunchBlockers.map((b) => (
+                      <li key={b}>{b}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   type="button"
                   disabled={busy || !campaignDraft.name.trim()}
-                  onClick={() => setMsg('Koncept kampaně uložen lokálně (backend API připravuje se).')}
+                  onClick={() => void submitCampaign('draft')}
                   className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-50"
                 >
                   Uložit koncept
                 </button>
                 <button
                   type="button"
-                  disabled
-                  title={
-                    canLaunchCampaigns
-                      ? 'Spuštění kampaní z portálu zatím není aktivní'
-                      : 'Vyžaduje reklamní účet, katalog, dataset a Marketing OAuth'
-                  }
-                  className="rounded-lg bg-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-600"
+                  disabled={busy || !canLaunchCampaign}
+                  onClick={() => void submitCampaign('launch')}
+                  className="rounded-lg bg-[#1877f2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#166fe5] disabled:opacity-50"
                 >
-                  Spustit kampaň (připravuje se)
+                  Spustit kampaň
                 </button>
               </div>
-              {!canLaunchCampaigns ? (
-                <p className="mt-3 text-xs text-zinc-500">
-                  Pro budoucí spuštění: reklamní účet, vybraný katalog, aktivní Dataset (META_DATASET_ID)
-                  a Marketing OAuth (ads_management).
-                </p>
-              ) : null}
             </div>
+
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <h2 className="mb-4 text-lg font-bold">Uložené koncepty a kampaně</h2>
+              {!campaignDrafts.length ? (
+                <p className="text-sm text-zinc-500">Zatím žádné uložené kampaně.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {campaignDrafts.map((c) => (
+                    <li
+                      key={c.id}
+                      className="rounded-xl border border-zinc-200 px-4 py-3 text-sm"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="font-semibold">{c.name}</p>
+                          <p className="text-xs text-zinc-500">
+                            {CAMPAIGN_GOAL_LABELS[c.objective] ?? c.objective} ·{' '}
+                            {c.cityName ?? '—'} · {c.dailyBudgetCzk ?? '—'} Kč/den ·{' '}
+                            {c.selectedProductIds.length} produktů
+                          </p>
+                          {c.metaCampaignId ? (
+                            <p className="mt-1 font-mono text-[10px] text-zinc-500">
+                              Meta Campaign: {c.metaCampaignId}
+                              {c.metaAdSetId ? ` · Ad Set: ${c.metaAdSetId}` : ''}
+                            </p>
+                          ) : null}
+                          {c.errorMessage ? (
+                            <p className="mt-1 text-xs text-red-700">{c.errorMessage}</p>
+                          ) : null}
+                        </div>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                            c.status === 'active'
+                              ? 'bg-emerald-100 text-emerald-900'
+                              : c.status === 'error'
+                                ? 'bg-red-100 text-red-900'
+                                : 'bg-zinc-100 text-zinc-700'
+                          }`}
+                        >
+                          {CAMPAIGN_STATUS_LABELS[c.status] ?? c.status}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[10px] text-zinc-400">
+                        Aktualizováno: {new Date(c.updatedAt).toLocaleString('cs-CZ')}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
             <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
               <h2 className="mb-4 text-lg font-bold">Automatické kampaně</h2>
               <ul className="space-y-2">

@@ -2492,6 +2492,34 @@ model MetaCatalogLog {
   @@index([eventType])
 }
 
+/// Koncepty / kampaně Meta Ads vytvořené z Meta Centra.
+model MetaMarketingCampaignDraft {
+  id                 String    @id @default(cuid())
+  name               String
+  objective          String
+  status             String    @default("draft")
+  adAccountId        String?
+  catalogId          String?
+  datasetId          String?
+  propertyType       String?
+  cityName           String?
+  latitude           Float?
+  longitude          Float?
+  radiusKm           Int?
+  dailyBudgetCzk     Int?
+  startDate          DateTime?
+  endDate            DateTime?
+  selectedProductIds Json      @default("[]")
+  metaCampaignId     String?
+  metaAdSetId        String?
+  metaAdId           String?
+  errorMessage       String?   @db.Text
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+}
+
 /// Centrální nastavení Meta Centra (Pixel, CAPI, Commerce, feedy).
 model MetaCenterSetting {
   id                   String   @id @default("default")

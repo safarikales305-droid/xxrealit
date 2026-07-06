@@ -30,6 +30,9 @@ export const META_CATALOG_LIST_UNAVAILABLE_LABEL = 'nelze načíst z Graph API';
 export const META_CATALOG_LIST_DASHBOARD_WARNING =
   'Nepodařilo se načíst seznam katalogů z Graph API. Připojený katalog je ale funkční.';
 
+export const META_CATALOG_LIST_FEED_INFO =
+  'Seznam katalogů z Graph API nelze načíst, používá se uložený Catalog ID a lokální feed XXREALIT.';
+
 export const META_PERMISSION_WARNING_BUSINESS =
   'Meta aplikace nemá oprávnění business_management. Připojte Commerce / Catalog OAuth nebo přidejte scope do Meta App.';
 

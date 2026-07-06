@@ -30,6 +30,8 @@ import { FacebookConfigService } from '../social/facebook/facebook-config.servic
 import { FacebookAuthService } from '../social/facebook/facebook-auth.service';
 import { MetaCenterApiLogService } from './meta-center-api-log.service';
 import { MetaMarketingDiagnosticsService } from './meta-marketing-diagnostics.service';
+import { MetaCenterCampaignsService } from './meta-center-campaigns.service';
+import { CreateMetaCampaignDto } from './dto/create-meta-campaign.dto';
 import { extractSafeMetaError, metaPanelNotConfigured } from './meta-center-safe-response.util';
 import { resolveMetaOAuthFlow } from './meta-oauth-flows';
 import { META_EXTERNAL_LINKS } from './meta-graph-permissions.util';
@@ -49,6 +51,7 @@ export class MetaCenterAdminController {
     private readonly assets: MetaCenterAssetsService,
     private readonly apiLog: MetaCenterApiLogService,
     private readonly marketingOAuthDiagnostics: MetaMarketingDiagnosticsService,
+    private readonly campaigns: MetaCenterCampaignsService,
   ) {}
 
   private async safeEndpoint<T extends Record<string, unknown>>(
@@ -503,6 +506,43 @@ export class MetaCenterAdminController {
   @Patch('remarketing')
   updateRemarketing(@Body() body: { audiences: unknown }) {
     return this.service.updateRemarketing(body.audiences);
+  }
+
+  @Get('campaign-products')
+  listCampaignProducts() {
+    return this.safeEndpoint(
+      'campaign-products',
+      () => this.campaigns.listCampaignProducts(),
+      (message) => ({ ok: true as const, items: [], message }),
+    );
+  }
+
+  @Get('campaigns/list')
+  listMetaCampaignDrafts() {
+    return this.safeEndpoint(
+      'campaigns/list',
+      () => this.campaigns.listCampaignDrafts(),
+      (message) => ({ ok: true as const, items: [], message }),
+    );
+  }
+
+  @Post('campaigns')
+  createMetaCampaign(
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    body: CreateMetaCampaignDto,
+    @Query('mode') mode?: string,
+  ) {
+    const launchMode = mode === 'launch' ? 'launch' : 'draft';
+    return this.safeEndpoint(
+      'campaigns',
+      () => this.campaigns.createCampaign(body, launchMode),
+      (message) => ({
+        ok: false as const,
+        status: 'error' as const,
+        message,
+        campaign: null,
+      }),
+    );
   }
 
   @Get('campaigns')

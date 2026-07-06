@@ -6462,7 +6462,65 @@ export type MetaCatalogListResponse = MetaCenterSafeResponse & {
   scopeInfo: string;
   listStatus?: 'ok' | 'from_config' | 'graph_unavailable' | 'error';
   listUnavailable?: boolean;
+  catalogListInfo?: string | null;
   error?: string | null;
+};
+
+export type MetaCampaignProductItem = {
+  id: string;
+  listingId: string;
+  catalogItemId: string | null;
+  title: string;
+  price: number | null;
+  currency: string;
+  city: string | null;
+  address: string | null;
+  propertyType: string | null;
+  availability: string;
+  imageUrl: string | null;
+  detailUrl: string;
+  exportStatus: string;
+  lastSyncedAt: string | null;
+};
+
+export type MetaCampaignProductsResponse = {
+  ok: true;
+  items: MetaCampaignProductItem[];
+  message: string | null;
+};
+
+export type MetaCampaignDraft = {
+  id: string;
+  name: string;
+  objective: string;
+  status: string;
+  adAccountId: string | null;
+  catalogId: string | null;
+  datasetId: string | null;
+  propertyType: string | null;
+  cityName: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  radiusKm: number | null;
+  dailyBudgetCzk: number | null;
+  startDate: string | null;
+  endDate: string | null;
+  selectedProductIds: string[];
+  metaCampaignId: string | null;
+  metaAdSetId: string | null;
+  metaAdId: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MetaCampaignCreateResponse = {
+  ok: boolean;
+  status?: string;
+  message?: string;
+  liveEnabled?: boolean;
+  blockers?: Array<{ key: string; message: string }>;
+  campaign: MetaCampaignDraft | null;
 };
 
 export type MetaAdAccountListItem = {
@@ -6959,6 +7017,50 @@ export async function nestAdminMetaCenterSelectAdAccount(
     { method: 'POST', body: JSON.stringify({ adAccountId }) },
   );
   return r.ok ? r.data : { ok: false, error: r.error };
+}
+
+export async function nestAdminMetaCenterCampaignProducts(
+  token: string | null,
+): Promise<MetaCampaignProductsResponse> {
+  const r = await metaCenterFetch<MetaCampaignProductsResponse>(token, '/campaign-products');
+  return r.ok ? r.data : { ok: true, items: [], message: r.error };
+}
+
+export async function nestAdminMetaCenterListCampaignDrafts(
+  token: string | null,
+): Promise<{ ok: true; items: MetaCampaignDraft[]; message?: string }> {
+  const r = await metaCenterFetch<{ ok: true; items: MetaCampaignDraft[]; message?: string }>(
+    token,
+    '/campaigns/list',
+  );
+  return r.ok ? r.data : { ok: true, items: [], message: r.error };
+}
+
+export async function nestAdminMetaCenterCreateCampaign(
+  token: string | null,
+  body: {
+    name: string;
+    objective: string;
+    propertyType?: string;
+    cityName: string;
+    latitude?: number;
+    longitude?: number;
+    radiusKm: number;
+    dailyBudgetCzk: number;
+    startDate: string;
+    endDate: string;
+    selectedProductIds: string[];
+  },
+  mode: 'draft' | 'launch' = 'draft',
+): Promise<MetaCampaignCreateResponse> {
+  const r = await metaCenterFetch<MetaCampaignCreateResponse>(
+    token,
+    `/campaigns?mode=${mode}`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+  return r.ok
+    ? r.data
+    : { ok: false, status: 'error', message: r.error, campaign: null };
 }
 
 export async function nestAdminBonusCampaignDelete(

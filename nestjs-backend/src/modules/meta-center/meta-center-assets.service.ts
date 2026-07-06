@@ -6,6 +6,7 @@ import { META_CATALOG_VIA_BM_MESSAGE } from './meta-graph-permissions.util';
 import {
   isAdvancedAccessGraphError,
   META_CATALOG_LIST_DASHBOARD_WARNING,
+  META_CATALOG_LIST_FEED_INFO,
 } from './meta-graph-permissions.util';
 import { MetaCenterGraphDiagnosticsService } from './meta-center-graph-diagnostics.service';
 import { MetaConnectOAuthService } from './meta-connect-oauth.service';
@@ -93,6 +94,7 @@ export class MetaCenterAssetsService {
       return storedListResponse({
         listStatus: 'from_config',
         listUnavailable: false,
+        catalogListInfo: META_CATALOG_LIST_FEED_INFO,
         message: null,
       })!;
     }
