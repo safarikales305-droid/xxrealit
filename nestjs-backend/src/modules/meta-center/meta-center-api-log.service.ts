@@ -62,6 +62,48 @@ export class MetaCenterApiLogService {
     return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
   }
 
+  async logCatalogGraphCall(input: {
+    endpoint: string;
+    query?: Record<string, string>;
+    scopes: string[];
+    response: unknown;
+    httpStatus?: number | null;
+    errorMessage?: string | null;
+    durationMs?: number | null;
+  }): Promise<void> {
+    const body =
+      input.response && typeof input.response === 'object'
+        ? (input.response as MetaGraphErrorBody)
+        : null;
+    const graphFields = body ? extractMetaGraphErrorFields(body) : null;
+    const errorMessage =
+      input.errorMessage ??
+      (body?.error ? formatMetaGraphErrorMessage(body, input.httpStatus) : null);
+
+    try {
+      await this.prisma.metaCenterApiLog.create({
+        data: {
+          endpoint: `catalog-graph:${input.endpoint}`,
+          method: 'GET',
+          request: this.toJson({
+            endpoint: input.endpoint,
+            query: input.query ?? {},
+            accessTokenScopes: input.scopes,
+          }),
+          response: this.toJson(input.response),
+          httpStatus: input.httpStatus ?? null,
+          errorCode: graphFields?.code ?? null,
+          errorMessage,
+          durationMs: input.durationMs ?? null,
+        },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Catalog graph log write failed (${input.endpoint}): ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
   async logInternalError(
     endpoint: string,
     err: unknown,

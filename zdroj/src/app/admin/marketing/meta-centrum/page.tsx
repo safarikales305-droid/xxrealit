@@ -775,6 +775,12 @@ export default function MetaCentrumPage() {
               </section>
             ) : null}
 
+            {dash?.catalogListWarning ? (
+              <section className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm">
+                <p>{dash.catalogListWarning}</p>
+              </section>
+            ) : null}
+
             {oauthRedirect || activeOAuthPreview ? (
               <section className="space-y-4">
                 {oauthRedirect?.localhostDetected && oauthRedirect.productionMode ? (
@@ -2240,7 +2246,13 @@ export default function MetaCentrumPage() {
               </div>
               <div className="mt-4">
                 <h3 className="mb-2 text-sm font-bold">Katalogy v Business Manageru</h3>
-                {catalogList?.error ? (
+                {catalogList?.listUnavailable ? (
+                  <p className="mb-2 text-sm text-amber-800">
+                    Seznam katalogů: nelze načíst z Graph API
+                    {catalogList.warning ? ` — ${catalogList.warning}` : ''}
+                  </p>
+                ) : null}
+                {catalogList?.error && !catalogList.listUnavailable ? (
                   <MetaApiErrorBlock error={catalogList.error} className="mb-2 text-sm text-amber-800" />
                 ) : null}
                 <div className="space-y-2">
@@ -2277,7 +2289,9 @@ export default function MetaCentrumPage() {
                   ))}
                   {!catalogList?.items?.length ? (
                     <p className="text-sm text-zinc-500">
-                      Žádný katalog v Business Manageru — vytvořte ho v Commerce Manageru nebo zadejte Catalog ID ručně.
+                      {catalogList?.listUnavailable
+                        ? 'Seznam katalogů z Graph API není dostupný (vyžaduje Advanced Access). Použijte uložený Catalog ID nebo zadejte ID ručně.'
+                        : 'Žádný katalog v Business Manageru — vytvořte ho v Commerce Manageru nebo zadejte Catalog ID ručně.'}
                     </p>
                   ) : null}
                 </div>

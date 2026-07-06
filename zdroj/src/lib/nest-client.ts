@@ -6269,6 +6269,8 @@ export type MetaCatalogGraphDiagnostics = {
   requiredScopes?: MetaScopeGrantStatus[];
   permissionWarning?: string | null;
   hasPermissionWarning?: boolean;
+  catalogListUnavailable?: boolean;
+  catalogListWarning?: string | null;
 };
 
 export type MetaPermissionsCheckResult = {
@@ -6395,6 +6397,7 @@ export type MetaCenterDashboard = MetaCenterSafeResponse & {
     toggles: Record<string, boolean>;
     status: string;
   };
+  catalogListWarning?: string | null;
 };
 
 export type MetaCenterEventLogRow = {
@@ -6457,6 +6460,8 @@ export type MetaCatalogListResponse = MetaCenterSafeResponse & {
   items: MetaCatalogListItem[];
   activeCatalogId: string | null;
   scopeInfo: string;
+  listStatus?: 'ok' | 'from_config' | 'graph_unavailable' | 'error';
+  listUnavailable?: boolean;
   error?: string | null;
 };
 
@@ -6504,6 +6509,13 @@ export function metaCenterEndpointWarning(
   data: MetaCenterSafeResponse | null | undefined,
 ): string | null {
   if (!data) return `${label}: endpoint nevrátil data (HTTP chyba).`;
+  const catalogList = data as MetaCatalogListResponse;
+  if (
+    label.includes('Katalog (seznam)') &&
+    (catalogList.listUnavailable || catalogList.listStatus === 'graph_unavailable')
+  ) {
+    return null;
+  }
   if (data.ok === false || data.status === 'not_configured' || data.status === 'error') {
     return `${label}: ${data.message ?? data.error?.message ?? 'Není nakonfigurováno.'}`;
   }

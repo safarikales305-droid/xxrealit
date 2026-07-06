@@ -3,11 +3,16 @@ import { PrismaService } from '../../database/prisma.service';
 import { MetaCatalogSyncService } from '../meta-catalog/meta-catalog-sync.service';
 import { META_AD_ACCOUNT_OPTIONAL_MESSAGE, resolveMetaCenterIds } from './meta-center-env.util';
 import { META_CATALOG_VIA_BM_MESSAGE } from './meta-graph-permissions.util';
+import {
+  isAdvancedAccessGraphError,
+  META_CATALOG_LIST_DASHBOARD_WARNING,
+} from './meta-graph-permissions.util';
 import { MetaCenterGraphDiagnosticsService } from './meta-center-graph-diagnostics.service';
 import { MetaConnectOAuthService } from './meta-connect-oauth.service';
 import { MetaConnectProvisionService } from './meta-connect-provision.service';
 import { META_EXTERNAL_LINKS } from './meta-graph-permissions.util';
 import { MetaGraphClientService } from './meta-graph-client.service';
+import { MetaCenterApiLogService } from './meta-center-api-log.service';
 import {
   metaListNotConfigured,
   metaListOk,
@@ -30,6 +35,7 @@ export class MetaCenterAssetsService {
     private readonly catalogSync: MetaCatalogSyncService,
     private readonly provision: MetaConnectProvisionService,
     private readonly marketingDiag: MetaMarketingDiagnosticsService,
+    private readonly apiLog: MetaCenterApiLogService,
   ) {}
 
   private async getSettingRow() {
@@ -62,60 +68,85 @@ export class MetaCenterAssetsService {
     const row = await this.getSettingRow();
     const ids = resolveMetaCenterIds(row ?? ({} as never));
     const activeCatalogId = ids.catalogId ?? row?.catalogId ?? null;
-    if (!ids.businessId) {
-      if (activeCatalogId) {
-        return metaListOk(
-          [
-            {
-              id: activeCatalogId,
-              name: row?.catalogName ?? activeCatalogId,
-              isActive: true,
-              productCount: null,
-            },
-          ],
-          {
+
+    const storedCatalogItem = activeCatalogId
+      ? {
+          id: activeCatalogId,
+          name: row?.catalogName ?? activeCatalogId,
+          isActive: true,
+          productCount: null as number | null,
+        }
+      : null;
+
+    const storedListResponse = (
+      extra?: Record<string, unknown>,
+    ) =>
+      storedCatalogItem
+        ? metaListOk([storedCatalogItem], {
             activeCatalogId,
             scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
-            warning:
-              'Katalog je uložen v konfiguraci — chybí Business Manager ID pro načtení ze Graph API.',
-          },
-        );
-      }
+            ...extra,
+          })
+        : null;
+
+    if (activeCatalogId) {
+      return storedListResponse({
+        listStatus: 'from_config',
+        listUnavailable: false,
+        message: null,
+      })!;
+    }
+
+    if (!ids.businessId) {
       return metaListNotConfigured(
         'Chybí Business Manager ID — nejdřív připojte Commerce / Catalog OAuth.',
         { activeCatalogId, scopeInfo: META_CATALOG_VIA_BM_MESSAGE },
       );
     }
+
+    const catalogListEndpoint = `/${ids.businessId}/owned_product_catalogs`;
+    const catalogListQuery = { fields: 'id,name,product_count', limit: '50' };
+
     try {
       const token = await this.resolveToken().catch(() => null);
       if (!token) {
-        const storedItems = activeCatalogId
-          ? [
-              {
-                id: activeCatalogId,
-                name: row?.catalogName ?? activeCatalogId,
-                isActive: true,
-                productCount: null,
-              },
-            ]
-          : [];
-        return storedItems.length
-          ? metaListOk(storedItems, {
-              activeCatalogId,
-              scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
-              warning: 'Katalog z DB — chybí access token pro Graph API.',
-            })
-          : metaListNotConfigured('Chybí Meta access token pro načtení katalogů.', {
-              activeCatalogId,
-              scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
-            });
+        return metaListNotConfigured('Chybí Meta access token pro načtení katalogů.', {
+          activeCatalogId,
+          scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
+        });
       }
+
+      const tokenDebug = await this.oauth.debugToken(token).catch(() => ({
+        scopes: [] as string[],
+      }));
+      const scopes = tokenDebug.scopes ?? [];
+
+      const started = Date.now();
       const res = await this.graph.get<
         GraphList<{ id?: string; name?: string; product_count?: number }>
-      >(`/${ids.businessId}/owned_product_catalogs`, token, {
-        fields: 'id,name,product_count',
-        limit: '50',
+      >(catalogListEndpoint, token, catalogListQuery);
+
+      await this.apiLog.logCatalogGraphCall({
+        endpoint: catalogListEndpoint,
+        query: catalogListQuery,
+        scopes,
+        response: res.ok ? res.data : res.data,
+        httpStatus: res.httpStatus,
+        errorMessage: res.ok ? null : res.errorMessage,
+        durationMs: Date.now() - started,
       });
+
+      if (!res.ok && isAdvancedAccessGraphError(res)) {
+        return metaListOk([], {
+          activeCatalogId,
+          scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
+          listStatus: 'graph_unavailable',
+          listUnavailable: true,
+          warning: META_CATALOG_LIST_DASHBOARD_WARNING,
+          graphError: res.data,
+        });
+      }
+
       const items = (res.ok ? res.data.data ?? [] : []).map((c) => ({
         id: c.id ?? '',
         name: c.name ?? c.id ?? 'Katalog',
@@ -123,58 +154,33 @@ export class MetaCenterAssetsService {
         productCount: c.product_count ?? null,
       }));
       const filtered = items.filter((i) => i.id);
-      if (!res.ok && activeCatalogId) {
-        return metaListOk(
-          [
-            {
-              id: activeCatalogId,
-              name: row?.catalogName ?? activeCatalogId,
-              isActive: true,
-              productCount: null,
-            },
-          ],
-          {
-            activeCatalogId,
-            scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
-            warning: res.errorMessage,
-            graphError: res.data,
-          },
-        );
+
+      if (!res.ok) {
+        return metaListOk(filtered, {
+          activeCatalogId,
+          scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
+          listStatus: 'error',
+          listUnavailable: true,
+          warning: res.errorMessage,
+          graphError: res.data,
+        });
       }
+
       return metaListOk(filtered, {
         activeCatalogId,
         scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
-        graphError: res.ok ? null : res.data,
-        ...(res.ok
-          ? {}
-          : {
-              ok: false as const,
-              status: 'error' as const,
-              message: res.errorMessage,
-            }),
+        listStatus: 'ok',
+        listUnavailable: false,
       });
     } catch (err) {
-      const storedItems = activeCatalogId
-        ? [
-            {
-              id: activeCatalogId,
-              name: row?.catalogName ?? activeCatalogId,
-              isActive: true,
-              productCount: null,
-            },
-          ]
-        : [];
-      if (storedItems.length) {
-        return metaListOk(storedItems, {
-          activeCatalogId,
-          scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
-          warning: err instanceof Error ? err.message : 'Nelze načíst katalogy z Graph API.',
-        });
-      }
-      return metaListNotConfigured(
-        err instanceof Error ? err.message : 'Nelze načíst katalogy.',
-        { activeCatalogId, scopeInfo: META_CATALOG_VIA_BM_MESSAGE },
-      );
+      const msg = err instanceof Error ? err.message : 'Nelze načíst katalogy z Graph API.';
+      return metaListOk([], {
+        activeCatalogId,
+        scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
+        listStatus: 'graph_unavailable',
+        listUnavailable: true,
+        warning: msg,
+      });
     }
   }
 

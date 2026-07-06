@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { TokenEncryptionService } from '../social/token-encryption.service';
 import type { MetaDiscoveredResources, MarketingOAuthTokenPersist } from './meta-connect.constants';
+import { resolveMetaCenterIds } from './meta-center-env.util';
 import { MetaGraphClientService } from './meta-graph-client.service';
 
 const SETTINGS_ID = 'default';
@@ -107,6 +108,8 @@ export class MetaConnectDiscoveryService {
   }
 
   async discover(accessToken: string): Promise<MetaDiscoveredResources> {
+    const existingRow = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
+    const existingIds = resolveMetaCenterIds(existingRow ?? ({} as never));
     const warnings: string[] = [];
     const result: MetaDiscoveredResources = {
       user: null,
@@ -189,16 +192,25 @@ export class MetaConnectDiscoveryService {
         warnings.push('Reklamní účet nenalezen.');
       }
 
-      const catalogs = await this.graph.get<GraphList<{ id?: string; name?: string }>>(
-        `/${bmId}/owned_product_catalogs`,
-        accessToken,
-        { fields: 'id,name', limit: '25' },
-      );
-      const catalog = catalogs.ok ? catalogs.data.data?.[0] : undefined;
-      if (catalog?.id) {
-        result.catalog = { id: catalog.id, name: catalog.name ?? catalog.id };
+      const catalogs = existingIds.catalogId
+        ? null
+        : await this.graph.get<GraphList<{ id?: string; name?: string }>>(
+            `/${bmId}/owned_product_catalogs`,
+            accessToken,
+            { fields: 'id,name', limit: '25' },
+          );
+      if (existingIds.catalogId) {
+        result.catalog = {
+          id: existingIds.catalogId,
+          name: existingRow?.catalogName ?? existingIds.catalogId,
+        };
       } else {
-        warnings.push('Katalog nenalezen.');
+        const catalog = catalogs?.ok ? catalogs.data.data?.[0] : undefined;
+        if (catalog?.id) {
+          result.catalog = { id: catalog.id, name: catalog.name ?? catalog.id };
+        } else {
+          warnings.push('Katalog nenalezen.');
+        }
       }
 
       const pixels = await this.graph.get<GraphList<{ id?: string; name?: string }>>(

@@ -983,6 +983,7 @@ export class MetaCenterService {
       ok: warnings.length === 0,
       status: warnings.length ? ('not_configured' as const) : ('ok' as const),
       message: warnings.length ? warnings.join(' ') : null,
+      catalogListWarning: catalogGraph.catalogListWarning ?? null,
       settings,
       services,
       diagnostics,
@@ -1149,6 +1150,7 @@ export class MetaCenterService {
         tokenLabel: META_CAPI_OPTIONAL_MESSAGE,
         capiMessage: null,
       },
+      catalogListWarning: null,
       error: { message, type: 'internal', endpoint: 'dashboard' },
     };
   }
@@ -1181,6 +1183,8 @@ export class MetaCenterService {
       requiredScopes: [],
       permissionWarning: null,
       hasPermissionWarning: false,
+      catalogListUnavailable: false,
+      catalogListWarning: null,
     };
   }
 

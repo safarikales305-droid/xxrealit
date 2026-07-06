@@ -6,6 +6,9 @@ import {
   classifyGraphFailure,
   hasPermissionWarning,
   issueMessage,
+  isAdvancedAccessGraphError,
+  META_CATALOG_LIST_DASHBOARD_WARNING,
+  META_CATALOG_LIST_UNAVAILABLE_LABEL,
   META_CATALOG_VIA_BM_MESSAGE,
   META_PERMISSION_WARNING_BUSINESS,
   type MetaGraphIssueKind,
@@ -13,6 +16,7 @@ import {
 } from './meta-graph-permissions.util';
 import { MetaConnectOAuthService } from './meta-connect-oauth.service';
 import { MetaGraphClientService, type MetaGraphResult } from './meta-graph-client.service';
+import { MetaCenterApiLogService } from './meta-center-api-log.service';
 
 const SETTINGS_ID = 'default';
 
@@ -75,6 +79,8 @@ export type MetaCatalogGraphDiagnostics = {
   requiredScopes: MetaScopeGrantStatus[];
   permissionWarning: string | null;
   hasPermissionWarning: boolean;
+  catalogListUnavailable: boolean;
+  catalogListWarning: string | null;
 };
 
 @Injectable()
@@ -85,6 +91,7 @@ export class MetaCenterGraphDiagnosticsService {
     private readonly prisma: PrismaService,
     private readonly oauth: MetaConnectOAuthService,
     private readonly graph: MetaGraphClientService,
+    private readonly apiLog: MetaCenterApiLogService,
   ) {}
 
   private buildPermissionStatus(scopes: string[]): string {
@@ -185,23 +192,40 @@ export class MetaCenterGraphDiagnosticsService {
     catalogId: string | null;
     catalogName: string | null;
     failure: GraphFailure | null;
+    listUnavailable: boolean;
   }> {
     const endpoint = `/${businessId}/owned_product_catalogs`;
+    const query = { fields: 'id,name', limit: '50' };
     const scopeErr = this.scopeFailure(endpoint, scopes);
     if (scopeErr.kind !== 'ok') {
-      return { catalogId: null, catalogName: null, failure: scopeErr };
+      return { catalogId: null, catalogName: null, failure: scopeErr, listUnavailable: false };
     }
 
+    const started = Date.now();
     const res = await this.graph.get<GraphList<{ id?: string; name?: string }>>(
       endpoint,
       accessToken,
-      { fields: 'id,name', limit: '50' },
+      query,
     );
+
+    await this.apiLog.logCatalogGraphCall({
+      endpoint,
+      query,
+      scopes,
+      response: res.ok ? res.data : res.data,
+      httpStatus: res.httpStatus,
+      errorMessage: res.ok ? null : res.errorMessage,
+      durationMs: Date.now() - started,
+    });
+
     if (!res.ok) {
+      const failure = this.graphFailure(res, endpoint, scopes);
       return {
         catalogId: null,
         catalogName: null,
-        failure: this.graphFailure(res, endpoint, scopes),
+        failure,
+        listUnavailable:
+          failure.kind === 'catalog_list_unavailable' || isAdvancedAccessGraphError(res),
       };
     }
     const list = res.data.data ?? [];
@@ -214,6 +238,7 @@ export class MetaCenterGraphDiagnosticsService {
           message: issueMessage('business_no_catalog'),
           technicalDetail: `GET ${endpoint} — prázdný seznam.`,
         },
+        listUnavailable: false,
       };
     }
     const first = list[0];
@@ -221,6 +246,7 @@ export class MetaCenterGraphDiagnosticsService {
       catalogId: first?.id ?? null,
       catalogName: first?.name ?? null,
       failure: null,
+      listUnavailable: false,
     };
   }
 
@@ -438,6 +464,8 @@ export class MetaCenterGraphDiagnosticsService {
       requiredScopes: buildScopeGrantList([]),
       permissionWarning: null,
       hasPermissionWarning: false,
+      catalogListUnavailable: false,
+      catalogListWarning: null,
     };
 
     let accessToken: string;
@@ -479,10 +507,29 @@ export class MetaCenterGraphDiagnosticsService {
       return base;
     }
 
-    const owned = await this.fetchOwnedProductCatalogs(businessId, accessToken, scopes);
     const configuredCatalogId = ids.catalogId?.trim() || null;
+    let owned: Awaited<ReturnType<typeof this.fetchOwnedProductCatalogs>> = {
+      catalogId: null,
+      catalogName: null,
+      failure: null,
+      listUnavailable: false,
+    };
+
+    if (!configuredCatalogId) {
+      owned = await this.fetchOwnedProductCatalogs(businessId, accessToken, scopes);
+      if (owned.listUnavailable) {
+        base.catalogListUnavailable = true;
+        base.catalogListWarning = META_CATALOG_LIST_DASHBOARD_WARNING;
+        base.graphError = owned.failure?.message ?? META_CATALOG_LIST_UNAVAILABLE_LABEL;
+        base.graphErrorJson = owned.failure?.technicalDetail ?? null;
+      }
+    }
+
     const resolvedCatalogId = configuredCatalogId ?? owned.catalogId;
-    const resolvedCatalogName = owned.catalogName ?? row?.catalogName ?? null;
+    const resolvedCatalogName =
+      configuredCatalogId
+        ? row?.catalogName ?? null
+        : owned.catalogName ?? row?.catalogName ?? null;
 
     if (!resolvedCatalogId) {
       const failure =
@@ -492,19 +539,32 @@ export class MetaCenterGraphDiagnosticsService {
           message: issueMessage('business_no_catalog'),
           technicalDetail: `GET /${businessId}/owned_product_catalogs`,
         } satisfies GraphFailure);
+      if (failure.kind === 'catalog_list_unavailable') {
+        base.catalogListUnavailable = true;
+        base.catalogListWarning = META_CATALOG_LIST_DASHBOARD_WARNING;
+      }
       this.applyCommerceFailure(base, failure);
       this.applyCatalogFailure(base, failure);
       if (scopes.includes('business_management')) {
-        base.commerceIssueKind = failure.kind === 'business_no_catalog' ? 'business_no_catalog' : failure.kind;
-        base.catalogIssueKind = 'business_no_catalog';
+        base.commerceIssueKind =
+          failure.kind === 'business_no_catalog' ? 'business_no_catalog' : failure.kind;
+        base.catalogIssueKind =
+          failure.kind === 'catalog_list_unavailable' ? 'catalog_list_unavailable' : 'business_no_catalog';
         base.hasPermissionWarning = false;
-        base.permissionWarning = META_CATALOG_VIA_BM_MESSAGE;
+        base.permissionWarning =
+          failure.kind === 'catalog_list_unavailable'
+            ? META_CATALOG_LIST_DASHBOARD_WARNING
+            : META_CATALOG_VIA_BM_MESSAGE;
       }
       return base;
     }
 
     base.catalogId = resolvedCatalogId;
     base.catalogName = resolvedCatalogName;
+    if (configuredCatalogId) {
+      base.catalogListUnavailable = false;
+      base.catalogListWarning = null;
+    }
     if (!configuredCatalogId && owned.catalogId) {
       await this.persistDiscoveredCatalog(resolvedCatalogId, resolvedCatalogName);
     }
@@ -548,6 +608,11 @@ export class MetaCenterGraphDiagnosticsService {
 
     base.catalogOnline = true;
     base.catalogIssueKind = catalogNode.ok ? 'ok' : 'catalog_not_in_app';
+    if (owned.listUnavailable && configuredCatalogId) {
+      base.catalogListUnavailable = true;
+      base.catalogListWarning = META_CATALOG_LIST_DASHBOARD_WARNING;
+      base.catalogIssueKind = 'catalog_list_unavailable';
+    }
     const countLabel =
       base.productCount != null ? `${base.productCount} položek` : 'feed připraven';
     base.catalogMessage = catalogNode.ok
