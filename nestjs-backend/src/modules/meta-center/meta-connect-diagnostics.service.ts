@@ -253,38 +253,32 @@ export class MetaConnectDiagnosticsService {
     const catalogOnline = catalogGraph?.catalogOnline ?? catalogEnv.catalogOnline;
     const catalogMessage = catalogGraph?.catalogMessage ?? catalogEnv.catalogMessage;
 
-    if (marketingAccessToken && resolvedIds.businessId) {
-      await this.checkEntity(
-        checks,
-        marketingAccessToken,
-        'business',
-        'Business Manager',
-        resolvedIds.businessId,
-        (id) => `/${id}`,
-        'sync',
-        commerceOnline,
-        commerceOnline ? commerceMessage : commerceMessage,
-        'graph_api',
-      );
-    } else {
-      push(
-        this.integration.buildCheck({
-          key: 'business',
-          label: 'Business Manager',
-          connected: Boolean(resolvedIds.businessId),
-          error: resolvedIds.businessId
-            ? commerceOnline
-              ? null
-              : commerceMessage
-            : 'Chybí FACEBOOK_BUSINESS_ID.',
-          detail: resolvedIds.businessId ? `ID: ${resolvedIds.businessId}` : commerceMessage,
-          fixAction: resolvedIds.businessId ? null : 'fix_env',
-          fixHref: META_FIX_HREFS.metaCatalog,
-          source: resolvedIds.businessId ? 'env' : 'env',
-          apiError: Boolean(resolvedIds.businessId && !commerceOnline && catalogGraph != null),
-        }),
-      );
-    }
+    push(
+      this.integration.buildCheck({
+        key: 'business',
+        label: 'Business Manager',
+        connected: Boolean(resolvedIds.businessId) && (catalogGraph?.commerceOnline || catalogGraph?.catalogOnline || false),
+        error: !resolvedIds.businessId
+          ? 'Chybí FACEBOOK_BUSINESS_ID.'
+          : catalogGraph?.catalogOnline || catalogGraph?.commerceOnline
+            ? null
+            : catalogGraph?.graphErrorJson ?? commerceMessage,
+        detail:
+          resolvedIds.businessId && catalogGraph
+            ? `Business ID ${resolvedIds.businessId}${catalogGraph.businessName ? ` · ${catalogGraph.businessName}` : ''}`
+            : commerceMessage,
+        fixAction: resolvedIds.businessId ? null : 'fix_env',
+        fixHref: META_FIX_HREFS.metaCatalog,
+        source: 'graph_api',
+        apiError: Boolean(
+          resolvedIds.businessId &&
+            marketingAccessToken &&
+            catalogGraph &&
+            !catalogGraph.catalogOnline &&
+            !catalogGraph.commerceOnline,
+        ),
+      }),
+    );
 
     if (marketingAccessToken && row?.adAccountId) {
       await this.checkEntity(

@@ -577,16 +577,22 @@ export default function MetaCentrumPage() {
             {catalogGraph ? (
               <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
                 <h2 className="mb-3 text-lg font-bold">Diagnostika katalogu (Graph API)</h2>
-                <p className="mb-4 text-xs text-zinc-500">
+                <p className="mb-4 whitespace-pre-wrap text-xs text-zinc-500">
                   Ověřeno: {new Date(catalogGraph.graphCheckedAt).toLocaleString('cs-CZ')}
-                  {catalogGraph.graphError ? ` · ${catalogGraph.graphError}` : ''}
+                  {catalogGraph.graphErrorJson
+                    ? `\nGraph API chyba: ${catalogGraph.graphErrorJson}`
+                    : catalogGraph.graphError
+                      ? ` · ${catalogGraph.graphError}`
+                      : ''}
                 </p>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   {[
                     ['Business ID', catalogGraph.businessId],
                     ['Catalog ID', catalogGraph.catalogId],
+                    ['Commerce Manager ID', catalogGraph.commerceManagerId],
                     ['Dataset ID', catalogGraph.datasetId],
                     ['Název katalogu', catalogGraph.catalogName],
+                    ['Commerce Manager', catalogGraph.commerceManagerName ?? catalogGraph.commerceMessage],
                     ['Počet produktů', catalogGraph.productCount ?? '—'],
                     [
                       'Poslední synchronizace',
@@ -601,8 +607,8 @@ export default function MetaCentrumPage() {
                         : '—',
                     ],
                     ['Chyby importu', catalogGraph.importErrorCount],
-                    ['Obrázky načtené Meta', catalogGraph.metaImagesLoaded ?? '—'],
-                    ['Commerce Manager', catalogGraph.commerceMessage],
+                    ['Počet obrázků', catalogGraph.metaImagesLoaded ?? '—'],
+                    ['Počet videí', catalogGraph.metaVideoCount ?? '—'],
                     ['Facebook Catalog', catalogGraph.catalogMessage],
                   ].map(([label, val]) => (
                     <div key={String(label)} className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">

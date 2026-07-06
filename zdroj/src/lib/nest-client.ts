@@ -6135,20 +6135,25 @@ export type MetaConnectionCheck = {
 
 export type MetaCatalogGraphDiagnostics = {
   businessId: string | null;
+  businessName: string | null;
   catalogId: string | null;
+  catalogName: string | null;
+  commerceManagerId: string | null;
+  commerceManagerName: string | null;
   datasetId: string | null;
   commerceOnline: boolean;
   commerceMessage: string;
   catalogOnline: boolean;
   catalogMessage: string;
-  catalogName: string | null;
   productCount: number | null;
   lastCatalogUpdate: string | null;
   lastLocalSync: string | null;
   importErrorCount: number;
   metaImagesLoaded: number | null;
+  metaVideoCount: number | null;
   graphCheckedAt: string;
   graphError: string | null;
+  graphErrorJson: string | null;
 };
 
 export type MetaCenterApiLogRow = {
