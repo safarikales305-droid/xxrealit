@@ -6350,6 +6350,8 @@ export type MetaCenterDashboard = {
     datasetId?: string | null;
     trackingMode?: 'pixel' | 'dataset' | 'none';
     datasetMessage?: string | null;
+    pixelPlaceholderMessage?: string | null;
+    legacyDatasetNote?: string | null;
     lastEventAt: string | null;
     eventsToday: number;
     eventsMonth: number;
@@ -6377,6 +6379,62 @@ export type MetaCenterEventLogRow = {
   response: unknown;
   request: unknown;
   source: string | null;
+};
+
+export type MetaDatasetListItem = {
+  id: string;
+  name: string;
+  isActive: boolean;
+  lastFiredTime: string | null;
+  sourceApp: string | null;
+};
+
+export type MetaDatasetListResponse = {
+  items: MetaDatasetListItem[];
+  activeDatasetId: string | null;
+  error: string | null;
+};
+
+export type MetaCatalogPanel = {
+  catalogId: string | null;
+  catalogName: string | null;
+  businessId: string | null;
+  commerceManagerId: string | null;
+  commerceOnline: boolean;
+  catalogOnline: boolean;
+  catalogManagementGranted: boolean;
+  catalogPermissionsStatus: string | null;
+  catalogConnectedAt: string | null;
+  productCount: number | null;
+  feedItemCount: number | null;
+  lastSyncAt: string | null;
+  commerceManagerUrl: string;
+  catalogsUrl: string;
+};
+
+export type MetaCatalogProductPreview = {
+  propertyId: string;
+  title: string;
+  price: number | null;
+  currency: string;
+  city: string | null;
+  image: string | null;
+  availability: string;
+  exportStatus: string;
+  lastExportedAt: string | null;
+  metaProductId: string | null;
+  lastError: string | null;
+};
+
+export type MetaAdAccountPanel = {
+  connected: boolean;
+  optional: boolean;
+  message: string | null;
+  adAccountId: string | null;
+  name: string | null;
+  currency: string | null;
+  timezone: string | null;
+  accountStatus?: number | null;
 };
 
 async function metaCenterFetch<T>(
@@ -6673,6 +6731,69 @@ export async function nestAdminMetaCenterTestAllEvents(token: string | null) {
     ok: boolean;
     results: Array<{ event: string; ok: boolean; error?: string }>;
   }>(token, '/events/test-all', { method: 'POST' });
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterListDatasets(token: string | null) {
+  const r = await metaCenterFetch<MetaDatasetListResponse>(token, '/datasets');
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterSelectDataset(
+  token: string | null,
+  datasetId: string,
+): Promise<{ ok: boolean; datasetId?: string; error?: string }> {
+  const r = await metaCenterFetch<{ ok: boolean; datasetId?: string; error?: string }>(
+    token,
+    '/datasets/select',
+    { method: 'POST', body: JSON.stringify({ datasetId }) },
+  );
+  return r.ok ? r.data : { ok: false, error: r.error };
+}
+
+export async function nestAdminMetaCenterCatalogPanel(token: string | null) {
+  const r = await metaCenterFetch<MetaCatalogPanel>(token, '/catalog/panel');
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterCatalogProducts(token: string | null, take = 50) {
+  const r = await metaCenterFetch<{ items: MetaCatalogProductPreview[] }>(
+    token,
+    `/catalog/products?take=${take}`,
+  );
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterConnectCatalog(
+  token: string | null,
+  catalogId: string,
+): Promise<{ ok: boolean; catalogId?: string; error?: string }> {
+  const r = await metaCenterFetch<{ ok: boolean; catalogId?: string; error?: string }>(
+    token,
+    '/catalog/connect',
+    { method: 'POST', body: JSON.stringify({ catalogId }) },
+  );
+  return r.ok ? r.data : { ok: false, error: r.error };
+}
+
+export async function nestAdminMetaCenterCreateCatalog(token: string | null) {
+  const r = await metaCenterFetch<{ ok: boolean; catalogId?: string; error?: string }>(
+    token,
+    '/catalog/create',
+    { method: 'POST' },
+  );
+  return r.ok ? r.data : { ok: false, error: r.error };
+}
+
+export async function nestAdminMetaCenterSyncCatalog(token: string | null) {
+  const r = await metaCenterFetch<{ ok: boolean; error?: string }>(token, '/catalog/sync', {
+    method: 'POST',
+  });
+  return r.ok ? r.data : { ok: false, error: r.error };
+}
+
+export async function nestAdminMetaCenterAdAccount(token: string | null) {
+  const r = await metaCenterFetch<MetaAdAccountPanel>(token, '/ad-account');
   return r.ok ? r.data : null;
 }
 

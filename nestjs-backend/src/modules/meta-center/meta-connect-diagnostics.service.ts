@@ -12,9 +12,12 @@ import {
   MetaCenterIntegrationStatusService,
 } from './meta-center-integration-status.service';
 import {
+  META_AD_ACCOUNT_OPTIONAL_MESSAGE,
   META_CAPI_OPTIONAL_MESSAGE,
   META_DATASET_V21_MESSAGE,
+  META_PIXEL_PLACEHOLDER_MESSAGE,
   hasMetaEventTracking,
+  hasPlaceholderPixelEnv,
   resolveMetaCenterIds,
   resolveMetaTrackingMode,
 } from './meta-center-env.util';
@@ -310,13 +313,14 @@ export class MetaConnectDiagnosticsService {
       }),
     );
 
-    if (marketingAccessToken && row?.adAccountId) {
+    const adAccountId = resolvedIds.adAccountId ?? row?.adAccountId ?? null;
+    if (marketingAccessToken && adAccountId) {
       await this.checkEntity(
         checks,
         marketingAccessToken,
         'ad_account',
         'Reklamní účet',
-        row.adAccountId,
+        adAccountId,
         (id) => `/act_${id.replace(/^act_/, '')}`,
         'sync',
         undefined,
@@ -328,13 +332,13 @@ export class MetaConnectDiagnosticsService {
         this.integration.buildCheck({
           key: 'ad_account',
           label: 'Reklamní účet',
-          connected: Boolean(row?.adAccountId),
-          optional: !row?.adAccountId,
-          error: row?.adAccountId ? null : 'Volitelné — propojte přes Meta Connect.',
-          fixAction: 'reconnect',
+          connected: Boolean(adAccountId),
+          optional: !adAccountId,
+          error: adAccountId ? null : META_AD_ACCOUNT_OPTIONAL_MESSAGE,
+          fixAction: adAccountId ? null : 'reconnect',
           fixHref: META_FIX_HREFS.metaCenter,
-          source: 'meta_connect',
-          detail: row?.adAccountName ?? row?.adAccountId ?? null,
+          source: adAccountId ? 'meta_connect' : 'env',
+          detail: row?.adAccountName ?? adAccountId ?? null,
         }),
       );
     }
@@ -422,7 +426,7 @@ export class MetaConnectDiagnosticsService {
           label: 'Dataset',
           connected: true,
           optional: false,
-          detail: `Dataset ID ${resolvedIds.datasetId} (Graph API v21+)`,
+          detail: `Dataset Online / Připojeno — ID ${resolvedIds.datasetId}`,
           source: 'env',
         }),
       );
@@ -431,8 +435,20 @@ export class MetaConnectDiagnosticsService {
     }
 
     const pixelId = resolvedIds.pixelId;
+    const placeholderPixel = hasPlaceholderPixelEnv();
     if (!pixelId) {
-      if (resolvedIds.datasetId) {
+      if (placeholderPixel && resolvedIds.datasetId) {
+        push(
+          this.integration.buildCheck({
+            key: 'pixel',
+            label: 'Pixel',
+            connected: true,
+            optional: true,
+            detail: META_PIXEL_PLACEHOLDER_MESSAGE,
+            source: 'env',
+          }),
+        );
+      } else if (resolvedIds.datasetId) {
         push(
           this.integration.buildCheck({
             key: 'pixel',
@@ -440,6 +456,17 @@ export class MetaConnectDiagnosticsService {
             connected: true,
             optional: true,
             detail: META_DATASET_V21_MESSAGE,
+            source: 'env',
+          }),
+        );
+      } else if (placeholderPixel) {
+        push(
+          this.integration.buildCheck({
+            key: 'pixel',
+            label: 'Pixel',
+            connected: false,
+            optional: true,
+            detail: META_PIXEL_PLACEHOLDER_MESSAGE,
             source: 'env',
           }),
         );

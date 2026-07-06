@@ -25,6 +25,7 @@ import { MetaConnectDiagnosticsService } from './meta-connect-diagnostics.servic
 import { MetaConnectProvisionService } from './meta-connect-provision.service';
 import { MetaConnectEventsService } from './meta-connect-events.service';
 import { MetaConnectSyncCronService } from './meta-connect-sync.cron.service';
+import { MetaCenterAssetsService } from './meta-center-assets.service';
 import { FacebookConfigService } from '../social/facebook/facebook-config.service';
 import { FacebookAuthService } from '../social/facebook/facebook-auth.service';
 import { resolveMetaOAuthFlow } from './meta-oauth-flows';
@@ -41,6 +42,7 @@ export class MetaCenterAdminController {
     private readonly connectSync: MetaConnectSyncCronService,
     private readonly fbConfig: FacebookConfigService,
     private readonly facebookAuth: FacebookAuthService,
+    private readonly assets: MetaCenterAssetsService,
   ) {}
 
   @Get('apps')
@@ -282,6 +284,47 @@ export class MetaCenterAdminController {
   @Get('commerce')
   getCommerce() {
     return this.service.getCommercePanel();
+  }
+
+  @Get('datasets')
+  listDatasets() {
+    return this.assets.listDatasets();
+  }
+
+  @Post('datasets/select')
+  selectDataset(@Body() body: { datasetId: string }) {
+    return this.assets.selectDataset(body.datasetId ?? '');
+  }
+
+  @Get('catalog/panel')
+  catalogPanel() {
+    return this.assets.getCatalogPanel();
+  }
+
+  @Get('catalog/products')
+  catalogProducts(@Query('take') takeRaw?: string) {
+    const take = Number(takeRaw);
+    return this.assets.listCatalogProducts(Number.isFinite(take) ? take : 50);
+  }
+
+  @Post('catalog/connect')
+  connectCatalog(@Body() body: { catalogId: string }) {
+    return this.assets.connectExistingCatalog(body.catalogId ?? '');
+  }
+
+  @Post('catalog/create')
+  createCatalog() {
+    return this.assets.createCatalogAsset();
+  }
+
+  @Post('catalog/sync')
+  syncCatalog() {
+    return this.assets.syncCatalogFeed();
+  }
+
+  @Get('ad-account')
+  adAccountPanel() {
+    return this.assets.getAdAccountPanel();
   }
 
   @Get('feeds/stats')

@@ -50,6 +50,9 @@ export type MetaOAuthFlowGrant = {
   grantedScopes: string[];
   requestedScopes: string[];
   connectedAt: string;
+  businessId?: string | null;
+  catalogManagementGranted?: boolean;
+  catalogPermissionsStatus?: 'granted' | 'missing' | 'partial';
 };
 
 export type MetaOAuthFlowGrantMap = Partial<Record<string, MetaOAuthFlowGrant>>;
@@ -494,7 +497,9 @@ export class MetaConnectOAuthService {
 
   async buildOAuthFlowsDiagnostics() {
     const grants = await this.getOAuthFlowGrants();
-    return Object.values(META_OAUTH_FLOWS).map((flow) => {
+    return Object.values(META_OAUTH_FLOWS)
+      .filter((flow) => !flow.hiddenInMetaCenterOAuth)
+      .map((flow) => {
       const resolved = resolveScopesForOAuthFlow(flow.key);
       const grant = grants[flow.key];
       const grantedSet = new Set(grant?.grantedScopes ?? []);
@@ -544,10 +549,21 @@ export class MetaConnectOAuthService {
     return grants as MetaOAuthFlowGrantMap;
   }
 
+  private catalogPermissionsStatus(
+    grantedScopes: string[],
+  ): MetaOAuthFlowGrant['catalogPermissionsStatus'] {
+    const hasBusiness = grantedScopes.includes('business_management');
+    const hasCatalog = grantedScopes.includes('catalog_management');
+    if (hasBusiness && hasCatalog) return 'granted';
+    if (!hasBusiness && !hasCatalog) return 'missing';
+    return 'partial';
+  }
+
   private async persistOAuthFlowGrant(
     flow: MetaOAuthFlowKey,
     grantedScopes: string[],
     connectedAt: Date,
+    extra?: { businessId?: string | null },
   ) {
     const flowKey = normalizeMetaOAuthFlowKey(flow) ?? 'pages';
     const flowDef = getMetaOAuthFlowDefinition(flowKey);
@@ -560,10 +576,17 @@ export class MetaConnectOAuthService {
       snap.oauthFlowGrants && typeof snap.oauthFlowGrants === 'object'
         ? ({ ...(snap.oauthFlowGrants as Record<string, unknown>) } as MetaOAuthFlowGrantMap)
         : ({} as MetaOAuthFlowGrantMap);
+    const catalogManagementGranted = grantedScopes.includes('catalog_management');
     grants[flowKey] = {
       grantedScopes,
       requestedScopes: [...flowDef.scopes],
       connectedAt: connectedAt.toISOString(),
+      businessId: extra?.businessId ?? grants[flowKey]?.businessId ?? null,
+      catalogManagementGranted,
+      catalogPermissionsStatus:
+        flowKey === 'catalog'
+          ? this.catalogPermissionsStatus(grantedScopes)
+          : grants[flowKey]?.catalogPermissionsStatus,
     };
     snap.oauthFlowGrants = grants;
     await this.prisma.metaCenterSetting.upsert({
@@ -571,9 +594,11 @@ export class MetaConnectOAuthService {
       create: {
         id: SETTINGS_ID,
         diagnosticsSnapshot: snap as Prisma.InputJsonValue,
+        businessManagerId: extra?.businessId ?? undefined,
       },
       update: {
         diagnosticsSnapshot: snap as Prisma.InputJsonValue,
+        ...(extra?.businessId ? { businessManagerId: extra.businessId } : {}),
       },
     });
   }
@@ -1030,7 +1055,6 @@ export class MetaConnectOAuthService {
       const tokenDebug = await this.debugToken(userToken);
       const grantedScopes =
         tokenDebug.scopes.length > 0 ? tokenDebug.scopes : grantedFromCallback;
-      await this.persistOAuthFlowGrant(oauthFlow, grantedScopes, new Date());
 
       if (oauthFlow !== 'login') {
         await this.autopostOAuth.persistSharedPagesUserToken(
@@ -1051,6 +1075,10 @@ export class MetaConnectOAuthService {
         oauthFlow === 'login'
           ? null
           : await this.discovery.discoverAndPersist(userToken);
+
+      await this.persistOAuthFlowGrant(oauthFlow, grantedScopes, new Date(), {
+        businessId: discovered?.business?.id ?? null,
+      });
       await this.cleanupSession(session.userId);
 
       this.logger.log(

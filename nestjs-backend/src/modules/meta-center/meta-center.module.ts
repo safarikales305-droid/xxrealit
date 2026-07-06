@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { MetaCatalogModule } from '../meta-catalog/meta-catalog.module';
 import { SocialModule } from '../social/social.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
+import { MetaCenterAssetsService } from './meta-center-assets.service';
 import { MetaCenterAdminController } from './meta-center-admin.controller';
 import { MetaCenterPublicController } from './meta-center-public.controller';
 import { MetaCenterService } from './meta-center.service';
@@ -32,6 +33,7 @@ import { MetaGraphClientService } from './meta-graph-client.service';
     MetaConnectSyncCronService,
     MetaCenterGraphDiagnosticsService,
     MetaCenterIntegrationStatusService,
+    MetaCenterAssetsService,
   ],
   exports: [MetaCenterService, MetaConnectOAuthService],
 })

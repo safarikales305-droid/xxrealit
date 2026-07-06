@@ -26,6 +26,18 @@ import {
   nestAdminMetaCenterTestAll,
   nestAdminMetaCenterTestService,
   nestAdminMetaCenterValidateFeed,
+  nestAdminMetaCenterListDatasets,
+  nestAdminMetaCenterSelectDataset,
+  nestAdminMetaCenterCatalogPanel,
+  nestAdminMetaCenterCatalogProducts,
+  nestAdminMetaCenterConnectCatalog,
+  nestAdminMetaCenterCreateCatalog,
+  nestAdminMetaCenterSyncCatalog,
+  nestAdminMetaCenterAdAccount,
+  type MetaAdAccountPanel,
+  type MetaCatalogPanel,
+  type MetaCatalogProductPreview,
+  type MetaDatasetListResponse,
   type MetaCenterApiLogRow,
   type MetaCenterDashboard,
   type MetaCenterEventLogRow,
@@ -53,6 +65,7 @@ const TABS = [
   { id: 'pixel', label: 'Pixel' },
   { id: 'capi', label: 'Conversions API' },
   { id: 'commerce', label: 'Commerce' },
+  { id: 'catalog', label: 'Katalog' },
   { id: 'feeds', label: 'Feedy' },
   { id: 'logs', label: 'Logy událostí' },
   { id: 'api-logs', label: 'Meta API logy' },
@@ -259,10 +272,25 @@ export default function MetaCentrumPage() {
     localhostWarning?: string | null;
     canonicalRedirectUri?: string;
   } | null>(null);
+  const [datasets, setDatasets] = useState<MetaDatasetListResponse | null>(null);
+  const [catalogPanel, setCatalogPanel] = useState<MetaCatalogPanel | null>(null);
+  const [catalogProducts, setCatalogProducts] = useState<MetaCatalogProductPreview[]>([]);
+  const [adAccount, setAdAccount] = useState<MetaAdAccountPanel | null>(null);
+  const [connectCatalogId, setConnectCatalogId] = useState('');
+  const [campaignDraft, setCampaignDraft] = useState({
+    name: '',
+    goal: 'traffic',
+    propertyType: 'byt',
+    radiusKm: 15,
+    budgetDaily: 200,
+    startDate: '',
+    endDate: '',
+    locationLabel: '',
+  });
 
   const refresh = useCallback(async () => {
     if (!token) return;
-    const [d, l, c, api, apps] = await Promise.all([
+    const [d, l, c, api, apps, ds, cp, products, ad] = await Promise.all([
       nestAdminMetaCenterDashboard(token),
       nestAdminMetaCenterLogs(token, {
         eventType: logFilter || undefined,
@@ -271,12 +299,20 @@ export default function MetaCentrumPage() {
       nestAdminMetaCenterConnectionStatus(token),
       nestAdminMetaCenterApiLogs(token, 80),
       nestAdminMetaCenterApps(token),
+      nestAdminMetaCenterListDatasets(token),
+      nestAdminMetaCenterCatalogPanel(token),
+      nestAdminMetaCenterCatalogProducts(token, 50),
+      nestAdminMetaCenterAdAccount(token),
     ]);
     if (d) setDash(d);
     setLogs(l?.items ?? []);
     if (c) setConnection({ checklist: c.checklist, diagnostics: c.diagnostics });
     setApiLogs(api?.items ?? []);
     setAppsConfig(apps ?? c?.apps ?? d?.settings.facebookApps ?? null);
+    setDatasets(ds);
+    setCatalogPanel(cp);
+    setCatalogProducts(products?.items ?? []);
+    setAdAccount(ad);
   }, [token, logFilter]);
 
   useEffect(() => {
@@ -322,6 +358,9 @@ export default function MetaCentrumPage() {
   const lastOAuthCallback = dash?.lastOAuthCallback ?? null;
   const oauthCompleted = dash?.oauthCompleted ?? null;
   const oauthFlows = dash?.oauthFlows ?? [];
+  const catalogOAuthConnected =
+    oauthFlows.find((f) => f.key === 'catalog')?.status === 'connected';
+  const canLaunchCampaigns = Boolean(catalogOAuthConnected && adAccount?.connected);
 
   const settingsFields = useMemo(
     () =>
@@ -528,7 +567,6 @@ export default function MetaCentrumPage() {
                 ['catalog', 'Katalog'],
                 ['marketing', 'Marketing'],
                 ['instagram', 'Instagram'],
-                ['whatsapp', 'WhatsApp'],
               ] as const
             ).map(([flow, label]) => {
               const flowInfo = oauthFlows.find((f) => f.key === flow);
@@ -1433,6 +1471,38 @@ export default function MetaCentrumPage() {
 
         {tab === 'settings' && dash ? (
           <section className="space-y-6">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+              <h2 className="mb-2 text-lg font-bold">Reklamní účet</h2>
+              {adAccount?.connected ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {[
+                    ['Stav', 'Připojeno'],
+                    ['Ad Account ID', adAccount.adAccountId],
+                    ['Název', adAccount.name],
+                    ['Měna', adAccount.currency],
+                    ['Časová zóna', adAccount.timezone],
+                  ].map(([label, val]) => (
+                    <div key={String(label)} className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+                      <p className="text-xs font-medium text-zinc-500">{label}</p>
+                      <p className="mt-1 break-all font-mono text-xs">{String(val ?? '—')}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+                  {adAccount?.message ?? 'Reklamní účet není nastavený. Je potřeba až pro spouštění kampaní.'}
+                </p>
+              )}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void connectMetaFlow('marketing')}
+                className="mt-4 rounded-lg border border-[#1877f2] px-4 py-2 text-sm font-semibold text-[#1877f2] hover:bg-blue-50"
+              >
+                Připojit reklamní účet
+              </button>
+            </div>
+
             <div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-6 shadow-sm">
               <h2 className="text-lg font-bold text-blue-900">A) Facebook Login</h2>
               <p className="mt-1 text-sm text-blue-800">
@@ -1550,6 +1620,17 @@ export default function MetaCentrumPage() {
             {dash.pixel.datasetMessage ? (
               <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
                 {dash.pixel.datasetMessage}
+                {dash.pixel.datasetId ? ` — ID ${dash.pixel.datasetId}` : ''}
+              </p>
+            ) : null}
+            {dash.pixel.pixelPlaceholderMessage ? (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                {dash.pixel.pixelPlaceholderMessage}
+              </p>
+            ) : null}
+            {dash.pixel.legacyDatasetNote ? (
+              <p className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+                {dash.pixel.legacyDatasetNote}
               </p>
             ) : null}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -1566,6 +1647,58 @@ export default function MetaCentrumPage() {
                   <p className="text-lg font-bold">{v}</p>
                 </div>
               ))}
+            </div>
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <h3 className="mb-3 font-bold">Výběr Datasetu (Graph API)</h3>
+              {datasets?.error ? (
+                <p className="mb-3 text-sm text-amber-800">{datasets.error}</p>
+              ) : null}
+              <p className="mb-3 text-xs text-zinc-500">
+                Aktivní Dataset:{' '}
+                <strong>{datasets?.activeDatasetId ?? dash.pixel.datasetId ?? '—'}</strong>
+              </p>
+              <div className="space-y-2">
+                {(datasets?.items ?? []).map((ds) => (
+                  <div
+                    key={ds.id}
+                    className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm ${
+                      ds.isActive ? 'border-emerald-300 bg-emerald-50' : 'border-zinc-200'
+                    }`}
+                  >
+                    <div>
+                      <p className="font-semibold">{ds.name}</p>
+                      <p className="font-mono text-xs text-zinc-500">ID: {ds.id}</p>
+                      <p className="text-xs text-zinc-500">
+                        Aktivita:{' '}
+                        {ds.lastFiredTime
+                          ? new Date(ds.lastFiredTime).toLocaleString('cs-CZ')
+                          : '—'}
+                        {ds.sourceApp ? ` · ${ds.sourceApp}` : ''}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={busy || ds.isActive}
+                      onClick={async () => {
+                        if (!token) return;
+                        setBusy(true);
+                        const r = await nestAdminMetaCenterSelectDataset(token, ds.id);
+                        setBusy(false);
+                        setMsg(r.ok ? `Dataset ${ds.id} uložen.` : r.error ?? 'Uložení selhalo.');
+                        void refresh();
+                      }}
+                      className="rounded-lg bg-[#1877f2] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                    >
+                      {ds.isActive ? 'Aktivní' : 'Použít tento Dataset'}
+                    </button>
+                  </div>
+                ))}
+                {!datasets?.items?.length ? (
+                  <p className="text-sm text-zinc-500">
+                    Žádné datasety z Graph API — nejdřív připojte Commerce / Catalog OAuth.
+                  </p>
+                ) : null}
+              </div>
             </div>
             <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
               <h3 className="mb-3 font-bold">Testovací události</h3>
@@ -1643,9 +1776,9 @@ export default function MetaCentrumPage() {
             {[
               { title: 'Business Manager', id: dash.settings.businessManagerId },
               { title: 'Commerce Manager', id: dash.settings.commerceManagerId },
-              { title: 'Catalog', id: dash.settings.catalogId },
-              { title: 'Dataset', id: dash.settings.datasetId },
-              { title: 'Pixel', id: dash.settings.pixelId },
+              { title: 'Catalog', id: catalogPanel?.catalogId ?? dash.settings.catalogId },
+              { title: 'Dataset', id: dash.pixel.datasetId ?? dash.settings.datasetId },
+              { title: 'Pixel', id: dash.pixel.pixelId ?? '— (volitelný)' },
               { title: 'Feed', id: dash.catalog.enabled ? 'aktivní' : 'vypnutý' },
             ].map((row) => (
               <div key={row.title} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
@@ -1653,12 +1786,181 @@ export default function MetaCentrumPage() {
                 <p className="text-sm text-zinc-500">ID: {row.id ?? '—'}</p>
                 <p className="text-xs text-zinc-400">
                   Sync:{' '}
-                  {dash.catalog.lastGeneratedAt
-                    ? new Date(dash.catalog.lastGeneratedAt).toLocaleString('cs-CZ')
-                    : '—'}
+                  {catalogPanel?.lastSyncAt
+                    ? new Date(catalogPanel.lastSyncAt).toLocaleString('cs-CZ')
+                    : dash.catalog.lastGeneratedAt
+                      ? new Date(dash.catalog.lastGeneratedAt).toLocaleString('cs-CZ')
+                      : '—'}
                 </p>
               </div>
             ))}
+            <div className="sm:col-span-2 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <p className="text-sm text-zinc-600">
+                Podrobná správa katalogu, synchronizace a produktů je v záložce{' '}
+                <button type="button" onClick={() => setTab('catalog')} className="text-[#1877f2] underline">
+                  Katalog
+                </button>
+                .
+              </p>
+            </div>
+          </section>
+        ) : null}
+
+        {tab === 'catalog' && dash ? (
+          <section className="space-y-6">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-bold">Katalog nemovitostí</h2>
+                  <p className="text-sm text-zinc-500">
+                    Commerce / Catalog OAuth — scopes: business_management, catalog_management
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void connectMetaFlow('catalog')}
+                    className="rounded-lg bg-[#1877f2] px-3 py-2 text-xs font-semibold text-white"
+                  >
+                    Připojit Catalog OAuth
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={async () => {
+                      if (!token) return;
+                      setBusy(true);
+                      const r = await nestAdminMetaCenterCreateCatalog(token);
+                      setBusy(false);
+                      setMsg(r.ok ? `Katalog vytvořen: ${r.catalogId ?? ''}` : r.error ?? 'Chyba');
+                      void refresh();
+                    }}
+                    className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold"
+                  >
+                    Vytvořit katalog
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={async () => {
+                      if (!token) return;
+                      setBusy(true);
+                      const r = await nestAdminMetaCenterSyncCatalog(token);
+                      setBusy(false);
+                      setMsg(r.ok ? 'Synchronizace spuštěna.' : r.error ?? 'Sync selhal.');
+                      void refresh();
+                    }}
+                    className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold"
+                  >
+                    Synchronizovat feed
+                  </button>
+                  <a
+                    href={catalogPanel?.commerceManagerUrl ?? META_EXTERNAL_LINKS.commerceManager}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                  >
+                    Otevřít Commerce Manager
+                  </a>
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  ['Catalog ID', catalogPanel?.catalogId],
+                  ['Název katalogu', catalogPanel?.catalogName],
+                  ['Položek ve feedu', catalogPanel?.feedItemCount],
+                  ['Produktů v Meta', catalogPanel?.productCount],
+                  ['Poslední synchronizace', catalogPanel?.lastSyncAt ? new Date(catalogPanel.lastSyncAt).toLocaleString('cs-CZ') : '—'],
+                  ['catalog_management', catalogPanel?.catalogManagementGranted ? 'schváleno' : catalogPanel?.catalogPermissionsStatus ?? 'chybí'],
+                  ['Catalog OAuth', catalogPanel?.catalogConnectedAt ? new Date(catalogPanel.catalogConnectedAt).toLocaleString('cs-CZ') : '—'],
+                  ['Commerce online', catalogPanel?.commerceOnline ? 'ano' : 'ne'],
+                ].map(([label, val]) => (
+                  <div key={String(label)} className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+                    <p className="text-xs font-medium text-zinc-500">{label}</p>
+                    <p className="mt-1 break-all text-xs">{String(val ?? '—')}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 flex flex-wrap items-end gap-2">
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="text-xs font-medium text-zinc-500">Připojit existující katalog (ID)</span>
+                  <input
+                    value={connectCatalogId}
+                    onChange={(e) => setConnectCatalogId(e.target.value)}
+                    placeholder="např. 1234567890"
+                    className="rounded-lg border border-zinc-300 px-3 py-2 font-mono text-sm"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={busy || !connectCatalogId.trim()}
+                  onClick={async () => {
+                    if (!token) return;
+                    setBusy(true);
+                    const r = await nestAdminMetaCenterConnectCatalog(token, connectCatalogId.trim());
+                    setBusy(false);
+                    setMsg(r.ok ? `Katalog ${r.catalogId} uložen.` : r.error ?? 'Chyba');
+                    void refresh();
+                  }}
+                  className="rounded-lg border border-[#1877f2] px-4 py-2 text-sm font-semibold text-[#1877f2]"
+                >
+                  Připojit existující katalog
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <h2 className="mb-4 text-lg font-bold">Náhled položek katalogu</h2>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1000px] text-left text-sm">
+                  <thead>
+                    <tr className="border-b text-xs text-zinc-500">
+                      <th className="py-2 pr-2">Obrázek</th>
+                      <th className="py-2 pr-2">Název</th>
+                      <th className="py-2 pr-2">Cena</th>
+                      <th className="py-2 pr-2">Lokalita</th>
+                      <th className="py-2 pr-2">Dostupnost</th>
+                      <th className="py-2 pr-2">Export</th>
+                      <th className="py-2 pr-2">Sync</th>
+                      <th className="py-2 pr-2">Catalog Item ID</th>
+                      <th className="py-2 pr-2">Chyba</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {catalogProducts.map((item) => (
+                      <tr key={item.propertyId} className="border-b border-zinc-100">
+                        <td className="py-2 pr-2">
+                          {item.image ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={item.image} alt="" className="h-12 w-16 rounded object-cover" />
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                        <td className="py-2 pr-2 max-w-[200px] truncate">{item.title}</td>
+                        <td className="py-2 pr-2 whitespace-nowrap">
+                          {item.price != null ? `${item.price} ${item.currency}` : '—'}
+                        </td>
+                        <td className="py-2 pr-2">{item.city ?? '—'}</td>
+                        <td className="py-2 pr-2">{item.availability}</td>
+                        <td className="py-2 pr-2">{item.exportStatus}</td>
+                        <td className="py-2 pr-2 whitespace-nowrap text-xs">
+                          {item.lastExportedAt
+                            ? new Date(item.lastExportedAt).toLocaleString('cs-CZ')
+                            : '—'}
+                        </td>
+                        <td className="py-2 pr-2 font-mono text-xs">{item.metaProductId ?? '—'}</td>
+                        <td className="py-2 pr-2 text-xs text-red-700">{item.lastError ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!catalogProducts.length ? (
+                  <p className="py-4 text-sm text-zinc-500">Zatím žádné exportované položky katalogu.</p>
+                ) : null}
+              </div>
+            </div>
           </section>
         ) : null}
 
@@ -1819,6 +2121,151 @@ export default function MetaCentrumPage() {
 
         {tab === 'campaigns' && dash ? (
           <section className="space-y-6">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              Návrh kampaní — ostré spuštění reklam zatím není aktivní. Po připojení reklamního účtu
+              a oprávnění catalog_management bude možné kampaně spouštět přímo z XXREALIT.
+            </div>
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <h2 className="mb-4 text-lg font-bold">Vytvořit kampaň (koncept)</h2>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+                  <span className="font-medium">Název kampaně</span>
+                  <input
+                    value={campaignDraft.name}
+                    onChange={(e) => setCampaignDraft((d) => ({ ...d, name: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                    placeholder="např. Byty Praha 10 km"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Cíl kampaně</span>
+                  <select
+                    value={campaignDraft.goal}
+                    onChange={(e) => setCampaignDraft((d) => ({ ...d, goal: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                  >
+                    <option value="traffic">Návštěvnost</option>
+                    <option value="messages">Zprávy</option>
+                    <option value="lead">Lead</option>
+                    <option value="catalog">Katalogový prodej</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Typ nemovitosti</span>
+                  <select
+                    value={campaignDraft.propertyType}
+                    onChange={(e) =>
+                      setCampaignDraft((d) => ({ ...d, propertyType: e.target.value }))
+                    }
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                  >
+                    <option value="byt">Byt</option>
+                    <option value="dum">Dům</option>
+                    <option value="pozemek">Pozemek</option>
+                    <option value="komerce">Komerce</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+                  <span className="font-medium">Lokalita na mapě</span>
+                  <input
+                    value={campaignDraft.locationLabel}
+                    onChange={(e) =>
+                      setCampaignDraft((d) => ({ ...d, locationLabel: e.target.value }))
+                    }
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                    placeholder="Město, ulice nebo souřadnice (mapa — připravuje se)"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Okruh (km)</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={80}
+                    value={campaignDraft.radiusKm}
+                    onChange={(e) =>
+                      setCampaignDraft((d) => ({ ...d, radiusKm: Number(e.target.value) || 1 }))
+                    }
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Denní rozpočet (Kč)</span>
+                  <input
+                    type="number"
+                    min={50}
+                    value={campaignDraft.budgetDaily}
+                    onChange={(e) =>
+                      setCampaignDraft((d) => ({
+                        ...d,
+                        budgetDaily: Number(e.target.value) || 50,
+                      }))
+                    }
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Datum spuštění</span>
+                  <input
+                    type="date"
+                    value={campaignDraft.startDate}
+                    onChange={(e) => setCampaignDraft((d) => ({ ...d, startDate: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Datum ukončení</span>
+                  <input
+                    type="date"
+                    value={campaignDraft.endDate}
+                    onChange={(e) => setCampaignDraft((d) => ({ ...d, endDate: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                  />
+                </label>
+              </div>
+              <div className="mt-4 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">
+                <p className="font-semibold text-zinc-800">Náhled reklamy</p>
+                <p className="mt-2">
+                  {campaignDraft.name || 'Nová kampaň'} ·{' '}
+                  {campaignDraft.goal === 'catalog'
+                    ? 'Dynamické katalogové produkty'
+                    : campaignDraft.goal}{' '}
+                  · {campaignDraft.propertyType} · {campaignDraft.locationLabel || 'lokalita'}{' '}
+                  {campaignDraft.radiusKm} km · {campaignDraft.budgetDaily} Kč/den
+                </p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Katalogové produkty: {catalogPanel?.feedItemCount ?? 0} položek ve feedu
+                </p>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busy || !campaignDraft.name.trim()}
+                  onClick={() => setMsg('Koncept kampaně uložen lokálně (backend API připravuje se).')}
+                  className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  Uložit koncept
+                </button>
+                <button
+                  type="button"
+                  disabled
+                  title={
+                    canLaunchCampaigns
+                      ? 'Spuštění kampaní bude dostupné po potvrzení administrátorem'
+                      : 'Vyžaduje reklamní účet a catalog_management'
+                  }
+                  className="rounded-lg bg-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-600"
+                >
+                  Spustit kampaň (připravuje se)
+                </button>
+              </div>
+              {!canLaunchCampaigns ? (
+                <p className="mt-3 text-xs text-zinc-500">
+                  Pro spuštění kampaní připojte reklamní účet (Marketing OAuth) a dokončete Catalog
+                  OAuth s oprávněním catalog_management.
+                </p>
+              ) : null}
+            </div>
             <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
               <h2 className="mb-4 text-lg font-bold">Automatické kampaně</h2>
               <ul className="space-y-2">

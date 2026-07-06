@@ -28,6 +28,8 @@ export type MetaOAuthFlowDefinition = {
   usesPagesApp: boolean;
   oauthPath: string;
   envVarKey: string;
+  /** Skrytý v Meta Centrum OAuth kontrole (např. WhatsApp má vlastní modul). */
+  hiddenInMetaCenterOAuth?: boolean;
 };
 
 const pagesScopes = [
@@ -109,6 +111,7 @@ export const META_OAUTH_FLOWS: Record<
     usesPagesApp: true,
     oauthPath: '/api/social/facebook/oauth/whatsapp',
     envVarKey: META_OAUTH_FLOW_ENV_KEYS.whatsapp,
+    hiddenInMetaCenterOAuth: true,
   },
   marketing: {
     key: 'marketing',
