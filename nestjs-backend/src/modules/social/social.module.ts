@@ -1,4 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { MetaCenterModule } from '../meta-center/meta-center.module';
 import { AuthModule } from '../auth/auth.module';
 import { BonusCampaignModule } from '../bonus-campaign/bonus-campaign.module';
 import { PostsModule } from '../posts/posts.module';
@@ -51,6 +52,7 @@ import { PostSocialPublishService } from './autopost/post-social-publish.service
 @Module({
   imports: [
     forwardRef(() => AuthModule),
+    forwardRef(() => MetaCenterModule),
     forwardRef(() => PostsModule),
     forwardRef(() => PropertiesModule),
     forwardRef(() => TikTokModule),

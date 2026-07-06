@@ -5,7 +5,6 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { MetaCenterAdminController } from './meta-center-admin.controller';
 import { MetaCenterPublicController } from './meta-center-public.controller';
 import { MetaCenterService } from './meta-center.service';
-import { MetaConnectCallbackController } from './meta-connect-callback.controller';
 import { MetaConnectDiagnosticsService } from './meta-connect-diagnostics.service';
 import { MetaCenterGraphDiagnosticsService } from './meta-center-graph-diagnostics.service';
 import { MetaCenterIntegrationStatusService } from './meta-center-integration-status.service';
@@ -17,11 +16,10 @@ import { MetaConnectSyncCronService } from './meta-connect-sync.cron.service';
 import { MetaGraphClientService } from './meta-graph-client.service';
 
 @Module({
-  imports: [forwardRef(() => MetaCatalogModule), SocialModule, WhatsAppModule],
+  imports: [forwardRef(() => MetaCatalogModule), forwardRef(() => SocialModule), WhatsAppModule],
   controllers: [
     MetaCenterAdminController,
     MetaCenterPublicController,
-    MetaConnectCallbackController,
   ],
   providers: [
     MetaCenterService,

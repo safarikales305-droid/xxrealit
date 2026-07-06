@@ -207,7 +207,13 @@ export default function MetaCentrumPage() {
     const meta = params.get('meta');
     if (meta === 'connected') setMsg('Meta účet byl úspěšně připojen a konfigurace načtena.');
     if (meta === 'error') {
-      setMsg(`Chyba připojení: ${params.get('reason') ?? 'neznámá'}`);
+      const reason = params.get('reason') ?? 'neznámá';
+      const redirectUri = params.get('redirect_uri');
+      setMsg(
+        redirectUri
+          ? `Chyba připojení: ${reason}\n\nPřidejte do Meta Developers (Pages App) tuto Valid OAuth Redirect URI:\n${redirectUri}`
+          : `Chyba připojení: ${reason}`,
+      );
     }
   }, [params]);
 
@@ -331,7 +337,7 @@ export default function MetaCentrumPage() {
               onClick={() => void connectMeta()}
               className="rounded-lg bg-[#1877f2] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#166fe5] disabled:opacity-50"
             >
-              Připojit Meta účet
+              {dash?.settings.isMetaConnected ? 'Obnovit Meta oprávnění' : 'Připojit Meta účet'}
             </button>
             <button
               type="button"
@@ -376,7 +382,7 @@ export default function MetaCentrumPage() {
 
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6">
         {msg ? (
-          <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900">
+          <p className="whitespace-pre-wrap rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900">
             {msg}
           </p>
         ) : null}
@@ -711,9 +717,10 @@ export default function MetaCentrumPage() {
                 </p>
               ) : null}
               <p className="mt-3 text-xs text-purple-800">
-                Tlačítko „Připojit Meta účet“ používá výhradně Pages App ID (
-                {appsConfig?.pages.appId ?? '—'}) a redirect{' '}
-                {appsConfig?.pages.metaConnectRedirectUri ?? '—'}
+                „Připojit Meta účet“ používá sdílený Facebook OAuth callback portálu (
+                {appsConfig?.pages.metaConnectRedirectUri ?? '—'}) a Pages App ID (
+                {appsConfig?.pages.appId ?? '—'}). Token se sdílí se Sociálními sítěmi — při
+                opětovném kliknutí pouze obnovíte oprávnění.
               </p>
             </div>
 

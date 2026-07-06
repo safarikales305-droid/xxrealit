@@ -386,6 +386,14 @@ export class SocialAutopostFacebookOAuthService {
     );
   }
 
+  async persistSharedPagesUserToken(
+    userId: string,
+    userToken: string,
+    tokenExpiresAt: Date | null,
+  ) {
+    await this.persistPagesUserToken(userId, userToken, tokenExpiresAt);
+  }
+
   private async persistPagesUserToken(
     userId: string,
     userToken: string,

@@ -395,21 +395,33 @@ export class FacebookConfigService implements OnModuleInit {
     return this.resolveLoginOAuthRedirectUri();
   }
 
-  /** Meta Centrum — Připojit Meta účet */
-  resolveMetaConnectRedirectUriOptional(): string | null {
+  /** Sdílený OAuth callback portálu (Login + Meta Centrum Pages OAuth). */
+  resolveSharedOAuthCallbackUriOptional(): string | null {
     const explicit =
-      this.readEnv('META_CENTER_OAUTH_REDIRECT_URI') ??
-      this.readEnv('FACEBOOK_META_CONNECT_REDIRECT_URI');
+      this.readEnv('FACEBOOK_OAUTH_CALLBACK_URI') ??
+      this.readEnv('FACEBOOK_LOGIN_OAUTH_REDIRECT_URI') ??
+      this.readEnv('FACEBOOK_OAUTH_REDIRECT_URI') ??
+      this.readEnv('FACEBOOK_CALLBACK_URL') ??
+      this.readEnv('META_CENTER_OAUTH_REDIRECT_URI');
     if (explicit) return explicit.replace(/\/+$/, '');
-    return `${this.resolveFrontendApiBase()}/social/facebook/meta-connect-callback`;
+    return `${this.resolveFrontendApiBase()}/social/facebook/callback`;
   }
 
-  resolveMetaConnectRedirectUri(): string {
-    const uri = this.resolveMetaConnectRedirectUriOptional();
+  resolveSharedOAuthCallbackUri(): string {
+    const uri = this.resolveSharedOAuthCallbackUriOptional();
     if (!uri) {
       throw new ServiceUnavailableException(this.pagesConfigurationErrorMessage());
     }
     return uri;
+  }
+
+  /** Meta Centrum — stejný callback jako Facebook Login / portál */
+  resolveMetaConnectRedirectUriOptional(): string | null {
+    return this.resolveSharedOAuthCallbackUriOptional();
+  }
+
+  resolveMetaConnectRedirectUri(): string {
+    return this.resolveSharedOAuthCallbackUri();
   }
 
   /** Propojení Facebook stránky uživatele (profil) */

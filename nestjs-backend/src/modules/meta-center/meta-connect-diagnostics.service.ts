@@ -118,11 +118,11 @@ export class MetaConnectDiagnosticsService {
     push(
       this.integration.buildCheck({
         key: 'oauth',
-        label: 'Meta Connect Redirect URI',
+        label: 'Facebook OAuth callback (sdílený)',
         connected: Boolean(apps.pages.metaConnectRedirectUri),
         error: apps.pages.metaConnectRedirectUri
           ? null
-          : 'Meta Connect redirect URI nelze odvodit.',
+          : 'OAuth callback URI nelze odvodit.',
         fixAction: 'fix_env',
         source: 'meta_connect',
         detail: apps.pages.metaConnectRedirectUri,

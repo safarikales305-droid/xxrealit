@@ -489,7 +489,7 @@ export class MetaCatalogSyncService {
         key: 'callback_url',
         label: 'Callback URL',
         level: 'ok',
-        message: `${origin}/api/social/facebook/meta-connect-callback`,
+        message: `${origin}/api/social/facebook/callback`,
       },
     ];
 

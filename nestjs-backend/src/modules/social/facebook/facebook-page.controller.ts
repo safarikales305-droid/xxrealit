@@ -25,6 +25,8 @@ import { FacebookSyncToggleDto } from '../dto/facebook-sync-toggle.dto';
 import { FacebookAuthService } from './facebook-auth.service';
 import { FacebookPageService } from './facebook-page.service';
 import { SocialAutopostFacebookOAuthService } from '../autopost/social-autopost-facebook-oauth.service';
+import { MetaConnectOAuthService } from '../../meta-center/meta-connect-oauth.service';
+import { META_CENTER_OAUTH_STATE_PREFIX } from '../../meta-center/meta-connect.constants';
 
 @Controller('social/facebook')
 export class FacebookPageController implements OnModuleInit {
@@ -34,6 +36,7 @@ export class FacebookPageController implements OnModuleInit {
     private readonly facebookPage: FacebookPageService,
     private readonly facebookAuth: FacebookAuthService,
     private readonly autopostOAuth: SocialAutopostFacebookOAuthService,
+    private readonly metaConnectOAuth: MetaConnectOAuthService,
   ) {}
 
   onModuleInit() {
@@ -77,9 +80,21 @@ export class FacebookPageController implements OnModuleInit {
     @Query('state') state: string | undefined,
     @Query('error') oauthError: string | undefined,
     @Query('error_reason') errorReason: string | undefined,
+    @Query('error_description') errorDescription: string | undefined,
     @Req() req: Request,
     @Res() res: Response,
   ) {
+    if (state?.trim().startsWith(META_CENTER_OAUTH_STATE_PREFIX)) {
+      const result = await this.metaConnectOAuth.handleCallback(
+        code,
+        state,
+        oauthError,
+        errorReason,
+        errorDescription,
+      );
+      return this.respondOAuth(res, req, result);
+    }
+
     if (oauthError?.trim()) {
       this.logger.warn(
         `FACEBOOK_CALLBACK_DENIED reason=${errorReason?.trim() || oauthError.trim()}`,

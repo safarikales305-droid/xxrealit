@@ -1,7 +1,12 @@
 import { getAppOrigin } from '@/lib/app-url';
 
+/** Sdílený OAuth callback (Login + Meta Centrum). */
 export function getFacebookMetaConnectCallbackUrl(): string {
-  return `${getAppOrigin()}/api/social/facebook/meta-connect-callback`;
+  return `${getAppOrigin()}/api/social/facebook/callback`;
+}
+
+export function getFacebookSharedOAuthCallbackUrl(): string {
+  return getFacebookMetaConnectCallbackUrl();
 }
 
 /** Veřejná OAuth callback URL na frontend doméně (proxy na Nest). */

@@ -56,10 +56,13 @@ export class MetaCenterAdminController {
   @Get('connect/url')
   async connectUrl(@CurrentUser() user: AuthUser) {
     const url = await this.connectOAuth.buildConnectUrl(user.id);
+    const redirectUri = this.fbConfig.resolveSharedOAuthCallbackUri();
+    const reauthorize = await this.connectOAuth.isConnectedForReauthorize(user.id);
     return {
       url,
       appId: this.fbConfig.getPagesAppId(),
-      redirectUri: this.fbConfig.resolveMetaConnectRedirectUriOptional(),
+      redirectUri,
+      reauthorize,
     };
   }
 

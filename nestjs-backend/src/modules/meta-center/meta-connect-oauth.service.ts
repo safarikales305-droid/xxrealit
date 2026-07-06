@@ -12,6 +12,8 @@ import { FacebookConfigService } from '../social/facebook/facebook-config.servic
 import { FacebookPageService } from '../social/facebook/facebook-page.service';
 import { TokenEncryptionService } from '../social/token-encryption.service';
 import { isFacebookPageScopeError } from '../social/facebook/facebook-page-scope.util';
+import { SocialAutopostSettingsService } from '../social/autopost/social-autopost-settings.service';
+import { SocialAutopostFacebookOAuthService } from '../social/autopost/social-autopost-facebook-oauth.service';
 import {
   META_CENTER_ADMIN_URL,
   META_CENTER_CONNECT_SCOPES,
@@ -46,6 +48,8 @@ export class MetaConnectOAuthService {
     private readonly facebookPage: FacebookPageService,
     private readonly graph: MetaGraphClientService,
     private readonly discovery: MetaConnectDiscoveryService,
+    private readonly autopostSettings: SocialAutopostSettingsService,
+    private readonly autopostOAuth: SocialAutopostFacebookOAuthService,
   ) {}
 
   private frontendUrl(): string {
@@ -60,7 +64,36 @@ export class MetaConnectOAuthService {
   }
 
   resolveRedirectUri(): string {
-    return this.fbConfig.resolveMetaConnectRedirectUri();
+    return this.fbConfig.resolveSharedOAuthCallbackUri();
+  }
+
+  private formatOAuthErrorRedirect(
+    reason: string,
+    redirectUri?: string,
+  ): string {
+    const adminUrl = this.getAdminUrl();
+    const params = new URLSearchParams({ reason: reason.slice(0, 200) });
+    if (redirectUri) {
+      params.set('redirect_uri', redirectUri);
+    }
+    return `${adminUrl}?meta=error&${params.toString()}`;
+  }
+
+  private async isAlreadyConnected(adminUserId: string): Promise<boolean> {
+    const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
+    if (row?.metaConnectedAt && row.metaUserAccessTokenEncrypted) return true;
+
+    const pagesAuth = await this.prisma.facebookPagesUserAuth.findUnique({
+      where: { userId: adminUserId },
+    });
+    if (pagesAuth?.accessTokenEncrypted) return true;
+
+    await this.autopostSettings.reload();
+    return Boolean(this.autopostSettings.resolveFacebookUserAccessToken());
+  }
+
+  async isConnectedForReauthorize(adminUserId: string): Promise<boolean> {
+    return this.isAlreadyConnected(adminUserId);
   }
 
   private assertConfigured() {
@@ -97,13 +130,16 @@ export class MetaConnectOAuthService {
       },
     });
 
-    const redirectUri = encodeURIComponent(this.resolveRedirectUri());
+    const redirectUri = this.resolveRedirectUri();
+    const reauthorize = await this.isAlreadyConnected(adminUserId);
+    const redirectUriEnc = encodeURIComponent(redirectUri);
     const appId = encodeURIComponent(pagesAppId);
     const scope = encodeURIComponent(META_CENTER_CONNECT_SCOPES);
+    const authType = reauthorize ? '&auth_type=rerequest' : '';
     return (
       `${this.graph.oauthDialogUrl()}?` +
-      `client_id=${appId}&redirect_uri=${redirectUri}&state=${state}` +
-      `&scope=${scope}&response_type=code&prompt=consent`
+      `client_id=${appId}&redirect_uri=${redirectUriEnc}&state=${state}` +
+      `&scope=${scope}&response_type=code&prompt=consent${authType}`
     );
   }
 
@@ -115,19 +151,33 @@ export class MetaConnectOAuthService {
     errorDescription?: string,
   ): Promise<MetaConnectCallbackResult> {
     const adminUrl = this.getAdminUrl();
+    const redirectUri = this.resolveRedirectUri();
 
     if (oauthError?.trim() || errorReason?.trim() || errorDescription?.trim()) {
-      const reason = (errorDescription ?? errorReason ?? oauthError ?? 'oauth_denied').slice(0, 160);
+      const fbReason = (errorDescription ?? errorReason ?? oauthError ?? 'oauth_denied').trim();
+      const isRedirectMismatch =
+        fbReason.toLowerCase().includes('redirect_uri') ||
+        fbReason.toLowerCase().includes("isn't whitelisted");
+      const reason = isRedirectMismatch
+        ? `${fbReason} — použitá redirect URI: ${redirectUri}`
+        : fbReason.slice(0, 160);
       return {
         ok: false,
-        redirectUrl: `${adminUrl}?meta=error&reason=${encodeURIComponent(reason)}`,
+        redirectUrl: this.formatOAuthErrorRedirect(reason, redirectUri),
+        message: reason,
       };
     }
     if (!code?.trim()) {
-      return { ok: false, redirectUrl: `${adminUrl}?meta=error&reason=missing_code` };
+      return {
+        ok: false,
+        redirectUrl: this.formatOAuthErrorRedirect('missing_code', redirectUri),
+      };
     }
     if (!state?.trim().startsWith(META_CENTER_OAUTH_STATE_PREFIX)) {
-      return { ok: false, redirectUrl: `${adminUrl}?meta=error&reason=missing_state` };
+      return {
+        ok: false,
+        redirectUrl: this.formatOAuthErrorRedirect('missing_state', redirectUri),
+      };
     }
 
     const session = await this.prisma.socialFacebookOAuthSession.findUnique({
@@ -138,7 +188,10 @@ export class MetaConnectOAuthService {
       session.mode !== META_CENTER_OAUTH_MODE ||
       session.expiresAt.getTime() < Date.now()
     ) {
-      return { ok: false, redirectUrl: `${adminUrl}?meta=error&reason=session_expired` };
+      return {
+        ok: false,
+        redirectUrl: this.formatOAuthErrorRedirect('session_expired', redirectUri),
+      };
     }
 
     try {
@@ -153,6 +206,18 @@ export class MetaConnectOAuthService {
 
       await this.persistEnvAppCredentials();
       await this.saveUserToken(userToken, tokenExpiresAt, session.userId);
+      await this.autopostOAuth.persistSharedPagesUserToken(
+        session.userId,
+        userToken,
+        tokenExpiresAt,
+      );
+      await this.autopostSettings.updateSettings({
+        facebook: {
+          userAccessToken: userToken,
+          tokenObtainedAt: new Date().toISOString(),
+          tokenWarning: null,
+        },
+      });
       const discovered = await this.discovery.discoverAndPersist(userToken);
       await this.cleanupSession(session.userId);
 
@@ -177,7 +242,7 @@ export class MetaConnectOAuthService {
       }
       return {
         ok: false,
-        redirectUrl: `${adminUrl}?meta=error&reason=${encodeURIComponent(reason.slice(0, 160))}`,
+        redirectUrl: this.formatOAuthErrorRedirect(reason.slice(0, 160), redirectUri),
       };
     }
   }
@@ -260,13 +325,30 @@ export class MetaConnectOAuthService {
 
   async resolveAccessToken(): Promise<string> {
     const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
-    if (!row?.metaUserAccessTokenEncrypted) {
-      throw new BadRequestException('Meta účet není připojen. Klikněte na „Připojit Meta účet“.');
+    if (row?.metaUserAccessTokenEncrypted) {
+      if (row.metaUserTokenExpiresAt && row.metaUserTokenExpiresAt.getTime() < Date.now()) {
+        throw new BadRequestException('Meta access token expiroval — obnovte připojení.');
+      }
+      return this.crypto.decrypt(row.metaUserAccessTokenEncrypted);
     }
-    if (row.metaUserTokenExpiresAt && row.metaUserTokenExpiresAt.getTime() < Date.now()) {
-      throw new BadRequestException('Meta access token expiroval — obnovte připojení.');
+
+    await this.autopostSettings.reload();
+    const fromAutopost = this.autopostSettings.resolveFacebookUserAccessToken();
+    if (fromAutopost) return fromAutopost;
+
+    const pagesAuth = await this.prisma.facebookPagesUserAuth.findFirst({
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (pagesAuth?.accessTokenEncrypted) {
+      if (pagesAuth.tokenExpiresAt && pagesAuth.tokenExpiresAt.getTime() < Date.now()) {
+        throw new BadRequestException('Facebook token expiroval — obnovte připojení v Meta Centru.');
+      }
+      return this.crypto.decrypt(pagesAuth.accessTokenEncrypted);
     }
-    return this.crypto.decrypt(row.metaUserAccessTokenEncrypted);
+
+    throw new BadRequestException(
+      'Meta účet není připojen. Klikněte na „Připojit Meta účet“ (sdílený Facebook OAuth portálu).',
+    );
   }
 
   async resolvePageAccessToken(): Promise<string | null> {
