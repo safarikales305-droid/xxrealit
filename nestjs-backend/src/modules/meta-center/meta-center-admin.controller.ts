@@ -29,6 +29,7 @@ import { MetaCenterAssetsService } from './meta-center-assets.service';
 import { FacebookConfigService } from '../social/facebook/facebook-config.service';
 import { FacebookAuthService } from '../social/facebook/facebook-auth.service';
 import { MetaCenterApiLogService } from './meta-center-api-log.service';
+import { MetaMarketingDiagnosticsService } from './meta-marketing-diagnostics.service';
 import { extractSafeMetaError, metaPanelNotConfigured } from './meta-center-safe-response.util';
 import { resolveMetaOAuthFlow } from './meta-oauth-flows';
 import { META_EXTERNAL_LINKS } from './meta-graph-permissions.util';
@@ -47,6 +48,7 @@ export class MetaCenterAdminController {
     private readonly facebookAuth: FacebookAuthService,
     private readonly assets: MetaCenterAssetsService,
     private readonly apiLog: MetaCenterApiLogService,
+    private readonly marketingDiagnostics: MetaMarketingDiagnosticsService,
   ) {}
 
   private async safeEndpoint<T extends Record<string, unknown>>(
@@ -110,6 +112,7 @@ export class MetaCenterAdminController {
 
   @Get('oauth/marketing')
   async oauthMarketing(@CurrentUser() user: AuthUser) {
+    await this.marketingDiagnostics.logMarketingAppSnapshot(user.id, 'oauth/marketing');
     const result = await this.connectOAuth.buildOAuthUrlSafe(user.id, 'marketing', false);
     if (!result.success) {
       return {
@@ -416,10 +419,10 @@ export class MetaCenterAdminController {
   }
 
   @Get('ad-account')
-  adAccountPanel() {
+  adAccountPanel(@CurrentUser() user: AuthUser) {
     return this.safeEndpoint(
       'ad-account',
-      () => this.assets.getAdAccountPanel(),
+      () => this.assets.getAdAccountPanel(user.id),
       (message) =>
         ({
           ok: false as const,
@@ -437,8 +440,8 @@ export class MetaCenterAdminController {
   }
 
   @Get('ad-accounts')
-  listAdAccounts() {
-    return this.safeEndpoint('ad-accounts', () => this.assets.listAdAccounts(), (message) => ({
+  listAdAccounts(@CurrentUser() user: AuthUser) {
+    return this.safeEndpoint('ad-accounts', () => this.assets.listAdAccounts(user.id), (message) => ({
       ok: false as const,
       status: 'not_configured' as const,
       message:
@@ -485,6 +488,11 @@ export class MetaCenterAdminController {
       take: Number.isFinite(take) ? take : undefined,
       skip: Number.isFinite(skip) ? skip : undefined,
     });
+  }
+
+  @Post('marketing/diagnostics')
+  marketingDiagnostics(@CurrentUser() user: AuthUser) {
+    return this.marketingDiagnostics.runFullMarketingDiagnostics(user.id);
   }
 
   @Get('remarketing')

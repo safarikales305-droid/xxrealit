@@ -6804,6 +6804,33 @@ export async function nestAdminMetaCenterApiLogs(token: string | null, take = 80
   return r.ok ? r.data : null;
 }
 
+export type MetaMarketingDiagnosticsResult = {
+  ok: boolean;
+  message: string;
+  snapshot?: {
+    section: string;
+    appId: string | null;
+    loginAppId: string | null;
+    usesMarketingAppNotLogin: boolean;
+    redirectUri: string | null;
+    scopesApproved: string[];
+    oauthUrl: string | null;
+    environmentVariables: Record<string, unknown>;
+    accessTokenMasked: string;
+    businessId: string | null;
+    adAccountId: string | null;
+    checks: Array<{ ok: boolean; label: string; detail: string }>;
+  };
+  probes?: Array<Record<string, unknown>>;
+};
+
+export async function nestAdminMetaCenterMarketingDiagnostics(token: string | null) {
+  const r = await metaCenterFetch<MetaMarketingDiagnosticsResult>(token, '/marketing/diagnostics', {
+    method: 'POST',
+  });
+  return r.ok ? r.data : { ok: false, message: r.error };
+}
+
 export async function nestAdminMetaCenterOAuthLastCallback(token: string | null) {
   const r = await metaCenterFetch<{
     lastCallback: MetaOAuthLastCallback | null;

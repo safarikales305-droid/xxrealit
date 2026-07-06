@@ -353,9 +353,10 @@ export class MetaConnectDiscoveryService {
       lastAutoSyncAt: new Date(),
     };
 
-    await this.prisma.metaCenterSetting.update({
+    await this.prisma.metaCenterSetting.upsert({
       where: { id: SETTINGS_ID },
-      data,
+      create: { id: SETTINGS_ID, ...data },
+      update: data,
     });
 
     this.logger.log(

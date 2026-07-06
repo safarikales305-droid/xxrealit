@@ -16,6 +16,7 @@ import { MetaConnectProvisionService } from './meta-connect-provision.service';
 import { MetaConnectSyncCronService } from './meta-connect-sync.cron.service';
 import { MetaGraphClientService } from './meta-graph-client.service';
 import { MetaCenterApiLogService } from './meta-center-api-log.service';
+import { MetaMarketingDiagnosticsService } from './meta-marketing-diagnostics.service';
 
 @Module({
   imports: [forwardRef(() => MetaCatalogModule), forwardRef(() => SocialModule), WhatsAppModule],
@@ -36,7 +37,8 @@ import { MetaCenterApiLogService } from './meta-center-api-log.service';
     MetaCenterIntegrationStatusService,
     MetaCenterAssetsService,
     MetaCenterApiLogService,
+    MetaMarketingDiagnosticsService,
   ],
-  exports: [MetaCenterService, MetaConnectOAuthService],
+  exports: [MetaCenterService, MetaConnectOAuthService, MetaMarketingDiagnosticsService],
 })
 export class MetaCenterModule {}

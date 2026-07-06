@@ -3,16 +3,12 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { FacebookConfigService } from '../social/facebook/facebook-config.service';
 import { GRAPH_API } from '../social/facebook/facebook-page.constants';
+import {
+  type MetaGraphErrorBody,
+  formatMetaGraphErrorMessage,
+} from './meta-graph-error.util';
 
-type GraphErrorBody = {
-  error?: {
-    message?: string;
-    code?: number;
-    type?: string;
-    error_subcode?: number;
-    fbtrace_id?: string;
-  };
-};
+type GraphErrorBody = MetaGraphErrorBody;
 
 export type MetaGraphResult<T> = {
   ok: true;
@@ -81,6 +77,10 @@ export class MetaGraphClientService {
     const qs = new URLSearchParams({ access_token: accessToken, ...(query ?? {}) });
     const url = `${base}${path.startsWith('/') ? path : `/${path}`}?${qs.toString()}`;
     const endpoint = path.split('?')[0] ?? path;
+    const httpRequest = `GET ${base}${path.startsWith('/') ? path : `/${path}`}?${new URLSearchParams({
+      ...(query ?? {}),
+      access_token: '[REDACTED]',
+    }).toString()}`;
 
     try {
       const res = await fetch(url);
@@ -88,12 +88,11 @@ export class MetaGraphClientService {
       const durationMs = Date.now() - started;
 
       if (!res.ok || data.error) {
-        const errorMessage =
-          typeof data.error?.message === 'string' ? data.error.message : `HTTP ${res.status}`;
+        const errorMessage = formatMetaGraphErrorMessage(data, res.status);
         await this.logCall({
           endpoint,
           method: 'GET',
-          request: { path, query },
+          request: { path, query, httpRequest },
           response: data,
           httpStatus: res.status,
           errorCode: data.error?.code != null ? String(data.error.code) : null,
@@ -112,7 +111,7 @@ export class MetaGraphClientService {
       await this.logCall({
         endpoint,
         method: 'GET',
-        request: { path, query },
+        request: { path, query, httpRequest },
         response: data,
         httpStatus: res.status,
         durationMs,
@@ -147,6 +146,7 @@ export class MetaGraphClientService {
       if (v === undefined || v === null) continue;
       form.set(k, typeof v === 'string' ? v : JSON.stringify(v));
     }
+    const httpRequest = `POST ${base}${path.startsWith('/') ? path : `/${path}`}`;
 
     try {
       const res = await fetch(url, { method: 'POST', body: form });
@@ -154,12 +154,11 @@ export class MetaGraphClientService {
       const durationMs = Date.now() - started;
 
       if (!res.ok || data.error) {
-        const errorMessage =
-          typeof data.error?.message === 'string' ? data.error.message : `HTTP ${res.status}`;
+        const errorMessage = formatMetaGraphErrorMessage(data, res.status);
         await this.logCall({
           endpoint,
           method: 'POST',
-          request: body,
+          request: { body, httpRequest },
           response: data,
           httpStatus: res.status,
           errorCode: data.error?.code != null ? String(data.error.code) : null,
@@ -178,7 +177,7 @@ export class MetaGraphClientService {
       await this.logCall({
         endpoint,
         method: 'POST',
-        request: body,
+        request: { body, httpRequest },
         response: data,
         httpStatus: res.status,
         durationMs,

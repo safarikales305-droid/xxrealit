@@ -43,6 +43,7 @@ import {
   nestAdminMetaCenterListCatalogs,
   nestAdminMetaCenterListAdAccounts,
   nestAdminMetaCenterSelectAdAccount,
+  nestAdminMetaCenterMarketingDiagnostics,
   type MetaAdAccountPanel,
   type MetaAdAccountListResponse,
   type MetaCatalogListResponse,

@@ -14,6 +14,7 @@ import {
   metaPanelNotConfigured,
 } from './meta-center-safe-response.util';
 import { isMarketingAdsTokenActive } from './meta-marketing-token.util';
+import { MetaMarketingDiagnosticsService } from './meta-marketing-diagnostics.service';
 
 const SETTINGS_ID = 'default';
 
@@ -28,6 +29,7 @@ export class MetaCenterAssetsService {
     private readonly graphDiag: MetaCenterGraphDiagnosticsService,
     private readonly catalogSync: MetaCatalogSyncService,
     private readonly provision: MetaConnectProvisionService,
+    private readonly marketingDiag: MetaMarketingDiagnosticsService,
   ) {}
 
   private async getSettingRow() {
@@ -176,7 +178,8 @@ export class MetaCenterAssetsService {
     }
   }
 
-  async listAdAccounts() {
+  async listAdAccounts(adminUserId?: string) {
+    await this.marketingDiag.logMarketingAppSnapshot(adminUserId, 'ad-accounts');
     const row = await this.getSettingRow();
     const ids = resolveMetaCenterIds(row ?? ({} as never));
     const activeAdAccountId = ids.adAccountId ?? row?.adAccountId ?? null;
@@ -198,9 +201,9 @@ export class MetaCenterAssetsService {
       if (!token) {
         return metaListNotConfigured(tokenMsg, { activeAdAccountId });
       }
-      const res = await this.graph.get<
+      const res = await this.marketingDiag.graphGetWithMarketingLog<
         GraphList<{ id?: string; name?: string; currency?: string; account_id?: string }>
-      >(`/${ids.businessId}/owned_ad_accounts`, token, {
+      >(adminUserId, 'ad-accounts', `/${ids.businessId}/owned_ad_accounts`, token, {
         fields: 'id,name,currency,account_id',
         limit: '50',
       });
@@ -577,7 +580,8 @@ export class MetaCenterAssetsService {
     };
   }
 
-  async getAdAccountPanel() {
+  async getAdAccountPanel(adminUserId?: string) {
+    await this.marketingDiag.logMarketingAppSnapshot(adminUserId, 'ad-account');
     const row = await this.getSettingRow().catch(() => null);
     const ids = resolveMetaCenterIds(row ?? ({} as never));
     const tokenMsg = this.marketingTokenErrorMessage(row);
@@ -629,13 +633,13 @@ export class MetaCenterAssetsService {
         };
       }
       const actId = ids.adAccountId.replace(/^act_/, '');
-      const res = await this.graph.get<{
+      const res = await this.marketingDiag.graphGetWithMarketingLog<{
         id?: string;
         name?: string;
         currency?: string;
         timezone_name?: string;
         account_status?: number;
-      }>(`/act_${actId}`, token, {
+      }>(adminUserId, 'ad-account', `/act_${actId}`, token, {
         fields: 'id,name,currency,timezone_name,account_status',
       });
       if (!res.ok) {
