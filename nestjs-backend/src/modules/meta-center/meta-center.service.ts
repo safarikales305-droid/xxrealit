@@ -625,11 +625,22 @@ export class MetaCenterService {
 
     items.push({
       key: 'pages_app_id',
-      label: 'Pages / Marketing App ID',
+      label: 'Facebook Pages App ID',
       level: this.levelFromBool(apps.pages.idValidation.ok),
       message:
         apps.pages.idValidation.error ??
         (apps.pages.appId ? `Pages App: ${apps.pages.appId}` : 'Pages App ID chybí'),
+    });
+
+    items.push({
+      key: 'marketing_app_id',
+      label: 'Meta Marketing App ID',
+      level: this.levelFromBool(apps.marketing.idValidation.ok && apps.marketing.configured),
+      message:
+        apps.marketing.idValidation.error ??
+        (apps.marketing.appId
+          ? `Marketing App: ${apps.marketing.appId}`
+          : 'META_MARKETING_APP_ID chybí v ENV.'),
     });
 
     items.push(await this.checkHttps(urls.frontend, 'Frontend URL'));
@@ -920,40 +931,58 @@ export class MetaCenterService {
   }
 
   async getDashboard() {
+    const emptyDiagnostics = {
+      items: [] as DiagnosticItem[],
+      summary: { ok: 0, warning: 0, error: 0 } as Record<MetaDiagnosticLevel, number>,
+    };
+    const warnings: string[] = [];
+
     const [settings, services, diagnostics, catalog, feedStats, catalogGraph] = await Promise.all([
-      this.getSettings(),
-      this.buildServiceCards(),
-      this.runDiagnostics(),
-      this.catalog.getAdminSettings(),
+      this.getSettings().catch((err) => {
+        warnings.push(err instanceof Error ? err.message : 'Nastavení Meta Centra nelze načíst.');
+        return this.buildEmptySettings();
+      }),
+      this.buildServiceCards().catch(() => [] as Awaited<ReturnType<MetaCenterService['buildServiceCards']>>),
+      this.runDiagnostics().catch((err) => {
+        warnings.push(err instanceof Error ? err.message : 'Diagnostika selhala.');
+        return emptyDiagnostics;
+      }),
+      this.catalog.getAdminSettings().catch(() => this.buildEmptyCatalog()),
       this.catalog.computeFeedStats('csv').catch(() => null),
-      this.graphDiagnostics.buildCatalogDiagnostics(),
+      this.graphDiagnostics.buildCatalogDiagnostics().catch((err) => {
+        warnings.push(err instanceof Error ? err.message : 'Catalog Graph diagnostika selhala.');
+        return this.buildEmptyCatalogGraph();
+      }),
     ]);
+
+    const row = await this.prisma.metaCenterSetting
+      .findUnique({ where: { id: SETTINGS_ID } })
+      .catch(() => null);
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
 
     const [eventsToday, eventsMonth, lastPixelEvent] = await Promise.all([
-      this.prisma.metaCenterEventLog.count({
-        where: { source: 'pixel', createdAt: { gte: todayStart } },
-      }),
-      this.prisma.metaCenterEventLog.count({
-        where: { source: 'pixel', createdAt: { gte: monthStart } },
-      }),
-      this.prisma.metaCenterEventLog.findFirst({
-        where: { source: 'pixel' },
-        orderBy: { createdAt: 'desc' },
-      }),
+      this.prisma.metaCenterEventLog
+        .count({ where: { source: 'pixel', createdAt: { gte: todayStart } } })
+        .catch(() => 0),
+      this.prisma.metaCenterEventLog
+        .count({ where: { source: 'pixel', createdAt: { gte: monthStart } } })
+        .catch(() => 0),
+      this.prisma.metaCenterEventLog
+        .findFirst({ where: { source: 'pixel' }, orderBy: { createdAt: 'desc' } })
+        .catch(() => null),
     ]);
 
-    const ids = resolveMetaCenterIds(
-      await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } }) ??
-        ({} as never),
-    );
+    const ids = resolveMetaCenterIds(row ?? ({} as never));
     const trackingMode = resolveMetaTrackingMode(ids);
     const oauthRedirect = this.fbConfig.getMetaOAuthRedirectDiagnostics();
 
     return {
+      ok: warnings.length === 0,
+      status: warnings.length ? ('not_configured' as const) : ('ok' as const),
+      message: warnings.length ? warnings.join(' ') : null,
       settings,
       services,
       diagnostics,
@@ -993,6 +1022,165 @@ export class MetaCenterService {
           capiMessage: capiReady ? 'Conversions API Připojeno' : null,
         };
       })(),
+    };
+  }
+
+  private buildEmptySettings() {
+    const apps = this.fbConfig.getAppsConfig();
+    const oauthRedirect = this.fbConfig.getMetaOAuthRedirectDiagnostics();
+    return {
+      id: 'default',
+      facebookAppId: apps.login.appId,
+      facebookAppSecretMasked: apps.login.appSecretMasked,
+      facebookPagesAppId: apps.pages.appId,
+      facebookPagesSecretMasked: apps.pages.appSecretMasked,
+      facebookMarketingAppId: apps.marketing.appId,
+      facebookMarketingSecretMasked: apps.marketing.appSecretMasked,
+      businessManagerId: null,
+      commerceManagerId: null,
+      catalogId: null,
+      datasetId: null,
+      pixelId: null,
+      pixelName: null,
+      conversionsApiTokenMasked: null,
+      webhookVerifyTokenMasked: null,
+      webhookSecretMasked: null,
+      frontendUrl: apps.frontendUrl ?? '',
+      backendUrl: apps.backendUrl ?? '',
+      redirectUri: oauthRedirect.oauthRedirectUsedByApp ?? '',
+      callbackUrl: oauthRedirect.oauthRedirectUsedByApp ?? '',
+      loginOAuthRedirectUri: apps.login.oauthRedirectUri,
+      metaConnectRedirectUri: apps.pages.metaConnectRedirectUri,
+      pageConnectRedirectUri: apps.pages.pageConnectRedirectUri,
+      facebookApps: apps,
+      encryptionKeyMasked: null,
+      graphApiVersion: GRAPH_API_VERSION_DEFAULT,
+      domainVerification: null,
+      catalogFeedEnabled: true,
+      capiEventToggles: DEFAULT_CAPI_TOGGLES,
+      pixelMapping: DEFAULT_PIXEL_MAPPING,
+      remarketingAudiences: DEFAULT_REMARKETING_AUDIENCES,
+      autoCampaignRules: DEFAULT_AUTO_CAMPAIGN_RULES,
+      adFormatFlags: DEFAULT_AD_FORMAT_FLAGS,
+      metaConnectedAt: null,
+      metaConnectedUserId: null,
+      metaConnectedUserName: null,
+      adAccountId: null,
+      adAccountName: null,
+      pageId: null,
+      pageName: null,
+      instagramBusinessId: null,
+      instagramUsername: null,
+      catalogName: null,
+      commerceAccountId: null,
+      testEventCode: null,
+      whatsappBusinessAccountId: null,
+      whatsappPhoneNumberId: null,
+      lastAutoSyncAt: null,
+      syncEnabled: true,
+      isMetaConnected: false,
+      isMarketingAdsConnected: false,
+      marketingRefreshTokenConfigured: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  private buildEmptyCatalog(): Awaited<ReturnType<MetaCatalogService['getAdminSettings']>> {
+    const origin = this.fbConfig.getAppsConfig().frontendUrl ?? '';
+    const base = origin.replace(/\/$/, '');
+    return {
+      id: 'default',
+      enabled: false,
+      lastItemCount: 0,
+      lastGeneratedAt: null,
+      lastError: null,
+      carouselListingIds: [],
+      allowContactExport: false,
+      exportFieldFlags: {},
+      syncIntervalMinutes: 60,
+      lastSyncAt: null,
+      nextSyncAt: null,
+      syncRunning: false,
+      feedCsvUrl: `${base}/meta/feed.csv`,
+      feedXmlUrl: `${base}/meta/feed.xml`,
+      feedJsonUrl: `${base}/meta/feed.json`,
+      carouselJsonUrl: `${base}/api/public/meta-carousel-listings.json`,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  getDashboardEmergencyFallback(message: string) {
+    const empty = this.buildEmptySettings();
+    return {
+      ok: false as const,
+      status: 'not_configured' as const,
+      message,
+      settings: empty,
+      services: [] as Awaited<ReturnType<MetaCenterService['buildServiceCards']>>,
+      diagnostics: {
+        items: [] as DiagnosticItem[],
+        summary: { ok: 0, warning: 0, error: 0 } as Record<MetaDiagnosticLevel, number>,
+      },
+      catalog: this.buildEmptyCatalog(),
+      feedStats: null,
+      catalogGraph: this.buildEmptyCatalogGraph(),
+      oauthRedirect: this.fbConfig.getMetaOAuthRedirectDiagnostics(),
+      pixel: {
+        pixelId: null,
+        pixelName: null,
+        datasetId: null,
+        trackingMode: 'none' as const,
+        datasetMessage: null,
+        pixelPlaceholderMessage: null,
+        legacyDatasetNote: null,
+        lastEventAt: null,
+        eventsToday: 0,
+        eventsMonth: 0,
+        status: 'not_configured',
+      },
+      capi: {
+        datasetId: null,
+        pixelId: null,
+        trackingMode: 'none' as const,
+        tokenConfigured: false,
+        toggles: DEFAULT_CAPI_TOGGLES,
+        status: 'not_configured',
+        tokenLabel: META_CAPI_OPTIONAL_MESSAGE,
+        capiMessage: null,
+      },
+      error: { message, type: 'internal', endpoint: 'dashboard' },
+    };
+  }
+
+  private buildEmptyCatalogGraph() {
+    return {
+      businessId: null,
+      businessName: null,
+      catalogId: null,
+      catalogName: null,
+      commerceManagerId: null,
+      commerceManagerName: null,
+      commercePermissionStatus: null,
+      datasetId: null,
+      commerceOnline: false,
+      commerceMessage: 'Diagnostika katalogu není dostupná.',
+      commerceIssueKind: 'not_configured' as const,
+      catalogOnline: false,
+      catalogMessage: 'Diagnostika katalogu není dostupná.',
+      catalogIssueKind: 'not_configured' as const,
+      productCount: null,
+      lastCatalogUpdate: null,
+      lastLocalSync: null,
+      importErrorCount: null,
+      metaImagesLoaded: null,
+      metaVideoCount: null,
+      graphCheckedAt: new Date().toISOString(),
+      graphError: null,
+      graphErrorJson: null,
+      requiredScopes: [],
+      permissionWarning: null,
+      hasPermissionWarning: false,
     };
   }
 
@@ -1257,6 +1445,32 @@ export class MetaCenterService {
   }
 
   async getConnectionStatus() {
+    try {
+      return await this.buildConnectionStatus();
+    } catch (err) {
+      const apps = this.fbConfig.getAppsConfig();
+      const message = err instanceof Error ? err.message : 'Stav připojení nelze načíst.';
+      return {
+        ok: false as const,
+        status: 'not_configured' as const,
+        message,
+        settings: this.buildEmptySettings(),
+        apps,
+        checklist: [],
+        diagnostics: [],
+        connectedAt: null,
+        lastSyncAt: null,
+        error: {
+          message,
+          type: 'internal',
+          endpoint: 'connection/status',
+          code: null,
+        },
+      };
+    }
+  }
+
+  private async buildConnectionStatus() {
     const row = await this.getOrCreateSettings();
     const settings = this.serializeSettings(row);
     const apps = this.fbConfig.getAppsConfig();
@@ -1358,6 +1572,9 @@ export class MetaCenterService {
     ];
 
     return {
+      ok: true as const,
+      status: 'ok' as const,
+      message: null,
       settings,
       apps,
       checklist,

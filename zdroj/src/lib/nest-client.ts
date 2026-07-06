@@ -6336,7 +6336,20 @@ export type MetaOAuthDebugLogsResponse = {
   localhostWarning?: string | null;
 };
 
-export type MetaCenterDashboard = {
+export type MetaCenterSafeResponse = {
+  ok?: boolean;
+  status?: 'ok' | 'not_configured' | 'error' | 'permission_denied';
+  message?: string | null;
+  error?: {
+    code?: string | number | null;
+    message: string;
+    type?: string | null;
+    endpoint?: string | null;
+  } | null;
+  warning?: string | null;
+};
+
+export type MetaCenterDashboard = MetaCenterSafeResponse & {
   settings: MetaCenterSettings;
   services: MetaCenterServiceCard[];
   diagnostics: {
@@ -6405,15 +6418,15 @@ export type MetaDatasetListItem = {
   sourceApp: string | null;
 };
 
-export type MetaDatasetListResponse = {
+export type MetaDatasetListResponse = MetaCenterSafeResponse & {
   items: MetaDatasetListItem[];
   activeDatasetId: string | null;
   businessId?: string | null;
   canSelect?: boolean;
-  error: string | null;
+  error?: string | null;
 };
 
-export type MetaCatalogPanel = {
+export type MetaCatalogPanel = MetaCenterSafeResponse & {
   catalogId: string | null;
   catalogName: string | null;
   businessId: string | null;
@@ -6440,11 +6453,11 @@ export type MetaCatalogListItem = {
   productCount: number | null;
 };
 
-export type MetaCatalogListResponse = {
+export type MetaCatalogListResponse = MetaCenterSafeResponse & {
   items: MetaCatalogListItem[];
   activeCatalogId: string | null;
   scopeInfo: string;
-  error: string | null;
+  error?: string | null;
 };
 
 export type MetaAdAccountListItem = {
@@ -6454,10 +6467,10 @@ export type MetaAdAccountListItem = {
   currency: string | null;
 };
 
-export type MetaAdAccountListResponse = {
+export type MetaAdAccountListResponse = MetaCenterSafeResponse & {
   items: MetaAdAccountListItem[];
   activeAdAccountId: string | null;
-  error: string | null;
+  error?: string | null;
 };
 
 export type MetaCatalogProductPreview = {
@@ -6475,7 +6488,7 @@ export type MetaCatalogProductPreview = {
   lastError: string | null;
 };
 
-export type MetaAdAccountPanel = {
+export type MetaAdAccountPanel = MetaCenterSafeResponse & {
   connected: boolean;
   optional: boolean;
   message: string | null;
@@ -6485,6 +6498,19 @@ export type MetaAdAccountPanel = {
   timezone: string | null;
   accountStatus?: number | null;
 };
+
+export function metaCenterEndpointWarning(
+  label: string,
+  data: MetaCenterSafeResponse | null | undefined,
+): string | null {
+  if (!data) return `${label}: endpoint nevrátil data (HTTP chyba).`;
+  if (data.ok === false || data.status === 'not_configured' || data.status === 'error') {
+    return `${label}: ${data.message ?? data.error?.message ?? 'Není nakonfigurováno.'}`;
+  }
+  if (data.message?.trim()) return `${label}: ${data.message}`;
+  if (data.warning?.trim()) return `${label}: ${data.warning}`;
+  return null;
+}
 
 async function metaCenterFetch<T>(
   token: string | null,
@@ -6698,15 +6724,17 @@ export async function nestAdminMetaCenterLoginOAuthUrl(
   return r.ok ? r.data : null;
 }
 
+export type MetaConnectionStatusResponse = MetaCenterSafeResponse & {
+  settings: MetaCenterSettings;
+  apps?: FacebookAppsConfig;
+  checklist: Array<{ key: string; label: string; connected: boolean }>;
+  diagnostics: MetaConnectionCheck[];
+  connectedAt: string | null;
+  lastSyncAt: string | null;
+};
+
 export async function nestAdminMetaCenterConnectionStatus(token: string | null) {
-  const r = await metaCenterFetch<{
-    settings: MetaCenterSettings;
-    apps?: FacebookAppsConfig;
-    checklist: Array<{ key: string; label: string; connected: boolean }>;
-    diagnostics: MetaConnectionCheck[];
-    connectedAt: string | null;
-    lastSyncAt: string | null;
-  }>(token, '/connection/status');
+  const r = await metaCenterFetch<MetaConnectionStatusResponse>(token, '/connection/status');
   return r.ok ? r.data : null;
 }
 

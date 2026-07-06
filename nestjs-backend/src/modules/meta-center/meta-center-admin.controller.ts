@@ -28,7 +28,10 @@ import { MetaConnectSyncCronService } from './meta-connect-sync.cron.service';
 import { MetaCenterAssetsService } from './meta-center-assets.service';
 import { FacebookConfigService } from '../social/facebook/facebook-config.service';
 import { FacebookAuthService } from '../social/facebook/facebook-auth.service';
+import { MetaCenterApiLogService } from './meta-center-api-log.service';
+import { extractSafeMetaError, metaPanelNotConfigured } from './meta-center-safe-response.util';
 import { resolveMetaOAuthFlow } from './meta-oauth-flows';
+import { META_EXTERNAL_LINKS } from './meta-graph-permissions.util';
 
 @Controller('admin/meta-center')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -43,7 +46,21 @@ export class MetaCenterAdminController {
     private readonly fbConfig: FacebookConfigService,
     private readonly facebookAuth: FacebookAuthService,
     private readonly assets: MetaCenterAssetsService,
+    private readonly apiLog: MetaCenterApiLogService,
   ) {}
+
+  private async safeEndpoint<T extends Record<string, unknown>>(
+    endpoint: string,
+    handler: () => Promise<T>,
+    fallback: (message: string) => T,
+  ): Promise<T> {
+    try {
+      return await handler();
+    } catch (err) {
+      const detail = await this.apiLog.logInternalError(endpoint, err);
+      return fallback(detail.message);
+    }
+  }
 
   @Get('apps')
   getAppsConfig() {
@@ -138,7 +155,23 @@ export class MetaCenterAdminController {
 
   @Get('connection/status')
   connectionStatus() {
-    return this.service.getConnectionStatus();
+    return this.safeEndpoint(
+      'connection/status',
+      () => this.service.getConnectionStatus(),
+      (message) =>
+        ({
+          ok: false as const,
+          status: 'not_configured' as const,
+          message,
+          settings: this.service.getDashboardEmergencyFallback(message).settings,
+          apps: this.fbConfig.getAppsConfig(),
+          checklist: [],
+          diagnostics: [],
+          connectedAt: null,
+          lastSyncAt: null,
+          error: extractSafeMetaError(new Error(message), 'connection/status'),
+        }) as Awaited<ReturnType<MetaCenterService['getConnectionStatus']>>,
+    );
   }
 
   @Post('connection/sync')
@@ -204,14 +237,36 @@ export class MetaCenterAdminController {
 
   @Get('dashboard')
   async getDashboard(@CurrentUser() user: AuthUser) {
-    const [dash, oauthPreview, oauthLast, oauthCompleted, oauthFlows] = await Promise.all([
-      this.service.getDashboard(),
-      this.connectOAuth.buildOAuthPreview(user.id, true, 'pages').catch(() => null),
-      this.connectOAuth.getLastOAuthCallback(),
-      this.connectOAuth.getOAuthCompletedStatus(),
-      Promise.resolve(this.connectOAuth.buildOAuthFlowsDiagnostics()),
-    ]);
-    return { ...dash, oauthPreview, lastOAuthCallback: oauthLast, oauthCompleted, oauthFlows };
+    return this.safeEndpoint(
+      'dashboard',
+      async () => {
+        const [dash, oauthPreview, oauthLast, oauthCompleted, oauthFlows] = await Promise.all([
+          this.service.getDashboard(),
+          this.connectOAuth.buildOAuthPreview(user.id, true, 'pages').catch(() => null),
+          this.connectOAuth.getLastOAuthCallback().catch(() => null),
+          this.connectOAuth.getOAuthCompletedStatus().catch(() => ({
+            completed: false,
+            reason: null,
+            at: null,
+          })),
+          this.connectOAuth.buildOAuthFlowsDiagnostics().catch(() => []),
+        ]);
+        return {
+          ...dash,
+          oauthPreview,
+          lastOAuthCallback: oauthLast,
+          oauthCompleted,
+          oauthFlows,
+        };
+      },
+      (message) => ({
+        ...this.service.getDashboardEmergencyFallback(message),
+        oauthPreview: null,
+        lastOAuthCallback: null,
+        oauthCompleted: { completed: false, reason: message, at: null },
+        oauthFlows: [] as Awaited<ReturnType<MetaConnectOAuthService['buildOAuthFlowsDiagnostics']>>,
+      }),
+    );
   }
 
   @Get('settings')
@@ -288,7 +343,16 @@ export class MetaCenterAdminController {
 
   @Get('datasets')
   listDatasets() {
-    return this.assets.listDatasets();
+    return this.safeEndpoint('datasets', () => this.assets.listDatasets(), (message) => ({
+      ok: false as const,
+      status: 'not_configured' as const,
+      message,
+      items: [] as [],
+      activeDatasetId: null,
+      businessId: null,
+      canSelect: false,
+      error: extractSafeMetaError(new Error(message), 'datasets'),
+    }));
   }
 
   @Post('datasets/select')
@@ -298,12 +362,28 @@ export class MetaCenterAdminController {
 
   @Get('catalog/list')
   listCatalogs() {
-    return this.assets.listCatalogs();
+    return this.safeEndpoint('catalog/list', () => this.assets.listCatalogs(), (message) => ({
+      ok: false as const,
+      status: 'not_configured' as const,
+      message,
+      items: [] as [],
+      activeCatalogId: null,
+      scopeInfo: '',
+      error: extractSafeMetaError(new Error(message), 'catalog/list'),
+    }));
   }
 
   @Get('catalog/panel')
   catalogPanel() {
-    return this.assets.getCatalogPanel();
+    return this.safeEndpoint('catalog/panel', () => this.assets.getCatalogPanel(), (message) => ({
+      ...metaPanelNotConfigured(message, {
+        commerceOnline: false,
+        catalogOnline: false,
+        commerceManagerUrl: META_EXTERNAL_LINKS.commerceManager,
+        catalogsUrl: META_EXTERNAL_LINKS.catalogs,
+      }),
+      error: extractSafeMetaError(new Error(message), 'catalog/panel'),
+    }));
   }
 
   @Get('catalog/products')
@@ -329,12 +409,37 @@ export class MetaCenterAdminController {
 
   @Get('ad-account')
   adAccountPanel() {
-    return this.assets.getAdAccountPanel();
+    return this.safeEndpoint(
+      'ad-account',
+      () => this.assets.getAdAccountPanel(),
+      (message) =>
+        ({
+          ok: false as const,
+          status: 'not_configured' as const,
+          message,
+          connected: false,
+          optional: true,
+          adAccountId: null,
+          name: null,
+          currency: null,
+          timezone: null,
+          error: extractSafeMetaError(new Error(message), 'ad-account'),
+        }) as Awaited<ReturnType<MetaCenterAssetsService['getAdAccountPanel']>>,
+    );
   }
 
   @Get('ad-accounts')
   listAdAccounts() {
-    return this.assets.listAdAccounts();
+    return this.safeEndpoint('ad-accounts', () => this.assets.listAdAccounts(), (message) => ({
+      ok: false as const,
+      status: 'not_configured' as const,
+      message:
+        message ||
+        'Reklamní účet není připojený nebo token nemá ads_read/ads_management.',
+      items: [] as [],
+      activeAdAccountId: null,
+      error: extractSafeMetaError(new Error(message), 'ad-accounts'),
+    }));
   }
 
   @Post('ad-account/select')

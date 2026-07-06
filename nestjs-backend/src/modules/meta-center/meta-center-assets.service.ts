@@ -8,6 +8,12 @@ import { MetaConnectOAuthService } from './meta-connect-oauth.service';
 import { MetaConnectProvisionService } from './meta-connect-provision.service';
 import { META_EXTERNAL_LINKS } from './meta-graph-permissions.util';
 import { MetaGraphClientService } from './meta-graph-client.service';
+import {
+  metaListNotConfigured,
+  metaListOk,
+  metaPanelNotConfigured,
+} from './meta-center-safe-response.util';
+import { isMarketingAdsTokenActive } from './meta-marketing-token.util';
 
 const SETTINGS_ID = 'default';
 
@@ -36,25 +42,72 @@ export class MetaCenterAssetsService {
     return this.oauth.resolveAccessToken();
   }
 
+  private async tryResolveMarketingToken(): Promise<string | null> {
+    return this.oauth.tryResolveMarketingAccessToken();
+  }
+
+  private marketingTokenErrorMessage(row: Awaited<ReturnType<typeof this.getSettingRow>>): string {
+    if (!row?.marketingAccessTokenEncrypted) {
+      return 'Reklamní účet není připojený nebo token nemá ads_read/ads_management.';
+    }
+    if (!isMarketingAdsTokenActive(row)) {
+      return 'Reklamní účet není připojený nebo token nemá ads_read/ads_management.';
+    }
+    return 'Reklamní účet není připojený nebo token nemá ads_read/ads_management.';
+  }
+
   async listCatalogs() {
     const row = await this.getSettingRow();
     const ids = resolveMetaCenterIds(row ?? ({} as never));
-    const activeCatalogId = ids.catalogId;
+    const activeCatalogId = ids.catalogId ?? row?.catalogId ?? null;
     if (!ids.businessId) {
-      return {
-        items: [] as Array<{
-          id: string;
-          name: string;
-          isActive: boolean;
-          productCount: number | null;
-        }>,
-        activeCatalogId,
-        scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
-        error: 'Chybí Business Manager ID — nejdřív připojte Commerce / Catalog OAuth.',
-      };
+      if (activeCatalogId) {
+        return metaListOk(
+          [
+            {
+              id: activeCatalogId,
+              name: row?.catalogName ?? activeCatalogId,
+              isActive: true,
+              productCount: null,
+            },
+          ],
+          {
+            activeCatalogId,
+            scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
+            warning:
+              'Katalog je uložen v konfiguraci — chybí Business Manager ID pro načtení ze Graph API.',
+          },
+        );
+      }
+      return metaListNotConfigured(
+        'Chybí Business Manager ID — nejdřív připojte Commerce / Catalog OAuth.',
+        { activeCatalogId, scopeInfo: META_CATALOG_VIA_BM_MESSAGE },
+      );
     }
     try {
-      const token = await this.resolveToken();
+      const token = await this.resolveToken().catch(() => null);
+      if (!token) {
+        const storedItems = activeCatalogId
+          ? [
+              {
+                id: activeCatalogId,
+                name: row?.catalogName ?? activeCatalogId,
+                isActive: true,
+                productCount: null,
+              },
+            ]
+          : [];
+        return storedItems.length
+          ? metaListOk(storedItems, {
+              activeCatalogId,
+              scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
+              warning: 'Katalog z DB — chybí access token pro Graph API.',
+            })
+          : metaListNotConfigured('Chybí Meta access token pro načtení katalogů.', {
+              activeCatalogId,
+              scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
+            });
+      }
       const res = await this.graph.get<
         GraphList<{ id?: string; name?: string; product_count?: number }>
       >(`/${ids.businessId}/owned_product_catalogs`, token, {
@@ -67,40 +120,84 @@ export class MetaCenterAssetsService {
         isActive: c.id === activeCatalogId,
         productCount: c.product_count ?? null,
       }));
-      return {
-        items: items.filter((i) => i.id),
+      const filtered = items.filter((i) => i.id);
+      if (!res.ok && activeCatalogId) {
+        return metaListOk(
+          [
+            {
+              id: activeCatalogId,
+              name: row?.catalogName ?? activeCatalogId,
+              isActive: true,
+              productCount: null,
+            },
+          ],
+          {
+            activeCatalogId,
+            scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
+            warning: res.errorMessage,
+            graphError: res.data,
+          },
+        );
+      }
+      return metaListOk(filtered, {
         activeCatalogId,
         scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
-        error: res.ok ? null : res.errorMessage,
-      };
+        graphError: res.ok ? null : res.data,
+        ...(res.ok
+          ? {}
+          : {
+              ok: false as const,
+              status: 'error' as const,
+              message: res.errorMessage,
+            }),
+      });
     } catch (err) {
-      return {
-        items: [],
-        activeCatalogId,
-        scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
-        error: err instanceof Error ? err.message : 'Nelze načíst katalogy.',
-      };
+      const storedItems = activeCatalogId
+        ? [
+            {
+              id: activeCatalogId,
+              name: row?.catalogName ?? activeCatalogId,
+              isActive: true,
+              productCount: null,
+            },
+          ]
+        : [];
+      if (storedItems.length) {
+        return metaListOk(storedItems, {
+          activeCatalogId,
+          scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
+          warning: err instanceof Error ? err.message : 'Nelze načíst katalogy z Graph API.',
+        });
+      }
+      return metaListNotConfigured(
+        err instanceof Error ? err.message : 'Nelze načíst katalogy.',
+        { activeCatalogId, scopeInfo: META_CATALOG_VIA_BM_MESSAGE },
+      );
     }
   }
 
   async listAdAccounts() {
     const row = await this.getSettingRow();
     const ids = resolveMetaCenterIds(row ?? ({} as never));
-    const activeAdAccountId = ids.adAccountId;
-    if (!ids.businessId) {
-      return {
-        items: [] as Array<{
-          id: string;
-          name: string;
-          isActive: boolean;
-          currency: string | null;
-        }>,
-        activeAdAccountId,
-        error: 'Chybí Business Manager ID — nejdřív připojte Marketing OAuth.',
-      };
+    const activeAdAccountId = ids.adAccountId ?? row?.adAccountId ?? null;
+    const tokenMsg = this.marketingTokenErrorMessage(row);
+
+    if (!isMarketingAdsTokenActive(row ?? {})) {
+      return metaListNotConfigured(tokenMsg, { activeAdAccountId });
     }
+
+    if (!ids.businessId) {
+      return metaListNotConfigured(
+        'Chybí Business Manager ID — nejdřív připojte Marketing OAuth.',
+        { activeAdAccountId },
+      );
+    }
+
     try {
-      const token = await this.resolveMarketingToken();
+      const token = await this.tryResolveMarketingToken();
+      if (!token) {
+        return metaListNotConfigured(tokenMsg, { activeAdAccountId });
+      }
       const res = await this.graph.get<
         GraphList<{ id?: string; name?: string; currency?: string; account_id?: string }>
       >(`/${ids.businessId}/owned_ad_accounts`, token, {
@@ -117,17 +214,24 @@ export class MetaCenterAssetsService {
           currency: a.currency ?? null,
         };
       });
-      return {
-        items: items.filter((i) => i.id),
-        activeAdAccountId,
-        error: res.ok ? null : res.errorMessage,
-      };
+      const filtered = items.filter((i) => i.id);
+      if (!res.ok) {
+        return {
+          ...metaListNotConfigured(res.errorMessage || tokenMsg, {
+            activeAdAccountId,
+            graphError: res.data,
+          }),
+          items: filtered,
+          status: filtered.length ? ('ok' as const) : ('error' as const),
+          ok: filtered.length > 0,
+        };
+      }
+      return metaListOk(filtered, { activeAdAccountId });
     } catch (err) {
-      return {
-        items: [],
-        activeAdAccountId,
-        error: err instanceof Error ? err.message : 'Nelze načíst reklamní účty.',
-      };
+      return metaListNotConfigured(
+        err instanceof Error ? err.message : 'Nelze načíst reklamní účty.',
+        { activeAdAccountId },
+      );
     }
   }
 
@@ -210,27 +314,34 @@ export class MetaCenterAssetsService {
   }
 
   async listDatasets() {
-    const row = await this.getSettingRow();
+    const row = await this.getSettingRow().catch(() => null);
     const ids = resolveMetaCenterIds(row ?? ({} as never));
-    const activeDatasetId = ids.datasetId;
-    const businessId = await this.resolveBusinessIdForAssets(row);
+    const activeDatasetId = ids.datasetId ?? row?.datasetId ?? null;
+
+    if (!activeDatasetId && !process.env.META_DATASET_ID?.trim()) {
+      return metaListNotConfigured('Dataset není vybraný.', {
+        activeDatasetId: null,
+        businessId: ids.businessId ?? row?.businessManagerId ?? null,
+        canSelect: Boolean(ids.businessId ?? row?.businessManagerId),
+      });
+    }
+
+    const businessId = await this.resolveBusinessIdForAssets(row).catch(() => null);
     if (!businessId) {
-      return {
-        items: [] as Array<{
-          id: string;
-          name: string;
-          isActive: boolean;
-          lastFiredTime: string | null;
-          sourceApp: string | null;
-        }>,
-        activeDatasetId,
-        businessId: null,
-        canSelect: false,
-        error: 'Chybí Business Manager ID — nejdřív připojte Commerce / Catalog OAuth.',
-      };
+      return metaListNotConfigured(
+        'Chybí Business Manager ID — nejdřív připojte Commerce / Catalog OAuth.',
+        { activeDatasetId, businessId: null, canSelect: false },
+      );
     }
     try {
-      const token = await this.resolveToken();
+      const token = await this.resolveToken().catch(() => null);
+      if (!token) {
+        return metaListNotConfigured('Chybí Meta access token pro načtení datasetů.', {
+          activeDatasetId,
+          businessId,
+          canSelect: true,
+        });
+      }
       const rows = await this.fetchDatasetRows(businessId, token);
       const items = rows
         .filter((i) => i.id)
@@ -238,21 +349,61 @@ export class MetaCenterAssetsService {
           ...p,
           isActive: p.id === activeDatasetId,
         }));
-      return {
-        items,
+      if (!items.length && activeDatasetId) {
+        return metaListOk(
+          [
+            {
+              id: activeDatasetId,
+              name: row?.pixelName ?? activeDatasetId,
+              isActive: true,
+              lastFiredTime: null,
+              sourceApp: null,
+            },
+          ],
+          {
+            activeDatasetId,
+            businessId,
+            canSelect: true,
+            warning: 'Dataset z konfigurace — Graph API nevrátilo žádné datasety.',
+          },
+        );
+      }
+      return metaListOk(items, {
         activeDatasetId,
         businessId,
         canSelect: true,
-        error: items.length ? null : 'V Business Manageru nebyl nalezen žádný Dataset / Pixel.',
-      };
+        ...(items.length
+          ? {}
+          : {
+              ok: false as const,
+              status: 'not_configured' as const,
+              message: 'Dataset není vybraný.',
+            }),
+      });
     } catch (err) {
-      return {
-        items: [],
-        activeDatasetId,
-        businessId,
-        canSelect: true,
-        error: err instanceof Error ? err.message : 'Nelze načíst datasety.',
-      };
+      if (activeDatasetId) {
+        return metaListOk(
+          [
+            {
+              id: activeDatasetId,
+              name: row?.pixelName ?? activeDatasetId,
+              isActive: true,
+              lastFiredTime: null,
+              sourceApp: null,
+            },
+          ],
+          {
+            activeDatasetId,
+            businessId,
+            canSelect: true,
+            warning: err instanceof Error ? err.message : 'Nelze načíst datasety.',
+          },
+        );
+      }
+      return metaListNotConfigured(
+        err instanceof Error ? err.message : 'Nelze načíst datasety.',
+        { activeDatasetId, businessId, canSelect: true },
+      );
     }
   }
 
@@ -260,7 +411,11 @@ export class MetaCenterAssetsService {
     const id = datasetId.trim();
     if (!id) return { ok: false, error: 'Dataset ID je prázdné.' };
     const list = await this.listDatasets().catch(() => null);
-    const match = list?.items.find((i) => i.id === id);
+    const items =
+      list && Array.isArray(list.items)
+        ? (list.items as Array<{ id: string; name?: string | null }>)
+        : [];
+    const match = items.find((i) => i.id === id);
     await this.prisma.metaCenterSetting.upsert({
       where: { id: SETTINGS_ID },
       create: {
@@ -287,54 +442,91 @@ export class MetaCenterAssetsService {
   }
 
   async getCatalogPanel() {
-    const row = await this.getSettingRow();
-    const ids = resolveMetaCenterIds(row ?? ({} as never));
-    const graph = await this.graphDiag.buildCatalogDiagnostics();
-    const exportedCount = await this.prisma.metaCatalogExportItem.count({
-      where: { exportStatus: 'exported' },
-    });
-    const grantsSnap = row?.diagnosticsSnapshot as Record<string, unknown> | null;
-    const catalogGrant =
-      grantsSnap?.oauthFlowGrants &&
-      typeof grantsSnap.oauthFlowGrants === 'object' &&
-      (grantsSnap.oauthFlowGrants as Record<string, unknown>).catalog;
-    const catalogGrantObj =
-      catalogGrant && typeof catalogGrant === 'object'
-        ? (catalogGrant as Record<string, unknown>)
-        : null;
+    try {
+      const row = await this.getSettingRow();
+      const ids = resolveMetaCenterIds(row ?? ({} as never));
+      const graph = await this.graphDiag.buildCatalogDiagnostics().catch(() => null);
+      const exportedCount = await this.prisma.metaCatalogExportItem
+        .count({ where: { exportStatus: 'exported' } })
+        .catch(() => 0);
+      const grantsSnap = row?.diagnosticsSnapshot as Record<string, unknown> | null;
+      const catalogGrant =
+        grantsSnap?.oauthFlowGrants &&
+        typeof grantsSnap.oauthFlowGrants === 'object' &&
+        (grantsSnap.oauthFlowGrants as Record<string, unknown>).catalog;
+      const catalogGrantObj =
+        catalogGrant && typeof catalogGrant === 'object'
+          ? (catalogGrant as Record<string, unknown>)
+          : null;
 
-    const pendingCount = await this.prisma.metaCatalogExportItem.count();
-    const errorCount = await this.prisma.metaCatalogExportItem.count({
-      where: { OR: [{ exportStatus: 'error' }, { lastError: { not: null } }] },
-    });
+      const pendingCount = await this.prisma.metaCatalogExportItem.count().catch(() => 0);
+      const errorCount = await this.prisma.metaCatalogExportItem
+        .count({
+          where: { OR: [{ exportStatus: 'error' }, { lastError: { not: null } }] },
+        })
+        .catch(() => 0);
 
-    return {
-      catalogId: ids.catalogId ?? row?.catalogId ?? null,
-      catalogName: row?.catalogName ?? graph.catalogName ?? null,
-      businessId: ids.businessId,
-      commerceManagerId: ids.commerceManagerId,
-      commerceOnline: graph.commerceOnline,
-      catalogOnline: graph.catalogOnline || Boolean(ids.catalogId),
-      businessManagementGranted:
-        catalogGrantObj?.catalogPermissionsStatus === 'not_required' ||
-        catalogGrantObj?.catalogPermissionsStatus === 'granted' ||
-        (Array.isArray(catalogGrantObj?.grantedScopes) &&
-          (catalogGrantObj.grantedScopes as string[]).includes('business_management')),
-      catalogScopeInfo: META_CATALOG_VIA_BM_MESSAGE,
-      catalogPermissionsStatus:
-        typeof catalogGrantObj?.catalogPermissionsStatus === 'string'
-          ? catalogGrantObj.catalogPermissionsStatus
-          : null,
-      catalogConnectedAt:
-        typeof catalogGrantObj?.connectedAt === 'string' ? catalogGrantObj.connectedAt : null,
-      productCount: graph.productCount,
-      feedItemCount: exportedCount,
-      exportErrorCount: errorCount,
-      exportPendingCount: pendingCount,
-      lastSyncAt: row?.lastAutoSyncAt?.toISOString() ?? graph.lastLocalSync ?? null,
-      commerceManagerUrl: META_EXTERNAL_LINKS.commerceManager,
-      catalogsUrl: META_EXTERNAL_LINKS.catalogs,
-    };
+      const catalogId = ids.catalogId ?? row?.catalogId ?? graph?.catalogId ?? null;
+      const catalogOnline = graph?.catalogOnline || Boolean(catalogId);
+
+      return {
+        ok: true as const,
+        status: 'ok' as const,
+        message: null,
+        catalogId,
+        catalogName: row?.catalogName ?? graph?.catalogName ?? null,
+        businessId: ids.businessId ?? graph?.businessId ?? null,
+        commerceManagerId: ids.commerceManagerId,
+        commerceOnline: graph?.commerceOnline ?? false,
+        catalogOnline,
+        businessManagementGranted:
+          catalogGrantObj?.catalogPermissionsStatus === 'not_required' ||
+          catalogGrantObj?.catalogPermissionsStatus === 'granted' ||
+          (Array.isArray(catalogGrantObj?.grantedScopes) &&
+            (catalogGrantObj.grantedScopes as string[]).includes('business_management')),
+        catalogScopeInfo: META_CATALOG_VIA_BM_MESSAGE,
+        catalogPermissionsStatus:
+          typeof catalogGrantObj?.catalogPermissionsStatus === 'string'
+            ? catalogGrantObj.catalogPermissionsStatus
+            : null,
+        catalogConnectedAt:
+          typeof catalogGrantObj?.connectedAt === 'string' ? catalogGrantObj.connectedAt : null,
+        productCount: graph?.productCount ?? null,
+        feedItemCount: exportedCount,
+        exportErrorCount: errorCount,
+        exportPendingCount: pendingCount,
+        lastSyncAt: row?.lastAutoSyncAt?.toISOString() ?? graph?.lastLocalSync ?? null,
+        commerceManagerUrl: META_EXTERNAL_LINKS.commerceManager,
+        catalogsUrl: META_EXTERNAL_LINKS.catalogs,
+        warning: graph?.graphError ?? null,
+        graphError: graph?.graphErrorJson ?? null,
+      };
+    } catch (err) {
+      const row = await this.getSettingRow().catch(() => null);
+      const ids = resolveMetaCenterIds(row ?? ({} as never));
+      return {
+        ...metaPanelNotConfigured(
+          err instanceof Error ? err.message : 'Nelze načíst panel katalogu.',
+          {
+            catalogId: ids.catalogId ?? row?.catalogId ?? null,
+            catalogName: row?.catalogName ?? null,
+            businessId: ids.businessId ?? null,
+            commerceManagerId: ids.commerceManagerId ?? null,
+            commerceOnline: false,
+            catalogOnline: Boolean(ids.catalogId ?? row?.catalogId),
+            catalogPermissionsStatus: null,
+            catalogConnectedAt: null,
+            productCount: null,
+            feedItemCount: null,
+            exportErrorCount: null,
+            exportPendingCount: null,
+            lastSyncAt: row?.lastAutoSyncAt?.toISOString() ?? null,
+            commerceManagerUrl: META_EXTERNAL_LINKS.commerceManager,
+            catalogsUrl: META_EXTERNAL_LINKS.catalogs,
+          },
+        ),
+      };
+    }
   }
 
   async listCatalogProducts(take = 50) {
@@ -386,21 +578,56 @@ export class MetaCenterAssetsService {
   }
 
   async getAdAccountPanel() {
-    const row = await this.getSettingRow();
+    const row = await this.getSettingRow().catch(() => null);
     const ids = resolveMetaCenterIds(row ?? ({} as never));
+    const tokenMsg = this.marketingTokenErrorMessage(row);
+
     if (!ids.adAccountId) {
       return {
+        ok: false as const,
+        status: 'not_configured' as const,
+        message: META_AD_ACCOUNT_OPTIONAL_MESSAGE,
         connected: false,
         optional: true,
-        message: META_AD_ACCOUNT_OPTIONAL_MESSAGE,
         adAccountId: null,
         name: null,
         currency: null,
         timezone: null,
+        error: { message: META_AD_ACCOUNT_OPTIONAL_MESSAGE, type: 'not_configured', code: null, endpoint: '' },
       };
     }
+
+    if (!isMarketingAdsTokenActive(row ?? {})) {
+      return {
+        ok: false as const,
+        status: 'not_configured' as const,
+        message: tokenMsg,
+        connected: false,
+        optional: true,
+        adAccountId: ids.adAccountId,
+        name: row?.adAccountName ?? null,
+        currency: null,
+        timezone: null,
+        error: { message: tokenMsg, type: 'permission_denied', code: null, endpoint: '' },
+      };
+    }
+
     try {
-      const token = await this.resolveMarketingToken();
+      const token = await this.tryResolveMarketingToken();
+      if (!token) {
+        return {
+          ok: false as const,
+          status: 'not_configured' as const,
+          message: tokenMsg,
+          connected: false,
+          optional: true,
+          adAccountId: ids.adAccountId,
+          name: row?.adAccountName ?? null,
+          currency: null,
+          timezone: null,
+          error: { message: tokenMsg, type: 'not_configured', code: null, endpoint: '' },
+        };
+      }
       const actId = ids.adAccountId.replace(/^act_/, '');
       const res = await this.graph.get<{
         id?: string;
@@ -413,20 +640,30 @@ export class MetaCenterAssetsService {
       });
       if (!res.ok) {
         return {
+          ok: false as const,
+          status: 'error' as const,
+          message: res.errorMessage,
           connected: false,
           optional: true,
-          message: res.errorMessage,
           adAccountId: ids.adAccountId,
           name: row?.adAccountName ?? null,
           currency: null,
           timezone: null,
+          error: {
+            code: res.errorCode != null ? String(res.errorCode) : null,
+            message: res.errorMessage,
+            type: 'graph_api',
+            endpoint: `/act_${actId}`,
+          },
           graphError: res.data,
         };
       }
       return {
+        ok: true as const,
+        status: 'ok' as const,
+        message: null,
         connected: true,
         optional: false,
-        message: null,
         adAccountId: ids.adAccountId,
         name: res.data.name ?? row?.adAccountName ?? null,
         currency: res.data.currency ?? null,
@@ -434,14 +671,18 @@ export class MetaCenterAssetsService {
         accountStatus: res.data.account_status ?? null,
       };
     } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Nelze ověřit reklamní účet.';
       return {
+        ok: false as const,
+        status: 'not_configured' as const,
+        message: msg,
         connected: false,
         optional: true,
-        message: err instanceof Error ? err.message : null,
         adAccountId: ids.adAccountId,
         name: row?.adAccountName ?? null,
         currency: null,
         timezone: null,
+        error: { message: msg, type: 'internal', code: null, endpoint: '' },
       };
     }
   }

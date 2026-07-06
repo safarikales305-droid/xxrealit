@@ -42,6 +42,23 @@ export class MetaConnectDiagnosticsService {
   ) {}
 
   async runFullDiagnostics(): Promise<MetaConnectionCheck[]> {
+    try {
+      return await this.runFullDiagnosticsUnsafe();
+    } catch (err) {
+      return [
+        this.integration.buildCheck({
+          key: 'api',
+          label: 'Diagnostika Meta Centra',
+          connected: false,
+          error: err instanceof Error ? err.message : 'Diagnostika selhala.',
+          source: 'meta_connect',
+          apiError: true,
+        }),
+      ];
+    }
+  }
+
+  private async runFullDiagnosticsUnsafe(): Promise<MetaConnectionCheck[]> {
     const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
     const checks: MetaConnectionCheck[] = [];
     const apps = this.fbConfig.getAppsConfig();

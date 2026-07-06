@@ -56,6 +56,7 @@ import {
   type MetaOAuthPreview,
   type MetaPermissionsCheckResult,
   type FacebookAppsConfig,
+  metaCenterEndpointWarning,
 } from '@/lib/nest-client';
 
 const META_EXTERNAL_LINKS = {
@@ -269,6 +270,7 @@ export default function MetaCentrumPage() {
   const [apiLogs, setApiLogs] = useState<MetaCenterApiLogRow[]>([]);
   const [logFilter, setLogFilter] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
+  const [endpointWarnings, setEndpointWarnings] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [appsConfig, setAppsConfig] = useState<FacebookAppsConfig | null>(null);
   const [testReport, setTestReport] = useState<unknown>(null);
@@ -334,6 +336,17 @@ export default function MetaCentrumPage() {
     setAdAccount(ad);
     setCatalogList(cats);
     setAdAccountList(adList);
+
+    const warnings = [
+      metaCenterEndpointWarning('Dashboard', d),
+      metaCenterEndpointWarning('Stav připojení', c),
+      metaCenterEndpointWarning('Datasety', ds),
+      metaCenterEndpointWarning('Reklamní účet', ad),
+      metaCenterEndpointWarning('Seznam reklamních účtů', adList),
+      metaCenterEndpointWarning('Katalog (panel)', cp),
+      metaCenterEndpointWarning('Katalog (seznam)', cats),
+    ].filter((w): w is string => Boolean(w));
+    setEndpointWarnings(warnings);
   }, [token, logFilter]);
 
   useEffect(() => {
@@ -661,6 +674,20 @@ export default function MetaCentrumPage() {
           <p className="whitespace-pre-wrap rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900">
             {msg}
           </p>
+        ) : null}
+
+        {endpointWarnings.length > 0 ? (
+          <section className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm">
+            <h2 className="mb-2 font-bold">Upozornění načítání Meta Centra</h2>
+            <ul className="list-disc space-y-1 pl-5">
+              {endpointWarnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs opacity-80">
+              Stránka funguje v bezpečném režimu — chybějící konfigurace neblokuje zobrazení.
+            </p>
+          </section>
         ) : null}
 
         {tab === 'dashboard' ? (
