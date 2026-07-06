@@ -29,6 +29,7 @@ import {
   resolveMetaCenterIds,
   resolveMetaTrackingMode,
 } from './meta-center-env.util';
+import { isMarketingAdsTokenActive } from './meta-marketing-token.util';
 import type { MetaConnectionCheck } from './meta-connect.constants';
 import {
   MetaCenterGraphDiagnosticsService,
@@ -189,7 +190,7 @@ export class MetaCenterService {
       lastAutoSyncAt: row.lastAutoSyncAt?.toISOString() ?? null,
       syncEnabled: row.syncEnabled,
       isMetaConnected: Boolean(row.metaConnectedAt && row.metaUserAccessTokenEncrypted),
-      isMarketingAdsConnected: Boolean(row.marketingAccessTokenEncrypted),
+      isMarketingAdsConnected: isMarketingAdsTokenActive(row),
       marketingRefreshTokenConfigured: Boolean(row.marketingRefreshTokenEncrypted),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
@@ -1290,9 +1291,9 @@ export class MetaCenterService {
       },
       {
         key: 'ads_api',
-        label: 'Ads API aktivní',
-        connected: Boolean(settings.isMarketingAdsConnected),
-        optional: !settings.adAccountId,
+        label: 'Ads API připojeno',
+        connected: isMarketingAdsTokenActive(row),
+        optional: !row.adAccountId,
       },
       {
         key: 'commerce',

@@ -18,6 +18,7 @@ import { SocialAutopostFacebookOAuthService } from '../social/autopost/social-au
 import {
   META_CENTER_ADMIN_URL,
   META_CENTER_OAUTH_STATE_PREFIX,
+  REQUIRED_MARKETING_ADS_SCOPES,
 } from './meta-connect.constants';
 import {
   META_CENTER_DEFAULT_FLOW,
@@ -41,6 +42,7 @@ import {
   isProductionEnvironment,
 } from './meta-oauth-redirect-uri.util';
 import { MetaConnectDiscoveryService } from './meta-connect-discovery.service';
+import { hasMarketingAdsScopes } from './meta-marketing-token.util';
 import { MetaGraphClientService } from './meta-graph-client.service';
 
 const SETTINGS_ID = 'default';
@@ -51,6 +53,7 @@ export type MetaOAuthFlowGrant = {
   connectedAt: string;
   businessId?: string | null;
   adAccountId?: string | null;
+  adsApiActive?: boolean;
   catalogManagementGranted?: boolean;
   catalogPermissionsStatus?: 'granted' | 'missing' | 'partial' | 'not_required';
 };
@@ -107,6 +110,10 @@ type GraphTokenResponse = {
   access_token?: string;
   expires_in?: number;
   refresh_token?: string;
+  token_type?: string;
+};
+type GraphPermissionsResponse = {
+  data?: Array<{ permission?: string; status?: string }>;
 };
 type DebugTokenResponse = {
   data?: { is_valid?: boolean; expires_at?: number; scopes?: string[] };
@@ -565,7 +572,7 @@ export class MetaConnectOAuthService {
     flow: MetaOAuthFlowKey,
     grantedScopes: string[],
     connectedAt: Date,
-    extra?: { businessId?: string | null; adAccountId?: string | null },
+    extra?: { businessId?: string | null; adAccountId?: string | null; adsApiActive?: boolean },
   ) {
     const flowKey = normalizeMetaOAuthFlowKey(flow) ?? 'pages';
     const flowDef = getMetaOAuthFlowDefinition(flowKey);
@@ -585,6 +592,7 @@ export class MetaConnectOAuthService {
       connectedAt: connectedAt.toISOString(),
       businessId: extra?.businessId ?? grants[flowKey]?.businessId ?? null,
       adAccountId: extra?.adAccountId ?? grants[flowKey]?.adAccountId ?? null,
+      adsApiActive: extra?.adsApiActive ?? grants[flowKey]?.adsApiActive,
       catalogManagementGranted,
       catalogPermissionsStatus:
         flowKey === 'catalog'
@@ -731,6 +739,9 @@ export class MetaConnectOAuthService {
     if (!dryRun) {
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       await this.cleanupSession(adminUserId);
+      if (flowKey === 'marketing') {
+        await this.clearMarketingToken('pre_oauth');
+      }
       await this.prisma.socialFacebookOAuthSession.create({
         data: {
           id: state,
@@ -1026,6 +1037,11 @@ export class MetaConnectOAuthService {
     const oauthFlow = parseFlowFromOAuthState(state);
     const flowDef = getMetaOAuthFlowDefinition(oauthFlow);
     try {
+      const marketingAppId = flowDef.usesMarketingApp ? this.fbConfig.getMarketingAppId() : null;
+      const marketingAppSecretConfigured = flowDef.usesMarketingApp
+        ? Boolean(this.fbConfig.getMarketingAppSecret())
+        : null;
+
       await this.logOAuthPhase({
         phase: 'OAuth Exchange',
         request: {
@@ -1034,15 +1050,25 @@ export class MetaConnectOAuthService {
           codePresent: true,
           oauthFlow,
           sessionMode: session.mode,
+          marketingAppId,
+          marketingAppSecretConfigured,
+          usesMarketingApp: flowDef.usesMarketingApp,
+          usesPagesApp: flowDef.usesPagesApp,
+          usesLoginApp: flowDef.usesLoginApp,
         },
         response: { status: 'started' },
       });
 
-      const shortToken = await this.exchangeCodeForToken(code, oauthFlow);
+      const shortTokenResponse = await this.exchangeCodeForToken(code, oauthFlow);
+      const shortToken = shortTokenResponse.access_token?.trim();
+      if (!shortToken) {
+        throw new BadRequestException('Facebook OAuth nevrátil access token.');
+      }
       const longLived = await this.exchangeForLongLivedToken(shortToken, oauthFlow);
       const userToken = longLived.access_token?.trim() || shortToken;
       const refreshToken = longLived.refresh_token?.trim() || null;
-      const expiresIn = longLived.expires_in;
+      const expiresIn = longLived.expires_in ?? shortTokenResponse.expires_in;
+      const tokenType = longLived.token_type ?? shortTokenResponse.token_type ?? 'bearer';
       const tokenExpiresAt =
         expiresIn != null && Number.isFinite(expiresIn)
           ? new Date(Date.now() + expiresIn * 1000)
@@ -1050,11 +1076,13 @@ export class MetaConnectOAuthService {
 
       await this.logOAuthPhase({
         phase: 'OAuth Exchange',
-        request: { state, redirect_uri: redirectUri, oauthFlow },
+        request: { state, redirect_uri: redirectUri, oauthFlow, marketingAppId },
         response: {
           status: 'token_received',
           expiresIn: expiresIn ?? null,
+          tokenType,
           hasRefreshToken: Boolean(refreshToken),
+          tokenSource: 'marketing_oauth_callback',
         },
         durationMs: Date.now() - exchangeStarted,
       });
@@ -1066,8 +1094,19 @@ export class MetaConnectOAuthService {
         .map((s) => s.trim())
         .filter(Boolean);
       const tokenDebug = await this.debugToken(userToken, oauthFlow);
-      const grantedScopes =
-        tokenDebug.scopes.length > 0 ? tokenDebug.scopes : grantedFromCallback;
+      let grantedScopes: string[];
+      if (oauthFlow === 'marketing') {
+        const permissions = await this.fetchUserPermissions(userToken, oauthFlow);
+        grantedScopes =
+          permissions.granted.length > 0
+            ? permissions.granted
+            : tokenDebug.scopes.length > 0
+              ? tokenDebug.scopes
+              : grantedFromCallback;
+      } else {
+        grantedScopes =
+          tokenDebug.scopes.length > 0 ? tokenDebug.scopes : grantedFromCallback;
+      }
 
       let discovered: Awaited<ReturnType<MetaConnectDiscoveryService['discoverAndPersist']>> | null =
         null;
@@ -1075,10 +1114,49 @@ export class MetaConnectOAuthService {
       if (oauthFlow === 'login') {
         await this.saveUserToken(userToken, tokenExpiresAt, session.userId);
       } else if (oauthFlow === 'marketing') {
-        discovered = await this.discovery.discoverMarketingAndPersist(
-          userToken,
+        const appId = this.fbConfig.getMarketingAppId();
+        const appSecret = this.fbConfig.getMarketingAppSecret();
+        if (!appId || !appSecret) {
+          throw new BadRequestException('Marketing App není nakonfigurována v ENV.');
+        }
+        if (appId !== marketingAppId) {
+          throw new BadRequestException('Marketing OAuth nepoužívá META_MARKETING_APP_ID z ENV.');
+        }
+
+        const missingAdsScopes = REQUIRED_MARKETING_ADS_SCOPES.filter(
+          (scope) => !grantedScopes.includes(scope),
+        );
+        if (missingAdsScopes.length > 0) {
+          await this.clearMarketingToken('missing_ads_scopes');
+          const reason =
+            `Token neobsahuje povinná oprávnění: ${missingAdsScopes.join(', ')}. ` +
+            `Granted z /me/permissions: ${grantedScopes.join(', ') || '—'}`;
+          await this.logOAuthPhase({
+            phase: 'OAuth Error',
+            request: { oauthFlow, marketingAppId },
+            response: { phase: 'missing_ads_scopes', grantedScopes, missingAdsScopes },
+            errorCode: 'missing_ads_scopes',
+            errorMessage: reason,
+          });
+          throw new BadRequestException(reason);
+        }
+
+        discovered = await this.discovery.discoverMarketingAndPersist(userToken, {
           refreshToken,
           tokenExpiresAt,
+          expiresIn: expiresIn ?? null,
+          tokenType,
+          grantedScopes,
+          marketingAppId: appId,
+          tokenSource: 'marketing_oauth_callback',
+        });
+
+        this.logger.log(
+          `[meta-marketing-oauth] connected Marketing App ID=${appId} ` +
+            `Token Source=marketing_oauth_callback ` +
+            `Granted Scopes=${grantedScopes.join(',')} ` +
+            `Business ID=${discovered.business?.id ?? '—'} ` +
+            `Ad Account ID=${discovered.adAccount?.id ?? '—'}`,
         );
       } else {
         await this.saveUserToken(userToken, tokenExpiresAt, session.userId);
@@ -1097,10 +1175,17 @@ export class MetaConnectOAuthService {
         discovered = await this.discovery.discoverAndPersist(userToken);
       }
 
-      await this.persistOAuthFlowGrant(oauthFlow, grantedScopes, new Date(), {
-        businessId: discovered?.business?.id ?? null,
-        adAccountId: discovered?.adAccount?.id ?? null,
-      });
+      await this.persistOAuthFlowGrant(
+        oauthFlow,
+        grantedScopes,
+        new Date(),
+        {
+          businessId: discovered?.business?.id ?? null,
+          adAccountId: discovered?.adAccount?.id ?? null,
+          adsApiActive:
+            oauthFlow === 'marketing' ? hasMarketingAdsScopes(grantedScopes) : undefined,
+        },
+      );
       await this.cleanupSession(session.userId);
 
       this.logger.log(
@@ -1131,17 +1216,22 @@ export class MetaConnectOAuthService {
     } catch (err) {
       await this.cleanupSession(session.userId);
       const reason = err instanceof Error ? err.message : 'oauth_failed';
+      const scopeError =
+        isFacebookPageScopeError(reason) ||
+        reason.includes('ads_management') ||
+        reason.includes('ads_read') ||
+        reason.includes('povinná oprávnění');
       await this.logOAuthPhase({
         phase: 'OAuth Error',
-        request: { state, userId: session.userId },
+        request: { state, userId: session.userId, oauthFlow },
         response: { phase: 'exchange_or_discovery_failed' },
-        errorCode: isFacebookPageScopeError(reason) ? 'scopes_unavailable' : 'oauth_failed',
+        errorCode: scopeError ? 'scopes_unavailable' : 'oauth_failed',
         errorMessage: reason,
         durationMs: Date.now() - exchangeStarted,
       });
       await this.persistLastCallback(ctx, 'error', reason);
 
-      if (isFacebookPageScopeError(reason)) {
+      if (scopeError) {
         return {
           ok: false,
           redirectUrl: `${adminUrl}?meta=error&reason=scopes_unavailable`,
@@ -1240,17 +1330,23 @@ export class MetaConnectOAuthService {
 
   async resolveMarketingAccessToken(): Promise<string> {
     const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
-    if (row?.marketingAccessTokenEncrypted) {
-      if (row.marketingTokenExpiresAt && row.marketingTokenExpiresAt.getTime() < Date.now()) {
-        throw new BadRequestException(
-          'Meta Marketing token expiroval — znovu připojte reklamní účet.',
-        );
-      }
-      return this.crypto.decrypt(row.marketingAccessTokenEncrypted);
+    if (!row?.marketingAccessTokenEncrypted) {
+      throw new BadRequestException(
+        'Reklamní účet není připojen. Klikněte na „Připojit reklamní účet“ (Marketing OAuth).',
+      );
     }
-    throw new BadRequestException(
-      'Reklamní účet není připojen. Klikněte na „Připojit reklamní účet“ (Marketing OAuth).',
-    );
+    if (row.marketingTokenExpiresAt && row.marketingTokenExpiresAt.getTime() < Date.now()) {
+      throw new BadRequestException(
+        'Meta Marketing token expiroval — znovu připojte reklamní účet.',
+      );
+    }
+    const granted = this.parseGrantedScopes(row.marketingGrantedScopes);
+    if (!hasMarketingAdsScopes(granted)) {
+      throw new BadRequestException(
+        'Marketing token nemá ads_management / ads_read — znovu připojte reklamní účet.',
+      );
+    }
+    return this.crypto.decrypt(row.marketingAccessTokenEncrypted);
   }
 
   async tryResolveMarketingAccessToken(): Promise<string | null> {
@@ -1261,10 +1357,60 @@ export class MetaConnectOAuthService {
     }
   }
 
+  /** Pouze Marketing App token — nikdy Pages / Login token. */
   async resolveAdsAccessToken(): Promise<string> {
-    const marketing = await this.tryResolveMarketingAccessToken();
-    if (marketing) return marketing;
-    return this.resolveAccessToken();
+    return this.resolveMarketingAccessToken();
+  }
+
+  private parseGrantedScopes(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return value.filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+  }
+
+  async clearMarketingToken(reason: string) {
+    await this.prisma.metaCenterSetting.upsert({
+      where: { id: SETTINGS_ID },
+      create: { id: SETTINGS_ID },
+      update: {
+        marketingAccessTokenEncrypted: null,
+        marketingTokenExpiresAt: null,
+        marketingTokenExpiresIn: null,
+        marketingTokenType: null,
+        marketingGrantedScopes: Prisma.JsonNull,
+        marketingRefreshTokenEncrypted: null,
+      },
+    });
+    this.logger.log(`[meta-marketing-oauth] cleared marketing token (reason=${reason})`);
+  }
+
+  private async fetchUserPermissions(accessToken: string, flow: MetaOAuthFlowKey) {
+    const res = await this.graph.get<GraphPermissionsResponse>('/me/permissions', accessToken, {
+      fields: 'permission,status',
+    });
+    const all = res.ok ? res.data.data ?? [] : [];
+    const granted = all
+      .filter((row) => row.status === 'granted' && row.permission?.trim())
+      .map((row) => row.permission!.trim());
+
+    this.logger.log(
+      `[meta-marketing-oauth] GET /me/permissions granted=[${granted.join(', ')}] ` +
+        `all=${JSON.stringify(all)}`,
+    );
+    await this.logOAuthPhase({
+      phase: 'OAuth Exchange',
+      request: { endpoint: '/me/permissions', oauthFlow: flow },
+      response: {
+        ok: res.ok,
+        granted,
+        permissions: all,
+        graphError: res.ok ? null : res.data,
+      },
+      errorCode: res.ok ? null : res.errorCode,
+      errorMessage: res.ok ? null : res.errorMessage,
+      httpStatus: res.httpStatus,
+    });
+
+    return { granted, all, ok: res.ok, errorMessage: res.ok ? null : res.errorMessage };
   }
 
   async resolveAccessToken(): Promise<string> {
@@ -1370,7 +1516,7 @@ export class MetaConnectOAuthService {
   private async exchangeCodeForToken(
     code: string,
     flow: MetaOAuthFlowKey = 'pages',
-  ): Promise<string> {
+  ): Promise<GraphTokenResponse> {
     const creds = this.resolveOAuthAppCredentials(flow);
     if (!creds) {
       throw new BadRequestException('Facebook OAuth aplikace není nakonfigurována.');
@@ -1383,9 +1529,10 @@ export class MetaConnectOAuthService {
       `&client_secret=${encodeURIComponent(creds.appSecret)}` +
       `&code=${encodeURIComponent(code)}`;
     const data = await this.facebookPage.fetchGraphJson<GraphTokenResponse>(url);
-    const token = data.access_token?.trim();
-    if (!token) throw new BadRequestException('Facebook OAuth nevrátil access token.');
-    return token;
+    if (!data.access_token?.trim()) {
+      throw new BadRequestException('Facebook OAuth nevrátil access token.');
+    }
+    return data;
   }
 
   private async exchangeForLongLivedToken(

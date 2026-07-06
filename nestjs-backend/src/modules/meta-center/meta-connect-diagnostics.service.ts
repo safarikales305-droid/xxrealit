@@ -5,6 +5,7 @@ import { FacebookConfigService } from '../social/facebook/facebook-config.servic
 import type { MetaConnectionCheck, MetaConnectionCheckKey } from './meta-connect.constants';
 import { MetaConnectDiscoveryService } from './meta-connect-discovery.service';
 import { MetaConnectOAuthService } from './meta-connect-oauth.service';
+import { isMarketingAdsTokenActive, parseMarketingGrantedScopes } from './meta-marketing-token.util';
 import { MetaConnectProvisionService } from './meta-connect-provision.service';
 import { MetaCenterGraphDiagnosticsService } from './meta-center-graph-diagnostics.service';
 import {
@@ -168,28 +169,35 @@ export class MetaConnectDiagnosticsService {
     let marketingAdsToken: string | null = null;
     try {
       marketingAdsToken = await this.oauth.tryResolveMarketingAccessToken();
-      marketingAccessToken = marketingAdsToken ?? (await this.oauth.resolveAccessToken());
-      const debug = await this.oauth.debugToken(
-        marketingAccessToken,
-        marketingAdsToken ? 'marketing' : 'pages',
-      );
-      const expired = debug.expires_at > 0 && debug.expires_at * 1000 < Date.now();
-      push(
-        this.integration.buildCheck({
-          key: 'access_token',
-          label: 'Marketing Access Token',
-          connected: debug.is_valid && !expired,
-          error: !debug.is_valid
-            ? 'Token není platný.'
-            : expired
-              ? 'Token expiroval.'
-              : null,
-          fixAction: expired || !debug.is_valid ? 'refresh_token' : null,
-          fixHref: META_FIX_HREFS.metaCenter,
-          source: 'meta_connect',
-          apiError: !debug.is_valid,
-        }),
-      );
+      try {
+        marketingAccessToken = await this.oauth.resolveAccessToken();
+      } catch {
+        marketingAccessToken = marketingAdsToken;
+      }
+      const tokenForDebug = marketingAdsToken ?? marketingAccessToken;
+      if (tokenForDebug) {
+        const debug = await this.oauth.debugToken(
+          tokenForDebug,
+          marketingAdsToken ? 'marketing' : 'pages',
+        );
+        const expired = debug.expires_at > 0 && debug.expires_at * 1000 < Date.now();
+        push(
+          this.integration.buildCheck({
+            key: 'access_token',
+            label: marketingAdsToken ? 'Marketing Ads Token' : 'Marketing Access Token',
+            connected: debug.is_valid && !expired,
+            error: !debug.is_valid
+              ? 'Token není platný.'
+              : expired
+                ? 'Token expiroval.'
+                : null,
+            fixAction: expired || !debug.is_valid ? 'refresh_token' : null,
+            fixHref: META_FIX_HREFS.metaCenter,
+            source: 'meta_connect',
+            apiError: !debug.is_valid,
+          }),
+        );
+      }
     } catch (err) {
       push(
         this.integration.buildCheck({
@@ -317,13 +325,12 @@ export class MetaConnectDiagnosticsService {
     );
 
     const adAccountId = resolvedIds.adAccountId ?? row?.adAccountId ?? null;
-    const adsApiToken = marketingAdsToken ?? marketingAccessToken;
-    if (adsApiToken && adAccountId) {
+    if (marketingAdsToken && adAccountId) {
       await this.checkEntity(
         checks,
-        adsApiToken,
+        marketingAdsToken,
         'ad_account',
-        'Reklamní účet',
+        'Reklamní účet připojen',
         adAccountId,
         (id) => `/act_${id.replace(/^act_/, '')}`,
         'sync',
@@ -335,14 +342,15 @@ export class MetaConnectDiagnosticsService {
       push(
         this.integration.buildCheck({
           key: 'ad_account',
-          label: 'Reklamní účet',
-          connected: Boolean(adAccountId && marketingAdsToken),
+          label: 'Reklamní účet připojen',
+          connected: Boolean(adAccountId && marketingAdsToken && isMarketingAdsTokenActive(row ?? {})),
           optional: !adAccountId,
-          error: adAccountId && marketingAdsToken
-            ? null
-            : marketingAdsToken
-              ? META_AD_ACCOUNT_OPTIONAL_MESSAGE
-              : 'Připojte reklamní účet přes Marketing OAuth.',
+          error:
+            adAccountId && marketingAdsToken
+              ? null
+              : adAccountId
+                ? 'Chybí platný Marketing token — znovu připojte reklamní účet.'
+                : 'Připojte reklamní účet přes Marketing OAuth.',
           fixAction: adAccountId && marketingAdsToken ? null : 'reconnect',
           fixHref: META_FIX_HREFS.metaCenter,
           source: adAccountId && marketingAdsToken ? 'meta_connect' : 'env',
@@ -351,30 +359,25 @@ export class MetaConnectDiagnosticsService {
       );
     }
 
-    if (marketingAdsToken) {
+    const adsApiActive = isMarketingAdsTokenActive(row ?? {});
+    if (marketingAdsToken && adsApiActive) {
       const adsDebug = await this.oauth.debugToken(marketingAdsToken, 'marketing');
       const expired =
         adsDebug.expires_at > 0 && adsDebug.expires_at * 1000 < Date.now();
-      const hasAdsScopes =
-        adsDebug.scopes.includes('ads_management') || adsDebug.scopes.includes('ads_read');
       push(
         this.integration.buildCheck({
           key: 'ads_api',
-          label: 'Ads API aktivní',
-          connected: adsDebug.is_valid && !expired && hasAdsScopes,
+          label: 'Ads API připojeno',
+          connected: adsDebug.is_valid && !expired,
           error: !adsDebug.is_valid
             ? 'Marketing token není platný.'
             : expired
               ? 'Marketing token expiroval.'
-              : !hasAdsScopes
-                ? 'Chybí oprávnění ads_management / ads_read — znovu připojte Marketing OAuth.'
-                : null,
-          fixAction: !adsDebug.is_valid || expired || !hasAdsScopes ? 'reconnect' : null,
+              : null,
+          fixAction: !adsDebug.is_valid || expired ? 'reconnect' : null,
           fixHref: META_FIX_HREFS.metaCenter,
           source: 'meta_connect',
-          detail: hasAdsScopes
-            ? `Scopes: ${adsDebug.scopes.filter((s) => s.startsWith('ads_') || s === 'business_management').join(', ')}`
-            : null,
+          detail: `Scopes: ${parseMarketingGrantedScopes(row?.marketingGrantedScopes).join(', ') || adsDebug.scopes.filter((s) => s.startsWith('ads_') || s === 'business_management').join(', ')}`,
           apiError: !adsDebug.is_valid,
         }),
       );
@@ -382,7 +385,7 @@ export class MetaConnectDiagnosticsService {
       push(
         this.integration.buildCheck({
           key: 'ads_api',
-          label: 'Ads API aktivní',
+          label: 'Ads API připojeno',
           connected: false,
           optional: !adAccountId,
           error: 'Připojte reklamní účet přes Marketing OAuth (Marketing App).',
@@ -755,7 +758,11 @@ export class MetaConnectDiagnosticsService {
         connected: res.ok,
         error: res.ok ? null : res.errorMessage,
         fixAction: res.ok ? null : fixAction,
-        detail: res.ok ? (res.data.name ?? id) : id,
+        detail: res.ok
+          ? (res.data.name ?? id)
+          : res.data
+            ? `${id} · ${JSON.stringify(res.data)}`
+            : id,
         source,
         apiError: !res.ok,
       }),

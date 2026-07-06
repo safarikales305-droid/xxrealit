@@ -1575,7 +1575,7 @@ export default function MetaCentrumPage() {
                   <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 sm:col-span-2">
                     <p className="font-semibold">✓ Reklamní účet připojen</p>
                     {dash.settings.isMarketingAdsConnected ? (
-                      <p className="mt-1 text-xs">✓ Ads API aktivní</p>
+                      <p className="mt-1 text-xs">✓ Ads API připojeno</p>
                     ) : (
                       <p className="mt-1 text-xs text-amber-800">
                         Ads API zatím neaktivní — dokončete Marketing OAuth.

@@ -28,8 +28,12 @@ export class MetaCenterAssetsService {
     return this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
   }
 
+  private async resolveMarketingToken(): Promise<string> {
+    return this.oauth.resolveMarketingAccessToken();
+  }
+
   private async resolveToken(): Promise<string> {
-    return this.oauth.resolveAdsAccessToken();
+    return this.oauth.resolveAccessToken();
   }
 
   async listCatalogs() {
@@ -92,11 +96,11 @@ export class MetaCenterAssetsService {
           currency: string | null;
         }>,
         activeAdAccountId,
-        error: 'Chybí Business Manager ID.',
+        error: 'Chybí Business Manager ID — nejdřív připojte Marketing OAuth.',
       };
     }
     try {
-      const token = await this.resolveToken();
+      const token = await this.resolveMarketingToken();
       const res = await this.graph.get<
         GraphList<{ id?: string; name?: string; currency?: string; account_id?: string }>
       >(`/${ids.businessId}/owned_ad_accounts`, token, {
@@ -396,7 +400,7 @@ export class MetaCenterAssetsService {
       };
     }
     try {
-      const token = await this.resolveToken();
+      const token = await this.resolveMarketingToken();
       const actId = ids.adAccountId.replace(/^act_/, '');
       const res = await this.graph.get<{
         id?: string;
@@ -416,6 +420,7 @@ export class MetaCenterAssetsService {
           name: row?.adAccountName ?? null,
           currency: null,
           timezone: null,
+          graphError: res.data,
         };
       }
       return {
@@ -430,7 +435,7 @@ export class MetaCenterAssetsService {
       };
     } catch (err) {
       return {
-        connected: Boolean(ids.adAccountId),
+        connected: false,
         optional: true,
         message: err instanceof Error ? err.message : null,
         adAccountId: ids.adAccountId,

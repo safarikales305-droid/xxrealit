@@ -2,8 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { TokenEncryptionService } from '../social/token-encryption.service';
-import type { MetaDiscoveredResources } from './meta-connect.constants';
-import { MetaConnectOAuthService } from './meta-connect-oauth.service';
+import type { MetaDiscoveredResources, MarketingOAuthTokenPersist } from './meta-connect.constants';
 import { MetaGraphClientService } from './meta-graph-client.service';
 
 const SETTINGS_ID = 'default';
@@ -28,11 +27,10 @@ export class MetaConnectDiscoveryService {
 
   async discoverMarketingAndPersist(
     accessToken: string,
-    refreshToken?: string | null,
-    tokenExpiresAt?: Date | null,
+    tokenMeta: MarketingOAuthTokenPersist,
   ): Promise<MetaDiscoveredResources> {
     const discovered = await this.discoverMarketing(accessToken);
-    await this.persistMarketing(discovered, accessToken, refreshToken, tokenExpiresAt);
+    await this.persistMarketing(discovered, accessToken, tokenMeta);
     return discovered;
   }
 
@@ -329,23 +327,28 @@ export class MetaConnectDiscoveryService {
   private async persistMarketing(
     discovered: MetaDiscoveredResources,
     accessToken: string,
-    refreshToken?: string | null,
-    tokenExpiresAt?: Date | null,
+    tokenMeta: MarketingOAuthTokenPersist,
   ) {
+    const adAccountId = discovered.adAccount?.id
+      ? discovered.adAccount.id.startsWith('act_')
+        ? discovered.adAccount.id
+        : `act_${discovered.adAccount.id}`
+      : null;
+
     const data: Prisma.MetaCenterSettingUpdateInput = {
+      facebookMarketingAppId: tokenMeta.marketingAppId,
       businessManagerId: discovered.business?.id ?? null,
-      adAccountId: discovered.adAccount?.id
-        ? discovered.adAccount.id.startsWith('act_')
-          ? discovered.adAccount.id
-          : `act_${discovered.adAccount.id}`
-        : null,
+      adAccountId,
       adAccountName: discovered.adAccount?.name ?? null,
       metaConnectedUserId: discovered.user?.id ?? null,
       metaConnectedUserName: discovered.user?.name ?? null,
       marketingAccessTokenEncrypted: this.crypto.encrypt(accessToken),
-      marketingTokenExpiresAt: tokenExpiresAt ?? null,
-      marketingRefreshTokenEncrypted: refreshToken?.trim()
-        ? this.crypto.encrypt(refreshToken.trim())
+      marketingTokenExpiresAt: tokenMeta.tokenExpiresAt ?? null,
+      marketingTokenExpiresIn: tokenMeta.expiresIn ?? null,
+      marketingTokenType: tokenMeta.tokenType ?? 'bearer',
+      marketingGrantedScopes: tokenMeta.grantedScopes,
+      marketingRefreshTokenEncrypted: tokenMeta.refreshToken?.trim()
+        ? this.crypto.encrypt(tokenMeta.refreshToken.trim())
         : null,
       lastAutoSyncAt: new Date(),
     };
@@ -356,7 +359,11 @@ export class MetaConnectDiscoveryService {
     });
 
     this.logger.log(
-      `[meta-discovery] marketing saved adAccount=${discovered.adAccount?.id ?? '—'} business=${discovered.business?.id ?? '—'}`,
+      `[meta-marketing-oauth] Marketing App ID=${tokenMeta.marketingAppId} ` +
+        `Token Source=${tokenMeta.tokenSource} ` +
+        `Granted Scopes=${tokenMeta.grantedScopes.join(',')} ` +
+        `Business ID=${discovered.business?.id ?? '—'} ` +
+        `Ad Account ID=${adAccountId ?? '—'}`,
     );
   }
 

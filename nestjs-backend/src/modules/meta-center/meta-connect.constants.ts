@@ -13,6 +13,19 @@ export const META_CONNECT_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export const META_CENTER_ADMIN_URL = '/admin/marketing/meta-centrum';
 
+/** Povinné scopes pro aktivní Marketing / Ads API token. */
+export const REQUIRED_MARKETING_ADS_SCOPES = ['ads_management', 'ads_read'] as const;
+
+export type MarketingOAuthTokenPersist = {
+  refreshToken?: string | null;
+  tokenExpiresAt?: Date | null;
+  expiresIn?: number | null;
+  tokenType?: string | null;
+  grantedScopes: string[];
+  marketingAppId: string;
+  tokenSource: string;
+};
+
 export const META_TEST_EVENT_NAMES = [
   'PageView',
   'ViewContent',
