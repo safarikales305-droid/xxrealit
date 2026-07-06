@@ -5914,12 +5914,22 @@ export async function nestAdminMetaCatalogSyncRun(
 
 export async function nestAdminMetaCatalogQuality(
   token: string | null,
+  options?: { probe?: boolean },
 ): Promise<{
   score: number;
   checks: Array<{ key: string; label: string; level: string; message: string }>;
   summary: { ok: number; warning: number; error: number };
+  imageSummary?: {
+    listings: number;
+    mainOk: number;
+    mainFailed: number;
+    galleryOk: number;
+    galleryFailed: number;
+    failedUrls: string[];
+  };
 } | null> {
-  return metaCatalogAdminFetch(token, '/quality');
+  const qs = options?.probe ? '?probe=1' : '';
+  return metaCatalogAdminFetch(token, `/quality${qs}`);
 }
 
 export type MetaCatalogImageProbeResult = {
@@ -5944,6 +5954,13 @@ export type MetaCatalogImageListingDiagnostic = {
   additionalCount: number;
   firstImageUrl: string | null;
   imageLinkOk: boolean;
+  imageLinkHttpStatus?: number | null;
+  imageLinkContentType?: string | null;
+  imageLinkContentLength?: number | null;
+  imageLinkError?: string | null;
+  galleryOk?: boolean;
+  galleryFailedCount?: number;
+  failedUrls?: string[];
 };
 
 export async function nestAdminMetaCatalogImageDiagnostics(

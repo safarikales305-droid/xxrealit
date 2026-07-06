@@ -153,8 +153,8 @@ export class MetaCatalogAdminController {
   }
 
   @Get('quality')
-  qualityReport() {
-    return this.sync.getQualityReport();
+  qualityReport(@Query('probe') probe?: string) {
+    return this.sync.getQualityReport(probe === '1' || probe === 'true');
   }
 
   @Get('image-diagnostics')

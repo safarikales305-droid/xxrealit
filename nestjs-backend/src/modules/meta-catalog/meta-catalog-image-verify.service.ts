@@ -3,7 +3,6 @@ import sharp from '../../lib/sharp-instance';
 import { MetaCatalogFeedService } from './meta-catalog-feed.service';
 import { MetaCatalogLogService } from './meta-catalog-log.service';
 import {
-  catalogImageMeetsMetaSize,
   isAllowedCatalogContentType,
 } from './meta-catalog-image.util';
 
@@ -29,6 +28,13 @@ export type CatalogImageListingDiagnostic = {
   additionalCount: number;
   firstImageUrl: string | null;
   imageLinkOk: boolean;
+  imageLinkHttpStatus: number | null;
+  imageLinkContentType: string | null;
+  imageLinkContentLength: number | null;
+  imageLinkError: string | null;
+  galleryOk: boolean;
+  galleryFailedCount: number;
+  failedUrls: string[];
 };
 
 @Injectable()
@@ -118,7 +124,7 @@ export class MetaCatalogImageVerifyService {
           contentType,
           contentLength,
           durationMs: Date.now() - started,
-          error: `Neplatný Content-Type: ${contentType ?? 'neznámý'} (povoleno image/jpeg, image/png)`,
+          error: `Neplatný Content-Type: ${contentType ?? 'neznámý'} (povoleno image/jpeg, image/png, image/webp)`,
         };
       }
 
@@ -147,19 +153,6 @@ export class MetaCatalogImageVerifyService {
           contentLength,
           durationMs: Date.now() - started,
           error: 'Odpověď není platný obrázek',
-        };
-      }
-
-      if (!catalogImageMeetsMetaSize(width, height)) {
-        return {
-          ...base,
-          httpStatus,
-          contentType,
-          contentLength,
-          width,
-          height,
-          durationMs: Date.now() - started,
-          error: `Obrázek je příliš malý (${width}×${height}, Meta doporučuje min. 500×500)`,
         };
       }
 
@@ -222,13 +215,25 @@ export class MetaCatalogImageVerifyService {
       const title = String(row.record.title ?? 'Nemovitost');
       const urls = this.collectImageUrlsFromRecord(row.id, title, row.record as Record<string, unknown>);
       const mainUrl = urls.find((u) => u.role === 'image_link')?.url ?? null;
+      const probes: CatalogImageProbeResult[] = [];
       let imageLinkOk = false;
+      let mainProbe: CatalogImageProbeResult | null = null;
+      const failedUrls: string[] = [];
 
       for (const entry of urls) {
         const probe = await this.probeImageUrl(row.id, title, entry.role, entry.url);
+        probes.push(probe);
         items.push(probe);
-        if (entry.role === 'image_link' && probe.ok) imageLinkOk = true;
+        if (!probe.ok) failedUrls.push(entry.url);
+        if (entry.role === 'image_link') {
+          mainProbe = probe;
+          imageLinkOk = probe.ok;
+        }
       }
+
+      const galleryProbes = probes.filter((p) => p.role === 'additional_image_link');
+      const galleryFailedCount = galleryProbes.filter((p) => !p.ok).length;
+      const galleryOk = galleryProbes.length === 0 || galleryFailedCount === 0;
 
       listings.push({
         propertyId: row.id,
@@ -237,6 +242,13 @@ export class MetaCatalogImageVerifyService {
         additionalCount: urls.filter((u) => u.role === 'additional_image_link').length,
         firstImageUrl: mainUrl,
         imageLinkOk,
+        imageLinkHttpStatus: mainProbe?.httpStatus ?? null,
+        imageLinkContentType: mainProbe?.contentType ?? null,
+        imageLinkContentLength: mainProbe?.contentLength ?? null,
+        imageLinkError: mainProbe?.ok ? mainProbe.error : mainProbe?.error ?? 'Chybí image_link',
+        galleryOk,
+        galleryFailedCount,
+        failedUrls,
       });
     }
 
@@ -268,13 +280,21 @@ export class MetaCatalogImageVerifyService {
       const main = String(row.record.image_link ?? row.record.main_image ?? '').trim() || null;
       const additional = row.record.additional_image_link ?? row.record.gallery;
       const additionalCount = Array.isArray(additional) ? additional.length : 0;
+      const mainHttps = Boolean(main?.startsWith('https://'));
       return {
         propertyId: row.id,
         title,
         imageLink: main,
         additionalCount,
         firstImageUrl: main,
-        imageLinkOk: Boolean(main?.startsWith('https://')),
+        imageLinkOk: mainHttps,
+        imageLinkHttpStatus: null,
+        imageLinkContentType: null,
+        imageLinkContentLength: null,
+        imageLinkError: mainHttps ? null : 'Chybí veřejná HTTPS URL',
+        galleryOk: additionalCount === 0 || (Array.isArray(additional) && additional.every((u) => String(u).startsWith('https://'))),
+        galleryFailedCount: 0,
+        failedUrls: [],
       };
     });
     return { listings };

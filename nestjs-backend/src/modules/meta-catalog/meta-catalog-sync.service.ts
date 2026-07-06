@@ -6,6 +6,7 @@ import { SYNC_INTERVAL_OPTIONS } from './meta-catalog.fields';
 import { MetaCatalogFeedService } from './meta-catalog-feed.service';
 import { MetaCatalogLogService } from './meta-catalog-log.service';
 import { MetaCatalogQualityService } from './meta-catalog-quality.service';
+import { MetaCatalogImageVerifyService } from './meta-catalog-image-verify.service';
 
 const SETTINGS_ID = 'default';
 
@@ -26,6 +27,7 @@ export class MetaCatalogSyncService {
     private readonly prisma: PrismaService,
     private readonly feed: MetaCatalogFeedService,
     private readonly quality: MetaCatalogQualityService,
+    private readonly imageVerify: MetaCatalogImageVerifyService,
     private readonly logService: MetaCatalogLogService,
     @Inject(forwardRef(() => MetaCenterService))
     private readonly metaCenter: MetaCenterService,
@@ -397,9 +399,15 @@ export class MetaCatalogSyncService {
     };
   }
 
-  async getQualityReport() {
+  async getQualityReport(withHttpProbe = false) {
     const built = await this.feed.buildExportRecords();
-    return this.quality.runQualityCheck(built.map((b) => ({ id: b.id, record: b.record })));
+    const probes = withHttpProbe
+      ? (await this.imageVerify.verifyAllFeedImages()).items
+      : undefined;
+    return this.quality.runQualityCheck(
+      built.map((b) => ({ id: b.id, record: b.record })),
+      probes,
+    );
   }
 
   async getStatistics() {

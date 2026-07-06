@@ -19,6 +19,22 @@ const nextConfig = {
   turbopack: {
     root: process.cwd(),
   },
+  async rewrites() {
+    const raw =
+      process.env.NEXT_PUBLIC_API_URL?.trim() ||
+      process.env.API_URL?.trim() ||
+      process.env.BACKEND_URL?.trim() ||
+      '';
+    if (!raw) return [];
+    const origin = raw.replace(/\/api\/?$/i, '').replace(/\/+$/, '');
+    if (!origin.startsWith('http')) return [];
+    return [
+      {
+        source: '/uploads/:path*',
+        destination: `${origin}/uploads/:path*`,
+      },
+    ];
+  },
   async redirects() {
     return [
       {

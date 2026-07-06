@@ -75,6 +75,14 @@ export default function AdminMetaCatalogPage() {
     score: number;
     summary: { ok: number; warning: number; error: number };
     checks: Array<{ key: string; label: string; level: string; message: string }>;
+    imageSummary?: {
+      listings: number;
+      mainOk: number;
+      mainFailed: number;
+      galleryOk: number;
+      galleryFailed: number;
+      failedUrls: string[];
+    };
   } | null>(null);
   const [statistics, setStatistics] = useState<Record<string, unknown> | null>(null);
   const [diagnostics, setDiagnostics] = useState<Record<string, unknown> | null>(null);
@@ -82,6 +90,7 @@ export default function AdminMetaCatalogPage() {
   const [imageVerifyResult, setImageVerifyResult] = useState<{
     summary: { totalUrls: number; ok: number; failed: number; listings: number };
     items: MetaCatalogImageProbeResult[];
+    listings: MetaCatalogImageListingDiagnostic[];
   } | null>(null);
   const [imageVerifyFilter, setImageVerifyFilter] = useState<'all' | 'failed'>('failed');
   const [logs, setLogs] = useState<Array<{ id: string; eventType: string; message: string | null; createdAt: string }>>([]);
@@ -199,24 +208,61 @@ export default function AdminMetaCatalogPage() {
     if (!token) return;
     setBusy(true);
     setMsg(null);
-    const r = await nestAdminMetaCatalogVerifyImages(token);
+    const [r, qual] = await Promise.all([
+      nestAdminMetaCatalogVerifyImages(token),
+      nestAdminMetaCatalogQuality(token, { probe: true }),
+    ]);
     setBusy(false);
     if (!r) {
       setMsg('Ověření obrázků selhalo (timeout nebo chyba API).');
       return;
     }
-    setImageVerifyResult({ summary: r.summary, items: r.items });
+    if (qual) setQuality(qual);
+    setImageVerifyResult({ summary: r.summary, items: r.items, listings: r.listings });
     setImageDiagnostics(r.listings);
     setImageVerifyFilter(r.summary.failed > 0 ? 'failed' : 'all');
     setMsg(
-      `Ověřeno ${r.summary.totalUrls} URL: ${r.summary.ok} OK, ${r.summary.failed} chyb.`,
+      `Ověřeno ${r.summary.totalUrls} URL: ${r.summary.ok} OK, ${r.summary.failed} chyb. Obnovuji feed…`,
     );
     setTab('quality');
+    const sync = await nestAdminMetaCatalogSyncRun(token, 'regenerate');
+    if (sync?.ok) {
+      setMsg(
+        `Ověřeno ${r.summary.totalUrls} URL (${r.summary.ok} OK). Feed znovu vygenerován (${sync.exportedCount ?? 0} položek).`,
+      );
+      void refresh();
+    }
   }
+
+  useEffect(() => {
+    if (tab !== 'quality' || !token) return;
+    void (async () => {
+      const qual = await nestAdminMetaCatalogQuality(token, { probe: true });
+      if (qual) setQuality(qual);
+    })();
+  }, [tab, token]);
 
   const chosenIds = Object.entries(selectedIds)
     .filter(([, v]) => v)
     .map(([k]) => k);
+
+  const imageQualityChecks = useMemo(
+    () =>
+      (quality?.checks ?? []).filter(
+        (c) => c.label === 'Hlavní fotografie' || c.label === 'Galerie',
+      ),
+    [quality?.checks],
+  );
+
+  const otherQualityChecks = useMemo(
+    () =>
+      (quality?.checks ?? []).filter(
+        (c) => c.label !== 'Hlavní fotografie' && c.label !== 'Galerie',
+      ),
+    [quality?.checks],
+  );
+
+  const listingVerifyRows = imageVerifyResult?.listings ?? [];
 
   const filteredProbeItems = useMemo(() => {
     if (!imageVerifyResult) return [];
@@ -268,7 +314,7 @@ export default function AdminMetaCatalogPage() {
               onClick={() => void verifyAllImages()}
               className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-bold disabled:opacity-50"
             >
-              Ověřit všechny obrázky
+              Ověřit obrázky
             </button>
             <button
               type="button"
@@ -685,7 +731,7 @@ export default function AdminMetaCatalogPage() {
                   onClick={() => void verifyAllImages()}
                   className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-bold disabled:opacity-50"
                 >
-                  Ověřit všechny obrázky
+                  Ověřit obrázky
                 </button>
               </div>
               <div className="flex items-center gap-4">
@@ -702,10 +748,56 @@ export default function AdminMetaCatalogPage() {
                   <p>OK: {quality.summary.ok}</p>
                   <p>Upozornění: {quality.summary.warning}</p>
                   <p>Chyby: {quality.summary.error}</p>
+                  {quality.imageSummary ? (
+                    <p className="mt-2 text-xs text-zinc-600">
+                      Fotografie: hlavní OK {quality.imageSummary.mainOk} / chyba{' '}
+                      {quality.imageSummary.mainFailed} · galerie OK {quality.imageSummary.galleryOk} /
+                      chyba {quality.imageSummary.galleryFailed}
+                    </p>
+                  ) : null}
                 </div>
               </div>
+
+              {quality.imageSummary && quality.imageSummary.failedUrls.length > 0 ? (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                  <p className="font-bold">URL, které Meta neumí stáhnout:</p>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-xs break-all">
+                    {quality.imageSummary.failedUrls.map((u) => (
+                      <li key={u}>
+                        <a href={u} target="_blank" rel="noreferrer" className="underline">
+                          {u}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {imageQualityChecks.length > 0 ? (
+                <div>
+                  <h3 className="mb-2 text-sm font-bold">Fotografie (HTTP ověření)</h3>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {imageQualityChecks.map((c) => (
+                      <div
+                        key={c.key}
+                        className={`rounded-lg border px-3 py-2 text-xs ${
+                          c.level === 'ok'
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                            : c.level === 'warning'
+                              ? 'border-amber-200 bg-amber-50 text-amber-900'
+                              : 'border-red-200 bg-red-50 text-red-900'
+                        }`}
+                      >
+                        <p className="font-bold">{c.label}</p>
+                        <p className="break-all">{c.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {quality.checks.slice(0, 60).map((c) => (
+                {otherQualityChecks.slice(0, 60).map((c) => (
                   <div
                     key={c.key}
                     className={`rounded-lg border px-3 py-2 text-xs ${
@@ -722,6 +814,66 @@ export default function AdminMetaCatalogPage() {
                 ))}
               </div>
             </div>
+
+            {listingVerifyRows.length > 0 ? (
+              <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm space-y-4">
+                <h2 className="font-bold">Ověření obrázků po inzerátech</h2>
+                <div className="overflow-x-auto rounded-xl border border-zinc-200">
+                  <table className="min-w-full text-left text-xs">
+                    <thead className="bg-zinc-50 font-bold uppercase text-zinc-500">
+                      <tr>
+                        <th className="px-3 py-2">Název</th>
+                        <th className="px-3 py-2">image_link</th>
+                        <th className="px-3 py-2">Galerie</th>
+                        <th className="px-3 py-2">HTTP</th>
+                        <th className="px-3 py-2">Content-Type</th>
+                        <th className="px-3 py-2">Velikost</th>
+                        <th className="px-3 py-2">Hlavní</th>
+                        <th className="px-3 py-2">Galerie stav</th>
+                        <th className="px-3 py-2">Chyba</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {listingVerifyRows.map((row) => (
+                        <tr key={row.propertyId} className="border-t border-zinc-100">
+                          <td className="px-3 py-2 max-w-[10rem]">{row.title}</td>
+                          <td className="px-3 py-2">
+                            {row.imageLink ? (
+                              <a
+                                href={row.imageLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="break-all text-[#e85d00] hover:underline"
+                              >
+                                {row.imageLink}
+                              </a>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="px-3 py-2 tabular-nums">{row.additionalCount}</td>
+                          <td className="px-3 py-2">{row.imageLinkHttpStatus ?? '—'}</td>
+                          <td className="px-3 py-2">{row.imageLinkContentType ?? '—'}</td>
+                          <td className="px-3 py-2 tabular-nums">
+                            {row.imageLinkContentLength != null
+                              ? `${Math.round(row.imageLinkContentLength / 1024)} KB`
+                              : '—'}
+                          </td>
+                          <td className="px-3 py-2">{row.imageLinkOk ? '✓' : '✗'}</td>
+                          <td className="px-3 py-2">
+                            {row.galleryOk ? '✓' : row.additionalCount > 0 ? `✗ (${row.galleryFailedCount})` : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-red-700 break-all">
+                            {row.imageLinkError ??
+                              (row.failedUrls?.length ? row.failedUrls.join(', ') : '—')}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
 
             {imageVerifyResult ? (
               <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm space-y-4">
@@ -887,7 +1039,7 @@ export default function AdminMetaCatalogPage() {
                   onClick={() => void verifyAllImages()}
                   className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-bold disabled:opacity-50"
                 >
-                  Ověřit všechny obrázky
+                  Ověřit obrázky
                 </button>
               </div>
               <p className="text-sm text-zinc-500">
