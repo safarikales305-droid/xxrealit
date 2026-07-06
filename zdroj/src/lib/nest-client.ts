@@ -7156,18 +7156,6 @@ export async function nestAdminMetaCenterDeleteCampaignDraft(
   return r.ok ? r.data : { ok: false, message: r.error };
 }
 
-export async function nestAdminMetaCenterDeleteCampaignDraft(
-  token: string | null,
-  id: string,
-): Promise<{ ok: boolean; message?: string }> {
-  const r = await metaCenterFetch<{ ok: boolean; message?: string }>(
-    token,
-    `/campaigns/drafts/${encodeURIComponent(id)}`,
-    { method: 'DELETE' },
-  );
-  return r.ok ? r.data : { ok: false, message: r.error };
-}
-
 export async function nestAdminMetaCenterCampaignsLiveMode(
   token: string | null,
 ): Promise<{ ok: true; liveEnabled: boolean; mode: 'live' | 'draft'; label: string } | null> {
