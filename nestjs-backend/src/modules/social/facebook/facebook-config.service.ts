@@ -201,14 +201,9 @@ export class FacebookConfigService implements OnModuleInit {
       const ok = this.isEnvPresent(key);
       this.logger.log(`[Facebook] ${key}: ${ok ? 'OK' : 'chybí'}`);
     }
+    const canonical = this.resolveCanonicalOAuthRedirectUriOptional();
     this.logger.log(
-      `[Facebook] Login OAuth redirect: ${this.resolveLoginOAuthRedirectUriOptional() ?? 'nelze odvodit'}`,
-    );
-    this.logger.log(
-      `[Facebook] Meta Connect redirect: ${this.tryGetMetaRedirectUri() ?? 'nelze odvodit'} (doporučeno: ${this.getRecommendedMetaRedirectUri() ?? '—'})`,
-    );
-    this.logger.log(
-      `[Facebook] Page Connect redirect: ${this.resolvePageConnectRedirectUriOptional() ?? 'nelze odvodit'}`,
+      `[Facebook] Canonical OAuth redirect: ${canonical ?? 'nelze odvodit'} (doporučeno: ${this.getRecommendedMetaRedirectUri() ?? '—'})`,
     );
   }
 
@@ -405,14 +400,25 @@ export class FacebookConfigService implements OnModuleInit {
     return base ? `${base}/social/facebook/webhook` : null;
   }
 
-  /** Facebook Login — /api/auth/facebook/callback */
-  resolveLoginOAuthRedirectUriOptional(): string | null {
+  /** Kanonická Meta / Facebook OAuth callback URL (všechny Meta toky). */
+  private resolveCanonicalOAuthRedirectUriOptional(): string | null {
     const explicit =
+      this.readEnv('META_REDIRECT_URI') ??
+      this.readEnv('META_CENTER_OAUTH_REDIRECT_URI') ??
+      this.readEnv('FACEBOOK_OAUTH_CALLBACK_URI') ??
       this.readEnv('FACEBOOK_LOGIN_OAUTH_REDIRECT_URI') ??
       this.readEnv('FACEBOOK_OAUTH_REDIRECT_URI') ??
-      this.readEnv('FACEBOOK_CALLBACK_URL');
-    if (explicit) return explicit.replace(/\/+$/, '');
-    return `${this.resolveFrontendApiBase()}/auth/facebook/callback`;
+      this.readEnv('FACEBOOK_CALLBACK_URL') ??
+      this.readEnv('FACEBOOK_PAGE_CONNECT_REDIRECT_URI');
+    if (explicit?.trim()) {
+      return explicit.trim().replace(/\/+$/, '');
+    }
+    return this.tryGetMetaRedirectUri();
+  }
+
+  /** Facebook Login — jednotný meta-connect-callback */
+  resolveLoginOAuthRedirectUriOptional(): string | null {
+    return this.resolveCanonicalOAuthRedirectUriOptional();
   }
 
   resolveLoginOAuthRedirectUri(): string {
@@ -433,15 +439,9 @@ export class FacebookConfigService implements OnModuleInit {
     return this.resolveLoginOAuthRedirectUri();
   }
 
-  /** Sdílený OAuth callback portálu (Facebook Login přes frontend). */
+  /** Sdílený OAuth callback portálu — jednotný meta-connect-callback */
   resolveSharedOAuthCallbackUriOptional(): string | null {
-    const explicit =
-      this.readEnv('FACEBOOK_OAUTH_CALLBACK_URI') ??
-      this.readEnv('FACEBOOK_LOGIN_OAUTH_REDIRECT_URI') ??
-      this.readEnv('FACEBOOK_OAUTH_REDIRECT_URI') ??
-      this.readEnv('FACEBOOK_CALLBACK_URL');
-    if (explicit) return explicit.replace(/\/+$/, '');
-    return `${this.resolveFrontendApiBase()}/social/facebook/callback`;
+    return this.resolveCanonicalOAuthRedirectUriOptional();
   }
 
   resolveSharedOAuthCallbackUri(): string {
@@ -638,11 +638,9 @@ export class FacebookConfigService implements OnModuleInit {
     };
   }
 
-  /** Propojení Facebook stránky uživatele (profil) */
+  /** Propojení Facebook stránky / Pages API — jednotný meta-connect-callback */
   resolvePageConnectRedirectUriOptional(): string | null {
-    const explicit = this.readEnv('FACEBOOK_PAGE_CONNECT_REDIRECT_URI');
-    if (explicit) return explicit.replace(/\/+$/, '');
-    return `${this.resolveFrontendApiBase()}/social/facebook/page-callback`;
+    return this.resolveCanonicalOAuthRedirectUriOptional();
   }
 
   resolvePageConnectRedirectUri(): string {

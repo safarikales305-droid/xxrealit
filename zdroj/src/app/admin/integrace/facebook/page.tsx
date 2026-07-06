@@ -372,33 +372,18 @@ export default function AdminFacebookIntegrationPage() {
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">URI</p>
             <dl className="mt-3 space-y-3 text-sm">
               <div>
-                <dt className="font-medium text-zinc-800">OAuth Redirect URI (login)</dt>
+                <dt className="font-medium text-zinc-800">Jediný OAuth Redirect URI (Meta / Facebook)</dt>
                 <dd className="mt-1 break-all font-mono text-xs text-zinc-600">
-                  {config?.oauthRedirectUri ?? '— nastavte FRONTEND_URL —'}
+                  {config?.metaConnectRedirectUri ??
+                    config?.oauthRedirectUri ??
+                    config?.pageConnectRedirectUri ??
+                    '— nastavte META_REDIRECT_URI nebo FRONTEND_URL —'}
                 </dd>
                 <dd className="mt-1 text-xs text-zinc-500">
-                  Odvozeno z <code className="rounded bg-zinc-100 px-1">FRONTEND_URL</code> +{' '}
-                  <code className="rounded bg-zinc-100 px-1">/api/auth/facebook/callback</code>
-                </dd>
-              </div>
-              <div>
-                <dt className="font-medium text-zinc-800">Meta Centrum OAuth (sdílený callback)</dt>
-                <dd className="mt-1 break-all font-mono text-xs text-zinc-600">
-                  {config?.metaConnectRedirectUri ?? '— nastavte FRONTEND_URL —'}
-                </dd>
-                <dd className="mt-1 text-xs text-zinc-500">
-                  Stejná URL jako Facebook Login — přidejte do Pages App i Login App:{' '}
-                  <code className="rounded bg-zinc-100 px-1">/api/social/facebook/callback</code>
-                </dd>
-              </div>
-              <div>
-                <dt className="font-medium text-zinc-800">Page Connect Redirect URI</dt>
-                <dd className="mt-1 break-all font-mono text-xs text-zinc-600">
-                  {config?.pageConnectRedirectUri ?? '— nastavte FRONTEND_URL —'}
-                </dd>
-                <dd className="mt-1 text-xs text-zinc-500">
-                  Odvozeno z <code className="rounded bg-zinc-100 px-1">FRONTEND_URL</code> +{' '}
-                  <code className="rounded bg-zinc-100 px-1">/api/social/facebook/page-callback</code>
+                  Login, Pages, Meta Centrum, autopost — vše přes{' '}
+                  <code className="rounded bg-zinc-100 px-1">
+                    /api/social/facebook/meta-connect-callback
+                  </code>
                 </dd>
               </div>
               <div>

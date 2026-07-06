@@ -1,20 +1,20 @@
 # Nastavení Facebook integrace (xxrealit)
 
-Portál používá **dvě oddělené Meta aplikace**. OAuth redirect URI se **generují z `FRONTEND_URL`** (Next.js proxy na Nest backend).
+Portál používá **dvě oddělené Meta aplikace** (Login + Pages). Všechny OAuth toky sdílejí **jediný callback**:
 
 | Callback | URL |
 |----------|-----|
-| Facebook Login | `{FRONTEND_URL}/api/social/facebook/callback` |
-| Facebook Pages | `{FRONTEND_URL}/api/social/facebook/page-callback` |
+| Meta / Facebook OAuth (vše) | `{FRONTEND_URL}/api/social/facebook/meta-connect-callback` |
 
 Příklad pro produkci (`FRONTEND_URL=https://www.xxrealit.cz`):
 
 ```
-https://www.xxrealit.cz/api/social/facebook/callback
-https://www.xxrealit.cz/api/social/facebook/page-callback
+https://www.xxrealit.cz/api/social/facebook/meta-connect-callback
 ```
 
-> **Důležité:** V Railway **nesmí** být nastavené `FACEBOOK_CALLBACK_URL` ani `FACEBOOK_PAGE_CONNECT_REDIRECT_URI` na starou Railway doménu — jinak přepíší odvozené URI. Použijte jen `FRONTEND_URL`.
+Starší cesty (`/api/social/facebook/callback`, `/api/auth/facebook/callback`, `/api/social/facebook/page-callback`) vrací **301** na kanonický callback.
+
+> **Důležité:** V Railway nastavte `META_REDIRECT_URI` na veřejnou doménu. Nepoužívejte Railway URL (`*.railway.app`) v Meta Developers.
 
 ---
 
@@ -23,6 +23,7 @@ https://www.xxrealit.cz/api/social/facebook/page-callback
 | Proměnná | Povinná |
 |----------|---------|
 | `FRONTEND_URL` | ano → `https://www.xxrealit.cz` |
+| `META_REDIRECT_URI` | ano → `https://www.xxrealit.cz/api/social/facebook/meta-connect-callback` |
 | `FACEBOOK_APP_ID` | ano (Login aplikace) |
 | `FACEBOOK_APP_SECRET` | ano (Login aplikace) |
 | `FACEBOOK_PAGES_APP_ID` | ano (Pages aplikace) |
@@ -35,7 +36,11 @@ Railway Variables (frontend): stejné `FRONTEND_URL`, plus `API_URL` / `NEXT_PUB
 
 ## Meta App — Valid OAuth Redirect URIs
 
-Do **obou** Meta aplikací (Login i Pages) přidejte příslušné URI z tabulky výše.
+Do **obou** Meta aplikací (Login i Pages) přidejte:
+
+```
+https://www.xxrealit.cz/api/social/facebook/meta-connect-callback
+```
 
 ---
 
@@ -45,6 +50,7 @@ Do **obou** Meta aplikací (Login i Pages) přidejte příslušné URI z tabulky
 GET /api/social/facebook/config-status
 ```
 
-`pageConnectRedirectUri` musí být `https://www.xxrealit.cz/api/social/facebook/page-callback`.
+`oauthRedirectUri`, `pageConnectRedirectUri` a `metaConnectRedirectUri` musí být stejné:
+`https://www.xxrealit.cz/api/social/facebook/meta-connect-callback`.
 
 Šablona: `nestjs-backend/.env.example`

@@ -1,24 +1,23 @@
 import { getAppOrigin } from '@/lib/app-url';
 
-/**
- * @deprecated Redirect URI pro Meta Centrum vždy řeší backend přes getMetaRedirectUri().
- * Pro diagnostiku použijte Meta Centrum → META OAuth kontrola.
- */
+/** Jediná kanonická Meta / Facebook OAuth callback URL. */
 export function getFacebookMetaConnectCallbackUrl(): string {
   return `${getAppOrigin()}/api/social/facebook/meta-connect-callback`;
 }
 
+/** @deprecated Použijte getFacebookMetaConnectCallbackUrl() */
 export function getFacebookSharedOAuthCallbackUrl(): string {
-  return `${getAppOrigin()}/api/social/facebook/callback`;
+  return getFacebookMetaConnectCallbackUrl();
 }
 
-/** Veřejná OAuth callback URL na frontend doméně (proxy na Nest). */
+/** @deprecated Použijte getFacebookMetaConnectCallbackUrl() */
 export function getFacebookLoginCallbackUrl(): string {
-  return `${getAppOrigin()}/api/auth/facebook/callback`;
+  return getFacebookMetaConnectCallbackUrl();
 }
 
+/** @deprecated Použijte getFacebookMetaConnectCallbackUrl() */
 export function getFacebookPageCallbackUrl(): string {
-  return `${getAppOrigin()}/api/social/facebook/page-callback`;
+  return getFacebookMetaConnectCallbackUrl();
 }
 
 export function getSocialIntegrationsUrl(): string {
@@ -41,4 +40,16 @@ export function getFacebookConnectedDashboardUrl(): string {
 
 export function getMetaFacebookLoginSettingsUrl(appId: string): string {
   return `https://developers.facebook.com/apps/${appId}/fb-login/settings/`;
+}
+
+/** 301 přesměrování na kanonický OAuth callback (zachová query). */
+export function buildLegacyOAuthCallbackRedirect(
+  requestUrl: string,
+  searchParams: URLSearchParams,
+): URL {
+  const target = new URL('/api/social/facebook/meta-connect-callback', requestUrl);
+  searchParams.forEach((value, key) => {
+    target.searchParams.set(key, value);
+  });
+  return target;
 }

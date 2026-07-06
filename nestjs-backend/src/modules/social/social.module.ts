@@ -10,6 +10,7 @@ import { FacebookController } from './facebook/facebook.controller';
 import { FacebookPageController } from './facebook/facebook-page.controller';
 import { FacebookConfigService } from './facebook/facebook-config.service';
 import { FacebookPageService } from './facebook/facebook-page.service';
+import { FacebookUnifiedOAuthService } from './facebook/facebook-unified-oauth.service';
 import { FacebookPageSyncService } from './facebook/facebook-page-sync.service';
 import { FacebookVideoMigrationService } from './facebook/facebook-video-migration.service';
 import { FacebookWebhookController } from './facebook/facebook-webhook.controller';
@@ -74,6 +75,7 @@ import { PostSocialPublishService } from './autopost/post-social-publish.service
     FacebookAuthService,
     FacebookService,
     FacebookPageService,
+    FacebookUnifiedOAuthService,
     FacebookPageSyncService,
     FacebookVideoMigrationService,
     FacebookUrlImportService,

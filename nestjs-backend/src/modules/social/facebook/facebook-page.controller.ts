@@ -24,9 +24,8 @@ import { FacebookSelectPageDto } from '../dto/facebook-select-page.dto';
 import { FacebookSyncToggleDto } from '../dto/facebook-sync-toggle.dto';
 import { FacebookAuthService } from './facebook-auth.service';
 import { FacebookPageService } from './facebook-page.service';
-import { SocialAutopostFacebookOAuthService } from '../autopost/social-autopost-facebook-oauth.service';
-import { MetaConnectOAuthService } from '../../meta-center/meta-connect-oauth.service';
-import { META_CENTER_OAUTH_STATE_PREFIX } from '../../meta-center/meta-connect.constants';
+import { FacebookConfigService } from './facebook-config.service';
+import { FacebookUnifiedOAuthService } from './facebook-unified-oauth.service';
 
 @Controller('social/facebook')
 export class FacebookPageController implements OnModuleInit {
@@ -35,15 +34,14 @@ export class FacebookPageController implements OnModuleInit {
   constructor(
     private readonly facebookPage: FacebookPageService,
     private readonly facebookAuth: FacebookAuthService,
-    private readonly autopostOAuth: SocialAutopostFacebookOAuthService,
-    private readonly metaConnectOAuth: MetaConnectOAuthService,
+    private readonly facebookConfig: FacebookConfigService,
+    private readonly unifiedOAuth: FacebookUnifiedOAuthService,
   ) {}
 
   onModuleInit() {
-    this.logger.log('Registered GET /api/social/facebook/callback');
-    this.logger.log('Registered GET /api/social/facebook/meta-connect-callback');
+    this.logger.log('Registered GET /api/social/facebook/meta-connect-callback (unified OAuth)');
     this.logger.log('Registered GET /api/social/facebook/finish-login');
-    this.logger.log('Registered GET /api/social/facebook/page-callback');
+    this.logger.log('Legacy callbacks redirect 301 → meta-connect-callback');
   }
 
   @Get('config-status')
@@ -76,39 +74,8 @@ export class FacebookPageController implements OnModuleInit {
   }
 
   @Get('callback')
-  async callback(
-    @Query('code') code: string | undefined,
-    @Query('state') state: string | undefined,
-    @Query('error') oauthError: string | undefined,
-    @Query('error_reason') errorReason: string | undefined,
-    @Query('error_description') errorDescription: string | undefined,
-    @Req() req: Request,
-    @Res() res: Response,
-  ) {
-    if (state?.trim().startsWith(META_CENTER_OAUTH_STATE_PREFIX)) {
-      const result = await this.metaConnectOAuth.handleCallbackFromRequest(req);
-      return this.respondOAuth(res, req, result);
-    }
-
-    if (oauthError?.trim()) {
-      this.logger.warn(
-        `FACEBOOK_CALLBACK_DENIED reason=${errorReason?.trim() || oauthError.trim()}`,
-      );
-      return res.redirect(302, this.facebookAuth.getErrorRedirectUrl(errorReason?.trim() || oauthError.trim()));
-    }
-
-    const wantsJson = this.wantsJsonResponse(req);
-    this.logger.log(`FACEBOOK_CALLBACK_START wantsJson=${wantsJson}`);
-
-    const result = await this.facebookAuth.handleLoginCallback(code, state, {
-      returnTokenInBody: wantsJson,
-    });
-    if (!result.ok) {
-      this.logger.warn(`FACEBOOK_LOGIN_FAIL redirect=${result.redirectUrl}`);
-    } else {
-      this.logger.log(`FACEBOOK_LOGIN_SUCCESS redirect=${result.redirectUrl}`);
-    }
-    return this.respondOAuth(res, req, result);
+  async callbackLegacy(@Req() req: Request, @Res() res: Response) {
+    return this.redirectLegacyCallback(req, res, 'callback');
   }
 
   @Get('meta-connect-callback')
@@ -119,7 +86,7 @@ export class FacebookPageController implements OnModuleInit {
     this.logger.log(`META_OAUTH_CALLBACK headers=${JSON.stringify(req.headers)}`);
     this.logger.log(`META_OAUTH_CALLBACK cookieHeader=${req.get('cookie') ?? '(none)'}`);
 
-    const result = await this.metaConnectOAuth.handleCallbackFromRequest(req);
+    const result = await this.unifiedOAuth.dispatch(req);
     return this.respondOAuth(res, req, result);
   }
 
@@ -134,34 +101,26 @@ export class FacebookPageController implements OnModuleInit {
   }
 
   @Get('page-callback')
-  async pageCallback(
-    @Query('code') code: string | undefined,
-    @Query('state') state: string | undefined,
-    @Query('error') oauthError: string | undefined,
-    @Query('error_reason') errorReason: string | undefined,
-    @Query('error_description') errorDescription: string | undefined,
-    @Req() req: Request,
-    @Res() res: Response,
-  ) {
-    if (state?.trim().startsWith('m')) {
-      const result = await this.autopostOAuth.handleCallback(
-        code,
-        state,
-        oauthError,
-        errorReason,
-        errorDescription,
-      );
-      return this.respondOAuth(res, req, result);
-    }
+  async pageCallbackLegacy(@Req() req: Request, @Res() res: Response) {
+    return this.redirectLegacyCallback(req, res, 'page-callback');
+  }
 
-    const result = await this.facebookPage.handlePageCallback(
-      code,
-      state,
-      oauthError,
-      errorReason,
-      errorDescription,
-    );
-    return this.respondOAuth(res, req, result);
+  private redirectLegacyCallback(req: Request, res: Response, legacyPath: string) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(req.query)) {
+      if (Array.isArray(value)) {
+        if (value[0] != null) params.set(key, String(value[0]));
+      } else if (value != null) {
+        params.set(key, String(value));
+      }
+    }
+    const qs = params.toString();
+    const canonical =
+      this.facebookConfig.tryGetMetaRedirectUri() ??
+      `${req.protocol}://${req.get('host') ?? ''}/api/social/facebook/meta-connect-callback`;
+    const target = qs ? `${canonical}?${qs}` : canonical;
+    this.logger.log(`LEGACY_OAUTH_REDIRECT from=${legacyPath} to=${target}`);
+    return res.redirect(301, target);
   }
 
   @Get('page-status')
