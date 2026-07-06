@@ -139,7 +139,8 @@ export class MetaConnectDiagnosticsService {
         fixHref: META_FIX_HREFS.metaCenter,
         source: 'meta_connect',
         permissionWarning: Boolean(
-          oauthRedirectDiag.mismatchMessage && !oauthRedirectDiag.redirectUriInAllowedConfig,
+          oauthRedirectDiag.mismatchMessage &&
+            (!oauthRedirectDiag.redirectUriInAllowedConfig || oauthRedirectDiag.isRailwayRedirectUri),
         ),
       }),
     );

@@ -299,6 +299,12 @@ export default function MetaCentrumPage() {
       setMsg('Chyba: Meta Connect používá Login App ID místo Pages App ID. Zkontrolujte FACEBOOK_PAGES_APP_ID v Railway.');
       return;
     }
+    if (r.oauthRedirect?.isRailwayRedirectUri) {
+      setMsg(
+        `${r.oauthRedirect.railwayWarning ?? 'Nepoužívejte Railway URL pro Meta OAuth.'}\n\nNastavte META_REDIRECT_URI=https://www.xxrealit.cz/api/social/facebook/meta-connect-callback`,
+      );
+      return;
+    }
     if (r.oauthRedirect && !r.oauthRedirect.redirectUriInAllowedConfig) {
       setMsg(
         `Tato Redirect URI není povolena v Meta Developers.\n\n${r.oauthRedirect.mismatchMessage ?? ''}\n\n${r.oauthRedirect.metaDevelopersInstruction ?? ''}`,
@@ -364,7 +370,10 @@ export default function MetaCentrumPage() {
   }
 
   async function copyRedirectUri() {
-    const uri = activeOAuthPreview?.redirect_uri ?? oauthRedirect?.oauthRedirectUsedByApp;
+    const uri =
+      oauthRedirect?.recommendedRedirectUri ??
+      activeOAuthPreview?.redirect_uri ??
+      oauthRedirect?.oauthRedirectUsedByApp;
     if (!uri) return;
     try {
       await navigator.clipboard.writeText(uri);
@@ -488,7 +497,19 @@ export default function MetaCentrumPage() {
 
             {oauthRedirect || activeOAuthPreview ? (
               <section className="space-y-4">
+                {oauthRedirect?.railwayWarning ? (
+                  <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 shadow-sm">
+                    <p className="font-bold">{oauthRedirect.railwayWarning}</p>
+                    {oauthRedirect.recommendedRedirectUri ? (
+                      <p className="mt-2 break-all font-mono text-xs">
+                        Doporučeno: {oauthRedirect.recommendedRedirectUri}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {!oauthRedirect?.redirectUriInAllowedConfig &&
+                !oauthRedirect?.isRailwayRedirectUri &&
                 (oauthRedirect?.oauthRedirectUsedByApp || activeOAuthPreview?.redirect_uri) ? (
                   <div className="rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-900 shadow-sm">
                     <p className="font-bold">Tato Redirect URI není povolena v Meta Developers.</p>
@@ -577,7 +598,7 @@ export default function MetaCentrumPage() {
                 {oauthRedirect ? (
                   <div
                     className={`rounded-2xl border p-4 shadow-sm ${
-                      oauthRedirect.redirectUriInAllowedConfig
+                      oauthRedirect.redirectUriInAllowedConfig && !oauthRedirect.isRailwayRedirectUri
                         ? 'border-emerald-200 bg-white'
                         : 'border-amber-200 bg-amber-50'
                     }`}
@@ -585,12 +606,12 @@ export default function MetaCentrumPage() {
                     <h2 className="mb-3 text-lg font-bold">OAuth Redirect URI (konfigurace)</h2>
                     <div className="grid gap-3 sm:grid-cols-2">
                       {[
-                        ['OAuth Redirect používaný aplikací', oauthRedirect.oauthRedirectUsedByApp],
-                        ['Allowed Redirect URI', oauthRedirect.allowedRedirectUri],
+                        ['Používaná redirect_uri', oauthRedirect.oauthRedirectUsedByApp],
+                        ['Doporučená redirect_uri', oauthRedirect.recommendedRedirectUri],
+                        ['META_REDIRECT_URI', oauthRedirect.explicitRedirectUri ?? '—'],
                         ['Allowed Redirect URIs (config)', oauthRedirect.allowedRedirectUris?.join(', ')],
-                        ['Current Redirect URI', oauthRedirect.currentRedirectUri],
                         ['BACKEND_URL', oauthRedirect.backendBaseUrl],
-                        ['API public base', oauthRedirect.apiPublicBase],
+                        ['API public base (OAuth)', oauthRedirect.apiPublicBase],
                         ['FRONTEND_URL', oauthRedirect.frontendUrl],
                         ['Pages App ID', oauthRedirect.pagesAppId],
                       ].map(([label, val]) => (

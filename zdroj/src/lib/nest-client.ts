@@ -6145,6 +6145,7 @@ export type MetaScopeGrantStatus = {
 
 export type MetaOAuthRedirectDiagnostics = {
   oauthRedirectUsedByApp: string | null;
+  recommendedRedirectUri?: string | null;
   allowedRedirectUri: string | null;
   allowedRedirectUris?: string[];
   currentRedirectUri: string | null;
@@ -6157,6 +6158,8 @@ export type MetaOAuthRedirectDiagnostics = {
   facebookLoginSettingsUrl?: string | null;
   matchesAllowed: boolean;
   redirectUriInAllowedConfig?: boolean;
+  isRailwayRedirectUri?: boolean;
+  railwayWarning?: string | null;
   mismatchMessage: string | null;
   metaDevelopersInstruction: string | null;
 };
