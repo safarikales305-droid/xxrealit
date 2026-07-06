@@ -109,6 +109,7 @@ async function bootstrap() {
     await Promise.all([
       prisma.post.findFirst({ select: { id: true } }),
       prisma.video.findFirst({ select: { id: true } }),
+      prisma.metaMarketingCampaignDraft.findFirst({ select: { id: true } }),
     ]);
   } catch (error) {
     if (
@@ -116,7 +117,7 @@ async function bootstrap() {
       error.code === 'P2021'
     ) {
       console.error(
-        '[DB] Table missing (Post / Video?). Run: prisma migrate deploy',
+        '[DB] Table missing (Post / Video / MetaMarketingCampaignDraft?). Run: prisma migrate deploy',
       );
     } else {
       console.error('[DB] Schema readiness check failed:', error);

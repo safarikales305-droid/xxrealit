@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -34,6 +35,7 @@ import { MetaCenterCampaignsService } from './meta-center-campaigns.service';
 import { MetaCenterRemarketingService } from './meta-center-remarketing.service';
 import { CreateMetaCampaignDto } from './dto/create-meta-campaign.dto';
 import { CreateMetaRemarketingAudienceDto } from './dto/create-meta-remarketing-audience.dto';
+import { MetaCampaignControlDto } from './dto/meta-campaign-control.dto';
 import { extractSafeMetaError, metaPanelNotConfigured } from './meta-center-safe-response.util';
 import { resolveMetaOAuthFlow } from './meta-oauth-flows';
 import { META_EXTERNAL_LINKS } from './meta-graph-permissions.util';
@@ -564,12 +566,102 @@ export class MetaCenterAdminController {
     );
   }
 
+  @Get('campaigns/live-mode')
+  getCampaignsLiveMode() {
+    return this.campaigns.getLiveMode();
+  }
+
+  @Get('campaigns/overview')
+  listCampaignsOverview() {
+    return this.safeEndpoint(
+      'campaigns/overview',
+      () => this.campaigns.listCampaignsOverview(),
+      (message) => ({ ok: false as const, items: [], message }),
+    );
+  }
+
   @Get('campaigns/list')
   listMetaCampaignDrafts() {
     return this.safeEndpoint(
       'campaigns/list',
       () => this.campaigns.listCampaignDrafts(),
-      (message) => ({ ok: true as const, items: [], message }),
+      (message) => ({
+        ok: false as const,
+        items: [],
+        message: message || 'Koncepty nelze načíst.',
+      }),
+    );
+  }
+
+  @Get('campaigns/drafts/:id')
+  getMetaCampaignDraft(@Param('id') id: string) {
+    return this.safeEndpoint(
+      'campaigns/drafts',
+      () => this.campaigns.getCampaignDraft(id),
+      (message) => ({ ok: false as const, message, campaign: null }),
+    );
+  }
+
+  @Patch('campaigns/drafts/:id')
+  updateMetaCampaignDraft(
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    body: CreateMetaCampaignDto,
+  ) {
+    return this.safeEndpoint(
+      'campaigns/drafts',
+      () => this.campaigns.updateCampaignDraft(id, body),
+      (message) => ({
+        ok: false as const,
+        status: 'error' as const,
+        message,
+        campaign: null,
+      }),
+    );
+  }
+
+  @Delete('campaigns/drafts/:id')
+  deleteMetaCampaignDraft(@Param('id') id: string) {
+    return this.safeEndpoint(
+      'campaigns/drafts/delete',
+      () => this.campaigns.deleteCampaignDraft(id),
+      (message) => ({ ok: false as const, message }),
+    );
+  }
+
+  @Post('campaigns/drafts/:id/launch')
+  launchMetaCampaignDraft(@Param('id') id: string) {
+    return this.safeEndpoint(
+      'campaigns/drafts/launch',
+      () => this.campaigns.launchExistingDraft(id),
+      (message) => ({
+        ok: false as const,
+        status: 'error' as const,
+        message,
+        campaign: null,
+      }),
+    );
+  }
+
+  @Post('campaigns/drafts/:id/sync')
+  syncMetaCampaignDraft(@Param('id') id: string) {
+    return this.safeEndpoint(
+      'campaigns/drafts/sync',
+      () => this.campaigns.syncDraftFromMeta(id),
+      (message) => ({ ok: false as const, message, campaign: null }),
+    );
+  }
+
+  @Post('campaigns/drafts/:id/control')
+  controlMetaCampaignDraft(
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    body: MetaCampaignControlDto,
+  ) {
+    return this.safeEndpoint(
+      'campaigns/drafts/control',
+      () => this.campaigns.controlCampaign(id, body.action),
+      (message) => ({ ok: false as const, message }),
     );
   }
 

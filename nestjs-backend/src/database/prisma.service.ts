@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config as loadDotenv } from 'dotenv';
 import { ensureDevSeedIfEmpty } from './dev-seed';
+import { ensureMetaCenterCampaignTables } from './ensure-meta-center-schema';
 
 const dotenvCandidates = [
   resolve(process.cwd(), '.env'),
@@ -22,6 +23,9 @@ export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
+  /** Tabulka MetaMarketingCampaignDraft je dostupná (po migrate / db push). */
+  metaCampaignDraftTableReady = false;
+
   constructor() {
     const databaseUrl = process.env.DATABASE_URL;
     if (!databaseUrl) {
@@ -41,6 +45,12 @@ export class PrismaService
 
   async onModuleInit(): Promise<void> {
     await this.$connect();
+    this.metaCampaignDraftTableReady = await ensureMetaCenterCampaignTables(this);
+    if (!this.metaCampaignDraftTableReady) {
+      console.warn(
+        '[DB] MetaMarketingCampaignDraft table not ready — kampaně Meta Centra budou vracet chybu synchronizace.',
+      );
+    }
     if (process.env.NODE_ENV !== 'production') {
       await ensureDevSeedIfEmpty(this);
     }

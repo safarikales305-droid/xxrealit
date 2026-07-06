@@ -6114,6 +6114,7 @@ export type MetaCenterSettings = {
   whatsappPhoneNumberId: string | null;
   lastAutoSyncAt: string | null;
   syncEnabled: boolean;
+  campaignsLiveEnabled?: boolean;
   isMetaConnected: boolean;
   isMarketingAdsConnected?: boolean;
   marketingRefreshTokenConfigured?: boolean;
@@ -6561,6 +6562,19 @@ export type MetaCampaignDraft = {
   metaAdId: string | null;
   metaProductSetId?: string | null;
   metaCreativeId?: string | null;
+  metaStatus?: string | null;
+  metaEffectiveStatus?: string | null;
+  metaInsights?: {
+    reach: number | null;
+    impressions: number | null;
+    clicks: number | null;
+    ctr: number | null;
+    cpc: number | null;
+    conversions: number | null;
+    spend: number | null;
+  } | null;
+  metaLaunchedAt?: string | null;
+  metaStatusSyncedAt?: string | null;
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
@@ -7089,33 +7103,142 @@ export async function nestAdminMetaCenterCampaignProducts(
 
 export async function nestAdminMetaCenterListCampaignDrafts(
   token: string | null,
-): Promise<{ ok: true; items: MetaCampaignDraft[]; message?: string }> {
-  const r = await metaCenterFetch<{ ok: true; items: MetaCampaignDraft[]; message?: string }>(
+): Promise<{ ok: boolean; items: MetaCampaignDraft[]; message?: string }> {
+  const r = await metaCenterFetch<{ ok: boolean; items: MetaCampaignDraft[]; message?: string }>(
     token,
     '/campaigns/list',
   );
-  return r.ok ? r.data : { ok: true, items: [], message: r.error };
+  return r.ok ? r.data : { ok: false, items: [], message: r.error };
+}
+
+export type MetaCampaignDraftBody = {
+  name: string;
+  objective: string;
+  propertyType?: string;
+  cityName: string;
+  latitude?: number;
+  longitude?: number;
+  radiusKm: number;
+  dailyBudgetCzk: number;
+  startDate: string;
+  endDate: string;
+  selectedProductIds: string[];
+  creativeType?: string;
+  targetingMode?: string;
+  audienceId?: string;
+  creativePayload?: Record<string, unknown>;
+};
+
+export async function nestAdminMetaCenterUpdateCampaignDraft(
+  token: string | null,
+  id: string,
+  body: MetaCampaignDraftBody,
+): Promise<MetaCampaignCreateResponse> {
+  const r = await metaCenterFetch<MetaCampaignCreateResponse>(
+    token,
+    `/campaigns/drafts/${encodeURIComponent(id)}`,
+    { method: 'PATCH', body: JSON.stringify(body) },
+  );
+  return r.ok
+    ? r.data
+    : { ok: false, status: 'error', message: r.error, campaign: null };
+}
+
+export async function nestAdminMetaCenterDeleteCampaignDraft(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; message?: string }> {
+  const r = await metaCenterFetch<{ ok: boolean; message?: string }>(
+    token,
+    `/campaigns/drafts/${encodeURIComponent(id)}`,
+    { method: 'DELETE' },
+  );
+  return r.ok ? r.data : { ok: false, message: r.error };
+}
+
+export async function nestAdminMetaCenterDeleteCampaignDraft(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; message?: string }> {
+  const r = await metaCenterFetch<{ ok: boolean; message?: string }>(
+    token,
+    `/campaigns/drafts/${encodeURIComponent(id)}`,
+    { method: 'DELETE' },
+  );
+  return r.ok ? r.data : { ok: false, message: r.error };
+}
+
+export async function nestAdminMetaCenterCampaignsLiveMode(
+  token: string | null,
+): Promise<{ ok: true; liveEnabled: boolean; mode: 'live' | 'draft'; label: string } | null> {
+  const r = await metaCenterFetch<{
+    ok: true;
+    liveEnabled: boolean;
+    mode: 'live' | 'draft';
+    label: string;
+  }>(token, '/campaigns/live-mode');
+  return r.ok ? r.data : null;
+}
+
+export type MetaCampaignOverviewItem = MetaCampaignDraft;
+
+export async function nestAdminMetaCenterCampaignsOverview(
+  token: string | null,
+): Promise<{ ok: boolean; items: MetaCampaignOverviewItem[]; liveEnabled?: boolean; message?: string }> {
+  const r = await metaCenterFetch<{
+    ok: boolean;
+    items: MetaCampaignOverviewItem[];
+    liveEnabled?: boolean;
+    message?: string;
+  }>(token, '/campaigns/overview');
+  return r.ok ? r.data : { ok: false, items: [], message: r.error };
+}
+
+export async function nestAdminMetaCenterLaunchCampaignDraft(
+  token: string | null,
+  id: string,
+): Promise<MetaCampaignCreateResponse> {
+  const r = await metaCenterFetch<MetaCampaignCreateResponse>(
+    token,
+    `/campaigns/drafts/${encodeURIComponent(id)}/launch`,
+    { method: 'POST' },
+  );
+  return r.ok
+    ? r.data
+    : { ok: false, status: 'error', message: r.error, campaign: null };
+}
+
+export async function nestAdminMetaCenterSyncCampaignDraft(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; message?: string; campaign?: MetaCampaignDraft | null }> {
+  const r = await metaCenterFetch<{
+    ok: boolean;
+    message?: string;
+    campaign?: MetaCampaignDraft | null;
+  }>(token, `/campaigns/drafts/${encodeURIComponent(id)}/sync`, { method: 'POST' });
+  return r.ok ? r.data : { ok: false, message: r.error };
+}
+
+export async function nestAdminMetaCenterControlCampaign(
+  token: string | null,
+  id: string,
+  action: 'activate' | 'pause' | 'resume' | 'delete',
+): Promise<{ ok: boolean; message?: string; campaign?: MetaCampaignDraft | null }> {
+  const r = await metaCenterFetch<{
+    ok: boolean;
+    message?: string;
+    campaign?: MetaCampaignDraft | null;
+  }>(token, `/campaigns/drafts/${encodeURIComponent(id)}/control`, {
+    method: 'POST',
+    body: JSON.stringify({ action }),
+  });
+  return r.ok ? r.data : { ok: false, message: r.error };
 }
 
 export async function nestAdminMetaCenterCreateCampaign(
   token: string | null,
-  body: {
-    name: string;
-    objective: string;
-    propertyType?: string;
-    cityName: string;
-    latitude?: number;
-    longitude?: number;
-    radiusKm: number;
-    dailyBudgetCzk: number;
-    startDate: string;
-    endDate: string;
-    selectedProductIds: string[];
-    creativeType?: string;
-    targetingMode?: string;
-    audienceId?: string;
-    creativePayload?: Record<string, unknown>;
-  },
+  body: MetaCampaignDraftBody,
   mode: 'draft' | 'launch' = 'draft',
 ): Promise<MetaCampaignCreateResponse> {
   const r = await metaCenterFetch<MetaCampaignCreateResponse>(

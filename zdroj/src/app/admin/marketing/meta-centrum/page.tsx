@@ -47,6 +47,13 @@ import {
   nestAdminMetaCenterCampaignProducts,
   nestAdminMetaCenterListCampaignDrafts,
   nestAdminMetaCenterCreateCampaign,
+  nestAdminMetaCenterUpdateCampaignDraft,
+  nestAdminMetaCenterDeleteCampaignDraft,
+  nestAdminMetaCenterCampaignsOverview,
+  nestAdminMetaCenterLaunchCampaignDraft,
+  nestAdminMetaCenterControlCampaign,
+  nestAdminMetaCenterPatchSettings,
+  type MetaCampaignOverviewItem,
   nestAdminMetaCenterRemarketingAudiences,
   nestAdminMetaCenterCreateRemarketingAudience,
   nestAdminMetaCenterSyncRemarketingAudience,
@@ -109,7 +116,26 @@ const CAMPAIGN_STATUS_LABELS: Record<string, string> = {
   draft: 'Koncept',
   ready: 'Připraveno',
   active: 'Aktivní',
+  paused: 'Pozastaveno',
+  in_review: 'Ke schválení',
+  learning: 'Učení',
+  completed: 'Dokončeno',
+  archived: 'Archivováno',
   error: 'Chyba',
+};
+
+const META_STATUS_LABELS: Record<string, string> = {
+  ACTIVE: 'Aktivní',
+  PAUSED: 'Pozastaveno',
+  IN_REVIEW: 'Ke schválení',
+  PENDING_REVIEW: 'Ke schválení',
+  LEARNING: 'Učení',
+  LEARNING_LIMITED: 'Učení',
+  COMPLETED: 'Dokončeno',
+  REJECTED: 'Zamítnuto',
+  WITH_ISSUES: 'Problém',
+  ARCHIVED: 'Archivováno',
+  DELETED: 'Smazáno',
 };
 
 const CREATIVE_TYPE_LABELS: Record<string, string> = {
@@ -588,6 +614,8 @@ export default function MetaCentrumPage() {
   const [catalogProducts, setCatalogProducts] = useState<MetaCatalogProductPreview[]>([]);
   const [campaignProducts, setCampaignProducts] = useState<MetaCampaignProductItem[]>([]);
   const [campaignDrafts, setCampaignDrafts] = useState<MetaCampaignDraft[]>([]);
+  const [campaignOverview, setCampaignOverview] = useState<MetaCampaignOverviewItem[]>([]);
+  const [campaignsLiveEnabled, setCampaignsLiveEnabled] = useState(false);
   const [remarketingAudiences, setRemarketingAudiences] = useState<MetaRemarketingAudience[]>([]);
   const [remarketingAudienceTypes, setRemarketingAudienceTypes] = useState<
     MetaRemarketingAudienceTypeOption[]
@@ -606,6 +634,7 @@ export default function MetaCentrumPage() {
     listingId: '',
   });
   const [showCampaignPreview, setShowCampaignPreview] = useState(true);
+  const [editingCampaignId, setEditingCampaignId] = useState<string | null>(null);
   const [adAccount, setAdAccount] = useState<MetaAdAccountPanel | null>(null);
   const [catalogList, setCatalogList] = useState<MetaCatalogListResponse | null>(null);
   const [adAccountList, setAdAccountList] = useState<MetaAdAccountListResponse | null>(null);
@@ -632,7 +661,7 @@ export default function MetaCentrumPage() {
 
   const refresh = useCallback(async () => {
     if (!token) return;
-    const [d, l, c, api, apps, ds, cp, products, ad, cats, adList, campProducts, campDrafts, remarketing] =
+    const [d, l, c, api, apps, ds, cp, products, ad, cats, adList, campProducts, campDrafts, remarketing, campOverview] =
       await Promise.all([
       nestAdminMetaCenterDashboard(token),
       nestAdminMetaCenterLogs(token, {
@@ -651,6 +680,7 @@ export default function MetaCentrumPage() {
       nestAdminMetaCenterCampaignProducts(token),
       nestAdminMetaCenterListCampaignDrafts(token),
       nestAdminMetaCenterRemarketingAudiences(token),
+      nestAdminMetaCenterCampaignsOverview(token),
     ]);
     if (d) setDash(d);
     setLogs(l?.items ?? []);
@@ -665,6 +695,10 @@ export default function MetaCentrumPage() {
     setAdAccountList(adList);
     setCampaignProducts(campProducts?.items ?? []);
     setCampaignDrafts(campDrafts?.items ?? []);
+    setCampaignOverview(campOverview?.items ?? campDrafts?.items ?? []);
+    setCampaignsLiveEnabled(
+      campOverview?.liveEnabled ?? d?.settings?.campaignsLiveEnabled ?? false,
+    );
     setRemarketingAudiences(remarketing?.items ?? []);
     setRemarketingAudienceTypes(remarketing?.audienceTypes ?? []);
 
@@ -815,39 +849,99 @@ export default function MetaCentrumPage() {
     [campaignProducts, campaignDraft.selectedProductIds],
   );
 
-  async function submitCampaign(mode: 'draft' | 'launch') {
-    if (!token) return;
-    setBusy(true);
+  function buildCampaignPayload() {
     const lat = campaignDraft.latitude.trim()
       ? Number.parseFloat(campaignDraft.latitude)
       : undefined;
     const lng = campaignDraft.longitude.trim()
       ? Number.parseFloat(campaignDraft.longitude)
       : undefined;
-    const r = await nestAdminMetaCenterCreateCampaign(
-      token,
-      {
-        name: campaignDraft.name.trim(),
-        objective: campaignDraft.goal,
-        propertyType: campaignDraft.propertyType,
-        cityName: campaignDraft.cityName.trim() || campaignDraft.locationLabel.trim(),
-        latitude: Number.isFinite(lat) ? lat : undefined,
-        longitude: Number.isFinite(lng) ? lng : undefined,
-        radiusKm: campaignDraft.radiusKm,
-        dailyBudgetCzk: campaignDraft.budgetDaily,
-        startDate: campaignDraft.startDate,
-        endDate: campaignDraft.endDate,
-        selectedProductIds: campaignDraft.selectedProductIds,
-        creativeType: campaignDraft.creativeType,
-        targetingMode: campaignDraft.targetingMode,
-        audienceId: campaignDraft.audienceId || undefined,
-        creativePayload: campaignDraft.creativePayload,
-      },
-      mode,
-    );
+    return {
+      name: campaignDraft.name.trim(),
+      objective: campaignDraft.goal,
+      propertyType: campaignDraft.propertyType,
+      cityName: campaignDraft.cityName.trim() || campaignDraft.locationLabel.trim(),
+      latitude: Number.isFinite(lat) ? lat : undefined,
+      longitude: Number.isFinite(lng) ? lng : undefined,
+      radiusKm: campaignDraft.radiusKm,
+      dailyBudgetCzk: campaignDraft.budgetDaily,
+      startDate: campaignDraft.startDate,
+      endDate: campaignDraft.endDate,
+      selectedProductIds: campaignDraft.selectedProductIds,
+      creativeType: campaignDraft.creativeType,
+      targetingMode: campaignDraft.targetingMode,
+      audienceId: campaignDraft.audienceId || undefined,
+      creativePayload: campaignDraft.creativePayload,
+    };
+  }
+
+  function loadCampaignForEdit(c: MetaCampaignDraft) {
+    setEditingCampaignId(c.id);
+    setCampaignDraft({
+      name: c.name,
+      goal: c.objective,
+      propertyType: c.propertyType ?? 'byt',
+      radiusKm: c.radiusKm ?? 15,
+      budgetDaily: c.dailyBudgetCzk ?? 200,
+      startDate: c.startDate ?? '',
+      endDate: c.endDate ?? '',
+      locationLabel: c.cityName ?? '',
+      cityName: c.cityName ?? '',
+      latitude: c.latitude != null ? String(c.latitude) : '',
+      longitude: c.longitude != null ? String(c.longitude) : '',
+      selectedProductIds: c.selectedProductIds ?? [],
+      creativeType: c.creativeType ?? 'catalog_products',
+      targetingMode: c.targetingMode ?? 'map',
+      audienceId: c.audienceId ?? '',
+      creativePayload: (c.creativePayload as Record<string, unknown>) ?? {},
+    });
+    setShowCampaignPreview(true);
+    setTab('campaigns');
+  }
+
+  function resetCampaignForm() {
+    setEditingCampaignId(null);
+    setCampaignDraft({
+      name: '',
+      goal: 'traffic',
+      propertyType: 'byt',
+      radiusKm: 15,
+      budgetDaily: 200,
+      startDate: '',
+      endDate: '',
+      locationLabel: '',
+      cityName: '',
+      latitude: '',
+      longitude: '',
+      selectedProductIds: [],
+      creativeType: 'catalog_products',
+      targetingMode: 'map',
+      audienceId: '',
+      creativePayload: {},
+    });
+  }
+
+  async function submitCampaign(mode: 'draft' | 'launch') {
+    if (!token) return;
+    setBusy(true);
+    const payload = buildCampaignPayload();
+    const r =
+      editingCampaignId && mode === 'draft'
+        ? await nestAdminMetaCenterUpdateCampaignDraft(token, editingCampaignId, payload)
+        : await nestAdminMetaCenterCreateCampaign(token, payload, mode);
     setBusy(false);
     if (r.ok) {
-      setMsg(r.message ?? (mode === 'draft' ? 'Koncept uložen.' : 'Kampaň odeslána.'));
+      setMsg(
+        r.message ??
+          (editingCampaignId && mode === 'draft'
+            ? 'Koncept aktualizován.'
+            : mode === 'draft'
+              ? 'Koncept uložen.'
+              : 'Kampaň odeslána.'),
+      );
+      if (mode === 'draft' && editingCampaignId) {
+        resetCampaignForm();
+      }
       void refresh();
     } else {
       const blockerText = r.blockers?.map((b) => b.message).join(' ') ?? '';
@@ -2218,6 +2312,96 @@ export default function MetaCentrumPage() {
               </div>
             </div>
 
+            <div
+              className={`rounded-2xl border p-6 shadow-sm ${
+                campaignsLiveEnabled
+                  ? 'border-emerald-300 bg-emerald-50'
+                  : 'border-amber-300 bg-amber-50'
+              }`}
+            >
+              <h2 className="mb-2 text-lg font-bold">Spouštění kampaní Meta Ads</h2>
+              <p className="mb-4 text-sm">
+                {campaignsLiveEnabled ? (
+                  <span className="font-semibold text-emerald-900">
+                    🟢 Ostré spuštění AKTIVNÍ — kampaně se publikují do Meta Ads Manageru.
+                  </span>
+                ) : (
+                  <span className="font-semibold text-amber-900">
+                    🟡 Pouze koncepty — kampaně se ukládají pouze do databáze XXREALIT.
+                  </span>
+                )}
+              </p>
+              <div className="space-y-3">
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/60 bg-white/70 px-4 py-3 text-sm">
+                  <input
+                    type="radio"
+                    name="campaignsLiveMode"
+                    checked={!campaignsLiveEnabled}
+                    disabled={busy}
+                    onChange={async () => {
+                      if (!token || campaignsLiveEnabled === false) return;
+                      setBusy(true);
+                      const r = await nestAdminMetaCenterPatchSettings(token, {
+                        campaignsLiveEnabled: false,
+                      });
+                      setBusy(false);
+                      if (r.ok) {
+                        setCampaignsLiveEnabled(false);
+                        setMsg('Režim koncept aktivován.');
+                        void refresh();
+                      } else {
+                        setMsg(r.error ?? 'Uložení selhalo.');
+                      }
+                    }}
+                    className="mt-1"
+                  />
+                  <span>
+                    <strong>Režim koncept (bezpečný)</strong>
+                    <br />
+                    <span className="text-zinc-600">Ukládá pouze do databáze, Meta API se nevolá.</span>
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/60 bg-white/70 px-4 py-3 text-sm">
+                  <input
+                    type="radio"
+                    name="campaignsLiveMode"
+                    checked={campaignsLiveEnabled}
+                    disabled={busy}
+                    onChange={async () => {
+                      if (!token || campaignsLiveEnabled === true) return;
+                      if (
+                        !window.confirm(
+                          'Opravdu zapnout ostré spuštění? Kampaně budou vytvářeny v Meta Ads účtu.',
+                        )
+                      ) {
+                        return;
+                      }
+                      setBusy(true);
+                      const r = await nestAdminMetaCenterPatchSettings(token, {
+                        campaignsLiveEnabled: true,
+                      });
+                      setBusy(false);
+                      if (r.ok) {
+                        setCampaignsLiveEnabled(true);
+                        setMsg('Ostré spuštění kampaní zapnuto.');
+                        void refresh();
+                      } else {
+                        setMsg(r.error ?? 'Uložení selhalo.');
+                      }
+                    }}
+                    className="mt-1"
+                  />
+                  <span>
+                    <strong>Ostré spuštění kampaní přes Meta Marketing API</strong>
+                    <br />
+                    <span className="text-zinc-600">
+                      Tlačítko „Spustit kampaň“ vytvoří Campaign, Ad Set, Creative a Ad v Meta.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
             <div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-6 shadow-sm">
               <h2 className="text-lg font-bold text-blue-900">A) Facebook Login</h2>
               <p className="mt-1 text-sm text-blue-800">
@@ -3185,8 +3369,181 @@ export default function MetaCentrumPage() {
 
         {tab === 'campaigns' && dash ? (
           <section className="space-y-6">
+            <div
+              className={`rounded-2xl border px-4 py-3 text-sm shadow-sm ${
+                campaignsLiveEnabled
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-950'
+                  : 'border-amber-300 bg-amber-50 text-amber-950'
+              }`}
+            >
+              {campaignsLiveEnabled ? (
+                <p className="font-semibold">🟢 Ostré spuštění AKTIVNÍ — „Spustit kampaň“ publikuje do Meta Ads.</p>
+              ) : (
+                <p className="font-semibold">
+                  🟡 Pouze koncepty — zapněte ostré spuštění v záložce Nastavení.
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm overflow-x-auto">
+              <h2 className="mb-4 text-lg font-bold">Přehled kampaní</h2>
+              {!campaignOverview.length ? (
+                <p className="text-sm text-zinc-500">Zatím žádné kampaně.</p>
+              ) : (
+                <table className="w-full min-w-[900px] text-left text-sm">
+                  <thead>
+                    <tr className="border-b text-xs text-zinc-500">
+                      <th className="py-2 pr-2">Název</th>
+                      <th className="py-2 pr-2">Cíl</th>
+                      <th className="py-2 pr-2">Rozpočet</th>
+                      <th className="py-2 pr-2">Dosah</th>
+                      <th className="py-2 pr-2">Kliknutí</th>
+                      <th className="py-2 pr-2">CTR</th>
+                      <th className="py-2 pr-2">CPC</th>
+                      <th className="py-2 pr-2">Konverze</th>
+                      <th className="py-2 pr-2">Status</th>
+                      <th className="py-2 pr-2">Akce</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {campaignOverview.map((c) => {
+                      const ins = c.metaInsights;
+                      const metaLabel =
+                        META_STATUS_LABELS[c.metaEffectiveStatus ?? c.metaStatus ?? ''] ??
+                        c.metaEffectiveStatus ??
+                        c.metaStatus ??
+                        CAMPAIGN_STATUS_LABELS[c.status] ??
+                        c.status;
+                      return (
+                        <tr key={c.id} className="border-b border-zinc-100">
+                          <td className="py-2 pr-2 font-medium">{c.name}</td>
+                          <td className="py-2 pr-2">{CAMPAIGN_GOAL_LABELS[c.objective] ?? c.objective}</td>
+                          <td className="py-2 pr-2">{c.dailyBudgetCzk ?? '—'} Kč/d</td>
+                          <td className="py-2 pr-2">{ins?.reach?.toLocaleString('cs-CZ') ?? '—'}</td>
+                          <td className="py-2 pr-2">{ins?.clicks?.toLocaleString('cs-CZ') ?? '—'}</td>
+                          <td className="py-2 pr-2">
+                            {ins?.ctr != null ? `${(ins.ctr * (ins.ctr < 1 ? 100 : 1)).toFixed(2)} %` : '—'}
+                          </td>
+                          <td className="py-2 pr-2">
+                            {ins?.cpc != null ? `${ins.cpc.toFixed(2)} Kč` : '—'}
+                          </td>
+                          <td className="py-2 pr-2">{ins?.conversions?.toLocaleString('cs-CZ') ?? '—'}</td>
+                          <td className="py-2 pr-2">
+                            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs">{metaLabel}</span>
+                          </td>
+                          <td className="py-2 pr-2">
+                            <div className="flex flex-wrap gap-1">
+                              {!c.metaCampaignId && campaignsLiveEnabled ? (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  title="Spustit v Meta"
+                                  onClick={async () => {
+                                    if (!token) return;
+                                    setBusy(true);
+                                    const r = await nestAdminMetaCenterLaunchCampaignDraft(token, c.id);
+                                    setBusy(false);
+                                    setMsg(r.message ?? (r.ok ? 'Kampaň spuštěna.' : 'Chyba'));
+                                    void refresh();
+                                  }}
+                                  className="rounded border border-emerald-400 px-1.5 py-0.5 text-xs"
+                                >
+                                  ▶
+                                </button>
+                              ) : null}
+                              {c.metaCampaignId ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    title="Spustit"
+                                    onClick={async () => {
+                                      if (!token) return;
+                                      setBusy(true);
+                                      const r = await nestAdminMetaCenterControlCampaign(token, c.id, 'activate');
+                                      setBusy(false);
+                                      setMsg(r.message ?? '');
+                                      void refresh();
+                                    }}
+                                    className="rounded border border-zinc-300 px-1.5 py-0.5 text-xs"
+                                  >
+                                    ▶
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    title="Pozastavit"
+                                    onClick={async () => {
+                                      if (!token) return;
+                                      setBusy(true);
+                                      const r = await nestAdminMetaCenterControlCampaign(token, c.id, 'pause');
+                                      setBusy(false);
+                                      setMsg(r.message ?? '');
+                                      void refresh();
+                                    }}
+                                    className="rounded border border-zinc-300 px-1.5 py-0.5 text-xs"
+                                  >
+                                    ⏸
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    title="Obnovit"
+                                    onClick={async () => {
+                                      if (!token) return;
+                                      setBusy(true);
+                                      const r = await nestAdminMetaCenterControlCampaign(token, c.id, 'resume');
+                                      setBusy(false);
+                                      setMsg(r.message ?? '');
+                                      void refresh();
+                                    }}
+                                    className="rounded border border-zinc-300 px-1.5 py-0.5 text-xs"
+                                  >
+                                    ▶
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    title="Smazat"
+                                    onClick={async () => {
+                                      if (!token || !window.confirm(`Smazat kampaň „${c.name}" v Meta?`)) return;
+                                      setBusy(true);
+                                      const r = await nestAdminMetaCenterControlCampaign(token, c.id, 'delete');
+                                      setBusy(false);
+                                      setMsg(r.message ?? '');
+                                      void refresh();
+                                    }}
+                                    className="rounded border border-red-300 px-1.5 py-0.5 text-xs text-red-700"
+                                  >
+                                    🗑
+                                  </button>
+                                </>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
             <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-              <h2 className="mb-4 text-lg font-bold">Vytvořit kampaň</h2>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-lg font-bold">
+                  {editingCampaignId ? 'Upravit koncept kampaně' : 'Vytvořit kampaň'}
+                </h2>
+                {editingCampaignId ? (
+                  <button
+                    type="button"
+                    onClick={resetCampaignForm}
+                    className="text-xs text-zinc-500 underline"
+                  >
+                    Zrušit úpravu
+                  </button>
+                ) : null}
+              </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="flex flex-col gap-1 text-sm sm:col-span-2">
                   <span className="font-medium">Název kampaně</span>
@@ -3516,17 +3873,27 @@ export default function MetaCentrumPage() {
                   onClick={() => void submitCampaign('draft')}
                   className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-50"
                 >
-                  Uložit koncept
+                  {editingCampaignId ? 'Uložit změny' : 'Uložit koncept'}
                 </button>
                 <button
                   type="button"
-                  disabled={busy || !canLaunchCampaign}
+                  disabled={busy || !canLaunchCampaign || !campaignsLiveEnabled}
                   onClick={() => void submitCampaign('launch')}
                   className="rounded-lg bg-[#1877f2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#166fe5] disabled:opacity-50"
+                  title={
+                    !campaignsLiveEnabled
+                      ? 'Zapněte ostré spuštění v Nastavení'
+                      : undefined
+                  }
                 >
                   Spustit kampaň
                 </button>
               </div>
+              {!campaignsLiveEnabled ? (
+                <p className="mt-2 text-xs text-amber-800">
+                  Ostré spuštění je vypnuté — tlačítko „Spustit kampaň“ je dostupné po zapnutí v Nastavení.
+                </p>
+              ) : null}
             </div>
 
             <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
@@ -3573,6 +3940,36 @@ export default function MetaCentrumPage() {
                       <p className="mt-1 text-[10px] text-zinc-400">
                         Aktualizováno: {new Date(c.updatedAt).toLocaleString('cs-CZ')}
                       </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => loadCampaignForEdit(c)}
+                          className="rounded-lg border border-zinc-300 px-2 py-1 text-xs font-medium hover:bg-zinc-50"
+                        >
+                          Upravit
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={async () => {
+                            if (!token || !window.confirm(`Smazat koncept „${c.name}"?`)) return;
+                            setBusy(true);
+                            const r = await nestAdminMetaCenterDeleteCampaignDraft(token, c.id);
+                            setBusy(false);
+                            if (r.ok) {
+                              if (editingCampaignId === c.id) resetCampaignForm();
+                              setMsg('Koncept smazán.');
+                              void refresh();
+                            } else {
+                              setMsg(r.message ?? 'Smazání selhalo.');
+                            }
+                          }}
+                          className="rounded-lg border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                        >
+                          Smazat
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>

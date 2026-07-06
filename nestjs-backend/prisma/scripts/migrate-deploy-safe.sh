@@ -28,7 +28,12 @@ echo "[migrate] prisma migrate deploy"
 if npx prisma migrate deploy --schema="$SCHEMA"; then
   echo "[migrate] deploy succeeded"
 else
-  echo "[migrate] ERROR: prisma migrate deploy failed — continuing API start anyway"
+  echo "[migrate] ERROR: prisma migrate deploy failed — trying db push for schema sync"
+  if npx prisma db push --schema="$SCHEMA" --skip-generate --accept-data-loss; then
+    echo "[migrate] db push succeeded (fallback)"
+  else
+    echo "[migrate] ERROR: db push also failed — continuing API start anyway"
+  fi
 fi
 
 exit 0

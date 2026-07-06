@@ -170,6 +170,7 @@ export class MetaCenterService {
       graphApiVersion: row.graphApiVersion || GRAPH_API_VERSION_DEFAULT,
       domainVerification: row.domainVerification,
       catalogFeedEnabled: row.catalogFeedEnabled,
+      campaignsLiveEnabled: row.campaignsLiveEnabled ?? false,
       capiEventToggles: this.parseJson(row.capiEventToggles, DEFAULT_CAPI_TOGGLES),
       pixelMapping: this.parseJson(row.pixelMapping, DEFAULT_PIXEL_MAPPING),
       remarketingAudiences: this.parseJson(row.remarketingAudiences, DEFAULT_REMARKETING_AUDIENCES),
@@ -226,6 +227,7 @@ export class MetaCenterService {
       'graphApiVersion',
       'domainVerification',
       'catalogFeedEnabled',
+      'campaignsLiveEnabled',
     ].forEach((k) => assign(k as keyof UpdateMetaCenterSettingDto));
 
     if (dto.facebookAppSecret !== undefined) data.facebookAppSecret = dto.facebookAppSecret || null;

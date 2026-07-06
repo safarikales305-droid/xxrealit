@@ -197,6 +197,62 @@ export class MetaGraphClientService {
     }
   }
 
+  async delete<T>(path: string, accessToken: string): Promise<MetaGraphResult<T>> {
+    const started = Date.now();
+    const base = this.graphBase();
+    const qs = new URLSearchParams({ access_token: accessToken });
+    const url = `${base}${path.startsWith('/') ? path : `/${path}`}?${qs.toString()}`;
+    const endpoint = path.split('?')[0] ?? path;
+
+    try {
+      const res = await fetch(url, { method: 'DELETE' });
+      const data = (await res.json().catch(() => ({}))) as T & GraphErrorBody;
+      const durationMs = Date.now() - started;
+
+      if (!res.ok || data.error) {
+        const errorMessage = formatMetaGraphErrorMessage(data, res.status);
+        await this.logCall({
+          endpoint,
+          method: 'DELETE',
+          request: { path },
+          response: data,
+          httpStatus: res.status,
+          errorCode: data.error?.code != null ? String(data.error.code) : null,
+          errorMessage,
+          durationMs,
+        });
+        return {
+          ok: false,
+          httpStatus: res.status,
+          errorCode: data.error?.code != null ? String(data.error.code) : null,
+          errorMessage,
+          data,
+        };
+      }
+
+      await this.logCall({
+        endpoint,
+        method: 'DELETE',
+        request: { path },
+        response: data,
+        httpStatus: res.status,
+        durationMs,
+      });
+      return { ok: true, data, httpStatus: res.status };
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      await this.logCall({
+        endpoint,
+        method: 'DELETE',
+        request: { path },
+        httpStatus: 0,
+        errorMessage,
+        durationMs: Date.now() - started,
+      });
+      return { ok: false, httpStatus: 0, errorCode: null, errorMessage, data: null };
+    }
+  }
+
   oauthDialogUrl(): string {
     return `https://www.facebook.com/${this.fbConfig.getGraphApiVersion()}/dialog/oauth`;
   }

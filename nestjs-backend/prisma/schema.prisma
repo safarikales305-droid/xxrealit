@@ -2519,6 +2519,11 @@ model MetaMarketingCampaignDraft {
   metaAdId           String?
   metaProductSetId   String?
   metaCreativeId     String?
+  metaStatus         String?
+  metaEffectiveStatus String?
+  metaInsights       Json?
+  metaLaunchedAt     DateTime?
+  metaStatusSyncedAt DateTime?
   errorMessage       String?   @db.Text
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
@@ -2604,6 +2609,8 @@ model MetaCenterSetting {
   diagnosticsSnapshot          Json?
   lastAutoSyncAt               DateTime?
   syncEnabled                  Boolean  @default(true)
+  /// Ostré spuštění kampaní přes Meta Marketing API (false = pouze koncepty v DB).
+  campaignsLiveEnabled         Boolean  @default(false)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 }
