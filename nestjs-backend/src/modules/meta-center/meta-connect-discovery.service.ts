@@ -335,7 +335,26 @@ export class MetaConnectDiscoveryService {
         : `act_${discovered.adAccount.id}`
       : null;
 
-    const data: Prisma.MetaCenterSettingUpdateInput = {
+    const updateData: Prisma.MetaCenterSettingUpdateInput = {
+      facebookMarketingAppId: tokenMeta.marketingAppId,
+      businessManagerId: discovered.business?.id ?? null,
+      adAccountId,
+      adAccountName: discovered.adAccount?.name ?? null,
+      metaConnectedUserId: discovered.user?.id ?? null,
+      metaConnectedUserName: discovered.user?.name ?? null,
+      marketingAccessTokenEncrypted: this.crypto.encrypt(accessToken),
+      marketingTokenExpiresAt: tokenMeta.tokenExpiresAt ?? null,
+      marketingTokenExpiresIn: tokenMeta.expiresIn ?? null,
+      marketingTokenType: tokenMeta.tokenType ?? 'bearer',
+      marketingGrantedScopes: tokenMeta.grantedScopes,
+      marketingRefreshTokenEncrypted: tokenMeta.refreshToken?.trim()
+        ? this.crypto.encrypt(tokenMeta.refreshToken.trim())
+        : null,
+      lastAutoSyncAt: new Date(),
+    };
+
+    const createData: Prisma.MetaCenterSettingCreateInput = {
+      id: SETTINGS_ID,
       facebookMarketingAppId: tokenMeta.marketingAppId,
       businessManagerId: discovered.business?.id ?? null,
       adAccountId,
@@ -355,8 +374,8 @@ export class MetaConnectDiscoveryService {
 
     await this.prisma.metaCenterSetting.upsert({
       where: { id: SETTINGS_ID },
-      create: { id: SETTINGS_ID, ...data },
-      update: data,
+      create: createData,
+      update: updateData,
     });
 
     this.logger.log(

@@ -48,7 +48,7 @@ export class MetaCenterAdminController {
     private readonly facebookAuth: FacebookAuthService,
     private readonly assets: MetaCenterAssetsService,
     private readonly apiLog: MetaCenterApiLogService,
-    private readonly marketingDiagnostics: MetaMarketingDiagnosticsService,
+    private readonly marketingOAuthDiagnostics: MetaMarketingDiagnosticsService,
   ) {}
 
   private async safeEndpoint<T extends Record<string, unknown>>(
@@ -112,7 +112,7 @@ export class MetaCenterAdminController {
 
   @Get('oauth/marketing')
   async oauthMarketing(@CurrentUser() user: AuthUser) {
-    await this.marketingDiagnostics.logMarketingAppSnapshot(user.id, 'oauth/marketing');
+    await this.marketingOAuthDiagnostics.logMarketingAppSnapshot(user.id, 'oauth/marketing');
     const result = await this.connectOAuth.buildOAuthUrlSafe(user.id, 'marketing', false);
     if (!result.success) {
       return {
@@ -491,8 +491,8 @@ export class MetaCenterAdminController {
   }
 
   @Post('marketing/diagnostics')
-  marketingDiagnostics(@CurrentUser() user: AuthUser) {
-    return this.marketingDiagnostics.runFullMarketingDiagnostics(user.id);
+  runMarketingDiagnostics(@CurrentUser() user: AuthUser) {
+    return this.marketingOAuthDiagnostics.runFullMarketingDiagnostics(user.id);
   }
 
   @Get('remarketing')
