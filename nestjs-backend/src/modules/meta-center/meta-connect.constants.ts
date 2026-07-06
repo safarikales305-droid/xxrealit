@@ -63,7 +63,12 @@ export type MetaConnectionCheckKey =
   | 'feed'
   | 'api';
 
-export type MetaConnectionStatusLevel = 'online' | 'optional' | 'missing_config' | 'api_error';
+export type MetaConnectionStatusLevel =
+  | 'online'
+  | 'optional'
+  | 'missing_config'
+  | 'api_error'
+  | 'permission_warning';
 
 export type MetaConnectionSource =
   | 'whatsapp_module'

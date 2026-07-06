@@ -34,6 +34,7 @@ type BuildCheckInput = {
   fixHref?: string | null;
   source: MetaConnectionSource;
   apiError?: boolean;
+  permissionWarning?: boolean;
 };
 
 @Injectable()
@@ -51,11 +52,13 @@ export class MetaCenterIntegrationStatusService {
   buildCheck(input: BuildCheckInput): MetaConnectionCheck {
     const status = this.resolveStatus(input);
     const error =
-      input.optional && !input.connected
-        ? 'Nenastaveno (volitelné)'
-        : input.connected
-          ? null
-          : input.error ?? 'Chybí konfigurace';
+      input.permissionWarning && !input.connected
+        ? input.error ?? input.detail ?? 'Vyžaduje oprávnění Meta App'
+        : input.optional && !input.connected
+          ? 'Nenastaveno (volitelné)'
+          : input.connected
+            ? null
+            : input.error ?? 'Chybí konfigurace';
     return {
       key: input.key,
       label: input.label,
@@ -73,6 +76,7 @@ export class MetaCenterIntegrationStatusService {
   private resolveStatus(input: BuildCheckInput): MetaConnectionStatusLevel {
     if (input.optional && !input.connected) return 'optional';
     if (input.connected) return 'online';
+    if (input.permissionWarning) return 'permission_warning';
     if (input.apiError) return 'api_error';
     return 'missing_config';
   }

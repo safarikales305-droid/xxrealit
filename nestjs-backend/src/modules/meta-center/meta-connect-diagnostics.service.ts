@@ -258,17 +258,27 @@ export class MetaConnectDiagnosticsService {
     const commerceMessage = catalogGraph?.commerceMessage ?? catalogEnv.commerceMessage;
     const catalogOnline = catalogGraph?.catalogOnline ?? catalogEnv.catalogOnline;
     const catalogMessage = catalogGraph?.catalogMessage ?? catalogEnv.catalogMessage;
+    const commercePermissionWarning =
+      catalogGraph?.commerceIssueKind === 'missing_permission' ||
+      catalogGraph?.commerceIssueKind === 'catalog_not_in_app';
+    const catalogPermissionWarning =
+      catalogGraph?.catalogIssueKind === 'missing_permission' ||
+      catalogGraph?.catalogIssueKind === 'catalog_not_in_app';
 
     push(
       this.integration.buildCheck({
         key: 'business',
         label: 'Business Manager',
-        connected: Boolean(resolvedIds.businessId) && (catalogGraph?.commerceOnline || catalogGraph?.catalogOnline || false),
+        connected:
+          Boolean(resolvedIds.businessId) &&
+          (catalogGraph?.catalogOnline || catalogGraph?.commerceOnline || false),
         error: !resolvedIds.businessId
           ? 'Chybí FACEBOOK_BUSINESS_ID.'
           : catalogGraph?.catalogOnline || catalogGraph?.commerceOnline
             ? null
-            : catalogGraph?.graphErrorJson ?? commerceMessage,
+            : catalogGraph?.hasPermissionWarning
+              ? catalogGraph.permissionWarning
+              : catalogGraph?.graphErrorJson ?? commerceMessage,
         detail:
           resolvedIds.businessId && catalogGraph
             ? `Business ID ${resolvedIds.businessId}${catalogGraph.businessName ? ` · ${catalogGraph.businessName}` : ''}`
@@ -276,12 +286,16 @@ export class MetaConnectDiagnosticsService {
         fixAction: resolvedIds.businessId ? null : 'fix_env',
         fixHref: META_FIX_HREFS.metaCatalog,
         source: 'graph_api',
+        permissionWarning: Boolean(
+          resolvedIds.businessId && catalogGraph?.hasPermissionWarning && !catalogOnline && !commerceOnline,
+        ),
         apiError: Boolean(
           resolvedIds.businessId &&
             marketingAccessToken &&
             catalogGraph &&
             !catalogGraph.catalogOnline &&
-            !catalogGraph.commerceOnline,
+            !catalogGraph.commerceOnline &&
+            !catalogGraph.hasPermissionWarning,
         ),
       }),
     );
@@ -359,7 +373,14 @@ export class MetaConnectDiagnosticsService {
         fixAction: commerceOnline ? null : resolvedIds.businessId ? null : 'fix_env',
         fixHref: META_FIX_HREFS.metaCatalog,
         source: catalogGraph?.commerceOnline ? 'graph_api' : 'meta_catalog',
-        apiError: Boolean(!commerceOnline && resolvedIds.businessId && marketingAccessToken),
+        permissionWarning: commercePermissionWarning,
+        apiError: Boolean(
+          !commerceOnline &&
+            resolvedIds.businessId &&
+            marketingAccessToken &&
+            catalogGraph &&
+            !catalogGraph.hasPermissionWarning,
+        ),
       }),
     );
 
@@ -373,7 +394,14 @@ export class MetaConnectDiagnosticsService {
         fixAction: catalogOnline ? null : resolvedIds.catalogId ? null : 'fix_env',
         fixHref: META_FIX_HREFS.metaCatalog,
         source: catalogGraph?.catalogOnline ? 'graph_api' : 'meta_catalog',
-        apiError: Boolean(!catalogOnline && resolvedIds.catalogId && marketingAccessToken),
+        permissionWarning: catalogPermissionWarning,
+        apiError: Boolean(
+          !catalogOnline &&
+            resolvedIds.catalogId &&
+            marketingAccessToken &&
+            catalogGraph &&
+            !catalogGraph.hasPermissionWarning,
+        ),
       }),
     );
 

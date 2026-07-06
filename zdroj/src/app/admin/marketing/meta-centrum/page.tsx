@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import {
   nestAdminMetaCenterApiLogs,
+  nestAdminMetaCenterCheckPermissions,
   nestAdminMetaCenterConnectUrl,
   nestAdminMetaCenterApps,
   nestAdminMetaCenterLoginOAuthUrl,
@@ -29,8 +30,15 @@ import {
   type MetaConnectionCheck,
   type MetaConnectionStatusLevel,
   type MetaDiagnosticLevel,
+  type MetaPermissionsCheckResult,
   type FacebookAppsConfig,
 } from '@/lib/nest-client';
+
+const META_EXTERNAL_LINKS = {
+  developersApps: 'https://developers.facebook.com/apps/',
+  commerceManager: 'https://business.facebook.com/commerce/',
+  catalogs: 'https://business.facebook.com/settings/catalogs',
+} as const;
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard' },
@@ -111,9 +119,12 @@ function formatBytes(n: number) {
   return `${(n / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-function serviceStatusBadge(status: 'online' | 'offline' | 'optional', statusLabel: string) {
+function serviceStatusBadge(status: 'online' | 'offline' | 'optional' | 'warning', statusLabel: string) {
   if (status === 'online') {
     return { text: statusLabel || 'Online', className: 'bg-emerald-100 text-emerald-800' };
+  }
+  if (status === 'warning') {
+    return { text: statusLabel || 'Upozornění', className: 'bg-amber-100 text-amber-900' };
   }
   if (status === 'optional') {
     return { text: statusLabel || 'Nenastaveno (volitelné)', className: 'bg-zinc-100 text-zinc-600' };
@@ -144,6 +155,7 @@ function connectionCheckClass(item: MetaConnectionCheck) {
   const status = connectionCheckStatus(item);
   if (status === 'online') return 'border-emerald-200 bg-emerald-50 text-emerald-900';
   if (status === 'optional') return 'border-zinc-200 bg-zinc-50 text-zinc-600';
+  if (status === 'permission_warning') return 'border-amber-200 bg-amber-50 text-amber-900';
   if (status === 'api_error') return 'border-amber-200 bg-amber-50 text-amber-900';
   return 'border-red-200 bg-red-50 text-red-900';
 }
@@ -152,6 +164,7 @@ function connectionCheckIcon(item: MetaConnectionCheck) {
   const status = connectionCheckStatus(item);
   if (status === 'online') return '✓';
   if (status === 'optional') return '○';
+  if (status === 'permission_warning') return '⚠';
   if (status === 'api_error') return '⚠';
   return '✗';
 }
@@ -160,6 +173,7 @@ function connectionCheckLabel(item: MetaConnectionCheck) {
   const status = connectionCheckStatus(item);
   if (status === 'online') return 'Online / Připojeno';
   if (status === 'optional') return 'Nenastaveno (volitelné)';
+  if (status === 'permission_warning') return item.error ?? 'Vyžaduje oprávnění Meta App';
   if (status === 'api_error') return item.error ?? 'Chyba API';
   return item.error ?? 'Chybí konfigurace';
 }
@@ -183,6 +197,7 @@ export default function MetaCentrumPage() {
   const [busy, setBusy] = useState(false);
   const [appsConfig, setAppsConfig] = useState<FacebookAppsConfig | null>(null);
   const [testReport, setTestReport] = useState<unknown>(null);
+  const [permissionsCheck, setPermissionsCheck] = useState<MetaPermissionsCheckResult | null>(null);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -308,6 +323,18 @@ export default function MetaCentrumPage() {
     setMsg('Diagnostika dokončena.');
     void refresh();
   }
+
+  async function checkPermissions() {
+    if (!token) return;
+    setBusy(true);
+    const result = await nestAdminMetaCenterCheckPermissions(token);
+    setPermissionsCheck(result);
+    setBusy(false);
+    setMsg(result?.error ? `Kontrola oprávnění: ${result.error}` : 'Oprávnění zkontrolována.');
+    void refresh();
+  }
+
+  const scopeRows = permissionsCheck?.scopes ?? catalogGraph?.requiredScopes ?? [];
 
   async function runDiagnostics() {
     if (!token) return;
@@ -441,7 +468,9 @@ export default function MetaCentrumPage() {
                           </p>
                         ) : null}
                       </div>
-                      {!item.connected && connectionCheckStatus(item) !== 'optional' ? (
+                      {!item.connected &&
+                      connectionCheckStatus(item) !== 'optional' &&
+                      connectionCheckStatus(item) !== 'permission_warning' ? (
                         item.fixHref ? (
                           <Link
                             href={item.fixHref}
@@ -464,6 +493,38 @@ export default function MetaCentrumPage() {
                   ))}
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void checkPermissions()}
+                    className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                  >
+                    Zkontrolovat oprávnění
+                  </button>
+                  <a
+                    href={META_EXTERNAL_LINKS.developersApps}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold hover:bg-zinc-50"
+                  >
+                    Otevřít Meta App
+                  </a>
+                  <a
+                    href={META_EXTERNAL_LINKS.commerceManager}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold hover:bg-zinc-50"
+                  >
+                    Otevřít Commerce Manager
+                  </a>
+                  <a
+                    href={META_EXTERNAL_LINKS.catalogs}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold hover:bg-zinc-50"
+                  >
+                    Otevřít Catalog
+                  </a>
                   <button
                     type="button"
                     disabled={busy}
@@ -575,48 +636,124 @@ export default function MetaCentrumPage() {
             </section>
 
             {catalogGraph ? (
-              <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-                <h2 className="mb-3 text-lg font-bold">Diagnostika katalogu (Graph API)</h2>
-                <p className="mb-4 whitespace-pre-wrap text-xs text-zinc-500">
-                  Ověřeno: {new Date(catalogGraph.graphCheckedAt).toLocaleString('cs-CZ')}
-                  {catalogGraph.graphErrorJson
-                    ? `\nGraph API chyba: ${catalogGraph.graphErrorJson}`
-                    : catalogGraph.graphError
-                      ? ` · ${catalogGraph.graphError}`
-                      : ''}
-                </p>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  {[
-                    ['Business ID', catalogGraph.businessId],
-                    ['Catalog ID', catalogGraph.catalogId],
-                    ['Commerce Manager ID', catalogGraph.commerceManagerId],
-                    ['Stav oprávnění Commerce API', catalogGraph.commercePermissionStatus],
-                    ['Dataset ID', catalogGraph.datasetId],
-                    ['Název katalogu', catalogGraph.catalogName],
-                    ['Commerce Manager', catalogGraph.commerceManagerName ?? catalogGraph.commerceMessage],
-                    ['Počet produktů', catalogGraph.productCount ?? '—'],
-                    [
-                      'Poslední synchronizace',
-                      catalogGraph.lastLocalSync
-                        ? new Date(catalogGraph.lastLocalSync).toLocaleString('cs-CZ')
-                        : '—',
-                    ],
-                    [
-                      'Poslední aktualizace katalogu',
-                      catalogGraph.lastCatalogUpdate
-                        ? new Date(catalogGraph.lastCatalogUpdate).toLocaleString('cs-CZ')
-                        : '—',
-                    ],
-                    ['Chyby importu', catalogGraph.importErrorCount],
-                    ['Počet obrázků', catalogGraph.metaImagesLoaded ?? '—'],
-                    ['Počet videí', catalogGraph.metaVideoCount ?? '—'],
-                    ['Facebook Catalog', catalogGraph.catalogMessage],
-                  ].map(([label, val]) => (
-                    <div key={String(label)} className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
-                      <p className="text-xs font-medium text-zinc-500">{label}</p>
-                      <p className="mt-1 break-all font-mono text-xs">{String(val ?? '—')}</p>
+              <section className="space-y-4">
+                {catalogGraph.hasPermissionWarning && catalogGraph.permissionWarning ? (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 shadow-sm">
+                    <p className="font-semibold">Upozornění — oprávnění Meta App</p>
+                    <p className="mt-2">{catalogGraph.permissionWarning}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <a
+                        href={META_EXTERNAL_LINKS.developersApps}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-amber-100"
+                      >
+                        Otevřít Meta App
+                      </a>
+                      <a
+                        href={META_EXTERNAL_LINKS.commerceManager}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-amber-100"
+                      >
+                        Otevřít Commerce Manager
+                      </a>
+                      <a
+                        href={META_EXTERNAL_LINKS.catalogs}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-amber-100"
+                      >
+                        Otevřít Catalog
+                      </a>
                     </div>
-                  ))}
+                  </div>
+                ) : null}
+
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+                  <h2 className="mb-3 text-lg font-bold">Diagnostika katalogu (Graph API)</h2>
+                  <p className="mb-4 whitespace-pre-wrap text-xs text-zinc-500">
+                    Ověřeno: {new Date(catalogGraph.graphCheckedAt).toLocaleString('cs-CZ')}
+                    {catalogGraph.hasPermissionWarning
+                      ? ''
+                      : catalogGraph.graphErrorJson
+                        ? `\nGraph API chyba: ${catalogGraph.graphErrorJson}`
+                        : catalogGraph.graphError
+                          ? ` · ${catalogGraph.graphError}`
+                          : ''}
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {[
+                      ['Business ID', catalogGraph.businessId],
+                      ['Catalog ID', catalogGraph.catalogId],
+                      ['Commerce Manager ID', catalogGraph.commerceManagerId],
+                      ['Stav oprávnění Commerce API', catalogGraph.commercePermissionStatus],
+                      ['Commerce — typ stavu', catalogGraph.commerceIssueKind ?? '—'],
+                      ['Catalog — typ stavu', catalogGraph.catalogIssueKind ?? '—'],
+                      ['Dataset ID', catalogGraph.datasetId],
+                      ['Název katalogu', catalogGraph.catalogName],
+                      ['Commerce Manager', catalogGraph.commerceManagerName ?? catalogGraph.commerceMessage],
+                      ['Počet produktů', catalogGraph.productCount ?? '—'],
+                      [
+                        'Poslední synchronizace',
+                        catalogGraph.lastLocalSync
+                          ? new Date(catalogGraph.lastLocalSync).toLocaleString('cs-CZ')
+                          : '—',
+                      ],
+                      [
+                        'Poslední aktualizace katalogu',
+                        catalogGraph.lastCatalogUpdate
+                          ? new Date(catalogGraph.lastCatalogUpdate).toLocaleString('cs-CZ')
+                          : '—',
+                      ],
+                      ['Chyby importu', catalogGraph.importErrorCount],
+                      ['Počet obrázků', catalogGraph.metaImagesLoaded ?? '—'],
+                      ['Počet videí', catalogGraph.metaVideoCount ?? '—'],
+                      ['Facebook Catalog', catalogGraph.catalogMessage],
+                    ].map(([label, val]) => (
+                      <div key={String(label)} className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+                        <p className="text-xs font-medium text-zinc-500">{label}</p>
+                        <p className="mt-1 break-all font-mono text-xs">{String(val ?? '—')}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <h2 className="text-lg font-bold">Požadovaná oprávnění</h2>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void checkPermissions()}
+                      className="rounded-lg border border-[#1877f2] px-3 py-1.5 text-xs font-semibold text-[#1877f2] hover:bg-blue-50"
+                    >
+                      Zkontrolovat oprávnění
+                    </button>
+                  </div>
+                  {permissionsCheck?.error ? (
+                    <p className="mb-3 text-sm text-amber-800">{permissionsCheck.error}</p>
+                  ) : null}
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {scopeRows.map((row) => (
+                      <div
+                        key={row.scope}
+                        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                          row.granted
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                            : 'border-red-200 bg-red-50 text-red-900'
+                        }`}
+                      >
+                        <span aria-hidden>{row.granted ? '🟢' : '🔴'}</span>
+                        <code className="text-xs">{row.scope}</code>
+                      </div>
+                    ))}
+                  </div>
+                  {permissionsCheck?.checkedAt ? (
+                    <p className="mt-3 text-xs text-zinc-500">
+                      Poslední kontrola: {new Date(permissionsCheck.checkedAt).toLocaleString('cs-CZ')}
+                    </p>
+                  ) : null}
                 </div>
               </section>
             ) : null}

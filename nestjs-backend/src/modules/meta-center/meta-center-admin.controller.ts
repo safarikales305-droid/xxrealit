@@ -138,6 +138,11 @@ export class MetaCenterAdminController {
     return this.service.testService(key as MetaServiceKey);
   }
 
+  @Post('permissions/check')
+  checkPermissions() {
+    return this.service.checkGraphPermissions();
+  }
+
   @Post('diagnostics')
   runDiagnostics() {
     return this.connectDiagnostics.runFullDiagnostics();

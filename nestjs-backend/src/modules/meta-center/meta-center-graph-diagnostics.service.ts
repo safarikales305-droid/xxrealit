@@ -1,13 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { resolveMetaCenterIds } from './meta-center-env.util';
+import {
+  buildScopeGrantList,
+  classifyGraphFailure,
+  classifyMissingScopes,
+  hasPermissionWarning,
+  issueMessage,
+  META_PERMISSION_WARNING_CATALOG,
+  type MetaGraphIssueKind,
+  type MetaScopeGrantStatus,
+} from './meta-graph-permissions.util';
 import { MetaConnectOAuthService } from './meta-connect-oauth.service';
 import { MetaGraphClientService, type MetaGraphResult } from './meta-graph-client.service';
 
 const SETTINGS_ID = 'default';
-
-const SCOPE_BUSINESS_MANAGEMENT = 'business_management';
-const SCOPE_CATALOG_MANAGEMENT = 'catalog_management';
 
 type CatalogGraphFields = {
   id?: string;
@@ -35,6 +42,12 @@ type CommerceMerchantRow = {
   name?: string;
 };
 
+type GraphFailure = {
+  kind: MetaGraphIssueKind;
+  message: string;
+  technicalDetail: string | null;
+};
+
 export type MetaCatalogGraphDiagnostics = {
   businessId: string | null;
   businessName: string | null;
@@ -46,8 +59,10 @@ export type MetaCatalogGraphDiagnostics = {
   datasetId: string | null;
   commerceOnline: boolean;
   commerceMessage: string;
+  commerceIssueKind: MetaGraphIssueKind;
   catalogOnline: boolean;
   catalogMessage: string;
+  catalogIssueKind: MetaGraphIssueKind;
   productCount: number | null;
   lastCatalogUpdate: string | null;
   lastLocalSync: string | null;
@@ -57,6 +72,9 @@ export type MetaCatalogGraphDiagnostics = {
   graphCheckedAt: string;
   graphError: string | null;
   graphErrorJson: string | null;
+  requiredScopes: MetaScopeGrantStatus[];
+  permissionWarning: string | null;
+  hasPermissionWarning: boolean;
 };
 
 @Injectable()
@@ -69,70 +87,52 @@ export class MetaCenterGraphDiagnosticsService {
     private readonly graph: MetaGraphClientService,
   ) {}
 
-  private hasScope(scopes: string[], scope: string): boolean {
-    return scopes.includes(scope);
-  }
-
   private buildPermissionStatus(scopes: string[]): string {
-    const business = this.hasScope(scopes, SCOPE_BUSINESS_MANAGEMENT) ? '✓' : '✗';
-    const catalog = this.hasScope(scopes, SCOPE_CATALOG_MANAGEMENT) ? '✓' : '✗';
+    const business = scopes.includes('business_management') ? '✓' : '✗';
+    const catalog = scopes.includes('catalog_management') ? '✓' : '✗';
     return `business_management ${business}, catalog_management ${catalog}`;
   }
 
-  private missingPermissionMessage(endpoint: string, scopes: string[]): string {
-    const missing: string[] = [];
-    if (!this.hasScope(scopes, SCOPE_BUSINESS_MANAGEMENT)) {
-      missing.push(SCOPE_BUSINESS_MANAGEMENT);
+  private scopeFailure(endpoint: string, scopes: string[]): GraphFailure {
+    const kind = classifyMissingScopes(scopes);
+    if (kind === 'missing_permission') {
+      return {
+        kind,
+        message: META_PERMISSION_WARNING_CATALOG,
+        technicalDetail: `Chybí scope v tokenu · GET ${endpoint}`,
+      };
     }
-    if (!this.hasScope(scopes, SCOPE_CATALOG_MANAGEMENT)) {
-      missing.push(SCOPE_CATALOG_MANAGEMENT);
-    }
-    if (missing.length === 0) {
-      return `Chybí oprávnění catalog_management nebo business_management. Endpoint: GET ${endpoint}`;
-    }
-    return `Chybí oprávnění: ${missing.join(', ')}. Endpoint: GET ${endpoint}`;
+    return { kind: 'ok', message: '', technicalDetail: null };
   }
 
-  private formatGraphError(res: MetaGraphResult<unknown>, endpoint: string, scopes: string[]): string {
-    if (res.ok) return '';
-    const err = (
-      res.data as {
-        error?: {
-          message?: string;
-          code?: number;
-          type?: string;
-          error_subcode?: number;
-          fbtrace_id?: string;
-        };
-      } | null
-    )?.error;
-    const errType = err?.type ?? '';
-    const errCode = err?.code;
-    const errMsg = err?.message ?? res.errorMessage;
+  private graphFailure(res: MetaGraphResult<unknown>, endpoint: string, scopes: string[]): GraphFailure {
+    return classifyGraphFailure(res, endpoint, scopes);
+  }
 
-    const isPermissionError =
-      errCode === 200 ||
-      errCode === 10 ||
-      errType === 'OAuthException' ||
-      errType === 'GraphMethodException' ||
-      /permission|not authorized|does not have/i.test(errMsg);
-
-    if (isPermissionError) {
-      return `${this.missingPermissionMessage(endpoint, scopes)} (${errType || 'GraphAPI'}${errCode != null ? ` #${errCode}` : ''}: ${errMsg})`;
-    }
-
+  async checkRequiredPermissions(): Promise<{
+    checkedAt: string;
+    tokenValid: boolean;
+    scopes: MetaScopeGrantStatus[];
+    error: string | null;
+  }> {
+    const checkedAt = new Date().toISOString();
     try {
-      return JSON.stringify({
-        endpoint: `GET ${endpoint}`,
-        type: errType || null,
-        code: errCode ?? null,
-        message: errMsg,
-        subcode: err?.error_subcode ?? null,
-        fbtrace_id: err?.fbtrace_id ?? null,
-        raw: res.data,
-      });
-    } catch {
-      return `${errType || 'GraphAPI'} @ GET ${endpoint}: ${errMsg}`;
+      const token = await this.oauth.resolveAccessToken();
+      const debug = await this.oauth.debugToken(token);
+      const granted = debug.scopes ?? [];
+      return {
+        checkedAt,
+        tokenValid: debug.is_valid !== false,
+        scopes: buildScopeGrantList(granted),
+        error: null,
+      };
+    } catch (err) {
+      return {
+        checkedAt,
+        tokenValid: false,
+        scopes: buildScopeGrantList([]),
+        error: err instanceof Error ? err.message : 'Chybí access token.',
+      };
     }
   }
 
@@ -140,16 +140,17 @@ export class MetaCenterGraphDiagnosticsService {
     businessId: string | null,
     accessToken: string,
     scopes: string[],
-  ): Promise<{ businessId: string | null; businessName: string | null; error: string | null }> {
+  ): Promise<{
+    businessId: string | null;
+    businessName: string | null;
+    failure: GraphFailure | null;
+  }> {
     if (businessId) {
-      return { businessId, businessName: null, error: null };
+      return { businessId, businessName: null, failure: null };
     }
-    if (!this.hasScope(scopes, SCOPE_BUSINESS_MANAGEMENT)) {
-      return {
-        businessId: null,
-        businessName: null,
-        error: this.missingPermissionMessage('/me/businesses', scopes),
-      };
+    const scopeErr = this.scopeFailure('/me/businesses', scopes);
+    if (scopeErr.kind !== 'ok') {
+      return { businessId: null, businessName: null, failure: scopeErr };
     }
     const res = await this.graph.get<GraphList<{ id?: string; name?: string }>>(
       '/me/businesses',
@@ -160,15 +161,22 @@ export class MetaCenterGraphDiagnosticsService {
       return {
         businessId: null,
         businessName: null,
-        error: this.formatGraphError(res, '/me/businesses', scopes),
+        failure: this.graphFailure(res, '/me/businesses', scopes),
       };
     }
     const row = res.data.data?.[0];
-    return {
-      businessId: row?.id ?? null,
-      businessName: row?.name ?? null,
-      error: row?.id ? null : 'Business Manager nenalezen v /me/businesses.',
-    };
+    if (!row?.id) {
+      return {
+        businessId: null,
+        businessName: null,
+        failure: {
+          kind: 'not_configured',
+          message: 'Business Manager nenalezen v /me/businesses.',
+          technicalDetail: null,
+        },
+      };
+    }
+    return { businessId: row.id, businessName: row.name ?? null, failure: null };
   }
 
   private async fetchOwnedProductCatalogs(
@@ -178,18 +186,12 @@ export class MetaCenterGraphDiagnosticsService {
   ): Promise<{
     catalogId: string | null;
     catalogName: string | null;
-    error: string | null;
+    failure: GraphFailure | null;
   }> {
     const endpoint = `/${businessId}/owned_product_catalogs`;
-    if (
-      !this.hasScope(scopes, SCOPE_BUSINESS_MANAGEMENT) ||
-      !this.hasScope(scopes, SCOPE_CATALOG_MANAGEMENT)
-    ) {
-      return {
-        catalogId: null,
-        catalogName: null,
-        error: this.missingPermissionMessage(endpoint, scopes),
-      };
+    const scopeErr = this.scopeFailure(endpoint, scopes);
+    if (scopeErr.kind !== 'ok') {
+      return { catalogId: null, catalogName: null, failure: scopeErr };
     }
 
     const res = await this.graph.get<GraphList<{ id?: string; name?: string }>>(
@@ -201,7 +203,7 @@ export class MetaCenterGraphDiagnosticsService {
       return {
         catalogId: null,
         catalogName: null,
-        error: this.formatGraphError(res, endpoint, scopes),
+        failure: this.graphFailure(res, endpoint, scopes),
       };
     }
     const list = res.data.data ?? [];
@@ -209,14 +211,18 @@ export class MetaCenterGraphDiagnosticsService {
       return {
         catalogId: null,
         catalogName: null,
-        error: `GET ${endpoint} — business nemá žádný product catalog.`,
+        failure: {
+          kind: 'business_no_catalog',
+          message: issueMessage('business_no_catalog'),
+          technicalDetail: `GET ${endpoint} — prázdný seznam.`,
+        },
       };
     }
     const first = list[0];
     return {
       catalogId: first?.id ?? null,
       catalogName: first?.name ?? null,
-      error: null,
+      failure: null,
     };
   }
 
@@ -245,16 +251,14 @@ export class MetaCenterGraphDiagnosticsService {
   ): Promise<{
     id: string | null;
     name: string | null;
-    error: string | null;
-    skipped: boolean;
+    failure: GraphFailure | null;
   }> {
     const endpoint = `/${businessId}/commerce_merchant_settings`;
-    if (!this.hasScope(scopes, SCOPE_BUSINESS_MANAGEMENT)) {
+    if (!scopes.includes('business_management')) {
       return {
         id: null,
         name: null,
-        error: this.missingPermissionMessage(endpoint, scopes),
-        skipped: true,
+        failure: this.scopeFailure(endpoint, scopes),
       };
     }
 
@@ -266,19 +270,17 @@ export class MetaCenterGraphDiagnosticsService {
       return {
         id: null,
         name: null,
-        error: this.formatGraphError(res, endpoint, scopes),
-        skipped: false,
+        failure: this.graphFailure(res, endpoint, scopes),
       };
     }
     const row = res.data.data?.[0];
     if (!row?.id) {
-      return { id: null, name: null, error: null, skipped: false };
+      return { id: null, name: null, failure: null };
     }
     return {
       id: row.id,
       name: row.display_name ?? row.name ?? 'Commerce Manager',
-      error: null,
-      skipped: false,
+      failure: null,
     };
   }
 
@@ -286,16 +288,30 @@ export class MetaCenterGraphDiagnosticsService {
     catalogId: string,
     accessToken: string,
     scopes: string[],
-  ): Promise<{ ok: true; data: CatalogGraphFields } | { ok: false; error: string }> {
+  ): Promise<
+    | { ok: true; data: CatalogGraphFields }
+    | { ok: false; failure: GraphFailure }
+  > {
     const endpoint = `/${catalogId}`;
-    if (!this.hasScope(scopes, SCOPE_CATALOG_MANAGEMENT)) {
-      return { ok: false, error: this.missingPermissionMessage(endpoint, scopes) };
+    if (!scopes.includes('catalog_management')) {
+      return { ok: false, failure: this.scopeFailure(endpoint, scopes) };
     }
     const res = await this.graph.get<CatalogGraphFields>(endpoint, accessToken, {
       fields: 'id,name,vertical,update_time',
     });
     if (!res.ok) {
-      return { ok: false, error: this.formatGraphError(res, endpoint, scopes) };
+      const failure = this.graphFailure(res, endpoint, scopes);
+      if (failure.kind === 'missing_permission') {
+        return {
+          ok: false,
+          failure: {
+            kind: 'catalog_not_in_app',
+            message: issueMessage('catalog_not_in_app'),
+            technicalDetail: failure.technicalDetail,
+          },
+        };
+      }
+      return { ok: false, failure };
     }
     return { ok: true, data: res.data };
   }
@@ -306,11 +322,11 @@ export class MetaCenterGraphDiagnosticsService {
     scopes: string[],
   ): Promise<
     | { ok: true; productCount: number; imageCount: number; videoCount: number }
-    | { ok: false; error: string }
+    | { ok: false; failure: GraphFailure }
   > {
     const endpoint = `/${catalogId}/products`;
-    if (!this.hasScope(scopes, SCOPE_CATALOG_MANAGEMENT)) {
-      return { ok: false, error: this.missingPermissionMessage(endpoint, scopes) };
+    if (!scopes.includes('catalog_management')) {
+      return { ok: false, failure: this.scopeFailure(endpoint, scopes) };
     }
 
     let productCount = 0;
@@ -330,7 +346,7 @@ export class MetaCenterGraphDiagnosticsService {
 
       const res = await this.graph.get<GraphList<CatalogProductRow>>(endpoint, accessToken, query);
       if (!res.ok) {
-        return { ok: false, error: this.formatGraphError(res, endpoint, scopes) };
+        return { ok: false, failure: this.graphFailure(res, endpoint, scopes) };
       }
 
       if (pages === 0 && res.data.summary?.total_count != null) {
@@ -357,6 +373,30 @@ export class MetaCenterGraphDiagnosticsService {
     } while (pages < maxPages);
 
     return { ok: true, productCount, imageCount, videoCount };
+  }
+
+  private applyCommerceFailure(base: MetaCatalogGraphDiagnostics, failure: GraphFailure) {
+    base.commerceIssueKind = failure.kind;
+    base.commerceMessage = failure.message;
+    if (failure.kind === 'missing_permission') {
+      base.hasPermissionWarning = true;
+      base.permissionWarning = failure.message;
+    } else if (failure.kind === 'api_error') {
+      base.graphError = failure.message;
+      base.graphErrorJson = failure.technicalDetail;
+    }
+  }
+
+  private applyCatalogFailure(base: MetaCatalogGraphDiagnostics, failure: GraphFailure) {
+    base.catalogIssueKind = failure.kind;
+    base.catalogMessage = failure.message;
+    if (failure.kind === 'missing_permission' || failure.kind === 'catalog_not_in_app') {
+      base.hasPermissionWarning = true;
+      base.permissionWarning = failure.message;
+    } else if (failure.kind === 'api_error') {
+      base.graphError = failure.message;
+      base.graphErrorJson = failure.technicalDetail;
+    }
   }
 
   async buildCatalogDiagnostics(): Promise<MetaCatalogGraphDiagnostics> {
@@ -387,8 +427,10 @@ export class MetaCenterGraphDiagnosticsService {
       datasetId: ids.datasetId,
       commerceOnline: false,
       commerceMessage: 'Čeká na ověření Graph API…',
+      commerceIssueKind: 'not_configured',
       catalogOnline: false,
       catalogMessage: 'Čeká na ověření Graph API…',
+      catalogIssueKind: 'not_configured',
       productCount: null,
       lastCatalogUpdate: null,
       lastLocalSync:
@@ -402,6 +444,9 @@ export class MetaCenterGraphDiagnosticsService {
       graphCheckedAt: checkedAt,
       graphError: null,
       graphErrorJson: null,
+      requiredScopes: buildScopeGrantList([]),
+      permissionWarning: null,
+      hasPermissionWarning: false,
     };
 
     let accessToken: string;
@@ -409,7 +454,8 @@ export class MetaCenterGraphDiagnosticsService {
       accessToken = await this.oauth.resolveAccessToken();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Chybí access token.';
-      base.graphError = msg;
+      base.commerceIssueKind = 'not_configured';
+      base.catalogIssueKind = 'not_configured';
       base.commerceMessage = msg;
       base.catalogMessage = msg;
       return base;
@@ -418,12 +464,12 @@ export class MetaCenterGraphDiagnosticsService {
     const tokenDebug = await this.oauth.debugToken(accessToken);
     const scopes = tokenDebug.scopes ?? [];
     base.commercePermissionStatus = this.buildPermissionStatus(scopes);
+    base.requiredScopes = buildScopeGrantList(scopes);
 
     const businessResolved = await this.resolveBusinessId(ids.businessId, accessToken, scopes);
-    if (businessResolved.error && !businessResolved.businessId) {
-      base.graphErrorJson = businessResolved.error;
-      base.commerceMessage = businessResolved.error;
-      base.catalogMessage = businessResolved.error;
+    if (businessResolved.failure && !businessResolved.businessId) {
+      this.applyCommerceFailure(base, businessResolved.failure);
+      this.applyCatalogFailure(base, { ...businessResolved.failure });
       return base;
     }
 
@@ -432,17 +478,27 @@ export class MetaCenterGraphDiagnosticsService {
     base.businessName = businessResolved.businessName;
 
     if (!businessId) {
-      base.commerceMessage = 'Chybí FACEBOOK_BUSINESS_ID a /me/businesses nevrátilo business.';
-      base.catalogMessage = base.commerceMessage;
+      const failure: GraphFailure = {
+        kind: 'not_configured',
+        message: 'Chybí FACEBOOK_BUSINESS_ID a /me/businesses nevrátilo business.',
+        technicalDetail: null,
+      };
+      this.applyCommerceFailure(base, failure);
+      this.applyCatalogFailure(base, failure);
       return base;
     }
 
     const owned = await this.fetchOwnedProductCatalogs(businessId, accessToken, scopes);
-    if (owned.error || !owned.catalogId) {
-      const err = owned.error ?? `GET /${businessId}/owned_product_catalogs — katalog nenalezen.`;
-      base.graphErrorJson = err;
-      base.catalogMessage = err;
-      base.commerceMessage = err;
+    if (owned.failure || !owned.catalogId) {
+      const failure =
+        owned.failure ??
+        ({
+          kind: 'catalog_not_found',
+          message: issueMessage('catalog_not_found'),
+          technicalDetail: `GET /${businessId}/owned_product_catalogs`,
+        } satisfies GraphFailure);
+      this.applyCommerceFailure(base, failure);
+      this.applyCatalogFailure(base, failure);
       return base;
     }
 
@@ -452,15 +508,16 @@ export class MetaCenterGraphDiagnosticsService {
     await this.persistDiscoveredCatalog(resolvedCatalogId, owned.catalogName);
 
     const commerce = await this.fetchCommerceManager(businessId, accessToken, scopes);
-    if (commerce.error) {
-      base.graphErrorJson = commerce.error;
-      base.commerceMessage = commerce.error;
+    if (commerce.failure) {
+      this.applyCommerceFailure(base, commerce.failure);
     } else if (commerce.id) {
       base.commerceManagerId = commerce.id;
       base.commerceManagerName = commerce.name;
       base.commerceOnline = true;
+      base.commerceIssueKind = 'ok';
       base.commerceMessage = `✓ ${commerce.name} (${commerce.id})`;
     } else {
+      base.commerceIssueKind = 'not_configured';
       base.commerceMessage =
         `Commerce API: žádný Commerce Manager u business ${businessId} ` +
         `(oprávnění: ${base.commercePermissionStatus})`;
@@ -468,8 +525,7 @@ export class MetaCenterGraphDiagnosticsService {
 
     const catalogNode = await this.fetchCatalogNode(resolvedCatalogId, accessToken, scopes);
     if (!catalogNode.ok) {
-      base.graphErrorJson = catalogNode.error;
-      base.catalogMessage = catalogNode.error;
+      this.applyCatalogFailure(base, catalogNode.failure);
       return base;
     }
 
@@ -478,12 +534,12 @@ export class MetaCenterGraphDiagnosticsService {
 
     const productStats = await this.fetchProductStats(resolvedCatalogId, accessToken, scopes);
     if (!productStats.ok) {
-      base.graphErrorJson = productStats.error;
-      base.catalogMessage = productStats.error;
+      this.applyCatalogFailure(base, productStats.failure);
       return base;
     }
 
     base.catalogOnline = true;
+    base.catalogIssueKind = 'ok';
     base.productCount = productStats.productCount;
     base.metaImagesLoaded = productStats.imageCount;
     base.metaVideoCount = productStats.videoCount;
@@ -496,6 +552,11 @@ export class MetaCenterGraphDiagnosticsService {
       base.commerceMessage =
         `✓ ${base.commerceManagerName} · Business ID ${businessId} · Catalog ID ${resolvedCatalogId}`;
     }
+
+    base.hasPermissionWarning = hasPermissionWarning(
+      base.commerceIssueKind,
+      base.catalogIssueKind,
+    );
 
     void this.logger.debug(
       `Catalog graph diagnostics: commerce=${base.commerceOnline} catalog=${base.catalogOnline} ` +
@@ -510,9 +571,9 @@ export class MetaCenterGraphDiagnosticsService {
       const token = await this.oauth.resolveAccessToken();
       const scopes = (await this.oauth.debugToken(token)).scopes ?? [];
       const res = await this.fetchCatalogNode(catalogId, token, scopes);
-      if (!res.ok) return { ok: false, message: res.error };
+      if (!res.ok) return { ok: false, message: res.failure.message };
       const stats = await this.fetchProductStats(catalogId, token, scopes);
-      if (!stats.ok) return { ok: false, message: stats.error };
+      if (!stats.ok) return { ok: false, message: stats.failure.message };
       return {
         ok: true,
         message: `✓ ${res.data.name ?? catalogId} · ${stats.productCount} produktů`,
@@ -531,19 +592,19 @@ export class MetaCenterGraphDiagnosticsService {
       const scopes = (await this.oauth.debugToken(token)).scopes ?? [];
       const business = await this.resolveBusinessId(businessId, token, scopes);
       if (!business.businessId) {
-        return { ok: false, message: business.error ?? 'Chybí FACEBOOK_BUSINESS_ID.' };
+        return { ok: false, message: business.failure?.message ?? 'Chybí FACEBOOK_BUSINESS_ID.' };
       }
 
       const owned = await this.fetchOwnedProductCatalogs(business.businessId, token, scopes);
-      if (owned.error || !owned.catalogId) {
-        return { ok: false, message: owned.error ?? 'Katalog nenalezen.' };
+      if (owned.failure || !owned.catalogId) {
+        return { ok: false, message: owned.failure?.message ?? 'Katalog nenalezen.' };
       }
 
       const commerce = await this.fetchCommerceManager(business.businessId, token, scopes);
-      if (commerce.error) return { ok: false, message: commerce.error };
+      if (commerce.failure) return { ok: false, message: commerce.failure.message };
 
       const catalog = await this.fetchCatalogNode(owned.catalogId, token, scopes);
-      if (!catalog.ok) return { ok: false, message: catalog.error };
+      if (!catalog.ok) return { ok: false, message: catalog.failure.message };
 
       return {
         ok: true,

@@ -32,11 +32,14 @@ import {
   type MetaCatalogGraphDiagnostics,
 } from './meta-center-graph-diagnostics.service';
 import { MetaCenterIntegrationStatusService } from './meta-center-integration-status.service';
+import { diagnosticLevelFromIssue } from './meta-graph-permissions.util';
 
 const SETTINGS_ID = 'default';
 
+type ServiceCardStatus = 'online' | 'offline' | 'optional' | 'warning';
+
 type ServiceStatusRow = {
-  status: 'online' | 'offline' | 'optional';
+  status: ServiceCardStatus;
   lastSyncAt: string | null;
   createdAt: string;
   graphApiVersion: string;
@@ -255,7 +258,7 @@ export class MetaCenterService {
     catalogGraph: MetaCatalogGraphDiagnostics,
     socialPageConnected: boolean,
     waConfigured: boolean,
-  ): { status: 'online' | 'offline' | 'optional'; statusLabel: string; detail?: string } {
+  ): { status: ServiceCardStatus; statusLabel: string; detail?: string } {
     switch (key) {
       case 'meta_pixel':
         if (ids.pixelId) {
@@ -289,6 +292,27 @@ export class MetaCenterService {
         if (catalogGraph.commerceOnline) {
           return { status: 'online', statusLabel: 'Online', detail: catalogGraph.commerceMessage };
         }
+        if (
+          catalogGraph.commerceIssueKind === 'missing_permission' ||
+          catalogGraph.commerceIssueKind === 'catalog_not_in_app'
+        ) {
+          return {
+            status: 'warning',
+            statusLabel: 'Vyžaduje oprávnění',
+            detail: catalogGraph.commerceMessage,
+          };
+        }
+        if (
+          catalogGraph.commerceIssueKind === 'business_no_catalog' ||
+          catalogGraph.commerceIssueKind === 'catalog_not_found' ||
+          catalogGraph.commerceIssueKind === 'not_configured'
+        ) {
+          return {
+            status: 'warning',
+            statusLabel: 'Konfigurace',
+            detail: catalogGraph.commerceMessage,
+          };
+        }
         return {
           status: 'offline',
           statusLabel: 'Offline',
@@ -305,6 +329,27 @@ export class MetaCenterService {
         }
         if (catalogGraph.catalogOnline) {
           return { status: 'online', statusLabel: 'Online', detail: catalogGraph.catalogMessage };
+        }
+        if (
+          catalogGraph.catalogIssueKind === 'missing_permission' ||
+          catalogGraph.catalogIssueKind === 'catalog_not_in_app'
+        ) {
+          return {
+            status: 'warning',
+            statusLabel: 'Vyžaduje oprávnění',
+            detail: catalogGraph.catalogMessage,
+          };
+        }
+        if (
+          catalogGraph.catalogIssueKind === 'business_no_catalog' ||
+          catalogGraph.catalogIssueKind === 'catalog_not_found' ||
+          catalogGraph.catalogIssueKind === 'not_configured'
+        ) {
+          return {
+            status: 'warning',
+            statusLabel: 'Konfigurace',
+            detail: catalogGraph.catalogMessage,
+          };
         }
         return {
           status: 'offline',
@@ -496,7 +541,12 @@ export class MetaCenterService {
       wa.configured,
     );
     const online = card.status === 'online';
-    const result = card.status === 'optional' ? 'warning' : online ? 'ok' : 'warning';
+    const result =
+      card.status === 'optional' || card.status === 'warning'
+        ? 'warning'
+        : online
+          ? 'ok'
+          : 'warning';
     const message =
       card.detail ??
       (card.status === 'optional'
@@ -615,19 +665,53 @@ export class MetaCenterService {
     items.push({
       key: 'commerce',
       label: 'Commerce Manager',
-      level: catalogGraph.commerceOnline ? 'ok' : ids.businessId || ids.catalogId ? 'error' : 'warning',
+      level: diagnosticLevelFromIssue(catalogGraph.commerceOnline, catalogGraph.commerceIssueKind),
       message: catalogGraph.commerceMessage,
+    });
+
+    items.push({
+      key: 'commerce_issue',
+      label: 'Commerce — typ stavu',
+      level: catalogGraph.commerceOnline ? 'ok' : 'warning',
+      message: catalogGraph.commerceOnline
+        ? 'Online'
+        : catalogGraph.commerceIssueKind === 'missing_permission'
+          ? 'Aplikace nemá oprávnění'
+          : catalogGraph.commerceIssueKind === 'api_error'
+            ? 'API nefunguje'
+            : catalogGraph.commerceIssueKind === 'business_no_catalog'
+              ? 'Business nemá katalog'
+              : catalogGraph.commerceIssueKind === 'catalog_not_found'
+                ? 'Katalog neexistuje'
+                : catalogGraph.commerceIssueKind === 'catalog_not_in_app'
+                  ? 'Katalog není připojen do aplikace'
+                  : 'Chybí konfigurace',
     });
 
     items.push({
       key: 'catalog',
       label: 'Facebook Catalog',
-      level: catalogGraph.catalogOnline
-        ? 'ok'
-        : catalogGraph.catalogId ?? ids.catalogId
-          ? 'error'
-          : 'warning',
+      level: diagnosticLevelFromIssue(catalogGraph.catalogOnline, catalogGraph.catalogIssueKind),
       message: catalogGraph.catalogMessage,
+    });
+
+    items.push({
+      key: 'catalog_issue',
+      label: 'Catalog — typ stavu',
+      level: catalogGraph.catalogOnline ? 'ok' : 'warning',
+      message: catalogGraph.catalogOnline
+        ? 'Online'
+        : catalogGraph.catalogIssueKind === 'missing_permission'
+          ? 'Aplikace nemá oprávnění'
+          : catalogGraph.catalogIssueKind === 'api_error'
+            ? 'API nefunguje'
+            : catalogGraph.catalogIssueKind === 'business_no_catalog'
+              ? 'Business nemá katalog'
+              : catalogGraph.catalogIssueKind === 'catalog_not_found'
+                ? 'Katalog neexistuje'
+                : catalogGraph.catalogIssueKind === 'catalog_not_in_app'
+                  ? 'Katalog není připojen do aplikace'
+                  : 'Chybí konfigurace',
     });
 
     items.push({
@@ -767,6 +851,10 @@ export class MetaCenterService {
       services,
       testedAt: new Date().toISOString(),
     };
+  }
+
+  async checkGraphPermissions() {
+    return this.graphDiagnostics.checkRequiredPermissions();
   }
 
   async getDashboard() {

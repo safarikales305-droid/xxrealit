@@ -6018,7 +6018,7 @@ export type MetaDiagnosticLevel = 'ok' | 'warning' | 'error';
 export type MetaCenterServiceCard = {
   key: string;
   label: string;
-  status: 'online' | 'offline' | 'optional';
+  status: 'online' | 'offline' | 'optional' | 'warning';
   statusLabel: string;
   detail?: string | null;
   lastSyncAt: string | null;
@@ -6107,7 +6107,12 @@ export type MetaCenterSettings = {
   updatedAt: string;
 };
 
-export type MetaConnectionStatusLevel = 'online' | 'optional' | 'missing_config' | 'api_error';
+export type MetaConnectionStatusLevel =
+  | 'online'
+  | 'optional'
+  | 'missing_config'
+  | 'api_error'
+  | 'permission_warning';
 
 export type MetaConnectionSource =
   | 'whatsapp_module'
@@ -6133,6 +6138,11 @@ export type MetaConnectionCheck = {
   source?: MetaConnectionSource | string;
 };
 
+export type MetaScopeGrantStatus = {
+  scope: string;
+  granted: boolean;
+};
+
 export type MetaCatalogGraphDiagnostics = {
   businessId: string | null;
   businessName: string | null;
@@ -6144,8 +6154,10 @@ export type MetaCatalogGraphDiagnostics = {
   datasetId: string | null;
   commerceOnline: boolean;
   commerceMessage: string;
+  commerceIssueKind?: string;
   catalogOnline: boolean;
   catalogMessage: string;
+  catalogIssueKind?: string;
   productCount: number | null;
   lastCatalogUpdate: string | null;
   lastLocalSync: string | null;
@@ -6155,6 +6167,16 @@ export type MetaCatalogGraphDiagnostics = {
   graphCheckedAt: string;
   graphError: string | null;
   graphErrorJson: string | null;
+  requiredScopes?: MetaScopeGrantStatus[];
+  permissionWarning?: string | null;
+  hasPermissionWarning?: boolean;
+};
+
+export type MetaPermissionsCheckResult = {
+  checkedAt: string;
+  tokenValid: boolean;
+  scopes: MetaScopeGrantStatus[];
+  error: string | null;
 };
 
 export type MetaCenterApiLogRow = {
@@ -6288,6 +6310,15 @@ export async function nestAdminMetaCenterTestService(
 
 export async function nestAdminMetaCenterDiagnostics(token: string | null) {
   const r = await metaCenterFetch<MetaCenterDashboard['diagnostics']>(token, '/diagnostics', {
+    method: 'POST',
+  });
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterCheckPermissions(
+  token: string | null,
+): Promise<MetaPermissionsCheckResult | null> {
+  const r = await metaCenterFetch<MetaPermissionsCheckResult>(token, '/permissions/check', {
     method: 'POST',
   });
   return r.ok ? r.data : null;
