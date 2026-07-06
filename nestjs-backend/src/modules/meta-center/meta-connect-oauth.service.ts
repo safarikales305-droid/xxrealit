@@ -24,10 +24,14 @@ import {
   META_CENTER_SESSION_MODES,
   META_OAUTH_FLOWS,
   isMetaCenterSessionMode,
-  listMetaOAuthFlowDiagnostics,
-  scopesForFlow,
   type MetaOAuthFlowKey,
 } from './meta-oauth-flows';
+import {
+  assertOAuthUrlScopes,
+  readMetaApprovedOAuthScopesFromEnv,
+  resolveScopesForOAuthFlow,
+  type ResolvedOAuthScopes,
+} from './meta-oauth-scope-resolver';
 import { MetaConnectDiscoveryService } from './meta-connect-discovery.service';
 import { MetaGraphClientService } from './meta-graph-client.service';
 
@@ -404,7 +408,28 @@ export class MetaConnectOAuthService {
   }
 
   getOAuthFlowsDiagnostics() {
-    return listMetaOAuthFlowDiagnostics();
+    const approved = readMetaApprovedOAuthScopesFromEnv();
+    return Object.values(META_OAUTH_FLOWS).map((flow) => {
+      const resolved = resolveScopesForOAuthFlow(flow.key, approved);
+      return {
+        key: flow.key,
+        label: flow.label,
+        description: flow.description,
+        requestedScopes: resolved.requestedScopes,
+        scopes: resolved.approvedScopes,
+        excludedScopes: resolved.excludedScopes,
+        warnings: resolved.warnings,
+        scopeString: resolved.scope,
+        canConnect: resolved.approvedScopes.length > 0,
+        usesLoginApp: flow.usesLoginApp,
+        usesPagesApp: flow.usesPagesApp,
+        sessionMode: flow.sessionMode,
+      };
+    });
+  }
+
+  private resolveFlowScopes(flow: MetaOAuthFlowKey): ResolvedOAuthScopes {
+    return resolveScopesForOAuthFlow(flow, readMetaApprovedOAuthScopesFromEnv());
   }
 
   private composeOAuthPreview(input: {
@@ -414,9 +439,11 @@ export class MetaConnectOAuthService {
     flow: MetaOAuthFlowKey;
     reauthorize: boolean;
     dryRun: boolean;
+    resolvedScopes: ResolvedOAuthScopes;
   }): MetaOAuthPreviewDto {
     const flowDef = META_OAUTH_FLOWS[input.flow];
-    const scope = scopesForFlow(input.flow);
+    const scope = input.resolvedScopes.scope;
+    assertOAuthUrlScopes(input.flow, scope);
     const params = new URLSearchParams({
       client_id: input.clientId,
       redirect_uri: input.redirectUri,
@@ -438,7 +465,10 @@ export class MetaConnectOAuthService {
       client_id: input.clientId,
       redirect_uri: input.redirectUri,
       scope,
-      scopesList: [...flowDef.scopes],
+      scopesList: [...input.resolvedScopes.approvedScopes],
+      requestedScopes: input.resolvedScopes.requestedScopes,
+      excludedScopes: input.resolvedScopes.excludedScopes,
+      scopeWarnings: input.resolvedScopes.warnings,
       oauthFlow: input.flow,
       oauthFlowLabel: flowDef.label,
       response_type: 'code',
@@ -481,6 +511,13 @@ export class MetaConnectOAuthService {
       throw new ServiceUnavailableException(this.fbConfig.pagesConfigurationErrorMessage());
     }
     const flowDef = META_OAUTH_FLOWS[flow];
+    const resolvedScopes = this.resolveFlowScopes(flow);
+    if (!dryRun && resolvedScopes.approvedScopes.length === 0) {
+      throw new BadRequestException(
+        resolvedScopes.warnings.join(' ') ||
+          `OAuth flow „${flowDef.label}“ nemá žádné schválené scopes.`,
+      );
+    }
     const redirectUri = this.resolveRedirectUri();
     const reauthorize = dryRun ? false : await this.isAlreadyConnected(adminUserId);
     const state = dryRun
@@ -508,6 +545,7 @@ export class MetaConnectOAuthService {
       flow,
       reauthorize,
       dryRun,
+      resolvedScopes,
     });
 
     this.logger.log(`META OAuth flow=${flow} URL: ${preview.facebookOAuthUrl}`);
@@ -525,6 +563,9 @@ export class MetaConnectOAuthService {
           redirect_uri: preview.redirect_uri,
           scope: preview.scope,
           scopesList: preview.scopesList,
+          requestedScopes: preview.requestedScopes,
+          excludedScopes: preview.excludedScopes,
+          scopeWarnings: preview.scopeWarnings,
           response_type: preview.response_type,
           state: preview.state,
           facebookOAuthUrl: preview.facebookOAuthUrl,

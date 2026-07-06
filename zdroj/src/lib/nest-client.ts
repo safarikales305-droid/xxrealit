@@ -6176,8 +6176,12 @@ export type MetaOAuthFlowDiagnostic = {
   key: MetaOAuthFlowKey;
   label: string;
   description: string;
+  requestedScopes: string[];
   scopes: string[];
+  excludedScopes: string[];
+  warnings: string[];
   scopeString: string;
+  canConnect: boolean;
   usesLoginApp: boolean;
   usesPagesApp: boolean;
   sessionMode: string;
@@ -6189,6 +6193,9 @@ export type MetaOAuthPreview = {
   redirect_uri: string;
   scope: string;
   scopesList?: string[];
+  requestedScopes?: string[];
+  excludedScopes?: string[];
+  scopeWarnings?: string[];
   oauthFlow?: MetaOAuthFlowKey | string;
   oauthFlowLabel?: string;
   response_type: string;

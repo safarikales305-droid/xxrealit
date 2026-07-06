@@ -88,6 +88,9 @@ export type MetaOAuthPreviewDto = {
   redirect_uri: string;
   scope: string;
   scopesList: string[];
+  requestedScopes?: string[];
+  excludedScopes?: string[];
+  scopeWarnings?: string[];
   oauthFlow: string;
   oauthFlowLabel: string;
   response_type: string;

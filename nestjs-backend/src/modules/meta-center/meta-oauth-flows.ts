@@ -107,16 +107,3 @@ export function resolveMetaOAuthFlow(key: string | undefined | null): MetaOAuthF
 export function scopesForFlow(flow: MetaOAuthFlowKey): string {
   return META_OAUTH_FLOWS[flow].scopes.join(',');
 }
-
-export function listMetaOAuthFlowDiagnostics() {
-  return Object.values(META_OAUTH_FLOWS).map((flow) => ({
-    key: flow.key,
-    label: flow.label,
-    description: flow.description,
-    scopes: [...flow.scopes],
-    scopeString: flow.scopes.join(','),
-    usesLoginApp: flow.usesLoginApp,
-    usesPagesApp: flow.usesPagesApp,
-    sessionMode: flow.sessionMode,
-  }));
-}

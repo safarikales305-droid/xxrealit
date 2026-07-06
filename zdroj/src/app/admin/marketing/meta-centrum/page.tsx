@@ -8,7 +8,6 @@ import {
   nestAdminMetaCenterApiLogs,
   nestAdminMetaCenterCheckPermissions,
   nestAdminMetaCenterTestOAuth,
-  nestAdminMetaCenterConnectUrl,
   nestAdminMetaCenterApps,
   nestAdminMetaCenterLoginOAuthUrl,
   nestAdminMetaCenterConnectionStatus,
@@ -305,37 +304,7 @@ export default function MetaCentrumPage() {
   );
 
   async function connectMeta() {
-    if (!token) return;
-    setBusy(true);
-    const r = await nestAdminMetaCenterConnectUrl(token);
-    setBusy(false);
-    if (!r?.url) {
-      setMsg('Nepodařilo se získat OAuth URL.');
-      return;
-    }
-    if (r.appId && appsConfig?.login.appId && r.appId === appsConfig.login.appId) {
-      setMsg('Chyba: Meta Connect používá Login App ID místo Pages App ID. Zkontrolujte FACEBOOK_PAGES_APP_ID v Railway.');
-      return;
-    }
-    if (r.oauthRedirect?.isRailwayRedirectUri) {
-      setMsg(
-        `${r.oauthRedirect.railwayWarning ?? 'Nepoužívejte Railway URL pro Meta OAuth.'}\n\nNastavte META_REDIRECT_URI=https://www.xxrealit.cz/api/social/facebook/meta-connect-callback`,
-      );
-      return;
-    }
-    if (r.oauthRedirect && !r.oauthRedirect.redirectUriInAllowedConfig) {
-      setMsg(
-        `Tato Redirect URI není povolena v Meta Developers.\n\n${r.oauthRedirect.mismatchMessage ?? ''}\n\n${r.oauthRedirect.metaDevelopersInstruction ?? ''}`,
-      );
-      return;
-    }
-    if (r.oauthRedirect && !r.oauthRedirect.matchesAllowed) {
-      setMsg(
-        `OAuth redirect URI není správně nakonfigurována.\n\n${r.oauthRedirect.mismatchMessage ?? ''}\n\n${r.oauthRedirect.metaDevelopersInstruction ?? ''}`,
-      );
-      return;
-    }
-    window.location.href = r.url;
+    await connectMetaFlow('pages');
   }
 
   async function connectMetaFlow(flow: MetaOAuthFlowKey) {
@@ -345,6 +314,14 @@ export default function MetaCentrumPage() {
     setBusy(false);
     if (!r?.url) {
       setMsg(`Nepodařilo se získat OAuth URL pro flow „${flow}".`);
+      return;
+    }
+    if (r.scopeWarnings?.length) {
+      setMsg(r.scopeWarnings.join('\n'));
+      if (!r.scope?.trim()) return;
+    }
+    if (appsConfig?.login.appId && r.client_id === appsConfig.login.appId) {
+      setMsg('Chyba: OAuth používá Login App ID místo Pages App ID.');
       return;
     }
     window.location.href = r.url;
@@ -462,8 +439,32 @@ export default function MetaCentrumPage() {
               onClick={() => void connectMeta()}
               className="rounded-lg bg-[#1877f2] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#166fe5] disabled:opacity-50"
             >
-              {dash?.settings.isMetaConnected ? 'Obnovit Meta oprávnění' : 'Připojit Meta účet'}
+              {dash?.settings.isMetaConnected
+                ? 'Obnovit Facebook stránku'
+                : 'Připojit Facebook stránku'}
             </button>
+            {(
+              [
+                ['catalog', 'Katalog'],
+                ['ads', 'Reklamy'],
+                ['instagram', 'Instagram'],
+                ['whatsapp', 'WhatsApp'],
+              ] as const
+            ).map(([flow, label]) => {
+              const flowInfo = oauthFlows.find((f) => f.key === flow);
+              return (
+                <button
+                  key={flow}
+                  type="button"
+                  disabled={busy || flowInfo?.canConnect === false}
+                  title={flowInfo?.warnings?.join(' ') ?? undefined}
+                  onClick={() => void connectMetaFlow(flow)}
+                  className="rounded-lg border border-[#1877f2] px-3 py-2 text-xs font-semibold text-[#1877f2] hover:bg-blue-50 disabled:opacity-40"
+                >
+                  {label}
+                </button>
+              );
+            })}
             <button
               type="button"
               disabled={busy}
@@ -675,13 +676,25 @@ export default function MetaCentrumPage() {
                                 </p>
                                 <p className="mt-1 text-xs text-zinc-600">{flow.description}</p>
                                 <p className="mt-2 break-all font-mono text-[11px] text-zinc-700">
-                                  {flow.scopeString}
+                                  Finální scopes: {flow.scopeString || '—'}
                                 </p>
+                                {flow.excludedScopes?.length ? (
+                                  <p className="mt-1 text-xs text-amber-800">
+                                    Vyloučeno: {flow.excludedScopes.join(', ')}
+                                  </p>
+                                ) : null}
+                                {flow.warnings?.length ? (
+                                  <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-amber-900">
+                                    {flow.warnings.map((w) => (
+                                      <li key={w}>{w}</li>
+                                    ))}
+                                  </ul>
+                                ) : null}
                               </div>
                               {flow.key !== 'login' ? (
                                 <button
                                   type="button"
-                                  disabled={busy}
+                                  disabled={busy || !flow.canConnect}
                                   onClick={() => void connectMetaFlow(flow.key)}
                                   className="shrink-0 rounded-lg bg-[#1877f2] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#166fe5] disabled:opacity-50"
                                 >
@@ -749,9 +762,21 @@ export default function MetaCentrumPage() {
                           OAuth flow: {activeOAuthPreview.oauthFlowLabel ?? activeOAuthPreview.oauthFlow ?? '—'}
                         </p>
                         <p className="mt-1 text-xs text-zinc-600">
-                          Scopes:{' '}
+                          Finální scopes:{' '}
                           {activeOAuthPreview.scopesList?.join(', ') ?? activeOAuthPreview.scope}
                         </p>
+                        {activeOAuthPreview.excludedScopes?.length ? (
+                          <p className="mt-1 text-xs text-amber-800">
+                            Vyloučeno: {activeOAuthPreview.excludedScopes.join(', ')}
+                          </p>
+                        ) : null}
+                        {activeOAuthPreview.scopeWarnings?.length ? (
+                          <ul className="mt-1 list-disc pl-4 text-xs text-amber-900">
+                            {activeOAuthPreview.scopeWarnings.map((w) => (
+                              <li key={w}>{w}</li>
+                            ))}
+                          </ul>
+                        ) : null}
                       </div>
                       <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
                         <p className="text-xs font-medium text-zinc-500">Facebook OAuth URL</p>
