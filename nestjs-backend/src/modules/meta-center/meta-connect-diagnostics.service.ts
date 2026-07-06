@@ -7,6 +7,10 @@ import { MetaConnectDiscoveryService } from './meta-connect-discovery.service';
 import { MetaConnectOAuthService } from './meta-connect-oauth.service';
 import { MetaConnectProvisionService } from './meta-connect-provision.service';
 import { MetaCenterGraphDiagnosticsService } from './meta-center-graph-diagnostics.service';
+import {
+  META_FIX_HREFS,
+  MetaCenterIntegrationStatusService,
+} from './meta-center-integration-status.service';
 import { resolveMetaCenterIds } from './meta-center-env.util';
 import { MetaGraphClientService } from './meta-graph-client.service';
 
@@ -22,268 +26,498 @@ export class MetaConnectDiagnosticsService {
     private readonly discovery: MetaConnectDiscoveryService,
     private readonly provision: MetaConnectProvisionService,
     private readonly graphDiagnostics: MetaCenterGraphDiagnosticsService,
+    private readonly integration: MetaCenterIntegrationStatusService,
   ) {}
 
   async runFullDiagnostics(): Promise<MetaConnectionCheck[]> {
     const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
     const checks: MetaConnectionCheck[] = [];
     const apps = this.fbConfig.getAppsConfig();
+    const resolvedIds = resolveMetaCenterIds(row ?? ({} as never));
+    const fbStatus = this.fbConfig.getConfigStatus();
 
-    const push = (
-      key: MetaConnectionCheckKey,
-      label: string,
-      connected: boolean,
-      error: string | null,
-      fixAction: string | null,
-      optional = false,
-    ) => {
-      checks.push({ key, label, connected, error, fixAction, optional });
+    const push = (check: MetaConnectionCheck) => {
+      checks.push(check);
     };
 
-    const pushOptional = (key: MetaConnectionCheckKey, label: string) => {
-      push(key, label, false, 'Nenastaveno (volitelné)', null, true);
+    const pushOptional = (key: MetaConnectionCheckKey, label: string, source: MetaConnectionCheck['source']) => {
+      push(
+        this.integration.buildCheck({
+          key,
+          label,
+          connected: false,
+          optional: true,
+          source,
+        }),
+      );
     };
 
     push(
-      'login_app',
-      'Facebook Login App ID',
-      Boolean(apps.login.appId) && apps.login.idValidation.ok,
-      apps.login.idValidation.error ??
-        (apps.login.appId ? null : 'FACEBOOK_LOGIN_APP_ID chybí v ENV.'),
-      apps.login.idValidation.ok ? null : 'fix_env',
+      this.integration.buildCheck({
+        key: 'login_app',
+        label: 'Facebook Login App ID',
+        connected: Boolean(apps.login.appId) && apps.login.idValidation.ok,
+        error:
+          apps.login.idValidation.error ??
+          (apps.login.appId ? null : 'FACEBOOK_LOGIN_APP_ID chybí v ENV.'),
+        fixAction: apps.login.idValidation.ok ? null : 'fix_env',
+        source: 'facebook_login',
+        detail: apps.login.appId ? `App ID: ${apps.login.appId}` : null,
+      }),
     );
     push(
-      'login_app_secret',
-      'Facebook Login App Secret',
-      apps.login.appSecretConfigured,
-      apps.login.appSecretConfigured ? null : 'FACEBOOK_LOGIN_APP_SECRET chybí v ENV.',
-      'fix_env',
+      this.integration.buildCheck({
+        key: 'login_app_secret',
+        label: 'Facebook Login App Secret',
+        connected: apps.login.appSecretConfigured,
+        error: apps.login.appSecretConfigured ? null : 'FACEBOOK_LOGIN_APP_SECRET chybí v ENV.',
+        fixAction: 'fix_env',
+        source: 'env',
+      }),
     );
     push(
-      'login_oauth',
-      'Login OAuth Redirect URI',
-      Boolean(apps.login.oauthRedirectUri),
-      apps.login.oauthRedirectUri
-        ? null
-        : 'Login redirect URI nelze odvodit (chybí FRONTEND_URL).',
-      'fix_env',
+      this.integration.buildCheck({
+        key: 'login_oauth',
+        label: 'Login OAuth Redirect URI',
+        connected: Boolean(apps.login.oauthRedirectUri),
+        error: apps.login.oauthRedirectUri
+          ? null
+          : 'Login redirect URI nelze odvodit (chybí FRONTEND_URL).',
+        fixAction: 'fix_env',
+        source: 'facebook_login',
+        detail: apps.login.oauthRedirectUri,
+      }),
     );
 
     const pagesAppId = row?.facebookPagesAppId ?? this.fbConfig.getPagesAppId();
     const pagesSecret = row?.facebookPagesSecret ?? this.fbConfig.getPagesAppSecret();
     const pagesValidation = this.fbConfig.validatePagesAppId();
     push(
-      'app',
-      'Pages / Marketing App ID',
-      Boolean(pagesAppId) && pagesValidation.ok,
-      pagesValidation.error ??
-        (pagesAppId ? null : 'FACEBOOK_PAGES_APP_ID chybí v konfiguraci.'),
-      pagesValidation.ok ? null : 'fix_env',
+      this.integration.buildCheck({
+        key: 'app',
+        label: 'Pages / Marketing App ID',
+        connected: Boolean(pagesAppId) && pagesValidation.ok,
+        error:
+          pagesValidation.error ??
+          (pagesAppId ? null : 'FACEBOOK_PAGES_APP_ID chybí v konfiguraci.'),
+        fixAction: pagesValidation.ok ? null : 'fix_env',
+        source: 'env',
+        detail: pagesAppId ? `App ID: ${pagesAppId}` : null,
+      }),
     );
     push(
-      'app_secret',
-      'Pages App Secret',
-      Boolean(pagesSecret),
-      pagesSecret ? null : 'FACEBOOK_PAGES_APP_SECRET chybí.',
-      'fix_env',
+      this.integration.buildCheck({
+        key: 'app_secret',
+        label: 'Pages App Secret',
+        connected: Boolean(pagesSecret),
+        error: pagesSecret ? null : 'FACEBOOK_PAGES_APP_SECRET chybí.',
+        fixAction: 'fix_env',
+        source: 'env',
+      }),
     );
     push(
-      'oauth',
-      'Meta Connect Redirect URI',
-      Boolean(apps.pages.metaConnectRedirectUri),
-      apps.pages.metaConnectRedirectUri
-        ? null
-        : 'Meta Connect redirect URI nelze odvodit.',
-      'fix_env',
+      this.integration.buildCheck({
+        key: 'oauth',
+        label: 'Meta Connect Redirect URI',
+        connected: Boolean(apps.pages.metaConnectRedirectUri),
+        error: apps.pages.metaConnectRedirectUri
+          ? null
+          : 'Meta Connect redirect URI nelze odvodit.',
+        fixAction: 'fix_env',
+        source: 'meta_connect',
+        detail: apps.pages.metaConnectRedirectUri,
+      }),
     );
     push(
-      'meta_connected',
-      'Meta Marketing OAuth připojení',
-      Boolean(row?.metaConnectedAt && row.metaUserAccessTokenEncrypted),
-      row?.metaConnectedAt ? null : 'Meta účet ještě nebyl připojen přes „Připojit Meta účet“.',
-      'reconnect',
+      this.integration.buildCheck({
+        key: 'meta_connected',
+        label: 'Meta Marketing OAuth připojení',
+        connected: Boolean(row?.metaConnectedAt && row.metaUserAccessTokenEncrypted),
+        error: row?.metaConnectedAt
+          ? null
+          : 'Volitelné — pro automatickou synchronizaci assetů přes Meta Connect.',
+        fixAction: 'reconnect',
+        fixHref: META_FIX_HREFS.metaCenter,
+        source: 'meta_connect',
+        optional: !row?.metaConnectedAt,
+      }),
     );
 
-    let accessToken: string | null = null;
+    let marketingAccessToken: string | null = null;
     try {
-      accessToken = await this.oauth.resolveAccessToken();
-      const debug = await this.oauth.debugToken(accessToken);
+      marketingAccessToken = await this.oauth.resolveAccessToken();
+      const debug = await this.oauth.debugToken(marketingAccessToken);
       const expired = debug.expires_at > 0 && debug.expires_at * 1000 < Date.now();
       push(
-        'access_token',
-        'Marketing Access Token',
-        debug.is_valid && !expired,
-        !debug.is_valid
-          ? 'Token není platný.'
-          : expired
-            ? 'Token expiroval.'
-            : null,
-        expired || !debug.is_valid ? 'refresh_token' : null,
+        this.integration.buildCheck({
+          key: 'access_token',
+          label: 'Marketing Access Token',
+          connected: debug.is_valid && !expired,
+          error: !debug.is_valid
+            ? 'Token není platný.'
+            : expired
+              ? 'Token expiroval.'
+              : null,
+          fixAction: expired || !debug.is_valid ? 'refresh_token' : null,
+          fixHref: META_FIX_HREFS.metaCenter,
+          source: 'meta_connect',
+          apiError: !debug.is_valid,
+        }),
       );
     } catch (err) {
       push(
-        'access_token',
-        'Marketing Access Token',
-        false,
-        err instanceof Error ? err.message : 'Token chybí.',
-        'reconnect',
+        this.integration.buildCheck({
+          key: 'access_token',
+          label: 'Marketing Access Token',
+          connected: false,
+          optional: true,
+          error:
+            err instanceof Error
+              ? `${err.message} (volitelné, pokud fungují moduly Sociální sítě / WhatsApp).`
+              : 'Token chybí (volitelné).',
+          fixAction: 'reconnect',
+          fixHref: META_FIX_HREFS.metaCenter,
+          source: 'meta_connect',
+        }),
       );
     }
 
-    const resolvedIds = resolveMetaCenterIds(row ?? ({} as never));
+    push(
+      this.integration.buildCheck({
+        key: 'facebook_pages_api',
+        label: 'Facebook Pages API',
+        connected: fbStatus.pagesConfigured,
+        error: fbStatus.pagesConfigured
+          ? null
+          : `Chybí: ${fbStatus.pagesMissing.join(', ') || 'Pages App konfigurace'}`,
+        fixAction: 'fix_env',
+        source: 'env',
+        detail: fbStatus.pagesConfigured
+          ? `Pages App ${apps.pages.appId}`
+          : apps.pages.idValidation.error,
+      }),
+    );
 
-    if (accessToken) {
-      const catalogGraph = await this.graphDiagnostics.buildCatalogDiagnostics();
+    const socialPage = await this.integration.getFacebookPageFromSocialModule();
+    let pageConnected = socialPage.connected;
+    let pageError: string | null = null;
+    let pageDetail = socialPage.detail;
+    if (socialPage.pageId && socialPage.token) {
+      const verify = await this.integration.verifyFacebookPageToken(
+        socialPage.pageId,
+        socialPage.token,
+      );
+      pageConnected = verify.ok;
+      pageError = verify.ok ? null : verify.errorMessage;
+      pageDetail = verify.ok
+        ? `${socialPage.pageName ?? socialPage.pageId}${socialPage.autopostReady ? ' · autopost zapnutý' : ''}`
+        : verify.errorMessage;
+    } else {
+      pageError = 'Facebook stránka nebo page access token není nastaven.';
+    }
+    push(
+      this.integration.buildCheck({
+        key: 'page',
+        label: 'Facebook stránka',
+        connected: pageConnected,
+        error: pageConnected ? null : pageError,
+        detail: pageDetail,
+        fixAction: 'open_social_admin',
+        fixHref: META_FIX_HREFS.socialFacebook,
+        source: 'social_autopost',
+        apiError: Boolean(socialPage.pageId && socialPage.token && !pageConnected),
+      }),
+    );
 
+    const userPages = await this.integration.getUserFacebookPagesStatus();
+    push(
+      this.integration.buildCheck({
+        key: 'user_facebook_pages',
+        label: 'Uživatelské Facebook stránky',
+        connected: userPages.connected,
+        error: userPages.connected ? null : 'Zatím žádná aktivní uživatelská stránka.',
+        detail: userPages.detail,
+        fixAction: null,
+        source: 'user_facebook_pages',
+        optional: !userPages.connected,
+      }),
+    );
+
+    const catalogEnv = await this.integration.getCatalogEnvStatus();
+    const catalogGraph = marketingAccessToken
+      ? await this.graphDiagnostics.buildCatalogDiagnostics()
+      : null;
+
+    const commerceOnline = catalogGraph?.commerceOnline ?? catalogEnv.commerceOnline;
+    const commerceMessage = catalogGraph?.commerceMessage ?? catalogEnv.commerceMessage;
+    const catalogOnline = catalogGraph?.catalogOnline ?? catalogEnv.catalogOnline;
+    const catalogMessage = catalogGraph?.catalogMessage ?? catalogEnv.catalogMessage;
+
+    if (marketingAccessToken && resolvedIds.businessId) {
       await this.checkEntity(
         checks,
-        accessToken,
-        row,
+        marketingAccessToken,
         'business',
         'Business Manager',
         resolvedIds.businessId,
         (id) => `/${id}`,
-        'create_business',
+        'sync',
+        commerceOnline,
+        commerceOnline ? commerceMessage : commerceMessage,
+        'graph_api',
       );
+    } else {
+      push(
+        this.integration.buildCheck({
+          key: 'business',
+          label: 'Business Manager',
+          connected: Boolean(resolvedIds.businessId),
+          error: resolvedIds.businessId
+            ? commerceOnline
+              ? null
+              : commerceMessage
+            : 'Chybí FACEBOOK_BUSINESS_ID.',
+          detail: resolvedIds.businessId ? `ID: ${resolvedIds.businessId}` : commerceMessage,
+          fixAction: resolvedIds.businessId ? null : 'fix_env',
+          fixHref: META_FIX_HREFS.metaCatalog,
+          source: resolvedIds.businessId ? 'env' : 'env',
+          apiError: Boolean(resolvedIds.businessId && !commerceOnline && catalogGraph != null),
+        }),
+      );
+    }
+
+    if (marketingAccessToken && row?.adAccountId) {
       await this.checkEntity(
         checks,
-        accessToken,
-        row,
+        marketingAccessToken,
         'ad_account',
         'Reklamní účet',
-        row?.adAccountId,
+        row.adAccountId,
         (id) => `/act_${id.replace(/^act_/, '')}`,
         'sync',
+        undefined,
+        undefined,
+        'meta_connect',
       );
+    } else {
+      push(
+        this.integration.buildCheck({
+          key: 'ad_account',
+          label: 'Reklamní účet',
+          connected: Boolean(row?.adAccountId),
+          optional: !row?.adAccountId,
+          error: row?.adAccountId ? null : 'Volitelné — propojte přes Meta Connect.',
+          fixAction: 'reconnect',
+          fixHref: META_FIX_HREFS.metaCenter,
+          source: 'meta_connect',
+          detail: row?.adAccountName ?? row?.adAccountId ?? null,
+        }),
+      );
+    }
+
+    const instagramId = row?.instagramBusinessId;
+    if (marketingAccessToken && instagramId) {
       await this.checkEntity(
         checks,
-        accessToken,
-        row,
-        'page',
-        'Facebook stránka',
-        row?.pageId,
-        (id) => `/${id}`,
-        'sync',
-      );
-      await this.checkEntity(
-        checks,
-        accessToken,
-        row,
+        marketingAccessToken,
         'instagram',
         'Instagram',
-        row?.instagramBusinessId,
+        instagramId,
         (id) => `/${id}`,
         'sync',
+        undefined,
+        undefined,
+        'meta_connect',
       );
+    } else {
+      push(
+        this.integration.buildCheck({
+          key: 'instagram',
+          label: 'Instagram',
+          connected: Boolean(instagramId) || fbStatus.pagesConfigured,
+          optional: !instagramId,
+          error: instagramId
+            ? null
+            : fbStatus.pagesConfigured
+              ? 'Instagram Business ID není synchronizováno (volitelné).'
+              : 'Vyžaduje Facebook Pages API.',
+          fixAction: instagramId ? null : 'sync',
+          fixHref: META_FIX_HREFS.metaCenter,
+          source: instagramId ? 'meta_connect' : 'env',
+          detail: row?.instagramUsername ?? instagramId ?? null,
+        }),
+      );
+    }
+
+    push(
+      this.integration.buildCheck({
+        key: 'commerce',
+        label: 'Commerce Manager',
+        connected: commerceOnline,
+        error: commerceOnline ? null : commerceMessage,
+        detail: commerceMessage,
+        fixAction: commerceOnline ? null : resolvedIds.businessId ? null : 'fix_env',
+        fixHref: META_FIX_HREFS.metaCatalog,
+        source: catalogGraph?.commerceOnline ? 'graph_api' : 'meta_catalog',
+        apiError: Boolean(!commerceOnline && resolvedIds.businessId && marketingAccessToken),
+      }),
+    );
+
+    push(
+      this.integration.buildCheck({
+        key: 'catalog',
+        label: 'Catalog',
+        connected: catalogOnline,
+        error: catalogOnline ? null : catalogMessage,
+        detail: catalogMessage,
+        fixAction: catalogOnline ? null : resolvedIds.catalogId ? null : 'fix_env',
+        fixHref: META_FIX_HREFS.metaCatalog,
+        source: catalogGraph?.catalogOnline ? 'graph_api' : 'meta_catalog',
+        apiError: Boolean(!catalogOnline && resolvedIds.catalogId && marketingAccessToken),
+      }),
+    );
+
+    if (marketingAccessToken && resolvedIds.datasetId) {
       await this.checkEntity(
         checks,
-        accessToken,
-        row,
-        'commerce',
-        'Commerce Manager',
-        resolvedIds.businessId,
-        (id) => `/${id}`,
-        'create_commerce',
-        catalogGraph.commerceOnline,
-        catalogGraph.commerceOnline ? null : catalogGraph.commerceMessage,
-      );
-      await this.checkEntity(
-        checks,
-        accessToken,
-        row,
-        'catalog',
-        'Catalog',
-        resolvedIds.catalogId,
-        (id) => `/${id}`,
-        'create_catalog',
-        catalogGraph.catalogOnline,
-        catalogGraph.catalogOnline ? null : catalogGraph.catalogMessage,
-      );
-      await this.checkEntity(
-        checks,
-        accessToken,
-        row,
+        marketingAccessToken,
         'dataset',
         'Dataset',
         resolvedIds.datasetId,
         (id) => `/${id}`,
         'create_dataset',
+        undefined,
+        undefined,
+        'graph_api',
       );
-
-      const pixelId = resolvedIds.pixelId;
-      if (!pixelId) {
-        pushOptional('pixel', 'Pixel');
-      } else {
-        await this.checkEntity(
-          checks,
-          accessToken,
-          row,
-          'pixel',
-          'Pixel',
-          pixelId,
-          (id) => `/${id}`,
-          'create_pixel',
-        );
-      }
-
-      const capiToken = resolvedIds.capiToken;
-      if (!capiToken) {
-        pushOptional('capi', 'Conversions API');
-      } else if (!pixelId) {
-        push(
-          'capi',
-          'Conversions API',
-          false,
-          'CAPI token je nastaven, ale chybí Pixel ID.',
-          'create_pixel',
-        );
-      } else {
-        push('capi', 'Conversions API', true, null, null);
-      }
-
-      const webhookOk = Boolean(row?.webhookVerifyToken || this.fbConfig.buildWebhookUri());
+    } else if (!resolvedIds.datasetId) {
+      pushOptional('dataset', 'Dataset', 'env');
+    } else {
       push(
-        'webhook',
-        'Webhook',
-        webhookOk,
-        webhookOk ? null : 'Webhook verify token nebo URI není nastaven.',
-        'sync',
+        this.integration.buildCheck({
+          key: 'dataset',
+          label: 'Dataset',
+          connected: Boolean(resolvedIds.datasetId),
+          detail: resolvedIds.datasetId,
+          source: 'env',
+        }),
       );
+    }
 
-      push(
-        'whatsapp',
-        'WhatsApp',
-        Boolean(row?.whatsappBusinessAccountId),
-        row?.whatsappBusinessAccountId ? null : 'WhatsApp Business účet nenalezen.',
-        'sync',
-      );
-
-      const ping = await this.graph.get<{ id?: string }>('/me', accessToken, { fields: 'id' });
-      push(
-        'api',
-        'API komunikace',
-        ping.ok,
-        ping.ok ? null : ping.errorMessage,
-        ping.ok ? null : 'refresh_token',
+    const pixelId = resolvedIds.pixelId;
+    if (!pixelId) {
+      pushOptional('pixel', 'Pixel', 'env');
+    } else if (marketingAccessToken) {
+      await this.checkEntity(
+        checks,
+        marketingAccessToken,
+        'pixel',
+        'Pixel',
+        pixelId,
+        (id) => `/${id}`,
+        'create_pixel',
+        undefined,
+        undefined,
+        'graph_api',
       );
     } else {
-      for (const [key, label, fix] of [
-        ['business', 'Business Manager', 'reconnect'],
-        ['ad_account', 'Reklamní účet', 'reconnect'],
-        ['page', 'Facebook stránka', 'reconnect'],
-        ['instagram', 'Instagram', 'reconnect'],
-        ['commerce', 'Commerce Manager', 'reconnect'],
-        ['catalog', 'Catalog', 'reconnect'],
-        ['dataset', 'Dataset', 'reconnect'],
-        ['pixel', 'Pixel', 'reconnect'],
-        ['capi', 'Conversions API', 'activate_capi'],
-        ['webhook', 'Webhook', 'sync'],
-        ['whatsapp', 'WhatsApp', 'reconnect'],
-        ['api', 'API komunikace', 'reconnect'],
-      ] as const) {
-        push(key, label, false, 'Meta účet není připojen.', fix);
-      }
+      push(
+        this.integration.buildCheck({
+          key: 'pixel',
+          label: 'Pixel',
+          connected: true,
+          detail: `Pixel ID ${pixelId} (ENV)`,
+          source: 'env',
+        }),
+      );
     }
+
+    const capiToken = resolvedIds.capiToken;
+    if (!capiToken) {
+      pushOptional('capi', 'Conversions API', 'env');
+    } else if (!pixelId) {
+      push(
+        this.integration.buildCheck({
+          key: 'capi',
+          label: 'Conversions API',
+          connected: false,
+          error: 'CAPI token je nastaven, ale chybí Pixel ID.',
+          fixAction: 'create_pixel',
+          source: 'env',
+        }),
+      );
+    } else {
+      push(
+        this.integration.buildCheck({
+          key: 'capi',
+          label: 'Conversions API',
+          connected: true,
+          detail: 'Token nastaven v ENV',
+          source: 'env',
+        }),
+      );
+    }
+
+    const webhook = this.integration.getWebhookStatus();
+    push(
+      this.integration.buildCheck({
+        key: 'webhook',
+        label: 'Webhook',
+        connected: webhook.connected,
+        error: webhook.connected ? null : 'Webhook verify token nebo URI není nastaven.',
+        detail: webhook.detail,
+        fixAction: webhook.connected ? null : 'open_whatsapp_admin',
+        fixHref: META_FIX_HREFS.whatsapp,
+        source: webhook.source,
+      }),
+    );
+
+    const wa = this.integration.getWhatsAppStatus();
+    push(
+      this.integration.buildCheck({
+        key: 'whatsapp',
+        label: 'WhatsApp',
+        connected: wa.configured,
+        error: wa.configured
+          ? null
+          : wa.missing.length
+            ? `Chybí: ${wa.missing.join(', ')}`
+            : 'WhatsApp Cloud API není nakonfigurováno.',
+        detail: wa.detail,
+        fixAction: 'open_whatsapp_admin',
+        fixHref: META_FIX_HREFS.whatsapp,
+        source: 'whatsapp_module',
+      }),
+    );
+
+    const feed = catalogEnv.feed;
+    push(
+      this.integration.buildCheck({
+        key: 'feed',
+        label: 'Feed katalogu',
+        connected: feed.connected,
+        error: feed.connected ? null : feed.detail,
+        detail: feed.detail,
+        fixAction: feed.connected ? null : 'open_meta_catalog',
+        fixHref: META_FIX_HREFS.metaCatalog,
+        source: 'feed',
+      }),
+    );
+
+    const apiPing = await this.integration.pingGraphApi();
+    push(
+      this.integration.buildCheck({
+        key: 'api',
+        label: 'API komunikace',
+        connected: apiPing.ok,
+        error: apiPing.ok ? null : apiPing.error,
+        detail: apiPing.detail,
+        fixAction: apiPing.ok ? null : 'open_social_admin',
+        fixHref: apiPing.ok ? null : META_FIX_HREFS.socialFacebook,
+        source: apiPing.source,
+        apiError: !apiPing.ok,
+      }),
+    );
 
     await this.prisma.metaCenterSetting.update({
       where: { id: SETTINGS_ID },
@@ -298,7 +532,6 @@ export class MetaConnectDiagnosticsService {
   private async checkEntity(
     checks: MetaConnectionCheck[],
     accessToken: string,
-    row: Awaited<ReturnType<PrismaService['metaCenterSetting']['findUnique']>>,
     key: MetaConnectionCheckKey,
     label: string,
     id: string | null | undefined,
@@ -306,25 +539,34 @@ export class MetaConnectDiagnosticsService {
     fixAction: string,
     connectedOverride?: boolean,
     errorOverride?: string | null,
+    source: MetaConnectionCheck['source'] = 'graph_api',
   ) {
     if (!id?.trim()) {
-      checks.push({
-        key,
-        label,
-        connected: false,
-        error: `${label} nenalezen.`,
-        fixAction,
-      });
+      checks.push(
+        this.integration.buildCheck({
+          key,
+          label,
+          connected: false,
+          error: `${label} nenalezen.`,
+          fixAction,
+          source,
+        }),
+      );
       return;
     }
     if (connectedOverride !== undefined) {
-      checks.push({
-        key,
-        label,
-        connected: connectedOverride,
-        error: errorOverride ?? null,
-        fixAction: connectedOverride ? null : fixAction,
-      });
+      checks.push(
+        this.integration.buildCheck({
+          key,
+          label,
+          connected: connectedOverride,
+          error: errorOverride ?? null,
+          fixAction: connectedOverride ? null : fixAction,
+          detail: id.trim(),
+          source,
+          apiError: !connectedOverride,
+        }),
+      );
       return;
     }
     const res = await this.graph.get<{ id?: string; name?: string }>(
@@ -332,18 +574,37 @@ export class MetaConnectDiagnosticsService {
       accessToken,
       { fields: 'id,name' },
     );
-    checks.push({
-      key,
-      label,
-      connected: res.ok,
-      error: res.ok ? null : res.errorMessage,
-      fixAction: res.ok ? null : fixAction,
-    });
-    void row;
+    checks.push(
+      this.integration.buildCheck({
+        key,
+        label,
+        connected: res.ok,
+        error: res.ok ? null : res.errorMessage,
+        fixAction: res.ok ? null : fixAction,
+        detail: res.ok ? (res.data.name ?? id) : id,
+        source,
+        apiError: !res.ok,
+      }),
+    );
   }
 
   async applyFix(action: string): Promise<{ ok: boolean; error?: string; message?: string }> {
     switch (action) {
+      case 'open_whatsapp_admin':
+        return {
+          ok: true,
+          message: 'Otevřete administraci WhatsApp v /admin/integrace/whatsapp.',
+        };
+      case 'open_social_admin':
+        return {
+          ok: true,
+          message: 'Otevřete Sociální sítě v /admin/marketing/socialni-site.',
+        };
+      case 'open_meta_catalog':
+        return {
+          ok: true,
+          message: 'Otevřete Meta katalog v /admin/marketing/meta-katalog-inzeratu.',
+        };
       case 'reconnect':
         return {
           ok: false,

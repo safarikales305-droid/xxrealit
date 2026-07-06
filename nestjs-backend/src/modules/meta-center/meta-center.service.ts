@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { FacebookConfigService } from '../social/facebook/facebook-config.service';
 import { MetaCatalogService } from '../meta-catalog/meta-catalog.service';
+import { WhatsAppConfigService } from '../whatsapp/whatsapp-config.service';
 import { getPublicPortalUrl } from '../social/autopost/social-publish-format.util';
 import type { UpdateMetaCenterSettingDto } from './dto/meta-center.dto';
 import {
@@ -19,10 +20,12 @@ import {
   type MetaServiceKey,
 } from './meta-center.defaults';
 import { resolveMetaCenterIds } from './meta-center-env.util';
+import type { MetaConnectionCheck } from './meta-connect.constants';
 import {
   MetaCenterGraphDiagnosticsService,
   type MetaCatalogGraphDiagnostics,
 } from './meta-center-graph-diagnostics.service';
+import { MetaCenterIntegrationStatusService } from './meta-center-integration-status.service';
 
 const SETTINGS_ID = 'default';
 
@@ -49,6 +52,8 @@ export class MetaCenterService {
     private readonly fbConfig: FacebookConfigService,
     private readonly catalog: MetaCatalogService,
     private readonly graphDiagnostics: MetaCenterGraphDiagnosticsService,
+    private readonly integration: MetaCenterIntegrationStatusService,
+    private readonly waConfig: WhatsAppConfigService,
   ) {}
 
   private maskSecret(value: string | null | undefined): string | null {
@@ -242,6 +247,8 @@ export class MetaCenterService {
     catalogEnabled: boolean,
     ids: ReturnType<typeof resolveMetaCenterIds>,
     catalogGraph: MetaCatalogGraphDiagnostics,
+    socialPageConnected: boolean,
+    waConfigured: boolean,
   ): { status: 'online' | 'offline' | 'optional'; statusLabel: string; detail?: string } {
     switch (key) {
       case 'meta_pixel':
@@ -300,7 +307,14 @@ export class MetaCenterService {
           detail: `Dataset ${ids.datasetId}`,
         };
       default: {
-        const online = this.serviceConfigured(key, row, fbStatus, catalogEnabled);
+        const online = this.serviceConfigured(
+          key,
+          row,
+          fbStatus,
+          catalogEnabled,
+          socialPageConnected,
+          waConfigured,
+        );
         return online
           ? { status: 'online', statusLabel: 'Online' }
           : { status: 'offline', statusLabel: 'Offline' };
@@ -313,6 +327,8 @@ export class MetaCenterService {
     row: Awaited<ReturnType<MetaCenterService['getOrCreateSettings']>>,
     fbStatus: ReturnType<FacebookConfigService['getConfigStatus']>,
     catalogEnabled: boolean,
+    socialPageConnected = false,
+    waConfigured = false,
   ): boolean {
     switch (key) {
       case 'facebook_app':
@@ -320,11 +336,11 @@ export class MetaCenterService {
       case 'facebook_login':
         return fbStatus.configured;
       case 'facebook_pages':
-        return fbStatus.pagesConfigured || Boolean(row.facebookPagesAppId);
+        return fbStatus.pagesConfigured || socialPageConnected;
       case 'instagram_graph':
         return fbStatus.pagesConfigured;
       case 'whatsapp_business':
-        return Boolean(process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_PHONE_NUMBER_ID);
+        return waConfigured || this.waConfig.isCloudApiConfigured();
       case 'meta_pixel':
         return Boolean(resolveMetaCenterIds(row).pixelId);
       case 'conversions_api':
@@ -340,7 +356,11 @@ export class MetaCenterService {
       case 'json_feed':
         return catalogEnabled && row.catalogFeedEnabled;
       case 'webhook':
-        return Boolean(row.webhookVerifyToken || fbStatus.webhookUri);
+        return Boolean(
+          row.webhookVerifyToken ||
+            fbStatus.webhookUri ||
+            this.integration.getWebhookStatus().connected,
+        );
       case 'domain_verification':
         return Boolean(row.domainVerification);
       default:
@@ -355,10 +375,35 @@ export class MetaCenterService {
     const stored = this.parseJson<Record<string, Partial<ServiceStatusRow>>>(row.serviceStatus, {});
     const graphVersion = row.graphApiVersion || GRAPH_API_VERSION_DEFAULT;
     const ids = resolveMetaCenterIds(row);
-    const catalogGraph = await this.graphDiagnostics.buildCatalogDiagnostics();
+    const [catalogGraphRaw, socialPage, wa, catalogEnv] = await Promise.all([
+      this.graphDiagnostics.buildCatalogDiagnostics(),
+      this.integration.getFacebookPageFromSocialModule(),
+      Promise.resolve(this.integration.getWhatsAppStatus()),
+      this.integration.getCatalogEnvStatus(),
+    ]);
+    const catalogGraph: MetaCatalogGraphDiagnostics = {
+      ...catalogGraphRaw,
+      commerceOnline: catalogGraphRaw.commerceOnline || catalogEnv.commerceOnline,
+      catalogOnline: catalogGraphRaw.catalogOnline || catalogEnv.catalogOnline,
+      commerceMessage: catalogGraphRaw.commerceOnline
+        ? catalogGraphRaw.commerceMessage
+        : catalogEnv.commerceMessage,
+      catalogMessage: catalogGraphRaw.catalogOnline
+        ? catalogGraphRaw.catalogMessage
+        : catalogEnv.catalogMessage,
+    };
 
     return META_SERVICE_KEYS.map((key) => {
-      const card = this.serviceCardStatus(key, row, fbStatus, catalog.enabled, ids, catalogGraph);
+      const card = this.serviceCardStatus(
+        key,
+        row,
+        fbStatus,
+        catalog.enabled,
+        ids,
+        catalogGraph,
+        socialPage.connected,
+        wa.configured,
+      );
       const prev = stored[key];
       return {
         key,
@@ -420,8 +465,21 @@ export class MetaCenterService {
     const fbStatus = this.fbConfig.getConfigStatus();
     const catalog = await this.catalog.getAdminSettings();
     const ids = resolveMetaCenterIds(row);
-    const catalogGraph = await this.graphDiagnostics.buildCatalogDiagnostics();
-    const card = this.serviceCardStatus(key, row, fbStatus, catalog.enabled, ids, catalogGraph);
+    const [catalogGraph, socialPage, wa] = await Promise.all([
+      this.graphDiagnostics.buildCatalogDiagnostics(),
+      this.integration.getFacebookPageFromSocialModule(),
+      Promise.resolve(this.integration.getWhatsAppStatus()),
+    ]);
+    const card = this.serviceCardStatus(
+      key,
+      row,
+      fbStatus,
+      catalog.enabled,
+      ids,
+      catalogGraph,
+      socialPage.connected,
+      wa.configured,
+    );
     const online = card.status === 'online';
     const result = card.status === 'optional' ? 'warning' : online ? 'ok' : 'warning';
     const message =
@@ -471,7 +529,13 @@ export class MetaCenterService {
     const fbStatus = this.fbConfig.getConfigStatus();
     const apps = this.fbConfig.getAppsConfig();
     const ids = resolveMetaCenterIds(row);
-    const catalogGraph = await this.graphDiagnostics.buildCatalogDiagnostics();
+    const [catalogGraph, socialPage, wa, webhook, apiPing] = await Promise.all([
+      this.graphDiagnostics.buildCatalogDiagnostics(),
+      this.integration.getFacebookPageFromSocialModule(),
+      Promise.resolve(this.integration.getWhatsAppStatus()),
+      Promise.resolve(this.integration.getWebhookStatus()),
+      this.integration.pingGraphApi(),
+    ]);
     const items: DiagnosticItem[] = [];
 
     items.push({
@@ -608,8 +672,8 @@ export class MetaCenterService {
     items.push({
       key: 'webhook',
       label: 'Webhook',
-      level: row.webhookVerifyToken || fbStatus.webhookUri ? 'ok' : 'warning',
-      message: fbStatus.webhookUri || 'Webhook verify token není nastaven',
+      level: webhook.connected ? 'ok' : 'warning',
+      message: webhook.detail,
     });
 
     items.push({
@@ -631,17 +695,30 @@ export class MetaCenterService {
     items.push({
       key: 'whatsapp',
       label: 'WhatsApp API',
-      level: this.serviceConfigured('whatsapp_business', row, fbStatus, true) ? 'ok' : 'warning',
-      message: 'Kontrola env WHATSAPP_* proměnných',
+      level: wa.configured ? 'ok' : 'warning',
+      message: wa.configured
+        ? `WhatsApp modul — ${wa.detail ?? 'nakonfigurováno'}`
+        : wa.missing.length
+          ? `Chybí: ${wa.missing.join(', ')}`
+          : 'WhatsApp Cloud API není nakonfigurováno',
     });
 
     items.push({
       key: 'pages',
       label: 'Facebook Pages / Marketing API',
-      level: fbStatus.pagesConfigured ? 'ok' : 'warning',
-      message: fbStatus.pagesConfigured
-        ? `Meta Connect: ${apps.pages.metaConnectRedirectUri}`
-        : `Chybí: ${fbStatus.pagesMissing.join(', ')}${apps.pages.idValidation.error ? ` — ${apps.pages.idValidation.error}` : ''}`,
+      level: socialPage.connected || fbStatus.pagesConfigured ? 'ok' : 'warning',
+      message: socialPage.connected
+        ? `Sociální sítě modul — ${socialPage.detail ?? socialPage.pageId}`
+        : fbStatus.pagesConfigured
+          ? `Pages App: ${apps.pages.appId}`
+          : `Chybí: ${fbStatus.pagesMissing.join(', ')}${apps.pages.idValidation.error ? ` — ${apps.pages.idValidation.error}` : ''}`,
+    });
+
+    items.push({
+      key: 'api_ping',
+      label: 'Graph API komunikace',
+      level: apiPing.ok ? 'ok' : apiPing.error ? 'warning' : 'error',
+      message: apiPing.detail,
     });
 
     const summary = { ok: 0, warning: 0, error: 0 };
@@ -965,26 +1042,46 @@ export class MetaCenterService {
     const settings = this.serializeSettings(row);
     const apps = this.fbConfig.getAppsConfig();
     const ids = resolveMetaCenterIds(row);
-    const checks = this.parseJson<Array<{
-      key: string;
-      label: string;
-      connected: boolean;
-      optional?: boolean;
-      error: string | null;
-      fixAction: string | null;
-    }>>(row.diagnosticsSnapshot, []);
+    const checks = this.parseJson<MetaConnectionCheck[]>(row.diagnosticsSnapshot, []);
+    const [socialPage, wa, userPages, catalogEnv, webhook] = await Promise.all([
+      this.integration.getFacebookPageFromSocialModule(),
+      Promise.resolve(this.integration.getWhatsAppStatus()),
+      this.integration.getUserFacebookPagesStatus(),
+      this.integration.getCatalogEnvStatus(),
+      Promise.resolve(this.integration.getWebhookStatus()),
+    ]);
 
     const checklist = [
-      { key: 'app', label: 'Meta aplikace připojena', connected: Boolean(settings.facebookPagesAppId), optional: false },
-      { key: 'page', label: 'Facebook stránka připojena', connected: Boolean(settings.pageId), optional: false },
-      { key: 'ad', label: 'Reklamní účet připojen', connected: Boolean(settings.adAccountId), optional: false },
+      {
+        key: 'app',
+        label: 'Meta aplikace připojena',
+        connected: Boolean(settings.facebookPagesAppId),
+        optional: false,
+      },
+      {
+        key: 'page',
+        label: 'Facebook stránka připojena',
+        connected: socialPage.connected || Boolean(settings.pageId),
+        optional: false,
+      },
+      {
+        key: 'ad',
+        label: 'Reklamní účet připojen',
+        connected: Boolean(settings.adAccountId),
+        optional: !settings.adAccountId,
+      },
       {
         key: 'commerce',
         label: 'Commerce Manager připojen',
-        connected: Boolean(ids.businessId && ids.catalogId),
-        optional: false,
+        connected: catalogEnv.commerceOnline,
+        optional: !ids.businessId,
       },
-      { key: 'catalog', label: 'Catalog připojen', connected: Boolean(ids.catalogId), optional: false },
+      {
+        key: 'catalog',
+        label: 'Catalog připojen',
+        connected: catalogEnv.catalogOnline,
+        optional: !ids.catalogId,
+      },
       {
         key: 'dataset',
         label: 'Dataset připojen',
@@ -1003,10 +1100,36 @@ export class MetaCenterService {
         connected: Boolean(ids.capiToken),
         optional: !ids.capiToken,
       },
-      { key: 'webhook', label: 'Webhook aktivní', connected: Boolean(settings.webhookVerifyTokenMasked), optional: false },
-      { key: 'instagram', label: 'Instagram připojen', connected: Boolean(settings.instagramBusinessId), optional: false },
-      { key: 'whatsapp', label: 'WhatsApp připojen', connected: Boolean(settings.whatsappBusinessAccountId), optional: false },
-      { key: 'sync', label: 'Synchronizace aktivní', connected: settings.syncEnabled && settings.isMetaConnected, optional: false },
+      {
+        key: 'webhook',
+        label: 'Webhook aktivní',
+        connected: webhook.connected || Boolean(settings.webhookVerifyTokenMasked),
+        optional: false,
+      },
+      {
+        key: 'instagram',
+        label: 'Instagram připojen',
+        connected: Boolean(settings.instagramBusinessId),
+        optional: !settings.instagramBusinessId,
+      },
+      {
+        key: 'whatsapp',
+        label: 'WhatsApp připojen',
+        connected: wa.configured,
+        optional: false,
+      },
+      {
+        key: 'user_pages',
+        label: 'Uživatelské Facebook stránky',
+        connected: userPages.connected,
+        optional: !userPages.connected,
+      },
+      {
+        key: 'sync',
+        label: 'Meta Connect synchronizace',
+        connected: settings.syncEnabled && settings.isMetaConnected,
+        optional: !settings.isMetaConnected,
+      },
     ];
 
     return {

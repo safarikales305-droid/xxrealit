@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { MetaCatalogService } from '../meta-catalog/meta-catalog.service';
 import { resolveMetaCenterIds } from './meta-center-env.util';
 import { MetaConnectOAuthService } from './meta-connect-oauth.service';
 import { MetaGraphClientService } from './meta-graph-client.service';
@@ -49,6 +50,7 @@ export class MetaCenterGraphDiagnosticsService {
     private readonly prisma: PrismaService,
     private readonly oauth: MetaConnectOAuthService,
     private readonly graph: MetaGraphClientService,
+    private readonly catalog: MetaCatalogService,
   ) {}
 
   async buildCatalogDiagnostics(): Promise<MetaCatalogGraphDiagnostics> {
@@ -101,9 +103,7 @@ export class MetaCenterGraphDiagnosticsService {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Chybí access token.';
       base.graphError = msg;
-      base.commerceMessage = msg;
-      base.catalogMessage = msg;
-      return base;
+      return this.applyLocalFeedFallback(base, ids, catalogSettings);
     }
 
     if (ids.businessId) {
@@ -200,6 +200,42 @@ export class MetaCenterGraphDiagnosticsService {
     void this.logger.debug(
       `Catalog graph diagnostics: commerce=${base.commerceOnline} catalog=${base.catalogOnline} products=${base.productCount}`,
     );
+
+    return base;
+  }
+
+  private async applyLocalFeedFallback(
+    base: MetaCatalogGraphDiagnostics,
+    ids: ReturnType<typeof resolveMetaCenterIds>,
+    catalogSettings: { lastItemCount: number; enabled: boolean } | null,
+  ): Promise<MetaCatalogGraphDiagnostics> {
+    let itemCount = catalogSettings?.lastItemCount ?? 0;
+    try {
+      const stats = await this.catalog.computeFeedStats('csv');
+      itemCount = stats.itemCount;
+    } catch {
+      // keep lastItemCount
+    }
+
+    if (ids.catalogId && catalogSettings?.enabled !== false && itemCount > 0) {
+      base.catalogOnline = true;
+      base.productCount = itemCount;
+      base.catalogMessage = `Katalog ${ids.catalogId} — ${itemCount} položek ve feedu (Meta katalog modul)`;
+    } else if (ids.catalogId) {
+      base.catalogMessage =
+        'FACEBOOK_CATALOG_ID nastaveno — feed je prázdný nebo Graph API token chybí.';
+    } else {
+      base.catalogMessage = 'Chybí FACEBOOK_CATALOG_ID (ENV nebo Meta Connect).';
+    }
+
+    if (ids.businessId && base.catalogOnline) {
+      base.commerceOnline = true;
+      base.commerceMessage = `Business ${ids.businessId} — ověřeno přes ENV a feed`;
+    } else if (ids.businessId) {
+      base.commerceMessage = `FACEBOOK_BUSINESS_ID ${ids.businessId} — čeká na feed nebo Graph API.`;
+    } else {
+      base.commerceMessage = 'Chybí FACEBOOK_BUSINESS_ID.';
+    }
 
     return base;
   }

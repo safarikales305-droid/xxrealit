@@ -50,6 +50,8 @@ export type MetaConnectionCheckKey =
   | 'business'
   | 'ad_account'
   | 'page'
+  | 'facebook_pages_api'
+  | 'user_facebook_pages'
   | 'instagram'
   | 'commerce'
   | 'catalog'
@@ -58,15 +60,33 @@ export type MetaConnectionCheckKey =
   | 'capi'
   | 'webhook'
   | 'whatsapp'
+  | 'feed'
   | 'api';
+
+export type MetaConnectionStatusLevel = 'online' | 'optional' | 'missing_config' | 'api_error';
+
+export type MetaConnectionSource =
+  | 'whatsapp_module'
+  | 'social_autopost'
+  | 'user_facebook_pages'
+  | 'facebook_login'
+  | 'meta_connect'
+  | 'meta_catalog'
+  | 'env'
+  | 'graph_api'
+  | 'feed';
 
 export type MetaConnectionCheck = {
   key: MetaConnectionCheckKey;
   label: string;
   connected: boolean;
   optional?: boolean;
+  status: MetaConnectionStatusLevel;
   error: string | null;
+  detail?: string | null;
   fixAction: string | null;
+  fixHref?: string | null;
+  source: MetaConnectionSource;
 };
 
 export type MetaDiscoveredResources = {

@@ -6107,13 +6107,30 @@ export type MetaCenterSettings = {
   updatedAt: string;
 };
 
+export type MetaConnectionStatusLevel = 'online' | 'optional' | 'missing_config' | 'api_error';
+
+export type MetaConnectionSource =
+  | 'whatsapp_module'
+  | 'social_autopost'
+  | 'user_facebook_pages'
+  | 'facebook_login'
+  | 'meta_connect'
+  | 'meta_catalog'
+  | 'env'
+  | 'graph_api'
+  | 'feed';
+
 export type MetaConnectionCheck = {
   key: string;
   label: string;
   connected: boolean;
   optional?: boolean;
+  status?: MetaConnectionStatusLevel;
   error: string | null;
+  detail?: string | null;
   fixAction: string | null;
+  fixHref?: string | null;
+  source?: MetaConnectionSource | string;
 };
 
 export type MetaCatalogGraphDiagnostics = {

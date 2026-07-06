@@ -27,6 +27,7 @@ import {
   type MetaCenterEventLogRow,
   type MetaCenterSettings,
   type MetaConnectionCheck,
+  type MetaConnectionStatusLevel,
   type MetaDiagnosticLevel,
   type FacebookAppsConfig,
 } from '@/lib/nest-client';
@@ -118,6 +119,49 @@ function serviceStatusBadge(status: 'online' | 'offline' | 'optional', statusLab
     return { text: statusLabel || 'Nenastaveno (volitelné)', className: 'bg-zinc-100 text-zinc-600' };
   }
   return { text: statusLabel || 'Offline', className: 'bg-red-100 text-red-800' };
+}
+
+const META_SOURCE_LABELS: Record<string, string> = {
+  whatsapp_module: 'WhatsApp modul',
+  social_autopost: 'Sociální sítě modul',
+  user_facebook_pages: 'Uživatelské Facebook stránky',
+  facebook_login: 'Facebook Login',
+  meta_connect: 'Meta Connect',
+  meta_catalog: 'Meta katalog',
+  env: 'ENV',
+  graph_api: 'Graph API',
+  feed: 'Feed',
+};
+
+function connectionCheckStatus(item: MetaConnectionCheck): MetaConnectionStatusLevel {
+  if (item.status) return item.status;
+  if (item.optional && !item.connected) return 'optional';
+  if (item.connected) return 'online';
+  return 'missing_config';
+}
+
+function connectionCheckClass(item: MetaConnectionCheck) {
+  const status = connectionCheckStatus(item);
+  if (status === 'online') return 'border-emerald-200 bg-emerald-50 text-emerald-900';
+  if (status === 'optional') return 'border-zinc-200 bg-zinc-50 text-zinc-600';
+  if (status === 'api_error') return 'border-amber-200 bg-amber-50 text-amber-900';
+  return 'border-red-200 bg-red-50 text-red-900';
+}
+
+function connectionCheckIcon(item: MetaConnectionCheck) {
+  const status = connectionCheckStatus(item);
+  if (status === 'online') return '✓';
+  if (status === 'optional') return '○';
+  if (status === 'api_error') return '⚠';
+  return '✗';
+}
+
+function connectionCheckLabel(item: MetaConnectionCheck) {
+  const status = connectionCheckStatus(item);
+  if (status === 'online') return 'Online / Připojeno';
+  if (status === 'optional') return 'Nenastaveno (volitelné)';
+  if (status === 'api_error') return item.error ?? 'Chyba API';
+  return item.error ?? 'Chybí konfigurace';
 }
 
 export default function MetaCentrumPage() {
@@ -374,33 +418,41 @@ export default function MetaCentrumPage() {
                   {connection.diagnostics.map((item) => (
                     <div
                       key={item.key}
-                      className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm ${
-                        item.optional
-                          ? 'border-zinc-200 bg-zinc-50 text-zinc-600'
-                          : item.connected
-                            ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                            : 'border-red-200 bg-red-50 text-red-900'
-                      }`}
+                      className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm ${connectionCheckClass(item)}`}
                     >
-                      <div>
-                        <strong>{item.label}</strong>
-                        <span className="ml-2">
-                          {item.optional
-                            ? 'Nenastaveno (volitelné)'
-                            : item.connected
-                              ? 'Připojeno'
-                              : item.error ?? 'Chybí'}
-                        </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>{connectionCheckIcon(item)}</span>
+                          <strong>{item.label}</strong>
+                          <span>{connectionCheckLabel(item)}</span>
+                        </div>
+                        {item.detail ? (
+                          <p className="mt-1 text-xs opacity-80">{item.detail}</p>
+                        ) : null}
+                        {item.source ? (
+                          <p className="mt-1 text-xs opacity-70">
+                            Zdroj: {META_SOURCE_LABELS[item.source] ?? item.source}
+                          </p>
+                        ) : null}
                       </div>
-                      {!item.connected && !item.optional && item.fixAction ? (
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => void applyFix(item.fixAction!)}
-                          className="rounded-lg border border-current px-3 py-1 text-xs font-semibold"
-                        >
-                          Opravit
-                        </button>
+                      {!item.connected && connectionCheckStatus(item) !== 'optional' ? (
+                        item.fixHref ? (
+                          <Link
+                            href={item.fixHref}
+                            className="rounded-lg border border-current px-3 py-1 text-xs font-semibold whitespace-nowrap"
+                          >
+                            Opravit
+                          </Link>
+                        ) : item.fixAction ? (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void applyFix(item.fixAction!)}
+                            className="rounded-lg border border-current px-3 py-1 text-xs font-semibold"
+                          >
+                            Opravit
+                          </button>
+                        ) : null
                       ) : null}
                     </div>
                   ))}
