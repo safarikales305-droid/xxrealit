@@ -6363,6 +6363,7 @@ export type MetaCenterDashboard = {
     trackingMode?: 'pixel' | 'dataset' | 'none';
     tokenConfigured: boolean;
     tokenLabel?: string;
+    capiMessage?: string | null;
     toggles: Record<string, boolean>;
     status: string;
   };
@@ -6392,6 +6393,8 @@ export type MetaDatasetListItem = {
 export type MetaDatasetListResponse = {
   items: MetaDatasetListItem[];
   activeDatasetId: string | null;
+  businessId?: string | null;
+  canSelect?: boolean;
   error: string | null;
 };
 

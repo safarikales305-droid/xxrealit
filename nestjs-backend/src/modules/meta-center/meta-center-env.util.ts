@@ -55,6 +55,14 @@ export function hasMetaEventTracking(ids: MetaCenterResolvedIds): boolean {
   return Boolean(ids.pixelId || ids.datasetId);
 }
 
+/** CAPI je připraveno, pokud existuje Dataset/Pixel a je k dispozici token (ENV nebo Meta OAuth). */
+export function hasMetaCapiReady(
+  ids: MetaCenterResolvedIds,
+  hasOAuthAccessToken = false,
+): boolean {
+  return hasMetaEventTracking(ids) && (Boolean(ids.capiToken) || hasOAuthAccessToken);
+}
+
 /** ENV má přednost před hodnotami uloženými po Meta Connect. */
 export function resolveMetaCenterIds(row: MetaCenterSetting): MetaCenterResolvedIds {
   const rawPixel =

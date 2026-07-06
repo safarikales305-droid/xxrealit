@@ -239,6 +239,11 @@ function connectionCheckIcon(item: MetaConnectionCheck) {
   return '✗';
 }
 
+function fixActionLabel(action: string): string {
+  if (action === 'select_dataset') return 'Vybrat Dataset';
+  return 'Opravit';
+}
+
 function connectionCheckLabel(item: MetaConnectionCheck) {
   const status = connectionCheckStatus(item);
   if (status === 'online') return 'Online / Připojeno';
@@ -376,7 +381,9 @@ export default function MetaCentrumPage() {
   const marketingOAuthConnected =
     oauthFlows.find((f) => f.key === 'marketing')?.status === 'connected';
   const hasCatalog = Boolean(catalogPanel?.catalogId ?? dash?.settings.catalogId);
-  const hasDataset = Boolean(dash?.pixel.datasetId ?? dash?.capi.datasetId);
+  const hasDataset = Boolean(
+    dash?.pixel.datasetId ?? dash?.capi.datasetId ?? datasets?.activeDatasetId,
+  );
   const canLaunchCampaigns = Boolean(
     adAccount?.connected && hasCatalog && hasDataset && marketingOAuthConnected,
   );
@@ -441,6 +448,11 @@ export default function MetaCentrumPage() {
   }
 
   async function applyFix(action: string) {
+    if (action === 'select_dataset') {
+      setTab('pixel');
+      setMsg('Vyberte Dataset ze seznamu níže a klikněte na „Použít Dataset“.');
+      return;
+    }
     if (!token) return;
     setBusy(true);
     const r = await nestAdminMetaCenterFix(token, action);
@@ -1146,6 +1158,61 @@ export default function MetaCentrumPage() {
               </section>
             ) : null}
 
+            {tab === 'dashboard' && !hasDataset && datasets?.canSelect ? (
+              <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-lg font-bold text-amber-950">Vyberte Dataset</h2>
+                    <p className="text-sm text-amber-900">
+                      Katalog a Business Manager jsou připojené. Pro Conversions API vyberte Dataset z
+                      Meta Events Manageru — ENV META_DATASET_ID není potřeba.
+                    </p>
+                  </div>
+                </div>
+                {datasets.error ? (
+                  <p className="mb-3 text-sm text-amber-800">{datasets.error}</p>
+                ) : null}
+                <div className="space-y-2">
+                  {(datasets.items ?? []).map((ds) => (
+                    <div
+                      key={ds.id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm"
+                    >
+                      <div>
+                        <p className="font-semibold">{ds.name}</p>
+                        <p className="font-mono text-xs text-zinc-500">ID: {ds.id}</p>
+                        <p className="text-xs text-zinc-500">
+                          Aktivita:{' '}
+                          {ds.lastFiredTime
+                            ? new Date(ds.lastFiredTime).toLocaleString('cs-CZ')
+                            : 'zatím bez událostí'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={async () => {
+                          if (!token) return;
+                          setBusy(true);
+                          const r = await nestAdminMetaCenterSelectDataset(token, ds.id);
+                          setBusy(false);
+                          setMsg(
+                            r.ok
+                              ? `Dataset Připojeno — ID ${ds.id}`
+                              : r.error ?? 'Uložení selhalo.',
+                          );
+                          void refresh();
+                        }}
+                        className="rounded-lg bg-[#1877f2] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                      >
+                        Použít Dataset
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
             {connection?.diagnostics?.length ? (
               <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
                 <h2 className="mb-3 text-lg font-bold">Diagnostika připojení</h2>
@@ -1170,26 +1237,29 @@ export default function MetaCentrumPage() {
                           </p>
                         ) : null}
                       </div>
-                      {!item.connected &&
-                      connectionCheckStatus(item) !== 'optional' &&
-                      connectionCheckStatus(item) !== 'permission_warning' ? (
+                      {!item.connected && item.fixAction ? (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void applyFix(item.fixAction!)}
+                          className={`rounded-lg border px-3 py-1 text-xs font-semibold whitespace-nowrap ${
+                            item.fixAction === 'select_dataset'
+                              ? 'border-amber-500 bg-amber-50 text-amber-900'
+                              : 'border-current'
+                          }`}
+                        >
+                          {fixActionLabel(item.fixAction)}
+                        </button>
+                      ) : !item.connected &&
+                        connectionCheckStatus(item) !== 'optional' &&
+                        connectionCheckStatus(item) !== 'permission_warning' &&
                         item.fixHref ? (
-                          <Link
-                            href={item.fixHref}
-                            className="rounded-lg border border-current px-3 py-1 text-xs font-semibold whitespace-nowrap"
-                          >
-                            Opravit
-                          </Link>
-                        ) : item.fixAction ? (
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => void applyFix(item.fixAction!)}
-                            className="rounded-lg border border-current px-3 py-1 text-xs font-semibold"
-                          >
-                            Opravit
-                          </button>
-                        ) : null
+                        <Link
+                          href={item.fixHref}
+                          className="rounded-lg border border-current px-3 py-1 text-xs font-semibold whitespace-nowrap"
+                        >
+                          Opravit
+                        </Link>
                       ) : null}
                     </div>
                   ))}
@@ -1765,12 +1835,12 @@ export default function MetaCentrumPage() {
                         setBusy(true);
                         const r = await nestAdminMetaCenterSelectDataset(token, ds.id);
                         setBusy(false);
-                        setMsg(r.ok ? `Dataset ${ds.id} uložen.` : r.error ?? 'Uložení selhalo.');
+                        setMsg(r.ok ? `Dataset Připojeno — ID ${ds.id}` : r.error ?? 'Uložení selhalo.');
                         void refresh();
                       }}
                       className="rounded-lg bg-[#1877f2] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
                     >
-                      {ds.isActive ? 'Aktivní' : 'Použít tento Dataset'}
+                      {ds.isActive ? 'Aktivní' : 'Použít Dataset'}
                     </button>
                   </div>
                 ))}
@@ -1810,6 +1880,11 @@ export default function MetaCentrumPage() {
         {tab === 'capi' && dash ? (
           <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
             <h2 className="mb-4 text-lg font-bold">Conversions API</h2>
+            {dash.capi.capiMessage ? (
+              <p className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                {dash.capi.capiMessage}
+              </p>
+            ) : null}
             <p className="mb-4 text-sm text-zinc-600">
               Režim:{' '}
               <strong>

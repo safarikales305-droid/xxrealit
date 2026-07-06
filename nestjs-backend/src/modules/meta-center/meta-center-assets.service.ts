@@ -139,11 +139,78 @@ export class MetaCenterAssetsService {
     return { ok: true, adAccountId: id };
   }
 
+  private async resolveBusinessIdForAssets(
+    row: Awaited<ReturnType<typeof this.getSettingRow>>,
+  ): Promise<string | null> {
+    const ids = resolveMetaCenterIds(row ?? ({} as never));
+    if (ids.businessId) return ids.businessId;
+    try {
+      const token = await this.resolveToken();
+      const res = await this.graph.get<GraphList<{ id?: string; name?: string }>>(
+        '/me/businesses',
+        token,
+        { fields: 'id,name', limit: '5' },
+      );
+      const business = res.ok ? res.data.data?.[0] : null;
+      if (!business?.id) return null;
+      await this.prisma.metaCenterSetting.upsert({
+        where: { id: SETTINGS_ID },
+        create: { id: SETTINGS_ID, businessManagerId: business.id },
+        update: { businessManagerId: business.id },
+      });
+      return business.id;
+    } catch {
+      return null;
+    }
+  }
+
+  private async fetchDatasetRows(
+    businessId: string,
+    token: string,
+  ): Promise<
+    Array<{
+      id: string;
+      name: string;
+      lastFiredTime: string | null;
+      sourceApp: string | null;
+    }>
+  > {
+    type PixelRow = {
+      id?: string;
+      name?: string;
+      last_fired_time?: string;
+      owner_business?: { id?: string; name?: string };
+    };
+    const endpoints = [
+      `/${businessId}/adspixels`,
+      `/${businessId}/owned_pixels`,
+      '/me/adspixels',
+    ];
+    const merged = new Map<string, PixelRow>();
+    for (const endpoint of endpoints) {
+      const res = await this.graph.get<GraphList<PixelRow>>(endpoint, token, {
+        fields: 'id,name,last_fired_time,owner_business',
+        limit: '50',
+      });
+      if (!res.ok) continue;
+      for (const pixel of res.data.data ?? []) {
+        if (pixel.id) merged.set(pixel.id, pixel);
+      }
+    }
+    return [...merged.values()].map((p) => ({
+      id: p.id ?? '',
+      name: p.name ?? p.id ?? 'Dataset',
+      lastFiredTime: p.last_fired_time ?? null,
+      sourceApp: p.owner_business?.name ?? null,
+    }));
+  }
+
   async listDatasets() {
     const row = await this.getSettingRow();
     const ids = resolveMetaCenterIds(row ?? ({} as never));
     const activeDatasetId = ids.datasetId;
-    if (!ids.businessId) {
+    const businessId = await this.resolveBusinessIdForAssets(row);
+    if (!businessId) {
       return {
         items: [] as Array<{
           id: string;
@@ -153,34 +220,33 @@ export class MetaCenterAssetsService {
           sourceApp: string | null;
         }>,
         activeDatasetId,
-        error: 'Chybí Business Manager ID — nejdřív připojte Catalog OAuth.',
+        businessId: null,
+        canSelect: false,
+        error: 'Chybí Business Manager ID — nejdřív připojte Commerce / Catalog OAuth.',
       };
     }
     try {
       const token = await this.resolveToken();
-      const res = await this.graph.get<
-        GraphList<{
-          id?: string;
-          name?: string;
-          last_fired_time?: string;
-          owner_business?: { id?: string; name?: string };
-        }>
-      >(`/${ids.businessId}/adspixels`, token, {
-        fields: 'id,name,last_fired_time,owner_business',
-        limit: '50',
-      });
-      const items = (res.ok ? res.data.data ?? [] : []).map((p) => ({
-        id: p.id ?? '',
-        name: p.name ?? p.id ?? 'Dataset',
-        isActive: p.id === activeDatasetId,
-        lastFiredTime: p.last_fired_time ?? null,
-        sourceApp: p.owner_business?.name ?? null,
-      }));
-      return { items: items.filter((i) => i.id), activeDatasetId, error: null };
+      const rows = await this.fetchDatasetRows(businessId, token);
+      const items = rows
+        .filter((i) => i.id)
+        .map((p) => ({
+          ...p,
+          isActive: p.id === activeDatasetId,
+        }));
+      return {
+        items,
+        activeDatasetId,
+        businessId,
+        canSelect: true,
+        error: items.length ? null : 'V Business Manageru nebyl nalezen žádný Dataset / Pixel.',
+      };
     } catch (err) {
       return {
         items: [],
         activeDatasetId,
+        businessId,
+        canSelect: true,
         error: err instanceof Error ? err.message : 'Nelze načíst datasety.',
       };
     }
@@ -189,12 +255,31 @@ export class MetaCenterAssetsService {
   async selectDataset(datasetId: string) {
     const id = datasetId.trim();
     if (!id) return { ok: false, error: 'Dataset ID je prázdné.' };
+    const list = await this.listDatasets().catch(() => null);
+    const match = list?.items.find((i) => i.id === id);
     await this.prisma.metaCenterSetting.upsert({
       where: { id: SETTINGS_ID },
-      create: { id: SETTINGS_ID, datasetId: id },
-      update: { datasetId: id },
+      create: {
+        id: SETTINGS_ID,
+        datasetId: id,
+        pixelName: match?.name ?? null,
+      },
+      update: {
+        datasetId: id,
+        ...(match?.name ? { pixelName: match.name } : {}),
+      },
     });
-    return { ok: true, datasetId: id };
+    await this.prisma.metaCenterEventLog.create({
+      data: {
+        eventType: 'dataset_selected',
+        source: 'meta_connect',
+        result: 'ok',
+        status: 'saved',
+        request: { datasetId: id, name: match?.name ?? null },
+        response: { savedTo: 'metaCenterSetting.datasetId' },
+      },
+    });
+    return { ok: true, datasetId: id, name: match?.name ?? null };
   }
 
   async getCatalogPanel() {

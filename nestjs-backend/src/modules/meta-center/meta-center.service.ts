@@ -24,6 +24,7 @@ import {
   META_DATASET_V21_MESSAGE,
   META_PIXEL_PLACEHOLDER_MESSAGE,
   hasMetaEventTracking,
+  hasMetaCapiReady,
   hasPlaceholderPixelEnv,
   resolveMetaCenterIds,
   resolveMetaTrackingMode,
@@ -959,7 +960,7 @@ export class MetaCenterService {
         pixelName: settings.pixelName,
         datasetId: ids.datasetId,
         trackingMode,
-        datasetMessage: ids.datasetId ? 'Dataset Online / Připojeno' : null,
+        datasetMessage: ids.datasetId ? 'Dataset Připojeno' : null,
         pixelPlaceholderMessage: hasPlaceholderPixelEnv() ? META_PIXEL_PLACEHOLDER_MESSAGE : null,
         legacyDatasetNote: !ids.pixelId && ids.datasetId ? META_DATASET_V21_MESSAGE : null,
         lastEventAt: lastPixelEvent?.createdAt.toISOString() ?? null,
@@ -968,19 +969,24 @@ export class MetaCenterService {
         status:
           trackingMode === 'pixel' || trackingMode === 'dataset' ? 'ready' : 'not_configured',
       },
-      capi: {
-        datasetId: ids.datasetId,
-        pixelId: ids.pixelId,
-        trackingMode,
-        tokenConfigured: Boolean(ids.capiToken),
-        toggles: settings.capiEventToggles,
-        status: ids.capiToken
-          ? hasMetaEventTracking(ids)
-            ? 'ready'
-            : 'missing_event_source'
-          : 'not_configured',
-        tokenLabel: ids.capiToken ? 'nastaven' : META_CAPI_OPTIONAL_MESSAGE,
-      },
+      capi: (() => {
+        const oauthReady = Boolean(settings.isMetaConnected);
+        const capiReady = hasMetaCapiReady(ids, oauthReady);
+        return {
+          datasetId: ids.datasetId,
+          pixelId: ids.pixelId,
+          trackingMode,
+          tokenConfigured: Boolean(ids.capiToken) || oauthReady,
+          toggles: settings.capiEventToggles,
+          status: capiReady ? 'ready' : ids.datasetId ? 'missing_token' : 'not_configured',
+          tokenLabel: ids.capiToken
+            ? 'nastaven'
+            : oauthReady
+              ? 'Meta OAuth token'
+              : META_CAPI_OPTIONAL_MESSAGE,
+          capiMessage: capiReady ? 'Conversions API Připojeno' : null,
+        };
+      })(),
     };
   }
 
@@ -1005,7 +1011,7 @@ export class MetaCenterService {
       pixelName: settings.pixelName,
       datasetId: ids.datasetId,
       trackingMode,
-      datasetMessage: ids.datasetId ? 'Dataset Online / Připojeno' : null,
+      datasetMessage: ids.datasetId ? 'Dataset Připojeno' : null,
       pixelPlaceholderMessage: hasPlaceholderPixelEnv() ? META_PIXEL_PLACEHOLDER_MESSAGE : null,
       legacyDatasetNote: !ids.pixelId && ids.datasetId ? META_DATASET_V21_MESSAGE : null,
       lastEventAt: lastEvent?.createdAt.toISOString() ?? null,
@@ -1042,10 +1048,12 @@ export class MetaCenterService {
 
   async getCapiPanel() {
     const settings = await this.getSettings();
-    const ids = resolveMetaCenterIds(
+    const row =
       await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } }) ??
-        ({} as never),
-    );
+      ({} as never);
+    const ids = resolveMetaCenterIds(row);
+    const oauthReady = Boolean(settings.isMetaConnected);
+    const capiReady = hasMetaCapiReady(ids, oauthReady);
     const lastSync = await this.prisma.metaCenterEventLog.findFirst({
       where: { source: 'capi' },
       orderBy: { createdAt: 'desc' },
@@ -1055,16 +1063,17 @@ export class MetaCenterService {
       datasetId: ids.datasetId,
       pixelId: ids.pixelId,
       trackingMode: resolveMetaTrackingMode(ids),
-      tokenConfigured: Boolean(ids.capiToken),
-      tokenLabel: ids.capiToken ? 'nastaven' : META_CAPI_OPTIONAL_MESSAGE,
+      tokenConfigured: Boolean(ids.capiToken) || oauthReady,
+      tokenLabel: ids.capiToken
+        ? 'nastaven'
+        : oauthReady
+          ? 'Meta OAuth token'
+          : META_CAPI_OPTIONAL_MESSAGE,
+      capiMessage: capiReady ? 'Conversions API Připojeno' : null,
       toggles: settings.capiEventToggles,
       serverEventCount: serverCount,
       lastSyncAt: lastSync?.createdAt.toISOString() ?? null,
-      status: ids.capiToken
-        ? hasMetaEventTracking(ids)
-          ? 'ready'
-          : 'missing_event_source'
-        : 'not_configured',
+      status: capiReady ? 'ready' : ids.datasetId ? 'missing_token' : 'not_configured',
     };
   }
 
@@ -1301,8 +1310,8 @@ export class MetaCenterService {
       {
         key: 'capi',
         label: 'Conversions API aktivní',
-        connected: Boolean(ids.capiToken),
-        optional: !ids.capiToken,
+        connected: hasMetaCapiReady(ids, settings.isMetaConnected),
+        optional: !hasMetaCapiReady(ids, settings.isMetaConnected),
       },
       {
         key: 'webhook',

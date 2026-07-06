@@ -17,6 +17,7 @@ import {
   META_DATASET_V21_MESSAGE,
   META_PIXEL_PLACEHOLDER_MESSAGE,
   hasMetaEventTracking,
+  hasMetaCapiReady,
   hasPlaceholderPixelEnv,
   resolveMetaCenterIds,
   resolveMetaTrackingMode,
@@ -276,6 +277,9 @@ export class MetaConnectDiagnosticsService {
       catalogGraph?.commerceIssueKind === 'missing_permission';
 
     const catalogIdResolved = resolvedIds.catalogId ?? catalogGraph?.catalogId ?? null;
+    const canSelectDataset = Boolean(
+      resolvedIds.businessId || catalogGraph?.businessId || catalogIdResolved,
+    );
     const hasBusinessMgmt =
       catalogGraph?.commercePermissionStatus?.includes('business_management ✓') ?? false;
 
@@ -432,8 +436,23 @@ export class MetaConnectDiagnosticsService {
           label: 'Dataset',
           connected: true,
           optional: false,
-          detail: `Dataset Online / Připojeno — ID ${resolvedIds.datasetId}`,
-          source: 'env',
+          detail: `Dataset Připojeno — ID ${resolvedIds.datasetId}`,
+          source: row?.datasetId ? 'meta_connect' : 'env',
+        }),
+      );
+    } else if (canSelectDataset) {
+      push(
+        this.integration.buildCheck({
+          key: 'dataset',
+          label: 'Dataset',
+          connected: false,
+          optional: false,
+          permissionWarning: true,
+          error: 'Vyberte Dataset z Meta Events Manageru.',
+          detail: 'Business Manager a katalog jsou připojené — vyberte Dataset pro Conversions API.',
+          fixAction: 'select_dataset',
+          fixHref: META_FIX_HREFS.metaCenter,
+          source: 'meta_connect',
         }),
       );
     } else {
@@ -505,7 +524,8 @@ export class MetaConnectDiagnosticsService {
     }
 
     const capiToken = resolvedIds.capiToken;
-    if (!capiToken) {
+    const capiOAuthReady = Boolean(marketingAccessToken);
+    if (!capiToken && !capiOAuthReady) {
       push(
         this.integration.buildCheck({
           key: 'capi',
@@ -522,9 +542,29 @@ export class MetaConnectDiagnosticsService {
           key: 'capi',
           label: 'Conversions API',
           connected: false,
-          error: 'CAPI token je nastaven, ale chybí Pixel ID i Dataset ID.',
-          fixAction: 'create_dataset',
+          optional: !canSelectDataset,
+          permissionWarning: canSelectDataset,
+          error: canSelectDataset
+            ? 'Vyberte Dataset pro Conversions API.'
+            : 'CAPI token je nastaven, ale chybí Dataset ID.',
+          detail: canSelectDataset
+            ? 'Po výběru Datasetu bude Conversions API připraveno.'
+            : null,
+          fixAction: canSelectDataset ? 'select_dataset' : 'create_dataset',
+          fixHref: META_FIX_HREFS.metaCenter,
           source: 'env',
+        }),
+      );
+    } else if (hasMetaCapiReady(resolvedIds, capiOAuthReady)) {
+      push(
+        this.integration.buildCheck({
+          key: 'capi',
+          label: 'Conversions API',
+          connected: true,
+          detail: capiToken
+            ? `Conversions API Připojeno — Dataset ${resolvedIds.datasetId ?? resolvedIds.pixelId}`
+            : `Conversions API Připojeno — Dataset ${resolvedIds.datasetId} · Meta OAuth token`,
+          source: capiToken ? 'env' : 'meta_connect',
         }),
       );
     } else {
@@ -532,8 +572,9 @@ export class MetaConnectDiagnosticsService {
         this.integration.buildCheck({
           key: 'capi',
           label: 'Conversions API',
-          connected: true,
-          detail: 'Token nastaven v ENV',
+          connected: false,
+          optional: true,
+          detail: META_CAPI_OPTIONAL_MESSAGE,
           source: 'env',
         }),
       );
@@ -710,6 +751,11 @@ export class MetaConnectDiagnosticsService {
           ? { ok: true, message: `Katalog vytvořen: ${r.catalogId}` }
           : { ok: false, error: r.error };
       }
+      case 'select_dataset':
+        return {
+          ok: true,
+          message: 'Otevřete záložku Pixel v Meta Centru a klikněte na „Použít Dataset“ u vybraného záznamu.',
+        };
       case 'create_dataset': {
         const r = await this.provision.createDataset();
         return r.ok
