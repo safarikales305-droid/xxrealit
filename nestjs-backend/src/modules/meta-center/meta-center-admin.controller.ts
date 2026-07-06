@@ -122,6 +122,21 @@ export class MetaCenterAdminController {
     return this.service.listApiLogs(Number.isFinite(take) ? take : 50);
   }
 
+  @Get('oauth/last-callback')
+  async oauthLastCallback() {
+    const [lastCallback, oauthCompleted] = await Promise.all([
+      this.connectOAuth.getLastOAuthCallback(),
+      this.connectOAuth.getOAuthCompletedStatus(),
+    ]);
+    return { lastCallback, oauthCompleted };
+  }
+
+  @Get('oauth/debug')
+  oauthDebug(@Query('take') takeRaw?: string) {
+    const take = Number(takeRaw);
+    return this.connectOAuth.listOAuthDebugLogs(Number.isFinite(take) ? take : 80);
+  }
+
   @Post('events/test-all')
   testAllEvents() {
     return this.connectEvents.testAllEvents();
@@ -129,11 +144,13 @@ export class MetaCenterAdminController {
 
   @Get('dashboard')
   async getDashboard(@CurrentUser() user: AuthUser) {
-    const [dash, oauthPreview] = await Promise.all([
+    const [dash, oauthPreview, oauthLast, oauthCompleted] = await Promise.all([
       this.service.getDashboard(),
       this.connectOAuth.buildOAuthPreview(user.id, true).catch(() => null),
+      this.connectOAuth.getLastOAuthCallback(),
+      this.connectOAuth.getOAuthCompletedStatus(),
     ]);
-    return { ...dash, oauthPreview };
+    return { ...dash, oauthPreview, lastOAuthCallback: oauthLast, oauthCompleted };
   }
 
   @Get('settings')

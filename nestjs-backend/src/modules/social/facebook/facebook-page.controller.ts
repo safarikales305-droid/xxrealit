@@ -86,13 +86,7 @@ export class FacebookPageController implements OnModuleInit {
     @Res() res: Response,
   ) {
     if (state?.trim().startsWith(META_CENTER_OAUTH_STATE_PREFIX)) {
-      const result = await this.metaConnectOAuth.handleCallback(
-        code,
-        state,
-        oauthError,
-        errorReason,
-        errorDescription,
-      );
+      const result = await this.metaConnectOAuth.handleCallbackFromRequest(req);
       return this.respondOAuth(res, req, result);
     }
 
@@ -118,22 +112,14 @@ export class FacebookPageController implements OnModuleInit {
   }
 
   @Get('meta-connect-callback')
-  async metaConnectCallback(
-    @Query('code') code: string | undefined,
-    @Query('state') state: string | undefined,
-    @Query('error') oauthError: string | undefined,
-    @Query('error_reason') errorReason: string | undefined,
-    @Query('error_description') errorDescription: string | undefined,
-    @Req() req: Request,
-    @Res() res: Response,
-  ) {
-    const result = await this.metaConnectOAuth.handleCallback(
-      code,
-      state,
-      oauthError,
-      errorReason,
-      errorDescription,
-    );
+  async metaConnectCallback(@Req() req: Request, @Res() res: Response) {
+    this.logger.log(`META_OAUTH_CALLBACK_START fullUrl=${req.protocol}://${req.get('host')}${req.originalUrl}`);
+    this.logger.log(`META_OAUTH_CALLBACK originalUrl=${req.originalUrl}`);
+    this.logger.log(`META_OAUTH_CALLBACK query=${JSON.stringify(req.query)}`);
+    this.logger.log(`META_OAUTH_CALLBACK headers=${JSON.stringify(req.headers)}`);
+    this.logger.log(`META_OAUTH_CALLBACK cookieHeader=${req.get('cookie') ?? '(none)'}`);
+
+    const result = await this.metaConnectOAuth.handleCallbackFromRequest(req);
     return this.respondOAuth(res, req, result);
   }
 

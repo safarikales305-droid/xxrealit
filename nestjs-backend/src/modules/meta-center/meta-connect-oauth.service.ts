@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
+import type { Request } from 'express';
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { FacebookConfigService, type MetaOAuthPreviewDto } from '../social/facebook/facebook-config.service';
@@ -24,6 +25,52 @@ import { MetaConnectDiscoveryService } from './meta-connect-discovery.service';
 import { MetaGraphClientService } from './meta-graph-client.service';
 
 const SETTINGS_ID = 'default';
+
+export const META_OAUTH_LOG_PHASES = [
+  'OAuth Request',
+  'OAuth Callback',
+  'OAuth Exchange',
+  'OAuth Success',
+  'OAuth Error',
+] as const;
+
+export type MetaOAuthLogPhase = (typeof META_OAUTH_LOG_PHASES)[number];
+
+const FACEBOOK_OAUTH_PARAM_KEYS = [
+  'code',
+  'state',
+  'error',
+  'error_reason',
+  'error_description',
+  'error_code',
+  'granted_scopes',
+  'denied_scopes',
+] as const;
+
+export type MetaOAuthCallbackContext = {
+  originalUrl: string;
+  fullUrl: string;
+  query: Record<string, string | null>;
+  queryString: string;
+  facebookParams: Record<string, string | null>;
+  headers: Record<string, string>;
+  cookies: Record<string, string>;
+  ip: string | null;
+  userAgent: string | null;
+  receivedAt: string;
+};
+
+export type MetaOAuthLastCallback = MetaOAuthCallbackContext & {
+  outcome: 'success' | 'error' | 'pending';
+  reason: string | null;
+  parsedJson: Record<string, unknown>;
+};
+
+export type MetaOAuthCompletedStatus = {
+  completed: boolean;
+  reason: string | null;
+  at: string | null;
+};
 
 type GraphTokenResponse = { access_token?: string; expires_in?: number };
 type DebugTokenResponse = {
@@ -71,30 +118,282 @@ export class MetaConnectOAuthService {
     return this.fbConfig.getMetaOAuthRedirectDiagnostics();
   }
 
-  private async logOAuthDialogEvent(input: {
+  private async logOAuthPhase(input: {
+    phase: MetaOAuthLogPhase;
     request: Record<string, unknown>;
     response: Record<string, unknown>;
     errorCode?: string | null;
     errorMessage?: string | null;
+    httpStatus?: number | null;
+    durationMs?: number | null;
   }) {
     try {
       await this.prisma.metaCenterApiLog.create({
         data: {
-          endpoint: 'oauth/dialog',
+          endpoint: input.phase,
           method: 'GET',
           request: this.toInputJson(input.request),
           response: this.toInputJson(input.response),
-          httpStatus: null,
+          httpStatus: input.httpStatus ?? null,
           errorCode: input.errorCode ?? null,
           errorMessage: input.errorMessage ?? null,
-          durationMs: null,
+          durationMs: input.durationMs ?? null,
         },
       });
     } catch (err) {
       this.logger.warn(
-        `Meta OAuth log write failed: ${err instanceof Error ? err.message : err}`,
+        `Meta OAuth log write failed (${input.phase}): ${err instanceof Error ? err.message : err}`,
       );
     }
+  }
+
+  private parseCookies(cookieHeader: string | undefined): Record<string, string> {
+    const cookies: Record<string, string> = {};
+    if (!cookieHeader?.trim()) return cookies;
+    for (const part of cookieHeader.split(';')) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq <= 0) continue;
+      const key = trimmed.slice(0, eq).trim();
+      const raw = trimmed.slice(eq + 1);
+      try {
+        cookies[key] = decodeURIComponent(raw);
+      } catch {
+        cookies[key] = raw;
+      }
+    }
+    return cookies;
+  }
+
+  private sanitizeHeaders(headers: Request['headers']): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(headers)) {
+      if (value == null) continue;
+      const lower = key.toLowerCase();
+      if (lower === 'authorization' || lower === 'cookie') {
+        out[key] = '[redacted]';
+        continue;
+      }
+      out[key] = Array.isArray(value) ? value.join(', ') : String(value);
+    }
+    return out;
+  }
+
+  private normalizeQuery(
+    query: Record<string, string | string[] | undefined>,
+  ): Record<string, string | null> {
+    const out: Record<string, string | null> = {};
+    for (const [key, value] of Object.entries(query)) {
+      if (Array.isArray(value)) out[key] = value[0] ?? null;
+      else if (typeof value === 'string') out[key] = value;
+      else out[key] = value != null ? String(value) : null;
+    }
+    return out;
+  }
+
+  private extractFacebookParams(
+    query: Record<string, string | null>,
+  ): Record<string, string | null> {
+    const params: Record<string, string | null> = {};
+    for (const key of FACEBOOK_OAUTH_PARAM_KEYS) {
+      params[key] = query[key] ?? null;
+    }
+    return params;
+  }
+
+  private buildQueryString(query: Record<string, string | null>): string {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value != null && value !== '') params.set(key, value);
+    }
+    return params.toString();
+  }
+
+  buildCallbackContext(req: Request): MetaOAuthCallbackContext {
+    const protocol = req.protocol || 'https';
+    const host = req.get('host') ?? '';
+    const originalUrl = req.originalUrl ?? req.url ?? '';
+    const proxyOriginalUrl = req.get('x-oauth-original-url')?.trim();
+    const query = this.normalizeQuery(
+      req.query as Record<string, string | string[] | undefined>,
+    );
+    if (proxyOriginalUrl) {
+      try {
+        const parsed = new URL(proxyOriginalUrl);
+        for (const [key, value] of parsed.searchParams.entries()) {
+          if (!query[key]) query[key] = value;
+        }
+      } catch {
+        // ignore invalid proxy URL
+      }
+    }
+    const queryString = this.buildQueryString(query);
+    const fullUrl =
+      proxyOriginalUrl?.trim() ||
+      (host ? `${protocol}://${host}${originalUrl}` : originalUrl);
+    const ip =
+      req.get('x-oauth-client-ip')?.trim() ||
+      req.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      req.ip ||
+      null;
+    const userAgent = req.get('x-oauth-user-agent')?.trim() || req.get('user-agent') || null;
+
+    return {
+      originalUrl: proxyOriginalUrl ? new URL(proxyOriginalUrl).pathname + new URL(proxyOriginalUrl).search : originalUrl,
+      fullUrl,
+      query,
+      queryString,
+      facebookParams: this.extractFacebookParams(query),
+      headers: this.sanitizeHeaders(req.headers),
+      cookies: this.parseCookies(req.get('cookie')),
+      ip,
+      userAgent,
+      receivedAt: new Date().toISOString(),
+    };
+  }
+
+  private async persistLastCallback(
+    ctx: MetaOAuthCallbackContext,
+    outcome: MetaOAuthLastCallback['outcome'],
+    reason: string | null,
+  ) {
+    const lastCallback: MetaOAuthLastCallback = {
+      ...ctx,
+      outcome,
+      reason,
+      parsedJson: {
+        facebookParams: ctx.facebookParams,
+        allQueryParams: ctx.query,
+        queryString: ctx.queryString,
+      },
+    };
+    const oauthCompleted: MetaOAuthCompletedStatus = {
+      completed: outcome === 'success',
+      reason,
+      at: ctx.receivedAt,
+    };
+    try {
+      const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
+      const snap =
+        row?.diagnosticsSnapshot && typeof row.diagnosticsSnapshot === 'object'
+          ? (row.diagnosticsSnapshot as Record<string, unknown>)
+          : {};
+      await this.prisma.metaCenterSetting.upsert({
+        where: { id: SETTINGS_ID },
+        create: {
+          id: SETTINGS_ID,
+          diagnosticsSnapshot: {
+            ...snap,
+            lastOAuthCallback: lastCallback,
+            oauthCompleted,
+          } as Prisma.InputJsonValue,
+        },
+        update: {
+          diagnosticsSnapshot: {
+            ...snap,
+            lastOAuthCallback: lastCallback,
+            oauthCompleted,
+          } as Prisma.InputJsonValue,
+        },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `lastOAuthCallback persist failed: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  async getLastOAuthCallback(): Promise<MetaOAuthLastCallback | null> {
+    const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
+    const snap = row?.diagnosticsSnapshot;
+    if (!snap || typeof snap !== 'object') return null;
+    const last = (snap as Record<string, unknown>).lastOAuthCallback;
+    if (!last || typeof last !== 'object') return null;
+    return last as MetaOAuthLastCallback;
+  }
+
+  async getOAuthCompletedStatus(): Promise<MetaOAuthCompletedStatus> {
+    const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
+    const snap = row?.diagnosticsSnapshot;
+    if (snap && typeof snap === 'object') {
+      const status = (snap as Record<string, unknown>).oauthCompleted;
+      if (status && typeof status === 'object') {
+        const s = status as Record<string, unknown>;
+        return {
+          completed: s.completed === true,
+          reason: typeof s.reason === 'string' ? s.reason : null,
+          at: typeof s.at === 'string' ? s.at : null,
+        };
+      }
+    }
+    const connected = Boolean(row?.metaConnectedAt && row.metaUserAccessTokenEncrypted);
+    return {
+      completed: connected,
+      reason: connected ? null : 'Meta účet není připojen',
+      at: row?.metaConnectedAt?.toISOString() ?? null,
+    };
+  }
+
+  async listOAuthDebugLogs(take = 50) {
+    const items = await this.prisma.metaCenterApiLog.findMany({
+      where: { endpoint: { in: [...META_OAUTH_LOG_PHASES] } },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(200, Math.max(1, take)),
+    });
+    return {
+      items: items.map((r) => ({
+        id: r.id,
+        createdAt: r.createdAt.toISOString(),
+        phase: r.endpoint,
+        method: r.method,
+        request: r.request,
+        response: r.response,
+        httpStatus: r.httpStatus,
+        errorCode: r.errorCode,
+        errorMessage: r.errorMessage,
+        durationMs: r.durationMs,
+      })),
+    };
+  }
+
+  private resolveFacebookOAuthError(
+    facebookParams: Record<string, string | null>,
+    query: Record<string, string | null>,
+  ): {
+    hasError: boolean;
+    error: string | null;
+    errorReason: string | null;
+    errorDescription: string | null;
+    displayMessage: string;
+  } {
+    const error =
+      facebookParams.error?.trim() ||
+      facebookParams.error_code?.trim() ||
+      query.error?.trim() ||
+      query.error_code?.trim() ||
+      null;
+    const errorReason =
+      facebookParams.error_reason?.trim() || query.error_reason?.trim() || null;
+    const errorDescription =
+      facebookParams.error_description?.trim() || query.error_description?.trim() || null;
+    const hasError = Boolean(error || errorReason || errorDescription);
+    const parts = [errorDescription, errorReason, error].filter(Boolean);
+    const displayMessage = parts.length ? parts.join(' — ') : 'oauth_denied';
+    return { hasError, error, errorReason, errorDescription, displayMessage };
+  }
+
+  private formatMissingCodeReason(ctx: MetaOAuthCallbackContext): string {
+    const qs = ctx.queryString ? `?${ctx.queryString}` : '(prázdná query string)';
+    const fb = ctx.facebookParams;
+    const parts = [
+      'Chybí authorization code (code=).',
+      `Celá query: ${qs}`,
+      fb.state ? `state=${fb.state}` : 'state=chybí',
+      fb.granted_scopes ? `granted_scopes=${fb.granted_scopes}` : null,
+      fb.denied_scopes ? `denied_scopes=${fb.denied_scopes}` : null,
+    ].filter(Boolean);
+    return parts.join(' | ');
   }
 
   private composeOAuthPreview(input: {
@@ -178,6 +477,22 @@ export class MetaConnectOAuthService {
     this.logger.log(`META OAuth state: ${preview.state}`);
     this.logger.log(`META OAuth scope: ${preview.scope}`);
 
+    if (!dryRun) {
+      void this.logOAuthPhase({
+        phase: 'OAuth Request',
+        request: {
+          client_id: preview.client_id,
+          redirect_uri: preview.redirect_uri,
+          scope: preview.scope,
+          response_type: preview.response_type,
+          state: preview.state,
+          facebookOAuthUrl: preview.facebookOAuthUrl,
+          adminUserId,
+        },
+        response: { status: 'redirect_prepared' },
+      });
+    }
+
     return preview;
   }
 
@@ -227,6 +542,12 @@ export class MetaConnectOAuthService {
     return preview.facebookOAuthUrl;
   }
 
+  async handleCallbackFromRequest(req: Request): Promise<MetaConnectCallbackResult> {
+    const ctx = this.buildCallbackContext(req);
+    return this.handleCallbackWithContext(ctx);
+  }
+
+  /** @deprecated Použijte handleCallbackFromRequest — zachováno pro zpětnou kompatibilitu. */
   async handleCallback(
     code: string | undefined,
     state: string | undefined,
@@ -234,75 +555,172 @@ export class MetaConnectOAuthService {
     errorReason?: string,
     errorDescription?: string,
   ): Promise<MetaConnectCallbackResult> {
+    const query: Record<string, string | null> = {
+      code: code ?? null,
+      state: state ?? null,
+      error: oauthError ?? null,
+      error_reason: errorReason ?? null,
+      error_description: errorDescription ?? null,
+    };
+    const ctx: MetaOAuthCallbackContext = {
+      originalUrl: '/social/facebook/meta-connect-callback',
+      fullUrl: '/social/facebook/meta-connect-callback',
+      query,
+      queryString: this.buildQueryString(query),
+      facebookParams: this.extractFacebookParams(query),
+      headers: {},
+      cookies: {},
+      ip: null,
+      userAgent: null,
+      receivedAt: new Date().toISOString(),
+    };
+    return this.handleCallbackWithContext(ctx);
+  }
+
+  private async handleCallbackWithContext(
+    ctx: MetaOAuthCallbackContext,
+  ): Promise<MetaConnectCallbackResult> {
     const adminUrl = this.getAdminUrl();
     const redirectUri = this.resolveRedirectUri();
+    const { facebookParams, query } = ctx;
+    const code = facebookParams.code?.trim() || query.code?.trim() || '';
+    const state = facebookParams.state?.trim() || query.state?.trim() || '';
 
-    if (oauthError?.trim() || errorReason?.trim() || errorDescription?.trim()) {
-      const fbReason = (errorDescription ?? errorReason ?? oauthError ?? 'oauth_denied').trim();
+    this.logger.log(`META_OAUTH_CALLBACK FULL_URL=${ctx.fullUrl}`);
+    this.logger.log(`META_OAUTH_CALLBACK originalUrl=${ctx.originalUrl}`);
+    this.logger.log(`META_OAUTH_CALLBACK query=${JSON.stringify(ctx.query)}`);
+    this.logger.log(`META_OAUTH_CALLBACK headers=${JSON.stringify(ctx.headers)}`);
+    this.logger.log(`META_OAUTH_CALLBACK cookies=${JSON.stringify(Object.keys(ctx.cookies))}`);
+    this.logger.log(`META_OAUTH_CALLBACK facebookParams=${JSON.stringify(facebookParams)}`);
+
+    await this.logOAuthPhase({
+      phase: 'OAuth Callback',
+      request: {
+        fullUrl: ctx.fullUrl,
+        originalUrl: ctx.originalUrl,
+        query: ctx.query,
+        queryString: ctx.queryString,
+        facebookParams,
+        headers: ctx.headers,
+        cookieKeys: Object.keys(ctx.cookies),
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+      },
+      response: { receivedAt: ctx.receivedAt },
+    });
+
+    const fbError = this.resolveFacebookOAuthError(facebookParams, query);
+    if (fbError.hasError) {
       const oauthErrorJson = {
-        error: oauthError ?? null,
-        error_reason: errorReason ?? null,
-        error_description: errorDescription ?? null,
+        error: fbError.error,
+        error_reason: fbError.errorReason,
+        error_description: fbError.errorDescription,
+        granted_scopes: facebookParams.granted_scopes,
+        denied_scopes: facebookParams.denied_scopes,
         redirect_uri_used: redirectUri,
-        state: state ?? null,
+        state: state || null,
+        full_query: ctx.query,
+        query_string: ctx.queryString,
       };
       const isRedirectMismatch =
-        (errorReason ?? '').trim() === 'redirect_uri_mismatch' ||
-        fbReason.toLowerCase().includes('redirect_uri') ||
-        fbReason.toLowerCase().includes("isn't whitelisted") ||
-        fbReason.toLowerCase().includes('url je zablokovan') ||
-        fbReason.toLowerCase().includes('url blocked') ||
-        fbReason.toLowerCase().includes('blocked');
-      if (isRedirectMismatch || oauthError?.trim()) {
-        await this.logOAuthDialogEvent({
-          request: {
-            redirect_uri: redirectUri,
-            state: state ?? null,
-            phase: 'callback_error',
-          },
-          response: oauthErrorJson,
-          errorCode: errorReason ?? oauthError ?? 'oauth_error',
-          errorMessage: fbReason,
-        });
-      }
+        (fbError.errorReason ?? '').trim() === 'redirect_uri_mismatch' ||
+        fbError.displayMessage.toLowerCase().includes('redirect_uri') ||
+        fbError.displayMessage.toLowerCase().includes("isn't whitelisted") ||
+        fbError.displayMessage.toLowerCase().includes('url je zablokovan') ||
+        fbError.displayMessage.toLowerCase().includes('url blocked') ||
+        fbError.displayMessage.toLowerCase().includes('blocked');
+
+      await this.logOAuthPhase({
+        phase: 'OAuth Error',
+        request: oauthErrorJson,
+        response: { phase: 'callback_facebook_error' },
+        errorCode: fbError.errorReason ?? fbError.error ?? 'oauth_error',
+        errorMessage: fbError.displayMessage,
+      });
+      await this.persistLastCallback(ctx, 'error', fbError.displayMessage);
+
       const reason = isRedirectMismatch
-        ? `${fbReason} — použitá redirect URI: ${redirectUri}`
-        : fbReason.slice(0, 160);
+        ? `${fbError.displayMessage} — použitá redirect URI: ${redirectUri}`
+        : fbError.displayMessage.slice(0, 300);
       return {
         ok: false,
         redirectUrl: this.formatOAuthErrorRedirect(reason, redirectUri),
         message: reason,
       };
     }
-    if (!code?.trim()) {
+
+    if (!code) {
+      const reason = this.formatMissingCodeReason(ctx);
+      await this.logOAuthPhase({
+        phase: 'OAuth Error',
+        request: {
+          fullUrl: ctx.fullUrl,
+          query: ctx.query,
+          queryString: ctx.queryString,
+          facebookParams,
+        },
+        response: { phase: 'missing_code' },
+        errorCode: 'missing_code',
+        errorMessage: reason,
+      });
+      await this.persistLastCallback(ctx, 'error', reason);
       return {
         ok: false,
-        redirectUrl: this.formatOAuthErrorRedirect('missing_code', redirectUri),
+        redirectUrl: this.formatOAuthErrorRedirect(reason.slice(0, 300), redirectUri),
+        message: reason,
       };
     }
-    if (!state?.trim().startsWith(META_CENTER_OAUTH_STATE_PREFIX)) {
+
+    if (!state.startsWith(META_CENTER_OAUTH_STATE_PREFIX)) {
+      const reason = `Neplatný nebo chybějící OAuth state. Query: ?${ctx.queryString || '—'}`;
+      await this.logOAuthPhase({
+        phase: 'OAuth Error',
+        request: { state, query: ctx.query },
+        response: { phase: 'missing_state' },
+        errorCode: 'missing_state',
+        errorMessage: reason,
+      });
+      await this.persistLastCallback(ctx, 'error', reason);
       return {
         ok: false,
         redirectUrl: this.formatOAuthErrorRedirect('missing_state', redirectUri),
+        message: reason,
       };
     }
 
     const session = await this.prisma.socialFacebookOAuthSession.findUnique({
-      where: { id: state.trim() },
+      where: { id: state },
     });
     if (
       !session?.userId ||
       session.mode !== META_CENTER_OAUTH_MODE ||
       session.expiresAt.getTime() < Date.now()
     ) {
+      const reason = 'OAuth session vypršela nebo neexistuje — zkuste připojení znovu.';
+      await this.logOAuthPhase({
+        phase: 'OAuth Error',
+        request: { state, sessionFound: Boolean(session) },
+        response: { phase: 'session_expired' },
+        errorCode: 'session_expired',
+        errorMessage: reason,
+      });
+      await this.persistLastCallback(ctx, 'error', reason);
       return {
         ok: false,
         redirectUrl: this.formatOAuthErrorRedirect('session_expired', redirectUri),
+        message: reason,
       };
     }
 
+    const exchangeStarted = Date.now();
     try {
-      const shortToken = await this.exchangeCodeForToken(code.trim());
+      await this.logOAuthPhase({
+        phase: 'OAuth Exchange',
+        request: { state, redirect_uri: redirectUri, codePresent: true },
+        response: { status: 'started' },
+      });
+
+      const shortToken = await this.exchangeCodeForToken(code);
       const longLived = await this.exchangeForLongLivedToken(shortToken);
       const userToken = longLived.access_token?.trim() || shortToken;
       const expiresIn = longLived.expires_in;
@@ -310,6 +728,16 @@ export class MetaConnectOAuthService {
         expiresIn != null && Number.isFinite(expiresIn)
           ? new Date(Date.now() + expiresIn * 1000)
           : null;
+
+      await this.logOAuthPhase({
+        phase: 'OAuth Exchange',
+        request: { state, redirect_uri: redirectUri },
+        response: {
+          status: 'token_received',
+          expiresIn: expiresIn ?? null,
+        },
+        durationMs: Date.now() - exchangeStarted,
+      });
 
       await this.persistEnvAppCredentials();
       await this.saveUserToken(userToken, tokenExpiresAt, session.userId);
@@ -332,6 +760,19 @@ export class MetaConnectOAuthService {
         `[meta-connect] completed userId=${session.userId} business=${discovered.business?.id ?? 'none'}`,
       );
 
+      await this.logOAuthPhase({
+        phase: 'OAuth Success',
+        request: { state, userId: session.userId },
+        response: {
+          businessId: discovered.business?.id ?? null,
+          pageId: discovered.page?.id ?? null,
+          catalogId: discovered.catalog?.id ?? null,
+          pixelId: discovered.pixel?.id ?? null,
+          datasetId: discovered.dataset?.id ?? null,
+        },
+      });
+      await this.persistLastCallback(ctx, 'success', null);
+
       return {
         ok: true,
         redirectUrl: `${adminUrl}?meta=connected`,
@@ -340,6 +781,16 @@ export class MetaConnectOAuthService {
     } catch (err) {
       await this.cleanupSession(session.userId);
       const reason = err instanceof Error ? err.message : 'oauth_failed';
+      await this.logOAuthPhase({
+        phase: 'OAuth Error',
+        request: { state, userId: session.userId },
+        response: { phase: 'exchange_or_discovery_failed' },
+        errorCode: isFacebookPageScopeError(reason) ? 'scopes_unavailable' : 'oauth_failed',
+        errorMessage: reason,
+        durationMs: Date.now() - exchangeStarted,
+      });
+      await this.persistLastCallback(ctx, 'error', reason);
+
       if (isFacebookPageScopeError(reason)) {
         return {
           ok: false,
@@ -349,7 +800,8 @@ export class MetaConnectOAuthService {
       }
       return {
         ok: false,
-        redirectUrl: this.formatOAuthErrorRedirect(reason.slice(0, 160), redirectUri),
+        redirectUrl: this.formatOAuthErrorRedirect(reason.slice(0, 300), redirectUri),
+        message: reason,
       };
     }
   }

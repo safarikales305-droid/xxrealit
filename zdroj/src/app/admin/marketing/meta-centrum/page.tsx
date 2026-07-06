@@ -16,6 +16,7 @@ import {
   nestAdminMetaCenterDiagnostics,
   nestAdminMetaCenterFix,
   nestAdminMetaCenterLogs,
+  nestAdminMetaCenterOAuthDebug,
   nestAdminMetaCenterPatchCapi,
   nestAdminMetaCenterProvision,
   nestAdminMetaCenterPixelTest,
@@ -31,6 +32,7 @@ import {
   type MetaConnectionCheck,
   type MetaConnectionStatusLevel,
   type MetaDiagnosticLevel,
+  type MetaOAuthDebugLogRow,
   type MetaOAuthPreview,
   type MetaPermissionsCheckResult,
   type FacebookAppsConfig,
@@ -201,6 +203,8 @@ export default function MetaCentrumPage() {
   const [testReport, setTestReport] = useState<unknown>(null);
   const [permissionsCheck, setPermissionsCheck] = useState<MetaPermissionsCheckResult | null>(null);
   const [oauthTestPreview, setOauthTestPreview] = useState<MetaOAuthPreview | null>(null);
+  const [oauthDebugOpen, setOauthDebugOpen] = useState(false);
+  const [oauthDebugLogs, setOauthDebugLogs] = useState<MetaOAuthDebugLogRow[]>([]);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -251,6 +255,8 @@ export default function MetaCentrumPage() {
   const oauthRedirect = dash?.oauthRedirect;
   const oauthPreview = dash?.oauthPreview ?? null;
   const activeOAuthPreview = oauthTestPreview ?? oauthPreview;
+  const lastOAuthCallback = dash?.lastOAuthCallback ?? null;
+  const oauthCompleted = dash?.oauthCompleted ?? null;
 
   const settingsFields = useMemo(
     () =>
@@ -383,8 +389,20 @@ export default function MetaCentrumPage() {
     }
   }
 
+  async function loadOAuthDebug() {
+    if (!token) return;
+    setBusy(true);
+    const data = await nestAdminMetaCenterOAuthDebug(token, 100);
+    setOauthDebugLogs(data?.items ?? []);
+    setOauthDebugOpen(true);
+    setBusy(false);
+  }
+
   const oauthApiErrorLogs = apiLogs.filter(
-    (log) => log.endpoint === 'oauth/dialog' || log.errorCode?.includes('redirect'),
+    (log) =>
+      log.endpoint.startsWith('OAuth ') ||
+      log.endpoint === 'oauth/dialog' ||
+      log.errorCode?.includes('redirect'),
   );
 
   async function runDiagnostics() {
@@ -544,6 +562,14 @@ export default function MetaCentrumPage() {
                       >
                         Kopírovat Redirect URI
                       </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void loadOAuthDebug()}
+                        className="rounded-lg border border-violet-400 px-3 py-1.5 text-xs font-semibold text-violet-800 hover:bg-violet-50"
+                      >
+                        Zobrazit OAuth Debug
+                      </button>
                       {(activeOAuthPreview?.facebookLoginSettingsUrl ??
                         oauthRedirect?.facebookLoginSettingsUrl) ? (
                         <a
@@ -561,6 +587,73 @@ export default function MetaCentrumPage() {
                       ) : null}
                     </div>
                   </div>
+
+                  <div
+                    className={`mb-4 rounded-lg border px-3 py-2 text-sm ${
+                      oauthCompleted?.completed
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                        : 'border-amber-200 bg-amber-50 text-amber-900'
+                    }`}
+                  >
+                    <p className="font-bold">
+                      OAuth completed: {oauthCompleted?.completed ? 'YES' : 'NO'}
+                    </p>
+                    {oauthCompleted?.reason ? (
+                      <p className="mt-1 text-xs">{oauthCompleted.reason}</p>
+                    ) : null}
+                    {oauthCompleted?.at ? (
+                      <p className="mt-1 text-xs opacity-80">
+                        {new Date(oauthCompleted.at).toLocaleString('cs-CZ')}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {lastOAuthCallback ? (
+                    <div className="mb-4 rounded-2xl border border-violet-200 bg-violet-50 p-4 shadow-sm">
+                      <h3 className="mb-3 font-bold text-violet-950">POSLEDNÍ CALLBACK</h3>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm sm:col-span-2">
+                          <p className="text-xs font-medium text-zinc-500">Celá URL</p>
+                          <p className="mt-1 break-all font-mono text-xs">{lastOAuthCallback.fullUrl}</p>
+                        </div>
+                        <div className="rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm">
+                          <p className="text-xs font-medium text-zinc-500">Čas</p>
+                          <p className="mt-1 text-xs">
+                            {new Date(lastOAuthCallback.receivedAt).toLocaleString('cs-CZ')}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm">
+                          <p className="text-xs font-medium text-zinc-500">Výsledek</p>
+                          <p className="mt-1 text-xs">
+                            {lastOAuthCallback.outcome}
+                            {lastOAuthCallback.reason ? ` — ${lastOAuthCallback.reason}` : ''}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm">
+                          <p className="text-xs font-medium text-zinc-500">IP</p>
+                          <p className="mt-1 font-mono text-xs">{lastOAuthCallback.ip ?? '—'}</p>
+                        </div>
+                        <div className="rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm">
+                          <p className="text-xs font-medium text-zinc-500">User Agent</p>
+                          <p className="mt-1 break-all font-mono text-[11px]">
+                            {lastOAuthCallback.userAgent ?? '—'}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm sm:col-span-2">
+                          <p className="text-xs font-medium text-zinc-500">Query parametry</p>
+                          <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px]">
+                            {JSON.stringify(lastOAuthCallback.query, null, 2)}
+                          </pre>
+                        </div>
+                        <div className="rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm sm:col-span-2">
+                          <p className="text-xs font-medium text-zinc-500">Parsed JSON (Facebook)</p>
+                          <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px]">
+                            {JSON.stringify(lastOAuthCallback.parsedJson, null, 2)}
+                          </pre>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
 
                   {activeOAuthPreview ? (
                     <div className="space-y-3">
@@ -634,15 +727,61 @@ export default function MetaCentrumPage() {
                       {oauthApiErrorLogs.slice(0, 5).map((log) => (
                         <div key={log.id} className="rounded-lg border border-red-200 bg-white p-3 text-xs">
                           <p className="text-red-800">
-                            {new Date(log.createdAt).toLocaleString('cs-CZ')} · {log.errorCode ?? 'oauth'} ·{' '}
-                            {log.errorMessage ?? '—'}
+                            {new Date(log.createdAt).toLocaleString('cs-CZ')} · {log.endpoint} ·{' '}
+                            {log.errorCode ?? 'oauth'} · {log.errorMessage ?? '—'}
                           </p>
                           <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-zinc-700">
-                            {JSON.stringify(log.response, null, 2)}
+                            {JSON.stringify(log.request ?? log.response, null, 2)}
                           </pre>
                         </div>
                       ))}
                     </div>
+                  </div>
+                ) : null}
+
+                {oauthDebugOpen ? (
+                  <div className="rounded-2xl border border-violet-300 bg-white p-4 shadow-sm">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="font-bold text-violet-950">OAuth Debug — historie komunikace</h3>
+                      <button
+                        type="button"
+                        onClick={() => setOauthDebugOpen(false)}
+                        className="rounded-lg border border-zinc-300 px-3 py-1 text-xs font-semibold hover:bg-zinc-50"
+                      >
+                        Zavřít
+                      </button>
+                    </div>
+                    {oauthDebugLogs.length === 0 ? (
+                      <p className="text-sm text-zinc-500">Zatím žádné OAuth záznamy.</p>
+                    ) : (
+                      <div className="max-h-[32rem] space-y-3 overflow-y-auto">
+                        {oauthDebugLogs.map((log) => (
+                          <div
+                            key={log.id}
+                            className={`rounded-lg border p-3 text-xs ${
+                              log.phase === 'OAuth Error'
+                                ? 'border-red-200 bg-red-50'
+                                : log.phase === 'OAuth Success'
+                                  ? 'border-emerald-200 bg-emerald-50'
+                                  : 'border-zinc-200 bg-zinc-50'
+                            }`}
+                          >
+                            <p className="font-bold">
+                              {new Date(log.createdAt).toLocaleString('cs-CZ')} · {log.phase}
+                              {log.durationMs != null ? ` · ${log.durationMs} ms` : ''}
+                            </p>
+                            {log.errorMessage ? (
+                              <p className="mt-1 text-red-800">{log.errorMessage}</p>
+                            ) : null}
+                            <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap font-mono text-[11px]">
+                              request: {JSON.stringify(log.request, null, 2)}
+                              {'\n'}
+                              response: {JSON.stringify(log.response, null, 2)}
+                            </pre>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ) : null}
               </section>

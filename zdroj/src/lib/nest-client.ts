@@ -6228,6 +6228,41 @@ export type MetaCenterApiLogRow = {
   durationMs: number | null;
 };
 
+export type MetaOAuthLastCallback = {
+  originalUrl: string;
+  fullUrl: string;
+  query: Record<string, string | null>;
+  queryString: string;
+  facebookParams: Record<string, string | null>;
+  headers: Record<string, string>;
+  cookies: Record<string, string>;
+  ip: string | null;
+  userAgent: string | null;
+  receivedAt: string;
+  outcome: 'success' | 'error' | 'pending';
+  reason: string | null;
+  parsedJson: Record<string, unknown>;
+};
+
+export type MetaOAuthCompletedStatus = {
+  completed: boolean;
+  reason: string | null;
+  at: string | null;
+};
+
+export type MetaOAuthDebugLogRow = {
+  id: string;
+  createdAt: string;
+  phase: string;
+  method: string;
+  request: unknown;
+  response: unknown;
+  httpStatus: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  durationMs: number | null;
+};
+
 export type MetaCenterDashboard = {
   settings: MetaCenterSettings;
   services: MetaCenterServiceCard[];
@@ -6248,6 +6283,8 @@ export type MetaCenterDashboard = {
   catalogGraph: MetaCatalogGraphDiagnostics;
   oauthRedirect: MetaOAuthRedirectDiagnostics;
   oauthPreview: MetaOAuthPreview | null;
+  lastOAuthCallback?: MetaOAuthLastCallback | null;
+  oauthCompleted?: MetaOAuthCompletedStatus | null;
   pixel: {
     pixelId: string | null;
     pixelName: string | null;
@@ -6523,6 +6560,22 @@ export async function nestAdminMetaCenterApiLogs(token: string | null, take = 80
   const r = await metaCenterFetch<{ items: MetaCenterApiLogRow[] }>(
     token,
     `/api-logs?take=${take}`,
+  );
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterOAuthLastCallback(token: string | null) {
+  const r = await metaCenterFetch<{
+    lastCallback: MetaOAuthLastCallback | null;
+    oauthCompleted: MetaOAuthCompletedStatus;
+  }>(token, '/oauth/last-callback');
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterOAuthDebug(token: string | null, take = 80) {
+  const r = await metaCenterFetch<{ items: MetaOAuthDebugLogRow[] }>(
+    token,
+    `/oauth/debug?take=${take}`,
   );
   return r.ok ? r.data : null;
 }
