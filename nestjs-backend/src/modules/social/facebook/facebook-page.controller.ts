@@ -80,8 +80,9 @@ export class FacebookPageController implements OnModuleInit {
 
   @Get('meta-connect-callback')
   async metaConnectCallback(@Req() req: Request, @Res() res: Response) {
-    this.logger.log(`META_OAUTH_CALLBACK_START fullUrl=${req.protocol}://${req.get('host')}${req.originalUrl}`);
-    this.logger.log(`META_OAUTH_CALLBACK originalUrl=${req.originalUrl}`);
+    const canonicalRedirect =
+      this.facebookConfig.tryGetMetaRedirectUri() ?? '(META_REDIRECT_URI/BACKEND_URL unset)';
+    this.logger.log(`META_OAUTH_CALLBACK_START redirect_uri=${canonicalRedirect}`);
     this.logger.log(`META_OAUTH_CALLBACK query=${JSON.stringify(req.query)}`);
     this.logger.log(`META_OAUTH_CALLBACK headers=${JSON.stringify(req.headers)}`);
     this.logger.log(`META_OAUTH_CALLBACK cookieHeader=${req.get('cookie') ?? '(none)'}`);
@@ -115,9 +116,7 @@ export class FacebookPageController implements OnModuleInit {
       }
     }
     const qs = params.toString();
-    const canonical =
-      this.facebookConfig.tryGetMetaRedirectUri() ??
-      `${req.protocol}://${req.get('host') ?? ''}/api/social/facebook/meta-connect-callback`;
+    const canonical = this.facebookConfig.getMetaRedirectUri();
     const target = qs ? `${canonical}?${qs}` : canonical;
     this.logger.log(`LEGACY_OAUTH_REDIRECT from=${legacyPath} to=${target}`);
     return res.redirect(301, target);

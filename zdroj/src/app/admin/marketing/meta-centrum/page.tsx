@@ -16,6 +16,7 @@ import {
   nestAdminMetaCenterFix,
   nestAdminMetaCenterLogs,
   nestAdminMetaCenterOAuthDebug,
+  nestAdminMetaCenterOAuthClearCache,
   nestAdminMetaCenterOAuthFlowUrl,
   nestAdminMetaCenterPatchCapi,
   nestAdminMetaCenterProvision,
@@ -119,6 +120,20 @@ function levelClass(level: MetaDiagnosticLevel) {
   return 'border-red-200 bg-red-50 text-red-900';
 }
 
+function containsLocalhost(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return (
+    /https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?/i.test(value) ||
+    /localhost:\d+/i.test(value)
+  );
+}
+
+function monoUrlClass(value: string | null | undefined): string {
+  return containsLocalhost(value)
+    ? 'mt-1 break-all font-mono text-xs font-bold text-red-700'
+    : 'mt-1 break-all font-mono text-xs';
+}
+
 function formatBytes(n: number) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -208,6 +223,11 @@ export default function MetaCentrumPage() {
   const [oauthTestFlow, setOauthTestFlow] = useState<MetaOAuthFlowKey>('pages');
   const [oauthDebugOpen, setOauthDebugOpen] = useState(false);
   const [oauthDebugLogs, setOauthDebugLogs] = useState<MetaOAuthDebugLogRow[]>([]);
+  const [oauthDebugMeta, setOauthDebugMeta] = useState<{
+    localhostDetected?: boolean;
+    localhostWarning?: string | null;
+    canonicalRedirectUri?: string;
+  } | null>(null);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -400,8 +420,33 @@ export default function MetaCentrumPage() {
     setBusy(true);
     const data = await nestAdminMetaCenterOAuthDebug(token, 100);
     setOauthDebugLogs(data?.items ?? []);
+    setOauthDebugMeta(
+      data
+        ? {
+            localhostDetected: data.localhostDetected,
+            localhostWarning: data.localhostWarning,
+            canonicalRedirectUri: data.canonicalRedirectUri,
+          }
+        : null,
+    );
     setOauthDebugOpen(true);
     setBusy(false);
+  }
+
+  async function clearOAuthCache() {
+    if (!token) return;
+    setBusy(true);
+    const result = await nestAdminMetaCenterOAuthClearCache(token);
+    setBusy(false);
+    if (result?.ok) {
+      setMsg(
+        `OAuth cache vyčištěna. Redirect URI: ${result.redirectUri}\nVymazáno: ${result.cleared.join(', ')}`,
+      );
+      void refresh();
+      if (oauthDebugOpen) void loadOAuthDebug();
+    } else {
+      setMsg('Vyčištění OAuth cache selhalo.');
+    }
   }
 
   const oauthApiErrorLogs = apiLogs.filter(
@@ -545,6 +590,25 @@ export default function MetaCentrumPage() {
 
             {oauthRedirect || activeOAuthPreview ? (
               <section className="space-y-4">
+                {oauthRedirect?.localhostDetected && oauthRedirect.productionMode ? (
+                  <div className="rounded-2xl border border-red-400 bg-red-50 p-4 text-sm text-red-950 shadow-sm">
+                    <p className="font-bold">LOCALHOST v produkčním OAuth — zakázáno</p>
+                    <p className="mt-2">
+                      Callback URL se musí skládat z META_REDIRECT_URI nebo BACKEND_URL. Nikdy z
+                      interního hostu (localhost:8080).
+                    </p>
+                    {oauthRedirect.localhostHits?.length ? (
+                      <ul className="mt-2 list-inside list-disc font-mono text-xs">
+                        {oauthRedirect.localhostHits.map((hit) => (
+                          <li key={hit} className="break-all text-red-800">
+                            {hit}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {oauthRedirect?.railwayWarning ? (
                   <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 shadow-sm">
                     <p className="font-bold">{oauthRedirect.railwayWarning}</p>
@@ -610,6 +674,14 @@ export default function MetaCentrumPage() {
                         className="rounded-lg border border-violet-400 px-3 py-1.5 text-xs font-semibold text-violet-800 hover:bg-violet-50"
                       >
                         Zobrazit OAuth Debug
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void clearOAuthCache()}
+                        className="rounded-lg border border-red-400 px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-50"
+                      >
+                        Vyčistit OAuth cache
                       </button>
                       {(activeOAuthPreview?.facebookLoginSettingsUrl ??
                         oauthRedirect?.facebookLoginSettingsUrl) ? (
@@ -714,7 +786,15 @@ export default function MetaCentrumPage() {
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div className="rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm sm:col-span-2">
                           <p className="text-xs font-medium text-zinc-500">Celá URL</p>
-                          <p className="mt-1 break-all font-mono text-xs">{lastOAuthCallback.fullUrl}</p>
+                          <p className={monoUrlClass(lastOAuthCallback.fullUrl)}>
+                            {lastOAuthCallback.fullUrl}
+                          </p>
+                          {containsLocalhost(lastOAuthCallback.fullUrl) ? (
+                            <p className="mt-1 text-xs font-bold text-red-700">
+                              Obsahuje localhost — po deployi spusťte „Vyčistit OAuth cache“ nebo nový
+                              OAuth pokus.
+                            </p>
+                          ) : null}
                         </div>
                         <div className="rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm">
                           <p className="text-xs font-medium text-zinc-500">Čas</p>
@@ -778,9 +858,17 @@ export default function MetaCentrumPage() {
                           </ul>
                         ) : null}
                       </div>
-                      <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+                      <div
+                        className={`rounded-lg border px-3 py-2 text-sm ${
+                          containsLocalhost(activeOAuthPreview.facebookOAuthUrl)
+                            ? 'border-red-300 bg-red-50'
+                            : 'border-zinc-200 bg-zinc-50'
+                        }`}
+                      >
                         <p className="text-xs font-medium text-zinc-500">Facebook OAuth URL</p>
-                        <p className="mt-1 break-all font-mono text-xs">{activeOAuthPreview.facebookOAuthUrl}</p>
+                        <p className={monoUrlClass(activeOAuthPreview.facebookOAuthUrl)}>
+                          {activeOAuthPreview.facebookOAuthUrl}
+                        </p>
                       </div>
                       <div className="grid gap-3 sm:grid-cols-2">
                         {[
@@ -794,10 +882,14 @@ export default function MetaCentrumPage() {
                         ].map(([label, val]) => (
                           <div
                             key={String(label)}
-                            className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm"
+                            className={`rounded-lg border px-3 py-2 text-sm ${
+                              containsLocalhost(String(val))
+                                ? 'border-red-300 bg-red-50'
+                                : 'border-zinc-200 bg-zinc-50'
+                            }`}
                           >
                             <p className="text-xs font-medium text-zinc-500">{label}</p>
-                            <p className="mt-1 break-all font-mono text-xs">{String(val)}</p>
+                            <p className={monoUrlClass(String(val))}>{String(val)}</p>
                           </div>
                         ))}
                       </div>
@@ -821,6 +913,7 @@ export default function MetaCentrumPage() {
                     <div className="grid gap-3 sm:grid-cols-2">
                       {[
                         ['Používaná redirect_uri', oauthRedirect.oauthRedirectUsedByApp],
+                        ['Zdroj redirect URI', oauthRedirect.redirectUriSource ?? '—'],
                         ['Doporučená redirect_uri', oauthRedirect.recommendedRedirectUri],
                         ['META_REDIRECT_URI', oauthRedirect.explicitRedirectUri ?? '—'],
                         ['Allowed Redirect URIs (config)', oauthRedirect.allowedRedirectUris?.join(', ')],
@@ -831,10 +924,14 @@ export default function MetaCentrumPage() {
                       ].map(([label, val]) => (
                         <div
                           key={String(label)}
-                          className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm"
+                          className={`rounded-lg border px-3 py-2 text-sm ${
+                            containsLocalhost(String(val ?? ''))
+                              ? 'border-red-300 bg-red-50'
+                              : 'border-zinc-200 bg-zinc-50'
+                          }`}
                         >
                           <p className="text-xs font-medium text-zinc-500">{label}</p>
-                          <p className="mt-1 break-all font-mono text-xs">{String(val ?? '—')}</p>
+                          <p className={monoUrlClass(String(val ?? ''))}>{String(val ?? '—')}</p>
                         </div>
                       ))}
                     </div>
@@ -872,6 +969,20 @@ export default function MetaCentrumPage() {
                         Zavřít
                       </button>
                     </div>
+                    {oauthDebugMeta?.canonicalRedirectUri ? (
+                      <p className="mb-3 break-all font-mono text-xs text-zinc-600">
+                        Kanonická redirect URI: {oauthDebugMeta.canonicalRedirectUri}
+                      </p>
+                    ) : null}
+                    {oauthDebugMeta?.localhostDetected ? (
+                      <div className="mb-3 rounded-lg border border-red-300 bg-red-50 p-3 text-xs text-red-900">
+                        <p className="font-bold">LOCALHOST v OAuth logu</p>
+                        <p className="mt-1">
+                          {oauthDebugMeta.localhostWarning ??
+                            'Staré záznamy mohou obsahovat interní Railway host — nové OAuth toky už používají pouze META_REDIRECT_URI / BACKEND_URL.'}
+                        </p>
+                      </div>
+                    ) : null}
                     {oauthDebugLogs.length === 0 ? (
                       <p className="text-sm text-zinc-500">Zatím žádné OAuth záznamy.</p>
                     ) : (
@@ -880,17 +991,29 @@ export default function MetaCentrumPage() {
                           <div
                             key={log.id}
                             className={`rounded-lg border p-3 text-xs ${
-                              log.phase === 'OAuth Error'
-                                ? 'border-red-200 bg-red-50'
-                                : log.phase === 'OAuth Success'
-                                  ? 'border-emerald-200 bg-emerald-50'
-                                  : 'border-zinc-200 bg-zinc-50'
+                              log.hasLocalhost
+                                ? 'border-red-400 bg-red-50'
+                                : log.phase === 'OAuth Error'
+                                  ? 'border-red-200 bg-red-50'
+                                  : log.phase === 'OAuth Success'
+                                    ? 'border-emerald-200 bg-emerald-50'
+                                    : 'border-zinc-200 bg-zinc-50'
                             }`}
                           >
                             <p className="font-bold">
                               {new Date(log.createdAt).toLocaleString('cs-CZ')} · {log.phase}
                               {log.durationMs != null ? ` · ${log.durationMs} ms` : ''}
+                              {log.hasLocalhost ? ' · LOCALHOST' : ''}
                             </p>
+                            {log.localhostHits?.length ? (
+                              <ul className="mt-1 list-inside list-disc font-mono text-[11px] text-red-800">
+                                {log.localhostHits.map((hit) => (
+                                  <li key={hit} className="break-all">
+                                    {hit}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
                             {log.errorMessage ? (
                               <p className="mt-1 text-red-800">{log.errorMessage}</p>
                             ) : null}

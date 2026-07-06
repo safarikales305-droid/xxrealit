@@ -3,6 +3,14 @@ import { ConfigService } from '@nestjs/config';
 import { UserRole } from '@prisma/client';
 import { resolveFrontendUrl } from '../../../common/resolve-frontend-url';
 import {
+  findLocalhostInJson,
+  isLocalhostLikeUrl,
+  isProductionEnvironment,
+  META_OAUTH_CALLBACK_API_PATH,
+  resolveMetaOAuthRedirectUri,
+  type MetaRedirectUriSource,
+} from '../../meta-center/meta-oauth-redirect-uri.util';
+import {
   FACEBOOK_KNOWN_LOGIN_APP_ID,
   FACEBOOK_KNOWN_PAGES_APP_ID,
   FACEBOOK_LOGIN_APP_NAME,
@@ -80,6 +88,10 @@ export type MetaOAuthRedirectDiagnosticsDto = {
   railwayWarning: string | null;
   mismatchMessage: string | null;
   metaDevelopersInstruction: string | null;
+  redirectUriSource: MetaRedirectUriSource;
+  localhostDetected: boolean;
+  localhostHits: string[];
+  productionMode: boolean;
 };
 
 export type MetaOAuthPreviewDto = {
@@ -408,17 +420,6 @@ export class FacebookConfigService implements OnModuleInit {
 
   /** Kanonická Meta / Facebook OAuth callback URL (všechny Meta toky). */
   private resolveCanonicalOAuthRedirectUriOptional(): string | null {
-    const explicit =
-      this.readEnv('META_REDIRECT_URI') ??
-      this.readEnv('META_CENTER_OAUTH_REDIRECT_URI') ??
-      this.readEnv('FACEBOOK_OAUTH_CALLBACK_URI') ??
-      this.readEnv('FACEBOOK_LOGIN_OAUTH_REDIRECT_URI') ??
-      this.readEnv('FACEBOOK_OAUTH_REDIRECT_URI') ??
-      this.readEnv('FACEBOOK_CALLBACK_URL') ??
-      this.readEnv('FACEBOOK_PAGE_CONNECT_REDIRECT_URI');
-    if (explicit?.trim()) {
-      return explicit.trim().replace(/\/+$/, '');
-    }
     return this.tryGetMetaRedirectUri();
   }
 
@@ -460,7 +461,7 @@ export class FacebookConfigService implements OnModuleInit {
 
   /** Kanonická Meta Connect callback cesta (jediná povolená pro Meta Centrum). */
   metaConnectRedirectPath(): string {
-    return '/social/facebook/meta-connect-callback';
+    return META_OAUTH_CALLBACK_API_PATH;
   }
 
   private isRailwayHost(origin: string): boolean {
@@ -525,23 +526,24 @@ export class FacebookConfigService implements OnModuleInit {
   /**
    * Jediná centrální Meta OAuth redirect URI.
    * 1) META_REDIRECT_URI (pokud existuje)
-   * 2) veřejná doména (FRONTEND_URL / PUBLIC_APP_URL)
-   * 3) BACKEND_URL pouze pokud není lepší veřejná URL
+   * 2) BACKEND_URL / API_URL
+   * Nikdy localhost v produkci.
    */
   tryGetMetaRedirectUri(): string | null {
-    const explicit =
-      this.readEnv('META_REDIRECT_URI') ?? this.readEnv('META_CENTER_OAUTH_REDIRECT_URI');
-    if (explicit?.trim()) {
-      return explicit.trim().replace(/\/+$/, '');
-    }
-    return this.getRecommendedMetaRedirectUri();
+    return resolveMetaOAuthRedirectUri((key) => this.readEnv(key)).uri;
+  }
+
+  getMetaRedirectUriResolution() {
+    return resolveMetaOAuthRedirectUri((key) => this.readEnv(key));
   }
 
   getMetaRedirectUri(): string {
     const uri = this.tryGetMetaRedirectUri();
     if (!uri) {
+      const resolution = this.getMetaRedirectUriResolution();
       throw new ServiceUnavailableException(
-        'Meta OAuth redirect nelze odvodit — nastavte META_REDIRECT_URI, FRONTEND_URL nebo PUBLIC_APP_URL.',
+        resolution.warnings[0] ??
+          'Meta OAuth redirect nelze odvodit — nastavte META_REDIRECT_URI nebo BACKEND_URL.',
       );
     }
     return uri;
@@ -589,7 +591,8 @@ export class FacebookConfigService implements OnModuleInit {
   }
 
   getMetaOAuthRedirectDiagnostics(): MetaOAuthRedirectDiagnosticsDto {
-    const used = this.tryGetMetaRedirectUri();
+    const resolution = this.getMetaRedirectUriResolution();
+    const used = resolution.uri;
     const recommended = this.getRecommendedMetaRedirectUri();
     const allowedRedirectUris = this.getMetaAllowedRedirectUris();
     const explicit =
@@ -597,14 +600,31 @@ export class FacebookConfigService implements OnModuleInit {
     const pagesAppId = this.getPagesAppId();
     const redirectUriInAllowedConfig = used ? this.isMetaRedirectUriInAllowedConfig(used) : false;
     const isRailwayRedirectUri = used ? this.isRailwayHost(used) : false;
+    const productionMode = isProductionEnvironment();
+    const localhostHits = findLocalhostInJson({
+      oauthRedirectUsedByApp: used,
+      recommendedRedirectUri: recommended,
+      explicitRedirectUri: explicit,
+      backendBaseUrl: this.resolveBackendUrl(),
+      resolutionWarnings: resolution.warnings,
+    });
+    const localhostDetected =
+      localhostHits.length > 0 ||
+      isLocalhostLikeUrl(used) ||
+      isLocalhostLikeUrl(explicit) ||
+      isLocalhostLikeUrl(this.resolveBackendUrl());
     const railwayWarning = isRailwayRedirectUri
       ? 'Nepoužívejte Railway URL pro Meta OAuth. Použijte veřejnou doménu www.xxrealit.cz.'
       : null;
 
     let mismatchMessage: string | null = railwayWarning;
-    if (!used) {
+    if (productionMode && localhostDetected) {
       mismatchMessage =
-        'Redirect URI nelze odvodit — nastavte META_REDIRECT_URI, FRONTEND_URL nebo PUBLIC_APP_URL.';
+        'V produkci byl detekován localhost v OAuth URL — nastavte META_REDIRECT_URI nebo BACKEND_URL bez localhost.';
+    } else if (!used) {
+      mismatchMessage =
+        resolution.warnings[0] ??
+        'Redirect URI nelze odvodit — nastavte META_REDIRECT_URI nebo BACKEND_URL.';
     } else if (!redirectUriInAllowedConfig && !explicit) {
       mismatchMessage =
         mismatchMessage ??
@@ -641,6 +661,10 @@ export class FacebookConfigService implements OnModuleInit {
       railwayWarning,
       mismatchMessage,
       metaDevelopersInstruction,
+      redirectUriSource: resolution.source,
+      localhostDetected,
+      localhostHits,
+      productionMode,
     };
   }
 

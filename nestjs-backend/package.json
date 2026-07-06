@@ -12,8 +12,9 @@
     "seed": "tsx prisma/seed.ts"
   },
   "scripts": {
-    "build": "node scripts/prisma-cli.mjs generate && nest build && npm run playwright:install-chromium && node scripts/build-info.mjs && npm run verify:meta-oauth-scopes",
+    "build": "node scripts/prisma-cli.mjs generate && nest build && npm run playwright:install-chromium && node scripts/build-info.mjs && npm run verify:meta-oauth-scopes && npm run verify:meta-oauth-redirect-uri",
     "verify:meta-oauth-scopes": "tsx scripts/verify-meta-oauth-scopes.ts",
+    "verify:meta-oauth-redirect-uri": "tsx scripts/verify-meta-oauth-redirect-uri.ts",
     "playwright:install-chromium": "node scripts/install-playwright-chromium.mjs",
     "test:uniqueness": "tsx --test src/common/account-uniqueness.constants.test.ts",
     "test:credit-debt": "tsx --test src/modules/credits/credit-debt.util.test.ts",

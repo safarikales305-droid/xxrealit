@@ -7,6 +7,7 @@ import { MetaCatalogFeedService } from './meta-catalog-feed.service';
 import { MetaCatalogLogService } from './meta-catalog-log.service';
 import { MetaCatalogQualityService } from './meta-catalog-quality.service';
 import { MetaCatalogImageVerifyService } from './meta-catalog-image-verify.service';
+import { resolveMetaOAuthRedirectUri } from '../meta-center/meta-oauth-redirect-uri.util';
 
 const SETTINGS_ID = 'default';
 
@@ -460,6 +461,13 @@ export class MetaCatalogSyncService {
     });
 
     const origin = process.env.FRONTEND_URL || 'https://xxrealit.cz';
+    const callbackResolved = resolveMetaOAuthRedirectUri((key) => {
+      const raw = process.env[key];
+      if (raw == null) return null;
+      const value = String(raw).trim();
+      return value.length > 0 ? value : null;
+    });
+    const callbackUrl = callbackResolved.uri ?? '— nastavte META_REDIRECT_URI nebo BACKEND_URL —';
     const extraChecks = [
       {
         key: 'xml_feed',
@@ -488,8 +496,8 @@ export class MetaCatalogSyncService {
       {
         key: 'callback_url',
         label: 'Callback URL',
-        level: 'ok',
-        message: `${origin}/api/social/facebook/meta-connect-callback`,
+        level: callbackResolved.uri ? 'ok' : 'warning',
+        message: callbackUrl,
       },
     ];
 

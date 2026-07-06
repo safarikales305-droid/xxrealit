@@ -32,6 +32,11 @@ import {
   resolveScopesForOAuthFlow,
   type ResolvedOAuthScopes,
 } from './meta-oauth-scope-resolver';
+import {
+  findLocalhostInJson,
+  isLocalhostLikeUrl,
+  isProductionEnvironment,
+} from './meta-oauth-redirect-uri.util';
 import { MetaConnectDiscoveryService } from './meta-connect-discovery.service';
 import { MetaGraphClientService } from './meta-graph-client.service';
 
@@ -222,9 +227,6 @@ export class MetaConnectOAuthService {
   }
 
   buildCallbackContext(req: Request): MetaOAuthCallbackContext {
-    const protocol = req.protocol || 'https';
-    const host = req.get('host') ?? '';
-    const originalUrl = req.originalUrl ?? req.url ?? '';
     const proxyOriginalUrl = req.get('x-oauth-original-url')?.trim();
     const query = this.normalizeQuery(
       req.query as Record<string, string | string[] | undefined>,
@@ -240,9 +242,10 @@ export class MetaConnectOAuthService {
       }
     }
     const queryString = this.buildQueryString(query);
-    const fullUrl =
-      proxyOriginalUrl?.trim() ||
-      (host ? `${protocol}://${host}${originalUrl}` : originalUrl);
+    const canonicalRedirect = this.resolveRedirectUri();
+    const canonicalFullUrl = queryString
+      ? `${canonicalRedirect}?${queryString}`
+      : canonicalRedirect;
     const ip =
       req.get('x-oauth-client-ip')?.trim() ||
       req.get('x-forwarded-for')?.split(',')[0]?.trim() ||
@@ -251,8 +254,8 @@ export class MetaConnectOAuthService {
     const userAgent = req.get('x-oauth-user-agent')?.trim() || req.get('user-agent') || null;
 
     return {
-      originalUrl: proxyOriginalUrl ? new URL(proxyOriginalUrl).pathname + new URL(proxyOriginalUrl).search : originalUrl,
-      fullUrl,
+      originalUrl: `${new URL(canonicalRedirect).pathname}${queryString ? `?${queryString}` : ''}`,
+      fullUrl: canonicalFullUrl,
       query,
       queryString,
       facebookParams: this.extractFacebookParams(query),
@@ -261,6 +264,17 @@ export class MetaConnectOAuthService {
       ip,
       userAgent,
       receivedAt: new Date().toISOString(),
+    };
+  }
+
+  private sanitizeLastCallback(last: MetaOAuthLastCallback): MetaOAuthLastCallback {
+    if (!isLocalhostLikeUrl(last.fullUrl)) return last;
+    const canonical = this.resolveRedirectUri();
+    const qs = last.queryString ? `?${last.queryString}` : '';
+    return {
+      ...last,
+      fullUrl: `${canonical}${qs}`,
+      originalUrl: `${new URL(canonical).pathname}${qs}`,
     };
   }
 
@@ -321,7 +335,43 @@ export class MetaConnectOAuthService {
     if (!snap || typeof snap !== 'object') return null;
     const last = (snap as Record<string, unknown>).lastOAuthCallback;
     if (!last || typeof last !== 'object') return null;
-    return last as MetaOAuthLastCallback;
+    return this.sanitizeLastCallback(last as MetaOAuthLastCallback);
+  }
+
+  async clearOAuthUrlCache(): Promise<{
+    ok: boolean;
+    cleared: string[];
+    redirectUri: string;
+  }> {
+    const redirectUri = this.resolveRedirectUri();
+    const cleared: string[] = ['redirectUri', 'callbackUrl'];
+    const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
+    const snap =
+      row?.diagnosticsSnapshot && typeof row.diagnosticsSnapshot === 'object'
+        ? ({ ...(row.diagnosticsSnapshot as Record<string, unknown>) } as Record<string, unknown>)
+        : {};
+
+    if (snap.lastOAuthCallback) {
+      delete snap.lastOAuthCallback;
+      cleared.push('lastOAuthCallback');
+    }
+
+    await this.prisma.metaCenterSetting.upsert({
+      where: { id: SETTINGS_ID },
+      create: {
+        id: SETTINGS_ID,
+        redirectUri,
+        callbackUrl: redirectUri,
+        diagnosticsSnapshot: snap as Prisma.InputJsonValue,
+      },
+      update: {
+        redirectUri,
+        callbackUrl: redirectUri,
+        diagnosticsSnapshot: snap as Prisma.InputJsonValue,
+      },
+    });
+
+    return { ok: true, cleared, redirectUri };
   }
 
   async getOAuthCompletedStatus(): Promise<MetaOAuthCompletedStatus> {
@@ -352,8 +402,14 @@ export class MetaConnectOAuthService {
       orderBy: { createdAt: 'desc' },
       take: Math.min(200, Math.max(1, take)),
     });
-    return {
-      items: items.map((r) => ({
+    const productionMode = isProductionEnvironment();
+    const canonicalRedirect = this.resolveRedirectUri();
+    const mapped = items.map((r) => {
+      const localhostHits = findLocalhostInJson({
+        request: r.request,
+        response: r.response,
+      });
+      return {
         id: r.id,
         createdAt: r.createdAt.toISOString(),
         phase: r.endpoint,
@@ -364,7 +420,20 @@ export class MetaConnectOAuthService {
         errorCode: r.errorCode,
         errorMessage: r.errorMessage,
         durationMs: r.durationMs,
-      })),
+        localhostHits,
+        hasLocalhost: localhostHits.length > 0,
+      };
+    });
+    const hasLocalhostInLogs = mapped.some((row) => row.hasLocalhost);
+    return {
+      items: mapped,
+      productionMode,
+      canonicalRedirectUri: canonicalRedirect,
+      localhostDetected: hasLocalhostInLogs,
+      localhostWarning:
+        productionMode && hasLocalhostInLogs
+          ? 'V OAuth logu jsou staré záznamy s localhost — spusťte „Vyčistit OAuth cache“ nebo proveďte nový OAuth pokus.'
+          : null,
     };
   }
 
@@ -655,8 +724,12 @@ export class MetaConnectOAuthService {
       error_description: errorDescription ?? null,
     };
     const ctx: MetaOAuthCallbackContext = {
-      originalUrl: '/social/facebook/meta-connect-callback',
-      fullUrl: '/social/facebook/meta-connect-callback',
+      originalUrl: `${new URL(this.resolveRedirectUri()).pathname}${this.buildQueryString(query) ? `?${this.buildQueryString(query)}` : ''}`,
+      fullUrl: (() => {
+        const redirect = this.resolveRedirectUri();
+        const qs = this.buildQueryString(query);
+        return qs ? `${redirect}?${qs}` : redirect;
+      })(),
       query,
       queryString: this.buildQueryString(query),
       facebookParams: this.extractFacebookParams(query),

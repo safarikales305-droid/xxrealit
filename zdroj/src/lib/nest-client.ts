@@ -6162,6 +6162,10 @@ export type MetaOAuthRedirectDiagnostics = {
   railwayWarning?: string | null;
   mismatchMessage: string | null;
   metaDevelopersInstruction: string | null;
+  redirectUriSource?: 'META_REDIRECT_URI' | 'BACKEND_URL' | 'none';
+  localhostDetected?: boolean;
+  localhostHits?: string[];
+  productionMode?: boolean;
 };
 
 export type MetaOAuthFlowKey =
@@ -6290,6 +6294,16 @@ export type MetaOAuthDebugLogRow = {
   errorCode: string | null;
   errorMessage: string | null;
   durationMs: number | null;
+  localhostHits?: string[];
+  hasLocalhost?: boolean;
+};
+
+export type MetaOAuthDebugLogsResponse = {
+  items: MetaOAuthDebugLogRow[];
+  productionMode?: boolean;
+  canonicalRedirectUri?: string;
+  localhostDetected?: boolean;
+  localhostWarning?: string | null;
 };
 
 export type MetaCenterDashboard = {
@@ -6622,10 +6636,19 @@ export async function nestAdminMetaCenterOAuthLastCallback(token: string | null)
 }
 
 export async function nestAdminMetaCenterOAuthDebug(token: string | null, take = 80) {
-  const r = await metaCenterFetch<{ items: MetaOAuthDebugLogRow[] }>(
+  const r = await metaCenterFetch<MetaOAuthDebugLogsResponse>(
     token,
     `/oauth/debug?take=${take}`,
   );
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterOAuthClearCache(token: string | null) {
+  const r = await metaCenterFetch<{
+    ok: boolean;
+    cleared: string[];
+    redirectUri: string;
+  }>(token, '/oauth/clear-cache', { method: 'POST' });
   return r.ok ? r.data : null;
 }
 

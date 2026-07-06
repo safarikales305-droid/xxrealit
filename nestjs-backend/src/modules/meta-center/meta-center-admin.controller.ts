@@ -192,6 +192,11 @@ export class MetaCenterAdminController {
     return this.connectOAuth.listOAuthDebugLogs(Number.isFinite(take) ? take : 80);
   }
 
+  @Post('oauth/clear-cache')
+  async oauthClearCache() {
+    return this.connectOAuth.clearOAuthUrlCache();
+  }
+
   @Post('events/test-all')
   testAllEvents() {
     return this.connectEvents.testAllEvents();
