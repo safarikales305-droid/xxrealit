@@ -5,7 +5,13 @@ import { FacebookConfigService } from '../social/facebook/facebook-config.servic
 import { GRAPH_API } from '../social/facebook/facebook-page.constants';
 
 type GraphErrorBody = {
-  error?: { message?: string; code?: number; type?: string };
+  error?: {
+    message?: string;
+    code?: number;
+    type?: string;
+    error_subcode?: number;
+    fbtrace_id?: string;
+  };
 };
 
 export type MetaGraphResult<T> = {

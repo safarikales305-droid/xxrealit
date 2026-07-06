@@ -590,6 +590,7 @@ export default function MetaCentrumPage() {
                     ['Business ID', catalogGraph.businessId],
                     ['Catalog ID', catalogGraph.catalogId],
                     ['Commerce Manager ID', catalogGraph.commerceManagerId],
+                    ['Stav oprávnění Commerce API', catalogGraph.commercePermissionStatus],
                     ['Dataset ID', catalogGraph.datasetId],
                     ['Název katalogu', catalogGraph.catalogName],
                     ['Commerce Manager', catalogGraph.commerceManagerName ?? catalogGraph.commerceMessage],

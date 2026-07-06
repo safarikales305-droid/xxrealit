@@ -1,11 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
-import { MetaCatalogService } from '../meta-catalog/meta-catalog.service';
 import { resolveMetaCenterIds } from './meta-center-env.util';
 import { MetaConnectOAuthService } from './meta-connect-oauth.service';
 import { MetaGraphClientService, type MetaGraphResult } from './meta-graph-client.service';
 
 const SETTINGS_ID = 'default';
+
+const SCOPE_BUSINESS_MANAGEMENT = 'business_management';
+const SCOPE_CATALOG_MANAGEMENT = 'catalog_management';
 
 type CatalogGraphFields = {
   id?: string;
@@ -40,6 +42,7 @@ export type MetaCatalogGraphDiagnostics = {
   catalogName: string | null;
   commerceManagerId: string | null;
   commerceManagerName: string | null;
+  commercePermissionStatus: string | null;
   datasetId: string | null;
   commerceOnline: boolean;
   commerceMessage: string;
@@ -64,84 +67,235 @@ export class MetaCenterGraphDiagnosticsService {
     private readonly prisma: PrismaService,
     private readonly oauth: MetaConnectOAuthService,
     private readonly graph: MetaGraphClientService,
-    private readonly catalog: MetaCatalogService,
   ) {}
 
-  private formatGraphError(res: MetaGraphResult<unknown>): string {
+  private hasScope(scopes: string[], scope: string): boolean {
+    return scopes.includes(scope);
+  }
+
+  private buildPermissionStatus(scopes: string[]): string {
+    const business = this.hasScope(scopes, SCOPE_BUSINESS_MANAGEMENT) ? '✓' : '✗';
+    const catalog = this.hasScope(scopes, SCOPE_CATALOG_MANAGEMENT) ? '✓' : '✗';
+    return `business_management ${business}, catalog_management ${catalog}`;
+  }
+
+  private missingPermissionMessage(endpoint: string, scopes: string[]): string {
+    const missing: string[] = [];
+    if (!this.hasScope(scopes, SCOPE_BUSINESS_MANAGEMENT)) {
+      missing.push(SCOPE_BUSINESS_MANAGEMENT);
+    }
+    if (!this.hasScope(scopes, SCOPE_CATALOG_MANAGEMENT)) {
+      missing.push(SCOPE_CATALOG_MANAGEMENT);
+    }
+    if (missing.length === 0) {
+      return `Chybí oprávnění catalog_management nebo business_management. Endpoint: GET ${endpoint}`;
+    }
+    return `Chybí oprávnění: ${missing.join(', ')}. Endpoint: GET ${endpoint}`;
+  }
+
+  private formatGraphError(res: MetaGraphResult<unknown>, endpoint: string, scopes: string[]): string {
     if (res.ok) return '';
+    const err = (
+      res.data as {
+        error?: {
+          message?: string;
+          code?: number;
+          type?: string;
+          error_subcode?: number;
+          fbtrace_id?: string;
+        };
+      } | null
+    )?.error;
+    const errType = err?.type ?? '';
+    const errCode = err?.code;
+    const errMsg = err?.message ?? res.errorMessage;
+
+    const isPermissionError =
+      errCode === 200 ||
+      errCode === 10 ||
+      errType === 'OAuthException' ||
+      errType === 'GraphMethodException' ||
+      /permission|not authorized|does not have/i.test(errMsg);
+
+    if (isPermissionError) {
+      return `${this.missingPermissionMessage(endpoint, scopes)} (${errType || 'GraphAPI'}${errCode != null ? ` #${errCode}` : ''}: ${errMsg})`;
+    }
+
     try {
-      return JSON.stringify(
-        res.data ?? {
-          httpStatus: res.httpStatus,
-          errorCode: res.errorCode,
-          errorMessage: res.errorMessage,
-        },
-      );
+      return JSON.stringify({
+        endpoint: `GET ${endpoint}`,
+        type: errType || null,
+        code: errCode ?? null,
+        message: errMsg,
+        subcode: err?.error_subcode ?? null,
+        fbtrace_id: err?.fbtrace_id ?? null,
+        raw: res.data,
+      });
     } catch {
-      return res.errorMessage;
+      return `${errType || 'GraphAPI'} @ GET ${endpoint}: ${errMsg}`;
     }
   }
 
-  private async resolveCatalogIdFromBusiness(
+  private async resolveBusinessId(
+    businessId: string | null,
+    accessToken: string,
+    scopes: string[],
+  ): Promise<{ businessId: string | null; businessName: string | null; error: string | null }> {
+    if (businessId) {
+      return { businessId, businessName: null, error: null };
+    }
+    if (!this.hasScope(scopes, SCOPE_BUSINESS_MANAGEMENT)) {
+      return {
+        businessId: null,
+        businessName: null,
+        error: this.missingPermissionMessage('/me/businesses', scopes),
+      };
+    }
+    const res = await this.graph.get<GraphList<{ id?: string; name?: string }>>(
+      '/me/businesses',
+      accessToken,
+      { fields: 'id,name', limit: '1' },
+    );
+    if (!res.ok) {
+      return {
+        businessId: null,
+        businessName: null,
+        error: this.formatGraphError(res, '/me/businesses', scopes),
+      };
+    }
+    const row = res.data.data?.[0];
+    return {
+      businessId: row?.id ?? null,
+      businessName: row?.name ?? null,
+      error: row?.id ? null : 'Business Manager nenalezen v /me/businesses.',
+    };
+  }
+
+  private async fetchOwnedProductCatalogs(
     businessId: string,
     accessToken: string,
-    preferredCatalogId: string | null,
-  ): Promise<{ catalogId: string | null; catalogName: string | null; error: string | null }> {
+    scopes: string[],
+  ): Promise<{
+    catalogId: string | null;
+    catalogName: string | null;
+    error: string | null;
+  }> {
+    const endpoint = `/${businessId}/owned_product_catalogs`;
+    if (
+      !this.hasScope(scopes, SCOPE_BUSINESS_MANAGEMENT) ||
+      !this.hasScope(scopes, SCOPE_CATALOG_MANAGEMENT)
+    ) {
+      return {
+        catalogId: null,
+        catalogName: null,
+        error: this.missingPermissionMessage(endpoint, scopes),
+      };
+    }
+
     const res = await this.graph.get<GraphList<{ id?: string; name?: string }>>(
-      `/${businessId}/owned_product_catalogs`,
+      endpoint,
       accessToken,
       { fields: 'id,name', limit: '50' },
     );
     if (!res.ok) {
-      return { catalogId: null, catalogName: null, error: this.formatGraphError(res) };
+      return {
+        catalogId: null,
+        catalogName: null,
+        error: this.formatGraphError(res, endpoint, scopes),
+      };
     }
     const list = res.data.data ?? [];
     if (!list.length) {
-      return { catalogId: null, catalogName: null, error: 'Business nemá žádný product catalog.' };
+      return {
+        catalogId: null,
+        catalogName: null,
+        error: `GET ${endpoint} — business nemá žádný product catalog.`,
+      };
     }
-    const picked =
-      (preferredCatalogId
-        ? list.find((row) => row.id === preferredCatalogId)
-        : undefined) ?? list[0];
+    const first = list[0];
     return {
-      catalogId: picked?.id ?? null,
-      catalogName: picked?.name ?? null,
+      catalogId: first?.id ?? null,
+      catalogName: first?.name ?? null,
       error: null,
     };
+  }
+
+  private async persistDiscoveredCatalog(catalogId: string, catalogName: string | null) {
+    const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
+    if (row?.catalogId?.trim() === catalogId) return;
+    await this.prisma.metaCenterSetting.upsert({
+      where: { id: SETTINGS_ID },
+      create: {
+        id: SETTINGS_ID,
+        catalogId,
+        catalogName,
+      },
+      update: {
+        catalogId,
+        ...(catalogName ? { catalogName } : {}),
+      },
+    });
+    this.logger.log(`[catalog-graph] Catalog ID uloženo do nastavení: ${catalogId}`);
   }
 
   private async fetchCommerceManager(
     businessId: string,
     accessToken: string,
-  ): Promise<{ id: string | null; name: string | null; error: string | null }> {
-    const res = await this.graph.get<GraphList<CommerceMerchantRow>>(
-      `/${businessId}/commerce_merchant_settings`,
-      accessToken,
-      { fields: 'id,display_name', limit: '10' },
-    );
+    scopes: string[],
+  ): Promise<{
+    id: string | null;
+    name: string | null;
+    error: string | null;
+    skipped: boolean;
+  }> {
+    const endpoint = `/${businessId}/commerce_merchant_settings`;
+    if (!this.hasScope(scopes, SCOPE_BUSINESS_MANAGEMENT)) {
+      return {
+        id: null,
+        name: null,
+        error: this.missingPermissionMessage(endpoint, scopes),
+        skipped: true,
+      };
+    }
+
+    const res = await this.graph.get<GraphList<CommerceMerchantRow>>(endpoint, accessToken, {
+      fields: 'id,display_name',
+      limit: '10',
+    });
     if (!res.ok) {
-      return { id: null, name: null, error: this.formatGraphError(res) };
+      return {
+        id: null,
+        name: null,
+        error: this.formatGraphError(res, endpoint, scopes),
+        skipped: false,
+      };
     }
     const row = res.data.data?.[0];
     if (!row?.id) {
-      return { id: null, name: null, error: null };
+      return { id: null, name: null, error: null, skipped: false };
     }
     return {
       id: row.id,
       name: row.display_name ?? row.name ?? 'Commerce Manager',
       error: null,
+      skipped: false,
     };
   }
 
   private async fetchCatalogNode(
     catalogId: string,
     accessToken: string,
+    scopes: string[],
   ): Promise<{ ok: true; data: CatalogGraphFields } | { ok: false; error: string }> {
-    const res = await this.graph.get<CatalogGraphFields>(`/${catalogId}`, accessToken, {
+    const endpoint = `/${catalogId}`;
+    if (!this.hasScope(scopes, SCOPE_CATALOG_MANAGEMENT)) {
+      return { ok: false, error: this.missingPermissionMessage(endpoint, scopes) };
+    }
+    const res = await this.graph.get<CatalogGraphFields>(endpoint, accessToken, {
       fields: 'id,name,vertical,update_time',
     });
     if (!res.ok) {
-      return { ok: false, error: this.formatGraphError(res) };
+      return { ok: false, error: this.formatGraphError(res, endpoint, scopes) };
     }
     return { ok: true, data: res.data };
   }
@@ -149,10 +303,16 @@ export class MetaCenterGraphDiagnosticsService {
   private async fetchProductStats(
     catalogId: string,
     accessToken: string,
+    scopes: string[],
   ): Promise<
     | { ok: true; productCount: number; imageCount: number; videoCount: number }
     | { ok: false; error: string }
   > {
+    const endpoint = `/${catalogId}/products`;
+    if (!this.hasScope(scopes, SCOPE_CATALOG_MANAGEMENT)) {
+      return { ok: false, error: this.missingPermissionMessage(endpoint, scopes) };
+    }
+
     let productCount = 0;
     let imageCount = 0;
     let videoCount = 0;
@@ -168,14 +328,9 @@ export class MetaCenterGraphDiagnosticsService {
       if (after) query.after = after;
       if (pages === 0) query.summary = 'total_count';
 
-      const res = await this.graph.get<GraphList<CatalogProductRow>>(
-        `/${catalogId}/products`,
-        accessToken,
-        query,
-      );
-
+      const res = await this.graph.get<GraphList<CatalogProductRow>>(endpoint, accessToken, query);
       if (!res.ok) {
-        return { ok: false, error: this.formatGraphError(res) };
+        return { ok: false, error: this.formatGraphError(res, endpoint, scopes) };
       }
 
       if (pages === 0 && res.data.summary?.total_count != null) {
@@ -197,7 +352,6 @@ export class MetaCenterGraphDiagnosticsService {
 
       after = res.data.paging?.cursors?.after;
       pages += 1;
-
       if (!after) break;
       if (productCount > 0 && pages * 100 >= productCount) break;
     } while (pages < maxPages);
@@ -225,20 +379,22 @@ export class MetaCenterGraphDiagnosticsService {
     const base: MetaCatalogGraphDiagnostics = {
       businessId: ids.businessId,
       businessName: null,
-      catalogId: ids.catalogId,
+      catalogId: null,
       catalogName: null,
       commerceManagerId: ids.commerceManagerId,
       commerceManagerName: null,
+      commercePermissionStatus: null,
       datasetId: ids.datasetId,
       commerceOnline: false,
-      commerceMessage: 'Meta účet není připojen — Graph API nedostupné.',
+      commerceMessage: 'Čeká na ověření Graph API…',
       catalogOnline: false,
-      catalogMessage: 'Meta účet není připojen — Graph API nedostupné.',
+      catalogMessage: 'Čeká na ověření Graph API…',
       productCount: null,
       lastCatalogUpdate: null,
       lastLocalSync:
         lastSyncRun?.finishedAt?.toISOString() ??
         catalogSettings?.lastSyncAt?.toISOString() ??
+        lastOkSync?.finishedAt?.toISOString() ??
         null,
       importErrorCount: exportErrors + (lastSyncRun?.errorCount ?? 0),
       metaImagesLoaded: null,
@@ -248,176 +404,103 @@ export class MetaCenterGraphDiagnosticsService {
       graphErrorJson: null,
     };
 
-    if (!ids.businessId && !ids.catalogId) {
-      base.commerceMessage = 'Chybí FACEBOOK_BUSINESS_ID a FACEBOOK_CATALOG_ID.';
-      base.catalogMessage = 'Chybí FACEBOOK_CATALOG_ID (ENV nebo Meta Connect).';
-      return base;
-    }
-
     let accessToken: string;
     try {
       accessToken = await this.oauth.resolveAccessToken();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Chybí access token.';
       base.graphError = msg;
-      return this.applyLocalFeedFallback(base, ids, catalogSettings);
-    }
-
-    let resolvedCatalogId = ids.catalogId;
-    let resolvedCatalogName: string | null = null;
-
-    if (ids.businessId) {
-      const commerce = await this.fetchCommerceManager(ids.businessId, accessToken);
-      if (commerce.error) {
-        base.graphErrorJson = commerce.error;
-        base.commerceMessage = commerce.error;
-      } else if (commerce.id) {
-        base.commerceManagerId = commerce.id;
-        base.commerceManagerName = commerce.name;
-        base.commerceOnline = true;
-        base.commerceMessage = `✓ ${commerce.name} (${commerce.id})`;
-      } else {
-        base.commerceMessage = 'Commerce Manager v API nenalezen — ověřte business ID.';
-      }
-
-      if (!resolvedCatalogId) {
-        const resolved = await this.resolveCatalogIdFromBusiness(
-          ids.businessId,
-          accessToken,
-          ids.catalogId,
-        );
-        if (resolved.error) {
-          base.graphErrorJson = resolved.error;
-          base.catalogMessage = resolved.error;
-          return base;
-        }
-        resolvedCatalogId = resolved.catalogId;
-        resolvedCatalogName = resolved.catalogName;
-        base.catalogId = resolvedCatalogId;
-      } else {
-        const owned = await this.resolveCatalogIdFromBusiness(
-          ids.businessId,
-          accessToken,
-          resolvedCatalogId,
-        );
-        if (!owned.error && owned.catalogName) {
-          resolvedCatalogName = owned.catalogName;
-        }
-        if (owned.error && !base.graphErrorJson) {
-          base.graphErrorJson = owned.error;
-        }
-      }
-
-      base.businessName = ids.businessId;
-    } else {
-      base.commerceMessage = 'Chybí FACEBOOK_BUSINESS_ID.';
-    }
-
-    if (!resolvedCatalogId) {
-      base.catalogMessage = 'Chybí FACEBOOK_CATALOG_ID a API nevrátilo owned_product_catalogs.';
+      base.commerceMessage = msg;
+      base.catalogMessage = msg;
       return base;
     }
 
-    const catalogNode = await this.fetchCatalogNode(resolvedCatalogId, accessToken);
+    const tokenDebug = await this.oauth.debugToken(accessToken);
+    const scopes = tokenDebug.scopes ?? [];
+    base.commercePermissionStatus = this.buildPermissionStatus(scopes);
+
+    const businessResolved = await this.resolveBusinessId(ids.businessId, accessToken, scopes);
+    if (businessResolved.error && !businessResolved.businessId) {
+      base.graphErrorJson = businessResolved.error;
+      base.commerceMessage = businessResolved.error;
+      base.catalogMessage = businessResolved.error;
+      return base;
+    }
+
+    const businessId = businessResolved.businessId;
+    base.businessId = businessId;
+    base.businessName = businessResolved.businessName;
+
+    if (!businessId) {
+      base.commerceMessage = 'Chybí FACEBOOK_BUSINESS_ID a /me/businesses nevrátilo business.';
+      base.catalogMessage = base.commerceMessage;
+      return base;
+    }
+
+    const owned = await this.fetchOwnedProductCatalogs(businessId, accessToken, scopes);
+    if (owned.error || !owned.catalogId) {
+      const err = owned.error ?? `GET /${businessId}/owned_product_catalogs — katalog nenalezen.`;
+      base.graphErrorJson = err;
+      base.catalogMessage = err;
+      base.commerceMessage = err;
+      return base;
+    }
+
+    const resolvedCatalogId = owned.catalogId;
+    base.catalogId = resolvedCatalogId;
+    base.catalogName = owned.catalogName;
+    await this.persistDiscoveredCatalog(resolvedCatalogId, owned.catalogName);
+
+    const commerce = await this.fetchCommerceManager(businessId, accessToken, scopes);
+    if (commerce.error) {
+      base.graphErrorJson = commerce.error;
+      base.commerceMessage = commerce.error;
+    } else if (commerce.id) {
+      base.commerceManagerId = commerce.id;
+      base.commerceManagerName = commerce.name;
+      base.commerceOnline = true;
+      base.commerceMessage = `✓ ${commerce.name} (${commerce.id})`;
+    } else {
+      base.commerceMessage =
+        `Commerce API: žádný Commerce Manager u business ${businessId} ` +
+        `(oprávnění: ${base.commercePermissionStatus})`;
+    }
+
+    const catalogNode = await this.fetchCatalogNode(resolvedCatalogId, accessToken, scopes);
     if (!catalogNode.ok) {
       base.graphErrorJson = catalogNode.error;
       base.catalogMessage = catalogNode.error;
-      base.commerceOnline = false;
-      if (ids.businessId) {
-        base.commerceMessage = `${base.commerceMessage} · Catalog: ${catalogNode.error}`;
-      }
+      return base;
+    }
+
+    base.catalogName = catalogNode.data.name ?? owned.catalogName ?? resolvedCatalogId;
+    base.lastCatalogUpdate = catalogNode.data.update_time ?? null;
+
+    const productStats = await this.fetchProductStats(resolvedCatalogId, accessToken, scopes);
+    if (!productStats.ok) {
+      base.graphErrorJson = productStats.error;
+      base.catalogMessage = productStats.error;
       return base;
     }
 
     base.catalogOnline = true;
-    base.catalogName = catalogNode.data.name ?? resolvedCatalogName ?? resolvedCatalogId;
-    base.lastCatalogUpdate = catalogNode.data.update_time ?? null;
-
-    const productStats = await this.fetchProductStats(resolvedCatalogId, accessToken);
-    if (!productStats.ok) {
-      base.graphErrorJson = productStats.error;
-      base.catalogMessage = `${base.catalogName}: ${productStats.error}`;
-      base.catalogOnline = false;
-      return base;
-    }
-
     base.productCount = productStats.productCount;
     base.metaImagesLoaded = productStats.imageCount;
     base.metaVideoCount = productStats.videoCount;
 
     base.catalogMessage =
       `✓ ${base.catalogName} · ${productStats.productCount} produktů · ` +
-      `${productStats.imageCount} obrázků · ${productStats.videoCount} videí · ` +
-      `Catalog ID ${resolvedCatalogId}`;
+      `${productStats.imageCount} obrázků · ${productStats.videoCount} videí`;
 
-    if (ids.businessId) {
-      base.commerceOnline = Boolean(base.commerceManagerId);
-      if (base.commerceOnline) {
-        base.commerceMessage =
-          `✓ ${base.commerceManagerName ?? 'Commerce Manager'} · Business ID ${ids.businessId} · ` +
-          `Catalog ID ${resolvedCatalogId}`;
-      } else if (!base.graphErrorJson) {
-        base.commerceMessage = `Business ID ${ids.businessId} · katalog OK, Commerce Manager nenalezen`;
-      }
-      base.businessName = base.businessName ?? ids.businessId;
-    }
-
-    if (ids.datasetId) {
-      const dataset = await this.graph.get<{ id?: string; name?: string }>(
-        `/${ids.datasetId}`,
-        accessToken,
-        { fields: 'id,name' },
-      );
-      if (!dataset.ok) {
-        const errJson = this.formatGraphError(dataset);
-        base.graphError = errJson;
-        base.graphErrorJson = errJson;
-      }
-    }
-
-    if (lastOkSync?.exportedCount != null && base.metaImagesLoaded === 0) {
-      base.metaImagesLoaded = lastOkSync.exportedCount;
+    if (base.commerceOnline) {
+      base.commerceMessage =
+        `✓ ${base.commerceManagerName} · Business ID ${businessId} · Catalog ID ${resolvedCatalogId}`;
     }
 
     void this.logger.debug(
-      `Catalog graph diagnostics: commerce=${base.commerceOnline} catalog=${base.catalogOnline} products=${base.productCount}`,
+      `Catalog graph diagnostics: commerce=${base.commerceOnline} catalog=${base.catalogOnline} ` +
+        `products=${base.productCount} scopes=${base.commercePermissionStatus}`,
     );
-
-    return base;
-  }
-
-  private async applyLocalFeedFallback(
-    base: MetaCatalogGraphDiagnostics,
-    ids: ReturnType<typeof resolveMetaCenterIds>,
-    catalogSettings: { lastItemCount: number; enabled: boolean } | null,
-  ): Promise<MetaCatalogGraphDiagnostics> {
-    let itemCount = catalogSettings?.lastItemCount ?? 0;
-    try {
-      const stats = await this.catalog.computeFeedStats('csv');
-      itemCount = stats.itemCount;
-    } catch {
-      // keep lastItemCount
-    }
-
-    if (ids.catalogId && catalogSettings?.enabled !== false && itemCount > 0) {
-      base.catalogOnline = true;
-      base.productCount = itemCount;
-      base.catalogMessage = `Katalog ${ids.catalogId} — ${itemCount} položek ve feedu (bez Graph API tokenu)`;
-    } else if (ids.catalogId) {
-      base.catalogMessage =
-        'FACEBOOK_CATALOG_ID nastaveno — Graph API token chybí, feed je prázdný nebo nebyl vygenerován.';
-    } else {
-      base.catalogMessage = 'Chybí FACEBOOK_CATALOG_ID (ENV nebo Meta Connect).';
-    }
-
-    if (ids.businessId && base.catalogOnline) {
-      base.commerceOnline = true;
-      base.commerceMessage = `Business ${ids.businessId} — pouze lokální feed (Graph API token chybí)`;
-    } else if (ids.businessId) {
-      base.commerceMessage = `FACEBOOK_BUSINESS_ID ${ids.businessId} — Graph API token chybí.`;
-    } else {
-      base.commerceMessage = 'Chybí FACEBOOK_BUSINESS_ID.';
-    }
 
     return base;
   }
@@ -425,9 +508,10 @@ export class MetaCenterGraphDiagnosticsService {
   async verifyCatalogViaGraph(catalogId: string): Promise<{ ok: boolean; message: string }> {
     try {
       const token = await this.oauth.resolveAccessToken();
-      const res = await this.fetchCatalogNode(catalogId, token);
+      const scopes = (await this.oauth.debugToken(token)).scopes ?? [];
+      const res = await this.fetchCatalogNode(catalogId, token, scopes);
       if (!res.ok) return { ok: false, message: res.error };
-      const stats = await this.fetchProductStats(catalogId, token);
+      const stats = await this.fetchProductStats(catalogId, token, scopes);
       if (!stats.ok) return { ok: false, message: stats.error };
       return {
         ok: true,
@@ -442,31 +526,31 @@ export class MetaCenterGraphDiagnosticsService {
     businessId: string | null,
     catalogId: string | null,
   ): Promise<{ ok: boolean; message: string }> {
-    if (!businessId) return { ok: false, message: 'Chybí FACEBOOK_BUSINESS_ID.' };
     try {
       const token = await this.oauth.resolveAccessToken();
-      const commerce = await this.fetchCommerceManager(businessId, token);
+      const scopes = (await this.oauth.debugToken(token)).scopes ?? [];
+      const business = await this.resolveBusinessId(businessId, token, scopes);
+      if (!business.businessId) {
+        return { ok: false, message: business.error ?? 'Chybí FACEBOOK_BUSINESS_ID.' };
+      }
+
+      const owned = await this.fetchOwnedProductCatalogs(business.businessId, token, scopes);
+      if (owned.error || !owned.catalogId) {
+        return { ok: false, message: owned.error ?? 'Katalog nenalezen.' };
+      }
+
+      const commerce = await this.fetchCommerceManager(business.businessId, token, scopes);
       if (commerce.error) return { ok: false, message: commerce.error };
 
-      let resolvedCatalogId = catalogId;
-      if (!resolvedCatalogId) {
-        const resolved = await this.resolveCatalogIdFromBusiness(businessId, token, null);
-        if (resolved.error) return { ok: false, message: resolved.error };
-        resolvedCatalogId = resolved.catalogId;
-      }
-      if (!resolvedCatalogId) {
-        return { ok: false, message: 'Katalog nenalezen přes owned_product_catalogs.' };
-      }
-
-      const catalog = await this.fetchCatalogNode(resolvedCatalogId, token);
+      const catalog = await this.fetchCatalogNode(owned.catalogId, token, scopes);
       if (!catalog.ok) return { ok: false, message: catalog.error };
 
       return {
         ok: true,
         message:
-          `✓ Business ${businessId}` +
+          `✓ Business ${business.businessId}` +
           (commerce.name ? ` · ${commerce.name}` : '') +
-          ` · katalog ${catalog.data.name ?? resolvedCatalogId}`,
+          ` · katalog ${catalog.data.name ?? owned.catalogId}`,
       };
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : 'Graph API nedostupné' };

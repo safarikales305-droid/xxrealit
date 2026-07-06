@@ -6140,6 +6140,7 @@ export type MetaCatalogGraphDiagnostics = {
   catalogName: string | null;
   commerceManagerId: string | null;
   commerceManagerName: string | null;
+  commercePermissionStatus: string | null;
   datasetId: string | null;
   commerceOnline: boolean;
   commerceMessage: string;
