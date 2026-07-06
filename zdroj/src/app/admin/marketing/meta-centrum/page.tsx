@@ -128,6 +128,37 @@ function containsLocalhost(value: string | null | undefined): boolean {
   );
 }
 
+function oauthFlowStatusLabel(status: MetaOAuthFlowDiagnostic['status']): string {
+  switch (status) {
+    case 'connected':
+      return 'Připojeno';
+    case 'missing_scopes':
+      return 'Chybí scopes';
+    case 'env_missing':
+      return 'Chybí ENV';
+    case 'reconnect':
+      return 'Vyžaduje reconnect';
+    case 'ready':
+      return 'Připraveno';
+    default:
+      return '—';
+  }
+}
+
+function oauthFlowStatusClass(status: MetaOAuthFlowDiagnostic['status']): string {
+  switch (status) {
+    case 'connected':
+      return 'border-emerald-300 bg-emerald-50 text-emerald-900';
+    case 'missing_scopes':
+    case 'env_missing':
+      return 'border-red-300 bg-red-50 text-red-900';
+    case 'reconnect':
+      return 'border-amber-300 bg-amber-50 text-amber-900';
+    default:
+      return 'border-blue-200 bg-white text-zinc-800';
+  }
+}
+
 function monoUrlClass(value: string | null | undefined): string {
   return containsLocalhost(value)
     ? 'mt-1 break-all font-mono text-xs font-bold text-red-700'
@@ -252,10 +283,13 @@ export default function MetaCentrumPage() {
     const meta = params.get('meta');
     if (meta === 'connected') {
       const flow = params.get('flow');
+      const catalogWarn = params.get('catalog_scope_warning');
       setMsg(
-        flow
-          ? `Meta OAuth (${flow}) dokončeno — oprávnění byla připojena.`
-          : 'Meta účet byl úspěšně připojen a konfigurace načtena.',
+        catalogWarn
+          ? 'Catalog OAuth dokončeno, ale oprávnění catalog_management není schválené v Meta aplikaci. Přidejte produkt Commerce/Catalog v Meta App Dashboardu a znovu odešlete oprávnění k review.'
+          : flow
+            ? `Meta OAuth (${flow}) dokončeno — oprávnění byla připojena.`
+            : 'Meta účet byl úspěšně připojen a konfigurace načtena.',
       );
     }
     if (meta === 'error') {
@@ -329,18 +363,19 @@ export default function MetaCentrumPage() {
 
   async function connectMetaFlow(flow: MetaOAuthFlowKey) {
     if (!token) return;
+    const normalized = flow === 'ads' ? 'marketing' : flow;
     setBusy(true);
-    const r = await nestAdminMetaCenterOAuthFlowUrl(token, flow);
+    const r = await nestAdminMetaCenterOAuthFlowUrl(token, normalized);
     setBusy(false);
     if (!r?.url) {
-      setMsg(`Nepodařilo se získat OAuth URL pro flow „${flow}".`);
+      setMsg(`Nepodařilo se získat OAuth URL pro flow „${normalized}".`);
       return;
     }
     if (r.scopeWarnings?.length) {
       setMsg(r.scopeWarnings.join('\n'));
       if (!r.scope?.trim()) return;
     }
-    if (appsConfig?.login.appId && r.client_id === appsConfig.login.appId) {
+    if (appsConfig?.login.appId && r.client_id === appsConfig.login.appId && normalized !== 'login') {
       setMsg('Chyba: OAuth používá Login App ID místo Pages App ID.');
       return;
     }
@@ -491,7 +526,7 @@ export default function MetaCentrumPage() {
             {(
               [
                 ['catalog', 'Katalog'],
-                ['ads', 'Reklamy'],
+                ['marketing', 'Marketing'],
                 ['instagram', 'Instagram'],
                 ['whatsapp', 'WhatsApp'],
               ] as const
@@ -740,16 +775,39 @@ export default function MetaCentrumPage() {
                           >
                             <div className="flex flex-wrap items-start justify-between gap-2">
                               <div className="min-w-0 flex-1">
-                                <p className="font-bold text-zinc-900">
-                                  {flow.label}{' '}
-                                  <span className="font-mono text-xs font-normal text-zinc-500">
-                                    /oauth/{flow.key}
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="font-bold text-zinc-900">{flow.label}</p>
+                                  <span
+                                    className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${oauthFlowStatusClass(flow.status)}`}
+                                  >
+                                    {oauthFlowStatusLabel(flow.status)}
                                   </span>
+                                </div>
+                                <p className="mt-1 break-all font-mono text-[11px] text-zinc-500">
+                                  {flow.oauthEndpoint ?? `/api/social/facebook/oauth/${flow.key}`}
                                 </p>
                                 <p className="mt-1 text-xs text-zinc-600">{flow.description}</p>
                                 <p className="mt-2 break-all font-mono text-[11px] text-zinc-700">
                                   Finální scopes: {flow.scopeString || '—'}
                                 </p>
+                                {flow.envVarKey ? (
+                                  <p className="mt-1 font-mono text-[10px] text-zinc-500">
+                                    ENV: {flow.envVarKey}
+                                  </p>
+                                ) : null}
+                                {flow.grantedScopes?.length ? (
+                                  <p className="mt-1 text-xs text-emerald-800">
+                                    Granted: {flow.grantedScopes.join(', ')}
+                                    {flow.connectedAt
+                                      ? ` · ${new Date(flow.connectedAt).toLocaleString('cs-CZ')}`
+                                      : ''}
+                                  </p>
+                                ) : null}
+                                {flow.missingScopes?.length ? (
+                                  <p className="mt-1 text-xs text-red-800">
+                                    Chybí: {flow.missingScopes.join(', ')}
+                                  </p>
+                                ) : null}
                                 {flow.excludedScopes?.length ? (
                                   <p className="mt-1 text-xs text-amber-800">
                                     Vyloučeno: {flow.excludedScopes.join(', ')}
@@ -763,16 +821,16 @@ export default function MetaCentrumPage() {
                                   </ul>
                                 ) : null}
                               </div>
-                              {flow.key !== 'login' ? (
-                                <button
-                                  type="button"
-                                  disabled={busy || !flow.canConnect}
-                                  onClick={() => void connectMetaFlow(flow.key)}
-                                  className="shrink-0 rounded-lg bg-[#1877f2] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#166fe5] disabled:opacity-50"
-                                >
-                                  Připojit
-                                </button>
-                              ) : null}
+                              <button
+                                type="button"
+                                disabled={busy || !flow.canConnect}
+                                onClick={() => void connectMetaFlow(flow.key)}
+                                className="shrink-0 rounded-lg bg-[#1877f2] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#166fe5] disabled:opacity-50"
+                              >
+                                {flow.status === 'connected' || flow.status === 'reconnect'
+                                  ? 'Znovu připojit'
+                                  : 'Připojit'}
+                              </button>
                             </div>
                           </div>
                         ))}

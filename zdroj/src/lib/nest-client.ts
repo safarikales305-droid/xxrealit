@@ -6174,7 +6174,16 @@ export type MetaOAuthFlowKey =
   | 'catalog'
   | 'instagram'
   | 'whatsapp'
+  | 'marketing'
+  /** @deprecated Použijte marketing */
   | 'ads';
+
+export type MetaOAuthFlowStatus =
+  | 'connected'
+  | 'missing_scopes'
+  | 'ready'
+  | 'env_missing'
+  | 'reconnect';
 
 export type MetaOAuthFlowDiagnostic = {
   key: MetaOAuthFlowKey;
@@ -6189,6 +6198,12 @@ export type MetaOAuthFlowDiagnostic = {
   usesLoginApp: boolean;
   usesPagesApp: boolean;
   sessionMode: string;
+  oauthEndpoint?: string;
+  envVarKey?: string;
+  status?: MetaOAuthFlowStatus;
+  grantedScopes?: string[];
+  missingScopes?: string[];
+  connectedAt?: string | null;
 };
 
 export type MetaOAuthPreview = {
@@ -6528,9 +6543,10 @@ export async function nestAdminMetaCenterOAuthFlowUrl(
   token: string | null,
   flow: MetaOAuthFlowKey,
 ): Promise<(MetaOAuthPreview & { url: string }) | null> {
+  const normalized = flow === 'ads' ? 'marketing' : flow;
   const r = await metaCenterFetch<MetaOAuthPreview & { url: string }>(
     token,
-    `/oauth/${encodeURIComponent(flow)}`,
+    `/oauth/${encodeURIComponent(normalized)}`,
   );
   return r.ok ? r.data : null;
 }

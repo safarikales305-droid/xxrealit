@@ -55,22 +55,14 @@ export class MetaCenterAdminController {
   }
 
   @Get('oauth/flows')
-  oauthFlows() {
-    return { flows: this.connectOAuth.getOAuthFlowsDiagnostics() };
+  async oauthFlows() {
+    return { flows: await this.connectOAuth.buildOAuthFlowsDiagnostics() };
   }
 
   @Get('oauth/login')
-  async oauthLogin() {
-    const url = await this.facebookAuth.buildLoginUrl();
-    const flow = this.connectOAuth.getOAuthFlowsDiagnostics().find((f) => f.key === 'login');
-    return {
-      url,
-      oauthFlow: 'login',
-      oauthFlowLabel: flow?.label ?? 'Facebook Login',
-      scopes: flow?.scopes ?? ['public_profile', 'email'],
-      scope: flow?.scopeString ?? 'public_profile,email',
-      redirectUri: this.fbConfig.resolveLoginOAuthRedirectUriOptional(),
-    };
+  async oauthLogin(@CurrentUser() user: AuthUser) {
+    const preview = await this.connectOAuth.buildOAuthUrl(user.id, 'login', false);
+    return { url: preview.facebookOAuthUrl, ...preview };
   }
 
   @Get('oauth/pages')
@@ -97,10 +89,16 @@ export class MetaCenterAdminController {
     return { url: preview.facebookOAuthUrl, ...preview };
   }
 
+  @Get('oauth/marketing')
+  async oauthMarketing(@CurrentUser() user: AuthUser) {
+    const preview = await this.connectOAuth.buildOAuthUrl(user.id, 'marketing', false);
+    return { url: preview.facebookOAuthUrl, ...preview };
+  }
+
+  /** @deprecated Použijte oauth/marketing */
   @Get('oauth/ads')
   async oauthAds(@CurrentUser() user: AuthUser) {
-    const preview = await this.connectOAuth.buildOAuthUrl(user.id, 'ads', false);
-    return { url: preview.facebookOAuthUrl, ...preview };
+    return this.oauthMarketing(user);
   }
 
   @Get('oauth/redirect-diagnostics')
@@ -209,7 +207,7 @@ export class MetaCenterAdminController {
       this.connectOAuth.buildOAuthPreview(user.id, true, 'pages').catch(() => null),
       this.connectOAuth.getLastOAuthCallback(),
       this.connectOAuth.getOAuthCompletedStatus(),
-      Promise.resolve(this.connectOAuth.getOAuthFlowsDiagnostics()),
+      Promise.resolve(this.connectOAuth.buildOAuthFlowsDiagnostics()),
     ]);
     return { ...dash, oauthPreview, lastOAuthCallback: oauthLast, oauthCompleted, oauthFlows };
   }

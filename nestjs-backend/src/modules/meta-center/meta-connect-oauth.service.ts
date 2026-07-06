@@ -20,15 +20,19 @@ import {
   META_CENTER_OAUTH_STATE_PREFIX,
 } from './meta-connect.constants';
 import {
+  META_CATALOG_SCOPE_REVIEW_MESSAGE,
   META_CENTER_DEFAULT_FLOW,
   META_CENTER_SESSION_MODES,
   META_OAUTH_FLOWS,
+  getMetaOAuthFlowDefinition,
   isMetaCenterSessionMode,
+  normalizeMetaOAuthFlowKey,
+  parseFlowFromOAuthState,
   type MetaOAuthFlowKey,
+  type MetaOAuthFlowStatus,
 } from './meta-oauth-flows';
 import {
   assertOAuthUrlScopes,
-  readMetaApprovedOAuthScopesFromEnv,
   resolveScopesForOAuthFlow,
   type ResolvedOAuthScopes,
 } from './meta-oauth-scope-resolver';
@@ -41,6 +45,14 @@ import { MetaConnectDiscoveryService } from './meta-connect-discovery.service';
 import { MetaGraphClientService } from './meta-graph-client.service';
 
 const SETTINGS_ID = 'default';
+
+export type MetaOAuthFlowGrant = {
+  grantedScopes: string[];
+  requestedScopes: string[];
+  connectedAt: string;
+};
+
+export type MetaOAuthFlowGrantMap = Partial<Record<string, MetaOAuthFlowGrant>>;
 
 export const META_OAUTH_LOG_PHASES = [
   'OAuth Request',
@@ -477,9 +489,29 @@ export class MetaConnectOAuthService {
   }
 
   getOAuthFlowsDiagnostics() {
-    const approved = readMetaApprovedOAuthScopesFromEnv();
+    return this.buildOAuthFlowsDiagnostics();
+  }
+
+  async buildOAuthFlowsDiagnostics() {
+    const grants = await this.getOAuthFlowGrants();
     return Object.values(META_OAUTH_FLOWS).map((flow) => {
-      const resolved = resolveScopesForOAuthFlow(flow.key, approved);
+      const resolved = resolveScopesForOAuthFlow(flow.key);
+      const grant = grants[flow.key];
+      const grantedSet = new Set(grant?.grantedScopes ?? []);
+      const missingGranted = resolved.requestedScopes.filter((scope) => !grantedSet.has(scope));
+      let status: MetaOAuthFlowStatus = 'ready';
+      if (resolved.approvedScopes.length === 0) {
+        status = 'env_missing';
+      } else if (
+        grant?.connectedAt &&
+        resolved.requestedScopes.every((scope) => grantedSet.has(scope))
+      ) {
+        status = 'connected';
+      } else if (grant?.connectedAt && missingGranted.length > 0) {
+        status = 'missing_scopes';
+      } else if (grant?.connectedAt) {
+        status = 'reconnect';
+      }
       return {
         key: flow.key,
         label: flow.label,
@@ -493,12 +525,61 @@ export class MetaConnectOAuthService {
         usesLoginApp: flow.usesLoginApp,
         usesPagesApp: flow.usesPagesApp,
         sessionMode: flow.sessionMode,
+        oauthEndpoint: flow.oauthPath,
+        envVarKey: flow.envVarKey,
+        status,
+        grantedScopes: grant?.grantedScopes ?? [],
+        missingScopes: missingGranted,
+        connectedAt: grant?.connectedAt ?? null,
       };
     });
   }
 
+  private async getOAuthFlowGrants(): Promise<MetaOAuthFlowGrantMap> {
+    const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
+    const snap = row?.diagnosticsSnapshot;
+    if (!snap || typeof snap !== 'object') return {};
+    const grants = (snap as Record<string, unknown>).oauthFlowGrants;
+    if (!grants || typeof grants !== 'object') return {};
+    return grants as MetaOAuthFlowGrantMap;
+  }
+
+  private async persistOAuthFlowGrant(
+    flow: MetaOAuthFlowKey,
+    grantedScopes: string[],
+    connectedAt: Date,
+  ) {
+    const flowKey = normalizeMetaOAuthFlowKey(flow) ?? 'pages';
+    const flowDef = getMetaOAuthFlowDefinition(flowKey);
+    const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
+    const snap =
+      row?.diagnosticsSnapshot && typeof row.diagnosticsSnapshot === 'object'
+        ? ({ ...(row.diagnosticsSnapshot as Record<string, unknown>) } as Record<string, unknown>)
+        : {};
+    const grants =
+      snap.oauthFlowGrants && typeof snap.oauthFlowGrants === 'object'
+        ? ({ ...(snap.oauthFlowGrants as Record<string, unknown>) } as MetaOAuthFlowGrantMap)
+        : ({} as MetaOAuthFlowGrantMap);
+    grants[flowKey] = {
+      grantedScopes,
+      requestedScopes: [...flowDef.scopes],
+      connectedAt: connectedAt.toISOString(),
+    };
+    snap.oauthFlowGrants = grants;
+    await this.prisma.metaCenterSetting.upsert({
+      where: { id: SETTINGS_ID },
+      create: {
+        id: SETTINGS_ID,
+        diagnosticsSnapshot: snap as Prisma.InputJsonValue,
+      },
+      update: {
+        diagnosticsSnapshot: snap as Prisma.InputJsonValue,
+      },
+    });
+  }
+
   private resolveFlowScopes(flow: MetaOAuthFlowKey): ResolvedOAuthScopes {
-    return resolveScopesForOAuthFlow(flow, readMetaApprovedOAuthScopesFromEnv());
+    return resolveScopesForOAuthFlow(flow);
   }
 
   private composeOAuthPreview(input: {
@@ -510,7 +591,7 @@ export class MetaConnectOAuthService {
     dryRun: boolean;
     resolvedScopes: ResolvedOAuthScopes;
   }): MetaOAuthPreviewDto {
-    const flowDef = META_OAUTH_FLOWS[input.flow];
+    const flowDef = getMetaOAuthFlowDefinition(input.flow);
     const scope = input.resolvedScopes.scope;
     assertOAuthUrlScopes(input.flow, scope);
     const params = new URLSearchParams({
@@ -573,25 +654,42 @@ export class MetaConnectOAuthService {
     flow: MetaOAuthFlowKey,
     dryRun: boolean,
   ): Promise<MetaOAuthPreviewDto> {
-    this.assertConfigured();
-    this.fbConfig.assertPagesAppIdValid();
-    const pagesAppId = this.fbConfig.getPagesAppId();
-    if (!pagesAppId) {
-      throw new ServiceUnavailableException(this.fbConfig.pagesConfigurationErrorMessage());
+    const flowKey = normalizeMetaOAuthFlowKey(flow) ?? 'pages';
+    const flowDef = getMetaOAuthFlowDefinition(flowKey);
+
+    if (flowDef.usesLoginApp) {
+      if (!this.fbConfig.isLoginConfigured()) {
+        throw new ServiceUnavailableException(this.fbConfig.configurationErrorMessage());
+      }
+      this.fbConfig.assertLoginAppIdValid();
+    } else {
+      this.assertConfigured();
+      this.fbConfig.assertPagesAppIdValid();
     }
-    const flowDef = META_OAUTH_FLOWS[flow];
-    const resolvedScopes = this.resolveFlowScopes(flow);
+
+    const clientId = flowDef.usesLoginApp
+      ? this.fbConfig.getLoginAppId()
+      : this.fbConfig.getPagesAppId();
+    if (!clientId) {
+      throw new ServiceUnavailableException(
+        flowDef.usesLoginApp
+          ? this.fbConfig.configurationErrorMessage()
+          : this.fbConfig.pagesConfigurationErrorMessage(),
+      );
+    }
+
+    const resolvedScopes = this.resolveFlowScopes(flowKey);
     if (!dryRun && resolvedScopes.approvedScopes.length === 0) {
       throw new BadRequestException(
         resolvedScopes.warnings.join(' ') ||
-          `OAuth flow „${flowDef.label}“ nemá žádné schválené scopes.`,
+          `OAuth flow „${flowDef.label}" nemá žádné schválené scopes.`,
       );
     }
     const redirectUri = this.resolveRedirectUri();
-    const reauthorize = dryRun ? false : await this.isAlreadyConnected(adminUserId);
+    const reauthorize = dryRun ? false : await this.isFlowConnected(flowKey);
     const state = dryRun
-      ? `${META_CENTER_OAUTH_STATE_PREFIX}preview_${flow}_${randomBytes(12).toString('hex')}`
-      : `${META_CENTER_OAUTH_STATE_PREFIX}${flow}_${randomBytes(20).toString('hex')}`;
+      ? `${META_CENTER_OAUTH_STATE_PREFIX}preview_${flowKey}_${randomBytes(12).toString('hex')}`
+      : `${META_CENTER_OAUTH_STATE_PREFIX}${flowKey}_${randomBytes(20).toString('hex')}`;
 
     if (!dryRun) {
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
@@ -608,16 +706,16 @@ export class MetaConnectOAuthService {
     }
 
     const preview = this.composeOAuthPreview({
-      clientId: pagesAppId,
+      clientId,
       redirectUri,
       state,
-      flow,
+      flow: flowKey,
       reauthorize,
       dryRun,
       resolvedScopes,
     });
 
-    this.logger.log(`META OAuth flow=${flow} URL: ${preview.facebookOAuthUrl}`);
+    this.logger.log(`META OAuth flow=${flowKey} URL: ${preview.facebookOAuthUrl}`);
     this.logger.log(`META OAuth redirect_uri: ${preview.redirect_uri}`);
     this.logger.log(`META OAuth state: ${preview.state}`);
     this.logger.log(`META OAuth scope: ${preview.scope}`);
@@ -626,7 +724,7 @@ export class MetaConnectOAuthService {
       void this.logOAuthPhase({
         phase: 'OAuth Request',
         request: {
-          oauthFlow: flow,
+          oauthFlow: flowKey,
           oauthFlowLabel: flowDef.label,
           client_id: preview.client_id,
           redirect_uri: preview.redirect_uri,
@@ -651,7 +749,17 @@ export class MetaConnectOAuthService {
     const entry = Object.values(META_OAUTH_FLOWS).find((f) => f.sessionMode === mode);
     if (entry) return entry.key;
     if (mode === 'meta_center_connect') return 'pages';
+    if (mode === 'meta_center_ads') return 'marketing';
     return META_CENTER_DEFAULT_FLOW;
+  }
+
+  private async isFlowConnected(flow: MetaOAuthFlowKey): Promise<boolean> {
+    const flowKey = normalizeMetaOAuthFlowKey(flow) ?? 'pages';
+    const grants = await this.getOAuthFlowGrants();
+    const grant = grants[flowKey];
+    if (grant?.connectedAt) return true;
+    if (flowKey === 'pages') return this.isAlreadyConnected('meta-center');
+    return false;
   }
 
   private formatOAuthErrorRedirect(
@@ -666,12 +774,12 @@ export class MetaConnectOAuthService {
     return `${adminUrl}?meta=error&${params.toString()}`;
   }
 
-  private async isAlreadyConnected(adminUserId: string): Promise<boolean> {
+  private async isAlreadyConnected(_adminUserId: string): Promise<boolean> {
     const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
     if (row?.metaConnectedAt && row.metaUserAccessTokenEncrypted) return true;
 
     const pagesAuth = await this.prisma.facebookPagesUserAuth.findUnique({
-      where: { userId: adminUserId },
+      where: { userId: _adminUserId },
     });
     if (pagesAuth?.accessTokenEncrypted) return true;
 
@@ -878,8 +986,8 @@ export class MetaConnectOAuthService {
     }
 
     const exchangeStarted = Date.now();
-    const oauthFlow = this.sessionModeToFlow(session.mode);
-    const flowDef = META_OAUTH_FLOWS[oauthFlow];
+    const oauthFlow = parseFlowFromOAuthState(state);
+    const flowDef = getMetaOAuthFlowDefinition(oauthFlow);
     try {
       await this.logOAuthPhase({
         phase: 'OAuth Exchange',
@@ -914,24 +1022,43 @@ export class MetaConnectOAuthService {
 
       await this.persistEnvAppCredentials();
       await this.saveUserToken(userToken, tokenExpiresAt, session.userId);
-      await this.autopostOAuth.persistSharedPagesUserToken(
-        session.userId,
-        userToken,
-        tokenExpiresAt,
-      );
-      await this.autopostSettings.updateSettings({
-        facebook: {
-          userAccessToken: userToken,
-          tokenObtainedAt: new Date().toISOString(),
-          tokenWarning: null,
-        },
-      });
-      const discovered = await this.discovery.discoverAndPersist(userToken);
+
+      const grantedFromCallback = (facebookParams.granted_scopes ?? ctx.query.granted_scopes ?? '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const tokenDebug = await this.debugToken(userToken);
+      const grantedScopes =
+        tokenDebug.scopes.length > 0 ? tokenDebug.scopes : grantedFromCallback;
+      await this.persistOAuthFlowGrant(oauthFlow, grantedScopes, new Date());
+
+      if (oauthFlow !== 'login') {
+        await this.autopostOAuth.persistSharedPagesUserToken(
+          session.userId,
+          userToken,
+          tokenExpiresAt,
+        );
+        await this.autopostSettings.updateSettings({
+          facebook: {
+            userAccessToken: userToken,
+            tokenObtainedAt: new Date().toISOString(),
+            tokenWarning: null,
+          },
+        });
+      }
+
+      const discovered =
+        oauthFlow === 'login'
+          ? null
+          : await this.discovery.discoverAndPersist(userToken);
       await this.cleanupSession(session.userId);
 
       this.logger.log(
-        `[meta-connect] completed userId=${session.userId} business=${discovered.business?.id ?? 'none'}`,
+        `[meta-connect] completed flow=${oauthFlow} userId=${session.userId} business=${discovered?.business?.id ?? 'none'}`,
       );
+
+      const catalogScopeMissing =
+        oauthFlow === 'catalog' && !grantedScopes.includes('catalog_management');
 
       await this.logOAuthPhase({
         phase: 'OAuth Success',
@@ -939,19 +1066,25 @@ export class MetaConnectOAuthService {
         response: {
           oauthFlowLabel: flowDef.label,
           scopesRequested: [...flowDef.scopes],
-          businessId: discovered.business?.id ?? null,
-          pageId: discovered.page?.id ?? null,
-          catalogId: discovered.catalog?.id ?? null,
-          pixelId: discovered.pixel?.id ?? null,
-          datasetId: discovered.dataset?.id ?? null,
+          grantedScopes,
+          businessId: discovered?.business?.id ?? null,
+          pageId: discovered?.page?.id ?? null,
+          catalogId: discovered?.catalog?.id ?? null,
+          pixelId: discovered?.pixel?.id ?? null,
+          datasetId: discovered?.dataset?.id ?? null,
+          catalogScopeMissing,
         },
       });
-      await this.persistLastCallback(ctx, 'success', null);
+      await this.persistLastCallback(ctx, 'success', catalogScopeMissing ? META_CATALOG_SCOPE_REVIEW_MESSAGE : null);
 
       return {
         ok: true,
-        redirectUrl: `${adminUrl}?meta=connected&flow=${oauthFlow}`,
-        message: `${flowDef.label}: Meta oprávnění byla úspěšně připojena.`,
+        redirectUrl: `${adminUrl}?meta=connected&flow=${oauthFlow}${
+          catalogScopeMissing ? '&catalog_scope_warning=1' : ''
+        }`,
+        message: catalogScopeMissing
+          ? META_CATALOG_SCOPE_REVIEW_MESSAGE
+          : `${flowDef.label}: Meta oprávnění byla úspěšně připojena.`,
       };
     } catch (err) {
       await this.cleanupSession(session.userId);
