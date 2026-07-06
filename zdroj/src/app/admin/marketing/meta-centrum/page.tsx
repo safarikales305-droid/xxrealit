@@ -491,7 +491,16 @@ export default function MetaCentrumPage() {
     setBusy(true);
     const r = await nestAdminMetaCenterOAuthFlowUrl(token, normalized);
     setBusy(false);
-    if (!r?.url) {
+    if (!r || ('success' in r && r.success === false)) {
+      const failure = r && 'message' in r ? r : null;
+      setMsg(
+        failure?.message ??
+          failure?.scopeWarnings?.join('\n') ??
+          `Nepodařilo se získat OAuth URL pro flow „${normalized}".`,
+      );
+      return;
+    }
+    if (!('url' in r) || !r.url) {
       setMsg(`Nepodařilo se získat OAuth URL pro flow „${normalized}".`);
       return;
     }

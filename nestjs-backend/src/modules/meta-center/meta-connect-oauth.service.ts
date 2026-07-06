@@ -119,6 +119,13 @@ type DebugTokenResponse = {
   data?: { is_valid?: boolean; expires_at?: number; scopes?: string[] };
 };
 
+export type MetaOAuthUrlResult =
+  | { success: true; url: string; preview: MetaOAuthPreviewDto }
+  | { success: false; message: string; scopeWarnings?: string[] };
+
+export const META_MARKETING_APP_NOT_CONFIGURED_MESSAGE =
+  'Marketing aplikace není nakonfigurována.';
+
 export type MetaConnectCallbackResult = {
   ok: boolean;
   redirectUrl: string;
@@ -685,6 +692,58 @@ export class MetaConnectOAuthService {
     return this.buildOAuthForFlow(adminUserId, flow, dryRun);
   }
 
+  async buildOAuthUrlSafe(
+    adminUserId: string,
+    flow: MetaOAuthFlowKey,
+    dryRun = false,
+  ): Promise<MetaOAuthUrlResult> {
+    const flowKey = normalizeMetaOAuthFlowKey(flow) ?? 'pages';
+    const flowDef = getMetaOAuthFlowDefinition(flowKey);
+
+    if (flowDef.usesMarketingApp && !this.fbConfig.isMarketingConfigured()) {
+      return {
+        success: false,
+        message: META_MARKETING_APP_NOT_CONFIGURED_MESSAGE,
+      };
+    }
+
+    try {
+      const preview = await this.buildOAuthForFlow(adminUserId, flow, dryRun);
+      if (!preview.scope?.trim()) {
+        return {
+          success: false,
+          message: `OAuth URL pro ${flowKey} nebyla vytvořena.`,
+          scopeWarnings: preview.scopeWarnings,
+        };
+      }
+      return {
+        success: true,
+        url: preview.facebookOAuthUrl,
+        preview,
+      };
+    } catch (err) {
+      if (flowDef.usesMarketingApp) {
+        if (!this.fbConfig.isMarketingConfigured()) {
+          return {
+            success: false,
+            message: META_MARKETING_APP_NOT_CONFIGURED_MESSAGE,
+          };
+        }
+        const validation = this.fbConfig.validateMarketingAppId();
+        if (!validation.ok) {
+          return { success: false, message: validation.error ?? META_MARKETING_APP_NOT_CONFIGURED_MESSAGE };
+        }
+      }
+      const message =
+        err instanceof BadRequestException || err instanceof ServiceUnavailableException
+          ? String(err.message)
+          : err instanceof Error
+            ? err.message
+            : `OAuth URL pro ${flowKey} nebyla vytvořena.`;
+      return { success: false, message };
+    }
+  }
+
   private async buildOAuthForFlow(
     adminUserId: string,
     flow: MetaOAuthFlowKey,
@@ -1120,7 +1179,7 @@ export class MetaConnectOAuthService {
           throw new BadRequestException('Marketing App není nakonfigurována v ENV.');
         }
         if (appId !== marketingAppId) {
-          throw new BadRequestException('Marketing OAuth nepoužívá META_MARKETING_APP_ID z ENV.');
+          throw new BadRequestException('Marketing OAuth nepoužívá Marketing App ID z ENV.');
         }
 
         const missingAdsScopes = REQUIRED_MARKETING_ADS_SCOPES.filter(

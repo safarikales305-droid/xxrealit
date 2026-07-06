@@ -110,8 +110,16 @@ export class MetaCenterAdminController {
 
   @Get('oauth/marketing')
   async oauthMarketing(@CurrentUser() user: AuthUser) {
-    const preview = await this.connectOAuth.buildOAuthUrl(user.id, 'marketing', false);
-    return { url: preview.facebookOAuthUrl, ...preview };
+    const result = await this.connectOAuth.buildOAuthUrlSafe(user.id, 'marketing', false);
+    if (!result.success) {
+      return {
+        success: false,
+        message: result.message,
+        url: null,
+        scopeWarnings: result.scopeWarnings ?? [],
+      };
+    }
+    return { success: true, url: result.url, ...result.preview };
   }
 
   /** @deprecated Použijte oauth/marketing */

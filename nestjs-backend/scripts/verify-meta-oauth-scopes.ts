@@ -57,6 +57,13 @@ if (!catalogLegacyEnv.warnings.some((w) => w.includes('catalog_management'))) {
   process.exit(1);
 }
 
+const marketingWithoutEnv = resolveScopesForOAuthFlow('marketing', {});
+if (marketingWithoutEnv.approvedScopes.join(',') !== 'ads_management,ads_read,business_management') {
+  console.error('FAIL: marketing flow without ENV must default to ads scopes');
+  console.error('got:', marketingWithoutEnv.approvedScopes);
+  process.exit(1);
+}
+
 const marketing = resolveScopesForOAuthFlow('marketing', {
   META_APPROVED_OAUTH_SCOPES_MARKETING: 'ads_management,ads_read,business_management',
 });

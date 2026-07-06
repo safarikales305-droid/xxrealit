@@ -77,12 +77,30 @@ export class FacebookOAuthFlowsController {
       throw new HttpException('Neznámý OAuth flow.', 400);
     }
     try {
-      const preview = await this.connectOAuth.buildOAuthUrl(user.id, flow, false);
+      const result = await this.connectOAuth.buildOAuthUrlSafe(user.id, flow, false);
+      if (!result.success) {
+        const message = result.message;
+        const status = 200;
+        if (this.wantsJsonResponse(req)) {
+          return res.status(status).json({
+            success: false,
+            message,
+            url: null,
+            scopeWarnings: result.scopeWarnings ?? [],
+          });
+        }
+        const adminUrl = this.connectOAuth.getAdminUrl();
+        return res.redirect(
+          302,
+          `${adminUrl}?meta=error&reason=${encodeURIComponent(message.slice(0, 200))}`,
+        );
+      }
+      const preview = result.preview;
       this.logger.log(`OAUTH_FLOW_START flow=${flow} userId=${user.id}`);
       if (this.wantsJsonResponse(req)) {
-        return res.json({ url: preview.facebookOAuthUrl, ...preview });
+        return res.json({ success: true, url: result.url, ...preview });
       }
-      return res.redirect(preview.facebookOAuthUrl);
+      return res.redirect(result.url);
     } catch (err) {
       const message =
         err instanceof HttpException ? String(err.message) : 'Meta OAuth není dostupné.';

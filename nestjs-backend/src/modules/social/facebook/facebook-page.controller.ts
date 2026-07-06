@@ -18,8 +18,11 @@ import {
 import type { Request, Response } from 'express';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { AdminGuard } from '../../admin/guards/admin.guard';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../auth/decorators/current-user.decorator';
+import { MetaConnectOAuthService } from '../../meta-center/meta-connect-oauth.service';
+import { resolveMetaOAuthFlow } from '../../meta-center/meta-oauth-flows';
 import { FacebookSelectPageDto } from '../dto/facebook-select-page.dto';
 import { FacebookSyncToggleDto } from '../dto/facebook-sync-toggle.dto';
 import { FacebookAuthService } from './facebook-auth.service';
@@ -36,6 +39,7 @@ export class FacebookPageController implements OnModuleInit {
     private readonly facebookAuth: FacebookAuthService,
     private readonly facebookConfig: FacebookConfigService,
     private readonly unifiedOAuth: FacebookUnifiedOAuthService,
+    private readonly connectOAuth: MetaConnectOAuthService,
   ) {}
 
   onModuleInit() {
@@ -120,6 +124,37 @@ export class FacebookPageController implements OnModuleInit {
     const target = qs ? `${canonical}?${qs}` : canonical;
     this.logger.log(`LEGACY_OAUTH_REDIRECT from=${legacyPath} to=${target}`);
     return res.redirect(301, target);
+  }
+
+  @Get('meta/oauth-url')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  async metaOAuthUrl(
+    @CurrentUser() user: AuthUser,
+    @Query('flow') flowRaw: string | undefined,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    const flow = resolveMetaOAuthFlow(flowRaw) ?? 'pages';
+    const result = await this.connectOAuth.buildOAuthUrlSafe(user.id, flow, false);
+    if (!result.success) {
+      if (this.wantsJsonResponse(req)) {
+        return res.status(200).json({
+          success: false,
+          message: result.message,
+          url: null,
+          scopeWarnings: result.scopeWarnings ?? [],
+        });
+      }
+      const adminUrl = this.connectOAuth.getAdminUrl();
+      return res.redirect(
+        302,
+        `${adminUrl}?meta=error&reason=${encodeURIComponent(result.message.slice(0, 200))}`,
+      );
+    }
+    if (this.wantsJsonResponse(req)) {
+      return res.json({ success: true, url: result.url, ...result.preview });
+    }
+    return res.redirect(result.url);
   }
 
   @Get('page-status')

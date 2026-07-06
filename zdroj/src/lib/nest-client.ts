@@ -6672,16 +6672,42 @@ export async function nestAdminMetaCenterTestOAuth(
   return r.ok ? r.data : null;
 }
 
+export type MetaOAuthFlowUrlResponse = MetaOAuthPreview & {
+  url?: string | null;
+  facebookOAuthUrl?: string;
+  success?: boolean;
+  message?: string;
+};
+
 export async function nestAdminMetaCenterOAuthFlowUrl(
   token: string | null,
   flow: MetaOAuthFlowKey,
-): Promise<(MetaOAuthPreview & { url: string }) | null> {
+): Promise<(MetaOAuthPreview & { url: string }) | { success: false; message: string; scopeWarnings?: string[] } | null> {
   const normalized = flow === 'ads' ? 'marketing' : flow;
-  const r = await metaCenterFetch<MetaOAuthPreview & { url: string }>(
+  const r = await metaCenterFetch<MetaOAuthFlowUrlResponse>(
     token,
     `/oauth/${encodeURIComponent(normalized)}`,
   );
-  return r.ok ? r.data : null;
+  if (!r.ok) {
+    return { success: false, message: r.error };
+  }
+  const data = r.data;
+  if (data.success === false) {
+    return {
+      success: false,
+      message: data.message ?? 'OAuth URL nebyla vytvořena.',
+      scopeWarnings: data.scopeWarnings,
+    };
+  }
+  const url = data.url ?? data.facebookOAuthUrl;
+  if (!url?.trim()) {
+    return {
+      success: false,
+      message: data.message ?? `OAuth URL pro flow „${normalized}" nebyla vytvořena.`,
+      scopeWarnings: data.scopeWarnings,
+    };
+  }
+  return { ...data, url };
 }
 
 export async function nestAdminMetaCenterOAuthFlows(token: string | null) {

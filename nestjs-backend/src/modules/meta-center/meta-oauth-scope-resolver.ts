@@ -26,6 +26,12 @@ export const META_PAGES_ONLY_SCOPES = [
 
 const LOGIN_DEFAULT_SCOPES = ['public_profile', 'email'] as const;
 
+const MARKETING_DEFAULT_SCOPES = [
+  'ads_management',
+  'ads_read',
+  'business_management',
+] as const;
+
 export type ResolvedOAuthScopes = {
   flow: MetaOAuthFlowKey;
   requestedScopes: string[];
@@ -115,6 +121,21 @@ export function resolveScopesForOAuthFlow(
     if (!approved && approvedScopes.length === requestedScopes.length) {
       /* default login scopes */
     }
+  } else if (flowKey === 'marketing') {
+    const approved = readApprovedScopesForFlow(flowKey, env);
+    if (approved && approved.size > 0) {
+      approvedScopes = [];
+      for (const scope of requestedScopes) {
+        if (approved.has(scope)) {
+          approvedScopes.push(scope);
+        } else {
+          excludedScopes.push(scope);
+          warnings.push(`Scope „${scope}" chybí v ${envVarKey}.`);
+        }
+      }
+    } else {
+      approvedScopes = [...MARKETING_DEFAULT_SCOPES];
+    }
   } else if (flowKey === 'catalog') {
     const envRaw = env[META_OAUTH_FLOW_ENV_KEYS.catalog]?.trim();
     if (envRaw?.includes('catalog_management')) {
@@ -157,7 +178,7 @@ export function resolveScopesForOAuthFlow(
     }
   }
 
-  if (approvedScopes.length === 0 && flowKey !== 'login') {
+  if (approvedScopes.length === 0 && flowKey !== 'login' && flowKey !== 'marketing') {
     warnings.push(`OAuth URL pro „${flowDef.label}" nemůže být vytvořena — chybí schválené scopes.`);
   }
 

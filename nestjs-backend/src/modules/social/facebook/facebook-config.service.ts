@@ -24,7 +24,15 @@ const LOGIN_LEGACY_KEYS = ['FACEBOOK_APP_ID', 'FACEBOOK_APP_SECRET'] as const;
 
 const PAGES_ENV_KEYS = ['FACEBOOK_PAGES_APP_ID', 'FACEBOOK_PAGES_APP_SECRET'] as const;
 
-const MARKETING_ENV_KEYS = ['META_MARKETING_APP_ID', 'META_MARKETING_APP_SECRET'] as const;
+const MARKETING_ENV_KEYS = [
+  'FACEBOOK_MARKETING_APP_ID',
+  'FACEBOOK_MARKETING_APP_SECRET',
+] as const;
+
+const MARKETING_ENV_KEY_ALIASES = {
+  appId: ['FACEBOOK_MARKETING_APP_ID', 'META_MARKETING_APP_ID'] as const,
+  appSecret: ['FACEBOOK_MARKETING_APP_SECRET', 'META_MARKETING_APP_SECRET'] as const,
+};
 
 const RECOMMENDED_ENV_KEYS = [
   'FACEBOOK_WEBHOOK_VERIFY_TOKEN',
@@ -270,11 +278,19 @@ export class FacebookConfigService implements OnModuleInit {
   }
 
   getMarketingAppId(): string | null {
-    return this.readEnv('META_MARKETING_APP_ID');
+    for (const key of MARKETING_ENV_KEY_ALIASES.appId) {
+      const value = this.readEnv(key);
+      if (value) return value;
+    }
+    return null;
   }
 
   getMarketingAppSecret(): string | null {
-    return this.readEnv('META_MARKETING_APP_SECRET');
+    for (const key of MARKETING_ENV_KEY_ALIASES.appSecret) {
+      const value = this.readEnv(key);
+      if (value) return value;
+    }
+    return null;
   }
 
   getGraphApiVersion(): string {
@@ -320,8 +336,11 @@ export class FacebookConfigService implements OnModuleInit {
 
   getMarketingMissingRequired(): string[] {
     const missing: string[] = [];
-    for (const key of MARKETING_ENV_KEYS) {
-      if (!this.isEnvPresent(key)) missing.push(key);
+    if (!this.getMarketingAppId()) {
+      missing.push('FACEBOOK_MARKETING_APP_ID (nebo META_MARKETING_APP_ID)');
+    }
+    if (!this.getMarketingAppSecret()) {
+      missing.push('FACEBOOK_MARKETING_APP_SECRET (nebo META_MARKETING_APP_SECRET)');
     }
     return missing;
   }
@@ -404,7 +423,12 @@ export class FacebookConfigService implements OnModuleInit {
 
   validateMarketingAppId(): FacebookAppIdValidation {
     const id = this.getMarketingAppId();
-    if (!id) return { ok: false, error: 'Marketing App ID chybí v ENV (META_MARKETING_APP_ID).' };
+    if (!id) {
+      return {
+        ok: false,
+        error: 'Marketing App ID chybí v ENV (FACEBOOK_MARKETING_APP_ID nebo META_MARKETING_APP_ID).',
+      };
+    }
     const loginId = this.getLoginAppId();
     const pagesId = this.getPagesAppId();
     if (loginId && id === loginId) {
@@ -416,7 +440,7 @@ export class FacebookConfigService implements OnModuleInit {
     if (pagesId && id === pagesId) {
       return {
         ok: false,
-        error: 'Používáte Pages App ID pro Meta Marketing připojení — nastavte META_MARKETING_APP_ID.',
+        error: 'Používáte Pages App ID pro Meta Marketing připojení — nastavte FACEBOOK_MARKETING_APP_ID.',
       };
     }
     if (id === FACEBOOK_KNOWN_LOGIN_APP_ID) {
