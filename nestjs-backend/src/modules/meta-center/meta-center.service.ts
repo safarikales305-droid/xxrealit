@@ -19,7 +19,13 @@ import {
   type MetaDiagnosticLevel,
   type MetaServiceKey,
 } from './meta-center.defaults';
-import { resolveMetaCenterIds } from './meta-center-env.util';
+import {
+  META_CAPI_OPTIONAL_MESSAGE,
+  META_DATASET_V21_MESSAGE,
+  hasMetaEventTracking,
+  resolveMetaCenterIds,
+  resolveMetaTrackingMode,
+} from './meta-center-env.util';
 import type { MetaConnectionCheck } from './meta-connect.constants';
 import {
   MetaCenterGraphDiagnosticsService,
@@ -252,23 +258,30 @@ export class MetaCenterService {
   ): { status: 'online' | 'offline' | 'optional'; statusLabel: string; detail?: string } {
     switch (key) {
       case 'meta_pixel':
-        if (!ids.pixelId) {
-          return { status: 'optional', statusLabel: 'Nenastaveno (volitelné)' };
+        if (ids.pixelId) {
+          return {
+            status: 'online',
+            statusLabel: 'Online',
+            detail: `Pixel ID ${ids.pixelId}`,
+          };
         }
-        return {
-          status: 'online',
-          statusLabel: 'Online',
-          detail: `Pixel ID ${ids.pixelId}`,
-        };
+        if (ids.datasetId) {
+          return {
+            status: 'online',
+            statusLabel: 'Dataset (v21+)',
+            detail: `${META_DATASET_V21_MESSAGE} Dataset ${ids.datasetId}`,
+          };
+        }
+        return { status: 'optional', statusLabel: 'Nenastaveno (volitelné)' };
       case 'conversions_api':
         if (!ids.capiToken) {
-          return { status: 'optional', statusLabel: 'Nenastaveno (volitelné)' };
+          return { status: 'optional', statusLabel: META_CAPI_OPTIONAL_MESSAGE };
         }
-        if (!ids.pixelId) {
+        if (!hasMetaEventTracking(ids)) {
           return {
             status: 'offline',
             statusLabel: 'Offline',
-            detail: 'CAPI token je nastaven, ale chybí Pixel ID.',
+            detail: 'CAPI token je nastaven, ale chybí Pixel ID i Dataset ID.',
           };
         }
         return { status: 'online', statusLabel: 'Online', detail: 'CAPI token nastaven' };
@@ -281,8 +294,9 @@ export class MetaCenterService {
           statusLabel: 'Offline',
           detail: catalogGraph.commerceMessage,
         };
-      case 'facebook_catalog':
-        if (!ids.catalogId) {
+      case 'facebook_catalog': {
+        const effectiveCatalogId = catalogGraph.catalogId ?? ids.catalogId;
+        if (!effectiveCatalogId) {
           return {
             status: 'offline',
             statusLabel: 'Offline',
@@ -297,6 +311,7 @@ export class MetaCenterService {
           statusLabel: 'Offline',
           detail: catalogGraph.catalogMessage,
         };
+      }
       case 'dataset':
         if (!ids.datasetId) {
           return { status: 'optional', statusLabel: 'Nenastaveno (volitelné)' };
@@ -342,9 +357,9 @@ export class MetaCenterService {
       case 'whatsapp_business':
         return waConfigured || this.waConfig.isCloudApiConfigured();
       case 'meta_pixel':
-        return Boolean(resolveMetaCenterIds(row).pixelId);
+        return hasMetaEventTracking(resolveMetaCenterIds(row));
       case 'conversions_api':
-        return Boolean(resolveMetaCenterIds(row).capiToken);
+        return Boolean(resolveMetaCenterIds(row).capiToken && hasMetaEventTracking(resolveMetaCenterIds(row)));
       case 'commerce_manager':
         return Boolean(resolveMetaCenterIds(row).businessId && resolveMetaCenterIds(row).catalogId);
       case 'facebook_catalog':
@@ -580,8 +595,12 @@ export class MetaCenterService {
     items.push({
       key: 'pixel',
       label: 'Pixel',
-      level: ids.pixelId ? 'ok' : 'warning',
-      message: ids.pixelId ? `Pixel ID ${ids.pixelId}` : 'Nenastaveno (volitelné)',
+      level: ids.pixelId ? 'ok' : ids.datasetId ? 'ok' : 'warning',
+      message: ids.pixelId
+        ? `Pixel ID ${ids.pixelId}`
+        : ids.datasetId
+          ? META_DATASET_V21_MESSAGE
+          : 'Nenastaveno (volitelné)',
     });
 
     items.push({
@@ -603,7 +622,11 @@ export class MetaCenterService {
     items.push({
       key: 'catalog',
       label: 'Facebook Catalog',
-      level: catalogGraph.catalogOnline ? 'ok' : ids.catalogId ? 'error' : 'warning',
+      level: catalogGraph.catalogOnline
+        ? 'ok'
+        : catalogGraph.catalogId ?? ids.catalogId
+          ? 'error'
+          : 'warning',
       message: catalogGraph.catalogMessage,
     });
 
@@ -777,6 +800,7 @@ export class MetaCenterService {
       await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } }) ??
         ({} as never),
     );
+    const trackingMode = resolveMetaTrackingMode(ids);
 
     return {
       settings,
@@ -788,22 +812,38 @@ export class MetaCenterService {
       pixel: {
         pixelId: ids.pixelId,
         pixelName: settings.pixelName,
+        datasetId: ids.datasetId,
+        trackingMode,
+        datasetMessage: !ids.pixelId && ids.datasetId ? META_DATASET_V21_MESSAGE : null,
         lastEventAt: lastPixelEvent?.createdAt.toISOString() ?? null,
         eventsToday,
         eventsMonth,
-        status: ids.pixelId ? 'ready' : 'not_configured',
+        status:
+          trackingMode === 'pixel' || trackingMode === 'dataset' ? 'ready' : 'not_configured',
       },
       capi: {
-        datasetId: settings.datasetId,
+        datasetId: ids.datasetId,
+        pixelId: ids.pixelId,
+        trackingMode,
         tokenConfigured: Boolean(ids.capiToken),
         toggles: settings.capiEventToggles,
-        status: ids.capiToken ? 'ready' : 'not_configured',
+        status: ids.capiToken
+          ? hasMetaEventTracking(ids)
+            ? 'ready'
+            : 'missing_event_source'
+          : 'not_configured',
+        tokenLabel: ids.capiToken ? 'nastaven' : META_CAPI_OPTIONAL_MESSAGE,
       },
     };
   }
 
   async getPixelPanel() {
     const settings = await this.getSettings();
+    const ids = resolveMetaCenterIds(
+      await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } }) ??
+        ({} as never),
+    );
+    const trackingMode = resolveMetaTrackingMode(ids);
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
@@ -814,13 +854,17 @@ export class MetaCenterService {
       this.prisma.metaCenterEventLog.count({ where: { source: 'capi' } }),
     ]);
     return {
-      pixelId: settings.pixelId,
+      pixelId: ids.pixelId,
       pixelName: settings.pixelName,
+      datasetId: ids.datasetId,
+      trackingMode,
+      datasetMessage: !ids.pixelId && ids.datasetId ? META_DATASET_V21_MESSAGE : null,
       lastEventAt: lastEvent?.createdAt.toISOString() ?? null,
       eventsToday,
       eventsMonth,
       serverEventCount: serverEvents,
-      status: settings.pixelId ? 'ready' : 'not_configured',
+      status:
+        trackingMode === 'pixel' || trackingMode === 'dataset' ? 'ready' : 'not_configured',
     };
   }
 
@@ -832,7 +876,7 @@ export class MetaCenterService {
       listingId: listingId ?? null,
       sentAt: new Date().toISOString(),
       mode: 'simulated',
-      note: 'Ostré odeslání do Meta po aktivaci Pixel ID a access tokenu.',
+      note: 'Ostré odeslání do Meta po aktivaci Pixel/Dataset ID a access tokenu.',
     };
     await this.logEvent({
       eventType,
@@ -849,18 +893,29 @@ export class MetaCenterService {
 
   async getCapiPanel() {
     const settings = await this.getSettings();
+    const ids = resolveMetaCenterIds(
+      await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } }) ??
+        ({} as never),
+    );
     const lastSync = await this.prisma.metaCenterEventLog.findFirst({
       where: { source: 'capi' },
       orderBy: { createdAt: 'desc' },
     });
     const serverCount = await this.prisma.metaCenterEventLog.count({ where: { source: 'capi' } });
     return {
-      datasetId: settings.datasetId,
-      tokenConfigured: Boolean(settings.conversionsApiTokenMasked),
+      datasetId: ids.datasetId,
+      pixelId: ids.pixelId,
+      trackingMode: resolveMetaTrackingMode(ids),
+      tokenConfigured: Boolean(ids.capiToken),
+      tokenLabel: ids.capiToken ? 'nastaven' : META_CAPI_OPTIONAL_MESSAGE,
       toggles: settings.capiEventToggles,
       serverEventCount: serverCount,
       lastSyncAt: lastSync?.createdAt.toISOString() ?? null,
-      status: settings.datasetId && settings.conversionsApiTokenMasked ? 'ready' : 'not_configured',
+      status: ids.capiToken
+        ? hasMetaEventTracking(ids)
+          ? 'ready'
+          : 'missing_event_source'
+        : 'not_configured',
     };
   }
 
@@ -1091,8 +1146,8 @@ export class MetaCenterService {
       {
         key: 'pixel',
         label: 'Pixel připojen',
-        connected: Boolean(ids.pixelId),
-        optional: !ids.pixelId,
+        connected: Boolean(ids.pixelId || ids.datasetId),
+        optional: !ids.pixelId && !ids.datasetId,
       },
       {
         key: 'capi',

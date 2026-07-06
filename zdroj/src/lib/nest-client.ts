@@ -6191,6 +6191,9 @@ export type MetaCenterDashboard = {
   pixel: {
     pixelId: string | null;
     pixelName: string | null;
+    datasetId?: string | null;
+    trackingMode?: 'pixel' | 'dataset' | 'none';
+    datasetMessage?: string | null;
     lastEventAt: string | null;
     eventsToday: number;
     eventsMonth: number;
@@ -6198,7 +6201,10 @@ export type MetaCenterDashboard = {
   };
   capi: {
     datasetId: string | null;
+    pixelId?: string | null;
+    trackingMode?: 'pixel' | 'dataset' | 'none';
     tokenConfigured: boolean;
+    tokenLabel?: string;
     toggles: Record<string, boolean>;
     status: string;
   };

@@ -11,7 +11,13 @@ import {
   META_FIX_HREFS,
   MetaCenterIntegrationStatusService,
 } from './meta-center-integration-status.service';
-import { resolveMetaCenterIds } from './meta-center-env.util';
+import {
+  META_CAPI_OPTIONAL_MESSAGE,
+  META_DATASET_V21_MESSAGE,
+  hasMetaEventTracking,
+  resolveMetaCenterIds,
+  resolveMetaTrackingMode,
+} from './meta-center-env.util';
 import { MetaGraphClientService } from './meta-graph-client.service';
 
 const SETTINGS_ID = 'default';
@@ -371,36 +377,37 @@ export class MetaConnectDiagnosticsService {
       }),
     );
 
-    if (marketingAccessToken && resolvedIds.datasetId) {
-      await this.checkEntity(
-        checks,
-        marketingAccessToken,
-        'dataset',
-        'Dataset',
-        resolvedIds.datasetId,
-        (id) => `/${id}`,
-        'create_dataset',
-        undefined,
-        undefined,
-        'graph_api',
-      );
-    } else if (!resolvedIds.datasetId) {
-      pushOptional('dataset', 'Dataset', 'env');
-    } else {
+    if (resolvedIds.datasetId) {
       push(
         this.integration.buildCheck({
           key: 'dataset',
           label: 'Dataset',
-          connected: Boolean(resolvedIds.datasetId),
-          detail: resolvedIds.datasetId,
+          connected: true,
+          optional: false,
+          detail: `Dataset ID ${resolvedIds.datasetId} (Graph API v21+)`,
           source: 'env',
         }),
       );
+    } else {
+      pushOptional('dataset', 'Dataset', 'env');
     }
 
     const pixelId = resolvedIds.pixelId;
     if (!pixelId) {
-      pushOptional('pixel', 'Pixel', 'env');
+      if (resolvedIds.datasetId) {
+        push(
+          this.integration.buildCheck({
+            key: 'pixel',
+            label: 'Pixel',
+            connected: true,
+            optional: true,
+            detail: META_DATASET_V21_MESSAGE,
+            source: 'env',
+          }),
+        );
+      } else {
+        pushOptional('pixel', 'Pixel', 'env');
+      }
     } else if (marketingAccessToken) {
       await this.checkEntity(
         checks,
@@ -428,15 +435,24 @@ export class MetaConnectDiagnosticsService {
 
     const capiToken = resolvedIds.capiToken;
     if (!capiToken) {
-      pushOptional('capi', 'Conversions API', 'env');
-    } else if (!pixelId) {
       push(
         this.integration.buildCheck({
           key: 'capi',
           label: 'Conversions API',
           connected: false,
-          error: 'CAPI token je nastaven, ale chybí Pixel ID.',
-          fixAction: 'create_pixel',
+          optional: true,
+          detail: META_CAPI_OPTIONAL_MESSAGE,
+          source: 'env',
+        }),
+      );
+    } else if (!hasMetaEventTracking(resolvedIds)) {
+      push(
+        this.integration.buildCheck({
+          key: 'capi',
+          label: 'Conversions API',
+          connected: false,
+          error: 'CAPI token je nastaven, ale chybí Pixel ID i Dataset ID.',
+          fixAction: 'create_dataset',
           source: 'env',
         }),
       );

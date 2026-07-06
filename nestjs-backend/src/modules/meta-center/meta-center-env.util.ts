@@ -14,6 +14,28 @@ export type MetaCenterResolvedIds = {
   commerceManagerId: string | null;
 };
 
+export type MetaTrackingMode = 'pixel' | 'dataset' | 'none';
+
+export const META_DATASET_V21_MESSAGE =
+  'Účet používá Meta Dataset (Graph API v21+). Pixel není vyžadován.';
+
+export const META_CAPI_OPTIONAL_MESSAGE = 'Nenastaveno (volitelné)';
+
+/** Pixel má přednost; bez Pixelu se použije Dataset (Graph API v21+). */
+export function resolveMetaTrackingMode(ids: MetaCenterResolvedIds): MetaTrackingMode {
+  if (ids.pixelId) return 'pixel';
+  if (ids.datasetId) return 'dataset';
+  return 'none';
+}
+
+export function resolvePrimaryEventSourceId(ids: MetaCenterResolvedIds): string | null {
+  return ids.pixelId ?? ids.datasetId ?? null;
+}
+
+export function hasMetaEventTracking(ids: MetaCenterResolvedIds): boolean {
+  return Boolean(ids.pixelId || ids.datasetId);
+}
+
 /** ENV má přednost před hodnotami uloženými po Meta Connect. */
 export function resolveMetaCenterIds(row: MetaCenterSetting): MetaCenterResolvedIds {
   return {

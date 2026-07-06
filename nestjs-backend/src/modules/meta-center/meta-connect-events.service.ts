@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { getPublicPortalUrl } from '../social/autopost/social-publish-format.util';
 import { META_TEST_EVENT_NAMES } from './meta-connect.constants';
+import { resolveMetaCenterIds, resolvePrimaryEventSourceId } from './meta-center-env.util';
 import { MetaConnectOAuthService } from './meta-connect-oauth.service';
 import { MetaGraphClientService } from './meta-graph-client.service';
 
@@ -21,9 +22,13 @@ export class MetaConnectEventsService {
     listingId?: string,
   ): Promise<{ ok: boolean; error?: string; response?: unknown }> {
     const row = await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } });
-    const pixelId = row?.pixelId?.trim();
-    if (!pixelId) {
-      return { ok: false, error: 'Pixel ID chybí — připojte Meta účet nebo vytvořte Pixel.' };
+    const ids = resolveMetaCenterIds(row ?? ({} as never));
+    const eventSourceId = resolvePrimaryEventSourceId(ids);
+    if (!eventSourceId) {
+      return {
+        ok: false,
+        error: 'Chybí Pixel ID i Dataset ID — připojte Meta účet nebo nastavte FACEBOOK_DATASET_ID.',
+      };
     }
 
     let token: string;
@@ -35,7 +40,7 @@ export class MetaConnectEventsService {
 
     const origin = getPublicPortalUrl();
     const eventTime = Math.floor(Date.now() / 1000);
-    const testEventCode = row?.testEventCode ?? `TEST${pixelId.slice(-6)}`;
+    const testEventCode = row?.testEventCode ?? `TEST${eventSourceId.slice(-6)}`;
 
     const eventPayload = {
       event_name: eventName,
@@ -51,7 +56,7 @@ export class MetaConnectEventsService {
     };
 
     const res = await this.graph.post<{ events_received?: number; fbtrace_id?: string }>(
-      `/${pixelId}/events`,
+      `/${eventSourceId}/events`,
       token,
       {
         data: JSON.stringify([eventPayload]),

@@ -708,7 +708,7 @@ export default function MetaCentrumPage() {
                   ['Pixel ID', dash.settings.pixelId],
                   ['Catalog ID', dash.settings.catalogId],
                   ['Commerce Manager ID', dash.settings.commerceManagerId],
-                  ['Conversions API Token', dash.settings.conversionsApiTokenMasked ? 'nastaveno' : 'chybí'],
+                  ['Conversions API Token', dash.settings.conversionsApiTokenMasked ? 'nastaveno' : 'Nenastaveno (volitelné)'],
                   ['Webhook Verify Token', dash.settings.webhookVerifyTokenMasked ? 'nastaveno' : 'chybí'],
                   ['Webhook Secret', dash.settings.webhookSecretMasked ? 'nastaveno' : 'chybí'],
                 ].map(([label, val]) => (
@@ -765,8 +765,15 @@ export default function MetaCentrumPage() {
 
         {tab === 'pixel' && dash ? (
           <section className="space-y-4">
+            {dash.pixel.datasetMessage ? (
+              <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                {dash.pixel.datasetMessage}
+              </p>
+            ) : null}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {[
+                ['Režim', dash.pixel.trackingMode === 'dataset' ? 'Dataset (v21+)' : dash.pixel.trackingMode === 'pixel' ? 'Pixel' : '—'],
+                ['Dataset ID', dash.pixel.datasetId ?? dash.capi.datasetId ?? '—'],
                 ['Pixel ID', dash.pixel.pixelId ?? '—'],
                 ['Název', dash.pixel.pixelName ?? '—'],
                 ['Událostí dnes', String(dash.pixel.eventsToday)],
@@ -808,8 +815,26 @@ export default function MetaCentrumPage() {
           <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
             <h2 className="mb-4 text-lg font-bold">Conversions API</h2>
             <p className="mb-4 text-sm text-zinc-600">
-              Dataset: <strong>{dash.capi.datasetId ?? '—'}</strong> · Token:{' '}
-              {dash.capi.tokenConfigured ? 'nastaven' : 'chybí'} · Stav: {dash.capi.status}
+              Režim:{' '}
+              <strong>
+                {dash.capi.trackingMode === 'dataset'
+                  ? 'Dataset (v21+)'
+                  : dash.capi.trackingMode === 'pixel'
+                    ? 'Pixel'
+                    : '—'}
+              </strong>
+              {' · '}
+              Dataset: <strong>{dash.capi.datasetId ?? '—'}</strong>
+              {' · '}
+              Pixel: <strong>{dash.capi.pixelId ?? '—'}</strong>
+              {' · '}
+              Token:{' '}
+              <strong>
+                {dash.capi.tokenLabel ??
+                  (dash.capi.tokenConfigured ? 'nastaven' : 'Nenastaveno (volitelné)')}
+              </strong>
+              {' · '}
+              Stav: {dash.capi.status}
             </p>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {CAPI_EVENTS.map((ev) => (
