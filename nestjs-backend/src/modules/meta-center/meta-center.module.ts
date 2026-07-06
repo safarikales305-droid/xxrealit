@@ -6,6 +6,7 @@ import { MetaCenterPublicController } from './meta-center-public.controller';
 import { MetaCenterService } from './meta-center.service';
 import { MetaConnectCallbackController } from './meta-connect-callback.controller';
 import { MetaConnectDiagnosticsService } from './meta-connect-diagnostics.service';
+import { MetaCenterGraphDiagnosticsService } from './meta-center-graph-diagnostics.service';
 import { MetaConnectDiscoveryService } from './meta-connect-discovery.service';
 import { MetaConnectEventsService } from './meta-connect-events.service';
 import { MetaConnectOAuthService } from './meta-connect-oauth.service';
@@ -29,6 +30,7 @@ import { MetaGraphClientService } from './meta-graph-client.service';
     MetaConnectDiagnosticsService,
     MetaConnectEventsService,
     MetaConnectSyncCronService,
+    MetaCenterGraphDiagnosticsService,
   ],
   exports: [MetaCenterService, MetaConnectOAuthService],
 })

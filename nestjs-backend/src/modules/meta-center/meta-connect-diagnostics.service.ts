@@ -6,6 +6,8 @@ import type { MetaConnectionCheck, MetaConnectionCheckKey } from './meta-connect
 import { MetaConnectDiscoveryService } from './meta-connect-discovery.service';
 import { MetaConnectOAuthService } from './meta-connect-oauth.service';
 import { MetaConnectProvisionService } from './meta-connect-provision.service';
+import { MetaCenterGraphDiagnosticsService } from './meta-center-graph-diagnostics.service';
+import { resolveMetaCenterIds } from './meta-center-env.util';
 import { MetaGraphClientService } from './meta-graph-client.service';
 
 const SETTINGS_ID = 'default';
@@ -19,6 +21,7 @@ export class MetaConnectDiagnosticsService {
     private readonly graph: MetaGraphClientService,
     private readonly discovery: MetaConnectDiscoveryService,
     private readonly provision: MetaConnectProvisionService,
+    private readonly graphDiagnostics: MetaCenterGraphDiagnosticsService,
   ) {}
 
   async runFullDiagnostics(): Promise<MetaConnectionCheck[]> {
@@ -32,8 +35,13 @@ export class MetaConnectDiagnosticsService {
       connected: boolean,
       error: string | null,
       fixAction: string | null,
+      optional = false,
     ) => {
-      checks.push({ key, label, connected, error, fixAction });
+      checks.push({ key, label, connected, error, fixAction, optional });
+    };
+
+    const pushOptional = (key: MetaConnectionCheckKey, label: string) => {
+      push(key, label, false, 'Nenastaveno (volitelné)', null, true);
     };
 
     push(
@@ -122,14 +130,18 @@ export class MetaConnectDiagnosticsService {
       );
     }
 
+    const resolvedIds = resolveMetaCenterIds(row ?? ({} as never));
+
     if (accessToken) {
+      const catalogGraph = await this.graphDiagnostics.buildCatalogDiagnostics();
+
       await this.checkEntity(
         checks,
         accessToken,
         row,
         'business',
         'Business Manager',
-        row?.businessManagerId,
+        resolvedIds.businessId,
         (id) => `/${id}`,
         'create_business',
       );
@@ -169,9 +181,11 @@ export class MetaConnectDiagnosticsService {
         row,
         'commerce',
         'Commerce Manager',
-        row?.commerceManagerId ?? row?.commerceAccountId,
+        resolvedIds.businessId,
         (id) => `/${id}`,
         'create_commerce',
+        catalogGraph.commerceOnline,
+        catalogGraph.commerceOnline ? null : catalogGraph.commerceMessage,
       );
       await this.checkEntity(
         checks,
@@ -179,9 +193,11 @@ export class MetaConnectDiagnosticsService {
         row,
         'catalog',
         'Catalog',
-        row?.catalogId,
+        resolvedIds.catalogId,
         (id) => `/${id}`,
         'create_catalog',
+        catalogGraph.catalogOnline,
+        catalogGraph.catalogOnline ? null : catalogGraph.catalogMessage,
       );
       await this.checkEntity(
         checks,
@@ -189,29 +205,41 @@ export class MetaConnectDiagnosticsService {
         row,
         'dataset',
         'Dataset',
-        row?.datasetId,
+        resolvedIds.datasetId,
         (id) => `/${id}`,
         'create_dataset',
       );
-      await this.checkEntity(
-        checks,
-        accessToken,
-        row,
-        'pixel',
-        'Pixel',
-        row?.pixelId,
-        (id) => `/${id}`,
-        'create_pixel',
-      );
 
-      const capiOk = Boolean(row?.conversionsApiToken && row.pixelId);
-      push(
-        'capi',
-        'Conversions API',
-        capiOk,
-        capiOk ? null : 'Chybí Pixel ID nebo CAPI token.',
-        capiOk ? null : 'activate_capi',
-      );
+      const pixelId = resolvedIds.pixelId;
+      if (!pixelId) {
+        pushOptional('pixel', 'Pixel');
+      } else {
+        await this.checkEntity(
+          checks,
+          accessToken,
+          row,
+          'pixel',
+          'Pixel',
+          pixelId,
+          (id) => `/${id}`,
+          'create_pixel',
+        );
+      }
+
+      const capiToken = resolvedIds.capiToken;
+      if (!capiToken) {
+        pushOptional('capi', 'Conversions API');
+      } else if (!pixelId) {
+        push(
+          'capi',
+          'Conversions API',
+          false,
+          'CAPI token je nastaven, ale chybí Pixel ID.',
+          'create_pixel',
+        );
+      } else {
+        push('capi', 'Conversions API', true, null, null);
+      }
 
       const webhookOk = Boolean(row?.webhookVerifyToken || this.fbConfig.buildWebhookUri());
       push(
@@ -276,6 +304,8 @@ export class MetaConnectDiagnosticsService {
     id: string | null | undefined,
     path: (id: string) => string,
     fixAction: string,
+    connectedOverride?: boolean,
+    errorOverride?: string | null,
   ) {
     if (!id?.trim()) {
       checks.push({
@@ -284,6 +314,16 @@ export class MetaConnectDiagnosticsService {
         connected: false,
         error: `${label} nenalezen.`,
         fixAction,
+      });
+      return;
+    }
+    if (connectedOverride !== undefined) {
+      checks.push({
+        key,
+        label,
+        connected: connectedOverride,
+        error: errorOverride ?? null,
+        fixAction: connectedOverride ? null : fixAction,
       });
       return;
     }

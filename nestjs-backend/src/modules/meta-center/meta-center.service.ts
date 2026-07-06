@@ -18,11 +18,16 @@ import {
   type MetaDiagnosticLevel,
   type MetaServiceKey,
 } from './meta-center.defaults';
+import { resolveMetaCenterIds } from './meta-center-env.util';
+import {
+  MetaCenterGraphDiagnosticsService,
+  type MetaCatalogGraphDiagnostics,
+} from './meta-center-graph-diagnostics.service';
 
 const SETTINGS_ID = 'default';
 
 type ServiceStatusRow = {
-  status: 'online' | 'offline';
+  status: 'online' | 'offline' | 'optional';
   lastSyncAt: string | null;
   createdAt: string;
   graphApiVersion: string;
@@ -43,6 +48,7 @@ export class MetaCenterService {
     private readonly prisma: PrismaService,
     private readonly fbConfig: FacebookConfigService,
     private readonly catalog: MetaCatalogService,
+    private readonly graphDiagnostics: MetaCenterGraphDiagnosticsService,
   ) {}
 
   private maskSecret(value: string | null | undefined): string | null {
@@ -229,6 +235,79 @@ export class MetaCenterService {
     return { ok: true, settings: this.serializeSettings(row) };
   }
 
+  private serviceCardStatus(
+    key: MetaServiceKey,
+    row: Awaited<ReturnType<MetaCenterService['getOrCreateSettings']>>,
+    fbStatus: ReturnType<FacebookConfigService['getConfigStatus']>,
+    catalogEnabled: boolean,
+    ids: ReturnType<typeof resolveMetaCenterIds>,
+    catalogGraph: MetaCatalogGraphDiagnostics,
+  ): { status: 'online' | 'offline' | 'optional'; statusLabel: string; detail?: string } {
+    switch (key) {
+      case 'meta_pixel':
+        if (!ids.pixelId) {
+          return { status: 'optional', statusLabel: 'Nenastaveno (volitelné)' };
+        }
+        return {
+          status: 'online',
+          statusLabel: 'Online',
+          detail: `Pixel ID ${ids.pixelId}`,
+        };
+      case 'conversions_api':
+        if (!ids.capiToken) {
+          return { status: 'optional', statusLabel: 'Nenastaveno (volitelné)' };
+        }
+        if (!ids.pixelId) {
+          return {
+            status: 'offline',
+            statusLabel: 'Offline',
+            detail: 'CAPI token je nastaven, ale chybí Pixel ID.',
+          };
+        }
+        return { status: 'online', statusLabel: 'Online', detail: 'CAPI token nastaven' };
+      case 'commerce_manager':
+        if (catalogGraph.commerceOnline) {
+          return { status: 'online', statusLabel: 'Online', detail: catalogGraph.commerceMessage };
+        }
+        return {
+          status: 'offline',
+          statusLabel: 'Offline',
+          detail: catalogGraph.commerceMessage,
+        };
+      case 'facebook_catalog':
+        if (!ids.catalogId) {
+          return {
+            status: 'offline',
+            statusLabel: 'Offline',
+            detail: 'Chybí FACEBOOK_CATALOG_ID.',
+          };
+        }
+        if (catalogGraph.catalogOnline) {
+          return { status: 'online', statusLabel: 'Online', detail: catalogGraph.catalogMessage };
+        }
+        return {
+          status: 'offline',
+          statusLabel: 'Offline',
+          detail: catalogGraph.catalogMessage,
+        };
+      case 'dataset':
+        if (!ids.datasetId) {
+          return { status: 'optional', statusLabel: 'Nenastaveno (volitelné)' };
+        }
+        return {
+          status: 'online',
+          statusLabel: 'Online',
+          detail: `Dataset ${ids.datasetId}`,
+        };
+      default: {
+        const online = this.serviceConfigured(key, row, fbStatus, catalogEnabled);
+        return online
+          ? { status: 'online', statusLabel: 'Online' }
+          : { status: 'offline', statusLabel: 'Offline' };
+      }
+    }
+  }
+
   private serviceConfigured(
     key: MetaServiceKey,
     row: Awaited<ReturnType<MetaCenterService['getOrCreateSettings']>>,
@@ -247,15 +326,15 @@ export class MetaCenterService {
       case 'whatsapp_business':
         return Boolean(process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_PHONE_NUMBER_ID);
       case 'meta_pixel':
-        return Boolean(row.pixelId);
+        return Boolean(resolveMetaCenterIds(row).pixelId);
       case 'conversions_api':
-        return Boolean(row.conversionsApiToken && row.datasetId);
+        return Boolean(resolveMetaCenterIds(row).capiToken);
       case 'commerce_manager':
-        return Boolean(row.commerceManagerId && row.businessManagerId);
+        return Boolean(resolveMetaCenterIds(row).businessId && resolveMetaCenterIds(row).catalogId);
       case 'facebook_catalog':
-        return Boolean(row.catalogId);
+        return Boolean(resolveMetaCenterIds(row).catalogId);
       case 'dataset':
-        return Boolean(row.datasetId);
+        return Boolean(resolveMetaCenterIds(row).datasetId);
       case 'xml_feed':
       case 'csv_feed':
       case 'json_feed':
@@ -275,15 +354,22 @@ export class MetaCenterService {
     const catalog = await this.catalog.getAdminSettings();
     const stored = this.parseJson<Record<string, Partial<ServiceStatusRow>>>(row.serviceStatus, {});
     const graphVersion = row.graphApiVersion || GRAPH_API_VERSION_DEFAULT;
+    const ids = resolveMetaCenterIds(row);
+    const catalogGraph = await this.graphDiagnostics.buildCatalogDiagnostics();
 
     return META_SERVICE_KEYS.map((key) => {
-      const online = this.serviceConfigured(key, row, fbStatus, catalog.enabled);
+      const card = this.serviceCardStatus(key, row, fbStatus, catalog.enabled, ids, catalogGraph);
       const prev = stored[key];
       return {
         key,
         label: META_SERVICE_LABELS[key],
-        status: online ? ('online' as const) : ('offline' as const),
-        lastSyncAt: prev?.lastSyncAt ?? catalog.lastGeneratedAt,
+        status: card.status,
+        statusLabel: card.statusLabel,
+        detail: card.detail ?? null,
+        lastSyncAt:
+          key === 'facebook_catalog'
+            ? catalogGraph.lastLocalSync ?? catalog.lastGeneratedAt
+            : prev?.lastSyncAt ?? catalog.lastGeneratedAt,
         createdAt: prev?.createdAt ?? row.createdAt.toISOString(),
         graphApiVersion: graphVersion,
       };
@@ -333,11 +419,18 @@ export class MetaCenterService {
     const row = await this.getOrCreateSettings();
     const fbStatus = this.fbConfig.getConfigStatus();
     const catalog = await this.catalog.getAdminSettings();
-    const online = this.serviceConfigured(key, row, fbStatus, catalog.enabled);
-    const result = online ? 'ok' : 'warning';
-    const message = online
-      ? `${META_SERVICE_LABELS[key]}: konfigurace připravena (ostrý test API po doplnění tokenů).`
-      : `${META_SERVICE_LABELS[key]}: chybí povinná konfigurace.`;
+    const ids = resolveMetaCenterIds(row);
+    const catalogGraph = await this.graphDiagnostics.buildCatalogDiagnostics();
+    const card = this.serviceCardStatus(key, row, fbStatus, catalog.enabled, ids, catalogGraph);
+    const online = card.status === 'online';
+    const result = card.status === 'optional' ? 'warning' : online ? 'ok' : 'warning';
+    const message =
+      card.detail ??
+      (card.status === 'optional'
+        ? `${META_SERVICE_LABELS[key]}: ${card.statusLabel}`
+        : online
+          ? `${META_SERVICE_LABELS[key]}: ${card.statusLabel}`
+          : `${META_SERVICE_LABELS[key]}: ${card.detail ?? 'chybí konfigurace'}`);
 
     if (online) await this.touchServiceStatus(key);
 
@@ -377,6 +470,8 @@ export class MetaCenterService {
     const urls = this.resolveUrls(row);
     const fbStatus = this.fbConfig.getConfigStatus();
     const apps = this.fbConfig.getAppsConfig();
+    const ids = resolveMetaCenterIds(row);
+    const catalogGraph = await this.graphDiagnostics.buildCatalogDiagnostics();
     const items: DiagnosticItem[] = [];
 
     items.push({
@@ -411,40 +506,89 @@ export class MetaCenterService {
 
     items.push({
       key: 'token',
-      label: 'Token',
-      level: row.conversionsApiToken ? 'ok' : 'warning',
-      message: row.conversionsApiToken ? 'CAPI token nastaven' : 'CAPI token chybí',
+      label: 'CAPI token',
+      level: ids.capiToken ? 'ok' : 'warning',
+      message: ids.capiToken
+        ? 'FACEBOOK_CAPI_ACCESS_TOKEN nastaven'
+        : 'Nenastaveno (volitelné)',
     });
 
     items.push({
       key: 'pixel',
       label: 'Pixel',
-      level: row.pixelId ? 'ok' : 'warning',
-      message: row.pixelId ? `Pixel ID ${row.pixelId}` : 'Pixel ID chybí',
+      level: ids.pixelId ? 'ok' : 'warning',
+      message: ids.pixelId ? `Pixel ID ${ids.pixelId}` : 'Nenastaveno (volitelné)',
     });
 
     items.push({
       key: 'dataset',
       label: 'Dataset',
-      level: row.datasetId ? 'ok' : 'warning',
-      message: row.datasetId ? `Dataset ${row.datasetId}` : 'Dataset ID chybí',
+      level: ids.datasetId ? 'ok' : 'warning',
+      message: ids.datasetId
+        ? `Dataset ${ids.datasetId}`
+        : 'Nenastaveno (volitelné)',
     });
 
     items.push({
       key: 'commerce',
       label: 'Commerce Manager',
-      level: row.commerceManagerId && row.businessManagerId ? 'ok' : 'warning',
-      message:
-        row.commerceManagerId && row.businessManagerId
-          ? 'Business + Commerce Manager ID nastaveny'
-          : 'Chybí Business nebo Commerce Manager ID',
+      level: catalogGraph.commerceOnline ? 'ok' : ids.businessId || ids.catalogId ? 'error' : 'warning',
+      message: catalogGraph.commerceMessage,
     });
 
     items.push({
       key: 'catalog',
-      label: 'Catalog',
-      level: row.catalogId ? 'ok' : 'warning',
-      message: row.catalogId ? `Catalog ${row.catalogId}` : 'Catalog ID chybí',
+      label: 'Facebook Catalog',
+      level: catalogGraph.catalogOnline ? 'ok' : ids.catalogId ? 'error' : 'warning',
+      message: catalogGraph.catalogMessage,
+    });
+
+    items.push({
+      key: 'catalog_business_id',
+      label: 'Business ID',
+      level: ids.businessId ? 'ok' : 'warning',
+      message: ids.businessId ?? 'Chybí FACEBOOK_BUSINESS_ID',
+    });
+
+    items.push({
+      key: 'catalog_product_count',
+      label: 'Počet produktů v katalogu',
+      level: catalogGraph.productCount != null && catalogGraph.productCount > 0 ? 'ok' : 'warning',
+      message:
+        catalogGraph.productCount != null
+          ? String(catalogGraph.productCount)
+          : 'Neznámý (Graph API)',
+    });
+
+    items.push({
+      key: 'catalog_last_sync',
+      label: 'Poslední synchronizace',
+      level: catalogGraph.lastLocalSync ? 'ok' : 'warning',
+      message: catalogGraph.lastLocalSync ?? 'Zatím neproběhla',
+    });
+
+    items.push({
+      key: 'catalog_last_update',
+      label: 'Poslední aktualizace katalogu',
+      level: catalogGraph.lastCatalogUpdate ? 'ok' : 'warning',
+      message: catalogGraph.lastCatalogUpdate ?? 'Neznámá',
+    });
+
+    items.push({
+      key: 'catalog_import_errors',
+      label: 'Chyby importu',
+      level: catalogGraph.importErrorCount === 0 ? 'ok' : 'error',
+      message: String(catalogGraph.importErrorCount),
+    });
+
+    items.push({
+      key: 'catalog_meta_images',
+      label: 'Obrázky načtené Meta',
+      level: catalogGraph.metaImagesLoaded != null && catalogGraph.metaImagesLoaded > 0 ? 'ok' : 'warning',
+      message:
+        catalogGraph.metaImagesLoaded != null
+          ? String(catalogGraph.metaImagesLoaded)
+          : 'Neznámý (Graph API)',
     });
 
     const feedValidation = await this.catalog.validateFeed().catch((e) => ({
@@ -526,12 +670,13 @@ export class MetaCenterService {
   }
 
   async getDashboard() {
-    const [settings, services, diagnostics, catalog, feedStats] = await Promise.all([
+    const [settings, services, diagnostics, catalog, feedStats, catalogGraph] = await Promise.all([
       this.getSettings(),
       this.buildServiceCards(),
       this.runDiagnostics(),
       this.catalog.getAdminSettings(),
       this.catalog.computeFeedStats('csv').catch(() => null),
+      this.graphDiagnostics.buildCatalogDiagnostics(),
     ]);
 
     const todayStart = new Date();
@@ -551,25 +696,31 @@ export class MetaCenterService {
       }),
     ]);
 
+    const ids = resolveMetaCenterIds(
+      await this.prisma.metaCenterSetting.findUnique({ where: { id: SETTINGS_ID } }) ??
+        ({} as never),
+    );
+
     return {
       settings,
       services,
       diagnostics,
       catalog,
       feedStats,
+      catalogGraph,
       pixel: {
-        pixelId: settings.pixelId,
+        pixelId: ids.pixelId,
         pixelName: settings.pixelName,
         lastEventAt: lastPixelEvent?.createdAt.toISOString() ?? null,
         eventsToday,
         eventsMonth,
-        status: settings.pixelId ? 'ready' : 'not_configured',
+        status: ids.pixelId ? 'ready' : 'not_configured',
       },
       capi: {
         datasetId: settings.datasetId,
-        tokenConfigured: Boolean(settings.conversionsApiTokenMasked),
+        tokenConfigured: Boolean(ids.capiToken),
         toggles: settings.capiEventToggles,
-        status: settings.datasetId && settings.conversionsApiTokenMasked ? 'ready' : 'not_configured',
+        status: ids.capiToken ? 'ready' : 'not_configured',
       },
     };
   }
@@ -813,27 +964,49 @@ export class MetaCenterService {
     const row = await this.getOrCreateSettings();
     const settings = this.serializeSettings(row);
     const apps = this.fbConfig.getAppsConfig();
+    const ids = resolveMetaCenterIds(row);
     const checks = this.parseJson<Array<{
       key: string;
       label: string;
       connected: boolean;
+      optional?: boolean;
       error: string | null;
       fixAction: string | null;
     }>>(row.diagnosticsSnapshot, []);
 
     const checklist = [
-      { key: 'app', label: 'Meta aplikace připojena', connected: Boolean(settings.facebookPagesAppId) },
-      { key: 'page', label: 'Facebook stránka připojena', connected: Boolean(settings.pageId) },
-      { key: 'ad', label: 'Reklamní účet připojen', connected: Boolean(settings.adAccountId) },
-      { key: 'commerce', label: 'Commerce Manager připojen', connected: Boolean(settings.commerceManagerId) },
-      { key: 'catalog', label: 'Catalog připojen', connected: Boolean(settings.catalogId) },
-      { key: 'dataset', label: 'Dataset připojen', connected: Boolean(settings.datasetId) },
-      { key: 'pixel', label: 'Pixel připojen', connected: Boolean(settings.pixelId) },
-      { key: 'capi', label: 'Conversions API aktivní', connected: Boolean(settings.conversionsApiTokenMasked) },
-      { key: 'webhook', label: 'Webhook aktivní', connected: Boolean(settings.webhookVerifyTokenMasked) },
-      { key: 'instagram', label: 'Instagram připojen', connected: Boolean(settings.instagramBusinessId) },
-      { key: 'whatsapp', label: 'WhatsApp připojen', connected: Boolean(settings.whatsappBusinessAccountId) },
-      { key: 'sync', label: 'Synchronizace aktivní', connected: settings.syncEnabled && settings.isMetaConnected },
+      { key: 'app', label: 'Meta aplikace připojena', connected: Boolean(settings.facebookPagesAppId), optional: false },
+      { key: 'page', label: 'Facebook stránka připojena', connected: Boolean(settings.pageId), optional: false },
+      { key: 'ad', label: 'Reklamní účet připojen', connected: Boolean(settings.adAccountId), optional: false },
+      {
+        key: 'commerce',
+        label: 'Commerce Manager připojen',
+        connected: Boolean(ids.businessId && ids.catalogId),
+        optional: false,
+      },
+      { key: 'catalog', label: 'Catalog připojen', connected: Boolean(ids.catalogId), optional: false },
+      {
+        key: 'dataset',
+        label: 'Dataset připojen',
+        connected: Boolean(ids.datasetId),
+        optional: !ids.datasetId,
+      },
+      {
+        key: 'pixel',
+        label: 'Pixel připojen',
+        connected: Boolean(ids.pixelId),
+        optional: !ids.pixelId,
+      },
+      {
+        key: 'capi',
+        label: 'Conversions API aktivní',
+        connected: Boolean(ids.capiToken),
+        optional: !ids.capiToken,
+      },
+      { key: 'webhook', label: 'Webhook aktivní', connected: Boolean(settings.webhookVerifyTokenMasked), optional: false },
+      { key: 'instagram', label: 'Instagram připojen', connected: Boolean(settings.instagramBusinessId), optional: false },
+      { key: 'whatsapp', label: 'WhatsApp připojen', connected: Boolean(settings.whatsappBusinessAccountId), optional: false },
+      { key: 'sync', label: 'Synchronizace aktivní', connected: settings.syncEnabled && settings.isMetaConnected, optional: false },
     ];
 
     return {

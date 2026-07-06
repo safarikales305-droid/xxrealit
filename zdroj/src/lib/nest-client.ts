@@ -6001,7 +6001,9 @@ export type MetaDiagnosticLevel = 'ok' | 'warning' | 'error';
 export type MetaCenterServiceCard = {
   key: string;
   label: string;
-  status: 'online' | 'offline';
+  status: 'online' | 'offline' | 'optional';
+  statusLabel: string;
+  detail?: string | null;
   lastSyncAt: string | null;
   createdAt: string;
   graphApiVersion: string;
@@ -6092,8 +6094,27 @@ export type MetaConnectionCheck = {
   key: string;
   label: string;
   connected: boolean;
+  optional?: boolean;
   error: string | null;
   fixAction: string | null;
+};
+
+export type MetaCatalogGraphDiagnostics = {
+  businessId: string | null;
+  catalogId: string | null;
+  datasetId: string | null;
+  commerceOnline: boolean;
+  commerceMessage: string;
+  catalogOnline: boolean;
+  catalogMessage: string;
+  catalogName: string | null;
+  productCount: number | null;
+  lastCatalogUpdate: string | null;
+  lastLocalSync: string | null;
+  importErrorCount: number;
+  metaImagesLoaded: number | null;
+  graphCheckedAt: string;
+  graphError: string | null;
 };
 
 export type MetaCenterApiLogRow = {
@@ -6126,6 +6147,7 @@ export type MetaCenterDashboard = {
     lastError: string | null;
     generationMs: number;
   } | null;
+  catalogGraph: MetaCatalogGraphDiagnostics;
   pixel: {
     pixelId: string | null;
     pixelName: string | null;

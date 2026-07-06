@@ -64,6 +64,7 @@ export type MetaConnectionCheck = {
   key: MetaConnectionCheckKey;
   label: string;
   connected: boolean;
+  optional?: boolean;
   error: string | null;
   fixAction: string | null;
 };

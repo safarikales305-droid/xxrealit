@@ -110,6 +110,16 @@ function formatBytes(n: number) {
   return `${(n / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+function serviceStatusBadge(status: 'online' | 'offline' | 'optional', statusLabel: string) {
+  if (status === 'online') {
+    return { text: statusLabel || 'Online', className: 'bg-emerald-100 text-emerald-800' };
+  }
+  if (status === 'optional') {
+    return { text: statusLabel || 'Nenastaveno (volitelné)', className: 'bg-zinc-100 text-zinc-600' };
+  }
+  return { text: statusLabel || 'Offline', className: 'bg-red-100 text-red-800' };
+}
+
 export default function MetaCentrumPage() {
   const router = useRouter();
   const params = useSearchParams();
@@ -119,7 +129,7 @@ export default function MetaCentrumPage() {
   const [tab, setTab] = useState<TabId>('dashboard');
   const [dash, setDash] = useState<MetaCenterDashboard | null>(null);
   const [connection, setConnection] = useState<{
-    checklist: Array<{ key: string; label: string; connected: boolean }>;
+    checklist: Array<{ key: string; label: string; connected: boolean; optional?: boolean }>;
     diagnostics: MetaConnectionCheck[];
   } | null>(null);
   const [logs, setLogs] = useState<MetaCenterEventLogRow[]>([]);
@@ -169,6 +179,7 @@ export default function MetaCentrumPage() {
 
   const services = dash?.services ?? [];
   const diagnostics = dash?.diagnostics;
+  const catalogGraph = dash?.catalogGraph;
 
   const settingsFields = useMemo(
     () =>
@@ -336,13 +347,20 @@ export default function MetaCentrumPage() {
                     <div
                       key={item.key}
                       className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${
-                        item.connected
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                          : 'border-red-200 bg-red-50 text-red-900'
+                        item.optional
+                          ? 'border-zinc-200 bg-zinc-50 text-zinc-600'
+                          : item.connected
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                            : 'border-red-200 bg-red-50 text-red-900'
                       }`}
                     >
-                      <span>{item.connected ? '✓' : '✗'}</span>
-                      <span>{item.label}</span>
+                      <span>
+                        {item.optional ? '○' : item.connected ? '✓' : '✗'}
+                      </span>
+                      <span>
+                        {item.label}
+                        {item.optional ? ' — Nenastaveno (volitelné)' : ''}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -357,18 +375,24 @@ export default function MetaCentrumPage() {
                     <div
                       key={item.key}
                       className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm ${
-                        item.connected
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                          : 'border-red-200 bg-red-50 text-red-900'
+                        item.optional
+                          ? 'border-zinc-200 bg-zinc-50 text-zinc-600'
+                          : item.connected
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                            : 'border-red-200 bg-red-50 text-red-900'
                       }`}
                     >
                       <div>
                         <strong>{item.label}</strong>
                         <span className="ml-2">
-                          {item.connected ? 'Připojeno' : item.error ?? 'Chybí'}
+                          {item.optional
+                            ? 'Nenastaveno (volitelné)'
+                            : item.connected
+                              ? 'Připojeno'
+                              : item.error ?? 'Chybí'}
                         </span>
                       </div>
-                      {!item.connected && item.fixAction ? (
+                      {!item.connected && !item.optional && item.fixAction ? (
                         <button
                           type="button"
                           disabled={busy}
@@ -441,7 +465,9 @@ export default function MetaCentrumPage() {
             ) : null}
 
             <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {services.map((s) => (
+              {services.map((s) => {
+                const badge = serviceStatusBadge(s.status, s.statusLabel);
+                return (
                 <div
                   key={s.key}
                   className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm"
@@ -449,15 +475,14 @@ export default function MetaCentrumPage() {
                   <div className="mb-2 flex items-start justify-between gap-2">
                     <h3 className="font-semibold leading-tight">{s.label}</h3>
                     <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${
-                        s.status === 'online'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-zinc-200 text-zinc-600'
-                      }`}
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${badge.className}`}
                     >
-                      {s.status === 'online' ? 'Online' : 'Offline'}
+                      {badge.text}
                     </span>
                   </div>
+                  {s.detail ? (
+                    <p className="mb-2 text-xs text-zinc-500 break-words">{s.detail}</p>
+                  ) : null}
                   <dl className="space-y-1 text-xs text-zinc-500">
                     <div>
                       <dt className="inline">Sync: </dt>
@@ -487,8 +512,49 @@ export default function MetaCentrumPage() {
                     Otestovat
                   </button>
                 </div>
-              ))}
+              );
+              })}
             </section>
+
+            {catalogGraph ? (
+              <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+                <h2 className="mb-3 text-lg font-bold">Diagnostika katalogu (Graph API)</h2>
+                <p className="mb-4 text-xs text-zinc-500">
+                  Ověřeno: {new Date(catalogGraph.graphCheckedAt).toLocaleString('cs-CZ')}
+                  {catalogGraph.graphError ? ` · ${catalogGraph.graphError}` : ''}
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {[
+                    ['Business ID', catalogGraph.businessId],
+                    ['Catalog ID', catalogGraph.catalogId],
+                    ['Dataset ID', catalogGraph.datasetId],
+                    ['Název katalogu', catalogGraph.catalogName],
+                    ['Počet produktů', catalogGraph.productCount ?? '—'],
+                    [
+                      'Poslední synchronizace',
+                      catalogGraph.lastLocalSync
+                        ? new Date(catalogGraph.lastLocalSync).toLocaleString('cs-CZ')
+                        : '—',
+                    ],
+                    [
+                      'Poslední aktualizace katalogu',
+                      catalogGraph.lastCatalogUpdate
+                        ? new Date(catalogGraph.lastCatalogUpdate).toLocaleString('cs-CZ')
+                        : '—',
+                    ],
+                    ['Chyby importu', catalogGraph.importErrorCount],
+                    ['Obrázky načtené Meta', catalogGraph.metaImagesLoaded ?? '—'],
+                    ['Commerce Manager', catalogGraph.commerceMessage],
+                    ['Facebook Catalog', catalogGraph.catalogMessage],
+                  ].map(([label, val]) => (
+                    <div key={String(label)} className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+                      <p className="text-xs font-medium text-zinc-500">{label}</p>
+                      <p className="mt-1 break-all font-mono text-xs">{String(val ?? '—')}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
 
             {diagnostics ? (
               <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
