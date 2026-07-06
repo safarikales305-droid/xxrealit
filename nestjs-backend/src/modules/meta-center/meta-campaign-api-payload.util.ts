@@ -1,0 +1,200 @@
+import type { MetaGraphResult } from './meta-graph-client.service';
+import {
+  extractMetaGraphErrorFields,
+  type MetaGraphErrorBody,
+} from './meta-graph-error.util';
+
+export type MetaCampaignLaunchBlocker = {
+  key: string;
+  message: string;
+};
+
+export type MetaCampaignBudgetConfig = {
+  /** Advantage+ campaign budget (rozpočet na kampani, ne na ad setu). */
+  useCampaignBudgetOptimization: boolean;
+  isAdsetBudgetSharingEnabled: boolean;
+};
+
+export type MetaApiErrorDetail = {
+  step: string;
+  field: string | null;
+  fieldValue: unknown;
+  requestPayload: Record<string, unknown>;
+  httpStatus: number;
+  response: unknown;
+  traceId: string | null;
+};
+
+export function resolveBudgetConfig(
+  useCampaignBudgetOptimization = false,
+): MetaCampaignBudgetConfig {
+  if (useCampaignBudgetOptimization) {
+    return {
+      useCampaignBudgetOptimization: true,
+      isAdsetBudgetSharingEnabled: true,
+    };
+  }
+  return {
+    useCampaignBudgetOptimization: false,
+    isAdsetBudgetSharingEnabled: false,
+  };
+}
+
+export function validateCampaignPayload(
+  payload: Record<string, unknown>,
+  config: MetaCampaignBudgetConfig,
+): MetaCampaignLaunchBlocker[] {
+  const blockers: MetaCampaignLaunchBlocker[] = [];
+  const required = ['name', 'objective', 'status', 'special_ad_categories', 'is_adset_budget_sharing_enabled'];
+  for (const field of required) {
+    if (payload[field] === undefined || payload[field] === null || payload[field] === '') {
+      blockers.push({
+        key: `campaign.${field}`,
+        message: `Kampaň: chybí povinný parametr „${field}".`,
+      });
+    }
+  }
+  if (config.useCampaignBudgetOptimization) {
+    if (!payload.daily_budget && !payload.lifetime_budget) {
+      blockers.push({
+        key: 'campaign.daily_budget',
+        message: 'Kampaň (CBO): chybí daily_budget nebo lifetime_budget.',
+      });
+    }
+  }
+  return blockers;
+}
+
+export function validateAdSetPayload(
+  payload: Record<string, unknown>,
+  config: MetaCampaignBudgetConfig,
+  options: { requiresPromotedObject: boolean },
+): MetaCampaignLaunchBlocker[] {
+  const blockers: MetaCampaignLaunchBlocker[] = [];
+  const required = [
+    'name',
+    'campaign_id',
+    'billing_event',
+    'optimization_goal',
+    'bid_strategy',
+    'targeting',
+    'status',
+    'is_adset_budget_sharing_enabled',
+  ];
+  for (const field of required) {
+    if (payload[field] === undefined || payload[field] === null || payload[field] === '') {
+      blockers.push({
+        key: `adset.${field}`,
+        message: `Ad set: chybí povinný parametr „${field}".`,
+      });
+    }
+  }
+
+  if (!config.useCampaignBudgetOptimization) {
+    if (!payload.daily_budget && !payload.lifetime_budget) {
+      blockers.push({
+        key: 'adset.daily_budget',
+        message: 'Ad set: chybí daily_budget nebo lifetime_budget.',
+      });
+    }
+  } else if (payload.daily_budget || payload.lifetime_budget) {
+    blockers.push({
+      key: 'adset.daily_budget',
+      message: 'Ad set: při CBO nesmí být nastaven rozpočet na ad setu.',
+    });
+  }
+
+  if (options.requiresPromotedObject && !payload.promoted_object) {
+    blockers.push({
+      key: 'adset.promoted_object',
+      message: 'Ad set: chybí promoted_object (pixel/dataset nebo katalog).',
+    });
+  }
+
+  try {
+    const targetingRaw = payload.targeting;
+    const targeting =
+      typeof targetingRaw === 'string' ? JSON.parse(targetingRaw) : targetingRaw;
+    if (!targeting || typeof targeting !== 'object' || !Object.keys(targeting).length) {
+      blockers.push({
+        key: 'adset.targeting',
+        message: 'Ad set: cílení (targeting) nesmí být prázdné.',
+      });
+    }
+  } catch {
+    blockers.push({
+      key: 'adset.targeting',
+      message: 'Ad set: targeting není platný JSON.',
+    });
+  }
+
+  return blockers;
+}
+
+function extractBlameField(
+  body: MetaGraphErrorBody | null | undefined,
+  payload: Record<string, unknown>,
+): { field: string | null; fieldValue: unknown } {
+  const err = body?.error;
+  if (!err) return { field: null, fieldValue: null };
+
+  const errorData = err.error_data;
+  if (errorData && typeof errorData === 'object') {
+    const specs = (errorData as { blame_field_specs?: Array<{ field?: string }> })
+      .blame_field_specs;
+    const blamed = specs?.[0]?.field;
+    if (blamed) {
+      return { field: blamed, fieldValue: payload[blamed] ?? null };
+    }
+  }
+
+  const message = typeof err.message === 'string' ? err.message : '';
+  const paramMatch = message.match(/(?:param|parameter|field)\s+[`'"]?([\w.]+)[`'"]?/i);
+  if (paramMatch?.[1]) {
+    const field = paramMatch[1];
+    return { field, fieldValue: payload[field] ?? null };
+  }
+
+  return { field: null, fieldValue: null };
+}
+
+export function formatMetaApiFailure(
+  step: string,
+  payload: Record<string, unknown>,
+  result: MetaGraphResult<unknown>,
+): { message: string; detail: MetaApiErrorDetail } {
+  const body = result.ok ? null : result.data;
+  const fields = extractMetaGraphErrorFields(body);
+  const blame = extractBlameField(body, payload);
+
+  const detail: MetaApiErrorDetail = {
+    step,
+    field: blame.field,
+    fieldValue: blame.fieldValue,
+    requestPayload: payload,
+    httpStatus: result.httpStatus,
+    response: body ?? null,
+    traceId: fields.trace_id,
+  };
+
+  const lines = [
+    `Meta API — ${step}`,
+    blame.field ? `Pole: ${blame.field}` : null,
+    blame.field != null ? `Hodnota: ${safeStringify(blame.fieldValue)}` : null,
+    `HTTP: ${result.httpStatus}`,
+    fields.message ? `Meta: ${fields.message}` : null,
+    fields.trace_id ? `trace_id: ${fields.trace_id}` : null,
+    `Request JSON: ${safeStringify(payload)}`,
+    `Response JSON: ${fields.fullJson ?? safeStringify(body)}`,
+  ].filter(Boolean);
+
+  return { message: lines.join('\n'), detail };
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}

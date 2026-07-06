@@ -6586,6 +6586,15 @@ export type MetaCampaignCreateResponse = {
   message?: string;
   liveEnabled?: boolean;
   blockers?: Array<{ key: string; message: string }>;
+  metaApiError?: {
+    step: string;
+    field: string | null;
+    fieldValue: unknown;
+    requestPayload: Record<string, unknown>;
+    httpStatus: number;
+    response: unknown;
+    traceId: string | null;
+  };
   campaign: MetaCampaignDraft | null;
 };
 

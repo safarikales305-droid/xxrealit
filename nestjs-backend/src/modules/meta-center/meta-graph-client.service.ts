@@ -144,7 +144,11 @@ export class MetaGraphClientService {
     form.set('access_token', accessToken);
     for (const [k, v] of Object.entries(body)) {
       if (v === undefined || v === null) continue;
-      form.set(k, typeof v === 'string' ? v : JSON.stringify(v));
+      if (typeof v === 'boolean') {
+        form.set(k, v ? 'true' : 'false');
+      } else {
+        form.set(k, typeof v === 'string' ? v : JSON.stringify(v));
+      }
     }
     const httpRequest = `POST ${base}${path.startsWith('/') ? path : `/${path}`}`;
 

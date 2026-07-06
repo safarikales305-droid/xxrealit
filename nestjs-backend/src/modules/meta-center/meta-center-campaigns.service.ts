@@ -17,6 +17,14 @@ import {
   type MetaCampaignTargetingMode,
   type MetaCreativeType,
 } from './meta-marketing-platform.constants';
+import {
+  formatMetaApiFailure,
+  resolveBudgetConfig,
+  validateAdSetPayload,
+  validateCampaignPayload,
+  type MetaApiErrorDetail,
+  type MetaCampaignLaunchBlocker,
+} from './meta-campaign-api-payload.util';
 
 const SETTINGS_ID = 'default';
 
@@ -37,10 +45,7 @@ export type MetaCampaignProductItem = {
   lastSyncedAt: string | null;
 };
 
-export type MetaCampaignLaunchBlocker = {
-  key: string;
-  message: string;
-};
+export type { MetaCampaignLaunchBlocker, MetaApiErrorDetail } from './meta-campaign-api-payload.util';
 
 export type MetaCampaignInsights = {
   reach: number | null;
@@ -749,56 +754,119 @@ export class MetaCenterCampaignsService {
     }
 
     const objective = this.mapObjective(dto.objective);
+    const budgetConfig = resolveBudgetConfig(false);
+    const dailyBudgetMinor = Math.round(dto.dailyBudgetCzk * 100);
+    const catalogId = ids.catalogId;
+
+    const campaignPayload: Record<string, unknown> = {
+      name: dto.name.trim(),
+      objective,
+      status: publishStatus,
+      special_ad_categories: JSON.stringify(['HOUSING']),
+      is_adset_budget_sharing_enabled: budgetConfig.isAdsetBudgetSharingEnabled,
+    };
+    if (budgetConfig.useCampaignBudgetOptimization) {
+      campaignPayload.daily_budget = String(dailyBudgetMinor);
+    }
+
+    const campaignBlockers = validateCampaignPayload(campaignPayload, budgetConfig);
+    if (campaignBlockers.length) {
+      const msg = campaignBlockers.map((b) => b.message).join(' ');
+      await this.markDraftError(draftId, msg);
+      return {
+        ok: false as const,
+        status: 'validation_error' as const,
+        message: msg,
+        blockers: campaignBlockers,
+        campaign: null,
+      };
+    }
+
     const campaignRes = await this.graph.post<{ id?: string }>(
       `/act_${actId}/campaigns`,
       token,
-      {
-        name: dto.name.trim(),
-        objective,
-        status: publishStatus,
-        special_ad_categories: JSON.stringify(['HOUSING']),
-      },
+      campaignPayload,
     );
 
     if (!campaignRes.ok || !campaignRes.data.id) {
-      const msg =
-        (!campaignRes.ok ? campaignRes.errorMessage : null) ||
-        'Vytvoření kampaně v Meta selhalo.';
-      await this.markDraftError(draftId, msg);
-      return { ok: false as const, status: 'error' as const, message: msg, campaign: null };
+      const failure = formatMetaApiFailure('Vytvoření kampaně', campaignPayload, campaignRes);
+      await this.markDraftError(draftId, failure.message);
+      return {
+        ok: false as const,
+        status: 'error' as const,
+        message: failure.message,
+        metaApiError: failure.detail,
+        campaign: null,
+      };
     }
 
     const metaCampaignId = campaignRes.data.id;
     const targeting = await this.buildTargeting(dto, audienceMetaId);
-    const dailyBudgetMinor = Math.round(dto.dailyBudgetCzk * 100);
     const startTime = this.parseDate(dto.startDate)?.toISOString() ?? undefined;
     const endTime = this.parseDate(dto.endDate)?.toISOString() ?? undefined;
+    const optimizationGoal =
+      dto.objective === 'catalog' ? 'OFFSITE_CONVERSIONS' : 'LINK_CLICKS';
+    const requiresPromotedObject =
+      optimizationGoal === 'OFFSITE_CONVERSIONS' || dto.objective === 'catalog';
 
-    const adSetRes = await this.graph.post<{ id?: string }>(
-      `/act_${actId}/adsets`,
-      token,
-      {
-        name: `${dto.name.trim()} — sada`,
-        campaign_id: metaCampaignId,
-        daily_budget: String(dailyBudgetMinor),
-        billing_event: 'IMPRESSIONS',
-        optimization_goal: dto.objective === 'catalog' ? 'OFFSITE_CONVERSIONS' : 'LINK_CLICKS',
-        bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-        targeting: JSON.stringify(targeting),
-        start_time: startTime,
-        end_time: endTime,
-        status: publishStatus,
-      },
-    );
+    const adSetPayload: Record<string, unknown> = {
+      name: `${dto.name.trim()} — sada`,
+      campaign_id: metaCampaignId,
+      billing_event: 'IMPRESSIONS',
+      optimization_goal: optimizationGoal,
+      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+      targeting: JSON.stringify(targeting),
+      start_time: startTime,
+      end_time: endTime,
+      status: publishStatus,
+      is_adset_budget_sharing_enabled: budgetConfig.isAdsetBudgetSharingEnabled,
+    };
+    if (!budgetConfig.useCampaignBudgetOptimization) {
+      adSetPayload.daily_budget = String(dailyBudgetMinor);
+    }
 
-    if (!adSetRes.ok || !adSetRes.data.id) {
-      const msg =
-        (!adSetRes.ok ? adSetRes.errorMessage : null) || 'Vytvoření ad setu v Meta selhalo.';
+    const promotedObject = this.buildPromotedObject(dto, ids, catalogId, optimizationGoal);
+    if (promotedObject) {
+      adSetPayload.promoted_object = JSON.stringify(promotedObject);
+    }
+
+    const adSetBlockers = validateAdSetPayload(adSetPayload, budgetConfig, {
+      requiresPromotedObject,
+    });
+    if (adSetBlockers.length) {
+      const msg = adSetBlockers.map((b) => b.message).join(' ');
       await this.prisma.metaMarketingCampaignDraft.update({
         where: { id: draftId },
         data: { metaCampaignId, status: 'error', errorMessage: msg },
       });
-      return { ok: false as const, status: 'error' as const, message: msg, campaign: null };
+      return {
+        ok: false as const,
+        status: 'validation_error' as const,
+        message: msg,
+        blockers: adSetBlockers,
+        campaign: null,
+      };
+    }
+
+    const adSetRes = await this.graph.post<{ id?: string }>(
+      `/act_${actId}/adsets`,
+      token,
+      adSetPayload,
+    );
+
+    if (!adSetRes.ok || !adSetRes.data.id) {
+      const failure = formatMetaApiFailure('Vytvoření ad setu', adSetPayload, adSetRes);
+      await this.prisma.metaMarketingCampaignDraft.update({
+        where: { id: draftId },
+        data: { metaCampaignId, status: 'error', errorMessage: failure.message },
+      });
+      return {
+        ok: false as const,
+        status: 'error' as const,
+        message: failure.message,
+        metaApiError: failure.detail,
+        campaign: null,
+      };
     }
 
     const metaAdSetId = adSetRes.data.id;
@@ -808,7 +876,6 @@ export class MetaCenterCampaignsService {
     let metaAdId: string | null = null;
 
     const creativeType = this.resolveCreativeType(dto.creativeType);
-    const catalogId = ids.catalogId;
 
     if (
       catalogId &&
@@ -895,9 +962,7 @@ export class MetaCenterCampaignsService {
       metaCreativeId = creativeRes.data.id;
       this.logger.log(`[meta-campaign] creative=${metaCreativeId} draft=${draftId}`);
     } else {
-      const msg =
-        (!creativeRes.ok ? creativeRes.errorMessage : null) ||
-        'Vytvoření kreativy v Meta selhalo.';
+      const failure = formatMetaApiFailure('Vytvoření kreativy', creativeBody, creativeRes);
       await this.prisma.metaMarketingCampaignDraft.update({
         where: { id: draftId },
         data: {
@@ -905,26 +970,33 @@ export class MetaCenterCampaignsService {
           metaAdSetId,
           metaProductSetId,
           status: 'error',
-          errorMessage: msg,
+          errorMessage: failure.message,
         },
       });
-      return { ok: false as const, status: 'error' as const, message: msg, campaign: null };
+      return {
+        ok: false as const,
+        status: 'error' as const,
+        message: failure.message,
+        metaApiError: failure.detail,
+        campaign: null,
+      };
     }
+
+    const adPayload = {
+      name: `${dto.name.trim()} — reklama`,
+      adset_id: metaAdSetId,
+      creative: JSON.stringify({ creative_id: metaCreativeId }),
+      status: publishStatus,
+    };
 
     const adRes = await this.graph.post<{ id?: string }>(
       `/act_${actId}/ads`,
       token,
-      {
-        name: `${dto.name.trim()} — reklama`,
-        adset_id: metaAdSetId,
-        creative: JSON.stringify({ creative_id: metaCreativeId }),
-        status: publishStatus,
-      },
+      adPayload,
     );
 
     if (!adRes.ok || !adRes.data.id) {
-      const msg =
-        (!adRes.ok ? adRes.errorMessage : null) || 'Vytvoření reklamy v Meta selhalo.';
+      const failure = formatMetaApiFailure('Vytvoření reklamy', adPayload, adRes);
       await this.prisma.metaMarketingCampaignDraft.update({
         where: { id: draftId },
         data: {
@@ -933,10 +1005,16 @@ export class MetaCenterCampaignsService {
           metaProductSetId,
           metaCreativeId,
           status: 'error',
-          errorMessage: msg,
+          errorMessage: failure.message,
         },
       });
-      return { ok: false as const, status: 'error' as const, message: msg, campaign: null };
+      return {
+        ok: false as const,
+        status: 'error' as const,
+        message: failure.message,
+        metaApiError: failure.detail,
+        campaign: null,
+      };
     }
 
     metaAdId = adRes.data.id;
@@ -1044,6 +1122,35 @@ export class MetaCenterCampaignsService {
       default:
         return 'OUTCOME_TRAFFIC';
     }
+  }
+
+  private buildPromotedObject(
+    dto: CreateMetaCampaignDto,
+    ids: ReturnType<typeof resolveMetaCenterIds>,
+    catalogId: string | null,
+    optimizationGoal: string,
+  ): Record<string, unknown> | null {
+    const eventSourceId = ids.pixelId ?? ids.datasetId;
+    const normalizedCatalogId = catalogId?.replace(/^catalog_/i, '') ?? null;
+
+    if (dto.objective === 'catalog' || optimizationGoal === 'OFFSITE_CONVERSIONS') {
+      if (!eventSourceId && !normalizedCatalogId) return null;
+      return {
+        ...(eventSourceId ? { pixel_id: eventSourceId } : {}),
+        ...(normalizedCatalogId ? { product_catalog_id: normalizedCatalogId } : {}),
+        custom_event_type: 'PURCHASE',
+      };
+    }
+
+    if (dto.objective === 'lead') {
+      if (!eventSourceId) return null;
+      return {
+        pixel_id: eventSourceId,
+        custom_event_type: 'LEAD',
+      };
+    }
+
+    return null;
   }
 
   private async markDraftError(draftId: string, message: string) {
