@@ -5,6 +5,12 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import {
+  safeDisplayValue,
+  safeErrorMessage,
+  safeText,
+  shouldShowErrorAsJson,
+} from '@/lib/safe-text';
+import {
   nestAdminMetaCenterApiLogs,
   nestAdminMetaCenterCheckPermissions,
   nestAdminMetaCenterTestOAuth,
@@ -249,9 +255,48 @@ function connectionCheckLabel(item: MetaConnectionCheck) {
   const status = connectionCheckStatus(item);
   if (status === 'online') return 'Online / Připojeno';
   if (status === 'optional') return 'Nenastaveno (volitelné)';
-  if (status === 'permission_warning') return item.error ?? 'Vyžaduje oprávnění Meta App';
-  if (status === 'api_error') return item.error ?? 'Chyba API';
-  return item.error ?? 'Chybí konfigurace';
+  if (status === 'permission_warning') {
+    return safeDisplayValue(item.error, 'Vyžaduje oprávnění Meta App');
+  }
+  if (status === 'api_error') return safeDisplayValue(item.error, 'Chyba API');
+  return safeDisplayValue(item.error, 'Chybí konfigurace');
+}
+
+function MetaApiErrorBlock({
+  error,
+  className = 'text-xs text-amber-800',
+}: {
+  error: unknown;
+  className?: string;
+}) {
+  if (error === null || error === undefined || error === '') return null;
+  const message = safeErrorMessage(error);
+  if (message) {
+    const code =
+      typeof error === 'object' && error !== null && 'code' in error
+        ? safeText((error as Record<string, unknown>).code)
+        : '';
+    return (
+      <p className={className}>
+        {message}
+        {code ? ` (${code})` : ''}
+      </p>
+    );
+  }
+  if (shouldShowErrorAsJson(error)) {
+    return (
+      <pre
+        className={`${className} max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-amber-200 bg-amber-50/80 p-2 font-mono`}
+      >
+        {JSON.stringify(error, null, 2)}
+      </pre>
+    );
+  }
+  return <p className={className}>{safeText(error)}</p>;
+}
+
+function SettingsValue({ value }: { value: unknown }) {
+  return <p className="mt-1 break-all font-mono text-xs">{safeDisplayValue(value)}</p>;
 }
 
 export default function MetaCentrumPage() {
@@ -500,7 +545,7 @@ export default function MetaCentrumPage() {
     const result = await nestAdminMetaCenterCheckPermissions(token);
     setPermissionsCheck(result);
     setBusy(false);
-    setMsg(result?.error ? `Kontrola oprávnění: ${result.error}` : 'Oprávnění zkontrolována.');
+    setMsg(result?.error ? `Kontrola oprávnění: ${safeText(result.error)}` : 'Oprávnění zkontrolována.');
     void refresh();
   }
 
@@ -1205,7 +1250,7 @@ export default function MetaCentrumPage() {
                   </div>
                 </div>
                 {datasets.error ? (
-                  <p className="mb-3 text-sm text-amber-800">{datasets.error}</p>
+                  <MetaApiErrorBlock error={datasets.error} className="mb-3 text-sm text-amber-800" />
                 ) : null}
                 <div className="space-y-2">
                   {(datasets.items ?? []).map((ds) => (
@@ -1264,7 +1309,7 @@ export default function MetaCentrumPage() {
                           <span>{connectionCheckLabel(item)}</span>
                         </div>
                         {item.detail ? (
-                          <p className="mt-1 text-xs opacity-80">{item.detail}</p>
+                          <p className="mt-1 text-xs opacity-80">{safeText(item.detail)}</p>
                         ) : null}
                         {item.source ? (
                           <p className="mt-1 text-xs opacity-70">
@@ -1539,7 +1584,7 @@ export default function MetaCentrumPage() {
                     </button>
                   </div>
                   {permissionsCheck?.error ? (
-                    <p className="mb-3 text-sm text-amber-800">{permissionsCheck.error}</p>
+                    <MetaApiErrorBlock error={permissionsCheck.error} className="mb-3 text-sm text-amber-800" />
                   ) : null}
                   <div className="grid gap-2 sm:grid-cols-2">
                     {scopeRows.map((row) => (
@@ -1593,8 +1638,49 @@ export default function MetaCentrumPage() {
           </>
         ) : null}
 
-        {tab === 'settings' && dash ? (
+        {tab === 'settings' ? (
           <section className="space-y-6">
+            {!dash ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-950">
+                <h2 className="mb-2 text-lg font-bold">Nastavení Meta Centra</h2>
+                <p>Dashboard data se nepodařilo načíst. Zkuste obnovit stránku nebo dokončit Meta OAuth.</p>
+                {endpointWarnings.length > 0 ? (
+                  <ul className="mt-3 list-disc space-y-1 pl-5">
+                    {endpointWarnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : (
+              <>
+            <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+              <h2 className="mb-3 text-lg font-bold">Stav API odpovědí</h2>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {(
+                  [
+                    { label: 'Dashboard', status: dash.status ?? (dash.ok === false ? 'not_configured' : 'ok'), message: dash.message, error: dash.error },
+                    { label: 'Datasety', status: datasets?.status, message: datasets?.message, error: datasets?.error },
+                    { label: 'Reklamní účet', status: adAccount?.status, message: adAccount?.message, error: adAccount?.error },
+                    { label: 'Seznam účtů', status: adAccountList?.status, message: adAccountList?.message, error: adAccountList?.error },
+                    { label: 'Katalog', status: catalogPanel?.status, message: catalogPanel?.message, error: catalogPanel?.error },
+                    { label: 'Seznam katalogů', status: catalogList?.status, message: catalogList?.message, error: catalogList?.error },
+                  ] as const
+                ).map(({ label, status, message, error }) => (
+                  <div key={label} className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+                    <p className="text-xs font-medium text-zinc-500">{label}</p>
+                    <p className="mt-1 text-xs">
+                      <span className="font-semibold">Status:</span> {safeDisplayValue(status)}
+                    </p>
+                    {message ? (
+                      <p className="mt-1 text-xs text-amber-900">{safeText(message)}</p>
+                    ) : null}
+                    <MetaApiErrorBlock error={error} className="mt-1 text-xs text-amber-800" />
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
               <h2 className="mb-2 text-lg font-bold">Reklamní účet</h2>
               {adAccount?.connected ? (
@@ -1618,15 +1704,19 @@ export default function MetaCentrumPage() {
                   ].map(([label, val]) => (
                     <div key={String(label)} className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
                       <p className="text-xs font-medium text-zinc-500">{label}</p>
-                      <p className="mt-1 break-all font-mono text-xs">{String(val ?? '—')}</p>
+                      <SettingsValue value={val} />
                     </div>
                   ))}
                 </div>
               ) : (
                 <p className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
-                  {adAccount?.message ?? 'Reklamní účet není nastavený. Je potřeba až pro spouštění kampaní.'}
+                  {safeDisplayValue(
+                    adAccount?.message,
+                    'Reklamní účet není nastavený. Je potřeba až pro spouštění kampaní.',
+                  )}
                 </p>
               )}
+              <MetaApiErrorBlock error={adAccount?.error} className="mt-3 text-sm text-amber-800" />
               <button
                 type="button"
                 disabled={busy}
@@ -1668,7 +1758,7 @@ export default function MetaCentrumPage() {
                   </div>
                 ))}
                 {adAccountList?.error ? (
-                  <p className="text-xs text-amber-800">{adAccountList.error}</p>
+                  <MetaApiErrorBlock error={adAccountList.error} className="text-xs text-amber-800" />
                 ) : null}
               </div>
               <div className="mt-4 flex flex-wrap items-end gap-2">
@@ -1713,14 +1803,15 @@ export default function MetaCentrumPage() {
                 ].map(([label, val]) => (
                   <div key={String(label)} className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm">
                     <p className="text-xs font-medium text-zinc-500">{label}</p>
-                    <p className="mt-1 break-all font-mono text-xs">{String(val ?? '—')}</p>
+                    <SettingsValue value={val} />
                   </div>
                 ))}
               </div>
               {appsConfig?.login.idValidation.error ? (
-                <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-                  {appsConfig.login.idValidation.error}
-                </p>
+                <MetaApiErrorBlock
+                  error={appsConfig.login.idValidation.error}
+                  className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                />
               ) : null}
               <button
                 type="button"
@@ -1762,21 +1853,67 @@ export default function MetaCentrumPage() {
                 ].map(([label, val]) => (
                   <div key={String(label)} className="rounded-lg border border-purple-200 bg-white px-3 py-2 text-sm">
                     <p className="text-xs font-medium text-zinc-500">{label}</p>
-                    <p className="mt-1 break-all font-mono text-xs">{String(val ?? '—')}</p>
+                    <SettingsValue value={val} />
                   </div>
                 ))}
               </div>
               {appsConfig?.pages.idValidation.error ? (
-                <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-                  {appsConfig.pages.idValidation.error}
-                </p>
+                <MetaApiErrorBlock
+                  error={appsConfig.pages.idValidation.error}
+                  className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                />
               ) : null}
               <p className="mt-3 text-xs text-purple-800">
                 „Připojit Meta účet“ používá sdílený Facebook OAuth callback portálu (
-                {appsConfig?.pages.metaConnectRedirectUri ?? '—'}) a Pages App ID (
-                {appsConfig?.pages.appId ?? '—'}). Token se sdílí se Sociálními sítěmi — při
+                {safeDisplayValue(appsConfig?.pages.metaConnectRedirectUri)}) a Pages App ID (
+                {safeDisplayValue(appsConfig?.pages.appId)}). Token se sdílí se Sociálními sítěmi — při
                 opětovném kliknutí pouze obnovíte oprávnění.
               </p>
+            </div>
+
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-6 shadow-sm">
+              <h2 className="text-lg font-bold text-emerald-900">C) Meta Marketing App</h2>
+              <p className="mt-1 text-sm text-emerald-800">
+                Aplikace <strong>{appsConfig?.marketing.appName ?? 'Marketing'}</strong> — Ads API,
+                reklamní účty, kampaně
+              </p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {[
+                  ['Marketing App ID', appsConfig?.marketing.appId ?? dash.settings.facebookMarketingAppId],
+                  [
+                    'Marketing App Secret',
+                    appsConfig?.marketing.appSecretConfigured
+                      ? appsConfig.marketing.appSecretMasked
+                      : 'chybí',
+                  ],
+                  [
+                    'Meta Connect Redirect URI',
+                    appsConfig?.marketing.metaConnectRedirectUri ?? dash.settings.metaConnectRedirectUri,
+                  ],
+                  ['Ads API připojeno', dash.settings.isMarketingAdsConnected ? 'ano' : 'ne'],
+                  [
+                    'Marketing refresh token',
+                    dash.settings.marketingRefreshTokenConfigured ? 'nastaveno' : 'chybí',
+                  ],
+                  ['Stav Marketing OAuth', appsConfig?.marketing.configured ? 'nastaveno' : 'chybí ENV'],
+                ].map(([label, val]) => (
+                  <div key={String(label)} className="rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm">
+                    <p className="text-xs font-medium text-zinc-500">{label}</p>
+                    <SettingsValue value={val} />
+                  </div>
+                ))}
+              </div>
+              {appsConfig?.marketing.idValidation.error ? (
+                <MetaApiErrorBlock
+                  error={appsConfig.marketing.idValidation.error}
+                  className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                />
+              ) : null}
+              {appsConfig?.marketing.missing?.length ? (
+                <p className="mt-3 text-xs text-emerald-900">
+                  Chybí ENV: {appsConfig.marketing.missing.join(', ')}
+                </p>
+              ) : null}
             </div>
 
             <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
@@ -1796,9 +1933,9 @@ export default function MetaCentrumPage() {
                     const display =
                       key === 'metaConnectedAt' || key === 'lastAutoSyncAt'
                         ? raw
-                          ? new Date(String(raw)).toLocaleString('cs-CZ')
+                          ? new Date(safeText(raw)).toLocaleString('cs-CZ')
                           : '—'
-                        : String(raw ?? '—');
+                        : safeDisplayValue(raw);
                     return (
                       <div key={key} className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
                         <p className="text-xs font-medium text-zinc-500">{label}</p>
@@ -1808,6 +1945,8 @@ export default function MetaCentrumPage() {
                   })}
               </div>
             </div>
+              </>
+            )}
           </section>
         ) : null}
 
@@ -1847,7 +1986,7 @@ export default function MetaCentrumPage() {
             <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
               <h3 className="mb-3 font-bold">Výběr Datasetu (Graph API)</h3>
               {datasets?.error ? (
-                <p className="mb-3 text-sm text-amber-800">{datasets.error}</p>
+                <MetaApiErrorBlock error={datasets.error} className="mb-3 text-sm text-amber-800" />
               ) : null}
               <p className="mb-3 text-xs text-zinc-500">
                 Aktivní Dataset:{' '}
@@ -2092,7 +2231,7 @@ export default function MetaCentrumPage() {
               <div className="mt-4">
                 <h3 className="mb-2 text-sm font-bold">Katalogy v Business Manageru</h3>
                 {catalogList?.error ? (
-                  <p className="mb-2 text-sm text-amber-800">{catalogList.error}</p>
+                  <MetaApiErrorBlock error={catalogList.error} className="mb-2 text-sm text-amber-800" />
                 ) : null}
                 <div className="space-y-2">
                   {(catalogList?.items ?? []).map((cat) => (
