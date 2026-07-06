@@ -41,6 +41,7 @@ export class FacebookPageController implements OnModuleInit {
 
   onModuleInit() {
     this.logger.log('Registered GET /api/social/facebook/callback');
+    this.logger.log('Registered GET /api/social/facebook/meta-connect-callback');
     this.logger.log('Registered GET /api/social/facebook/finish-login');
     this.logger.log('Registered GET /api/social/facebook/page-callback');
   }
@@ -113,6 +114,26 @@ export class FacebookPageController implements OnModuleInit {
     } else {
       this.logger.log(`FACEBOOK_LOGIN_SUCCESS redirect=${result.redirectUrl}`);
     }
+    return this.respondOAuth(res, req, result);
+  }
+
+  @Get('meta-connect-callback')
+  async metaConnectCallback(
+    @Query('code') code: string | undefined,
+    @Query('state') state: string | undefined,
+    @Query('error') oauthError: string | undefined,
+    @Query('error_reason') errorReason: string | undefined,
+    @Query('error_description') errorDescription: string | undefined,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    const result = await this.metaConnectOAuth.handleCallback(
+      code,
+      state,
+      oauthError,
+      errorReason,
+      errorDescription,
+    );
     return this.respondOAuth(res, req, result);
   }
 

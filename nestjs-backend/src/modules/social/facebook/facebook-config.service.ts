@@ -61,6 +61,21 @@ export type FacebookAppsConfigDto = {
   webhookUri: string | null;
 };
 
+export type MetaOAuthRedirectDiagnosticsDto = {
+  oauthRedirectUsedByApp: string | null;
+  allowedRedirectUri: string | null;
+  currentRedirectUri: string | null;
+  canonicalRedirectUri: string | null;
+  explicitRedirectUri: string | null;
+  backendBaseUrl: string | null;
+  apiPublicBase: string | null;
+  frontendUrl: string | null;
+  pagesAppId: string | null;
+  matchesAllowed: boolean;
+  mismatchMessage: string | null;
+  metaDevelopersInstruction: string | null;
+};
+
 export type FacebookConfigStatusDto = {
   configured: boolean;
   missing: string[];
@@ -395,14 +410,13 @@ export class FacebookConfigService implements OnModuleInit {
     return this.resolveLoginOAuthRedirectUri();
   }
 
-  /** Sdílený OAuth callback portálu (Login + Meta Centrum Pages OAuth). */
+  /** Sdílený OAuth callback portálu (Facebook Login přes frontend). */
   resolveSharedOAuthCallbackUriOptional(): string | null {
     const explicit =
       this.readEnv('FACEBOOK_OAUTH_CALLBACK_URI') ??
       this.readEnv('FACEBOOK_LOGIN_OAUTH_REDIRECT_URI') ??
       this.readEnv('FACEBOOK_OAUTH_REDIRECT_URI') ??
-      this.readEnv('FACEBOOK_CALLBACK_URL') ??
-      this.readEnv('META_CENTER_OAUTH_REDIRECT_URI');
+      this.readEnv('FACEBOOK_CALLBACK_URL');
     if (explicit) return explicit.replace(/\/+$/, '');
     return `${this.resolveFrontendApiBase()}/social/facebook/callback`;
   }
@@ -415,13 +429,82 @@ export class FacebookConfigService implements OnModuleInit {
     return uri;
   }
 
-  /** Meta Centrum — stejný callback jako Facebook Login / portál */
+  /** Kanonická Meta Connect callback cesta (jediná povolená pro Meta Centrum). */
+  metaConnectRedirectPath(): string {
+    return '/social/facebook/meta-connect-callback';
+  }
+
+  /**
+   * Meta Centrum OAuth redirect — vždy z veřejné API báze backendu (BACKEND_URL / API_URL).
+   * Příklad: https://www.xxrealit.cz/api/social/facebook/meta-connect-callback
+   */
+  resolveMetaConnectRedirectUriFromBackendBaseOptional(): string | null {
+    const apiBase = this.resolveApiPublicBase();
+    if (!apiBase) return null;
+    return `${apiBase}${this.metaConnectRedirectPath()}`;
+  }
+
+  /** Meta Centrum — jediná redirect URI (META_REDIRECT_URI má přednost před dynamickou). */
   resolveMetaConnectRedirectUriOptional(): string | null {
-    return this.resolveSharedOAuthCallbackUriOptional();
+    const explicit =
+      this.readEnv('META_REDIRECT_URI') ?? this.readEnv('META_CENTER_OAUTH_REDIRECT_URI');
+    if (explicit) return explicit.replace(/\/+$/, '');
+    return this.resolveMetaConnectRedirectUriFromBackendBaseOptional();
   }
 
   resolveMetaConnectRedirectUri(): string {
-    return this.resolveSharedOAuthCallbackUri();
+    const uri = this.resolveMetaConnectRedirectUriOptional();
+    if (!uri) {
+      throw new ServiceUnavailableException(
+        'Meta Connect OAuth redirect nelze odvodit — nastavte BACKEND_URL nebo META_REDIRECT_URI.',
+      );
+    }
+    return uri;
+  }
+
+  getMetaOAuthRedirectDiagnostics(): MetaOAuthRedirectDiagnosticsDto {
+    const canonical = this.resolveMetaConnectRedirectUriFromBackendBaseOptional();
+    const used = this.resolveMetaConnectRedirectUriOptional();
+    const explicit =
+      this.readEnv('META_REDIRECT_URI') ?? this.readEnv('META_CENTER_OAUTH_REDIRECT_URI');
+    const pagesAppId = this.getPagesAppId();
+
+    let mismatchMessage: string | null = null;
+    if (canonical && used && canonical !== used) {
+      mismatchMessage =
+        `OAuth Redirect používaný aplikací (${used}) se neshoduje s kanonickou URI z BACKEND_URL (${canonical}).`;
+    } else if (!used) {
+      mismatchMessage =
+        'Redirect URI nelze odvodit — nastavte BACKEND_URL, API_URL nebo META_REDIRECT_URI.';
+    } else if (!canonical && used) {
+      mismatchMessage =
+        'Chybí BACKEND_URL / API_URL — redirect URI je pouze z META_REDIRECT_URI.';
+    }
+
+    const matchesAllowed = Boolean(used) && (!canonical || canonical === used);
+
+    const allowedRedirectUri = canonical ?? used;
+    const metaDevelopersInstruction =
+      allowedRedirectUri && pagesAppId
+        ? `Meta Developers → aplikace ${pagesAppId} (${FACEBOOK_PAGES_APP_NAME}) → Facebook Login → Settings → Valid OAuth Redirect URIs — přidejte přesně tuto URL (bez lomítka na konci):\n${allowedRedirectUri}`
+        : allowedRedirectUri
+          ? `Meta Developers → Facebook Login → Valid OAuth Redirect URIs — přidejte:\n${allowedRedirectUri}`
+          : null;
+
+    return {
+      oauthRedirectUsedByApp: used,
+      allowedRedirectUri,
+      currentRedirectUri: used,
+      canonicalRedirectUri: canonical,
+      explicitRedirectUri: explicit,
+      backendBaseUrl: this.resolveBackendUrl(),
+      apiPublicBase: this.resolveApiPublicBase(),
+      frontendUrl: this.readEnv('FRONTEND_URL'),
+      pagesAppId,
+      matchesAllowed,
+      mismatchMessage,
+      metaDevelopersInstruction,
+    };
   }
 
   /** Propojení Facebook stránky uživatele (profil) */

@@ -122,7 +122,9 @@ export class MetaCenterService {
       process.env.NEXT_PUBLIC_API_URL?.trim() ||
       '';
     const metaConnect =
-      row.redirectUri?.trim() || this.fbConfig.resolveMetaConnectRedirectUriOptional() || '';
+      this.fbConfig.resolveMetaConnectRedirectUriOptional() ||
+      row.redirectUri?.trim() ||
+      '';
     const callback = row.callbackUrl?.trim() || metaConnect;
     return { frontend, backend, redirect: metaConnect, callback, origin };
   }
@@ -633,6 +635,50 @@ export class MetaCenterService {
       message: `Verze: ${row.graphApiVersion || GRAPH_API_VERSION_DEFAULT}`,
     });
 
+    const oauthRedirect = this.fbConfig.getMetaOAuthRedirectDiagnostics();
+    items.push({
+      key: 'meta_oauth_redirect_used',
+      label: 'OAuth Redirect používaný aplikací',
+      level: oauthRedirect.oauthRedirectUsedByApp
+        ? oauthRedirect.matchesAllowed
+          ? 'ok'
+          : 'warning'
+        : 'error',
+      message: oauthRedirect.oauthRedirectUsedByApp ?? 'Nelze odvodit z BACKEND_URL',
+    });
+    items.push({
+      key: 'meta_oauth_redirect_allowed',
+      label: 'Allowed Redirect URI (z BACKEND_URL)',
+      level: oauthRedirect.allowedRedirectUri ? 'ok' : 'warning',
+      message: oauthRedirect.allowedRedirectUri ?? 'Chybí BACKEND_URL / API_URL',
+    });
+    items.push({
+      key: 'meta_oauth_redirect_current',
+      label: 'Current Redirect URI',
+      level:
+        oauthRedirect.currentRedirectUri && oauthRedirect.matchesAllowed ? 'ok' : 'warning',
+      message:
+        oauthRedirect.mismatchMessage ??
+        oauthRedirect.currentRedirectUri ??
+        'Nenastaveno',
+    });
+    if (oauthRedirect.mismatchMessage) {
+      items.push({
+        key: 'meta_oauth_redirect_mismatch',
+        label: 'OAuth Redirect — neshoda',
+        level: 'warning',
+        message: oauthRedirect.mismatchMessage,
+      });
+    }
+    if (oauthRedirect.metaDevelopersInstruction && !oauthRedirect.matchesAllowed) {
+      items.push({
+        key: 'meta_oauth_redirect_instruction',
+        label: 'Instrukce Meta Developers',
+        level: 'warning',
+        message: oauthRedirect.metaDevelopersInstruction,
+      });
+    }
+
     items.push({
       key: 'token',
       label: 'CAPI token',
@@ -889,6 +935,7 @@ export class MetaCenterService {
         ({} as never),
     );
     const trackingMode = resolveMetaTrackingMode(ids);
+    const oauthRedirect = this.fbConfig.getMetaOAuthRedirectDiagnostics();
 
     return {
       settings,
@@ -897,6 +944,7 @@ export class MetaCenterService {
       catalog,
       feedStats,
       catalogGraph,
+      oauthRedirect,
       pixel: {
         pixelId: ids.pixelId,
         pixelName: settings.pixelName,

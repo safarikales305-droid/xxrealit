@@ -245,6 +245,7 @@ export default function MetaCentrumPage() {
   const services = dash?.services ?? [];
   const diagnostics = dash?.diagnostics;
   const catalogGraph = dash?.catalogGraph;
+  const oauthRedirect = dash?.oauthRedirect;
 
   const settingsFields = useMemo(
     () =>
@@ -291,6 +292,12 @@ export default function MetaCentrumPage() {
     }
     if (r.appId && appsConfig?.login.appId && r.appId === appsConfig.login.appId) {
       setMsg('Chyba: Meta Connect používá Login App ID místo Pages App ID. Zkontrolujte FACEBOOK_PAGES_APP_ID v Railway.');
+      return;
+    }
+    if (r.oauthRedirect && !r.oauthRedirect.matchesAllowed) {
+      setMsg(
+        `OAuth redirect URI není správně nakonfigurována.\n\n${r.oauthRedirect.mismatchMessage ?? ''}\n\n${r.oauthRedirect.metaDevelopersInstruction ?? ''}`,
+      );
       return;
     }
     window.location.href = r.url;
@@ -440,6 +447,68 @@ export default function MetaCentrumPage() {
                       </span>
                     </div>
                   ))}
+                </div>
+              </section>
+            ) : null}
+
+            {oauthRedirect ? (
+              <section
+                className={`rounded-2xl border p-4 shadow-sm ${
+                  oauthRedirect.matchesAllowed
+                    ? 'border-emerald-200 bg-white'
+                    : 'border-amber-200 bg-amber-50'
+                }`}
+              >
+                <h2 className="mb-3 text-lg font-bold">OAuth Redirect URI (Meta Connect)</h2>
+                {!oauthRedirect.matchesAllowed && oauthRedirect.mismatchMessage ? (
+                  <p className="mb-3 text-sm text-amber-900">{oauthRedirect.mismatchMessage}</p>
+                ) : null}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {[
+                    ['OAuth Redirect používaný aplikací', oauthRedirect.oauthRedirectUsedByApp],
+                    ['Allowed Redirect URI (z BACKEND_URL)', oauthRedirect.allowedRedirectUri],
+                    ['Current Redirect URI', oauthRedirect.currentRedirectUri],
+                    ['Kanonická URI (bez override)', oauthRedirect.canonicalRedirectUri],
+                    ['META_REDIRECT_URI (override)', oauthRedirect.explicitRedirectUri ?? '—'],
+                    ['BACKEND_URL', oauthRedirect.backendBaseUrl],
+                    ['API public base', oauthRedirect.apiPublicBase],
+                    ['FRONTEND_URL', oauthRedirect.frontendUrl],
+                    ['Pages App ID', oauthRedirect.pagesAppId],
+                  ].map(([label, val]) => {
+                    const isMismatchRow =
+                      label === 'OAuth Redirect používaný aplikací' &&
+                      oauthRedirect.allowedRedirectUri &&
+                      oauthRedirect.oauthRedirectUsedByApp &&
+                      oauthRedirect.oauthRedirectUsedByApp !== oauthRedirect.allowedRedirectUri;
+                    return (
+                      <div
+                        key={String(label)}
+                        className={`rounded-lg border px-3 py-2 text-sm ${
+                          isMismatchRow
+                            ? 'border-amber-400 bg-amber-100'
+                            : 'border-zinc-200 bg-zinc-50'
+                        }`}
+                      >
+                        <p className="text-xs font-medium text-zinc-500">{label}</p>
+                        <p className="mt-1 break-all font-mono text-xs">{String(val ?? '—')}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+                {!oauthRedirect.matchesAllowed && oauthRedirect.metaDevelopersInstruction ? (
+                  <pre className="mt-4 whitespace-pre-wrap rounded-lg border border-amber-300 bg-white p-3 text-xs text-amber-950">
+                    {oauthRedirect.metaDevelopersInstruction}
+                  </pre>
+                ) : null}
+                <div className="mt-3">
+                  <a
+                    href="https://developers.facebook.com/apps/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-zinc-50"
+                  >
+                    Otevřít Meta App
+                  </a>
                 </div>
               </section>
             ) : null}

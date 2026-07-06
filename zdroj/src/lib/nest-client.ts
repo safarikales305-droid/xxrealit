@@ -6143,6 +6143,21 @@ export type MetaScopeGrantStatus = {
   granted: boolean;
 };
 
+export type MetaOAuthRedirectDiagnostics = {
+  oauthRedirectUsedByApp: string | null;
+  allowedRedirectUri: string | null;
+  currentRedirectUri: string | null;
+  canonicalRedirectUri: string | null;
+  explicitRedirectUri: string | null;
+  backendBaseUrl: string | null;
+  apiPublicBase: string | null;
+  frontendUrl: string | null;
+  pagesAppId: string | null;
+  matchesAllowed: boolean;
+  mismatchMessage: string | null;
+  metaDevelopersInstruction: string | null;
+};
+
 export type MetaCatalogGraphDiagnostics = {
   businessId: string | null;
   businessName: string | null;
@@ -6210,6 +6225,7 @@ export type MetaCenterDashboard = {
     generationMs: number;
   } | null;
   catalogGraph: MetaCatalogGraphDiagnostics;
+  oauthRedirect: MetaOAuthRedirectDiagnostics;
   pixel: {
     pixelId: string | null;
     pixelName: string | null;
@@ -6395,11 +6411,20 @@ export async function nestAdminMetaCenterGetCommerce(token: string | null) {
 
 export async function nestAdminMetaCenterConnectUrl(
   token: string | null,
-): Promise<{ url: string; appId?: string | null; redirectUri?: string | null } | null> {
-  const r = await metaCenterFetch<{ url: string; appId?: string; redirectUri?: string }>(
-    token,
-    '/connect/url',
-  );
+): Promise<{
+  url: string;
+  appId?: string | null;
+  redirectUri?: string | null;
+  reauthorize?: boolean;
+  oauthRedirect?: MetaOAuthRedirectDiagnostics;
+} | null> {
+  const r = await metaCenterFetch<{
+    url: string;
+    appId?: string;
+    redirectUri?: string;
+    reauthorize?: boolean;
+    oauthRedirect?: MetaOAuthRedirectDiagnostics;
+  }>(token, '/connect/url');
   return r.ok ? r.data : null;
 }
 

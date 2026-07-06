@@ -1,8 +1,17 @@
 import { getAppOrigin } from '@/lib/app-url';
 
-/** Sdílený OAuth callback (Login + Meta Centrum). */
+/** Meta Centrum OAuth callback — musí odpovídat BACKEND_URL + /api/social/facebook/meta-connect-callback */
 export function getFacebookMetaConnectCallbackUrl(): string {
-  return `${getAppOrigin()}/api/social/facebook/callback`;
+  const apiBase =
+    process.env.BACKEND_URL?.trim().replace(/\/+$/, '') ||
+    process.env.API_URL?.trim().replace(/\/+$/, '') ||
+    process.env.NEXT_PUBLIC_API_URL?.trim().replace(/\/+$/, '') ||
+    '';
+  if (apiBase) {
+    const withApi = apiBase.endsWith('/api') ? apiBase : `${apiBase}/api`;
+    return `${withApi}/social/facebook/meta-connect-callback`;
+  }
+  return `${getAppOrigin()}/api/social/facebook/meta-connect-callback`;
 }
 
 export function getFacebookSharedOAuthCallbackUrl(): string {

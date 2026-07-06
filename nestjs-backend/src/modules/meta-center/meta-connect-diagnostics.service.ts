@@ -121,17 +121,23 @@ export class MetaConnectDiagnosticsService {
         source: 'env',
       }),
     );
+    const oauthRedirectDiag = this.fbConfig.getMetaOAuthRedirectDiagnostics();
     push(
       this.integration.buildCheck({
         key: 'oauth',
-        label: 'Facebook OAuth callback (sdílený)',
-        connected: Boolean(apps.pages.metaConnectRedirectUri),
-        error: apps.pages.metaConnectRedirectUri
-          ? null
-          : 'OAuth callback URI nelze odvodit.',
+        label: 'Meta Connect OAuth Redirect URI',
+        connected:
+          oauthRedirectDiag.matchesAllowed && Boolean(oauthRedirectDiag.oauthRedirectUsedByApp),
+        error:
+          oauthRedirectDiag.mismatchMessage ??
+          (oauthRedirectDiag.oauthRedirectUsedByApp
+            ? null
+            : 'OAuth redirect URI nelze odvodit z BACKEND_URL / API_URL.'),
+        detail: oauthRedirectDiag.oauthRedirectUsedByApp ?? oauthRedirectDiag.mismatchMessage,
         fixAction: 'fix_env',
+        fixHref: META_FIX_HREFS.metaCenter,
         source: 'meta_connect',
-        detail: apps.pages.metaConnectRedirectUri,
+        permissionWarning: Boolean(oauthRedirectDiag.mismatchMessage),
       }),
     );
     push(

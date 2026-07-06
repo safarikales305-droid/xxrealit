@@ -64,7 +64,11 @@ export class MetaConnectOAuthService {
   }
 
   resolveRedirectUri(): string {
-    return this.fbConfig.resolveSharedOAuthCallbackUri();
+    return this.fbConfig.resolveMetaConnectRedirectUri();
+  }
+
+  getOAuthRedirectDiagnostics() {
+    return this.fbConfig.getMetaOAuthRedirectDiagnostics();
   }
 
   private formatOAuthErrorRedirect(
@@ -134,13 +138,20 @@ export class MetaConnectOAuthService {
     const reauthorize = await this.isAlreadyConnected(adminUserId);
     const redirectUriEnc = encodeURIComponent(redirectUri);
     const appId = encodeURIComponent(pagesAppId);
-    const scope = encodeURIComponent(META_CENTER_CONNECT_SCOPES);
+    const scopeRaw = META_CENTER_CONNECT_SCOPES;
+    const scope = encodeURIComponent(scopeRaw);
     const authType = reauthorize ? '&auth_type=rerequest' : '';
-    return (
+    const oauthUrl =
       `${this.graph.oauthDialogUrl()}?` +
       `client_id=${appId}&redirect_uri=${redirectUriEnc}&state=${state}` +
-      `&scope=${scope}&response_type=code&prompt=consent${authType}`
-    );
+      `&scope=${scope}&response_type=code&prompt=consent${authType}`;
+
+    this.logger.log(`META OAuth URL: ${oauthUrl}`);
+    this.logger.log(`META OAuth redirect_uri: ${redirectUri}`);
+    this.logger.log(`META OAuth state: ${state}`);
+    this.logger.log(`META OAuth scope: ${scopeRaw}`);
+
+    return oauthUrl;
   }
 
   async handleCallback(
