@@ -20,7 +20,6 @@ import {
   META_CENTER_OAUTH_STATE_PREFIX,
 } from './meta-connect.constants';
 import {
-  META_CATALOG_SCOPE_REVIEW_MESSAGE,
   META_CENTER_DEFAULT_FLOW,
   META_CENTER_SESSION_MODES,
   META_OAUTH_FLOWS,
@@ -52,7 +51,7 @@ export type MetaOAuthFlowGrant = {
   connectedAt: string;
   businessId?: string | null;
   catalogManagementGranted?: boolean;
-  catalogPermissionsStatus?: 'granted' | 'missing' | 'partial';
+  catalogPermissionsStatus?: 'granted' | 'missing' | 'partial' | 'not_required';
 };
 
 export type MetaOAuthFlowGrantMap = Partial<Record<string, MetaOAuthFlowGrant>>;
@@ -552,11 +551,8 @@ export class MetaConnectOAuthService {
   private catalogPermissionsStatus(
     grantedScopes: string[],
   ): MetaOAuthFlowGrant['catalogPermissionsStatus'] {
-    const hasBusiness = grantedScopes.includes('business_management');
-    const hasCatalog = grantedScopes.includes('catalog_management');
-    if (hasBusiness && hasCatalog) return 'granted';
-    if (!hasBusiness && !hasCatalog) return 'missing';
-    return 'partial';
+    if (grantedScopes.includes('business_management')) return 'not_required';
+    return 'missing';
   }
 
   private async persistOAuthFlowGrant(
@@ -576,7 +572,7 @@ export class MetaConnectOAuthService {
       snap.oauthFlowGrants && typeof snap.oauthFlowGrants === 'object'
         ? ({ ...(snap.oauthFlowGrants as Record<string, unknown>) } as MetaOAuthFlowGrantMap)
         : ({} as MetaOAuthFlowGrantMap);
-    const catalogManagementGranted = grantedScopes.includes('catalog_management');
+    const catalogManagementGranted = false;
     grants[flowKey] = {
       grantedScopes,
       requestedScopes: [...flowDef.scopes],
@@ -1085,9 +1081,6 @@ export class MetaConnectOAuthService {
         `[meta-connect] completed flow=${oauthFlow} userId=${session.userId} business=${discovered?.business?.id ?? 'none'}`,
       );
 
-      const catalogScopeMissing =
-        oauthFlow === 'catalog' && !grantedScopes.includes('catalog_management');
-
       await this.logOAuthPhase({
         phase: 'OAuth Success',
         request: { state, userId: session.userId, oauthFlow, sessionMode: session.mode },
@@ -1100,19 +1093,14 @@ export class MetaConnectOAuthService {
           catalogId: discovered?.catalog?.id ?? null,
           pixelId: discovered?.pixel?.id ?? null,
           datasetId: discovered?.dataset?.id ?? null,
-          catalogScopeMissing,
         },
       });
-      await this.persistLastCallback(ctx, 'success', catalogScopeMissing ? META_CATALOG_SCOPE_REVIEW_MESSAGE : null);
+      await this.persistLastCallback(ctx, 'success', null);
 
       return {
         ok: true,
-        redirectUrl: `${adminUrl}?meta=connected&flow=${oauthFlow}${
-          catalogScopeMissing ? '&catalog_scope_warning=1' : ''
-        }`,
-        message: catalogScopeMissing
-          ? META_CATALOG_SCOPE_REVIEW_MESSAGE
-          : `${flowDef.label}: Meta oprávnění byla úspěšně připojena.`,
+        redirectUrl: `${adminUrl}?meta=connected&flow=${oauthFlow}`,
+        message: `${flowDef.label}: Meta oprávnění byla úspěšně připojena.`,
       };
     } catch (err) {
       await this.cleanupSession(session.userId);

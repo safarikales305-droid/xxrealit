@@ -34,7 +34,12 @@ import {
   nestAdminMetaCenterCreateCatalog,
   nestAdminMetaCenterSyncCatalog,
   nestAdminMetaCenterAdAccount,
+  nestAdminMetaCenterListCatalogs,
+  nestAdminMetaCenterListAdAccounts,
+  nestAdminMetaCenterSelectAdAccount,
   type MetaAdAccountPanel,
+  type MetaAdAccountListResponse,
+  type MetaCatalogListResponse,
   type MetaCatalogPanel,
   type MetaCatalogProductPreview,
   type MetaDatasetListResponse,
@@ -276,7 +281,10 @@ export default function MetaCentrumPage() {
   const [catalogPanel, setCatalogPanel] = useState<MetaCatalogPanel | null>(null);
   const [catalogProducts, setCatalogProducts] = useState<MetaCatalogProductPreview[]>([]);
   const [adAccount, setAdAccount] = useState<MetaAdAccountPanel | null>(null);
+  const [catalogList, setCatalogList] = useState<MetaCatalogListResponse | null>(null);
+  const [adAccountList, setAdAccountList] = useState<MetaAdAccountListResponse | null>(null);
   const [connectCatalogId, setConnectCatalogId] = useState('');
+  const [manualAdAccountId, setManualAdAccountId] = useState('');
   const [campaignDraft, setCampaignDraft] = useState({
     name: '',
     goal: 'traffic',
@@ -286,11 +294,15 @@ export default function MetaCentrumPage() {
     startDate: '',
     endDate: '',
     locationLabel: '',
+    cityName: '',
+    latitude: '',
+    longitude: '',
+    selectedProductIds: [] as string[],
   });
 
   const refresh = useCallback(async () => {
     if (!token) return;
-    const [d, l, c, api, apps, ds, cp, products, ad] = await Promise.all([
+    const [d, l, c, api, apps, ds, cp, products, ad, cats, adList] = await Promise.all([
       nestAdminMetaCenterDashboard(token),
       nestAdminMetaCenterLogs(token, {
         eventType: logFilter || undefined,
@@ -303,6 +315,8 @@ export default function MetaCentrumPage() {
       nestAdminMetaCenterCatalogPanel(token),
       nestAdminMetaCenterCatalogProducts(token, 50),
       nestAdminMetaCenterAdAccount(token),
+      nestAdminMetaCenterListCatalogs(token),
+      nestAdminMetaCenterListAdAccounts(token),
     ]);
     if (d) setDash(d);
     setLogs(l?.items ?? []);
@@ -313,19 +327,18 @@ export default function MetaCentrumPage() {
     setCatalogPanel(cp);
     setCatalogProducts(products?.items ?? []);
     setAdAccount(ad);
+    setCatalogList(cats);
+    setAdAccountList(adList);
   }, [token, logFilter]);
 
   useEffect(() => {
     const meta = params.get('meta');
     if (meta === 'connected') {
       const flow = params.get('flow');
-      const catalogWarn = params.get('catalog_scope_warning');
       setMsg(
-        catalogWarn
-          ? 'Catalog OAuth dokončeno, ale oprávnění catalog_management není schválené v Meta aplikaci. Přidejte produkt Commerce/Catalog v Meta App Dashboardu a znovu odešlete oprávnění k review.'
-          : flow
-            ? `Meta OAuth (${flow}) dokončeno — oprávnění byla připojena.`
-            : 'Meta účet byl úspěšně připojen a konfigurace načtena.',
+        flow
+          ? `Meta OAuth (${flow}) dokončeno — oprávnění byla připojena.`
+          : 'Meta účet byl úspěšně připojen a konfigurace načtena.',
       );
     }
     if (meta === 'error') {
@@ -360,7 +373,13 @@ export default function MetaCentrumPage() {
   const oauthFlows = dash?.oauthFlows ?? [];
   const catalogOAuthConnected =
     oauthFlows.find((f) => f.key === 'catalog')?.status === 'connected';
-  const canLaunchCampaigns = Boolean(catalogOAuthConnected && adAccount?.connected);
+  const marketingOAuthConnected =
+    oauthFlows.find((f) => f.key === 'marketing')?.status === 'connected';
+  const hasCatalog = Boolean(catalogPanel?.catalogId ?? dash?.settings.catalogId);
+  const hasDataset = Boolean(dash?.pixel.datasetId ?? dash?.capi.datasetId);
+  const canLaunchCampaigns = Boolean(
+    adAccount?.connected && hasCatalog && hasDataset && marketingOAuthConnected,
+  );
 
   const settingsFields = useMemo(
     () =>
@@ -1499,8 +1518,70 @@ export default function MetaCentrumPage() {
                 onClick={() => void connectMetaFlow('marketing')}
                 className="mt-4 rounded-lg border border-[#1877f2] px-4 py-2 text-sm font-semibold text-[#1877f2] hover:bg-blue-50"
               >
-                Připojit reklamní účet
+                Připojit reklamní účet (Marketing OAuth)
               </button>
+              <div className="mt-4 space-y-2">
+                {(adAccountList?.items ?? []).map((acc) => (
+                  <div
+                    key={acc.id}
+                    className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm ${
+                      acc.isActive ? 'border-emerald-300 bg-emerald-50' : 'border-zinc-200'
+                    }`}
+                  >
+                    <div>
+                      <p className="font-semibold">{acc.name}</p>
+                      <p className="font-mono text-xs text-zinc-500">{acc.id}</p>
+                      {acc.currency ? (
+                        <p className="text-xs text-zinc-500">Měna: {acc.currency}</p>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={busy || acc.isActive}
+                      onClick={async () => {
+                        if (!token) return;
+                        setBusy(true);
+                        const r = await nestAdminMetaCenterSelectAdAccount(token, acc.id);
+                        setBusy(false);
+                        setMsg(r.ok ? `Reklamní účet ${acc.id} uložen.` : r.error ?? 'Chyba');
+                        void refresh();
+                      }}
+                      className="rounded-lg bg-[#1877f2] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                    >
+                      {acc.isActive ? 'Aktivní' : 'Použít tento účet'}
+                    </button>
+                  </div>
+                ))}
+                {adAccountList?.error ? (
+                  <p className="text-xs text-amber-800">{adAccountList.error}</p>
+                ) : null}
+              </div>
+              <div className="mt-4 flex flex-wrap items-end gap-2">
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="text-xs font-medium text-zinc-500">Zadat Ad Account ID ručně</span>
+                  <input
+                    value={manualAdAccountId}
+                    onChange={(e) => setManualAdAccountId(e.target.value)}
+                    placeholder="act_123456789"
+                    className="rounded-lg border border-zinc-300 px-3 py-2 font-mono text-sm"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={busy || !manualAdAccountId.trim()}
+                  onClick={async () => {
+                    if (!token) return;
+                    setBusy(true);
+                    const r = await nestAdminMetaCenterSelectAdAccount(token, manualAdAccountId.trim());
+                    setBusy(false);
+                    setMsg(r.ok ? `Reklamní účet uložen.` : r.error ?? 'Chyba');
+                    void refresh();
+                  }}
+                  className="rounded-lg border border-[#1877f2] px-4 py-2 text-sm font-semibold text-[#1877f2]"
+                >
+                  Uložit Ad Account ID
+                </button>
+              </div>
             </div>
 
             <div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-6 shadow-sm">
@@ -1813,7 +1894,12 @@ export default function MetaCentrumPage() {
                 <div>
                   <h2 className="text-lg font-bold">Katalog nemovitostí</h2>
                   <p className="text-sm text-zinc-500">
-                    Commerce / Catalog OAuth — scopes: business_management, catalog_management
+                    Commerce / Catalog OAuth — scope: <strong>business_management</strong>
+                  </p>
+                  <p className="mt-1 text-xs text-amber-800">
+                    {catalogPanel?.catalogScopeInfo ??
+                      catalogList?.scopeInfo ??
+                      'Catalog je řízen přes Business Manager / Commerce Manager. OAuth scope catalog_management není vyžadován.'}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -1872,9 +1958,10 @@ export default function MetaCentrumPage() {
                   ['Položek ve feedu', catalogPanel?.feedItemCount],
                   ['Produktů v Meta', catalogPanel?.productCount],
                   ['Poslední synchronizace', catalogPanel?.lastSyncAt ? new Date(catalogPanel.lastSyncAt).toLocaleString('cs-CZ') : '—'],
-                  ['catalog_management', catalogPanel?.catalogManagementGranted ? 'schváleno' : catalogPanel?.catalogPermissionsStatus ?? 'chybí'],
+                  ['Stav exportu', `${catalogPanel?.feedItemCount ?? 0} exportováno · ${catalogPanel?.exportErrorCount ?? 0} chyb`],
+                  ['business_management', catalogPanel?.businessManagementGranted ? 'schváleno' : 'připojte Catalog OAuth'],
                   ['Catalog OAuth', catalogPanel?.catalogConnectedAt ? new Date(catalogPanel.catalogConnectedAt).toLocaleString('cs-CZ') : '—'],
-                  ['Commerce online', catalogPanel?.commerceOnline ? 'ano' : 'ne'],
+                  ['Commerce Manager', catalogPanel?.commerceOnline ? 'online' : 'volitelné / připravuje se'],
                 ].map(([label, val]) => (
                   <div key={String(label)} className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
                     <p className="text-xs font-medium text-zinc-500">{label}</p>
@@ -1882,9 +1969,53 @@ export default function MetaCentrumPage() {
                   </div>
                 ))}
               </div>
+              <div className="mt-4">
+                <h3 className="mb-2 text-sm font-bold">Katalogy v Business Manageru</h3>
+                {catalogList?.error ? (
+                  <p className="mb-2 text-sm text-amber-800">{catalogList.error}</p>
+                ) : null}
+                <div className="space-y-2">
+                  {(catalogList?.items ?? []).map((cat) => (
+                    <div
+                      key={cat.id}
+                      className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm ${
+                        cat.isActive ? 'border-emerald-300 bg-emerald-50' : 'border-zinc-200'
+                      }`}
+                    >
+                      <div>
+                        <p className="font-semibold">{cat.name}</p>
+                        <p className="font-mono text-xs text-zinc-500">ID: {cat.id}</p>
+                        {cat.productCount != null ? (
+                          <p className="text-xs text-zinc-500">Produktů v Meta: {cat.productCount}</p>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={busy || cat.isActive}
+                        onClick={async () => {
+                          if (!token) return;
+                          setBusy(true);
+                          const r = await nestAdminMetaCenterConnectCatalog(token, cat.id);
+                          setBusy(false);
+                          setMsg(r.ok ? `Katalog ${cat.id} uložen.` : r.error ?? 'Chyba');
+                          void refresh();
+                        }}
+                        className="rounded-lg bg-[#1877f2] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                      >
+                        {cat.isActive ? 'Aktivní katalog' : 'Použít tento katalog'}
+                      </button>
+                    </div>
+                  ))}
+                  {!catalogList?.items?.length ? (
+                    <p className="text-sm text-zinc-500">
+                      Žádný katalog v Business Manageru — vytvořte ho v Commerce Manageru nebo zadejte Catalog ID ručně.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
               <div className="mt-4 flex flex-wrap items-end gap-2">
                 <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-xs font-medium text-zinc-500">Připojit existující katalog (ID)</span>
+                  <span className="text-xs font-medium text-zinc-500">Zadat Catalog ID ručně</span>
                   <input
                     value={connectCatalogId}
                     onChange={(e) => setConnectCatalogId(e.target.value)}
@@ -1905,7 +2036,7 @@ export default function MetaCentrumPage() {
                   }}
                   className="rounded-lg border border-[#1877f2] px-4 py-2 text-sm font-semibold text-[#1877f2]"
                 >
-                  Připojit existující katalog
+                  Zadat Catalog ID ručně
                 </button>
               </div>
             </div>
@@ -1920,6 +2051,7 @@ export default function MetaCentrumPage() {
                       <th className="py-2 pr-2">Název</th>
                       <th className="py-2 pr-2">Cena</th>
                       <th className="py-2 pr-2">Lokalita</th>
+                      <th className="py-2 pr-2">Typ</th>
                       <th className="py-2 pr-2">Dostupnost</th>
                       <th className="py-2 pr-2">Export</th>
                       <th className="py-2 pr-2">Sync</th>
@@ -1943,6 +2075,7 @@ export default function MetaCentrumPage() {
                           {item.price != null ? `${item.price} ${item.currency}` : '—'}
                         </td>
                         <td className="py-2 pr-2">{item.city ?? '—'}</td>
+                        <td className="py-2 pr-2">{item.propertyType ?? '—'}</td>
                         <td className="py-2 pr-2">{item.availability}</td>
                         <td className="py-2 pr-2">{item.exportStatus}</td>
                         <td className="py-2 pr-2 whitespace-nowrap text-xs">
@@ -2122,8 +2255,9 @@ export default function MetaCentrumPage() {
         {tab === 'campaigns' && dash ? (
           <section className="space-y-6">
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-              Návrh kampaní — ostré spuštění reklam zatím není aktivní. Po připojení reklamního účtu
-              a oprávnění catalog_management bude možné kampaně spouštět přímo z XXREALIT.
+              První reklamy doporučujeme spustit ručně v Meta Ads Manageru. XXREALIT nyní připraví
+              katalog, dataset, feed, publika a návrh kampaně. Ostré spuštění z portálu zatím není
+              aktivní.
             </div>
             <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
               <h2 className="mb-4 text-lg font-bold">Vytvořit kampaň (koncept)</h2>
@@ -2166,14 +2300,47 @@ export default function MetaCentrumPage() {
                   </select>
                 </label>
                 <label className="flex flex-col gap-1 text-sm sm:col-span-2">
-                  <span className="font-medium">Lokalita na mapě</span>
+                  <span className="font-medium">Vyhledání města / adresy</span>
+                  <input
+                    value={campaignDraft.cityName}
+                    onChange={(e) =>
+                      setCampaignDraft((d) => ({
+                        ...d,
+                        cityName: e.target.value,
+                        locationLabel: e.target.value,
+                      }))
+                    }
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                    placeholder="např. Praha, Brno, Ostrava"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Latitude (mapa — skeleton)</span>
+                  <input
+                    value={campaignDraft.latitude}
+                    onChange={(e) => setCampaignDraft((d) => ({ ...d, latitude: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2 font-mono text-sm"
+                    placeholder="50.0755"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Longitude</span>
+                  <input
+                    value={campaignDraft.longitude}
+                    onChange={(e) => setCampaignDraft((d) => ({ ...d, longitude: e.target.value }))}
+                    className="rounded-lg border border-zinc-300 px-3 py-2 font-mono text-sm"
+                    placeholder="14.4378"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+                  <span className="font-medium">Bod na mapě (popis)</span>
                   <input
                     value={campaignDraft.locationLabel}
                     onChange={(e) =>
                       setCampaignDraft((d) => ({ ...d, locationLabel: e.target.value }))
                     }
                     className="rounded-lg border border-zinc-300 px-3 py-2"
-                    placeholder="Město, ulice nebo souřadnice (mapa — připravuje se)"
+                    placeholder="Později výběr bodu na mapě / polygon"
                   />
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
@@ -2222,6 +2389,32 @@ export default function MetaCentrumPage() {
                     className="rounded-lg border border-zinc-300 px-3 py-2"
                   />
                 </label>
+                <div className="sm:col-span-2">
+                  <p className="mb-2 text-sm font-medium">Výběr katalogových produktů</p>
+                  <div className="max-h-48 overflow-y-auto rounded-lg border border-zinc-200 p-2">
+                    {catalogProducts.slice(0, 20).map((p) => (
+                      <label key={p.propertyId} className="flex items-center gap-2 py-1 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={campaignDraft.selectedProductIds.includes(p.propertyId)}
+                          onChange={(e) => {
+                            setCampaignDraft((d) => ({
+                              ...d,
+                              selectedProductIds: e.target.checked
+                                ? [...d.selectedProductIds, p.propertyId]
+                                : d.selectedProductIds.filter((id) => id !== p.propertyId),
+                            }));
+                          }}
+                        />
+                        <span className="truncate">{p.title}</span>
+                        <span className="text-xs text-zinc-500">{p.city ?? ''}</span>
+                      </label>
+                    ))}
+                    {!catalogProducts.length ? (
+                      <p className="text-xs text-zinc-500">Feed zatím nemá položky.</p>
+                    ) : null}
+                  </div>
+                </div>
               </div>
               <div className="mt-4 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">
                 <p className="font-semibold text-zinc-800">Náhled reklamy</p>
@@ -2230,11 +2423,17 @@ export default function MetaCentrumPage() {
                   {campaignDraft.goal === 'catalog'
                     ? 'Dynamické katalogové produkty'
                     : campaignDraft.goal}{' '}
-                  · {campaignDraft.propertyType} · {campaignDraft.locationLabel || 'lokalita'}{' '}
-                  {campaignDraft.radiusKm} km · {campaignDraft.budgetDaily} Kč/den
+                  · {campaignDraft.cityName || campaignDraft.locationLabel || 'lokalita'}{' '}
+                  {campaignDraft.radiusKm} km
+                  {campaignDraft.latitude && campaignDraft.longitude
+                    ? ` (${campaignDraft.latitude}, ${campaignDraft.longitude})`
+                    : ''}{' '}
+                  · {campaignDraft.budgetDaily} Kč/den
                 </p>
                 <p className="mt-1 text-xs text-zinc-500">
-                  Katalogové produkty: {catalogPanel?.feedItemCount ?? 0} položek ve feedu
+                  Katalogové produkty:{' '}
+                  {campaignDraft.selectedProductIds.length || catalogPanel?.feedItemCount || 0}{' '}
+                  vybráno / ve feedu
                 </p>
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
@@ -2251,8 +2450,8 @@ export default function MetaCentrumPage() {
                   disabled
                   title={
                     canLaunchCampaigns
-                      ? 'Spuštění kampaní bude dostupné po potvrzení administrátorem'
-                      : 'Vyžaduje reklamní účet a catalog_management'
+                      ? 'Spuštění kampaní z portálu zatím není aktivní'
+                      : 'Vyžaduje reklamní účet, katalog, dataset a Marketing OAuth'
                   }
                   className="rounded-lg bg-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-600"
                 >
@@ -2261,8 +2460,8 @@ export default function MetaCentrumPage() {
               </div>
               {!canLaunchCampaigns ? (
                 <p className="mt-3 text-xs text-zinc-500">
-                  Pro spuštění kampaní připojte reklamní účet (Marketing OAuth) a dokončete Catalog
-                  OAuth s oprávněním catalog_management.
+                  Pro budoucí spuštění: reklamní účet, vybraný katalog, aktivní Dataset (META_DATASET_ID)
+                  a Marketing OAuth (ads_management).
                 </p>
               ) : null}
             </div>

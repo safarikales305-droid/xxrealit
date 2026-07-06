@@ -35,11 +35,24 @@ if (catalogWithoutEnv.approvedScopes.length > 0) {
 }
 
 const catalogWithEnv = resolveScopesForOAuthFlow('catalog', {
+  META_APPROVED_OAUTH_SCOPES_CATALOG: 'business_management',
+});
+if (catalogWithEnv.approvedScopes.join(',') !== 'business_management') {
+  console.error('FAIL: catalog flow must only request business_management');
+  console.error('got:', catalogWithEnv.approvedScopes);
+  process.exit(1);
+}
+
+const catalogLegacyEnv = resolveScopesForOAuthFlow('catalog', {
   META_APPROVED_OAUTH_SCOPES_CATALOG: 'business_management,catalog_management',
 });
-if (catalogWithEnv.approvedScopes.join(',') !== 'business_management,catalog_management') {
-  console.error('FAIL: catalog flow with META_APPROVED_OAUTH_SCOPES_CATALOG mismatch');
-  console.error('got:', catalogWithEnv.approvedScopes);
+if (catalogLegacyEnv.approvedScopes.join(',') !== 'business_management') {
+  console.error('FAIL: catalog flow must ignore catalog_management in ENV');
+  console.error('got:', catalogLegacyEnv.approvedScopes);
+  process.exit(1);
+}
+if (!catalogLegacyEnv.warnings.some((w) => w.includes('catalog_management'))) {
+  console.error('FAIL: legacy ENV with catalog_management must emit info warning');
   process.exit(1);
 }
 
@@ -49,16 +62,6 @@ const marketing = resolveScopesForOAuthFlow('marketing', {
 if (marketing.approvedScopes.length !== 3) {
   console.error('FAIL: marketing flow scopes mismatch');
   process.exit(1);
-}
-
-if (!catalogWithEnv.warnings.some((w) => w.includes('META_APPROVED_OAUTH_SCOPES_CATALOG'))) {
-  const missing = resolveScopesForOAuthFlow('catalog', {
-    META_APPROVED_OAUTH_SCOPES_CATALOG: 'business_management',
-  });
-  if (!missing.warnings.some((w) => w.includes('META_APPROVED_OAUTH_SCOPES_CATALOG'))) {
-    console.error('FAIL: catalog warnings must reference META_APPROVED_OAUTH_SCOPES_CATALOG');
-    process.exit(1);
-  }
 }
 
 console.log('OK: pages OAuth scopes verified');

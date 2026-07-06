@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { MetaCatalogSyncService } from '../meta-catalog/meta-catalog-sync.service';
 import { META_AD_ACCOUNT_OPTIONAL_MESSAGE, resolveMetaCenterIds } from './meta-center-env.util';
+import { META_CATALOG_VIA_BM_MESSAGE } from './meta-graph-permissions.util';
 import { MetaCenterGraphDiagnosticsService } from './meta-center-graph-diagnostics.service';
 import { MetaConnectOAuthService } from './meta-connect-oauth.service';
 import { MetaConnectProvisionService } from './meta-connect-provision.service';
@@ -29,6 +30,113 @@ export class MetaCenterAssetsService {
 
   private async resolveToken(): Promise<string> {
     return this.oauth.resolveAccessToken();
+  }
+
+  async listCatalogs() {
+    const row = await this.getSettingRow();
+    const ids = resolveMetaCenterIds(row ?? ({} as never));
+    const activeCatalogId = ids.catalogId;
+    if (!ids.businessId) {
+      return {
+        items: [] as Array<{
+          id: string;
+          name: string;
+          isActive: boolean;
+          productCount: number | null;
+        }>,
+        activeCatalogId,
+        scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
+        error: 'Chybí Business Manager ID — nejdřív připojte Commerce / Catalog OAuth.',
+      };
+    }
+    try {
+      const token = await this.resolveToken();
+      const res = await this.graph.get<
+        GraphList<{ id?: string; name?: string; product_count?: number }>
+      >(`/${ids.businessId}/owned_product_catalogs`, token, {
+        fields: 'id,name,product_count',
+        limit: '50',
+      });
+      const items = (res.ok ? res.data.data ?? [] : []).map((c) => ({
+        id: c.id ?? '',
+        name: c.name ?? c.id ?? 'Katalog',
+        isActive: c.id === activeCatalogId,
+        productCount: c.product_count ?? null,
+      }));
+      return {
+        items: items.filter((i) => i.id),
+        activeCatalogId,
+        scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
+        error: res.ok ? null : res.errorMessage,
+      };
+    } catch (err) {
+      return {
+        items: [],
+        activeCatalogId,
+        scopeInfo: META_CATALOG_VIA_BM_MESSAGE,
+        error: err instanceof Error ? err.message : 'Nelze načíst katalogy.',
+      };
+    }
+  }
+
+  async listAdAccounts() {
+    const row = await this.getSettingRow();
+    const ids = resolveMetaCenterIds(row ?? ({} as never));
+    const activeAdAccountId = ids.adAccountId;
+    if (!ids.businessId) {
+      return {
+        items: [] as Array<{
+          id: string;
+          name: string;
+          isActive: boolean;
+          currency: string | null;
+        }>,
+        activeAdAccountId,
+        error: 'Chybí Business Manager ID.',
+      };
+    }
+    try {
+      const token = await this.resolveToken();
+      const res = await this.graph.get<
+        GraphList<{ id?: string; name?: string; currency?: string; account_id?: string }>
+      >(`/${ids.businessId}/owned_ad_accounts`, token, {
+        fields: 'id,name,currency,account_id',
+        limit: '50',
+      });
+      const items = (res.ok ? res.data.data ?? [] : []).map((a) => {
+        const rawId = a.account_id ?? a.id ?? '';
+        const normalized = rawId.startsWith('act_') ? rawId : rawId ? `act_${rawId}` : '';
+        return {
+          id: normalized,
+          name: a.name ?? normalized,
+          isActive: normalized === activeAdAccountId || rawId === activeAdAccountId,
+          currency: a.currency ?? null,
+        };
+      });
+      return {
+        items: items.filter((i) => i.id),
+        activeAdAccountId,
+        error: res.ok ? null : res.errorMessage,
+      };
+    } catch (err) {
+      return {
+        items: [],
+        activeAdAccountId,
+        error: err instanceof Error ? err.message : 'Nelze načíst reklamní účty.',
+      };
+    }
+  }
+
+  async selectAdAccount(adAccountId: string) {
+    const raw = adAccountId.trim();
+    if (!raw) return { ok: false, error: 'Ad Account ID je prázdné.' };
+    const id = raw.startsWith('act_') ? raw : `act_${raw}`;
+    await this.prisma.metaCenterSetting.upsert({
+      where: { id: SETTINGS_ID },
+      create: { id: SETTINGS_ID, adAccountId: id },
+      update: { adAccountId: id },
+    });
+    return { ok: true, adAccountId: id };
   }
 
   async listDatasets() {
@@ -106,14 +214,24 @@ export class MetaCenterAssetsService {
         ? (catalogGrant as Record<string, unknown>)
         : null;
 
+    const pendingCount = await this.prisma.metaCatalogExportItem.count();
+    const errorCount = await this.prisma.metaCatalogExportItem.count({
+      where: { OR: [{ exportStatus: 'error' }, { lastError: { not: null } }] },
+    });
+
     return {
       catalogId: ids.catalogId ?? row?.catalogId ?? null,
       catalogName: row?.catalogName ?? graph.catalogName ?? null,
       businessId: ids.businessId,
       commerceManagerId: ids.commerceManagerId,
       commerceOnline: graph.commerceOnline,
-      catalogOnline: graph.catalogOnline,
-      catalogManagementGranted: catalogGrantObj?.catalogManagementGranted === true,
+      catalogOnline: graph.catalogOnline || Boolean(ids.catalogId),
+      businessManagementGranted:
+        catalogGrantObj?.catalogPermissionsStatus === 'not_required' ||
+        catalogGrantObj?.catalogPermissionsStatus === 'granted' ||
+        (Array.isArray(catalogGrantObj?.grantedScopes) &&
+          (catalogGrantObj.grantedScopes as string[]).includes('business_management')),
+      catalogScopeInfo: META_CATALOG_VIA_BM_MESSAGE,
       catalogPermissionsStatus:
         typeof catalogGrantObj?.catalogPermissionsStatus === 'string'
           ? catalogGrantObj.catalogPermissionsStatus
@@ -122,7 +240,9 @@ export class MetaCenterAssetsService {
         typeof catalogGrantObj?.connectedAt === 'string' ? catalogGrantObj.connectedAt : null,
       productCount: graph.productCount,
       feedItemCount: exportedCount,
-      lastSyncAt: row?.lastAutoSyncAt?.toISOString() ?? null,
+      exportErrorCount: errorCount,
+      exportPendingCount: pendingCount,
+      lastSyncAt: row?.lastAutoSyncAt?.toISOString() ?? graph.lastLocalSync ?? null,
       commerceManagerUrl: META_EXTERNAL_LINKS.commerceManager,
       catalogsUrl: META_EXTERNAL_LINKS.catalogs,
     };
@@ -144,6 +264,7 @@ export class MetaCenterAssetsService {
             price: true,
             currency: true,
             city: true,
+            propertyType: true,
             mainImage: true,
             thumbnailUrl: true,
             facebookShareImageUrl: true,
@@ -163,6 +284,7 @@ export class MetaCenterAssetsService {
           price: p?.price ?? null,
           currency: p?.currency ?? 'CZK',
           city: p?.city ?? null,
+          propertyType: p?.propertyType ?? null,
           image,
           availability: e.exportStatus === 'exported' ? 'in stock' : 'pending',
           exportStatus: e.exportStatus,

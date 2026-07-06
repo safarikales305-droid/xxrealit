@@ -4,10 +4,10 @@ import { resolveMetaCenterIds } from './meta-center-env.util';
 import {
   buildScopeGrantList,
   classifyGraphFailure,
-  classifyMissingScopes,
   hasPermissionWarning,
   issueMessage,
-  META_PERMISSION_WARNING_CATALOG,
+  META_CATALOG_VIA_BM_MESSAGE,
+  META_PERMISSION_WARNING_BUSINESS,
   type MetaGraphIssueKind,
   type MetaScopeGrantStatus,
 } from './meta-graph-permissions.util';
@@ -89,17 +89,15 @@ export class MetaCenterGraphDiagnosticsService {
 
   private buildPermissionStatus(scopes: string[]): string {
     const business = scopes.includes('business_management') ? '✓' : '✗';
-    const catalog = scopes.includes('catalog_management') ? '✓' : '✗';
-    return `business_management ${business}, catalog_management ${catalog}`;
+    return `business_management ${business}`;
   }
 
   private scopeFailure(endpoint: string, scopes: string[]): GraphFailure {
-    const kind = classifyMissingScopes(scopes);
-    if (kind === 'missing_permission') {
+    if (!scopes.includes('business_management')) {
       return {
-        kind,
-        message: META_PERMISSION_WARNING_CATALOG,
-        technicalDetail: `Chybí scope v tokenu · GET ${endpoint}`,
+        kind: 'missing_permission',
+        message: META_PERMISSION_WARNING_BUSINESS,
+        technicalDetail: `Chybí business_management · GET ${endpoint}`,
       };
     }
     return { kind: 'ok', message: '', technicalDetail: null };
@@ -293,20 +291,17 @@ export class MetaCenterGraphDiagnosticsService {
     | { ok: false; failure: GraphFailure }
   > {
     const endpoint = `/${catalogId}`;
-    if (!scopes.includes('catalog_management')) {
-      return { ok: false, failure: this.scopeFailure(endpoint, scopes) };
-    }
     const res = await this.graph.get<CatalogGraphFields>(endpoint, accessToken, {
       fields: 'id,name,vertical,update_time',
     });
     if (!res.ok) {
       const failure = this.graphFailure(res, endpoint, scopes);
-      if (failure.kind === 'missing_permission') {
+      if (failure.kind === 'missing_permission' || failure.kind === 'catalog_not_in_app') {
         return {
           ok: false,
           failure: {
             kind: 'catalog_not_in_app',
-            message: issueMessage('catalog_not_in_app'),
+            message: META_CATALOG_VIA_BM_MESSAGE,
             technicalDetail: failure.technicalDetail,
           },
         };
@@ -325,10 +320,6 @@ export class MetaCenterGraphDiagnosticsService {
     | { ok: false; failure: GraphFailure }
   > {
     const endpoint = `/${catalogId}/products`;
-    if (!scopes.includes('catalog_management')) {
-      return { ok: false, failure: this.scopeFailure(endpoint, scopes) };
-    }
-
     let productCount = 0;
     let imageCount = 0;
     let videoCount = 0;
@@ -390,7 +381,7 @@ export class MetaCenterGraphDiagnosticsService {
   private applyCatalogFailure(base: MetaCatalogGraphDiagnostics, failure: GraphFailure) {
     base.catalogIssueKind = failure.kind;
     base.catalogMessage = failure.message;
-    if (failure.kind === 'missing_permission' || failure.kind === 'catalog_not_in_app') {
+    if (failure.kind === 'missing_permission') {
       base.hasPermissionWarning = true;
       base.permissionWarning = failure.message;
     } else if (failure.kind === 'api_error') {
@@ -489,23 +480,34 @@ export class MetaCenterGraphDiagnosticsService {
     }
 
     const owned = await this.fetchOwnedProductCatalogs(businessId, accessToken, scopes);
-    if (owned.failure || !owned.catalogId) {
+    const configuredCatalogId = ids.catalogId?.trim() || null;
+    const resolvedCatalogId = configuredCatalogId ?? owned.catalogId;
+    const resolvedCatalogName = owned.catalogName ?? row?.catalogName ?? null;
+
+    if (!resolvedCatalogId) {
       const failure =
         owned.failure ??
         ({
-          kind: 'catalog_not_found',
-          message: issueMessage('catalog_not_found'),
+          kind: 'business_no_catalog',
+          message: issueMessage('business_no_catalog'),
           technicalDetail: `GET /${businessId}/owned_product_catalogs`,
         } satisfies GraphFailure);
       this.applyCommerceFailure(base, failure);
       this.applyCatalogFailure(base, failure);
+      if (scopes.includes('business_management')) {
+        base.commerceIssueKind = failure.kind === 'business_no_catalog' ? 'business_no_catalog' : failure.kind;
+        base.catalogIssueKind = 'business_no_catalog';
+        base.hasPermissionWarning = false;
+        base.permissionWarning = META_CATALOG_VIA_BM_MESSAGE;
+      }
       return base;
     }
 
-    const resolvedCatalogId = owned.catalogId;
     base.catalogId = resolvedCatalogId;
-    base.catalogName = owned.catalogName;
-    await this.persistDiscoveredCatalog(resolvedCatalogId, owned.catalogName);
+    base.catalogName = resolvedCatalogName;
+    if (!configuredCatalogId && owned.catalogId) {
+      await this.persistDiscoveredCatalog(resolvedCatalogId, resolvedCatalogName);
+    }
 
     const commerce = await this.fetchCommerceManager(businessId, accessToken, scopes);
     if (commerce.failure) {
@@ -524,29 +526,33 @@ export class MetaCenterGraphDiagnosticsService {
     }
 
     const catalogNode = await this.fetchCatalogNode(resolvedCatalogId, accessToken, scopes);
-    if (!catalogNode.ok) {
-      this.applyCatalogFailure(base, catalogNode.failure);
-      return base;
+    if (catalogNode.ok) {
+      base.catalogName = catalogNode.data.name ?? resolvedCatalogName ?? resolvedCatalogId;
+      base.lastCatalogUpdate = catalogNode.data.update_time ?? null;
     }
 
-    base.catalogName = catalogNode.data.name ?? owned.catalogName ?? resolvedCatalogId;
-    base.lastCatalogUpdate = catalogNode.data.update_time ?? null;
-
     const productStats = await this.fetchProductStats(resolvedCatalogId, accessToken, scopes);
-    if (!productStats.ok) {
-      this.applyCatalogFailure(base, productStats.failure);
-      return base;
+    const localExported = await this.prisma.metaCatalogExportItem.count({
+      where: { exportStatus: 'exported' },
+    });
+
+    if (productStats.ok) {
+      base.productCount = productStats.productCount;
+      base.metaImagesLoaded = productStats.imageCount;
+      base.metaVideoCount = productStats.videoCount;
+    } else {
+      base.productCount = localExported > 0 ? localExported : null;
+      base.metaImagesLoaded = null;
+      base.metaVideoCount = null;
     }
 
     base.catalogOnline = true;
-    base.catalogIssueKind = 'ok';
-    base.productCount = productStats.productCount;
-    base.metaImagesLoaded = productStats.imageCount;
-    base.metaVideoCount = productStats.videoCount;
-
-    base.catalogMessage =
-      `✓ ${base.catalogName} · ${productStats.productCount} produktů · ` +
-      `${productStats.imageCount} obrázků · ${productStats.videoCount} videí`;
+    base.catalogIssueKind = catalogNode.ok ? 'ok' : 'catalog_not_in_app';
+    const countLabel =
+      base.productCount != null ? `${base.productCount} položek` : 'feed připraven';
+    base.catalogMessage = catalogNode.ok
+      ? `✓ ${base.catalogName} · ${countLabel}`
+      : `✓ Katalog ${resolvedCatalogId} · ${countLabel} · ${META_CATALOG_VIA_BM_MESSAGE}`;
 
     if (base.commerceOnline) {
       base.commerceMessage =

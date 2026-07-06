@@ -296,6 +296,11 @@ export class MetaCenterAdminController {
     return this.assets.selectDataset(body.datasetId ?? '');
   }
 
+  @Get('catalog/list')
+  listCatalogs() {
+    return this.assets.listCatalogs();
+  }
+
   @Get('catalog/panel')
   catalogPanel() {
     return this.assets.getCatalogPanel();
@@ -325,6 +330,16 @@ export class MetaCenterAdminController {
   @Get('ad-account')
   adAccountPanel() {
     return this.assets.getAdAccountPanel();
+  }
+
+  @Get('ad-accounts')
+  listAdAccounts() {
+    return this.assets.listAdAccounts();
+  }
+
+  @Post('ad-account/select')
+  selectAdAccount(@Body() body: { adAccountId: string }) {
+    return this.assets.selectAdAccount(body.adAccountId ?? '');
   }
 
   @Get('feeds/stats')

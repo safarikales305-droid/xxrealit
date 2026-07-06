@@ -82,8 +82,8 @@ export const META_OAUTH_FLOWS: Record<
   catalog: {
     key: 'catalog',
     label: 'Commerce / Catalog',
-    description: 'Business Manager, Commerce Manager a produktový katalog',
-    scopes: ['business_management', 'catalog_management'],
+    description: 'Business Manager a Commerce Manager (bez scope catalog_management)',
+    scopes: ['business_management'],
     sessionMode: 'meta_center_catalog',
     usesLoginApp: false,
     usesPagesApp: true,
@@ -139,8 +139,14 @@ export const META_CENTER_SESSION_MODES = [
 
 export const META_CENTER_DEFAULT_FLOW: MetaOAuthFlowKey = 'pages';
 
-export const META_CATALOG_SCOPE_REVIEW_MESSAGE =
-  'Oprávnění catalog_management není schválené v Meta aplikaci. Přidejte produkt Commerce/Catalog v Meta App Dashboardu a znovu odešlete oprávnění k review.';
+export const META_CATALOG_MGMT_NOT_REQUIRED_MESSAGE =
+  'catalog_management není v této Meta aplikaci vyžadován. Katalog se spravuje přes Business Manager / Commerce Manager.';
+
+export const META_CATALOG_VIA_BM_MESSAGE =
+  'Catalog je řízen přes Business Manager / Commerce Manager. OAuth scope catalog_management není vyžadován.';
+
+/** @deprecated catalog_management už není vyžadován */
+export const META_CATALOG_SCOPE_REVIEW_MESSAGE = META_CATALOG_MGMT_NOT_REQUIRED_MESSAGE;
 
 export function normalizeMetaOAuthFlowKey(
   key: string | undefined | null,

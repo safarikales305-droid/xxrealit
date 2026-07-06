@@ -6402,14 +6402,44 @@ export type MetaCatalogPanel = {
   commerceManagerId: string | null;
   commerceOnline: boolean;
   catalogOnline: boolean;
-  catalogManagementGranted: boolean;
+  businessManagementGranted?: boolean;
+  catalogScopeInfo?: string;
   catalogPermissionsStatus: string | null;
   catalogConnectedAt: string | null;
   productCount: number | null;
   feedItemCount: number | null;
+  exportErrorCount?: number;
+  exportPendingCount?: number;
   lastSyncAt: string | null;
   commerceManagerUrl: string;
   catalogsUrl: string;
+};
+
+export type MetaCatalogListItem = {
+  id: string;
+  name: string;
+  isActive: boolean;
+  productCount: number | null;
+};
+
+export type MetaCatalogListResponse = {
+  items: MetaCatalogListItem[];
+  activeCatalogId: string | null;
+  scopeInfo: string;
+  error: string | null;
+};
+
+export type MetaAdAccountListItem = {
+  id: string;
+  name: string;
+  isActive: boolean;
+  currency: string | null;
+};
+
+export type MetaAdAccountListResponse = {
+  items: MetaAdAccountListItem[];
+  activeAdAccountId: string | null;
+  error: string | null;
 };
 
 export type MetaCatalogProductPreview = {
@@ -6418,6 +6448,7 @@ export type MetaCatalogProductPreview = {
   price: number | null;
   currency: string;
   city: string | null;
+  propertyType: string | null;
   image: string | null;
   availability: string;
   exportStatus: string;
@@ -6756,6 +6787,11 @@ export async function nestAdminMetaCenterCatalogPanel(token: string | null) {
   return r.ok ? r.data : null;
 }
 
+export async function nestAdminMetaCenterListCatalogs(token: string | null) {
+  const r = await metaCenterFetch<MetaCatalogListResponse>(token, '/catalog/list');
+  return r.ok ? r.data : null;
+}
+
 export async function nestAdminMetaCenterCatalogProducts(token: string | null, take = 50) {
   const r = await metaCenterFetch<{ items: MetaCatalogProductPreview[] }>(
     token,
@@ -6795,6 +6831,23 @@ export async function nestAdminMetaCenterSyncCatalog(token: string | null) {
 export async function nestAdminMetaCenterAdAccount(token: string | null) {
   const r = await metaCenterFetch<MetaAdAccountPanel>(token, '/ad-account');
   return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterListAdAccounts(token: string | null) {
+  const r = await metaCenterFetch<MetaAdAccountListResponse>(token, '/ad-accounts');
+  return r.ok ? r.data : null;
+}
+
+export async function nestAdminMetaCenterSelectAdAccount(
+  token: string | null,
+  adAccountId: string,
+): Promise<{ ok: boolean; adAccountId?: string; error?: string }> {
+  const r = await metaCenterFetch<{ ok: boolean; adAccountId?: string; error?: string }>(
+    token,
+    '/ad-account/select',
+    { method: 'POST', body: JSON.stringify({ adAccountId }) },
+  );
+  return r.ok ? r.data : { ok: false, error: r.error };
 }
 
 export async function nestAdminBonusCampaignDelete(

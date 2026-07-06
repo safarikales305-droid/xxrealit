@@ -12,6 +12,7 @@ export type MetaGraphIssueKind =
 export type MetaScopeGrantStatus = {
   scope: string;
   granted: boolean;
+  optional?: boolean;
 };
 
 export const META_EXTERNAL_LINKS = {
@@ -20,12 +21,17 @@ export const META_EXTERNAL_LINKS = {
   catalogs: 'https://business.facebook.com/settings/catalogs',
 } as const;
 
-export const META_PERMISSION_WARNING_CATALOG =
-  'Meta aplikace nemá oprávnění catalog_management. Přidejte oprávnění do Meta App nebo přidejte katalog do aplikace.';
+export const META_CATALOG_VIA_BM_MESSAGE =
+  'Catalog je řízen přes Business Manager / Commerce Manager. OAuth scope catalog_management není vyžadován.';
+
+export const META_PERMISSION_WARNING_BUSINESS =
+  'Meta aplikace nemá oprávnění business_management. Připojte Commerce / Catalog OAuth nebo přidejte scope do Meta App.';
+
+/** @deprecated Použijte META_CATALOG_VIA_BM_MESSAGE */
+export const META_PERMISSION_WARNING_CATALOG = META_CATALOG_VIA_BM_MESSAGE;
 
 export const META_REQUIRED_GRAPH_SCOPES = [
   'business_management',
-  'catalog_management',
   'pages_show_list',
   'pages_manage_metadata',
   'pages_read_engagement',
@@ -36,12 +42,15 @@ export const META_REQUIRED_GRAPH_SCOPES = [
   'whatsapp_business_messaging',
 ] as const;
 
+export const META_OPTIONAL_GRAPH_SCOPES = ['catalog_management'] as const;
+
 const ISSUE_MESSAGES: Record<Exclude<MetaGraphIssueKind, 'ok'>, string> = {
   api_error: 'Graph API neodpovídá nebo vrátila neočekávanou chybu.',
-  missing_permission: META_PERMISSION_WARNING_CATALOG,
+  missing_permission: META_PERMISSION_WARNING_BUSINESS,
   catalog_not_found: 'Katalog neexistuje nebo není dostupný přes Graph API.',
-  business_no_catalog: 'Business Manager nemá žádný product catalog.',
-  catalog_not_in_app: 'Katalog není připojen do Meta aplikace.',
+  business_no_catalog:
+    'Business Manager zatím nemá produktový katalog — vytvořte ho v Commerce Manageru.',
+  catalog_not_in_app: META_CATALOG_VIA_BM_MESSAGE,
   not_configured: 'Chybí konfigurace (Business ID, Catalog ID nebo access token).',
 };
 
@@ -93,18 +102,12 @@ export function classifyGraphFailure(
   const errMsg = err?.message ?? res.errorMessage;
 
   if (isPermissionGraphError(errType, errCode, errMsg)) {
-    const missingCatalog = !scopes.includes('catalog_management');
     const missingBusiness = !scopes.includes('business_management');
-    let message = META_PERMISSION_WARNING_CATALOG;
-    if (missingBusiness && !missingCatalog) {
-      message =
-        'Meta aplikace nemá oprávnění business_management. Přidejte oprávnění do Meta App.';
-    } else if (missingCatalog && missingBusiness) {
-      message =
-        'Meta aplikace nemá oprávnění catalog_management nebo business_management. Přidejte oprávnění do Meta App nebo přidejte katalog do aplikace.';
-    }
+    const message = missingBusiness
+      ? META_PERMISSION_WARNING_BUSINESS
+      : META_CATALOG_VIA_BM_MESSAGE;
     return {
-      kind: 'missing_permission',
+      kind: missingBusiness ? 'missing_permission' : 'catalog_not_in_app',
       message,
       technicalDetail: `${errType || 'GraphAPI'}${errCode != null ? ` #${errCode}` : ''}: ${errMsg} · GET ${endpoint}`,
     };
@@ -141,18 +144,23 @@ export function classifyGraphFailure(
 }
 
 export function classifyMissingScopes(scopes: string[]): MetaGraphIssueKind {
-  const needsCatalog = !scopes.includes('catalog_management');
-  const needsBusiness = !scopes.includes('business_management');
-  if (needsCatalog || needsBusiness) return 'missing_permission';
+  if (!scopes.includes('business_management')) return 'missing_permission';
   return 'ok';
 }
 
 export function buildScopeGrantList(grantedScopes: string[]): MetaScopeGrantStatus[] {
   const granted = new Set(grantedScopes);
-  return META_REQUIRED_GRAPH_SCOPES.map((scope) => ({
+  const required = META_REQUIRED_GRAPH_SCOPES.map((scope) => ({
     scope,
     granted: granted.has(scope),
+    optional: false,
   }));
+  const optional = META_OPTIONAL_GRAPH_SCOPES.map((scope) => ({
+    scope,
+    granted: granted.has(scope),
+    optional: true,
+  }));
+  return [...required, ...optional];
 }
 
 export function diagnosticLevelFromIssue(
@@ -176,5 +184,5 @@ export function hasPermissionWarning(
   commerceKind: MetaGraphIssueKind,
   catalogKind: MetaGraphIssueKind,
 ): boolean {
-  return commerceKind === 'missing_permission' || catalogKind === 'missing_permission';
+  return commerceKind === 'missing_permission';
 }

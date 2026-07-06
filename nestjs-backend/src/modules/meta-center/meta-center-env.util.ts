@@ -23,7 +23,7 @@ export const META_DATASET_V21_MESSAGE =
   'Účet používá Meta Dataset (Graph API v21+). Pixel není vyžadován.';
 
 export const META_PIXEL_PLACEHOLDER_MESSAGE =
-  'Pixel ID není nastavené, používá se Dataset.';
+  'Pixel není nastavený, používá se Dataset.';
 
 export const META_AD_ACCOUNT_OPTIONAL_MESSAGE =
   'Reklamní účet není nastavený. Je potřeba až pro spouštění kampaní.';

@@ -1,4 +1,5 @@
 import {
+  META_CATALOG_MGMT_NOT_REQUIRED_MESSAGE,
   META_OAUTH_FLOW_ENV_KEYS,
   META_OAUTH_FLOWS,
   normalizeMetaOAuthFlowKey,
@@ -113,6 +114,26 @@ export function resolveScopesForOAuthFlow(
     });
     if (!approved && approvedScopes.length === requestedScopes.length) {
       /* default login scopes */
+    }
+  } else if (flowKey === 'catalog') {
+    const envRaw = env[META_OAUTH_FLOW_ENV_KEYS.catalog]?.trim();
+    if (envRaw?.includes('catalog_management')) {
+      warnings.push(META_CATALOG_MGMT_NOT_REQUIRED_MESSAGE);
+    }
+    const approved = readApprovedScopesForFlow(flowKey, env);
+    if (approved?.has('business_management')) {
+      approvedScopes = ['business_management'];
+    } else if (approved && approved.size > 0) {
+      approvedScopes = [];
+      excludedScopes.push('business_management');
+      warnings.push(`Scope „business_management" chybí v ${envVarKey}.`);
+    } else {
+      approvedScopes = [];
+      warnings.push(
+        `Flow „${flowDef.label}" vyžaduje schválená oprávnění. ` +
+          `Nastavte ${envVarKey}=business_management.`,
+      );
+      excludedScopes.push('business_management');
     }
   } else {
     const approved = readApprovedScopesForFlow(flowKey, env);

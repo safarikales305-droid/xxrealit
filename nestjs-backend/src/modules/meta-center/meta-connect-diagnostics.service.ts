@@ -21,6 +21,7 @@ import {
   resolveMetaCenterIds,
   resolveMetaTrackingMode,
 } from './meta-center-env.util';
+import { META_CATALOG_VIA_BM_MESSAGE } from './meta-graph-permissions.util';
 import { MetaGraphClientService } from './meta-graph-client.service';
 
 const SETTINGS_ID = 'default';
@@ -272,26 +273,22 @@ export class MetaConnectDiagnosticsService {
     const catalogOnline = catalogGraph?.catalogOnline ?? catalogEnv.catalogOnline;
     const catalogMessage = catalogGraph?.catalogMessage ?? catalogEnv.catalogMessage;
     const commercePermissionWarning =
-      catalogGraph?.commerceIssueKind === 'missing_permission' ||
-      catalogGraph?.commerceIssueKind === 'catalog_not_in_app';
-    const catalogPermissionWarning =
-      catalogGraph?.catalogIssueKind === 'missing_permission' ||
-      catalogGraph?.catalogIssueKind === 'catalog_not_in_app';
+      catalogGraph?.commerceIssueKind === 'missing_permission';
+
+    const catalogIdResolved = resolvedIds.catalogId ?? catalogGraph?.catalogId ?? null;
+    const hasBusinessMgmt =
+      catalogGraph?.commercePermissionStatus?.includes('business_management ✓') ?? false;
 
     push(
       this.integration.buildCheck({
         key: 'business',
         label: 'Business Manager',
-        connected:
-          Boolean(resolvedIds.businessId) &&
-          (catalogGraph?.catalogOnline || catalogGraph?.commerceOnline || false),
+        connected: Boolean(resolvedIds.businessId) && (hasBusinessMgmt || Boolean(catalogGraph?.businessId)),
         error: !resolvedIds.businessId
-          ? 'Chybí FACEBOOK_BUSINESS_ID.'
-          : catalogGraph?.catalogOnline || catalogGraph?.commerceOnline
+          ? 'Chybí FACEBOOK_BUSINESS_ID — připojte Commerce / Catalog OAuth.'
+          : hasBusinessMgmt || catalogGraph?.businessId
             ? null
-            : catalogGraph?.hasPermissionWarning
-              ? catalogGraph.permissionWarning
-              : catalogGraph?.graphErrorJson ?? commerceMessage,
+            : 'Chybí oprávnění business_management — znovu připojte Catalog OAuth.',
         detail:
           resolvedIds.businessId && catalogGraph
             ? `Business ID ${resolvedIds.businessId}${catalogGraph.businessName ? ` · ${catalogGraph.businessName}` : ''}`
@@ -299,16 +296,13 @@ export class MetaConnectDiagnosticsService {
         fixAction: resolvedIds.businessId ? null : 'fix_env',
         fixHref: META_FIX_HREFS.metaCatalog,
         source: 'graph_api',
-        permissionWarning: Boolean(
-          resolvedIds.businessId && catalogGraph?.hasPermissionWarning && !catalogOnline && !commerceOnline,
-        ),
+        permissionWarning: false,
         apiError: Boolean(
           resolvedIds.businessId &&
             marketingAccessToken &&
             catalogGraph &&
-            !catalogGraph.catalogOnline &&
-            !catalogGraph.commerceOnline &&
-            !catalogGraph.hasPermissionWarning,
+            !hasBusinessMgmt &&
+            !catalogGraph.businessId,
         ),
       }),
     );
@@ -382,7 +376,12 @@ export class MetaConnectDiagnosticsService {
         key: 'commerce',
         label: 'Commerce Manager',
         connected: commerceOnline,
-        error: commerceOnline ? null : commerceMessage,
+        optional: !commerceOnline && Boolean(resolvedIds.businessId),
+        error: commerceOnline
+          ? null
+          : resolvedIds.businessId
+            ? commerceMessage
+            : 'Připojte Business Manager přes Catalog OAuth.',
         detail: commerceMessage,
         fixAction: commerceOnline ? null : resolvedIds.businessId ? null : 'fix_env',
         fixHref: META_FIX_HREFS.metaCatalog,
@@ -393,7 +392,7 @@ export class MetaConnectDiagnosticsService {
             resolvedIds.businessId &&
             marketingAccessToken &&
             catalogGraph &&
-            !catalogGraph.hasPermissionWarning,
+            catalogGraph.commerceIssueKind === 'api_error',
         ),
       }),
     );
@@ -402,19 +401,26 @@ export class MetaConnectDiagnosticsService {
       this.integration.buildCheck({
         key: 'catalog',
         label: 'Catalog',
-        connected: catalogOnline,
-        error: catalogOnline ? null : catalogMessage,
-        detail: catalogMessage,
-        fixAction: catalogOnline ? null : resolvedIds.catalogId ? null : 'fix_env',
+        connected: Boolean(catalogIdResolved) || catalogOnline,
+        optional: !catalogIdResolved && Boolean(resolvedIds.businessId),
+        error:
+          catalogIdResolved || catalogOnline
+            ? null
+            : resolvedIds.businessId
+              ? META_CATALOG_VIA_BM_MESSAGE
+              : 'Chybí Business Manager — připojte Catalog OAuth.',
+        detail: catalogIdResolved
+          ? `Catalog ID ${catalogIdResolved}${catalogGraph?.catalogName ? ` · ${catalogGraph.catalogName}` : ''}`
+          : catalogMessage,
+        fixAction: catalogIdResolved || catalogOnline ? null : 'open_meta_catalog',
         fixHref: META_FIX_HREFS.metaCatalog,
         source: catalogGraph?.catalogOnline ? 'graph_api' : 'meta_catalog',
-        permissionWarning: catalogPermissionWarning,
+        permissionWarning: false,
         apiError: Boolean(
-          !catalogOnline &&
-            resolvedIds.catalogId &&
+          catalogIdResolved &&
             marketingAccessToken &&
             catalogGraph &&
-            !catalogGraph.hasPermissionWarning,
+            catalogGraph.catalogIssueKind === 'api_error',
         ),
       }),
     );
