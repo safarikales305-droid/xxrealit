@@ -24,6 +24,18 @@ export class CreateMetaCampaignDto {
   cityName!: string;
 
   @IsOptional()
+  @IsString()
+  metaGeoKey?: string;
+
+  @IsOptional()
+  @IsString()
+  metaGeoCountry?: string;
+
+  @IsOptional()
+  @IsString()
+  metaGeoRegion?: string;
+
+  @IsOptional()
   @IsNumber()
   latitude?: number;
 

@@ -45,6 +45,7 @@ import {
   nestAdminMetaCenterSelectAdAccount,
   nestAdminMetaCenterMarketingDiagnostics,
   nestAdminMetaCenterCampaignProducts,
+  nestAdminMetaCenterGeoSearch,
   nestAdminMetaCenterListCampaignDrafts,
   nestAdminMetaCenterCreateCampaign,
   nestAdminMetaCenterUpdateCampaignDraft,
@@ -61,6 +62,7 @@ import {
   type MetaAdAccountListResponse,
   type MetaCampaignDraft,
   type MetaCampaignProductItem,
+  type MetaGeoLocationItem,
   type MetaCatalogListResponse,
   type MetaCatalogPanel,
   type MetaCatalogProductPreview,
@@ -650,6 +652,9 @@ export default function MetaCentrumPage() {
     endDate: '',
     locationLabel: '',
     cityName: '',
+    metaGeoKey: '',
+    metaGeoCountry: '',
+    metaGeoRegion: '',
     latitude: '',
     longitude: '',
     selectedProductIds: [] as string[],
@@ -658,6 +663,9 @@ export default function MetaCentrumPage() {
     audienceId: '',
     creativePayload: {} as Record<string, unknown>,
   });
+  const [geoSuggestions, setGeoSuggestions] = useState<MetaGeoLocationItem[]>([]);
+  const [geoSearchBusy, setGeoSearchBusy] = useState(false);
+  const [showGeoSuggestions, setShowGeoSuggestions] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -838,10 +846,54 @@ export default function MetaCentrumPage() {
     ) {
       blockers.push('Vyberte remarketing publikum nebo zvolte cílení mapa.');
     }
+    if (
+      (campaignDraft.targetingMode === 'map' || campaignDraft.targetingMode === 'map_remarketing') &&
+      !campaignDraft.metaGeoKey.trim() &&
+      (!campaignDraft.latitude.trim() || !campaignDraft.longitude.trim())
+    ) {
+      blockers.push('Vyberte město z návrhů Meta (Geo ID) nebo zadejte souřadnice.');
+    }
     return blockers;
   }, [campaignDraft, hasAdsApi, hasAdAccount, hasCatalog, hasDataset]);
 
   const canLaunchCampaign = campaignLaunchBlockers.length === 0;
+
+  useEffect(() => {
+    if (!token) return;
+    const q = campaignDraft.cityName.trim();
+    if (q.length < 2) {
+      setGeoSuggestions([]);
+      setShowGeoSuggestions(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        setGeoSearchBusy(true);
+        const r = await nestAdminMetaCenterGeoSearch(token, q);
+        setGeoSearchBusy(false);
+        if (r.ok) {
+          setGeoSuggestions(r.items);
+          setShowGeoSuggestions(r.items.length > 0);
+        }
+      })();
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [token, campaignDraft.cityName]);
+
+  function selectGeoLocation(item: MetaGeoLocationItem) {
+    setCampaignDraft((d) => ({
+      ...d,
+      cityName: item.city,
+      locationLabel: item.city,
+      metaGeoKey: item.metaKey,
+      metaGeoCountry: item.country ?? '',
+      metaGeoRegion: item.region ?? '',
+      latitude: item.lat != null ? String(item.lat) : d.latitude,
+      longitude: item.lng != null ? String(item.lng) : d.longitude,
+    }));
+    setGeoSuggestions([]);
+    setShowGeoSuggestions(false);
+  }
 
   const selectedCampaignProducts = useMemo(
     () =>
@@ -861,6 +913,9 @@ export default function MetaCentrumPage() {
       objective: campaignDraft.goal,
       propertyType: campaignDraft.propertyType,
       cityName: campaignDraft.cityName.trim() || campaignDraft.locationLabel.trim(),
+      metaGeoKey: campaignDraft.metaGeoKey.trim() || undefined,
+      metaGeoCountry: campaignDraft.metaGeoCountry.trim() || undefined,
+      metaGeoRegion: campaignDraft.metaGeoRegion.trim() || undefined,
       latitude: Number.isFinite(lat) ? lat : undefined,
       longitude: Number.isFinite(lng) ? lng : undefined,
       radiusKm: campaignDraft.radiusKm,
@@ -887,6 +942,9 @@ export default function MetaCentrumPage() {
       endDate: c.endDate ?? '',
       locationLabel: c.cityName ?? '',
       cityName: c.cityName ?? '',
+      metaGeoKey: c.metaGeoKey ?? '',
+      metaGeoCountry: c.metaGeoCountry ?? '',
+      metaGeoRegion: c.metaGeoRegion ?? '',
       latitude: c.latitude != null ? String(c.latitude) : '',
       longitude: c.longitude != null ? String(c.longitude) : '',
       selectedProductIds: c.selectedProductIds ?? [],
@@ -911,6 +969,9 @@ export default function MetaCentrumPage() {
       endDate: '',
       locationLabel: '',
       cityName: '',
+      metaGeoKey: '',
+      metaGeoCountry: '',
+      metaGeoRegion: '',
       latitude: '',
       longitude: '',
       selectedProductIds: [],
@@ -3633,8 +3694,8 @@ export default function MetaCentrumPage() {
                     <option value="komerce">Komerce</option>
                   </select>
                 </label>
-                <label className="flex flex-col gap-1 text-sm sm:col-span-2">
-                  <span className="font-medium">Město / lokalita</span>
+                <label className="relative flex flex-col gap-1 text-sm sm:col-span-2">
+                  <span className="font-medium">Město / lokalita (Meta Geo)</span>
                   <input
                     value={campaignDraft.cityName}
                     onChange={(e) =>
@@ -3642,12 +3703,70 @@ export default function MetaCentrumPage() {
                         ...d,
                         cityName: e.target.value,
                         locationLabel: e.target.value,
+                        metaGeoKey: '',
+                        metaGeoCountry: '',
+                        metaGeoRegion: '',
                       }))
                     }
+                    onFocus={() => {
+                      if (geoSuggestions.length > 0) setShowGeoSuggestions(true);
+                    }}
+                    onBlur={() => {
+                      window.setTimeout(() => setShowGeoSuggestions(false), 150);
+                    }}
                     className="rounded-lg border border-zinc-300 px-3 py-2"
-                    placeholder="např. Praha, Brno, Ostrava"
+                    placeholder="Začněte psát: Par… → Pardubice"
+                    autoComplete="off"
                   />
+                  {geoSearchBusy ? (
+                    <span className="text-xs text-zinc-500">Načítám z Meta…</span>
+                  ) : null}
+                  {showGeoSuggestions && geoSuggestions.length > 0 ? (
+                    <ul className="absolute top-full z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-zinc-200 bg-white shadow-lg">
+                      {geoSuggestions.map((item) => (
+                        <li key={item.metaKey}>
+                          <button
+                            type="button"
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => selectGeoLocation(item)}
+                          >
+                            <span className="font-medium">{item.city}</span>
+                            {item.region ? (
+                              <span className="text-zinc-500"> · {item.region}</span>
+                            ) : null}
+                            <span className="block font-mono text-xs text-zinc-500">
+                              Geo ID {item.metaKey}
+                              {item.country ? ` · ${item.country}` : ''}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </label>
+                {campaignDraft.metaGeoKey || campaignDraft.latitude || campaignDraft.longitude ? (
+                  <div className="sm:col-span-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
+                    <p className="font-semibold">Cílení odeslané do Meta</p>
+                    <ul className="mt-1 space-y-0.5 font-mono text-xs">
+                      <li>
+                        {campaignDraft.metaGeoKey
+                          ? `✓ Meta Geo ID: ${campaignDraft.metaGeoKey}`
+                          : '○ Meta Geo ID: bude dohledáno nebo použity souřadnice'}
+                      </li>
+                      <li>
+                        ✓ Země: {campaignDraft.metaGeoCountry || '—'}
+                      </li>
+                      <li>✓ Region: {campaignDraft.metaGeoRegion || '—'}</li>
+                      <li>
+                        ✓ Souřadnice:{' '}
+                        {campaignDraft.latitude && campaignDraft.longitude
+                          ? `${campaignDraft.latitude}, ${campaignDraft.longitude}`
+                          : '—'}
+                      </li>
+                    </ul>
+                  </div>
+                ) : null}
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium">Latitude</span>
                   <input

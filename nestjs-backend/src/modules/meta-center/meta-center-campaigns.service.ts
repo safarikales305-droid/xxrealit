@@ -9,6 +9,7 @@ import { FacebookConfigService } from '../social/facebook/facebook-config.servic
 import { resolveMetaCenterIds } from './meta-center-env.util';
 import { MetaConnectOAuthService } from './meta-connect-oauth.service';
 import { MetaGraphClientService } from './meta-graph-client.service';
+import { MetaCenterGeoService, type MetaGeoResolvedTargeting } from './meta-center-geo.service';
 import { isMarketingAdsTokenActive } from './meta-marketing-token.util';
 import type { CreateMetaCampaignDto } from './dto/create-meta-campaign.dto';
 import {
@@ -73,6 +74,7 @@ export class MetaCenterCampaignsService {
     private readonly prisma: PrismaService,
     private readonly oauth: MetaConnectOAuthService,
     private readonly graph: MetaGraphClientService,
+    private readonly geo: MetaCenterGeoService,
     private readonly fbConfig: FacebookConfigService,
   ) {}
 
@@ -241,6 +243,22 @@ export class MetaCenterCampaignsService {
         key: 'date_range',
         message: 'Datum ukončení musí být po datu spuštění.',
       });
+    }
+
+    const mode = this.resolveTargetingMode(dto.targetingMode);
+    if (mode === 'map' || mode === 'map_remarketing') {
+      const hasGeoKey = Boolean(dto.metaGeoKey?.trim() && /^\d+$/.test(dto.metaGeoKey.trim()));
+      const hasCoords =
+        dto.latitude != null &&
+        dto.longitude != null &&
+        Number.isFinite(dto.latitude) &&
+        Number.isFinite(dto.longitude);
+      if (!hasGeoKey && !hasCoords && !dto.cityName?.trim()) {
+        blockers.push({
+          key: 'geo',
+          message: 'Vyberte město z Meta Geo nebo zadejte souřadnice.',
+        });
+      }
     }
 
     return blockers;
@@ -575,6 +593,9 @@ export class MetaCenterCampaignsService {
     objective: string;
     propertyType: string | null;
     cityName: string | null;
+    metaGeoKey?: string | null;
+    metaGeoCountry?: string | null;
+    metaGeoRegion?: string | null;
     latitude: number | null;
     longitude: number | null;
     radiusKm: number | null;
@@ -595,6 +616,9 @@ export class MetaCenterCampaignsService {
       objective: row.objective,
       propertyType: row.propertyType ?? undefined,
       cityName: row.cityName ?? '',
+      metaGeoKey: row.metaGeoKey ?? undefined,
+      metaGeoCountry: row.metaGeoCountry ?? undefined,
+      metaGeoRegion: row.metaGeoRegion ?? undefined,
       latitude: row.latitude ?? undefined,
       longitude: row.longitude ?? undefined,
       radiusKm: row.radiusKm ?? 15,
@@ -801,7 +825,30 @@ export class MetaCenterCampaignsService {
     }
 
     const metaCampaignId = campaignRes.data.id;
-    const targeting = await this.buildTargeting(dto, audienceMetaId);
+    let resolvedGeo;
+    try {
+      resolvedGeo = await this.geo.resolveGeoForTargeting({
+        metaGeoKey: dto.metaGeoKey,
+        cityName: dto.cityName,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+        radiusKm: dto.radiusKm,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Lokalitu nelze namapovat na Meta Geo.';
+      await this.prisma.metaMarketingCampaignDraft.update({
+        where: { id: draftId },
+        data: { metaCampaignId, status: 'error', errorMessage: msg },
+      });
+      return {
+        ok: false as const,
+        status: 'validation_error' as const,
+        message: msg,
+        campaign: null,
+      };
+    }
+
+    const targeting = this.buildTargetingFromGeo(resolvedGeo, dto, audienceMetaId);
     const startTime = this.parseDate(dto.startDate)?.toISOString() ?? undefined;
     const endTime = this.parseDate(dto.endDate)?.toISOString() ?? undefined;
     const optimizationGoal =
@@ -1069,31 +1116,37 @@ export class MetaCenterCampaignsService {
     return 'map';
   }
 
-  private async buildTargeting(
+  private buildTargetingFromGeo(
+    geo: MetaGeoResolvedTargeting,
     dto: CreateMetaCampaignDto,
     audienceMetaId?: string | null,
-  ): Promise<Record<string, unknown>> {
+  ): Record<string, unknown> {
     const mode = this.resolveTargetingMode(dto.targetingMode);
-    const lat = dto.latitude;
-    const lng = dto.longitude;
-    let geo: Record<string, unknown> = {};
-    if (lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)) {
-      geo = {
+    let geoBlock: Record<string, unknown>;
+
+    if (geo.mode === 'city') {
+      geoBlock = {
         geo_locations: {
-          custom_locations: [
+          cities: [
             {
-              latitude: lat,
-              longitude: lng,
-              radius: dto.radiusKm,
+              key: geo.key,
+              radius: geo.radiusKm,
               distance_unit: 'kilometer',
             },
           ],
         },
       };
-    } else if (dto.cityName?.trim()) {
-      geo = {
+    } else {
+      geoBlock = {
         geo_locations: {
-          cities: [{ key: dto.cityName.trim(), radius: dto.radiusKm, distance_unit: 'kilometer' }],
+          custom_locations: [
+            {
+              latitude: geo.latitude,
+              longitude: geo.longitude,
+              radius: geo.radiusKm,
+              distance_unit: 'kilometer',
+            },
+          ],
         },
       };
     }
@@ -1103,11 +1156,11 @@ export class MetaCenterCampaignsService {
     }
     if (mode === 'map_remarketing' && audienceMetaId) {
       return {
-        ...geo,
+        ...geoBlock,
         custom_audiences: [{ id: audienceMetaId }],
       };
     }
-    return geo;
+    return geoBlock;
   }
 
   private mapObjective(objective: string): string {
@@ -1195,6 +1248,9 @@ export class MetaCenterCampaignsService {
       datasetId: ids.datasetId ?? ids.pixelId,
       propertyType: dto.propertyType ?? null,
       cityName: dto.cityName.trim(),
+      metaGeoKey: dto.metaGeoKey?.trim() || null,
+      metaGeoCountry: dto.metaGeoCountry?.trim() || null,
+      metaGeoRegion: dto.metaGeoRegion?.trim() || null,
       latitude: dto.latitude ?? null,
       longitude: dto.longitude ?? null,
       radiusKm: dto.radiusKm,
@@ -1219,6 +1275,9 @@ export class MetaCenterCampaignsService {
     datasetId: string | null;
     propertyType: string | null;
     cityName: string | null;
+    metaGeoKey?: string | null;
+    metaGeoCountry?: string | null;
+    metaGeoRegion?: string | null;
     latitude: number | null;
     longitude: number | null;
     radiusKm: number | null;
@@ -1257,6 +1316,9 @@ export class MetaCenterCampaignsService {
       datasetId: row.datasetId,
       propertyType: row.propertyType,
       cityName: row.cityName,
+      metaGeoKey: row.metaGeoKey ?? null,
+      metaGeoCountry: row.metaGeoCountry ?? null,
+      metaGeoRegion: row.metaGeoRegion ?? null,
       latitude: row.latitude,
       longitude: row.longitude,
       radiusKm: row.radiusKm,

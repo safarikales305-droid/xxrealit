@@ -32,6 +32,7 @@ import { FacebookAuthService } from '../social/facebook/facebook-auth.service';
 import { MetaCenterApiLogService } from './meta-center-api-log.service';
 import { MetaMarketingDiagnosticsService } from './meta-marketing-diagnostics.service';
 import { MetaCenterCampaignsService } from './meta-center-campaigns.service';
+import { MetaCenterGeoService } from './meta-center-geo.service';
 import { MetaCenterRemarketingService } from './meta-center-remarketing.service';
 import { CreateMetaCampaignDto } from './dto/create-meta-campaign.dto';
 import { CreateMetaRemarketingAudienceDto } from './dto/create-meta-remarketing-audience.dto';
@@ -56,6 +57,7 @@ export class MetaCenterAdminController {
     private readonly apiLog: MetaCenterApiLogService,
     private readonly marketingOAuthDiagnostics: MetaMarketingDiagnosticsService,
     private readonly campaigns: MetaCenterCampaignsService,
+    private readonly geo: MetaCenterGeoService,
     private readonly remarketing: MetaCenterRemarketingService,
   ) {}
 
@@ -563,6 +565,15 @@ export class MetaCenterAdminController {
       'campaign-products',
       () => this.campaigns.listCampaignProducts(),
       (message) => ({ ok: true as const, items: [], message }),
+    );
+  }
+
+  @Get('campaigns/geo/search')
+  searchCampaignGeo(@Query('q') q?: string, @Query('country') country?: string) {
+    return this.safeEndpoint(
+      'campaigns/geo/search',
+      () => this.geo.searchCities(q ?? '', country?.trim() || 'CZ'),
+      (message) => ({ ok: false as const, items: [], message }),
     );
   }
 

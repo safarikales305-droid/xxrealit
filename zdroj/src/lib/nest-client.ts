@@ -6550,6 +6550,9 @@ export type MetaCampaignDraft = {
   datasetId: string | null;
   propertyType: string | null;
   cityName: string | null;
+  metaGeoKey?: string | null;
+  metaGeoCountry?: string | null;
+  metaGeoRegion?: string | null;
   latitude: number | null;
   longitude: number | null;
   radiusKm: number | null;
@@ -7120,11 +7123,39 @@ export async function nestAdminMetaCenterListCampaignDrafts(
   return r.ok ? r.data : { ok: false, items: [], message: r.error };
 }
 
+export type MetaGeoLocationItem = {
+  city: string;
+  metaKey: string;
+  country: string | null;
+  region: string | null;
+  lat: number | null;
+  lng: number | null;
+  fromCache: boolean;
+};
+
+export async function nestAdminMetaCenterGeoSearch(
+  token: string | null,
+  q: string,
+  country = 'CZ',
+): Promise<{ ok: boolean; items: MetaGeoLocationItem[]; fromCache?: boolean; message?: string }> {
+  const params = new URLSearchParams({ q, country });
+  const r = await metaCenterFetch<{
+    ok: boolean;
+    items: MetaGeoLocationItem[];
+    fromCache?: boolean;
+    message?: string;
+  }>(token, `/campaigns/geo/search?${params.toString()}`);
+  return r.ok ? r.data : { ok: false, items: [], message: r.error };
+}
+
 export type MetaCampaignDraftBody = {
   name: string;
   objective: string;
   propertyType?: string;
   cityName: string;
+  metaGeoKey?: string;
+  metaGeoCountry?: string;
+  metaGeoRegion?: string;
   latitude?: number;
   longitude?: number;
   radiusKm: number;

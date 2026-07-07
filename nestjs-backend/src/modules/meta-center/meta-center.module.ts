@@ -18,6 +18,7 @@ import { MetaGraphClientService } from './meta-graph-client.service';
 import { MetaCenterApiLogService } from './meta-center-api-log.service';
 import { MetaMarketingDiagnosticsService } from './meta-marketing-diagnostics.service';
 import { MetaCenterCampaignsService } from './meta-center-campaigns.service';
+import { MetaCenterGeoService } from './meta-center-geo.service';
 import { MetaCenterLiveDiagnosticsService } from './meta-center-live-diagnostics.service';
 import { MetaCenterRemarketingService } from './meta-center-remarketing.service';
 
@@ -42,6 +43,7 @@ import { MetaCenterRemarketingService } from './meta-center-remarketing.service'
     MetaCenterApiLogService,
     MetaMarketingDiagnosticsService,
     MetaCenterCampaignsService,
+    MetaCenterGeoService,
     MetaCenterLiveDiagnosticsService,
     MetaCenterRemarketingService,
   ],
