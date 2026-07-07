@@ -4,6 +4,12 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
+import { MetaCampaignCreativeEditor } from '@/components/meta-centrum/MetaCampaignCreativeEditor';
+import {
+  MetaCampaignPlacementPreview,
+  MetaCampaignPreviewModal,
+} from '@/components/meta-centrum/MetaCampaignPlacementPreview';
+import { getCreativePreviewImage } from '@/lib/meta-campaign-creative';
 import {
   safeDisplayValue,
   safeErrorMessage,
@@ -444,143 +450,6 @@ function LiveDiagnosticsPanel({ live }: { live: MetaLiveDiagnostics }) {
   );
 }
 
-function CampaignAdPreview({
-  creativeType,
-  campaignDraft,
-  selectedProducts,
-  remarketingAudiences,
-}: {
-  creativeType: string;
-  campaignDraft: {
-    name: string;
-    goal: string;
-    cityName: string;
-    locationLabel: string;
-    radiusKm: number;
-    budgetDaily: number;
-    startDate: string;
-    endDate: string;
-    targetingMode: string;
-    audienceId: string;
-    creativePayload: Record<string, unknown>;
-  };
-  selectedProducts: MetaCampaignProductItem[];
-  remarketingAudiences: MetaRemarketingAudience[];
-}) {
-  const audience = remarketingAudiences.find((a) => a.id === campaignDraft.audienceId);
-  const payload = campaignDraft.creativePayload ?? {};
-  const text = String(payload.text ?? campaignDraft.name ?? '');
-  const image = typeof payload.image === 'string' ? payload.image : null;
-  const video = typeof payload.video === 'string' ? payload.video : null;
-  const author = typeof payload.author === 'string' ? payload.author : null;
-  const cta = typeof payload.cta === 'string' ? payload.cta : 'Zjistit více';
-
-  return (
-    <div className="mt-4 space-y-4">
-      <dl className="grid gap-1 text-sm sm:grid-cols-2">
-        <div>
-          <dt className="text-xs text-zinc-500">Typ kreativy</dt>
-          <dd>{CREATIVE_TYPE_LABELS[creativeType] ?? creativeType}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-zinc-500">Cílení</dt>
-          <dd>
-            {TARGETING_MODE_LABELS[campaignDraft.targetingMode] ?? campaignDraft.targetingMode}
-            {audience ? ` · ${audience.name}` : ''}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs text-zinc-500">Lokalita</dt>
-          <dd>
-            {campaignDraft.cityName || campaignDraft.locationLabel || '—'} · {campaignDraft.radiusKm} km
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs text-zinc-500">Rozpočet</dt>
-          <dd>{campaignDraft.budgetDaily} Kč / den</dd>
-        </div>
-      </dl>
-
-      {creativeType === 'social_post' ? (
-        <div className="mx-auto max-w-sm overflow-hidden rounded-xl border border-zinc-300 bg-white shadow-md">
-          <div className="border-b border-zinc-200 px-3 py-2 text-xs text-zinc-600">
-            {author ?? 'XXREALIT'} · Facebook náhled
-          </div>
-          {text ? <p className="px-3 py-2 text-sm text-zinc-800">{text}</p> : null}
-          {video ? (
-            <video src={video} className="aspect-video w-full bg-black object-cover" controls muted />
-          ) : image ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={image} alt="" className="aspect-[4/3] w-full object-cover" />
-          ) : (
-            <div className="flex aspect-[4/3] items-center justify-center bg-zinc-100 text-xs text-zinc-400">
-              Bez média
-            </div>
-          )}
-          <div className="border-t border-zinc-200 px-3 py-2">
-            <span className="rounded bg-[#1877f2] px-3 py-1 text-xs font-semibold text-white">
-              {cta}
-            </span>
-          </div>
-        </div>
-      ) : null}
-
-      {creativeType === 'listing' && selectedProducts[0] ? (
-        <article className="mx-auto max-w-sm overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
-          {selectedProducts[0].imageUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={selectedProducts[0].imageUrl}
-              alt={selectedProducts[0].title}
-              className="aspect-[4/3] w-full object-cover"
-            />
-          ) : null}
-          <div className="p-3 text-sm">
-            <p className="font-semibold">{selectedProducts[0].title}</p>
-            <p className="text-zinc-600">
-              {selectedProducts[0].price != null
-                ? `${selectedProducts[0].price.toLocaleString('cs-CZ')} ${selectedProducts[0].currency}`
-                : ''}
-            </p>
-            <p className="text-xs text-zinc-500">{selectedProducts[0].city}</p>
-          </div>
-        </article>
-      ) : null}
-
-      {(creativeType === 'catalog_products' || creativeType === 'custom_creative') &&
-      selectedProducts.length > 0 ? (
-        <div className="flex gap-3 overflow-x-auto pb-2">
-          {selectedProducts.map((p) => (
-            <div
-              key={p.id}
-              className="w-44 shrink-0 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm"
-            >
-              {p.imageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={p.imageUrl} alt={p.title} className="aspect-square w-full object-cover" />
-              ) : (
-                <div className="flex aspect-square items-center justify-center bg-zinc-100 text-xs text-zinc-400">
-                  —
-                </div>
-              )}
-              <div className="p-2 text-xs">
-                <p className="line-clamp-2 font-medium">{p.title}</p>
-                <p className="text-zinc-600">
-                  {p.price != null ? `${p.price.toLocaleString('cs-CZ')} ${p.currency}` : ''}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {selectedProducts.length === 0 && creativeType !== 'social_post' ? (
-        <p className="text-sm text-amber-800">Vyberte alespoň jeden katalogový inzerát.</p>
-      ) : null}
-    </div>
-  );
-}
-
 export default function MetaCentrumPage() {
   const router = useRouter();
   const params = useSearchParams();
@@ -635,7 +504,6 @@ export default function MetaCentrumPage() {
     offerType: '',
     listingId: '',
   });
-  const [showCampaignPreview, setShowCampaignPreview] = useState(true);
   const [editingCampaignId, setEditingCampaignId] = useState<string | null>(null);
   const [adAccount, setAdAccount] = useState<MetaAdAccountPanel | null>(null);
   const [catalogList, setCatalogList] = useState<MetaCatalogListResponse | null>(null);
@@ -666,6 +534,7 @@ export default function MetaCentrumPage() {
   const [geoSuggestions, setGeoSuggestions] = useState<MetaGeoLocationItem[]>([]);
   const [geoSearchBusy, setGeoSearchBusy] = useState(false);
   const [showGeoSuggestions, setShowGeoSuggestions] = useState(false);
+  const [previewCampaign, setPreviewCampaign] = useState<MetaCampaignDraft | null>(null);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -763,24 +632,27 @@ export default function MetaCentrumPage() {
       setCampaignDraft((d) => ({
         ...d,
         name: name || d.name,
-        creativeType: 'social_post',
+        creativeType: 'facebook_post',
         goal: 'traffic',
         cityName: cityName || d.cityName,
         locationLabel: cityName || d.locationLabel,
         budgetDaily: budget ? Number(budget) || d.budgetDaily : d.budgetDaily,
         startDate: startDate || d.startDate,
         creativePayload: {
+          sourceType: 'facebook_post',
+          primaryText: text,
           text,
+          headline: name || text.slice(0, 80),
           image: image || undefined,
           video: video || undefined,
           author: author || undefined,
-          cta,
+          cta: cta || 'Zjistit více',
+          ctaType: 'LEARN_MORE',
           postId: params.get('postId') ?? undefined,
           link: params.get('link') ?? undefined,
         },
       }));
       setTab('campaigns');
-      setShowCampaignPreview(true);
     }
   }, [params]);
 
@@ -827,8 +699,21 @@ export default function MetaCentrumPage() {
     if (!campaignDraft.budgetDaily || campaignDraft.budgetDaily <= 0) {
       blockers.push('Denní rozpočet musí být větší než 0.');
     }
-    if (!campaignDraft.selectedProductIds.length) {
+    if (!campaignDraft.selectedProductIds.length && campaignDraft.creativeType === 'catalog_products') {
       blockers.push('Vyberte alespoň jeden katalogový inzerát.');
+    }
+    if (campaignDraft.creativeType === 'listing' && !campaignDraft.selectedProductIds.length) {
+      blockers.push('Vyberte inzerát XXREALIT.');
+    }
+    const cp = campaignDraft.creativePayload ?? {};
+    const hasMedia = Boolean(cp.image || cp.video || cp.objectStoryId);
+    if (
+      ['public_post', 'facebook_post', 'instagram_post', 'custom_image', 'custom_video'].includes(
+        campaignDraft.creativeType,
+      ) &&
+      !hasMedia
+    ) {
+      blockers.push('Vyberte zdroj kreativy nebo nahrajte obrázek/video.');
     }
     if (!campaignDraft.startDate) blockers.push('Datum spuštění není zadané.');
     if (!campaignDraft.endDate) blockers.push('Datum ukončení není zadané.');
@@ -953,7 +838,6 @@ export default function MetaCentrumPage() {
       audienceId: c.audienceId ?? '',
       creativePayload: (c.creativePayload as Record<string, unknown>) ?? {},
     });
-    setShowCampaignPreview(true);
     setTab('campaigns');
   }
 
@@ -3629,22 +3513,6 @@ export default function MetaCentrumPage() {
                   </select>
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
-                  <span className="font-medium">Zdroj kreativy</span>
-                  <select
-                    value={campaignDraft.creativeType}
-                    onChange={(e) =>
-                      setCampaignDraft((d) => ({ ...d, creativeType: e.target.value }))
-                    }
-                    className="rounded-lg border border-zinc-300 px-3 py-2"
-                  >
-                    {Object.entries(CREATIVE_TYPE_LABELS).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium">Cílení kampaně</span>
                   <select
                     value={campaignDraft.targetingMode}
@@ -3833,146 +3701,35 @@ export default function MetaCentrumPage() {
                 </label>
               </div>
 
-              <div className="mt-6">
-                <h3 className="mb-3 text-sm font-bold">
-                  {campaignDraft.creativeType === 'catalog_products'
-                    ? 'Katalogové produkty (feed XXREALIT)'
-                    : 'Produkty / inzeráty pro kampaň'}
-                </h3>
-                {!campaignProducts.length ? (
-                  <p className="text-sm text-zinc-500">
-                    Feed zatím neobsahuje položky — synchronizujte katalog.
-                  </p>
-                ) : (
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {campaignProducts.map((p) => {
-                      const selected = campaignDraft.selectedProductIds.includes(p.id);
-                      return (
-                        <article
-                          key={p.id}
-                          className={`overflow-hidden rounded-xl border ${
-                            selected ? 'border-[#1877f2] ring-2 ring-[#1877f2]/30' : 'border-zinc-200'
-                          } bg-white shadow-sm`}
-                        >
-                          <div className="aspect-[4/3] bg-zinc-100">
-                            {p.imageUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={p.imageUrl}
-                                alt={p.title}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              <div className="flex h-full items-center justify-center text-xs text-zinc-400">
-                                Bez fotky
-                              </div>
-                            )}
-                          </div>
-                          <div className="space-y-1 p-3 text-sm">
-                            <p className="line-clamp-2 font-semibold">{p.title}</p>
-                            <p className="text-zinc-600">
-                              {p.price != null
-                                ? `${p.price.toLocaleString('cs-CZ')} ${p.currency}`
-                                : 'Cena na dotaz'}
-                            </p>
-                            <p className="text-xs text-zinc-500">
-                              {[p.city, p.propertyType].filter(Boolean).join(' · ')}
-                            </p>
-                            {p.address ? (
-                              <p className="text-xs text-zinc-500">{p.address}</p>
-                            ) : null}
-                            <p className="text-xs text-zinc-500">
-                              Dostupnost: {p.availability} · Export: {p.exportStatus}
-                            </p>
-                            <p className="truncate font-mono text-[10px] text-zinc-400">
-                              Catalog Item ID: {p.catalogItemId ?? p.id}
-                            </p>
-                            <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-                              <a
-                                href={p.detailUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-[#1877f2] underline"
-                              >
-                                Detail inzerátu
-                              </a>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setCampaignDraft((d) => ({
-                                    ...d,
-                                    selectedProductIds: selected
-                                      ? d.selectedProductIds.filter((id) => id !== p.id)
-                                      : [...d.selectedProductIds, p.id],
-                                    creativeType:
-                                      d.creativeType === 'social_post' ? 'listing' : d.creativeType,
-                                  }));
-                                }}
-                                className={`rounded-lg px-2 py-1 text-xs font-semibold ${
-                                  selected
-                                    ? 'bg-[#1877f2] text-white'
-                                    : 'border border-zinc-300 text-zinc-700'
-                                }`}
-                              >
-                                {selected ? 'Vybráno' : 'Vybrat'}
-                              </button>
-                            </div>
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {showCampaignPreview ? (
-                <div className="mt-6 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-4">
-                  <div className="mb-3 flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-bold text-zinc-800">Živý náhled reklamy</h3>
-                    <button
-                      type="button"
-                      onClick={() => setShowCampaignPreview(false)}
-                      className="text-xs text-zinc-500 underline"
-                    >
-                      Skrýt
-                    </button>
-                  </div>
-                  <dl className="mb-2 grid gap-1 text-sm sm:grid-cols-2">
-                    <div>
-                      <dt className="text-xs text-zinc-500">Název kampaně</dt>
-                      <dd className="font-medium">{campaignDraft.name || '—'}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-zinc-500">Cíl</dt>
-                      <dd>{CAMPAIGN_GOAL_LABELS[campaignDraft.goal] ?? campaignDraft.goal}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-zinc-500">Období</dt>
-                      <dd>
-                        {campaignDraft.startDate || '—'} → {campaignDraft.endDate || '—'}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-zinc-500">Vybrané produkty</dt>
-                      <dd>{campaignDraft.selectedProductIds.length}</dd>
-                    </div>
-                  </dl>
-                  <CampaignAdPreview
+              <div className="mt-6 grid gap-6 xl:grid-cols-2">
+                <MetaCampaignCreativeEditor
+                  token={token}
+                  draft={{
+                    creativeType: campaignDraft.creativeType,
+                    creativePayload: campaignDraft.creativePayload,
+                    selectedProductIds: campaignDraft.selectedProductIds,
+                  }}
+                  products={campaignProducts}
+                  onChange={(patch) =>
+                    setCampaignDraft((d) => ({
+                      ...d,
+                      ...patch,
+                      creativePayload: patch.creativePayload ?? d.creativePayload,
+                    }))
+                  }
+                />
+                <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-4">
+                  <h3 className="mb-3 text-sm font-bold text-zinc-800">Živý náhled reklamy</h3>
+                  <MetaCampaignPlacementPreview
                     creativeType={campaignDraft.creativeType}
-                    campaignDraft={campaignDraft}
+                    payload={campaignDraft.creativePayload}
                     selectedProducts={selectedCampaignProducts}
-                    remarketingAudiences={remarketingAudiences}
+                    pageName={dash?.settings.pageName ?? 'XXREALIT'}
+                    budgetDaily={campaignDraft.budgetDaily}
+                    cityLabel={campaignDraft.cityName || campaignDraft.locationLabel}
                   />
                 </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setShowCampaignPreview(true)}
-                  className="mt-4 text-sm font-medium text-[#1877f2] underline"
-                >
-                  Zobrazit náhled
-                </button>
-              )}
+              </div>
 
               {campaignLaunchBlockers.length > 0 ? (
                 <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
@@ -4027,7 +3784,24 @@ export default function MetaCentrumPage() {
                       className="rounded-xl border border-zinc-200 px-4 py-3 text-sm"
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
+                        {(() => {
+                          const thumb = getCreativePreviewImage(
+                            (c.creativePayload as Record<string, unknown>) ?? {},
+                          );
+                          return thumb ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={thumb}
+                              alt=""
+                              className="h-14 w-14 shrink-0 rounded-lg object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-[10px] text-zinc-400">
+                              Ad
+                            </div>
+                          );
+                        })()}
+                        <div className="min-w-0 flex-1">
                           <p className="font-semibold">{c.name}</p>
                           <p className="text-xs text-zinc-500">
                             {CAMPAIGN_GOAL_LABELS[c.objective] ?? c.objective} ·{' '}
@@ -4060,6 +3834,14 @@ export default function MetaCentrumPage() {
                         Aktualizováno: {new Date(c.updatedAt).toLocaleString('cs-CZ')}
                       </p>
                       <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => setPreviewCampaign(c)}
+                          className="rounded-lg border border-zinc-300 px-2 py-1 text-xs font-medium hover:bg-zinc-50"
+                        >
+                          Náhled
+                        </button>
                         <button
                           type="button"
                           disabled={busy}
@@ -4128,6 +3910,22 @@ export default function MetaCentrumPage() {
                 ))}
               </div>
             </div>
+            <MetaCampaignPreviewModal
+              open={previewCampaign != null}
+              onClose={() => setPreviewCampaign(null)}
+              creativeType={previewCampaign?.creativeType ?? 'catalog_products'}
+              payload={(previewCampaign?.creativePayload as Record<string, unknown>) ?? {}}
+              selectedProducts={
+                previewCampaign
+                  ? campaignProducts.filter((p) =>
+                      previewCampaign.selectedProductIds.includes(p.id),
+                    )
+                  : []
+              }
+              pageName={dash?.settings.pageName ?? 'XXREALIT'}
+              budgetDaily={previewCampaign?.dailyBudgetCzk ?? undefined}
+              cityLabel={previewCampaign?.cityName ?? undefined}
+            />
           </section>
         ) : null}
 

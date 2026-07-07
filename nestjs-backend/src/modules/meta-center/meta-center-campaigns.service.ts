@@ -6,10 +6,16 @@ import {
   META_CAMPAIGN_DB_NOT_SYNCED_MESSAGE,
 } from '../../database/ensure-meta-center-schema';
 import { FacebookConfigService } from '../social/facebook/facebook-config.service';
+import { PostsService } from '../posts/posts.service';
 import { resolveMetaCenterIds } from './meta-center-env.util';
 import { MetaConnectOAuthService } from './meta-connect-oauth.service';
 import { MetaGraphClientService } from './meta-graph-client.service';
 import { MetaCenterGeoService, type MetaGeoResolvedTargeting } from './meta-center-geo.service';
+import { MetaCenterCreativeService } from './meta-center-creative.service';
+import {
+  creativeTypeRequiresCatalogProducts,
+  normalizeCreativeType,
+} from './meta-campaign-creative.util';
 import { isMarketingAdsTokenActive } from './meta-marketing-token.util';
 import type { CreateMetaCampaignDto } from './dto/create-meta-campaign.dto';
 import {
@@ -66,6 +72,21 @@ export type MetaCampaignOverviewItem = ReturnType<MetaCenterCampaignsService['se
   metaStatusSyncedAt: string | null;
 };
 
+export type MetaCreativeSourcePostItem = {
+  id: string;
+  title: string;
+  description: string;
+  city: string;
+  price: number | null;
+  image: string | null;
+  video: string | null;
+  author: string;
+  link: string;
+  source: string;
+  facebookPostType: string | null;
+  objectStoryId: string | null;
+};
+
 @Injectable()
 export class MetaCenterCampaignsService {
   private readonly logger = new Logger(MetaCenterCampaignsService.name);
@@ -75,6 +96,8 @@ export class MetaCenterCampaignsService {
     private readonly oauth: MetaConnectOAuthService,
     private readonly graph: MetaGraphClientService,
     private readonly geo: MetaCenterGeoService,
+    private readonly creative: MetaCenterCreativeService,
+    private readonly posts: PostsService,
     private readonly fbConfig: FacebookConfigService,
   ) {}
 
@@ -217,19 +240,42 @@ export class MetaCenterCampaignsService {
     if (!dto.name?.trim()) {
       blockers.push({ key: 'name', message: 'Název kampaně je prázdný.' });
     }
+    const creativeType = normalizeCreativeType(dto.creativeType);
+    if (creativeTypeRequiresCatalogProducts(creativeType) && !dto.selectedProductIds?.length) {
+      blockers.push({
+        key: 'products',
+        message: 'Vyberte alespoň jeden katalogový inzerát.',
+      });
+    }
+    if (creativeType === 'listing' && !dto.selectedProductIds?.length) {
+      blockers.push({
+        key: 'listing',
+        message: 'Vyberte inzerát XXREALIT.',
+      });
+    }
+    const payload = dto.creativePayload ?? {};
+    const hasCreativeMedia =
+      typeof payload.image === 'string' ||
+      typeof payload.video === 'string' ||
+      typeof payload.objectStoryId === 'string';
+    if (
+      ['public_post', 'facebook_post', 'instagram_post', 'custom_image', 'custom_video'].includes(
+        creativeType,
+      ) &&
+      !hasCreativeMedia &&
+      !dto.selectedProductIds?.length
+    ) {
+      blockers.push({
+        key: 'creative',
+        message: 'Vyberte zdroj kreativy nebo nahrajte obrázek/video.',
+      });
+    }
     if (!dto.cityName?.trim()) {
       blockers.push({ key: 'city', message: 'Lokalita (město) není zadaná.' });
     }
     if (!dto.dailyBudgetCzk || dto.dailyBudgetCzk <= 0) {
       blockers.push({ key: 'budget', message: 'Denní rozpočet musí být větší než 0.' });
     }
-    if (!dto.selectedProductIds?.length) {
-      blockers.push({
-        key: 'products',
-        message: 'Vyberte alespoň jeden katalogový inzerát.',
-      });
-    }
-
     const start = this.parseDate(dto.startDate);
     const end = this.parseDate(dto.endDate);
     if (!start) {
@@ -951,53 +997,39 @@ export class MetaCenterCampaignsService {
       }
     }
 
-    const pageId = row?.pageId?.trim() ?? process.env.FACEBOOK_PAGE_ID?.trim() ?? null;
-    const creativePayload = dto.creativePayload ?? {};
-    const linkUrl =
-      (typeof creativePayload.link === 'string' && creativePayload.link) ||
-      (typeof creativePayload.detailUrl === 'string' && creativePayload.detailUrl) ||
-      this.frontendBase();
-    const message =
-      (typeof creativePayload.text === 'string' && creativePayload.text) ||
-      dto.name.trim();
-    const imageUrl =
-      typeof creativePayload.image === 'string' ? creativePayload.image : undefined;
-    const ctaType =
-      (typeof creativePayload.cta === 'string' && creativePayload.cta) || 'LEARN_MORE';
+    const pageIds = this.creative.resolvePageIds(row);
+    const built = await this.creative.buildAdCreative({
+      actId,
+      token,
+      campaignName: dto.name.trim(),
+      creativeType,
+      creativePayload: dto.creativePayload as Record<string, unknown> | undefined,
+      pageId: pageIds.pageId,
+      instagramActorId: pageIds.instagramActorId,
+      productSetId: metaProductSetId,
+      frontendBase: this.frontendBase(),
+    });
 
-    const creativeBody: Record<string, string> = {
-      name: `${dto.name.trim()} — kreativa`,
-    };
-
-    if (metaProductSetId && pageId) {
-      creativeBody.product_set_id = metaProductSetId;
-      creativeBody.object_story_spec = JSON.stringify({
-        page_id: pageId,
-        template_data: {
-          link: linkUrl,
-          message,
-          call_to_action: { type: ctaType },
+    if (!built.ok) {
+      await this.prisma.metaMarketingCampaignDraft.update({
+        where: { id: draftId },
+        data: {
+          metaCampaignId,
+          metaAdSetId,
+          metaProductSetId,
+          status: 'error',
+          errorMessage: built.message,
         },
       });
-    } else if (pageId) {
-      creativeBody.object_story_spec = JSON.stringify({
-        page_id: pageId,
-        link_data: {
-          link: linkUrl,
-          message,
-          ...(imageUrl ? { picture: imageUrl } : {}),
-          call_to_action: { type: ctaType, value: { link: linkUrl } },
-        },
-      });
-    } else {
-      creativeBody.object_story_spec = JSON.stringify({
-        link_data: {
-          link: linkUrl,
-          message,
-          ...(imageUrl ? { picture: imageUrl } : {}),
-        },
-      });
+      return {
+        ok: false as const,
+        status: 'validation_error' as const,
+        message: built.message,
+        campaign: null,
+      };
     }
+
+    const creativeBody = built.body;
 
     const creativeRes = await this.graph.post<{ id?: string }>(
       `/act_${actId}/adcreatives`,
@@ -1009,7 +1041,7 @@ export class MetaCenterCampaignsService {
       metaCreativeId = creativeRes.data.id;
       this.logger.log(`[meta-campaign] creative=${metaCreativeId} draft=${draftId}`);
     } else {
-      const failure = formatMetaApiFailure('Vytvoření kreativy', creativeBody, creativeRes);
+      const failure = this.creative.formatCreativeApiFailure(creativeBody, creativeRes);
       await this.prisma.metaMarketingCampaignDraft.update({
         where: { id: draftId },
         data: {
@@ -1102,11 +1134,73 @@ export class MetaCenterCampaignsService {
     };
   }
 
+  async listCreativeSourcePosts(
+    source?: string,
+    take = 40,
+  ): Promise<
+    | { ok: true; items: MetaCreativeSourcePostItem[] }
+    | { ok: false; items: MetaCreativeSourcePostItem[]; message: string }
+  > {
+    const feed = await this.posts.listCommunityPosts(undefined, undefined, undefined, undefined, undefined, 0, take);
+    const items = (feed.items ?? []).map((post) => {
+      const p = post as {
+        id: string;
+        title?: string;
+        description?: string;
+        city?: string;
+        price?: number | null;
+        imageUrl?: string | null;
+        videoUrl?: string | null;
+        externalUrl?: string | null;
+        facebookPermalink?: string | null;
+        isFacebookPagePost?: boolean;
+        facebookPostType?: string | null;
+        source?: string;
+        user?: { name?: string | null };
+        media?: Array<{ url: string; type: string }>;
+      };
+      const image =
+        p.imageUrl ??
+        p.media?.find((m) => m.type === 'image')?.url ??
+        p.media?.[0]?.url ??
+        null;
+      const video =
+        p.videoUrl ?? p.media?.find((m) => m.type === 'video')?.url ?? null;
+      const postSource = p.isFacebookPagePost
+        ? 'facebook_post'
+        : p.source === 'FACEBOOK'
+          ? 'facebook_post'
+          : 'public_post';
+      return {
+        id: p.id,
+        title: p.title ?? '',
+        description: p.description ?? '',
+        city: p.city ?? '',
+        price: p.price ?? null,
+        image,
+        video,
+        author: p.user?.name ?? 'XXREALIT',
+        link: p.facebookPermalink ?? p.externalUrl ?? `${this.frontendBase()}/prispevek/${p.id}`,
+        source: postSource,
+        facebookPostType: p.facebookPostType ?? null,
+        objectStoryId: null as string | null,
+      };
+    });
+
+    const filtered =
+      source === 'facebook_post'
+        ? items.filter((i) => i.source === 'facebook_post')
+        : source === 'instagram_post'
+          ? items.filter((i) => i.facebookPostType?.includes('REEL') || i.facebookPostType?.includes('VIDEO'))
+          : source === 'public_post'
+            ? items.filter((i) => i.source === 'public_post')
+            : items;
+
+    return { ok: true as const, items: filtered };
+  }
+
   private resolveCreativeType(value: string | undefined): MetaCreativeType {
-    if (value && (META_CREATIVE_TYPES as readonly string[]).includes(value)) {
-      return value as MetaCreativeType;
-    }
-    return 'catalog_products';
+    return normalizeCreativeType(value);
   }
 
   private resolveTargetingMode(value: string | undefined): MetaCampaignTargetingMode {

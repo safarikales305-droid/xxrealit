@@ -19,7 +19,14 @@ export type MetaMarketingFutureFeature = (typeof META_MARKETING_FUTURE_FEATURES)
 export const META_CREATIVE_TYPES = [
   'catalog_products',
   'listing',
+  'public_post',
+  'facebook_post',
+  'instagram_post',
+  'custom_image',
+  'custom_video',
+  /** @deprecated použijte facebook_post */
   'social_post',
+  /** @deprecated použijte custom_image */
   'custom_creative',
 ] as const;
 

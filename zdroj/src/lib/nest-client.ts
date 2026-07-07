@@ -7133,6 +7133,35 @@ export type MetaGeoLocationItem = {
   fromCache: boolean;
 };
 
+export type MetaCreativeSourcePost = {
+  id: string;
+  title: string;
+  description: string;
+  city: string;
+  price: number | null;
+  image: string | null;
+  video: string | null;
+  author: string;
+  link: string;
+  source: string;
+  facebookPostType: string | null;
+  objectStoryId: string | null;
+};
+
+export async function nestAdminMetaCenterCreativeSourcePosts(
+  token: string | null,
+  source?: string,
+  take = 40,
+): Promise<{ ok: boolean; items: MetaCreativeSourcePost[]; message?: string }> {
+  const params = new URLSearchParams({ take: String(take) });
+  if (source) params.set('source', source);
+  const r = await metaCenterFetch<{ ok: boolean; items: MetaCreativeSourcePost[]; message?: string }>(
+    token,
+    `/campaigns/creative-sources/posts?${params.toString()}`,
+  );
+  return r.ok ? r.data : { ok: false, items: [], message: r.error };
+}
+
 export async function nestAdminMetaCenterGeoSearch(
   token: string | null,
   q: string,

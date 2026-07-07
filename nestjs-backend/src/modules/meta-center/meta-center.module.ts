@@ -1,5 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { MetaCatalogModule } from '../meta-catalog/meta-catalog.module';
+import { PostsModule } from '../posts/posts.module';
 import { SocialModule } from '../social/social.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { MetaCenterAssetsService } from './meta-center-assets.service';
@@ -17,13 +18,14 @@ import { MetaConnectSyncCronService } from './meta-connect-sync.cron.service';
 import { MetaGraphClientService } from './meta-graph-client.service';
 import { MetaCenterApiLogService } from './meta-center-api-log.service';
 import { MetaMarketingDiagnosticsService } from './meta-marketing-diagnostics.service';
+import { MetaCenterCreativeService } from './meta-center-creative.service';
 import { MetaCenterCampaignsService } from './meta-center-campaigns.service';
 import { MetaCenterGeoService } from './meta-center-geo.service';
 import { MetaCenterLiveDiagnosticsService } from './meta-center-live-diagnostics.service';
 import { MetaCenterRemarketingService } from './meta-center-remarketing.service';
 
 @Module({
-  imports: [forwardRef(() => MetaCatalogModule), forwardRef(() => SocialModule), WhatsAppModule],
+  imports: [forwardRef(() => MetaCatalogModule), forwardRef(() => PostsModule), forwardRef(() => SocialModule), WhatsAppModule],
   controllers: [
     MetaCenterAdminController,
     MetaCenterPublicController,
@@ -43,6 +45,7 @@ import { MetaCenterRemarketingService } from './meta-center-remarketing.service'
     MetaCenterApiLogService,
     MetaMarketingDiagnosticsService,
     MetaCenterCampaignsService,
+    MetaCenterCreativeService,
     MetaCenterGeoService,
     MetaCenterLiveDiagnosticsService,
     MetaCenterRemarketingService,

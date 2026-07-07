@@ -568,6 +568,16 @@ export class MetaCenterAdminController {
     );
   }
 
+  @Get('campaigns/creative-sources/posts')
+  listCreativeSourcePosts(@Query('source') source?: string, @Query('take') takeRaw?: string) {
+    const take = Number(takeRaw);
+    return this.safeEndpoint(
+      'campaigns/creative-sources/posts',
+      () => this.campaigns.listCreativeSourcePosts(source, Number.isFinite(take) ? take : 40),
+      (message) => ({ ok: false as const, items: [], message }),
+    );
+  }
+
   @Get('campaigns/geo/search')
   searchCampaignGeo(@Query('q') q?: string, @Query('country') country?: string) {
     return this.safeEndpoint(
