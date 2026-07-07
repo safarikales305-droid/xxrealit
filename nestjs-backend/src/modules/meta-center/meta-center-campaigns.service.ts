@@ -17,14 +17,14 @@ import {
   computeMetaCampaignLaunchBlockers,
 } from './meta-campaign-launch-validation.util';
 import {
-  buildAdSetPromotedObject,
+  buildPromotedObjectForSpec,
   extractLeadFormId,
-  mapCampaignObjectiveToMeta,
-  normalizeCampaignObjectiveKey,
-  resolveAdSetObjectiveSpec,
-  serializeAdSetPayloadForMetaApi,
-  validateAdSetPayloadForObjective,
-} from './meta-adset-payload.util';
+  resolveMetaCampaignPayloadSpec,
+  serializePayloadForMetaApi,
+  validateAdSetPayloadCombination,
+  validateMetaCampaignPayloadContext,
+  type MetaCampaignPayloadSpec,
+} from './meta-campaign-payload-map.util';
 import { normalizeCreativeType } from './meta-campaign-creative.util';
 import {
   META_CAMPAIGN_TARGETING_MODES,
@@ -836,10 +836,25 @@ export class MetaCenterCampaignsService {
       audienceMetaId = audience?.metaAudienceId ?? null;
     }
 
-    const objective = mapCampaignObjectiveToMeta(normalizeCampaignObjectiveKey(dto.objective));
+    const catalogId = ids.catalogId;
+    const payloadContext = this.buildPayloadContext(dto, ids, row, catalogId);
+    const specResolved = resolveMetaCampaignPayloadSpec(payloadContext);
+    if (!specResolved.ok) {
+      const msg = specResolved.blockers.map((b) => b.message).join('\n');
+      await this.markDraftError(draftId, msg);
+      return {
+        ok: false as const,
+        status: 'validation_error' as const,
+        message: msg,
+        blockers: specResolved.blockers,
+        campaign: null,
+      };
+    }
+    const metaSpec = specResolved.spec;
+
+    const objective = metaSpec.campaignObjective;
     const budgetConfig = resolveBudgetConfig(false);
     const dailyBudgetMinor = Math.round(dto.dailyBudgetCzk * 100);
-    const catalogId = ids.catalogId;
 
     const campaignPayload: Record<string, unknown> = {
       name: dto.name.trim(),
@@ -935,7 +950,8 @@ export class MetaCenterCampaignsService {
       budgetConfig,
       dailyBudgetMinor,
       catalogId,
-      audienceMetaId,
+      metaSpec,
+      payloadContext,
     });
 
     if (!adSetBuild.ok) {
@@ -963,7 +979,7 @@ export class MetaCenterCampaignsService {
     const adSetSpec = adSetBuild.spec;
 
     this.logger.log(
-      `[meta-campaign] adset payload objective=${dto.objective} spec=${adSetSpec.objectiveKey} optimization_goal=${adSetSpec.optimizationGoal} draft=${draftId}\n${JSON.stringify(adSetPayload, null, 2)}`,
+      `[meta-campaign] adset payload objective=${dto.objective} spec=${adSetSpec.mode} optimization_goal=${adSetSpec.optimizationGoal} draft=${draftId}\n${JSON.stringify(adSetPayload, null, 2)}`,
     );
     this.logger.log(
       `[meta-campaign] adset meta-form draft=${draftId}\n${JSON.stringify(adSetBuild.metaForm, null, 2)}`,
@@ -1313,8 +1329,45 @@ export class MetaCenterCampaignsService {
   }
 
   async previewAdSetPayload(dto: CreateMetaCampaignDto) {
+    const full = await this.previewCampaignPayloads(dto);
+    return {
+      ok: full.ok,
+      message: full.message,
+      blockers: full.blockers,
+      payload: full.adSet?.payload ?? full.payload ?? null,
+      metaForm: full.adSet?.metaForm ?? full.metaForm ?? null,
+      spec: full.spec
+        ? {
+            objectiveKey: full.spec.mode,
+            campaignObjective: full.spec.campaignObjective,
+            optimizationGoal: full.spec.optimizationGoal,
+            requiresPromotedObject: full.spec.requiresPromotedObject,
+          }
+        : null,
+      previews: full,
+    };
+  }
+
+  async previewCampaignPayloads(dto: CreateMetaCampaignDto) {
     const row = await this.getSettingsRow();
     const ids = resolveMetaCenterIds(row ?? ({} as never));
+    const payloadContext = this.buildPayloadContext(dto, ids, row, ids.catalogId);
+    const specResolved = resolveMetaCampaignPayloadSpec(payloadContext);
+    if (!specResolved.ok) {
+      return {
+        ok: false as const,
+        message: specResolved.blockers.map((b) => b.message).join('\n'),
+        blockers: specResolved.blockers,
+        spec: null,
+        campaign: null,
+        adSet: null,
+        creative: null,
+        ad: null,
+        payload: null,
+        metaForm: null,
+      };
+    }
+
     let resolvedGeo;
     try {
       resolvedGeo = await this.geo.resolveGeoForTargeting({
@@ -1328,9 +1381,14 @@ export class MetaCenterCampaignsService {
       return {
         ok: false as const,
         message: err instanceof Error ? err.message : 'Lokalitu nelze namapovat na Meta Geo.',
+        blockers: [],
+        spec: specResolved.spec,
+        campaign: null,
+        adSet: null,
+        creative: null,
+        ad: null,
         payload: null,
         metaForm: null,
-        blockers: [],
       };
     }
 
@@ -1345,8 +1403,17 @@ export class MetaCenterCampaignsService {
     const targeting = this.buildTargetingFromGeo(resolvedGeo, dto, audienceMetaId);
     const budgetConfig = resolveBudgetConfig(false);
     const dailyBudgetMinor = Math.round(dto.dailyBudgetCzk * 100);
+    const metaSpec = specResolved.spec;
 
-    const built = this.buildAdSetLaunchPayload({
+    const campaignPayload: Record<string, unknown> = {
+      name: dto.name.trim(),
+      objective: metaSpec.campaignObjective,
+      status: 'PAUSED',
+      special_ad_categories: JSON.stringify(['HOUSING']),
+      is_adset_budget_sharing_enabled: budgetConfig.isAdsetBudgetSharingEnabled,
+    };
+
+    const adSetBuilt = this.buildAdSetLaunchPayload({
       dto,
       ids,
       row,
@@ -1356,27 +1423,112 @@ export class MetaCenterCampaignsService {
       budgetConfig,
       dailyBudgetMinor,
       catalogId: ids.catalogId,
-      audienceMetaId,
+      metaSpec,
+      payloadContext,
     });
 
-    if (!built.ok) {
-      return {
-        ok: false as const,
-        message: built.blockers.map((b) => b.message).join('\n'),
-        blockers: built.blockers,
-        payload: built.payload,
-        metaForm: built.metaForm,
-        spec: built.spec,
-      };
-    }
+    const pageIds = this.creative.resolvePageIds(row);
+    const creativeBuilt = await this.creative.buildAdCreative({
+      actId: (ids.adAccountId ?? '').replace(/^act_/, ''),
+      token: 'PREVIEW_TOKEN',
+      pageAccessToken: null,
+      campaignName: dto.name.trim(),
+      creativeType: dto.creativeType,
+      creativePayload: dto.creativePayload as Record<string, unknown> | undefined,
+      pageId: pageIds.pageId,
+      instagramActorId: pageIds.instagramActorId,
+      catalogId: ids.catalogId,
+      productSetId: dto.selectedProductIds?.length ? 'PREVIEW_PRODUCT_SET_ID' : null,
+      frontendBase: this.frontendBase(),
+    });
+
+    const creativePayload = creativeBuilt.ok ? creativeBuilt.body : null;
+    const adPayload = creativeBuilt.ok
+      ? {
+          name: `${dto.name.trim()} — reklama`,
+          adset_id: 'PREVIEW_ADSET_ID',
+          creative: JSON.stringify({ creative_id: 'PREVIEW_CREATIVE_ID' }),
+          status: 'PAUSED',
+        }
+      : null;
+
+    const blockers = [
+      ...(adSetBuilt.ok ? [] : adSetBuilt.blockers),
+      ...(!creativeBuilt.ok
+        ? [{ key: 'creative', message: creativeBuilt.message }]
+        : []),
+    ];
 
     return {
-      ok: true as const,
-      message: 'Náhled Ad Set payloadu připraven.',
-      blockers: [] as MetaCampaignLaunchBlocker[],
-      payload: built.payload,
-      metaForm: built.metaForm,
-      spec: built.spec,
+      ok: blockers.length === 0,
+      message:
+        blockers.length === 0
+          ? 'Náhled Meta payloadů připraven.'
+          : blockers.map((b) => b.message).join('\n'),
+      blockers,
+      spec: metaSpec,
+      campaign: {
+        payload: campaignPayload,
+        metaForm: serializePayloadForMetaApi(campaignPayload),
+        objective: metaSpec.campaignObjective,
+        creativeSource: metaSpec.creativeSource,
+      },
+      adSet: adSetBuilt.ok
+        ? {
+            payload: adSetBuilt.payload,
+            metaForm: adSetBuilt.metaForm,
+            objective: metaSpec.campaignObjective,
+            optimizationGoal: metaSpec.optimizationGoal,
+            billingEvent: metaSpec.billingEvent,
+            promotedObject: adSetBuilt.promotedObject,
+            creativeSource: metaSpec.creativeSource,
+          }
+        : {
+            payload: adSetBuilt.payload ?? null,
+            metaForm: adSetBuilt.metaForm ?? null,
+            objective: metaSpec.campaignObjective,
+            optimizationGoal: metaSpec.optimizationGoal,
+            billingEvent: metaSpec.billingEvent,
+            promotedObject: adSetBuilt.promotedObject ?? null,
+            creativeSource: metaSpec.creativeSource,
+          },
+      creative: creativePayload
+        ? {
+            payload: creativePayload,
+            metaForm: serializePayloadForMetaApi(creativePayload),
+            creativeSource: metaSpec.creativeSource,
+          }
+        : null,
+      ad: adPayload
+        ? {
+            payload: adPayload,
+            metaForm: serializePayloadForMetaApi(adPayload),
+            creativeSource: metaSpec.creativeSource,
+          }
+        : null,
+      payload: adSetBuilt.payload ?? null,
+      metaForm: adSetBuilt.metaForm ?? null,
+    };
+  }
+
+  private buildPayloadContext(
+    dto: CreateMetaCampaignDto,
+    ids: ReturnType<typeof resolveMetaCenterIds>,
+    row: Awaited<ReturnType<typeof this.getSettingsRow>>,
+    catalogId: string | null,
+  ) {
+    return {
+      goal: dto.objective,
+      creativeType: dto.creativeType ?? 'catalog_products',
+      targetingMode: dto.targetingMode ?? 'map',
+      catalogId,
+      pixelId: ids.pixelId,
+      datasetId: ids.datasetId,
+      pageId: row?.pageId?.trim() ?? process.env.FACEBOOK_PAGE_ID?.trim() ?? null,
+      instagramActorId: row?.instagramBusinessId?.trim() ?? null,
+      leadFormId: extractLeadFormId(dto),
+      remarketingConversionEvent: 'VIEW_CONTENT' as const,
+      selectedProductIds: dto.selectedProductIds ?? [],
     };
   }
 
@@ -1390,44 +1542,44 @@ export class MetaCenterCampaignsService {
     budgetConfig: ReturnType<typeof resolveBudgetConfig>;
     dailyBudgetMinor: number;
     catalogId: string | null;
-    audienceMetaId: string | null;
+    metaSpec: MetaCampaignPayloadSpec;
+    payloadContext: ReturnType<MetaCenterCampaignsService['buildPayloadContext']>;
   }):
     | {
         ok: true;
         payload: Record<string, unknown>;
         metaForm: Record<string, string>;
-        spec: ReturnType<typeof resolveAdSetObjectiveSpec>;
+        spec: MetaCampaignPayloadSpec;
+        promotedObject: Record<string, unknown> | null;
       }
     | {
         ok: false;
         blockers: MetaCampaignLaunchBlocker[];
         payload?: Record<string, unknown>;
         metaForm?: Record<string, string>;
-        spec?: ReturnType<typeof resolveAdSetObjectiveSpec>;
+        spec?: MetaCampaignPayloadSpec;
+        promotedObject?: Record<string, unknown> | null;
       } {
-    const { dto, ids, row, metaCampaignId, targeting, publishStatus, budgetConfig, dailyBudgetMinor, catalogId } =
-      input;
+    const {
+      dto,
+      metaCampaignId,
+      targeting,
+      publishStatus,
+      budgetConfig,
+      dailyBudgetMinor,
+      metaSpec,
+      payloadContext,
+    } = input;
 
-    const spec = resolveAdSetObjectiveSpec(dto.objective);
-    const pageId = row?.pageId?.trim() ?? process.env.FACEBOOK_PAGE_ID?.trim() ?? null;
-    const leadFormId = extractLeadFormId(dto);
-
-    const promotedObject = buildAdSetPromotedObject(spec, {
-      catalogId,
-      pixelId: ids.pixelId,
-      datasetId: ids.datasetId,
-      pageId,
-      leadFormId,
-    });
-
+    const promotedObject = buildPromotedObjectForSpec(metaSpec, payloadContext);
     const startTime = this.parseDate(dto.startDate)?.toISOString() ?? undefined;
     const endTime = this.parseDate(dto.endDate)?.toISOString() ?? undefined;
 
     const adSetPayload: Record<string, unknown> = {
       name: `${dto.name.trim()} — sada`,
       campaign_id: metaCampaignId,
-      billing_event: 'IMPRESSIONS',
-      optimization_goal: spec.optimizationGoal,
+      billing_event: metaSpec.billingEvent,
+      optimization_goal: metaSpec.optimizationGoal,
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
       targeting: JSON.stringify(targeting),
       start_time: startTime,
@@ -1445,33 +1597,20 @@ export class MetaCenterCampaignsService {
     }
 
     const blockers = [
+      ...validateMetaCampaignPayloadContext(payloadContext, metaSpec),
       ...validateAdSetPayload(adSetPayload, budgetConfig, {
-        requiresPromotedObject: spec.requiresPromotedObject,
+        requiresPromotedObject: metaSpec.requiresPromotedObject,
       }),
-      ...validateAdSetPayloadForObjective(adSetPayload, spec),
+      ...validateAdSetPayloadCombination(adSetPayload, metaSpec),
     ];
 
-    if (spec.objectiveKey === 'lead' && leadFormId && !promotedObject) {
-      blockers.push({
-        key: 'adset.lead_form_page',
-        message: 'Ad set: pro Lead Form chybí page_id nebo lead_gen_form_id v promoted_object.',
-      });
-    }
-
-    if (spec.objectiveKey === 'catalog' && !catalogId) {
-      blockers.push({
-        key: 'adset.catalog_id',
-        message: 'Ad set: chybí Catalog ID pro katalogovou kampaň.',
-      });
-    }
-
-    const metaForm = serializeAdSetPayloadForMetaApi(adSetPayload);
+    const metaForm = serializePayloadForMetaApi(adSetPayload);
 
     if (blockers.length) {
-      return { ok: false, blockers, payload: adSetPayload, metaForm, spec };
+      return { ok: false, blockers, payload: adSetPayload, metaForm, spec: metaSpec, promotedObject };
     }
 
-    return { ok: true, payload: adSetPayload, metaForm, spec };
+    return { ok: true, payload: adSetPayload, metaForm, spec: metaSpec, promotedObject };
   }
 
   private async resolveCatalogProductSet(

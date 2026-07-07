@@ -15,6 +15,10 @@ import {
   validateMetaCampaignLaunch,
 } from '@/lib/meta-campaign-launch-validation';
 import {
+  isGoalCompatibleWithCreative,
+  normalizeCreativeSource,
+} from '@/lib/meta-campaign-payload-map';
+import {
   MetaCampaignLaunchChecklist,
   MetaCampaignValidationErrors,
 } from '@/components/meta-centrum/MetaCampaignLaunchChecklist';
@@ -62,7 +66,7 @@ import {
   nestAdminMetaCenterGeoSearch,
   nestAdminMetaCenterListCampaignDrafts,
   nestAdminMetaCenterCreateCampaign,
-  nestAdminMetaCenterPreviewAdSetPayload,
+  nestAdminMetaCenterPreviewCampaignPayloads,
   nestAdminMetaCenterUpdateCampaignDraft,
   nestAdminMetaCenterDeleteCampaignDraft,
   nestAdminMetaCenterCampaignsOverview,
@@ -78,6 +82,7 @@ import {
   type MetaAdAccountListResponse,
   type MetaCampaignDraft,
   type MetaCampaignCreateResponse,
+  type MetaCampaignPayloadPreviewResponse,
   type MetaLaunchSteps,
   type MetaCampaignProductItem,
   type MetaGeoLocationItem,
@@ -240,6 +245,11 @@ const CREATIVE_TYPE_LABELS: Record<string, string> = {
   catalog_products: 'Katalogové produkty',
   listing: 'Inzerát',
   social_post: 'Příspěvek (Facebook)',
+  facebook_post: 'Facebook příspěvek',
+  instagram_post: 'Instagram příspěvek',
+  public_post: 'Veřejný příspěvek',
+  custom_image: 'Vlastní obrázek',
+  custom_video: 'Vlastní video',
   custom_creative: 'Vlastní reklama',
 };
 
@@ -633,14 +643,11 @@ export default function MetaCentrumPage() {
     launchSteps?: MetaLaunchSteps | null;
   } | null>(null);
   const [launchValidationHighlight, setLaunchValidationHighlight] = useState(false);
-  const [debugAdSetPayload, setDebugAdSetPayload] = useState(false);
-  const [adSetPayloadPreview, setAdSetPayloadPreview] = useState<{
-    payload: Record<string, unknown> | null;
-    metaForm: Record<string, string> | null;
-    spec: { objectiveKey: string; optimizationGoal: string; campaignObjective: string } | null;
-    message?: string;
-  } | null>(null);
-  const [adSetPreviewBusy, setAdSetPreviewBusy] = useState(false);
+  const [debugPayloadPreview, setDebugPayloadPreview] = useState(false);
+  const [payloadPreview, setPayloadPreview] = useState<MetaCampaignPayloadPreviewResponse | null>(
+    null,
+  );
+  const [payloadPreviewBusy, setPayloadPreviewBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -786,9 +793,11 @@ export default function MetaCentrumPage() {
   const marketingOAuthConnected =
     oauthFlows.find((f) => f.key === 'marketing')?.status === 'connected';
   const hasCatalog = Boolean(catalogPanel?.catalogId ?? dash?.settings.catalogId);
-  const hasDataset = Boolean(
-    dash?.pixel.datasetId ?? dash?.capi.datasetId ?? datasets?.activeDatasetId,
-  );
+  const catalogId = catalogPanel?.catalogId ?? dash?.settings.catalogId ?? null;
+  const pixelId = dash?.pixel?.pixelId ?? dash?.settings?.pixelId ?? null;
+  const datasetId =
+    dash?.pixel?.datasetId ?? dash?.capi?.datasetId ?? datasets?.activeDatasetId ?? null;
+  const hasDataset = Boolean(datasetId || pixelId);
   const hasAdsApi = Boolean(dash?.settings.isMarketingAdsConnected);
   const hasAdAccount = Boolean(adAccount?.adAccountId ?? dash?.settings.adAccountId);
   const hasPageId = Boolean(dash?.settings.pageId?.trim());
@@ -825,6 +834,13 @@ export default function MetaCentrumPage() {
       hasCatalog,
       hasDataset,
       hasPageId,
+      catalogId,
+      pixelId,
+      datasetId,
+      leadFormId:
+        typeof campaignDraft.creativePayload?.leadFormId === 'string'
+          ? campaignDraft.creativePayload.leadFormId
+          : undefined,
       campaignsLiveEnabled,
       fallbackLink: firstProduct?.detailUrl ?? undefined,
       fallbackHeadline: firstProduct?.title ?? undefined,
@@ -837,6 +853,9 @@ export default function MetaCentrumPage() {
     hasCatalog,
     hasDataset,
     hasPageId,
+    catalogId,
+    pixelId,
+    datasetId,
     campaignsLiveEnabled,
     selectedCampaignProducts,
   ]);
@@ -916,25 +935,20 @@ export default function MetaCentrumPage() {
   }
 
   useEffect(() => {
-    if (!token || !debugAdSetPayload) {
-      setAdSetPayloadPreview(null);
+    if (!token || !debugPayloadPreview) {
+      setPayloadPreview(null);
       return;
     }
     const timer = window.setTimeout(() => {
       void (async () => {
-        setAdSetPreviewBusy(true);
-        const r = await nestAdminMetaCenterPreviewAdSetPayload(token, buildCampaignPayload());
-        setAdSetPreviewBusy(false);
-        setAdSetPayloadPreview({
-          payload: r.payload ?? null,
-          metaForm: r.metaForm ?? null,
-          spec: r.spec ?? null,
-          message: r.ok ? undefined : r.message,
-        });
+        setPayloadPreviewBusy(true);
+        const r = await nestAdminMetaCenterPreviewCampaignPayloads(token, buildCampaignPayload());
+        setPayloadPreviewBusy(false);
+        setPayloadPreview(r);
       })();
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [token, debugAdSetPayload, campaignDraft]);
+  }, [token, debugPayloadPreview, campaignDraft]);
 
   function loadCampaignForEdit(c: MetaCampaignDraft) {
     setEditingCampaignId(c.id);
@@ -3646,16 +3660,48 @@ export default function MetaCentrumPage() {
                   <span className="font-medium">Cíl kampaně</span>
                   <select
                     value={campaignDraft.goal}
-                    onChange={(e) => setCampaignDraft((d) => ({ ...d, goal: e.target.value }))}
+                    onChange={(e) => {
+                      const goal = e.target.value;
+                      if (!isGoalCompatibleWithCreative(goal, campaignDraft.creativeType)) return;
+                      setCampaignDraft((d) => ({ ...d, goal }));
+                    }}
                     className="rounded-lg border border-zinc-300 px-3 py-2"
                   >
-                    <option value="traffic">Návštěvnost</option>
-                    <option value="reach">Dosah</option>
-                    <option value="messages">Zprávy</option>
-                    <option value="lead">Lead</option>
-                    <option value="catalog">Katalogový prodej</option>
+                    {(['traffic', 'reach', 'messages', 'lead', 'catalog'] as const).map((g) => {
+                      const disabled = !isGoalCompatibleWithCreative(g, campaignDraft.creativeType);
+                      return (
+                        <option key={g} value={g} disabled={disabled}>
+                          {CAMPAIGN_GOAL_LABELS[g]}
+                          {disabled ? ' (není k dispozici)' : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                 </label>
+                {campaignValidation.metaSpec ? (
+                  <div className="sm:col-span-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-950">
+                    <p className="font-semibold">Meta režim (automaticky)</p>
+                    <ul className="mt-1 space-y-0.5 font-mono text-xs">
+                      <li>Cíl kampaně: {campaignValidation.metaSpec.modeLabel}</li>
+                      <li>Meta objective: {campaignValidation.metaSpec.campaignObjective}</li>
+                      <li>Optimization goal: {campaignValidation.metaSpec.optimizationGoal}</li>
+                      <li>Billing event: {campaignValidation.metaSpec.billingEvent}</li>
+                      <li>Promoted object: {campaignValidation.metaSpec.promotedObjectSummary}</li>
+                      <li>
+                        Zdroj kreativy:{' '}
+                        {CREATIVE_TYPE_LABELS[campaignValidation.metaSpec.creativeSource] ??
+                          campaignValidation.metaSpec.creativeSource}
+                      </li>
+                    </ul>
+                  </div>
+                ) : null}
+                {campaignValidation.metaPayloadBlockers.length > 0 ? (
+                  <div className="sm:col-span-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+                    {campaignValidation.metaPayloadBlockers.map((b) => (
+                      <p key={b.key}>{b.message}</p>
+                    ))}
+                  </div>
+                ) : null}
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium">Cílení kampaně</span>
                   <select
@@ -3855,11 +3901,24 @@ export default function MetaCentrumPage() {
                   }}
                   products={campaignProducts}
                   onChange={(patch) =>
-                    setCampaignDraft((d) => ({
-                      ...d,
-                      ...patch,
-                      creativePayload: patch.creativePayload ?? d.creativePayload,
-                    }))
+                    setCampaignDraft((d) => {
+                      const nextCreativeType = patch.creativeType ?? d.creativeType;
+                      const next = {
+                        ...d,
+                        ...patch,
+                        creativePayload: patch.creativePayload ?? d.creativePayload,
+                      };
+                      if (normalizeCreativeSource(nextCreativeType) === 'catalog_products') {
+                        next.goal = 'catalog';
+                      } else if (
+                        patch.creativeType &&
+                        d.goal === 'catalog' &&
+                        normalizeCreativeSource(nextCreativeType) !== 'catalog_products'
+                      ) {
+                        next.goal = 'traffic';
+                      }
+                      return next;
+                    })
                   }
                 />
                 <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-4">
@@ -3926,35 +3985,75 @@ export default function MetaCentrumPage() {
               <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-zinc-700">
                 <input
                   type="checkbox"
-                  checked={debugAdSetPayload}
-                  onChange={(e) => setDebugAdSetPayload(e.target.checked)}
+                  checked={debugPayloadPreview}
+                  onChange={(e) => setDebugPayloadPreview(e.target.checked)}
                 />
-                Debug payload — zobrazit JSON Ad Set přesně tak, jak odchází do Meta API
+                Debug payload — Campaign, Ad Set, Creative a Ad přesně tak, jak odcházejí do Meta API
               </label>
 
-              {debugAdSetPayload ? (
-                <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-950">
-                  {adSetPreviewBusy ? (
-                    <p>Načítám náhled Ad Set payloadu…</p>
-                  ) : adSetPayloadPreview?.message && !adSetPayloadPreview.metaForm ? (
-                    <p className="text-red-800">{adSetPayloadPreview.message}</p>
+              {debugPayloadPreview ? (
+                <div className="mt-2 space-y-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-950">
+                  {payloadPreviewBusy ? (
+                    <p>Načítám náhled Meta payloadů…</p>
+                  ) : payloadPreview?.message && !payloadPreview.ok ? (
+                    <p className="text-red-800">{payloadPreview.message}</p>
                   ) : (
                     <>
-                      {adSetPayloadPreview?.spec ? (
-                        <p className="mb-2 font-medium">
-                          Cíl: {adSetPayloadPreview.spec.objectiveKey} · Campaign objective:{' '}
-                          {adSetPayloadPreview.spec.campaignObjective} · optimization_goal:{' '}
-                          {adSetPayloadPreview.spec.optimizationGoal}
+                      {payloadPreview?.spec ? (
+                        <p className="font-medium">
+                          Režim: {payloadPreview.spec.modeLabel} · objective:{' '}
+                          {payloadPreview.spec.campaignObjective} · optimization_goal:{' '}
+                          {payloadPreview.spec.optimizationGoal} · billing:{' '}
+                          {payloadPreview.spec.billingEvent}
                         </p>
                       ) : null}
-                      <p className="mb-1 font-semibold">Meta API form body (URLSearchParams):</p>
-                      <pre className="max-h-80 overflow-auto whitespace-pre-wrap font-mono text-[11px]">
-                        {JSON.stringify(adSetPayloadPreview?.metaForm ?? {}, null, 2)}
-                      </pre>
-                      <p className="mt-2 mb-1 font-semibold">Interní payload objekt:</p>
-                      <pre className="max-h-60 overflow-auto whitespace-pre-wrap font-mono text-[11px]">
-                        {JSON.stringify(adSetPayloadPreview?.payload ?? {}, null, 2)}
-                      </pre>
+                      {(
+                        [
+                          ['Campaign', payloadPreview?.campaign],
+                          ['Ad Set', payloadPreview?.adSet],
+                          ['Creative', payloadPreview?.creative],
+                          ['Ad', payloadPreview?.ad],
+                        ] as const
+                      ).map(([label, section]) =>
+                        section ? (
+                          <div key={label} className="rounded border border-blue-100 bg-white/70 p-2">
+                            <p className="mb-1 font-semibold">{label} payload</p>
+                            {'objective' in section && section.objective ? (
+                              <p className="font-mono text-[10px]">
+                                objective: {String(section.objective)}
+                                {'optimizationGoal' in section && section.optimizationGoal
+                                  ? ` · optimization_goal: ${section.optimizationGoal}`
+                                  : ''}
+                                {'billingEvent' in section && section.billingEvent
+                                  ? ` · billing_event: ${section.billingEvent}`
+                                  : ''}
+                                {'promotedObject' in section && section.promotedObject
+                                  ? ` · promoted_object: ${JSON.stringify(section.promotedObject)}`
+                                  : ''}
+                                {'creativeSource' in section && section.creativeSource
+                                  ? ` · creativeSource: ${section.creativeSource}`
+                                  : ''}
+                              </p>
+                            ) : 'creativeSource' in section && section.creativeSource ? (
+                              <p className="font-mono text-[10px]">
+                                creativeSource: {section.creativeSource}
+                              </p>
+                            ) : null}
+                            <p className="mt-1 mb-0.5 font-medium">Meta API form body:</p>
+                            <pre className="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[10px]">
+                              {JSON.stringify(section.metaForm ?? {}, null, 2)}
+                            </pre>
+                            <p className="mt-1 mb-0.5 font-medium">Interní objekt:</p>
+                            <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px]">
+                              {JSON.stringify(section.payload ?? {}, null, 2)}
+                            </pre>
+                          </div>
+                        ) : (
+                          <p key={label} className="text-zinc-600">
+                            {label}: —
+                          </p>
+                        ),
+                      )}
                     </>
                   )}
                 </div>

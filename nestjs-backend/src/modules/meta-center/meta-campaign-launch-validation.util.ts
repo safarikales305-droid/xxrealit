@@ -8,6 +8,10 @@ import { resolveMetaCenterIds } from './meta-center-env.util';
 import { isMarketingAdsTokenActive } from './meta-marketing-token.util';
 import type { MetaCampaignLaunchBlocker } from './meta-campaign-api-payload.util';
 import type { MetaCenterSetting } from '@prisma/client';
+import {
+  extractLeadFormId,
+  resolveMetaCampaignPayloadSpec,
+} from './meta-campaign-payload-map.util';
 
 function push(
   blockers: MetaCampaignLaunchBlocker[],
@@ -63,11 +67,6 @@ export function computeMetaCampaignLaunchBlockers(
   const needsCatalog = creativeType === 'catalog_products' || dto.objective === 'catalog';
   if (needsCatalog && !ids.catalogId) {
     push(blockers, 'catalog', 'Chybí Catalog ID.');
-  }
-  if ((dto.objective === 'catalog' || dto.objective === 'lead') && !ids.datasetId && !ids.pixelId) {
-    push(blockers, 'dataset', 'Chybí Pixel/Dataset.');
-  } else if (!ids.datasetId && !ids.pixelId) {
-    push(blockers, 'dataset', 'Chybí Pixel/Dataset.');
   }
   if (!dto.name?.trim()) {
     push(blockers, 'name', 'Chybí název kampaně.');
@@ -148,6 +147,27 @@ export function computeMetaCampaignLaunchBlockers(
     if (!hasGeoKey && !hasCoords && !dto.cityName?.trim()) {
       push(blockers, 'geo', 'Chybí Meta Geo ID nebo souřadnice.');
     }
+  }
+
+  const payloadSpec = resolveMetaCampaignPayloadSpec({
+    goal: dto.objective,
+    creativeType: dto.creativeType ?? 'catalog_products',
+    targetingMode: mode,
+    catalogId: ids.catalogId,
+    pixelId: ids.pixelId,
+    datasetId: ids.datasetId,
+    pageId,
+    instagramActorId: row?.instagramBusinessId?.trim() ?? null,
+    leadFormId: extractLeadFormId(dto),
+    remarketingConversionEvent: 'VIEW_CONTENT',
+    selectedProductIds: dto.selectedProductIds ?? [],
+  });
+  if (!payloadSpec.ok) {
+    for (const b of payloadSpec.blockers) {
+      push(blockers, b.key, b.message);
+    }
+  } else if (payloadSpec.spec.usesPixel && !ids.datasetId && !ids.pixelId) {
+    push(blockers, 'dataset', 'Chybí Pixel/Dataset.');
   }
 
   return blockers;

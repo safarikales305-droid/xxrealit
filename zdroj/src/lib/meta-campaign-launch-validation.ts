@@ -1,4 +1,9 @@
 import type { MetaCampaignCreativePayload } from '@/lib/meta-campaign-creative';
+import {
+  resolveMetaCampaignPayloadSpec,
+  type MetaCampaignPayloadBlocker,
+  type MetaCampaignPayloadSpec,
+} from '@/lib/meta-campaign-payload-map';
 
 export type MetaCampaignValidationItem = {
   key: string;
@@ -31,6 +36,11 @@ export type MetaCampaignLaunchValidationInput = {
   hasCatalog: boolean;
   hasDataset: boolean;
   hasPageId: boolean;
+  hasCatalogId?: boolean;
+  catalogId?: string | null;
+  pixelId?: string | null;
+  datasetId?: string | null;
+  leadFormId?: string | null;
   campaignsLiveEnabled: boolean;
   fallbackLink?: string;
   fallbackHeadline?: string;
@@ -42,6 +52,8 @@ export type MetaCampaignValidationResult = {
   blockers: string[];
   readyToPublish: boolean;
   debug: Record<string, boolean | number | string | null>;
+  metaPayloadBlockers: MetaCampaignPayloadBlocker[];
+  metaSpec: MetaCampaignPayloadSpec | null;
 };
 
 function payloadOf(raw: MetaCampaignCreativePayload | Record<string, unknown>): MetaCampaignCreativePayload {
@@ -94,6 +106,9 @@ export function validateMetaCampaignLaunch(
   const productsOk =
     !needsProducts(input.creativeType) || input.selectedProductIds.length > 0;
   const catalogOk = !needsCatalog(input.creativeType, input.goal) || input.hasCatalog;
+  const pixelRequired = input.goal === 'catalog' ||
+    ['remarketing', 'map_remarketing'].includes(input.targetingMode);
+  const datasetOk = !pixelRequired || input.hasDataset;
   const mediaOk =
     !needsMedia(input.creativeType) ||
     hasMedia ||
@@ -181,7 +196,7 @@ export function validateMetaCampaignLaunch(
     item(
       'dataset',
       'Dataset / Pixel',
-      input.hasDataset,
+      datasetOk,
       'Chybí Pixel/Dataset',
       'integration',
     ),
@@ -257,6 +272,32 @@ export function validateMetaCampaignLaunch(
     item('previewUrl', 'URL', url.length > 0, 'URL chybí', 'preview'),
   ];
 
+  const payloadSpec = resolveMetaCampaignPayloadSpec({
+    goal: input.goal,
+    creativeType: input.creativeType,
+    targetingMode: input.targetingMode,
+    catalogId: input.catalogId ?? (input.hasCatalog ? 'configured' : null),
+    pixelId: input.pixelId ?? null,
+    datasetId: input.datasetId ?? null,
+    pageId: input.hasPageId ? 'configured' : null,
+    leadFormId: input.leadFormId ?? null,
+    selectedProductIds: input.selectedProductIds,
+  });
+
+  const metaPayloadBlockers = payloadSpec.ok ? [] : payloadSpec.blockers;
+
+  for (const b of metaPayloadBlockers) {
+    items.push(
+      item(
+        `meta.${b.key}`,
+        'Meta kombinace',
+        false,
+        b.message,
+        'campaign',
+      ),
+    );
+  }
+
   const blockers = items.filter((i) => !i.ok).map((i) => `❌ ${i.failMessage}`);
   const readyToPublish = items.every((i) => i.ok);
 
@@ -288,9 +329,19 @@ export function validateMetaCampaignLaunch(
     previewReady,
     creativeReady,
     readyToPublish,
+    metaMode: payloadSpec.spec?.mode ?? null,
+    metaObjective: payloadSpec.spec?.campaignObjective ?? null,
+    metaOptimizationGoal: payloadSpec.spec?.optimizationGoal ?? null,
   };
 
-  return { items, blockers, readyToPublish, debug };
+  return {
+    items,
+    blockers,
+    readyToPublish,
+    debug,
+    metaPayloadBlockers,
+    metaSpec: payloadSpec.ok ? payloadSpec.spec : payloadSpec.spec,
+  };
 }
 
 export function logMetaCampaignValidation(

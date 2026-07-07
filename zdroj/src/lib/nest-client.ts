@@ -7222,6 +7222,75 @@ export type MetaCampaignDraftBody = {
   creativePayload?: Record<string, unknown>;
 };
 
+export type MetaCampaignPayloadPreviewResponse = {
+  ok: boolean;
+  message?: string;
+  blockers?: Array<{ key: string; message: string }>;
+  spec?: {
+    mode: string;
+    modeLabel: string;
+    goalLabel: string;
+    creativeSource: string;
+    campaignObjective: string;
+    optimizationGoal: string;
+    billingEvent: string;
+    promotedObjectSummary: string;
+    requiresPromotedObject: boolean;
+  } | null;
+  campaign?: {
+    payload: Record<string, unknown>;
+    metaForm: Record<string, string>;
+    objective: string;
+    creativeSource: string;
+  } | null;
+  adSet?: {
+    payload: Record<string, unknown> | null;
+    metaForm: Record<string, string> | null;
+    objective: string;
+    optimizationGoal: string;
+    billingEvent: string;
+    promotedObject: Record<string, unknown> | null;
+    creativeSource: string;
+  } | null;
+  creative?: {
+    payload: Record<string, unknown>;
+    metaForm: Record<string, string>;
+    creativeSource: string;
+  } | null;
+  ad?: {
+    payload: Record<string, unknown>;
+    metaForm: Record<string, string>;
+    creativeSource: string;
+  } | null;
+  payload?: Record<string, unknown> | null;
+  metaForm?: Record<string, string> | null;
+};
+
+export async function nestAdminMetaCenterPreviewCampaignPayloads(
+  token: string | null,
+  body: MetaCampaignDraftBody,
+): Promise<MetaCampaignPayloadPreviewResponse> {
+  const r = await metaCenterFetch<MetaCampaignPayloadPreviewResponse>(
+    token,
+    '/campaigns/payload-preview',
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+  return r.ok
+    ? r.data
+    : {
+        ok: false,
+        message: r.error,
+        blockers: [],
+        spec: null,
+        campaign: null,
+        adSet: null,
+        creative: null,
+        ad: null,
+        payload: null,
+        metaForm: null,
+      };
+}
+
 export async function nestAdminMetaCenterPreviewAdSetPayload(
   token: string | null,
   body: MetaCampaignDraftBody,

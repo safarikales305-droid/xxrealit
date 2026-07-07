@@ -695,6 +695,27 @@ export class MetaCenterAdminController {
     );
   }
 
+  @Post('campaigns/payload-preview')
+  previewCampaignPayloads(
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    body: CreateMetaCampaignDto,
+  ) {
+    return this.safeEndpoint(
+      'campaigns/payload-preview',
+      () => this.campaigns.previewCampaignPayloads(body),
+      (message) => ({
+        ok: false as const,
+        message,
+        blockers: [],
+        spec: null,
+        campaign: null,
+        adSet: null,
+        creative: null,
+        ad: null,
+      }),
+    );
+  }
+
   @Post('campaigns/adset-payload')
   previewAdSetPayload(
     @Body(new ValidationPipe({ whitelist: true, transform: true }))
