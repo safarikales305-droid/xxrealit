@@ -76,4 +76,9 @@ export class CreateMetaCampaignDto {
 
   @IsOptional()
   creativePayload?: Record<string, unknown>;
+
+  /** Meta Lead Form ID — promoted_object pouze pokud je vyplněno. */
+  @IsOptional()
+  @IsString()
+  leadFormId?: string;
 }

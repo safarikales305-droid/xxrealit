@@ -7218,8 +7218,43 @@ export type MetaCampaignDraftBody = {
   creativeType?: string;
   targetingMode?: string;
   audienceId?: string;
+  leadFormId?: string;
   creativePayload?: Record<string, unknown>;
 };
+
+export async function nestAdminMetaCenterPreviewAdSetPayload(
+  token: string | null,
+  body: MetaCampaignDraftBody,
+): Promise<{
+  ok: boolean;
+  message?: string;
+  blockers?: Array<{ key: string; message: string }>;
+  payload?: Record<string, unknown> | null;
+  metaForm?: Record<string, string> | null;
+  spec?: {
+    objectiveKey: string;
+    campaignObjective: string;
+    optimizationGoal: string;
+    requiresPromotedObject: boolean;
+  } | null;
+}> {
+  const r = await metaCenterFetch<{
+    ok: boolean;
+    message?: string;
+    blockers?: Array<{ key: string; message: string }>;
+    payload?: Record<string, unknown> | null;
+    metaForm?: Record<string, string> | null;
+    spec?: {
+      objectiveKey: string;
+      campaignObjective: string;
+      optimizationGoal: string;
+      requiresPromotedObject: boolean;
+    } | null;
+  }>(token, '/campaigns/adset-payload', { method: 'POST', body: JSON.stringify(body) });
+  return r.ok
+    ? r.data
+    : { ok: false, message: r.error, payload: null, metaForm: null, blockers: [] };
+}
 
 export async function nestAdminMetaCenterUpdateCampaignDraft(
   token: string | null,

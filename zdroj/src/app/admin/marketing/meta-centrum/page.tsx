@@ -62,6 +62,7 @@ import {
   nestAdminMetaCenterGeoSearch,
   nestAdminMetaCenterListCampaignDrafts,
   nestAdminMetaCenterCreateCampaign,
+  nestAdminMetaCenterPreviewAdSetPayload,
   nestAdminMetaCenterUpdateCampaignDraft,
   nestAdminMetaCenterDeleteCampaignDraft,
   nestAdminMetaCenterCampaignsOverview,
@@ -203,6 +204,7 @@ const TABS = [
 
 const CAMPAIGN_GOAL_LABELS: Record<string, string> = {
   traffic: 'Návštěvnost',
+  reach: 'Dosah',
   messages: 'Zprávy',
   lead: 'Lead',
   catalog: 'Katalogový prodej',
@@ -631,6 +633,14 @@ export default function MetaCentrumPage() {
     launchSteps?: MetaLaunchSteps | null;
   } | null>(null);
   const [launchValidationHighlight, setLaunchValidationHighlight] = useState(false);
+  const [debugAdSetPayload, setDebugAdSetPayload] = useState(false);
+  const [adSetPayloadPreview, setAdSetPayloadPreview] = useState<{
+    payload: Record<string, unknown> | null;
+    metaForm: Record<string, string> | null;
+    spec: { objectiveKey: string; optimizationGoal: string; campaignObjective: string } | null;
+    message?: string;
+  } | null>(null);
+  const [adSetPreviewBusy, setAdSetPreviewBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -898,8 +908,33 @@ export default function MetaCentrumPage() {
       targetingMode: campaignDraft.targetingMode,
       audienceId: campaignDraft.audienceId || undefined,
       creativePayload: campaignDraft.creativePayload,
+      leadFormId:
+        typeof campaignDraft.creativePayload?.leadFormId === 'string'
+          ? campaignDraft.creativePayload.leadFormId
+          : undefined,
     };
   }
+
+  useEffect(() => {
+    if (!token || !debugAdSetPayload) {
+      setAdSetPayloadPreview(null);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        setAdSetPreviewBusy(true);
+        const r = await nestAdminMetaCenterPreviewAdSetPayload(token, buildCampaignPayload());
+        setAdSetPreviewBusy(false);
+        setAdSetPayloadPreview({
+          payload: r.payload ?? null,
+          metaForm: r.metaForm ?? null,
+          spec: r.spec ?? null,
+          message: r.ok ? undefined : r.message,
+        });
+      })();
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [token, debugAdSetPayload, campaignDraft]);
 
   function loadCampaignForEdit(c: MetaCampaignDraft) {
     setEditingCampaignId(c.id);
@@ -3615,6 +3650,7 @@ export default function MetaCentrumPage() {
                     className="rounded-lg border border-zinc-300 px-3 py-2"
                   >
                     <option value="traffic">Návštěvnost</option>
+                    <option value="reach">Dosah</option>
                     <option value="messages">Zprávy</option>
                     <option value="lead">Lead</option>
                     <option value="catalog">Katalogový prodej</option>
@@ -3886,6 +3922,43 @@ export default function MetaCentrumPage() {
                     .join('\n')}
                 </pre>
               </details>
+
+              <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-zinc-700">
+                <input
+                  type="checkbox"
+                  checked={debugAdSetPayload}
+                  onChange={(e) => setDebugAdSetPayload(e.target.checked)}
+                />
+                Debug payload — zobrazit JSON Ad Set přesně tak, jak odchází do Meta API
+              </label>
+
+              {debugAdSetPayload ? (
+                <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-950">
+                  {adSetPreviewBusy ? (
+                    <p>Načítám náhled Ad Set payloadu…</p>
+                  ) : adSetPayloadPreview?.message && !adSetPayloadPreview.metaForm ? (
+                    <p className="text-red-800">{adSetPayloadPreview.message}</p>
+                  ) : (
+                    <>
+                      {adSetPayloadPreview?.spec ? (
+                        <p className="mb-2 font-medium">
+                          Cíl: {adSetPayloadPreview.spec.objectiveKey} · Campaign objective:{' '}
+                          {adSetPayloadPreview.spec.campaignObjective} · optimization_goal:{' '}
+                          {adSetPayloadPreview.spec.optimizationGoal}
+                        </p>
+                      ) : null}
+                      <p className="mb-1 font-semibold">Meta API form body (URLSearchParams):</p>
+                      <pre className="max-h-80 overflow-auto whitespace-pre-wrap font-mono text-[11px]">
+                        {JSON.stringify(adSetPayloadPreview?.metaForm ?? {}, null, 2)}
+                      </pre>
+                      <p className="mt-2 mb-1 font-semibold">Interní payload objekt:</p>
+                      <pre className="max-h-60 overflow-auto whitespace-pre-wrap font-mono text-[11px]">
+                        {JSON.stringify(adSetPayloadPreview?.payload ?? {}, null, 2)}
+                      </pre>
+                    </>
+                  )}
+                </div>
+              ) : null}
 
               {!campaignsLiveEnabled ? (
                 <p className="mt-2 text-xs text-amber-800">

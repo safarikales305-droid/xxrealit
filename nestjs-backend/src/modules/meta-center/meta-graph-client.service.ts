@@ -131,6 +131,54 @@ export class MetaGraphClientService {
     }
   }
 
+  private isTransientMetaServerError(result: MetaGraphResult<unknown>): boolean {
+    if (result.ok) return false;
+    const err = result.data?.error;
+    return (
+      result.httpStatus === 500 &&
+      result.errorCode === '2' &&
+      err?.is_transient === true
+    );
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * POST s automatickým retry při přechodné Meta chybě (HTTP 500, error_code 2, is_transient).
+   */
+  async postWithTransientRetry<T>(
+    path: string,
+    accessToken: string,
+    body: Record<string, unknown>,
+    options?: { retryDelaysMs?: number[]; logLabel?: string },
+  ): Promise<MetaGraphResult<T> & { attempts: number }> {
+    const delays = options?.retryDelaysMs ?? [2000, 5000, 10000];
+    let last = await this.post<T>(path, accessToken, body);
+    let attempts = 1;
+
+    for (const delayMs of delays) {
+      if (!this.isTransientMetaServerError(last)) {
+        return { ...last, attempts };
+      }
+      const errCode = last.ok ? null : last.errorCode;
+      this.logger.warn(
+        `[meta-graph] transient ${options?.logLabel ?? path} HTTP ${last.httpStatus} code=${errCode} — retry za ${delayMs}ms (pokus ${attempts + 1})`,
+      );
+      await this.sleep(delayMs);
+      last = await this.post<T>(path, accessToken, body);
+      attempts += 1;
+    }
+
+    if (this.isTransientMetaServerError(last)) {
+      this.logger.error(
+        `[meta-graph] transient ${options?.logLabel ?? path} selhalo po ${attempts} pokusech`,
+      );
+    }
+    return { ...last, attempts };
+  }
+
   async post<T>(
     path: string,
     accessToken: string,

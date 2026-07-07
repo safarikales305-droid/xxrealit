@@ -16,6 +16,15 @@ import {
   buildMetaCampaignValidationDebug,
   computeMetaCampaignLaunchBlockers,
 } from './meta-campaign-launch-validation.util';
+import {
+  buildAdSetPromotedObject,
+  extractLeadFormId,
+  mapCampaignObjectiveToMeta,
+  normalizeCampaignObjectiveKey,
+  resolveAdSetObjectiveSpec,
+  serializeAdSetPayloadForMetaApi,
+  validateAdSetPayloadForObjective,
+} from './meta-adset-payload.util';
 import { normalizeCreativeType } from './meta-campaign-creative.util';
 import {
   META_CAMPAIGN_TARGETING_MODES,
@@ -827,7 +836,7 @@ export class MetaCenterCampaignsService {
       audienceMetaId = audience?.metaAudienceId ?? null;
     }
 
-    const objective = this.mapObjective(dto.objective);
+    const objective = mapCampaignObjectiveToMeta(normalizeCampaignObjectiveKey(dto.objective));
     const budgetConfig = resolveBudgetConfig(false);
     const dailyBudgetMinor = Math.round(dto.dailyBudgetCzk * 100);
     const catalogId = ids.catalogId;
@@ -916,39 +925,21 @@ export class MetaCenterCampaignsService {
     }
 
     const targeting = this.buildTargetingFromGeo(resolvedGeo, dto, audienceMetaId);
-    const startTime = this.parseDate(dto.startDate)?.toISOString() ?? undefined;
-    const endTime = this.parseDate(dto.endDate)?.toISOString() ?? undefined;
-    const optimizationGoal =
-      dto.objective === 'catalog' ? 'OFFSITE_CONVERSIONS' : 'LINK_CLICKS';
-    const requiresPromotedObject =
-      optimizationGoal === 'OFFSITE_CONVERSIONS' || dto.objective === 'catalog';
-
-    const adSetPayload: Record<string, unknown> = {
-      name: `${dto.name.trim()} — sada`,
-      campaign_id: metaCampaignId,
-      billing_event: 'IMPRESSIONS',
-      optimization_goal: optimizationGoal,
-      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-      targeting: JSON.stringify(targeting),
-      start_time: startTime,
-      end_time: endTime,
-      status: publishStatus,
-      is_adset_budget_sharing_enabled: budgetConfig.isAdsetBudgetSharingEnabled,
-    };
-    if (!budgetConfig.useCampaignBudgetOptimization) {
-      adSetPayload.daily_budget = String(dailyBudgetMinor);
-    }
-
-    const promotedObject = this.buildPromotedObject(dto, ids, catalogId, optimizationGoal);
-    if (promotedObject) {
-      adSetPayload.promoted_object = JSON.stringify(promotedObject);
-    }
-
-    const adSetBlockers = validateAdSetPayload(adSetPayload, budgetConfig, {
-      requiresPromotedObject,
+    const adSetBuild = this.buildAdSetLaunchPayload({
+      dto,
+      ids,
+      row,
+      metaCampaignId,
+      targeting,
+      publishStatus,
+      budgetConfig,
+      dailyBudgetMinor,
+      catalogId,
+      audienceMetaId,
     });
-    if (adSetBlockers.length) {
-      const msg = adSetBlockers.map((b) => b.message).join(' ');
+
+    if (!adSetBuild.ok) {
+      const msg = adSetBuild.blockers.map((b) => b.message).join(' ');
       await this.persistLaunchState(draftId, {
         metaCampaignId,
         status: 'error',
@@ -959,17 +950,30 @@ export class MetaCenterCampaignsService {
         ok: false as const,
         status: 'validation_error' as const,
         message: msg,
-        blockers: adSetBlockers,
+        blockers: adSetBuild.blockers,
         failedStep: 'adset' as const,
         launchSteps,
         campaign: null,
+        adSetPayloadPreview: adSetBuild.payload ?? null,
+        adSetPayloadMeta: adSetBuild.metaForm ?? null,
       };
     }
 
-    const adSetRes = await this.graph.post<{ id?: string }>(
+    const adSetPayload = adSetBuild.payload;
+    const adSetSpec = adSetBuild.spec;
+
+    this.logger.log(
+      `[meta-campaign] adset payload objective=${dto.objective} spec=${adSetSpec.objectiveKey} optimization_goal=${adSetSpec.optimizationGoal} draft=${draftId}\n${JSON.stringify(adSetPayload, null, 2)}`,
+    );
+    this.logger.log(
+      `[meta-campaign] adset meta-form draft=${draftId}\n${JSON.stringify(adSetBuild.metaForm, null, 2)}`,
+    );
+
+    const adSetRes = await this.graph.postWithTransientRetry<{ id?: string }>(
       `/act_${actId}/adsets`,
       token,
       adSetPayload,
+      { logLabel: `adsets draft=${draftId}` },
     );
 
     if (!adSetRes.ok || !adSetRes.data.id) {
@@ -1308,47 +1312,166 @@ export class MetaCenterCampaignsService {
     return geoBlock;
   }
 
-  private mapObjective(objective: string): string {
-    switch (objective) {
-      case 'catalog':
-        return 'OUTCOME_SALES';
-      case 'lead':
-        return 'OUTCOME_LEADS';
-      case 'messages':
-        return 'OUTCOME_ENGAGEMENT';
-      case 'traffic':
-      default:
-        return 'OUTCOME_TRAFFIC';
+  async previewAdSetPayload(dto: CreateMetaCampaignDto) {
+    const row = await this.getSettingsRow();
+    const ids = resolveMetaCenterIds(row ?? ({} as never));
+    let resolvedGeo;
+    try {
+      resolvedGeo = await this.geo.resolveGeoForTargeting({
+        metaGeoKey: dto.metaGeoKey,
+        cityName: dto.cityName,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+        radiusKm: dto.radiusKm,
+      });
+    } catch (err) {
+      return {
+        ok: false as const,
+        message: err instanceof Error ? err.message : 'Lokalitu nelze namapovat na Meta Geo.',
+        payload: null,
+        metaForm: null,
+        blockers: [],
+      };
     }
+
+    let audienceMetaId: string | null = null;
+    if (dto.audienceId?.trim()) {
+      const audience = await this.prisma.metaRemarketingAudience
+        .findUnique({ where: { id: dto.audienceId.trim() } })
+        .catch(() => null);
+      audienceMetaId = audience?.metaAudienceId ?? null;
+    }
+
+    const targeting = this.buildTargetingFromGeo(resolvedGeo, dto, audienceMetaId);
+    const budgetConfig = resolveBudgetConfig(false);
+    const dailyBudgetMinor = Math.round(dto.dailyBudgetCzk * 100);
+
+    const built = this.buildAdSetLaunchPayload({
+      dto,
+      ids,
+      row,
+      metaCampaignId: 'PREVIEW_CAMPAIGN_ID',
+      targeting,
+      publishStatus: 'PAUSED',
+      budgetConfig,
+      dailyBudgetMinor,
+      catalogId: ids.catalogId,
+      audienceMetaId,
+    });
+
+    if (!built.ok) {
+      return {
+        ok: false as const,
+        message: built.blockers.map((b) => b.message).join('\n'),
+        blockers: built.blockers,
+        payload: built.payload,
+        metaForm: built.metaForm,
+        spec: built.spec,
+      };
+    }
+
+    return {
+      ok: true as const,
+      message: 'Náhled Ad Set payloadu připraven.',
+      blockers: [] as MetaCampaignLaunchBlocker[],
+      payload: built.payload,
+      metaForm: built.metaForm,
+      spec: built.spec,
+    };
   }
 
-  private buildPromotedObject(
-    dto: CreateMetaCampaignDto,
-    ids: ReturnType<typeof resolveMetaCenterIds>,
-    catalogId: string | null,
-    optimizationGoal: string,
-  ): Record<string, unknown> | null {
-    const eventSourceId = ids.pixelId ?? ids.datasetId;
-    const normalizedCatalogId = catalogId?.replace(/^catalog_/i, '') ?? null;
+  private buildAdSetLaunchPayload(input: {
+    dto: CreateMetaCampaignDto;
+    ids: ReturnType<typeof resolveMetaCenterIds>;
+    row: Awaited<ReturnType<typeof this.getSettingsRow>>;
+    metaCampaignId: string;
+    targeting: Record<string, unknown>;
+    publishStatus: 'ACTIVE' | 'PAUSED';
+    budgetConfig: ReturnType<typeof resolveBudgetConfig>;
+    dailyBudgetMinor: number;
+    catalogId: string | null;
+    audienceMetaId: string | null;
+  }):
+    | {
+        ok: true;
+        payload: Record<string, unknown>;
+        metaForm: Record<string, string>;
+        spec: ReturnType<typeof resolveAdSetObjectiveSpec>;
+      }
+    | {
+        ok: false;
+        blockers: MetaCampaignLaunchBlocker[];
+        payload?: Record<string, unknown>;
+        metaForm?: Record<string, string>;
+        spec?: ReturnType<typeof resolveAdSetObjectiveSpec>;
+      } {
+    const { dto, ids, row, metaCampaignId, targeting, publishStatus, budgetConfig, dailyBudgetMinor, catalogId } =
+      input;
 
-    if (dto.objective === 'catalog' || optimizationGoal === 'OFFSITE_CONVERSIONS') {
-      if (!eventSourceId && !normalizedCatalogId) return null;
-      return {
-        ...(eventSourceId ? { pixel_id: eventSourceId } : {}),
-        ...(normalizedCatalogId ? { product_catalog_id: normalizedCatalogId } : {}),
-        custom_event_type: 'PURCHASE',
-      };
+    const spec = resolveAdSetObjectiveSpec(dto.objective);
+    const pageId = row?.pageId?.trim() ?? process.env.FACEBOOK_PAGE_ID?.trim() ?? null;
+    const leadFormId = extractLeadFormId(dto);
+
+    const promotedObject = buildAdSetPromotedObject(spec, {
+      catalogId,
+      pixelId: ids.pixelId,
+      datasetId: ids.datasetId,
+      pageId,
+      leadFormId,
+    });
+
+    const startTime = this.parseDate(dto.startDate)?.toISOString() ?? undefined;
+    const endTime = this.parseDate(dto.endDate)?.toISOString() ?? undefined;
+
+    const adSetPayload: Record<string, unknown> = {
+      name: `${dto.name.trim()} — sada`,
+      campaign_id: metaCampaignId,
+      billing_event: 'IMPRESSIONS',
+      optimization_goal: spec.optimizationGoal,
+      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+      targeting: JSON.stringify(targeting),
+      start_time: startTime,
+      end_time: endTime,
+      status: publishStatus,
+      is_adset_budget_sharing_enabled: budgetConfig.isAdsetBudgetSharingEnabled,
+    };
+
+    if (!budgetConfig.useCampaignBudgetOptimization) {
+      adSetPayload.daily_budget = String(dailyBudgetMinor);
     }
 
-    if (dto.objective === 'lead') {
-      if (!eventSourceId) return null;
-      return {
-        pixel_id: eventSourceId,
-        custom_event_type: 'LEAD',
-      };
+    if (promotedObject) {
+      adSetPayload.promoted_object = JSON.stringify(promotedObject);
     }
 
-    return null;
+    const blockers = [
+      ...validateAdSetPayload(adSetPayload, budgetConfig, {
+        requiresPromotedObject: spec.requiresPromotedObject,
+      }),
+      ...validateAdSetPayloadForObjective(adSetPayload, spec),
+    ];
+
+    if (spec.objectiveKey === 'lead' && leadFormId && !promotedObject) {
+      blockers.push({
+        key: 'adset.lead_form_page',
+        message: 'Ad set: pro Lead Form chybí page_id nebo lead_gen_form_id v promoted_object.',
+      });
+    }
+
+    if (spec.objectiveKey === 'catalog' && !catalogId) {
+      blockers.push({
+        key: 'adset.catalog_id',
+        message: 'Ad set: chybí Catalog ID pro katalogovou kampaň.',
+      });
+    }
+
+    const metaForm = serializeAdSetPayloadForMetaApi(adSetPayload);
+
+    if (blockers.length) {
+      return { ok: false, blockers, payload: adSetPayload, metaForm, spec };
+    }
+
+    return { ok: true, payload: adSetPayload, metaForm, spec };
   }
 
   private async resolveCatalogProductSet(
