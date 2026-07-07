@@ -13,11 +13,10 @@ import { MetaGraphClientService } from './meta-graph-client.service';
 import { MetaCenterGeoService, type MetaGeoResolvedTargeting } from './meta-center-geo.service';
 import { MetaCenterCreativeService } from './meta-center-creative.service';
 import {
-  creativeTypeRequiresCatalogProducts,
-  normalizeCreativeType,
-} from './meta-campaign-creative.util';
-import { isMarketingAdsTokenActive } from './meta-marketing-token.util';
-import type { CreateMetaCampaignDto } from './dto/create-meta-campaign.dto';
+  buildMetaCampaignValidationDebug,
+  computeMetaCampaignLaunchBlockers,
+} from './meta-campaign-launch-validation.util';
+import { normalizeCreativeType } from './meta-campaign-creative.util';
 import {
   META_CAMPAIGN_TARGETING_MODES,
   META_CREATIVE_TYPES,
@@ -35,6 +34,7 @@ import {
   type MetaLaunchStep,
   type MetaLaunchSteps,
 } from './meta-campaign-api-payload.util';
+import type { CreateMetaCampaignDto } from './dto/create-meta-campaign.dto';
 
 const SETTINGS_ID = 'default';
 
@@ -225,91 +225,27 @@ export class MetaCenterCampaignsService {
     dto: CreateMetaCampaignDto,
     row: Awaited<ReturnType<typeof this.getSettingsRow>>,
   ): MetaCampaignLaunchBlocker[] {
-    const ids = resolveMetaCenterIds(row ?? ({} as never));
-    const blockers: MetaCampaignLaunchBlocker[] = [];
+    return computeMetaCampaignLaunchBlockers(dto, row, {
+      parseDate: (value) => this.parseDate(value),
+      resolveTargetingMode: (value) => this.resolveTargetingMode(value),
+    });
+  }
 
-    if (!isMarketingAdsTokenActive(row ?? {})) {
-      blockers.push({ key: 'ads_api', message: 'Ads API není připojeno.' });
+  private computeLaunchBlockersForMode(
+    dto: CreateMetaCampaignDto,
+    row: Awaited<ReturnType<typeof this.getSettingsRow>>,
+    mode: 'draft' | 'launch',
+    liveEnabled: boolean,
+  ): MetaCampaignLaunchBlocker[] {
+    const blockers = computeMetaCampaignLaunchBlockers(dto, row, {
+      campaignsLiveEnabled: mode === 'launch' ? liveEnabled : true,
+      parseDate: (value) => this.parseDate(value),
+      resolveTargetingMode: (value) => this.resolveTargetingMode(value),
+    });
+    if (mode === 'launch') {
+      const debug = buildMetaCampaignValidationDebug(dto, row, blockers);
+      this.logger.log(`[meta-campaign] launch validation ${JSON.stringify(debug)}`);
     }
-    if (!ids.adAccountId) {
-      blockers.push({ key: 'ad_account', message: 'Reklamní účet není připojen.' });
-    }
-    if (!ids.catalogId) {
-      blockers.push({ key: 'catalog', message: 'Catalog ID chybí.' });
-    }
-    if (!ids.datasetId && !ids.pixelId) {
-      blockers.push({ key: 'dataset', message: 'Dataset ID chybí.' });
-    }
-    if (!dto.name?.trim()) {
-      blockers.push({ key: 'name', message: 'Název kampaně je prázdný.' });
-    }
-    const creativeType = normalizeCreativeType(dto.creativeType);
-    if (creativeTypeRequiresCatalogProducts(creativeType) && !dto.selectedProductIds?.length) {
-      blockers.push({
-        key: 'products',
-        message: 'Vyberte alespoň jeden katalogový inzerát.',
-      });
-    }
-    if (creativeType === 'listing' && !dto.selectedProductIds?.length) {
-      blockers.push({
-        key: 'listing',
-        message: 'Vyberte inzerát XXREALIT.',
-      });
-    }
-    const payload = dto.creativePayload ?? {};
-    const hasCreativeMedia =
-      typeof payload.image === 'string' ||
-      typeof payload.video === 'string' ||
-      typeof payload.objectStoryId === 'string';
-    if (
-      ['public_post', 'facebook_post', 'instagram_post', 'custom_image', 'custom_video'].includes(
-        creativeType,
-      ) &&
-      !hasCreativeMedia &&
-      !dto.selectedProductIds?.length
-    ) {
-      blockers.push({
-        key: 'creative',
-        message: 'Vyberte zdroj kreativy nebo nahrajte obrázek/video.',
-      });
-    }
-    if (!dto.cityName?.trim()) {
-      blockers.push({ key: 'city', message: 'Lokalita (město) není zadaná.' });
-    }
-    if (!dto.dailyBudgetCzk || dto.dailyBudgetCzk <= 0) {
-      blockers.push({ key: 'budget', message: 'Denní rozpočet musí být větší než 0.' });
-    }
-    const start = this.parseDate(dto.startDate);
-    const end = this.parseDate(dto.endDate);
-    if (!start) {
-      blockers.push({ key: 'start_date', message: 'Datum spuštění není platné.' });
-    }
-    if (!end) {
-      blockers.push({ key: 'end_date', message: 'Datum ukončení není platné.' });
-    }
-    if (start && end && end.getTime() < start.getTime()) {
-      blockers.push({
-        key: 'date_range',
-        message: 'Datum ukončení musí být po datu spuštění.',
-      });
-    }
-
-    const mode = this.resolveTargetingMode(dto.targetingMode);
-    if (mode === 'map' || mode === 'map_remarketing') {
-      const hasGeoKey = Boolean(dto.metaGeoKey?.trim() && /^\d+$/.test(dto.metaGeoKey.trim()));
-      const hasCoords =
-        dto.latitude != null &&
-        dto.longitude != null &&
-        Number.isFinite(dto.latitude) &&
-        Number.isFinite(dto.longitude);
-      if (!hasGeoKey && !hasCoords && !dto.cityName?.trim()) {
-        blockers.push({
-          key: 'geo',
-          message: 'Vyberte město z Meta Geo nebo zadejte souřadnice.',
-        });
-      }
-    }
-
     return blockers;
   }
 
@@ -476,16 +412,19 @@ export class MetaCenterCampaignsService {
 
     const row = await this.getSettingsRow();
     const ids = resolveMetaCenterIds(row ?? ({} as never));
-    const blockers = this.computeLaunchBlockers(dto, row);
+    const liveOn = await this.isLiveEnabled();
 
-    if (mode === 'launch' && blockers.length > 0) {
-      return {
-        ok: false as const,
-        status: 'validation_error' as const,
-        message: blockers.map((b) => b.message).join(' '),
-        blockers,
-        campaign: null,
-      };
+    if (mode === 'launch') {
+      const blockers = this.computeLaunchBlockersForMode(dto, row, 'launch', liveOn);
+      if (blockers.length > 0) {
+        return {
+          ok: false as const,
+          status: 'validation_error' as const,
+          message: blockers.map((b) => `❌ ${b.message}`).join('\n'),
+          blockers,
+          campaign: null,
+        };
+      }
     }
 
     const data = this.buildDraftData(dto, ids);
@@ -518,7 +457,6 @@ export class MetaCenterCampaignsService {
       }
     }
 
-    const liveOn = await this.isLiveEnabled();
     if (mode === 'draft' || !liveOn) {
       const message = liveOn
         ? 'Kampaň byla uložena jako koncept.'
@@ -563,12 +501,12 @@ export class MetaCenterCampaignsService {
     const dto = this.draftRowToDto(row);
     const settings = await this.getSettingsRow();
     const ids = resolveMetaCenterIds(settings ?? ({} as never));
-    const blockers = this.computeLaunchBlockers(dto, settings);
+    const blockers = this.computeLaunchBlockersForMode(dto, settings, 'launch', true);
     if (blockers.length) {
       return {
         ok: false as const,
         status: 'validation_error' as const,
-        message: blockers.map((b) => b.message).join(' '),
+        message: blockers.map((b) => `❌ ${b.message}`).join('\n'),
         blockers,
         campaign: null,
       };

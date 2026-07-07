@@ -11,6 +11,14 @@ import {
 } from '@/components/meta-centrum/MetaCampaignPlacementPreview';
 import { getCreativePreviewImage } from '@/lib/meta-campaign-creative';
 import {
+  logMetaCampaignValidation,
+  validateMetaCampaignLaunch,
+} from '@/lib/meta-campaign-launch-validation';
+import {
+  MetaCampaignLaunchChecklist,
+  MetaCampaignValidationErrors,
+} from '@/components/meta-centrum/MetaCampaignLaunchChecklist';
+import {
   safeDisplayValue,
   safeErrorMessage,
   safeText,
@@ -622,6 +630,7 @@ export default function MetaCentrumPage() {
     failedStep?: string | null;
     launchSteps?: MetaLaunchSteps | null;
   } | null>(null);
+  const [launchValidationHighlight, setLaunchValidationHighlight] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -772,63 +781,59 @@ export default function MetaCentrumPage() {
   );
   const hasAdsApi = Boolean(dash?.settings.isMarketingAdsConnected);
   const hasAdAccount = Boolean(adAccount?.adAccountId ?? dash?.settings.adAccountId);
+  const hasPageId = Boolean(dash?.settings.pageId?.trim());
 
-  const campaignLaunchBlockers = useMemo(() => {
-    const blockers: string[] = [];
-    if (!hasAdsApi) blockers.push('Ads API není připojeno.');
-    if (!hasAdAccount) blockers.push('Reklamní účet není připojen.');
-    if (!hasCatalog) blockers.push('Catalog ID chybí.');
-    if (!hasDataset) blockers.push('Dataset ID chybí.');
-    if (!campaignDraft.name.trim()) blockers.push('Název kampaně je prázdný.');
-    if (!campaignDraft.cityName.trim() && !campaignDraft.locationLabel.trim()) {
-      blockers.push('Lokalita (město) není zadaná.');
-    }
-    if (!campaignDraft.budgetDaily || campaignDraft.budgetDaily <= 0) {
-      blockers.push('Denní rozpočet musí být větší než 0.');
-    }
-    if (!campaignDraft.selectedProductIds.length && campaignDraft.creativeType === 'catalog_products') {
-      blockers.push('Vyberte alespoň jeden katalogový inzerát.');
-    }
-    if (campaignDraft.creativeType === 'listing' && !campaignDraft.selectedProductIds.length) {
-      blockers.push('Vyberte inzerát XXREALIT.');
-    }
-    const cp = campaignDraft.creativePayload ?? {};
-    const hasMedia = Boolean(cp.image || cp.video || cp.objectStoryId);
-    if (
-      ['public_post', 'facebook_post', 'instagram_post', 'custom_image', 'custom_video'].includes(
-        campaignDraft.creativeType,
-      ) &&
-      !hasMedia
-    ) {
-      blockers.push('Vyberte zdroj kreativy nebo nahrajte obrázek/video.');
-    }
-    if (!campaignDraft.startDate) blockers.push('Datum spuštění není zadané.');
-    if (!campaignDraft.endDate) blockers.push('Datum ukončení není zadané.');
-    if (
-      campaignDraft.startDate &&
-      campaignDraft.endDate &&
-      campaignDraft.endDate < campaignDraft.startDate
-    ) {
-      blockers.push('Datum ukončení musí být po datu spuštění.');
-    }
-    if (
-      (campaignDraft.targetingMode === 'remarketing' ||
-        campaignDraft.targetingMode === 'map_remarketing') &&
-      !campaignDraft.audienceId
-    ) {
-      blockers.push('Vyberte remarketing publikum nebo zvolte cílení mapa.');
-    }
-    if (
-      (campaignDraft.targetingMode === 'map' || campaignDraft.targetingMode === 'map_remarketing') &&
-      !campaignDraft.metaGeoKey.trim() &&
-      (!campaignDraft.latitude.trim() || !campaignDraft.longitude.trim())
-    ) {
-      blockers.push('Vyberte město z návrhů Meta (Geo ID) nebo zadejte souřadnice.');
-    }
-    return blockers;
-  }, [campaignDraft, hasAdsApi, hasAdAccount, hasCatalog, hasDataset]);
+  const selectedCampaignProducts = useMemo(
+    () =>
+      campaignProducts.filter((p) => campaignDraft.selectedProductIds.includes(p.id)),
+    [campaignProducts, campaignDraft.selectedProductIds],
+  );
 
-  const canLaunchCampaign = campaignLaunchBlockers.length === 0;
+  const campaignValidation = useMemo(() => {
+    const firstProduct = selectedCampaignProducts[0];
+    const selectedProductsWithImage = selectedCampaignProducts.filter((p) => Boolean(p.imageUrl)).length;
+    return validateMetaCampaignLaunch({
+      name: campaignDraft.name,
+      goal: campaignDraft.goal,
+      creativeType: campaignDraft.creativeType,
+      creativePayload: campaignDraft.creativePayload,
+      selectedProductIds: campaignDraft.selectedProductIds,
+      selectedProductsCount: campaignDraft.selectedProductIds.length,
+      selectedProductsWithImage,
+      cityName: campaignDraft.cityName,
+      locationLabel: campaignDraft.locationLabel,
+      metaGeoKey: campaignDraft.metaGeoKey,
+      latitude: campaignDraft.latitude,
+      longitude: campaignDraft.longitude,
+      targetingMode: campaignDraft.targetingMode,
+      audienceId: campaignDraft.audienceId,
+      budgetDaily: campaignDraft.budgetDaily,
+      startDate: campaignDraft.startDate,
+      endDate: campaignDraft.endDate,
+      hasAdsApi,
+      hasAdAccount,
+      hasCatalog,
+      hasDataset,
+      hasPageId,
+      campaignsLiveEnabled,
+      fallbackLink: firstProduct?.detailUrl ?? undefined,
+      fallbackHeadline: firstProduct?.title ?? undefined,
+      fallbackPrimaryText: firstProduct?.title ?? undefined,
+    });
+  }, [
+    campaignDraft,
+    hasAdsApi,
+    hasAdAccount,
+    hasCatalog,
+    hasDataset,
+    hasPageId,
+    campaignsLiveEnabled,
+    selectedCampaignProducts,
+  ]);
+
+  useEffect(() => {
+    logMetaCampaignValidation(campaignValidation.debug);
+  }, [campaignValidation.debug]);
 
   useEffect(() => {
     if (!token) return;
@@ -866,12 +871,6 @@ export default function MetaCentrumPage() {
     setGeoSuggestions([]);
     setShowGeoSuggestions(false);
   }
-
-  const selectedCampaignProducts = useMemo(
-    () =>
-      campaignProducts.filter((p) => campaignDraft.selectedProductIds.includes(p.id)),
-    [campaignProducts, campaignDraft.selectedProductIds],
-  );
 
   function buildCampaignPayload() {
     const lat = campaignDraft.latitude.trim()
@@ -955,6 +954,14 @@ export default function MetaCentrumPage() {
 
   async function submitCampaign(mode: 'draft' | 'launch') {
     if (!token) return;
+    if (mode === 'launch') {
+      setLaunchValidationHighlight(true);
+      if (!campaignValidation.readyToPublish) {
+        setLastLaunchError(null);
+        setMsg('Před spuštěním opravte všechny položky v kontrole níže.');
+        return;
+      }
+    }
     setBusy(true);
     setLastLaunchError(null);
     const payload = buildCampaignPayload();
@@ -980,9 +987,10 @@ export default function MetaCentrumPage() {
       }
       void refresh();
     } else {
-      const blockerText = r.blockers?.map((b) => b.message).join(' ') ?? '';
+      const blockerText = r.blockers?.map((b) => b.message).join('\n') ?? '';
       setMsg(r.message ?? blockerText ?? 'Uložení kampaně selhalo.');
       if (mode === 'launch') {
+        setLaunchValidationHighlight(true);
         setLastLaunchError({
           message: r.message ?? blockerText ?? 'Spuštění selhalo.',
           metaApiError: r.metaApiError,
@@ -3827,20 +3835,10 @@ export default function MetaCentrumPage() {
                     pageName={dash?.settings.pageName ?? 'XXREALIT'}
                     budgetDaily={campaignDraft.budgetDaily}
                     cityLabel={campaignDraft.cityName || campaignDraft.locationLabel}
+                    validationItems={campaignValidation.items}
                   />
                 </div>
               </div>
-
-              {campaignLaunchBlockers.length > 0 ? (
-                <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                  <p className="font-medium">Spuštění zatím není možné:</p>
-                  <ul className="mt-1 list-disc pl-5">
-                    {campaignLaunchBlockers.map((b) => (
-                      <li key={b}>{b}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
 
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
@@ -3853,23 +3851,54 @@ export default function MetaCentrumPage() {
                 </button>
                 <button
                   type="button"
-                  disabled={busy || !canLaunchCampaign || !campaignsLiveEnabled}
+                  disabled={busy}
                   onClick={() => void submitCampaign('launch')}
-                  className="rounded-lg bg-[#1877f2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#166fe5] disabled:opacity-50"
-                  title={
-                    !campaignsLiveEnabled
-                      ? 'Zapněte ostré spuštění v Nastavení'
-                      : undefined
-                  }
+                  className={`rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ${
+                    campaignValidation.readyToPublish
+                      ? 'bg-emerald-600 hover:bg-emerald-700'
+                      : 'bg-[#1877f2] hover:bg-[#166fe5]'
+                  }`}
                 >
                   Spustit kampaň
                 </button>
               </div>
+
+              <div className="mt-3">
+                <MetaCampaignLaunchChecklist
+                  items={campaignValidation.items}
+                  readyToPublish={campaignValidation.readyToPublish}
+                  highlightFailures={launchValidationHighlight}
+                  title="Živá validace před spuštěním"
+                />
+              </div>
+
+              {launchValidationHighlight && !campaignValidation.readyToPublish ? (
+                <MetaCampaignValidationErrors blockers={campaignValidation.blockers} />
+              ) : null}
+
+              <details className="mt-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs">
+                <summary className="cursor-pointer font-medium text-zinc-700">
+                  Technický výpis validace (stejný jako v konzoli)
+                </summary>
+                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap font-mono text-[11px] text-zinc-600">
+                  {Object.entries(campaignValidation.debug)
+                    .map(([key, value]) => `${key} ${String(value)}`)
+                    .join('\n')}
+                </pre>
+              </details>
+
               {!campaignsLiveEnabled ? (
                 <p className="mt-2 text-xs text-amber-800">
-                  Ostré spuštění je vypnuté — tlačítko „Spustit kampaň“ je dostupné po zapnutí v Nastavení.
+                  Ostré spuštění je vypnuté — po kliknutí na „Spustit kampaň“ uvidíte chybu v kontrole výše. Zapněte
+                  ostré spuštění v Nastavení.
                 </p>
-              ) : null}
+              ) : campaignValidation.readyToPublish ? (
+                <p className="mt-2 text-xs font-semibold text-emerald-800">✓ Připraveno ke spuštění</p>
+              ) : (
+                <p className="mt-2 text-xs text-zinc-600">
+                  Klikněte na „Spustit kampaň“ pro zobrazení kompletního seznamu chybějících položek.
+                </p>
+              )}
               {lastLaunchError ? (
                 <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-950">
                   <p className="font-medium">{lastLaunchError.message}</p>

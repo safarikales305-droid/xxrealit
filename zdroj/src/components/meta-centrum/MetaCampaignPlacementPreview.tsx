@@ -8,6 +8,7 @@ import {
   placementAspectClass,
 } from '@/lib/meta-campaign-creative';
 import type { MetaCampaignProductItem } from '@/lib/nest-client';
+import type { MetaCampaignValidationItem } from '@/lib/meta-campaign-launch-validation';
 
 type Props = {
   creativeType: string;
@@ -16,6 +17,7 @@ type Props = {
   pageName?: string;
   budgetDaily?: number;
   cityLabel?: string;
+  validationItems?: MetaCampaignValidationItem[];
 };
 
 function CtaButton({ label }: { label: string }) {
@@ -33,6 +35,7 @@ export function MetaCampaignPlacementPreview({
   pageName = 'XXREALIT',
   budgetDaily,
   cityLabel,
+  validationItems,
 }: Props) {
   const [placement, setPlacement] = useState<MetaAdPlacementId>('facebook_feed_mobile');
   const placementMeta = META_AD_PLACEMENTS.find((p) => p.id === placement) ?? META_AD_PLACEMENTS[1];
@@ -47,10 +50,15 @@ export function MetaCampaignPlacementPreview({
   const isCatalog = creativeType === 'catalog_products';
   const product = selectedProducts[0];
 
+  const previewStatusItems = useMemo(
+    () => validationItems?.filter((i) => i.group === 'preview') ?? [],
+    [validationItems],
+  );
+
   const cardWidth = useMemo(() => Math.min(placementMeta.width, 500), [placementMeta.width]);
 
   return (
-    <div className="flex flex-col gap-4 lg:flex-row">
+    <div className="flex flex-col gap-4 xl:flex-row">
       <div className="lg:w-56 shrink-0">
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Umístění</p>
         <ul className="space-y-1">
@@ -157,6 +165,23 @@ export function MetaCampaignPlacementPreview({
           </div>
         </div>
       </div>
+
+      {previewStatusItems.length > 0 ? (
+        <div className="xl:w-52 shrink-0">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Stav reklamy</p>
+          <ul className="space-y-1 rounded-lg border border-zinc-200 bg-white p-3 text-xs">
+            {previewStatusItems.map((item) => (
+              <li
+                key={item.key}
+                className={item.ok ? 'text-emerald-800' : 'font-semibold text-red-800'}
+              >
+                {item.ok ? '✓' : '❌'} {item.label}
+                {!item.ok ? ` — ${item.failMessage}` : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }
