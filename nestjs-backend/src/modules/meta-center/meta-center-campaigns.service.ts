@@ -25,12 +25,15 @@ import {
   type MetaCreativeType,
 } from './meta-marketing-platform.constants';
 import {
+  emptyLaunchSteps,
   formatMetaApiFailure,
   resolveBudgetConfig,
   validateAdSetPayload,
   validateCampaignPayload,
   type MetaApiErrorDetail,
   type MetaCampaignLaunchBlocker,
+  type MetaLaunchStep,
+  type MetaLaunchSteps,
 } from './meta-campaign-api-payload.util';
 
 const SETTINGS_ID = 'default';
@@ -52,7 +55,7 @@ export type MetaCampaignProductItem = {
   lastSyncedAt: string | null;
 };
 
-export type { MetaCampaignLaunchBlocker, MetaApiErrorDetail } from './meta-campaign-api-payload.util';
+export type { MetaCampaignLaunchBlocker, MetaApiErrorDetail, MetaLaunchSteps, MetaLaunchStep } from './meta-campaign-api-payload.util';
 
 export type MetaCampaignInsights = {
   reach: number | null;
@@ -425,6 +428,47 @@ export class MetaCenterCampaignsService {
     }
   }
 
+  async duplicateCampaignDraft(id: string) {
+    if (!(await this.ensureCampaignTableReady())) {
+      return { ok: false as const, message: META_CAMPAIGN_DB_NOT_SYNCED_MESSAGE, campaign: null };
+    }
+    const source = await this.prisma.metaMarketingCampaignDraft.findUnique({ where: { id } });
+    if (!source) {
+      return { ok: false as const, message: 'Koncept nenalezen.', campaign: null };
+    }
+    const copy = await this.prisma.metaMarketingCampaignDraft.create({
+      data: {
+        name: `${source.name.trim()} (kopie)`,
+        objective: source.objective,
+        status: 'draft',
+        creativeType: source.creativeType,
+        targetingMode: source.targetingMode,
+        audienceId: source.audienceId,
+        creativePayload: source.creativePayload ?? Prisma.JsonNull,
+        adAccountId: source.adAccountId,
+        catalogId: source.catalogId,
+        datasetId: source.datasetId,
+        propertyType: source.propertyType,
+        cityName: source.cityName,
+        metaGeoKey: source.metaGeoKey,
+        metaGeoCountry: source.metaGeoCountry,
+        metaGeoRegion: source.metaGeoRegion,
+        latitude: source.latitude,
+        longitude: source.longitude,
+        radiusKm: source.radiusKm,
+        dailyBudgetCzk: source.dailyBudgetCzk,
+        startDate: source.startDate,
+        endDate: source.endDate,
+        selectedProductIds: source.selectedProductIds as Prisma.InputJsonValue,
+      },
+    });
+    return {
+      ok: true as const,
+      message: 'Kampaň byla zduplikována jako nový koncept.',
+      campaign: this.serializeDraft(copy),
+    };
+  }
+
   async createCampaign(dto: CreateMetaCampaignDto, mode: 'draft' | 'launch' = 'draft') {
     if (!(await this.ensureCampaignTableReady())) {
       return this.dbNotSyncedResponse();
@@ -792,6 +836,26 @@ export class MetaCenterCampaignsService {
     };
   }
 
+  private parseLaunchSteps(raw: unknown): MetaLaunchSteps | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const o = raw as Record<string, unknown>;
+    const parseStep = (value: unknown) => {
+      if (!value || typeof value !== 'object') return { ok: false };
+      const s = value as Record<string, unknown>;
+      return {
+        ok: Boolean(s.ok),
+        id: typeof s.id === 'string' ? s.id : null,
+        error: typeof s.error === 'string' ? s.error : null,
+      };
+    };
+    return {
+      campaign: parseStep(o.campaign),
+      adSet: parseStep(o.adSet),
+      creative: parseStep(o.creative),
+      ad: parseStep(o.ad),
+    };
+  }
+
   private async launchLiveCampaign(
     draftId: string,
     dto: CreateMetaCampaignDto,
@@ -815,6 +879,8 @@ export class MetaCenterCampaignsService {
     }
 
     const row = await this.getSettingsRow();
+    const pageAccessToken = await this.oauth.resolvePageAccessToken().catch(() => null);
+    const launchSteps = emptyLaunchSteps();
     let audienceMetaId: string | null = null;
     if (dto.audienceId?.trim()) {
       const audience = await this.prisma.metaRemarketingAudience
@@ -859,18 +925,31 @@ export class MetaCenterCampaignsService {
     );
 
     if (!campaignRes.ok || !campaignRes.data.id) {
-      const failure = formatMetaApiFailure('Vytvoření kampaně', campaignPayload, campaignRes);
-      await this.markDraftError(draftId, failure.message);
+      const failure = formatMetaApiFailure(
+        'Vytvoření kampaně',
+        campaignPayload,
+        campaignRes,
+        'campaign',
+      );
+      launchSteps.campaign = { ok: false, error: failure.message };
+      await this.persistLaunchState(draftId, {
+        status: 'error',
+        errorMessage: failure.message,
+        metaLaunchSteps: launchSteps,
+      });
       return {
         ok: false as const,
         status: 'error' as const,
         message: failure.message,
         metaApiError: failure.detail,
+        failedStep: 'campaign' as const,
+        launchSteps,
         campaign: null,
       };
     }
 
     const metaCampaignId = campaignRes.data.id;
+    launchSteps.campaign = { ok: true, id: metaCampaignId };
     let resolvedGeo;
     try {
       resolvedGeo = await this.geo.resolveGeoForTargeting({
@@ -882,14 +961,18 @@ export class MetaCenterCampaignsService {
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Lokalitu nelze namapovat na Meta Geo.';
-      await this.prisma.metaMarketingCampaignDraft.update({
-        where: { id: draftId },
-        data: { metaCampaignId, status: 'error', errorMessage: msg },
+      await this.persistLaunchState(draftId, {
+        metaCampaignId,
+        status: 'error',
+        errorMessage: msg,
+        metaLaunchSteps: launchSteps,
       });
       return {
         ok: false as const,
         status: 'validation_error' as const,
         message: msg,
+        failedStep: 'adset' as const,
+        launchSteps,
         campaign: null,
       };
     }
@@ -928,15 +1011,19 @@ export class MetaCenterCampaignsService {
     });
     if (adSetBlockers.length) {
       const msg = adSetBlockers.map((b) => b.message).join(' ');
-      await this.prisma.metaMarketingCampaignDraft.update({
-        where: { id: draftId },
-        data: { metaCampaignId, status: 'error', errorMessage: msg },
+      await this.persistLaunchState(draftId, {
+        metaCampaignId,
+        status: 'error',
+        errorMessage: msg,
+        metaLaunchSteps: launchSteps,
       });
       return {
         ok: false as const,
         status: 'validation_error' as const,
         message: msg,
         blockers: adSetBlockers,
+        failedStep: 'adset' as const,
+        launchSteps,
         campaign: null,
       };
     }
@@ -948,21 +1035,27 @@ export class MetaCenterCampaignsService {
     );
 
     if (!adSetRes.ok || !adSetRes.data.id) {
-      const failure = formatMetaApiFailure('Vytvoření ad setu', adSetPayload, adSetRes);
-      await this.prisma.metaMarketingCampaignDraft.update({
-        where: { id: draftId },
-        data: { metaCampaignId, status: 'error', errorMessage: failure.message },
+      const failure = formatMetaApiFailure('Vytvoření ad setu', adSetPayload, adSetRes, 'adset');
+      launchSteps.adSet = { ok: false, error: failure.message };
+      await this.persistLaunchState(draftId, {
+        metaCampaignId,
+        status: 'error',
+        errorMessage: failure.message,
+        metaLaunchSteps: launchSteps,
       });
       return {
         ok: false as const,
         status: 'error' as const,
         message: failure.message,
         metaApiError: failure.detail,
+        failedStep: 'adset' as const,
+        launchSteps,
         campaign: null,
       };
     }
 
     const metaAdSetId = adSetRes.data.id;
+    launchSteps.adSet = { ok: true, id: metaAdSetId };
 
     let metaProductSetId: string | null = null;
     let metaCreativeId: string | null = null;
@@ -970,61 +1063,68 @@ export class MetaCenterCampaignsService {
 
     const creativeType = this.resolveCreativeType(dto.creativeType);
 
-    if (
-      catalogId &&
-      dto.selectedProductIds?.length &&
-      (creativeType === 'catalog_products' || dto.objective === 'catalog')
-    ) {
-      const productSetRes = await this.graph.post<{ id?: string }>(
-        `/${catalogId}/product_sets`,
+    if (creativeType === 'catalog_products' || dto.objective === 'catalog') {
+      const productSetResult = await this.resolveCatalogProductSet(
+        catalogId,
         token,
-        {
-          name: `${dto.name.trim()} — produkty`,
-          filter: JSON.stringify({
-            retailer_id: { is_any: dto.selectedProductIds },
-          }),
-        },
+        dto.name.trim(),
+        dto.selectedProductIds ?? [],
       );
-      if (productSetRes.ok && productSetRes.data.id) {
-        metaProductSetId = productSetRes.data.id;
-        this.logger.log(`[meta-campaign] product_set=${metaProductSetId} draft=${draftId}`);
-      } else {
-        this.logger.warn(
-          `[meta-campaign] product_set failed draft=${draftId}: ${
-            !productSetRes.ok ? productSetRes.errorMessage : 'no id'
-          }`,
-        );
+      if (!productSetResult.ok) {
+        launchSteps.creative = { ok: false, error: productSetResult.message };
+        await this.persistLaunchState(draftId, {
+          metaCampaignId,
+          metaAdSetId,
+          status: 'error',
+          errorMessage: productSetResult.message,
+          metaLaunchSteps: launchSteps,
+        });
+        return {
+          ok: false as const,
+          status: 'error' as const,
+          message: productSetResult.message,
+          metaApiError: productSetResult.metaApiError,
+          failedStep: 'creative' as const,
+          launchSteps,
+          campaign: null,
+        };
       }
+      metaProductSetId = productSetResult.id;
+      this.logger.log(`[meta-campaign] product_set=${metaProductSetId} draft=${draftId}`);
     }
 
     const pageIds = this.creative.resolvePageIds(row);
     const built = await this.creative.buildAdCreative({
       actId,
       token,
+      pageAccessToken,
       campaignName: dto.name.trim(),
       creativeType,
       creativePayload: dto.creativePayload as Record<string, unknown> | undefined,
       pageId: pageIds.pageId,
       instagramActorId: pageIds.instagramActorId,
+      catalogId,
       productSetId: metaProductSetId,
       frontendBase: this.frontendBase(),
     });
 
     if (!built.ok) {
-      await this.prisma.metaMarketingCampaignDraft.update({
-        where: { id: draftId },
-        data: {
-          metaCampaignId,
-          metaAdSetId,
-          metaProductSetId,
-          status: 'error',
-          errorMessage: built.message,
-        },
+      launchSteps.creative = { ok: false, error: built.message };
+      await this.persistLaunchState(draftId, {
+        metaCampaignId,
+        metaAdSetId,
+        metaProductSetId,
+        status: 'error',
+        errorMessage: built.message,
+        metaLaunchSteps: launchSteps,
       });
       return {
         ok: false as const,
-        status: 'validation_error' as const,
+        status: (built.metaApiError ? 'error' : 'validation_error') as 'error' | 'validation_error',
         message: built.message,
+        metaApiError: built.metaApiError,
+        failedStep: 'creative' as const,
+        launchSteps,
         campaign: null,
       };
     }
@@ -1037,29 +1137,31 @@ export class MetaCenterCampaignsService {
       creativeBody,
     );
 
-    if (creativeRes.ok && creativeRes.data.id) {
-      metaCreativeId = creativeRes.data.id;
-      this.logger.log(`[meta-campaign] creative=${metaCreativeId} draft=${draftId}`);
-    } else {
+    if (!creativeRes.ok || !creativeRes.data.id) {
       const failure = this.creative.formatCreativeApiFailure(creativeBody, creativeRes);
-      await this.prisma.metaMarketingCampaignDraft.update({
-        where: { id: draftId },
-        data: {
-          metaCampaignId,
-          metaAdSetId,
-          metaProductSetId,
-          status: 'error',
-          errorMessage: failure.message,
-        },
+      launchSteps.creative = { ok: false, error: failure.message };
+      await this.persistLaunchState(draftId, {
+        metaCampaignId,
+        metaAdSetId,
+        metaProductSetId,
+        status: 'error',
+        errorMessage: failure.message,
+        metaLaunchSteps: launchSteps,
       });
       return {
         ok: false as const,
         status: 'error' as const,
         message: failure.message,
         metaApiError: failure.detail,
+        failedStep: 'creative' as const,
+        launchSteps,
         campaign: null,
       };
     }
+
+    metaCreativeId = creativeRes.data.id;
+    launchSteps.creative = { ok: true, id: metaCreativeId };
+    this.logger.log(`[meta-campaign] creative=${metaCreativeId} draft=${draftId}`);
 
     const adPayload = {
       name: `${dto.name.trim()} — reklama`,
@@ -1075,29 +1177,35 @@ export class MetaCenterCampaignsService {
     );
 
     if (!adRes.ok || !adRes.data.id) {
-      const failure = formatMetaApiFailure('Vytvoření reklamy', adPayload, adRes);
-      await this.prisma.metaMarketingCampaignDraft.update({
-        where: { id: draftId },
-        data: {
-          metaCampaignId,
-          metaAdSetId,
-          metaProductSetId,
-          metaCreativeId,
-          status: 'error',
-          errorMessage: failure.message,
-        },
+      const failure = formatMetaApiFailure('Vytvoření reklamy', adPayload, adRes, 'ad');
+      launchSteps.ad = { ok: false, error: failure.message };
+      await this.persistLaunchState(draftId, {
+        metaCampaignId,
+        metaAdSetId,
+        metaProductSetId,
+        metaCreativeId,
+        status: 'error',
+        errorMessage: failure.message,
+        metaLaunchSteps: launchSteps,
       });
       return {
         ok: false as const,
         status: 'error' as const,
         message: failure.message,
         metaApiError: failure.detail,
+        failedStep: 'ad' as const,
+        launchSteps,
         campaign: null,
       };
     }
 
     metaAdId = adRes.data.id;
+    launchSteps.ad = { ok: true, id: metaAdId };
     this.logger.log(`[meta-campaign] ad=${metaAdId} draft=${draftId}`);
+
+    const creativePreviewUrl =
+      (await this.creative.fetchCreativeThumbnailUrl(metaCreativeId, token)) ?? null;
+    const previewHtml = (await this.creative.fetchAdPreviewHtml(metaAdId, token)) ?? null;
 
     const statusData = await this.fetchMetaCampaignStatus(metaCampaignId, token);
     const insights = await this.fetchMetaCampaignInsights(metaCampaignId, token);
@@ -1111,6 +1219,10 @@ export class MetaCenterCampaignsService {
         metaProductSetId,
         metaCreativeId,
         metaAdId,
+        creativePreviewUrl,
+        previewHtml,
+        metaLaunchSteps: launchSteps as Prisma.InputJsonValue,
+        creativePayload: built.payload as Prisma.InputJsonValue,
         metaStatus: statusData.status,
         metaEffectiveStatus: statusData.effectiveStatus,
         metaInsights: insights as Prisma.InputJsonValue,
@@ -1128,8 +1240,9 @@ export class MetaCenterCampaignsService {
     return {
       ok: true as const,
       status: 'active' as const,
-      message: `Kampaň publikována v Meta (${statusData.effectiveStatus ?? publishStatus}). Campaign ID: ${metaCampaignId}`,
+      message: `Kampaň publikována v Meta — Campaign, Ad Set, Creative i Ad vytvořeny. Campaign ID: ${metaCampaignId}`,
       liveEnabled: true,
+      launchSteps,
       campaign: this.serializeDraft(updated),
     };
   }
@@ -1300,6 +1413,108 @@ export class MetaCenterCampaignsService {
     return null;
   }
 
+  private async resolveCatalogProductSet(
+    catalogId: string | null | undefined,
+    token: string,
+    campaignName: string,
+    selectedProductIds: string[],
+  ): Promise<
+    | { ok: true; id: string }
+    | { ok: false; message: string; metaApiError?: MetaApiErrorDetail }
+  > {
+    if (!catalogId?.trim()) {
+      return { ok: false, message: 'Chybí Catalog ID pro katalogovou kreativu.' };
+    }
+
+    if (selectedProductIds.length > 0) {
+      const payload = {
+        name: `${campaignName} — produkty`,
+        filter: JSON.stringify({
+          retailer_id: { is_any: selectedProductIds },
+        }),
+      };
+      const productSetRes = await this.graph.post<{ id?: string }>(
+        `/${catalogId}/product_sets`,
+        token,
+        payload,
+      );
+      if (productSetRes.ok && productSetRes.data.id) {
+        return { ok: true, id: productSetRes.data.id };
+      }
+      const failure = formatMetaApiFailure(
+        'Vytvoření product setu',
+        payload,
+        productSetRes,
+        'creative',
+      );
+      return { ok: false, message: failure.message, metaApiError: failure.detail };
+    }
+
+    const listRes = await this.graph.get<{ data?: Array<{ id?: string }> }>(
+      `/${catalogId}/product_sets`,
+      token,
+      { fields: 'id', limit: '1' },
+    );
+    const existingId = listRes.ok ? listRes.data.data?.[0]?.id : null;
+    if (existingId) {
+      return { ok: true, id: existingId };
+    }
+
+    const allPayload = {
+      name: `${campaignName} — všechny produkty`,
+      filter: JSON.stringify({}),
+    };
+    const allRes = await this.graph.post<{ id?: string }>(
+      `/${catalogId}/product_sets`,
+      token,
+      allPayload,
+    );
+    if (allRes.ok && allRes.data.id) {
+      return { ok: true, id: allRes.data.id };
+    }
+    const failure = formatMetaApiFailure(
+      'Vytvoření product setu (celý katalog)',
+      allPayload,
+      allRes,
+      'creative',
+    );
+    return { ok: false, message: failure.message, metaApiError: failure.detail };
+  }
+
+  private async persistLaunchState(
+    draftId: string,
+    data: {
+      metaCampaignId?: string;
+      metaAdSetId?: string;
+      metaProductSetId?: string | null;
+      metaCreativeId?: string | null;
+      status?: string;
+      errorMessage?: string;
+      metaLaunchSteps?: MetaLaunchSteps;
+    },
+  ) {
+    try {
+      await this.prisma.metaMarketingCampaignDraft.update({
+        where: { id: draftId },
+        data: {
+          ...(data.metaCampaignId ? { metaCampaignId: data.metaCampaignId } : {}),
+          ...(data.metaAdSetId ? { metaAdSetId: data.metaAdSetId } : {}),
+          ...(data.metaProductSetId !== undefined ? { metaProductSetId: data.metaProductSetId } : {}),
+          ...(data.metaCreativeId !== undefined ? { metaCreativeId: data.metaCreativeId } : {}),
+          ...(data.status ? { status: data.status } : {}),
+          ...(data.errorMessage !== undefined ? { errorMessage: data.errorMessage } : {}),
+          ...(data.metaLaunchSteps
+            ? { metaLaunchSteps: data.metaLaunchSteps as Prisma.InputJsonValue }
+            : {}),
+        },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `persistLaunchState failed: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
   private async markDraftError(draftId: string, message: string) {
     try {
       await this.prisma.metaMarketingCampaignDraft.update({
@@ -1384,6 +1599,9 @@ export class MetaCenterCampaignsService {
     metaAdId: string | null;
     metaProductSetId?: string | null;
     metaCreativeId?: string | null;
+    creativePreviewUrl?: string | null;
+    previewHtml?: string | null;
+    metaLaunchSteps?: unknown;
     metaStatus?: string | null;
     metaEffectiveStatus?: string | null;
     metaInsights?: unknown;
@@ -1425,6 +1643,9 @@ export class MetaCenterCampaignsService {
       metaAdId: row.metaAdId,
       metaProductSetId: row.metaProductSetId ?? null,
       metaCreativeId: row.metaCreativeId ?? null,
+      creativePreviewUrl: row.creativePreviewUrl ?? null,
+      previewHtml: row.previewHtml ?? null,
+      metaLaunchSteps: this.parseLaunchSteps(row.metaLaunchSteps),
       metaStatus: row.metaStatus ?? null,
       metaEffectiveStatus: row.metaEffectiveStatus ?? null,
       metaInsights: this.parseInsights(row.metaInsights),

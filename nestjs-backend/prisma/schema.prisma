@@ -2522,6 +2522,9 @@ model MetaMarketingCampaignDraft {
   metaAdId           String?
   metaProductSetId   String?
   metaCreativeId     String?
+  creativePreviewUrl String?
+  previewHtml        String?   @db.Text
+  metaLaunchSteps    Json?
   metaStatus         String?
   metaEffectiveStatus String?
   metaInsights       Json?

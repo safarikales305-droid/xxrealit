@@ -6536,6 +6536,19 @@ export type MetaCampaignProductsResponse = {
   message: string | null;
 };
 
+export type MetaLaunchStepState = {
+  ok: boolean;
+  id?: string | null;
+  error?: string | null;
+};
+
+export type MetaLaunchSteps = {
+  campaign: MetaLaunchStepState;
+  adSet: MetaLaunchStepState;
+  creative: MetaLaunchStepState;
+  ad: MetaLaunchStepState;
+};
+
 export type MetaCampaignDraft = {
   id: string;
   name: string;
@@ -6565,6 +6578,9 @@ export type MetaCampaignDraft = {
   metaAdId: string | null;
   metaProductSetId?: string | null;
   metaCreativeId?: string | null;
+  creativePreviewUrl?: string | null;
+  previewHtml?: string | null;
+  metaLaunchSteps?: MetaLaunchSteps | null;
   metaStatus?: string | null;
   metaEffectiveStatus?: string | null;
   metaInsights?: {
@@ -6591,13 +6607,20 @@ export type MetaCampaignCreateResponse = {
   blockers?: Array<{ key: string; message: string }>;
   metaApiError?: {
     step: string;
+    launchStep?: 'campaign' | 'adset' | 'creative' | 'ad';
     field: string | null;
     fieldValue: unknown;
     requestPayload: Record<string, unknown>;
     httpStatus: number;
     response: unknown;
     traceId: string | null;
+    errorCode?: string | null;
+    errorSubcode?: string | null;
+    errorUserTitle?: string | null;
+    errorUserMsg?: string | null;
   };
+  failedStep?: 'campaign' | 'adset' | 'creative' | 'ad';
+  launchSteps?: MetaLaunchSteps;
   campaign: MetaCampaignDraft | null;
 };
 
@@ -7263,6 +7286,18 @@ export async function nestAdminMetaCenterLaunchCampaignDraft(
   return r.ok
     ? r.data
     : { ok: false, status: 'error', message: r.error, campaign: null };
+}
+
+export async function nestAdminMetaCenterDuplicateCampaignDraft(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; message?: string; campaign?: MetaCampaignDraft | null }> {
+  const r = await metaCenterFetch<{
+    ok: boolean;
+    message?: string;
+    campaign?: MetaCampaignDraft | null;
+  }>(token, `/campaigns/drafts/${encodeURIComponent(id)}/duplicate`, { method: 'POST' });
+  return r.ok ? r.data : { ok: false, message: r.error };
 }
 
 export async function nestAdminMetaCenterSyncCampaignDraft(

@@ -147,3 +147,7 @@ export function normalizeCreativeType(value: string | undefined): MetaCreativeTy
 export function isVideoCreativeType(type: MetaCreativeType): boolean {
   return type === 'custom_video' || type === 'instagram_post';
 }
+
+export function isPostCreativeType(type: MetaCreativeType): boolean {
+  return type === 'public_post' || type === 'facebook_post' || type === 'instagram_post';
+}

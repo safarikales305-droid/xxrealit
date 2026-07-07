@@ -15,14 +15,43 @@ export type MetaCampaignBudgetConfig = {
   isAdsetBudgetSharingEnabled: boolean;
 };
 
+export type MetaLaunchStep = 'campaign' | 'adset' | 'creative' | 'ad';
+
+export type MetaLaunchStepState = {
+  ok: boolean;
+  id?: string | null;
+  error?: string | null;
+};
+
+export type MetaLaunchSteps = {
+  campaign: MetaLaunchStepState;
+  adSet: MetaLaunchStepState;
+  creative: MetaLaunchStepState;
+  ad: MetaLaunchStepState;
+};
+
+export function emptyLaunchSteps(): MetaLaunchSteps {
+  return {
+    campaign: { ok: false },
+    adSet: { ok: false },
+    creative: { ok: false },
+    ad: { ok: false },
+  };
+}
+
 export type MetaApiErrorDetail = {
   step: string;
+  launchStep?: MetaLaunchStep;
   field: string | null;
   fieldValue: unknown;
   requestPayload: Record<string, unknown>;
   httpStatus: number;
   response: unknown;
   traceId: string | null;
+  errorCode: string | null;
+  errorSubcode: string | null;
+  errorUserTitle: string | null;
+  errorUserMsg: string | null;
 };
 
 export function resolveBudgetConfig(
@@ -162,6 +191,7 @@ export function formatMetaApiFailure(
   step: string,
   payload: Record<string, unknown>,
   result: MetaGraphResult<unknown>,
+  launchStep?: MetaLaunchStep,
 ): { message: string; detail: MetaApiErrorDetail } {
   const body = result.ok ? null : result.data;
   const fields = extractMetaGraphErrorFields(body);
@@ -169,19 +199,29 @@ export function formatMetaApiFailure(
 
   const detail: MetaApiErrorDetail = {
     step,
+    launchStep,
     field: blame.field,
     fieldValue: blame.fieldValue,
     requestPayload: payload,
     httpStatus: result.httpStatus,
     response: body ?? null,
     traceId: fields.trace_id,
+    errorCode: fields.code,
+    errorSubcode: fields.error_subcode,
+    errorUserTitle: fields.error_user_title,
+    errorUserMsg: fields.error_user_msg,
   };
 
   const lines = [
     `Meta API — ${step}`,
+    launchStep ? `Krok: ${launchStepLabel(launchStep)}` : null,
     blame.field ? `Pole: ${blame.field}` : null,
     blame.field != null ? `Hodnota: ${safeStringify(blame.fieldValue)}` : null,
-    `HTTP: ${result.httpStatus}`,
+    `HTTP kód: ${result.httpStatus}`,
+    fields.code ? `Meta error_code: ${fields.code}` : null,
+    fields.error_subcode ? `error_subcode: ${fields.error_subcode}` : null,
+    fields.error_user_title ? `error_user_title: ${fields.error_user_title}` : null,
+    fields.error_user_msg ? `error_user_msg: ${fields.error_user_msg}` : null,
     fields.message ? `Meta: ${fields.message}` : null,
     fields.trace_id ? `trace_id: ${fields.trace_id}` : null,
     `Request JSON: ${safeStringify(payload)}`,
@@ -189,6 +229,21 @@ export function formatMetaApiFailure(
   ].filter(Boolean);
 
   return { message: lines.join('\n'), detail };
+}
+
+function launchStepLabel(step: MetaLaunchStep): string {
+  switch (step) {
+    case 'campaign':
+      return 'Campaign';
+    case 'adset':
+      return 'Ad Set';
+    case 'creative':
+      return 'Creative';
+    case 'ad':
+      return 'Ad';
+    default:
+      return step;
+  }
 }
 
 function safeStringify(value: unknown): string {

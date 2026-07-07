@@ -85,6 +85,9 @@ const ENSURE_META_CAMPAIGN_TABLES_SQL: string[] = [
   `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "metaGeoKey" TEXT`,
   `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "metaGeoCountry" TEXT`,
   `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "metaGeoRegion" TEXT`,
+  `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "creativePreviewUrl" TEXT`,
+  `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "previewHtml" TEXT`,
+  `ALTER TABLE "MetaMarketingCampaignDraft" ADD COLUMN IF NOT EXISTS "metaLaunchSteps" JSONB`,
 ];
 
 function isMissingTableError(error: unknown): boolean {

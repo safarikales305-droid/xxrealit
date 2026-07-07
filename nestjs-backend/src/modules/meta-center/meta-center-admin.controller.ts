@@ -664,6 +664,15 @@ export class MetaCenterAdminController {
     );
   }
 
+  @Post('campaigns/drafts/:id/duplicate')
+  duplicateMetaCampaignDraft(@Param('id') id: string) {
+    return this.safeEndpoint(
+      'campaigns/drafts/duplicate',
+      () => this.campaigns.duplicateCampaignDraft(id),
+      (message) => ({ ok: false as const, message, campaign: null }),
+    );
+  }
+
   @Post('campaigns/drafts/:id/sync')
   syncMetaCampaignDraft(@Param('id') id: string) {
     return this.safeEndpoint(

@@ -58,6 +58,7 @@ import {
   nestAdminMetaCenterDeleteCampaignDraft,
   nestAdminMetaCenterCampaignsOverview,
   nestAdminMetaCenterLaunchCampaignDraft,
+  nestAdminMetaCenterDuplicateCampaignDraft,
   nestAdminMetaCenterControlCampaign,
   nestAdminMetaCenterPatchSettings,
   type MetaCampaignOverviewItem,
@@ -67,6 +68,8 @@ import {
   type MetaAdAccountPanel,
   type MetaAdAccountListResponse,
   type MetaCampaignDraft,
+  type MetaCampaignCreateResponse,
+  type MetaLaunchSteps,
   type MetaCampaignProductItem,
   type MetaGeoLocationItem,
   type MetaCatalogListResponse,
@@ -97,6 +100,83 @@ const META_EXTERNAL_LINKS = {
   commerceManager: 'https://business.facebook.com/commerce/',
   catalogs: 'https://business.facebook.com/settings/catalogs',
 } as const;
+
+function buildMetaAdsManagerUrl(
+  adAccountId: string | null | undefined,
+  campaignId: string,
+): string {
+  const act = (adAccountId ?? '').replace(/^act_/, '');
+  return `https://www.facebook.com/adsmanager/manage/campaigns?act=${act}&selected_campaign_ids=${campaignId}`;
+}
+
+const LAUNCH_STEP_LABELS: Record<keyof MetaLaunchSteps, string> = {
+  campaign: 'Campaign',
+  adSet: 'Ad Set',
+  creative: 'Creative',
+  ad: 'Ad',
+};
+
+function MetaLaunchStepsPanel({
+  steps,
+  highlightStep,
+}: {
+  steps: MetaLaunchSteps | null | undefined;
+  highlightStep?: string | null;
+}) {
+  if (!steps) return null;
+  const entries = Object.entries(LAUNCH_STEP_LABELS) as Array<[keyof MetaLaunchSteps, string]>;
+  return (
+    <ul className="mt-2 flex flex-wrap gap-2 text-xs">
+      {entries.map(([key, label]) => {
+        const state = steps[key];
+        const failed = highlightStep === key || (!state.ok && Boolean(state.error));
+        const done = state.ok;
+        return (
+          <li
+            key={key}
+            className={`rounded-full px-2 py-0.5 ${
+              failed
+                ? 'bg-red-100 font-semibold text-red-900 ring-1 ring-red-300'
+                : done
+                  ? 'bg-emerald-100 text-emerald-900'
+                  : 'bg-zinc-100 text-zinc-500'
+            }`}
+          >
+            {done ? '✓' : failed ? '✗' : '○'} {label}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function MetaApiErrorPanel({
+  error,
+  failedStep,
+}: {
+  error?: MetaCampaignCreateResponse['metaApiError'];
+  failedStep?: string | null;
+}) {
+  if (!error) return null;
+  return (
+    <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-950">
+      {failedStep ? (
+        <p className="font-semibold">
+          Proces skončil u kroku:{' '}
+          {LAUNCH_STEP_LABELS[failedStep as keyof MetaLaunchSteps] ?? failedStep}
+        </p>
+      ) : null}
+      <ul className="mt-1 space-y-0.5 font-mono">
+        <li>HTTP kód: {error.httpStatus}</li>
+        {error.errorCode ? <li>Meta error_code: {error.errorCode}</li> : null}
+        {error.errorSubcode ? <li>error_subcode: {error.errorSubcode}</li> : null}
+        {error.errorUserTitle ? <li>error_user_title: {error.errorUserTitle}</li> : null}
+        {error.errorUserMsg ? <li>error_user_msg: {error.errorUserMsg}</li> : null}
+        {error.traceId ? <li>trace_id: {error.traceId}</li> : null}
+      </ul>
+    </div>
+  );
+}
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard' },
@@ -535,6 +615,13 @@ export default function MetaCentrumPage() {
   const [geoSearchBusy, setGeoSearchBusy] = useState(false);
   const [showGeoSuggestions, setShowGeoSuggestions] = useState(false);
   const [previewCampaign, setPreviewCampaign] = useState<MetaCampaignDraft | null>(null);
+  const [metaHtmlPreview, setMetaHtmlPreview] = useState<MetaCampaignDraft | null>(null);
+  const [lastLaunchError, setLastLaunchError] = useState<{
+    message: string;
+    metaApiError?: MetaCampaignCreateResponse['metaApiError'];
+    failedStep?: string | null;
+    launchSteps?: MetaLaunchSteps | null;
+  } | null>(null);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -869,6 +956,7 @@ export default function MetaCentrumPage() {
   async function submitCampaign(mode: 'draft' | 'launch') {
     if (!token) return;
     setBusy(true);
+    setLastLaunchError(null);
     const payload = buildCampaignPayload();
     const r =
       editingCampaignId && mode === 'draft'
@@ -884,6 +972,9 @@ export default function MetaCentrumPage() {
               ? 'Koncept uložen.'
               : 'Kampaň odeslána.'),
       );
+      if (mode === 'launch' && r.launchSteps) {
+        setLastLaunchError(null);
+      }
       if (mode === 'draft' && editingCampaignId) {
         resetCampaignForm();
       }
@@ -891,6 +982,15 @@ export default function MetaCentrumPage() {
     } else {
       const blockerText = r.blockers?.map((b) => b.message).join(' ') ?? '';
       setMsg(r.message ?? blockerText ?? 'Uložení kampaně selhalo.');
+      if (mode === 'launch') {
+        setLastLaunchError({
+          message: r.message ?? blockerText ?? 'Spuštění selhalo.',
+          metaApiError: r.metaApiError,
+          failedStep: r.failedStep ?? r.metaApiError?.launchStep ?? null,
+          launchSteps: r.launchSteps ?? r.campaign?.metaLaunchSteps ?? null,
+        });
+      }
+      void refresh();
     }
   }
 
@@ -3770,6 +3870,19 @@ export default function MetaCentrumPage() {
                   Ostré spuštění je vypnuté — tlačítko „Spustit kampaň“ je dostupné po zapnutí v Nastavení.
                 </p>
               ) : null}
+              {lastLaunchError ? (
+                <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-950">
+                  <p className="font-medium">{lastLaunchError.message}</p>
+                  <MetaLaunchStepsPanel
+                    steps={lastLaunchError.launchSteps}
+                    highlightStep={lastLaunchError.failedStep}
+                  />
+                  <MetaApiErrorPanel
+                    error={lastLaunchError.metaApiError}
+                    failedStep={lastLaunchError.failedStep}
+                  />
+                </div>
+              ) : null}
             </div>
 
             <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
@@ -3785,9 +3898,11 @@ export default function MetaCentrumPage() {
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         {(() => {
-                          const thumb = getCreativePreviewImage(
-                            (c.creativePayload as Record<string, unknown>) ?? {},
-                          );
+                          const thumb =
+                            c.creativePreviewUrl ??
+                            getCreativePreviewImage(
+                              (c.creativePayload as Record<string, unknown>) ?? {},
+                            );
                           return thumb ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
@@ -3808,14 +3923,30 @@ export default function MetaCentrumPage() {
                             {c.cityName ?? '—'} · {c.dailyBudgetCzk ?? '—'} Kč/den ·{' '}
                             {c.selectedProductIds.length} produktů
                           </p>
+                          {c.metaLaunchSteps || c.metaCampaignId ? (
+                            <MetaLaunchStepsPanel
+                              steps={c.metaLaunchSteps}
+                              highlightStep={
+                                c.status === 'error' && c.metaLaunchSteps
+                                  ? (['ad', 'creative', 'adSet', 'campaign'] as const).find(
+                                      (k) => !c.metaLaunchSteps?.[k]?.ok,
+                                    ) ?? null
+                                  : null
+                              }
+                            />
+                          ) : null}
                           {c.metaCampaignId ? (
                             <p className="mt-1 font-mono text-[10px] text-zinc-500">
-                              Meta Campaign: {c.metaCampaignId}
-                              {c.metaAdSetId ? ` · Ad Set: ${c.metaAdSetId}` : ''}
+                              Campaign {c.metaCampaignId}
+                              {c.metaAdSetId ? ` · Ad Set ${c.metaAdSetId}` : ''}
+                              {c.metaCreativeId ? ` · Creative ${c.metaCreativeId}` : ''}
+                              {c.metaAdId ? ` · Ad ${c.metaAdId}` : ''}
                             </p>
                           ) : null}
                           {c.errorMessage ? (
-                            <p className="mt-1 text-xs text-red-700">{c.errorMessage}</p>
+                            <p className="mt-1 whitespace-pre-wrap text-xs text-red-700">
+                              {c.errorMessage}
+                            </p>
                           ) : null}
                         </div>
                         <span
@@ -3834,22 +3965,133 @@ export default function MetaCentrumPage() {
                         Aktualizováno: {new Date(c.updatedAt).toLocaleString('cs-CZ')}
                       </p>
                       <div className="mt-2 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => setPreviewCampaign(c)}
-                          className="rounded-lg border border-zinc-300 px-2 py-1 text-xs font-medium hover:bg-zinc-50"
-                        >
-                          Náhled
-                        </button>
+                        {c.metaCampaignId ? (
+                          <a
+                            href={buildMetaAdsManagerUrl(c.adAccountId, c.metaCampaignId)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded-lg border border-[#1877f2] px-2 py-1 text-xs font-medium text-[#1877f2] hover:bg-blue-50"
+                          >
+                            Otevřít v Ads Manageru
+                          </a>
+                        ) : null}
+                        {c.previewHtml || c.creativePreviewUrl ? (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => setMetaHtmlPreview(c)}
+                            className="rounded-lg border border-zinc-300 px-2 py-1 text-xs font-medium hover:bg-zinc-50"
+                          >
+                            Zobrazit náhled
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => setPreviewCampaign(c)}
+                            className="rounded-lg border border-zinc-300 px-2 py-1 text-xs font-medium hover:bg-zinc-50"
+                          >
+                            Náhled
+                          </button>
+                        )}
                         <button
                           type="button"
                           disabled={busy}
                           onClick={() => loadCampaignForEdit(c)}
                           className="rounded-lg border border-zinc-300 px-2 py-1 text-xs font-medium hover:bg-zinc-50"
                         >
-                          Upravit
+                          {c.metaAdId ? 'Upravit reklamu' : 'Upravit'}
                         </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={async () => {
+                            if (!token) return;
+                            setBusy(true);
+                            const r = await nestAdminMetaCenterDuplicateCampaignDraft(token, c.id);
+                            setBusy(false);
+                            setMsg(r.message ?? (r.ok ? 'Kampaň zduplikována.' : 'Duplikace selhala.'));
+                            void refresh();
+                          }}
+                          className="rounded-lg border border-zinc-300 px-2 py-1 text-xs font-medium hover:bg-zinc-50"
+                        >
+                          Duplikovat
+                        </button>
+                        {!c.metaCampaignId && campaignsLiveEnabled ? (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={async () => {
+                              if (!token) return;
+                              setBusy(true);
+                              setLastLaunchError(null);
+                              const r = await nestAdminMetaCenterLaunchCampaignDraft(token, c.id);
+                              setBusy(false);
+                              setMsg(r.message ?? (r.ok ? 'Kampaň spuštěna.' : 'Chyba'));
+                              if (!r.ok) {
+                                setLastLaunchError({
+                                  message: r.message ?? 'Spuštění selhalo.',
+                                  metaApiError: r.metaApiError,
+                                  failedStep: r.failedStep ?? r.metaApiError?.launchStep ?? null,
+                                  launchSteps: r.launchSteps ?? r.campaign?.metaLaunchSteps ?? null,
+                                });
+                              }
+                              void refresh();
+                            }}
+                            className="rounded-lg border border-emerald-400 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50"
+                          >
+                            Spustit kampaň
+                          </button>
+                        ) : null}
+                        {c.metaCampaignId ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={async () => {
+                                if (!token) return;
+                                setBusy(true);
+                                const r = await nestAdminMetaCenterControlCampaign(token, c.id, 'activate');
+                                setBusy(false);
+                                setMsg(r.message ?? '');
+                                void refresh();
+                              }}
+                              className="rounded-lg border border-zinc-300 px-2 py-1 text-xs font-medium hover:bg-zinc-50"
+                            >
+                              Spustit
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={async () => {
+                                if (!token) return;
+                                setBusy(true);
+                                const r = await nestAdminMetaCenterControlCampaign(token, c.id, 'pause');
+                                setBusy(false);
+                                setMsg(r.message ?? '');
+                                void refresh();
+                              }}
+                              className="rounded-lg border border-zinc-300 px-2 py-1 text-xs font-medium hover:bg-zinc-50"
+                            >
+                              Pozastavit
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={async () => {
+                                if (!token || !window.confirm(`Smazat kampaň „${c.name}" v Meta?`)) return;
+                                setBusy(true);
+                                const r = await nestAdminMetaCenterControlCampaign(token, c.id, 'delete');
+                                setBusy(false);
+                                setMsg(r.message ?? '');
+                                void refresh();
+                              }}
+                              className="rounded-lg border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                            >
+                              Smazat v Meta
+                            </button>
+                          </>
+                        ) : null}
                         <button
                           type="button"
                           disabled={busy}
@@ -3868,7 +4110,7 @@ export default function MetaCentrumPage() {
                           }}
                           className="rounded-lg border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
                         >
-                          Smazat
+                          Smazat koncept
                         </button>
                       </div>
                     </li>
@@ -3926,6 +4168,41 @@ export default function MetaCentrumPage() {
               budgetDaily={previewCampaign?.dailyBudgetCzk ?? undefined}
               cityLabel={previewCampaign?.cityName ?? undefined}
             />
+            {metaHtmlPreview ? (
+              <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+                role="dialog"
+                aria-modal
+              >
+                <div className="max-h-[90vh] w-full max-w-lg overflow-auto rounded-2xl bg-white p-4 shadow-xl">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <h3 className="font-bold">Náhled reklamy z Meta</h3>
+                    <button
+                      type="button"
+                      onClick={() => setMetaHtmlPreview(null)}
+                      className="text-sm text-zinc-500 underline"
+                    >
+                      Zavřít
+                    </button>
+                  </div>
+                  {metaHtmlPreview.previewHtml ? (
+                    <div
+                      className="overflow-hidden rounded-lg border border-zinc-200"
+                      dangerouslySetInnerHTML={{ __html: metaHtmlPreview.previewHtml }}
+                    />
+                  ) : metaHtmlPreview.creativePreviewUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={metaHtmlPreview.creativePreviewUrl}
+                      alt="Náhled kreativy"
+                      className="w-full rounded-lg"
+                    />
+                  ) : (
+                    <p className="text-sm text-zinc-500">Náhled není k dispozici.</p>
+                  )}
+                </div>
+              </div>
+            ) : null}
           </section>
         ) : null}
 
