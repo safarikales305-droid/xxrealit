@@ -34,12 +34,16 @@ import {
 } from './meta-marketing-platform.constants';
 import {
   emptyLaunchSteps,
+  emptyMetaCampaignLaunchResult,
   formatMetaApiFailure,
   resolveBudgetConfig,
+  toMetaCampaignPayloadPreviewSpec,
   validateAdSetPayload,
   validateCampaignPayload,
   type MetaApiErrorDetail,
   type MetaCampaignLaunchBlocker,
+  type MetaCampaignLaunchResult,
+  type MetaCampaignAdSetPayloadPreviewResult,
   type MetaLaunchStep,
   type MetaLaunchSteps,
 } from './meta-campaign-api-payload.util';
@@ -1328,7 +1332,7 @@ export class MetaCenterCampaignsService {
     return geoBlock;
   }
 
-  async previewAdSetPayload(dto: CreateMetaCampaignDto) {
+  async previewAdSetPayload(dto: CreateMetaCampaignDto): Promise<MetaCampaignAdSetPayloadPreviewResult> {
     const full = await this.previewCampaignPayloads(dto);
     return {
       ok: full.ok,
@@ -1348,24 +1352,16 @@ export class MetaCenterCampaignsService {
     };
   }
 
-  async previewCampaignPayloads(dto: CreateMetaCampaignDto) {
+  async previewCampaignPayloads(dto: CreateMetaCampaignDto): Promise<MetaCampaignLaunchResult> {
     const row = await this.getSettingsRow();
     const ids = resolveMetaCenterIds(row ?? ({} as never));
     const payloadContext = this.buildPayloadContext(dto, ids, row, ids.catalogId);
     const specResolved = resolveMetaCampaignPayloadSpec(payloadContext);
     if (!specResolved.ok) {
-      return {
-        ok: false as const,
-        message: specResolved.blockers.map((b) => b.message).join('\n'),
-        blockers: specResolved.blockers,
-        spec: null,
-        campaign: null,
-        adSet: null,
-        creative: null,
-        ad: null,
-        payload: null,
-        metaForm: null,
-      };
+      return emptyMetaCampaignLaunchResult(
+        specResolved.blockers.map((b) => b.message).join('\n'),
+        specResolved.blockers,
+      );
     }
 
     let resolvedGeo;
@@ -1379,16 +1375,10 @@ export class MetaCenterCampaignsService {
       });
     } catch (err) {
       return {
-        ok: false as const,
-        message: err instanceof Error ? err.message : 'Lokalitu nelze namapovat na Meta Geo.',
-        blockers: [],
-        spec: specResolved.spec,
-        campaign: null,
-        adSet: null,
-        creative: null,
-        ad: null,
-        payload: null,
-        metaForm: null,
+        ...emptyMetaCampaignLaunchResult(
+          err instanceof Error ? err.message : 'Lokalitu nelze namapovat na Meta Geo.',
+        ),
+        spec: toMetaCampaignPayloadPreviewSpec(specResolved.spec),
       };
     }
 
@@ -1466,7 +1456,7 @@ export class MetaCenterCampaignsService {
           ? 'Náhled Meta payloadů připraven.'
           : blockers.map((b) => b.message).join('\n'),
       blockers,
-      spec: metaSpec,
+      spec: toMetaCampaignPayloadPreviewSpec(metaSpec),
       campaign: {
         payload: campaignPayload,
         metaForm: serializePayloadForMetaApi(campaignPayload),

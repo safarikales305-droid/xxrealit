@@ -9,6 +9,113 @@ export type MetaCampaignLaunchBlocker = {
   message: string;
 };
 
+export type MetaCampaignPayloadSection = {
+  payload: Record<string, unknown> | null;
+  metaForm?: Record<string, string> | null;
+  objective?: string;
+  optimizationGoal?: string;
+  billingEvent?: string;
+  promotedObject?: Record<string, unknown> | null;
+  creativeSource?: string;
+};
+
+export type MetaCampaignPayloadPreviewSpec = {
+  mode: string;
+  modeLabel: string;
+  goalLabel: string;
+  creativeSource: string;
+  campaignObjective: string;
+  optimizationGoal: string;
+  billingEvent: string;
+  promotedObjectSummary: string;
+  requiresPromotedObject: boolean;
+};
+
+/** Sjednocený návratový typ pro náhled / validaci Meta payloadů kampaně. */
+export type MetaCampaignLaunchResult = {
+  ok: boolean;
+  message: string;
+  blockers: MetaCampaignLaunchBlocker[];
+  payload: Record<string, unknown> | null;
+  metaForm?: Record<string, string> | null;
+  spec: MetaCampaignPayloadPreviewSpec | null;
+  campaign: MetaCampaignPayloadSection | null;
+  adSet: MetaCampaignPayloadSection | null;
+  creative: MetaCampaignPayloadSection | null;
+  ad: MetaCampaignPayloadSection | null;
+};
+
+export function emptyMetaCampaignLaunchResult(
+  message: string,
+  blockers: MetaCampaignLaunchBlocker[] = [],
+): MetaCampaignLaunchResult {
+  return {
+    ok: false,
+    message,
+    blockers,
+    payload: null,
+    metaForm: null,
+    spec: null,
+    campaign: null,
+    adSet: null,
+    creative: null,
+    ad: null,
+  };
+}
+
+export type MetaCampaignAdSetPayloadPreviewResult = {
+  ok: boolean;
+  message: string;
+  blockers: MetaCampaignLaunchBlocker[];
+  payload: Record<string, unknown> | null;
+  metaForm: Record<string, string> | null;
+  spec: {
+    objectiveKey: string;
+    campaignObjective: string;
+    optimizationGoal: string;
+    requiresPromotedObject: boolean;
+  } | null;
+  previews: MetaCampaignLaunchResult;
+};
+
+export function emptyMetaCampaignAdSetPayloadPreviewResult(
+  message: string,
+): MetaCampaignAdSetPayloadPreviewResult {
+  return {
+    ok: false,
+    message,
+    blockers: [],
+    payload: null,
+    metaForm: null,
+    spec: null,
+    previews: emptyMetaCampaignLaunchResult(message),
+  };
+}
+
+export function toMetaCampaignPayloadPreviewSpec(spec: {
+  mode: string;
+  modeLabel: string;
+  goalLabel: string;
+  creativeSource: string;
+  campaignObjective: string;
+  optimizationGoal: string;
+  billingEvent: string;
+  promotedObjectSummary: string;
+  requiresPromotedObject: boolean;
+}): MetaCampaignPayloadPreviewSpec {
+  return {
+    mode: spec.mode,
+    modeLabel: spec.modeLabel,
+    goalLabel: spec.goalLabel,
+    creativeSource: spec.creativeSource,
+    campaignObjective: spec.campaignObjective,
+    optimizationGoal: spec.optimizationGoal,
+    billingEvent: spec.billingEvent,
+    promotedObjectSummary: spec.promotedObjectSummary,
+    requiresPromotedObject: spec.requiresPromotedObject,
+  };
+}
+
 export type MetaCampaignBudgetConfig = {
   /** Advantage+ campaign budget (rozpočet na kampani, ne na ad setu). */
   useCampaignBudgetOptimization: boolean;

@@ -37,6 +37,7 @@ import { MetaCenterRemarketingService } from './meta-center-remarketing.service'
 import { CreateMetaCampaignDto } from './dto/create-meta-campaign.dto';
 import { CreateMetaRemarketingAudienceDto } from './dto/create-meta-remarketing-audience.dto';
 import { MetaCampaignControlDto } from './dto/meta-campaign-control.dto';
+import { emptyMetaCampaignLaunchResult, emptyMetaCampaignAdSetPayloadPreviewResult } from './meta-campaign-api-payload.util';
 import { extractSafeMetaError, metaPanelNotConfigured } from './meta-center-safe-response.util';
 import { resolveMetaOAuthFlow } from './meta-oauth-flows';
 import { META_EXTERNAL_LINKS } from './meta-graph-permissions.util';
@@ -703,16 +704,7 @@ export class MetaCenterAdminController {
     return this.safeEndpoint(
       'campaigns/payload-preview',
       () => this.campaigns.previewCampaignPayloads(body),
-      (message) => ({
-        ok: false as const,
-        message,
-        blockers: [],
-        spec: null,
-        campaign: null,
-        adSet: null,
-        creative: null,
-        ad: null,
-      }),
+      (message) => emptyMetaCampaignLaunchResult(message),
     );
   }
 
@@ -724,13 +716,7 @@ export class MetaCenterAdminController {
     return this.safeEndpoint(
       'campaigns/adset-payload',
       () => this.campaigns.previewAdSetPayload(body),
-      (message) => ({
-        ok: false as const,
-        message,
-        blockers: [],
-        payload: null,
-        metaForm: null,
-      }),
+      (message) => emptyMetaCampaignAdSetPayloadPreviewResult(message),
     );
   }
 
