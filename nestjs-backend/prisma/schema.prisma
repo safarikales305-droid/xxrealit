@@ -2513,6 +2513,7 @@ model MetaMarketingCampaignDraft {
   latitude           Float?
   longitude          Float?
   radiusKm           Int?
+  locationTargetingMode String @default("city")
   dailyBudgetCzk     Int?
   startDate          DateTime?
   endDate            DateTime?
@@ -2525,6 +2526,7 @@ model MetaMarketingCampaignDraft {
   creativePreviewUrl String?
   previewHtml        String?   @db.Text
   metaLaunchSteps    Json?
+  metaLaunchPayloads Json?
   metaStatus         String?
   metaEffectiveStatus String?
   metaInsights       Json?

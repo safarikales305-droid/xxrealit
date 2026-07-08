@@ -137,6 +137,14 @@ export type MetaLaunchSteps = {
   ad: MetaLaunchStepState;
 };
 
+export type MetaLaunchPayloadSnapshot = {
+  campaign?: Record<string, unknown> | null;
+  targeting?: Record<string, unknown> | null;
+  adSet?: Record<string, unknown> | null;
+  creative?: Record<string, unknown> | null;
+  ad?: Record<string, unknown> | null;
+};
+
 export function emptyLaunchSteps(): MetaLaunchSteps {
   return {
     campaign: { ok: false },

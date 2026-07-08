@@ -138,14 +138,19 @@ export function computeMetaCampaignLaunchBlockers(
     }
   }
   if (mode === 'map' || mode === 'map_remarketing') {
+    const locationMode = dto.locationTargetingMode === 'radius' ? 'radius' : 'city';
     const hasGeoKey = Boolean(dto.metaGeoKey?.trim() && /^\d+$/.test(dto.metaGeoKey.trim()));
     const hasCoords =
       dto.latitude != null &&
       dto.longitude != null &&
       Number.isFinite(dto.latitude) &&
       Number.isFinite(dto.longitude);
-    if (!hasGeoKey && !hasCoords && !dto.cityName?.trim()) {
-      push(blockers, 'geo', 'Chybí Meta Geo ID nebo souřadnice.');
+    if (locationMode === 'radius') {
+      if (!hasCoords && !dto.cityName?.trim()) {
+        push(blockers, 'geo_radius', 'Pro okruh podle souřadnic zadejte latitude a longitude.');
+      }
+    } else if (!hasGeoKey && !hasCoords && !dto.cityName?.trim()) {
+      push(blockers, 'geo', 'Chybí Meta Geo ID nebo město pro cílení.');
     }
   }
 

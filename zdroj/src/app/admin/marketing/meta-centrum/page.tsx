@@ -22,6 +22,7 @@ import {
   MetaCampaignLaunchChecklist,
   MetaCampaignValidationErrors,
 } from '@/components/meta-centrum/MetaCampaignLaunchChecklist';
+import { MetaCampaignDetailPanel } from '@/components/meta-centrum/MetaCampaignDetailPanel';
 import {
   safeDisplayValue,
   safeErrorMessage,
@@ -71,6 +72,7 @@ import {
   nestAdminMetaCenterDeleteCampaignDraft,
   nestAdminMetaCenterCampaignsOverview,
   nestAdminMetaCenterLaunchCampaignDraft,
+  nestAdminMetaCenterResetMetaCampaignLaunch,
   nestAdminMetaCenterDuplicateCampaignDraft,
   nestAdminMetaCenterControlCampaign,
   nestAdminMetaCenterPatchSettings,
@@ -628,6 +630,7 @@ export default function MetaCentrumPage() {
     selectedProductIds: [] as string[],
     creativeType: 'catalog_products',
     targetingMode: 'map',
+    locationTargetingMode: 'city' as 'city' | 'radius',
     audienceId: '',
     creativePayload: {} as Record<string, unknown>,
   });
@@ -648,6 +651,7 @@ export default function MetaCentrumPage() {
     null,
   );
   const [payloadPreviewBusy, setPayloadPreviewBusy] = useState(false);
+  const [expandedCampaignDetailId, setExpandedCampaignDetailId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -825,6 +829,7 @@ export default function MetaCentrumPage() {
       latitude: campaignDraft.latitude,
       longitude: campaignDraft.longitude,
       targetingMode: campaignDraft.targetingMode,
+      locationTargetingMode: campaignDraft.locationTargetingMode,
       audienceId: campaignDraft.audienceId,
       budgetDaily: campaignDraft.budgetDaily,
       startDate: campaignDraft.startDate,
@@ -925,6 +930,7 @@ export default function MetaCentrumPage() {
       selectedProductIds: campaignDraft.selectedProductIds,
       creativeType: campaignDraft.creativeType,
       targetingMode: campaignDraft.targetingMode,
+      locationTargetingMode: campaignDraft.locationTargetingMode,
       audienceId: campaignDraft.audienceId || undefined,
       creativePayload: campaignDraft.creativePayload,
       leadFormId:
@@ -970,6 +976,8 @@ export default function MetaCentrumPage() {
       selectedProductIds: c.selectedProductIds ?? [],
       creativeType: c.creativeType ?? 'catalog_products',
       targetingMode: c.targetingMode ?? 'map',
+      locationTargetingMode:
+        c.locationTargetingMode === 'radius' ? 'radius' : 'city',
       audienceId: c.audienceId ?? '',
       creativePayload: (c.creativePayload as Record<string, unknown>) ?? {},
     });
@@ -996,6 +1004,7 @@ export default function MetaCentrumPage() {
       selectedProductIds: [],
       creativeType: 'catalog_products',
       targetingMode: 'map',
+      locationTargetingMode: 'city',
       audienceId: '',
       creativePayload: {},
     });
@@ -3843,17 +3852,62 @@ export default function MetaCentrumPage() {
                     placeholder="14.4378"
                   />
                 </label>
+                <fieldset className="flex flex-col gap-2 text-sm sm:col-span-2">
+                  <legend className="font-medium">Cílení lokality v Meta</legend>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="radio"
+                      name="locationTargetingMode"
+                      checked={campaignDraft.locationTargetingMode === 'city'}
+                      onChange={() =>
+                        setCampaignDraft((d) => ({ ...d, locationTargetingMode: 'city' }))
+                      }
+                    />
+                    Cílit celé město (Meta Geo key bez radius)
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="radio"
+                      name="locationTargetingMode"
+                      checked={campaignDraft.locationTargetingMode === 'radius'}
+                      onChange={() =>
+                        setCampaignDraft((d) => ({ ...d, locationTargetingMode: 'radius' }))
+                      }
+                    />
+                    Cílit okruh podle souřadnic (custom_locations)
+                  </label>
+                  {campaignDraft.locationTargetingMode === 'city' ? (
+                    <p className="text-xs text-zinc-500">
+                      Meta dostane{' '}
+                      <code className="rounded bg-zinc-100 px-1">
+                        cities: [{'{'} key: Geo ID {'}'}]
+                      </code>{' '}
+                      bez radius.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-zinc-500">
+                      Meta dostane custom_locations s latitude, longitude a radius v km. Vyplňte
+                      souřadnice nebo vyberte město z návrhů (souřadnice se doplní automaticky).
+                    </p>
+                  )}
+                </fieldset>
                 <label className="flex flex-col gap-1 text-sm">
-                  <span className="font-medium">Okruh (km)</span>
+                  <span className="font-medium">
+                    Okruh (km){' '}
+                    {campaignDraft.locationTargetingMode === 'city' ? (
+                      <span className="font-normal text-zinc-500">(pouze pro režim okruh)</span>
+                    ) : null}
+                  </span>
                   <input
                     type="number"
                     min={1}
                     max={80}
                     value={campaignDraft.radiusKm}
+                    disabled={campaignDraft.locationTargetingMode === 'city'}
                     onChange={(e) =>
                       setCampaignDraft((d) => ({ ...d, radiusKm: Number(e.target.value) || 1 }))
                     }
-                    className="rounded-lg border border-zinc-300 px-3 py-2"
+                    className="rounded-lg border border-zinc-300 px-3 py-2 disabled:bg-zinc-100"
                   />
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
@@ -4148,6 +4202,88 @@ export default function MetaCentrumPage() {
                             <p className="mt-1 whitespace-pre-wrap text-xs text-red-700">
                               {c.errorMessage}
                             </p>
+                          ) : null}
+                          {c.metaCampaignId && !c.metaAdId && campaignsLiveEnabled ? (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => {
+                                  loadCampaignForEdit(c);
+                                  setMsg(
+                                    'Upravte cílení lokality a klikněte znovu na Spustit kampaň.',
+                                  );
+                                }}
+                                className="rounded-lg border border-amber-400 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-50"
+                              >
+                                Opravit cílení a pokračovat
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={async () => {
+                                  if (!token) return;
+                                  setBusy(true);
+                                  const r = await nestAdminMetaCenterLaunchCampaignDraft(
+                                    token,
+                                    c.id,
+                                  );
+                                  setBusy(false);
+                                  setMsg(r.message ?? '');
+                                  if (!r.ok) {
+                                    setLastLaunchError({
+                                      message: r.message ?? 'Spuštění selhalo.',
+                                      metaApiError: r.metaApiError,
+                                      failedStep:
+                                        r.failedStep ?? r.metaApiError?.launchStep ?? null,
+                                      launchSteps:
+                                        r.launchSteps ?? r.campaign?.metaLaunchSteps ?? null,
+                                    });
+                                  }
+                                  void refresh();
+                                }}
+                                className="rounded-lg border border-emerald-400 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50"
+                              >
+                                Zkusit znovu (pokračovat)
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={async () => {
+                                  if (
+                                    !token ||
+                                    !window.confirm(
+                                      'Smazat vytvořenou Campaign v Meta a resetovat koncept?',
+                                    )
+                                  ) {
+                                    return;
+                                  }
+                                  setBusy(true);
+                                  const r = await nestAdminMetaCenterResetMetaCampaignLaunch(
+                                    token,
+                                    c.id,
+                                  );
+                                  setBusy(false);
+                                  setMsg(r.message ?? '');
+                                  void refresh();
+                                }}
+                                className="rounded-lg border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                              >
+                                Smazat Campaign v Meta
+                              </button>
+                            </div>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="mt-2 text-xs font-medium text-[#1877f2] underline"
+                            onClick={() =>
+                              setExpandedCampaignDetailId((id) => (id === c.id ? null : c.id))
+                            }
+                          >
+                            {expandedCampaignDetailId === c.id ? 'Skrýt detail' : 'Zobrazit detail reklamy'}
+                          </button>
+                          {expandedCampaignDetailId === c.id ? (
+                            <MetaCampaignDetailPanel campaign={c} products={campaignProducts} />
                           ) : null}
                         </div>
                         <span

@@ -6549,6 +6549,14 @@ export type MetaLaunchSteps = {
   ad: MetaLaunchStepState;
 };
 
+export type MetaLaunchPayloadSnapshot = {
+  campaign?: Record<string, unknown> | null;
+  targeting?: Record<string, unknown> | null;
+  adSet?: Record<string, unknown> | null;
+  creative?: Record<string, unknown> | null;
+  ad?: Record<string, unknown> | null;
+};
+
 export type MetaCampaignDraft = {
   id: string;
   name: string;
@@ -6556,6 +6564,7 @@ export type MetaCampaignDraft = {
   status: string;
   creativeType?: string;
   targetingMode?: string;
+  locationTargetingMode?: string;
   audienceId?: string | null;
   creativePayload?: unknown;
   adAccountId: string | null;
@@ -6581,6 +6590,7 @@ export type MetaCampaignDraft = {
   creativePreviewUrl?: string | null;
   previewHtml?: string | null;
   metaLaunchSteps?: MetaLaunchSteps | null;
+  metaLaunchPayloads?: MetaLaunchPayloadSnapshot | null;
   metaStatus?: string | null;
   metaEffectiveStatus?: string | null;
   metaInsights?: {
@@ -7217,6 +7227,7 @@ export type MetaCampaignDraftBody = {
   selectedProductIds: string[];
   creativeType?: string;
   targetingMode?: string;
+  locationTargetingMode?: string;
   audienceId?: string;
   leadFormId?: string;
   creativePayload?: Record<string, unknown>;
@@ -7381,15 +7392,28 @@ export async function nestAdminMetaCenterCampaignsOverview(
 export async function nestAdminMetaCenterLaunchCampaignDraft(
   token: string | null,
   id: string,
+  body?: MetaCampaignDraftBody,
 ): Promise<MetaCampaignCreateResponse> {
   const r = await metaCenterFetch<MetaCampaignCreateResponse>(
     token,
     `/campaigns/drafts/${encodeURIComponent(id)}/launch`,
-    { method: 'POST' },
+    body ? { method: 'POST', body: JSON.stringify(body) } : { method: 'POST' },
   );
   return r.ok
     ? r.data
     : { ok: false, status: 'error', message: r.error, campaign: null };
+}
+
+export async function nestAdminMetaCenterResetMetaCampaignLaunch(
+  token: string | null,
+  id: string,
+): Promise<{ ok: boolean; message?: string; campaign?: MetaCampaignDraft | null }> {
+  const r = await metaCenterFetch<{
+    ok: boolean;
+    message?: string;
+    campaign?: MetaCampaignDraft | null;
+  }>(token, `/campaigns/drafts/${encodeURIComponent(id)}/reset-meta-launch`, { method: 'POST' });
+  return r.ok ? r.data : { ok: false, message: r.error };
 }
 
 export async function nestAdminMetaCenterDuplicateCampaignDraft(

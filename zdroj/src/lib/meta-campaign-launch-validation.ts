@@ -27,6 +27,7 @@ export type MetaCampaignLaunchValidationInput = {
   latitude: string;
   longitude: string;
   targetingMode: string;
+  locationTargetingMode: string;
   audienceId: string;
   budgetDaily: number;
   startDate: string;
@@ -97,6 +98,7 @@ export function validateMetaCampaignLaunch(
   const hasVideo = Boolean(cp.video || cp.videoId);
   const hasMedia = hasImage || hasVideo || Boolean(cp.objectStoryId);
   const city = input.cityName.trim() || input.locationLabel.trim();
+  const locationRadiusMode = input.locationTargetingMode === 'radius';
   const hasGeoKey = Boolean(input.metaGeoKey.trim() && /^\d+$/.test(input.metaGeoKey.trim()));
   const hasCoords =
     Boolean(input.latitude.trim()) &&
@@ -220,10 +222,12 @@ export function validateMetaCampaignLaunch(
       'geo',
       'Meta Geo / souřadnice',
       input.targetingMode === 'remarketing' ||
-        hasGeoKey ||
-        hasCoords ||
-        city.length > 0,
-      'Chybí Meta Geo ID nebo souřadnice',
+        (locationRadiusMode
+          ? hasCoords || city.length > 0
+          : hasGeoKey || city.length > 0),
+      locationRadiusMode
+        ? 'Pro okruh zadejte souřadnice nebo město s uloženými souřadnicemi'
+        : 'Vyberte město z Meta Geo návrhů nebo zadejte Geo ID',
       'campaign',
     ),
     item(

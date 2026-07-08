@@ -14,8 +14,10 @@ export type MetaGeoLocationItem = {
 };
 
 export type MetaGeoResolvedTargeting =
-  | { mode: 'city'; key: number; radiusKm: number }
+  | { mode: 'city'; key: number }
   | { mode: 'custom'; latitude: number; longitude: number; radiusKm: number };
+
+export type MetaLocationTargetingMode = 'city' | 'radius';
 
 type MetaSearchRow = {
   key?: string | number;
@@ -101,12 +103,49 @@ export class MetaCenterGeoService {
     latitude?: number | null;
     longitude?: number | null;
     radiusKm: number;
+    locationTargetingMode?: MetaLocationTargetingMode | string | null;
   }): Promise<MetaGeoResolvedTargeting> {
     const radiusKm = input.radiusKm > 0 ? input.radiusKm : 15;
+    const locationMode: MetaLocationTargetingMode =
+      input.locationTargetingMode === 'radius' ? 'radius' : 'city';
+
+    if (locationMode === 'radius') {
+      let latitude = input.latitude;
+      let longitude = input.longitude;
+
+      if (
+        (latitude == null || longitude == null || !Number.isFinite(latitude) || !Number.isFinite(longitude)) &&
+        input.cityName?.trim()
+      ) {
+        const cached = await this.findCachedCity(input.cityName.trim());
+        if (cached?.lat != null && cached.lng != null) {
+          latitude = cached.lat;
+          longitude = cached.lng;
+        }
+      }
+
+      if (
+        latitude != null &&
+        longitude != null &&
+        Number.isFinite(latitude) &&
+        Number.isFinite(longitude)
+      ) {
+        return {
+          mode: 'custom',
+          latitude,
+          longitude,
+          radiusKm,
+        };
+      }
+
+      throw new Error(
+        'Pro okruh podle souřadnic zadejte latitude a longitude, nebo vyberte město s uloženými souřadnicemi.',
+      );
+    }
 
     const explicitKey = this.parseMetaGeoKey(input.metaGeoKey);
     if (explicitKey != null) {
-      return { mode: 'city', key: explicitKey, radiusKm };
+      return { mode: 'city', key: explicitKey };
     }
 
     if (input.cityName?.trim()) {
@@ -114,15 +153,7 @@ export class MetaCenterGeoService {
       if (cached) {
         const key = this.parseMetaGeoKey(cached.metaKey);
         if (key != null) {
-          return { mode: 'city', key, radiusKm };
-        }
-        if (cached.lat != null && cached.lng != null) {
-          return {
-            mode: 'custom',
-            latitude: cached.lat,
-            longitude: cached.lng,
-            radiusKm,
-          };
+          return { mode: 'city', key };
         }
       }
 
@@ -134,15 +165,7 @@ export class MetaCenterGeoService {
           ) ?? searched.items[0];
         const key = this.parseMetaGeoKey(exact.metaKey);
         if (key != null) {
-          return { mode: 'city', key, radiusKm };
-        }
-        if (exact.lat != null && exact.lng != null) {
-          return {
-            mode: 'custom',
-            latitude: exact.lat,
-            longitude: exact.lng,
-            radiusKm,
-          };
+          return { mode: 'city', key };
         }
       }
     }
@@ -162,7 +185,7 @@ export class MetaCenterGeoService {
     }
 
     throw new Error(
-      'Lokalitu nelze namapovat. Vyberte město z návrhů Meta (Geo ID) nebo zadejte souřadnice.',
+      'Lokalitu nelze namapovat. Vyberte město z návrhů Meta (Geo ID) nebo zadejte souřadnice pro okruh.',
     );
   }
 

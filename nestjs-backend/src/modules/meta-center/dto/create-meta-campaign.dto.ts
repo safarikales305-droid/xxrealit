@@ -81,4 +81,9 @@ export class CreateMetaCampaignDto {
   @IsOptional()
   @IsString()
   leadFormId?: string;
+
+  /** city = celé město (Meta Geo key bez radius), radius = okruh přes custom_locations */
+  @IsOptional()
+  @IsString()
+  locationTargetingMode?: string;
 }

@@ -652,16 +652,29 @@ export class MetaCenterAdminController {
   }
 
   @Post('campaigns/drafts/:id/launch')
-  launchMetaCampaignDraft(@Param('id') id: string) {
+  launchMetaCampaignDraft(
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    body?: CreateMetaCampaignDto,
+  ) {
     return this.safeEndpoint(
       'campaigns/drafts/launch',
-      () => this.campaigns.launchExistingDraft(id),
+      () => this.campaigns.launchExistingDraft(id, body),
       (message) => ({
         ok: false as const,
         status: 'error' as const,
         message,
         campaign: null,
       }),
+    );
+  }
+
+  @Post('campaigns/drafts/:id/reset-meta-launch')
+  resetMetaCampaignLaunch(@Param('id') id: string) {
+    return this.safeEndpoint(
+      'campaigns/drafts/reset-meta-launch',
+      () => this.campaigns.resetPartialMetaLaunch(id),
+      (message) => ({ ok: false as const, message, campaign: null }),
     );
   }
 

@@ -44,6 +44,7 @@ import {
   type MetaCampaignLaunchBlocker,
   type MetaCampaignLaunchResult,
   type MetaCampaignAdSetPayloadPreviewResult,
+  type MetaLaunchPayloadSnapshot,
   type MetaLaunchStep,
   type MetaLaunchSteps,
 } from './meta-campaign-api-payload.util';
@@ -68,7 +69,7 @@ export type MetaCampaignProductItem = {
   lastSyncedAt: string | null;
 };
 
-export type { MetaCampaignLaunchBlocker, MetaApiErrorDetail, MetaLaunchSteps, MetaLaunchStep } from './meta-campaign-api-payload.util';
+export type { MetaCampaignLaunchBlocker, MetaApiErrorDetail, MetaLaunchSteps, MetaLaunchStep, MetaLaunchPayloadSnapshot } from './meta-campaign-api-payload.util';
 
 export type MetaCampaignInsights = {
   reach: number | null;
@@ -392,6 +393,7 @@ export class MetaCenterCampaignsService {
         status: 'draft',
         creativeType: source.creativeType,
         targetingMode: source.targetingMode,
+        locationTargetingMode: source.locationTargetingMode,
         audienceId: source.audienceId,
         creativePayload: source.creativePayload ?? Prisma.JsonNull,
         adAccountId: source.adAccountId,
@@ -487,7 +489,7 @@ export class MetaCenterCampaignsService {
     return launched;
   }
 
-  async launchExistingDraft(id: string) {
+  async launchExistingDraft(id: string, body?: CreateMetaCampaignDto) {
     if (!(await this.ensureCampaignTableReady())) {
       return this.dbNotSyncedResponse();
     }
@@ -503,17 +505,25 @@ export class MetaCenterCampaignsService {
     if (!row) {
       return { ok: false as const, status: 'not_found' as const, message: 'Koncept nenalezen.', campaign: null };
     }
-    if (row.metaCampaignId) {
+    const settings = await this.getSettingsRow();
+    const ids = resolveMetaCenterIds(settings ?? ({} as never));
+
+    if (body) {
+      await this.updateDraftFromDto(id, body, ids);
+    }
+    const refreshed = await this.prisma.metaMarketingCampaignDraft.findUnique({ where: { id } });
+    const current = refreshed ?? row;
+
+    if (current.metaCampaignId && current.metaAdId) {
       return {
         ok: false as const,
         status: 'already_live' as const,
         message: 'Kampaň již existuje v Meta.',
-        campaign: this.serializeDraft(row),
+        campaign: this.serializeDraft(current),
       };
     }
-    const dto = this.draftRowToDto(row);
-    const settings = await this.getSettingsRow();
-    const ids = resolveMetaCenterIds(settings ?? ({} as never));
+
+    const dto = body ?? this.draftRowToDto(current);
     const blockers = this.computeLaunchBlockersForMode(dto, settings, 'launch', true);
     if (blockers.length) {
       return {
@@ -521,10 +531,61 @@ export class MetaCenterCampaignsService {
         status: 'validation_error' as const,
         message: blockers.map((b) => `❌ ${b.message}`).join('\n'),
         blockers,
-        campaign: null,
+        campaign: this.serializeDraft(current),
       };
     }
     return this.launchLiveCampaign(id, dto, ids, 'ACTIVE');
+  }
+
+  async resetPartialMetaLaunch(id: string) {
+    if (!(await this.ensureCampaignTableReady())) {
+      return { ok: false as const, message: META_CAMPAIGN_DB_NOT_SYNCED_MESSAGE, campaign: null };
+    }
+    const draft = await this.prisma.metaMarketingCampaignDraft.findUnique({ where: { id } });
+    if (!draft) {
+      return { ok: false as const, message: 'Koncept nenalezen.', campaign: null };
+    }
+    if (draft.metaCampaignId && (await this.isLiveEnabled())) {
+      let token: string;
+      try {
+        token = await this.oauth.resolveMarketingAccessToken();
+      } catch (err) {
+        return {
+          ok: false as const,
+          message: err instanceof Error ? err.message : 'Marketing token chybí.',
+          campaign: null,
+        };
+      }
+      const del = await this.graph.delete<{ success?: boolean }>(`/${draft.metaCampaignId}`, token);
+      if (!del.ok) {
+        return {
+          ok: false as const,
+          message: del.errorMessage ?? 'Kampaň v Meta se nepodařilo smazat.',
+          campaign: this.serializeDraft(draft),
+        };
+      }
+    }
+    const updated = await this.prisma.metaMarketingCampaignDraft.update({
+      where: { id },
+      data: {
+        metaCampaignId: null,
+        metaAdSetId: null,
+        metaAdId: null,
+        metaCreativeId: null,
+        metaProductSetId: null,
+        metaLaunchSteps: Prisma.JsonNull,
+        metaLaunchPayloads: Prisma.JsonNull,
+        metaStatus: null,
+        metaEffectiveStatus: null,
+        status: 'draft',
+        errorMessage: null,
+      },
+    });
+    return {
+      ok: true as const,
+      message: 'Meta kampaň byla resetována — můžete spustit znovu.',
+      campaign: this.serializeDraft(updated),
+    };
   }
 
   async listCampaignsOverview() {
@@ -646,6 +707,7 @@ export class MetaCenterCampaignsService {
     selectedProductIds: unknown;
     creativeType?: string | null;
     targetingMode?: string | null;
+    locationTargetingMode?: string | null;
     audienceId?: string | null;
     creativePayload?: unknown;
   }): CreateMetaCampaignDto {
@@ -669,6 +731,7 @@ export class MetaCenterCampaignsService {
       selectedProductIds: productIds,
       creativeType: row.creativeType ?? undefined,
       targetingMode: row.targetingMode ?? undefined,
+      locationTargetingMode: row.locationTargetingMode ?? undefined,
       audienceId: row.audienceId ?? undefined,
       creativePayload: (row.creativePayload as Record<string, unknown>) ?? undefined,
     };
@@ -831,7 +894,17 @@ export class MetaCenterCampaignsService {
 
     const row = await this.getSettingsRow();
     const pageAccessToken = await this.oauth.resolvePageAccessToken().catch(() => null);
-    const launchSteps = emptyLaunchSteps();
+    const draftRow = await this.prisma.metaMarketingCampaignDraft.findUnique({ where: { id: draftId } });
+    const launchSteps = this.parseLaunchSteps(draftRow?.metaLaunchSteps) ?? emptyLaunchSteps();
+    const launchPayloads: MetaLaunchPayloadSnapshot =
+      draftRow?.metaLaunchPayloads && typeof draftRow.metaLaunchPayloads === 'object'
+        ? (draftRow.metaLaunchPayloads as MetaLaunchPayloadSnapshot)
+        : {};
+    let metaCampaignId = draftRow?.metaCampaignId ?? null;
+    let metaAdSetId = draftRow?.metaAdSetId ?? null;
+    let metaProductSetId = draftRow?.metaProductSetId ?? null;
+    let metaCreativeId = draftRow?.metaCreativeId ?? null;
+    let metaAdId = draftRow?.metaAdId ?? null;
     let audienceMetaId: string | null = null;
     if (dto.audienceId?.trim()) {
       const audience = await this.prisma.metaRemarketingAudience
@@ -880,42 +953,49 @@ export class MetaCenterCampaignsService {
         status: 'validation_error' as const,
         message: msg,
         blockers: campaignBlockers,
-        campaign: null,
+        campaign: await this.loadSerializedDraft(draftId),
       };
     }
 
-    const campaignRes = await this.graph.post<{ id?: string }>(
-      `/act_${actId}/campaigns`,
-      token,
-      campaignPayload,
-    );
+    launchPayloads.campaign = campaignPayload;
 
-    if (!campaignRes.ok || !campaignRes.data.id) {
-      const failure = formatMetaApiFailure(
-        'Vytvoření kampaně',
+    if (!metaCampaignId) {
+      const campaignRes = await this.graph.post<{ id?: string }>(
+        `/act_${actId}/campaigns`,
+        token,
         campaignPayload,
-        campaignRes,
-        'campaign',
       );
-      launchSteps.campaign = { ok: false, error: failure.message };
-      await this.persistLaunchState(draftId, {
-        status: 'error',
-        errorMessage: failure.message,
-        metaLaunchSteps: launchSteps,
-      });
-      return {
-        ok: false as const,
-        status: 'error' as const,
-        message: failure.message,
-        metaApiError: failure.detail,
-        failedStep: 'campaign' as const,
-        launchSteps,
-        campaign: null,
-      };
-    }
 
-    const metaCampaignId = campaignRes.data.id;
-    launchSteps.campaign = { ok: true, id: metaCampaignId };
+      if (!campaignRes.ok || !campaignRes.data.id) {
+        const failure = formatMetaApiFailure(
+          'Vytvoření kampaně',
+          campaignPayload,
+          campaignRes,
+          'campaign',
+        );
+        launchSteps.campaign = { ok: false, error: failure.message };
+        await this.persistLaunchState(draftId, {
+          status: 'error',
+          errorMessage: failure.message,
+          metaLaunchSteps: launchSteps,
+          metaLaunchPayloads: launchPayloads,
+        });
+        return {
+          ok: false as const,
+          status: 'error' as const,
+          message: failure.message,
+          metaApiError: failure.detail,
+          failedStep: 'campaign' as const,
+          launchSteps,
+          campaign: await this.loadSerializedDraft(draftId),
+        };
+      }
+
+      metaCampaignId = campaignRes.data.id;
+      launchSteps.campaign = { ok: true, id: metaCampaignId };
+    } else {
+      launchSteps.campaign = { ok: true, id: metaCampaignId };
+    }
     let resolvedGeo;
     try {
       resolvedGeo = await this.geo.resolveGeoForTargeting({
@@ -924,6 +1004,8 @@ export class MetaCenterCampaignsService {
         latitude: dto.latitude,
         longitude: dto.longitude,
         radiusKm: dto.radiusKm,
+        locationTargetingMode:
+          dto.locationTargetingMode ?? draftRow?.locationTargetingMode ?? 'city',
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Lokalitu nelze namapovat na Meta Geo.';
@@ -932,6 +1014,7 @@ export class MetaCenterCampaignsService {
         status: 'error',
         errorMessage: msg,
         metaLaunchSteps: launchSteps,
+        metaLaunchPayloads: launchPayloads,
       });
       return {
         ok: false as const,
@@ -939,11 +1022,12 @@ export class MetaCenterCampaignsService {
         message: msg,
         failedStep: 'adset' as const,
         launchSteps,
-        campaign: null,
+        campaign: await this.loadSerializedDraft(draftId),
       };
     }
 
     const targeting = this.buildTargetingFromGeo(resolvedGeo, dto, audienceMetaId);
+    launchPayloads.targeting = targeting;
     const adSetBuild = this.buildAdSetLaunchPayload({
       dto,
       ids,
@@ -960,11 +1044,13 @@ export class MetaCenterCampaignsService {
 
     if (!adSetBuild.ok) {
       const msg = adSetBuild.blockers.map((b) => b.message).join(' ');
+      launchPayloads.adSet = adSetBuild.payload ?? null;
       await this.persistLaunchState(draftId, {
         metaCampaignId,
         status: 'error',
         errorMessage: msg,
         metaLaunchSteps: launchSteps,
+        metaLaunchPayloads: launchPayloads,
       });
       return {
         ok: false as const,
@@ -973,7 +1059,7 @@ export class MetaCenterCampaignsService {
         blockers: adSetBuild.blockers,
         failedStep: 'adset' as const,
         launchSteps,
-        campaign: null,
+        campaign: await this.loadSerializedDraft(draftId),
         adSetPayloadPreview: adSetBuild.payload ?? null,
         adSetPayloadMeta: adSetBuild.metaForm ?? null,
       };
@@ -981,47 +1067,49 @@ export class MetaCenterCampaignsService {
 
     const adSetPayload = adSetBuild.payload;
     const adSetSpec = adSetBuild.spec;
+    launchPayloads.adSet = adSetPayload;
 
-    this.logger.log(
-      `[meta-campaign] adset payload objective=${dto.objective} spec=${adSetSpec.mode} optimization_goal=${adSetSpec.optimizationGoal} draft=${draftId}\n${JSON.stringify(adSetPayload, null, 2)}`,
-    );
-    this.logger.log(
-      `[meta-campaign] adset meta-form draft=${draftId}\n${JSON.stringify(adSetBuild.metaForm, null, 2)}`,
-    );
+    if (!metaAdSetId) {
+      this.logger.log(
+        `[meta-campaign] adset payload objective=${dto.objective} spec=${adSetSpec.mode} optimization_goal=${adSetSpec.optimizationGoal} draft=${draftId}\n${JSON.stringify(adSetPayload, null, 2)}`,
+      );
+      this.logger.log(
+        `[meta-campaign] adset meta-form draft=${draftId}\n${JSON.stringify(adSetBuild.metaForm, null, 2)}`,
+      );
 
-    const adSetRes = await this.graph.postWithTransientRetry<{ id?: string }>(
-      `/act_${actId}/adsets`,
-      token,
-      adSetPayload,
-      { logLabel: `adsets draft=${draftId}` },
-    );
+      const adSetRes = await this.graph.postWithTransientRetry<{ id?: string }>(
+        `/act_${actId}/adsets`,
+        token,
+        adSetPayload,
+        { logLabel: `adsets draft=${draftId}` },
+      );
 
-    if (!adSetRes.ok || !adSetRes.data.id) {
-      const failure = formatMetaApiFailure('Vytvoření ad setu', adSetPayload, adSetRes, 'adset');
-      launchSteps.adSet = { ok: false, error: failure.message };
-      await this.persistLaunchState(draftId, {
-        metaCampaignId,
-        status: 'error',
-        errorMessage: failure.message,
-        metaLaunchSteps: launchSteps,
-      });
-      return {
-        ok: false as const,
-        status: 'error' as const,
-        message: failure.message,
-        metaApiError: failure.detail,
-        failedStep: 'adset' as const,
-        launchSteps,
-        campaign: null,
-      };
+      if (!adSetRes.ok || !adSetRes.data.id) {
+        const failure = formatMetaApiFailure('Vytvoření ad setu', adSetPayload, adSetRes, 'adset');
+        launchSteps.adSet = { ok: false, error: failure.message };
+        await this.persistLaunchState(draftId, {
+          metaCampaignId,
+          status: 'error',
+          errorMessage: failure.message,
+          metaLaunchSteps: launchSteps,
+          metaLaunchPayloads: launchPayloads,
+        });
+        return {
+          ok: false as const,
+          status: 'error' as const,
+          message: failure.message,
+          metaApiError: failure.detail,
+          failedStep: 'adset' as const,
+          launchSteps,
+          campaign: await this.loadSerializedDraft(draftId),
+        };
+      }
+
+      metaAdSetId = adSetRes.data.id;
+      launchSteps.adSet = { ok: true, id: metaAdSetId };
+    } else {
+      launchSteps.adSet = { ok: true, id: metaAdSetId };
     }
-
-    const metaAdSetId = adSetRes.data.id;
-    launchSteps.adSet = { ok: true, id: metaAdSetId };
-
-    let metaProductSetId: string | null = null;
-    let metaCreativeId: string | null = null;
-    let metaAdId: string | null = null;
 
     const creativeType = this.resolveCreativeType(dto.creativeType);
 
@@ -1040,6 +1128,7 @@ export class MetaCenterCampaignsService {
           status: 'error',
           errorMessage: productSetResult.message,
           metaLaunchSteps: launchSteps,
+          metaLaunchPayloads: launchPayloads,
         });
         return {
           ok: false as const,
@@ -1048,7 +1137,7 @@ export class MetaCenterCampaignsService {
           metaApiError: productSetResult.metaApiError,
           failedStep: 'creative' as const,
           launchSteps,
-          campaign: null,
+          campaign: await this.loadSerializedDraft(draftId),
         };
       }
       metaProductSetId = productSetResult.id;
@@ -1079,6 +1168,7 @@ export class MetaCenterCampaignsService {
         status: 'error',
         errorMessage: built.message,
         metaLaunchSteps: launchSteps,
+        metaLaunchPayloads: launchPayloads,
       });
       return {
         ok: false as const,
@@ -1087,11 +1177,12 @@ export class MetaCenterCampaignsService {
         metaApiError: built.metaApiError,
         failedStep: 'creative' as const,
         launchSteps,
-        campaign: null,
+        campaign: await this.loadSerializedDraft(draftId),
       };
     }
 
     const creativeBody = built.body;
+    launchPayloads.creative = creativeBody;
 
     const creativeRes = await this.graph.post<{ id?: string }>(
       `/act_${actId}/adcreatives`,
@@ -1109,6 +1200,7 @@ export class MetaCenterCampaignsService {
         status: 'error',
         errorMessage: failure.message,
         metaLaunchSteps: launchSteps,
+        metaLaunchPayloads: launchPayloads,
       });
       return {
         ok: false as const,
@@ -1117,7 +1209,7 @@ export class MetaCenterCampaignsService {
         metaApiError: failure.detail,
         failedStep: 'creative' as const,
         launchSteps,
-        campaign: null,
+        campaign: await this.loadSerializedDraft(draftId),
       };
     }
 
@@ -1131,6 +1223,7 @@ export class MetaCenterCampaignsService {
       creative: JSON.stringify({ creative_id: metaCreativeId }),
       status: publishStatus,
     };
+    launchPayloads.ad = adPayload;
 
     const adRes = await this.graph.post<{ id?: string }>(
       `/act_${actId}/ads`,
@@ -1149,6 +1242,7 @@ export class MetaCenterCampaignsService {
         status: 'error',
         errorMessage: failure.message,
         metaLaunchSteps: launchSteps,
+        metaLaunchPayloads: launchPayloads,
       });
       return {
         ok: false as const,
@@ -1157,7 +1251,7 @@ export class MetaCenterCampaignsService {
         metaApiError: failure.detail,
         failedStep: 'ad' as const,
         launchSteps,
-        campaign: null,
+        campaign: await this.loadSerializedDraft(draftId),
       };
     }
 
@@ -1184,6 +1278,7 @@ export class MetaCenterCampaignsService {
         creativePreviewUrl,
         previewHtml,
         metaLaunchSteps: launchSteps as Prisma.InputJsonValue,
+        metaLaunchPayloads: launchPayloads as Prisma.InputJsonValue,
         creativePayload: built.payload as Prisma.InputJsonValue,
         metaStatus: statusData.status,
         metaEffectiveStatus: statusData.effectiveStatus,
@@ -1278,11 +1373,55 @@ export class MetaCenterCampaignsService {
     return normalizeCreativeType(value);
   }
 
+  private async updateDraftFromDto(
+    id: string,
+    dto: CreateMetaCampaignDto,
+    ids: ReturnType<typeof resolveMetaCenterIds>,
+  ) {
+    await this.prisma.metaMarketingCampaignDraft.update({
+      where: { id },
+      data: {
+        name: dto.name.trim(),
+        objective: dto.objective,
+        creativeType: this.resolveCreativeType(dto.creativeType),
+        targetingMode: this.resolveTargetingMode(dto.targetingMode),
+        locationTargetingMode: this.resolveLocationTargetingMode(dto.locationTargetingMode),
+        audienceId: dto.audienceId?.trim() ?? null,
+        creativePayload: dto.creativePayload
+          ? (dto.creativePayload as Prisma.InputJsonValue)
+          : undefined,
+        propertyType: dto.propertyType ?? null,
+        cityName: dto.cityName.trim(),
+        metaGeoKey: dto.metaGeoKey?.trim() || null,
+        metaGeoCountry: dto.metaGeoCountry?.trim() || null,
+        metaGeoRegion: dto.metaGeoRegion?.trim() || null,
+        latitude: dto.latitude ?? null,
+        longitude: dto.longitude ?? null,
+        radiusKm: dto.radiusKm,
+        dailyBudgetCzk: dto.dailyBudgetCzk,
+        startDate: this.parseDate(dto.startDate),
+        endDate: this.parseDate(dto.endDate),
+        selectedProductIds: dto.selectedProductIds as Prisma.InputJsonValue,
+        catalogId: ids.catalogId,
+        datasetId: ids.datasetId ?? ids.pixelId,
+      },
+    });
+  }
+
+  private async loadSerializedDraft(draftId: string) {
+    const row = await this.prisma.metaMarketingCampaignDraft.findUnique({ where: { id: draftId } });
+    return row ? this.serializeDraft(row) : null;
+  }
+
   private resolveTargetingMode(value: string | undefined): MetaCampaignTargetingMode {
     if (value && (META_CAMPAIGN_TARGETING_MODES as readonly string[]).includes(value)) {
       return value as MetaCampaignTargetingMode;
     }
     return 'map';
+  }
+
+  private resolveLocationTargetingMode(value: string | undefined): 'city' | 'radius' {
+    return value === 'radius' ? 'radius' : 'city';
   }
 
   private buildTargetingFromGeo(
@@ -1296,13 +1435,7 @@ export class MetaCenterCampaignsService {
     if (geo.mode === 'city') {
       geoBlock = {
         geo_locations: {
-          cities: [
-            {
-              key: geo.key,
-              radius: geo.radiusKm,
-              distance_unit: 'kilometer',
-            },
-          ],
+          cities: [{ key: geo.key }],
         },
       };
     } else {
@@ -1372,6 +1505,7 @@ export class MetaCenterCampaignsService {
         latitude: dto.latitude,
         longitude: dto.longitude,
         radiusKm: dto.radiusKm,
+        locationTargetingMode: dto.locationTargetingMode ?? 'city',
       });
     } catch (err) {
       return {
@@ -1678,9 +1812,11 @@ export class MetaCenterCampaignsService {
       metaAdSetId?: string;
       metaProductSetId?: string | null;
       metaCreativeId?: string | null;
+      metaAdId?: string | null;
       status?: string;
       errorMessage?: string;
       metaLaunchSteps?: MetaLaunchSteps;
+      metaLaunchPayloads?: MetaLaunchPayloadSnapshot;
     },
   ) {
     try {
@@ -1691,10 +1827,14 @@ export class MetaCenterCampaignsService {
           ...(data.metaAdSetId ? { metaAdSetId: data.metaAdSetId } : {}),
           ...(data.metaProductSetId !== undefined ? { metaProductSetId: data.metaProductSetId } : {}),
           ...(data.metaCreativeId !== undefined ? { metaCreativeId: data.metaCreativeId } : {}),
+          ...(data.metaAdId !== undefined ? { metaAdId: data.metaAdId } : {}),
           ...(data.status ? { status: data.status } : {}),
           ...(data.errorMessage !== undefined ? { errorMessage: data.errorMessage } : {}),
           ...(data.metaLaunchSteps
             ? { metaLaunchSteps: data.metaLaunchSteps as Prisma.InputJsonValue }
+            : {}),
+          ...(data.metaLaunchPayloads
+            ? { metaLaunchPayloads: data.metaLaunchPayloads as Prisma.InputJsonValue }
             : {}),
         },
       });
@@ -1738,6 +1878,7 @@ export class MetaCenterCampaignsService {
       status: 'draft',
       creativeType: this.resolveCreativeType(dto.creativeType),
       targetingMode: this.resolveTargetingMode(dto.targetingMode),
+      locationTargetingMode: this.resolveLocationTargetingMode(dto.locationTargetingMode),
       audienceId: dto.audienceId?.trim() ?? null,
       creativePayload: dto.creativePayload
         ? (dto.creativePayload as Prisma.InputJsonValue)
@@ -1767,6 +1908,7 @@ export class MetaCenterCampaignsService {
     status: string;
     creativeType?: string | null;
     targetingMode?: string | null;
+    locationTargetingMode?: string | null;
     audienceId?: string | null;
     creativePayload?: unknown;
     adAccountId: string | null;
@@ -1792,6 +1934,7 @@ export class MetaCenterCampaignsService {
     creativePreviewUrl?: string | null;
     previewHtml?: string | null;
     metaLaunchSteps?: unknown;
+    metaLaunchPayloads?: unknown;
     metaStatus?: string | null;
     metaEffectiveStatus?: string | null;
     metaInsights?: unknown;
@@ -1811,6 +1954,7 @@ export class MetaCenterCampaignsService {
       status: row.status,
       creativeType: row.creativeType ?? 'catalog_products',
       targetingMode: row.targetingMode ?? 'map',
+      locationTargetingMode: row.locationTargetingMode ?? 'city',
       audienceId: row.audienceId ?? null,
       creativePayload: row.creativePayload ?? null,
       adAccountId: row.adAccountId,
@@ -1836,6 +1980,10 @@ export class MetaCenterCampaignsService {
       creativePreviewUrl: row.creativePreviewUrl ?? null,
       previewHtml: row.previewHtml ?? null,
       metaLaunchSteps: this.parseLaunchSteps(row.metaLaunchSteps),
+      metaLaunchPayloads:
+        row.metaLaunchPayloads && typeof row.metaLaunchPayloads === 'object'
+          ? (row.metaLaunchPayloads as MetaLaunchPayloadSnapshot)
+          : null,
       metaStatus: row.metaStatus ?? null,
       metaEffectiveStatus: row.metaEffectiveStatus ?? null,
       metaInsights: this.parseInsights(row.metaInsights),
