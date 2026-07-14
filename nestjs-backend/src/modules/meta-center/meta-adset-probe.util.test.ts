@@ -21,7 +21,7 @@ const catalogCtx = {
   selectedProductIds: ['sku-1'],
 };
 
-test('buildMetaAdSetProbeSteps returns 8 incremental steps', () => {
+test('buildMetaAdSetProbeSteps returns 7 incremental steps', () => {
   const spec = getMetaCampaignPayloadSpec('catalog_sales', catalogCtx);
   const steps = buildMetaAdSetProbeSteps({
     campaignId: 'camp_1',
@@ -39,19 +39,19 @@ test('buildMetaAdSetProbeSteps returns 8 incremental steps', () => {
     dsaLabels: { beneficiary: 'XX', payor: 'XX' },
     isAdsetBudgetSharingEnabled: false,
   });
-  assert.equal(steps.length, 8);
+  assert.equal(steps.length, 7);
   assert.equal(steps[0].key, 'minimal');
-  assert.equal(steps[7].key, 'targeting_automation');
+  assert.equal(steps[6].key, 'targeting_automation');
   for (const step of steps) {
     step.buildPayload();
   }
-  const finalPayload = steps[6].buildPayload();
-  assert.equal(finalPayload.destination_type, 'SHOP_AUTOMATIC');
-  const automationPayload = steps[7].buildPayload();
+  const finalPayload = steps[5].buildPayload();
+  assert.equal(finalPayload.destination_type, undefined);
+  const automationPayload = steps[6].buildPayload();
   const promoted = JSON.parse(String(automationPayload.promoted_object)) as Record<string, unknown>;
   assert.equal(promoted.custom_event_type, 'PURCHASE');
   assert.equal(promoted.pixel_id, 'pixel_1');
-  assert.equal(promoted.product_catalog_id, '123456789');
+  assert.equal(promoted.catalog_id, '123456789');
 });
 
 test('buildSupportedCatalogAdSetPayload matches v25 catalog sales spec', () => {
@@ -69,10 +69,10 @@ test('buildSupportedCatalogAdSetPayload matches v25 catalog sales spec', () => {
     isAdsetBudgetSharingEnabled: false,
   });
   assert.equal(payload.optimization_goal, 'OFFSITE_CONVERSIONS');
-  assert.equal(payload.destination_type, 'SHOP_AUTOMATIC');
+  assert.equal(payload.destination_type, undefined);
   const promoted = JSON.parse(String(payload.promoted_object)) as Record<string, unknown>;
   assert.deepEqual(promoted, {
-    product_catalog_id: '123456789',
+    catalog_id: '123456789',
     pixel_id: 'pixel_1',
     custom_event_type: 'PURCHASE',
   });
@@ -84,7 +84,7 @@ test('catalogSalesV25Validation documents supported catalog fields', () => {
   const rows = catalogSalesV25Validation(spec);
   assert.ok(rows.every((r) => r.supported));
   assert.ok(rows.some((r) => r.field === 'optimization_goal' && r.value === 'OFFSITE_CONVERSIONS'));
-  assert.ok(rows.some((r) => r.field === 'destination_type' && r.value === 'SHOP_AUTOMATIC'));
+  assert.ok(rows.some((r) => r.field === 'conversion_location' && r.value === 'WEBSITE'));
 });
 
 test('summarizeProbeResult flags code=2 failure step', () => {
@@ -116,10 +116,10 @@ test('summarizeProbeResult flags code=2 failure step', () => {
       },
       {
         step: 7,
-        key: 'destination_type',
-        label: 'Destination',
-        fieldAdded: 'destination_type',
-        payload: { destination_type: 'WEBSITE' },
+        key: 'catalog_id',
+        label: 'Catalog id',
+        fieldAdded: 'promoted_object.catalog_id',
+        payload: { promoted_object: JSON.stringify({ catalog_id: '123' }) },
         metaForm: {},
         graphUrl: 'https://graph.facebook.com/v25.0/act_1/adsets',
         httpStatus: 500,
@@ -139,6 +139,6 @@ test('summarizeProbeResult flags code=2 failure step', () => {
     null,
   );
   assert.equal(summary.ok, false);
-  assert.equal(summary.failureStep?.key, 'destination_type');
+  assert.equal(summary.failureStep?.key, 'catalog_id');
   assert.match(summary.message, /Code=2/);
 });

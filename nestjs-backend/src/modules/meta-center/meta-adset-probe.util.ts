@@ -5,6 +5,7 @@ import {
   serializePayloadForMetaApi,
   type MetaCampaignPayloadSpec,
 } from './meta-campaign-payload-map.util';
+import { buildCatalogAdSet } from './meta-catalog-adset.util';
 import { buildPromotedObject } from './meta-promoted-object.util';
 import { extractMetaGraphErrorFields } from './meta-graph-error.util';
 import type { MetaGraphResult } from './meta-graph-client.service';
@@ -15,8 +16,7 @@ export type MetaAdSetProbeStepKey =
   | 'promoted_object'
   | 'custom_event_type'
   | 'pixel_id'
-  | 'product_catalog_id'
-  | 'destination_type'
+  | 'catalog_id'
   | 'targeting_automation';
 
 export type MetaAdSetProbeStepDefinition = {
@@ -89,8 +89,6 @@ export type MetaAdSetProbeResult = {
 export function buildMetaAdSetProbeSteps(input: MetaAdSetProbeBuildInput): MetaAdSetProbeStepDefinition[] {
   const promoted: Record<string, unknown> = {};
   let targeting = { ...input.targeting };
-  let destinationType: string | undefined;
-  let targetingAutomation = false;
 
   const withBase = (extra: Record<string, unknown>): Record<string, unknown> => {
     const payload: Record<string, unknown> = {
@@ -168,11 +166,11 @@ export function buildMetaAdSetProbeSteps(input: MetaAdSetProbeBuildInput): MetaA
     },
     {
       step: 6,
-      key: 'product_catalog_id',
-      label: 'Promoted object — product_catalog_id',
-      fieldAdded: 'promoted_object.product_catalog_id',
+      key: 'catalog_id',
+      label: 'Promoted object — catalog_id',
+      fieldAdded: 'promoted_object.catalog_id',
       buildPayload: () => {
-        if (input.catalogId) promoted.product_catalog_id = input.catalogId;
+        if (input.catalogId) promoted.catalog_id = input.catalogId;
         return withBase({
           targeting: JSON.stringify(targeting),
           promoted_object: JSON.stringify({ ...promoted }),
@@ -181,30 +179,14 @@ export function buildMetaAdSetProbeSteps(input: MetaAdSetProbeBuildInput): MetaA
     },
     {
       step: 7,
-      key: 'destination_type',
-      label: 'Destination type',
-      fieldAdded: 'destination_type',
-      buildPayload: () => {
-        if (input.destinationType) destinationType = input.destinationType;
-        return withBase({
-          targeting: JSON.stringify(targeting),
-          promoted_object: JSON.stringify({ ...promoted }),
-          ...(destinationType ? { destination_type: destinationType } : {}),
-        });
-      },
-    },
-    {
-      step: 8,
       key: 'targeting_automation',
       label: 'Targeting automation',
       fieldAdded: 'targeting.targeting_automation.advantage_audience',
       buildPayload: () => {
-        targetingAutomation = true;
         targeting = normalizeTargetingForMetaV25(targeting, input.advantageAudience);
         return withBase({
           targeting: JSON.stringify(targeting),
           promoted_object: JSON.stringify({ ...promoted }),
-          ...(destinationType ? { destination_type: destinationType } : {}),
         });
       },
     },
@@ -247,7 +229,6 @@ export function buildSupportedCatalogTrafficAdSetPayload(input: {
     dsa_beneficiary: input.dsaLabels.beneficiary,
     dsa_payor: input.dsaLabels.payor,
     targeting: JSON.stringify(targeting),
-    destination_type: input.spec.destinationType ?? 'SHOP_AUTOMATIC',
     ...(input.startTime ? { start_time: input.startTime } : {}),
     ...(input.endTime ? { end_time: input.endTime } : {}),
   };
@@ -271,35 +252,20 @@ export function buildSupportedCatalogAdSetPayload(input: {
   startTime?: string;
   endTime?: string;
 }): Record<string, unknown> {
-  const targeting = normalizeTargetingForMetaV25(
-    input.targeting,
-    input.spec.advantageAudience,
-  );
-  const promotedObject = buildPromotedObject({
-    campaignObjective: input.spec.campaignObjective,
-    optimizationGoal: input.spec.optimizationGoal,
-    creativeSource: input.spec.creativeSource,
+  return buildCatalogAdSet({
+    campaignId: input.campaignId,
+    adSetName: input.adSetName,
+    publishStatus: input.publishStatus,
+    dailyBudgetMinor: input.dailyBudgetMinor,
+    targeting: input.targeting,
     catalogId: input.catalogId,
     pixelId: input.pixelId,
-    customEventType: 'PURCHASE',
-  });
-  return {
-    name: input.adSetName,
-    campaign_id: input.campaignId,
-    billing_event: input.spec.billingEvent,
-    optimization_goal: input.spec.optimizationGoal,
-    bid_strategy: input.spec.bidStrategy,
-    daily_budget: String(input.dailyBudgetMinor),
-    status: input.publishStatus,
-    is_adset_budget_sharing_enabled: input.isAdsetBudgetSharingEnabled,
-    dsa_beneficiary: input.dsaLabels.beneficiary,
-    dsa_payor: input.dsaLabels.payor,
-    targeting: JSON.stringify(targeting),
-    destination_type: input.spec.destinationType ?? 'SHOP_AUTOMATIC',
-    ...(promotedObject ? { promoted_object: JSON.stringify(promotedObject) } : {}),
-    ...(input.startTime ? { start_time: input.startTime } : {}),
-    ...(input.endTime ? { end_time: input.endTime } : {}),
-  };
+    dsaLabels: input.dsaLabels,
+    isAdsetBudgetSharingEnabled: input.isAdsetBudgetSharingEnabled,
+    startTime: input.startTime,
+    endTime: input.endTime,
+    advantageAudience: input.spec.advantageAudience,
+  }).payload;
 }
 
 export function catalogSalesV25Validation(spec: MetaCampaignPayloadSpec): MetaAdSetV25FieldValidation[] {
@@ -313,14 +279,14 @@ export function catalogSalesV25Validation(spec: MetaCampaignPayloadSpec): MetaAd
     {
       field: 'promoted_object',
       supported: true,
-      value: 'product_catalog_id + pixel_id + custom_event_type',
+      value: 'catalog_id + pixel_id + custom_event_type',
       note: 'Pro katalogový prodej bez page_id v promoted_object — page_id patří do kreativy.',
     },
     {
-      field: 'destination_type',
+      field: 'conversion_location',
       supported: true,
-      value: spec.destinationType,
-      note: 'SHOP_AUTOMATIC je správný destination pro katalog; WEBSITE je pro čisté webové konverze.',
+      value: spec.conversionLocation,
+      note: 'Catalog Sales používá conversion location WEBSITE — bez destination_type / SHOP_AUTOMATIC.',
     },
     {
       field: 'targeting_automation',

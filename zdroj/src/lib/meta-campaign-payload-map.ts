@@ -36,6 +36,7 @@ export type MetaCampaignPayloadSpec = {
   billingEvent: string;
   bidStrategy: string;
   destinationType: string | null;
+  conversionLocation: string | null;
   advantageAudience: 0 | 1;
   requiresPromotedObject: boolean;
   allowedPromotedObjectKeys: string[];
@@ -92,7 +93,8 @@ const MODE_SPECS: Record<
     optimizationGoal: 'LINK_CLICKS',
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
-    destinationType: 'WEBSITE',
+    destinationType: null,
+    conversionLocation: 'WEBSITE',
     advantageAudience: 0,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
@@ -105,10 +107,11 @@ const MODE_SPECS: Record<
     optimizationGoal: 'OFFSITE_CONVERSIONS',
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
-    destinationType: 'SHOP_AUTOMATIC',
+    destinationType: null,
+    conversionLocation: 'WEBSITE',
     advantageAudience: 1,
     requiresPromotedObject: true,
-    allowedPromotedObjectKeys: ['product_catalog_id', 'pixel_id', 'custom_event_type'],
+    allowedPromotedObjectKeys: ['catalog_id', 'pixel_id', 'custom_event_type'],
     usesCatalog: true,
     usesPixel: true,
     requiresPageId: true,
@@ -118,10 +121,11 @@ const MODE_SPECS: Record<
     optimizationGoal: 'REACH',
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
-    destinationType: 'SHOP_AUTOMATIC',
+    destinationType: null,
+    conversionLocation: null,
     advantageAudience: 1,
-    requiresPromotedObject: true,
-    allowedPromotedObjectKeys: ['product_catalog_id'],
+    requiresPromotedObject: false,
+    allowedPromotedObjectKeys: [],
     usesCatalog: true,
     usesPixel: false,
     requiresPageId: true,
@@ -131,7 +135,8 @@ const MODE_SPECS: Record<
     optimizationGoal: 'OFFSITE_CONVERSIONS',
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
-    destinationType: 'WEBSITE',
+    destinationType: null,
+    conversionLocation: 'WEBSITE',
     advantageAudience: 0,
     requiresPromotedObject: true,
     allowedPromotedObjectKeys: ['pixel_id', 'custom_event_type'],
@@ -144,7 +149,8 @@ const MODE_SPECS: Record<
     optimizationGoal: 'LEAD_GENERATION',
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
-    destinationType: 'ON_AD',
+    destinationType: null,
+    conversionLocation: 'ON_AD',
     advantageAudience: 0,
     requiresPromotedObject: true,
     allowedPromotedObjectKeys: ['page_id', 'lead_gen_form_id'],
@@ -158,6 +164,7 @@ const MODE_SPECS: Record<
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
     destinationType: null,
+    conversionLocation: null,
     advantageAudience: 1,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
@@ -171,6 +178,7 @@ const MODE_SPECS: Record<
     billingEvent: 'THRUPLAY',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
     destinationType: null,
+    conversionLocation: null,
     advantageAudience: 0,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
@@ -183,7 +191,8 @@ const MODE_SPECS: Record<
     optimizationGoal: 'CONVERSATIONS',
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
-    destinationType: 'MESSENGER',
+    destinationType: null,
+    conversionLocation: 'MESSENGER',
     advantageAudience: 0,
     requiresPromotedObject: true,
     allowedPromotedObjectKeys: ['page_id'],
@@ -420,6 +429,7 @@ export type MetaCampaignCombinationDiagnostics = {
   optimizationGoal: string;
   creativeType: string;
   destinationType: string | null;
+  conversionLocation: string | null;
   promotedObjectSummary: string;
   validationOk: boolean;
   violations: Array<{ param: string; rule: string }>;
@@ -445,8 +455,8 @@ export function validateMetaCampaignCombination(input: {
     }
     if (ctx.catalogId?.trim()) {
       blockers.push({
-        key: 'combo.traffic.product_catalog_id',
-        message: `${META_UNSUPPORTED_COMBINATION_MESSAGE} (promoted_object.product_catalog_id: OUTCOME_TRAFFIC nesmí obsahovat product_catalog_id)`,
+        key: 'combo.traffic.catalog_id',
+        message: `${META_UNSUPPORTED_COMBINATION_MESSAGE} (promoted_object.catalog_id: OUTCOME_TRAFFIC nesmí obsahovat catalog_id)`,
       });
     }
   }
@@ -472,8 +482,8 @@ export function validateMetaCampaignCombination(input: {
     }
     if (!ctx.catalogId?.trim()) {
       blockers.push({
-        key: 'combo.sales.product_catalog_id',
-        message: `${META_UNSUPPORTED_COMBINATION_MESSAGE} (promoted_object.product_catalog_id: vyžadován katalog)`,
+        key: 'combo.sales.catalog_id',
+        message: `${META_UNSUPPORTED_COMBINATION_MESSAGE} (promoted_object.catalog_id: vyžadován katalog)`,
       });
     }
   }
@@ -507,6 +517,7 @@ export function buildCombinationDiagnostics(input: {
     optimizationGoal: input.spec.optimizationGoal,
     creativeType: input.spec.creativeSource,
     destinationType: input.spec.destinationType,
+    conversionLocation: input.spec.conversionLocation,
     promotedObjectSummary: input.spec.promotedObjectSummary,
     validationOk: blockers.length === 0,
     violations: blockers.map((b) => ({

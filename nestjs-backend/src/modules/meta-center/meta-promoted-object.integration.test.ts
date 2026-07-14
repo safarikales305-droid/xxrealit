@@ -7,6 +7,7 @@ import {
   buildTrafficCampaign,
   validateMetaCampaignCombination,
 } from './meta-campaign-builder.util';
+import { META_CATALOG_CONVERSION_LOCATION } from './meta-catalog-adset.util';
 import { getMetaCampaignPayloadSpec } from './meta-campaign-payload-map.util';
 import type { MetaCampaignPayloadContext } from './meta-campaign-payload-map.util';
 
@@ -77,36 +78,32 @@ const trafficCtx: MetaCampaignPayloadContext = {
   selectedProductIds: ['sku-1'],
 };
 
-/**
- * Integrační test Meta Ad Set promoted_object — prevence error_subcode 1815229.
- */
-test('Meta integration: catalog sales Ad Set has product_catalog_id', () => {
+test('Meta integration: catalog sales Ad Set has catalog_id without destination_type', () => {
   const spec = getMetaCampaignPayloadSpec('catalog_sales', catalogSalesCtx);
   const result = buildCatalogSalesCampaign(builderInput(spec, catalogSalesCtx));
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
   const promoted = JSON.parse(String(result.adSetPayload.promoted_object)) as Record<string, unknown>;
-  assert.equal(promoted.product_catalog_id, '123456789');
-  assert.equal(promoted.pixel_id, 'pixel_1');
+  assert.equal(promoted.catalog_id, '123456789');
   assert.equal(result.adSetPayload.optimization_goal, 'OFFSITE_CONVERSIONS');
-  assert.equal(result.adSetPayload.destination_type, 'SHOP_AUTOMATIC');
+  assert.equal(result.adSetPayload.destination_type, undefined);
+  assert.equal(result.diagnostics.conversionLocation, META_CATALOG_CONVERSION_LOCATION);
   assert.equal(result.diagnostics.validationOk, true);
 });
 
-test('Meta integration: catalog traffic fallback has no product_catalog_id in promoted_object', () => {
+test('Meta integration: catalog traffic fallback has no catalog_id in promoted_object', () => {
   const spec = getMetaCampaignPayloadSpec('catalog_traffic', catalogTrafficCtx);
   const result = buildCatalogTrafficCampaign(builderInput(spec, catalogTrafficCtx));
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
   assert.equal(result.adSetPayload.promoted_object, undefined);
-  assert.equal(result.campaignPayload.objective, 'OUTCOME_AWARENESS');
-  assert.equal(result.adSetPayload.optimization_goal, 'REACH');
+  assert.equal(result.adSetPayload.destination_type, undefined);
   assert.equal(validateMetaCampaignCombination({ spec, ctx: catalogTrafficCtx, adSetPayload: result.adSetPayload }).length, 0);
 });
 
-test('Meta integration: REACH campaign has no product_catalog_id', () => {
+test('Meta integration: REACH campaign has no catalog_id', () => {
   const spec = getMetaCampaignPayloadSpec('reach', reachCtx);
   const result = buildReachCampaign(builderInput(spec, reachCtx));
   assert.equal(result.ok, true);
@@ -114,7 +111,7 @@ test('Meta integration: REACH campaign has no product_catalog_id', () => {
   assert.equal(result.adSetPayload.promoted_object, undefined);
 });
 
-test('Meta integration: TRAFFIC campaign has no product_catalog_id', () => {
+test('Meta integration: TRAFFIC campaign has no catalog_id', () => {
   const spec = getMetaCampaignPayloadSpec('traffic', trafficCtx);
   const result = buildTrafficCampaign(builderInput(spec, trafficCtx));
   assert.equal(result.ok, true);
@@ -122,7 +119,7 @@ test('Meta integration: TRAFFIC campaign has no product_catalog_id', () => {
   assert.equal(result.adSetPayload.promoted_object, undefined);
 });
 
-test('Meta integration: diagnostics expose objective, optimization, destination, promoted object', () => {
+test('Meta integration: diagnostics expose objective, optimization, conversion location, promoted object', () => {
   const spec = getMetaCampaignPayloadSpec('catalog_sales', catalogSalesCtx);
   const result = buildCatalogSalesCampaign(builderInput(spec, catalogSalesCtx));
   assert.equal(result.ok, true);
@@ -130,7 +127,26 @@ test('Meta integration: diagnostics expose objective, optimization, destination,
 
   assert.equal(result.diagnostics.objective, 'OUTCOME_SALES');
   assert.equal(result.diagnostics.optimizationGoal, 'OFFSITE_CONVERSIONS');
-  assert.equal(result.diagnostics.destinationType, 'SHOP_AUTOMATIC');
+  assert.equal(result.diagnostics.conversionLocation, 'WEBSITE');
+  assert.equal(result.diagnostics.destinationType, null);
   assert.ok(result.diagnostics.promotedObject);
-  assert.equal(result.diagnostics.promotedObject?.product_catalog_id, '123456789');
+  assert.equal(result.diagnostics.promotedObject?.catalog_id, '123456789');
+});
+
+test('Meta integration: SHOP_AUTOMATIC in payload is rejected', () => {
+  const spec = getMetaCampaignPayloadSpec('catalog_sales', catalogSalesCtx);
+  const blockers = validateMetaCampaignCombination({
+    spec,
+    ctx: catalogSalesCtx,
+    adSetPayload: {
+      optimization_goal: 'OFFSITE_CONVERSIONS',
+      destination_type: 'SHOP_AUTOMATIC',
+      promoted_object: JSON.stringify({
+        catalog_id: '123456789',
+        pixel_id: 'pixel_1',
+        custom_event_type: 'PURCHASE',
+      }),
+    },
+  });
+  assert.ok(blockers.some((b) => b.key.includes('destination_type')));
 });

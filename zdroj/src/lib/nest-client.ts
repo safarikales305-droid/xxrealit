@@ -6556,7 +6556,9 @@ export type MetaCatalogCombinationDiagnostics = {
   objective: string;
   optimizationGoal: string;
   creativeType: string;
+  conversionLocation?: string | null;
   destinationType: string | null;
+  destinationTypeWarning?: string | null;
   promotedObjectKeys: string[];
   promotedObjectSummary: string;
   promotedObject?: Record<string, unknown> | null;

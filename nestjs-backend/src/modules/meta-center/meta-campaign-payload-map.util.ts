@@ -3,6 +3,10 @@ import { normalizeCreativeType } from './meta-campaign-creative.util';
 import {
   buildPromotedObjectFromSpec,
 } from './meta-promoted-object.util';
+import {
+  stripUnsupportedDestinationType,
+  validateUnsupportedDestinationType,
+} from './meta-catalog-adset.util';
 
 export type MetaCampaignModeKey =
   | 'traffic'
@@ -32,7 +36,9 @@ export type MetaCampaignPayloadSpec = {
   optimizationGoal: string;
   billingEvent: string;
   bidStrategy: string;
+  /** @deprecated Meta v25 — nepoužívat v API payloadu */
   destinationType: string | null;
+  conversionLocation: string | null;
   advantageAudience: 0 | 1;
   requiresPromotedObject: boolean;
   allowedPromotedObjectKeys: string[];
@@ -82,7 +88,8 @@ const MODE_SPECS: Record<
     optimizationGoal: 'LINK_CLICKS',
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
-    destinationType: 'WEBSITE',
+    destinationType: null,
+    conversionLocation: 'WEBSITE',
     advantageAudience: 0,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
@@ -95,10 +102,11 @@ const MODE_SPECS: Record<
     optimizationGoal: 'OFFSITE_CONVERSIONS',
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
-    destinationType: 'SHOP_AUTOMATIC',
+    destinationType: null,
+    conversionLocation: 'WEBSITE',
     advantageAudience: 1,
     requiresPromotedObject: true,
-    allowedPromotedObjectKeys: ['product_catalog_id', 'pixel_id', 'custom_event_type'],
+    allowedPromotedObjectKeys: ['catalog_id', 'pixel_id', 'custom_event_type'],
     usesCatalog: true,
     usesPixel: true,
     requiresPageId: true,
@@ -108,7 +116,8 @@ const MODE_SPECS: Record<
     optimizationGoal: 'REACH',
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
-    destinationType: 'SHOP_AUTOMATIC',
+    destinationType: null,
+    conversionLocation: null,
     advantageAudience: 1,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
@@ -121,7 +130,8 @@ const MODE_SPECS: Record<
     optimizationGoal: 'OFFSITE_CONVERSIONS',
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
-    destinationType: 'WEBSITE',
+    destinationType: null,
+    conversionLocation: 'WEBSITE',
     advantageAudience: 0,
     requiresPromotedObject: true,
     allowedPromotedObjectKeys: ['pixel_id', 'custom_event_type'],
@@ -134,7 +144,8 @@ const MODE_SPECS: Record<
     optimizationGoal: 'LEAD_GENERATION',
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
-    destinationType: 'ON_AD',
+    destinationType: null,
+    conversionLocation: 'ON_AD',
     advantageAudience: 0,
     requiresPromotedObject: true,
     allowedPromotedObjectKeys: ['page_id', 'lead_gen_form_id'],
@@ -148,6 +159,7 @@ const MODE_SPECS: Record<
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
     destinationType: null,
+    conversionLocation: null,
     advantageAudience: 1,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
@@ -161,6 +173,7 @@ const MODE_SPECS: Record<
     billingEvent: 'THRUPLAY',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
     destinationType: null,
+    conversionLocation: null,
     advantageAudience: 0,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
@@ -173,7 +186,8 @@ const MODE_SPECS: Record<
     optimizationGoal: 'CONVERSATIONS',
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
-    destinationType: 'MESSENGER',
+    destinationType: null,
+    conversionLocation: 'MESSENGER',
     advantageAudience: 0,
     requiresPromotedObject: true,
     allowedPromotedObjectKeys: ['page_id'],
@@ -225,7 +239,7 @@ export function isNonCatalogCreativeSource(source: MetaCreativeSourceKey): boole
 function promotedSummary(mode: MetaCampaignModeKey, leadFormId?: string | null): string {
   switch (mode) {
     case 'catalog_sales':
-      return 'Catalog + Pixel + Purchase (SHOP_AUTOMATIC)';
+      return 'Catalog + Pixel + PURCHASE (WEBSITE)';
     case 'catalog_traffic':
       return 'Katalogová kreativa + REACH (bez promoted_object)';
     case 'remarketing':
@@ -444,7 +458,9 @@ export function validateAdSetPayloadCombination(
   payload: Record<string, unknown>,
   spec: MetaCampaignPayloadSpec,
 ): MetaCampaignLaunchBlocker[] {
-  const blockers: MetaCampaignLaunchBlocker[] = [];
+  const blockers: MetaCampaignLaunchBlocker[] = [
+    ...validateUnsupportedDestinationType(payload),
+  ];
   const promoted = parsePromotedObject(payload.promoted_object);
   const objective = String(spec.campaignObjective);
   const optimizationGoal = String(payload.optimization_goal ?? '');
@@ -537,16 +553,17 @@ export function validateAdSetPayloadCombination(
             'Katalogový prodej: page_id nepatří do promoted_object ad setu (patří do kreativy).',
         });
       }
-      if (payload.destination_type === 'WEBSITE') {
+      if (promoted.product_catalog_id && !promoted.catalog_id) {
         blockers.push({
-          key: 'adset.destination_type.website_forbidden',
+          key: 'adset.promoted_object.product_catalog_id_deprecated',
           message:
-            'Katalogový prodej: destination_type WEBSITE je neplatný — použijte SHOP_AUTOMATIC.',
+            'Katalogový prodej: product_catalog_id je zastaralé — použijte catalog_id v promoted_object.',
         });
       }
     }
 
-    if (promoted.product_catalog_id) {
+    const catalogField = promoted.catalog_id ?? promoted.product_catalog_id;
+    if (catalogField) {
       const catalogSalesAllowed =
         objective === 'OUTCOME_SALES' &&
         optimizationGoal === 'OFFSITE_CONVERSIONS' &&
@@ -690,15 +707,9 @@ export function normalizeAdSetPayloadForMetaV25(input: {
     payload.bid_strategy = input.spec.bidStrategy;
   }
 
-  if (input.spec.destinationType) {
-    if (payload.destination_type !== input.spec.destinationType) {
-      corrections.push(
-        `destination_type ${String(payload.destination_type ?? '—')} → ${input.spec.destinationType}`,
-      );
-      payload.destination_type = input.spec.destinationType;
-    }
-  } else if (payload.destination_type) {
-    corrections.push(`destination_type odstraněno (režim ${input.spec.mode} ho nevyžaduje)`);
+  const stripped = stripUnsupportedDestinationType(payload);
+  if (stripped.removed) {
+    corrections.push(`destination_type odstraněno (${stripped.removed})`);
     delete payload.destination_type;
   }
 

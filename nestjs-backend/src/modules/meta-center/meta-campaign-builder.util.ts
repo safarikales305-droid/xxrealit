@@ -3,6 +3,7 @@ import {
   buildSupportedCatalogAdSetPayload,
   buildSupportedCatalogTrafficAdSetPayload,
 } from './meta-adset-probe.util';
+import { buildCatalogAdSet } from './meta-catalog-adset.util';
 import {
   buildPromotedObject,
   buildPromotedObjectFromSpec,
@@ -34,7 +35,9 @@ export type MetaCampaignCombinationDiagnostics = {
   objective: string;
   optimizationGoal: string;
   creativeType: string;
+  conversionLocation: string | null;
   destinationType: string | null;
+  destinationTypeWarning: string | null;
   promotedObjectKeys: string[];
   promotedObjectSummary: string;
   promotedObject: Record<string, unknown> | null;
@@ -141,12 +144,12 @@ export function validateMetaCampaignCombination(input: {
         ),
       );
     }
-    if (promoted?.product_catalog_id) {
+    if (promoted?.product_catalog_id || promoted?.catalog_id) {
       blockers.push(
         violationBlocker(
           'combo.traffic.product_catalog_id',
-          'promoted_object.product_catalog_id',
-          'OUTCOME_TRAFFIC nesmí obsahovat product_catalog_id',
+          'promoted_object.catalog_id',
+          'OUTCOME_TRAFFIC nesmí obsahovat catalog_id',
           spec,
           promoted,
         ),
@@ -188,23 +191,12 @@ export function validateMetaCampaignCombination(input: {
         ),
       );
     }
-    if (spec.destinationType !== 'SHOP_AUTOMATIC') {
+    if (!promoted?.catalog_id && !promoted?.product_catalog_id) {
       blockers.push(
         violationBlocker(
-          'combo.sales.destination_type',
-          'destination_type',
-          'Katalogový prodej vyžaduje SHOP_AUTOMATIC',
-          spec,
-          promoted,
-        ),
-      );
-    }
-    if (!promoted?.product_catalog_id) {
-      blockers.push(
-        violationBlocker(
-          'combo.sales.product_catalog_id',
-          'promoted_object.product_catalog_id',
-          'Katalogový prodej vyžaduje product_catalog_id',
+          'combo.sales.catalog_id',
+          'promoted_object.catalog_id',
+          'Katalogový prodej vyžaduje catalog_id',
           spec,
           promoted,
         ),
@@ -246,12 +238,12 @@ export function validateMetaCampaignCombination(input: {
         ),
       );
     }
-    if (promoted?.product_catalog_id) {
+    if (promoted?.product_catalog_id || promoted?.catalog_id) {
       blockers.push(
         violationBlocker(
-          'combo.catalog_traffic.product_catalog_id_forbidden',
-          'promoted_object.product_catalog_id',
-          'OUTCOME_AWARENESS + REACH nesmí obsahovat product_catalog_id',
+          'combo.catalog_traffic.catalog_id_forbidden',
+          'promoted_object.catalog_id',
+          'OUTCOME_AWARENESS + REACH nesmí obsahovat catalog_id',
           spec,
           promoted,
         ),
@@ -270,24 +262,24 @@ export function validateMetaCampaignCombination(input: {
     }
   }
 
-  if (objective === 'OUTCOME_AWARENESS' && promoted?.product_catalog_id) {
+  if (objective === 'OUTCOME_AWARENESS' && (promoted?.product_catalog_id || promoted?.catalog_id)) {
     blockers.push(
       violationBlocker(
-        'combo.awareness.product_catalog_id',
-        'promoted_object.product_catalog_id',
-        'OUTCOME_AWARENESS nesmí obsahovat product_catalog_id',
+        'combo.awareness.catalog_id',
+        'promoted_object.catalog_id',
+        'OUTCOME_AWARENESS nesmí obsahovat catalog_id',
         spec,
         promoted,
       ),
     );
   }
 
-  if (optimizationGoal === 'REACH' && promoted?.product_catalog_id) {
+  if (optimizationGoal === 'REACH' && (promoted?.product_catalog_id || promoted?.catalog_id)) {
     blockers.push(
       violationBlocker(
-        'combo.reach.product_catalog_id',
-        'promoted_object.product_catalog_id',
-        'REACH nesmí obsahovat product_catalog_id',
+        'combo.reach.catalog_id',
+        'promoted_object.catalog_id',
+        'REACH nesmí obsahovat catalog_id',
         spec,
         promoted,
       ),
@@ -354,6 +346,11 @@ export function buildCombinationDiagnostics(input: {
       adSetPayload: input.adSetPayload,
     });
 
+  const payloadDestinationType =
+    input.adSetPayload?.destination_type != null
+      ? String(input.adSetPayload.destination_type)
+      : null;
+
   return {
     goalLabel: input.spec.goalLabel,
     mode: input.spec.mode,
@@ -362,9 +359,11 @@ export function buildCombinationDiagnostics(input: {
       input.adSetPayload?.optimization_goal ?? input.spec.optimizationGoal,
     ),
     creativeType: input.spec.creativeSource,
-    destinationType: String(
-      input.adSetPayload?.destination_type ?? input.spec.destinationType ?? '',
-    ) || input.spec.destinationType,
+    conversionLocation: input.spec.conversionLocation,
+    destinationType: payloadDestinationType,
+    destinationTypeWarning: payloadDestinationType
+      ? 'Varování: destination_type v payloadu — Meta v25 ho nepodporuje (Web+Shop / Shop Automatic).'
+      : null,
     promotedObjectKeys: promoted ? Object.keys(promoted) : [],
     promotedObjectSummary: promoted
       ? JSON.stringify(promoted)
@@ -530,12 +529,11 @@ export function buildCatalogSalesCampaign(input: MetaCampaignBuilderInput): Meta
       }),
     };
   }
-  const adSetPayload = buildSupportedCatalogAdSetPayload({
+  const built = buildCatalogAdSet({
     campaignId: input.campaignId,
     adSetName: `${input.name.trim()} — sada`,
     publishStatus: input.publishStatus,
     dailyBudgetMinor: input.dailyBudgetMinor,
-    spec: input.spec,
     targeting: input.targeting,
     catalogId,
     pixelId,
@@ -543,16 +541,9 @@ export function buildCatalogSalesCampaign(input: MetaCampaignBuilderInput): Meta
     isAdsetBudgetSharingEnabled: input.isAdsetBudgetSharingEnabled,
     startTime: input.startTime,
     endTime: input.endTime,
+    advantageAudience: input.spec.advantageAudience,
   });
-  const promotedObject = buildPromotedObject({
-    campaignObjective: input.spec.campaignObjective,
-    optimizationGoal: input.spec.optimizationGoal,
-    creativeSource: input.spec.creativeSource,
-    catalogId,
-    pixelId,
-    customEventType: 'PURCHASE',
-  });
-  return finalizeBuilderResult(input, adSetPayload, promotedObject);
+  return finalizeBuilderResult(input, built.payload, built.promotedObject);
 }
 
 export function buildCatalogTrafficCampaign(input: MetaCampaignBuilderInput): MetaCampaignBuilderResult {

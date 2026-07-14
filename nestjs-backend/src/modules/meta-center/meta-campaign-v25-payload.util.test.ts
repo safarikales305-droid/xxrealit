@@ -9,6 +9,7 @@ import {
   serializePayloadForMetaApi,
   validateAdSetPayloadCombination,
 } from './meta-campaign-payload-map.util';
+import { buildCatalogAdSet } from './meta-catalog-adset.util';
 
 const catalogCtx = {
   goal: 'catalog',
@@ -23,7 +24,9 @@ const catalogCtx = {
   selectedProductIds: ['sku-1'],
 };
 
-test('traffic v25: LINK_CLICKS without product_catalog_id in promoted_object', () => {
+const dsa = { beneficiary: 'XXrealit.cz', payor: 'XXrealit.cz' };
+
+test('traffic v25: LINK_CLICKS without catalog_id in promoted_object', () => {
   const trafficCtx = {
     goal: 'traffic',
     creativeType: 'listing',
@@ -43,32 +46,50 @@ test('traffic v25: LINK_CLICKS without product_catalog_id in promoted_object', (
   assert.equal(promoted, null);
 });
 
-test('catalog_sales v25: SHOP_AUTOMATIC + OFFSITE_CONVERSIONS (not WEBSITE)', () => {
+test('catalog_sales v25: WEBSITE conversion location without destination_type', () => {
   const spec = getMetaCampaignPayloadSpec('catalog_sales', catalogCtx);
   assert.equal(spec.campaignObjective, 'OUTCOME_SALES');
   assert.equal(spec.optimizationGoal, 'OFFSITE_CONVERSIONS');
-  assert.equal(spec.destinationType, 'SHOP_AUTOMATIC');
+  assert.equal(spec.destinationType, null);
+  assert.equal(spec.conversionLocation, 'WEBSITE');
   assert.equal(spec.advantageAudience, 1);
 });
 
-test('catalog promoted_object: product_catalog_id + pixel_id + PURCHASE only (no page_id)', () => {
+test('catalog promoted_object: catalog_id + pixel_id + PURCHASE only (no page_id)', () => {
   const spec = getMetaCampaignPayloadSpec('catalog_sales', catalogCtx);
   const promoted = buildPromotedObjectForSpec(spec, catalogCtx);
   assert.deepEqual(promoted, {
-    product_catalog_id: '123456789',
+    catalog_id: '123456789',
     pixel_id: 'pixel_1',
     custom_event_type: 'PURCHASE',
   });
   assert.equal('page_id' in (promoted ?? {}), false);
 });
 
-test('legacy invalid combo WEBSITE + page_id in promoted_object is rejected', () => {
+test('SHOP_AUTOMATIC destination_type is rejected', () => {
   const spec = getMetaCampaignPayloadSpec('catalog_sales', catalogCtx);
   const blockers = validateAdSetPayloadCombination(
     {
       optimization_goal: 'OFFSITE_CONVERSIONS',
       billing_event: 'IMPRESSIONS',
-      destination_type: 'WEBSITE',
+      destination_type: 'SHOP_AUTOMATIC',
+      promoted_object: JSON.stringify({
+        pixel_id: 'pixel_1',
+        custom_event_type: 'PURCHASE',
+        catalog_id: '123456789',
+      }),
+    },
+    spec,
+  );
+  assert.ok(blockers.some((b) => b.key === 'adset.destination_type.unsupported'));
+});
+
+test('legacy product_catalog_id without catalog_id is rejected for catalog sales', () => {
+  const spec = getMetaCampaignPayloadSpec('catalog_sales', catalogCtx);
+  const blockers = validateAdSetPayloadCombination(
+    {
+      optimization_goal: 'OFFSITE_CONVERSIONS',
+      billing_event: 'IMPRESSIONS',
       promoted_object: JSON.stringify({
         page_id: 'page_1',
         pixel_id: 'pixel_1',
@@ -79,7 +100,7 @@ test('legacy invalid combo WEBSITE + page_id in promoted_object is rejected', ()
     spec,
   );
   assert.ok(blockers.some((b) => b.key === 'adset.promoted_object.page_id_forbidden'));
-  assert.ok(blockers.some((b) => b.key === 'adset.destination_type.website_forbidden'));
+  assert.ok(blockers.some((b) => b.key === 'adset.promoted_object.product_catalog_id_deprecated'));
 });
 
 test('catalog targeting uses advantage_audience=1 per v25 ODAX', () => {
@@ -90,14 +111,34 @@ test('catalog targeting uses advantage_audience=1 per v25 ODAX', () => {
   assert.deepEqual(targeting.targeting_automation, { advantage_audience: 1 });
 });
 
-test('normalizeAdSetPayloadForMetaV25 builds valid catalog ad set payload', () => {
+test('buildCatalogAdSet builds valid catalog ad set payload', () => {
+  const built = buildCatalogAdSet({
+    campaignId: 'camp_1',
+    adSetName: 'Test — sada',
+    publishStatus: 'PAUSED',
+    dailyBudgetMinor: 50000,
+    targeting: { geo_locations: { cities: [{ key: '777934' }] } },
+    catalogId: '123456789',
+    pixelId: 'pixel_1',
+    dsaLabels: dsa,
+    isAdsetBudgetSharingEnabled: false,
+  });
+
+  assert.equal(built.payload.destination_type, undefined);
+  assert.equal(built.conversionLocation, 'WEBSITE');
+  assert.deepEqual(built.promotedObject, {
+    catalog_id: '123456789',
+    pixel_id: 'pixel_1',
+    custom_event_type: 'PURCHASE',
+  });
+});
+
+test('normalizeAdSetPayloadForMetaV25 strips destination_type from catalog ad set', () => {
   const spec = getMetaCampaignPayloadSpec('catalog_sales', catalogCtx);
   const targeting = normalizeTargetingForMetaV25(
     { geo_locations: { cities: [{ key: '777934' }] } },
     spec.advantageAudience,
   );
-  const dsa = resolveDsaDisclosureLabels({ pageName: 'XXrealit.cz' });
-  assert.ok(dsa);
 
   const normalized = normalizeAdSetPayloadForMetaV25({
     payload: {
@@ -106,6 +147,7 @@ test('normalizeAdSetPayloadForMetaV25 builds valid catalog ad set payload', () =
       billing_event: 'IMPRESSIONS',
       optimization_goal: 'OFFSITE_CONVERSIONS',
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+      destination_type: 'SHOP_AUTOMATIC',
       targeting: JSON.stringify(targeting),
       status: 'PAUSED',
       daily_budget: '50000',
@@ -117,17 +159,10 @@ test('normalizeAdSetPayloadForMetaV25 builds valid catalog ad set payload', () =
     dsaLabels: dsa,
   });
 
-  assert.equal(normalized.payload.destination_type, 'SHOP_AUTOMATIC');
-  assert.equal(normalized.payload.dsa_beneficiary, 'XXrealit.cz');
+  assert.equal(normalized.payload.destination_type, undefined);
+  assert.ok(normalized.corrections.some((c) => c.includes('destination_type odstraněno')));
   const promoted = JSON.parse(String(normalized.payload.promoted_object)) as Record<string, unknown>;
-  assert.equal(promoted.product_catalog_id, '123456789');
-  assert.equal(promoted.pixel_id, 'pixel_1');
-  assert.equal(promoted.custom_event_type, 'PURCHASE');
-  assert.equal(promoted.page_id, undefined);
-
-  const metaForm = serializePayloadForMetaApi(normalized.payload);
-  assert.ok(metaForm.targeting.includes('"advantage_audience":1'));
-  assert.ok(!metaForm.promoted_object.includes('page_id'));
+  assert.equal(promoted.catalog_id, '123456789');
 });
 
 test('full launch chain: campaign → adset → creative → ad serializes for Meta API v25', () => {
@@ -139,26 +174,19 @@ test('full launch chain: campaign → adset → creative → ad serializes for M
     special_ad_categories: JSON.stringify(['HOUSING']),
     is_adset_budget_sharing_enabled: false,
   };
-  const targeting = normalizeTargetingForMetaV25(
-    { geo_locations: { cities: [{ key: '777934' }] } },
-    spec.advantageAudience,
-  );
-  const adSet = normalizeAdSetPayloadForMetaV25({
-    payload: {
-      name: 'Test — sada',
-      campaign_id: 'PREVIEW_CAMPAIGN_ID',
-      billing_event: spec.billingEvent,
-      optimization_goal: spec.optimizationGoal,
-      bid_strategy: spec.bidStrategy,
-      targeting: JSON.stringify(targeting),
-      status: 'PAUSED',
-      daily_budget: '50000',
-      is_adset_budget_sharing_enabled: false,
-    },
-    spec,
-    payloadContext: catalogCtx,
-    targeting,
-    dsaLabels: resolveDsaDisclosureLabels({ pageName: 'XXrealit.cz' }),
+  const adSet = buildCatalogAdSet({
+    campaignId: 'PREVIEW_CAMPAIGN_ID',
+    adSetName: 'Test — sada',
+    publishStatus: 'PAUSED',
+    dailyBudgetMinor: 50000,
+    targeting: normalizeTargetingForMetaV25(
+      { geo_locations: { cities: [{ key: '777934' }] } },
+      spec.advantageAudience,
+    ),
+    catalogId: '123456789',
+    pixelId: 'pixel_1',
+    dsaLabels: dsa,
+    isAdsetBudgetSharingEnabled: false,
   });
   const creativePayload = {
     name: 'Test — kreativa',
@@ -180,9 +208,9 @@ test('full launch chain: campaign → adset → creative → ad serializes for M
   };
 
   const adSetForm = serializePayloadForMetaApi(adSet.payload);
-  assert.equal(adSetForm.destination_type, 'SHOP_AUTOMATIC');
+  assert.equal(adSetForm.destination_type, undefined);
   assert.ok(serializePayloadForMetaApi(campaignPayload).objective);
-  assert.ok(adSetForm.promoted_object);
+  assert.ok(adSetForm.promoted_object.includes('catalog_id'));
   assert.ok(serializePayloadForMetaApi(creativePayload).object_story_spec);
   assert.ok(serializePayloadForMetaApi(adPayload).creative);
 });

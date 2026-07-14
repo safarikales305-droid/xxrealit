@@ -3,6 +3,7 @@ import {
   extractMetaGraphErrorFields,
   type MetaGraphErrorBody,
 } from './meta-graph-error.util';
+import { validateUnsupportedDestinationType } from './meta-catalog-adset.util';
 
 export type MetaCampaignLaunchBlocker = {
   key: string;
@@ -334,7 +335,9 @@ export function validateAdSetPayload(
   config: MetaCampaignBudgetConfig,
   options: { requiresPromotedObject: boolean },
 ): MetaCampaignLaunchBlocker[] {
-  const blockers: MetaCampaignLaunchBlocker[] = [];
+  const blockers: MetaCampaignLaunchBlocker[] = [
+    ...validateUnsupportedDestinationType(payload),
+  ];
   const required = [
     'name',
     'campaign_id',

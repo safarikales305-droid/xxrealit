@@ -8,7 +8,7 @@ import {
 const catalogId = '123456789';
 const pixelId = 'pixel_1';
 
-test('CATALOG SALES must contain product_catalog_id', () => {
+test('CATALOG SALES must contain catalog_id', () => {
   const promoted = buildPromotedObject({
     campaignObjective: 'OUTCOME_SALES',
     optimizationGoal: 'OFFSITE_CONVERSIONS',
@@ -18,7 +18,7 @@ test('CATALOG SALES must contain product_catalog_id', () => {
     customEventType: 'PURCHASE',
   });
   assert.ok(promoted);
-  assert.equal(promoted!.product_catalog_id, catalogId);
+  assert.equal(promoted!.catalog_id, catalogId);
   assert.equal(promoted!.pixel_id, pixelId);
   assert.equal(promoted!.custom_event_type, 'PURCHASE');
   assert.deepEqual(
@@ -32,7 +32,7 @@ test('CATALOG SALES must contain product_catalog_id', () => {
   );
 });
 
-test('REACH must not contain product_catalog_id', () => {
+test('REACH must not contain catalog_id', () => {
   const promoted = buildPromotedObject({
     campaignObjective: 'OUTCOME_AWARENESS',
     optimizationGoal: 'REACH',
@@ -45,13 +45,13 @@ test('REACH must not contain product_catalog_id', () => {
       campaignObjective: 'OUTCOME_AWARENESS',
       optimizationGoal: 'REACH',
       creativeSource: 'catalog_products',
-      promotedObject: { product_catalog_id: catalogId },
+      promotedObject: { catalog_id: catalogId },
     }).length,
     0,
   );
 });
 
-test('TRAFFIC must not contain product_catalog_id', () => {
+test('TRAFFIC must not contain catalog_id', () => {
   const promoted = buildPromotedObject({
     campaignObjective: 'OUTCOME_TRAFFIC',
     optimizationGoal: 'LINK_CLICKS',
@@ -64,13 +64,13 @@ test('TRAFFIC must not contain product_catalog_id', () => {
     validatePromotedObjectRules({
       campaignObjective: 'OUTCOME_TRAFFIC',
       optimizationGoal: 'LINK_CLICKS',
-      promotedObject: { product_catalog_id: catalogId },
+      promotedObject: { catalog_id: catalogId },
     }).length,
     0,
   );
 });
 
-test('AWARENESS must not contain product_catalog_id', () => {
+test('AWARENESS must not contain catalog_id', () => {
   const promoted = buildPromotedObject({
     campaignObjective: 'OUTCOME_AWARENESS',
     optimizationGoal: 'REACH',
@@ -93,7 +93,7 @@ test('WEBSITE_CONVERSIONS sends pixel_id and custom_event_type only', () => {
     pixel_id: pixelId,
     custom_event_type: 'PURCHASE',
   });
-  assert.ok(!('product_catalog_id' in (promoted ?? {})));
+  assert.ok(!('catalog_id' in (promoted ?? {})));
 });
 
 test('remarketing OFFSITE_CONVERSIONS uses pixel without catalog', () => {

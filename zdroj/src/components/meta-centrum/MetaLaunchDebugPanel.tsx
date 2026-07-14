@@ -179,17 +179,25 @@ export function MetaLaunchDebugPanel({ error, failedStep, launchDebug, combinati
           <ul className="grid gap-0.5 font-mono text-[10px] sm:grid-cols-2">
             <li>Cíl: {combinationDiagnostics.goalLabel}</li>
             <li>Objective: {combinationDiagnostics.objective}</li>
-            <li>Optimization goal: {combinationDiagnostics.optimizationGoal}</li>
+            <li>Optimization Goal: {combinationDiagnostics.optimizationGoal}</li>
+            <li>Conversion Location: {combinationDiagnostics.conversionLocation ?? '—'}</li>
             <li>Kreativa: {combinationDiagnostics.creativeType}</li>
-            <li>Destination type: {combinationDiagnostics.destinationType ?? '—'}</li>
             <li>
-              Promoted object:{' '}
+              Destination Type: {combinationDiagnostics.destinationType ?? '—'}
+            </li>
+            <li>
+              Promoted Object:{' '}
               {combinationDiagnostics.promotedObject
                 ? JSON.stringify(combinationDiagnostics.promotedObject)
                 : combinationDiagnostics.promotedObjectSummary}
             </li>
             <li>Výsledek: {combinationDiagnostics.validationOk ? '✓ OK' : '✗ neplatná'}</li>
           </ul>
+          {combinationDiagnostics.destinationTypeWarning ? (
+            <p className="mt-1 text-[10px] font-semibold text-amber-900">
+              {combinationDiagnostics.destinationTypeWarning}
+            </p>
+          ) : null}
           {combinationDiagnostics.violations.length > 0 ? (
             <ul className="mt-2 space-y-1 text-[10px] text-red-800">
               {combinationDiagnostics.violations.map((v: { param: string; rule: string }) => (

@@ -104,9 +104,9 @@ test('catalog sales builder: valid OUTCOME_SALES + OFFSITE_CONVERSIONS + catalog
   if (!result.ok) return;
   assert.equal(result.campaignPayload.objective, 'OUTCOME_SALES');
   assert.equal(result.adSetPayload.optimization_goal, 'OFFSITE_CONVERSIONS');
-  assert.equal(result.adSetPayload.destination_type, 'SHOP_AUTOMATIC');
+  assert.equal(result.adSetPayload.destination_type, undefined);
   const promoted = JSON.parse(String(result.adSetPayload.promoted_object)) as Record<string, unknown>;
-  assert.equal(promoted.product_catalog_id, '123456789');
+  assert.equal(promoted.catalog_id, '123456789');
   assert.equal(promoted.pixel_id, 'pixel_1');
   assert.equal(result.diagnostics.validationOk, true);
 });
@@ -179,7 +179,7 @@ test('invalid combo OUTCOME_TRAFFIC + catalog_products is rejected before API', 
     ctx: invalidCtx,
     adSetPayload: {
       optimization_goal: 'LINK_CLICKS',
-      promoted_object: JSON.stringify({ product_catalog_id: '123456789' }),
+      promoted_object: JSON.stringify({ catalog_id: '123456789', pixel_id: 'pixel_1', custom_event_type: 'PURCHASE' }),
     },
   });
   assert.ok(blockers.length > 0);

@@ -21,7 +21,11 @@ function normalizeCatalogId(catalogId?: string | null): string | null {
   return id || null;
 }
 
-/** Meta error 1815229: product_catalog_id není podporován u WEBSITE_CONVERSIONS / REACH / TRAFFIC / AWARENESS. */
+function promotedHasCatalogField(promoted: Record<string, unknown> | null | undefined): boolean {
+  return Boolean(promoted?.catalog_id ?? promoted?.product_catalog_id);
+}
+
+/** Meta error 1815229: catalog_id není podporován u WEBSITE_CONVERSIONS / REACH / TRAFFIC / AWARENESS. */
 export function promotedObjectForbidsCatalogId(input: {
   campaignObjective: string;
   optimizationGoal: string;
@@ -69,7 +73,7 @@ export function buildPromotedObject(
   if (objective === 'OUTCOME_SALES' && isCatalogCreative) {
     if (!catalogId || !pixelId) return null;
     return {
-      product_catalog_id: catalogId,
+      catalog_id: catalogId,
       pixel_id: pixelId,
       custom_event_type: customEventType,
     };
@@ -146,20 +150,24 @@ export function validatePromotedObjectRules(input: {
 }): string[] {
   const errors: string[] = [];
   const promoted = input.promotedObject;
-  const hasCatalogId = Boolean(promoted?.product_catalog_id);
+  const hasCatalogId = promotedHasCatalogField(promoted);
 
   if (hasCatalogId && promotedObjectForbidsCatalogId(input)) {
     errors.push(
-      `${input.campaignObjective} + ${input.optimizationGoal} nesmí obsahovat product_catalog_id`,
+      `${input.campaignObjective} + ${input.optimizationGoal} nesmí obsahovat catalog_id`,
     );
   }
 
   if (catalogSalesRequiresCatalogId(input) && !hasCatalogId) {
-    errors.push('CATALOG SALES musí obsahovat product_catalog_id');
+    errors.push('CATALOG SALES musí obsahovat catalog_id');
   }
 
   if (input.optimizationGoal === 'WEBSITE_CONVERSIONS' && hasCatalogId) {
-    errors.push('WEBSITE_CONVERSIONS nesmí obsahovat product_catalog_id');
+    errors.push('WEBSITE_CONVERSIONS nesmí obsahovat catalog_id');
+  }
+
+  if (promoted?.product_catalog_id && !promoted.catalog_id) {
+    errors.push('product_catalog_id je zastaralé — použijte catalog_id');
   }
 
   return errors;
