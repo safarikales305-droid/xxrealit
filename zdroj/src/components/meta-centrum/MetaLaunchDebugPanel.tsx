@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import type { MetaCampaignCombinationDiagnostics, MetaCampaignCreateResponse, MetaLaunchDebugTrace } from '@/lib/nest-client';
+import type { MetaCatalogCombinationDiagnostics, MetaCampaignCreateResponse, MetaLaunchDebugTrace } from '@/lib/nest-client';
 import { MetaAdSetProbePanel } from '@/components/meta-centrum/MetaAdSetProbePanel';
 
 const GRAPH_EXPLORER_URL = 'https://developers.facebook.com/tools/explorer/';
@@ -17,7 +17,7 @@ type Props = {
   error?: MetaCampaignCreateResponse['metaApiError'];
   failedStep?: string | null;
   launchDebug?: MetaLaunchDebugTrace | null;
-  combinationDiagnostics?: MetaCampaignCombinationDiagnostics | null;
+  combinationDiagnostics?: MetaCatalogCombinationDiagnostics | null;
 };
 
 function buildExplorerExport(step: MetaLaunchDebugTrace['steps'][number]) {
@@ -186,7 +186,7 @@ export function MetaLaunchDebugPanel({ error, failedStep, launchDebug, combinati
           </ul>
           {combinationDiagnostics.violations.length > 0 ? (
             <ul className="mt-2 space-y-1 text-[10px] text-red-800">
-              {combinationDiagnostics.violations.map((v) => (
+              {combinationDiagnostics.violations.map((v: { param: string; rule: string }) => (
                 <li key={v.param}>
                   <span className="font-semibold">{v.param}:</span> {v.rule}
                 </li>

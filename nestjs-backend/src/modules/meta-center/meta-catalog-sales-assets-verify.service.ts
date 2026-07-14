@@ -40,6 +40,7 @@ export type MetaCatalogSalesAssetsVerification = {
   ok: boolean;
   message: string;
   canUseConversionOptimization: boolean;
+  catalogLaunchMode: 'sales' | 'traffic';
   verifiedPixelId: string | null;
   configuredPixelId: string | null;
   configuredDatasetId: string | null;
@@ -619,15 +620,17 @@ export class MetaCatalogSalesAssetsVerifyService {
     eventSource: MetaCatalogEventSourceInfo,
     message?: string,
   ): MetaCatalogSalesAssetsVerification {
+    const catalogLaunchMode = canUseConversionOptimization ? 'sales' : 'traffic';
     const finalMessage =
       message ??
       (canUseConversionOptimization
         ? 'Všechny Meta assety pro katalogový prodej jsou ověřené.'
-        : 'Katalogový prodej vyžaduje ověřený Pixel nebo Event Source propojený s katalogem.');
+        : 'Katalog nemá dostupný podporovaný zdroj událostí pro optimalizaci nákupu. Použije se katalogová návštěvnost.');
     return {
-      ok: canUseConversionOptimization,
+      ok: true,
       message: finalMessage,
       canUseConversionOptimization,
+      catalogLaunchMode,
       verifiedPixelId: promotedObjectPixelId,
       configuredPixelId,
       configuredDatasetId,
@@ -651,6 +654,7 @@ export class MetaCatalogSalesAssetsVerifyService {
       ok: false,
       message,
       canUseConversionOptimization: false,
+      catalogLaunchMode: 'traffic',
       verifiedPixelId: null,
       configuredPixelId,
       configuredDatasetId,

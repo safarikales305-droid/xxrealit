@@ -1,7 +1,11 @@
 import type { MetaCampaignLaunchBlocker } from './meta-campaign-api-payload.util';
-import { buildSupportedCatalogAdSetPayload } from './meta-adset-probe.util';
+import {
+  buildSupportedCatalogAdSetPayload,
+  buildSupportedCatalogTrafficAdSetPayload,
+} from './meta-adset-probe.util';
 import {
   buildPromotedObjectForSpec,
+  CATALOG_TRAFFIC_FALLBACK_MESSAGE,
   formatInvalidCombinationMessage,
   getMetaCampaignPayloadSpec,
   normalizeAdSetPayloadForMetaV25,
@@ -29,6 +33,8 @@ export type MetaCampaignCombinationDiagnostics = {
   destinationType: string | null;
   promotedObjectKeys: string[];
   promotedObjectSummary: string;
+  catalogLaunchMode?: 'sales' | 'traffic' | null;
+  fallbackReason?: string | null;
   validationOk: boolean;
   violations: MetaCampaignCombinationViolation[];
 };
@@ -212,6 +218,53 @@ export function validateMetaCampaignCombination(input: {
     }
   }
 
+  if (spec.mode === 'catalog_traffic') {
+    if (!isCatalogCreative) {
+      blockers.push(
+        violationBlocker(
+          'combo.catalog_traffic.creative_required',
+          'creative',
+          'Katalogová návštěvnost vyžaduje catalog_products',
+          spec,
+          promoted,
+        ),
+      );
+    }
+    if (optimizationGoal !== 'REACH') {
+      blockers.push(
+        violationBlocker(
+          'combo.catalog_traffic.optimization_goal',
+          'optimization_goal',
+          'Katalogová návštěvnost vyžaduje REACH',
+          spec,
+          promoted,
+        ),
+      );
+    }
+    if (!promoted?.product_catalog_id) {
+      blockers.push(
+        violationBlocker(
+          'combo.catalog_traffic.product_catalog_id',
+          'promoted_object.product_catalog_id',
+          'Katalogová návštěvnost vyžaduje product_catalog_id',
+          spec,
+          promoted,
+        ),
+      );
+    }
+    if (promoted?.pixel_id || promoted?.custom_event_type) {
+      blockers.push(
+        violationBlocker(
+          'combo.catalog_traffic.pixel_forbidden',
+          'promoted_object.pixel_id',
+          'Katalogová návštěvnost nesmí používat Pixel ani Purchase Event',
+          spec,
+          promoted,
+        ),
+      );
+    }
+  }
+
   if (objective === 'OUTCOME_LEADS' && isCatalogCreative) {
     blockers.push(
       violationBlocker(
@@ -236,7 +289,7 @@ export function validateMetaCampaignCombination(input: {
     );
   }
 
-  if (objective === 'OUTCOME_AWARENESS' && isCatalogCreative) {
+  if (objective === 'OUTCOME_AWARENESS' && isCatalogCreative && spec.mode !== 'catalog_traffic') {
     blockers.push(
       violationBlocker(
         'combo.reach.catalog_creative',
@@ -281,6 +334,14 @@ export function buildCombinationDiagnostics(input: {
     destinationType: input.spec.destinationType,
     promotedObjectKeys: promoted ? Object.keys(promoted) : [],
     promotedObjectSummary: input.spec.promotedObjectSummary,
+    catalogLaunchMode:
+      input.spec.mode === 'catalog_sales'
+        ? 'sales'
+        : input.spec.mode === 'catalog_traffic'
+          ? 'traffic'
+          : input.ctx.catalogLaunchMode ?? null,
+    fallbackReason:
+      input.spec.mode === 'catalog_traffic' ? CATALOG_TRAFFIC_FALLBACK_MESSAGE : null,
     validationOk: blockers.length === 0,
     violations: blockers.map((b) => ({
       param: b.key.replace(/^combo\.[^.]+\./, '').replace(/^combo\./, '') || b.key,
@@ -455,6 +516,73 @@ export function buildCatalogSalesCampaign(input: MetaCampaignBuilderInput): Meta
   return finalizeBuilderResult(input, adSetPayload, promotedObject);
 }
 
+export function buildCatalogTrafficCampaign(input: MetaCampaignBuilderInput): MetaCampaignBuilderResult {
+  if (input.spec.mode !== 'catalog_traffic') {
+    return {
+      ok: false,
+      blockers: [
+        {
+          key: 'builder.mode',
+          message: 'buildCatalogTrafficCampaign vyžaduje režim catalog_traffic.',
+        },
+      ],
+      diagnostics: buildCombinationDiagnostics({ spec: input.spec, ctx: input.payloadContext }),
+    };
+  }
+  const catalogId = input.payloadContext.catalogId?.replace(/^catalog_/i, '') ?? '';
+  if (!catalogId) {
+    const blockers: MetaCampaignLaunchBlocker[] = [
+      {
+        key: 'combo.catalog_traffic.product_catalog_id',
+        message: 'Katalogová návštěvnost vyžaduje Catalog ID.',
+      },
+    ];
+    return {
+      ok: false,
+      blockers,
+      diagnostics: buildCombinationDiagnostics({
+        spec: input.spec,
+        ctx: input.payloadContext,
+        blockers,
+      }),
+    };
+  }
+  if (!input.dsaLabels) {
+    const blockers: MetaCampaignLaunchBlocker[] = [
+      {
+        key: 'adset.dsa',
+        message: 'Ad set: chybí DSA beneficiary/payor.',
+      },
+    ];
+    return {
+      ok: false,
+      blockers,
+      diagnostics: buildCombinationDiagnostics({
+        spec: input.spec,
+        ctx: input.payloadContext,
+        blockers,
+      }),
+    };
+  }
+  const adSetPayload = buildSupportedCatalogTrafficAdSetPayload({
+    campaignId: input.campaignId,
+    adSetName: `${input.name.trim()} — sada`,
+    publishStatus: input.publishStatus,
+    dailyBudgetMinor: input.dailyBudgetMinor,
+    spec: input.spec,
+    targeting: input.targeting,
+    catalogId,
+    dsaLabels: input.dsaLabels,
+    isAdsetBudgetSharingEnabled: input.isAdsetBudgetSharingEnabled,
+    startTime: input.startTime,
+    endTime: input.endTime,
+  });
+  const promotedObject = {
+    product_catalog_id: catalogId,
+  };
+  return finalizeBuilderResult(input, adSetPayload, promotedObject);
+}
+
 export function buildLeadCampaign(input: MetaCampaignBuilderInput): MetaCampaignBuilderResult {
   if (input.spec.mode !== 'leads') {
     return {
@@ -502,6 +630,8 @@ export function buildMetaCampaignByMode(input: MetaCampaignBuilderInput): MetaCa
       return buildTrafficCampaign(input);
     case 'catalog_sales':
       return buildCatalogSalesCampaign(input);
+    case 'catalog_traffic':
+      return buildCatalogTrafficCampaign(input);
     case 'leads':
       return buildLeadCampaign(input);
     case 'reach':

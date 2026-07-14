@@ -280,6 +280,13 @@ export function validateMetaCampaignLaunch(
     item('previewUrl', 'URL', url.length > 0, 'URL chybí', 'preview'),
   ];
 
+  const catalogLaunchMode =
+    input.goal === 'catalog' || input.creativeType === 'catalog_products'
+      ? input.hasDataset && (input.pixelId || input.datasetId)
+        ? ('sales' as const)
+        : ('traffic' as const)
+      : undefined;
+
   const payloadSpec = resolveMetaCampaignPayloadSpec({
     goal: input.goal,
     creativeType: input.creativeType,
@@ -290,6 +297,7 @@ export function validateMetaCampaignLaunch(
     pageId: input.hasPageId ? 'configured' : null,
     leadFormId: input.leadFormId ?? null,
     selectedProductIds: input.selectedProductIds,
+    ...(catalogLaunchMode ? { catalogLaunchMode } : {}),
   });
 
   const comboBlockers =

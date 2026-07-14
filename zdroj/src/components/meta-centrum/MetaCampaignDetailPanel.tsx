@@ -32,6 +32,8 @@ type Props = {
 export function MetaCampaignDetailPanel({ campaign, products = [] }: Props) {
   const cp = (campaign.creativePayload ?? {}) as Record<string, unknown>;
   const payloads = campaign.metaLaunchPayloads as MetaLaunchPayloadSnapshot | null | undefined;
+  const catalogLaunchMode = payloads?.catalogLaunchMode ?? payloads?.combinationDiagnostics?.catalogLaunchMode ?? null;
+  const fallbackReason = payloads?.fallbackReason ?? payloads?.combinationDiagnostics?.fallbackReason ?? null;
   const selectedProducts = products.filter((p) => campaign.selectedProductIds.includes(p.id));
   const primaryText = String(cp.primaryText ?? cp.text ?? '—');
   const headline = String(cp.headline ?? '—');
@@ -55,6 +57,33 @@ export function MetaCampaignDetailPanel({ campaign, products = [] }: Props) {
             <li key={line}>{line}</li>
           ))}
         </ul>
+      </div>
+
+      {catalogLaunchMode ? (
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-2 text-indigo-950">
+          <p className="font-medium">
+            Vybraný režim:{' '}
+            {catalogLaunchMode === 'sales' ? 'Catalog Sales' : 'Catalog Traffic'}
+          </p>
+          {fallbackReason ? (
+            <p className="mt-1 whitespace-pre-wrap text-[11px]">{fallbackReason}</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <p>
+          <span className="font-medium">Status:</span>{' '}
+          {campaign.metaStatus ?? campaign.status ?? '—'}
+          {campaign.metaEffectiveStatus ? ` (${campaign.metaEffectiveStatus})` : ''}
+        </p>
+        <p>
+          <span className="font-medium">Rozpočet:</span>{' '}
+          {campaign.dailyBudgetCzk != null ? `${campaign.dailyBudgetCzk} Kč / den` : '—'}
+        </p>
+        <p>
+          <span className="font-medium">Placement:</span> Facebook + Instagram (katalog)
+        </p>
       </div>
 
       {previewImage || campaign.previewHtml ? (

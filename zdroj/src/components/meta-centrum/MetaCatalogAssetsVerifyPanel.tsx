@@ -50,7 +50,9 @@ export function MetaCatalogAssetsVerifyPanel({ verification, busy, onRun, compac
                 : ''}
               {verification.canUseConversionOptimization
                 ? ' · režim: katalogový prodej (OUTCOME_SALES)'
-                : ' · režim: nelze spustit bez Pixel/Event Source'}
+                : verification.catalogLaunchMode === 'traffic'
+                  ? ' · režim: katalogová návštěvnost (automatický fallback)'
+                  : ' · režim: nelze spustit bez Pixel/Event Source'}
             </p>
           ) : null}
 

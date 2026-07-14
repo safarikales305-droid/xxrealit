@@ -23,6 +23,7 @@ import {
   type MetaCampaignCombinationDiagnostics,
 } from './meta-campaign-builder.util';
 import {
+  CATALOG_TRAFFIC_FALLBACK_MESSAGE,
   buildMetaLaunchGraphPaths,
   extractLeadFormId,
   resolveDsaDisclosureLabels,
@@ -36,6 +37,7 @@ import {
   buildMetaAdSetProbeSteps,
   buildProbeGraphUrl,
   buildSupportedCatalogAdSetPayload,
+  buildSupportedCatalogTrafficAdSetPayload,
   catalogSalesV25Validation,
   mapProbeGraphResult,
   summarizeProbeResult,
@@ -985,14 +987,20 @@ export class MetaCenterCampaignsService {
     let payloadContext = this.buildPayloadContext(dto, ids, row, catalogId);
     let assetsVerification: MetaCatalogSalesAssetsVerification | null = null;
     let verifiedPixelId: string | null = null;
+    let catalogLaunchMode: 'sales' | 'traffic' | null =
+      launchPayloads.catalogLaunchMode ??
+      (launchPayloads.campaign?.objective === 'OUTCOME_AWARENESS'
+        ? 'traffic'
+        : launchPayloads.campaign?.objective === 'OUTCOME_SALES'
+          ? 'sales'
+          : null);
+    let fallbackReason: string | null = launchPayloads.fallbackReason ?? null;
     let combinationDiagnostics: MetaCampaignCombinationDiagnostics | null = null;
 
     if (payloadContext.goal === 'catalog' || dto.creativeType === 'catalog_products') {
       assetsVerification = await this.catalogSalesAssetsVerify.verifyForCatalogSalesLaunch();
-      if (!assetsVerification.ok || !assetsVerification.canUseConversionOptimization) {
-        const msg = assetsVerification.ok
-          ? 'Katalogový prodej vyžaduje ověřený Pixel nebo Event Source. Návštěvnost s katalogovou kreativou Meta API nepodporuje.'
-          : this.formatPartialLaunchUserMessage(launchSteps, assetsVerification.message);
+      if (!assetsVerification.ok) {
+        const msg = this.formatPartialLaunchUserMessage(launchSteps, assetsVerification.message);
         await this.persistLaunchState(draftId, {
           status: 'error',
           errorMessage: msg,
@@ -1009,12 +1017,24 @@ export class MetaCenterCampaignsService {
           campaign: await this.loadSerializedDraft(draftId),
         };
       }
+      catalogLaunchMode = assetsVerification.catalogLaunchMode;
       verifiedPixelId = assetsVerification.verifiedPixelId;
-      payloadContext = {
-        ...payloadContext,
-        pixelId: verifiedPixelId,
-      };
-      tracer.updateContext({ pixelId: verifiedPixelId });
+      fallbackReason =
+        catalogLaunchMode === 'traffic'
+          ? assetsVerification.message.includes('Purchase')
+            ? CATALOG_TRAFFIC_FALLBACK_MESSAGE
+            : assetsVerification.message
+          : null;
+      payloadContext = this.buildPayloadContext(dto, ids, row, catalogId, catalogLaunchMode);
+      if (catalogLaunchMode === 'sales' && verifiedPixelId) {
+        payloadContext = {
+          ...payloadContext,
+          pixelId: verifiedPixelId,
+        };
+        tracer.updateContext({ pixelId: verifiedPixelId });
+      }
+      launchPayloads.catalogLaunchMode = catalogLaunchMode;
+      launchPayloads.fallbackReason = fallbackReason;
     }
 
     const specResolved = resolveMetaCampaignPayloadSpec(payloadContext);
@@ -1566,10 +1586,17 @@ export class MetaCenterCampaignsService {
       `[meta-campaign] live created campaign=${metaCampaignId} adset=${metaAdSetId} product_set=${metaProductSetId ?? '—'} creative=${metaCreativeId} ad=${metaAdId} draft=${draftId}`,
     );
 
+    const modeLabel =
+      catalogLaunchMode === 'traffic'
+        ? ' (katalogová návštěvnost — automatický fallback)'
+        : catalogLaunchMode === 'sales'
+          ? ' (katalogový prodej)'
+          : '';
+
     return {
       ok: true as const,
       status: 'paused' as const,
-      message: `Reklama je připravena ke kontrole v Meta (PAUSED). Campaign ${metaCampaignId}, Ad ${metaAdId}.`,
+      message: `Reklama je připravena ke kontrole v Meta (PAUSED)${modeLabel}. Campaign ${metaCampaignId}, Ad Set ${metaAdSetId}, Creative ${metaCreativeId}, Ad ${metaAdId}.`,
       liveEnabled: true,
       launchSteps,
       assetsVerification,
@@ -1968,7 +1995,21 @@ export class MetaCenterCampaignsService {
             startTime: this.parseDate(dto.startDate)?.toISOString(),
             endTime: this.parseDate(dto.endDate)?.toISOString(),
           })
-        : null;
+        : metaSpec.mode === 'catalog_traffic' && catalogId && dsaLabels
+          ? buildSupportedCatalogTrafficAdSetPayload({
+              campaignId: metaCampaignId,
+              adSetName: `${dto.name.trim()} — sada`,
+              publishStatus: 'PAUSED',
+              dailyBudgetMinor,
+              spec: metaSpec,
+              targeting,
+              catalogId,
+              dsaLabels,
+              isAdsetBudgetSharingEnabled: budgetConfig.isAdsetBudgetSharingEnabled,
+              startTime: this.parseDate(dto.startDate)?.toISOString(),
+              endTime: this.parseDate(dto.endDate)?.toISOString(),
+            })
+          : null;
 
     const summary = summarizeProbeResult(
       metaCampaignId,
@@ -2194,6 +2235,7 @@ export class MetaCenterCampaignsService {
     ids: ReturnType<typeof resolveMetaCenterIds>,
     row: Awaited<ReturnType<typeof this.getSettingsRow>>,
     catalogId: string | null,
+    catalogLaunchMode?: 'sales' | 'traffic',
   ) {
     return {
       goal: dto.objective,
@@ -2207,6 +2249,7 @@ export class MetaCenterCampaignsService {
       leadFormId: extractLeadFormId(dto),
       remarketingConversionEvent: 'VIEW_CONTENT' as const,
       selectedProductIds: dto.selectedProductIds ?? [],
+      ...(catalogLaunchMode ? { catalogLaunchMode } : {}),
     };
   }
 

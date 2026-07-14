@@ -174,6 +174,8 @@ export type MetaLaunchPayloadSnapshot = {
   ad?: Record<string, unknown> | null;
   productSetId?: string | null;
   combinationDiagnostics?: import('./meta-campaign-builder.util').MetaCampaignCombinationDiagnostics | null;
+  catalogLaunchMode?: 'sales' | 'traffic' | null;
+  fallbackReason?: string | null;
   launchPhase?: string | null;
 };
 

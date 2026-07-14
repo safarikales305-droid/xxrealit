@@ -6550,7 +6550,7 @@ export type MetaLaunchSteps = {
   ad: MetaLaunchStepState;
 };
 
-export type MetaCampaignCombinationDiagnostics = {
+export type MetaCatalogCombinationDiagnostics = {
   goalLabel: string;
   mode: string | null;
   objective: string;
@@ -6558,9 +6558,14 @@ export type MetaCampaignCombinationDiagnostics = {
   creativeType: string;
   destinationType: string | null;
   promotedObjectSummary: string;
+  catalogLaunchMode?: 'sales' | 'traffic' | null;
+  fallbackReason?: string | null;
   validationOk: boolean;
   violations: Array<{ param: string; rule: string }>;
 };
+
+/** @deprecated použijte MetaCatalogCombinationDiagnostics */
+export type MetaCampaignCombinationDiagnostics = MetaCatalogCombinationDiagnostics;
 
 export type MetaLaunchPayloadSnapshot = {
   campaign?: Record<string, unknown> | null;
@@ -6568,7 +6573,9 @@ export type MetaLaunchPayloadSnapshot = {
   adSet?: Record<string, unknown> | null;
   creative?: Record<string, unknown> | null;
   ad?: Record<string, unknown> | null;
-  combinationDiagnostics?: MetaCampaignCombinationDiagnostics | null;
+  combinationDiagnostics?: MetaCatalogCombinationDiagnostics | null;
+  catalogLaunchMode?: 'sales' | 'traffic' | null;
+  fallbackReason?: string | null;
   launchPhase?: string | null;
 };
 
@@ -6738,6 +6745,7 @@ export type MetaCatalogSalesAssetsVerification = {
   ok: boolean;
   message: string;
   canUseConversionOptimization: boolean;
+  catalogLaunchMode: 'traffic' | 'sales';
   verifiedPixelId: string | null;
   configuredPixelId: string | null;
   configuredDatasetId: string | null;
@@ -7520,6 +7528,7 @@ export async function nestAdminMetaCenterVerifyCatalogAssets(
         configuredDatasetId: null,
         promotedObjectPixelId: null,
         canUseConversionOptimization: false,
+        catalogLaunchMode: 'traffic',
         eventSource: {
           configuredDatasetId: null,
           configuredPixelId: null,

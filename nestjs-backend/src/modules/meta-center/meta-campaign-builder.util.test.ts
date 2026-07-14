@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   META_UNSUPPORTED_COMBINATION_MESSAGE,
   buildCatalogSalesCampaign,
+  buildCatalogTrafficCampaign,
   buildEngagementCampaign,
   buildLeadCampaign,
   buildReachCampaign,
@@ -12,6 +13,7 @@ import {
 } from './meta-campaign-builder.util';
 import {
   getMetaCampaignPayloadSpec,
+  resolveMetaCampaignPayloadSpec,
   type MetaCampaignPayloadContext,
 } from './meta-campaign-payload-map.util';
 
@@ -196,11 +198,46 @@ test('migrateInvalidDraftCombination converts traffic + catalog_products to cata
   assert.ok(migrated.warning?.includes('Meta'));
 });
 
-test('catalog sales without pixel is blocked', () => {
-  const noPixelCtx = { ...catalogCtx, pixelId: null, datasetId: null };
-  const spec = getMetaCampaignPayloadSpec('catalog_sales', noPixelCtx);
-  const result = buildCatalogSalesCampaign(builderInput(spec, noPixelCtx));
-  assert.equal(result.ok, false);
-  if (result.ok) return;
-  assert.ok(result.blockers.some((b) => b.message.includes(META_UNSUPPORTED_COMBINATION_MESSAGE)));
+test('catalog traffic builder: OUTCOME_AWARENESS + REACH without pixel', () => {
+  const trafficCtx: MetaCampaignPayloadContext = {
+    goal: 'catalog',
+    creativeType: 'catalog_products',
+    targetingMode: 'map',
+    catalogId: '123456789',
+    pixelId: null,
+    datasetId: null,
+    pageId: 'page_1',
+    selectedProductIds: ['sku-1'],
+    catalogLaunchMode: 'traffic',
+  };
+  const spec = getMetaCampaignPayloadSpec('catalog_traffic', trafficCtx);
+  const result = buildCatalogTrafficCampaign(builderInput(spec, trafficCtx));
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.campaignPayload.objective, 'OUTCOME_AWARENESS');
+  assert.equal(result.adSetPayload.optimization_goal, 'REACH');
+  const promoted = JSON.parse(String(result.adSetPayload.promoted_object)) as Record<string, unknown>;
+  assert.equal(promoted.product_catalog_id, '123456789');
+  assert.equal(promoted.pixel_id, undefined);
+  assert.equal(result.diagnostics.catalogLaunchMode, 'traffic');
+});
+
+test('resolve catalog launch mode: sales with pixel, traffic without', () => {
+  const salesSpec = resolveMetaCampaignPayloadSpec({
+    ...catalogCtx,
+    catalogLaunchMode: 'sales',
+  });
+  assert.equal(salesSpec.ok, true);
+  if (!salesSpec.ok) return;
+  assert.equal(salesSpec.spec.mode, 'catalog_sales');
+
+  const trafficSpec = resolveMetaCampaignPayloadSpec({
+    ...catalogCtx,
+    pixelId: null,
+    catalogLaunchMode: 'traffic',
+  });
+  assert.equal(trafficSpec.ok, true);
+  if (!trafficSpec.ok) return;
+  assert.equal(trafficSpec.spec.mode, 'catalog_traffic');
+  assert.equal(trafficSpec.spec.campaignObjective, 'OUTCOME_AWARENESS');
 });
