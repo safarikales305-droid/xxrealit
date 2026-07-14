@@ -4424,6 +4424,7 @@ export default function MetaCentrumPage() {
                             <MetaLaunchDebugPanel
                               launchDebug={c.metaLaunchDebug}
                               combinationDiagnostics={c.metaLaunchPayloads?.combinationDiagnostics ?? null}
+                              creativeDiagnostics={c.metaLaunchPayloads?.creativeDiagnostics ?? null}
                               housingGeoDebug={c.metaLaunchPayloads?.housingGeoDebug ?? null}
                               failedStep={
                                 c.status === 'error' && c.metaLaunchSteps

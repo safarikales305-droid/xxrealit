@@ -10,6 +10,7 @@ import {
   validateAdSetPayloadCombination,
 } from './meta-campaign-payload-map.util';
 import { buildCatalogAdSet } from './meta-catalog-adset.util';
+import { buildCatalogCreativePayload } from './meta-catalog-creative.util';
 
 const catalogCtx = {
   goal: 'catalog',
@@ -188,18 +189,17 @@ test('full launch chain: campaign → adset → creative → ad serializes for M
     dsaLabels: dsa,
     isAdsetBudgetSharingEnabled: false,
   });
-  const creativePayload = {
+  const creativeBuilt = buildCatalogCreativePayload({
     name: 'Test — kreativa',
-    product_set_id: 'ps_1',
-    object_story_spec: JSON.stringify({
-      page_id: 'page_1',
-      template_data: {
-        catalog_id: '123456789',
-        product_set_id: 'ps_1',
-        link: 'https://www.xxrealit.cz',
-      },
-    }),
-  };
+    pageId: 'page_1',
+    productSetId: 'ps_1',
+    link: 'https://www.xxrealit.cz',
+    message: 'Test',
+    headline: 'Test',
+    description: '',
+    ctaType: 'LEARN_MORE',
+  });
+  const creativePayload = creativeBuilt.body;
   const adPayload = {
     name: 'Test — reklama',
     adset_id: 'PREVIEW_ADSET_ID',
@@ -212,5 +212,10 @@ test('full launch chain: campaign → adset → creative → ad serializes for M
   assert.ok(serializePayloadForMetaApi(campaignPayload).objective);
   assert.ok(adSetForm.promoted_object.includes('catalog_id'));
   assert.ok(serializePayloadForMetaApi(creativePayload).object_story_spec);
+  const creativeSpec = JSON.parse(String(creativePayload.object_story_spec)) as {
+    template_data: Record<string, unknown>;
+  };
+  assert.equal(creativeSpec.template_data.catalog_id, undefined);
+  assert.equal(creativePayload.product_set_id, 'ps_1');
   assert.ok(serializePayloadForMetaApi(adPayload).creative);
 });

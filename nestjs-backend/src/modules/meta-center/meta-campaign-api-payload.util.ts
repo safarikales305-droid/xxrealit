@@ -180,6 +180,7 @@ export type MetaLaunchPayloadSnapshot = {
   fallbackReason?: string | null;
   launchPhase?: string | null;
   housingGeoDebug?: import('./meta-housing-geo.util').MetaHousingGeoDebug | null;
+  creativeDiagnostics?: import('./meta-catalog-creative.util').CatalogCreativeDiagnostics | null;
 };
 
 export function emptyLaunchSteps(): MetaLaunchSteps {

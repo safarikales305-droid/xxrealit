@@ -13,6 +13,11 @@ import {
   normalizeCreativeType,
   type MetaCampaignCreativePayload,
 } from './meta-campaign-creative.util';
+import {
+  buildCatalogCreativePayload,
+  type CatalogCreativeDiagnostics,
+  validateCatalogCreativeBodyBeforeMetaApi,
+} from './meta-catalog-creative.util';
 import type { MetaCreativeType } from './meta-marketing-platform.constants';
 
 export type MetaCreativeBuildInput = {
@@ -30,7 +35,12 @@ export type MetaCreativeBuildInput = {
 };
 
 export type MetaCreativeBuildResult =
-  | { ok: true; body: Record<string, string>; payload: MetaCampaignCreativePayload }
+  | {
+      ok: true;
+      body: Record<string, string>;
+      payload: MetaCampaignCreativePayload;
+      catalogCreativeDiagnostics?: CatalogCreativeDiagnostics;
+    }
   | {
       ok: false;
       message: string;
@@ -149,22 +159,24 @@ export class MetaCenterCreativeService {
         };
       }
 
-      creativeBody.product_set_id = input.productSetId;
-      const catalogId = input.catalogId?.replace(/^catalog_/i, '') ?? '';
-      creativeBody.object_story_spec = JSON.stringify({
-        page_id: input.pageId,
-        ...(input.instagramActorId ? { instagram_actor_id: input.instagramActorId } : {}),
-        template_data: {
-          catalog_id: catalogId,
-          product_set_id: input.productSetId,
-          link: linkUrl,
-          message: primaryText,
-          name: headline,
-          description,
-          call_to_action: { type: normalizedCta, value: { link: linkUrl } },
-        },
+      const built = buildCatalogCreativePayload({
+        name: creativeName,
+        pageId: input.pageId,
+        instagramActorId: input.instagramActorId,
+        productSetId: input.productSetId,
+        link: linkUrl,
+        message: primaryText,
+        headline,
+        description,
+        ctaType: normalizedCta,
       });
-      return { ok: true, body: creativeBody, payload: enrichedPayload };
+      validateCatalogCreativeBodyBeforeMetaApi(built.body);
+      return {
+        ok: true,
+        body: built.body,
+        payload: enrichedPayload,
+        catalogCreativeDiagnostics: built.diagnostics,
+      };
     }
 
     if (objectStoryId) {

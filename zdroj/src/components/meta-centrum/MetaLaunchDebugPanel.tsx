@@ -18,6 +18,7 @@ type Props = {
   failedStep?: string | null;
   launchDebug?: MetaLaunchDebugTrace | null;
   combinationDiagnostics?: MetaCatalogCombinationDiagnostics | null;
+  creativeDiagnostics?: import('@/lib/nest-client').MetaCatalogCreativeDiagnostics | null;
   housingGeoDebug?: import('@/lib/nest-client').MetaHousingGeoDebug | null;
 };
 
@@ -70,7 +71,7 @@ function buildMetaDebugExport(
   };
 }
 
-export function MetaLaunchDebugPanel({ error, failedStep, launchDebug, combinationDiagnostics, housingGeoDebug }: Props) {
+export function MetaLaunchDebugPanel({ error, failedStep, launchDebug, combinationDiagnostics, creativeDiagnostics, housingGeoDebug }: Props) {
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const trace = error?.launchDebug ?? launchDebug ?? null;
   const isCode2 = error?.errorCode === '2' || error?.httpStatus === 500;
@@ -207,6 +208,51 @@ export function MetaLaunchDebugPanel({ error, failedStep, launchDebug, combinati
               ))}
             </ul>
           ) : null}
+        </div>
+      ) : null}
+
+      {creativeDiagnostics ? (
+        <div className="rounded border border-violet-200 bg-violet-50 px-2 py-2 text-violet-950">
+          <p className="mb-1 font-semibold">Creative payload</p>
+          <ul className="grid gap-0.5 font-mono text-[10px] sm:grid-cols-2">
+            <li>product_set_id: {creativeDiagnostics.productSetId}</li>
+            <li>page_id: {creativeDiagnostics.pageId}</li>
+            <li>template_data.link: {creativeDiagnostics.templateData.link}</li>
+            <li>template_data.message: {creativeDiagnostics.templateData.message}</li>
+            <li>template_data.name: {creativeDiagnostics.templateData.name}</li>
+            <li>template_data.description: {creativeDiagnostics.templateData.description}</li>
+            <li>
+              CTA: {creativeDiagnostics.templateData.ctaType} →{' '}
+              {creativeDiagnostics.templateData.ctaLink}
+            </li>
+          </ul>
+          <p className="mt-2 font-semibold">Zakázaná pole</p>
+          <ul className="grid gap-0.5 font-mono text-[10px] sm:grid-cols-2">
+            <li>
+              catalog_id in template_data:{' '}
+              {creativeDiagnostics.forbiddenFields.catalogIdInTemplateData ? 'ano' : 'ne'}
+            </li>
+            <li>
+              product_catalog_id in template_data:{' '}
+              {creativeDiagnostics.forbiddenFields.productCatalogIdInTemplateData ? 'ano' : 'ne'}
+            </li>
+          </ul>
+        </div>
+      ) : null}
+
+      {trace?.context ? (
+        <div className="rounded border border-emerald-200 bg-emerald-50 px-2 py-2 text-emerald-950">
+          <p className="mb-1 font-semibold">Vytvořená Meta ID</p>
+          <ul className="grid gap-0.5 font-mono text-[10px] sm:grid-cols-2">
+            <li>
+              Campaign ID: {trace.context.campaignId ? `✓ ${trace.context.campaignId}` : '—'}
+            </li>
+            <li>Ad Set ID: {trace.context.adSetId ? `✓ ${trace.context.adSetId}` : '—'}</li>
+            <li>
+              Creative ID: {trace.context.creativeId ? `✓ ${trace.context.creativeId}` : '—'}
+            </li>
+            <li>Ad ID: {trace.context.adId ? `✓ ${trace.context.adId}` : '—'}</li>
+          </ul>
         </div>
       ) : null}
 

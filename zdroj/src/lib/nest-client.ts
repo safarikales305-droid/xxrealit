@@ -6582,6 +6582,27 @@ export type MetaLaunchPayloadSnapshot = {
   fallbackReason?: string | null;
   launchPhase?: string | null;
   housingGeoDebug?: MetaHousingGeoDebug | null;
+  creativeDiagnostics?: MetaCatalogCreativeDiagnostics | null;
+};
+
+export type MetaCatalogCreativeDiagnostics = {
+  productSetId: string;
+  pageId: string;
+  templateData: {
+    link: string;
+    message: string;
+    name: string;
+    description: string;
+    ctaType: string;
+    ctaLink: string;
+  };
+  forbiddenFields: {
+    catalogIdInTemplateData: boolean;
+    productCatalogIdInTemplateData: boolean;
+    datasetIdInTemplateData: boolean;
+    pixelIdInTemplateData: boolean;
+    productSetIdInTemplateData: boolean;
+  };
 };
 
 export type MetaHousingGeoDebug = {

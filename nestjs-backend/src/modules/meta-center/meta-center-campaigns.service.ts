@@ -74,6 +74,7 @@ import {
   isMetaHousingTargetingError,
   type MetaHousingGeoDebug,
 } from './meta-housing-geo.util';
+import { validateCatalogCreativeBodyBeforeMetaApi } from './meta-catalog-creative.util';
 import {
   MetaLaunchStepTracer,
   buildMetaLaunchDebugExport,
@@ -1191,6 +1192,12 @@ export class MetaCenterCampaignsService {
       metaCampaignId = campaignRes.data.id;
       launchSteps.campaign = { ok: true, id: metaCampaignId };
       tracer.updateContext({ campaignId: metaCampaignId });
+      await this.persistLaunchState(draftId, {
+        metaCampaignId,
+        metaLaunchSteps: launchSteps,
+        metaLaunchPayloads: launchPayloads,
+        metaLaunchDebug: persistDebug(),
+      });
     } else {
       launchSteps.campaign = { ok: true, id: metaCampaignId };
       tracer.recordSkipped(
@@ -1377,6 +1384,14 @@ export class MetaCenterCampaignsService {
       metaAdSetId = adSetRes.data.id;
       launchSteps.adSet = { ok: true, id: metaAdSetId };
       tracer.updateContext({ adSetId: metaAdSetId });
+      await this.persistLaunchState(draftId, {
+        metaCampaignId,
+        metaAdSetId,
+        metaProductSetId,
+        metaLaunchSteps: launchSteps,
+        metaLaunchPayloads: launchPayloads,
+        metaLaunchDebug: persistDebug(),
+      });
     } else {
       launchSteps.adSet = { ok: true, id: metaAdSetId };
       tracer.recordSkipped(
@@ -1470,6 +1485,37 @@ export class MetaCenterCampaignsService {
 
       const creativeBody = built.body;
       launchPayloads.creative = creativeBody;
+      if (built.catalogCreativeDiagnostics) {
+        launchPayloads.creativeDiagnostics = built.catalogCreativeDiagnostics;
+      }
+
+      try {
+        validateCatalogCreativeBodyBeforeMetaApi(creativeBody);
+      } catch (validationErr) {
+        const msg =
+          validationErr instanceof Error
+            ? validationErr.message
+            : 'Neplatný payload kreativy před odesláním do Meta API.';
+        launchSteps.creative = { ok: false, error: msg };
+        await this.persistLaunchState(draftId, {
+          metaCampaignId,
+          metaAdSetId,
+          metaProductSetId,
+          status: 'error',
+          errorMessage: this.formatPartialLaunchUserMessage(launchSteps, msg),
+          metaLaunchSteps: launchSteps,
+          metaLaunchPayloads: launchPayloads,
+        });
+        return {
+          ok: false as const,
+          status: 'validation_error' as const,
+          message: msg,
+          failedStep: 'creative' as const,
+          launchSteps,
+          assetsVerification,
+          campaign: await this.loadSerializedDraft(draftId),
+        };
+      }
 
       const creativePath = `/act_${actId}/adcreatives`;
       const creativeRes = await this.graph.postWithTransientRetry<{ id?: string }>(
@@ -1520,6 +1566,15 @@ export class MetaCenterCampaignsService {
       launchSteps.creative = { ok: true, id: metaCreativeId };
       tracer.updateContext({ creativeId: metaCreativeId });
       this.logger.log(`[meta-campaign] creative=${metaCreativeId} draft=${draftId}`);
+      await this.persistLaunchState(draftId, {
+        metaCampaignId,
+        metaAdSetId,
+        metaProductSetId,
+        metaCreativeId,
+        metaLaunchSteps: launchSteps,
+        metaLaunchPayloads: launchPayloads,
+        metaLaunchDebug: persistDebug(),
+      });
     } else {
       launchSteps.creative = { ok: true, id: metaCreativeId };
       tracer.recordSkipped(
