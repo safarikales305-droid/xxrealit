@@ -18,6 +18,7 @@ type Props = {
   failedStep?: string | null;
   launchDebug?: MetaLaunchDebugTrace | null;
   combinationDiagnostics?: MetaCatalogCombinationDiagnostics | null;
+  housingGeoDebug?: import('@/lib/nest-client').MetaHousingGeoDebug | null;
 };
 
 function buildExplorerExport(step: MetaLaunchDebugTrace['steps'][number]) {
@@ -69,7 +70,7 @@ function buildMetaDebugExport(
   };
 }
 
-export function MetaLaunchDebugPanel({ error, failedStep, launchDebug, combinationDiagnostics }: Props) {
+export function MetaLaunchDebugPanel({ error, failedStep, launchDebug, combinationDiagnostics, housingGeoDebug }: Props) {
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const trace = error?.launchDebug ?? launchDebug ?? null;
   const isCode2 = error?.errorCode === '2' || error?.httpStatus === 500;
@@ -192,6 +193,27 @@ export function MetaLaunchDebugPanel({ error, failedStep, launchDebug, combinati
                 </li>
               ))}
             </ul>
+          ) : null}
+        </div>
+      ) : null}
+
+      {housingGeoDebug ? (
+        <div className="rounded border border-emerald-200 bg-emerald-50 px-2 py-2 text-emerald-950">
+          <p className="mb-1 font-semibold">Housing geo (odeslané do Meta)</p>
+          <ul className="grid gap-0.5 font-mono text-[10px] sm:grid-cols-2">
+            <li>City key: {housingGeoDebug.cityKey ?? '—'}</li>
+            <li>Latitude: {housingGeoDebug.latitude}</li>
+            <li>Longitude: {housingGeoDebug.longitude}</li>
+            <li>Radius: {housingGeoDebug.radius}</li>
+            <li>Distance unit: {housingGeoDebug.distanceUnit}</li>
+            {housingGeoDebug.coordinateSource ? (
+              <li>Zdroj souřadnic: {housingGeoDebug.coordinateSource}</li>
+            ) : null}
+          </ul>
+          {housingGeoDebug.radiusAdjusted ? (
+            <p className="mt-1 text-[10px] text-amber-900">
+              Meta Housing vyžaduje minimálně 17 km. Radius byl automaticky upraven.
+            </p>
           ) : null}
         </div>
       ) : null}

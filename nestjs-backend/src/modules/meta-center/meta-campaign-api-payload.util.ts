@@ -48,6 +48,7 @@ export type MetaCampaignLaunchResult = {
   ad: MetaCampaignPayloadSection | null;
   graphApiUrls?: Record<string, string> | null;
   adSetCorrections?: string[];
+  housingGeoDebug?: import('./meta-housing-geo.util').MetaHousingGeoDebug | null;
 };
 
 export function emptyMetaCampaignLaunchResult(
@@ -177,6 +178,7 @@ export type MetaLaunchPayloadSnapshot = {
   catalogLaunchMode?: 'sales' | 'traffic' | null;
   fallbackReason?: string | null;
   launchPhase?: string | null;
+  housingGeoDebug?: import('./meta-housing-geo.util').MetaHousingGeoDebug | null;
 };
 
 export function emptyLaunchSteps(): MetaLaunchSteps {

@@ -67,7 +67,12 @@ import {
   type MetaLaunchStep,
   type MetaLaunchSteps,
 } from './meta-campaign-api-payload.util';
-import type { CreateMetaCampaignDto } from './dto/create-meta-campaign.dto';
+import {
+  buildHousingCustomLocation,
+  convertTargetingCitiesToCustomLocations,
+  isMetaHousingTargetingError,
+  type MetaHousingGeoDebug,
+} from './meta-housing-geo.util';
 import {
   MetaLaunchStepTracer,
   buildMetaLaunchDebugExport,
@@ -1107,8 +1112,11 @@ export class MetaCenterCampaignsService {
       };
     }
 
-    const targeting = this.buildTargetingFromGeo(resolvedGeo, dto, audienceMetaId);
+    let targeting = this.buildTargetingFromGeo(resolvedGeo, dto, audienceMetaId);
     launchPayloads.targeting = targeting;
+    if (resolvedGeo.mode === 'custom' && resolvedGeo.housingDebug) {
+      launchPayloads.housingGeoDebug = resolvedGeo.housingDebug;
+    }
     launchPayloads.combinationDiagnostics = combinationDiagnostics;
     launchPayloads.launchPhase = metaCampaignId ? 'CAMPAIGN_CREATED' : 'ADSET_PENDING';
 
@@ -1236,12 +1244,52 @@ export class MetaCenterCampaignsService {
 
     if (!metaAdSetId) {
       const adSetPath = `/act_${actId}/adsets`;
-      const adSetRes = await this.graph.post<{ id?: string }>(
+      let adSetRes = await this.graph.post<{ id?: string }>(
         adSetPath,
         token,
         adSetPayload,
       );
-      tracer.recordResult('adSet', adSetPath, adSetPayload, { ...adSetRes, attempts: 1 });
+      let adSetAttempts = 1;
+
+      if (!adSetRes.ok || !adSetRes.data.id) {
+        if (isMetaHousingTargetingError(adSetRes)) {
+          const converted = await this.convertAdSetTargetingForHousing(
+            targeting,
+            dto.radiusKm,
+            dto.cityName,
+          );
+          if (converted) {
+            targeting = converted.targeting;
+            launchPayloads.targeting = targeting;
+            launchPayloads.housingGeoDebug = converted.housingGeoDebug;
+            const retryBuild = this.buildAdSetLaunchPayload({
+              dto,
+              ids,
+              row,
+              metaCampaignId: metaCampaignId!,
+              targeting,
+              publishStatus,
+              budgetConfig,
+              dailyBudgetMinor,
+              catalogId,
+              metaSpec,
+              payloadContext: effectivePayloadContext,
+            });
+            if (retryBuild.ok) {
+              adSetPayload = retryBuild.payload;
+              launchPayloads.adSet = adSetPayload;
+              adSetRes = await this.graph.post<{ id?: string }>(
+                adSetPath,
+                token,
+                adSetPayload,
+              );
+              adSetAttempts = 2;
+            }
+          }
+        }
+      }
+
+      tracer.recordResult('adSet', adSetPath, adSetPayload, { ...adSetRes, attempts: adSetAttempts });
 
       if (!adSetRes.ok || !adSetRes.data.id) {
         const code2Failure = isMetaInternalErrorCode2(adSetRes);
@@ -1788,12 +1836,11 @@ export class MetaCenterCampaignsService {
       geoBlock = {
         geo_locations: {
           custom_locations: [
-            {
+            buildHousingCustomLocation({
               latitude: geo.latitude,
               longitude: geo.longitude,
-              radius: geo.radiusKm,
-              distance_unit: 'kilometer',
-            },
+              radiusKm: geo.radiusKm,
+            }),
           ],
         },
       };
@@ -1809,6 +1856,18 @@ export class MetaCenterCampaignsService {
       };
     }
     return geoBlock;
+  }
+
+  private async convertAdSetTargetingForHousing(
+    targeting: Record<string, unknown>,
+    radiusKm: number,
+    cityName?: string | null,
+  ): Promise<{ targeting: Record<string, unknown>; housingGeoDebug: MetaHousingGeoDebug } | null> {
+    return convertTargetingCitiesToCustomLocations(
+      targeting,
+      (cityKey) => this.geo.resolveCoordinatesForCityKey(cityKey, cityName),
+      radiusKm,
+    );
   }
 
   async verifyCatalogSalesAssets(): Promise<MetaCatalogSalesAssetsVerification> {
@@ -2108,6 +2167,8 @@ export class MetaCenterCampaignsService {
     }
 
     const targeting = this.buildTargetingFromGeo(resolvedGeo, dto, audienceMetaId);
+    const housingGeoDebug =
+      resolvedGeo.mode === 'custom' ? resolvedGeo.housingDebug ?? null : null;
     const budgetConfig = resolveBudgetConfig(false);
     const dailyBudgetMinor = Math.round(dto.dailyBudgetCzk * 100);
     const metaSpec = specResolved.spec;
@@ -2227,6 +2288,7 @@ export class MetaCenterCampaignsService {
       adSetCorrections: adSetBuilt.ok ? adSetBuilt.corrections ?? [] : [],
       payload: adSetBuilt.payload ?? null,
       metaForm: adSetBuilt.metaForm ?? null,
+      housingGeoDebug,
     };
   }
 

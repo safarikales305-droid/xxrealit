@@ -159,14 +159,27 @@ export function MetaCampaignDetailPanel({ campaign, products = [] }: Props) {
           Režim:{' '}
           {campaign.locationTargetingMode === 'radius'
             ? 'Okruh podle souřadnic (custom_locations)'
-            : 'Celé město (cities bez radius)'}
+            : 'Město (Housing: custom_locations, min. 17 km)'}
           {campaign.cityName ? ` · ${campaign.cityName}` : ''}
           {campaign.metaGeoKey ? ` · Geo ID ${campaign.metaGeoKey}` : ''}
           {campaign.radiusKm != null ? ` · ${campaign.radiusKm} km` : ''}
         </p>
-        {campaign.latitude != null && campaign.longitude != null ? (
+        {payloads?.housingGeoDebug ? (
+          <ul className="mt-1 grid gap-0.5 font-mono text-[10px] text-zinc-600 sm:grid-cols-2">
+            <li>City key: {payloads.housingGeoDebug.cityKey ?? '—'}</li>
+            <li>Latitude: {payloads.housingGeoDebug.latitude}</li>
+            <li>Longitude: {payloads.housingGeoDebug.longitude}</li>
+            <li>Radius: {payloads.housingGeoDebug.radius}</li>
+            <li>Distance unit: {payloads.housingGeoDebug.distanceUnit}</li>
+          </ul>
+        ) : campaign.latitude != null && campaign.longitude != null ? (
           <p className="font-mono text-[10px] text-zinc-600">
             Souřadnice: {campaign.latitude}, {campaign.longitude}
+          </p>
+        ) : null}
+        {payloads?.housingGeoDebug?.radiusAdjusted ? (
+          <p className="mt-1 text-[10px] text-amber-800">
+            Meta Housing vyžaduje minimálně 17 km. Radius byl automaticky upraven.
           </p>
         ) : null}
       </div>

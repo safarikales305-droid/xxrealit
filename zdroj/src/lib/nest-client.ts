@@ -6577,6 +6577,17 @@ export type MetaLaunchPayloadSnapshot = {
   catalogLaunchMode?: 'sales' | 'traffic' | null;
   fallbackReason?: string | null;
   launchPhase?: string | null;
+  housingGeoDebug?: MetaHousingGeoDebug | null;
+};
+
+export type MetaHousingGeoDebug = {
+  cityKey: number | null;
+  latitude: number;
+  longitude: number;
+  radius: number;
+  distanceUnit: 'kilometer';
+  radiusAdjusted: boolean;
+  coordinateSource?: 'cache' | 'meta_search' | 'geocode' | 'input';
 };
 
 export type MetaLaunchDebugStepRecord = {

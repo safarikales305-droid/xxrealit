@@ -62,6 +62,7 @@ export type MetaLaunchDebugExport = {
     adSet?: Record<string, unknown> | null;
     creative?: Record<string, unknown> | null;
     ad?: Record<string, unknown> | null;
+    housingGeoDebug?: import('./meta-housing-geo.util').MetaHousingGeoDebug | null;
   };
   graphUrls: Record<string, string>;
   failedStep?: string | null;

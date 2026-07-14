@@ -193,12 +193,21 @@ function MetaApiErrorPanel({
   error,
   failedStep,
   launchDebug,
+  housingGeoDebug,
 }: {
   error?: MetaCampaignCreateResponse['metaApiError'];
   failedStep?: string | null;
   launchDebug?: import('@/lib/nest-client').MetaLaunchDebugTrace | null;
+  housingGeoDebug?: import('@/lib/nest-client').MetaHousingGeoDebug | null;
 }) {
-  return <MetaLaunchDebugPanel error={error} failedStep={failedStep} launchDebug={launchDebug} />;
+  return (
+    <MetaLaunchDebugPanel
+      error={error}
+      failedStep={failedStep}
+      launchDebug={launchDebug}
+      housingGeoDebug={housingGeoDebug}
+    />
+  );
 }
 
 const TABS = [
@@ -626,7 +635,7 @@ export default function MetaCentrumPage() {
     name: '',
     goal: 'traffic',
     propertyType: 'byt',
-    radiusKm: 15,
+    radiusKm: 17,
     budgetDaily: 200,
     startDate: '',
     endDate: '',
@@ -655,6 +664,7 @@ export default function MetaCentrumPage() {
     failedStep?: string | null;
     launchSteps?: MetaLaunchSteps | null;
     assetsVerification?: MetaCatalogSalesAssetsVerification | null;
+    housingGeoDebug?: import('@/lib/nest-client').MetaHousingGeoDebug | null;
   } | null>(null);
   const [launchValidationHighlight, setLaunchValidationHighlight] = useState(false);
   const [debugPayloadPreview, setDebugPayloadPreview] = useState(false);
@@ -1043,7 +1053,7 @@ export default function MetaCentrumPage() {
       name: '',
       goal: 'traffic',
       propertyType: 'byt',
-      radiusKm: 15,
+      radiusKm: 17,
       budgetDaily: 200,
       startDate: '',
       endDate: '',
@@ -1129,6 +1139,7 @@ export default function MetaCentrumPage() {
           failedStep: r.failedStep ?? r.metaApiError?.launchStep ?? null,
           launchSteps: r.launchSteps ?? r.campaign?.metaLaunchSteps ?? null,
           assetsVerification: r.assetsVerification ?? null,
+          housingGeoDebug: r.campaign?.metaLaunchPayloads?.housingGeoDebug ?? null,
         });
       }
       void refresh();
@@ -1156,6 +1167,7 @@ export default function MetaCentrumPage() {
         failedStep: r.failedStep ?? r.metaApiError?.launchStep ?? null,
         launchSteps: r.launchSteps ?? r.campaign?.metaLaunchSteps ?? null,
         assetsVerification: r.assetsVerification ?? null,
+        housingGeoDebug: r.campaign?.metaLaunchPayloads?.housingGeoDebug ?? null,
       });
     }
     void refresh();
@@ -4007,7 +4019,7 @@ export default function MetaCentrumPage() {
                         setCampaignDraft((d) => ({ ...d, locationTargetingMode: 'city' }))
                       }
                     />
-                    Cílit celé město (Meta Geo key bez radius)
+                    Cílit město (Housing: custom_locations)
                   </label>
                   <label className="flex cursor-pointer items-center gap-2">
                     <input
@@ -4022,11 +4034,9 @@ export default function MetaCentrumPage() {
                   </label>
                   {campaignDraft.locationTargetingMode === 'city' ? (
                     <p className="text-xs text-zinc-500">
-                      Meta dostane{' '}
-                      <code className="rounded bg-zinc-100 px-1">
-                        cities: [{'{'} key: Geo ID {'}'}]
-                      </code>{' '}
-                      bez radius.
+                      Meta Housing dostane{' '}
+                      <code className="rounded bg-zinc-100 px-1">custom_locations</code> se
+                      souřadnicemi města z databáze (nebo geocoding) a minimálním radius 17 km.
                     </p>
                   ) : (
                     <p className="text-xs text-zinc-500">
@@ -4038,21 +4048,23 @@ export default function MetaCentrumPage() {
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium">
                     Okruh (km){' '}
-                    {campaignDraft.locationTargetingMode === 'city' ? (
-                      <span className="font-normal text-zinc-500">(pouze pro režim okruh)</span>
-                    ) : null}
+                    <span className="font-normal text-zinc-500">(min. 17 km pro Housing)</span>
                   </span>
                   <input
                     type="number"
-                    min={1}
+                    min={17}
                     max={80}
                     value={campaignDraft.radiusKm}
-                    disabled={campaignDraft.locationTargetingMode === 'city'}
                     onChange={(e) =>
-                      setCampaignDraft((d) => ({ ...d, radiusKm: Number(e.target.value) || 1 }))
+                      setCampaignDraft((d) => ({ ...d, radiusKm: Number(e.target.value) || 17 }))
                     }
-                    className="rounded-lg border border-zinc-300 px-3 py-2 disabled:bg-zinc-100"
+                    className="rounded-lg border border-zinc-300 px-3 py-2"
                   />
+                  {campaignDraft.radiusKm < 17 ? (
+                    <span className="text-xs text-amber-700">
+                      Meta Housing vyžaduje minimálně 17 km. Radius byl automaticky upraven.
+                    </span>
+                  ) : null}
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium">Denní rozpočet (Kč)</span>
@@ -4339,6 +4351,7 @@ export default function MetaCentrumPage() {
                     error={lastLaunchError.metaApiError}
                     failedStep={lastLaunchError.failedStep}
                     launchDebug={lastLaunchError.metaApiError?.launchDebug}
+                    housingGeoDebug={lastLaunchError.housingGeoDebug}
                   />
                 </div>
               ) : null}
@@ -4411,6 +4424,7 @@ export default function MetaCentrumPage() {
                             <MetaLaunchDebugPanel
                               launchDebug={c.metaLaunchDebug}
                               combinationDiagnostics={c.metaLaunchPayloads?.combinationDiagnostics ?? null}
+                              housingGeoDebug={c.metaLaunchPayloads?.housingGeoDebug ?? null}
                               failedStep={
                                 c.status === 'error' && c.metaLaunchSteps
                                   ? (['ad', 'creative', 'adSet', 'campaign'] as const).find(
