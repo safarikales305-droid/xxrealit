@@ -67,6 +67,7 @@ import {
   type MetaLaunchStep,
   type MetaLaunchSteps,
 } from './meta-campaign-api-payload.util';
+import type { CreateMetaCampaignDto } from './dto/create-meta-campaign.dto';
 import {
   buildHousingCustomLocation,
   convertTargetingCitiesToCustomLocations,
@@ -1238,7 +1239,7 @@ export class MetaCenterCampaignsService {
       };
     }
 
-    const adSetPayload = adSetBuild.payload;
+    let adSetPayload = adSetBuild.payload;
     const adSetSpec = adSetBuild.spec;
     launchPayloads.adSet = adSetPayload;
 
@@ -1259,15 +1260,15 @@ export class MetaCenterCampaignsService {
             dto.cityName,
           );
           if (converted) {
-            targeting = converted.targeting;
-            launchPayloads.targeting = targeting;
+            const retryTargeting = converted.targeting;
+            launchPayloads.targeting = retryTargeting;
             launchPayloads.housingGeoDebug = converted.housingGeoDebug;
             const retryBuild = this.buildAdSetLaunchPayload({
               dto,
               ids,
               row,
               metaCampaignId: metaCampaignId!,
-              targeting,
+              targeting: retryTargeting,
               publishStatus,
               budgetConfig,
               dailyBudgetMinor,
@@ -1284,6 +1285,7 @@ export class MetaCenterCampaignsService {
                 adSetPayload,
               );
               adSetAttempts = 2;
+              targeting = retryTargeting;
             }
           }
         }
