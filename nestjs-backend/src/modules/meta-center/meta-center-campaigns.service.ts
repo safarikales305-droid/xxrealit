@@ -35,6 +35,7 @@ import {
 import {
   buildMetaAdSetProbeSteps,
   buildProbeGraphUrl,
+  buildSupportedCatalogAdSetPayload,
   catalogSalesV25Validation,
   mapProbeGraphResult,
   summarizeProbeResult,

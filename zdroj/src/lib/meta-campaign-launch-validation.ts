@@ -310,17 +310,19 @@ export function validateMetaCampaignLaunch(
         })
       : [];
 
+  const payloadBlockers = payloadSpec.ok ? [] : payloadSpec.blockers;
+
   const metaPayloadBlockers = payloadSpec.ok
     ? comboBlockers
-    : [...payloadSpec.blockers, ...comboBlockers];
+    : [...payloadBlockers, ...comboBlockers];
 
   for (const b of comboBlockers) {
-    if (!payloadSpec.blockers.some((existing) => existing.key === b.key)) {
+    if (!payloadBlockers.some((existing: MetaCampaignPayloadBlocker) => existing.key === b.key)) {
       items.push(item(`meta.${b.key}`, 'Meta kombinace', false, b.message, 'campaign'));
     }
   }
 
-  for (const b of payloadSpec.ok ? [] : payloadSpec.blockers) {
+  for (const b of payloadBlockers) {
     items.push(
       item(
         `meta.${b.key}`,

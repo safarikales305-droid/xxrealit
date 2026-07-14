@@ -10,7 +10,7 @@
     "build": "next build",
     "typecheck": "tsc --noEmit",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "icons:generate": "node scripts/generate-favicons.mjs"
   },
   "dependencies": {

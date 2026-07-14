@@ -299,19 +299,21 @@ export function getMetaCampaignPayloadSpec(
 
 export function resolveMetaCampaignPayloadSpec(
   ctx: MetaCampaignPayloadContext,
-): { ok: true; spec: MetaCampaignPayloadSpec } | { ok: false; blockers: MetaCampaignLaunchBlocker[] } {
+):
+  | { ok: true; spec: MetaCampaignPayloadSpec }
+  | { ok: false; blockers: MetaCampaignLaunchBlocker[]; spec: MetaCampaignPayloadSpec | null } {
   const resolved = resolveMetaCampaignMode({
     goal: ctx.goal,
     creativeType: ctx.creativeType,
     targetingMode: ctx.targetingMode,
   });
   if (!resolved.mode) {
-    return { ok: false, blockers: resolved.blockers };
+    return { ok: false, blockers: resolved.blockers, spec: null };
   }
   const spec = getMetaCampaignPayloadSpec(resolved.mode, ctx);
   const blockers = validateMetaCampaignPayloadContext(ctx, spec);
   if (blockers.length) {
-    return { ok: false, blockers };
+    return { ok: false, blockers, spec };
   }
   return { ok: true, spec };
 }
