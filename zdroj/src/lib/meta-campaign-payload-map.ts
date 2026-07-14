@@ -35,6 +35,7 @@ export type MetaCampaignPayloadSpec = {
   billingEvent: string;
   bidStrategy: string;
   destinationType: string | null;
+  advantageAudience: 0 | 1;
   requiresPromotedObject: boolean;
   allowedPromotedObjectKeys: string[];
   usesCatalog: boolean;
@@ -87,6 +88,7 @@ const MODE_SPECS: Record<
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
     destinationType: 'WEBSITE',
+    advantageAudience: 0,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
     usesCatalog: false,
@@ -98,9 +100,10 @@ const MODE_SPECS: Record<
     optimizationGoal: 'OFFSITE_CONVERSIONS',
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
-    destinationType: 'WEBSITE',
+    destinationType: 'SHOP_AUTOMATIC',
+    advantageAudience: 1,
     requiresPromotedObject: true,
-    allowedPromotedObjectKeys: ['pixel_id', 'custom_event_type', 'product_catalog_id', 'page_id'],
+    allowedPromotedObjectKeys: ['product_catalog_id', 'pixel_id', 'custom_event_type'],
     usesCatalog: true,
     usesPixel: true,
     requiresPageId: true,
@@ -111,8 +114,9 @@ const MODE_SPECS: Record<
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
     destinationType: 'WEBSITE',
+    advantageAudience: 0,
     requiresPromotedObject: true,
-    allowedPromotedObjectKeys: ['pixel_id', 'custom_event_type', 'page_id'],
+    allowedPromotedObjectKeys: ['pixel_id', 'custom_event_type'],
     usesCatalog: false,
     usesPixel: true,
     requiresPageId: true,
@@ -123,6 +127,7 @@ const MODE_SPECS: Record<
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
     destinationType: 'ON_AD',
+    advantageAudience: 0,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: ['page_id', 'lead_gen_form_id'],
     usesCatalog: false,
@@ -135,6 +140,7 @@ const MODE_SPECS: Record<
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
     destinationType: null,
+    advantageAudience: 1,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
     usesCatalog: false,
@@ -147,6 +153,7 @@ const MODE_SPECS: Record<
     billingEvent: 'THRUPLAY',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
     destinationType: null,
+    advantageAudience: 0,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
     usesCatalog: false,
@@ -159,6 +166,7 @@ const MODE_SPECS: Record<
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
     destinationType: 'MESSENGER',
+    advantageAudience: 0,
     requiresPromotedObject: true,
     allowedPromotedObjectKeys: ['page_id'],
     usesCatalog: false,

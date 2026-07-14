@@ -7277,6 +7277,7 @@ export type MetaCampaignPayloadPreviewResponse = {
     billingEvent: string;
     bidStrategy?: string;
     destinationType?: string | null;
+    advantageAudience?: 0 | 1;
     promotedObjectSummary: string;
     requiresPromotedObject: boolean;
   } | null;

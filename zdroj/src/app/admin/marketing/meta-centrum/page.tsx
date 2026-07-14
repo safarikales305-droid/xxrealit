@@ -4129,6 +4129,9 @@ export default function MetaCentrumPage() {
                           {payloadPreview.spec.destinationType
                             ? ` · destination: ${payloadPreview.spec.destinationType}`
                             : ''}
+                          {payloadPreview.spec.advantageAudience != null
+                            ? ` · advantage_audience: ${payloadPreview.spec.advantageAudience}`
+                            : ''}
                         </p>
                       ) : null}
                       {payloadPreview?.adSetCorrections?.length ? (

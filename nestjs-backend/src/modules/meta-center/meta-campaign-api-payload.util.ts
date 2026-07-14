@@ -29,6 +29,7 @@ export type MetaCampaignPayloadPreviewSpec = {
   billingEvent: string;
   bidStrategy: string;
   destinationType: string | null;
+  advantageAudience: 0 | 1;
   promotedObjectSummary: string;
   requiresPromotedObject: boolean;
 };
@@ -106,6 +107,7 @@ export function toMetaCampaignPayloadPreviewSpec(spec: {
   billingEvent: string;
   bidStrategy: string;
   destinationType: string | null;
+  advantageAudience: 0 | 1;
   promotedObjectSummary: string;
   requiresPromotedObject: boolean;
 }): MetaCampaignPayloadPreviewSpec {
@@ -119,6 +121,7 @@ export function toMetaCampaignPayloadPreviewSpec(spec: {
     billingEvent: spec.billingEvent,
     bidStrategy: spec.bidStrategy,
     destinationType: spec.destinationType,
+    advantageAudience: spec.advantageAudience,
     promotedObjectSummary: spec.promotedObjectSummary,
     requiresPromotedObject: spec.requiresPromotedObject,
   };

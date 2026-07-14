@@ -1845,7 +1845,7 @@ export class MetaCenterCampaignsService {
       payloadContext,
     } = input;
 
-    const normalizedTargeting = normalizeTargetingForMetaV25(targeting);
+    const normalizedTargeting = normalizeTargetingForMetaV25(targeting, metaSpec.advantageAudience);
     const dsaLabels = resolveDsaDisclosureLabels({
       pageName: row?.pageName,
       adAccountName: row?.adAccountName,

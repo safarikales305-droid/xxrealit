@@ -29,6 +29,7 @@ export type MetaCampaignPayloadSpec = {
   billingEvent: string;
   bidStrategy: string;
   destinationType: string | null;
+  advantageAudience: 0 | 1;
   requiresPromotedObject: boolean;
   allowedPromotedObjectKeys: string[];
   usesCatalog: boolean;
@@ -74,6 +75,7 @@ const MODE_SPECS: Record<
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
     destinationType: 'WEBSITE',
+    advantageAudience: 0,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
     usesCatalog: false,
@@ -85,9 +87,10 @@ const MODE_SPECS: Record<
     optimizationGoal: 'OFFSITE_CONVERSIONS',
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
-    destinationType: 'WEBSITE',
+    destinationType: 'SHOP_AUTOMATIC',
+    advantageAudience: 1,
     requiresPromotedObject: true,
-    allowedPromotedObjectKeys: ['pixel_id', 'custom_event_type', 'product_catalog_id', 'page_id'],
+    allowedPromotedObjectKeys: ['product_catalog_id', 'pixel_id', 'custom_event_type'],
     usesCatalog: true,
     usesPixel: true,
     requiresPageId: true,
@@ -98,8 +101,9 @@ const MODE_SPECS: Record<
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
     destinationType: 'WEBSITE',
+    advantageAudience: 0,
     requiresPromotedObject: true,
-    allowedPromotedObjectKeys: ['pixel_id', 'custom_event_type', 'page_id'],
+    allowedPromotedObjectKeys: ['pixel_id', 'custom_event_type'],
     usesCatalog: false,
     usesPixel: true,
     requiresPageId: true,
@@ -110,6 +114,7 @@ const MODE_SPECS: Record<
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
     destinationType: 'ON_AD',
+    advantageAudience: 0,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: ['page_id', 'lead_gen_form_id'],
     usesCatalog: false,
@@ -122,6 +127,7 @@ const MODE_SPECS: Record<
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
     destinationType: null,
+    advantageAudience: 1,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
     usesCatalog: false,
@@ -134,6 +140,7 @@ const MODE_SPECS: Record<
     billingEvent: 'THRUPLAY',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
     destinationType: null,
+    advantageAudience: 0,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
     usesCatalog: false,
@@ -146,6 +153,7 @@ const MODE_SPECS: Record<
     billingEvent: 'IMPRESSIONS',
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
     destinationType: 'MESSENGER',
+    advantageAudience: 0,
     requiresPromotedObject: true,
     allowedPromotedObjectKeys: ['page_id'],
     usesCatalog: false,
@@ -195,9 +203,9 @@ export function isNonCatalogCreativeSource(source: MetaCreativeSourceKey): boole
 function promotedSummary(mode: MetaCampaignModeKey, leadFormId?: string | null): string {
   switch (mode) {
     case 'catalog_sales':
-      return 'Page + Pixel/Dataset + Purchase + Catalog';
+      return 'Catalog + Pixel/Dataset + Purchase (SHOP_AUTOMATIC)';
     case 'remarketing':
-      return 'Page + Pixel/Dataset + ViewContent/Purchase';
+      return 'Pixel/Dataset + ViewContent/Purchase (WEBSITE)';
     case 'leads':
       return leadFormId ? 'Page + Lead Form' : 'Page';
     case 'messages':
@@ -318,19 +326,17 @@ export function buildPromotedObjectForSpec(
   const pageId = ctx.pageId?.trim() || null;
 
   if (spec.mode === 'catalog_sales') {
-    if (!pixelId || !catalogId || !pageId) return null;
+    if (!pixelId || !catalogId) return null;
     return {
-      page_id: pageId,
+      product_catalog_id: catalogId,
       pixel_id: pixelId,
       custom_event_type: 'PURCHASE',
-      product_catalog_id: catalogId,
     };
   }
 
   if (spec.mode === 'remarketing') {
-    if (!pixelId || !pageId) return null;
+    if (!pixelId) return null;
     return {
-      page_id: pageId,
       pixel_id: pixelId,
       custom_event_type: ctx.remarketingConversionEvent ?? 'VIEW_CONTENT',
     };
@@ -519,7 +525,24 @@ export function validateAdSetPayloadCombination(
       }
     }
 
-    if (promoted.product_catalog_id && !spec.usesCatalog) {
+    if (spec.mode === 'catalog_sales') {
+      if (promoted.page_id) {
+        blockers.push({
+          key: 'adset.promoted_object.page_id_forbidden',
+          message:
+            'Katalogový prodej: page_id nepatří do promoted_object ad setu (patří do kreativy).',
+        });
+      }
+      if (payload.destination_type === 'WEBSITE') {
+        blockers.push({
+          key: 'adset.destination_type.website_forbidden',
+          message:
+            'Katalogový prodej: destination_type WEBSITE je neplatný — použijte SHOP_AUTOMATIC.',
+        });
+      }
+    }
+
+    if (promoted.product_catalog_id && spec.mode !== 'catalog_sales') {
       blockers.push({
         key: 'adset.product_catalog_forbidden',
         message: formatInvalidCombinationMessage({
@@ -573,15 +596,14 @@ export type MetaAdSetPayloadNormalization = {
 
 export function normalizeTargetingForMetaV25(
   targeting: Record<string, unknown>,
+  advantageAudience: 0 | 1 = 0,
 ): Record<string, unknown> {
   const base = { ...targeting };
   const automation =
     base.targeting_automation && typeof base.targeting_automation === 'object'
       ? { ...(base.targeting_automation as Record<string, unknown>) }
       : {};
-  if (automation.advantage_audience === undefined) {
-    automation.advantage_audience = 0;
-  }
+  automation.advantage_audience = advantageAudience;
   return {
     ...base,
     targeting_automation: automation,
@@ -634,7 +656,10 @@ export function normalizeAdSetPayloadForMetaV25(input: {
 }): MetaAdSetPayloadNormalization {
   const corrections: string[] = [];
   const payload = { ...input.payload };
-  const targeting = normalizeTargetingForMetaV25(input.targeting);
+  const targeting = normalizeTargetingForMetaV25(
+    input.targeting,
+    input.spec.advantageAudience,
+  );
   payload.targeting = JSON.stringify(targeting);
 
   if (payload.optimization_goal !== input.spec.optimizationGoal) {
@@ -678,6 +703,9 @@ export function normalizeAdSetPayloadForMetaV25(input: {
     corrections.push('promoted_object přepočítán podle režimu kampaně');
   }
   if (promotedObject) {
+    if (input.spec.mode === 'catalog_sales') {
+      delete promotedObject.page_id;
+    }
     payload.promoted_object = JSON.stringify(promotedObject);
   } else if (input.spec.requiresPromotedObject) {
     payload.promoted_object = undefined;
@@ -698,7 +726,7 @@ export function normalizeAdSetPayloadForMetaV25(input: {
   }
 
   if (!targeting.targeting_automation) {
-    corrections.push('targeting_automation.advantage_audience → 0');
+    corrections.push(`targeting_automation.advantage_audience → ${input.spec.advantageAudience}`);
   }
 
   return { payload, promotedObject, corrections };
