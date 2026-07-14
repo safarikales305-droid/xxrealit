@@ -22,7 +22,7 @@ import {
   MetaCampaignLaunchChecklist,
   MetaCampaignValidationErrors,
 } from '@/components/meta-centrum/MetaCampaignLaunchChecklist';
-import { MetaCampaignDetailPanel } from '@/components/meta-centrum/MetaCampaignDetailPanel';
+import { MetaCampaignDetailPanel, metaLaunchSummaryLines } from '@/components/meta-centrum/MetaCampaignDetailPanel';
 import {
   safeDisplayValue,
   safeErrorMessage,
@@ -140,9 +140,16 @@ function MetaLaunchStepsPanel({
   highlightStep?: string | null;
 }) {
   if (!steps) return null;
+  const summary = metaLaunchSummaryLines(steps);
   const entries = Object.entries(LAUNCH_STEP_LABELS) as Array<[keyof MetaLaunchSteps, string]>;
   return (
-    <ul className="mt-2 flex flex-wrap gap-2 text-xs">
+    <div className="mt-2 space-y-1">
+      <ul className="space-y-0.5 text-xs text-zinc-700">
+        {summary.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+      <ul className="flex flex-wrap gap-2 text-xs">
       {entries.map(([key, label]) => {
         const state = steps[key];
         const failed = highlightStep === key || (!state.ok && Boolean(state.error));
@@ -162,7 +169,8 @@ function MetaLaunchStepsPanel({
           </li>
         );
       })}
-    </ul>
+      </ul>
+    </div>
   );
 }
 
@@ -901,6 +909,7 @@ export default function MetaCentrumPage() {
       metaGeoRegion: item.region ?? '',
       latitude: item.lat != null ? String(item.lat) : d.latitude,
       longitude: item.lng != null ? String(item.lng) : d.longitude,
+      locationTargetingMode: 'city',
     }));
     setGeoSuggestions([]);
     setShowGeoSuggestions(false);
@@ -1023,10 +1032,20 @@ export default function MetaCentrumPage() {
     setBusy(true);
     setLastLaunchError(null);
     const payload = buildCampaignPayload();
-    const r =
-      editingCampaignId && mode === 'draft'
-        ? await nestAdminMetaCenterUpdateCampaignDraft(token, editingCampaignId, payload)
-        : await nestAdminMetaCenterCreateCampaign(token, payload, mode);
+    let r: MetaCampaignCreateResponse;
+    if (editingCampaignId && mode === 'launch') {
+      const updated = await nestAdminMetaCenterUpdateCampaignDraft(token, editingCampaignId, payload);
+      if (!updated.ok) {
+        setBusy(false);
+        setMsg(updated.message ?? 'Aktualizace konceptu selhala.');
+        return;
+      }
+      r = await nestAdminMetaCenterLaunchCampaignDraft(token, editingCampaignId, payload);
+    } else if (editingCampaignId && mode === 'draft') {
+      r = await nestAdminMetaCenterUpdateCampaignDraft(token, editingCampaignId, payload);
+    } else {
+      r = await nestAdminMetaCenterCreateCampaign(token, payload, mode);
+    }
     setBusy(false);
     if (r.ok) {
       setMsg(

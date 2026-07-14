@@ -40,6 +40,7 @@ import {
   toMetaCampaignPayloadPreviewSpec,
   validateAdSetPayload,
   validateCampaignPayload,
+  validateGeoTargetingPayload,
   type MetaApiErrorDetail,
   type MetaCampaignLaunchBlocker,
   type MetaCampaignLaunchResult,
@@ -1725,6 +1726,7 @@ export class MetaCenterCampaignsService {
       ...validateAdSetPayload(adSetPayload, budgetConfig, {
         requiresPromotedObject: metaSpec.requiresPromotedObject,
       }),
+      ...validateGeoTargetingPayload(targeting),
       ...validateAdSetPayloadCombination(adSetPayload, metaSpec),
     ];
 

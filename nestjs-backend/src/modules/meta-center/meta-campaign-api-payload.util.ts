@@ -169,6 +169,83 @@ export type MetaApiErrorDetail = {
   errorUserMsg: string | null;
 };
 
+export function validateGeoTargetingPayload(
+  targeting: Record<string, unknown>,
+): MetaCampaignLaunchBlocker[] {
+  const blockers: MetaCampaignLaunchBlocker[] = [];
+  let parsed: Record<string, unknown> = targeting;
+  const raw = targeting.targeting;
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return blockers;
+    }
+  }
+
+  const geoLocations = parsed.geo_locations;
+  if (!geoLocations || typeof geoLocations !== 'object') return blockers;
+  const geo = geoLocations as Record<string, unknown>;
+  const cities = geo.cities;
+  if (Array.isArray(cities)) {
+    for (const entry of cities) {
+      if (entry && typeof entry === 'object' && 'radius' in (entry as Record<string, unknown>)) {
+        blockers.push({
+          key: 'adset.geo.cities_radius',
+          message:
+            'Neplatné cílení: Meta cities nesmí obsahovat radius. Zvolte „Cílit celé město“ nebo použijte okruh přes souřadnice.',
+        });
+        break;
+      }
+    }
+  }
+
+  const locationMode = geo.cities && Array.isArray(geo.cities) && geo.cities.length > 0
+    ? 'city'
+    : geo.custom_locations
+      ? 'radius'
+      : null;
+  if (
+    locationMode === 'radius' &&
+    Array.isArray(geo.cities) &&
+    geo.cities.length > 0 &&
+    Array.isArray(geo.custom_locations) &&
+    geo.custom_locations.length > 0
+  ) {
+    blockers.push({
+      key: 'adset.geo.mixed',
+      message:
+        'Neplatné cílení: nelze kombinovat cities a custom_locations — zvolte buď celé město, nebo okruh.',
+    });
+  }
+
+  return blockers;
+}
+
+export function summarizeMetaLaunchSteps(
+  steps: MetaLaunchSteps | null | undefined,
+): string[] {
+  if (!steps) {
+    return [
+      'Campaign nevytvořena',
+      'Ad Set nevytvořeno',
+      'Creative nevytvořeno',
+      'Ad nevytvořeno',
+    ];
+  }
+  const line = (label: string, state: MetaLaunchStepState | undefined) => {
+    if (!state || (!state.ok && !state.error)) return `${label} nevytvořeno`;
+    if (state.ok) return `${label} vytvořeno`;
+    return `${label} chyba`;
+  };
+  return [
+    line('Campaign', steps.campaign),
+    line('Ad Set', steps.adSet),
+    line('Creative', steps.creative),
+    line('Ad', steps.ad),
+  ];
+}
+
 export function resolveBudgetConfig(
   useCampaignBudgetOptimization = false,
 ): MetaCampaignBudgetConfig {

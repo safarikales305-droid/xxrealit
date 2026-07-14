@@ -2,6 +2,7 @@
 
 import type { MetaCampaignDraft, MetaLaunchPayloadSnapshot, MetaLaunchSteps } from '@/lib/nest-client';
 import type { MetaCampaignProductItem } from '@/lib/nest-client';
+import { getCreativePreviewImage } from '@/lib/meta-campaign-creative';
 
 const STEP_LABELS: Record<keyof MetaLaunchSteps, string> = {
   campaign: 'Campaign',
@@ -12,9 +13,15 @@ const STEP_LABELS: Record<keyof MetaLaunchSteps, string> = {
 
 function stepStatusLabel(steps: MetaLaunchSteps | null | undefined, key: keyof MetaLaunchSteps): string {
   const state = steps?.[key];
-  if (!state) return '○ Nevytvořeno';
-  if (state.ok) return `✓ Vytvořeno${state.id ? ` (${state.id})` : ''}`;
-  return `✗ Chyba${state.error ? `: ${state.error.split('\n')[0]}` : ''}`;
+  if (!state || (!state.ok && !state.error)) return `${STEP_LABELS[key]}: nevytvořeno`;
+  if (state.ok) return `${STEP_LABELS[key]}: vytvořeno`;
+  return `${STEP_LABELS[key]}: chyba`;
+}
+
+function launchSummaryLines(steps: MetaLaunchSteps | null | undefined): string[] {
+  return (Object.keys(STEP_LABELS) as Array<keyof MetaLaunchSteps>).map((key) =>
+    stepStatusLabel(steps, key),
+  );
 }
 
 type Props = {
@@ -31,21 +38,47 @@ export function MetaCampaignDetailPanel({ campaign, products = [] }: Props) {
   const description = String(cp.description ?? '—');
   const cta = String(cp.cta ?? cp.ctaType ?? '—');
   const url = String(cp.link ?? cp.detailUrl ?? '—');
+  const previewImage =
+    campaign.creativePreviewUrl ??
+    getCreativePreviewImage(cp) ??
+    selectedProducts[0]?.imageUrl ??
+    null;
 
   return (
     <div className="mt-3 space-y-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
       <p className="font-semibold text-sm">Detail reklamy</p>
 
-      <div>
-        <p className="mb-1 font-medium">Stav kroků v Meta</p>
-        <ul className="space-y-0.5 font-mono">
-          {(Object.keys(STEP_LABELS) as Array<keyof MetaLaunchSteps>).map((key) => (
-            <li key={key}>
-              {STEP_LABELS[key]}: {stepStatusLabel(campaign.metaLaunchSteps, key)}
-            </li>
+      <div className="rounded-lg border border-zinc-200 bg-white p-2">
+        <p className="mb-1 font-medium">Průběh v Meta</p>
+        <ul className="space-y-0.5">
+          {launchSummaryLines(campaign.metaLaunchSteps).map((line) => (
+            <li key={line}>{line}</li>
           ))}
         </ul>
       </div>
+
+      {previewImage || campaign.previewHtml ? (
+        <div>
+          <p className="mb-1 font-medium">Náhled reklamy</p>
+          {previewImage ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={previewImage}
+              alt="Náhled reklamy"
+              className="max-h-48 rounded-lg border border-zinc-200 object-cover"
+            />
+          ) : null}
+          {campaign.previewHtml ? (
+            <details className="mt-2">
+              <summary className="cursor-pointer font-medium">Meta HTML náhled</summary>
+              <div
+                className="mt-2 max-h-64 overflow-auto rounded border border-zinc-200 bg-white p-2"
+                dangerouslySetInnerHTML={{ __html: campaign.previewHtml }}
+              />
+            </details>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="grid gap-2 sm:grid-cols-2">
         <p>
@@ -96,16 +129,21 @@ export function MetaCampaignDetailPanel({ campaign, products = [] }: Props) {
         <p>
           Režim:{' '}
           {campaign.locationTargetingMode === 'radius'
-            ? 'Okruh podle souřadnic'
-            : 'Celé město'}
+            ? 'Okruh podle souřadnic (custom_locations)'
+            : 'Celé město (cities bez radius)'}
           {campaign.cityName ? ` · ${campaign.cityName}` : ''}
           {campaign.metaGeoKey ? ` · Geo ID ${campaign.metaGeoKey}` : ''}
           {campaign.radiusKm != null ? ` · ${campaign.radiusKm} km` : ''}
         </p>
+        {campaign.latitude != null && campaign.longitude != null ? (
+          <p className="font-mono text-[10px] text-zinc-600">
+            Souřadnice: {campaign.latitude}, {campaign.longitude}
+          </p>
+        ) : null}
       </div>
 
       {payloads?.targeting ? (
-        <details>
+        <details open>
           <summary className="cursor-pointer font-medium">Targeting payload</summary>
           <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-white p-2 font-mono text-[10px]">
             {JSON.stringify(payloads.targeting, null, 2)}
@@ -138,8 +176,14 @@ export function MetaCampaignDetailPanel({ campaign, products = [] }: Props) {
       ) : null}
 
       {campaign.errorMessage ? (
-        <p className="whitespace-pre-wrap text-red-800">{campaign.errorMessage}</p>
+        <p className="whitespace-pre-wrap rounded-lg border border-red-200 bg-red-50 p-2 text-red-800">
+          {campaign.errorMessage}
+        </p>
       ) : null}
     </div>
   );
+}
+
+export function metaLaunchSummaryLines(steps: MetaLaunchSteps | null | undefined): string[] {
+  return launchSummaryLines(steps);
 }
