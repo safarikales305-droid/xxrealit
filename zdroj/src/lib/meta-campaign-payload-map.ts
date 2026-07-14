@@ -33,10 +33,13 @@ export type MetaCampaignPayloadSpec = {
   campaignObjective: string;
   optimizationGoal: string;
   billingEvent: string;
+  bidStrategy: string;
+  destinationType: string | null;
   requiresPromotedObject: boolean;
   allowedPromotedObjectKeys: string[];
   usesCatalog: boolean;
   usesPixel: boolean;
+  requiresPageId: boolean;
   promotedObjectSummary: string;
 };
 
@@ -82,64 +85,85 @@ const MODE_SPECS: Record<
     campaignObjective: 'OUTCOME_TRAFFIC',
     optimizationGoal: 'LINK_CLICKS',
     billingEvent: 'IMPRESSIONS',
+    bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
+    destinationType: 'WEBSITE',
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
     usesCatalog: false,
     usesPixel: false,
+    requiresPageId: false,
   },
   catalog_sales: {
     campaignObjective: 'OUTCOME_SALES',
     optimizationGoal: 'OFFSITE_CONVERSIONS',
     billingEvent: 'IMPRESSIONS',
+    bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
+    destinationType: 'WEBSITE',
     requiresPromotedObject: true,
-    allowedPromotedObjectKeys: ['pixel_id', 'custom_event_type', 'product_catalog_id'],
+    allowedPromotedObjectKeys: ['pixel_id', 'custom_event_type', 'product_catalog_id', 'page_id'],
     usesCatalog: true,
     usesPixel: true,
+    requiresPageId: true,
   },
   remarketing: {
     campaignObjective: 'OUTCOME_SALES',
     optimizationGoal: 'OFFSITE_CONVERSIONS',
     billingEvent: 'IMPRESSIONS',
+    bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
+    destinationType: 'WEBSITE',
     requiresPromotedObject: true,
-    allowedPromotedObjectKeys: ['pixel_id', 'custom_event_type'],
+    allowedPromotedObjectKeys: ['pixel_id', 'custom_event_type', 'page_id'],
     usesCatalog: false,
     usesPixel: true,
+    requiresPageId: true,
   },
   leads: {
     campaignObjective: 'OUTCOME_LEADS',
     optimizationGoal: 'LEAD_GENERATION',
     billingEvent: 'IMPRESSIONS',
+    bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
+    destinationType: 'ON_AD',
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: ['page_id', 'lead_gen_form_id'],
     usesCatalog: false,
     usesPixel: false,
+    requiresPageId: true,
   },
   reach: {
     campaignObjective: 'OUTCOME_AWARENESS',
     optimizationGoal: 'REACH',
     billingEvent: 'IMPRESSIONS',
+    bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
+    destinationType: null,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
     usesCatalog: false,
     usesPixel: false,
+    requiresPageId: false,
   },
   video: {
     campaignObjective: 'OUTCOME_ENGAGEMENT',
     optimizationGoal: 'THRUPLAY',
     billingEvent: 'THRUPLAY',
+    bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
+    destinationType: null,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
     usesCatalog: false,
     usesPixel: false,
+    requiresPageId: false,
   },
   messages: {
     campaignObjective: 'OUTCOME_ENGAGEMENT',
     optimizationGoal: 'CONVERSATIONS',
     billingEvent: 'IMPRESSIONS',
-    requiresPromotedObject: false,
-    allowedPromotedObjectKeys: [],
+    bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
+    destinationType: 'MESSENGER',
+    requiresPromotedObject: true,
+    allowedPromotedObjectKeys: ['page_id'],
     usesCatalog: false,
     usesPixel: false,
+    requiresPageId: true,
   },
 };
 

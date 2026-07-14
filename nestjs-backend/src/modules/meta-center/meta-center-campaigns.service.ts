@@ -17,8 +17,11 @@ import {
   computeMetaCampaignLaunchBlockers,
 } from './meta-campaign-launch-validation.util';
 import {
-  buildPromotedObjectForSpec,
+  buildMetaLaunchGraphPaths,
   extractLeadFormId,
+  normalizeAdSetPayloadForMetaV25,
+  normalizeTargetingForMetaV25,
+  resolveDsaDisclosureLabels,
   resolveMetaCampaignPayloadSpec,
   serializePayloadForMetaApi,
   validateAdSetPayloadCombination,
@@ -52,9 +55,12 @@ import {
 import type { CreateMetaCampaignDto } from './dto/create-meta-campaign.dto';
 import {
   MetaLaunchStepTracer,
+  buildMetaLaunchDebugExport,
+  buildMetaLaunchGraphUrl,
   isMetaInternalErrorCode2,
   metaCode2UserMessage,
   metaLaunchDebugDir,
+  writeMetaDebugJson,
   type MetaLaunchDebugTrace,
 } from './meta-launch-debug.util';
 import type { MetaGraphResult } from './meta-graph-client.service';
@@ -1150,6 +1156,30 @@ export class MetaCenterCampaignsService {
           adSetBuild.metaForm,
           userMessage,
         );
+        const graphPaths = buildMetaLaunchGraphPaths(actId);
+        const graphBase = this.graph.graphBase(graphVersion);
+        const debugExport = buildMetaLaunchDebugExport({
+          trace: tracer.getTrace(),
+          payloads: launchPayloads,
+          graphUrls: {
+            campaign: buildMetaLaunchGraphUrl(graphBase, graphPaths.campaign),
+            adSet: buildMetaLaunchGraphUrl(graphBase, graphPaths.adSet),
+            creative: buildMetaLaunchGraphUrl(graphBase, graphPaths.creative),
+            ad: buildMetaLaunchGraphUrl(graphBase, graphPaths.ad),
+          },
+          failedStep: 'adset',
+          metaError: code2Failure && !adSetRes.ok
+            ? {
+                httpStatus: adSetRes.httpStatus,
+                errorCode: adSetRes.errorCode,
+                errorMessage: adSetRes.errorMessage,
+                requestPayload: adSetPayload,
+                metaForm: adSetBuild.metaForm ?? null,
+                response: adSetRes.data ?? null,
+              }
+            : null,
+        });
+        writeMetaDebugJson(metaLaunchDebugDir(), draftId, debugExport);
         launchSteps.adSet = { ok: false, error: failure.message };
         await this.persistLaunchState(draftId, {
           metaCampaignId,
@@ -1688,6 +1718,16 @@ export class MetaCenterCampaignsService {
         : []),
     ];
 
+    const graphVersion = row?.graphApiVersion || this.fbConfig.getGraphApiVersion();
+    const graphBase = this.graph.graphBase(graphVersion);
+    const graphPaths = buildMetaLaunchGraphPaths((ids.adAccountId ?? '').replace(/^act_/, ''));
+    const graphApiUrls = {
+      campaign: buildMetaLaunchGraphUrl(graphBase, graphPaths.campaign),
+      adSet: buildMetaLaunchGraphUrl(graphBase, graphPaths.adSet),
+      creative: buildMetaLaunchGraphUrl(graphBase, graphPaths.creative),
+      ad: buildMetaLaunchGraphUrl(graphBase, graphPaths.ad),
+    };
+
     return {
       ok: blockers.length === 0,
       message:
@@ -1735,6 +1775,8 @@ export class MetaCenterCampaignsService {
             creativeSource: metaSpec.creativeSource,
           }
         : null,
+      graphApiUrls,
+      adSetCorrections: adSetBuilt.ok ? adSetBuilt.corrections ?? [] : [],
       payload: adSetBuilt.payload ?? null,
       metaForm: adSetBuilt.metaForm ?? null,
     };
@@ -1780,6 +1822,7 @@ export class MetaCenterCampaignsService {
         metaForm: Record<string, string>;
         spec: MetaCampaignPayloadSpec;
         promotedObject: Record<string, unknown> | null;
+        corrections?: string[];
       }
     | {
         ok: false;
@@ -1791,6 +1834,8 @@ export class MetaCenterCampaignsService {
       } {
     const {
       dto,
+      ids,
+      row,
       metaCampaignId,
       targeting,
       publishStatus,
@@ -1800,7 +1845,12 @@ export class MetaCenterCampaignsService {
       payloadContext,
     } = input;
 
-    const promotedObject = buildPromotedObjectForSpec(metaSpec, payloadContext);
+    const normalizedTargeting = normalizeTargetingForMetaV25(targeting);
+    const dsaLabels = resolveDsaDisclosureLabels({
+      pageName: row?.pageName,
+      adAccountName: row?.adAccountName,
+      campaignName: dto.name.trim(),
+    });
     const startTime = this.parseDate(dto.startDate)?.toISOString() ?? undefined;
     const endTime = this.parseDate(dto.endDate)?.toISOString() ?? undefined;
 
@@ -1809,8 +1859,8 @@ export class MetaCenterCampaignsService {
       campaign_id: metaCampaignId,
       billing_event: metaSpec.billingEvent,
       optimization_goal: metaSpec.optimizationGoal,
-      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-      targeting: JSON.stringify(targeting),
+      bid_strategy: metaSpec.bidStrategy,
+      targeting: JSON.stringify(normalizedTargeting),
       start_time: startTime,
       end_time: endTime,
       status: publishStatus,
@@ -1821,26 +1871,72 @@ export class MetaCenterCampaignsService {
       adSetPayload.daily_budget = String(dailyBudgetMinor);
     }
 
-    if (promotedObject) {
-      adSetPayload.promoted_object = JSON.stringify(promotedObject);
+    const normalized = normalizeAdSetPayloadForMetaV25({
+      payload: adSetPayload,
+      spec: metaSpec,
+      payloadContext,
+      targeting: normalizedTargeting,
+      dsaLabels,
+    });
+    const adSetPayloadFinal = normalized.payload;
+    const promotedObject = normalized.promotedObject;
+
+    if (!dsaLabels) {
+      const dsaBlocker: MetaCampaignLaunchBlocker = {
+        key: 'adset.dsa',
+        message:
+          'Ad set: chybí DSA beneficiary/payor — nastavte název Facebook stránky nebo reklamního účtu v Meta Centru.',
+      };
+      const blockers = [
+        dsaBlocker,
+        ...validateMetaCampaignPayloadContext(payloadContext, metaSpec),
+      ];
+      return {
+        ok: false,
+        blockers,
+        payload: adSetPayloadFinal,
+        metaForm: serializePayloadForMetaApi(adSetPayloadFinal),
+        spec: metaSpec,
+        promotedObject,
+      };
     }
 
     const blockers = [
       ...validateMetaCampaignPayloadContext(payloadContext, metaSpec),
-      ...validateAdSetPayload(adSetPayload, budgetConfig, {
+      ...validateAdSetPayload(adSetPayloadFinal, budgetConfig, {
         requiresPromotedObject: metaSpec.requiresPromotedObject,
       }),
       ...validateGeoTargetingPayload(targeting),
-      ...validateAdSetPayloadCombination(adSetPayload, metaSpec),
+      ...validateAdSetPayloadCombination(adSetPayloadFinal, metaSpec),
     ];
 
-    const metaForm = serializePayloadForMetaApi(adSetPayload);
+    const metaForm = serializePayloadForMetaApi(adSetPayloadFinal);
 
     if (blockers.length) {
-      return { ok: false, blockers, payload: adSetPayload, metaForm, spec: metaSpec, promotedObject };
+      return {
+        ok: false,
+        blockers,
+        payload: adSetPayloadFinal,
+        metaForm,
+        spec: metaSpec,
+        promotedObject,
+      };
     }
 
-    return { ok: true, payload: adSetPayload, metaForm, spec: metaSpec, promotedObject };
+    if (normalized.corrections.length) {
+      this.logger.log(
+        `[meta-campaign] adset payload auto-fix (${metaSpec.mode}): ${normalized.corrections.join('; ')}`,
+      );
+    }
+
+    return {
+      ok: true,
+      payload: adSetPayloadFinal,
+      metaForm,
+      spec: metaSpec,
+      promotedObject,
+      corrections: normalized.corrections,
+    };
   }
 
   private async resolveCatalogProductSet(

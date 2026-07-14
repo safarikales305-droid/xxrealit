@@ -27,10 +27,13 @@ export type MetaCampaignPayloadSpec = {
   campaignObjective: string;
   optimizationGoal: string;
   billingEvent: string;
+  bidStrategy: string;
+  destinationType: string | null;
   requiresPromotedObject: boolean;
   allowedPromotedObjectKeys: string[];
   usesCatalog: boolean;
   usesPixel: boolean;
+  requiresPageId: boolean;
   promotedObjectSummary: string;
 };
 
@@ -69,64 +72,85 @@ const MODE_SPECS: Record<
     campaignObjective: 'OUTCOME_TRAFFIC',
     optimizationGoal: 'LINK_CLICKS',
     billingEvent: 'IMPRESSIONS',
+    bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
+    destinationType: 'WEBSITE',
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
     usesCatalog: false,
     usesPixel: false,
+    requiresPageId: false,
   },
   catalog_sales: {
     campaignObjective: 'OUTCOME_SALES',
     optimizationGoal: 'OFFSITE_CONVERSIONS',
     billingEvent: 'IMPRESSIONS',
+    bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
+    destinationType: 'WEBSITE',
     requiresPromotedObject: true,
-    allowedPromotedObjectKeys: ['pixel_id', 'custom_event_type', 'product_catalog_id'],
+    allowedPromotedObjectKeys: ['pixel_id', 'custom_event_type', 'product_catalog_id', 'page_id'],
     usesCatalog: true,
     usesPixel: true,
+    requiresPageId: true,
   },
   remarketing: {
     campaignObjective: 'OUTCOME_SALES',
     optimizationGoal: 'OFFSITE_CONVERSIONS',
     billingEvent: 'IMPRESSIONS',
+    bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
+    destinationType: 'WEBSITE',
     requiresPromotedObject: true,
-    allowedPromotedObjectKeys: ['pixel_id', 'custom_event_type'],
+    allowedPromotedObjectKeys: ['pixel_id', 'custom_event_type', 'page_id'],
     usesCatalog: false,
     usesPixel: true,
+    requiresPageId: true,
   },
   leads: {
     campaignObjective: 'OUTCOME_LEADS',
     optimizationGoal: 'LEAD_GENERATION',
     billingEvent: 'IMPRESSIONS',
+    bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
+    destinationType: 'ON_AD',
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: ['page_id', 'lead_gen_form_id'],
     usesCatalog: false,
     usesPixel: false,
+    requiresPageId: true,
   },
   reach: {
     campaignObjective: 'OUTCOME_AWARENESS',
     optimizationGoal: 'REACH',
     billingEvent: 'IMPRESSIONS',
+    bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
+    destinationType: null,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
     usesCatalog: false,
     usesPixel: false,
+    requiresPageId: false,
   },
   video: {
     campaignObjective: 'OUTCOME_ENGAGEMENT',
     optimizationGoal: 'THRUPLAY',
     billingEvent: 'THRUPLAY',
+    bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
+    destinationType: null,
     requiresPromotedObject: false,
     allowedPromotedObjectKeys: [],
     usesCatalog: false,
     usesPixel: false,
+    requiresPageId: false,
   },
   messages: {
     campaignObjective: 'OUTCOME_ENGAGEMENT',
     optimizationGoal: 'CONVERSATIONS',
     billingEvent: 'IMPRESSIONS',
-    requiresPromotedObject: false,
-    allowedPromotedObjectKeys: [],
+    bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
+    destinationType: 'MESSENGER',
+    requiresPromotedObject: true,
+    allowedPromotedObjectKeys: ['page_id'],
     usesCatalog: false,
     usesPixel: false,
+    requiresPageId: true,
   },
 };
 
@@ -171,11 +195,13 @@ export function isNonCatalogCreativeSource(source: MetaCreativeSourceKey): boole
 function promotedSummary(mode: MetaCampaignModeKey, leadFormId?: string | null): string {
   switch (mode) {
     case 'catalog_sales':
-      return 'Pixel/Dataset + Purchase + Catalog';
+      return 'Page + Pixel/Dataset + Purchase + Catalog';
     case 'remarketing':
-      return 'Pixel/Dataset + ViewContent/Purchase';
+      return 'Page + Pixel/Dataset + ViewContent/Purchase';
     case 'leads':
-      return leadFormId ? 'Page + Lead Form' : '—';
+      return leadFormId ? 'Page + Lead Form' : 'Page';
+    case 'messages':
+      return 'Page (Messenger)';
     default:
       return '—';
   }
@@ -289,9 +315,12 @@ export function buildPromotedObjectForSpec(
   const pixelId = ctx.pixelId?.trim() || ctx.datasetId?.trim() || null;
   const catalogId = ctx.catalogId?.replace(/^catalog_/i, '') ?? null;
 
+  const pageId = ctx.pageId?.trim() || null;
+
   if (spec.mode === 'catalog_sales') {
-    if (!pixelId || !catalogId) return null;
+    if (!pixelId || !catalogId || !pageId) return null;
     return {
+      page_id: pageId,
       pixel_id: pixelId,
       custom_event_type: 'PURCHASE',
       product_catalog_id: catalogId,
@@ -299,8 +328,9 @@ export function buildPromotedObjectForSpec(
   }
 
   if (spec.mode === 'remarketing') {
-    if (!pixelId) return null;
+    if (!pixelId || !pageId) return null;
     return {
+      page_id: pageId,
       pixel_id: pixelId,
       custom_event_type: ctx.remarketingConversionEvent ?? 'VIEW_CONTENT',
     };
@@ -308,12 +338,19 @@ export function buildPromotedObjectForSpec(
 
   if (spec.mode === 'leads') {
     const leadFormId = ctx.leadFormId?.trim();
-    const pageId = ctx.pageId?.trim();
-    if (!leadFormId || !pageId) return null;
-    return {
-      page_id: pageId,
-      lead_gen_form_id: leadFormId,
-    };
+    if (!pageId) return null;
+    if (leadFormId) {
+      return {
+        page_id: pageId,
+        lead_gen_form_id: leadFormId,
+      };
+    }
+    return { page_id: pageId };
+  }
+
+  if (spec.mode === 'messages') {
+    if (!pageId) return null;
+    return { page_id: pageId };
   }
 
   if (!spec.requiresPromotedObject) {
@@ -377,6 +414,13 @@ export function validateMetaCampaignPayloadContext(
     blockers.push({
       key: 'selected_products',
       message: 'Katalogová kampaň vyžaduje vybrané produkty nebo Product Set.',
+    });
+  }
+
+  if (spec.requiresPageId && !ctx.pageId?.trim()) {
+    blockers.push({
+      key: 'page_id',
+      message: `Chybí Facebook Page ID pro režim ${spec.modeLabel}.`,
     });
   }
 
@@ -489,6 +533,188 @@ export function validateAdSetPayloadCombination(
   }
 
   return blockers;
+}
+
+const EU_COUNTRY_CODES = new Set([
+  'AT',
+  'BE',
+  'BG',
+  'HR',
+  'CY',
+  'CZ',
+  'DK',
+  'EE',
+  'FI',
+  'FR',
+  'DE',
+  'GR',
+  'HU',
+  'IE',
+  'IT',
+  'LV',
+  'LT',
+  'LU',
+  'MT',
+  'NL',
+  'PL',
+  'PT',
+  'RO',
+  'SK',
+  'SI',
+  'ES',
+  'SE',
+]);
+
+export type MetaAdSetPayloadNormalization = {
+  payload: Record<string, unknown>;
+  promotedObject: Record<string, unknown> | null;
+  corrections: string[];
+};
+
+export function normalizeTargetingForMetaV25(
+  targeting: Record<string, unknown>,
+): Record<string, unknown> {
+  const base = { ...targeting };
+  const automation =
+    base.targeting_automation && typeof base.targeting_automation === 'object'
+      ? { ...(base.targeting_automation as Record<string, unknown>) }
+      : {};
+  if (automation.advantage_audience === undefined) {
+    automation.advantage_audience = 0;
+  }
+  return {
+    ...base,
+    targeting_automation: automation,
+  };
+}
+
+export function isEuGeoTargeting(targeting: Record<string, unknown>): boolean {
+  const geoLocations = targeting.geo_locations;
+  if (!geoLocations || typeof geoLocations !== 'object') {
+    return true;
+  }
+  const geo = geoLocations as Record<string, unknown>;
+  const countries = geo.countries;
+  if (Array.isArray(countries)) {
+    return countries.some((c) => typeof c === 'string' && EU_COUNTRY_CODES.has(c.toUpperCase()));
+  }
+  if (Array.isArray(geo.cities) && geo.cities.length > 0) {
+    return true;
+  }
+  if (Array.isArray(geo.custom_locations) && geo.custom_locations.length > 0) {
+    return true;
+  }
+  if (Array.isArray(geo.regions) && geo.regions.length > 0) {
+    return true;
+  }
+  return true;
+}
+
+export function resolveDsaDisclosureLabels(input: {
+  pageName?: string | null;
+  adAccountName?: string | null;
+  campaignName?: string | null;
+}): { beneficiary: string; payor: string } | null {
+  const label =
+    input.pageName?.trim() ||
+    input.adAccountName?.trim() ||
+    input.campaignName?.trim() ||
+    null;
+  if (!label) return null;
+  const clipped = label.slice(0, 512);
+  return { beneficiary: clipped, payor: clipped };
+}
+
+export function normalizeAdSetPayloadForMetaV25(input: {
+  payload: Record<string, unknown>;
+  spec: MetaCampaignPayloadSpec;
+  payloadContext: MetaCampaignPayloadContext;
+  targeting: Record<string, unknown>;
+  dsaLabels?: { beneficiary: string; payor: string } | null;
+}): MetaAdSetPayloadNormalization {
+  const corrections: string[] = [];
+  const payload = { ...input.payload };
+  const targeting = normalizeTargetingForMetaV25(input.targeting);
+  payload.targeting = JSON.stringify(targeting);
+
+  if (payload.optimization_goal !== input.spec.optimizationGoal) {
+    corrections.push(
+      `optimization_goal ${String(payload.optimization_goal)} → ${input.spec.optimizationGoal}`,
+    );
+    payload.optimization_goal = input.spec.optimizationGoal;
+  }
+
+  if (payload.billing_event !== input.spec.billingEvent) {
+    corrections.push(`billing_event ${String(payload.billing_event)} → ${input.spec.billingEvent}`);
+    payload.billing_event = input.spec.billingEvent;
+  }
+
+  if (payload.bid_strategy !== input.spec.bidStrategy) {
+    corrections.push(`bid_strategy ${String(payload.bid_strategy)} → ${input.spec.bidStrategy}`);
+    payload.bid_strategy = input.spec.bidStrategy;
+  }
+
+  if (input.spec.destinationType) {
+    if (payload.destination_type !== input.spec.destinationType) {
+      corrections.push(
+        `destination_type ${String(payload.destination_type ?? '—')} → ${input.spec.destinationType}`,
+      );
+      payload.destination_type = input.spec.destinationType;
+    }
+  } else if (payload.destination_type) {
+    corrections.push(`destination_type odstraněno (režim ${input.spec.mode} ho nevyžaduje)`);
+    delete payload.destination_type;
+  }
+
+  let promotedObject = buildPromotedObjectForSpec(input.spec, input.payloadContext);
+  const parsedPromoted = parsePromotedObject(payload.promoted_object);
+  if (parsedPromoted && promotedObject) {
+    for (const [key, value] of Object.entries(promotedObject)) {
+      if (parsedPromoted[key] !== value) {
+        corrections.push(`promoted_object.${key} → ${JSON.stringify(value)}`);
+      }
+    }
+  } else if (parsedPromoted && !promotedObject && input.spec.requiresPromotedObject) {
+    corrections.push('promoted_object přepočítán podle režimu kampaně');
+  }
+  if (promotedObject) {
+    payload.promoted_object = JSON.stringify(promotedObject);
+  } else if (input.spec.requiresPromotedObject) {
+    payload.promoted_object = undefined;
+  } else {
+    delete payload.promoted_object;
+    promotedObject = null;
+  }
+
+  if (isEuGeoTargeting(targeting) && input.dsaLabels) {
+    if (payload.dsa_beneficiary !== input.dsaLabels.beneficiary) {
+      corrections.push(`dsa_beneficiary → ${input.dsaLabels.beneficiary}`);
+      payload.dsa_beneficiary = input.dsaLabels.beneficiary;
+    }
+    if (payload.dsa_payor !== input.dsaLabels.payor) {
+      corrections.push(`dsa_payor → ${input.dsaLabels.payor}`);
+      payload.dsa_payor = input.dsaLabels.payor;
+    }
+  }
+
+  if (!targeting.targeting_automation) {
+    corrections.push('targeting_automation.advantage_audience → 0');
+  }
+
+  return { payload, promotedObject, corrections };
+}
+
+export function buildMetaLaunchGraphPaths(actId: string): Record<
+  'campaign' | 'adSet' | 'creative' | 'ad',
+  string
+> {
+  const account = actId.replace(/^act_/, '');
+  return {
+    campaign: `/act_${account}/campaigns`,
+    adSet: `/act_${account}/adsets`,
+    creative: `/act_${account}/adcreatives`,
+    ad: `/act_${account}/ads`,
+  };
 }
 
 export function serializePayloadForMetaApi(

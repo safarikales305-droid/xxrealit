@@ -4126,7 +4126,27 @@ export default function MetaCentrumPage() {
                           {payloadPreview.spec.campaignObjective} · optimization_goal:{' '}
                           {payloadPreview.spec.optimizationGoal} · billing:{' '}
                           {payloadPreview.spec.billingEvent}
+                          {payloadPreview.spec.destinationType
+                            ? ` · destination: ${payloadPreview.spec.destinationType}`
+                            : ''}
                         </p>
+                      ) : null}
+                      {payloadPreview?.adSetCorrections?.length ? (
+                        <p className="text-[11px] text-amber-900">
+                          Auto-opravy Ad Set: {payloadPreview.adSetCorrections.join('; ')}
+                        </p>
+                      ) : null}
+                      {payloadPreview?.graphApiUrls ? (
+                        <div className="rounded border border-blue-100 bg-white/70 p-2">
+                          <p className="mb-1 font-semibold">Graph API URL</p>
+                          <ul className="space-y-0.5 font-mono text-[10px] break-all">
+                            {Object.entries(payloadPreview.graphApiUrls).map(([key, url]) => (
+                              <li key={key}>
+                                {key}: {url}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                       ) : null}
                       {(
                         [
@@ -4139,6 +4159,18 @@ export default function MetaCentrumPage() {
                         section ? (
                           <div key={label} className="rounded border border-blue-100 bg-white/70 p-2">
                             <p className="mb-1 font-semibold">{label} payload</p>
+                            {payloadPreview?.graphApiUrls?.[label === 'Ad Set' ? 'adSet' : label.toLowerCase()] ? (
+                              <p className="mb-1 font-mono text-[10px] break-all text-blue-900">
+                                POST{' '}
+                                {payloadPreview.graphApiUrls[
+                                  label === 'Ad Set'
+                                    ? 'adSet'
+                                    : label === 'Campaign'
+                                      ? 'campaign'
+                                      : label.toLowerCase()
+                                ]}
+                              </p>
+                            ) : null}
                             {'objective' in section && section.objective ? (
                               <p className="font-mono text-[10px]">
                                 objective: {String(section.objective)}

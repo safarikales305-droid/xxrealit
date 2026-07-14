@@ -18,7 +18,7 @@
     "playwright:install-chromium": "node scripts/install-playwright-chromium.mjs",
     "test:uniqueness": "tsx --test src/common/account-uniqueness.constants.test.ts",
     "test:credit-debt": "tsx --test src/modules/credits/credit-debt.util.test.ts",
-    "test:sreality-prefill": "tsx --test src/modules/properties/sreality-prefill.smoke.test.ts",
+    "test:meta-v25-payload": "tsx --test src/modules/meta-center/meta-campaign-v25-payload.util.test.ts",
     "sreality-prefill:save-storage": "tsx src/modules/properties/sreality-prefill.save-storage.ts",
     "start": "node dist/main.js",
     "start:prod": "sh -c 'sh prisma/scripts/migrate-deploy-safe.sh; node dist/main.js'",

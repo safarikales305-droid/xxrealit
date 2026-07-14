@@ -28,9 +28,49 @@ function buildExplorerExport(step: MetaLaunchDebugTrace['steps'][number]) {
   };
 }
 
+function buildMetaDebugExport(
+  trace: MetaLaunchDebugTrace,
+  error?: MetaCampaignCreateResponse['metaApiError'],
+  failedStep?: string | null,
+) {
+  const failedRecord = trace.steps.find((s) => {
+    const key = failedStep === 'adset' ? 'adSet' : failedStep;
+    return key ? s.step === key : !s.ok;
+  });
+  return {
+    exportedAt: new Date().toISOString(),
+    graphApiVersion: trace.context.graphApiVersion,
+    context: trace.context,
+    steps: trace.steps,
+    failedStep: failedStep ?? null,
+    metaError: error
+      ? {
+          httpStatus: error.httpStatus,
+          errorCode: error.errorCode ?? null,
+          errorMessage: error.errorUserMsg ?? error.response ?? null,
+          requestPayload: error.requestPayload,
+          metaForm: error.metaForm ?? null,
+          requestUrl: error.requestUrl ?? null,
+          response: error.response,
+        }
+      : failedRecord
+        ? {
+            httpStatus: failedRecord.httpStatus,
+            errorCode: failedRecord.errorCode,
+            errorMessage: failedRecord.errorMessage,
+            requestPayload: failedRecord.requestPayload,
+            metaForm: failedRecord.metaForm,
+            requestUrl: failedRecord.url,
+            response: failedRecord.response,
+          }
+        : null,
+  };
+}
+
 export function MetaLaunchDebugPanel({ error, failedStep, launchDebug }: Props) {
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const trace = error?.launchDebug ?? launchDebug ?? null;
+  const isCode2 = error?.errorCode === '2' || error?.httpStatus === 500;
   const failedRecord = useMemo(() => {
     if (!trace?.steps?.length) return null;
     const key = failedStep === 'adset' ? 'adSet' : failedStep;
@@ -52,7 +92,40 @@ export function MetaLaunchDebugPanel({ error, failedStep, launchDebug }: Props) 
     }
   }
 
+  function downloadMetaDebugJson() {
+    if (!trace) return;
+    const blob = new Blob(
+      [JSON.stringify(buildMetaDebugExport(trace, error, failedStep), null, 2)],
+      { type: 'application/json' },
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'meta-debug.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    setCopyMsg('meta-debug.json stažen');
+    window.setTimeout(() => setCopyMsg(null), 2500);
+  }
+
   const explorerExport = failedRecord ? buildExplorerExport(failedRecord) : null;
+  const code2Request = error?.metaForm
+    ? {
+        method: error.requestMethod ?? 'POST',
+        url: error.requestUrl,
+        metaForm: error.metaForm,
+        requestPayload: error.requestPayload,
+        response: error.response,
+      }
+    : failedRecord
+      ? {
+          method: failedRecord.method,
+          url: failedRecord.url,
+          metaForm: failedRecord.metaForm,
+          requestPayload: failedRecord.requestPayload,
+          response: failedRecord.response,
+        }
+      : null;
 
   return (
     <div className="mt-2 space-y-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-950">
@@ -60,6 +133,17 @@ export function MetaLaunchDebugPanel({ error, failedStep, launchDebug }: Props) 
         <p className="font-semibold text-sm">
           Proces skončil u kroku: {STEP_LABELS[failedStep === 'adset' ? 'adSet' : failedStep] ?? failedStep}
         </p>
+      ) : null}
+
+      {isCode2 && code2Request ? (
+        <div className="rounded border border-amber-300 bg-amber-50 px-2 py-2">
+          <p className="mb-1 font-semibold text-amber-950">
+            Meta vrátila code=2 (interní chyba) — celý request
+          </p>
+          <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-white p-2 font-mono text-[10px] text-zinc-900">
+            {JSON.stringify(code2Request, null, 2)}
+          </pre>
+        </div>
       ) : null}
 
       {error?.contextIds ? (
@@ -119,6 +203,10 @@ export function MetaLaunchDebugPanel({ error, failedStep, launchDebug }: Props) 
               </summary>
               <div className="mt-2 space-y-2">
                 <div>
+                  <p className="font-medium">Graph API URL</p>
+                  <p className="font-mono text-[10px] break-all">{step.url}</p>
+                </div>
+                <div>
                   <p className="font-medium">Request payload</p>
                   <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-zinc-50 p-2 font-mono text-[10px] text-zinc-800">
                     {JSON.stringify(step.requestPayload, null, 2)}
@@ -162,13 +250,22 @@ export function MetaLaunchDebugPanel({ error, failedStep, launchDebug }: Props) 
           </button>
         ) : null}
         {trace ? (
-          <button
-            type="button"
-            onClick={() => void copyJson(trace, 'Debug trace zkopírován')}
-            className="rounded-lg border border-red-300 bg-white px-2 py-1 text-xs font-medium hover:bg-red-50"
-          >
-            Kopírovat celý debug JSON
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => void copyJson(trace, 'Debug trace zkopírován')}
+              className="rounded-lg border border-red-300 bg-white px-2 py-1 text-xs font-medium hover:bg-red-50"
+            >
+              Kopírovat celý debug JSON
+            </button>
+            <button
+              type="button"
+              onClick={downloadMetaDebugJson}
+              className="rounded-lg border border-red-300 bg-white px-2 py-1 text-xs font-medium hover:bg-red-50"
+            >
+              Exportovat meta-debug.json
+            </button>
+          </>
         ) : null}
         <a
           href={GRAPH_EXPLORER_URL}

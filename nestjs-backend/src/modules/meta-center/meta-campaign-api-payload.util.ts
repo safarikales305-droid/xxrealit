@@ -27,6 +27,8 @@ export type MetaCampaignPayloadPreviewSpec = {
   campaignObjective: string;
   optimizationGoal: string;
   billingEvent: string;
+  bidStrategy: string;
+  destinationType: string | null;
   promotedObjectSummary: string;
   requiresPromotedObject: boolean;
 };
@@ -43,6 +45,8 @@ export type MetaCampaignLaunchResult = {
   adSet: MetaCampaignPayloadSection | null;
   creative: MetaCampaignPayloadSection | null;
   ad: MetaCampaignPayloadSection | null;
+  graphApiUrls?: Record<string, string> | null;
+  adSetCorrections?: string[];
 };
 
 export function emptyMetaCampaignLaunchResult(
@@ -100,6 +104,8 @@ export function toMetaCampaignPayloadPreviewSpec(spec: {
   campaignObjective: string;
   optimizationGoal: string;
   billingEvent: string;
+  bidStrategy: string;
+  destinationType: string | null;
   promotedObjectSummary: string;
   requiresPromotedObject: boolean;
 }): MetaCampaignPayloadPreviewSpec {
@@ -111,6 +117,8 @@ export function toMetaCampaignPayloadPreviewSpec(spec: {
     campaignObjective: spec.campaignObjective,
     optimizationGoal: spec.optimizationGoal,
     billingEvent: spec.billingEvent,
+    bidStrategy: spec.bidStrategy,
+    destinationType: spec.destinationType,
     promotedObjectSummary: spec.promotedObjectSummary,
     requiresPromotedObject: spec.requiresPromotedObject,
   };

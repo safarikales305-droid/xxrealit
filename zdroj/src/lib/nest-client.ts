@@ -7275,6 +7275,8 @@ export type MetaCampaignPayloadPreviewResponse = {
     campaignObjective: string;
     optimizationGoal: string;
     billingEvent: string;
+    bidStrategy?: string;
+    destinationType?: string | null;
     promotedObjectSummary: string;
     requiresPromotedObject: boolean;
   } | null;
@@ -7305,6 +7307,8 @@ export type MetaCampaignPayloadPreviewResponse = {
   } | null;
   payload?: Record<string, unknown> | null;
   metaForm?: Record<string, string> | null;
+  graphApiUrls?: Record<string, string> | null;
+  adSetCorrections?: string[];
 };
 
 export async function nestAdminMetaCenterPreviewCampaignPayloads(

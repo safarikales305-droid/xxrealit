@@ -51,6 +51,30 @@ export type MetaLaunchGraphExplorerExport = {
   note: string;
 };
 
+export type MetaLaunchDebugExport = {
+  exportedAt: string;
+  graphApiVersion: string;
+  context: MetaLaunchDebugContext;
+  steps: MetaLaunchDebugStepRecord[];
+  payloads: {
+    campaign?: Record<string, unknown> | null;
+    targeting?: Record<string, unknown> | null;
+    adSet?: Record<string, unknown> | null;
+    creative?: Record<string, unknown> | null;
+    ad?: Record<string, unknown> | null;
+  };
+  graphUrls: Record<string, string>;
+  failedStep?: string | null;
+  metaError?: {
+    httpStatus: number;
+    errorCode: string | null;
+    errorMessage: string | null;
+    requestPayload: Record<string, unknown>;
+    metaForm: Record<string, string> | null;
+    response: unknown;
+  } | null;
+};
+
 const logger = new Logger('MetaLaunchDebug');
 
 function redactToken(url: string): string {
@@ -208,6 +232,48 @@ export class MetaLaunchStepTracer {
 
 export function metaLaunchDebugDir(): string {
   return path.join(process.cwd(), 'logs', 'meta-debug');
+}
+
+export function buildMetaLaunchDebugExport(input: {
+  trace: MetaLaunchDebugTrace;
+  payloads?: {
+    campaign?: Record<string, unknown> | null;
+    targeting?: Record<string, unknown> | null;
+    adSet?: Record<string, unknown> | null;
+    creative?: Record<string, unknown> | null;
+    ad?: Record<string, unknown> | null;
+  };
+  graphUrls?: Record<string, string>;
+  failedStep?: string | null;
+  metaError?: MetaLaunchDebugExport['metaError'];
+}): MetaLaunchDebugExport {
+  return {
+    exportedAt: new Date().toISOString(),
+    graphApiVersion: input.trace.context.graphApiVersion,
+    context: input.trace.context,
+    steps: input.trace.steps,
+    payloads: input.payloads ?? {},
+    graphUrls: input.graphUrls ?? {},
+    failedStep: input.failedStep ?? null,
+    metaError: input.metaError ?? null,
+  };
+}
+
+export function writeMetaDebugJson(
+  debugDir: string,
+  draftId: string,
+  payload: MetaLaunchDebugExport,
+): string | null {
+  try {
+    const dir = path.join(debugDir, draftId);
+    fs.mkdirSync(dir, { recursive: true });
+    const filePath = path.join(dir, 'meta-debug.json');
+    fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8');
+    return filePath;
+  } catch (err) {
+    logger.warn(`meta-debug.json write failed: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
 }
 
 export function isMetaInternalErrorCode2(result: MetaGraphResult<unknown>): boolean {
