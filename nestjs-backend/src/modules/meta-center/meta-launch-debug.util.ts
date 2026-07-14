@@ -73,6 +73,7 @@ export type MetaLaunchDebugExport = {
     metaForm: Record<string, string> | null;
     response: unknown;
   } | null;
+  adSetProbe?: import('./meta-adset-probe.util').MetaAdSetProbeResult | null;
 };
 
 const logger = new Logger('MetaLaunchDebug');

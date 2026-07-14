@@ -30,6 +30,7 @@ import {
 } from '@/components/meta-centrum/MetaCampaignLaunchChecklist';
 import { MetaCampaignDetailPanel, metaLaunchSummaryLines } from '@/components/meta-centrum/MetaCampaignDetailPanel';
 import { MetaLaunchDebugPanel } from '@/components/meta-centrum/MetaLaunchDebugPanel';
+import { MetaAdSetProbePanel } from '@/components/meta-centrum/MetaAdSetProbePanel';
 import {
   safeDisplayValue,
   safeErrorMessage,
@@ -75,6 +76,7 @@ import {
   nestAdminMetaCenterListCampaignDrafts,
   nestAdminMetaCenterCreateCampaign,
   nestAdminMetaCenterPreviewCampaignPayloads,
+  nestAdminMetaCenterProbeAdSetCreate,
   nestAdminMetaCenterUpdateCampaignDraft,
   nestAdminMetaCenterDeleteCampaignDraft,
   nestAdminMetaCenterCampaignsOverview,
@@ -93,6 +95,7 @@ import {
   type MetaCampaignDraft,
   type MetaCampaignCreateResponse,
   type MetaCampaignPayloadPreviewResponse,
+  type MetaAdSetProbeResult,
   type MetaLaunchSteps,
   type MetaCampaignProductItem,
   type MetaGeoLocationItem,
@@ -652,6 +655,8 @@ export default function MetaCentrumPage() {
     null,
   );
   const [payloadPreviewBusy, setPayloadPreviewBusy] = useState(false);
+  const [adSetProbe, setAdSetProbe] = useState<MetaAdSetProbeResult | null>(null);
+  const [adSetProbeBusy, setAdSetProbeBusy] = useState(false);
   const [expandedCampaignDetailId, setExpandedCampaignDetailId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -916,6 +921,29 @@ export default function MetaCentrumPage() {
 
   function buildCampaignPayload(): MetaCampaignDraftBody {
     return buildMetaCampaignSubmitPayload(campaignDraft, campaignProducts);
+  }
+
+  async function runAdSetProbe(options?: { draftId?: string; campaignId?: string }) {
+    if (!token) return;
+    const payload = buildCampaignPayload();
+    const productsError = assertProductsSelectedForSubmit(payload);
+    if (productsError) {
+      setMsg(productsError);
+      return;
+    }
+    setAdSetProbeBusy(true);
+    setAdSetProbe(null);
+    const draftId = options?.draftId ?? editingCampaignId ?? undefined;
+    const campaignId =
+      options?.campaignId ??
+      (draftId ? campaignDrafts.find((c) => c.id === draftId)?.metaCampaignId ?? undefined : undefined);
+    const result = await nestAdminMetaCenterProbeAdSetCreate(token, payload, {
+      draftId,
+      campaignId: campaignId ?? undefined,
+    });
+    setAdSetProbeBusy(false);
+    setAdSetProbe(result);
+    setMsg(result.message);
   }
 
   function needsSelectedProducts(creativeType: string): boolean {
@@ -4215,6 +4243,16 @@ export default function MetaCentrumPage() {
                 </div>
               ) : null}
 
+              {campaignsDebugMode || campaignsLiveEnabled ? (
+                <div className="mt-3">
+                  <MetaAdSetProbePanel
+                    probe={adSetProbe}
+                    busy={adSetProbeBusy}
+                    onRun={() => void runAdSetProbe()}
+                  />
+                </div>
+              ) : null}
+
               {!campaignsLiveEnabled ? (
                 <p className="mt-2 text-xs text-amber-800">
                   Ostré spuštění je vypnuté — po kliknutí na „Spustit kampaň“ uvidíte chybu v kontrole výše. Zapněte
@@ -4317,6 +4355,24 @@ export default function MetaCentrumPage() {
                                   : null
                               }
                             />
+                          ) : null}
+                          {campaignsDebugMode &&
+                          c.status === 'error' &&
+                          !c.metaLaunchSteps?.adSet?.ok &&
+                          c.metaCampaignId ? (
+                            <div className="mt-2">
+                              <MetaAdSetProbePanel
+                                probe={null}
+                                busy={adSetProbeBusy}
+                                onRun={() =>
+                                  void runAdSetProbe({
+                                    draftId: c.id,
+                                    campaignId: c.metaCampaignId ?? undefined,
+                                  })
+                                }
+                                compact
+                              />
+                            </div>
                           ) : null}
                           {c.metaCampaignId && !c.metaAdId && campaignsLiveEnabled ? (
                             <div className="mt-2 flex flex-wrap gap-2">

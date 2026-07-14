@@ -28,6 +28,14 @@ import {
   validateMetaCampaignPayloadContext,
   type MetaCampaignPayloadSpec,
 } from './meta-campaign-payload-map.util';
+import {
+  buildMetaAdSetProbeSteps,
+  buildProbeGraphUrl,
+  buildSupportedCatalogAdSetPayload,
+  mapProbeGraphResult,
+  summarizeProbeResult,
+  type MetaAdSetProbeResult,
+} from './meta-adset-probe.util';
 import { normalizeCreativeType } from './meta-campaign-creative.util';
 import {
   META_CAMPAIGN_TARGETING_MODES,
@@ -86,6 +94,7 @@ export type MetaCampaignProductItem = {
 
 export type { MetaCampaignLaunchBlocker, MetaApiErrorDetail, MetaLaunchSteps, MetaLaunchStep, MetaLaunchPayloadSnapshot } from './meta-campaign-api-payload.util';
 export type { MetaLaunchDebugTrace } from './meta-launch-debug.util';
+export type { MetaAdSetProbeResult } from './meta-adset-probe.util';
 
 export type MetaCampaignInsights = {
   reach: number | null;
@@ -1132,13 +1141,12 @@ export class MetaCenterCampaignsService {
 
     if (!metaAdSetId) {
       const adSetPath = `/act_${actId}/adsets`;
-      const adSetRes = await this.graph.postWithTransientRetry<{ id?: string }>(
+      const adSetRes = await this.graph.post<{ id?: string }>(
         adSetPath,
         token,
         adSetPayload,
-        { logLabel: `adsets draft=${draftId}`, retryDelaysMs: [3000, 3000, 3000] },
       );
-      tracer.recordResult('adSet', adSetPath, adSetPayload, adSetRes);
+      tracer.recordResult('adSet', adSetPath, adSetPayload, { ...adSetRes, attempts: 1 });
 
       if (!adSetRes.ok || !adSetRes.data.id) {
         const code2Failure = isMetaInternalErrorCode2(adSetRes);
@@ -1180,6 +1188,27 @@ export class MetaCenterCampaignsService {
             : null,
         });
         writeMetaDebugJson(metaLaunchDebugDir(), draftId, debugExport);
+        let adSetProbe: MetaAdSetProbeResult | null = null;
+        if (await this.isLaunchDebugEnabled()) {
+          try {
+            adSetProbe = await this.probeAdSetCreate(dto, { draftId, campaignId: metaCampaignId });
+            writeMetaDebugJson(metaLaunchDebugDir(), draftId, {
+              exportedAt: new Date().toISOString(),
+              graphApiVersion: graphVersion,
+              context: tracer.getTrace().context,
+              steps: [],
+              payloads: launchPayloads,
+              graphUrls: debugExport.graphUrls,
+              failedStep: 'adset',
+              metaError: debugExport.metaError,
+              adSetProbe,
+            });
+          } catch (probeErr) {
+            this.logger.warn(
+              `Ad set probe failed: ${probeErr instanceof Error ? probeErr.message : probeErr}`,
+            );
+          }
+        }
         launchSteps.adSet = { ok: false, error: failure.message };
         await this.persistLaunchState(draftId, {
           metaCampaignId,
@@ -1193,7 +1222,7 @@ export class MetaCenterCampaignsService {
           ok: false as const,
           status: 'error' as const,
           message: failure.message,
-          metaApiError: failure.detail,
+          metaApiError: { ...failure.detail, adSetProbe },
           failedStep: 'adset' as const,
           launchSteps,
           campaign: await this.loadSerializedDraft(draftId),
@@ -1600,6 +1629,204 @@ export class MetaCenterCampaignsService {
     return geoBlock;
   }
 
+  async probeAdSetCreate(
+    dto: CreateMetaCampaignDto,
+    options?: { draftId?: string; campaignId?: string | null },
+  ): Promise<MetaAdSetProbeResult> {
+    const row = await this.getSettingsRow();
+    const ids = resolveMetaCenterIds(row ?? ({} as never));
+    const token = await this.oauth.resolveMarketingAccessToken();
+    const actId = (ids.adAccountId ?? '').replace(/^act_/, '');
+    const graphVersion = row?.graphApiVersion || this.fbConfig.getGraphApiVersion();
+    const graphBase = this.graph.graphBase(graphVersion);
+    const adSetPath = `/act_${actId}/adsets`;
+    const graphUrl = buildProbeGraphUrl(graphBase, actId);
+
+    const payloadContext = this.buildPayloadContext(dto, ids, row, ids.catalogId);
+    const specResolved = resolveMetaCampaignPayloadSpec(payloadContext);
+    if (!specResolved.ok) {
+      return {
+        ok: false,
+        message: specResolved.blockers.map((b) => b.message).join('\n'),
+        campaignId: options?.campaignId ?? '',
+        graphApiVersion: graphVersion,
+        graphPath: adSetPath,
+        steps: [],
+        failureStep: null,
+        lastSuccessStep: null,
+        recommendedPayload: null,
+        recommendedMetaForm: null,
+        v25Validation: [],
+      };
+    }
+    const metaSpec = specResolved.spec;
+
+    let metaCampaignId = options?.campaignId?.trim() || null;
+    if (!metaCampaignId && options?.draftId) {
+      const draft = await this.prisma.metaMarketingCampaignDraft.findUnique({
+        where: { id: options.draftId },
+        select: { metaCampaignId: true },
+      });
+      metaCampaignId = draft?.metaCampaignId ?? null;
+    }
+
+    if (!metaCampaignId) {
+      const campaignPayload = {
+        name: `${dto.name.trim()} — probe`,
+        objective: metaSpec.campaignObjective,
+        status: 'PAUSED',
+        special_ad_categories: JSON.stringify(['HOUSING']),
+        is_adset_budget_sharing_enabled: false,
+      };
+      const campaignRes = await this.graph.post<{ id?: string }>(
+        `/act_${actId}/campaigns`,
+        token,
+        campaignPayload,
+      );
+      if (!campaignRes.ok) {
+        return {
+          ok: false,
+          message: `Probe: nelze vytvořit testovací kampaň — ${campaignRes.errorMessage}`,
+          campaignId: '',
+          graphApiVersion: graphVersion,
+          graphPath: adSetPath,
+          steps: [],
+          failureStep: null,
+          lastSuccessStep: null,
+          recommendedPayload: null,
+          recommendedMetaForm: null,
+          v25Validation: [],
+        };
+      }
+      if (!campaignRes.data.id) {
+        return {
+          ok: false,
+          message: 'Probe: nelze vytvořit testovací kampaň — Meta nevrátila ID kampaně',
+          campaignId: '',
+          graphApiVersion: graphVersion,
+          graphPath: adSetPath,
+          steps: [],
+          failureStep: null,
+          lastSuccessStep: null,
+          recommendedPayload: null,
+          recommendedMetaForm: null,
+          v25Validation: [],
+        };
+      }
+      metaCampaignId = campaignRes.data.id;
+    }
+
+    const resolvedGeo = await this.geo.resolveGeoForTargeting({
+      metaGeoKey: dto.metaGeoKey,
+      cityName: dto.cityName,
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+      radiusKm: dto.radiusKm,
+      locationTargetingMode: dto.locationTargetingMode ?? 'city',
+    });
+    const targeting = this.buildTargetingFromGeo(resolvedGeo, dto, null);
+    const budgetConfig = resolveBudgetConfig(false);
+    const dailyBudgetMinor = Math.round(dto.dailyBudgetCzk * 100);
+    const catalogId = ids.catalogId?.replace(/^catalog_/i, '') ?? null;
+    const pixelId = ids.pixelId?.trim() || ids.datasetId?.trim() || null;
+    const dsaLabels = resolveDsaDisclosureLabels({
+      pageName: row?.pageName,
+      adAccountName: row?.adAccountName,
+      campaignName: dto.name.trim(),
+    });
+
+    const probeSteps = buildMetaAdSetProbeSteps({
+      campaignId: metaCampaignId,
+      adSetName: `${dto.name.trim()} — probe sada`,
+      publishStatus: 'PAUSED',
+      dailyBudgetMinor,
+      billingEvent: metaSpec.billingEvent,
+      optimizationGoal: metaSpec.optimizationGoal,
+      bidStrategy: metaSpec.bidStrategy,
+      destinationType: metaSpec.destinationType,
+      advantageAudience: metaSpec.advantageAudience,
+      targeting,
+      catalogId,
+      pixelId,
+      dsaLabels,
+      isAdsetBudgetSharingEnabled: budgetConfig.isAdsetBudgetSharingEnabled,
+    });
+
+    const stepResults = [];
+    for (const step of probeSteps) {
+      const payload = step.buildPayload();
+      const result = await this.graph.postWithResponseHeaders<{ id?: string }>(
+        adSetPath,
+        token,
+        payload,
+      );
+      const mapped = mapProbeGraphResult(step, graphUrl, payload, result);
+      stepResults.push(mapped);
+
+      if (result.ok && result.data?.id) {
+        await this.graph.delete(`/${result.data.id}`, token).catch(() => undefined);
+      }
+
+      if (!result.ok) {
+        break;
+      }
+    }
+
+    const recommendedPayload =
+      metaSpec.mode === 'catalog_sales' && catalogId && pixelId && dsaLabels
+        ? buildSupportedCatalogAdSetPayload({
+            campaignId: metaCampaignId,
+            adSetName: `${dto.name.trim()} — sada`,
+            publishStatus: 'PAUSED',
+            dailyBudgetMinor,
+            spec: metaSpec,
+            targeting,
+            catalogId,
+            pixelId,
+            dsaLabels,
+            isAdsetBudgetSharingEnabled: budgetConfig.isAdsetBudgetSharingEnabled,
+            startTime: this.parseDate(dto.startDate)?.toISOString(),
+            endTime: this.parseDate(dto.endDate)?.toISOString(),
+          })
+        : null;
+
+    const summary = summarizeProbeResult(
+      metaCampaignId,
+      graphVersion,
+      adSetPath,
+      stepResults,
+      metaSpec,
+      recommendedPayload,
+    );
+
+    this.logger.log(
+      `[meta-adset-probe] draft=${options?.draftId ?? '—'} campaign=${metaCampaignId} ok=${summary.ok} steps=${stepResults.length} failure=${summary.failureStep?.key ?? '—'}`,
+    );
+
+    if (options?.draftId) {
+      try {
+        const dir = metaLaunchDebugDir();
+        const filePath = `${dir}/${options.draftId}/adset-probe.json`;
+        writeMetaDebugJson(dir, options.draftId, {
+          exportedAt: new Date().toISOString(),
+          graphApiVersion: graphVersion,
+          context: { draftId: options.draftId, campaignId: metaCampaignId },
+          steps: summary.steps,
+          payloads: { recommended: recommendedPayload },
+          graphUrls: { adSet: graphUrl },
+          failedStep: summary.failureStep?.key ?? null,
+          metaError: summary.failureStep,
+          adSetProbe: summary,
+        } as never);
+        void filePath;
+      } catch {
+        // ignore debug file errors
+      }
+    }
+
+    return summary;
+  }
+
   async previewAdSetPayload(dto: CreateMetaCampaignDto): Promise<MetaCampaignAdSetPayloadPreviewResult> {
     const full = await this.previewCampaignPayloads(dto);
     return {
@@ -1854,32 +2081,62 @@ export class MetaCenterCampaignsService {
     const startTime = this.parseDate(dto.startDate)?.toISOString() ?? undefined;
     const endTime = this.parseDate(dto.endDate)?.toISOString() ?? undefined;
 
-    const adSetPayload: Record<string, unknown> = {
-      name: `${dto.name.trim()} — sada`,
-      campaign_id: metaCampaignId,
-      billing_event: metaSpec.billingEvent,
-      optimization_goal: metaSpec.optimizationGoal,
-      bid_strategy: metaSpec.bidStrategy,
-      targeting: JSON.stringify(normalizedTargeting),
-      start_time: startTime,
-      end_time: endTime,
-      status: publishStatus,
-      is_adset_budget_sharing_enabled: budgetConfig.isAdsetBudgetSharingEnabled,
-    };
+    let adSetPayloadFinal: Record<string, unknown>;
+    let promotedObject: Record<string, unknown> | null;
+    let corrections: string[] = [];
 
-    if (!budgetConfig.useCampaignBudgetOptimization) {
-      adSetPayload.daily_budget = String(dailyBudgetMinor);
+    if (metaSpec.mode === 'catalog_sales' && dsaLabels) {
+      const catalogId = payloadContext.catalogId?.replace(/^catalog_/i, '') ?? '';
+      const pixelId =
+        payloadContext.pixelId?.trim() || payloadContext.datasetId?.trim() || '';
+      adSetPayloadFinal = buildSupportedCatalogAdSetPayload({
+        campaignId: metaCampaignId,
+        adSetName: `${dto.name.trim()} — sada`,
+        publishStatus,
+        dailyBudgetMinor,
+        spec: metaSpec,
+        targeting,
+        catalogId,
+        pixelId,
+        dsaLabels,
+        isAdsetBudgetSharingEnabled: budgetConfig.isAdsetBudgetSharingEnabled,
+        startTime,
+        endTime,
+      });
+      promotedObject = {
+        product_catalog_id: catalogId,
+        pixel_id: pixelId,
+        custom_event_type: 'PURCHASE',
+      };
+    } else {
+      const adSetPayload: Record<string, unknown> = {
+        name: `${dto.name.trim()} — sada`,
+        campaign_id: metaCampaignId,
+        billing_event: metaSpec.billingEvent,
+        optimization_goal: metaSpec.optimizationGoal,
+        bid_strategy: metaSpec.bidStrategy,
+        targeting: JSON.stringify(normalizedTargeting),
+        start_time: startTime,
+        end_time: endTime,
+        status: publishStatus,
+        is_adset_budget_sharing_enabled: budgetConfig.isAdsetBudgetSharingEnabled,
+      };
+
+      if (!budgetConfig.useCampaignBudgetOptimization) {
+        adSetPayload.daily_budget = String(dailyBudgetMinor);
+      }
+
+      const normalized = normalizeAdSetPayloadForMetaV25({
+        payload: adSetPayload,
+        spec: metaSpec,
+        payloadContext,
+        targeting: normalizedTargeting,
+        dsaLabels,
+      });
+      adSetPayloadFinal = normalized.payload;
+      promotedObject = normalized.promotedObject;
+      corrections = normalized.corrections;
     }
-
-    const normalized = normalizeAdSetPayloadForMetaV25({
-      payload: adSetPayload,
-      spec: metaSpec,
-      payloadContext,
-      targeting: normalizedTargeting,
-      dsaLabels,
-    });
-    const adSetPayloadFinal = normalized.payload;
-    const promotedObject = normalized.promotedObject;
 
     if (!dsaLabels) {
       const dsaBlocker: MetaCampaignLaunchBlocker = {
@@ -1923,9 +2180,9 @@ export class MetaCenterCampaignsService {
       };
     }
 
-    if (normalized.corrections.length) {
+    if (corrections.length) {
       this.logger.log(
-        `[meta-campaign] adset payload auto-fix (${metaSpec.mode}): ${normalized.corrections.join('; ')}`,
+        `[meta-campaign] adset payload auto-fix (${metaSpec.mode}): ${corrections.join('; ')}`,
       );
     }
 
@@ -1935,7 +2192,7 @@ export class MetaCenterCampaignsService {
       metaForm,
       spec: metaSpec,
       promotedObject,
-      corrections: normalized.corrections,
+      corrections,
     };
   }
 

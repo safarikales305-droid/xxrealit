@@ -41,7 +41,7 @@ import {
   MetaCampaignBodyPipe,
   OptionalMetaCampaignBodyPipe,
 } from './meta-campaign-body.pipe';
-import { emptyMetaCampaignLaunchResult, emptyMetaCampaignAdSetPayloadPreviewResult } from './meta-campaign-api-payload.util';
+import { emptyMetaCampaignLaunchResult, emptyMetaCampaignAdSetPayloadPreviewResult, emptyMetaAdSetProbeResult } from './meta-campaign-api-payload.util';
 import { extractSafeMetaError, metaPanelNotConfigured } from './meta-center-safe-response.util';
 import { resolveMetaOAuthFlow } from './meta-oauth-flows';
 import { META_EXTERNAL_LINKS } from './meta-graph-permissions.util';
@@ -726,6 +726,23 @@ export class MetaCenterAdminController {
       'campaigns/adset-payload',
       () => this.campaigns.previewAdSetPayload(body),
       (message) => emptyMetaCampaignAdSetPayloadPreviewResult(message),
+    );
+  }
+
+  @Post('campaigns/adset-probe')
+  probeAdSetCreate(
+    @Body(MetaCampaignBodyPipe) body: CreateMetaCampaignDto,
+    @Query('draftId') draftId?: string,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.safeEndpoint(
+      'campaigns/adset-probe',
+      () =>
+        this.campaigns.probeAdSetCreate(body, {
+          draftId: draftId?.trim() || undefined,
+          campaignId: campaignId?.trim() || undefined,
+        }),
+      (message) => emptyMetaAdSetProbeResult(message),
     );
   }
 

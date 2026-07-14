@@ -203,6 +203,14 @@ export class MetaGraphClientService {
     accessToken: string,
     body: Record<string, unknown>,
   ): Promise<MetaGraphResult<T>> {
+    return this.postWithResponseHeaders<T>(path, accessToken, body);
+  }
+
+  async postWithResponseHeaders<T>(
+    path: string,
+    accessToken: string,
+    body: Record<string, unknown>,
+  ): Promise<MetaGraphResult<T> & { responseHeaders: Record<string, string> }> {
     const started = Date.now();
     const base = this.graphBase();
     const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
@@ -221,6 +229,10 @@ export class MetaGraphClientService {
 
     try {
       const res = await fetch(url, { method: 'POST', body: form });
+      const responseHeaders: Record<string, string> = {};
+      res.headers.forEach((value, key) => {
+        responseHeaders[key.toLowerCase()] = value;
+      });
       const data = (await res.json().catch(() => ({}))) as T & GraphErrorBody;
       const durationMs = Date.now() - started;
 
@@ -244,6 +256,7 @@ export class MetaGraphClientService {
           data,
           requestUrl: httpRequest,
           requestMethod: 'POST',
+          responseHeaders,
         };
       }
 
@@ -261,6 +274,7 @@ export class MetaGraphClientService {
         httpStatus: res.status,
         requestUrl: httpRequest,
         requestMethod: 'POST',
+        responseHeaders,
       };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -280,6 +294,7 @@ export class MetaGraphClientService {
         data: null,
         requestUrl: httpRequest,
         requestMethod: 'POST',
+        responseHeaders: {},
       };
     }
   }

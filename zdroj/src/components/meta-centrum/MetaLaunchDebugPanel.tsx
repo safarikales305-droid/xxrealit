@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import type { MetaCampaignCreateResponse, MetaLaunchDebugTrace } from '@/lib/nest-client';
+import { MetaAdSetProbePanel } from '@/components/meta-centrum/MetaAdSetProbePanel';
 
 const GRAPH_EXPLORER_URL = 'https://developers.facebook.com/tools/explorer/';
 
@@ -277,6 +278,10 @@ export function MetaLaunchDebugPanel({ error, failedStep, launchDebug }: Props) 
         </a>
       </div>
       {copyMsg ? <p className="text-emerald-800">{copyMsg}</p> : null}
+
+      {error?.adSetProbe ? (
+        <MetaAdSetProbePanel probe={error.adSetProbe} compact />
+      ) : null}
     </div>
   );
 }

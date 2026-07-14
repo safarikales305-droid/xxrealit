@@ -97,6 +97,24 @@ export function emptyMetaCampaignAdSetPayloadPreviewResult(
   };
 }
 
+export function emptyMetaAdSetProbeResult(
+  message: string,
+): import('./meta-adset-probe.util').MetaAdSetProbeResult {
+  return {
+    ok: false,
+    message,
+    campaignId: '',
+    graphApiVersion: '',
+    graphPath: '',
+    steps: [],
+    failureStep: null,
+    lastSuccessStep: null,
+    recommendedPayload: null,
+    recommendedMetaForm: null,
+    v25Validation: [],
+  };
+}
+
 export function toMetaCampaignPayloadPreviewSpec(spec: {
   mode: string;
   modeLabel: string;
@@ -184,6 +202,7 @@ export type MetaApiErrorDetail = {
   attempts?: number;
   contextIds?: Record<string, string | null> | null;
   launchDebug?: import('./meta-launch-debug.util').MetaLaunchDebugTrace | null;
+  adSetProbe?: import('./meta-adset-probe.util').MetaAdSetProbeResult | null;
 };
 
 export function validateGeoTargetingPayload(

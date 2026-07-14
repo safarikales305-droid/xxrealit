@@ -6658,10 +6658,53 @@ export type MetaCampaignCreateResponse = {
     attempts?: number;
     contextIds?: Record<string, string | null> | null;
     launchDebug?: MetaLaunchDebugTrace | null;
+    adSetProbe?: MetaAdSetProbeResult | null;
   };
   failedStep?: 'campaign' | 'adset' | 'creative' | 'ad';
   launchSteps?: MetaLaunchSteps;
   campaign: MetaCampaignDraft | null;
+};
+
+export type MetaAdSetProbeStepResult = {
+  step: number;
+  key: string;
+  label: string;
+  fieldAdded: string | null;
+  payload: Record<string, unknown>;
+  metaForm: Record<string, string>;
+  graphUrl: string;
+  httpStatus: number;
+  ok: boolean;
+  errorCode: string | null;
+  errorType: string | null;
+  errorMessage: string | null;
+  requestId: string | null;
+  fbtraceId: string | null;
+  traceId: string | null;
+  response: unknown;
+  createdAdSetId: string | null;
+  isCode2: boolean;
+};
+
+export type MetaAdSetV25FieldValidation = {
+  field: string;
+  supported: boolean;
+  value: string | null;
+  note: string;
+};
+
+export type MetaAdSetProbeResult = {
+  ok: boolean;
+  message: string;
+  campaignId: string;
+  graphApiVersion: string;
+  graphPath: string;
+  steps: MetaAdSetProbeStepResult[];
+  failureStep: MetaAdSetProbeStepResult | null;
+  lastSuccessStep: MetaAdSetProbeStepResult | null;
+  recommendedPayload: Record<string, unknown> | null;
+  recommendedMetaForm: Record<string, string> | null;
+  v25Validation: MetaAdSetV25FieldValidation[];
 };
 
 export type MetaAdAccountListItem = {
@@ -7369,6 +7412,37 @@ export async function nestAdminMetaCenterPreviewAdSetPayload(
   return r.ok
     ? r.data
     : { ok: false, message: r.error, payload: null, metaForm: null, blockers: [] };
+}
+
+export async function nestAdminMetaCenterProbeAdSetCreate(
+  token: string | null,
+  body: MetaCampaignDraftBody,
+  options?: { draftId?: string; campaignId?: string },
+): Promise<MetaAdSetProbeResult> {
+  const params = new URLSearchParams();
+  if (options?.draftId) params.set('draftId', options.draftId);
+  if (options?.campaignId) params.set('campaignId', options.campaignId);
+  const qs = params.toString();
+  const r = await metaCenterFetch<MetaAdSetProbeResult>(
+    token,
+    `/campaigns/adset-probe${qs ? `?${qs}` : ''}`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+  return r.ok
+    ? r.data
+    : {
+        ok: false,
+        message: r.error,
+        campaignId: '',
+        graphApiVersion: '',
+        graphPath: '',
+        steps: [],
+        failureStep: null,
+        lastSuccessStep: null,
+        recommendedPayload: null,
+        recommendedMetaForm: null,
+        v25Validation: [],
+      };
 }
 
 export async function nestAdminMetaCenterUpdateCampaignDraft(
