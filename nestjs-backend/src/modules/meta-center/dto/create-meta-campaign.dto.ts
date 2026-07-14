@@ -91,4 +91,9 @@ export class CreateMetaCampaignDto {
   @IsOptional()
   @IsString()
   locationTargetingMode?: string;
+
+  /** FACEBOOK_ONLY vynutí pouze Facebook placements bez Instagramu */
+  @IsOptional()
+  @IsString()
+  placementPreference?: string;
 }

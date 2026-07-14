@@ -29,6 +29,7 @@ import {
   resolveDsaDisclosureLabels,
   resolveMetaCampaignPayloadSpec,
   serializePayloadForMetaApi,
+  normalizeTargetingForMetaV25,
   validateAdSetPayloadCombination,
   validateMetaCampaignPayloadContext,
   type MetaCampaignPayloadSpec,
@@ -76,6 +77,20 @@ import {
 } from './meta-housing-geo.util';
 import { validateCatalogCreativeBodyBeforeMetaApi } from './meta-catalog-creative.util';
 import {
+  applyPlacementModeToTargeting,
+  buildPlacementDiagnostics,
+  isMetaInstagramIdentityError,
+  META_INSTAGRAM_PLACEMENT_VALIDATION_MESSAGE_CS,
+  parseTargetingRecord,
+  resolvePlacementMode,
+  shouldRecreateCreativeForPlacement,
+  shouldUpdateAdSetForFacebookOnly,
+  targetingIncludesInstagramPlacement,
+  validatePlacementInstagramIdentity,
+  type MetaPlacementMode,
+} from './meta-instagram-placement.util';
+import { MetaInstagramIdentityService } from './meta-instagram-identity.service';
+import {
   MetaLaunchStepTracer,
   buildMetaLaunchDebugExport,
   buildMetaLaunchGraphUrl,
@@ -86,6 +101,7 @@ import {
   type MetaLaunchDebugTrace,
 } from './meta-launch-debug.util';
 import type { MetaGraphResult } from './meta-graph-client.service';
+import { extractMetaGraphErrorFields } from './meta-graph-error.util';
 import {
   MetaCatalogSalesAssetsVerifyService,
   type MetaCatalogSalesAssetsVerification,
@@ -161,6 +177,7 @@ export class MetaCenterCampaignsService {
     private readonly posts: PostsService,
     private readonly fbConfig: FacebookConfigService,
     private readonly catalogSalesAssetsVerify: MetaCatalogSalesAssetsVerifyService,
+    private readonly instagramIdentity: MetaInstagramIdentityService,
   ) {}
 
   private frontendBase(): string {
@@ -1115,7 +1132,60 @@ export class MetaCenterCampaignsService {
     }
 
     let targeting = this.buildTargetingFromGeo(resolvedGeo, dto, audienceMetaId);
+    const pageIdsForPlacement = this.creative.resolvePageIds(row);
+    const instagramIdentity = await this.instagramIdentity.resolveForLaunch({
+      pageId: pageIdsForPlacement.pageId,
+      adAccountId: actId,
+      accessToken: token,
+      settingsRow: row,
+      persist: true,
+    });
+    const placementPreference =
+      dto.placementPreference === 'FACEBOOK_ONLY' ? 'FACEBOOK_ONLY' : 'AUTO';
+    const placementMode = resolvePlacementMode(
+      instagramIdentity.instagramBusinessId,
+      placementPreference,
+    );
+    targeting = applyPlacementModeToTargeting(
+      normalizeTargetingForMetaV25(targeting, metaSpec.advantageAudience),
+      placementMode,
+    );
     launchPayloads.targeting = targeting;
+    launchPayloads.placementDiagnostics = buildPlacementDiagnostics({
+      targeting,
+      placementMode,
+      facebookPageId: pageIdsForPlacement.pageId,
+      instagramBusinessId: instagramIdentity.instagramBusinessId,
+    });
+    tracer.updateContext({ instagramBusinessId: instagramIdentity.instagramBusinessId });
+    try {
+      validatePlacementInstagramIdentity({
+        targeting,
+        instagramBusinessId: instagramIdentity.instagramBusinessId,
+      });
+    } catch (placementErr) {
+      const msg =
+        placementErr instanceof Error
+          ? META_INSTAGRAM_PLACEMENT_VALIDATION_MESSAGE_CS
+          : META_INSTAGRAM_PLACEMENT_VALIDATION_MESSAGE_CS;
+      await this.persistLaunchState(draftId, {
+        ...(metaCampaignId ? { metaCampaignId } : {}),
+        ...(metaAdSetId ? { metaAdSetId } : {}),
+        status: 'error',
+        errorMessage: msg,
+        metaLaunchSteps: launchSteps,
+        metaLaunchPayloads: launchPayloads,
+      });
+      return {
+        ok: false as const,
+        status: 'validation_error' as const,
+        message: msg,
+        failedStep: 'adset' as const,
+        launchSteps,
+        assetsVerification,
+        campaign: await this.loadSerializedDraft(draftId),
+      };
+    }
     if (resolvedGeo.mode === 'custom' && resolvedGeo.housingDebug) {
       launchPayloads.housingGeoDebug = resolvedGeo.housingDebug;
     }
@@ -1400,6 +1470,39 @@ export class MetaCenterCampaignsService {
         adSetPayload,
         `Ad Set již existuje (${metaAdSetId})`,
       );
+      const synced = await this.syncExistingAdSetPlacements({
+        metaAdSetId: metaAdSetId!,
+        token,
+        placementMode,
+        targeting,
+        tracer,
+      });
+      if (synced.updated) {
+        targeting = synced.targeting;
+        launchPayloads.targeting = targeting;
+        launchPayloads.adSet = synced.adSetPayload ?? launchPayloads.adSet;
+        launchPayloads.placementDiagnostics = buildPlacementDiagnostics({
+          targeting,
+          placementMode,
+          facebookPageId: pageIdsForPlacement.pageId,
+          instagramBusinessId: instagramIdentity.instagramBusinessId,
+        });
+      }
+    }
+
+    if (
+      metaCreativeId &&
+      shouldRecreateCreativeForPlacement({
+        placementMode,
+        instagramBusinessId: instagramIdentity.instagramBusinessId,
+        creativeBody: (launchPayloads.creative as Record<string, unknown> | null) ?? null,
+      })
+    ) {
+      this.logger.log(
+        `[meta-campaign] recreating creative draft=${draftId} — missing instagram_user_id for ${placementMode}`,
+      );
+      metaCreativeId = null;
+      launchSteps.creative = { ok: false };
     }
 
     const creativeType = this.resolveCreativeType(dto.creativeType);
@@ -1455,6 +1558,7 @@ export class MetaCenterCampaignsService {
         creativePayload: dto.creativePayload as Record<string, unknown> | undefined,
         pageId: pageIds.pageId,
         instagramActorId: pageIds.instagramActorId,
+        instagramBusinessId: instagramIdentity.instagramBusinessId,
         catalogId: normalizedCatalogId,
         productSetId: metaProductSetId,
         frontendBase: this.frontendBase(),
@@ -1586,6 +1690,28 @@ export class MetaCenterCampaignsService {
     }
 
     if (!metaAdId) {
+      const consistency = await this.ensureInstagramConsistencyBeforeAd({
+        actId,
+        token,
+        pageAccessToken,
+        dto,
+        creativeType,
+        metaAdSetId: metaAdSetId!,
+        metaCreativeId: metaCreativeId!,
+        metaProductSetId,
+        placementMode,
+        instagramBusinessId: instagramIdentity.instagramBusinessId,
+        targeting,
+        pageId: pageIds.pageId,
+        catalogId: normalizedCatalogId,
+        launchPayloads,
+        launchSteps,
+        tracer,
+      });
+      metaCreativeId = consistency.metaCreativeId;
+      targeting = consistency.targeting;
+      launchPayloads.targeting = targeting;
+
       const adPayload = {
         name: `${dto.name.trim()} — reklama`,
         adset_id: metaAdSetId,
@@ -1595,13 +1721,50 @@ export class MetaCenterCampaignsService {
       launchPayloads.ad = adPayload;
 
       const adPath = `/act_${actId}/ads`;
-      const adRes = await this.graph.postWithTransientRetry<{ id?: string }>(
+      let adRes = await this.graph.postWithTransientRetry<{ id?: string }>(
         adPath,
         token,
         adPayload,
         { logLabel: `ads draft=${draftId}`, retryDelaysMs: [3000, 3000, 3000] },
       );
       tracer.recordResult('ad', adPath, adPayload, adRes);
+
+      if (!adRes.ok) {
+        const adErrorFields = extractMetaGraphErrorFields(adRes.data);
+        if (
+          isMetaInstagramIdentityError({
+            errorSubcode: adErrorFields.error_subcode,
+            errorUserMsg: adErrorFields.error_user_msg,
+          })
+        ) {
+        const retried = await this.retryAdAfterInstagramIdentityError({
+          actId,
+          token,
+          pageAccessToken,
+          dto,
+          creativeType,
+          metaAdSetId: metaAdSetId!,
+          metaCreativeId: metaCreativeId!,
+          metaProductSetId,
+          placementMode,
+          instagramBusinessId: instagramIdentity.instagramBusinessId,
+          targeting,
+          pageId: pageIds.pageId,
+          catalogId: normalizedCatalogId,
+          launchPayloads,
+          launchSteps,
+          tracer,
+          adPath,
+          adPayload,
+        });
+        if (retried.metaCreativeId) metaCreativeId = retried.metaCreativeId;
+        if (retried.targeting) {
+          targeting = retried.targeting;
+          launchPayloads.targeting = targeting;
+        }
+        adRes = retried.adRes;
+        }
+      }
 
       if (!adRes.ok || !adRes.data.id) {
         const failure = this.formatLaunchApiFailure(
@@ -1717,6 +1880,13 @@ export class MetaCenterCampaignsService {
         '1. Doplňte souřadnice nebo zvolte celé město.',
         '2. Ověřte zdroj událostí katalogu.',
         '3. Pokračujte ve vytvoření Ad Setu a reklamy.',
+      ].join('\n\n');
+    }
+    if (launchSteps.campaign?.ok && launchSteps.adSet?.ok && launchSteps.creative?.ok && !launchSteps.ad?.ok) {
+      return [
+        'Kampaň, Ad Set a Creative existují, ale Ad se nepodařilo vytvořit.',
+        detail,
+        'Pokud chybí Instagram Business účet, použijte „Použít pouze Facebook“ nebo připojte Instagram.',
       ].join('\n\n');
     }
     if (launchSteps.campaign?.ok && launchSteps.adSet?.ok && !launchSteps.creative?.ok) {
@@ -2659,6 +2829,295 @@ export class MetaCenterCampaignsService {
       contextIds,
       launchDebug: tracer.getTrace(),
       userMessage,
+    });
+  }
+
+  private async fetchAdSetTargeting(
+    adSetId: string,
+    token: string,
+  ): Promise<Record<string, unknown>> {
+    const res = await this.graph.get<{ targeting?: Record<string, unknown> | string }>(
+      `/${adSetId}`,
+      token,
+      { fields: 'targeting' },
+    );
+    if (!res.ok) return {};
+    return parseTargetingRecord(res.data.targeting);
+  }
+
+  private async updateAdSetTargeting(
+    adSetId: string,
+    targeting: Record<string, unknown>,
+    token: string,
+  ): Promise<boolean> {
+    const payload = { targeting: JSON.stringify(targeting) };
+    const res = await this.graph.post(`/${adSetId}`, token, payload);
+    return res.ok;
+  }
+
+  private async syncExistingAdSetPlacements(input: {
+    metaAdSetId: string;
+    token: string;
+    placementMode: MetaPlacementMode;
+    targeting: Record<string, unknown>;
+    tracer: MetaLaunchStepTracer;
+  }): Promise<{
+    updated: boolean;
+    targeting: Record<string, unknown>;
+    adSetPayload?: Record<string, unknown>;
+  }> {
+    const liveTargeting = await this.fetchAdSetTargeting(input.metaAdSetId, input.token);
+    const needsFacebookOnly = shouldUpdateAdSetForFacebookOnly({
+      placementMode: input.placementMode,
+      adSetTargeting: Object.keys(liveTargeting).length ? liveTargeting : input.targeting,
+    });
+    if (!needsFacebookOnly) {
+      return { updated: false, targeting: input.targeting };
+    }
+    const facebookOnlyTargeting = applyPlacementModeToTargeting(
+      input.targeting,
+      'FACEBOOK_ONLY',
+    );
+    const ok = await this.updateAdSetTargeting(
+      input.metaAdSetId,
+      facebookOnlyTargeting,
+      input.token,
+    );
+    if (!ok) {
+      return { updated: false, targeting: input.targeting };
+    }
+    input.tracer.recordSkipped(
+      'adSet',
+      `/${input.metaAdSetId}`,
+      { targeting: facebookOnlyTargeting },
+      'Ad Set aktualizován na Facebook-only placements',
+    );
+    return {
+      updated: true,
+      targeting: facebookOnlyTargeting,
+      adSetPayload: { targeting: JSON.stringify(facebookOnlyTargeting) },
+    };
+  }
+
+  private async createCatalogCreativeForLaunch(input: {
+    actId: string;
+    token: string;
+    pageAccessToken: string | null;
+    dto: CreateMetaCampaignDto;
+    creativeType: string;
+    pageId: string | null;
+    instagramBusinessId: string | null;
+    catalogId: string | null;
+    productSetId: string | null;
+    launchPayloads: MetaLaunchPayloadSnapshot;
+    launchSteps: MetaLaunchSteps;
+    tracer: MetaLaunchStepTracer;
+  }): Promise<
+    | { ok: true; creativeId: string; creativeBody: Record<string, string> }
+    | { ok: false; message: string; metaApiError?: MetaApiErrorDetail }
+  > {
+    const built = await this.creative.buildAdCreative({
+      actId: input.actId,
+      token: input.token,
+      pageAccessToken: input.pageAccessToken,
+      campaignName: input.dto.name.trim(),
+      creativeType: input.creativeType,
+      creativePayload: input.dto.creativePayload as Record<string, unknown> | undefined,
+      pageId: input.pageId,
+      instagramActorId: input.instagramBusinessId,
+      instagramBusinessId: input.instagramBusinessId,
+      catalogId: input.catalogId,
+      productSetId: input.productSetId,
+      frontendBase: this.frontendBase(),
+    });
+    if (!built.ok) {
+      return { ok: false, message: built.message, metaApiError: built.metaApiError };
+    }
+    validateCatalogCreativeBodyBeforeMetaApi(built.body);
+    const creativePath = `/act_${input.actId}/adcreatives`;
+    const creativeRes = await this.graph.postWithTransientRetry<{ id?: string }>(
+      creativePath,
+      input.token,
+      built.body,
+      { logLabel: 'adcreatives instagram-fix', retryDelaysMs: [3000, 3000, 3000] },
+    );
+    input.tracer.recordResult('creative', creativePath, built.body, creativeRes);
+    if (!creativeRes.ok || !creativeRes.data.id) {
+      const failure = formatMetaApiFailure(
+        'Vytvoření kreativy',
+        built.body,
+        creativeRes,
+        'creative',
+      );
+      return { ok: false, message: failure.message, metaApiError: failure.detail };
+    }
+    input.launchPayloads.creative = built.body;
+    if (built.catalogCreativeDiagnostics) {
+      input.launchPayloads.creativeDiagnostics = built.catalogCreativeDiagnostics;
+    }
+    input.launchSteps.creative = { ok: true, id: creativeRes.data.id };
+    input.tracer.updateContext({ creativeId: creativeRes.data.id });
+    return { ok: true, creativeId: creativeRes.data.id, creativeBody: built.body };
+  }
+
+  private async ensureInstagramConsistencyBeforeAd(input: {
+    actId: string;
+    token: string;
+    pageAccessToken: string | null;
+    dto: CreateMetaCampaignDto;
+    creativeType: string;
+    metaAdSetId: string;
+    metaCreativeId: string;
+    metaProductSetId: string | null;
+    placementMode: MetaPlacementMode;
+    instagramBusinessId: string | null;
+    targeting: Record<string, unknown>;
+    pageId: string | null;
+    catalogId: string | null;
+    launchPayloads: MetaLaunchPayloadSnapshot;
+    launchSteps: MetaLaunchSteps;
+    tracer: MetaLaunchStepTracer;
+  }): Promise<{ metaCreativeId: string; targeting: Record<string, unknown> }> {
+    let targeting = input.targeting;
+    let metaCreativeId = input.metaCreativeId;
+    const liveTargeting = await this.fetchAdSetTargeting(input.metaAdSetId, input.token);
+    const effectiveTargeting = Object.keys(liveTargeting).length ? liveTargeting : targeting;
+
+    if (
+      shouldUpdateAdSetForFacebookOnly({
+        placementMode: input.placementMode,
+        adSetTargeting: effectiveTargeting,
+      })
+    ) {
+      targeting = applyPlacementModeToTargeting(targeting, 'FACEBOOK_ONLY');
+      await this.updateAdSetTargeting(input.metaAdSetId, targeting, input.token);
+      input.launchPayloads.adSet = {
+        ...(input.launchPayloads.adSet ?? {}),
+        targeting: JSON.stringify(targeting),
+      };
+      input.launchPayloads.placementDiagnostics = buildPlacementDiagnostics({
+        targeting,
+        placementMode: 'FACEBOOK_ONLY',
+        facebookPageId: input.pageId,
+        instagramBusinessId: input.instagramBusinessId,
+      });
+    }
+
+    if (
+      shouldRecreateCreativeForPlacement({
+        placementMode: input.placementMode,
+        instagramBusinessId: input.instagramBusinessId,
+        creativeBody: (input.launchPayloads.creative as Record<string, unknown> | null) ?? null,
+      })
+    ) {
+      const recreated = await this.createCatalogCreativeForLaunch({
+        actId: input.actId,
+        token: input.token,
+        pageAccessToken: input.pageAccessToken,
+        dto: input.dto,
+        creativeType: input.creativeType,
+        pageId: input.pageId,
+        instagramBusinessId: input.instagramBusinessId,
+        catalogId: input.catalogId,
+        productSetId: input.metaProductSetId,
+        launchPayloads: input.launchPayloads,
+        launchSteps: input.launchSteps,
+        tracer: input.tracer,
+      });
+      if (recreated.ok) {
+        metaCreativeId = recreated.creativeId;
+      }
+    }
+
+    return { metaCreativeId, targeting };
+  }
+
+  private async retryAdAfterInstagramIdentityError(input: {
+    actId: string;
+    token: string;
+    pageAccessToken: string | null;
+    dto: CreateMetaCampaignDto;
+    creativeType: string;
+    metaAdSetId: string;
+    metaCreativeId: string;
+    metaProductSetId: string | null;
+    placementMode: MetaPlacementMode;
+    instagramBusinessId: string | null;
+    targeting: Record<string, unknown>;
+    pageId: string | null;
+    catalogId: string | null;
+    launchPayloads: MetaLaunchPayloadSnapshot;
+    launchSteps: MetaLaunchSteps;
+    tracer: MetaLaunchStepTracer;
+    adPath: string;
+    adPayload: Record<string, unknown>;
+  }): Promise<{
+    adRes: MetaGraphResult<{ id?: string }> & { attempts: number };
+    metaCreativeId?: string;
+    targeting?: Record<string, unknown>;
+  }> {
+    let metaCreativeId = input.metaCreativeId;
+    let targeting = input.targeting;
+    const refreshedIdentity = await this.instagramIdentity.resolveForLaunch({
+      pageId: input.pageId,
+      adAccountId: input.actId,
+      accessToken: input.token,
+      settingsRow: await this.getSettingsRow(),
+      persist: true,
+    });
+    const instagramBusinessId = refreshedIdentity.instagramBusinessId;
+
+    if (instagramBusinessId) {
+      const recreated = await this.createCatalogCreativeForLaunch({
+        actId: input.actId,
+        token: input.token,
+        pageAccessToken: input.pageAccessToken,
+        dto: input.dto,
+        creativeType: input.creativeType,
+        pageId: input.pageId,
+        instagramBusinessId,
+        catalogId: input.catalogId,
+        productSetId: input.metaProductSetId,
+        launchPayloads: input.launchPayloads,
+        launchSteps: input.launchSteps,
+        tracer: input.tracer,
+      });
+      if (recreated.ok) {
+        metaCreativeId = recreated.creativeId;
+      }
+    } else {
+      targeting = applyPlacementModeToTargeting(targeting, 'FACEBOOK_ONLY');
+      await this.updateAdSetTargeting(input.metaAdSetId, targeting, input.token);
+      input.launchPayloads.placementDiagnostics = buildPlacementDiagnostics({
+        targeting,
+        placementMode: 'FACEBOOK_ONLY',
+        facebookPageId: input.pageId,
+        instagramBusinessId: null,
+      });
+    }
+
+    const adPayload = {
+      ...input.adPayload,
+      creative: JSON.stringify({ creative_id: metaCreativeId }),
+    };
+    const adRes = await this.graph.postWithTransientRetry<{ id?: string }>(
+      input.adPath,
+      input.token,
+      adPayload,
+      { logLabel: 'ads instagram-fix', retryDelaysMs: [3000, 3000, 3000] },
+    );
+    input.tracer.recordResult('ad', input.adPath, adPayload, adRes);
+    return { adRes, metaCreativeId, targeting };
+  }
+
+  async getInstagramIdentityStatus() {
+    const row = await this.getSettingsRow();
+    const token = await this.oauth.resolveMarketingAccessToken();
+    return this.instagramIdentity.getInstagramStatus({
+      pageId: row?.pageId ?? null,
+      adAccountId: row?.adAccountId ?? null,
+      accessToken: token,
+      settingsRow: row,
     });
   }
 

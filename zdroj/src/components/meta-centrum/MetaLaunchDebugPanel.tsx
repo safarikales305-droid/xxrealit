@@ -19,6 +19,7 @@ type Props = {
   launchDebug?: MetaLaunchDebugTrace | null;
   combinationDiagnostics?: MetaCatalogCombinationDiagnostics | null;
   creativeDiagnostics?: import('@/lib/nest-client').MetaCatalogCreativeDiagnostics | null;
+  placementDiagnostics?: import('@/lib/nest-client').MetaPlacementDiagnostics | null;
   housingGeoDebug?: import('@/lib/nest-client').MetaHousingGeoDebug | null;
 };
 
@@ -71,7 +72,7 @@ function buildMetaDebugExport(
   };
 }
 
-export function MetaLaunchDebugPanel({ error, failedStep, launchDebug, combinationDiagnostics, creativeDiagnostics, housingGeoDebug }: Props) {
+export function MetaLaunchDebugPanel({ error, failedStep, launchDebug, combinationDiagnostics, creativeDiagnostics, placementDiagnostics, housingGeoDebug }: Props) {
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const trace = error?.launchDebug ?? launchDebug ?? null;
   const isCode2 = error?.errorCode === '2' || error?.httpStatus === 500;
@@ -236,6 +237,20 @@ export function MetaLaunchDebugPanel({ error, failedStep, launchDebug, combinati
               product_catalog_id in template_data:{' '}
               {creativeDiagnostics.forbiddenFields.productCatalogIdInTemplateData ? 'ano' : 'ne'}
             </li>
+          </ul>
+        </div>
+      ) : null}
+
+      {placementDiagnostics ? (
+        <div className="rounded border border-sky-200 bg-sky-50 px-2 py-2 text-sky-950">
+          <p className="mb-1 font-semibold">Umístění reklamy</p>
+          <ul className="grid gap-0.5 font-mono text-[10px] sm:grid-cols-2">
+            <li>Placement mode: {placementDiagnostics.placementMode}</li>
+            <li>Publisher platforms: {placementDiagnostics.publisherPlatforms.join(', ') || '—'}</li>
+            <li>Facebook positions: {placementDiagnostics.facebookPositions.join(', ') || '—'}</li>
+            <li>Instagram positions: {placementDiagnostics.instagramPositions.join(', ') || '—'}</li>
+            <li>Facebook Page ID: {placementDiagnostics.facebookPageId ?? '—'}</li>
+            <li>Instagram Business ID: {placementDiagnostics.instagramBusinessId ?? '—'}</li>
           </ul>
         </div>
       ) : null}

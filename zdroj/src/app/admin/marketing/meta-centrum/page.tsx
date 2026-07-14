@@ -1146,9 +1146,15 @@ export default function MetaCentrumPage() {
     }
   }
 
-  async function launchCampaignDraftFromList(c: MetaCampaignDraft) {
+  async function launchCampaignDraftFromList(
+    c: MetaCampaignDraft,
+    placementPreference?: 'FACEBOOK_ONLY',
+  ) {
     if (!token) return;
-    const payload = buildMetaCampaignSubmitPayloadFromDraft(c, campaignProducts);
+    const payload = {
+      ...buildMetaCampaignSubmitPayloadFromDraft(c, campaignProducts),
+      ...(placementPreference ? { placementPreference } : {}),
+    };
     logMetaCampaignSubmitPayload(payload);
     const productsError = assertProductsSelectedForSubmit(payload);
     if (productsError) {
@@ -4425,6 +4431,7 @@ export default function MetaCentrumPage() {
                               launchDebug={c.metaLaunchDebug}
                               combinationDiagnostics={c.metaLaunchPayloads?.combinationDiagnostics ?? null}
                               creativeDiagnostics={c.metaLaunchPayloads?.creativeDiagnostics ?? null}
+                              placementDiagnostics={c.metaLaunchPayloads?.placementDiagnostics ?? null}
                               housingGeoDebug={c.metaLaunchPayloads?.housingGeoDebug ?? null}
                               failedStep={
                                 c.status === 'error' && c.metaLaunchSteps
@@ -4455,6 +4462,22 @@ export default function MetaCentrumPage() {
                           ) : null}
                           {c.metaCampaignId && !c.metaAdId && campaignsLiveEnabled ? (
                             <div className="mt-2 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void connectMetaFlow('instagram')}
+                                className="rounded-lg border border-[#E1306C] px-2 py-1 text-xs font-medium text-[#C13584] hover:bg-pink-50"
+                              >
+                                Připojit Instagram
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void launchCampaignDraftFromList(c, 'FACEBOOK_ONLY')}
+                                className="rounded-lg border border-blue-400 px-2 py-1 text-xs font-medium text-blue-900 hover:bg-blue-50"
+                              >
+                                Použít pouze Facebook
+                              </button>
                               <button
                                 type="button"
                                 disabled={busy}

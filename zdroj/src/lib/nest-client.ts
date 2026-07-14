@@ -6583,6 +6583,27 @@ export type MetaLaunchPayloadSnapshot = {
   launchPhase?: string | null;
   housingGeoDebug?: MetaHousingGeoDebug | null;
   creativeDiagnostics?: MetaCatalogCreativeDiagnostics | null;
+  placementDiagnostics?: MetaPlacementDiagnostics | null;
+};
+
+export type MetaPlacementDiagnostics = {
+  placementMode: 'FACEBOOK_AND_INSTAGRAM' | 'FACEBOOK_ONLY';
+  publisherPlatforms: string[];
+  facebookPositions: string[];
+  instagramPositions: string[];
+  facebookPageId: string | null;
+  instagramBusinessId: string | null;
+};
+
+export type MetaInstagramIdentityStatus = {
+  instagramBusinessId: string | null;
+  instagramUsername: string | null;
+  linkedPageId: string | null;
+  linkedAdAccountId: string | null;
+  usableForAds: boolean;
+  connected: boolean;
+  source: 'settings' | 'page_api' | 'none';
+  message: string | null;
 };
 
 export type MetaCatalogCreativeDiagnostics = {
@@ -7406,6 +7427,7 @@ export type MetaCampaignDraftBody = {
   audienceId?: string;
   leadFormId?: string;
   creativePayload?: Record<string, unknown>;
+  placementPreference?: 'FACEBOOK_ONLY' | 'AUTO';
 };
 
 export type MetaCampaignPayloadPreviewResponse = {
@@ -7640,6 +7662,27 @@ export async function nestAdminMetaCenterCampaignsOverview(
     message?: string;
   }>(token, '/campaigns/overview');
   return r.ok ? r.data : { ok: false, items: [], message: r.error };
+}
+
+export async function nestAdminMetaCenterInstagramIdentity(
+  token: string | null,
+): Promise<MetaInstagramIdentityStatus> {
+  const r = await metaCenterFetch<MetaInstagramIdentityStatus>(
+    token,
+    '/campaigns/instagram-identity',
+  );
+  return r.ok
+    ? r.data
+    : {
+        instagramBusinessId: null,
+        instagramUsername: null,
+        linkedPageId: null,
+        linkedAdAccountId: null,
+        usableForAds: false,
+        connected: false,
+        source: 'none',
+        message: r.error,
+      };
 }
 
 export async function nestAdminMetaCenterLaunchCampaignDraft(

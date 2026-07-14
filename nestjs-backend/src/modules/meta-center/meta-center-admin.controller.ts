@@ -770,6 +770,24 @@ export class MetaCenterAdminController {
     );
   }
 
+  @Get('campaigns/instagram-identity')
+  getInstagramIdentityStatus() {
+    return this.safeEndpoint(
+      'campaigns/instagram-identity',
+      () => this.campaigns.getInstagramIdentityStatus(),
+      (message) => ({
+        instagramBusinessId: null,
+        instagramUsername: null,
+        linkedPageId: null,
+        linkedAdAccountId: null,
+        usableForAds: false,
+        connected: false,
+        source: 'none' as const,
+        message,
+      }),
+    );
+  }
+
   @Post('campaigns/adset-probe')
   probeAdSetCreate(
     @Body(MetaCampaignBodyPipe) body: CreateMetaCampaignDto,

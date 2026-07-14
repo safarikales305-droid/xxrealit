@@ -29,6 +29,7 @@ export type MetaCreativeBuildInput = {
   creativePayload: Record<string, unknown> | undefined;
   pageId: string | null;
   instagramActorId: string | null;
+  instagramBusinessId?: string | null;
   catalogId: string | null;
   productSetId: string | null;
   frontendBase: string;
@@ -162,7 +163,7 @@ export class MetaCenterCreativeService {
       const built = buildCatalogCreativePayload({
         name: creativeName,
         pageId: input.pageId,
-        instagramActorId: input.instagramActorId,
+        instagramBusinessId: input.instagramBusinessId ?? input.instagramActorId,
         productSetId: input.productSetId,
         link: linkUrl,
         message: primaryText,

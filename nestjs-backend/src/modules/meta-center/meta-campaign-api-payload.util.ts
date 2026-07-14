@@ -181,6 +181,7 @@ export type MetaLaunchPayloadSnapshot = {
   launchPhase?: string | null;
   housingGeoDebug?: import('./meta-housing-geo.util').MetaHousingGeoDebug | null;
   creativeDiagnostics?: import('./meta-catalog-creative.util').CatalogCreativeDiagnostics | null;
+  placementDiagnostics?: import('./meta-instagram-placement.util').MetaPlacementDiagnostics | null;
 };
 
 export function emptyLaunchSteps(): MetaLaunchSteps {

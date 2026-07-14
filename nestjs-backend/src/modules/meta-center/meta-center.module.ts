@@ -24,6 +24,7 @@ import { MetaCenterGeoService } from './meta-center-geo.service';
 import { MetaCenterLiveDiagnosticsService } from './meta-center-live-diagnostics.service';
 import { MetaCenterRemarketingService } from './meta-center-remarketing.service';
 import { MetaCatalogSalesAssetsVerifyService } from './meta-catalog-sales-assets-verify.service';
+import { MetaInstagramIdentityService } from './meta-instagram-identity.service';
 import {
   MetaCampaignBodyPipe,
   OptionalMetaCampaignBodyPipe,
@@ -55,6 +56,7 @@ import {
     MetaCenterLiveDiagnosticsService,
     MetaCenterRemarketingService,
     MetaCatalogSalesAssetsVerifyService,
+    MetaInstagramIdentityService,
     MetaCampaignBodyPipe,
     OptionalMetaCampaignBodyPipe,
   ],

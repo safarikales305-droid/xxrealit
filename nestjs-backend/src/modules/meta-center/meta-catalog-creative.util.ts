@@ -9,7 +9,7 @@ export const META_CATALOG_CREATIVE_FORBIDDEN_TEMPLATE_FIELDS = [
 export type CatalogCreativeBuildInput = {
   name: string;
   pageId: string;
-  instagramActorId?: string | null;
+  instagramBusinessId?: string | null;
   productSetId: string;
   link: string;
   message: string;
@@ -188,8 +188,8 @@ export function buildCatalogCreativePayload(
 
   const objectStorySpec: Record<string, unknown> = {
     page_id: input.pageId.trim(),
-    ...(input.instagramActorId?.trim()
-      ? { instagram_actor_id: input.instagramActorId.trim() }
+    ...(input.instagramBusinessId?.trim()
+      ? { instagram_user_id: input.instagramBusinessId.trim() }
       : {}),
     template_data: templateData,
   };
