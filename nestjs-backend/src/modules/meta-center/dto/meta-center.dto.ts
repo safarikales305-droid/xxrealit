@@ -29,6 +29,7 @@ export class UpdateMetaCenterSettingDto {
   @IsOptional() @IsString() @MaxLength(512) domainVerification?: string;
   @IsOptional() @IsBoolean() catalogFeedEnabled?: boolean;
   @IsOptional() @IsBoolean() campaignsLiveEnabled?: boolean;
+  @IsOptional() @IsBoolean() campaignsDebugMode?: boolean;
   @IsOptional() @IsObject() capiEventToggles?: Record<string, boolean>;
   @IsOptional() @IsObject() pixelMapping?: Record<string, string>;
   @IsOptional() @IsObject() remarketingAudiences?: unknown;

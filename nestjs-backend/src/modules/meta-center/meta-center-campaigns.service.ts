@@ -50,6 +50,14 @@ import {
   type MetaLaunchSteps,
 } from './meta-campaign-api-payload.util';
 import type { CreateMetaCampaignDto } from './dto/create-meta-campaign.dto';
+import {
+  MetaLaunchStepTracer,
+  isMetaInternalErrorCode2,
+  metaCode2UserMessage,
+  metaLaunchDebugDir,
+  type MetaLaunchDebugTrace,
+} from './meta-launch-debug.util';
+import type { MetaGraphResult } from './meta-graph-client.service';
 
 const SETTINGS_ID = 'default';
 
@@ -71,6 +79,7 @@ export type MetaCampaignProductItem = {
 };
 
 export type { MetaCampaignLaunchBlocker, MetaApiErrorDetail, MetaLaunchSteps, MetaLaunchStep, MetaLaunchPayloadSnapshot } from './meta-campaign-api-payload.util';
+export type { MetaLaunchDebugTrace } from './meta-launch-debug.util';
 
 export type MetaCampaignInsights = {
   reach: number | null;
@@ -915,6 +924,37 @@ export class MetaCenterCampaignsService {
     }
 
     const catalogId = ids.catalogId;
+    const debugEnabled = await this.isLaunchDebugEnabled();
+    const graphVersion = this.fbConfig.getGraphApiVersion();
+    const tracer = new MetaLaunchStepTracer(
+      {
+        graphApiVersion: graphVersion,
+        businessId: ids.businessId,
+        adAccountId: ids.adAccountId,
+        pageId: row?.pageId ?? null,
+        instagramBusinessId: row?.instagramBusinessId ?? null,
+        pixelId: ids.pixelId,
+        catalogId,
+        datasetId: ids.datasetId,
+        campaignId: metaCampaignId,
+        adSetId: metaAdSetId,
+        creativeId: metaCreativeId,
+        adId: metaAdId,
+        draftId,
+      },
+      this.graph.graphBase(graphVersion),
+      debugEnabled,
+      metaLaunchDebugDir(),
+    );
+    const launchContextIds = () =>
+      this.buildLaunchContextIds(ids, row, {
+        draftId,
+        campaignId: metaCampaignId,
+        adSetId: metaAdSetId,
+        creativeId: metaCreativeId,
+        adId: metaAdId,
+      });
+    const persistDebug = () => tracer.getTrace();
     const payloadContext = this.buildPayloadContext(dto, ids, row, catalogId);
     const specResolved = resolveMetaCampaignPayloadSpec(payloadContext);
     if (!specResolved.ok) {
@@ -961,18 +1001,24 @@ export class MetaCenterCampaignsService {
     launchPayloads.campaign = campaignPayload;
 
     if (!metaCampaignId) {
+      const campaignPath = `/act_${actId}/campaigns`;
       const campaignRes = await this.graph.post<{ id?: string }>(
-        `/act_${actId}/campaigns`,
+        campaignPath,
         token,
         campaignPayload,
       );
+      tracer.recordResult('campaign', campaignPath, campaignPayload, campaignRes);
+      tracer.updateContext({ campaignId: campaignRes.ok ? campaignRes.data.id ?? null : null });
 
       if (!campaignRes.ok || !campaignRes.data.id) {
-        const failure = formatMetaApiFailure(
+        const failure = this.formatLaunchApiFailure(
           'Vytvoření kampaně',
           campaignPayload,
           campaignRes,
           'campaign',
+          tracer,
+          launchContextIds(),
+          serializePayloadForMetaApi(campaignPayload),
         );
         launchSteps.campaign = { ok: false, error: failure.message };
         await this.persistLaunchState(draftId, {
@@ -980,6 +1026,7 @@ export class MetaCenterCampaignsService {
           errorMessage: failure.message,
           metaLaunchSteps: launchSteps,
           metaLaunchPayloads: launchPayloads,
+          metaLaunchDebug: persistDebug(),
         });
         return {
           ok: false as const,
@@ -994,8 +1041,15 @@ export class MetaCenterCampaignsService {
 
       metaCampaignId = campaignRes.data.id;
       launchSteps.campaign = { ok: true, id: metaCampaignId };
+      tracer.updateContext({ campaignId: metaCampaignId });
     } else {
       launchSteps.campaign = { ok: true, id: metaCampaignId };
+      tracer.recordSkipped(
+        'campaign',
+        `/act_${actId}/campaigns`,
+        campaignPayload,
+        `Campaign již existuje (${metaCampaignId})`,
+      );
     }
     let resolvedGeo;
     try {
@@ -1071,22 +1125,31 @@ export class MetaCenterCampaignsService {
     launchPayloads.adSet = adSetPayload;
 
     if (!metaAdSetId) {
-      this.logger.log(
-        `[meta-campaign] adset payload objective=${dto.objective} spec=${adSetSpec.mode} optimization_goal=${adSetSpec.optimizationGoal} draft=${draftId}\n${JSON.stringify(adSetPayload, null, 2)}`,
-      );
-      this.logger.log(
-        `[meta-campaign] adset meta-form draft=${draftId}\n${JSON.stringify(adSetBuild.metaForm, null, 2)}`,
-      );
-
+      const adSetPath = `/act_${actId}/adsets`;
       const adSetRes = await this.graph.postWithTransientRetry<{ id?: string }>(
-        `/act_${actId}/adsets`,
+        adSetPath,
         token,
         adSetPayload,
-        { logLabel: `adsets draft=${draftId}` },
+        { logLabel: `adsets draft=${draftId}`, retryDelaysMs: [3000, 3000, 3000] },
       );
+      tracer.recordResult('adSet', adSetPath, adSetPayload, adSetRes);
 
       if (!adSetRes.ok || !adSetRes.data.id) {
-        const failure = formatMetaApiFailure('Vytvoření ad setu', adSetPayload, adSetRes, 'adset');
+        const code2Failure = isMetaInternalErrorCode2(adSetRes);
+        const userMessage =
+          code2Failure && metaCampaignId
+            ? metaCode2UserMessage('Ad Set')
+            : null;
+        const failure = this.formatLaunchApiFailure(
+          'Vytvoření ad setu',
+          adSetPayload,
+          adSetRes,
+          'adset',
+          tracer,
+          launchContextIds(),
+          adSetBuild.metaForm,
+          userMessage,
+        );
         launchSteps.adSet = { ok: false, error: failure.message };
         await this.persistLaunchState(draftId, {
           metaCampaignId,
@@ -1094,6 +1157,7 @@ export class MetaCenterCampaignsService {
           errorMessage: failure.message,
           metaLaunchSteps: launchSteps,
           metaLaunchPayloads: launchPayloads,
+          metaLaunchDebug: persistDebug(),
         });
         return {
           ok: false as const,
@@ -1108,8 +1172,15 @@ export class MetaCenterCampaignsService {
 
       metaAdSetId = adSetRes.data.id;
       launchSteps.adSet = { ok: true, id: metaAdSetId };
+      tracer.updateContext({ adSetId: metaAdSetId });
     } else {
       launchSteps.adSet = { ok: true, id: metaAdSetId };
+      tracer.recordSkipped(
+        'adSet',
+        `/act_${actId}/adsets`,
+        adSetPayload,
+        `Ad Set již existuje (${metaAdSetId})`,
+      );
     }
 
     const creativeType = this.resolveCreativeType(dto.creativeType);
@@ -1185,14 +1256,28 @@ export class MetaCenterCampaignsService {
     const creativeBody = built.body;
     launchPayloads.creative = creativeBody;
 
-    const creativeRes = await this.graph.post<{ id?: string }>(
-      `/act_${actId}/adcreatives`,
+    const creativePath = `/act_${actId}/adcreatives`;
+    const creativeRes = await this.graph.postWithTransientRetry<{ id?: string }>(
+      creativePath,
       token,
       creativeBody,
+      { logLabel: `adcreatives draft=${draftId}`, retryDelaysMs: [3000, 3000, 3000] },
     );
+    tracer.recordResult('creative', creativePath, creativeBody, creativeRes);
 
     if (!creativeRes.ok || !creativeRes.data.id) {
-      const failure = this.creative.formatCreativeApiFailure(creativeBody, creativeRes);
+      const failure = this.formatLaunchApiFailure(
+        'Vytvoření kreativy',
+        creativeBody,
+        creativeRes,
+        'creative',
+        tracer,
+        launchContextIds(),
+        serializePayloadForMetaApi(creativeBody),
+        isMetaInternalErrorCode2(creativeRes) && metaCampaignId
+          ? metaCode2UserMessage('Creative')
+          : null,
+      );
       launchSteps.creative = { ok: false, error: failure.message };
       await this.persistLaunchState(draftId, {
         metaCampaignId,
@@ -1202,6 +1287,7 @@ export class MetaCenterCampaignsService {
         errorMessage: failure.message,
         metaLaunchSteps: launchSteps,
         metaLaunchPayloads: launchPayloads,
+        metaLaunchDebug: persistDebug(),
       });
       return {
         ok: false as const,
@@ -1216,6 +1302,7 @@ export class MetaCenterCampaignsService {
 
     metaCreativeId = creativeRes.data.id;
     launchSteps.creative = { ok: true, id: metaCreativeId };
+    tracer.updateContext({ creativeId: metaCreativeId });
     this.logger.log(`[meta-campaign] creative=${metaCreativeId} draft=${draftId}`);
 
     const adPayload = {
@@ -1226,14 +1313,28 @@ export class MetaCenterCampaignsService {
     };
     launchPayloads.ad = adPayload;
 
-    const adRes = await this.graph.post<{ id?: string }>(
-      `/act_${actId}/ads`,
+    const adPath = `/act_${actId}/ads`;
+    const adRes = await this.graph.postWithTransientRetry<{ id?: string }>(
+      adPath,
       token,
       adPayload,
+      { logLabel: `ads draft=${draftId}`, retryDelaysMs: [3000, 3000, 3000] },
     );
+    tracer.recordResult('ad', adPath, adPayload, adRes);
 
     if (!adRes.ok || !adRes.data.id) {
-      const failure = formatMetaApiFailure('Vytvoření reklamy', adPayload, adRes, 'ad');
+      const failure = this.formatLaunchApiFailure(
+        'Vytvoření reklamy',
+        adPayload,
+        adRes,
+        'ad',
+        tracer,
+        launchContextIds(),
+        serializePayloadForMetaApi(adPayload),
+        isMetaInternalErrorCode2(adRes) && metaCampaignId
+          ? metaCode2UserMessage('Ad')
+          : null,
+      );
       launchSteps.ad = { ok: false, error: failure.message };
       await this.persistLaunchState(draftId, {
         metaCampaignId,
@@ -1244,6 +1345,7 @@ export class MetaCenterCampaignsService {
         errorMessage: failure.message,
         metaLaunchSteps: launchSteps,
         metaLaunchPayloads: launchPayloads,
+        metaLaunchDebug: persistDebug(),
       });
       return {
         ok: false as const,
@@ -1258,6 +1360,7 @@ export class MetaCenterCampaignsService {
 
     metaAdId = adRes.data.id;
     launchSteps.ad = { ok: true, id: metaAdId };
+    tracer.updateContext({ adId: metaAdId });
     this.logger.log(`[meta-campaign] ad=${metaAdId} draft=${draftId}`);
 
     const creativePreviewUrl =
@@ -1280,6 +1383,7 @@ export class MetaCenterCampaignsService {
         previewHtml,
         metaLaunchSteps: launchSteps as Prisma.InputJsonValue,
         metaLaunchPayloads: launchPayloads as Prisma.InputJsonValue,
+        metaLaunchDebug: persistDebug() as Prisma.InputJsonValue,
         creativePayload: built.payload as Prisma.InputJsonValue,
         metaStatus: statusData.status,
         metaEffectiveStatus: statusData.effectiveStatus,
@@ -1807,6 +1911,58 @@ export class MetaCenterCampaignsService {
     return { ok: false, message: failure.message, metaApiError: failure.detail };
   }
 
+  private async isLaunchDebugEnabled(): Promise<boolean> {
+    if (process.env.META_LAUNCH_DEBUG === 'true') return true;
+    const row = await this.getSettingsRow();
+    return row?.campaignsDebugMode === true;
+  }
+
+  private buildLaunchContextIds(
+    ids: ReturnType<typeof resolveMetaCenterIds>,
+    row: Awaited<ReturnType<typeof this.getSettingsRow>>,
+    extra: {
+      draftId: string;
+      campaignId?: string | null;
+      adSetId?: string | null;
+      creativeId?: string | null;
+      adId?: string | null;
+    },
+  ): Record<string, string | null> {
+    return {
+      businessId: ids.businessId,
+      adAccountId: ids.adAccountId,
+      pageId: row?.pageId ?? null,
+      instagramBusinessId: row?.instagramBusinessId ?? null,
+      pixelId: ids.pixelId,
+      catalogId: ids.catalogId,
+      datasetId: ids.datasetId,
+      campaignId: extra.campaignId ?? null,
+      adSetId: extra.adSetId ?? null,
+      creativeId: extra.creativeId ?? null,
+      adId: extra.adId ?? null,
+      draftId: extra.draftId,
+    };
+  }
+
+  private formatLaunchApiFailure(
+    label: string,
+    payload: Record<string, unknown>,
+    result: MetaGraphResult<unknown> & { attempts?: number },
+    launchStep: MetaLaunchStep,
+    tracer: MetaLaunchStepTracer,
+    contextIds: Record<string, string | null>,
+    metaForm?: Record<string, string> | null,
+    userMessage?: string | null,
+  ) {
+    return formatMetaApiFailure(label, payload, result, launchStep, {
+      metaForm: metaForm ?? null,
+      attempts: result.attempts,
+      contextIds,
+      launchDebug: tracer.getTrace(),
+      userMessage,
+    });
+  }
+
   private async persistLaunchState(
     draftId: string,
     data: {
@@ -1819,6 +1975,7 @@ export class MetaCenterCampaignsService {
       errorMessage?: string;
       metaLaunchSteps?: MetaLaunchSteps;
       metaLaunchPayloads?: MetaLaunchPayloadSnapshot;
+      metaLaunchDebug?: MetaLaunchDebugTrace;
     },
   ) {
     try {
@@ -1837,6 +1994,9 @@ export class MetaCenterCampaignsService {
             : {}),
           ...(data.metaLaunchPayloads
             ? { metaLaunchPayloads: data.metaLaunchPayloads as Prisma.InputJsonValue }
+            : {}),
+          ...(data.metaLaunchDebug
+            ? { metaLaunchDebug: data.metaLaunchDebug as Prisma.InputJsonValue }
             : {}),
         },
       });
@@ -1937,6 +2097,7 @@ export class MetaCenterCampaignsService {
     previewHtml?: string | null;
     metaLaunchSteps?: unknown;
     metaLaunchPayloads?: unknown;
+    metaLaunchDebug?: unknown;
     metaStatus?: string | null;
     metaEffectiveStatus?: string | null;
     metaInsights?: unknown;
@@ -1985,6 +2146,10 @@ export class MetaCenterCampaignsService {
       metaLaunchPayloads:
         row.metaLaunchPayloads && typeof row.metaLaunchPayloads === 'object'
           ? (row.metaLaunchPayloads as MetaLaunchPayloadSnapshot)
+          : null,
+      metaLaunchDebug:
+        row.metaLaunchDebug && typeof row.metaLaunchDebug === 'object'
+          ? (row.metaLaunchDebug as MetaLaunchDebugTrace)
           : null,
       metaStatus: row.metaStatus ?? null,
       metaEffectiveStatus: row.metaEffectiveStatus ?? null,

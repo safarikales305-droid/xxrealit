@@ -29,6 +29,7 @@ import {
   MetaCampaignValidationErrors,
 } from '@/components/meta-centrum/MetaCampaignLaunchChecklist';
 import { MetaCampaignDetailPanel, metaLaunchSummaryLines } from '@/components/meta-centrum/MetaCampaignDetailPanel';
+import { MetaLaunchDebugPanel } from '@/components/meta-centrum/MetaLaunchDebugPanel';
 import {
   safeDisplayValue,
   safeErrorMessage,
@@ -184,29 +185,13 @@ function MetaLaunchStepsPanel({
 function MetaApiErrorPanel({
   error,
   failedStep,
+  launchDebug,
 }: {
   error?: MetaCampaignCreateResponse['metaApiError'];
   failedStep?: string | null;
+  launchDebug?: import('@/lib/nest-client').MetaLaunchDebugTrace | null;
 }) {
-  if (!error) return null;
-  return (
-    <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-950">
-      {failedStep ? (
-        <p className="font-semibold">
-          Proces skončil u kroku:{' '}
-          {LAUNCH_STEP_LABELS[failedStep as keyof MetaLaunchSteps] ?? failedStep}
-        </p>
-      ) : null}
-      <ul className="mt-1 space-y-0.5 font-mono">
-        <li>HTTP kód: {error.httpStatus}</li>
-        {error.errorCode ? <li>Meta error_code: {error.errorCode}</li> : null}
-        {error.errorSubcode ? <li>error_subcode: {error.errorSubcode}</li> : null}
-        {error.errorUserTitle ? <li>error_user_title: {error.errorUserTitle}</li> : null}
-        {error.errorUserMsg ? <li>error_user_msg: {error.errorUserMsg}</li> : null}
-        {error.traceId ? <li>trace_id: {error.traceId}</li> : null}
-      </ul>
-    </div>
-  );
+  return <MetaLaunchDebugPanel error={error} failedStep={failedStep} launchDebug={launchDebug} />;
 }
 
 const TABS = [
@@ -604,6 +589,7 @@ export default function MetaCentrumPage() {
   const [campaignDrafts, setCampaignDrafts] = useState<MetaCampaignDraft[]>([]);
   const [campaignOverview, setCampaignOverview] = useState<MetaCampaignOverviewItem[]>([]);
   const [campaignsLiveEnabled, setCampaignsLiveEnabled] = useState(false);
+  const [campaignsDebugMode, setCampaignsDebugMode] = useState(false);
   const [remarketingAudiences, setRemarketingAudiences] = useState<MetaRemarketingAudience[]>([]);
   const [remarketingAudienceTypes, setRemarketingAudienceTypes] = useState<
     MetaRemarketingAudienceTypeOption[]
@@ -708,6 +694,7 @@ export default function MetaCentrumPage() {
     setCampaignsLiveEnabled(
       campOverview?.liveEnabled ?? d?.settings?.campaignsLiveEnabled ?? false,
     );
+    setCampaignsDebugMode(d?.settings?.campaignsDebugMode ?? false);
     setRemarketingAudiences(remarketing?.items ?? []);
     setRemarketingAudienceTypes(remarketing?.audienceTypes ?? []);
 
@@ -2560,6 +2547,42 @@ export default function MetaCentrumPage() {
                     </span>
                   </span>
                 </label>
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/60 bg-white/70 px-4 py-3 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={campaignsDebugMode}
+                    disabled={busy}
+                    onChange={async (e) => {
+                      if (!token) return;
+                      const next = e.target.checked;
+                      setBusy(true);
+                      const r = await nestAdminMetaCenterPatchSettings(token, {
+                        campaignsDebugMode: next,
+                      });
+                      setBusy(false);
+                      if (r.ok) {
+                        setCampaignsDebugMode(next);
+                        setMsg(
+                          next
+                            ? 'Debug mód zapnut — request/response JSON se ukládají do logs/meta-debug.'
+                            : 'Debug mód vypnut.',
+                        );
+                        void refresh();
+                      } else {
+                        setMsg(r.error ?? 'Uložení selhalo.');
+                      }
+                    }}
+                    className="mt-1"
+                  />
+                  <span>
+                    <strong>Debug mód Meta kampaní</strong>
+                    <br />
+                    <span className="text-zinc-600">
+                      Ukládá campaign/adset/creative/ad request a response JSON do složky logs/meta-debug na
+                      backendu.
+                    </span>
+                  </span>
+                </label>
               </div>
             </div>
 
@@ -4179,6 +4202,7 @@ export default function MetaCentrumPage() {
                   <MetaApiErrorPanel
                     error={lastLaunchError.metaApiError}
                     failedStep={lastLaunchError.failedStep}
+                    launchDebug={lastLaunchError.metaApiError?.launchDebug}
                   />
                 </div>
               ) : null}
@@ -4246,6 +4270,18 @@ export default function MetaCentrumPage() {
                             <p className="mt-1 whitespace-pre-wrap text-xs text-red-700">
                               {c.errorMessage}
                             </p>
+                          ) : null}
+                          {c.metaLaunchDebug ? (
+                            <MetaLaunchDebugPanel
+                              launchDebug={c.metaLaunchDebug}
+                              failedStep={
+                                c.status === 'error' && c.metaLaunchSteps
+                                  ? (['ad', 'creative', 'adSet', 'campaign'] as const).find(
+                                      (k) => !c.metaLaunchSteps?.[k]?.ok,
+                                    ) ?? 'adset'
+                                  : null
+                              }
+                            />
                           ) : null}
                           {c.metaCampaignId && !c.metaAdId && campaignsLiveEnabled ? (
                             <div className="mt-2 flex flex-wrap gap-2">

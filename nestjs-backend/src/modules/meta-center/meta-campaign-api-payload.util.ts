@@ -160,6 +160,9 @@ export type MetaApiErrorDetail = {
   field: string | null;
   fieldValue: unknown;
   requestPayload: Record<string, unknown>;
+  metaForm?: Record<string, string> | null;
+  requestUrl?: string | null;
+  requestMethod?: string | null;
   httpStatus: number;
   response: unknown;
   traceId: string | null;
@@ -167,6 +170,9 @@ export type MetaApiErrorDetail = {
   errorSubcode: string | null;
   errorUserTitle: string | null;
   errorUserMsg: string | null;
+  attempts?: number;
+  contextIds?: Record<string, string | null> | null;
+  launchDebug?: import('./meta-launch-debug.util').MetaLaunchDebugTrace | null;
 };
 
 export function validateGeoTargetingPayload(
@@ -384,10 +390,18 @@ export function formatMetaApiFailure(
   payload: Record<string, unknown>,
   result: MetaGraphResult<unknown>,
   launchStep?: MetaLaunchStep,
+  extras?: {
+    metaForm?: Record<string, string> | null;
+    attempts?: number;
+    contextIds?: Record<string, string | null> | null;
+    launchDebug?: import('./meta-launch-debug.util').MetaLaunchDebugTrace | null;
+    userMessage?: string | null;
+  },
 ): { message: string; detail: MetaApiErrorDetail } {
   const body = result.ok ? null : result.data;
   const fields = extractMetaGraphErrorFields(body);
   const blame = extractBlameField(body, payload);
+  const metaForm = extras?.metaForm ?? null;
 
   const detail: MetaApiErrorDetail = {
     step,
@@ -395,6 +409,9 @@ export function formatMetaApiFailure(
     field: blame.field,
     fieldValue: blame.fieldValue,
     requestPayload: payload,
+    metaForm,
+    requestUrl: result.requestUrl ?? null,
+    requestMethod: result.requestMethod ?? null,
     httpStatus: result.httpStatus,
     response: body ?? null,
     traceId: fields.trace_id,
@@ -402,20 +419,32 @@ export function formatMetaApiFailure(
     errorSubcode: fields.error_subcode,
     errorUserTitle: fields.error_user_title,
     errorUserMsg: fields.error_user_msg,
+    attempts: extras?.attempts,
+    contextIds: extras?.contextIds ?? null,
+    launchDebug: extras?.launchDebug ?? null,
   };
 
   const lines = [
+    extras?.userMessage ?? null,
     `Meta API — ${step}`,
     launchStep ? `Krok: ${launchStepLabel(launchStep)}` : null,
+    result.requestMethod && result.requestUrl
+      ? `${result.requestMethod} ${result.requestUrl}`
+      : null,
     blame.field ? `Pole: ${blame.field}` : null,
     blame.field != null ? `Hodnota: ${safeStringify(blame.fieldValue)}` : null,
     `HTTP kód: ${result.httpStatus}`,
+    extras?.attempts ? `Počet pokusů: ${extras.attempts}` : null,
     fields.code ? `Meta error_code: ${fields.code}` : null,
     fields.error_subcode ? `error_subcode: ${fields.error_subcode}` : null,
     fields.error_user_title ? `error_user_title: ${fields.error_user_title}` : null,
     fields.error_user_msg ? `error_user_msg: ${fields.error_user_msg}` : null,
     fields.message ? `Meta: ${fields.message}` : null,
     fields.trace_id ? `trace_id: ${fields.trace_id}` : null,
+    extras?.contextIds
+      ? `Context IDs: ${safeStringify(extras.contextIds)}`
+      : null,
+    metaForm ? `Meta form payload: ${safeStringify(metaForm)}` : null,
     `Request JSON: ${safeStringify(payload)}`,
     `Response JSON: ${fields.fullJson ?? safeStringify(body)}`,
   ].filter(Boolean);

@@ -6115,6 +6115,7 @@ export type MetaCenterSettings = {
   lastAutoSyncAt: string | null;
   syncEnabled: boolean;
   campaignsLiveEnabled?: boolean;
+  campaignsDebugMode?: boolean;
   isMetaConnected: boolean;
   isMarketingAdsConnected?: boolean;
   marketingRefreshTokenConfigured?: boolean;
@@ -6557,6 +6558,28 @@ export type MetaLaunchPayloadSnapshot = {
   ad?: Record<string, unknown> | null;
 };
 
+export type MetaLaunchDebugStepRecord = {
+  step: 'campaign' | 'adSet' | 'creative' | 'ad';
+  method: 'POST';
+  url: string;
+  requestPayload: Record<string, unknown>;
+  metaForm: Record<string, string>;
+  response: unknown;
+  httpStatus: number;
+  ok: boolean;
+  errorCode: string | null;
+  errorMessage: string | null;
+  attempts: number;
+  skipped?: boolean;
+  skipReason?: string;
+};
+
+export type MetaLaunchDebugTrace = {
+  context: Record<string, string | null>;
+  steps: MetaLaunchDebugStepRecord[];
+  updatedAt: string;
+};
+
 export type MetaCampaignDraft = {
   id: string;
   name: string;
@@ -6591,6 +6614,7 @@ export type MetaCampaignDraft = {
   previewHtml?: string | null;
   metaLaunchSteps?: MetaLaunchSteps | null;
   metaLaunchPayloads?: MetaLaunchPayloadSnapshot | null;
+  metaLaunchDebug?: MetaLaunchDebugTrace | null;
   metaStatus?: string | null;
   metaEffectiveStatus?: string | null;
   metaInsights?: {
@@ -6621,6 +6645,9 @@ export type MetaCampaignCreateResponse = {
     field: string | null;
     fieldValue: unknown;
     requestPayload: Record<string, unknown>;
+    metaForm?: Record<string, string> | null;
+    requestUrl?: string | null;
+    requestMethod?: string | null;
     httpStatus: number;
     response: unknown;
     traceId: string | null;
@@ -6628,6 +6655,9 @@ export type MetaCampaignCreateResponse = {
     errorSubcode?: string | null;
     errorUserTitle?: string | null;
     errorUserMsg?: string | null;
+    attempts?: number;
+    contextIds?: Record<string, string | null> | null;
+    launchDebug?: MetaLaunchDebugTrace | null;
   };
   failedStep?: 'campaign' | 'adset' | 'creative' | 'ad';
   launchSteps?: MetaLaunchSteps;

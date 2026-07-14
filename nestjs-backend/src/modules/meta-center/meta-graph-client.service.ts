@@ -10,16 +10,24 @@ import {
 
 type GraphErrorBody = MetaGraphErrorBody;
 
+function redactToken(url: string): string {
+  return url.replace(/access_token=[^&]+/gi, 'access_token=[REDACTED]');
+}
+
 export type MetaGraphResult<T> = {
   ok: true;
   data: T;
   httpStatus: number;
+  requestUrl: string;
+  requestMethod: 'GET' | 'POST' | 'DELETE';
 } | {
   ok: false;
   httpStatus: number;
   errorCode: string | null;
   errorMessage: string;
   data: GraphErrorBody | null;
+  requestUrl: string;
+  requestMethod: 'GET' | 'POST' | 'DELETE';
 };
 
 @Injectable()
@@ -105,6 +113,8 @@ export class MetaGraphClientService {
           errorCode: data.error?.code != null ? String(data.error.code) : null,
           errorMessage,
           data,
+          requestUrl: redactToken(url),
+          requestMethod: 'GET',
         };
       }
 
@@ -116,7 +126,13 @@ export class MetaGraphClientService {
         httpStatus: res.status,
         durationMs,
       });
-      return { ok: true, data, httpStatus: res.status };
+      return {
+        ok: true,
+        data,
+        httpStatus: res.status,
+        requestUrl: redactToken(url),
+        requestMethod: 'GET',
+      };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       await this.logCall({
@@ -127,18 +143,21 @@ export class MetaGraphClientService {
         errorMessage,
         durationMs: Date.now() - started,
       });
-      return { ok: false, httpStatus: 0, errorCode: null, errorMessage, data: null };
+      return {
+        ok: false,
+        httpStatus: 0,
+        errorCode: null,
+        errorMessage,
+        data: null,
+        requestUrl: redactToken(url),
+        requestMethod: 'GET',
+      };
     }
   }
 
-  private isTransientMetaServerError(result: MetaGraphResult<unknown>): boolean {
+  private isRetryableMetaServerError(result: MetaGraphResult<unknown>): boolean {
     if (result.ok) return false;
-    const err = result.data?.error;
-    return (
-      result.httpStatus === 500 &&
-      result.errorCode === '2' &&
-      err?.is_transient === true
-    );
+    return result.httpStatus === 500 && result.errorCode === '2';
   }
 
   private sleep(ms: number): Promise<void> {
@@ -146,7 +165,7 @@ export class MetaGraphClientService {
   }
 
   /**
-   * POST s automatickým retry při přechodné Meta chybě (HTTP 500, error_code 2, is_transient).
+   * POST s automatickým retry při Meta interní chybě (HTTP 500, error_code 2).
    */
   async postWithTransientRetry<T>(
     path: string,
@@ -154,26 +173,26 @@ export class MetaGraphClientService {
     body: Record<string, unknown>,
     options?: { retryDelaysMs?: number[]; logLabel?: string },
   ): Promise<MetaGraphResult<T> & { attempts: number }> {
-    const delays = options?.retryDelaysMs ?? [2000, 5000, 10000];
+    const delays = options?.retryDelaysMs ?? [3000, 3000, 3000];
     let last = await this.post<T>(path, accessToken, body);
     let attempts = 1;
 
     for (const delayMs of delays) {
-      if (!this.isTransientMetaServerError(last)) {
+      if (!this.isRetryableMetaServerError(last)) {
         return { ...last, attempts };
       }
       const errCode = last.ok ? null : last.errorCode;
       this.logger.warn(
-        `[meta-graph] transient ${options?.logLabel ?? path} HTTP ${last.httpStatus} code=${errCode} — retry za ${delayMs}ms (pokus ${attempts + 1})`,
+        `[meta-graph] retryable ${options?.logLabel ?? path} HTTP ${last.httpStatus} code=${errCode} — retry za ${delayMs}ms (pokus ${attempts + 1}/${delays.length + 1})`,
       );
       await this.sleep(delayMs);
       last = await this.post<T>(path, accessToken, body);
       attempts += 1;
     }
 
-    if (this.isTransientMetaServerError(last)) {
+    if (this.isRetryableMetaServerError(last)) {
       this.logger.error(
-        `[meta-graph] transient ${options?.logLabel ?? path} selhalo po ${attempts} pokusech`,
+        `[meta-graph] retryable ${options?.logLabel ?? path} selhalo po ${attempts} pokusech`,
       );
     }
     return { ...last, attempts };
@@ -223,6 +242,8 @@ export class MetaGraphClientService {
           errorCode: data.error?.code != null ? String(data.error.code) : null,
           errorMessage,
           data,
+          requestUrl: httpRequest,
+          requestMethod: 'POST',
         };
       }
 
@@ -234,7 +255,13 @@ export class MetaGraphClientService {
         httpStatus: res.status,
         durationMs,
       });
-      return { ok: true, data, httpStatus: res.status };
+      return {
+        ok: true,
+        data,
+        httpStatus: res.status,
+        requestUrl: httpRequest,
+        requestMethod: 'POST',
+      };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       await this.logCall({
@@ -245,7 +272,15 @@ export class MetaGraphClientService {
         errorMessage,
         durationMs: Date.now() - started,
       });
-      return { ok: false, httpStatus: 0, errorCode: null, errorMessage, data: null };
+      return {
+        ok: false,
+        httpStatus: 0,
+        errorCode: null,
+        errorMessage,
+        data: null,
+        requestUrl: httpRequest,
+        requestMethod: 'POST',
+      };
     }
   }
 
@@ -279,6 +314,8 @@ export class MetaGraphClientService {
           errorCode: data.error?.code != null ? String(data.error.code) : null,
           errorMessage,
           data,
+          requestUrl: redactToken(url),
+          requestMethod: 'DELETE',
         };
       }
 
@@ -290,7 +327,13 @@ export class MetaGraphClientService {
         httpStatus: res.status,
         durationMs,
       });
-      return { ok: true, data, httpStatus: res.status };
+      return {
+        ok: true,
+        data,
+        httpStatus: res.status,
+        requestUrl: redactToken(url),
+        requestMethod: 'DELETE',
+      };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       await this.logCall({
@@ -301,7 +344,15 @@ export class MetaGraphClientService {
         errorMessage,
         durationMs: Date.now() - started,
       });
-      return { ok: false, httpStatus: 0, errorCode: null, errorMessage, data: null };
+      return {
+        ok: false,
+        httpStatus: 0,
+        errorCode: null,
+        errorMessage,
+        data: null,
+        requestUrl: redactToken(url),
+        requestMethod: 'DELETE',
+      };
     }
   }
 

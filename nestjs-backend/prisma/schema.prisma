@@ -2527,6 +2527,7 @@ model MetaMarketingCampaignDraft {
   previewHtml        String?   @db.Text
   metaLaunchSteps    Json?
   metaLaunchPayloads Json?
+  metaLaunchDebug    Json?
   metaStatus         String?
   metaEffectiveStatus String?
   metaInsights       Json?
@@ -2633,6 +2634,8 @@ model MetaCenterSetting {
   syncEnabled                  Boolean  @default(true)
   /// Ostré spuštění kampaní přes Meta Marketing API (false = pouze koncepty v DB).
   campaignsLiveEnabled         Boolean  @default(false)
+  /// Ukládat request/response JSON do logs/meta-debug při spuštění kampaně.
+  campaignsDebugMode           Boolean  @default(false)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 }
