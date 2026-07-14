@@ -48,9 +48,9 @@ export function MetaCatalogAssetsVerifyPanel({ verification, busy, onRun, compac
               {verification.configuredDatasetId
                 ? ` · Dataset: ${verification.configuredDatasetId}`
                 : ''}
-              {verification.catalogLaunchMode
-                ? ` · režim: ${verification.catalogLaunchMode === 'sales' ? 'katalogový prodej' : 'katalogová návštěvnost'}`
-                : ''}
+              {verification.canUseConversionOptimization
+                ? ' · režim: katalogový prodej (OUTCOME_SALES)'
+                : ' · režim: nelze spustit bez Pixel/Event Source'}
             </p>
           ) : null}
 

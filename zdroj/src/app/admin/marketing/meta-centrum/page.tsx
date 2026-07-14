@@ -22,6 +22,7 @@ import {
 } from '@/lib/meta-campaign-submit-payload';
 import {
   isGoalCompatibleWithCreative,
+  migrateInvalidDraftCombination,
   normalizeCreativeSource,
 } from '@/lib/meta-campaign-payload-map';
 import {
@@ -995,10 +996,24 @@ export default function MetaCentrumPage() {
   }, [token, debugPayloadPreview, campaignSubmitPayload]);
 
   function loadCampaignForEdit(c: MetaCampaignDraft) {
+    const migrated = migrateInvalidDraftCombination({
+      goal: c.objective,
+      creativeType: c.creativeType ?? 'catalog_products',
+      storedObjective:
+        typeof c.metaLaunchPayloads === 'object' &&
+        c.metaLaunchPayloads &&
+        'campaign' in (c.metaLaunchPayloads as object)
+          ? ((c.metaLaunchPayloads as { campaign?: { objective?: string } }).campaign?.objective ??
+            null)
+          : null,
+    });
+    if (migrated.migrated && migrated.warning) {
+      setMsg(migrated.warning);
+    }
     setEditingCampaignId(c.id);
     setCampaignDraft({
       name: c.name,
-      goal: c.objective,
+      goal: migrated.goal,
       propertyType: c.propertyType ?? 'byt',
       radiusKm: c.radiusKm ?? 15,
       budgetDaily: c.dailyBudgetCzk ?? 200,
@@ -1012,7 +1027,7 @@ export default function MetaCentrumPage() {
       latitude: c.latitude != null ? String(c.latitude) : '',
       longitude: c.longitude != null ? String(c.longitude) : '',
       selectedProductIds: c.selectedProductIds ?? [],
-      creativeType: c.creativeType ?? 'catalog_products',
+      creativeType: migrated.creativeType,
       targetingMode: c.targetingMode ?? 'map',
       locationTargetingMode:
         c.locationTargetingMode === 'radius' ? 'radius' : 'city',
@@ -3810,13 +3825,27 @@ export default function MetaCentrumPage() {
                       <li>Meta objective: {campaignValidation.metaSpec.campaignObjective}</li>
                       <li>Optimization goal: {campaignValidation.metaSpec.optimizationGoal}</li>
                       <li>Billing event: {campaignValidation.metaSpec.billingEvent}</li>
+                      <li>Destination: {campaignValidation.metaSpec.destinationType ?? '—'}</li>
                       <li>Promoted object: {campaignValidation.metaSpec.promotedObjectSummary}</li>
                       <li>
                         Zdroj kreativy:{' '}
                         {CREATIVE_TYPE_LABELS[campaignValidation.metaSpec.creativeSource] ??
                           campaignValidation.metaSpec.creativeSource}
                       </li>
+                      <li>
+                        Validace kombinace:{' '}
+                        {campaignValidation.combinationDiagnostics?.validationOk ? '✓ OK' : '✗ neplatná'}
+                      </li>
                     </ul>
+                    {campaignValidation.combinationDiagnostics?.violations.length ? (
+                      <ul className="mt-2 space-y-1 text-xs text-red-800">
+                        {campaignValidation.combinationDiagnostics.violations.map((v) => (
+                          <li key={v.param}>
+                            <span className="font-semibold">{v.param}:</span> {v.rule}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
                   </div>
                 ) : null}
                 {campaignValidation.metaPayloadBlockers.length > 0 ? (
@@ -4381,6 +4410,7 @@ export default function MetaCentrumPage() {
                           {c.metaLaunchDebug ? (
                             <MetaLaunchDebugPanel
                               launchDebug={c.metaLaunchDebug}
+                              combinationDiagnostics={c.metaLaunchPayloads?.combinationDiagnostics ?? null}
                               failedStep={
                                 c.status === 'error' && c.metaLaunchSteps
                                   ? (['ad', 'creative', 'adSet', 'campaign'] as const).find(

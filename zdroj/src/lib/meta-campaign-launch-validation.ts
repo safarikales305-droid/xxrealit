@@ -1,6 +1,9 @@
 import type { MetaCampaignCreativePayload } from '@/lib/meta-campaign-creative';
 import {
+  buildCombinationDiagnostics,
   resolveMetaCampaignPayloadSpec,
+  validateMetaCampaignCombination,
+  type MetaCampaignCombinationDiagnostics,
   type MetaCampaignPayloadBlocker,
   type MetaCampaignPayloadSpec,
 } from '@/lib/meta-campaign-payload-map';
@@ -55,6 +58,7 @@ export type MetaCampaignValidationResult = {
   debug: Record<string, boolean | number | string | null>;
   metaPayloadBlockers: MetaCampaignPayloadBlocker[];
   metaSpec: MetaCampaignPayloadSpec | null;
+  combinationDiagnostics: MetaCampaignCombinationDiagnostics | null;
 };
 
 function payloadOf(raw: MetaCampaignCreativePayload | Record<string, unknown>): MetaCampaignCreativePayload {
@@ -288,9 +292,35 @@ export function validateMetaCampaignLaunch(
     selectedProductIds: input.selectedProductIds,
   });
 
-  const metaPayloadBlockers = payloadSpec.ok ? [] : payloadSpec.blockers;
+  const comboBlockers =
+    payloadSpec.spec != null
+      ? validateMetaCampaignCombination({
+          spec: payloadSpec.spec,
+          ctx: {
+            goal: input.goal,
+            creativeType: input.creativeType,
+            targetingMode: input.targetingMode,
+            catalogId: input.catalogId ?? (input.hasCatalog ? 'configured' : null),
+            pixelId: input.pixelId ?? null,
+            datasetId: input.datasetId ?? null,
+            pageId: input.hasPageId ? 'configured' : null,
+            leadFormId: input.leadFormId ?? null,
+            selectedProductIds: input.selectedProductIds,
+          },
+        })
+      : [];
 
-  for (const b of metaPayloadBlockers) {
+  const metaPayloadBlockers = payloadSpec.ok
+    ? comboBlockers
+    : [...payloadSpec.blockers, ...comboBlockers];
+
+  for (const b of comboBlockers) {
+    if (!payloadSpec.blockers.some((existing) => existing.key === b.key)) {
+      items.push(item(`meta.${b.key}`, 'Meta kombinace', false, b.message, 'campaign'));
+    }
+  }
+
+  for (const b of payloadSpec.ok ? [] : payloadSpec.blockers) {
     items.push(
       item(
         `meta.${b.key}`,
@@ -304,6 +334,25 @@ export function validateMetaCampaignLaunch(
 
   const blockers = items.filter((i) => !i.ok).map((i) => `❌ ${i.failMessage}`);
   const readyToPublish = items.every((i) => i.ok);
+
+  const combinationDiagnostics =
+    payloadSpec.spec != null
+      ? buildCombinationDiagnostics({
+          spec: payloadSpec.spec,
+          ctx: {
+            goal: input.goal,
+            creativeType: input.creativeType,
+            targetingMode: input.targetingMode,
+            catalogId: input.catalogId ?? (input.hasCatalog ? 'configured' : null),
+            pixelId: input.pixelId ?? null,
+            datasetId: input.datasetId ?? null,
+            pageId: input.hasPageId ? 'configured' : null,
+            leadFormId: input.leadFormId ?? null,
+            selectedProductIds: input.selectedProductIds,
+          },
+          blockers: metaPayloadBlockers,
+        })
+      : null;
 
   const debug: Record<string, boolean | number | string | null> = {
     campaignName: Boolean(input.name.trim()),
@@ -336,6 +385,8 @@ export function validateMetaCampaignLaunch(
     metaMode: payloadSpec.spec?.mode ?? null,
     metaObjective: payloadSpec.spec?.campaignObjective ?? null,
     metaOptimizationGoal: payloadSpec.spec?.optimizationGoal ?? null,
+    metaDestinationType: payloadSpec.spec?.destinationType ?? null,
+    metaCombinationValid: combinationDiagnostics?.validationOk ?? null,
   };
 
   return {
@@ -344,7 +395,8 @@ export function validateMetaCampaignLaunch(
     readyToPublish,
     debug,
     metaPayloadBlockers,
-    metaSpec: payloadSpec.ok ? payloadSpec.spec : payloadSpec.spec,
+    metaSpec: payloadSpec.spec,
+    combinationDiagnostics,
   };
 }
 

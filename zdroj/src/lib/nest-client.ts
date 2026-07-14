@@ -6550,12 +6550,26 @@ export type MetaLaunchSteps = {
   ad: MetaLaunchStepState;
 };
 
+export type MetaCampaignCombinationDiagnostics = {
+  goalLabel: string;
+  mode: string | null;
+  objective: string;
+  optimizationGoal: string;
+  creativeType: string;
+  destinationType: string | null;
+  promotedObjectSummary: string;
+  validationOk: boolean;
+  violations: Array<{ param: string; rule: string }>;
+};
+
 export type MetaLaunchPayloadSnapshot = {
   campaign?: Record<string, unknown> | null;
   targeting?: Record<string, unknown> | null;
   adSet?: Record<string, unknown> | null;
   creative?: Record<string, unknown> | null;
   ad?: Record<string, unknown> | null;
+  combinationDiagnostics?: MetaCampaignCombinationDiagnostics | null;
+  launchPhase?: string | null;
 };
 
 export type MetaLaunchDebugStepRecord = {
@@ -6724,7 +6738,6 @@ export type MetaCatalogSalesAssetsVerification = {
   ok: boolean;
   message: string;
   canUseConversionOptimization: boolean;
-  catalogLaunchMode: 'traffic' | 'sales';
   verifiedPixelId: string | null;
   configuredPixelId: string | null;
   configuredDatasetId: string | null;
@@ -7507,7 +7520,6 @@ export async function nestAdminMetaCenterVerifyCatalogAssets(
         configuredDatasetId: null,
         promotedObjectPixelId: null,
         canUseConversionOptimization: false,
-        catalogLaunchMode: 'traffic',
         eventSource: {
           configuredDatasetId: null,
           configuredPixelId: null,

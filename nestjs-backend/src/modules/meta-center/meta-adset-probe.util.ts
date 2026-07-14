@@ -210,6 +210,7 @@ export function buildMetaAdSetProbeSteps(input: MetaAdSetProbeBuildInput): MetaA
   ];
 }
 
+/** @deprecated Meta API nepodporuje OUTCOME_TRAFFIC + product_catalog_id + catalog_products. Nepoužívat. */
 export function buildSupportedCatalogTrafficAdSetPayload(input: {
   campaignId: string;
   adSetName: string;

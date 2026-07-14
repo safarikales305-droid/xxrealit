@@ -740,7 +740,6 @@ export class MetaCenterAdminController {
         ok: false,
         message,
         canUseConversionOptimization: false,
-        catalogLaunchMode: 'traffic' as const,
         verifiedPixelId: null,
         configuredPixelId: null,
         configuredDatasetId: null,

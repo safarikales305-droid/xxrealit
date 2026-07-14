@@ -128,7 +128,7 @@ const MODE_SPECS: Record<
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
     destinationType: 'ON_AD',
     advantageAudience: 0,
-    requiresPromotedObject: false,
+    requiresPromotedObject: true,
     allowedPromotedObjectKeys: ['page_id', 'lead_gen_form_id'],
     usesCatalog: false,
     usesPixel: false,
@@ -383,4 +383,139 @@ export function formatInvalidCombinationMessage(parts: {
         ? JSON.stringify(parts.promotedObject)
         : '—';
   return `Neplatná kombinace: ${parts.campaignObjective ?? '?'} + ${parts.optimizationGoal ?? '?'} + ${promotedLabel}${parts.creativeSource ? ` (kreativa: ${parts.creativeSource})` : ''}.`;
+}
+
+export const META_UNSUPPORTED_COMBINATION_MESSAGE =
+  'Nepodporovaná kombinace parametrů Meta API.';
+
+export type MetaCampaignCombinationDiagnostics = {
+  goalLabel: string;
+  mode: MetaCampaignModeKey | null;
+  objective: string;
+  optimizationGoal: string;
+  creativeType: string;
+  destinationType: string | null;
+  promotedObjectSummary: string;
+  validationOk: boolean;
+  violations: Array<{ param: string; rule: string }>;
+};
+
+export function validateMetaCampaignCombination(input: {
+  spec: MetaCampaignPayloadSpec;
+  ctx: MetaCampaignPayloadContext;
+}): MetaCampaignPayloadBlocker[] {
+  const { spec, ctx } = input;
+  const blockers: MetaCampaignPayloadBlocker[] = [];
+  const objective = spec.campaignObjective;
+  const creative = spec.creativeSource;
+  const isCatalogCreative = creative === 'catalog_products';
+  const pixelId = ctx.pixelId?.trim() || ctx.datasetId?.trim() || null;
+
+  if (objective === 'OUTCOME_TRAFFIC') {
+    if (isCatalogCreative) {
+      blockers.push({
+        key: 'combo.traffic.catalog_creative',
+        message: `${META_UNSUPPORTED_COMBINATION_MESSAGE} (creative: OUTCOME_TRAFFIC nesmí používat catalog_products)`,
+      });
+    }
+    if (ctx.catalogId?.trim()) {
+      blockers.push({
+        key: 'combo.traffic.product_catalog_id',
+        message: `${META_UNSUPPORTED_COMBINATION_MESSAGE} (promoted_object.product_catalog_id: OUTCOME_TRAFFIC nesmí obsahovat product_catalog_id)`,
+      });
+    }
+  }
+
+  if (objective === 'OUTCOME_SALES' && spec.mode === 'catalog_sales') {
+    if (!isCatalogCreative) {
+      blockers.push({
+        key: 'combo.sales.creative_required',
+        message: `${META_UNSUPPORTED_COMBINATION_MESSAGE} (creative: vyžadováno catalog_products)`,
+      });
+    }
+    if (spec.optimizationGoal !== 'OFFSITE_CONVERSIONS') {
+      blockers.push({
+        key: 'combo.sales.optimization_goal',
+        message: `${META_UNSUPPORTED_COMBINATION_MESSAGE} (optimization_goal: vyžadováno OFFSITE_CONVERSIONS)`,
+      });
+    }
+    if (!pixelId) {
+      blockers.push({
+        key: 'combo.sales.pixel_id',
+        message: `${META_UNSUPPORTED_COMBINATION_MESSAGE} (promoted_object.pixel_id: vyžadován Pixel/Event Source)`,
+      });
+    }
+    if (!ctx.catalogId?.trim()) {
+      blockers.push({
+        key: 'combo.sales.product_catalog_id',
+        message: `${META_UNSUPPORTED_COMBINATION_MESSAGE} (promoted_object.product_catalog_id: vyžadován katalog)`,
+      });
+    }
+  }
+
+  if (
+    (objective === 'OUTCOME_LEADS' ||
+      objective === 'OUTCOME_ENGAGEMENT' ||
+      objective === 'OUTCOME_AWARENESS') &&
+    isCatalogCreative
+  ) {
+    blockers.push({
+      key: `combo.${objective}.catalog_creative`,
+      message: `${META_UNSUPPORTED_COMBINATION_MESSAGE} (creative: ${objective} nesmí používat catalog_products)`,
+    });
+  }
+
+  return blockers;
+}
+
+export function buildCombinationDiagnostics(input: {
+  spec: MetaCampaignPayloadSpec;
+  ctx: MetaCampaignPayloadContext;
+  blockers?: MetaCampaignPayloadBlocker[];
+}): MetaCampaignCombinationDiagnostics {
+  const blockers =
+    input.blockers ?? validateMetaCampaignCombination({ spec: input.spec, ctx: input.ctx });
+  return {
+    goalLabel: input.spec.goalLabel,
+    mode: input.spec.mode,
+    objective: input.spec.campaignObjective,
+    optimizationGoal: input.spec.optimizationGoal,
+    creativeType: input.spec.creativeSource,
+    destinationType: input.spec.destinationType,
+    promotedObjectSummary: input.spec.promotedObjectSummary,
+    validationOk: blockers.length === 0,
+    violations: blockers.map((b) => ({
+      param: b.key,
+      rule: b.message,
+    })),
+  };
+}
+
+export function migrateInvalidDraftCombination(input: {
+  goal: string;
+  creativeType: string;
+  storedObjective?: string | null;
+}): {
+  migrated: boolean;
+  warning: string | null;
+  goal: string;
+  creativeType: string;
+} {
+  const creative = input.creativeType?.trim() || 'catalog_products';
+  const goal = input.goal?.trim() || 'traffic';
+  const isCatalogCreative = creative === 'catalog_products';
+  const invalidTrafficCatalog =
+    (goal === 'traffic' && isCatalogCreative) ||
+    input.storedObjective === 'OUTCOME_TRAFFIC';
+
+  if (!invalidTrafficCatalog || !isCatalogCreative) {
+    return { migrated: false, warning: null, goal, creativeType: creative };
+  }
+
+  return {
+    migrated: true,
+    warning: 'Koncept byl automaticky upraven podle aktuálních pravidel Meta.',
+    goal: 'catalog',
+    creativeType: 'catalog_products',
+  };
 }

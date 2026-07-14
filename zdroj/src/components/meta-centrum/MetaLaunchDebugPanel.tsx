@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import type { MetaCampaignCreateResponse, MetaLaunchDebugTrace } from '@/lib/nest-client';
+import type { MetaCampaignCombinationDiagnostics, MetaCampaignCreateResponse, MetaLaunchDebugTrace } from '@/lib/nest-client';
 import { MetaAdSetProbePanel } from '@/components/meta-centrum/MetaAdSetProbePanel';
 
 const GRAPH_EXPLORER_URL = 'https://developers.facebook.com/tools/explorer/';
@@ -17,6 +17,7 @@ type Props = {
   error?: MetaCampaignCreateResponse['metaApiError'];
   failedStep?: string | null;
   launchDebug?: MetaLaunchDebugTrace | null;
+  combinationDiagnostics?: MetaCampaignCombinationDiagnostics | null;
 };
 
 function buildExplorerExport(step: MetaLaunchDebugTrace['steps'][number]) {
@@ -68,7 +69,7 @@ function buildMetaDebugExport(
   };
 }
 
-export function MetaLaunchDebugPanel({ error, failedStep, launchDebug }: Props) {
+export function MetaLaunchDebugPanel({ error, failedStep, launchDebug, combinationDiagnostics }: Props) {
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const trace = error?.launchDebug ?? launchDebug ?? null;
   const isCode2 = error?.errorCode === '2' || error?.httpStatus === 500;
@@ -168,6 +169,30 @@ export function MetaLaunchDebugPanel({ error, failedStep, launchDebug }: Props) 
               </li>
             ))}
           </ul>
+        </div>
+      ) : null}
+
+      {combinationDiagnostics ? (
+        <div className="rounded border border-indigo-200 bg-indigo-50 px-2 py-2 text-indigo-950">
+          <p className="mb-1 font-semibold">Validace kombinace Meta API</p>
+          <ul className="grid gap-0.5 font-mono text-[10px] sm:grid-cols-2">
+            <li>Cíl: {combinationDiagnostics.goalLabel}</li>
+            <li>Objective: {combinationDiagnostics.objective}</li>
+            <li>Optimization: {combinationDiagnostics.optimizationGoal}</li>
+            <li>Kreativa: {combinationDiagnostics.creativeType}</li>
+            <li>Destination: {combinationDiagnostics.destinationType ?? '—'}</li>
+            <li>Promoted object: {combinationDiagnostics.promotedObjectSummary}</li>
+            <li>Výsledek: {combinationDiagnostics.validationOk ? '✓ OK' : '✗ neplatná'}</li>
+          </ul>
+          {combinationDiagnostics.violations.length > 0 ? (
+            <ul className="mt-2 space-y-1 text-[10px] text-red-800">
+              {combinationDiagnostics.violations.map((v) => (
+                <li key={v.param}>
+                  <span className="font-semibold">{v.param}:</span> {v.rule}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       ) : null}
 

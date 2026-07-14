@@ -23,13 +23,24 @@ const catalogCtx = {
   selectedProductIds: ['sku-1'],
 };
 
-test('catalog_traffic v25: LINK_CLICKS without pixel in promoted_object', () => {
-  const spec = getMetaCampaignPayloadSpec('catalog_traffic', catalogCtx);
+test('traffic v25: LINK_CLICKS without product_catalog_id in promoted_object', () => {
+  const trafficCtx = {
+    goal: 'traffic',
+    creativeType: 'listing',
+    targetingMode: 'map',
+    catalogId: null,
+    pixelId: null,
+    datasetId: null,
+    pageId: 'page_1',
+    leadFormId: null,
+    selectedProductIds: ['sku-1'],
+  };
+  const spec = getMetaCampaignPayloadSpec('traffic', trafficCtx);
   assert.equal(spec.campaignObjective, 'OUTCOME_TRAFFIC');
   assert.equal(spec.optimizationGoal, 'LINK_CLICKS');
-  assert.equal(spec.usesPixel, false);
-  const promoted = buildPromotedObjectForSpec(spec, catalogCtx);
-  assert.deepEqual(promoted, { product_catalog_id: '123456789' });
+  assert.equal(spec.usesCatalog, false);
+  const promoted = buildPromotedObjectForSpec(spec, trafficCtx);
+  assert.equal(promoted, null);
 });
 
 test('catalog_sales v25: SHOP_AUTOMATIC + OFFSITE_CONVERSIONS (not WEBSITE)', () => {

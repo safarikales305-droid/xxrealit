@@ -173,7 +173,7 @@ export type MetaLaunchPayloadSnapshot = {
   creative?: Record<string, unknown> | null;
   ad?: Record<string, unknown> | null;
   productSetId?: string | null;
-  launchMode?: 'traffic' | 'sales' | null;
+  combinationDiagnostics?: import('./meta-campaign-builder.util').MetaCampaignCombinationDiagnostics | null;
   launchPhase?: string | null;
 };
 

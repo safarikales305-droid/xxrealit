@@ -17,10 +17,14 @@ import {
   computeMetaCampaignLaunchBlockers,
 } from './meta-campaign-launch-validation.util';
 import {
+  buildMetaCampaignByMode,
+  buildCombinationDiagnostics,
+  validateMetaCampaignCombination,
+  type MetaCampaignCombinationDiagnostics,
+} from './meta-campaign-builder.util';
+import {
   buildMetaLaunchGraphPaths,
   extractLeadFormId,
-  normalizeAdSetPayloadForMetaV25,
-  normalizeTargetingForMetaV25,
   resolveDsaDisclosureLabels,
   resolveMetaCampaignPayloadSpec,
   serializePayloadForMetaApi,
@@ -31,8 +35,6 @@ import {
 import {
   buildMetaAdSetProbeSteps,
   buildProbeGraphUrl,
-  buildSupportedCatalogAdSetPayload,
-  buildSupportedCatalogTrafficAdSetPayload,
   catalogSalesV25Validation,
   mapProbeGraphResult,
   summarizeProbeResult,
@@ -981,13 +983,15 @@ export class MetaCenterCampaignsService {
     const persistDebug = () => tracer.getTrace();
     let payloadContext = this.buildPayloadContext(dto, ids, row, catalogId);
     let assetsVerification: MetaCatalogSalesAssetsVerification | null = null;
-    let catalogLaunchMode: 'traffic' | 'sales' | null = null;
     let verifiedPixelId: string | null = null;
+    let combinationDiagnostics: MetaCampaignCombinationDiagnostics | null = null;
 
     if (payloadContext.goal === 'catalog' || dto.creativeType === 'catalog_products') {
       assetsVerification = await this.catalogSalesAssetsVerify.verifyForCatalogSalesLaunch();
-      if (!assetsVerification.ok) {
-        const msg = this.formatPartialLaunchUserMessage(launchSteps, assetsVerification.message);
+      if (!assetsVerification.ok || !assetsVerification.canUseConversionOptimization) {
+        const msg = assetsVerification.ok
+          ? 'Katalogový prodej vyžaduje ověřený Pixel nebo Event Source. Návštěvnost s katalogovou kreativou Meta API nepodporuje.'
+          : this.formatPartialLaunchUserMessage(launchSteps, assetsVerification.message);
         await this.persistLaunchState(draftId, {
           status: 'error',
           errorMessage: msg,
@@ -1004,9 +1008,7 @@ export class MetaCenterCampaignsService {
           campaign: await this.loadSerializedDraft(draftId),
         };
       }
-      catalogLaunchMode = assetsVerification.catalogLaunchMode;
       verifiedPixelId = assetsVerification.verifiedPixelId;
-      payloadContext = this.buildPayloadContext(dto, ids, row, catalogId, catalogLaunchMode);
       payloadContext = {
         ...payloadContext,
         pixelId: verifiedPixelId,
@@ -1027,6 +1029,28 @@ export class MetaCenterCampaignsService {
       };
     }
     let metaSpec = specResolved.spec;
+
+    const comboBlockers = validateMetaCampaignCombination({
+      spec: metaSpec,
+      ctx: payloadContext,
+    });
+    combinationDiagnostics = buildCombinationDiagnostics({
+      spec: metaSpec,
+      ctx: payloadContext,
+      blockers: comboBlockers,
+    });
+    launchPayloads.combinationDiagnostics = combinationDiagnostics;
+    if (comboBlockers.length) {
+      const msg = comboBlockers.map((b) => b.message).join('\n');
+      await this.markDraftError(draftId, msg);
+      return {
+        ok: false as const,
+        status: 'validation_error' as const,
+        message: msg,
+        blockers: comboBlockers,
+        campaign: null,
+      };
+    }
 
     const budgetConfig = resolveBudgetConfig(false);
     const dailyBudgetMinor = Math.round(dto.dailyBudgetCzk * 100);
@@ -1064,7 +1088,7 @@ export class MetaCenterCampaignsService {
 
     const targeting = this.buildTargetingFromGeo(resolvedGeo, dto, audienceMetaId);
     launchPayloads.targeting = targeting;
-    launchPayloads.launchMode = catalogLaunchMode;
+    launchPayloads.combinationDiagnostics = combinationDiagnostics;
     launchPayloads.launchPhase = metaCampaignId ? 'CAMPAIGN_CREATED' : 'ADSET_PENDING';
 
     const objective = metaSpec.campaignObjective;
@@ -2169,7 +2193,6 @@ export class MetaCenterCampaignsService {
     ids: ReturnType<typeof resolveMetaCenterIds>,
     row: Awaited<ReturnType<typeof this.getSettingsRow>>,
     catalogId: string | null,
-    catalogLaunchMode?: 'traffic' | 'sales',
   ) {
     return {
       goal: dto.objective,
@@ -2183,7 +2206,6 @@ export class MetaCenterCampaignsService {
       leadFormId: extractLeadFormId(dto),
       remarketingConversionEvent: 'VIEW_CONTENT' as const,
       selectedProductIds: dto.selectedProductIds ?? [],
-      ...(catalogLaunchMode ? { catalogLaunchMode } : {}),
     };
   }
 
@@ -2229,7 +2251,6 @@ export class MetaCenterCampaignsService {
       payloadContext,
     } = input;
 
-    const normalizedTargeting = normalizeTargetingForMetaV25(targeting, metaSpec.advantageAudience);
     const dsaLabels = resolveDsaDisclosureLabels({
       pageName: row?.pageName,
       adAccountName: row?.adAccountName,
@@ -2238,93 +2259,39 @@ export class MetaCenterCampaignsService {
     const startTime = this.parseDate(dto.startDate)?.toISOString() ?? undefined;
     const endTime = this.parseDate(dto.endDate)?.toISOString() ?? undefined;
 
-    let adSetPayloadFinal: Record<string, unknown>;
-    let promotedObject: Record<string, unknown> | null;
-    let corrections: string[] = [];
+    const built = buildMetaCampaignByMode({
+      name: dto.name.trim(),
+      campaignId: metaCampaignId,
+      publishStatus,
+      dailyBudgetMinor,
+      useCampaignBudgetOptimization: budgetConfig.useCampaignBudgetOptimization,
+      isAdsetBudgetSharingEnabled: budgetConfig.isAdsetBudgetSharingEnabled,
+      targeting,
+      dsaLabels,
+      startTime,
+      endTime,
+      spec: metaSpec,
+      payloadContext,
+    });
 
-    if (metaSpec.mode === 'catalog_sales' && dsaLabels) {
-      const catalogId = payloadContext.catalogId?.replace(/^catalog_/i, '') ?? '';
-      const pixelId = payloadContext.pixelId?.trim() || '';
-      if (!pixelId) {
-        return {
-          ok: false,
-          blockers: [
-            {
-              key: 'adset.pixel',
-              message:
-                'Katalog nemá dostupný podporovaný zdroj událostí pro optimalizaci nákupu.',
-            },
-          ],
-          payload: undefined,
-          spec: metaSpec,
-        };
-      }
-      adSetPayloadFinal = buildSupportedCatalogAdSetPayload({
-        campaignId: metaCampaignId,
-        adSetName: `${dto.name.trim()} — sada`,
-        publishStatus,
-        dailyBudgetMinor,
+    if (!built.ok) {
+      return {
+        ok: false,
+        blockers: [
+          ...built.blockers,
+          ...validateMetaCampaignPayloadContext(payloadContext, metaSpec),
+          ...validateGeoTargetingPayload(targeting),
+        ],
+        payload: built.adSetPayload,
+        metaForm: built.adSetPayload ? serializePayloadForMetaApi(built.adSetPayload) : undefined,
         spec: metaSpec,
-        targeting,
-        catalogId,
-        pixelId,
-        dsaLabels,
-        isAdsetBudgetSharingEnabled: budgetConfig.isAdsetBudgetSharingEnabled,
-        startTime,
-        endTime,
-      });
-      promotedObject = {
-        product_catalog_id: catalogId,
-        pixel_id: pixelId,
-        custom_event_type: 'PURCHASE',
+        promotedObject: built.promotedObject ?? null,
       };
-    } else if (metaSpec.mode === 'catalog_traffic' && dsaLabels) {
-      const catalogId = payloadContext.catalogId?.replace(/^catalog_/i, '') ?? '';
-      adSetPayloadFinal = buildSupportedCatalogTrafficAdSetPayload({
-        campaignId: metaCampaignId,
-        adSetName: `${dto.name.trim()} — sada`,
-        publishStatus,
-        dailyBudgetMinor,
-        spec: metaSpec,
-        targeting,
-        catalogId,
-        dsaLabels,
-        isAdsetBudgetSharingEnabled: budgetConfig.isAdsetBudgetSharingEnabled,
-        startTime,
-        endTime,
-      });
-      promotedObject = {
-        product_catalog_id: catalogId,
-      };
-    } else {
-      const adSetPayload: Record<string, unknown> = {
-        name: `${dto.name.trim()} — sada`,
-        campaign_id: metaCampaignId,
-        billing_event: metaSpec.billingEvent,
-        optimization_goal: metaSpec.optimizationGoal,
-        bid_strategy: metaSpec.bidStrategy,
-        targeting: JSON.stringify(normalizedTargeting),
-        start_time: startTime,
-        end_time: endTime,
-        status: publishStatus,
-        is_adset_budget_sharing_enabled: budgetConfig.isAdsetBudgetSharingEnabled,
-      };
-
-      if (!budgetConfig.useCampaignBudgetOptimization) {
-        adSetPayload.daily_budget = String(dailyBudgetMinor);
-      }
-
-      const normalized = normalizeAdSetPayloadForMetaV25({
-        payload: adSetPayload,
-        spec: metaSpec,
-        payloadContext,
-        targeting: normalizedTargeting,
-        dsaLabels,
-      });
-      adSetPayloadFinal = normalized.payload;
-      promotedObject = normalized.promotedObject;
-      corrections = normalized.corrections;
     }
+
+    const adSetPayloadFinal = built.adSetPayload;
+    const promotedObject = built.promotedObject;
+    const corrections: string[] = [];
 
     if (!dsaLabels) {
       const dsaBlocker: MetaCampaignLaunchBlocker = {
@@ -2353,6 +2320,11 @@ export class MetaCenterCampaignsService {
       }),
       ...validateGeoTargetingPayload(targeting),
       ...validateAdSetPayloadCombination(adSetPayloadFinal, metaSpec),
+      ...validateMetaCampaignCombination({
+        spec: metaSpec,
+        ctx: payloadContext,
+        adSetPayload: adSetPayloadFinal,
+      }),
     ];
 
     const metaForm = serializePayloadForMetaApi(adSetPayloadFinal);
