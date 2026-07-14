@@ -150,11 +150,12 @@ export class MetaCenterCreativeService {
       }
 
       creativeBody.product_set_id = input.productSetId;
+      const catalogId = input.catalogId?.replace(/^catalog_/i, '') ?? '';
       creativeBody.object_story_spec = JSON.stringify({
         page_id: input.pageId,
         ...(input.instagramActorId ? { instagram_actor_id: input.instagramActorId } : {}),
         template_data: {
-          catalog_id: input.catalogId,
+          catalog_id: catalogId,
           product_set_id: input.productSetId,
           link: linkUrl,
           message: primaryText,

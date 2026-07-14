@@ -24,13 +24,28 @@ export type MetaCatalogSalesAssetCheck = {
   response?: unknown;
 };
 
+export type MetaCatalogEventSourceInfo = {
+  configuredDatasetId: string | null;
+  configuredPixelId: string | null;
+  catalogEventSources: Array<{ id: string | null; type: string | null; pixelId: string | null }>;
+  catalogPixelIds: string[];
+  resolvedPixelId: string | null;
+  resolvedEventSourceType: 'PIXEL' | 'DATASET' | 'NONE';
+  promotedObjectPixelId: string | null;
+  promotedObjectCustomEventType: 'PURCHASE' | 'VIEW_CONTENT' | null;
+  canUseConversionOptimization: boolean;
+};
+
 export type MetaCatalogSalesAssetsVerification = {
   ok: boolean;
   message: string;
+  canUseConversionOptimization: boolean;
+  catalogLaunchMode: 'traffic' | 'sales';
   verifiedPixelId: string | null;
   configuredPixelId: string | null;
   configuredDatasetId: string | null;
   promotedObjectPixelId: string | null;
+  eventSource: MetaCatalogEventSourceInfo;
   checks: MetaCatalogSalesAssetCheck[];
   assets: {
     business: IdName | null;
@@ -266,34 +281,43 @@ export class MetaCatalogSalesAssetsVerifyService {
       }
     }
 
-    let verifiedPixelId = configuredPixelId;
-    if (!verifiedPixelId && configuredDatasetId) {
-      const datasetAsPixelRes = await this.graph.getWithResponseHeaders<IdName>(
-        `/${configuredDatasetId}`,
+    let verifiedPixelId: string | null = configuredPixelId;
+    if (!verifiedPixelId && configuredPixelId) {
+      verifiedPixelId = configuredPixelId;
+    }
+
+    pushCheck(
+      'catalog_event_sources',
+      'Catalog → Event Sources',
+      catalogSourcesPath,
+      catalogSourcesRes.ok,
+      catalogSourcesRes.ok
+        ? `✔ Katalog vrátil ${catalogSources.length} zdroj(ů) událostí.`
+        : '❌ Nelze načíst zdroje událostí katalogu.',
+      catalogSourcesRes.data,
+      catalogSourcesRes.responseHeaders,
+    );
+
+    if (configuredPixelId) {
+      const pixelPath = `/${configuredPixelId}`;
+      const pixelProbe = await this.graph.getWithResponseHeaders<IdName>(
+        pixelPath,
         token,
-        { fields: 'id,name,owner_business{id,name}' },
+        { fields: 'id,name' },
       );
-      if (datasetAsPixelRes.ok && datasetAsPixelRes.data?.id) {
-        verifiedPixelId = configuredDatasetId;
-      } else if (catalogPixelIds.size === 1) {
-        verifiedPixelId = [...catalogPixelIds][0] ?? null;
-        pushCheck(
-          'pixel_config',
-          'Pixel z katalogu',
-          catalogSourcesPath,
-          true,
-          `✔ Pixel není v nastavení — použit Pixel propojený s katalogem (${verifiedPixelId}).`,
-          { catalogPixelIds: [...catalogPixelIds] },
-        );
+      if (pixelProbe.ok && pixelProbe.data?.id) {
+        verifiedPixelId = configuredPixelId;
       }
-    } else if (!verifiedPixelId && catalogPixelIds.size === 1) {
+    }
+
+    if (!verifiedPixelId && catalogPixelIds.size === 1) {
       verifiedPixelId = [...catalogPixelIds][0] ?? null;
       pushCheck(
         'pixel_config',
         'Pixel z katalogu',
         catalogSourcesPath,
         true,
-        `✔ Pixel není v nastavení — použit Pixel propojený s katalogem (${verifiedPixelId}).`,
+        `✔ Pixel není v nastavení — nalezen Pixel propojený s katalogem (${verifiedPixelId}).`,
         { catalogPixelIds: [...catalogPixelIds] },
       );
     }
@@ -301,16 +325,34 @@ export class MetaCatalogSalesAssetsVerifyService {
     if (!verifiedPixelId) {
       pushCheck(
         'pixel_config',
-        'Pixel',
+        'Pixel / Event Source',
         catalogSourcesPath,
         false,
-        configuredDatasetId
-          ? '❌ Dataset není propojen s Pixelem — v Meta není dostupný aktivní Pixel pro Catalog Sales.'
-          : '❌ Pixel není nastaven — Catalog Sales vyžaduje Pixel propojený s katalogem.',
-        catalogSourcesRes.data,
+        'Katalog nemá dostupný podporovaný zdroj událostí pro optimalizaci nákupu. Bude použit režim katalogové návštěvnosti.',
+        {
+          configuredDatasetId,
+          configuredPixelId,
+          catalogEventSources: catalogSources,
+        },
         catalogSourcesRes.responseHeaders,
       );
-      return this.fail(checks, assets, configuredPixelId, configuredDatasetId, null, checks[checks.length - 1]!.message);
+      const eventSource = this.buildEventSourceInfo({
+        configuredPixelId,
+        configuredDatasetId,
+        catalogSources,
+        catalogPixelIds,
+        verifiedPixelId: null,
+        canUseConversionOptimization: false,
+      });
+      return this.success(
+        checks,
+        assets,
+        configuredPixelId,
+        configuredDatasetId,
+        null,
+        false,
+        eventSource,
+      );
     }
 
     if (configuredPixelId && configuredDatasetId && configuredPixelId !== configuredDatasetId) {
@@ -330,26 +372,25 @@ export class MetaCatalogSalesAssetsVerifyService {
         },
       );
       if (!datasetLinkedToPixel) {
-        return this.fail(checks, assets, configuredPixelId, configuredDatasetId, verifiedPixelId, checks[checks.length - 1]!.message);
+        const eventSource = this.buildEventSourceInfo({
+          configuredPixelId,
+          configuredDatasetId,
+          catalogSources,
+          catalogPixelIds,
+          verifiedPixelId: null,
+          canUseConversionOptimization: false,
+        });
+        return this.success(
+          checks,
+          assets,
+          configuredPixelId,
+          configuredDatasetId,
+          null,
+          false,
+          eventSource,
+          checks[checks.length - 1]!.message,
+        );
       }
-    } else if (configuredDatasetId && !configuredPixelId && verifiedPixelId !== configuredDatasetId) {
-      pushCheck(
-        'dataset_pixel',
-        'Dataset ↔ Pixel',
-        catalogSourcesPath,
-        true,
-        `✔ Dataset ID neodpovídá Pixelu — pro Ad Set se použije ověřený Pixel ${verifiedPixelId}.`,
-        { datasetId: configuredDatasetId, resolvedPixelId: verifiedPixelId },
-      );
-    } else if (configuredDatasetId && verifiedPixelId === configuredDatasetId) {
-      pushCheck(
-        'dataset_pixel',
-        'Dataset ↔ Pixel',
-        `/${configuredDatasetId}`,
-        true,
-        '✔ Dataset ID odpovídá ověřenému Pixelu.',
-        { datasetId: configuredDatasetId, resolvedPixelId: verifiedPixelId },
-      );
     }
 
     const pixelPath = `/${verifiedPixelId}`;
@@ -364,13 +405,28 @@ export class MetaCatalogSalesAssetsVerifyService {
         'Pixel',
         pixelPath,
         false,
-        configuredPixelId
-          ? '❌ Pixel neexistuje nebo není aktivní.'
-          : '❌ Dataset není propojen s Pixelem — ID z Datasetu není platný Pixel v Meta.',
+        '❌ Pixel neexistuje nebo není aktivní. Použije se režim katalogové návštěvnosti.',
         pixelRes.data,
         pixelRes.responseHeaders,
       );
-      return this.fail(checks, assets, configuredPixelId, configuredDatasetId, verifiedPixelId, checks[checks.length - 1]!.message);
+      const eventSource = this.buildEventSourceInfo({
+        configuredPixelId,
+        configuredDatasetId,
+        catalogSources,
+        catalogPixelIds,
+        verifiedPixelId: null,
+        canUseConversionOptimization: false,
+      });
+      return this.success(
+        checks,
+        assets,
+        configuredPixelId,
+        configuredDatasetId,
+        null,
+        false,
+        eventSource,
+        checks[checks.length - 1]!.message,
+      );
     }
     assets.pixel = { id: pixelRes.data.id, name: pixelRes.data.name };
     pushCheck('pixel_exists', 'Pixel', pixelPath, true, '✔ Pixel existuje.', pixelRes.data);
@@ -391,7 +447,24 @@ export class MetaCatalogSalesAssetsVerifyService {
       { pixelIds: [...businessPixels] },
     );
     if (!pixelInBusiness) {
-      return this.fail(checks, assets, configuredPixelId, configuredDatasetId, verifiedPixelId, checks[checks.length - 1]!.message);
+      const eventSource = this.buildEventSourceInfo({
+        configuredPixelId,
+        configuredDatasetId,
+        catalogSources,
+        catalogPixelIds,
+        verifiedPixelId: null,
+        canUseConversionOptimization: false,
+      });
+      return this.success(
+        checks,
+        assets,
+        configuredPixelId,
+        configuredDatasetId,
+        null,
+        false,
+        eventSource,
+        checks[checks.length - 1]!.message,
+      );
     }
 
     const adAccountPixels = await this.collectPixelIds(token, [adAccountPath + '/adspixels']);
@@ -407,7 +480,24 @@ export class MetaCatalogSalesAssetsVerifyService {
       { pixelIds: [...adAccountPixels] },
     );
     if (!pixelInAdAccount) {
-      return this.fail(checks, assets, configuredPixelId, configuredDatasetId, verifiedPixelId, checks[checks.length - 1]!.message);
+      const eventSource = this.buildEventSourceInfo({
+        configuredPixelId,
+        configuredDatasetId,
+        catalogSources,
+        catalogPixelIds,
+        verifiedPixelId: null,
+        canUseConversionOptimization: false,
+      });
+      return this.success(
+        checks,
+        assets,
+        configuredPixelId,
+        configuredDatasetId,
+        null,
+        false,
+        eventSource,
+        checks[checks.length - 1]!.message,
+      );
     }
 
     let pixelLinkedToCatalog = catalogPixelIds.has(verifiedPixelId);
@@ -435,7 +525,24 @@ export class MetaCatalogSalesAssetsVerifyService {
       catalogSourcesRes.responseHeaders,
     );
     if (!pixelLinkedToCatalog) {
-      return this.fail(checks, assets, configuredPixelId, configuredDatasetId, verifiedPixelId, checks[checks.length - 1]!.message);
+      const eventSource = this.buildEventSourceInfo({
+        configuredPixelId,
+        configuredDatasetId,
+        catalogSources,
+        catalogPixelIds,
+        verifiedPixelId: null,
+        canUseConversionOptimization: false,
+      });
+      return this.success(
+        checks,
+        assets,
+        configuredPixelId,
+        configuredDatasetId,
+        null,
+        false,
+        eventSource,
+        checks[checks.length - 1]!.message,
+      );
     }
 
     const catalogUsesDataset = Boolean(configuredDatasetId);
@@ -456,13 +563,79 @@ export class MetaCatalogSalesAssetsVerifyService {
       `[meta-assets-verify] ok pixel=${verifiedPixelId} catalog=${catalogId} business=${businessId}`,
     );
 
-    return {
-      ok: true,
-      message: 'Všechny Meta assety pro Catalog Sales jsou ověřené.',
-      verifiedPixelId,
+    const eventSource = this.buildEventSourceInfo({
       configuredPixelId,
       configuredDatasetId,
-      promotedObjectPixelId: verifiedPixelId,
+      catalogSources,
+      catalogPixelIds,
+      verifiedPixelId,
+      canUseConversionOptimization: true,
+    });
+
+    return this.success(
+      checks,
+      assets,
+      configuredPixelId,
+      configuredDatasetId,
+      verifiedPixelId,
+      true,
+      eventSource,
+      'Všechny Meta assety pro katalogový prodej jsou ověřené.',
+    );
+  }
+
+  private buildEventSourceInfo(input: {
+    configuredPixelId: string | null;
+    configuredDatasetId: string | null;
+    catalogSources: ExternalEventSource[];
+    catalogPixelIds: Set<string>;
+    verifiedPixelId: string | null;
+    canUseConversionOptimization: boolean;
+  }): MetaCatalogEventSourceInfo {
+    const catalogEventSources = input.catalogSources.map((s) => ({
+      id: s.id ?? null,
+      type: s.type ?? null,
+      pixelId: s.pixel?.id ?? null,
+    }));
+    return {
+      configuredDatasetId: input.configuredDatasetId,
+      configuredPixelId: input.configuredPixelId,
+      catalogEventSources,
+      catalogPixelIds: [...input.catalogPixelIds],
+      resolvedPixelId: input.verifiedPixelId,
+      resolvedEventSourceType: input.verifiedPixelId ? 'PIXEL' : input.configuredDatasetId ? 'DATASET' : 'NONE',
+      promotedObjectPixelId: input.canUseConversionOptimization ? input.verifiedPixelId : null,
+      promotedObjectCustomEventType: input.canUseConversionOptimization ? 'PURCHASE' : null,
+      canUseConversionOptimization: input.canUseConversionOptimization,
+    };
+  }
+
+  private success(
+    checks: MetaCatalogSalesAssetCheck[],
+    assets: MetaCatalogSalesAssetsVerification['assets'],
+    configuredPixelId: string | null,
+    configuredDatasetId: string | null,
+    promotedObjectPixelId: string | null,
+    canUseConversionOptimization: boolean,
+    eventSource: MetaCatalogEventSourceInfo,
+    message?: string,
+  ): MetaCatalogSalesAssetsVerification {
+    const catalogLaunchMode = canUseConversionOptimization ? 'sales' : 'traffic';
+    const finalMessage =
+      message ??
+      (canUseConversionOptimization
+        ? 'Všechny Meta assety pro katalogový prodej jsou ověřené.'
+        : 'Katalog nemá dostupný podporovaný zdroj událostí pro optimalizaci nákupu. Použije se režim katalogové návštěvnosti.');
+    return {
+      ok: true,
+      message: finalMessage,
+      canUseConversionOptimization,
+      catalogLaunchMode,
+      verifiedPixelId: promotedObjectPixelId,
+      configuredPixelId,
+      configuredDatasetId,
+      promotedObjectPixelId,
+      eventSource,
       checks,
       assets,
     };
@@ -480,10 +653,23 @@ export class MetaCatalogSalesAssetsVerifyService {
     return {
       ok: false,
       message,
+      canUseConversionOptimization: false,
+      catalogLaunchMode: 'traffic',
       verifiedPixelId: null,
       configuredPixelId,
       configuredDatasetId,
       promotedObjectPixelId,
+      eventSource: {
+        configuredDatasetId,
+        configuredPixelId,
+        catalogEventSources: [],
+        catalogPixelIds: [],
+        resolvedPixelId: null,
+        resolvedEventSourceType: 'NONE',
+        promotedObjectPixelId: null,
+        promotedObjectCustomEventType: null,
+        canUseConversionOptimization: false,
+      },
       checks,
       assets,
     };

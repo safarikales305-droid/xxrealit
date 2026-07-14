@@ -210,6 +210,44 @@ export function buildMetaAdSetProbeSteps(input: MetaAdSetProbeBuildInput): MetaA
   ];
 }
 
+export function buildSupportedCatalogTrafficAdSetPayload(input: {
+  campaignId: string;
+  adSetName: string;
+  publishStatus: 'ACTIVE' | 'PAUSED';
+  dailyBudgetMinor: number;
+  spec: MetaCampaignPayloadSpec;
+  targeting: Record<string, unknown>;
+  catalogId: string;
+  dsaLabels: { beneficiary: string; payor: string };
+  isAdsetBudgetSharingEnabled: boolean;
+  startTime?: string;
+  endTime?: string;
+}): Record<string, unknown> {
+  const targeting = normalizeTargetingForMetaV25(
+    input.targeting,
+    input.spec.advantageAudience,
+  );
+  return {
+    name: input.adSetName,
+    campaign_id: input.campaignId,
+    billing_event: input.spec.billingEvent,
+    optimization_goal: input.spec.optimizationGoal,
+    bid_strategy: input.spec.bidStrategy,
+    daily_budget: String(input.dailyBudgetMinor),
+    status: input.publishStatus,
+    is_adset_budget_sharing_enabled: input.isAdsetBudgetSharingEnabled,
+    dsa_beneficiary: input.dsaLabels.beneficiary,
+    dsa_payor: input.dsaLabels.payor,
+    targeting: JSON.stringify(targeting),
+    destination_type: input.spec.destinationType ?? 'SHOP_AUTOMATIC',
+    promoted_object: JSON.stringify({
+      product_catalog_id: input.catalogId,
+    }),
+    ...(input.startTime ? { start_time: input.startTime } : {}),
+    ...(input.endTime ? { end_time: input.endTime } : {}),
+  };
+}
+
 export function buildSupportedCatalogAdSetPayload(input: {
   campaignId: string;
   adSetName: string;

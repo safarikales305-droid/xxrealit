@@ -227,12 +227,14 @@ const CAMPAIGN_STATUS_LABELS: Record<string, string> = {
   draft: 'Koncept',
   ready: 'Připraveno',
   active: 'Aktivní',
-  paused: 'Pozastaveno',
+  paused: 'Připraveno ke kontrole',
+  partial_campaign: 'Rozpracováno – Campaign vytvořena',
+  partial_adset: 'Rozpracováno – chybí Creative/Ad',
   in_review: 'Ke schválení',
   learning: 'Učení',
   completed: 'Dokončeno',
   archived: 'Archivováno',
-  error: 'Chyba',
+  error: 'Chyba – Ad Set nevytvořen',
 };
 
 const META_STATUS_LABELS: Record<string, string> = {
@@ -4413,8 +4415,9 @@ export default function MetaCentrumPage() {
                                 disabled={busy}
                                 onClick={() => {
                                   loadCampaignForEdit(c);
+                                  setLaunchValidationHighlight(true);
                                   setMsg(
-                                    'Upravte cílení lokality a klikněte znovu na Spustit kampaň.',
+                                    'Doplňte latitude a longitude, nebo přepněte cílení na celé město. Campaign ID zůstane zachováno.',
                                   );
                                 }}
                                 className="rounded-lg border border-amber-400 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-50"

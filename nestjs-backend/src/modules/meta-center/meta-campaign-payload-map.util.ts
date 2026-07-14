@@ -3,6 +3,7 @@ import { normalizeCreativeType } from './meta-campaign-creative.util';
 
 export type MetaCampaignModeKey =
   | 'traffic'
+  | 'catalog_traffic'
   | 'catalog_sales'
   | 'remarketing'
   | 'leads'
@@ -50,6 +51,7 @@ export type MetaCampaignPayloadContext = {
   leadFormId?: string | null;
   remarketingConversionEvent?: 'PURCHASE' | 'VIEW_CONTENT';
   selectedProductIds?: string[];
+  catalogLaunchMode?: 'traffic' | 'sales';
 };
 
 const GOAL_ALIASES: Record<string, MetaCampaignGoalKey> = {
@@ -81,6 +83,19 @@ const MODE_SPECS: Record<
     usesCatalog: false,
     usesPixel: false,
     requiresPageId: false,
+  },
+  catalog_traffic: {
+    campaignObjective: 'OUTCOME_TRAFFIC',
+    optimizationGoal: 'LINK_CLICKS',
+    billingEvent: 'IMPRESSIONS',
+    bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
+    destinationType: 'SHOP_AUTOMATIC',
+    advantageAudience: 1,
+    requiresPromotedObject: true,
+    allowedPromotedObjectKeys: ['product_catalog_id'],
+    usesCatalog: true,
+    usesPixel: false,
+    requiresPageId: true,
   },
   catalog_sales: {
     campaignObjective: 'OUTCOME_SALES',
@@ -164,6 +179,7 @@ const MODE_SPECS: Record<
 
 const MODE_LABELS: Record<MetaCampaignModeKey, string> = {
   traffic: 'Návštěvnost',
+  catalog_traffic: 'Katalogová návštěvnost',
   catalog_sales: 'Katalogový prodej',
   remarketing: 'Remarketing',
   leads: 'Leady',
@@ -203,7 +219,9 @@ export function isNonCatalogCreativeSource(source: MetaCreativeSourceKey): boole
 function promotedSummary(mode: MetaCampaignModeKey, leadFormId?: string | null): string {
   switch (mode) {
     case 'catalog_sales':
-      return 'Catalog + Pixel/Dataset + Purchase (SHOP_AUTOMATIC)';
+      return 'Catalog + Pixel + Purchase (SHOP_AUTOMATIC)';
+    case 'catalog_traffic':
+      return 'Catalog + LINK_CLICKS (bez Pixel konverzí)';
     case 'remarketing':
       return 'Pixel/Dataset + ViewContent/Purchase (WEBSITE)';
     case 'leads':
@@ -308,7 +326,13 @@ export function resolveMetaCampaignPayloadSpec(
   if (!resolved.mode) {
     return { ok: false, blockers: resolved.blockers };
   }
-  const spec = getMetaCampaignPayloadSpec(resolved.mode, ctx);
+  const mode =
+    resolved.mode === 'catalog_sales' && ctx.catalogLaunchMode === 'traffic'
+      ? 'catalog_traffic'
+      : resolved.mode === 'catalog_sales' && ctx.catalogLaunchMode === 'sales'
+        ? 'catalog_sales'
+        : resolved.mode;
+  const spec = getMetaCampaignPayloadSpec(mode, ctx);
   const blockers = validateMetaCampaignPayloadContext(ctx, spec);
   if (blockers.length) {
     return { ok: false, blockers };
@@ -331,6 +355,13 @@ export function buildPromotedObjectForSpec(
       product_catalog_id: catalogId,
       pixel_id: pixelId,
       custom_event_type: 'PURCHASE',
+    };
+  }
+
+  if (spec.mode === 'catalog_traffic') {
+    if (!catalogId) return null;
+    return {
+      product_catalog_id: catalogId,
     };
   }
 
@@ -414,7 +445,7 @@ export function validateMetaCampaignPayloadContext(
   }
 
   if (
-    spec.mode === 'catalog_sales' &&
+    (spec.mode === 'catalog_sales' || spec.mode === 'catalog_traffic') &&
     (!ctx.selectedProductIds?.length || ctx.selectedProductIds.length === 0)
   ) {
     blockers.push({

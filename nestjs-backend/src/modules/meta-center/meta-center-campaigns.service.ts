@@ -32,6 +32,7 @@ import {
   buildMetaAdSetProbeSteps,
   buildProbeGraphUrl,
   buildSupportedCatalogAdSetPayload,
+  buildSupportedCatalogTrafficAdSetPayload,
   catalogSalesV25Validation,
   mapProbeGraphResult,
   summarizeProbeResult,
@@ -978,7 +979,41 @@ export class MetaCenterCampaignsService {
         verifiedPixelId,
       });
     const persistDebug = () => tracer.getTrace();
-    const payloadContext = this.buildPayloadContext(dto, ids, row, catalogId);
+    let payloadContext = this.buildPayloadContext(dto, ids, row, catalogId);
+    let assetsVerification: MetaCatalogSalesAssetsVerification | null = null;
+    let catalogLaunchMode: 'traffic' | 'sales' | null = null;
+    let verifiedPixelId: string | null = null;
+
+    if (payloadContext.goal === 'catalog' || dto.creativeType === 'catalog_products') {
+      assetsVerification = await this.catalogSalesAssetsVerify.verifyForCatalogSalesLaunch();
+      if (!assetsVerification.ok) {
+        const msg = this.formatPartialLaunchUserMessage(launchSteps, assetsVerification.message);
+        await this.persistLaunchState(draftId, {
+          status: 'error',
+          errorMessage: msg,
+          metaLaunchSteps: launchSteps,
+          metaLaunchPayloads: launchPayloads,
+        });
+        return {
+          ok: false as const,
+          status: 'validation_error' as const,
+          message: msg,
+          failedStep: 'adset' as const,
+          launchSteps,
+          assetsVerification,
+          campaign: await this.loadSerializedDraft(draftId),
+        };
+      }
+      catalogLaunchMode = assetsVerification.catalogLaunchMode;
+      verifiedPixelId = assetsVerification.verifiedPixelId;
+      payloadContext = this.buildPayloadContext(dto, ids, row, catalogId, catalogLaunchMode);
+      payloadContext = {
+        ...payloadContext,
+        pixelId: verifiedPixelId,
+      };
+      tracer.updateContext({ pixelId: verifiedPixelId });
+    }
+
     const specResolved = resolveMetaCampaignPayloadSpec(payloadContext);
     if (!specResolved.ok) {
       const msg = specResolved.blockers.map((b) => b.message).join('\n');
@@ -991,11 +1026,48 @@ export class MetaCenterCampaignsService {
         campaign: null,
       };
     }
-    const metaSpec = specResolved.spec;
+    let metaSpec = specResolved.spec;
 
-    const objective = metaSpec.campaignObjective;
     const budgetConfig = resolveBudgetConfig(false);
     const dailyBudgetMinor = Math.round(dto.dailyBudgetCzk * 100);
+
+    let resolvedGeo;
+    try {
+      resolvedGeo = await this.geo.resolveGeoForTargeting({
+        metaGeoKey: dto.metaGeoKey,
+        cityName: dto.cityName,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+        radiusKm: dto.radiusKm,
+        locationTargetingMode:
+          dto.locationTargetingMode ?? draftRow?.locationTargetingMode ?? 'city',
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Lokalitu nelze namapovat na Meta Geo.';
+      await this.persistLaunchState(draftId, {
+        ...(metaCampaignId ? { metaCampaignId } : {}),
+        status: 'error',
+        errorMessage: this.formatPartialLaunchUserMessage(launchSteps, msg),
+        metaLaunchSteps: launchSteps,
+        metaLaunchPayloads: launchPayloads,
+      });
+      return {
+        ok: false as const,
+        status: 'validation_error' as const,
+        message: this.formatPartialLaunchUserMessage(launchSteps, msg),
+        failedStep: 'adset' as const,
+        launchSteps,
+        assetsVerification,
+        campaign: await this.loadSerializedDraft(draftId),
+      };
+    }
+
+    const targeting = this.buildTargetingFromGeo(resolvedGeo, dto, audienceMetaId);
+    launchPayloads.targeting = targeting;
+    launchPayloads.launchMode = catalogLaunchMode;
+    launchPayloads.launchPhase = metaCampaignId ? 'CAMPAIGN_CREATED' : 'ADSET_PENDING';
+
+    const objective = metaSpec.campaignObjective;
 
     const campaignPayload: Record<string, unknown> = {
       name: dto.name.trim(),
@@ -1074,78 +1146,13 @@ export class MetaCenterCampaignsService {
         `Campaign již existuje (${metaCampaignId})`,
       );
     }
-    let resolvedGeo;
-    try {
-      resolvedGeo = await this.geo.resolveGeoForTargeting({
-        metaGeoKey: dto.metaGeoKey,
-        cityName: dto.cityName,
-        latitude: dto.latitude,
-        longitude: dto.longitude,
-        radiusKm: dto.radiusKm,
-        locationTargetingMode:
-          dto.locationTargetingMode ?? draftRow?.locationTargetingMode ?? 'city',
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Lokalitu nelze namapovat na Meta Geo.';
-      await this.persistLaunchState(draftId, {
-        metaCampaignId,
-        status: 'error',
-        errorMessage: msg,
-        metaLaunchSteps: launchSteps,
-        metaLaunchPayloads: launchPayloads,
-      });
-      return {
-        ok: false as const,
-        status: 'validation_error' as const,
-        message: msg,
-        failedStep: 'adset' as const,
-        launchSteps,
-        campaign: await this.loadSerializedDraft(draftId),
-      };
-    }
 
-    const targeting = this.buildTargetingFromGeo(resolvedGeo, dto, audienceMetaId);
-    launchPayloads.targeting = targeting;
-
-    let effectivePayloadContext = payloadContext;
-    let assetsVerification: MetaCatalogSalesAssetsVerification | null = null;
-    let verifiedPixelId: string | null = null;
-    if (metaSpec.mode === 'catalog_sales') {
-      assetsVerification = await this.catalogSalesAssetsVerify.verifyForCatalogSalesLaunch();
-      if (!assetsVerification.ok) {
-        const msg = assetsVerification.message;
-        launchSteps.adSet = { ok: false, error: msg };
-        await this.persistLaunchState(draftId, {
-          metaCampaignId,
-          status: 'error',
-          errorMessage: msg,
-          metaLaunchSteps: launchSteps,
-          metaLaunchPayloads: launchPayloads,
-          metaLaunchDebug: persistDebug(),
-        });
-        return {
-          ok: false as const,
-          status: 'validation_error' as const,
-          message: msg,
-          failedStep: 'adset' as const,
-          launchSteps,
-          assetsVerification,
-          campaign: await this.loadSerializedDraft(draftId),
-        };
-      }
-      verifiedPixelId = assetsVerification.verifiedPixelId;
-      effectivePayloadContext = {
-        ...payloadContext,
-        pixelId: verifiedPixelId,
-      };
-      tracer.updateContext({ pixelId: verifiedPixelId });
-    }
-
+    const effectivePayloadContext = payloadContext;
     const adSetBuild = this.buildAdSetLaunchPayload({
       dto,
       ids,
       row,
-      metaCampaignId,
+      metaCampaignId: metaCampaignId!,
       targeting,
       publishStatus,
       budgetConfig,
@@ -1288,186 +1295,219 @@ export class MetaCenterCampaignsService {
     const creativeType = this.resolveCreativeType(dto.creativeType);
 
     if (creativeType === 'catalog_products' || dto.objective === 'catalog') {
-      const productSetResult = await this.resolveCatalogProductSet(
-        catalogId,
+      if (!metaProductSetId) {
+        const productSetResult = await this.resolveCatalogProductSet(
+          catalogId,
+          token,
+          dto.name.trim(),
+          dto.selectedProductIds ?? [],
+          metaProductSetId,
+        );
+        if (!productSetResult.ok) {
+          launchSteps.creative = { ok: false, error: productSetResult.message };
+          await this.persistLaunchState(draftId, {
+            metaCampaignId,
+            metaAdSetId,
+            status: 'error',
+            errorMessage: this.formatPartialLaunchUserMessage(launchSteps, productSetResult.message),
+            metaLaunchSteps: launchSteps,
+            metaLaunchPayloads: launchPayloads,
+          });
+          return {
+            ok: false as const,
+            status: 'error' as const,
+            message: productSetResult.message,
+            metaApiError: productSetResult.metaApiError,
+            failedStep: 'creative' as const,
+            launchSteps,
+            assetsVerification,
+            campaign: await this.loadSerializedDraft(draftId),
+          };
+        }
+        metaProductSetId = productSetResult.id;
+        launchPayloads.productSetId = metaProductSetId;
+        this.logger.log(`[meta-campaign] product_set=${metaProductSetId} draft=${draftId}`);
+      } else {
+        launchPayloads.productSetId = metaProductSetId;
+      }
+    }
+
+    const pageIds = this.creative.resolvePageIds(row);
+    const normalizedCatalogId = catalogId?.replace(/^catalog_/i, '') ?? catalogId;
+
+    if (!metaCreativeId) {
+      const built = await this.creative.buildAdCreative({
+        actId,
         token,
-        dto.name.trim(),
-        dto.selectedProductIds ?? [],
-      );
-      if (!productSetResult.ok) {
-        launchSteps.creative = { ok: false, error: productSetResult.message };
+        pageAccessToken,
+        campaignName: dto.name.trim(),
+        creativeType,
+        creativePayload: dto.creativePayload as Record<string, unknown> | undefined,
+        pageId: pageIds.pageId,
+        instagramActorId: pageIds.instagramActorId,
+        catalogId: normalizedCatalogId,
+        productSetId: metaProductSetId,
+        frontendBase: this.frontendBase(),
+      });
+
+      if (!built.ok) {
+        launchSteps.creative = { ok: false, error: built.message };
         await this.persistLaunchState(draftId, {
           metaCampaignId,
           metaAdSetId,
+          metaProductSetId,
           status: 'error',
-          errorMessage: productSetResult.message,
+          errorMessage: this.formatPartialLaunchUserMessage(launchSteps, built.message),
           metaLaunchSteps: launchSteps,
           metaLaunchPayloads: launchPayloads,
         });
         return {
           ok: false as const,
-          status: 'error' as const,
-          message: productSetResult.message,
-          metaApiError: productSetResult.metaApiError,
+          status: (built.metaApiError ? 'error' : 'validation_error') as 'error' | 'validation_error',
+          message: built.message,
+          metaApiError: built.metaApiError,
           failedStep: 'creative' as const,
           launchSteps,
+          assetsVerification,
           campaign: await this.loadSerializedDraft(draftId),
         };
       }
-      metaProductSetId = productSetResult.id;
-      this.logger.log(`[meta-campaign] product_set=${metaProductSetId} draft=${draftId}`);
-    }
 
-    const pageIds = this.creative.resolvePageIds(row);
-    const built = await this.creative.buildAdCreative({
-      actId,
-      token,
-      pageAccessToken,
-      campaignName: dto.name.trim(),
-      creativeType,
-      creativePayload: dto.creativePayload as Record<string, unknown> | undefined,
-      pageId: pageIds.pageId,
-      instagramActorId: pageIds.instagramActorId,
-      catalogId,
-      productSetId: metaProductSetId,
-      frontendBase: this.frontendBase(),
-    });
+      const creativeBody = built.body;
+      launchPayloads.creative = creativeBody;
 
-    if (!built.ok) {
-      launchSteps.creative = { ok: false, error: built.message };
-      await this.persistLaunchState(draftId, {
-        metaCampaignId,
-        metaAdSetId,
-        metaProductSetId,
-        status: 'error',
-        errorMessage: built.message,
-        metaLaunchSteps: launchSteps,
-        metaLaunchPayloads: launchPayloads,
-      });
-      return {
-        ok: false as const,
-        status: (built.metaApiError ? 'error' : 'validation_error') as 'error' | 'validation_error',
-        message: built.message,
-        metaApiError: built.metaApiError,
-        failedStep: 'creative' as const,
-        launchSteps,
-        campaign: await this.loadSerializedDraft(draftId),
-      };
-    }
-
-    const creativeBody = built.body;
-    launchPayloads.creative = creativeBody;
-
-    const creativePath = `/act_${actId}/adcreatives`;
-    const creativeRes = await this.graph.postWithTransientRetry<{ id?: string }>(
-      creativePath,
-      token,
-      creativeBody,
-      { logLabel: `adcreatives draft=${draftId}`, retryDelaysMs: [3000, 3000, 3000] },
-    );
-    tracer.recordResult('creative', creativePath, creativeBody, creativeRes);
-
-    if (!creativeRes.ok || !creativeRes.data.id) {
-      const failure = this.formatLaunchApiFailure(
-        'Vytvoření kreativy',
+      const creativePath = `/act_${actId}/adcreatives`;
+      const creativeRes = await this.graph.postWithTransientRetry<{ id?: string }>(
+        creativePath,
+        token,
         creativeBody,
-        creativeRes,
+        { logLabel: `adcreatives draft=${draftId}`, retryDelaysMs: [3000, 3000, 3000] },
+      );
+      tracer.recordResult('creative', creativePath, creativeBody, creativeRes);
+
+      if (!creativeRes.ok || !creativeRes.data.id) {
+        const failure = this.formatLaunchApiFailure(
+          'Vytvoření kreativy',
+          creativeBody,
+          creativeRes,
+          'creative',
+          tracer,
+          launchContextIds(verifiedPixelId),
+          serializePayloadForMetaApi(creativeBody),
+          isMetaInternalErrorCode2(creativeRes) && metaCampaignId
+            ? metaCode2UserMessage('Creative')
+            : null,
+        );
+        launchSteps.creative = { ok: false, error: failure.message };
+        await this.persistLaunchState(draftId, {
+          metaCampaignId,
+          metaAdSetId,
+          metaProductSetId,
+          status: 'error',
+          errorMessage: this.formatPartialLaunchUserMessage(launchSteps, failure.message),
+          metaLaunchSteps: launchSteps,
+          metaLaunchPayloads: launchPayloads,
+          metaLaunchDebug: persistDebug(),
+        });
+        return {
+          ok: false as const,
+          status: 'error' as const,
+          message: failure.message,
+          metaApiError: failure.detail,
+          failedStep: 'creative' as const,
+          launchSteps,
+          assetsVerification,
+          campaign: await this.loadSerializedDraft(draftId),
+        };
+      }
+
+      metaCreativeId = creativeRes.data.id;
+      launchSteps.creative = { ok: true, id: metaCreativeId };
+      tracer.updateContext({ creativeId: metaCreativeId });
+      this.logger.log(`[meta-campaign] creative=${metaCreativeId} draft=${draftId}`);
+    } else {
+      launchSteps.creative = { ok: true, id: metaCreativeId };
+      tracer.recordSkipped(
         'creative',
-        tracer,
-        launchContextIds(),
-        serializePayloadForMetaApi(creativeBody),
-        isMetaInternalErrorCode2(creativeRes) && metaCampaignId
-          ? metaCode2UserMessage('Creative')
-          : null,
+        `/act_${actId}/adcreatives`,
+        launchPayloads.creative ?? {},
+        `Creative již existuje (${metaCreativeId})`,
       );
-      launchSteps.creative = { ok: false, error: failure.message };
-      await this.persistLaunchState(draftId, {
-        metaCampaignId,
-        metaAdSetId,
-        metaProductSetId,
-        status: 'error',
-        errorMessage: failure.message,
-        metaLaunchSteps: launchSteps,
-        metaLaunchPayloads: launchPayloads,
-        metaLaunchDebug: persistDebug(),
-      });
-      return {
-        ok: false as const,
-        status: 'error' as const,
-        message: failure.message,
-        metaApiError: failure.detail,
-        failedStep: 'creative' as const,
-        launchSteps,
-        campaign: await this.loadSerializedDraft(draftId),
-      };
     }
 
-    metaCreativeId = creativeRes.data.id;
-    launchSteps.creative = { ok: true, id: metaCreativeId };
-    tracer.updateContext({ creativeId: metaCreativeId });
-    this.logger.log(`[meta-campaign] creative=${metaCreativeId} draft=${draftId}`);
+    if (!metaAdId) {
+      const adPayload = {
+        name: `${dto.name.trim()} — reklama`,
+        adset_id: metaAdSetId,
+        creative: JSON.stringify({ creative_id: metaCreativeId }),
+        status: 'PAUSED' as const,
+      };
+      launchPayloads.ad = adPayload;
 
-    const adPayload = {
-      name: `${dto.name.trim()} — reklama`,
-      adset_id: metaAdSetId,
-      creative: JSON.stringify({ creative_id: metaCreativeId }),
-      status: publishStatus,
-    };
-    launchPayloads.ad = adPayload;
-
-    const adPath = `/act_${actId}/ads`;
-    const adRes = await this.graph.postWithTransientRetry<{ id?: string }>(
-      adPath,
-      token,
-      adPayload,
-      { logLabel: `ads draft=${draftId}`, retryDelaysMs: [3000, 3000, 3000] },
-    );
-    tracer.recordResult('ad', adPath, adPayload, adRes);
-
-    if (!adRes.ok || !adRes.data.id) {
-      const failure = this.formatLaunchApiFailure(
-        'Vytvoření reklamy',
+      const adPath = `/act_${actId}/ads`;
+      const adRes = await this.graph.postWithTransientRetry<{ id?: string }>(
+        adPath,
+        token,
         adPayload,
-        adRes,
-        'ad',
-        tracer,
-        launchContextIds(),
-        serializePayloadForMetaApi(adPayload),
-        isMetaInternalErrorCode2(adRes) && metaCampaignId
-          ? metaCode2UserMessage('Ad')
-          : null,
+        { logLabel: `ads draft=${draftId}`, retryDelaysMs: [3000, 3000, 3000] },
       );
-      launchSteps.ad = { ok: false, error: failure.message };
-      await this.persistLaunchState(draftId, {
-        metaCampaignId,
-        metaAdSetId,
-        metaProductSetId,
-        metaCreativeId,
-        status: 'error',
-        errorMessage: failure.message,
-        metaLaunchSteps: launchSteps,
-        metaLaunchPayloads: launchPayloads,
-        metaLaunchDebug: persistDebug(),
-      });
-      return {
-        ok: false as const,
-        status: 'error' as const,
-        message: failure.message,
-        metaApiError: failure.detail,
-        failedStep: 'ad' as const,
-        launchSteps,
-        campaign: await this.loadSerializedDraft(draftId),
-      };
+      tracer.recordResult('ad', adPath, adPayload, adRes);
+
+      if (!adRes.ok || !adRes.data.id) {
+        const failure = this.formatLaunchApiFailure(
+          'Vytvoření reklamy',
+          adPayload,
+          adRes,
+          'ad',
+          tracer,
+          launchContextIds(verifiedPixelId),
+          serializePayloadForMetaApi(adPayload),
+          isMetaInternalErrorCode2(adRes) && metaCampaignId
+            ? metaCode2UserMessage('Ad')
+            : null,
+        );
+        launchSteps.ad = { ok: false, error: failure.message };
+        await this.persistLaunchState(draftId, {
+          metaCampaignId,
+          metaAdSetId,
+          metaProductSetId,
+          metaCreativeId,
+          status: 'error',
+          errorMessage: this.formatPartialLaunchUserMessage(launchSteps, failure.message),
+          metaLaunchSteps: launchSteps,
+          metaLaunchPayloads: launchPayloads,
+          metaLaunchDebug: persistDebug(),
+        });
+        return {
+          ok: false as const,
+          status: 'error' as const,
+          message: failure.message,
+          metaApiError: failure.detail,
+          failedStep: 'ad' as const,
+          launchSteps,
+          assetsVerification,
+          campaign: await this.loadSerializedDraft(draftId),
+        };
+      }
+
+      metaAdId = adRes.data.id;
+      launchSteps.ad = { ok: true, id: metaAdId };
+      tracer.updateContext({ adId: metaAdId });
+    } else {
+      launchSteps.ad = { ok: true, id: metaAdId };
+      tracer.recordSkipped(
+        'ad',
+        `/act_${actId}/ads`,
+        launchPayloads.ad ?? {},
+        `Ad již existuje (${metaAdId})`,
+      );
     }
 
-    metaAdId = adRes.data.id;
-    launchSteps.ad = { ok: true, id: metaAdId };
-    tracer.updateContext({ adId: metaAdId });
-    this.logger.log(`[meta-campaign] ad=${metaAdId} draft=${draftId}`);
+    launchPayloads.launchPhase = 'COMPLETED';
 
     const creativePreviewUrl =
-      (await this.creative.fetchCreativeThumbnailUrl(metaCreativeId, token)) ?? null;
-    const previewHtml = (await this.creative.fetchAdPreviewHtml(metaAdId, token)) ?? null;
+      (await this.creative.fetchCreativeThumbnailUrl(metaCreativeId!, token)) ?? null;
+    const previewHtml = (await this.creative.fetchAdPreviewHtml(metaAdId!, token)) ?? null;
 
     const statusData = await this.fetchMetaCampaignStatus(metaCampaignId, token);
     const insights = await this.fetchMetaCampaignInsights(metaCampaignId, token);
@@ -1486,29 +1526,76 @@ export class MetaCenterCampaignsService {
         metaLaunchSteps: launchSteps as Prisma.InputJsonValue,
         metaLaunchPayloads: launchPayloads as Prisma.InputJsonValue,
         metaLaunchDebug: persistDebug() as Prisma.InputJsonValue,
-        creativePayload: built.payload as Prisma.InputJsonValue,
+        creativePayload: (dto.creativePayload ?? {}) as Prisma.InputJsonValue,
         metaStatus: statusData.status,
         metaEffectiveStatus: statusData.effectiveStatus,
         metaInsights: insights as Prisma.InputJsonValue,
         metaLaunchedAt: now,
         metaStatusSyncedAt: now,
-        status: this.mapMetaStatusToLocal(statusData.effectiveStatus ?? statusData.status ?? publishStatus),
+        status: 'paused',
         errorMessage: null,
       },
     });
 
     this.logger.log(
-      `[meta-campaign] live created campaign=${metaCampaignId} adset=${metaAdSetId} product_set=${metaProductSetId ?? '—'} creative=${metaCreativeId} ad=${metaAdId} status=${publishStatus} draft=${draftId}`,
+      `[meta-campaign] live created campaign=${metaCampaignId} adset=${metaAdSetId} product_set=${metaProductSetId ?? '—'} creative=${metaCreativeId} ad=${metaAdId} draft=${draftId}`,
     );
 
     return {
       ok: true as const,
-      status: 'active' as const,
-      message: `Kampaň publikována v Meta — Campaign, Ad Set, Creative i Ad vytvořeny. Campaign ID: ${metaCampaignId}`,
+      status: 'paused' as const,
+      message: `Reklama je připravena ke kontrole v Meta (PAUSED). Campaign ${metaCampaignId}, Ad ${metaAdId}.`,
       liveEnabled: true,
       launchSteps,
+      assetsVerification,
       campaign: this.serializeDraft(updated),
     };
+  }
+
+  private formatPartialLaunchUserMessage(launchSteps: MetaLaunchSteps, detail: string): string {
+    if (launchSteps.campaign?.ok && !launchSteps.adSet?.ok) {
+      return [
+        'Reklama zatím nebyla vytvořena. Kampaň existuje, ale chybí Ad Set, Creative a Ad.',
+        detail,
+        '1. Doplňte souřadnice nebo zvolte celé město.',
+        '2. Ověřte zdroj událostí katalogu.',
+        '3. Pokračujte ve vytvoření Ad Setu a reklamy.',
+      ].join('\n\n');
+    }
+    if (launchSteps.campaign?.ok && launchSteps.adSet?.ok && !launchSteps.creative?.ok) {
+      return [
+        'Kampaň a Ad Set existují, ale chybí Creative a Ad.',
+        detail,
+      ].join('\n\n');
+    }
+    return detail;
+  }
+
+  private deriveLaunchDisplayStatus(row: {
+    metaCampaignId: string | null;
+    metaAdSetId: string | null;
+    metaCreativeId?: string | null;
+    metaAdId: string | null;
+    metaLaunchSteps?: unknown;
+    status: string;
+    metaEffectiveStatus?: string | null;
+  }): string {
+    if (row.metaAdId && row.metaCreativeId && row.metaAdSetId && row.metaCampaignId) {
+      if (row.metaEffectiveStatus === 'ACTIVE' || row.status === 'active') {
+        return 'active';
+      }
+      return 'paused';
+    }
+    if (row.metaCampaignId && !row.metaAdSetId) {
+      return 'partial_campaign';
+    }
+    if (row.metaCampaignId && row.metaAdSetId && !row.metaCreativeId) {
+      return 'partial_adset';
+    }
+    if (row.status === 'error') {
+      return 'error';
+    }
+    return row.status;
   }
 
   async listCreativeSourcePosts(
@@ -2082,6 +2169,7 @@ export class MetaCenterCampaignsService {
     ids: ReturnType<typeof resolveMetaCenterIds>,
     row: Awaited<ReturnType<typeof this.getSettingsRow>>,
     catalogId: string | null,
+    catalogLaunchMode?: 'traffic' | 'sales',
   ) {
     return {
       goal: dto.objective,
@@ -2095,6 +2183,7 @@ export class MetaCenterCampaignsService {
       leadFormId: extractLeadFormId(dto),
       remarketingConversionEvent: 'VIEW_CONTENT' as const,
       selectedProductIds: dto.selectedProductIds ?? [],
+      ...(catalogLaunchMode ? { catalogLaunchMode } : {}),
     };
   }
 
@@ -2155,8 +2244,21 @@ export class MetaCenterCampaignsService {
 
     if (metaSpec.mode === 'catalog_sales' && dsaLabels) {
       const catalogId = payloadContext.catalogId?.replace(/^catalog_/i, '') ?? '';
-      const pixelId =
-        payloadContext.pixelId?.trim() || payloadContext.datasetId?.trim() || '';
+      const pixelId = payloadContext.pixelId?.trim() || '';
+      if (!pixelId) {
+        return {
+          ok: false,
+          blockers: [
+            {
+              key: 'adset.pixel',
+              message:
+                'Katalog nemá dostupný podporovaný zdroj událostí pro optimalizaci nákupu.',
+            },
+          ],
+          payload: undefined,
+          spec: metaSpec,
+        };
+      }
       adSetPayloadFinal = buildSupportedCatalogAdSetPayload({
         campaignId: metaCampaignId,
         adSetName: `${dto.name.trim()} — sada`,
@@ -2175,6 +2277,24 @@ export class MetaCenterCampaignsService {
         product_catalog_id: catalogId,
         pixel_id: pixelId,
         custom_event_type: 'PURCHASE',
+      };
+    } else if (metaSpec.mode === 'catalog_traffic' && dsaLabels) {
+      const catalogId = payloadContext.catalogId?.replace(/^catalog_/i, '') ?? '';
+      adSetPayloadFinal = buildSupportedCatalogTrafficAdSetPayload({
+        campaignId: metaCampaignId,
+        adSetName: `${dto.name.trim()} — sada`,
+        publishStatus,
+        dailyBudgetMinor,
+        spec: metaSpec,
+        targeting,
+        catalogId,
+        dsaLabels,
+        isAdsetBudgetSharingEnabled: budgetConfig.isAdsetBudgetSharingEnabled,
+        startTime,
+        endTime,
+      });
+      promotedObject = {
+        product_catalog_id: catalogId,
       };
     } else {
       const adSetPayload: Record<string, unknown> = {
@@ -2269,12 +2389,25 @@ export class MetaCenterCampaignsService {
     token: string,
     campaignName: string,
     selectedProductIds: string[],
+    existingProductSetId?: string | null,
   ): Promise<
     | { ok: true; id: string }
     | { ok: false; message: string; metaApiError?: MetaApiErrorDetail }
   > {
-    if (!catalogId?.trim()) {
+    const normalizedCatalogId = catalogId?.replace(/^catalog_/i, '').trim() || null;
+    if (!normalizedCatalogId) {
       return { ok: false, message: 'Chybí Catalog ID pro katalogovou kreativu.' };
+    }
+
+    if (existingProductSetId?.trim()) {
+      const check = await this.graph.get<{ id?: string }>(
+        `/${existingProductSetId.trim()}`,
+        token,
+        { fields: 'id' },
+      );
+      if (check.ok && check.data?.id) {
+        return { ok: true, id: check.data.id };
+      }
     }
 
     if (selectedProductIds.length > 0) {
@@ -2285,7 +2418,7 @@ export class MetaCenterCampaignsService {
         }),
       };
       const productSetRes = await this.graph.post<{ id?: string }>(
-        `/${catalogId}/product_sets`,
+        `/${normalizedCatalogId}/product_sets`,
         token,
         payload,
       );
@@ -2301,14 +2434,20 @@ export class MetaCenterCampaignsService {
       return { ok: false, message: failure.message, metaApiError: failure.detail };
     }
 
-    const listRes = await this.graph.get<{ data?: Array<{ id?: string }> }>(
-      `/${catalogId}/product_sets`,
+    const listRes = await this.graph.get<{ data?: Array<{ id?: string; name?: string }> }>(
+      `/${normalizedCatalogId}/product_sets`,
       token,
-      { fields: 'id', limit: '1' },
+      { fields: 'id,name', limit: '25' },
     );
-    const existingId = listRes.ok ? listRes.data.data?.[0]?.id : null;
-    if (existingId) {
-      return { ok: true, id: existingId };
+    const existingSets = listRes.ok ? listRes.data.data ?? [] : [];
+    const allProducts = existingSets.find((s) =>
+      /all\s*products|všechny\s*produkty/i.test(s.name ?? ''),
+    );
+    if (allProducts?.id) {
+      return { ok: true, id: allProducts.id };
+    }
+    if (existingSets[0]?.id) {
+      return { ok: true, id: existingSets[0].id };
     }
 
     const allPayload = {
@@ -2316,7 +2455,7 @@ export class MetaCenterCampaignsService {
       filter: JSON.stringify({}),
     };
     const allRes = await this.graph.post<{ id?: string }>(
-      `/${catalogId}/product_sets`,
+      `/${normalizedCatalogId}/product_sets`,
       token,
       allPayload,
     );
@@ -2539,7 +2678,7 @@ export class MetaCenterCampaignsService {
       id: row.id,
       name: row.name,
       objective: row.objective,
-      status: row.status,
+      status: this.deriveLaunchDisplayStatus(row),
       creativeType: row.creativeType ?? 'catalog_products',
       targetingMode: row.targetingMode ?? 'map',
       locationTargetingMode: row.locationTargetingMode ?? 'city',

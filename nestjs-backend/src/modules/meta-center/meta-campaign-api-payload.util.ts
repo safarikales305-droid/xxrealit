@@ -172,6 +172,9 @@ export type MetaLaunchPayloadSnapshot = {
   adSet?: Record<string, unknown> | null;
   creative?: Record<string, unknown> | null;
   ad?: Record<string, unknown> | null;
+  productSetId?: string | null;
+  launchMode?: 'traffic' | 'sales' | null;
+  launchPhase?: string | null;
 };
 
 export function emptyLaunchSteps(): MetaLaunchSteps {

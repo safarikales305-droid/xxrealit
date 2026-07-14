@@ -48,7 +48,19 @@ export function MetaCatalogAssetsVerifyPanel({ verification, busy, onRun, compac
               {verification.configuredDatasetId
                 ? ` · Dataset: ${verification.configuredDatasetId}`
                 : ''}
+              {verification.catalogLaunchMode
+                ? ` · režim: ${verification.catalogLaunchMode === 'sales' ? 'katalogový prodej' : 'katalogová návštěvnost'}`
+                : ''}
             </p>
+          ) : null}
+
+          {verification.eventSource ? (
+            <details className="rounded border border-white/80 bg-white/70 px-2 py-1">
+              <summary className="cursor-pointer font-medium">Event Source diagnostika</summary>
+              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[10px]">
+                {JSON.stringify(verification.eventSource, null, 2)}
+              </pre>
+            </details>
           ) : null}
 
           {!compact && verification.assets ? (

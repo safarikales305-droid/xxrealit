@@ -171,7 +171,12 @@ export function computeMetaCampaignLaunchBlockers(
     for (const b of payloadSpec.blockers) {
       push(blockers, b.key, b.message);
     }
-  } else if (payloadSpec.spec.usesPixel && !ids.datasetId && !ids.pixelId) {
+  } else if (
+    payloadSpec.spec.usesPixel &&
+    payloadSpec.spec.mode !== 'catalog_sales' &&
+    !ids.datasetId &&
+    !ids.pixelId
+  ) {
     push(blockers, 'dataset', 'Chybí Pixel/Dataset.');
   }
 

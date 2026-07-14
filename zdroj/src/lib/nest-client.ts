@@ -6723,10 +6723,23 @@ export type MetaCatalogSalesAssetCheck = {
 export type MetaCatalogSalesAssetsVerification = {
   ok: boolean;
   message: string;
+  canUseConversionOptimization: boolean;
+  catalogLaunchMode: 'traffic' | 'sales';
   verifiedPixelId: string | null;
   configuredPixelId: string | null;
   configuredDatasetId: string | null;
   promotedObjectPixelId: string | null;
+  eventSource: {
+    configuredDatasetId: string | null;
+    configuredPixelId: string | null;
+    catalogEventSources: Array<{ id: string | null; type: string | null; pixelId: string | null }>;
+    catalogPixelIds: string[];
+    resolvedPixelId: string | null;
+    resolvedEventSourceType: 'PIXEL' | 'DATASET' | 'NONE';
+    promotedObjectPixelId: string | null;
+    promotedObjectCustomEventType: 'PURCHASE' | 'VIEW_CONTENT' | null;
+    canUseConversionOptimization: boolean;
+  };
   checks: MetaCatalogSalesAssetCheck[];
   assets: {
     business: { id?: string; name?: string } | null;
@@ -7493,6 +7506,19 @@ export async function nestAdminMetaCenterVerifyCatalogAssets(
         configuredPixelId: null,
         configuredDatasetId: null,
         promotedObjectPixelId: null,
+        canUseConversionOptimization: false,
+        catalogLaunchMode: 'traffic',
+        eventSource: {
+          configuredDatasetId: null,
+          configuredPixelId: null,
+          catalogEventSources: [],
+          catalogPixelIds: [],
+          resolvedPixelId: null,
+          resolvedEventSourceType: 'NONE',
+          promotedObjectPixelId: null,
+          promotedObjectCustomEventType: null,
+          canUseConversionOptimization: false,
+        },
         checks: [],
         assets: {
           business: null,

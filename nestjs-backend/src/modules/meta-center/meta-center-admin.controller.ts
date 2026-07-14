@@ -739,10 +739,23 @@ export class MetaCenterAdminController {
       (message) => ({
         ok: false,
         message,
+        canUseConversionOptimization: false,
+        catalogLaunchMode: 'traffic' as const,
         verifiedPixelId: null,
         configuredPixelId: null,
         configuredDatasetId: null,
         promotedObjectPixelId: null,
+        eventSource: {
+          configuredDatasetId: null,
+          configuredPixelId: null,
+          catalogEventSources: [],
+          catalogPixelIds: [],
+          resolvedPixelId: null,
+          resolvedEventSourceType: 'NONE' as const,
+          promotedObjectPixelId: null,
+          promotedObjectCustomEventType: null,
+          canUseConversionOptimization: false,
+        },
         checks: [],
         assets: {
           business: null,
