@@ -216,9 +216,8 @@ test('catalog traffic builder: OUTCOME_AWARENESS + REACH without pixel', () => {
   if (!result.ok) return;
   assert.equal(result.campaignPayload.objective, 'OUTCOME_AWARENESS');
   assert.equal(result.adSetPayload.optimization_goal, 'REACH');
-  const promoted = JSON.parse(String(result.adSetPayload.promoted_object)) as Record<string, unknown>;
-  assert.equal(promoted.product_catalog_id, '123456789');
-  assert.equal(promoted.pixel_id, undefined);
+  assert.equal(result.adSetPayload.promoted_object, undefined);
+  assert.equal(result.promotedObject, null);
   assert.equal(result.diagnostics.catalogLaunchMode, 'traffic');
 });
 

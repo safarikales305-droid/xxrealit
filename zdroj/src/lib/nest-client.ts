@@ -6557,7 +6557,9 @@ export type MetaCatalogCombinationDiagnostics = {
   optimizationGoal: string;
   creativeType: string;
   destinationType: string | null;
+  promotedObjectKeys: string[];
   promotedObjectSummary: string;
+  promotedObject?: Record<string, unknown> | null;
   catalogLaunchMode?: 'sales' | 'traffic' | null;
   fallbackReason?: string | null;
   validationOk: boolean;

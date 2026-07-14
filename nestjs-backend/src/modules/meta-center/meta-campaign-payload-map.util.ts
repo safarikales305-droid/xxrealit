@@ -1,5 +1,8 @@
 import type { MetaCampaignLaunchBlocker } from './meta-campaign-api-payload.util';
 import { normalizeCreativeType } from './meta-campaign-creative.util';
+import {
+  buildPromotedObjectFromSpec,
+} from './meta-promoted-object.util';
 
 export type MetaCampaignModeKey =
   | 'traffic'
@@ -107,8 +110,8 @@ const MODE_SPECS: Record<
     bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
     destinationType: 'SHOP_AUTOMATIC',
     advantageAudience: 1,
-    requiresPromotedObject: true,
-    allowedPromotedObjectKeys: ['product_catalog_id'],
+    requiresPromotedObject: false,
+    allowedPromotedObjectKeys: [],
     usesCatalog: true,
     usesPixel: false,
     requiresPageId: true,
@@ -224,7 +227,7 @@ function promotedSummary(mode: MetaCampaignModeKey, leadFormId?: string | null):
     case 'catalog_sales':
       return 'Catalog + Pixel + Purchase (SHOP_AUTOMATIC)';
     case 'catalog_traffic':
-      return 'Catalog + REACH (bez Purchase Event)';
+      return 'Katalogová kreativa + REACH (bez promoted_object)';
     case 'remarketing':
       return 'Pixel/Dataset + ViewContent/Purchase (WEBSITE)';
     case 'leads':
@@ -343,61 +346,13 @@ export function resolveMetaCampaignPayloadSpec(
   return { ok: true, spec };
 }
 
+export { formatPromotedObjectForDebug } from './meta-promoted-object.util';
+
 export function buildPromotedObjectForSpec(
   spec: MetaCampaignPayloadSpec,
   ctx: MetaCampaignPayloadContext,
 ): Record<string, unknown> | null {
-  const pixelId = ctx.pixelId?.trim() || ctx.datasetId?.trim() || null;
-  const catalogId = ctx.catalogId?.replace(/^catalog_/i, '') ?? null;
-
-  const pageId = ctx.pageId?.trim() || null;
-
-  if (spec.mode === 'catalog_sales') {
-    if (!pixelId || !catalogId) return null;
-    return {
-      product_catalog_id: catalogId,
-      pixel_id: pixelId,
-      custom_event_type: 'PURCHASE',
-    };
-  }
-
-  if (spec.mode === 'catalog_traffic') {
-    if (!catalogId) return null;
-    return {
-      product_catalog_id: catalogId,
-    };
-  }
-
-  if (spec.mode === 'remarketing') {
-    if (!pixelId) return null;
-    return {
-      pixel_id: pixelId,
-      custom_event_type: ctx.remarketingConversionEvent ?? 'VIEW_CONTENT',
-    };
-  }
-
-  if (spec.mode === 'leads') {
-    const leadFormId = ctx.leadFormId?.trim();
-    if (!pageId) return null;
-    if (leadFormId) {
-      return {
-        page_id: pageId,
-        lead_gen_form_id: leadFormId,
-      };
-    }
-    return { page_id: pageId };
-  }
-
-  if (spec.mode === 'messages') {
-    if (!pageId) return null;
-    return { page_id: pageId };
-  }
-
-  if (!spec.requiresPromotedObject) {
-    return null;
-  }
-
-  return null;
+  return buildPromotedObjectFromSpec(spec, ctx);
 }
 
 function parsePromotedObject(raw: unknown): Record<string, unknown> | null {
@@ -591,16 +546,23 @@ export function validateAdSetPayloadCombination(
       }
     }
 
-    if (promoted.product_catalog_id && spec.mode !== 'catalog_sales' && spec.mode !== 'catalog_traffic') {
-      blockers.push({
-        key: 'adset.product_catalog_forbidden',
-        message: formatInvalidCombinationMessage({
-          campaignObjective: spec.campaignObjective,
-          optimizationGoal: spec.optimizationGoal,
-          promotedObject: promoted,
-          creativeSource: spec.creativeSource,
-        }),
-      });
+    if (promoted.product_catalog_id) {
+      const catalogSalesAllowed =
+        objective === 'OUTCOME_SALES' &&
+        optimizationGoal === 'OFFSITE_CONVERSIONS' &&
+        spec.creativeSource === 'catalog_products' &&
+        spec.mode === 'catalog_sales';
+      if (!catalogSalesAllowed) {
+        blockers.push({
+          key: 'adset.product_catalog_forbidden',
+          message: formatInvalidCombinationMessage({
+            campaignObjective: spec.campaignObjective,
+            optimizationGoal: spec.optimizationGoal,
+            promotedObject: promoted,
+            creativeSource: spec.creativeSource,
+          }),
+        });
+      }
     }
   }
 

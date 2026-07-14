@@ -5,6 +5,7 @@ import {
   serializePayloadForMetaApi,
   type MetaCampaignPayloadSpec,
 } from './meta-campaign-payload-map.util';
+import { buildPromotedObject } from './meta-promoted-object.util';
 import { extractMetaGraphErrorFields } from './meta-graph-error.util';
 import type { MetaGraphResult } from './meta-graph-client.service';
 
@@ -210,7 +211,7 @@ export function buildMetaAdSetProbeSteps(input: MetaAdSetProbeBuildInput): MetaA
   ];
 }
 
-/** Katalogová návštěvnost bez Purchase Event — OUTCOME_AWARENESS + REACH + catalog. */
+/** Katalogová návštěvnost bez Purchase Event — OUTCOME_AWARENESS + REACH, bez product_catalog_id v promoted_object. */
 export function buildSupportedCatalogTrafficAdSetPayload(input: {
   campaignId: string;
   adSetName: string;
@@ -228,7 +229,13 @@ export function buildSupportedCatalogTrafficAdSetPayload(input: {
     input.targeting,
     input.spec.advantageAudience,
   );
-  return {
+  const promotedObject = buildPromotedObject({
+    campaignObjective: input.spec.campaignObjective,
+    optimizationGoal: input.spec.optimizationGoal,
+    creativeSource: input.spec.creativeSource,
+    catalogId: input.catalogId,
+  });
+  const payload: Record<string, unknown> = {
     name: input.adSetName,
     campaign_id: input.campaignId,
     billing_event: input.spec.billingEvent,
@@ -241,12 +248,13 @@ export function buildSupportedCatalogTrafficAdSetPayload(input: {
     dsa_payor: input.dsaLabels.payor,
     targeting: JSON.stringify(targeting),
     destination_type: input.spec.destinationType ?? 'SHOP_AUTOMATIC',
-    promoted_object: JSON.stringify({
-      product_catalog_id: input.catalogId,
-    }),
     ...(input.startTime ? { start_time: input.startTime } : {}),
     ...(input.endTime ? { end_time: input.endTime } : {}),
   };
+  if (promotedObject) {
+    payload.promoted_object = JSON.stringify(promotedObject);
+  }
+  return payload;
 }
 
 export function buildSupportedCatalogAdSetPayload(input: {
@@ -267,6 +275,14 @@ export function buildSupportedCatalogAdSetPayload(input: {
     input.targeting,
     input.spec.advantageAudience,
   );
+  const promotedObject = buildPromotedObject({
+    campaignObjective: input.spec.campaignObjective,
+    optimizationGoal: input.spec.optimizationGoal,
+    creativeSource: input.spec.creativeSource,
+    catalogId: input.catalogId,
+    pixelId: input.pixelId,
+    customEventType: 'PURCHASE',
+  });
   return {
     name: input.adSetName,
     campaign_id: input.campaignId,
@@ -280,11 +296,7 @@ export function buildSupportedCatalogAdSetPayload(input: {
     dsa_payor: input.dsaLabels.payor,
     targeting: JSON.stringify(targeting),
     destination_type: input.spec.destinationType ?? 'SHOP_AUTOMATIC',
-    promoted_object: JSON.stringify({
-      product_catalog_id: input.catalogId,
-      pixel_id: input.pixelId,
-      custom_event_type: 'PURCHASE',
-    }),
+    ...(promotedObject ? { promoted_object: JSON.stringify(promotedObject) } : {}),
     ...(input.startTime ? { start_time: input.startTime } : {}),
     ...(input.endTime ? { end_time: input.endTime } : {}),
   };

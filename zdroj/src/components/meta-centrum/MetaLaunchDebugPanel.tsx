@@ -179,10 +179,15 @@ export function MetaLaunchDebugPanel({ error, failedStep, launchDebug, combinati
           <ul className="grid gap-0.5 font-mono text-[10px] sm:grid-cols-2">
             <li>Cíl: {combinationDiagnostics.goalLabel}</li>
             <li>Objective: {combinationDiagnostics.objective}</li>
-            <li>Optimization: {combinationDiagnostics.optimizationGoal}</li>
+            <li>Optimization goal: {combinationDiagnostics.optimizationGoal}</li>
             <li>Kreativa: {combinationDiagnostics.creativeType}</li>
-            <li>Destination: {combinationDiagnostics.destinationType ?? '—'}</li>
-            <li>Promoted object: {combinationDiagnostics.promotedObjectSummary}</li>
+            <li>Destination type: {combinationDiagnostics.destinationType ?? '—'}</li>
+            <li>
+              Promoted object:{' '}
+              {combinationDiagnostics.promotedObject
+                ? JSON.stringify(combinationDiagnostics.promotedObject)
+                : combinationDiagnostics.promotedObjectSummary}
+            </li>
             <li>Výsledek: {combinationDiagnostics.validationOk ? '✓ OK' : '✗ neplatná'}</li>
           </ul>
           {combinationDiagnostics.violations.length > 0 ? (

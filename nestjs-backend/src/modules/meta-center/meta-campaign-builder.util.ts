@@ -4,6 +4,10 @@ import {
   buildSupportedCatalogTrafficAdSetPayload,
 } from './meta-adset-probe.util';
 import {
+  buildPromotedObject,
+  buildPromotedObjectFromSpec,
+} from './meta-promoted-object.util';
+import {
   buildPromotedObjectForSpec,
   CATALOG_TRAFFIC_FALLBACK_MESSAGE,
   formatInvalidCombinationMessage,
@@ -33,6 +37,7 @@ export type MetaCampaignCombinationDiagnostics = {
   destinationType: string | null;
   promotedObjectKeys: string[];
   promotedObjectSummary: string;
+  promotedObject: Record<string, unknown> | null;
   catalogLaunchMode?: 'sales' | 'traffic' | null;
   fallbackReason?: string | null;
   validationOk: boolean;
@@ -241,12 +246,12 @@ export function validateMetaCampaignCombination(input: {
         ),
       );
     }
-    if (!promoted?.product_catalog_id) {
+    if (promoted?.product_catalog_id) {
       blockers.push(
         violationBlocker(
-          'combo.catalog_traffic.product_catalog_id',
+          'combo.catalog_traffic.product_catalog_id_forbidden',
           'promoted_object.product_catalog_id',
-          'Katalogová návštěvnost vyžaduje product_catalog_id',
+          'OUTCOME_AWARENESS + REACH nesmí obsahovat product_catalog_id',
           spec,
           promoted,
         ),
@@ -257,12 +262,36 @@ export function validateMetaCampaignCombination(input: {
         violationBlocker(
           'combo.catalog_traffic.pixel_forbidden',
           'promoted_object.pixel_id',
-          'Katalogová návštěvnost nesmí používat Pixel ani Purchase Event',
+          'Katalogová návštěvnost nesmí používat Pixel ani Purchase Event v promoted_object',
           spec,
           promoted,
         ),
       );
     }
+  }
+
+  if (objective === 'OUTCOME_AWARENESS' && promoted?.product_catalog_id) {
+    blockers.push(
+      violationBlocker(
+        'combo.awareness.product_catalog_id',
+        'promoted_object.product_catalog_id',
+        'OUTCOME_AWARENESS nesmí obsahovat product_catalog_id',
+        spec,
+        promoted,
+      ),
+    );
+  }
+
+  if (optimizationGoal === 'REACH' && promoted?.product_catalog_id) {
+    blockers.push(
+      violationBlocker(
+        'combo.reach.product_catalog_id',
+        'promoted_object.product_catalog_id',
+        'REACH nesmí obsahovat product_catalog_id',
+        spec,
+        promoted,
+      ),
+    );
   }
 
   if (objective === 'OUTCOME_LEADS' && isCatalogCreative) {
@@ -329,11 +358,18 @@ export function buildCombinationDiagnostics(input: {
     goalLabel: input.spec.goalLabel,
     mode: input.spec.mode,
     objective: input.spec.campaignObjective,
-    optimizationGoal: input.spec.optimizationGoal,
+    optimizationGoal: String(
+      input.adSetPayload?.optimization_goal ?? input.spec.optimizationGoal,
+    ),
     creativeType: input.spec.creativeSource,
-    destinationType: input.spec.destinationType,
+    destinationType: String(
+      input.adSetPayload?.destination_type ?? input.spec.destinationType ?? '',
+    ) || input.spec.destinationType,
     promotedObjectKeys: promoted ? Object.keys(promoted) : [],
-    promotedObjectSummary: input.spec.promotedObjectSummary,
+    promotedObjectSummary: promoted
+      ? JSON.stringify(promoted)
+      : input.spec.promotedObjectSummary,
+    promotedObject: promoted,
     catalogLaunchMode:
       input.spec.mode === 'catalog_sales'
         ? 'sales'
@@ -508,11 +544,14 @@ export function buildCatalogSalesCampaign(input: MetaCampaignBuilderInput): Meta
     startTime: input.startTime,
     endTime: input.endTime,
   });
-  const promotedObject = {
-    product_catalog_id: catalogId,
-    pixel_id: pixelId,
-    custom_event_type: 'PURCHASE',
-  };
+  const promotedObject = buildPromotedObject({
+    campaignObjective: input.spec.campaignObjective,
+    optimizationGoal: input.spec.optimizationGoal,
+    creativeSource: input.spec.creativeSource,
+    catalogId,
+    pixelId,
+    customEventType: 'PURCHASE',
+  });
   return finalizeBuilderResult(input, adSetPayload, promotedObject);
 }
 
@@ -577,9 +616,12 @@ export function buildCatalogTrafficCampaign(input: MetaCampaignBuilderInput): Me
     startTime: input.startTime,
     endTime: input.endTime,
   });
-  const promotedObject = {
-    product_catalog_id: catalogId,
-  };
+  const promotedObject = buildPromotedObject({
+    campaignObjective: input.spec.campaignObjective,
+    optimizationGoal: input.spec.optimizationGoal,
+    creativeSource: input.spec.creativeSource,
+    catalogId,
+  });
   return finalizeBuilderResult(input, adSetPayload, promotedObject);
 }
 
