@@ -14,6 +14,12 @@ import {
   logMetaCampaignValidation,
   validateMetaCampaignLaunch,
 } from '@/lib/meta-campaign-launch-validation';
+import { translateMetaCampaignApiError } from '@/lib/meta-campaign-api-errors';
+import {
+  buildMetaCampaignSubmitPayload,
+  buildMetaCampaignSubmitPayloadFromDraft,
+  logMetaCampaignSubmitPayload,
+} from '@/lib/meta-campaign-submit-payload';
 import {
   isGoalCompatibleWithCreative,
   normalizeCreativeSource,
@@ -76,6 +82,7 @@ import {
   nestAdminMetaCenterDuplicateCampaignDraft,
   nestAdminMetaCenterControlCampaign,
   nestAdminMetaCenterPatchSettings,
+  type MetaCampaignDraftBody,
   type MetaCampaignOverviewItem,
   nestAdminMetaCenterRemarketingAudiences,
   nestAdminMetaCenterCreateRemarketingAudience,
@@ -873,6 +880,11 @@ export default function MetaCentrumPage() {
     selectedCampaignProducts,
   ]);
 
+  const campaignSubmitPayload = useMemo(
+    () => buildMetaCampaignSubmitPayload(campaignDraft, campaignProducts),
+    [campaignDraft, campaignProducts],
+  );
+
   useEffect(() => {
     logMetaCampaignValidation(campaignValidation.debug);
   }, [campaignValidation.debug]);
@@ -915,38 +927,21 @@ export default function MetaCentrumPage() {
     setShowGeoSuggestions(false);
   }
 
-  function buildCampaignPayload() {
-    const lat = campaignDraft.latitude.trim()
-      ? Number.parseFloat(campaignDraft.latitude)
-      : undefined;
-    const lng = campaignDraft.longitude.trim()
-      ? Number.parseFloat(campaignDraft.longitude)
-      : undefined;
-    return {
-      name: campaignDraft.name.trim(),
-      objective: campaignDraft.goal,
-      propertyType: campaignDraft.propertyType,
-      cityName: campaignDraft.cityName.trim() || campaignDraft.locationLabel.trim(),
-      metaGeoKey: campaignDraft.metaGeoKey.trim() || undefined,
-      metaGeoCountry: campaignDraft.metaGeoCountry.trim() || undefined,
-      metaGeoRegion: campaignDraft.metaGeoRegion.trim() || undefined,
-      latitude: Number.isFinite(lat) ? lat : undefined,
-      longitude: Number.isFinite(lng) ? lng : undefined,
-      radiusKm: campaignDraft.radiusKm,
-      dailyBudgetCzk: campaignDraft.budgetDaily,
-      startDate: campaignDraft.startDate,
-      endDate: campaignDraft.endDate,
-      selectedProductIds: campaignDraft.selectedProductIds,
-      creativeType: campaignDraft.creativeType,
-      targetingMode: campaignDraft.targetingMode,
-      locationTargetingMode: campaignDraft.locationTargetingMode,
-      audienceId: campaignDraft.audienceId || undefined,
-      creativePayload: campaignDraft.creativePayload,
-      leadFormId:
-        typeof campaignDraft.creativePayload?.leadFormId === 'string'
-          ? campaignDraft.creativePayload.leadFormId
-          : undefined,
-    };
+  function buildCampaignPayload(): MetaCampaignDraftBody {
+    return buildMetaCampaignSubmitPayload(campaignDraft, campaignProducts);
+  }
+
+  function needsSelectedProducts(creativeType: string): boolean {
+    return creativeType === 'catalog_products' || creativeType === 'listing';
+  }
+
+  function assertProductsSelectedForSubmit(payload: MetaCampaignDraftBody): string | null {
+    if (needsSelectedProducts(payload.creativeType ?? campaignDraft.creativeType)) {
+      if (!Array.isArray(payload.selectedProductIds) || payload.selectedProductIds.length === 0) {
+        return 'Vyberte alespoň jednu nemovitost.';
+      }
+    }
+    return null;
   }
 
   useEffect(() => {
@@ -957,13 +952,13 @@ export default function MetaCentrumPage() {
     const timer = window.setTimeout(() => {
       void (async () => {
         setPayloadPreviewBusy(true);
-        const r = await nestAdminMetaCenterPreviewCampaignPayloads(token, buildCampaignPayload());
+        const r = await nestAdminMetaCenterPreviewCampaignPayloads(token, campaignSubmitPayload);
         setPayloadPreviewBusy(false);
         setPayloadPreview(r);
       })();
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [token, debugPayloadPreview, campaignDraft]);
+  }, [token, debugPayloadPreview, campaignSubmitPayload]);
 
   function loadCampaignForEdit(c: MetaCampaignDraft) {
     setEditingCampaignId(c.id);
@@ -1021,6 +1016,16 @@ export default function MetaCentrumPage() {
 
   async function submitCampaign(mode: 'draft' | 'launch') {
     if (!token) return;
+    const payload = buildCampaignPayload();
+    logMetaCampaignSubmitPayload(payload);
+
+    const productsError = assertProductsSelectedForSubmit(payload);
+    if (productsError) {
+      setMsg(productsError);
+      setLaunchValidationHighlight(true);
+      return;
+    }
+
     if (mode === 'launch') {
       setLaunchValidationHighlight(true);
       if (!campaignValidation.readyToPublish) {
@@ -1031,13 +1036,12 @@ export default function MetaCentrumPage() {
     }
     setBusy(true);
     setLastLaunchError(null);
-    const payload = buildCampaignPayload();
     let r: MetaCampaignCreateResponse;
     if (editingCampaignId && mode === 'launch') {
       const updated = await nestAdminMetaCenterUpdateCampaignDraft(token, editingCampaignId, payload);
       if (!updated.ok) {
         setBusy(false);
-        setMsg(updated.message ?? 'Aktualizace konceptu selhala.');
+        setMsg(translateMetaCampaignApiError(updated.message ?? 'Aktualizace konceptu selhala.'));
         return;
       }
       r = await nestAdminMetaCenterLaunchCampaignDraft(token, editingCampaignId, payload);
@@ -1064,12 +1068,14 @@ export default function MetaCentrumPage() {
       }
       void refresh();
     } else {
-      const blockerText = r.blockers?.map((b) => b.message).join('\n') ?? '';
-      setMsg(r.message ?? blockerText ?? 'Uložení kampaně selhalo.');
+      const blockerText =
+        r.blockers?.map((b) => b.message).join('\n') ??
+        translateMetaCampaignApiError(r.message);
+      setMsg(translateMetaCampaignApiError(r.message ?? blockerText ?? 'Uložení kampaně selhalo.'));
       if (mode === 'launch') {
         setLaunchValidationHighlight(true);
         setLastLaunchError({
-          message: r.message ?? blockerText ?? 'Spuštění selhalo.',
+          message: translateMetaCampaignApiError(r.message ?? blockerText ?? 'Spuštění selhalo.'),
           metaApiError: r.metaApiError,
           failedStep: r.failedStep ?? r.metaApiError?.launchStep ?? null,
           launchSteps: r.launchSteps ?? r.campaign?.metaLaunchSteps ?? null,
@@ -1077,6 +1083,31 @@ export default function MetaCentrumPage() {
       }
       void refresh();
     }
+  }
+
+  async function launchCampaignDraftFromList(c: MetaCampaignDraft) {
+    if (!token) return;
+    const payload = buildMetaCampaignSubmitPayloadFromDraft(c, campaignProducts);
+    logMetaCampaignSubmitPayload(payload);
+    const productsError = assertProductsSelectedForSubmit(payload);
+    if (productsError) {
+      setMsg(productsError);
+      return;
+    }
+    setBusy(true);
+    setLastLaunchError(null);
+    const r = await nestAdminMetaCenterLaunchCampaignDraft(token, c.id, payload);
+    setBusy(false);
+    setMsg(translateMetaCampaignApiError(r.message ?? (r.ok ? 'Kampaň spuštěna.' : 'Chyba')));
+    if (!r.ok) {
+      setLastLaunchError({
+        message: translateMetaCampaignApiError(r.message ?? 'Spuštění selhalo.'),
+        metaApiError: r.metaApiError,
+        failedStep: r.failedStep ?? r.metaApiError?.launchStep ?? null,
+        launchSteps: r.launchSteps ?? r.campaign?.metaLaunchSteps ?? null,
+      });
+    }
+    void refresh();
   }
 
 
@@ -3568,14 +3599,7 @@ export default function MetaCentrumPage() {
                                   type="button"
                                   disabled={busy}
                                   title="Spustit v Meta"
-                                  onClick={async () => {
-                                    if (!token) return;
-                                    setBusy(true);
-                                    const r = await nestAdminMetaCenterLaunchCampaignDraft(token, c.id);
-                                    setBusy(false);
-                                    setMsg(r.message ?? (r.ok ? 'Kampaň spuštěna.' : 'Chyba'));
-                                    void refresh();
-                                  }}
+                                  onClick={() => void launchCampaignDraftFromList(c)}
                                   className="rounded border border-emerald-400 px-1.5 py-0.5 text-xs"
                                 >
                                   ▶
@@ -4037,6 +4061,7 @@ export default function MetaCentrumPage() {
                   readyToPublish={campaignValidation.readyToPublish}
                   highlightFailures={launchValidationHighlight}
                   title="Živá validace před spuštěním"
+                  submitPayload={campaignSubmitPayload}
                 />
               </div>
 
@@ -4240,27 +4265,7 @@ export default function MetaCentrumPage() {
                               <button
                                 type="button"
                                 disabled={busy}
-                                onClick={async () => {
-                                  if (!token) return;
-                                  setBusy(true);
-                                  const r = await nestAdminMetaCenterLaunchCampaignDraft(
-                                    token,
-                                    c.id,
-                                  );
-                                  setBusy(false);
-                                  setMsg(r.message ?? '');
-                                  if (!r.ok) {
-                                    setLastLaunchError({
-                                      message: r.message ?? 'Spuštění selhalo.',
-                                      metaApiError: r.metaApiError,
-                                      failedStep:
-                                        r.failedStep ?? r.metaApiError?.launchStep ?? null,
-                                      launchSteps:
-                                        r.launchSteps ?? r.campaign?.metaLaunchSteps ?? null,
-                                    });
-                                  }
-                                  void refresh();
-                                }}
+                                onClick={() => void launchCampaignDraftFromList(c)}
                                 className="rounded-lg border border-emerald-400 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50"
                               >
                                 Zkusit znovu (pokračovat)
@@ -4377,23 +4382,7 @@ export default function MetaCentrumPage() {
                           <button
                             type="button"
                             disabled={busy}
-                            onClick={async () => {
-                              if (!token) return;
-                              setBusy(true);
-                              setLastLaunchError(null);
-                              const r = await nestAdminMetaCenterLaunchCampaignDraft(token, c.id);
-                              setBusy(false);
-                              setMsg(r.message ?? (r.ok ? 'Kampaň spuštěna.' : 'Chyba'));
-                              if (!r.ok) {
-                                setLastLaunchError({
-                                  message: r.message ?? 'Spuštění selhalo.',
-                                  metaApiError: r.metaApiError,
-                                  failedStep: r.failedStep ?? r.metaApiError?.launchStep ?? null,
-                                  launchSteps: r.launchSteps ?? r.campaign?.metaLaunchSteps ?? null,
-                                });
-                              }
-                              void refresh();
-                            }}
+                            onClick={() => void launchCampaignDraftFromList(c)}
                             className="rounded-lg border border-emerald-400 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50"
                           >
                             Spustit kampaň

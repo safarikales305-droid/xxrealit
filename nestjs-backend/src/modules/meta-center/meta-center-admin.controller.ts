@@ -37,6 +37,10 @@ import { MetaCenterRemarketingService } from './meta-center-remarketing.service'
 import { CreateMetaCampaignDto } from './dto/create-meta-campaign.dto';
 import { CreateMetaRemarketingAudienceDto } from './dto/create-meta-remarketing-audience.dto';
 import { MetaCampaignControlDto } from './dto/meta-campaign-control.dto';
+import {
+  MetaCampaignBodyPipe,
+  OptionalMetaCampaignBodyPipe,
+} from './meta-campaign-body.pipe';
 import { emptyMetaCampaignLaunchResult, emptyMetaCampaignAdSetPayloadPreviewResult } from './meta-campaign-api-payload.util';
 import { extractSafeMetaError, metaPanelNotConfigured } from './meta-center-safe-response.util';
 import { resolveMetaOAuthFlow } from './meta-oauth-flows';
@@ -627,8 +631,7 @@ export class MetaCenterAdminController {
   @Patch('campaigns/drafts/:id')
   updateMetaCampaignDraft(
     @Param('id') id: string,
-    @Body(new ValidationPipe({ whitelist: true, transform: true }))
-    body: CreateMetaCampaignDto,
+    @Body(MetaCampaignBodyPipe) body: CreateMetaCampaignDto,
   ) {
     return this.safeEndpoint(
       'campaigns/drafts',
@@ -654,8 +657,7 @@ export class MetaCenterAdminController {
   @Post('campaigns/drafts/:id/launch')
   launchMetaCampaignDraft(
     @Param('id') id: string,
-    @Body(new ValidationPipe({ whitelist: true, transform: true }))
-    body?: CreateMetaCampaignDto,
+    @Body(OptionalMetaCampaignBodyPipe) body?: CreateMetaCampaignDto,
   ) {
     return this.safeEndpoint(
       'campaigns/drafts/launch',
@@ -710,10 +712,7 @@ export class MetaCenterAdminController {
   }
 
   @Post('campaigns/payload-preview')
-  previewCampaignPayloads(
-    @Body(new ValidationPipe({ whitelist: true, transform: true }))
-    body: CreateMetaCampaignDto,
-  ) {
+  previewCampaignPayloads(@Body(MetaCampaignBodyPipe) body: CreateMetaCampaignDto) {
     return this.safeEndpoint(
       'campaigns/payload-preview',
       () => this.campaigns.previewCampaignPayloads(body),
@@ -722,10 +721,7 @@ export class MetaCenterAdminController {
   }
 
   @Post('campaigns/adset-payload')
-  previewAdSetPayload(
-    @Body(new ValidationPipe({ whitelist: true, transform: true }))
-    body: CreateMetaCampaignDto,
-  ) {
+  previewAdSetPayload(@Body(MetaCampaignBodyPipe) body: CreateMetaCampaignDto) {
     return this.safeEndpoint(
       'campaigns/adset-payload',
       () => this.campaigns.previewAdSetPayload(body),
@@ -735,8 +731,7 @@ export class MetaCenterAdminController {
 
   @Post('campaigns')
   createMetaCampaign(
-    @Body(new ValidationPipe({ whitelist: true, transform: true }))
-    body: CreateMetaCampaignDto,
+    @Body(MetaCampaignBodyPipe) body: CreateMetaCampaignDto,
     @Query('mode') mode?: string,
   ) {
     const launchMode = mode === 'launch' ? 'launch' : 'draft';

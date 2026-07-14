@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import {
   IsArray,
   IsNumber,
@@ -36,18 +37,22 @@ export class CreateMetaCampaignDto {
   metaGeoRegion?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   latitude?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   longitude?: number;
 
+  @Type(() => Number)
   @IsNumber()
   @Min(1)
   @Max(80)
   radiusKm!: number;
 
+  @Type(() => Number)
   @IsNumber()
   @Min(1)
   dailyBudgetCzk!: number;

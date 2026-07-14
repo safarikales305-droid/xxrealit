@@ -23,6 +23,10 @@ import { MetaCenterCampaignsService } from './meta-center-campaigns.service';
 import { MetaCenterGeoService } from './meta-center-geo.service';
 import { MetaCenterLiveDiagnosticsService } from './meta-center-live-diagnostics.service';
 import { MetaCenterRemarketingService } from './meta-center-remarketing.service';
+import {
+  MetaCampaignBodyPipe,
+  OptionalMetaCampaignBodyPipe,
+} from './meta-campaign-body.pipe';
 
 @Module({
   imports: [forwardRef(() => MetaCatalogModule), forwardRef(() => PostsModule), forwardRef(() => SocialModule), WhatsAppModule],
@@ -49,6 +53,8 @@ import { MetaCenterRemarketingService } from './meta-center-remarketing.service'
     MetaCenterGeoService,
     MetaCenterLiveDiagnosticsService,
     MetaCenterRemarketingService,
+    MetaCampaignBodyPipe,
+    OptionalMetaCampaignBodyPipe,
   ],
   exports: [MetaCenterService, MetaConnectOAuthService, MetaMarketingDiagnosticsService],
 })

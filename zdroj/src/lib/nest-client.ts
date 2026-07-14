@@ -7392,12 +7392,12 @@ export async function nestAdminMetaCenterCampaignsOverview(
 export async function nestAdminMetaCenterLaunchCampaignDraft(
   token: string | null,
   id: string,
-  body?: MetaCampaignDraftBody,
+  body: MetaCampaignDraftBody,
 ): Promise<MetaCampaignCreateResponse> {
   const r = await metaCenterFetch<MetaCampaignCreateResponse>(
     token,
     `/campaigns/drafts/${encodeURIComponent(id)}/launch`,
-    body ? { method: 'POST', body: JSON.stringify(body) } : { method: 'POST' },
+    { method: 'POST', body: JSON.stringify(body) },
   );
   return r.ok
     ? r.data

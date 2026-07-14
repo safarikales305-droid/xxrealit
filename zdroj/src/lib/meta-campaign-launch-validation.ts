@@ -158,8 +158,8 @@ export function validateMetaCampaignLaunch(
       'Produkty',
       productsOk,
       input.creativeType === 'listing'
-        ? 'Není vybrán žádný inzerát'
-        : 'Není vybrán žádný produkt',
+        ? 'Vyberte alespoň jednu nemovitost.'
+        : 'Vyberte alespoň jednu nemovitost.',
       'creative',
     ),
     item(

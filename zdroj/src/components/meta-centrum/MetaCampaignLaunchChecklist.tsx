@@ -1,6 +1,7 @@
 'use client';
 
 import type { MetaCampaignValidationItem } from '@/lib/meta-campaign-launch-validation';
+import type { MetaCampaignDraftBody } from '@/lib/nest-client';
 
 type Props = {
   items: MetaCampaignValidationItem[];
@@ -9,6 +10,7 @@ type Props = {
   showPreviewGroup?: boolean;
   compact?: boolean;
   title?: string;
+  submitPayload?: MetaCampaignDraftBody | null;
 };
 
 export function MetaCampaignLaunchChecklist({
@@ -18,6 +20,7 @@ export function MetaCampaignLaunchChecklist({
   showPreviewGroup = false,
   compact = false,
   title = 'Kontrola před spuštěním',
+  submitPayload = null,
 }: Props) {
   const groups = showPreviewGroup
     ? (['integration', 'campaign', 'creative', 'preview'] as const)
@@ -73,6 +76,16 @@ export function MetaCampaignLaunchChecklist({
           );
         })}
       </div>
+      {submitPayload ? (
+        <details className="mt-3 rounded border border-zinc-200 bg-white px-2 py-1.5">
+          <summary className="cursor-pointer text-xs font-medium text-zinc-800">
+            Payload připraven
+          </summary>
+          <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap font-mono text-[10px] text-zinc-700">
+            {JSON.stringify(submitPayload, null, 2)}
+          </pre>
+        </details>
+      ) : null}
     </div>
   );
 }
